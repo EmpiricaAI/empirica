@@ -271,12 +271,12 @@ def handle_setup_claude_code_command(args):
             print("   ✓ Plugin enabled")
 
         # Configure StatusLine
-        # NOTE: < /dev/null prevents stdin hangs when Claude Code invokes the statusline
+        # Claude Code pipes session JSON to statusline stdin — do NOT redirect stdin
         if 'statusLine' not in settings:
             statusline_script = plugin_dir / "scripts" / "statusline_empirica.py"
             settings['statusLine'] = {
                 "type": "command",
-                "command": f"{python_cmd} {statusline_script} < /dev/null"
+                "command": f"{python_cmd} {statusline_script}"
             }
             if output_format != 'json':
                 print("   ✓ StatusLine configured")
