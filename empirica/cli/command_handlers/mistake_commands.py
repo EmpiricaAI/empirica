@@ -129,6 +129,28 @@ def handle_mistake_log_command(args):
             # Non-fatal - log but continue
             logger.warning(f"Git notes storage failed: {git_err}")
 
+        # AUTO-EMBED: Add mistake to Qdrant for semantic search
+        # Without this, mistakes are invisible to pattern_retrieval.py
+        # at PREFLIGHT/CHECK — preventing the system from warning about
+        # repeated mistake patterns.
+        embedded = False
+        if project_id and mistake_id:
+            try:
+                from empirica.core.qdrant.memory import embed_single_memory_item
+                from datetime import datetime
+                text = f"MISTAKE: {mistake} Prevention: {prevention or 'none specified'}"
+                embedded = embed_single_memory_item(
+                    project_id=project_id,
+                    item_id=mistake_id,
+                    text=text,
+                    item_type='mistake',
+                    session_id=session_id,
+                    goal_id=goal_id,
+                    timestamp=datetime.now().isoformat()
+                )
+            except Exception as embed_err:
+                logger.warning(f"Auto-embed failed: {embed_err}")
+
         # Format output
         result = {
             "ok": True,
@@ -136,6 +158,7 @@ def handle_mistake_log_command(args):
             "session_id": session_id,
             "project_id": project_id,
             "git_stored": git_stored,
+            "embedded": embedded,
             "message": "Mistake logged to project scope"
         }
 
@@ -149,6 +172,8 @@ def handle_mistake_log_command(args):
                 print(f"   Project: {project_id[:8]}...")
             if git_stored:
                 print(f"   📝 Stored in git notes for sync")
+            if embedded:
+                print(f"   🔍 Auto-embedded for semantic search")
             if root_cause_vector:
                 print(f"   Root cause: {root_cause_vector} vector")
             if cost_estimate:

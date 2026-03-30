@@ -1037,6 +1037,28 @@ def handle_deadend_log_command(args):
             # Non-fatal - log but continue
             logger.warning(f"Git notes storage failed: {git_err}")
 
+        # AUTO-EMBED: Add dead end to Qdrant for semantic search
+        # Without this, dead-ends are invisible to pattern_retrieval.py
+        # at PREFLIGHT/CHECK — the most valuable anti-pattern data is unsearchable.
+        embedded = False
+        if project_id and dead_end_id:
+            try:
+                from empirica.core.qdrant.memory import embed_single_memory_item
+                from datetime import datetime
+                text = f"DEAD END: {approach} Why failed: {why_failed}"
+                embedded = embed_single_memory_item(
+                    project_id=project_id,
+                    item_id=dead_end_id,
+                    text=text,
+                    item_type='dead_end',
+                    session_id=session_id,
+                    goal_id=goal_id,
+                    subtask_id=subtask_id,
+                    timestamp=datetime.now().isoformat()
+                )
+            except Exception as embed_err:
+                logger.warning(f"Auto-embed failed: {embed_err}")
+
         result = {
             "ok": True,
             "dead_end_id": dead_end_id,
@@ -1046,6 +1068,7 @@ def handle_deadend_log_command(args):
             "entity_id": ctx['entity_id'],
             "via": ctx['via'],
             "git_stored": git_stored,
+            "embedded": embedded,
             "message": "Dead end logged to project scope"
         }
 
@@ -1058,6 +1081,8 @@ def handle_deadend_log_command(args):
                 print(f"   Project: {project_id[:8]}...")
             if git_stored:
                 print(f"   📝 Stored in git notes for sync")
+            if embedded:
+                print(f"   🔍 Auto-embedded for semantic search")
 
         return 0  # Success
 
