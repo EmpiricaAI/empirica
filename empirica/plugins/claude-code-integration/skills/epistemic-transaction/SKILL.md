@@ -307,6 +307,32 @@ POSTFLIGHT and start a new transaction.
 
 ### 4b. Noetic Phase — Investigate
 
+**Prefer `noetic_batch` for multi-step investigation.** When a transaction's
+investigation involves 3+ reads/greps/globs/searches, batch them in one call
+instead of round-tripping per-step. The Sentinel sees one noetic intent
+(zero per-call gating overhead), the TUI stays clean, and you get a merged
+structured response.
+
+```bash
+empirica noetic-batch - << 'EOF'
+{
+  "intent": "understand auth middleware chain",
+  "reads": [{"path": "src/auth.py"}, {"path": "src/middleware.py"}],
+  "greps": [
+    {"pattern": "decorator", "glob": "src/**/*.py", "context": 2},
+    {"pattern": "Bearer", "glob": "src/**/*.py"}
+  ],
+  "globs": ["src/**/*auth*", "tests/**/*auth*"],
+  "investigate": [{"query": "auth middleware patterns", "scope": "project"}]
+}
+EOF
+```
+
+(Or via MCP: `mcp__empirica__noetic_batch` with the same JSON payload.)
+
+Fall back to individual Read/Grep/Glob for one-shot lookups after a batch
+surfaces something you need to drill into.
+
 Read code. Search patterns. Build understanding. **Log as you go:**
 
 ```bash
@@ -598,7 +624,7 @@ visible task tracking vs when it's overhead.
 |-------|----------|
 | **Planning** | `goals-create`, `goals-add-subtask`, `unknown-log`, `assumption-log` |
 | **PREFLIGHT** | `preflight-submit` (opens transaction) |
-| **Noetic** | `source-add`, `finding-log`, `unknown-log`, `deadend-log`, `assumption-log` |
+| **Noetic** | `noetic-batch` (3+ ops in one call — preferred), `source-add`, `finding-log`, `unknown-log`, `deadend-log`, `assumption-log` |
 | **CHECK** | `check-submit` (gates noetic → praxic) |
 | **Praxic** | `finding-log`, `decision-log`, `goals-complete-subtask` |
 | **Before POSTFLIGHT** | `goals-complete`, `unknown-resolve`, or batch: `resolve-artifacts` |

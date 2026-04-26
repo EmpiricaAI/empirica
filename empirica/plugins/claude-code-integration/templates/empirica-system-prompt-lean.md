@@ -139,6 +139,19 @@ observations, which signals a discipline gap to address in future transactions.
 
 The Sentinel enforces this automatically via PreToolUse hooks.
 
+### Batch Noetic Work
+
+For investigations involving 3+ reads/greps/globs/searches, prefer
+`empirica noetic-batch -` (or `mcp__empirica__noetic_batch`) over
+individual tool calls. One tool call replaces N round-trips, the
+Sentinel sees one noetic intent (sub-ms gating), and you get a merged
+structured response. Reach for individual Read/Grep/Glob only for
+one-shot follow-ups after a batch surfaces something to drill into.
+
+PREFLIGHT responses include a `noetic_guidance` block with the schema
+when work_type is investigation-prone (code, research, debug, audit,
+docs, infra, config, design).
+
 ---
 
 ## OPERATIONAL GOVERNANCE

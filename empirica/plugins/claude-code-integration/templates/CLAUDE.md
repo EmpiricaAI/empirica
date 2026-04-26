@@ -376,6 +376,34 @@ This prevents action before sufficient understanding.
 automatically via PreToolUse hooks. On other platforms, you must self-enforce this
 discipline — do not begin praxic work until CHECK returns `proceed`.
 
+### Batch Noetic Work
+
+For investigations involving 3+ reads/greps/globs/searches, prefer
+`empirica noetic-batch -` (or `mcp__empirica__noetic_batch`) over
+individual tool calls. One tool call replaces N round-trips, the
+Sentinel sees one noetic intent (sub-ms gating, no per-call TUI noise),
+and you get a merged structured response.
+
+```bash
+empirica noetic-batch - << 'EOF'
+{
+  "intent": "understand auth middleware chain",
+  "reads": [{"path": "src/auth.py"}],
+  "greps": [{"pattern": "decorator", "glob": "src/**/*.py", "context": 2}],
+  "globs": ["src/**/*auth*"],
+  "investigate": [{"query": "auth flow", "scope": "project"}]
+}
+EOF
+```
+
+Reach for individual Read/Grep/Glob only for one-shot follow-ups after
+a batch surfaces something to drill into.
+
+PREFLIGHT responses include a `noetic_guidance` block with the schema
+when work_type is investigation-prone (code, research, debug, audit,
+docs, infra, config, design). Action-pure work_types (release, comms,
+data) skip the hint.
+
 ---
 
 ## AUTONOMY CALIBRATION

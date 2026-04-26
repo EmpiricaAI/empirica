@@ -800,11 +800,52 @@ def _preflight_retrieve_patterns(db, session_id, project_id, task_context, reaso
         return None
 
 
+# Investigation-heavy work_types where noetic_batch is most useful.
+# Action-pure types (release, comms) and short-form types (data) skip the hint.
+_NOETIC_BATCH_WORK_TYPES = frozenset({
+    "code", "research", "debug", "audit", "docs", "infra", "config", "design",
+})
+
+
+def _build_noetic_guidance(work_type: str | None) -> dict | None:
+    """Surface the noetic-batch schema when the work_type benefits from it.
+
+    Returns a dict with tool name, CLI form, schema, and hint — or None
+    when the work_type isn't investigation-prone (release, comms).
+    """
+    if not work_type or work_type not in _NOETIC_BATCH_WORK_TYPES:
+        return None
+    return {
+        "tool": "mcp__empirica__noetic_batch",
+        "cli": "empirica noetic-batch -",
+        "schema": {
+            "intent": "<one-line investigation goal>",
+            "reads": [{"path": "<file>", "lines": "<optional 'N-M'>"}],
+            "greps": [{
+                "pattern": "<regex>",
+                "glob": "<optional path glob>",
+                "context": "<optional 0-5>",
+                "max_matches": "<optional ≤500>",
+            }],
+            "globs": ["<pattern>", {"pattern": "<...>", "root": "<optional dir>"}],
+            "investigate": [{"query": "<...>", "scope": "session|project|global", "limit": "<optional ≤20>"}],
+        },
+        "hint": (
+            "Batch your investigation. One tool call replaces N round-trips, "
+            "Sentinel sees one noetic intent, sub-ms gating. Reach for individual "
+            "Read/Grep/Glob only for one-shot follow-ups after a batch surfaces "
+            "something to drill into."
+        ),
+        "skip_if": "Single one-shot lookup (Read/Grep one file is fine without batching).",
+    }
+
+
 def _preflight_build_result(session_id, transaction_id, calibration_adjustments,
                             calibration_report, previous_transaction_feedback,
-                            sentinel_decision, patterns, unclosed_transaction_warning):
+                            sentinel_decision, patterns, unclosed_transaction_warning,
+                            work_type=None):
     """Assemble the final PREFLIGHT result dict."""
-    return {
+    result: dict = {
         "ok": True,
         "session_id": session_id,
         "transaction_id": transaction_id,
@@ -821,6 +862,10 @@ def _preflight_build_result(session_id, transaction_id, calibration_adjustments,
         "patterns": patterns if patterns and any(patterns.values()) else None,
         "unclosed_transaction_warning": unclosed_transaction_warning
     }
+    noetic_guidance = _build_noetic_guidance(work_type)
+    if noetic_guidance is not None:
+        result["noetic_guidance"] = noetic_guidance
+    return result
 
 
 def handle_preflight_submit_command(args):
@@ -905,7 +950,8 @@ def handle_preflight_submit_command(args):
                 session_id, transaction_id,
                 cal["calibration_adjustments"], cal["calibration_report"],
                 previous_transaction_feedback, sentinel_decision,
-                patterns, unclosed_transaction_warning
+                patterns, unclosed_transaction_warning,
+                work_type=parsed.get("work_type"),
             )
 
             # NOTE: Statusline cache was removed (2026-02-06). Statusline reads directly from DB.
