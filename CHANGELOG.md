@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (Cockpit v1.2 — interactive TUI)
+- **`empirica tui`** — interactive Textual cockpit. Real clickable buttons
+  for every action verb: pause/resume Sentinel, pause/resume loops, kill,
+  forget, rename, refresh. Mouse + keyboard equivalents (p/P/l/k/f/R/r).
+  Modal confirmations for destructive actions (kill, forget) with explicit
+  warning when the target is the current instance. Loops opened in a
+  picker-modal (DataTable of loops + pause/resume buttons). Auto-refresh
+  every 2s, manual refresh on `r`. New module `empirica/cli/tui/`. New
+  dep: `textual>=0.50`. 8 new tests (`test_cockpit_tui.py`) covering
+  mount, instance load, click-action round-trips, keyboard shortcuts,
+  modal cancel-doesn't-act. Skips the bespoke-TUI graduation criterion
+  (3 documented gaps) on user say-so — clickable controls IS the gap.
+
 ### Added (Cockpit v1.1 — control plane completion)
 - **`empirica instance <kill|forget|label>`** — destructive control-plane
   verbs. `kill` does `tmux kill-pane` for tmux instances, falls back to

@@ -16,6 +16,7 @@ Three CLI surfaces on top of one core module:
 | `empirica loop <register\|heartbeat\|pause\|...>` | `empirica.core.cockpit.loop_registry` | Per-instance loop registry CRUD |
 | `empirica instance <kill\|forget\|label>` | `empirica.core.cockpit.instance_actions` | Destructive lifecycle: terminate / scrub state / rename |
 | `empirica status [--all\|--instance ID] [--pretty\|--json]` | `empirica.core.cockpit.instance_state` | Cockpit overview, all renderers consume the same JSON |
+| `empirica tui` | `empirica.cli.tui.cockpit_app` | Interactive Textual app — clickable buttons + keyboard shortcuts for every verb |
 
 The bespoke TUI is **not** part of v1. The intended dashboard is:
 
@@ -165,6 +166,7 @@ them to the cockpit on impulse — write a separate proposal first.
 - `empirica/core/cockpit/instance_state.py` — discovery + aggregation
 - `empirica/core/cockpit/instance_actions.py` — kill / forget / label
 - `empirica/core/cockpit/render.py` — ANSI-aware pretty + JSON renderers, footer hints
+- `empirica/cli/tui/cockpit_app.py` — Textual interactive app (empirica tui)
 - `empirica/cli/command_handlers/cockpit_commands.py` — handler wrappers
 - `empirica/cli/parsers/cockpit_parsers.py` — argparse subcommand groups
 - `empirica/plugins/claude-code-integration/skills/loop-cron/SKILL.md` — `/loop` integration template
@@ -177,6 +179,7 @@ Sentinel whitelist additions in `sentinel-gate.py:EMPIRICA_TIER1_PREFIXES`:
 - `empirica loop ` (subcommand group)
 - `empirica instance ` (subcommand group)
 - `empirica status` (cockpit overview)
+- `empirica tui` (interactive cockpit — destructive ops are modal-confirmed)
 
 ## Kill semantics
 

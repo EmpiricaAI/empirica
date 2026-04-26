@@ -284,6 +284,19 @@ def handle_loop_status_command(args) -> int:
 
 # ─── empirica status ────────────────────────────────────────────────────────
 
+def handle_tui_command(_args) -> int:
+    """Launch the Textual cockpit TUI."""
+    try:
+        from empirica.cli.tui import run_tui
+    except ImportError as e:
+        sys.stdout.write(
+            f'error: TUI requires the textual package — {e}\n'
+            'install with: pip install textual\n'
+        )
+        return 2
+    return run_tui()
+
+
 def handle_status_command(args) -> int:
     """Top-level cockpit overview command.
 
@@ -537,4 +550,5 @@ __all__ = [
     'handle_sentinel_resume_command',
     'handle_sentinel_status_command_cockpit',
     'handle_status_command',
+    'handle_tui_command',
 ]

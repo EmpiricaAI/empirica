@@ -447,6 +447,7 @@ EMPIRICA_TIER1_PREFIXES = (
     'empirica loop ',  # Loop registry CRUD — instance-local control plane
     'empirica instance ',  # Instance lifecycle: kill/forget/label
     'empirica status',  # Multi-instance status overview
+    'empirica tui',  # Interactive cockpit (Textual app — destructive ops are modal-confirmed)
 )
 
 # Tier 2: State-changing commands - allowed (these ARE the epistemic workflow)

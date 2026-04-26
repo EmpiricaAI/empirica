@@ -31,11 +31,19 @@ def _add_instance(parser):
 
 
 def add_cockpit_parsers(subparsers):
-    """Register sentinel/loop/instance subcommand groups + top-level status."""
+    """Register sentinel/loop/instance subcommand groups + top-level status + tui."""
     _add_sentinel_group(subparsers)
     _add_loop_group(subparsers)
     _add_instance_group(subparsers)
     _add_status_command(subparsers)
+    _add_tui_command(subparsers)
+
+
+def _add_tui_command(subparsers):
+    subparsers.add_parser(
+        'tui',
+        help='Launch the interactive cockpit (Textual app — clickable controls)',
+    )
 
 
 def _add_instance_group(subparsers):

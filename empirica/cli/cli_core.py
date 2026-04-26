@@ -170,6 +170,7 @@ from .command_handlers.cockpit_commands import (
     handle_loop_group_command,
     handle_sentinel_group_command,
     handle_status_command as handle_cockpit_status_command,
+    handle_tui_command,
 )
 from .command_handlers.query_commands import handle_query_command
 from .command_handlers.release_commands import handle_release_command, handle_release_ready_command
@@ -317,7 +318,7 @@ _HELP_CATEGORIES = {
     'issue': ['issue-list', 'issue-show', 'issue-handoff', 'issue-resolve', 'issue-export', 'issue-stats'],
     'investigation': ['investigate', 'investigate-create-branch', 'investigate-checkpoint-branch', 'investigate-merge-branches', 'investigate-multi'],
     'monitoring': ['monitor', 'assess-state', 'trajectory-project', 'efficiency-report', 'workflow-patterns', 'calibration-report'],
-    'cockpit': ['status', 'sentinel', 'loop', 'instance'],
+    'cockpit': ['status', 'tui', 'sentinel', 'loop', 'instance'],
     'skills': ['skill-suggest', 'skill-fetch', 'skill-extract'],
     'architecture': ['assess-component', 'assess-compare', 'assess-directory'],
     'agents': ['agent-spawn', 'agent-report', 'agent-aggregate', 'agent-parallel', 'agent-export', 'agent-import', 'agent-discover'],
@@ -493,6 +494,7 @@ def main(args=None):
             'loop': handle_loop_group_command,
             'instance': handle_instance_group_command,
             'status': handle_cockpit_status_command,
+            'tui': handle_tui_command,
 
             # Checkpoint commands
             'checkpoint-create': handle_checkpoint_create_command,
