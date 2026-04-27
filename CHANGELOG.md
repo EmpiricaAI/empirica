@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (Batch artifact verbs — schema discoverability)
+- **`--schema` flag** on `empirica log-artifacts`, `resolve-artifacts`,
+  and `delete-artifacts`. Prints the JSON input shape (with valid node
+  types and relation names) and exits without touching the DB. AIs who
+  hit a validation error can now self-correct via `--schema` instead of
+  trial-and-error. Mirrors the pattern from `noetic-batch --schema`.
+- **Forgiving alias normalization** on `log-artifacts` input. The
+  validator now accepts:
+  - `id` and `node_id` as aliases for `ref` on nodes (AIs reach for
+    `id` because resolve-artifacts and delete-artifacts both use it)
+  - `type` and `kind` as aliases for `relation` on edges (`type` is the
+    most common miss because the noun is overloaded)
+  Aliases are normalized before validation; success responses surface
+  `alias_warnings` so AIs learn the canonical names over time.
+- **Improved error message** on validation failure now includes a
+  `hint` field pointing at `--schema` and naming the two common
+  pitfalls. Was: `{"errors": ["Node 0: missing 'ref'"]}`.
+  Now: `{"errors": [...], "hint": "Run --schema for full input shape.
+  Common pitfalls: nodes need 'ref' (not 'id'), edges need 'relation'
+  (not 'type')."}`.
+- **14 new tests** in `tests/test_graph_commands_schema.py` cover the
+  three normalization paths (id→ref, node_id→ref, type→relation,
+  kind→relation), canonical-wins-over-alias, dedup of alias warnings,
+  --schema short-circuit on all three handlers, and the error-message
+  hint. 120/120 cockpit + graph-schema tests pass total.
+
 ### Fixed (Cockpit v1.6.2 — open-goals count was wrong)
 - **Open-goals count now matches statusline (was 996, should be 18)**.
   Two compounding bugs:

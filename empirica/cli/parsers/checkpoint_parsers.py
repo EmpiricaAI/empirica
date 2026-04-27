@@ -652,6 +652,8 @@ Example:
         """
     )
     log_artifacts_parser.add_argument('config', nargs='?', default='-', help='JSON file or - for stdin (default: stdin)')
+    log_artifacts_parser.add_argument('--schema', action='store_true',
+        help='Print the input JSON schema and exit (use this to learn the shape)')
     log_artifacts_parser.add_argument('--session-id', help='Session UUID (auto-derived)')
     log_artifacts_parser.add_argument('--project-id', help='Project UUID (auto-derived)')
     log_artifacts_parser.add_argument('--output', choices=['human', 'json'], default='json', help='Output format')
@@ -670,6 +672,8 @@ Example:
         """
     )
     resolve_artifacts_parser.add_argument('config', nargs='?', default='-', help='JSON file or - for stdin (default: stdin)')
+    resolve_artifacts_parser.add_argument('--schema', action='store_true',
+        help='Print the input JSON schema and exit')
     resolve_artifacts_parser.add_argument('--output', choices=['human', 'json'], default='json', help='Output format')
     resolve_artifacts_parser.add_argument('--verbose', action='store_true', help='Show detailed output')
 
@@ -689,6 +693,8 @@ Example:
         """
     )
     delete_artifacts_parser.add_argument('config', nargs='?', default='-', help='JSON file or - for stdin (default: stdin)')
+    delete_artifacts_parser.add_argument('--schema', action='store_true',
+        help='Print the input JSON schema and exit')
     delete_artifacts_parser.add_argument('--dry-run', action='store_true', help='Preview deletions without executing')
     delete_artifacts_parser.add_argument('--output', choices=['human', 'json'], default='json', help='Output format')
     delete_artifacts_parser.add_argument('--verbose', action='store_true', help='Show detailed output')

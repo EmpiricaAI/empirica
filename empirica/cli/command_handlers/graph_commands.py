@@ -34,6 +34,138 @@ VALID_RELATIONS = {
 CREATION_ORDER = ['source', 'finding', 'unknown', 'dead_end', 'mistake', 'assumption', 'decision']
 
 
+# ─── schemas (printed by --schema, used in error messages) ────────────────
+
+LOG_ARTIFACTS_SCHEMA = {
+    "nodes": [
+        {
+            "ref": "<local-id like 'f1' — referenced from edges>",
+            "type": "finding | unknown | dead_end | mistake | assumption | decision | source",
+            "data": {
+                "finding | unknown | choice | etc.": "<type-specific required fields>",
+                "impact": "<float 0-1, optional>",
+                "subject": "<optional>",
+            },
+        },
+    ],
+    "edges": [
+        {
+            "from": "<ref or UUID>",
+            "to": "<ref or UUID>",
+            "relation": "evidence | raised_by | grounded_by | resolves | "
+                        "invalidates | sourced_from | caused_by | prevents | attached_to",
+        },
+    ],
+    "session_id": "<optional, auto-resolved from active context>",
+    "project_id": "<optional, auto-resolved from active context>",
+}
+
+RESOLVE_ARTIFACTS_SCHEMA = {
+    "resolutions": [
+        {
+            "type": "unknown | assumption | goal",
+            "id": "<UUID of the artifact to resolve>",
+            "resolution": "<resolution text or status — semantics depend on type>",
+            "verified": "<true/false, optional, for assumption→finding>",
+        },
+    ],
+}
+
+DELETE_ARTIFACTS_SCHEMA = {
+    "deletions": [
+        {
+            "type": "finding | unknown | dead_end | mistake | assumption | decision",
+            "id": "<UUID of the artifact to delete>",
+        },
+    ],
+    "reason": "<optional human-readable reason — logged as decision>",
+}
+
+
+def _print_schema_and_exit(schema: dict, command: str) -> int:
+    """Print the input schema for a batch artifact verb and exit cleanly.
+
+    Mirrors the noetic-batch --schema pattern. Used so AIs hitting these
+    verbs can self-discover the input shape without trial-and-error.
+    """
+    payload = {
+        "command": command,
+        "schema": schema,
+        "valid_node_types": sorted(NODE_REQUIRED_FIELDS.keys()),
+        "valid_relations": sorted(VALID_RELATIONS),
+        "node_required_fields_by_type": NODE_REQUIRED_FIELDS,
+    }
+    print(json.dumps(payload, indent=2))
+    return 0
+
+
+# ─── input normalization (forgiving aliases) ──────────────────────────────
+
+# Field aliases AIs commonly use that we accept as drop-in replacements.
+# 'id' → 'ref' on nodes is the most common miss because resolve-artifacts
+# and delete-artifacts both use 'id' in their input shapes.
+# 'type' → 'relation' on edges similarly: AIs reach for 'type' as a
+# generic kind-field.
+_NODE_REF_ALIASES = ('ref', 'id', 'node_id')
+_EDGE_RELATION_ALIASES = ('relation', 'type', 'kind')
+
+
+def _normalize_graph(graph: dict) -> tuple[dict, list[str]]:
+    """Apply forgiving aliasing to a graph payload.
+
+    Returns (normalized_graph, deprecation_warnings). The graph is a copy
+    with canonical field names so downstream code can rely on 'ref' /
+    'relation'. Warnings are surfaced in the response so AIs learn the
+    canonical names over time.
+    """
+    if not isinstance(graph, dict):
+        return graph, []
+
+    out = dict(graph)
+    warnings: list[str] = []
+
+    nodes = out.get('nodes')
+    if isinstance(nodes, list):
+        new_nodes = []
+        for node in nodes:
+            if not isinstance(node, dict):
+                new_nodes.append(node)
+                continue
+            n = dict(node)
+            if 'ref' not in n:
+                for alias in _NODE_REF_ALIASES[1:]:
+                    if alias in n:
+                        n['ref'] = n[alias]
+                        warnings.append(
+                            f"node uses '{alias}' (accepted as alias for 'ref' — prefer 'ref')"
+                        )
+                        break
+            new_nodes.append(n)
+        out['nodes'] = new_nodes
+
+    edges = out.get('edges')
+    if isinstance(edges, list):
+        new_edges = []
+        for edge in edges:
+            if not isinstance(edge, dict):
+                new_edges.append(edge)
+                continue
+            e = dict(edge)
+            if 'relation' not in e:
+                for alias in _EDGE_RELATION_ALIASES[1:]:
+                    if alias in e:
+                        e['relation'] = e[alias]
+                        warnings.append(
+                            f"edge uses '{alias}' (accepted as alias for 'relation' — prefer 'relation')"
+                        )
+                        break
+            new_edges.append(e)
+        out['edges'] = new_edges
+
+    # Deduplicate warnings (one entry per alias rather than per node).
+    return out, sorted(set(warnings))
+
+
 def _validate_graph(graph: dict) -> list[str]:
     """Validate graph structure. Returns list of errors (empty = valid)."""
     errors = []
@@ -248,7 +380,12 @@ def _auto_embed_node(node: dict, artifact_id: str, context: dict):
 
 
 def _read_graph_input(args) -> dict | None:
-    """Read and validate graph JSON from stdin or file."""
+    """Read, normalize, and validate graph JSON from stdin or file.
+
+    Tolerates `id`/`node_id` as aliases for `ref` on nodes and
+    `type`/`kind` as aliases for `relation` on edges. Surfaces a hint
+    to `--schema` on validation failure so AIs can self-correct.
+    """
     from empirica.cli.cli_utils import parse_json_safely
 
     if hasattr(args, 'config') and args.config:
@@ -262,13 +399,28 @@ def _read_graph_input(args) -> dict | None:
 
     graph = parse_json_safely(raw)
     if not graph:
-        print(json.dumps({"ok": False, "error": "Invalid JSON input"}))
+        print(json.dumps({
+            "ok": False, "error": "Invalid JSON input",
+            "hint": "Run with --schema to see the expected input shape.",
+        }))
         return None
 
+    graph, alias_warnings = _normalize_graph(graph)
     errors = _validate_graph(graph)
     if errors:
-        print(json.dumps({"ok": False, "errors": errors}))
+        print(json.dumps({
+            "ok": False,
+            "errors": errors,
+            "hint": "Run `empirica log-artifacts --schema` for the full input shape. "
+                    "Common pitfalls: nodes need 'ref' (not 'id'), edges need 'relation' "
+                    "(not 'type').",
+        }))
         return None
+
+    if alias_warnings:
+        # Stash warnings on the graph so the handler can include them in
+        # its success response.
+        graph['_alias_warnings'] = alias_warnings
 
     return graph
 
@@ -313,6 +465,8 @@ def _resolve_graph_context(graph: dict, args, db) -> dict | None:
 
 def handle_log_artifacts_command(args):
     """Handle log-artifacts command: batch artifact logging with graph format."""
+    if getattr(args, 'schema', False):
+        return _print_schema_and_exit(LOG_ARTIFACTS_SCHEMA, 'log-artifacts')
     try:
         from empirica.data.session_database import SessionDatabase
 
@@ -368,6 +522,9 @@ def handle_log_artifacts_command(args):
             "edges_wired": edges_wired,
             "errors": created_errors,
         }
+        warnings = graph.get('_alias_warnings')
+        if warnings:
+            result['alias_warnings'] = warnings
         print(json.dumps(result, indent=2))
         return 0
 
@@ -378,6 +535,8 @@ def handle_log_artifacts_command(args):
 
 def handle_resolve_artifacts_command(args):
     """Handle resolve-artifacts command: batch resolution of open artifacts."""
+    if getattr(args, 'schema', False):
+        return _print_schema_and_exit(RESOLVE_ARTIFACTS_SCHEMA, 'resolve-artifacts')
     try:
         from empirica.cli.cli_utils import parse_json_safely
         from empirica.data.session_database import SessionDatabase
@@ -572,6 +731,8 @@ def _delete_single_artifact(cursor, item: dict, project_id: str | None, dry_run:
 
 def handle_delete_artifacts_command(args):
     """Handle delete-artifacts command: batch deletion of stale/non-pertinent artifacts."""
+    if getattr(args, 'schema', False):
+        return _print_schema_and_exit(DELETE_ARTIFACTS_SCHEMA, 'delete-artifacts')
     try:
         from empirica.data.session_database import SessionDatabase
 
