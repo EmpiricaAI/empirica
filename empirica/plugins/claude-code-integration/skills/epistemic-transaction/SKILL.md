@@ -349,6 +349,61 @@ empirica deadend-log --approach "Tried passport.js" --why-failed "Too heavy for 
 empirica assumption-log --assumption "All routes need auth except /health" --confidence 0.8 --domain routing
 ```
 
+#### Sources — log when an artifact's origin matters
+
+An **epistemic source** is the external thing your finding/decision came
+from: a doc, a URL, a paper, a transcript, a customer call, a GitHub
+issue. Sources are first-class artifacts (`source-add`) that other
+artifacts link to via the `sourced_from` relation in batch operations.
+
+**When to add a source:**
+
+- A finding came from reading a non-code reference (RFC, paper, blog,
+  spec, design doc) — log the source so future searches surface the
+  origin, not just the conclusion
+- A decision rests on an external authority (compliance doc, vendor
+  contract, security advisory) — the audit trail needs the link
+- A dead-end was learned the hard way from a community thread or
+  postmortem — others can find the warning back to its origin
+- You're working in **Claude Desktop or any non-CLI surface** where most
+  artifacts originate from web pages, conversations, attachments, or
+  manually-pasted text rather than code reads. In CLI mode, `git blame`
+  + `finding_refs` auto-extraction often covers source provenance for
+  free; in Desktop mode, explicit `source-add` is the only way to
+  preserve where ideas came from.
+
+**How:**
+
+```bash
+# Standalone: log a source first
+empirica source-add --title "RFC 7519 — JSON Web Tokens" \
+  --url "https://datatracker.ietf.org/doc/html/rfc7519" \
+  --noetic --confidence 0.95
+# Returns: source_id (UUID)
+
+# Then link findings/decisions to it via batch graph:
+empirica log-artifacts - << 'EOF'
+{
+  "nodes": [
+    {"ref": "f1", "type": "finding",
+     "data": {"finding": "JWTs are signed but not encrypted by default",
+              "impact": 0.7}},
+    {"ref": "d1", "type": "decision",
+     "data": {"choice": "Use JWE for sensitive payloads",
+              "rationale": "Default JWS leaks contents at rest"}}
+  ],
+  "edges": [
+    {"from": "f1", "to": "<source_id_uuid>", "relation": "sourced_from"},
+    {"from": "d1", "to": "f1", "relation": "evidence"}
+  ]
+}
+EOF
+```
+
+**Skip when:** the source is the project's own code at the current HEAD —
+that provenance is already in git. Sources earn their keep when the
+origin is *outside* what `git blame` can reach.
+
 ### 4c. CHECK — Gate the Transition
 
 ```bash

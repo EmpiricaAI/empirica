@@ -1895,6 +1895,7 @@ def _check_build_praxic_reminders(session_id, check_transaction_id):
     reminders = {
         "commit": "Commit before POSTFLIGHT — uncommitted edits are invisible to grounded calibration (change/state/do will ground near-zero).",
         "artifacts": "Log the full breadth: assumption-log (beliefs), decision-log (choices), deadend-log (failures), mistake-log (errors) — not just findings.",
+        "sources": "When findings/decisions come from external material (docs, URLs, papers, conversations, attachments) — log the origin via source-add and link with sourced_from in log-artifacts. Especially important on Claude Desktop where artifacts often originate outside code that git already tracks.",
         "completion": "Rate completion for THIS TRANSACTION only, not the overall plan. If the transaction's objective is met, completion = 1.0 regardless of remaining transactions.",
     }
 

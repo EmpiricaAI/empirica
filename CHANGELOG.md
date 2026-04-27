@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (Sources discipline — explicit guidance for source-linked artifacts)
+- **CHECK gate adds a `sources` praxic reminder** alongside the existing
+  `commit`, `artifacts`, and `completion` reminders. Text: "When findings/
+  decisions come from external material (docs, URLs, papers, conversations,
+  attachments) — log the origin via `source-add` and link with `sourced_from`
+  in `log-artifacts`. Especially important on Claude Desktop where artifacts
+  often originate outside code that git already tracks." Surfaces alongside
+  the calibration_nudge so AIs see all four discipline points at every CHECK
+  proceed.
+- **`epistemic-transaction` skill SKILL.md** gains a "Sources — log when
+  an artifact's origin matters" subsection under Step 4b (Noetic Phase).
+  Explains when to use `source-add` (external refs the AI consulted, not
+  the project's own code that git already tracks), when to skip it (CLI
+  mode where `git blame` covers provenance for free), and shows the batch
+  graph pattern for linking findings to sources via `sourced_from` edges.
+- **Lean system prompt template** gains a `source-add` row in the
+  Collaborative Mode signal table. Pairs "External material cited" with
+  `source-add` then `sourced_from` link via `log-artifacts`.
+
 ## [1.8.13] - 2026-04-27
 
 ### Added (Batch artifact verbs — schema discoverability)

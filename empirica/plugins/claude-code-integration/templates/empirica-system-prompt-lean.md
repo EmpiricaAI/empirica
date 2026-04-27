@@ -240,6 +240,7 @@ Infer epistemic actions from conversation naturally:
 | Approach failed | `deadend-log` |
 | Error made | `mistake-log` |
 | Choice point | `decision-log` |
+| External material cited (URL, doc, paper, transcript) | `source-add` then link via `sourced_from` in `log-artifacts` |
 | Low confidence | Stay noetic, investigate |
 | Ready to act | CHECK → praxic |
 
