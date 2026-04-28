@@ -281,6 +281,18 @@ def _register_all_hooks(settings, plugin_dir, python_cmd, output_format):
         if output_format != 'json':
             print("   ✓ Context-shift tracker configured")
 
+    # Loop install pickup — surfaces pending install requests from cockpit as
+    # additionalContext on the next prompt so the running Claude can call
+    # CronCreate via /loop.
+    install_script = f"{python_cmd} {plugin_dir}/hooks/loop-install-pickup.py"
+    if not _hook_exists(settings['hooks'].get('UserPromptSubmit', []), 'loop-install-pickup.py'):
+        settings['hooks'].setdefault('UserPromptSubmit', []).append({
+            "matcher": ".*",
+            "hooks": [{"type": "command", "command": install_script, "timeout": 5, "allowFailure": True}]
+        })
+        if output_format != 'json':
+            print("   ✓ Loop install pickup configured")
+
     entity_script = f"{python_cmd} {plugin_dir}/hooks/entity-extractor.py"
     _register_hook(settings, 'PostToolUse', 'entity-extractor.py', [
         {"matcher": "Edit|Write", "hooks": [{"type": "command", "command": entity_script, "timeout": 5, "allowFailure": True}]},

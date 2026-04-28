@@ -43,6 +43,14 @@ from empirica.core.cockpit.instance_actions import (
     set_label,
     stop_instance,
 )
+from empirica.core.cockpit.loop_install_request import (
+    LoopInstallRequest,
+    consume_pending,
+    list_pending,
+    pending_path,
+    render_loop_cron_prompt,
+    write_pending,
+)
 from empirica.core.cockpit.instance_state import (
     aggregate_all,
     aggregate_instance_state,
@@ -68,6 +76,7 @@ __all__ = [
     'KillResult',
     'LivenessResult',
     'LoopRegistry',
+    'LoopInstallRequest',
     'NotificationItem',
     'NotificationSummary',
     'OpenGoal',
@@ -79,6 +88,7 @@ __all__ = [
     'aggregate_instance_state',
     'calculate_confidence',
     'clear_notifications',
+    'consume_pending',
     'context_usage',
     'discover_dead_instances',
     'discover_instances',
@@ -88,12 +98,15 @@ __all__ = [
     'is_asking',
     'is_loop_paused',
     'kill_instance',
+    'list_pending',
     'notification_summary',
     'notifications_for_project',
     'notifications_list',
     'notifications_total',
     'open_goals_list',
     'pause_sentinel',
+    'pending_path',
+    'render_loop_cron_prompt',
     'recent_actions',
     'render_json',
     'render_pretty',
@@ -103,4 +116,5 @@ __all__ = [
     'set_loop_paused',
     'statusline_summary',
     'stop_instance',
+    'write_pending',
 ]

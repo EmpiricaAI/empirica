@@ -174,18 +174,28 @@ empirica loop unregister inbox-poll # remove from registry entirely
 
 `pause` clears the recorded `next_scheduled_job_id` and surfaces a
 hint about scheduler-specific cancellation. For CronCreate loops the
-empirica CLI can't call `CronDelete` directly; the body's pause check
-at the next fire is the backstop — it sees the flag and exits without
-scheduling the next fire, so the loop dies cleanly after at most one
-more silent fire.
+body's pause check at the next fire is the backstop — it sees the
+flag and exits without scheduling the next fire, so the loop dies
+cleanly after at most one more silent fire. `CronDelete` itself is a
+CC tool; if you want to cancel the already-installed job immediately
+you can call it from the running CC session, or just let the body's
+pause check end it.
 
-`resume` clears the pause flag. On Claude Code the next cron fire has
-to be bootstrapped manually:
+`resume` clears the pause flag. The next prompt in the target instance
+will pick up any pending install request and the body will re-arm
+itself. To reissue the install (bootstrap the cron) from any other
+terminal:
 
 ```
-empirica loop fire {NAME}    # prints the cron + hint
-# Then re-issue via /loop, or run the printed CronCreate invocation.
+empirica loop install-request --instance {INSTANCE_ID} \
+  --name {NAME} --interval {INTERVAL}
 ```
+
+That registers in the target's registry and queues a pending request
+that the target instance's `UserPromptSubmit` hook surfaces as a
+system-reminder on the next prompt — Claude in that instance runs
+`/loop` and `CronCreate` fires. Use `empirica loop fire {NAME}` for
+single manual fires (testing, ad-hoc poke).
 
 | State | Cron firing | Body running | Tokens |
 |---|---|---|---|

@@ -35,6 +35,10 @@ from empirica.core.cockpit import (
     set_label,
     set_loop_paused,
 )
+from empirica.core.cockpit.loop_install_request import (
+    DEFAULT_SCHEDULER_KIND,
+    write_pending,
+)
 from empirica.core.cockpit.loop_registry import VALID_KIND, VALID_STATUS
 from empirica.core.cockpit.notify_dispatcher_view import build_notify_dispatcher_block
 from empirica.utils.session_resolver import get_instance_id
@@ -342,6 +346,95 @@ def handle_loop_schedule_next_command(args) -> int:
     summary = (
         f'next fire: {plan.fire_at.isoformat()} '
         f'({plan.cron_one_shot}) — {plan.reason}'
+    )
+    return _emit(args, payload, summary)
+
+
+def handle_loop_install_request_command(args) -> int:
+    """Cockpit→Claude install path: register loop in target's registry and
+    drop a pending install request that the target instance's
+    UserPromptSubmit hook surfaces as a system-reminder. The target Claude
+    sees the reminder, runs `/loop` with the embedded prompt template,
+    and CronCreate fires from inside that CC session.
+
+    The cockpit runs `empirica loop install-request --instance <ID> --name X
+    --interval 15m` to make this happen — no manual /loop paste needed.
+    """
+    target_instance = getattr(args, 'instance', None)
+    if not target_instance:
+        return _emit(
+            args,
+            {'ok': False, 'error': '--instance required (target instance to install in)'},
+            'error: --instance required',
+        )
+
+    name = args.name
+    interval = args.interval
+    description = getattr(args, 'description', '') or ''
+    base_interval = getattr(args, 'base_interval', None) or interval
+    max_interval = getattr(args, 'max_interval', None) or '4h'
+
+    # Register in the target's registry first so the loop is visible in the
+    # cockpit immediately — even before the target Claude installs CronCreate.
+    registry = LoopRegistry(target_instance)
+    try:
+        entry = registry.register(
+            name=name,
+            kind='cron',
+            interval=interval,
+            description=description,
+            backoff_policy='exponential',
+            base_interval=base_interval,
+            max_interval=max_interval,
+        )
+    except ValueError as e:
+        return _emit(args, {'ok': False, 'error': str(e)}, f'error: {e}')
+
+    # Stamp scheduler_kind so heartbeat fields don't drift later.
+    registry.heartbeat(
+        name=name,
+        status=entry.last_status or 'ok',
+        result=entry.last_result,
+        message=entry.last_message,
+        scheduler_kind=DEFAULT_SCHEDULER_KIND,
+    )
+
+    # Resolve the cockpit's own instance_id (best-effort) so the receiver
+    # can show 'requested by tmux_X' in the system-reminder.
+    requested_by: str | None = None
+    try:
+        from empirica.utils.session_resolver import get_instance_id
+        requested_by = get_instance_id()
+    except Exception:  # noqa: BLE001
+        requested_by = None
+
+    pending = write_pending(
+        instance_id=target_instance,
+        name=name,
+        interval=interval,
+        description=description,
+        scheduler_kind=DEFAULT_SCHEDULER_KIND,
+        requested_by=requested_by,
+        base_interval=base_interval,
+        max_interval=max_interval,
+    )
+
+    payload = {
+        'ok': True,
+        'instance_id': target_instance,
+        'name': name,
+        'interval': interval,
+        'pending_request_path': str(pending),
+        'requested_by': requested_by,
+        'scheduler_kind': DEFAULT_SCHEDULER_KIND,
+        'next_step': (
+            f'Target Claude in {target_instance} will see the install request '
+            f'on its next prompt and run /loop to call CronCreate'
+        ),
+    }
+    summary = (
+        f'Install request queued for {name} in {target_instance} '
+        f'({interval}) — surfaces on next UserPromptSubmit'
     )
     return _emit(args, payload, summary)
 
@@ -745,6 +838,7 @@ _LOOP_DISPATCH = {
     'poke': handle_loop_poke_command,
     'schedule-next': handle_loop_schedule_next_command,
     'fire': handle_loop_fire_command,
+    'install-request': handle_loop_install_request_command,
     'list': handle_loop_list_command,
     'status': handle_loop_status_command,
 }

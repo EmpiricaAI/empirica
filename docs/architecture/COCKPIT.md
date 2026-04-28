@@ -242,10 +242,35 @@ heartbeat so `empirica loop pause` can cancel it.
 
 Pause means the scheduler is silent — no more fires, no token bleed.
 The body's pause check at the start of each fire is the backstop:
-`paused` → exit without scheduling next, loop dies cleanly. Resume
-re-bootstraps via `empirica loop fire` (or by re-issuing through the
-loop-cron skill). Backoff stretches the actual fire interval — empty
-streaks compound, found/fail snap back to base.
+`paused` → exit without scheduling next, loop dies cleanly. Backoff
+stretches the actual fire interval — empty streaks compound, found/fail
+snap back to base.
+
+### Adding a loop from the cockpit
+
+The cockpit doesn't call `CronCreate` directly (that's a Claude Code
+tool, not a shell command), but it does *prompt* the target Claude to
+call it:
+
+1. `empirica loop install-request --instance <ID> --name <NAME>
+   --interval <INTERVAL> --description <DESC>` registers the loop in
+   the target's `loops_{instance_id}.json` (so it's visible in the
+   cockpit immediately) and writes a pending file at
+   `~/.empirica/loop_install_pending_{instance_id}_{name}.json` with
+   the `loop-cron` prompt template substituted.
+2. The target instance's `UserPromptSubmit` hook
+   (`loop-install-pickup.py`) reads pending files for the running
+   instance, surfaces them as `additionalContext` (a system-reminder
+   block on the next prompt), and removes the file so the request
+   only fires once.
+3. The Claude reading the system-reminder runs `/loop` with the
+   embedded prompt; CC's `/loop` skill calls `CronCreate` from inside
+   that session.
+
+Resume after pause uses the same pickup path: `empirica loop fire
+NAME` is for manual one-shot fires; for resuming a paused loop, the
+operator re-issues the install-request and the next prompt in the
+target instance bootstraps the cron.
 
 Spec: `OutreachShared/empirica-final-docs/PROPOSAL_LOOP_SELF_SCHEDULING.md`.
 Skill template: `loop-cron`.

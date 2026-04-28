@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (Cockpit→Claude loop install path)
+- **`empirica loop install-request --instance ID --name X --interval Y
+  --description Z`** — new verb. Registers the loop in the target
+  instance's `loops_{instance_id}.json` (so it's visible in the cockpit
+  immediately) and writes a pending install file at
+  `~/.empirica/loop_install_pending_{instance_id}_{name}.json` with
+  the `loop-cron` skill template substituted with the loop's
+  name + interval + description. Idempotent — re-issuing overwrites the
+  pending file with the latest values.
+- **`UserPromptSubmit` hook `loop-install-pickup.py`** — reads
+  pending install requests for the running instance, surfaces them as
+  `hookSpecificOutput.additionalContext` (a system-reminder block) on
+  the next prompt, and removes the file so the request fires once. The
+  Claude reading the system-reminder runs `/loop` with the embedded
+  prompt; CC's `/loop` skill calls `CronCreate` from inside that
+  session. Closes the cockpit→Claude loop: the cockpit *prompts*
+  Claude to install the cron without needing direct `CronCreate`
+  access. Hook is wired into `setup-claude-code` alongside the
+  existing UserPromptSubmit hooks. Tests in
+  `test_loop_install_request.py` cover write/consume/round-trip,
+  malformed-file tolerance, sanitization, and idempotency.
+
 ### Added (Loop self-scheduling — body owns the schedule)
 - **`empirica loop schedule-next NAME`** — new verb. Computes the
   next-fire timestamp from current backoff state and returns

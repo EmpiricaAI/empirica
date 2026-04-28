@@ -1,0 +1,94 @@
+#!/usr/bin/env python3
+"""UserPromptSubmit hook: surface pending loop install requests.
+
+The cockpit (or any caller of `empirica loop install-request`) writes a
+pending file at `~/.empirica/loop_install_pending_{instance_id}_{name}.json`
+with a /loop prompt template substituted with the loop's name + interval.
+
+This hook reads pending requests for the currently-running instance,
+injects them as `additionalContext` in the next prompt (so the running
+Claude sees a `<system-reminder>`), and removes the file so the request
+fires once.
+
+The Claude reading the system-reminder runs `/loop` with the embedded
+prompt; CC's `/loop` skill calls CronCreate from inside that session.
+The cockpit thus prompts Claude to install the cron — it never calls
+CronCreate directly itself.
+
+Hook output: hookSpecificOutput.additionalContext (string) or empty
+when no pending requests. Non-blocking — failures swallowed so a bad
+pending file never breaks the user's prompt.
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+# Plugin script — empirica package is on sys.path via session-init bootstrap.
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+
+try:
+    from empirica.core.cockpit.loop_install_request import consume_pending
+    from empirica.utils.session_resolver import InstanceResolver
+except Exception:
+    # If the empirica package isn't importable (broken install / missing
+    # path), exit cleanly with no additionalContext rather than failing.
+    print(json.dumps({}))
+    sys.exit(0)
+
+
+def _format_request(request) -> str:
+    requested_by = request.requested_by or 'cockpit'
+    return f"""\
+## ⚙ Loop install request from {requested_by}
+
+A loop is queued for installation in this instance:
+- **name:** `{request.name}`
+- **interval:** `{request.interval}`
+- **description:** {request.description or '(none)'}
+- **scheduler:** {request.scheduler_kind}
+
+Please run `/loop` with the prompt below to install the cron via
+CronCreate. The empirica registry already has the loop registered
+(visible in the cockpit), but the actual scheduler job needs to be
+installed by you.
+
+```
+{request.prompt_template}
+```
+"""
+
+
+def main() -> int:
+    try:
+        instance_id = InstanceResolver.instance_id()
+    except Exception:  # noqa: BLE001
+        instance_id = None
+    if not instance_id:
+        print(json.dumps({}))
+        return 0
+
+    try:
+        requests = consume_pending(instance_id)
+    except Exception:  # noqa: BLE001
+        requests = []
+
+    if not requests:
+        print(json.dumps({}))
+        return 0
+
+    blocks = [_format_request(r) for r in requests]
+    additional = '\n\n'.join(blocks)
+    print(json.dumps({
+        'hookSpecificOutput': {
+            'hookEventName': 'UserPromptSubmit',
+            'additionalContext': additional,
+        },
+    }))
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())

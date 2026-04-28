@@ -216,6 +216,24 @@ def _add_loop_group(subparsers):
     _add_instance(fire)
     _add_output(fire)
 
+    install = loop_subs.add_parser(
+        'install-request',
+        help='Cockpit→Claude install: register loop + queue a pending '
+             'install request the target Claude picks up via UserPromptSubmit '
+             'and installs via /loop / CronCreate.',
+    )
+    install.add_argument('--name', required=True, help='Loop name')
+    install.add_argument('--interval', required=True,
+                          help='Base interval (e.g. "15m"). Acts as the cadence '
+                               'after a found fire and the floor for backoff.')
+    install.add_argument('--description', help='One-line description')
+    install.add_argument('--base-interval',
+                          help='Backoff floor (default: same as --interval)')
+    install.add_argument('--max-interval', default='4h',
+                          help='Backoff ceiling (default: 4h)')
+    _add_instance(install)
+    _add_output(install)
+
     list_p = loop_subs.add_parser('list', help='List all loops registered for an instance')
     _add_instance(list_p)
     _add_output(list_p)
