@@ -1363,7 +1363,7 @@ class PostTestCollector:
         """Read edited_files list from the hook counters JSON.
 
         The Sentinel's _try_increment_tool_count appends file_path for
-        every Edit/Write tool call to the hook_counters file (since v1.8.13).
+        every Edit/Write tool call to the hook_counters file (since v1.8.14).
         Falls back to reading from active_transaction for backward compat.
         """
         from empirica.utils.session_resolver import InstanceResolver as R
@@ -1371,14 +1371,14 @@ class PostTestCollector:
         suffix = R.instance_suffix()
         project_root = self._resolve_project_root()
 
-        # Try hook_counters file first (v1.8.13+), then fall back to transaction file
+        # Try hook_counters file first (v1.8.14+), then fall back to transaction file
         search_dirs = []
         if project_root:
             search_dirs.append(Path(project_root) / '.empirica')
         search_dirs.append(Path.home() / '.empirica')
 
         for empirica_dir in search_dirs:
-            # Primary: hook_counters file (hook-owned since v1.8.13)
+            # Primary: hook_counters file (hook-owned since v1.8.14)
             counters_path = empirica_dir / f'hook_counters{suffix}.json'
             if counters_path.exists():
                 try:
@@ -1386,7 +1386,7 @@ class PostTestCollector:
                         return json.load(f).get('edited_files', [])
                 except Exception:
                     pass
-            # Fallback: active_transaction (pre-v1.8.13 compat)
+            # Fallback: active_transaction (pre-v1.8.14 compat)
             tx_path = empirica_dir / f'active_transaction{suffix}.json'
             if tx_path.exists():
                 try:

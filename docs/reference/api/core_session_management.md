@@ -54,7 +54,7 @@ Create a new AI session.
 - `user_id: Optional[str]` - Optional user identifier
 - `subject: Optional[str]` - Optional subject/workstream identifier for filtering
 - `bootstrap_level: int` - Bootstrap configuration level (1-3), default 1
-- `parent_session_id: Optional[str]` - **(since v1.8.13)** Optional parent session UUID
+- `parent_session_id: Optional[str]` - **(since v1.8.14)** Optional parent session UUID
   for parent-only session linkage. Note: Task-tool subagents do NOT use this method
   — they go through `create_subagent_session` (see Subagent Sessions section below).
 - `project_id: Optional[str]` - Optional project UUID for global registry tracking
@@ -134,7 +134,7 @@ summary = db.get_session_summary(session_id="abc-123", detail_level="detailed")
 
 ---
 
-## Subagent Sessions (v1.8.13+)
+## Subagent Sessions (v1.8.14+)
 
 **Background:** Task-tool subagents (Explore, general-purpose,
 superpowers:code-reviewer, etc.) used to create rows directly in the main
@@ -143,7 +143,7 @@ children were always newer than their parents, so any "recent sessions"
 diagnostic surfaced only subagent rows — masking the actual parent and
 making post-compact failures hard to diagnose.
 
-**Migration 034** (v1.8.13) introduces a dedicated `subagent_sessions`
+**Migration 034** (v1.8.14) introduces a dedicated `subagent_sessions`
 table. Subagent rows live there with the same `parent_session_id` link
 for lineage tracking, but no longer touch the main `sessions` table.
 Rollup at `SubagentStop` still logs findings to the parent session in

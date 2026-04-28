@@ -25,7 +25,7 @@ contains new evidence or is purely emotional/rhetorical.
 EPP makes position-holding **proportional to epistemic confidence** and
 position-updating **proportional to new evidence**.
 
-## Hook-Driven Activation (since v1.8.13)
+## Hook-Driven Activation (since v1.8.14)
 
 EPP is **automatically activated** by the UserPromptSubmit hook
 (`tool-router.py`), which injects a `<semantic-pushback-check>` block into

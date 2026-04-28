@@ -1,6 +1,6 @@
 # Epistemic Tracking API Reference
 
-**Version:** 1.8.13
+**Version:** 1.8.14
 **Module:** `empirica.data.epistemic_snapshot`, `empirica.core.epistemic_trajectory`
 **Purpose:** AI epistemic state capture, persistence, and cross-AI transfer
 

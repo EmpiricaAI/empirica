@@ -3,7 +3,7 @@
 **Status:** AUTHORITATIVE
 **Source:** `empirica/plugins/claude-code-integration/hooks/sentinel-gate.py`
 **Audience:** Developers, not AI agents (see [Sentinel Constitution](../architecture/SENTINEL_CONSTITUTION.md) Principle II: Measurement Opacity)
-**Last Updated:** 2026-04-04 (v1.8.13-dev)
+**Last Updated:** 2026-04-04 (v1.8.14-dev)
 
 ---
 

@@ -660,7 +660,7 @@ has_key = loader.has_credential("MINIMAX_API_KEY")
 - `EMPIRICA_INVESTIGATION_PROFILE`: Force investigation profile
 - `EMPIRICA_PROFILE_MODE`: Override profile mode
 - `EMPIRICA_PERSONALITY`: Set AI personality/persona (`researcher`, `implementer`, `reviewer`, etc.)
-- `EMPIRICA_EPISTEMIC_MODE`: **Deprecated in 1.8.13.** Epistemic middleware was removed from MCP server (Sentinel handles gating via hooks). This env var has no effect.
+- `EMPIRICA_EPISTEMIC_MODE`: **Deprecated in 1.8.14.** Epistemic middleware was removed from MCP server (Sentinel handles gating via hooks). This env var has no effect.
 
 ### Cortex Integration
 
@@ -1094,7 +1094,7 @@ Empirica uses a 4-layer weight system for calibration scoring. Each layer serves
 - **Granularity:** Per domain (software, consulting, research, operations, default)
 - **Example:** Software domain weights execution at 0.35 (shipping code matters most), research weights comprehension at 0.30
 
-**Layer 2.5: Work-Type Category Weights (1.8.13+)**
+**Layer 2.5: Work-Type Category Weights (1.8.14+)**
 - **Source:** `config/mco/confidence_weights.yaml` — `work_type_category_weights`
 - **Purpose:** Override domain category weights when `work_type` is known from PREFLIGHT. Makes calibration sensitive to what kind of work is being done, not just which project/domain.
 - **Consumer:** `core/post_test/mapper.py` — `_load_domain_weights(domain, work_type)`

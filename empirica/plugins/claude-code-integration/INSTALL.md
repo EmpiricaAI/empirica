@@ -1,6 +1,6 @@
 # Empirica Integration Plugin - Installation Guide
 
-> **Note (since v1.8.13):** The plugin is now bundled with the Empirica Python
+> **Note (since v1.8.14):** The plugin is now bundled with the Empirica Python
 > package and wired up via `empirica setup-claude-code`. The rest of this file
 > describes the old standalone-plugin flow, kept for historical context only.
 >

@@ -165,7 +165,7 @@ def detect_environment() -> dict:
     """
     Detect execution environment for Sentinel context awareness.
 
-    Delegates to canonical when available (v1.8.13 resolver dedup).
+    Delegates to canonical when available (v1.8.14 resolver dedup).
 
     Returns dict with:
         hostname: str - machine hostname
@@ -379,7 +379,7 @@ def get_active_session_id(claude_session_id: str | None = None) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# Delegated to canonical session_resolver.py (v1.8.13 resolver dedup)
+# Delegated to canonical session_resolver.py (v1.8.14 resolver dedup)
 # Inline fallbacks removed — these are now single-source-of-truth in
 # empirica.utils.session_resolver. If empirica is not importable (bare
 # plugin without pip install), the InstanceResolver fallback at the top
@@ -514,7 +514,7 @@ def find_project_root(
     Comprehensive project root resolution for hooks.
 
     Delegates to canonical empirica.utils.session_resolver.find_project_root
-    when available (v1.8.13 resolver dedup). Falls back to inline implementation
+    when available (v1.8.14 resolver dedup). Falls back to inline implementation
     for bare-plugin environments.
 
     Unified priority chain (highest to lowest):
@@ -537,7 +537,7 @@ def find_project_root(
     Returns:
         Path to project root, or None if cannot be resolved.
     """
-    # Delegate to canonical when available (v1.8.13 resolver dedup)
+    # Delegate to canonical when available (v1.8.14 resolver dedup)
     try:
         from empirica.utils.session_resolver import find_project_root as _canonical_fpr
         return _canonical_fpr(

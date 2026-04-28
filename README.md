@@ -2,7 +2,7 @@
 
 > **We Gave AI a Mirror. Now It Measures What It Believes.**
 
-[![Version](https://img.shields.io/badge/version-1.8.13-blue)](https://github.com/Nubaeon/empirica/releases/tag/v1.8.13)
+[![Version](https://img.shields.io/badge/version-1.8.14-blue)](https://github.com/Nubaeon/empirica/releases/tag/v1.8.14)
 [![PyPI](https://img.shields.io/pypi/v/empirica)](https://pypi.org/project/empirica/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -100,13 +100,13 @@ empirica setup-claude-code
 
 ```bash
 # Security-hardened Alpine image (~276MB, recommended)
-docker pull nubaeon/empirica:1.8.13-alpine
+docker pull nubaeon/empirica:1.8.14-alpine
 
 # Standard image (Debian slim, ~414MB)
-docker pull nubaeon/empirica:1.8.13
+docker pull nubaeon/empirica:1.8.14
 
 # Run
-docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.8.13 /bin/bash
+docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.8.14 /bin/bash
 ```
 </details>
 
@@ -290,7 +290,7 @@ The result: Claude Code's native capabilities, enhanced with measurement, gating
   (test-pollution, planned, auto-stale, duplicates). Dry-run by default;
   `--apply` mutates and writes a receipt to git notes.
 
-## What's New in 1.8.13
+## What's New in 1.8.14
 
 - **Empirica Cockpit** — multi-instance state visibility + per-instance
   controls. `empirica status [--all]` overview, `empirica tui`
@@ -374,6 +374,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 **Author:** David S. L. Van Assche
-**Version:** 1.8.13
+**Version:** 1.8.14
 
 *Turtles all the way down — built with its own epistemic framework, measuring what it knows at every step.*

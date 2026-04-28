@@ -101,7 +101,7 @@ backward-compatible aliases but all callers have been migrated to `InstanceResol
 **Suffix sanitization:** `:` → `_`, `%` removed. e.g. `x11:77639996` → `_x11_77639996`.
 All readers and writers use `_get_instance_suffix()` for consistency.
 
-**Separation rationale (v1.8.13):** Hooks doing read-modify-write on the transaction file could race with POSTFLIGHT's status=closed write. Splitting into two files gives single-writer semantics per file.
+**Separation rationale (v1.8.14):** Hooks doing read-modify-write on the transaction file could race with POSTFLIGHT's status=closed write. Splitting into two files gives single-writer semantics per file.
 
 ---
 
@@ -113,7 +113,7 @@ Project Path (get_active_project_path):
   P1: active_work_{claude_session_id}.json   (requires claude_session_id)
   P2: active_work.json                       (generic fallback, no time rejection)
   ❌ NO CWD FALLBACK — return None (mid-session)
-  ⚠️  STARTUP EXCEPTION (v1.8.13): session-init prefers CWD over stale instance files on 'startup' events
+  ⚠️  STARTUP EXCEPTION (v1.8.14): session-init prefers CWD over stale instance files on 'startup' events
 
 Session ID (get_active_empirica_session_id):
   P1: active_transaction file                (survives compaction)

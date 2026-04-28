@@ -12,7 +12,7 @@ Architecture:
 - Graceful: if CLI not found, returns clear error
 - Stateless: no session state in the server itself
 
-Version: 1.8.13
+Version: 1.8.14
 """
 
 import argparse

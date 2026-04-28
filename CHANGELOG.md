@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.14] - 2026-04-28
+
 ### Added (Cockpit→Claude loop install path)
 - **`empirica loop install-request --instance ID --name X --interval Y
   --description Z`** — new verb. Registers the loop in the target

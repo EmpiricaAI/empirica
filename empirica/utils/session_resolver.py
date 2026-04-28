@@ -2279,7 +2279,7 @@ def _resolve_via_local_empirica(identifier: str) -> dict | None:
 # Project Root Resolution (canonical — moved from plugin lib/project_resolver.py)
 # =============================================================================
 # These were previously duplicated in the hook-side mirror. Consolidated here
-# as the single source of truth (goal 7ca0877c, v1.8.13).
+# as the single source of truth (goal 7ca0877c, v1.8.14).
 
 def has_valid_db(project_path: Path) -> bool:
     """Check if a project path has a valid .empirica/sessions/sessions.db."""

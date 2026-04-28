@@ -649,7 +649,7 @@ echo '{
 }' | empirica log-artifacts -
 ```
 
-**Forgiving aliases** (since v1.8.13): `id` and `node_id` are accepted as
+**Forgiving aliases** (since v1.8.14): `id` and `node_id` are accepted as
 aliases for `ref` on nodes; `type` and `kind` are accepted as aliases for
 `relation` on edges. Aliases are normalized before validation; canonical
 names are surfaced in `alias_warnings` on success.

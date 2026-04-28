@@ -1,6 +1,6 @@
 # Epistemic Persistence Protocol (EPP) Architecture
 
-**Status:** Active (v1.8.13)
+**Status:** Active (v1.8.14)
 **Spec:** `docs/superpowers/specs/2026-04-07-epp-strengthening-design.md`
 **Phase 0 results:** `scripts/phase0_epp_results.json`
 
@@ -253,7 +253,7 @@ case semantically.
 
 ## Out of Scope (for v1)
 
-Explicitly NOT implemented in v1.8.13:
+Explicitly NOT implemented in v1.8.14:
 
 1. **Persistent position anchors** — Stop hook writing `position_anchors.jsonl`.
    Deferred unless Phase 0 rev reveals in-context recall is insufficient.
@@ -287,6 +287,6 @@ Explicitly NOT implemented in v1.8.13:
 
 ## Changelog
 
-- **v1.8.13** (2026-04-07): Initial implementation. Hook-driven activation
+- **v1.8.14** (2026-04-07): Initial implementation. Hook-driven activation
   via always-on semantic-check block. Phase 0 gate PASSED for Opus/Sonnet/Haiku.
   Self-reported telemetry via `empirica epp-activate`.

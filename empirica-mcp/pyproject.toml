@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "empirica-mcp"
-version = "1.8.13"
+version = "1.8.14"
 description = "MCP server for Empirica — AI measurement and calibration tools via Model Context Protocol"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -23,7 +23,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "empirica>=1.7.0",  # Main package (1.8.13 co-released)
+    "empirica>=1.7.0",  # Main package (1.8.14 co-released)
     "mcp>=1.25.0",      # MCP SDK (python-multipart CVE-2026-24486 fix in 1.25+)
 ]
 

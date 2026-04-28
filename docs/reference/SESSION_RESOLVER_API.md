@@ -1,7 +1,7 @@
 # Session Resolver API Reference
 
 **Module:** `empirica.utils.session_resolver`
-**Version:** 1.8.13-dev
+**Version:** 1.8.14-dev
 **Purpose:** Session ID resolution, multi-instance isolation, and context management
 
 ---
@@ -333,7 +333,7 @@ def get_active_project_path(claude_session_id: str = None) -> Optional[str]
 1. `instance_projects/{instance_id}.json` — **AUTHORITATIVE** (updated by project-switch)
 2. `active_work_{claude_session_id}.json` — fallback (may be stale)
 
-> **Startup exception (v1.8.13):** On `startup` events, `session-init.py` validates the resolved project against CWD's git root. If CWD is a valid Empirica project and differs from the stale instance file, CWD wins. On `resume`/`compact`/`clear`, instance files remain authoritative.
+> **Startup exception (v1.8.14):** On `startup` events, `session-init.py` validates the resolved project against CWD's git root. If CWD is a valid Empirica project and differs from the stale instance file, CWD wins. On `resume`/`compact`/`clear`, instance files remain authoritative.
 
 **No self-healing:** If both exist but disagree (e.g. after project-switch), instance_projects wins. The disagreement resolves naturally when the next hook fires and writes both files consistently.
 
@@ -480,7 +480,7 @@ def clear_active_transaction(claude_session_id: str = None) -> None
 
 ---
 
-### Hook Counters API (v1.8.13+)
+### Hook Counters API (v1.8.14+)
 
 Hook counters are stored separately from the transaction lifecycle to prevent race conditions. Hooks (sentinel, context-shift-tracker, subagent-stop) write counters here; POSTFLIGHT reads then deletes.
 
@@ -589,7 +589,7 @@ Also mirrored in `plugins/.../lib/project_resolver.py` for hooks that can't impo
 1. **TTY is lookup key (ephemeral)** — `claude_session_id` is persistence key (durable)
 2. **instance_projects is AUTHORITATIVE** — Updated by project-switch, wins over stale active_work
 3. **Transaction-first session resolution** — CLI commands auto-derive session from transaction
-4. **No CWD fallback (mid-session)** — Fail explicitly rather than risk wrong project context. Exception: `startup` events prefer CWD over stale instance files (v1.8.13)
+4. **No CWD fallback (mid-session)** — Fail explicitly rather than risk wrong project context. Exception: `startup` events prefer CWD over stale instance files (v1.8.14)
 5. **No self-healing** — Stale files resolve naturally when the next hook fires and writes both files consistently
 
 ---

@@ -1,6 +1,6 @@
 # Epistemic Transaction Workflow API Reference
 
-**Version:** 1.8.13
+**Version:** 1.8.14
 **Purpose:** Epistemic measurement phases for AI self-assessment, domain compliance, and grounded calibration
 
 ---
@@ -307,7 +307,7 @@ These services produce **observed vectors** — information that the AI uses to
 reason to a **grounded state** with explicit rationale. The services inform;
 they do not score. The AI gives the score.
 
-**Three-vector model (v1.8.13):**
+**Three-vector model (v1.8.14):**
 | Vector Set | Source | Purpose |
 |------------|--------|---------|
 | `self_assessed` | AI's PREFLIGHT/POSTFLIGHT vectors | The AI's predictions |
@@ -333,7 +333,7 @@ gap magnitudes (not from direct evidence sources).
 
 **Ungroundable vectors:** engagement (no objective signal)
 
-## Domain Compliance Loop (v1.8.13)
+## Domain Compliance Loop (v1.8.14)
 
 When `domain` and `criticality` are set in PREFLIGHT, POSTFLIGHT runs the
 domain checklist via the compliance loop:
@@ -445,7 +445,7 @@ EMPIRICA_SENTINEL_LOOPING=false     # Disable investigate loops
 
 ---
 
-## Provenance Graph (1.8.13+)
+## Provenance Graph (1.8.14+)
 
 Artifacts can be linked into a source-finding-decision traceability chain:
 

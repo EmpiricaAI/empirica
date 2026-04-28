@@ -372,6 +372,6 @@ HTTPS auth, private repos).
 
 ## Status
 
-Implemented in v1.8.13+. Closes the protocol gap that David and Philipp
+Implemented in v1.8.14+. Closes the protocol gap that David and Philipp
 identified for orchestrating work across terminal, web Cowork, desktop, and
 Cortex Claude instances.

@@ -339,7 +339,7 @@ Under "Artifact Discipline" or new "Investigation Discipline" section:
   migration.
 - New tool added to `TOOL_REGISTRY` and `__all__`. Existing callers untouched.
 - Skills update is additive: existing transaction patterns still valid.
-- Ship in v1.8.13 (or 1.9.0 if scope grows).
+- Ship in v1.8.14 (or 1.9.0 if scope grows).
 
 ---
 
@@ -404,7 +404,7 @@ Under "Artifact Discipline" or new "Investigation Discipline" section:
 5. **PREFLIGHT response addition** — `noetic_guidance` block in workflow_commands
 6. **Skill updates** — epistemic-transaction (CC) + transaction-cycle (CD) + constitution (CD)
 7. **System prompt update** — empirica-system-prompt.md
-8. **Release** — v1.8.13 (or 1.9.0)
+8. **Release** — v1.8.14 (or 1.9.0)
 9. **Telemetry phase** — POSTFLIGHT retrospective tracks adoption (deferred 2-3 weeks)
 
 Each step is its own transaction. Steps 2-4 can be one PR; 5-7 a separate PR (less

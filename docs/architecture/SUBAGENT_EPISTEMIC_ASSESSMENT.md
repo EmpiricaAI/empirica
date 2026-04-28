@@ -18,13 +18,13 @@ system via the existing hook infrastructure. Two modes: **passive**
 
 ---
 
-## Storage Architecture (v1.8.13+)
+## Storage Architecture (v1.8.14+)
 
 Subagent sessions live in a **dedicated `subagent_sessions` table**,
 isolated from the main `sessions` table. This separation was added in
 migration 034 (KNOWN_ISSUES 11.24) to fix two related problems:
 
-1. **Diagnostic pollution.** Pre-v1.8.13, every Task spawn created a
+1. **Diagnostic pollution.** Pre-v1.8.14, every Task spawn created a
    row in the main `sessions` table. Subagent children were always
    newer than their parents, so any "recent sessions" diagnostic
    surfaced only subagent rows — masking the actual parent in

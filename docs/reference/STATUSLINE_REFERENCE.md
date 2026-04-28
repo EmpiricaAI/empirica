@@ -3,7 +3,7 @@
 **Status:** AUTHORITATIVE
 **Source:** `empirica/plugins/claude-code-integration/scripts/statusline_empirica.py`
 **Audience:** End users and developers
-**Last Updated:** 2026-04-24 (v1.8.13)
+**Last Updated:** 2026-04-24 (v1.8.14)
 
 ---
 

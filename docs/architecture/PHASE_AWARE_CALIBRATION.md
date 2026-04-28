@@ -1,9 +1,9 @@
 # Phase-Aware Evidence Collection for Calibration
 
-**Status:** IMPLEMENTED (Phases 1-3 complete, domain-aware thresholds in v1.8.13)
+**Status:** IMPLEMENTED (Phases 1-3 complete, domain-aware thresholds in v1.8.14)
 **Author:** David + Claude Code
 **Date:** 2026-02-10 (updated 2026-04-09)
-**Depends on:** Grounded Calibration (v1.5.0), Sentinel Architecture, CHECK Gate, Domain Registry (v1.8.13)
+**Depends on:** Grounded Calibration (v1.5.0), Sentinel Architecture, CHECK Gate, Domain Registry (v1.8.14)
 
 ---
 
@@ -109,14 +109,14 @@ PREFLIGHT -> CHECK(investigate) -> CHECK(investigate) -> CHECK(proceed) -> POSTF
 ## Dynamic Thresholds from Calibration History
 
 The Sentinel uses Brier-based dynamic thresholds that adapt based on
-demonstrated belief calibration. In v1.8.13, domain criticality further scales
+demonstrated belief calibration. In v1.8.14, domain criticality further scales
 the uncertainty threshold via the Domain Registry (`DomainRegistry.resolve()`).
 
-**Key principle (v1.8.13):** Deterministic services produce **observed vectors** —
+**Key principle (v1.8.14):** Deterministic services produce **observed vectors** —
 information. The AI synthesizes the **grounded state** from that information with
 explicit rationale. The services inform; they do not score. The AI gives the score.
 
-### Uncertainty Exclusion from Calibration Score (v1.8.13)
+### Uncertainty Exclusion from Calibration Score (v1.8.14)
 
 Uncertainty is a **meta-vector** — its grounded value is derived from the coverage
 and gap magnitudes of the other 12 vectors. Including it in the calibration score
@@ -285,7 +285,7 @@ Requires >= 3 grounded observations per vector before suggesting ranges (avoids
 premature suggestions from sparse data). Range narrows as evidence accumulates —
 this is correct Bayesian behavior, not a bug.
 
-### Phase 3: Dynamic Thresholds -- COMPLETE (v1.8.13)
+### Phase 3: Dynamic Thresholds -- COMPLETE (v1.8.14)
 
 - `calibration_trajectory` per-phase tracking with `state_type` column
 - Brier-based dynamic thresholds (`compute_dynamic_thresholds()` in `dynamic_thresholds.py`)
@@ -295,7 +295,7 @@ this is correct Bayesian behavior, not a bug.
 - **Check-outcome Brier (B4):** AI predicts P(check passes), Brier measures
   prediction vs actual. Falsifiable, ground-truth calibration alongside vector Brier.
 
-### Phase 4: Domain-Scoped Autonomy -- PARTIALLY COMPLETE (v1.8.13)
+### Phase 4: Domain-Scoped Autonomy -- PARTIALLY COMPLETE (v1.8.14)
 
 - Domain registry with `(work_type, domain, criticality)` tuples → checklists
 - Service registry with self-declaring deterministic checks
