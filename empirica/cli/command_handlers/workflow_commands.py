@@ -2547,8 +2547,16 @@ def _run_postflight_storage_pipeline(
 def _run_grounded_verification(
     session_id: str, vectors: dict, phase_tool_counts: dict,
     work_context: str | None, work_type: str | None, transaction_id: str | None,
+    project_path: str | None = None,
 ) -> dict | None:
     """Run grounded verification: phase-aware evidence collection + calibration.
+
+    Args:
+        project_path: Canonical project root (typically resolved_project_path
+            from tx_info — the path the open transaction is bound to). Used
+            to scope EvidenceProfile.resolve and the project.yaml read.
+            Falls back to os.getcwd() only when unset, mirroring the cortex
+            sync fix (T7) — avoids the multi-.empirica CWD-misroute hazard.
 
     Returns grounded_verification dict or None if unavailable. Non-fatal.
     """
@@ -2563,7 +2571,11 @@ def _run_grounded_verification(
         session = db.get_session(session_id)
         project_id = session.get('project_id') if session else None
 
-        evidence_profile = EvidenceProfile.resolve(project_path=os.getcwd())
+        # Prefer caller-supplied project_path (tx-bound, canonical); only fall
+        # back to cwd when unset. Same shape as T7's cortex_read_calibration
+        # fix — eliminates the CWD-misroute pattern from #95.
+        _resolve_path = project_path or os.getcwd()
+        evidence_profile = EvidenceProfile.resolve(project_path=_resolve_path)
 
         # Detect CHECK phase boundary for noetic/praxic split
         phase_boundary = None
@@ -2581,7 +2593,9 @@ def _run_grounded_verification(
         tier2_weights = None
         try:
             from pathlib import Path as _Path
-            proj_yaml = _Path.cwd() / ".empirica" / "project.yaml"
+            # Same canonical-path principle: project.yaml lives next to the
+            # transaction-bound project, not the calling cwd.
+            proj_yaml = _Path(_resolve_path) / ".empirica" / "project.yaml"
             if proj_yaml.exists():
                 import yaml
                 with open(proj_yaml) as _f:
@@ -3659,6 +3673,7 @@ def handle_postflight_submit_command(args):
                 _run_grounded_verification,
                 session_id, vectors, tx_info["phase_tool_counts"],
                 tx_info["work_context"], tx_info["work_type"], tx_info["transaction_id"],
+                project_path=resolved_project_path,
             )
             _soft_run("storage_pipeline", warnings,
                 _run_postflight_storage_pipeline,
