@@ -12,7 +12,9 @@ Usage:
 
 import argparse
 import hashlib
+import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -154,7 +156,6 @@ class ReleaseManager:
         tap_formula = tap_repo / "empirica.rb"
 
         if not self.dry_run:
-            import shutil
             shutil.copy2(local_formula, tap_formula)
             success(f"Copied formula to {tap_formula}")
 
@@ -254,9 +255,6 @@ class ReleaseManager:
 
     def build_and_push_chocolatey(self):
         """Build Chocolatey .nupkg and push to chocolatey.org"""
-        import os
-        import shutil
-
         log("\n" + "=" * 60)
         log("🍫 Building and pushing Chocolatey package")
         log("=" * 60)
@@ -497,7 +495,6 @@ class ReleaseManager:
         cleared = 0
         for pycache in self.repo_root.rglob("__pycache__"):
             if pycache.is_dir():
-                import shutil
                 shutil.rmtree(pycache, ignore_errors=True)
                 cleared += 1
         if cleared:
@@ -594,7 +591,6 @@ class ReleaseManager:
             if full_path.exists():
                 if not self.dry_run:
                     if full_path.is_dir():
-                        import shutil
                         shutil.rmtree(full_path)
                     else:
                         full_path.unlink()
@@ -622,7 +618,6 @@ class ReleaseManager:
             if full_path.exists():
                 if not self.dry_run:
                     if full_path.is_dir():
-                        import shutil
                         shutil.rmtree(full_path)
                     else:
                         full_path.unlink()
