@@ -29,6 +29,7 @@ if ($pythonVersion -notmatch 'Python 3\.(1[1-9]|[2-9]\d)') {
 # Install via pip
 Write-Host "Installing Empirica via pip..." -ForegroundColor Cyan
 $pipArgs = @(
+    '-m', 'pip',
     'install',
     '--upgrade',
     "empirica==$packageVersion"
@@ -41,7 +42,7 @@ $exitCode = Start-ChocolateyProcessAsAdmin `
     -WorkingDirectory $env:TEMP
 
 if ($exitCode -eq 0) {
-    Write-Host "✓ Empirica installed successfully!" -ForegroundColor Green
+    Write-Host "Empirica installed successfully!" -ForegroundColor Green
     Write-Host ""
     Write-Host "Quick Start:" -ForegroundColor Cyan
     Write-Host "  empirica bootstrap --ai-id myagent --level extended"

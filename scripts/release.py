@@ -229,6 +229,68 @@ class ReleaseManager:
         else:
             info(f"Would update Chocolatey nuspec: {nuspec_path}")
 
+    def update_chocolatey_checksum(self):
+        """Update SHA256 checksum in Chocolatey install script"""
+        install_ps1 = self.repo_root / "packaging/chocolatey/tools/chocolateyinstall.ps1"
+        if not install_ps1.exists():
+            warning(f"Chocolatey install script not found: {install_ps1}")
+            return
+
+        if not self.tarball_sha256:
+            warning("No SHA256 available — skipping Chocolatey checksum update")
+            return
+
+        content = install_ps1.read_text()
+        content = re.sub(
+            r"\$checksum\s*=\s*'[a-fA-F0-9]+'",
+            f"$checksum = '{self.tarball_sha256}'",
+            content,
+        )
+        if not self.dry_run:
+            install_ps1.write_text(content)
+            success(f"Updated Chocolatey checksum: {install_ps1}")
+        else:
+            info(f"Would update Chocolatey checksum: {install_ps1}")
+
+    def build_and_push_chocolatey(self):
+        """Build Chocolatey .nupkg and push to chocolatey.org"""
+        import os
+        import shutil
+
+        log("\n" + "=" * 60)
+        log("🍫 Building and pushing Chocolatey package")
+        log("=" * 60)
+
+        if not shutil.which("choco"):
+            info("choco CLI not found — skipping Chocolatey publish (run from Windows or a Choco-enabled CI runner)")
+            return
+
+        choco_dir = self.repo_root / "packaging/chocolatey"
+        nuspec = choco_dir / "empirica.nuspec"
+        if not nuspec.exists():
+            warning(f"Chocolatey nuspec not found: {nuspec}")
+            return
+
+        nupkg = choco_dir / f"empirica.{self.version}.nupkg"
+
+        self.run_command(["choco", "pack"], cwd=str(choco_dir))
+        success(f"Built: {nupkg}")
+
+        if not nupkg.exists() and not self.dry_run:
+            error(f"Expected .nupkg not found: {nupkg}")
+
+        api_key = os.environ.get("CHOCOLATEY_API_KEY")
+        if not api_key:
+            warning("CHOCOLATEY_API_KEY not set — built .nupkg but skipping push (set the env var or run 'choco apikey set')")
+            return
+
+        self.run_command([
+            "choco", "push", str(nupkg),
+            "--source", "https://push.chocolatey.org/",
+            "--api-key", api_key,
+        ], cwd=str(choco_dir))
+        success(f"Pushed to chocolatey.org: empirica {self.version}")
+
     def update_version_strings(self):
         """Update version strings in all source files not covered by other methods.
 
@@ -956,6 +1018,7 @@ brew install empirica
             self.update_homebrew_formula()
             self.update_dockerfile()
             self.update_chocolatey_nuspec()
+            self.update_chocolatey_checksum()
 
             # Gate: import smoke test
             if not self.run_import_check():
@@ -1024,6 +1087,7 @@ brew install empirica
             self.build_and_push_docker()
             self.create_github_release()
             self.update_homebrew_tap()
+            self.build_and_push_chocolatey()
 
             # Switch back to develop
             if not self.dry_run:
@@ -1040,6 +1104,7 @@ brew install empirica
             info(f"Docker: docker pull nubaeon/empirica:{self.version}-alpine")
             info(f"GitHub: https://github.com/Nubaeon/empirica/releases/tag/v{self.version}")
             info(f"Homebrew: brew upgrade empirica")
+            info(f"Chocolatey: choco upgrade empirica")
 
         except Exception as e:
             error(f"Publish failed: {e}")
@@ -1080,6 +1145,7 @@ brew install empirica
             self.update_homebrew_formula()
             self.update_dockerfile()
             self.update_chocolatey_nuspec()
+            self.update_chocolatey_checksum()
 
             # Gate: import smoke test
             if not self.run_import_check():
@@ -1096,6 +1162,7 @@ brew install empirica
             self.build_and_push_docker()
             self.create_github_release()
             self.update_homebrew_tap()
+            self.build_and_push_chocolatey()
 
             # Switch back to develop
             if not self.dry_run:
@@ -1112,6 +1179,7 @@ brew install empirica
             info(f"Docker: docker pull nubaeon/empirica:{self.version}-alpine")
             info(f"GitHub: https://github.com/Nubaeon/empirica/releases/tag/v{self.version}")
             info(f"Homebrew: brew upgrade empirica")
+            info(f"Chocolatey: choco upgrade empirica")
 
         except Exception as e:
             error(f"Release failed: {e}")
