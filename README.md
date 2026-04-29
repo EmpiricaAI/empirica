@@ -2,7 +2,7 @@
 
 > **We Gave AI a Mirror. Now It Measures What It Believes.**
 
-[![Version](https://img.shields.io/badge/version-1.8.15-blue)](https://github.com/Nubaeon/empirica/releases/tag/v1.8.15)
+[![Version](https://img.shields.io/badge/version-1.8.16-blue)](https://github.com/Nubaeon/empirica/releases/tag/v1.8.16)
 [![PyPI](https://img.shields.io/pypi/v/empirica)](https://pypi.org/project/empirica/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
