@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.15] - 2026-04-29
+
+### Added (Voice integration)
+- **`empirica voice list / show / apply`** — load prosodic voice profiles
+  for outreach drafting. Profiles distill writing-pattern signals
+  (tendencies, anti-patterns, register-per-platform) into a portable
+  `.yaml` an AI can adopt before drafting an email, post, or comment.
+  Resolution: `{cwd}/.empirica/voice/<name>.yaml` overrides
+  `~/.empirica/voice/<name>.yaml`. Voice samples themselves stay in
+  Cortex/Qdrant; this CLI is the calling surface.
+- **PREFLIGHT `voice_guidance` block** — when `work_type=comms` or the
+  new `voice` field/`--voice` flag is set, the response includes a
+  voice_guidance block mirroring the `noetic_guidance` pattern:
+  numbered tendencies + anti-patterns + register/depth/framing scoped
+  to the platform. `work_type=comms` alone surfaces a nudge to name a
+  profile (no opinionated default — voice profiles are personal).
+
+### Fixed (#95)
+- **Subagent CLI bleed (#95 Issue 1)** — `subagent-start.py` now writes
+  `~/.empirica/active_work_<subagent_uuid>.json` with `is_subagent: true`.
+  Without this, subagent CLI calls had no resolver hit and fell through
+  to TTY-based session resolution → tagged reflexes with the parent's
+  `session_id` → tripped the gate at sentinel-gate.py:1788-1843 on the
+  next Edit. `sentinel-gate._detect_subagent` updated to flag-based
+  detection (with absence-detection fallback for in-flight subagents).
+  `subagent-stop.py` cleans up the file at SubagentStop.
+- **POSTFLIGHT half-success bug (#95 Issue 3)** — pipeline restructured:
+  pre-validation (Stage 0, NEW) resolves session row + verifies
+  project_id present BEFORE any state mutation. Failure → early return
+  with `{ok: false, persisted: false, loop_state: "open"}`. Stages 3-4
+  (close transaction + write reflex) unchanged. Stages 5-7 (bus,
+  beliefs, storage, compliance, cortex sync) wrapped in `_soft_run` —
+  failures accumulate into `result["warnings"]` without erasing the
+  reflex. End state: rejected pre-mutation OR succeeded with optional
+  warnings, never half-success.
+
+### Fixed (Session boundary heal)
+- **`session.project_id` validate-and-heal at session boundaries** —
+  extends KNOWN_ISSUES 11.24's session-existence heal to the
+  project_id grain. Catches the ghost-project_id pattern: a session
+  row exists but its `project_id` field points at a stale or wrong
+  project (cross-project `--resume`, ambiguous folder_name match,
+  tmux pane reuse). Heal lives in `post-compact._auto_heal_session`
+  (CONTINUE_TRANSACTION + NEW_SESSION_PREFLIGHT branches) and
+  `session-init._heal_session_project_id_at_init`. Workspace.db
+  trajectory_path is the canonical lookup — never folder_name (no
+  11.10/11.27 regression). Cwd reliable at session boundaries only.
+  New `SessionsRepository.heal_session_project_id()` returning
+  `"healed" | "ok" | "missing"`.
+
+### Tests
+- 50 new tests across 5 commits (T1: 5, T2: 16, T3: 11, T4: 7, T5: 11).
+  All green. Total release-gate suite: 1263 passed, 16 skipped.
+
 ## [1.8.14] - 2026-04-28
 
 ### Added (Cockpit→Claude loop install path)
