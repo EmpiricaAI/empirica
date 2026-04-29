@@ -1014,19 +1014,206 @@ def _matches_safe_prefix(cmd: str) -> bool:
     return False
 
 
+# Shell control-flow keywords that are inert on their own (no commands run).
+# A segment that's just one of these (or starts with one followed by an
+# already-validated body) is safe — the substitutions/commands embedded
+# inside the larger construct get validated separately via the chain split.
+_SHELL_KEYWORDS_INERT = frozenset({
+    'then', 'else', 'fi', 'elif',
+    'do', 'done',
+    'esac',
+    'true', 'false',  # bash builtins, no exec
+})
+
+# Compound keywords: `<keyword> <body>` — strip the keyword and recurse on body.
+# Covers `if cond`, `then cmd`, `else cmd`, `elif cond`, `while cond`, etc.
+_SHELL_COMPOUND_PREFIXES = (
+    'if ', 'elif ', 'then ', 'else ',
+    'while ', 'until ', 'for ', 'case ',
+    'do ',
+    '! ',  # negation: `! cmd` — strip and check rest
+)
+
+
+def _extract_command_substitutions(segment: str) -> list[str]:
+    """Pull inner commands out of $(...) and `...` substitutions.
+
+    Returns the list of inner commands (one per substitution found).
+    Caller validates each inner command independently via the normal
+    pipe/chain rules. Substitutions can nest; the top-level extractor
+    walks parens with a depth counter to handle that.
+    """
+    extracted: list[str] = []
+    i = 0
+    while i < len(segment):
+        if segment[i:i + 2] == '$(':
+            depth = 1
+            j = i + 2
+            while j < len(segment) and depth > 0:
+                if segment[j:j + 2] == '$(':
+                    depth += 1
+                    j += 2
+                elif segment[j] == ')':
+                    depth -= 1
+                    j += 1
+                else:
+                    j += 1
+            if depth == 0:
+                extracted.append(segment[i + 2:j - 1])
+            i = j
+        else:
+            i += 1
+    # Backticks (non-nested — bash doesn't allow nested backticks anyway)
+    for match in re.finditer(r'`([^`]*)`', segment):
+        extracted.append(match.group(1))
+    return extracted
+
+
+def _strip_command_substitutions(segment: str) -> str:
+    """Replace $(...) and `...` substitutions with a placeholder string.
+
+    After substitutions are extracted-and-validated separately, the
+    residue is what classifies the SHAPE of the segment (control flow,
+    test, assignment, etc.). The placeholder is a literal "X" so test
+    forms like `[ "$VAR" = "X" ]` stay parseable.
+    """
+    out: list[str] = []
+    i = 0
+    while i < len(segment):
+        if segment[i:i + 2] == '$(':
+            depth = 1
+            j = i + 2
+            while j < len(segment) and depth > 0:
+                if segment[j:j + 2] == '$(':
+                    depth += 1
+                    j += 2
+                elif segment[j] == ')':
+                    depth -= 1
+                    j += 1
+                else:
+                    j += 1
+            out.append('X')
+            i = j
+        else:
+            out.append(segment[i])
+            i += 1
+    residue = ''.join(out)
+    return re.sub(r'`[^`]*`', 'X', residue)
+
+
+def _is_inert_shape(stripped: str) -> bool:
+    """Is the residue (substitutions stripped) a known-safe shell shape?
+
+    Recognizes:
+      • Bare control-flow keywords: then, else, fi, elif, do, done, esac
+      • exit / return (with optional integer arg)
+      • Test commands: [ ... ] and [[ ... ]] (no exec, just comparison)
+      • Plain VAR=value assignment (no command sub — that was already stripped)
+
+    Compound forms like `if X; then Y; fi` get split by `;` upstream;
+    each segment then matches one of the above shapes individually.
+    """
+    if stripped in _SHELL_KEYWORDS_INERT:
+        return True
+    # exit / return with optional integer
+    if re.match(r'^(exit|return)(\s+\d+)?$', stripped):
+        return True
+    # [ ... ] and [[ ... ]] — pure tests, no exec
+    if (stripped.startswith('[ ') and stripped.endswith(' ]')) or \
+       (stripped.startswith('[[ ') and stripped.endswith(' ]]')):
+        return True
+    # VAR=value assignment — the value here is the *placeholder* if it
+    # had a substitution (which was already validated), or a literal.
+    if re.match(r'^[A-Za-z_][A-Za-z0-9_]*=\S*$', stripped):
+        return True
+    return False
+
+
 def _is_segment_safe(segment: str) -> bool:
-    """Check if a single command segment (from && or || chain) is safe."""
+    """Check if a single command segment (from && / || / ; chain) is safe.
+
+    Covers BOTH Tier 1 and Tier 2 empirica commands via
+    is_safe_empirica_command — chain handling is not narrower than
+    single-command handling for empirica verbs.
+
+    Also recognizes common shell constructs that cron bodies use:
+      • $(...) and backtick command substitutions — inner command is
+        validated against the full safe-command rules (pipes, chains,
+        empirica tier classification).
+      • Control-flow keywords (`if`, `then`, `else`, `fi`, etc.) and
+        compound forms (`if X`, `then Y`) — keyword is stripped and
+        the body is recursively classified.
+      • Test commands (`[ ... ]`, `[[ ... ]]`) — pure comparison, no exec.
+      • Variable assignment (`VAR=value`, `VAR=$(safe)`) — assignment is
+        inert; any embedded substitution must independently classify safe.
+      • `exit N` and `return N` — terminators with no exec.
+
+    The shape classifier never gates on shell text alone — every
+    embedded command (whether in $(...), in a pipe, or as the body of
+    a control-flow construct) is independently validated. Shape
+    recognition only excuses inert *structure*, never grants safety to
+    the commands inside it.
+    """
     clean = segment.split('<<')[0].strip() if '<<' in segment else segment
     clean = SAFE_REDIRECT_PATTERN.sub('', clean).strip()
     if not clean:
         return True
-    if clean.startswith('cd '):
+
+    # 1. Validate every embedded $() and backtick substitution. The inner
+    # command must independently be safe — we treat substitutions as
+    # opaque-but-validated; their text doesn't hide unsafe commands.
+    for inner in _extract_command_substitutions(clean):
+        inner_clean = inner.strip()
+        if not inner_clean:
+            continue
+        # Inner may have pipes/chains itself — validate via the same
+        # safe-command machinery the top level uses.
+        if not _is_command_text_safe(inner_clean):
+            return False
+
+    # 2. Strip substitutions for shape classification.
+    stripped = _strip_command_substitutions(clean).strip()
+    if not stripped:
         return True
-    if is_safe_empirica_command(clean):
+
+    # 3. Compound keyword: `<keyword> <body>` — strip and recurse on body.
+    for prefix in _SHELL_COMPOUND_PREFIXES:
+        if stripped.startswith(prefix):
+            rest = stripped[len(prefix):].strip()
+            if not rest:
+                return True
+            return _is_segment_safe(rest)
+
+    # 4. Original safe forms.
+    if stripped.startswith('cd '):
         return True
-    if clean.startswith(('ssh ', 'rsync ', 'scp ', 'ssh-')):
-        return is_safe_remote_command(clean)
-    return _matches_safe_prefix(clean)
+    if is_safe_empirica_command(stripped):
+        return True
+    if stripped.startswith(('ssh ', 'rsync ', 'scp ', 'ssh-')):
+        return is_safe_remote_command(stripped)
+    if _matches_safe_prefix(stripped):
+        return True
+
+    # 5. Inert shell shapes (control-flow keywords, tests, assignments,
+    # exit/return). All embedded commands have already been validated
+    # in step 1; this only excuses the structural shell text.
+    return _is_inert_shape(stripped)
+
+
+def _is_command_text_safe(cmd: str) -> bool:
+    """Validate a command text (used for substitution inner commands).
+
+    Independently checks pipes (via is_safe_pipe_chain) and chains
+    (via _is_segment_safe per segment). Mirrors the classification
+    is_safe_bash_command applies at the top level.
+    """
+    if _contains_outside_quotes(cmd, '|'):
+        return is_safe_pipe_chain(cmd)
+    for chain_op in ('&&', '||', ';'):
+        if _contains_outside_quotes(cmd, chain_op):
+            segments = [s.strip() for s in _split_outside_quotes(cmd, chain_op)]
+            return all(_is_segment_safe(s) for s in segments)
+    return _is_segment_safe(cmd)
 
 
 def _has_dangerous_operators(command: str) -> bool:
@@ -1077,6 +1264,16 @@ def is_safe_bash_command(tool_input: dict) -> bool:
     if not command:
         return False
 
+    # Chain commands (&&, ||, ;) first — safe ONLY if ALL segments are safe.
+    # This MUST happen before the single-command shortcuts below, otherwise
+    # `empirica goals-list && rm -rf /` slips through because the whole
+    # command starts with a safe empirica prefix. Quoted occurrences (e.g.,
+    # echo 'a;b') don't count as chain operators.
+    for chain_op in ('&&', '||', ';'):
+        if _contains_outside_quotes(command, chain_op):
+            segments = [s.strip() for s in _split_outside_quotes(command, chain_op)]
+            return all(_is_segment_safe(s) for s in segments)
+
     if is_safe_empirica_command(command):
         return True
 
@@ -1085,16 +1282,6 @@ def is_safe_bash_command(tool_input: dict) -> bool:
         cmd = command.lstrip()
         if any(cmd.startswith(prefix) for prefix in INFRA_SAFE_PREFIXES):
             return True
-
-    # Chain commands (&&, ||, ;): safe ONLY if ALL segments are safe.
-    # Quoted occurrences (e.g., echo 'a;b') don't count as chain operators.
-    # When a chain op is detected we commit to the chain decision — falling
-    # through to single-prefix matching would let `ls; rm -rf /` slip past
-    # because the whole command starts with `ls`.
-    for chain_op in ('&&', '||', ';'):
-        if _contains_outside_quotes(command, chain_op):
-            segments = [s.strip() for s in _split_outside_quotes(command, chain_op)]
-            return all(_is_segment_safe(s) for s in segments)
 
     if _has_dangerous_operators(command):
         return False
@@ -1559,6 +1746,13 @@ def is_safe_pipe_chain(command: str) -> bool:
 
     # Check sqlite3 commands first
     if first_cmd.startswith('sqlite3 ') and is_safe_sqlite_command(first_cmd):
+        first_is_safe = True
+
+    # Check empirica CLI whitelist — Tier 1 commands (loop status, goals-list,
+    # etc.) routinely produce JSON that gets piped to jq. The trailing-segment
+    # rule below already accepts is_safe_empirica_command; matching it for the
+    # first segment removes the asymmetry that blocked cron-body shell idioms.
+    if not first_is_safe and is_safe_empirica_command(first_cmd):
         first_is_safe = True
 
     # Check standard safe prefixes
