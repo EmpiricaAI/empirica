@@ -8,7 +8,27 @@ Now also supports git-repo-based resolution for single-project-per-repo.
 
 import re
 import subprocess
-import sys
+
+
+class ProjectNotFoundError(Exception):
+    """Raised by resolve_project_id when a project name/UUID can't be resolved.
+
+    Replaces the previous `sys.exit(1)` pattern (#95): library functions
+    that call sys.exit emit SystemExit (BaseException), which walks
+    through every `except Exception` wrapper above and kills the calling
+    process. Callers like POSTFLIGHT pipeline stages couldn't recover.
+
+    Top-level CLI handlers should catch this and exit with the same
+    error message they used to print. Library callers should let it
+    propagate (or catch and treat as a soft warning).
+
+    Attributes:
+        project_id_or_name: The unresolvable input (for error messages).
+    """
+
+    def __init__(self, project_id_or_name: str):
+        self.project_id_or_name = project_id_or_name
+        super().__init__(f"Project '{project_id_or_name}' not found")
 
 
 def normalize_git_url(url: str) -> str:
@@ -114,7 +134,10 @@ def resolve_project_id(project_id_or_name: str, db=None) -> str:
         Project UUID string
 
     Raises:
-        SystemExit: If project not found (exits with error message)
+        ProjectNotFoundError: If the input can't be resolved in the local DB
+            or the workspace.db cross-project registry. Top-level CLI
+            handlers should catch and exit cleanly; library callers should
+            let it propagate or treat as a soft failure.
 
     Examples:
         >>> resolve_project_id("empirica-web")  # Resolves name to UUID
@@ -143,13 +166,11 @@ def resolve_project_id(project_id_or_name: str, db=None) -> str:
                 project_info = R.resolve_workspace_project(project_id_or_name)
                 if project_info:
                     resolved_id = project_info.get('project_id') or project_info.get('id')
-            except Exception:  # noqa: S110 — workspace resolver fallback; error printed below
+            except Exception:  # noqa: S110 — workspace resolver fallback; ProjectNotFoundError raised below
                 pass
 
         if not resolved_id:
-            print(f"❌ Error: Project '{project_id_or_name}' not found", file=sys.stderr)
-            print("\nTip: List all projects with: empirica project-list", file=sys.stderr)
-            sys.exit(1)
+            raise ProjectNotFoundError(project_id_or_name)
 
         return resolved_id
 
