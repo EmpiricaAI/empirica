@@ -62,6 +62,11 @@ test_goals_session
 .qdrant_data/
 .beads/
 
+# In-flight spec/proposal drafts — local-only ideation; once a spec ships
+# its design content gets folded into docs/architecture/ as the canonical
+# reference, so the original draft is intentionally not version-controlled.
+docs/specs/
+
 # Security-sensitive files
 *.pem
 *.key
