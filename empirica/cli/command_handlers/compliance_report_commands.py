@@ -123,6 +123,90 @@ REGULATORY_MAP: dict[str, dict[str, Any]] = {
 }
 
 
+def _load_compliance_config(project_root: Path) -> dict[str, Any]:
+    """Load .empirica/compliance.yaml — per-project overrides for compliance-report.
+
+    Schema (all keys optional):
+        skip_checks: list[str]
+            Check IDs to drop from results (e.g. ["tech_docs"] for non-CLI projects).
+        extra_checks: list[dict]
+            Project-specific checks to run after the built-in suite. Each entry:
+                id: str — check identifier (e.g. "cortex_docs_coverage")
+                runner: str — command to invoke (script path relative to project_root,
+                              or absolute path, or shell command)
+                description: str — human-readable label (optional)
+                timeout_seconds: int — runner timeout (default 60)
+                regulatory: dict — optional framework mapping (eu_ai_act / iso_42001 / gdpr)
+        repo_hygiene: dict
+            Override sub-check requirements:
+                license_required: bool (default True)
+                changelog_required: bool (default True)
+                release_scripts_required: bool (default True)
+
+    Returns empty dict when the config file is absent or malformed — compliance-report
+    falls back to its built-in defaults.
+    """
+    config_path = project_root / ".empirica" / "compliance.yaml"
+    if not config_path.exists():
+        return {}
+    try:
+        import yaml
+        with open(config_path) as f:
+            return yaml.safe_load(f) or {}
+    except Exception as exc:
+        logger.warning("compliance.yaml load failed: %s — falling back to defaults", exc)
+        return {}
+
+
+def _run_extra_check(check_def: dict[str, Any], project_root: Path) -> dict[str, Any]:
+    """Run a project-defined extra check declared in .empirica/compliance.yaml.
+
+    The runner script must accept --output json and emit a JSON object on stdout
+    with at least: {"passed": bool, "status": "pass"|"fail"}. Any extra fields
+    are passed through to the report.
+    """
+    check_id = check_def.get("id", "extra_check")
+    runner = check_def.get("runner")
+    if not runner:
+        return {"check": check_id, "passed": None, "status": "unavailable", "error": "no runner"}
+
+    timeout = int(check_def.get("timeout_seconds", 60))
+
+    # Split shell-style runner ("scripts/foo.py", "python scripts/foo.py", "/abs/path")
+    cmd = runner.split() if isinstance(runner, str) else list(runner)
+    if cmd and cmd[0].endswith(".py") and not cmd[0].startswith("python"):
+        cmd = ["python3", *cmd]
+
+    raw = _run_check(check_id, [*cmd, "--output", "json"], timeout=timeout)
+    if raw.get("error"):
+        return {"check": check_id, "passed": None, "status": "unavailable", "error": raw["error"]}
+
+    try:
+        import json as _json
+        data = _json.loads(raw.get("stdout") or "{}")
+    except Exception:
+        return {
+            "check": check_id, "passed": False, "status": "fail",
+            "error": "runner did not emit valid JSON",
+            "duration_seconds": raw.get("duration_seconds"),
+        }
+
+    # Merge runner output with metadata
+    result = {
+        "check": check_id,
+        "tool": runner,
+        "duration_seconds": raw.get("duration_seconds"),
+        **data,
+    }
+    if "status" not in result:
+        result["status"] = "pass" if result.get("passed") else "fail"
+    if "regulatory" not in result and check_def.get("regulatory"):
+        result["regulatory"] = check_def["regulatory"]
+    if "description" not in result and check_def.get("description"):
+        result["description"] = check_def["description"]
+    return result
+
+
 def _run_check(name: str, cmd: list[str], timeout: int = 120) -> dict[str, Any]:
     """Run a single compliance check and return structured result."""
     start = time.time()
@@ -651,29 +735,45 @@ def _parse_docs_result(raw: dict[str, Any]) -> dict[str, Any]:
         return {"check": "tech_docs", "passed": None, "status": "unavailable", "duration_seconds": raw.get("duration_seconds", 0)}
 
 
-def _build_repo_hygiene_check(project_root: Path) -> dict[str, Any]:
-    """Check repository hygiene — files, structure, version consistency."""
+def _build_repo_hygiene_check(project_root: Path, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Check repository hygiene — files, structure, version consistency.
+
+    Per-project overrides via .empirica/compliance.yaml repo_hygiene:
+        license_required: bool (default True)
+        changelog_required: bool (default True)
+        release_scripts_required: bool (default True)
+    Skipped sub-checks count as neither pass nor fail — they don't appear in
+    checks_total, keeping the score honest for projects where the requirement
+    doesn't apply.
+    """
+    overrides = overrides or {}
     checks_passed = 0
     checks_total = 0
     details: dict[str, str] = {}
 
     # 1. LICENSE file
-    checks_total += 1
-    license_exists = (project_root / "LICENSE").exists() or (project_root / "LICENSE.md").exists()
-    if license_exists:
-        checks_passed += 1
-        details["license"] = "present"
+    if overrides.get("license_required", True):
+        checks_total += 1
+        license_exists = (project_root / "LICENSE").exists() or (project_root / "LICENSE.md").exists()
+        if license_exists:
+            checks_passed += 1
+            details["license"] = "present"
+        else:
+            details["license"] = "MISSING"
     else:
-        details["license"] = "MISSING"
+        details["license"] = "skipped"
 
     # 2. CHANGELOG
-    checks_total += 1
-    changelog = project_root / "CHANGELOG.md"
-    if changelog.exists():
-        checks_passed += 1
-        details["changelog"] = "present"
+    if overrides.get("changelog_required", True):
+        checks_total += 1
+        changelog = project_root / "CHANGELOG.md"
+        if changelog.exists():
+            checks_passed += 1
+            details["changelog"] = "present"
+        else:
+            details["changelog"] = "MISSING"
     else:
-        details["changelog"] = "MISSING"
+        details["changelog"] = "skipped"
 
     # 3. .gitignore
     checks_total += 1
@@ -685,17 +785,20 @@ def _build_repo_hygiene_check(project_root: Path) -> dict[str, Any]:
         details["gitignore"] = "MISSING"
 
     # 4. Release scripts
-    checks_total += 1
-    release_script = (
-        (project_root / "scripts" / "release.py").exists()
-        or (project_root / "scripts" / "release.sh").exists()
-        or (project_root / "Makefile").exists()
-    )
-    if release_script:
-        checks_passed += 1
-        details["release_scripts"] = "present"
+    if overrides.get("release_scripts_required", True):
+        checks_total += 1
+        release_script = (
+            (project_root / "scripts" / "release.py").exists()
+            or (project_root / "scripts" / "release.sh").exists()
+            or (project_root / "Makefile").exists()
+        )
+        if release_script:
+            checks_passed += 1
+            details["release_scripts"] = "present"
+        else:
+            details["release_scripts"] = "MISSING"
     else:
-        details["release_scripts"] = "MISSING"
+        details["release_scripts"] = "skipped"
 
     # 5. No secrets in tracked files
     checks_total += 1
@@ -802,9 +905,20 @@ def run_compliance_report(
     include_dep_audit: bool = False,
     include_security: bool = False,
 ) -> dict[str, Any]:
-    """Run full compliance report and return structured results."""
+    """Run full compliance report and return structured results.
+
+    Per-project behavior driven by .empirica/compliance.yaml:
+        skip_checks: drop check IDs from output (e.g. ["tech_docs"] for non-CLI)
+        extra_checks: append project-specific check runners
+        repo_hygiene: relax sub-checks (license/changelog/release_scripts)
+    """
     if project_root is None:
         project_root = Path.cwd()
+
+    config = _load_compliance_config(project_root)
+    skip_checks: set[str] = set(config.get("skip_checks") or [])
+    extra_checks: list[dict[str, Any]] = list(config.get("extra_checks") or [])
+    hygiene_overrides: dict[str, Any] = dict(config.get("repo_hygiene") or {})
 
     results: list[dict[str, Any]] = []
 
@@ -849,11 +963,19 @@ def run_compliance_report(
     results.append(_build_decision_transparency_check(project_root))
 
     # Repository hygiene (fast, file checks)
-    results.append(_build_repo_hygiene_check(project_root))
+    results.append(_build_repo_hygiene_check(project_root, overrides=hygiene_overrides))
 
     # Empirica-specific checks (fast, DB queries)
     results.append(_build_epistemic_audit(project_root))
     results.append(_build_calibration_check(project_root))
+
+    # Per-project extra checks (.empirica/compliance.yaml extra_checks)
+    for check_def in extra_checks:
+        results.append(_run_extra_check(check_def, project_root))
+
+    # Apply per-project skip_checks (filter after assembly so regulatory map still resolves)
+    if skip_checks:
+        results = [r for r in results if r.get("check") not in skip_checks]
 
     # Enrich with regulatory mappings
     results = _add_regulatory_mapping(results)
