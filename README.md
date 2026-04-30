@@ -326,57 +326,26 @@ The result: Claude Code's native capabilities, enhanced with measurement, gating
 
 - **Notify dispatcher** — single CLI verb (`empirica notify emit/config/
   backends/test`) every loop and hook calls. Three v1 backends (stdout,
-  rotating JSONL log, ntfy) with first-match-wins routing rules and
-  fail-loud fallback to stdout when the resolved backend isn't
-  configured. Three sharp edges enforced in code: ntfy uses JSON
-  publish format only (header-stuffing breaks on emoji), `--actions`
-  mirrors ntfy's `Label|URL` format, auth via env var named in config
-  (the secret never lives in YAML). Always-on audit at
-  `~/.empirica/notify-dispatcher.jsonl`. Cockpit + TUI surface 5 most
-  recent emits, backend status (`●/○`), 24h fallback count, and a
-  failure banner when something broke in the last hour. Per-loop
-  `↗backend/topic` annotation matched by `source: "loop:{name}"`. See
-  [`docs/architecture/NOTIFY.md`](docs/architecture/NOTIFY.md).
-- **Project-scoped TUI notifications** — the per-instance notifications
+  rotating JSONL log, ntfy) with first-match-wins routing and fail-loud
+  fallback to stdout when a backend isn't configured. Always-on audit
+  at `~/.empirica/notify-dispatcher.jsonl`. Cockpit + TUI surface 5
+  most recent emits, backend status, 24h fallback count, and a failure
+  banner. See [`docs/architecture/NOTIFY.md`](docs/architecture/NOTIFY.md).
+- **Project-scoped TUI notifications** — per-instance notifications
   strip now reads `~/.empirica/enp/pending.json` (the file the ENP
-  watcher actually writes), filtered by the instance's `project_path`.
-  Was an always-empty placeholder. Top-bar `⊕N` counter shows total
-  unacked across all projects.
+  watcher actually writes). Top-bar `⊕N` shows total unacked across
+  all projects.
 - **`empirica goals-prune`** — bulk goal cleanup with four modes
-  (test-pollution, planned, auto-stale, duplicates). Dry-run by default;
-  `--apply` mutates and writes a receipt to git notes.
-
-## What's New in 1.8.14
-
-- **Empirica Cockpit** — multi-instance state visibility + per-instance
-  controls. `empirica status [--all]` overview, `empirica tui`
-  interactive Textual app (portrait, phone-friendly), `empirica
-  sentinel|loop|instance` subcommand groups. Live tmux pane
-  introspection distinguishes "Claude is running here" from "this is a
-  bash shell" so the cockpit only lists actually-running Claudes. See
+  (test-pollution, planned, auto-stale, duplicates). Dry-run by default.
+- **Empirica Cockpit** — multi-instance state visibility +
+  per-instance controls. `empirica status [--all]` overview,
+  `empirica tui` interactive Textual app, `empirica
+  sentinel|loop|instance` subcommand groups. See
   [`docs/architecture/COCKPIT.md`](docs/architecture/COCKPIT.md).
-- **Loop exponential backoff** — empty fires lengthen the gap, found/
-  fail snap back to base (15m → 30m → 1h → 2h → 4h cap by default).
-  New `--backoff exponential`, `--base-interval`, `--max-interval` on
-  `loop register`; new `--result found|empty|fail` on `loop heartbeat`;
-  new verbs `loop should-fire <NAME>` (gate) and `loop poke <NAME>`
-  (manual escape hatch). Backwards-compat — existing loops default to
-  `policy: none`.
-- **`noetic-batch` CLI primitive** — single-tool-call investigation that
-  bundles N reads/greps/globs/`investigate` into one Sentinel-noetic
-  intent. Replaces N round-trips on common AI investigation patterns.
-- **Schema discoverability for batch artifact verbs** —
-  `log-artifacts`/`resolve-artifacts`/`delete-artifacts` all accept
-  `--schema` to print the input shape without DB. `log-artifacts` now
-  tolerates `id` as alias for `ref` and `type` as alias for `relation`
-  (with deprecation warnings in the response so AIs learn the canonical
-  names). Validation errors include a hint pointing at `--schema`.
-- **Live cockpit statusline strip** — reads vectors from
-  `epistemic_snapshots` directly (was reading stale cache files).
-  Format: `k:X c:Y conf:Z% goals:N (— ctx:M%)` mirroring the live CC
-  statusline. Open-goals strip + notifications strip below. ENP
-  notification integration is a placeholder until empirica-extension
-  Claude wires the cross-process schema.
+- **Loop exponential backoff** — empty fires lengthen the gap;
+  found/fail snap back to base (15m → 30m → 1h → 2h → 4h cap).
+- **`noetic-batch` CLI primitive** — bundles N
+  reads/greps/globs/`investigate` into one Sentinel-noetic call.
 
 ### Sentinel Reframe (1.8.0)
 
@@ -430,6 +399,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 **Author:** David S. L. Van Assche
-**Version:** 1.8.14
+**Version:** 1.8.16
 
 *Turtles all the way down — built with its own epistemic framework, measuring what it knows at every step.*

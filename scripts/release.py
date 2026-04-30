@@ -254,7 +254,15 @@ class ReleaseManager:
             info(f"Would update Chocolatey checksum: {install_ps1}")
 
     def build_and_push_chocolatey(self):
-        """Build Chocolatey .nupkg and push to chocolatey.org"""
+        """Build Chocolatey .nupkg and push to chocolatey.org.
+
+        Push uses the Chocolatey REST API directly (PUT to
+        push.chocolatey.org/api/v2/package/) rather than `choco push`
+        subprocess. The CLI returns 400 on `push.chocolatey.org/`
+        (issue #97); kars85 verified the REST endpoint works during
+        the 1.8.14 manual push. Pack stays via `choco pack` since it
+        produces the Windows-native .nupkg via the choco binary.
+        """
         log("\n" + "=" * 60)
         log("🍫 Building and pushing Chocolatey package")
         log("=" * 60)
@@ -282,12 +290,41 @@ class ReleaseManager:
             warning("CHOCOLATEY_API_KEY not set — built .nupkg but skipping push (set the env var or run 'choco apikey set')")
             return
 
-        self.run_command([
-            "choco", "push", str(nupkg),
-            "--source", "https://push.chocolatey.org/",
-            "--api-key", api_key,
-        ], cwd=str(choco_dir))
-        success(f"Pushed to chocolatey.org: empirica {self.version}")
+        if self.dry_run:
+            info(f"Would PUT {nupkg} to https://push.chocolatey.org/api/v2/package/ (REST)")
+            return
+
+        # REST API push — fixes #97 (`choco push` CLI returns 400)
+        try:
+            import requests
+        except ImportError:
+            error("`requests` not available; cannot push to Chocolatey via REST API")
+            return
+
+        push_url = "https://push.chocolatey.org/api/v2/package/"
+        headers = {
+            "X-NuGet-ApiKey": api_key,
+            "Content-Type": "application/octet-stream",
+        }
+        try:
+            with open(nupkg, "rb") as f:
+                response = requests.put(
+                    push_url, headers=headers, data=f, timeout=300,
+                )
+        except requests.RequestException as e:
+            error(f"Chocolatey REST push failed: {e}")
+            return
+
+        if response.status_code in (200, 201, 202):
+            success(
+                f"Pushed to chocolatey.org: empirica {self.version} "
+                f"(REST {response.status_code})"
+            )
+        else:
+            error(
+                f"Chocolatey REST push returned {response.status_code}: "
+                f"{response.text[:500]}"
+            )
 
     def update_version_strings(self):
         """Update version strings in all source files not covered by other methods.
@@ -353,6 +390,15 @@ class ReleaseManager:
                 self.repo_root / "README.md",
                 r'nubaeon/empirica:[0-9]+\.[0-9]+\.[0-9]+(-alpine)?',
                 lambda m: f'nubaeon/empirica:{self.version}{m.group(1) or ""}',
+            ),
+            # README.md author footer: `**Version:** 1.8.X` (bold-markdown form
+            # — earlier `^Version:` regex only matched the bare __init__.py
+            # docstring form). Added after the 1.8.14→1.8.16 sweep gap left
+            # the footer stuck on the older version.
+            (
+                self.repo_root / "README.md",
+                r'\*\*Version:\*\*\s+[0-9]+\.[0-9]+\.[0-9]+',
+                f'**Version:** {self.version}',
             ),
             # docs/human/end-users/02_INSTALLATION.md — pip pin + docker tags
             (
@@ -548,12 +594,20 @@ class ReleaseManager:
         new_whats_new = f"## What's New in {self.version}\n\n"
         new_whats_new += '\n'.join(whats_new_items[:8])  # Top 8 items
 
-        # Replace in README
+        # Replace in README. Match the FIRST What's New section by capturing
+        # everything from the header up to (but not including) the next ## or
+        # ### or --- divider. Older What's New sections survive as history.
+        # Lazy `.+?` + lookahead delimiter handles multi-line bullets that the
+        # earlier `(?:- \*\*[^\n]+\n)+` pattern broke on. count=1 ensures we
+        # don't mangle older sections that happen to start with `- **`.
         readme = readme_path.read_text()
-        # Match from "## What's New in X.Y.Z" to the next "### Previous Highlights"
-        pattern = r"## What's New in [^\n]+\n\n(?:- \*\*[^\n]+\n)+"
-        if re.search(pattern, readme):
-            readme = re.sub(pattern, new_whats_new + '\n', readme)
+        pattern = re.compile(
+            r"## What's New in [^\n]+\n.+?(?=\n## |\n### |\n---\n)",
+            re.DOTALL,
+        )
+        match = pattern.search(readme)
+        if match:
+            readme = pattern.sub(new_whats_new, readme, count=1)
             if not self.dry_run:
                 readme_path.write_text(readme)
                 success(f"README What's New synced from CHANGELOG ({len(whats_new_items)} items)")
