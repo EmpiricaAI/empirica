@@ -1,11 +1,20 @@
-# PROPOSAL: Event-Listener — separate concept from cron loops
+# Event-Listener — separate concept from cron loops
 
-**Status:** Draft (2026-04-30)
+**Status:** Shipped in 1.8.17 (proposal authored 2026-04-30, items 1–4 landed same week)
 **Author:** David + Claude Code (Opus 4.7 1M)
-**Related:** `PROPOSAL_LOOP_SELF_SCHEDULING.md` (cron-mode loops, existing),
-`docs/architecture/COCKPIT.md` (loop registry surface),
-`empirica/plugins/claude-code-integration/skills/loop-cron/SKILL.md`
-(cron-mode template, will stay focused on its own scope).
+**Related:**
+- `PROPOSAL_LOOP_SELF_SCHEDULING.md` (cron-mode loops, sister concept)
+- `docs/architecture/COCKPIT.md` (registry surface, now covers loops + listeners)
+- `empirica/plugins/claude-code-integration/skills/loop-cron/SKILL.md` (cron body template, v1.1.0+)
+- `empirica/plugins/claude-code-integration/skills/inbox-listener/SKILL.md` (listener body template, v1.0.0)
+
+> This document was the design proposal that landed as the listener subsystem.
+> Items 1–4 of the implementation ordering shipped on develop ahead of 1.8.17:
+> `e32f7dee8` (pause-cancels-cron), `e656f24c6` (CLI + registry),
+> `60b167c2d` (install/uninstall bridge + skill), `df80895a3` + `577207cc3`
+> (TUI L/E binary toggle + project.yaml auto-install). Items 5 (cockpit/TUI
+> visibility) shipped alongside as part of the L/E work; item 6 (outreach
+> migration) is empirica-outreach side, separate repo.
 
 ---
 

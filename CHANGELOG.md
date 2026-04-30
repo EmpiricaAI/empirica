@@ -7,6 +7,134 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Event-listener subsystem (PROPOSAL_EVENT_LISTENER.md, items 1–4 shipped)
+
+- **`empirica listener` CLI + registry** — sister concept to
+  `empirica loop` but for event-driven background work (held HTTP
+  connection via ntfy/SSE → Monitor wake), not cron-periodic. Eight
+  verbs: `register / unregister / pause / resume / record-wake /
+  fire / install-request / list / status`. State files mirror the
+  loop pattern: `~/.empirica/listeners_<instance>.json` (registry),
+  `listener_paused_<instance>_<name>` (pause sidecar),
+  `listener_active_<instance>_<name>.json` (runtime metadata
+  managed by the listener body — Monitor task id, curl PID,
+  armed_at). Topic URL scheme validation (V1: `ntfy:*`; future:
+  `sse / websocket / gmail / whatsapp`).
+- **`inbox-listener` skill** — prompt template the listener body
+  replays on each wake. Walks the owning Claude through arming
+  curl + Monitor with `persistent: true`, writing the runtime
+  metadata, the pause-check backstop, and `record-wake` after
+  each event. At
+  `empirica/plugins/claude-code-integration/skills/inbox-listener/SKILL.md`.
+- **Listener install/uninstall request bridge** — symmetric to the
+  loop variant. `empirica listener install-request --instance ID`
+  registers + queues a pending install request; new
+  `listener-install-pickup.py` UserPromptSubmit hook surfaces it
+  as a system-reminder on the owning instance's next prompt asking
+  Claude to invoke `/inbox-listener` and arm. `empirica listener
+  pause` reads `listener_active_*.json`, writes a pending uninstall
+  with `monitor_task_id` + `curl_pid`; `listener-uninstall-pickup.py`
+  surfaces it asking Claude to TaskStop the Monitor + drop the held
+  curl. Body-pause-check at next wake is the backstop if Claude
+  doesn't run TaskStop in time.
+
+### Added — Pause-actually-cancels-cron (mechanical pause)
+
+- **`loop_uninstall_request` module + `loop-uninstall-pickup.py`
+  hook** — symmetric inverse of the install-request flow. When
+  `empirica loop pause` runs against a loop with `scheduler_kind=
+  cron-create` and a recorded `next_scheduled_job_id`, the pause
+  handler now writes
+  `~/.empirica/loop_uninstall_pending_<instance>_<name>.json`
+  containing the job_id. The new UserPromptSubmit hook surfaces it
+  as a system-reminder asking the owning Claude to call
+  `CronDelete(<job_id>)`. The loop is then genuinely off — no
+  more silent fires firing every interval until the body's pause
+  check catches them. Closes the token-bleed pause bug David hit
+  in production for outreach-inbox-poll.
+
+### Added — TUI L/E binary toggle (cockpit Phase 1+2)
+
+- **L button mechanical kill** — `cockpit_app.py:action_toggle_loops`
+  now calls `handle_loop_pause_command` / `handle_loop_resume_command`
+  instead of `set_loop_paused()` directly, so the TUI goes through
+  the same pause-cancels-cron flow as the CLI. Live test that flagged
+  the bug: clicking L on outreach instance set the sidecar but no
+  `loop_uninstall_pending_*.json` was written.
+- **E binding for listeners** — symmetric to L. Calls
+  `handle_listener_pause_command` / `handle_listener_resume_command`
+  for mechanical Monitor-kill. New `E` column added to the instance
+  table (now 7 columns: `s name ph S L E N`). Action bar gets a
+  matching `E listen` button.
+- **Listeners surface in `aggregate_all`** — `instance_state.py` reads
+  `listeners_<id>.json`, emits a `listeners` dict per instance plus
+  `listeners_registered` / `listeners_paused` in the summary block.
+  Powers the new TUI column and `empirica status --json`.
+- **L/E click installs from `project.yaml` when registry empty** —
+  new `cockpit:` block in `.empirica/project.yaml` defines
+  `cockpit.loops` and `cockpit.listeners` lists. First click on an
+  empty registry reads the canonical config and queues install via
+  the install-request handlers — registration is one-time. New
+  reader at `empirica/core/cockpit/project_cockpit_config.py`.
+
+### Fixed
+
+- **Chocolatey REST API push (#97)** — `release.py:
+  build_and_push_chocolatey` swapped `choco push` subprocess for a
+  direct PUT to `push.chocolatey.org/api/v2/package/` via `requests`
+  with `X-NuGet-ApiKey` header. The CLI returns 400; the REST
+  endpoint kars85 used manually for the 1.8.14 push works. `choco
+  pack` is unchanged. Dry-run logs the intended PUT.
+- **`sync_readme_whats_new` regex robustness** — old pattern
+  `(?:- \*\*[^\n]+\n)+` only matched contiguous `- **` bullet
+  lines, so the moment a bullet wrapped onto a continuation line
+  the match collapsed to a single bullet. Combined with
+  `re.sub`-replaces-all, this could mangle older `What's New`
+  sections. New: full-section match with lookahead delimiter
+  (`\n## | \n### | \n---\n`) and `count=1` so only the latest
+  section gets replaced; older history survives.
+- **`update_version_strings` covers `**Version:** X.Y.Z`** — the
+  bare `^Version:` regex didn't match the bold-markdown form in
+  the README footer, leaving line 433 stuck on `1.8.14` after the
+  1.8.15/1.8.16 sweeps. Added a sister entry mirroring the
+  MCP_SERVER_REFERENCE pattern.
+- **README cleanup** — removed two duplicate "## What's New in
+  1.8.14" sections that accumulated from earlier sync runs failing
+  on multi-line bullets. Consolidated to a single 1.8.14 section;
+  1.8.15 and 1.8.16 history preserved. Footer bumped 1.8.14 →
+  1.8.16.
+
+### Fixed — Pre-release audit closures
+
+- **`_require_instance_id` raises `InstanceIdRequiredError(ValueError)`**
+  instead of `SystemExit`. Same hazard pattern that motivated the
+  1.8.16 `resolve_project_id` migration: BaseException-walks-through-
+  except-Exception. Group dispatchers catch and surface as exit 2.
+- **`LoopRegistry.unregister()` and `ListenerRegistry.unregister()`
+  clean pending install/uninstall sidecar files** — closes the
+  orphan-arming gap where unregister could leave a pending file
+  that re-arms the loop/listener on the next prompt despite no
+  registry entry.
+
+### Sentinel firewall
+
+- **`empirica listener ` added to Tier 1 control-plane whitelist** —
+  parallels `empirica loop ` and `empirica sentinel `. State-changing
+  but instance-local; allowed in any phase.
+
+### Hooks (new)
+
+- `loop-install-pickup.py` (1.8.16, listed here for completeness)
+- `loop-uninstall-pickup.py` (new this release)
+- `listener-install-pickup.py` (new this release)
+- `listener-uninstall-pickup.py` (new this release)
+
+All four follow the same pattern: cockpit writes a pending file →
+hook surfaces a system-reminder via `additionalContext` on the
+owning instance's next prompt → Claude executes the privileged
+tool (CronCreate / CronDelete / Monitor / TaskStop) from inside
+that CC session.
+
 ## [1.8.16] - 2026-04-29
 
 ### Fixed (#95 follow-up — root-cause closure)

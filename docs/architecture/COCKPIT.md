@@ -2,21 +2,31 @@
 
 > Multi-instance state visibility and per-instance controls.
 >
-> Spec: `../specs/PROPOSAL_SENTINEL_LOOP_TUI.md`
+> **Version:** 1.8.17
+> **Updated:** 2026-04-30
+> **Specs:** `../specs/PROPOSAL_SENTINEL_LOOP_TUI.md` (loops + cockpit base),
+> [`PROPOSAL_EVENT_LISTENER.md`](PROPOSAL_EVENT_LISTENER.md) (listener subsystem,
+> shipped 1.8.17)
 
 ---
 
 ## What it is
 
-Three CLI surfaces on top of one core module:
+CLI surfaces on top of one core module:
 
 | Command | Module | Purpose |
 |---|---|---|
 | `empirica sentinel <pause\|resume\|status>` | `empirica.core.cockpit.sentinel_pause` | Per-instance noetic firewall toggle |
-| `empirica loop <register\|heartbeat\|pause\|...>` | `empirica.core.cockpit.loop_registry` | Per-instance loop registry CRUD |
+| `empirica loop <register\|heartbeat\|pause\|install-request\|...>` | `empirica.core.cockpit.loop_registry` | Per-instance **periodic** loop registry CRUD |
+| `empirica listener <register\|pause\|resume\|record-wake\|fire\|install-request\|list\|status\|unregister>` | `empirica.core.cockpit.listener_registry` | Per-instance **event-driven** listener registry CRUD (sister concept to loop) |
 | `empirica instance <kill\|forget\|label\|prune>` | `empirica.core.cockpit.instance_actions` | Destructive lifecycle: terminate / scrub state / rename / bulk-prune-dead |
 | `empirica status [--all\|--instance ID] [--pretty\|--json]` | `empirica.core.cockpit.instance_state` | Cockpit overview, all renderers consume the same JSON |
-| `empirica tui` | `empirica.cli.tui.cockpit_app` | Interactive Textual app — clickable buttons + keyboard shortcuts for every verb |
+| `empirica tui` | `empirica.cli.tui.cockpit_app` | Interactive Textual app — clickable buttons + keyboard shortcuts for every verb (P/L/E/S/N) |
+
+**Loops are periodic** (cron-mode, `loop-cron` skill); **listeners are
+event-driven** (held HTTP connection via ntfy/SSE → Monitor wake,
+`inbox-listener` skill). Both share the same install-request → pickup-hook
+→ owning Claude executes pattern.
 
 The bespoke TUI is **not** part of v1. The intended dashboard is:
 
@@ -48,16 +58,26 @@ scanning is one glob.
 | `instance_projects/{instance_id}.json` | session-init hook | maps instance → project_path |
 | `sentinel_paused_{instance_id}` | `empirica sentinel pause` (and direct hook writes) | empty file; existence = paused |
 | `sentinel_paused` | global pause fallback | applies to all instances |
+| **Loops (cron / periodic)** | | |
 | `loops_{instance_id}.json` | `empirica loop register/heartbeat/...` | declarative registry of loops |
 | `loop_paused_{instance_id}_{name}` | `empirica loop pause` | empty file; existence = loop paused |
+| `loop_install_pending_{instance_id}_{name}.json` | `empirica loop install-request` | bridge file — owning Claude's `loop-install-pickup.py` UserPromptSubmit hook surfaces it as system-reminder asking for `/loop` + `CronCreate` |
+| `loop_uninstall_pending_{instance_id}_{name}.json` | `empirica loop pause` (when scheduler_kind=cron-create) | bridge file — `loop-uninstall-pickup.py` hook asks owning Claude to `CronDelete(<job_id>)` |
+| **Listeners (event-driven)** | | |
+| `listeners_{instance_id}.json` | `empirica listener register/record-wake/...` | declarative registry of listeners |
+| `listener_paused_{instance_id}_{name}` | `empirica listener pause` | empty file; existence = listener paused |
+| `listener_active_{instance_id}_{name}.json` | listener body (`inbox-listener` skill) | runtime metadata: `monitor_task_id`, `curl_pid`, `armed_at` |
+| `listener_install_pending_{instance_id}_{name}.json` | `empirica listener install-request` | bridge file — `listener-install-pickup.py` hook asks owning Claude to invoke `/inbox-listener` and arm |
+| `listener_uninstall_pending_{instance_id}_{name}.json` | `empirica listener pause` (when active runtime present) | bridge file — `listener-uninstall-pickup.py` hook asks owning Claude to `TaskStop(monitor_task_id)` + drop the held curl |
+| **Instance lifecycle** | | |
 | `instance_label_{instance_id}` | optional, set manually | one-line human label |
 | `active_session_{instance_id}` | session-init hook (legacy) | session pointer; fallback for project lookup |
 | `<project>/.empirica/active_transaction_{instance_id}.json` | workflow_commands.py | current open transaction |
 | `<project>/.empirica/hook_counters_{instance_id}.json` | sentinel-gate.py / hooks | praxic_tool_calls etc. — used to derive phase |
 
 Discovery walks `instance_projects/`, `sentinel_paused_*`, `loops_*.json`,
-`active_session_*`, `hook_counters_*.json`, and `context_usage_*.json` and
-unions the derived instance_ids.
+`listeners_*.json`, `active_session_*`, `hook_counters_*.json`, and
+`context_usage_*.json` and unions the derived instance_ids.
 
 ---
 
@@ -240,32 +260,96 @@ timestamp from backoff state, and installs a one-shot scheduler job at
 that timestamp. The returned `next_scheduled_job_id` flows back via
 heartbeat so `empirica loop pause` can cancel it.
 
-Pause means the scheduler is silent — no more fires, no token bleed.
-The body's pause check at the start of each fire is the backstop:
-`paused` → exit without scheduling next, loop dies cleanly. Backoff
-stretches the actual fire interval — empty streaks compound, found/fail
-snap back to base.
+### Mechanical pause via pickup hook (1.8.17+)
+
+Pause now means the scheduler is **mechanically** silent — not just a
+sidecar flag the body checks. When `empirica loop pause` runs against
+a loop with `scheduler_kind=cron-create` and a recorded
+`next_scheduled_job_id`, the pause handler:
+
+1. Writes the `loop_paused_*` sidecar (advisory layer — body backstop).
+2. Clears `next_scheduled_job_id` from the registry.
+3. Writes `~/.empirica/loop_uninstall_pending_{instance_id}_{name}.json`
+   containing the recorded job_id.
+4. The owning instance's `loop-uninstall-pickup.py` UserPromptSubmit
+   hook surfaces it as a system-reminder asking the owning Claude to
+   call `CronDelete(<job_id>)`. That Claude executes from inside its CC
+   session and the cron is genuinely off.
+5. **Backstop:** if Claude doesn't run `CronDelete` in time, the body's
+   pause check at the next fire still exits without scheduling the next
+   one. Loop dies cleanly after at most one more silent fire.
+
+Backoff stretches the actual fire interval — empty streaks compound,
+found/fail snap back to base. Pause-as-mechanical-cancel was the
+1.8.17 fix for the token-bleed bug where `empirica loop pause` left
+the recurring CronCreate job firing every interval.
+
+### The pickup-hook pattern (loop + listener install/uninstall)
+
+Four UserPromptSubmit hooks share the same shape:
+
+| Hook | Trigger | Asks owning Claude to |
+|---|---|---|
+| `loop-install-pickup.py` | `empirica loop install-request` writes `loop_install_pending_*` | invoke `/loop` with substituted `loop-cron` prompt → `CronCreate` |
+| `loop-uninstall-pickup.py` | `empirica loop pause` writes `loop_uninstall_pending_*` | call `CronDelete(<job_id>)` |
+| `listener-install-pickup.py` | `empirica listener install-request` writes `listener_install_pending_*` | invoke `/inbox-listener` with substituted prompt → arm curl + Monitor |
+| `listener-uninstall-pickup.py` | `empirica listener pause` writes `listener_uninstall_pending_*` (when active runtime present) | `TaskStop(<monitor_task_id>)` + drop held curl + clean `listener_active_*.json` |
+
+Each hook reads pending files for the running instance, surfaces them as
+`additionalContext` (a system-reminder on the next prompt), and removes
+the file so the request only fires once. The cockpit prompts Claude to
+execute privileged tools (CronCreate / CronDelete / Monitor / TaskStop)
+that only work inside a CC session; the empirica CLI never calls them
+directly.
 
 ### Adding a loop from the cockpit
 
-The cockpit doesn't call `CronCreate` directly (that's a Claude Code
-tool, not a shell command), but it does *prompt* the target Claude to
-call it:
+`empirica loop install-request --instance <ID> --name <NAME>
+--interval <INTERVAL>` registers the loop in
+`loops_{instance_id}.json` (visible in cockpit immediately) and queues
+the install via the hook above. The TUI's L button does the same when
+clicked on an instance with an empty registry, reading the canonical
+loop config from `<project>/.empirica/project.yaml`'s `cockpit.loops`
+block.
 
-1. `empirica loop install-request --instance <ID> --name <NAME>
-   --interval <INTERVAL> --description <DESC>` registers the loop in
-   the target's `loops_{instance_id}.json` (so it's visible in the
-   cockpit immediately) and writes a pending file at
-   `~/.empirica/loop_install_pending_{instance_id}_{name}.json` with
-   the `loop-cron` prompt template substituted.
-2. The target instance's `UserPromptSubmit` hook
-   (`loop-install-pickup.py`) reads pending files for the running
-   instance, surfaces them as `additionalContext` (a system-reminder
-   block on the next prompt), and removes the file so the request
-   only fires once.
-3. The Claude reading the system-reminder runs `/loop` with the
-   embedded prompt; CC's `/loop` skill calls `CronCreate` from inside
-   that session.
+### Adding a listener from the cockpit
+
+`empirica listener install-request --instance <ID> --name <NAME>
+--topic ntfy:<TOPIC>` registers the listener in
+`listeners_{instance_id}.json` and queues the install. The TUI's E
+button does the same, reading `<project>/.empirica/project.yaml`'s
+`cockpit.listeners` block. Once armed, the listener body holds an HTTP
+connection (curl -N) and wakes when an event arrives — sub-second
+latency from publish, zero token cost at idle. See
+[`PROPOSAL_EVENT_LISTENER.md`](PROPOSAL_EVENT_LISTENER.md) for the
+full architecture.
+
+### Project-canonical loop/listener config
+
+`.empirica/project.yaml` accepts a `cockpit:` block defining the
+project's canonical loops and listeners. The TUI's L/E click on an
+empty registry reads this block and queues install for each entry
+— first click installs, subsequent clicks toggle pause/resume.
+
+```yaml
+cockpit:
+  loops:
+    - name: outreach-inbox-poll
+      kind: cron
+      cron: "8,23,38,53 * * * *"
+      description: "Outreach Claude self-poll"
+  listeners:
+    - name: outreach-inbox
+      topic: ntfy:outreach-claude-inbox
+      description: "Cortex orchestration inbox"
+      on_wake: "Process new orchestration message"
+```
+
+Reader at `empirica.core.cockpit.project_cockpit_config` — non-raising
+on missing file / malformed YAML; entries that don't pass shape
+validation (loop needs `name`; listener needs `name`+`topic`) are
+silently filtered. Strict business validation happens downstream in
+the install-request handlers.
 
 Resume after pause uses the same pickup path: `empirica loop fire
 NAME` is for manual one-shot fires; for resuming a paused loop, the

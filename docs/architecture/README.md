@@ -1,7 +1,7 @@
 # Empirica System Architecture
 
-**Version:** 1.8.16
-**Updated:** 2026-04-29
+**Version:** 1.8.17
+**Updated:** 2026-04-30
 
 ---
 
@@ -123,14 +123,15 @@ Empirica is a **measurement-first epistemic framework** for AI agents. It provid
 | [instance_isolation/ARCHITECTURE.md](instance_isolation/ARCHITECTURE.md) | File taxonomy, resolution priority |
 | [instance_isolation/CLAUDE_CODE.md](instance_isolation/CLAUDE_CODE.md) | Claude Code specific patterns |
 | [instance_isolation/MCP_AND_CLI.md](instance_isolation/MCP_AND_CLI.md) | MCP and CLI integration |
-| [instance_isolation/KNOWN_ISSUES.md](instance_isolation/KNOWN_ISSUES.md) | Bug history (11.1-11.30) |
+| [instance_isolation/KNOWN_ISSUES.md](instance_isolation/KNOWN_ISSUES.md) | Bug history (11.1-11.30+) |
 
 ### Integration
 
 | Document | Description |
 |----------|-------------|
 | [claude-code-symbiosis.md](claude-code-symbiosis.md) | Claude Code hook integration |
-| [COCKPIT.md](COCKPIT.md) | Cockpit UI — sentinel status, loops, instances, notify dispatcher |
+| [COCKPIT.md](COCKPIT.md) | Cockpit UI — sentinel status, loops, listeners, instances, notify dispatcher |
+| [PROPOSAL_EVENT_LISTENER.md](PROPOSAL_EVENT_LISTENER.md) | Event-listener subsystem (sister to cron loops, shipped in 1.8.17) |
 | [DISPATCH_BUS.md](DISPATCH_BUS.md) | Typed cross-instance protocol (terminal/cowork/desktop/cortex) |
 | [NOTIFY.md](NOTIFY.md) | Notification dispatcher — pluggable backends (stdout, log, ntfy) |
 | [SYNC_ARCHITECTURE.md](SYNC_ARCHITECTURE.md) | Sync architecture |
