@@ -1,0 +1,4 @@
+# Windows & Chocolatey packaging — auto-route to @kars85
+packaging/chocolatey/    @kars85
+*.ps1                    @kars85
+docs/windows/            @kars85
