@@ -127,6 +127,16 @@ from .command_handlers.architecture_commands import (
     handle_assess_component_command,
     handle_assess_directory_command,
 )
+from .command_handlers.cockpit_commands import (
+    handle_instance_group_command,
+    handle_listener_group_command,
+    handle_loop_group_command,
+    handle_sentinel_group_command,
+    handle_tui_command,
+)
+from .command_handlers.cockpit_commands import (
+    handle_status_command as handle_cockpit_status_command,
+)
 from .command_handlers.concept_graph_commands import (
     handle_concept_build,
     handle_concept_related,
@@ -164,13 +174,6 @@ from .command_handlers.persona_commands import (
     handle_persona_list_command,
     handle_persona_promote_command,
     handle_persona_show_command,
-)
-from .command_handlers.cockpit_commands import (
-    handle_instance_group_command,
-    handle_loop_group_command,
-    handle_sentinel_group_command,
-    handle_status_command as handle_cockpit_status_command,
-    handle_tui_command,
 )
 from .command_handlers.query_commands import handle_query_command
 from .command_handlers.release_commands import handle_release_command, handle_release_ready_command
@@ -322,7 +325,7 @@ _HELP_CATEGORIES = {
     'issue': ['issue-list', 'issue-show', 'issue-handoff', 'issue-resolve', 'issue-export', 'issue-stats'],
     'investigation': ['investigate', 'investigate-create-branch', 'investigate-checkpoint-branch', 'investigate-merge-branches', 'investigate-multi'],
     'monitoring': ['monitor', 'assess-state', 'trajectory-project', 'efficiency-report', 'workflow-patterns', 'calibration-report'],
-    'cockpit': ['status', 'tui', 'sentinel', 'loop', 'instance'],
+    'cockpit': ['status', 'tui', 'sentinel', 'loop', 'listener', 'instance'],
     'skills': ['skill-suggest', 'skill-fetch', 'skill-extract'],
     'architecture': ['assess-component', 'assess-compare', 'assess-directory'],
     'agents': ['agent-spawn', 'agent-report', 'agent-aggregate', 'agent-parallel', 'agent-export', 'agent-import', 'agent-discover'],
@@ -496,6 +499,7 @@ def main(args=None):
             # Cockpit (proposal: PROPOSAL_SENTINEL_LOOP_TUI.md)
             'sentinel': handle_sentinel_group_command,
             'loop': handle_loop_group_command,
+            'listener': handle_listener_group_command,
             'instance': handle_instance_group_command,
             'status': handle_cockpit_status_command,
             'tui': handle_tui_command,

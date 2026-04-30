@@ -445,6 +445,7 @@ EMPIRICA_TIER1_PREFIXES = (
     'empirica noetic-batch',  # Batched noetic primitive — IS a noetic operation
     'empirica sentinel ',  # Sentinel subcommand: pause/resume/status
     'empirica loop ',  # Loop registry CRUD — instance-local control plane
+    'empirica listener ',  # Event-listener registry CRUD — instance-local control plane
     'empirica instance ',  # Instance lifecycle: kill/forget/label
     'empirica status',  # Multi-instance status overview
     'empirica tui',  # Interactive cockpit (Textual app — destructive ops are modal-confirmed)

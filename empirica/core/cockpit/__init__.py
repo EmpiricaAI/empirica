@@ -49,6 +49,12 @@ from empirica.core.cockpit.instance_state import (
     discover_dead_instances,
     discover_instances,
 )
+from empirica.core.cockpit.listener_registry import (
+    ListenerEntry,
+    ListenerRegistry,
+    is_listener_paused,
+    set_listener_paused,
+)
 from empirica.core.cockpit.liveness import LivenessResult, is_alive
 from empirica.core.cockpit.loop_install_request import (
     LoopInstallRequest,
@@ -77,6 +83,8 @@ from empirica.core.cockpit.sentinel_pause import (
 __all__ = [
     'ForgetResult',
     'KillResult',
+    'ListenerEntry',
+    'ListenerRegistry',
     'LivenessResult',
     'LoopInstallRequest',
     'LoopRegistry',
@@ -100,6 +108,7 @@ __all__ = [
     'get_label',
     'is_alive',
     'is_asking',
+    'is_listener_paused',
     'is_loop_paused',
     'kill_instance',
     'list_pending',
@@ -117,6 +126,7 @@ __all__ = [
     'resume_sentinel',
     'sentinel_status',
     'set_label',
+    'set_listener_paused',
     'set_loop_paused',
     'statusline_summary',
     'stop_instance',

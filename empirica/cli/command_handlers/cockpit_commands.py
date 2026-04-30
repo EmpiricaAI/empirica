@@ -35,6 +35,11 @@ from empirica.core.cockpit import (
     set_label,
     set_loop_paused,
 )
+from empirica.core.cockpit.listener_registry import (
+    ListenerRegistry,
+    is_listener_paused,
+    set_listener_paused,
+)
 from empirica.core.cockpit.loop_install_request import (
     DEFAULT_SCHEDULER_KIND,
     write_pending,
@@ -608,6 +613,207 @@ def handle_loop_status_command(args) -> int:
     return _emit(args, payload, summary)
 
 
+# ─── empirica listener ──────────────────────────────────────────────────────
+#
+# Sister concept to `empirica loop` but event-driven (PROPOSAL_EVENT_LISTENER).
+# Listeners hold an open subscription (ntfy/SSE/WebSocket) and wake when an
+# event arrives — no periodic firing. The registry surface mirrors loop's
+# (register/pause/resume/list/status/unregister) plus listener-specific
+# verbs (record-wake, fire). Mechanical Monitor-kill on pause is deferred
+# to item 4 (the install-request analog with runtime metadata).
+
+
+def handle_listener_register_command(args) -> int:
+    instance_id = _require_instance_id(args)
+    registry = ListenerRegistry(instance_id)
+    try:
+        entry = registry.register(
+            name=args.name,
+            topic=args.topic,
+            description=getattr(args, 'description', '') or '',
+            on_wake_template=getattr(args, 'on_wake', '') or '',
+        )
+    except ValueError as e:
+        return _emit(args, {'ok': False, 'error': str(e)}, f'error: {e}')
+
+    payload = {
+        'ok': True,
+        'instance_id': instance_id,
+        'listener': {'name': entry.name, **entry.to_dict()},
+    }
+    summary = f'Listener registered: {entry.name} (topic={entry.topic})'
+    return _emit(args, payload, summary)
+
+
+def handle_listener_unregister_command(args) -> int:
+    instance_id = _require_instance_id(args)
+    registry = ListenerRegistry(instance_id)
+    removed = registry.unregister(args.name)
+    payload = {
+        'ok': True, 'instance_id': instance_id,
+        'removed': removed, 'name': args.name,
+    }
+    summary = (
+        f'Listener unregistered: {args.name}'
+        if removed
+        else f'Listener {args.name} was not registered (no-op)'
+    )
+    return _emit(args, payload, summary)
+
+
+def handle_listener_pause_command(args) -> int:
+    """Pause a listener.
+
+    V1: writes the pause sidecar (advisory layer). The mechanical kill
+    of Monitor + curl requires the install-request analog (item 4 of
+    PROPOSAL_EVENT_LISTENER) — same pattern as loop_uninstall_request:
+    write a pending file containing the active runtime metadata
+    (Monitor task id, curl pid), surface via UserPromptSubmit hook on
+    the owning instance asking Claude to TaskStop / kill PID.
+
+    For V1, the listener body's pause check at next wake is the
+    backstop (analogous to cron loop body's pause check).
+    """
+    instance_id = _require_instance_id(args)
+    paused = set_listener_paused(instance_id, args.name, paused=True)
+    payload = {
+        'ok': True,
+        'instance_id': instance_id,
+        'name': args.name,
+        'paused': paused,
+    }
+    summary = (
+        f'Listener paused: {args.name} '
+        '(advisory; mechanical Monitor-kill requires item 4 of PROPOSAL_EVENT_LISTENER)'
+    )
+    return _emit(args, payload, summary)
+
+
+def handle_listener_resume_command(args) -> int:
+    instance_id = _require_instance_id(args)
+    paused = set_listener_paused(instance_id, args.name, paused=False)
+    payload = {
+        'ok': True,
+        'instance_id': instance_id,
+        'name': args.name,
+        'paused': paused,
+    }
+    summary = (
+        f'Listener resumed: {args.name} '
+        '(re-arm via the inbox-listener skill or run `empirica listener fire`)'
+    )
+    return _emit(args, payload, summary)
+
+
+def handle_listener_record_wake_command(args) -> int:
+    instance_id = _require_instance_id(args)
+    registry = ListenerRegistry(instance_id)
+    try:
+        entry = registry.record_wake(
+            name=args.name,
+            message=getattr(args, 'message', None),
+        )
+    except KeyError as e:
+        return _emit(args, {'ok': False, 'error': str(e)}, f'error: {e}')
+    payload = {
+        'ok': True,
+        'instance_id': instance_id,
+        'listener': {'name': entry.name, **entry.to_dict()},
+        'paused': is_listener_paused(instance_id, entry.name),
+    }
+    summary = (
+        f'Listener wake: {entry.name} → count={entry.wake_count} '
+        f'last_at={entry.last_wake_at}'
+    )
+    if entry.last_message:
+        summary += f' ({entry.last_message})'
+    return _emit(args, payload, summary)
+
+
+def handle_listener_fire_command(args) -> int:
+    """Manually trigger a wake — V1 just records-wake, doesn't actually
+    inject a wake into the listener body. The actual wake injection
+    happens in item 4 (the install-request analog) where the listener
+    body knows how to be poked. This verb is a placeholder for that
+    flow plus a working "I want to count one fire" affordance for tests.
+    """
+    instance_id = _require_instance_id(args)
+    registry = ListenerRegistry(instance_id)
+    if registry.get(args.name) is None:
+        return _emit(
+            args,
+            {'ok': False, 'error': f'listener not registered: {args.name}'},
+            f'error: listener not registered: {args.name}',
+        )
+    entry = registry.record_wake(args.name, message='manual fire')
+    payload = {
+        'ok': True,
+        'instance_id': instance_id,
+        'listener': {'name': entry.name, **entry.to_dict()},
+    }
+    summary = (
+        f'Listener fired: {entry.name} (V1: counted only — wake injection lands in item 4)'
+    )
+    return _emit(args, payload, summary)
+
+
+def handle_listener_list_command(args) -> int:
+    instance_id = _require_instance_id(args)
+    registry = ListenerRegistry(instance_id)
+    listeners = registry.list_listeners()
+
+    payload_listeners = []
+    for entry in listeners:
+        d = entry.to_dict()
+        d['name'] = entry.name
+        d['paused'] = is_listener_paused(instance_id, entry.name)
+        payload_listeners.append(d)
+
+    payload = {
+        'ok': True,
+        'instance_id': instance_id,
+        'count': len(listeners),
+        'listeners': payload_listeners,
+    }
+
+    if not listeners:
+        summary = f'No listeners registered for {instance_id}'
+    else:
+        rows = [
+            f'  {item["name"]:<20} {item["topic"]:<35} paused={item["paused"]} '
+            f'wakes={item["wake_count"]}'
+            for item in payload_listeners
+        ]
+        summary = f'Listeners registered for {instance_id}:\n' + '\n'.join(rows)
+
+    return _emit(args, payload, summary)
+
+
+def handle_listener_status_command(args) -> int:
+    instance_id = _require_instance_id(args)
+    registry = ListenerRegistry(instance_id)
+    entry = registry.get(args.name)
+    if entry is None:
+        payload = {
+            'ok': False, 'error': f'listener not registered: {args.name}',
+            'instance_id': instance_id, 'name': args.name, 'paused': False,
+        }
+        return _emit(args, payload, payload['error'])
+
+    paused = is_listener_paused(instance_id, args.name)
+    payload = {
+        'ok': True,
+        'instance_id': instance_id,
+        'listener': {'name': entry.name, **entry.to_dict()},
+        'paused': paused,
+    }
+    summary = (
+        f'{entry.name}: topic={entry.topic} paused={paused} '
+        f'wakes={entry.wake_count} last_wake_at={entry.last_wake_at}'
+    )
+    return _emit(args, payload, summary)
+
+
 # ─── empirica status ────────────────────────────────────────────────────────
 
 def handle_tui_command(args) -> int:
@@ -869,6 +1075,18 @@ _LOOP_DISPATCH = {
 }
 
 
+_LISTENER_DISPATCH = {
+    'register': handle_listener_register_command,
+    'unregister': handle_listener_unregister_command,
+    'pause': handle_listener_pause_command,
+    'resume': handle_listener_resume_command,
+    'record-wake': handle_listener_record_wake_command,
+    'fire': handle_listener_fire_command,
+    'list': handle_listener_list_command,
+    'status': handle_listener_status_command,
+}
+
+
 def handle_sentinel_group_command(args) -> int:
     action = getattr(args, 'sentinel_action', None)
     if not action:
@@ -898,6 +1116,21 @@ def handle_loop_group_command(args) -> int:
     return handler(args) or 0
 
 
+def handle_listener_group_command(args) -> int:
+    action = getattr(args, 'listener_action', None)
+    if not action:
+        sys.stdout.write(
+            'usage: empirica listener <register|unregister|pause|resume|'
+            'record-wake|fire|list|status> [args...]\n'
+        )
+        return 2
+    handler = _LISTENER_DISPATCH.get(action)
+    if handler is None:
+        sys.stdout.write(f'error: unknown listener action: {action}\n')
+        return 2
+    return handler(args) or 0
+
+
 # Keep loaders happy — these names are the canonical export surface.
 __all__ = [
     'VALID_KIND',
@@ -906,6 +1139,15 @@ __all__ = [
     'handle_instance_group_command',
     'handle_instance_kill_command',
     'handle_instance_label_command',
+    'handle_listener_fire_command',
+    'handle_listener_group_command',
+    'handle_listener_list_command',
+    'handle_listener_pause_command',
+    'handle_listener_record_wake_command',
+    'handle_listener_register_command',
+    'handle_listener_resume_command',
+    'handle_listener_status_command',
+    'handle_listener_unregister_command',
     'handle_loop_group_command',
     'handle_loop_heartbeat_command',
     'handle_loop_list_command',

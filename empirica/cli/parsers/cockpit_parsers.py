@@ -31,9 +31,10 @@ def _add_instance(parser):
 
 
 def add_cockpit_parsers(subparsers):
-    """Register sentinel/loop/instance subcommand groups + top-level status + tui."""
+    """Register sentinel/loop/listener/instance subcommand groups + top-level status + tui."""
     _add_sentinel_group(subparsers)
     _add_loop_group(subparsers)
+    _add_listener_group(subparsers)
     _add_instance_group(subparsers)
     _add_status_command(subparsers)
     _add_tui_command(subparsers)
@@ -240,6 +241,78 @@ def _add_loop_group(subparsers):
 
     status_p = loop_subs.add_parser('status', help='Show status for a single loop')
     status_p.add_argument('name', help='Loop name')
+    _add_instance(status_p)
+    _add_output(status_p)
+
+
+def _add_listener_group(subparsers):
+    """Event-listener subcommands per PROPOSAL_EVENT_LISTENER.md.
+
+    Listeners are sister concept to loops but event-driven (held HTTP
+    connection via ntfy/SSE → Monitor wake), not periodic. Pause must
+    mechanically kill the Monitor + held connection (handled by the
+    listener body via the install-request analog, item 4).
+    """
+    listener_root = subparsers.add_parser(
+        'listener',
+        help='Event listener registry: register, pause, resume per-instance event-driven work',
+    )
+    listener_subs = listener_root.add_subparsers(dest='listener_action', metavar='action')
+
+    register = listener_subs.add_parser('register', help='Register a listener (idempotent)')
+    register.add_argument('--name', required=True,
+                          help='Listener name (alphanumeric, dot, dash, underscore)')
+    register.add_argument('--topic', required=True,
+                          help='Topic URL: <scheme>:<rest>. V1: ntfy:<channel>. '
+                               'Future: sse:<url>, websocket:<url>, gmail:<query>, whatsapp:<num>')
+    register.add_argument('--description', help='Optional human-readable description')
+    register.add_argument('--on-wake',
+                          help='Prompt template the listener body replays on each wake. '
+                               'Empty = use the default from the inbox-listener skill.')
+    _add_instance(register)
+    _add_output(register)
+
+    unregister = listener_subs.add_parser('unregister',
+        help='Remove a listener from the registry (also clears pause/active state)')
+    unregister.add_argument('name', help='Listener name')
+    _add_instance(unregister)
+    _add_output(unregister)
+
+    pause = listener_subs.add_parser('pause',
+        help='Pause a listener — sets pause flag (mechanical kill of Monitor + curl '
+             'requires the install-request analog, item 4 of PROPOSAL_EVENT_LISTENER)')
+    pause.add_argument('name', help='Listener name')
+    _add_instance(pause)
+    _add_output(pause)
+
+    resume = listener_subs.add_parser('resume',
+        help='Resume a listener (clears pause flag; bootstrap arming via the wake template)')
+    resume.add_argument('name', help='Listener name')
+    _add_instance(resume)
+    _add_output(resume)
+
+    record_wake = listener_subs.add_parser('record-wake',
+        help='Record a wake fire (call after the listener body processes a message)')
+    record_wake.add_argument('name', help='Listener name')
+    record_wake.add_argument('--message',
+                              help='Optional summary message for this wake')
+    _add_instance(record_wake)
+    _add_output(record_wake)
+
+    fire = listener_subs.add_parser('fire',
+        help='Manually trigger one wake of the listener body (testing).')
+    fire.add_argument('name', help='Listener name')
+    _add_instance(fire)
+    _add_output(fire)
+
+    list_p = listener_subs.add_parser('list',
+        help='List all listeners registered for an instance')
+    _add_instance(list_p)
+    _add_output(list_p)
+
+    status_p = listener_subs.add_parser('status',
+        help='Show status for a single listener')
+    status_p.add_argument('name', help='Listener name')
     _add_instance(status_p)
     _add_output(status_p)
 
