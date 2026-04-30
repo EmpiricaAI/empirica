@@ -440,6 +440,7 @@ EMPIRICA_TIER1_PREFIXES = (
     'empirica compliance-report',  # Compliance report - read-only
     'empirica workspace-list', 'empirica ecosystem-check',  # Workspace queries - read-only
     'empirica --help', 'empirica -h',
+    'empirica help',  # subcommand form (`empirica help` and `empirica help <category>`)
     'empirica version',
     'empirica profile-status',  # Profile status - read-only
     'empirica noetic-batch',  # Batched noetic primitive — IS a noetic operation
@@ -2043,6 +2044,14 @@ def _check_postflight_loop_closed(cursor, session_id: str, current_transaction_i
                 # Transition commands (cd, session-create, project-bootstrap)
                 if is_transition_command(command):
                     return ("allow", "Transition command (starting new cycle)")
+
+                # Empirica CLI commands (Tier 1 read-only + Tier 2 artifact lifecycle).
+                # The doc comment above says this should be allowed —
+                # "goals-list, goals-complete, unknown-resolve, finding-log, etc." —
+                # but the prior code only checked is_safe_bash_command, which doesn't
+                # cover `empirica help`, `empirica goals-list`, etc. Honor the intent.
+                if is_safe_empirica_command(command):
+                    return ("allow", "Empirica command between transactions (artifact lifecycle / read-only)")
 
             return ("deny", "Epistemic loop closed (POSTFLIGHT completed). Run new PREFLIGHT to start next goal. Command: empirica preflight-submit - (JSON with vectors on stdin)")
     except (ValueError, TypeError):
