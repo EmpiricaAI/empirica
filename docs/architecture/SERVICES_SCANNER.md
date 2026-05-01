@@ -4,7 +4,8 @@
 **Phases:**
 - **1 (shipped):** deterministic data collection, read-surface YAML, Markdown report, bundled corpus stubs
 - **2 T1 (shipped):** `services-auditor` skill + `empirica scan --explain` hand-off
-- **2 T2 (next):** cockpit `#services` panel + ntfy hook for high-confidence findings
+- **2 T2 (shipped):** cockpit `#services` panel
+- **2 T2.5 (next):** ntfy hook for high-confidence audit findings
 - **2 T3:** POSTFLIGHT coverage block (paper section 4.1)
 - **3:** biweekly loop + history/diff verbs + corpus-refresh
 - **4:** RAG over corpus, dynamic CVE feed, fleet view
@@ -276,3 +277,85 @@ ratio across files, artifacts, and citations.
 - [x] Hand-off works in both Markdown (human) and JSON (programmatic) output formats
 - [x] Tests cover: `--explain` exit code + Markdown hand-off content + JSON envelope shape
 - [x] CHANGELOG entry under `[Unreleased]`
+
+---
+
+## Phase 2 T2 — Cockpit `#services` panel (shipped)
+
+The Phase 1 + T1 path writes ``~/.empirica/last_scan_<project_id>.json``
+on every `--save` / `--explain` run. The new `#services` panel reads
+that file and surfaces a one-line summary in the cockpit, with the
+same ergonomics as the existing `#compliance` panel.
+
+### Module shape
+
+`empirica/core/cockpit/services_view.py` mirrors `compliance_view.py`:
+
+- `last_scan_path(project_id)` — resolves the persisted snapshot path
+- `read_services_summary(project_path)` — reads the snapshot, returns
+  a render-friendly dict with process count, listening-ports count,
+  MCP server count, plugin-manifest count, cron-entries count,
+  integrity ratio, env-var names count, errors count, fresh flag,
+  age seconds, project_id
+
+`aggregate_instance_state` (in `instance_state.py`) embeds the
+summary as the `services` key per-instance — same pattern as
+`compliance`. Multiple instances of the same project share the same
+scanner state, so the per-instance embedding is cheap and keeps the
+cockpit row self-contained.
+
+### TUI surface
+
+CSS + compose entries land directly under `#compliance`:
+
+```
+#services-header { height: 1; padding: 0 1; color: $text-muted; }
+#services { height: auto; min-height: 1; max-height: 8; padding: 0 1; }
+```
+
+**Key binding: `i`** (mnemonic: scanner *Inventory*). `s` is bound to
+Stop and `c` is bound to Compliance, so `i` was the next sensible
+mnemonic. Pressing `i` flips the panel between collapsed (one-line
+summary) and expanded (per-category breakdown).
+
+### Glyphs
+
+| Status | Glyph | Trigger |
+|---|---|---|
+| Clean + fresh | 🔍 ✓ | no errors, age < 24h |
+| Stale | 🔍 ⚠ | age ≥ 24h |
+| Errors | 🔍 ✗ | scan recorded collector errors |
+
+### Collapsed view
+
+```
+🔍 ✓ 491 procs · 15 listening · integrity 100% (5m ago)
+```
+
+### Expanded view (after `i`)
+
+```
+🔍 ✓ 491 procs · 15 listening · integrity 100% (5m ago)
+
+  · MCP servers: 3
+  · Plugin manifests: 44
+  · Cron entries: 2
+  · Interesting env-var names: 9
+  · Host: AIworkhorse
+  (press `i` to collapse)
+```
+
+When the auditor lands judgments (Phase 2 T2.5+), this expanded view
+will gain `findings_count` / `assumptions_count` / `unknowns_count`.
+
+### Acceptance criteria — Phase 2 T2
+
+- [x] `services_view.py` mirroring `compliance_view.py`'s read/write
+      pattern with `last_scan_path` + `read_services_summary`
+- [x] `aggregate_instance_state` embeds the `services` block per-instance
+- [x] TUI `#services` panel composed under `#compliance`
+- [x] `i` keybinding wired to `action_toggle_services`
+- [x] Glyphs surface clean / stale / error states
+- [x] Tests: 10 covering path resolution, missing files, full shape,
+      stale window, missing keys, corrupt JSON
+- [x] SERVICES_SCANNER.md updated

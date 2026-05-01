@@ -26,6 +26,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`empirica visibility show <prefix>`** — single-artifact tier
   lookup by UUID prefix across all 7 tables.
 
+### Added — AI service scanner Phase 2 T2 (cockpit panel)
+
+- **`empirica/core/cockpit/services_view.py`** — mirrors
+  `compliance_view.py`. `last_scan_path()` + `read_services_summary()`
+  read `~/.empirica/last_scan_<project_id>.json` (the file
+  `empirica scan --save` and `--explain` already write) and produce a
+  render-friendly dict per project.
+- **`aggregate_instance_state` services block** — every instance row
+  in cockpit aggregation now carries a `services` key parallel to
+  `compliance`. Multiple instances of the same project share the same
+  scanner state, so the per-instance embedding is cheap and keeps the
+  cockpit self-contained.
+- **TUI `#services` panel under `#compliance`** — collapsed view
+  (one-line: glyph + processes + listening + integrity % + age),
+  expanded view (per-category breakdown of MCP servers, plugin
+  manifests, cron entries, env-var name count, host).
+- **Key `i` (scanner Inventory)** toggles panel expansion. `s` stays
+  bound to Stop and `c` to Compliance; `i` was the next sensible
+  mnemonic for the new panel.
+- **Glyphs:** 🔍 ✓ clean+fresh, 🔍 ⚠ stale (>24h), 🔍 ✗ collector errors.
+- **10 new tests** in `tests/test_services_view.py` covering path
+  resolution, missing files, full shape, stale-window logic, missing
+  keys, corrupt JSON. Full cockpit suite (191 tests) still green.
+
 ### Added — AI service scanner Phase 2 T1 (auditor hand-off)
 
 - **`services-auditor` skill** at

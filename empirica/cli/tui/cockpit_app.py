@@ -110,6 +110,8 @@ class CockpitApp(App):
     #notif { height: auto; min-height: 1; max-height: 7; padding: 0 1; }
     #compliance-header { height: 1; padding: 0 1; color: $text-muted; }
     #compliance { height: auto; min-height: 1; max-height: 8; padding: 0 1; }
+    #services-header { height: 1; padding: 0 1; color: $text-muted; }
+    #services { height: auto; min-height: 1; max-height: 8; padding: 0 1; }
     """
 
     BINDINGS = [
@@ -121,6 +123,7 @@ class CockpitApp(App):
         Binding('s', 'stop', 'Stop'),
         Binding('n', 'clear_notifications', 'Notif'),
         Binding('c', 'toggle_compliance', 'Compl.'),
+        Binding('i', 'toggle_services', 'Servic.'),
         Binding('D', 'toggle_dead', 'Show dead'),
     ]
 
@@ -134,6 +137,11 @@ class CockpitApp(App):
         # one-line glyph). User can toggle with `c` key.
         self.compliance_expanded: bool = False
         self.compliance_user_overridden: bool = False
+        # Services panel expansion mirrors compliance — collapsed by
+        # default (one-line summary), `i` (Inventory) toggles full view.
+        # `s` is reserved for Stop and `c` for Compliance, so the new
+        # binding takes the next sensible mnemonic.
+        self.services_expanded: bool = False
 
     # ─── lifecycle ────────────────────────────────────────────────────────
 
@@ -172,6 +180,11 @@ class CockpitApp(App):
         # Press `c` to toggle expansion.
         yield Static('compliance', id='compliance-header')
         yield Static('', id='compliance')
+        # Services panel (Phase 2 T2): last `empirica scan` snapshot for
+        # the selected instance's project. Collapsed to a one-line
+        # summary by default; press `i` (scanner Inventory) to expand.
+        yield Static('services', id='services-header')
+        yield Static('', id='services')
         yield Footer()
 
     def on_mount(self) -> None:
@@ -341,25 +354,28 @@ class CockpitApp(App):
         return None
 
     def _render_selected_widgets(self) -> None:
-        """Statusline + open-goals + notifications + compliance for the
-        selected instance."""
+        """Statusline + open-goals + notifications + compliance + services
+        for the selected instance."""
         inst = self._selected_instance()
         statusline_widget = self.query_one('#statusline', Static)
         goals_widget = self.query_one('#goals', Static)
         notif_widget = self.query_one('#notif', Static)
         compliance_widget = self.query_one('#compliance', Static)
+        services_widget = self.query_one('#services', Static)
 
         if inst is None:
             statusline_widget.update('')
             goals_widget.update('(no instance selected)')
             notif_widget.update('')
             compliance_widget.update('')
+            services_widget.update('')
             return
 
         statusline_widget.update(self._format_statusline(inst))
         goals_widget.update(self._format_goals(inst))
         notif_widget.update(self._format_notifications(inst))
         compliance_widget.update(self._format_compliance(inst))
+        services_widget.update(self._format_services(inst))
 
     def _format_statusline(self, inst: dict[str, Any]) -> str:
         """k:X c:Y conf:Z% goals:N — ctx:M% [PAUSED]
@@ -483,6 +499,60 @@ class CockpitApp(App):
         if s < 86400:
             return f'{s // 3600}h'
         return f'{s // 86400}d'
+
+    def _format_services(self, inst: dict[str, Any]) -> str:
+        """Last `empirica scan` snapshot summary for the selected project.
+
+        Collapsed (default): one line — glyph + processes + listeners +
+        coverage % + age.
+        Expanded (`i`): adds breakdowns for MCP servers, plugin manifests,
+        cron entries, and interesting env-var name count.
+        """
+        s = inst.get('services')
+        if not s:
+            return '(no scanner snapshot for this project — `empirica scan --save`)'
+
+        proc_count = s.get('process_count', 0)
+        listening = s.get('listening_ports_count', 0)
+        integrity = s.get('integrity_ratio', 0.0)
+        errors = s.get('errors_count', 0)
+        fresh = s.get('fresh', False)
+        age = s.get('age_seconds')
+
+        # Glyph: 🔍 green (clean + fresh) | 🔍 yellow (stale) | 🔍 red (errors)
+        if errors > 0:
+            glyph = '🔍 ✗'
+        elif not fresh:
+            glyph = '🔍 ⚠'
+        else:
+            glyph = '🔍 ✓'
+
+        if not fresh and age is not None:
+            staleness = f' (stale {self._format_age(age)})'
+        elif age is not None:
+            staleness = f' ({self._format_age(age)} ago)'
+        else:
+            staleness = ''
+
+        head = (
+            f'{glyph} {proc_count} procs · {listening} listening · '
+            f'integrity {int(integrity * 100)}%{staleness}'
+        )
+        if errors:
+            head += f' · {errors} collector errors'
+
+        if not self.services_expanded:
+            return head
+
+        lines = [head, '']
+        lines.append(_wrap_item('  ·', f'MCP servers: {s.get("mcp_servers_count", 0)}'))
+        lines.append(_wrap_item('  ·', f'Plugin manifests: {s.get("plugin_manifests_count", 0)}'))
+        lines.append(_wrap_item('  ·', f'Cron entries: {s.get("cron_entries_count", 0)}'))
+        lines.append(_wrap_item('  ·', f'Interesting env-var names: {s.get("env_var_names_count", 0)}'))
+        host = s.get('host') or '?'
+        lines.append(_wrap_item('  ·', f'Host: {host}'))
+        lines.append('  (press `i` to collapse)')
+        return '\n'.join(lines)
 
     def _render_dispatcher(self) -> None:
         """Render the failure banner only — backends + 24h counts now live
@@ -647,6 +717,15 @@ class CockpitApp(App):
         result = stop_instance(inst['instance_id'])
         self._log_status(f'stop {inst["instance_id"]}: {result.detail}')
         self.refresh_payload()
+
+    def action_toggle_services(self) -> None:
+        """Flip the services panel between one-line and expanded views.
+
+        Mirrors `c` for compliance — `i` (scanner Inventory) was chosen
+        because `s` is bound to Stop. Pure UX flip; no state change.
+        """
+        self.services_expanded = not self.services_expanded
+        self._render_selected_widgets()
 
     def action_toggle_compliance(self) -> None:
         """Flip compliance widget between collapsed and expanded.

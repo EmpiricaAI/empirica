@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any
 
 from empirica.core.cockpit.compliance_view import read_compliance_summary
+from empirica.core.cockpit.services_view import read_services_summary
 from empirica.core.cockpit.enrichment import (
     is_asking,
     notification_summary,
@@ -393,6 +394,13 @@ def aggregate_instance_state(
     # cross-reference a separate project map.
     compliance = read_compliance_summary(project_path)
 
+    # Services is also project-scoped — same shape, different source
+    # (last `empirica scan` snapshot). Phase 2 T2 surfaces deterministic
+    # Phase 1 metrics (process count, listening ports, integrity ratio);
+    # auditor judgment counts will land here once Phase 2 T3 wires the
+    # POSTFLIGHT coverage block.
+    services = read_services_summary(project_path)
+
     return {
         'instance_id': instance_id,
         'label': label,
@@ -419,6 +427,7 @@ def aggregate_instance_state(
             'has_attention': notif.has_attention,
         },
         'compliance': compliance,
+        'services': services,
     }
 
 
