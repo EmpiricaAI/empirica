@@ -101,10 +101,11 @@ def test_history_limit_caps_results(fake_home, capsys):
     assert out['entries'][1]['scan_id'].startswith('00000003')
 
 
-def test_history_no_project_id_errors(fake_home, capsys):
+def test_history_no_project_id_errors(fake_home, monkeypatch, capsys):
     args = SimpleNamespace(project_id=None, output='json', limit=20)
-    # Force resolver to return None
-    sc._resolve_project_id = lambda _a: None  # type: ignore[assignment]
+    # Force resolver to return None — monkeypatch so it auto-reverts
+    # at end of test (direct assignment leaks across tests).
+    monkeypatch.setattr(sc, '_resolve_project_id', lambda _a: None)
     rc = sc.handle_scan_history_command(args)
     assert rc == 1
 

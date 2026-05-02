@@ -127,6 +127,7 @@ from .command_handlers.architecture_commands import (
     handle_assess_component_command,
     handle_assess_directory_command,
 )
+from .command_handlers.chat_commands import handle_chat_command
 from .command_handlers.cockpit_commands import (
     handle_instance_group_command,
     handle_listener_group_command,
@@ -198,6 +199,7 @@ from .parsers import (
     add_architecture_parsers,
     add_bus_parsers,
     add_cascade_parsers,
+    add_chat_parsers,
     add_checkpoint_parsers,
     add_cockpit_parsers,
     add_concept_graph_parsers,
@@ -300,6 +302,7 @@ def create_argument_parser():
     add_message_parsers(subparsers)
     add_bus_parsers(subparsers)
     add_cockpit_parsers(subparsers)
+    add_chat_parsers(subparsers)
     add_notify_parsers(subparsers)
     add_voice_parsers(subparsers)
     add_visibility_parsers(subparsers)
@@ -507,6 +510,10 @@ def main(args=None):
             'instance': handle_instance_group_command,
             'status': handle_cockpit_status_command,
             'tui': handle_tui_command,
+
+            # Chat (single-instance collaborative epistemic workspace)
+            # See empirica/docs/architecture/CHAT.md
+            'chat': handle_chat_command,
 
             # Notify dispatcher (proposal: PROPOSAL_NOTIFY_DISPATCHER.md)
             'notify': handle_notify_group_command,
