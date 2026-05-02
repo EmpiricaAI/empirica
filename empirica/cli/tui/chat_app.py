@@ -326,12 +326,12 @@ class ChatApp(App):
         """
         try:
             widget = self.query_one(f"#turn-{turn_id[:8]}")
-        except Exception:  # noqa: BLE001 — widget may have been removed
+        except Exception:
             return
         from empirica.cli.tui.chat.turn import AgentTurn
         if isinstance(widget, AgentTurn):
             widget.turn.text = text
-            widget.update(widget._format_body())  # noqa: SLF001 — own subclass
+            widget.update(widget._format_body())
         else:
             widget.update(f"[b]agent:[/b] {text}")  # type: ignore[attr-defined]
 
@@ -472,6 +472,96 @@ class ChatApp(App):
 
     def _slash_unknown(self, rest: str) -> None:
         self._slash_artifact("unknown", rest)
+
+    def _slash_batch(self, rest: str) -> None:
+        """/batch PATH — log a batch artifact graph from a JSON file."""
+        if not rest:
+            self._emit_system("/batch: missing PATH — usage: /batch <path-to-json>")
+            return
+        path = rest.strip()
+        self.run_worker(
+            lambda: self._batch_log_action(path),
+            thread=True, exclusive=False, group="artifact-create",
+        )
+
+    def _slash_resolve_batch(self, rest: str) -> None:
+        """/resolve-batch ID1 ID2 …"""
+        ids = [i.strip() for i in rest.split() if i.strip()]
+        if not ids:
+            self._emit_system("/resolve-batch: missing IDs — usage: /resolve-batch ID1 [ID2 …]")
+            return
+        self.run_worker(
+            lambda: self._batch_resolve_action(ids),
+            thread=True, exclusive=False, group="artifact-create",
+        )
+
+    def _slash_delete_batch(self, rest: str) -> None:
+        """/delete-batch ID1 ID2 …"""
+        ids = [i.strip() for i in rest.split() if i.strip()]
+        if not ids:
+            self._emit_system("/delete-batch: missing IDs — usage: /delete-batch ID1 [ID2 …]")
+            return
+        self.run_worker(
+            lambda: self._batch_delete_action(ids),
+            thread=True, exclusive=False, group="artifact-create",
+        )
+
+    def _batch_log_action(self, path: str) -> None:
+        from empirica.core.chat.actions import (
+            ActionError as _ActionError,
+        )
+        from empirica.core.chat.actions import (
+            log_artifacts_from_file,
+        )
+        try:
+            resp = log_artifacts_from_file(path)
+        except _ActionError as e:
+            self.call_from_thread(self._emit_system, f"/batch: {e}")
+            return
+        created = resp.get("nodes_created") if isinstance(resp, dict) else None
+        edges = resp.get("edges_wired") if isinstance(resp, dict) else None
+        errors = resp.get("errors") if isinstance(resp, dict) else None
+        bits = []
+        if isinstance(created, int):
+            bits.append(f"{created} nodes")
+        if isinstance(edges, int):
+            bits.append(f"{edges} edges")
+        msg = f"/batch: created {', '.join(bits)}" if bits else "/batch: completed"
+        if errors:
+            msg += f" — errors: {errors}"
+        self.call_from_thread(self._emit_system, msg)
+
+    def _batch_resolve_action(self, ids: list[str]) -> None:
+        from empirica.core.chat.actions import (
+            ActionError as _ActionError,
+        )
+        from empirica.core.chat.actions import (
+            resolve_artifacts_batch,
+        )
+        try:
+            resp = resolve_artifacts_batch(ids)
+        except _ActionError as e:
+            self.call_from_thread(self._emit_system, f"/resolve-batch: {e}")
+            return
+        n = resp.get("resolved") if isinstance(resp, dict) else None
+        msg = f"/resolve-batch: resolved {n} of {len(ids)} unknowns" if isinstance(n, int) else f"/resolve-batch: completed ({len(ids)} IDs)"
+        self.call_from_thread(self._emit_system, msg)
+
+    def _batch_delete_action(self, ids: list[str]) -> None:
+        from empirica.core.chat.actions import (
+            ActionError as _ActionError,
+        )
+        from empirica.core.chat.actions import (
+            delete_artifacts_batch,
+        )
+        try:
+            resp = delete_artifacts_batch(ids)
+        except _ActionError as e:
+            self.call_from_thread(self._emit_system, f"/delete-batch: {e}")
+            return
+        n = resp.get("deleted") if isinstance(resp, dict) else None
+        msg = f"/delete-batch: deleted {n} of {len(ids)} artifacts" if isinstance(n, int) else f"/delete-batch: completed ({len(ids)} IDs)"
+        self.call_from_thread(self._emit_system, msg)
 
     def _plan_action(self) -> None:
         """Worker thread: query empirica goals-list + format for chat."""
@@ -660,6 +750,9 @@ ChatApp.SLASH_HANDLERS = {
     "finding": ChatApp._slash_finding,
     "decision": ChatApp._slash_decision,
     "unknown": ChatApp._slash_unknown,
+    "batch": ChatApp._slash_batch,
+    "resolve-batch": ChatApp._slash_resolve_batch,
+    "delete-batch": ChatApp._slash_delete_batch,
 }
 
 

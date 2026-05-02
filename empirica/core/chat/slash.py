@@ -43,6 +43,9 @@ SLASH_TABLE: tuple[SlashCmd, ...] = (
     SlashCmd("finding", "create a finding (Phase 4 v0 demo)", user_facing=False, takes_arg=True, arg_label="TEXT"),
     SlashCmd("decision", "create a decision (Phase 4 v0 demo)", user_facing=False, takes_arg=True, arg_label="TEXT"),
     SlashCmd("unknown", "create an unknown question (Phase 4 v0 demo)", user_facing=False, takes_arg=True, arg_label="TEXT"),
+    SlashCmd("batch", "log a batch artifact graph from a JSON file", user_facing=False, takes_arg=True, arg_label="PATH"),
+    SlashCmd("resolve-batch", "resolve multiple unknown artifact IDs at once", user_facing=False, takes_arg=True, arg_label="ID1 ID2 …"),
+    SlashCmd("delete-batch", "delete multiple artifact IDs at once", user_facing=False, takes_arg=True, arg_label="ID1 ID2 …"),
 )
 
 
