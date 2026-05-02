@@ -398,23 +398,50 @@ Sized for incremental shipping. Each phase ends with a working binary
 | **5** | Knowledge graph side panel + Qdrant lookups | ~150 | `436e6244` |
 | **7** | Replay mode (open old session jsonl) + tests | ~150 | `436e6244` |
 
-### Forward scope (T42 capture)
+### Forward scope (T42 + T43 capture)
 
-These goals were opened during T42 (2026-05-02) when David flagged
+These goals were opened during T42 + T43 (2026-05-02) when David flagged
 forward scope while we were mid-build. Each is its own goal so the
 work doesn't lose specificity when picked up later.
 
 | Phase | Theme | LOC est. | Goal |
 |---|---|---|---|
-| **8** | System prompt + epistemic discipline integration (adapt CC's empirica-system-prompt.md pattern for chat — make AI epistemically aware *without* forcing CC's transaction discipline; chat is conversational, not praxic-gated) | ~200 | `b910b609` |
-| **9** | Token tracking + per-model context window awareness — token bar UI (`||||||| 47%`), per-provider tokenizer, auto-compact suggest at 80/90% | ~300 | `544a6000` |
+| **6b** | **Full CC statusline extraction** (minus context-window — handled by Phase 9 per-model). Extract `~/.claude/plugins/local/empirica/scripts/statusline_empirica.py` (225 LOC) into shared `empirica.core.statusline`, swap into chat (and optionally cockpit). Upgrade Phase 6 v0's basic 4-mode renderer to full CC fidelity (vector emojis, calibration trajectory ↗/↘, brier-score awareness) | ~250 | `9c7e6abd` |
+| **8** | System prompt + epistemic discipline integration (adapt CC's empirica-system-prompt.md pattern for chat — make AI epistemically aware *under the hood* WITHOUT forcing CC's transaction discipline; chat is conversational, not praxic-gated). Statusline reflects when discipline kicks in (e.g., AI's CHECK decision) but the AI doesn't have to PREFLIGHT/POSTFLIGHT every turn | ~200 | `b910b609` |
+| **9** | Token tracking + per-model context window awareness — token bar UI (`\|\|\|\|\|\|\| 47%`), per-provider tokenizer, auto-compact suggest at 80/90% | ~300 | `544a6000` |
 | **10** | Pre/post compact lifecycle hooks — chat session state save/recover via `~/.empirica/chat_breadcrumbs/{session_id}.yaml`, mirrors CC's plugin compact hooks | ~200 | `ed7bdef6` |
 | **11** | Batch artifact operations (`/batch`, `/resolve-batch`, `/delete-batch`) wrapping empirica's existing `log_artifacts -` / `resolve_artifacts -` / `delete_artifacts -` CLI batch endpoints | ~150 | `fa433410` |
 | **12** | Arrow-key model selector — modal-list overlay (up/down cycles available models on active provider, Enter switches) | ~80 | `30fb4a25` |
+| **13** | **Phase indicator** (CHECK decision visualization in statusline). 🔍 INVESTIGATE vs ▶ ACT badge — the two phases that matter at the conversational layer. Per David's framing: epistemic awareness happens under the hood, but statusline surfaces phase transitions when users benefit from seeing them | ~150 | `3d82a10a` |
+| **14** | **Intuition vs search transparency** — per-turn badge: 💡 intuition (model training data) vs 🔎 search (external retrieval: web fetch, MCP, file reads, KG lookups). Surfaces an honest signal users currently can't see in any LLM chat: "is the AI inferring from training data, or did it actually look it up" | ~100 | `9c11964c` |
 
 Total v0 shipped: ~1840 LOC across 6 phases. Pending v1 backlog:
-~850 LOC across 5 phases. Forward scope: ~930 LOC across 5 phases.
+~850 LOC across 5 phases. Forward scope: ~1430 LOC across 8 phases.
 Phase numbers are not strictly ordered — pick by leverage.
+
+### Conversational-layer surface principle (T43 framing)
+
+David's pattern for what surfaces vs what stays under the hood:
+
+> Epistemic awareness should happen under the hood, but the statusline
+> should switch when needed.
+
+Concretely:
+- **Hidden** — vector reasoning, transaction lifecycle, artifact-graph
+  edge wiring, calibration-loop math. The AI does these; users don't see
+  the internals.
+- **Surfaced via statusline** — phase transitions (CHECK decisions:
+  investigate vs act), intuition vs search distinction, current
+  vectors+counts, autonomy mode badge, current provider:model.
+- **Surfaced inline as turns** — artifact creation (cards), system
+  notes (mode changes, errors), agent voice.
+- **Always implicit** — discipline rigor (chat is not praxic-gated like
+  CC; it's conversational with optional epistemic actions).
+
+The chat is the most permissive empirica surface — designed for AI ↔
+human collaboration without forcing structure into every turn. Cockpit
+is for orchestration; CC plugin is for praxic discipline; chat is for
+conversation that happens to be epistemically aware.
 
 Phase 1 is buildable standalone (no app-server dependency) — useful
 for reviewing the conversation render UX before wiring the rest.
