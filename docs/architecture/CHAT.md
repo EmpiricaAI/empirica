@@ -414,29 +414,72 @@ work doesn't lose specificity when picked up later.
 | **12** | Arrow-key model selector — modal-list overlay (up/down cycles available models on active provider, Enter switches) | ~80 | `30fb4a25` |
 | **13** | **Phase indicator** (CHECK decision visualization in statusline). 🔍 INVESTIGATE vs ▶ ACT badge — the two phases that matter at the conversational layer. Per David's framing: epistemic awareness happens under the hood, but statusline surfaces phase transitions when users benefit from seeing them | ~150 | `3d82a10a` |
 | **14** | **Intuition vs search transparency** — per-turn badge: 💡 intuition (model training data) vs 🔎 search (external retrieval: web fetch, MCP, file reads, KG lookups). Surfaces an honest signal users currently can't see in any LLM chat: "is the AI inferring from training data, or did it actually look it up" | ~100 | `9c11964c` |
+| **15** | **Natural-language workflow narration** — translate Sentinel-enforced empirica events (PREFLIGHT/CHECK/POSTFLIGHT, transactions, plans, artifact logs, skill invocations, agent launches) into terse one-liners surfaced as system turns or inline annotations. NO raw JSON or raw tool-call output. Per-event verbiage: "thinking through…", "ready to act on…", "logged: <finding>", "plan transitioned: …", "invoking <skill>", "launching <agent>". The principle: surface meaningful work, hide machinery | ~250 | `3d7303af` |
+| **16** | **Slash command surface refinement** — per David's directive, real users use natural language. Keep ONLY: `/model` `/help` `/plan` (NEW — show plan + transaction list) `/autonomy` (NEW — switch conversational/multi-agentic/autonomous). Hide dev-internal `/providers /provider /models /statusline` behind `/help debug`. Demote `/finding /decision /unknown` — Phase 4 v0 demos, useful for QA but not real-user UX (AI emits artifact creation as natural side effects driven by Phase 8 system prompt) | ~150 | `0c36aef5` |
 
 Total v0 shipped: ~1840 LOC across 6 phases. Pending v1 backlog:
-~850 LOC across 5 phases. Forward scope: ~1430 LOC across 8 phases.
+~850 LOC across 5 phases. Forward scope: ~1830 LOC across 10 phases.
 Phase numbers are not strictly ordered — pick by leverage.
 
-### Conversational-layer surface principle (T43 framing)
+### Conversational-layer surface principle (T43 + T44 framing)
 
 David's pattern for what surfaces vs what stays under the hood:
 
 > Epistemic awareness should happen under the hood, but the statusline
 > should switch when needed.
+>
+> Workflow discipline is worth surfacing — but as natural conversation,
+> not as JSON or tool-call output.
 
 Concretely:
-- **Hidden** — vector reasoning, transaction lifecycle, artifact-graph
-  edge wiring, calibration-loop math. The AI does these; users don't see
-  the internals.
+
+- **Substrate (always-on, never user-visible)** — Sentinel firewall,
+  PREFLIGHT/CHECK/POSTFLIGHT lifecycle, plan decomposition into
+  transactions, transaction sequencing, vector reasoning, artifact-
+  graph edge wiring, calibration-loop math, hook event payloads. The
+  ecodex empirica plugin's hooks ENFORCE this — without it there is no
+  empirica discipline. But raw machinery never hits the chat surface.
 - **Surfaced via statusline** — phase transitions (CHECK decisions:
   investigate vs act), intuition vs search distinction, current
   vectors+counts, autonomy mode badge, current provider:model.
-- **Surfaced inline as turns** — artifact creation (cards), system
-  notes (mode changes, errors), agent voice.
-- **Always implicit** — discipline rigor (chat is not praxic-gated like
-  CC; it's conversational with optional epistemic actions).
+- **Surfaced inline as natural-language one-liners** (Phase 15) —
+  "thinking through the auth design", "ready to act on the migration
+  plan", "logged: middleware uses next() pattern", "unknown: where
+  are roles defined?", "plan transitioned: investigation → implementation",
+  "invoking the code-audit skill", "launching the explore subagent",
+  "transaction closed: 3 findings, 1 decision".
+- **Surfaced inline as cards** (Phase 4) — artifact creations get a
+  rendered card with quick actions; the natural-language line above
+  flags WHAT just happened, the card shows the substance.
+- **NEVER surfaced** — raw JSON, tool-call payload printouts, vector
+  arrays, hook protocol details. Always translatable to natural
+  language; if it can't be translated, the user doesn't need to see it.
+
+### Slash command surface (T44 framing)
+
+David: "no one will really use /commands. They will use natural language
++ a handful of empirica-like terms the model understands."
+
+The minimal user-facing slash surface:
+
+| Command | Purpose | Phase |
+|---|---|---|
+| `/model NAME` | Switch active model on current provider | T40 (shipped) |
+| `/help` | Brief help overlay | T36 (shipped) |
+| `/plan` | Show current plan + transaction list + status | 16 (planned) |
+| `/autonomy MODE` | Switch conversational / multi-agentic / autonomous | 16 (planned) |
+
+Dev-internal (still functional, but hidden from `/help` by default —
+exposed via `/help debug`):
+
+| Command | Purpose |
+|---|---|
+| `/providers` `/provider NAME` `/models` `/statusline [MODE]` | Provider + statusline config |
+| `/finding TEXT` `/decision TEXT` `/unknown TEXT` | Direct artifact creation (Phase 4 v0 demo path) |
+
+For users who want the full power-user experience with raw tool calls
+visible: run `ecodex` (the codex TUI directly), not `ecodex --minimal`
+or `empirica chat`. Chat is intentionally the curated surface.
 
 The chat is the most permissive empirica surface — designed for AI ↔
 human collaboration without forcing structure into every turn. Cockpit
