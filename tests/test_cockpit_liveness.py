@@ -105,6 +105,55 @@ def test_tmux_with_dead_ppid_overrides_pane_alive(fake_home, monkeypatch):
     pass  # Behavioural assertion — kept as documentation, not a hard test.
 
 
+def test_tmux_bash_but_captured_pid_alive_is_alive(fake_home, monkeypatch):
+    """Regression for issue #98 (Philipp): pane shows bash as foreground
+    (claude is in a sub-process / split / wrapper) but the captured PID
+    is alive. Must return alive — was returning dead in the prior
+    short-circuit shape, which hid live Claudes from the cockpit.
+    """
+    (fake_home / 'instance_projects' / 'tmux_5.json').write_text(
+        json.dumps({'pid': 12345, 'ppid': 67890})
+    )
+    monkeypatch.setattr(lv, '_all_tmux_panes', lambda: {'5'})
+    monkeypatch.setattr(lv, '_process_alive', lambda pid: pid == 67890)
+
+    # Pane exists, claude is NOT the foreground command, but PID is alive.
+    result = lv.is_alive('tmux_5', live_panes=set())
+
+    assert result.alive is True, (
+        f"PID-alive must override tmux disagreement "
+        f"(was: {result.reason})"
+    )
+    assert result.pid_checked == 67890
+    assert result.tmux_pane == '5'
+
+
+def test_tmux_bash_and_captured_pid_dead_is_dead(fake_home, monkeypatch):
+    """Counterpart: pane shows bash AND captured PID is dead → dead.
+    Verifies the false-positive direction stays correct after the refactor.
+    """
+    (fake_home / 'instance_projects' / 'tmux_5.json').write_text(
+        json.dumps({'pid': 12345, 'ppid': 67890})
+    )
+    monkeypatch.setattr(lv, '_all_tmux_panes', lambda: {'5'})
+    monkeypatch.setattr(lv, '_process_alive', lambda _: False)
+
+    result = lv.is_alive('tmux_5', live_panes=set())
+
+    assert result.alive is False
+    assert 'pid 67890 dead' in result.reason
+
+
+def test_tmux_bash_no_captured_pid_no_activity_is_dead(fake_home, monkeypatch):
+    """Pane shows bash, no PID captured, no recent activity → dead.
+    The reason string now records BOTH the tmux state and the PID
+    absence so the operator can diagnose."""
+    monkeypatch.setattr(lv, '_all_tmux_panes', lambda: {'5'})
+    result = lv.is_alive('tmux_5', live_panes=set())
+    assert result.alive is False
+    assert 'no captured PID survived' in result.reason
+
+
 def test_pid_capture_falls_back_to_tty_sessions(fake_home, monkeypatch):
     """instance_projects has tty_key but no pid; tty_sessions has the pid."""
     (fake_home / 'instance_projects' / 'term-pts-7.json').write_text(

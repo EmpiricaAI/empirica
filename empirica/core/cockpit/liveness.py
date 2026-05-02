@@ -159,6 +159,25 @@ def is_alive(
 ) -> LivenessResult:
     """Determine whether an instance is alive.
 
+    Signal precedence (any one alive signal makes the instance alive;
+    only when ALL signals report dead do we report dead):
+
+      1. Current instance — running this code → ALIVE.
+      2. Tmux pane shows claude foreground → ALIVE (definitive).
+      3. Captured PID alive (``os.kill(pid, 0)``) → ALIVE (definitive).
+      4. Recent activity (< RECENT_ACTIVITY_S) → ALIVE (fallback).
+      5. Otherwise → DEAD.
+
+    The earlier shape short-circuited on tmux: if a pane existed but
+    Claude was not the foreground command (e.g. user temporarily at
+    bash, claude-in-a-split, wrapper script holding the foreground),
+    is_alive returned DEAD without ever checking the captured PID.
+    Philipp reported the symptom on his machine — 10 Claude PIDs
+    alive via ``ps`` but only 1 visible in the cockpit. The fix is
+    structural: tmux disagreement is no longer a verdict. The PID
+    check is a parallel definitive signal, and the cockpit reports
+    DEAD only when every signal agrees the process is gone.
+
     Args:
         instance_id: the instance to check
         last_activity_seconds: seconds since most recent state-file write
@@ -170,56 +189,70 @@ def is_alive(
     if current_instance_id and instance_id == current_instance_id:
         return LivenessResult(alive=True, reason='current instance')
 
-    # Tmux pane check — definitive when tmux is queryable.
-    # `live_panes` here is the set of panes where Claude is the foreground
-    # process. A pane that exists with bash running == Claude exited.
+    # Signal 1 — tmux pane shows claude foreground.
+    tmux_pane: str | None = None
+    pane_state: str | None = None  # 'claude' | 'bash' | 'absent' | None (untestable)
     m = TMUX_INSTANCE_PATTERN.match(instance_id)
     if m:
-        pane_n = m.group(1)
+        tmux_pane = m.group(1)
         if live_panes is None:
             live_panes = _live_tmux_panes()
         if live_panes is not None:
-            if pane_n in live_panes:
+            if tmux_pane in live_panes:
                 return LivenessResult(
                     alive=True,
-                    reason=f'tmux pane %{pane_n} running claude',
-                    tmux_pane=pane_n,
+                    reason=f'tmux pane %{tmux_pane} running claude',
+                    tmux_pane=tmux_pane,
                 )
-            # Pane absent or running something other than Claude.
             all_panes = _all_tmux_panes() or set()
-            if pane_n in all_panes:
-                return LivenessResult(
-                    alive=False,
-                    reason=f'tmux pane %{pane_n} exists but claude is not running there',
-                    tmux_pane=pane_n,
-                )
-            return LivenessResult(
-                alive=False, reason=f'tmux pane %{pane_n} does not exist',
-                tmux_pane=pane_n,
-            )
+            pane_state = 'bash' if tmux_pane in all_panes else 'absent'
+        # tmux not queryable → pane_state stays None; fall through to PID
 
-    # PID check — definitive when we have one.
+    # Signal 2 — captured PID liveness. Authoritative when present.
     pid, ppid = _read_captured_pids(instance_id)
     target_pid = ppid if ppid else pid
     if target_pid:
         if _process_alive(target_pid):
+            # PID overrides tmux disagreement: claude is running even
+            # though it's not the pane foreground (sub-process, wrapper,
+            # split window, etc.).
             return LivenessResult(
-                alive=True, reason=f'pid {target_pid} alive', pid_checked=target_pid,
+                alive=True,
+                reason=f'pid {target_pid} alive',
+                pid_checked=target_pid,
+                tmux_pane=tmux_pane,
             )
+        # PID dead → definitive dead, independent of tmux.
         return LivenessResult(
-            alive=False, reason=f'pid {target_pid} dead', pid_checked=target_pid,
+            alive=False,
+            reason=f'pid {target_pid} dead',
+            pid_checked=target_pid,
+            tmux_pane=tmux_pane,
         )
 
-    # No PID — fall back to recent-activity window.
+    # Signal 3 — recent activity. Last-resort fallback when neither
+    # tmux nor a captured PID can be consulted (e.g., fresh session
+    # before session-init has captured PIDs).
     if last_activity_seconds is not None and last_activity_seconds < RECENT_ACTIVITY_S:
         return LivenessResult(
-            alive=True, reason=f'recent activity ({int(last_activity_seconds)}s ago)',
+            alive=True,
+            reason=f'recent activity ({int(last_activity_seconds)}s ago)',
+            tmux_pane=tmux_pane,
         )
 
-    return LivenessResult(
-        alive=False,
-        reason='no pid, no recent activity, no tmux pane evidence',
-    )
+    # All signals exhausted. If tmux gave us a definitive negative,
+    # surface that as the reason; otherwise generic.
+    if pane_state == 'bash':
+        reason = (
+            f'tmux pane %{tmux_pane} exists but claude is not running there '
+            'and no captured PID survived'
+        )
+    elif pane_state == 'absent':
+        reason = f'tmux pane %{tmux_pane} does not exist'
+    else:
+        reason = 'no pid, no recent activity, no tmux pane evidence'
+
+    return LivenessResult(alive=False, reason=reason, tmux_pane=tmux_pane)
 
 
 __all__ = ['LivenessResult', 'is_alive']
