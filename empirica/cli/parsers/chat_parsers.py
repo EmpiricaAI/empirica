@@ -79,3 +79,12 @@ def add_chat_parsers(subparsers) -> None:
               "told it's in empirica chat or made aware of slash commands. "
               "Use --system to supply your own prompt instead.",
     )
+    chat.add_argument(
+        "--replay",
+        metavar="SESSION_ID",
+        help="Open a past chat session in read-only replay mode. Loads all "
+              "turns from ~/.empirica/chat_sessions/{SESSION_ID}.jsonl, "
+              "renders them, and disables LLM dispatch. Use --feed-delay to "
+              "pace the playback if reviewing visually. Cannot be combined "
+              "with --session-id (resume) or --feed.",
+    )

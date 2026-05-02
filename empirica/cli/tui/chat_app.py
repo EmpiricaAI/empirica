@@ -98,6 +98,7 @@ class ChatApp(App):
         providers: list[Provider] | None = None,
         autonomy_mode: str = AUTONOMY_DEFAULT,
         enable_system_prompt: bool = True,
+        replay_session_id: str | None = None,
     ) -> None:
         super().__init__()
         self.feed_path = feed_path
@@ -110,6 +111,10 @@ class ChatApp(App):
         self.instructions: str | None = None
         self.autonomy_mode = autonomy_mode
         self.enable_system_prompt = enable_system_prompt
+        # Phase 7 replay mode — read-only view of an existing session.
+        # When set: load + render turns, disable LLM dispatch on input.
+        self.replay_session_id = replay_session_id
+        self.replay_mode = replay_session_id is not None
         self._session: ChatSession | None = None
 
         # Build provider registry. Priority: explicit --provider flags →
@@ -139,8 +144,17 @@ class ChatApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
-        # Establish the chat session — resume if requested, else create new.
-        if self.session_id_to_resume:
+        # Establish the chat session — replay if requested, else resume,
+        # else create new.
+        if self.replay_session_id:
+            self._session = ChatSession.load(self.replay_session_id)
+            self._convo().render_existing(self._session.turns)
+            self._emit_system(
+                f"replay mode — read-only view of session "
+                f"{self.replay_session_id[:8]} ({len(self._session.turns)} turns). "
+                f"Input is disabled."
+            )
+        elif self.session_id_to_resume:
             self._session = ChatSession.load(self.session_id_to_resume)
             self._convo().render_existing(self._session.turns)
         else:
@@ -198,6 +212,15 @@ class ChatApp(App):
         """User pressed Enter on a non-empty input."""
         assert self._session is not None  # noqa: S101 — type narrowing
         text = event.text
+
+        # Phase 7: in replay mode, refuse non-slash input (read-only view).
+        # Slash commands still work for /help /plan /statusline etc, but
+        # nothing dispatches to the LLM and no artifacts mutate.
+        if self.replay_mode and not text.startswith("/"):
+            self._emit_system(
+                "replay mode is read-only — start a new session to chat with the agent"
+            )
+            return
 
         # Phase 4: slash commands route to artifact creation rather than
         # the LLM. /finding, /decision, /unknown, /help — see _handle_slash.
@@ -870,6 +893,7 @@ def run_chat(
     providers: list[Provider] | None = None,
     autonomy_mode: str = AUTONOMY_DEFAULT,
     enable_system_prompt: bool = True,
+    replay_session_id: str | None = None,
 ) -> int:
     app = ChatApp(
         feed_path=feed_path,
@@ -881,6 +905,7 @@ def run_chat(
         providers=providers,
         autonomy_mode=autonomy_mode,
         enable_system_prompt=enable_system_prompt,
+        replay_session_id=replay_session_id,
     )
     app.run()
     return 0

@@ -39,6 +39,20 @@ def handle_chat_command(args: Any) -> int:
             print(f"empirica chat: --provider parse error: {e}")
             return 2
 
+    replay_id = getattr(args, "replay", None)
+    if replay_id:
+        # Validate mutually exclusive flags + file existence early
+        if getattr(args, "session_id", None):
+            print("empirica chat: --replay conflicts with --session-id (resume)")
+            return 2
+        if feed_path is not None:
+            print("empirica chat: --replay conflicts with --feed")
+            return 2
+        replay_path = Path.home() / ".empirica" / "chat_sessions" / f"{replay_id}.jsonl"
+        if not replay_path.exists():
+            print(f"empirica chat: replay session not found: {replay_path}")
+            return 2
+
     return run_chat(
         feed_path=feed_path,
         session_id=getattr(args, "session_id", None),
@@ -49,4 +63,5 @@ def handle_chat_command(args: Any) -> int:
         providers=providers,
         autonomy_mode=getattr(args, "autonomy", "assistant") or "assistant",
         enable_system_prompt=getattr(args, "enable_system_prompt", True),
+        replay_session_id=replay_id,
     )
