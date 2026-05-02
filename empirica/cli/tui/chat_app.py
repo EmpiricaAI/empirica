@@ -426,7 +426,7 @@ class ChatApp(App):
     def _slash_statusline(self, rest: str) -> None:
         try:
             sp = self.query_one(StatuslinePanel)
-        except Exception:  # noqa: BLE001 — panel may be pre-mount
+        except Exception:
             self._emit_system("/statusline: panel not mounted")
             return
         if rest:
