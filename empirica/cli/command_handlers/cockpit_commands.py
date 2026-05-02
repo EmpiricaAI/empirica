@@ -954,7 +954,7 @@ def handle_tui_command(args) -> int:
     except ImportError as e:
         sys.stdout.write(
             f'error: TUI requires the textual package — {e}\n'
-            'install with: pip install textual\n'
+            'install with: pip install "empirica[tui]"\n'
         )
         return 2
     return run_tui(include_dead=bool(getattr(args, 'include_dead', False)))

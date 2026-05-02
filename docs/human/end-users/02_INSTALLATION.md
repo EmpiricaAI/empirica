@@ -115,12 +115,21 @@ pip install .
 
 ### Option 5: With extras
 ```bash
+# Install with TUI support (empirica tui + empirica chat)
+pip install "empirica[tui]"
+
 # Install with vision support
-pip install empirica[vision]
+pip install "empirica[vision]"
 
 # Install with all extras
-pip install empirica[all]
+pip install "empirica[all]"
 ```
+
+**Headless installs:** the base `pip install empirica` works in CI/CD,
+containers, and other environments without a terminal. `empirica
+status --json --all`, scanner verbs, and all CLI primitives function
+without `textual`. Only `empirica tui` and `empirica chat` need the
+`[tui]` extra.
 
 ---
 

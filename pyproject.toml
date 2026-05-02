@@ -51,14 +51,21 @@ dependencies = [
     # Optional but commonly used
     "anthropic>=0.39.0",        # Anthropic SDK for adapters
     "tiktoken>=0.5.0",          # Token counting utilities
-    "rich>=14.0",                # REQUIRED: The TUI/Visuals won't work without this
-    "textual>=0.50",             # REQUIRED: empirica tui (interactive cockpit)
+    "rich>=14.0",                # REQUIRED: pretty printing across most CLI surfaces
+    # textual is OPTIONAL — needed only for `empirica tui` and `empirica chat`.
+    # Install via `pip install empirica[tui]` to enable. Headless / CI / agent
+    # consumers don't need it; `empirica status --json --all` works without.
     "google-generativeai>=0.5",  # REQUIRED: For Gemini 3 / Pro access
     "typer>=0.9",                # REQUIRED: If your CLI uses Typer (highly likely)
     "psutil>=5.9",               # REQUIRED: empirica scan (process/network inventory)
 ]
 
 [project.optional-dependencies]
+# Interactive cockpit + chat TUIs (Textual). Headless installs don't need it.
+tui = [
+    "textual>=0.50",
+]
+
 # API and Dashboard features
 api = [
     "flask>=3.1.3",              # Security: CVE-2026-27205 fix

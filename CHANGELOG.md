@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — `textual` is now an optional `[tui]` extra (headless mode)
+
+- **Headless installs work out of the box** — `pip install empirica`
+  no longer pulls `textual`. CI/CD environments, containers, and
+  agent-driven consumers don't pay for the TUI dependency they don't
+  use. `empirica status --json --all`, scanner verbs, and all CLI
+  primitives function without it.
+- **TUI install:** `pip install "empirica[tui]"` adds `textual` for
+  `empirica tui` (interactive cockpit) and `empirica chat`. Both
+  commands print a clear install instruction when the dep is missing
+  instead of crashing with a raw ImportError.
+- **INSTALL.md** documents the two installation modes.
+- **Why:** Several open goals (cockpit headless mode, agent-driven
+  status consumption, CI compliance gates) all wanted the same thing:
+  decouple measurement from rendering. Optional dep is the cleanest
+  cut.
+
 ### Added — Cockpit launcher v1 (`empirica cockpit launch/status/detach/kill`)
 
 Per `docs/specs/PROPOSAL_COCKPIT_LAUNCHER.md`. Single command brings up

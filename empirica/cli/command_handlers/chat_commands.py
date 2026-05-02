@@ -13,7 +13,15 @@ from typing import Any
 def handle_chat_command(args: Any) -> int:
     """Launch the empirica chat TUI."""
     # Lazy import — avoid loading Textual unless this command actually runs.
-    from empirica.cli.tui.chat_app import run_chat
+    # textual is in the [tui] extra; headless installs hit this surface.
+    try:
+        from empirica.cli.tui.chat_app import run_chat
+    except ImportError as exc:
+        if 'textual' in str(exc).lower():
+            print('empirica chat needs the textual TUI library. Install with:')
+            print('  pip install "empirica[tui]"')
+            return 2
+        raise
 
     feed_path = Path(args.feed) if getattr(args, "feed", None) else None
     if feed_path is not None and not feed_path.exists():
