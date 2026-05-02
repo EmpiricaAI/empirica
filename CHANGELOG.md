@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.19] — 2026-05-03
+
 ### Changed — `textual` is now an optional `[tui]` extra (headless mode)
 
 - **Headless installs work out of the box** — `pip install empirica`

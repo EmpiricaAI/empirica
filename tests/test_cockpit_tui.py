@@ -498,7 +498,7 @@ async def test_no_recent_widget(cockpit_env):
             app.query_one('#recent')
 
 
-# ─── L button mechanical-kill regression (1.8.18 + this commit) ────────────
+# ─── L button mechanical-kill regression (1.8.19 + this commit) ────────────
 
 
 @pytest.mark.asyncio
@@ -752,7 +752,7 @@ async def test_e_click_empty_registry_installs_listener_from_project_yaml(cockpi
     assert len(pending) == 1
 
 
-# ─── Compliance panel + domain chip (1.8.18) ───────────────────────────────
+# ─── Compliance panel + domain chip (1.8.19) ───────────────────────────────
 
 
 def _write_project_id(project: Path, project_id: str) -> None:

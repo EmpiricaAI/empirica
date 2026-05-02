@@ -44,8 +44,10 @@ from empirica.core.chat.providers import (
     builtin_empirica_server_providers,
 )
 from empirica.core.chat.session import ChatSession, Turn, TurnKind, load_turns
+from empirica.core.chat.slash import known_commands, render_help
 from empirica.core.chat.system_prompt import (
     AUTONOMY_DEFAULT,
+    AUTONOMY_MODES,
     MODE_BADGES,
     preview_lines,
     render_system_prompt,
@@ -319,112 +321,177 @@ class ChatApp(App):
         # Re-render via Static.update with the agent-style label
         widget.update(f"[b]agent:[/b] {text}")  # type: ignore[attr-defined]
 
-    # ─── Phase 4: slash commands → artifact cards ─────────────────────
+    # ─── Phase 16: slash commands ─────────────────────────────────────
 
     def _handle_slash(self, text: str) -> None:
-        """Parse and execute /finding, /decision, /unknown, /help."""
+        """Parse and dispatch a slash command via SLASH_HANDLERS table."""
         assert self._session is not None  # noqa: S101 — type narrowing
         cmd, _, rest = text[1:].partition(" ")
         cmd = cmd.strip().lower()
         rest = rest.strip()
 
-        if cmd in ("help", "?"):
-            self._emit_system(
-                "slash commands:\n"
-                "  /providers             list configured providers\n"
-                "  /provider NAME         switch active provider\n"
-                "  /models                list models on active provider\n"
-                "  /model NAME            set active model\n"
-                "  /statusline [MODE]     cycle (or set) statusline mode: basic|default|learning|full\n"
-                "  /finding TEXT          create a finding (renders as inline card)\n"
-                "  /decision TEXT         create a decision\n"
-                "  /unknown TEXT          create an unknown question\n"
-                "  /help                  this list\n"
-                "Anything else goes to the agent (current provider:model shown in header)."
-            )
-            return
+        if cmd in ("?", ""):  # legacy aliases for /help
+            cmd = "help"
 
-        if cmd == "providers":
-            lines = ["configured providers:"]
-            active_name = self.registry.active_provider_name
-            for name in self.registry.names():
-                p = self.registry.get(name)
-                marker = "▶" if name == active_name else " "
-                lines.append(f"  {marker} {p.display() if p else name}")
-            lines.append(f"\nactive: {self.registry.display_status()}")
-            self._emit_system("\n".join(lines))
-            return
-
-        if cmd == "provider":
-            if not rest:
-                self._emit_system(f"/provider: missing NAME — current: {self.registry.display_status()}")
-                return
-            new = self.registry.set_active_provider(rest)
-            if new is None:
-                self._emit_system(f"unknown provider: {rest!r} (try /providers)")
-                return
-            self._refresh_subtitle()
-            self._emit_system(f"switched to {self.registry.display_status()}")
-            return
-
-        if cmd == "models":
-            self.run_worker(
-                lambda: self._list_models_action(),
-                thread=True, exclusive=False, group="provider-meta",
-            )
-            return
-
-        if cmd == "model":
-            if not rest:
-                self._emit_system(f"/model: missing NAME — current: {self.registry.display_status()}")
-                return
-            if self.registry.set_active_model(rest):
-                self._refresh_subtitle()
-                self._emit_system(f"model set to {rest} on provider {self.registry.active_provider_name}")
+        handler = self.SLASH_HANDLERS.get(cmd)
+        if handler is None:
+            if cmd in known_commands():
+                self._emit_system(f"/{cmd}: handler missing — internal error, please report")
             else:
-                self._emit_system("/model: no active provider — use /provider NAME first")
+                self._emit_system(f"unknown slash command: /{cmd} — try /help")
             return
+        handler(self, rest)
 
-        if cmd == "statusline":
-            try:
-                sp = self.query_one(StatuslinePanel)
-            except Exception:
-                self._emit_system("/statusline: panel not mounted")
-                return
-            if rest:
-                if sp.set_mode(rest):
-                    self._emit_system(f"statusline mode → {rest}")
-                else:
-                    self._emit_system(f"unknown statusline mode: {rest!r} (valid: {', '.join(RENDER_MODES)})")
-            else:
-                new_mode = sp.cycle_mode()
-                self._emit_system(f"statusline mode → {new_mode}  (cycle through {', '.join(RENDER_MODES)})")
-            return
+    # ─── Per-command handlers (declared on class for SLASH_HANDLERS lookup) ──
 
+    def _slash_help(self, rest: str) -> None:
+        debug = rest.strip().lower() == "debug"
+        self._emit_system(render_help(debug=debug))
+
+    def _slash_plan(self, _rest: str) -> None:
+        """Show open goals + recent transactions for the project."""
+        self.run_worker(
+            lambda: self._plan_action(),
+            thread=True, exclusive=False, group="empirica-meta",
+        )
+
+    def _slash_autonomy(self, rest: str) -> None:
         if not rest:
-            self._emit_system(f"/{cmd}: missing text — usage: /{cmd} <description>")
+            self._emit_system(
+                f"/autonomy: missing MODE — current: {self.autonomy_mode}  "
+                f"(valid: {', '.join(AUTONOMY_MODES)})"
+            )
             return
+        mode = rest.strip().lower()
+        if mode not in AUTONOMY_MODES:
+            self._emit_system(
+                f"unknown autonomy mode: {rest!r} (valid: {', '.join(AUTONOMY_MODES)})"
+            )
+            return
+        if mode == self.autonomy_mode:
+            self._emit_system(f"autonomy already {mode}")
+            return
+        old = self.autonomy_mode
+        self.autonomy_mode = mode
+        # Re-render the system prompt under the new mode (if enabled).
+        if self.enable_system_prompt:
+            provider = self.registry.active()
+            provider_name = provider.name if provider else "(none)"
+            model_name = self.registry.active_model or "(none)"
+            self.instructions = render_system_prompt(
+                provider=provider_name,
+                model=model_name,
+                autonomy_mode=mode,
+                user_instructions=self.user_instructions,
+            )
+        self._refresh_subtitle()
+        self._emit_system(f"autonomy: {old} → {mode}")
 
-        if cmd == "finding":
-            self.run_worker(
-                lambda: self._create_artifact("finding", rest),
-                thread=True, exclusive=False, group="artifact-create",
-            )
-            return
-        if cmd == "decision":
-            self.run_worker(
-                lambda: self._create_artifact("decision", rest),
-                thread=True, exclusive=False, group="artifact-create",
-            )
-            return
-        if cmd == "unknown":
-            self.run_worker(
-                lambda: self._create_artifact("unknown", rest),
-                thread=True, exclusive=False, group="artifact-create",
-            )
-            return
+    def _slash_providers(self, _rest: str) -> None:
+        lines = ["configured providers:"]
+        active_name = self.registry.active_provider_name
+        for name in self.registry.names():
+            p = self.registry.get(name)
+            marker = "▶" if name == active_name else " "
+            lines.append(f"  {marker} {p.display() if p else name}")
+        lines.append(f"\nactive: {self.registry.display_status()}")
+        self._emit_system("\n".join(lines))
 
-        self._emit_system(f"unknown slash command: /{cmd} — try /help")
+    def _slash_provider(self, rest: str) -> None:
+        if not rest:
+            self._emit_system(f"/provider: missing NAME — current: {self.registry.display_status()}")
+            return
+        if self.registry.set_active_provider(rest) is None:
+            self._emit_system(f"unknown provider: {rest!r} (try /providers)")
+            return
+        self._refresh_subtitle()
+        self._emit_system(f"switched to {self.registry.display_status()}")
+
+    def _slash_models(self, _rest: str) -> None:
+        self.run_worker(
+            lambda: self._list_models_action(),
+            thread=True, exclusive=False, group="provider-meta",
+        )
+
+    def _slash_model(self, rest: str) -> None:
+        if not rest:
+            self._emit_system(f"/model: missing NAME — current: {self.registry.display_status()}")
+            return
+        if self.registry.set_active_model(rest):
+            self._refresh_subtitle()
+            self._emit_system(f"model set to {rest} on provider {self.registry.active_provider_name}")
+        else:
+            self._emit_system("/model: no active provider — use /provider NAME first")
+
+    def _slash_statusline(self, rest: str) -> None:
+        try:
+            sp = self.query_one(StatuslinePanel)
+        except Exception:  # noqa: BLE001 — panel may be pre-mount
+            self._emit_system("/statusline: panel not mounted")
+            return
+        if rest:
+            if sp.set_mode(rest):
+                self._emit_system(f"statusline mode → {rest}")
+            else:
+                self._emit_system(f"unknown statusline mode: {rest!r} (valid: {', '.join(RENDER_MODES)})")
+        else:
+            new_mode = sp.cycle_mode()
+            self._emit_system(f"statusline mode → {new_mode}  (cycle through {', '.join(RENDER_MODES)})")
+
+    def _slash_artifact(self, artifact_type: str, rest: str) -> None:
+        """Shared handler body for /finding | /decision | /unknown."""
+        if not rest:
+            self._emit_system(
+                f"/{artifact_type}: missing text — usage: /{artifact_type} <description>"
+            )
+            return
+        self.run_worker(
+            lambda: self._create_artifact(artifact_type, rest),
+            thread=True, exclusive=False, group="artifact-create",
+        )
+
+    def _slash_finding(self, rest: str) -> None:
+        self._slash_artifact("finding", rest)
+
+    def _slash_decision(self, rest: str) -> None:
+        self._slash_artifact("decision", rest)
+
+    def _slash_unknown(self, rest: str) -> None:
+        self._slash_artifact("unknown", rest)
+
+    def _plan_action(self) -> None:
+        """Worker thread: query empirica goals-list + format for chat."""
+        from empirica.core.chat.actions import ActionError, _run_cli
+        try:
+            data = _run_cli(["goals-list"])
+        except ActionError as e:
+            self.call_from_thread(self._emit_system, f"/plan: empirica CLI error: {e}")
+            return
+        goals = data if isinstance(data, list) else data.get("goals", [])
+        open_goals = [g for g in goals if isinstance(g, dict) and not g.get("is_completed")]
+        if not open_goals:
+            self.call_from_thread(
+                self._emit_system,
+                "/plan: no open goals — `empirica goals-list` is empty for this project",
+            )
+            return
+        lines = [f"open goals ({len(open_goals)}):"]
+        for g in open_goals[:15]:
+            obj = (g.get("objective") or "").replace("\n", " ").strip()
+            if len(obj) > 100:
+                obj = obj[:97] + "..."
+            status = g.get("status", "?")
+            pct = g.get("progress_pct")
+            pct_str = f" {int(pct)}%" if isinstance(pct, (int, float)) else ""
+            lines.append(f"  • [{status}{pct_str}] {obj}")
+        if len(open_goals) > 15:
+            lines.append(
+                f"  … and {len(open_goals) - 15} more (use `empirica goals-list` for full)"
+            )
+        self.call_from_thread(self._emit_system, "\n".join(lines))
+
+    # Dispatch table — populated below the class body so methods exist.
+    SLASH_HANDLERS: ClassVar[dict[str, Any]] = {}
 
     def _create_artifact(self, artifact_type: str, text: str) -> None:
         """Worker thread: invoke empirica CLI, render the artifact card."""
@@ -551,6 +618,23 @@ class ChatApp(App):
             self.query_one(ChatInput).load_text("")
         except Exception:  # noqa: S110 — clear is best-effort UI op
             pass
+
+
+# Populate the dispatch table now that ChatApp's methods are defined.
+# Each value is an unbound method; the dispatcher passes (self, rest).
+ChatApp.SLASH_HANDLERS = {
+    "help": ChatApp._slash_help,
+    "model": ChatApp._slash_model,
+    "plan": ChatApp._slash_plan,
+    "autonomy": ChatApp._slash_autonomy,
+    "providers": ChatApp._slash_providers,
+    "provider": ChatApp._slash_provider,
+    "models": ChatApp._slash_models,
+    "statusline": ChatApp._slash_statusline,
+    "finding": ChatApp._slash_finding,
+    "decision": ChatApp._slash_decision,
+    "unknown": ChatApp._slash_unknown,
+}
 
 
 def _to_translator_role(kind: TurnKind) -> str:

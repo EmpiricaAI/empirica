@@ -1,6 +1,6 @@
 """Tests for loop_uninstall_request module + pause handler integration.
 
-Covers the 1.8.18 pause-actually-cancels-cron fix. Pause used to be
+Covers the 1.8.19 pause-actually-cancels-cron fix. Pause used to be
 advisory: it cleared next_scheduled_job_id from the registry but the
 already-installed cron one-shot kept firing every interval, spawning
 fresh CC sessions that ran the body just long enough to see the pause
