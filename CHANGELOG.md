@@ -208,6 +208,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Cockpit state symbol now reflects liveness, not just transaction
+  phase** — alive Claude instances between transactions used to render
+  as ⊘ closed (visually reads as 'dead') because `_derive_state_symbol`
+  keyed only on transaction phase. They now render as 🟡 idle (alive,
+  ready). The phase column still carries the open/closed bit. ⊘ is
+  preserved for `--include-dead` diagnostic mode (cleanly closed dead
+  instances) to keep it distinct from ⊗ no-claude (abandoned).
+- **Cockpit discovers tmux panes that predate empirica install** —
+  `discover_instances` now unions any tmux pane currently running
+  claude as foreground into the discovery set. Sessions started before
+  empirica was installed never wrote `instance_projects/{id}.json`, so
+  they were invisible to the cockpit; now they surface as synthetic
+  `tmux_{N}` rows with no project_path. Issue surfaced from Philipp's
+  GitHub feedback alongside the #98 PID-liveness fix.
 - **Chocolatey REST API push (#97)** — `release.py:
   build_and_push_chocolatey` swapped `choco push` subprocess for a
   direct PUT to `push.chocolatey.org/api/v2/package/` via `requests`
