@@ -208,6 +208,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Cockpit `c` toggle now reveals the passing checks instead of the
+  failing ones** — David's intent was always: failures are part of the
+  panel header (operator can never hide them via a key) and `c` flips
+  a list of *passing* check names so the operator can audit what
+  actually ran clean. Prior shape made `c` flip per-failure rows that
+  duplicated the header. Compliance summary now exposes
+  `passed_check_names` alongside `failed_checks`; `_format_compliance`
+  uses it for the toggle-controlled detail block.
 - **Recent-activity liveness fallback no longer overrides a definitive
   tmux negative** — `is_alive` previously fell through to "if file
   mtime is < 1h, treat as alive" even when tmux had already reported

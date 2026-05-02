@@ -833,10 +833,12 @@ async def test_compliance_widget_shows_passing_collapsed(cockpit_env, monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_compliance_widget_shows_failures_expanded_by_default(
+async def test_compliance_widget_failures_appear_in_header(
     cockpit_env, monkeypatch,
 ):
-    """Failing checks default-expand so the operator sees what's broken."""
+    """Failing check names live in the header always — operator can never
+    use a key to hide them, and the toggle-only-affects-passing rule keeps
+    failure visibility independent of `compliance_expanded`."""
     home, project = cockpit_env
     _bind_instance(home, project, 'tmux_test')
     _write_project_id(project, 'test-project')
@@ -903,7 +905,7 @@ async def test_compliance_widget_no_data_message(cockpit_env):
 
 @pytest.mark.asyncio
 async def test_c_key_toggles_compliance_expansion(cockpit_env, monkeypatch):
-    """Pressing `c` flips collapse/expand from whatever the default was."""
+    """`c` reveals per-passing-check rows when all green; default is head only."""
     home, project = cockpit_env
     _bind_instance(home, project, 'tmux_test')
     _write_project_id(project, 'test-project')
@@ -913,9 +915,13 @@ async def test_c_key_toggles_compliance_expansion(cockpit_env, monkeypatch):
     compliance_view.write_last_compliance('test-project', {
         'overall': {
             'status': 'compliant', 'score': 1.0,
-            'checks_passed': 11, 'checks_total': 11,
+            'checks_passed': 3, 'checks_total': 3,
         },
-        'checks': [{'check': 'lint', 'passed': True}],
+        'checks': [
+            {'check': 'lint', 'passed': True},
+            {'check': 'complexity', 'passed': True},
+            {'check': 'tests', 'passed': True},
+        ],
     })
 
     from empirica.cli.tui import CockpitApp
@@ -927,28 +933,28 @@ async def test_c_key_toggles_compliance_expansion(cockpit_env, monkeypatch):
         inst = app._selected_instance()
         assert inst is not None
 
-        # Default for passing = collapsed (head only, no detail line)
+        # Default for passing = head only, no per-check rows
         assert app.compliance_expanded is False
         rendered_default = app._format_compliance(inst)
-        assert 'all 11 checks passing' not in rendered_default
+        assert '3/3' in rendered_default
+        assert '  ✓ lint' not in rendered_default
+        assert '  ✓ complexity' not in rendered_default
 
         await pilot.press('c')
         await pilot.pause()
         assert app.compliance_expanded is True
-        # After toggle: detail line appears
         rendered_after = app._format_compliance(inst)
-        assert 'all 11 checks passing' in rendered_after
+        # Each passing check listed individually
+        assert '  ✓ lint' in rendered_after
+        assert '  ✓ complexity' in rendered_after
+        assert '  ✓ tests' in rendered_after
 
 
 @pytest.mark.asyncio
 async def test_c_key_toggles_compliance_in_failure_state(cockpit_env, monkeypatch):
-    """Pressing `c` must visibly change the panel even when failures are present.
-
-    Regression test for the UX bug David reported: in failure state the
-    previous implementation made `c` a no-op (failures were forced
-    expanded, the toggle did nothing). The fix preserves failure
-    visibility via the head line (glyph + 'failing: …') while letting
-    the toggle hide / show the per-check breakdown.
+    """In failure state: `c` reveals the *passing* checks; failures stay
+    in the header always. The toggle never hides a failure and never
+    re-lists failures (they're already in the header).
     """
     home, project = cockpit_env
     _bind_instance(home, project, 'tmux_test')
@@ -959,11 +965,14 @@ async def test_c_key_toggles_compliance_in_failure_state(cockpit_env, monkeypatc
     compliance_view.write_last_compliance('test-project', {
         'overall': {
             'status': 'fail', 'score': 0.6,
-            'checks_passed': 6, 'checks_total': 10,
+            'checks_passed': 3, 'checks_total': 5,
         },
         'checks': [
             {'check': 'lint', 'passed': False},
             {'check': 'complexity', 'passed': False},
+            {'check': 'tests', 'passed': True},
+            {'check': 'dep_audit', 'passed': True},
+            {'check': 'type_safety', 'passed': True},
         ],
     })
 
@@ -976,33 +985,35 @@ async def test_c_key_toggles_compliance_in_failure_state(cockpit_env, monkeypatc
         inst = app._selected_instance()
         assert inst is not None
 
-        # Default for failures = expanded detail
+        # Default = head only. Failures live in the header.
         assert app.compliance_expanded is False
         rendered_default = app._format_compliance(inst)
-        # Failure visibility — head always shows the failing names
         assert 'failing: lint, complexity' in rendered_default
-        # Detail rows visible in default-expanded state
-        detail_count_before = rendered_default.count('  ✗')
-        assert detail_count_before >= 2  # one per failing check
+        # No passing-check rows yet
+        assert '  ✓ tests' not in rendered_default
+        assert '  ✓ dep_audit' not in rendered_default
 
-        # Press `c` — should flip to compact (head only, but failures
-        # still in head). Toggle is NOT a no-op.
+        # Press `c` — passing checks appear; failures stay in head; no
+        # per-failure rows are added (header already lists them).
         await pilot.press('c')
         await pilot.pause()
         assert app.compliance_expanded is True
-        rendered_compact = app._format_compliance(inst)
-        # Failures still visible in head
-        assert 'failing: lint, complexity' in rendered_compact
-        # But the per-check rows are gone
-        detail_count_after = rendered_compact.count('  ✗')
-        assert detail_count_after < detail_count_before
+        rendered_expanded = app._format_compliance(inst)
+        assert 'failing: lint, complexity' in rendered_expanded
+        assert '  ✓ tests' in rendered_expanded
+        assert '  ✓ dep_audit' in rendered_expanded
+        assert '  ✓ type_safety' in rendered_expanded
+        # Failures are NEVER duplicated as detail rows
+        assert '  ✗ lint' not in rendered_expanded
+        assert '  ✗ complexity' not in rendered_expanded
 
-        # Press `c` again — back to expanded
+        # Press `c` again — back to head-only
         await pilot.press('c')
         await pilot.pause()
         assert app.compliance_expanded is False
-        rendered_again = app._format_compliance(inst)
-        assert rendered_again.count('  ✗') == detail_count_before
+        rendered_collapsed = app._format_compliance(inst)
+        assert 'failing: lint, complexity' in rendered_collapsed
+        assert '  ✓ tests' not in rendered_collapsed
 
 
 @pytest.mark.asyncio

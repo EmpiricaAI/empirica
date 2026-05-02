@@ -89,6 +89,7 @@ def read_compliance_summary(project_path: str | None) -> dict[str, Any] | None:
             'checks_passed': int,
             'checks_total': int,
             'failed_checks': ['lint', 'complexity', ...],   # short labels
+            'passed_check_names': ['tests', 'dep_audit', ...],  # short labels
             'persisted_at': iso str,
             'age_seconds': float,         # since persisted_at
             'fresh': bool,                # age < FRESH_WINDOW_S
@@ -124,12 +125,15 @@ def read_compliance_summary(project_path: str | None) -> dict[str, Any] | None:
 
     overall = report.get('overall') or {}
     failed_checks: list[str] = []
+    passed_check_names: list[str] = []
     for check in report.get('checks', []) or []:
         if not isinstance(check, dict):
             continue
-        if not check.get('passed', True):
-            label = check.get('check') or check.get('name') or '?'
-            failed_checks.append(str(label))
+        label = str(check.get('check') or check.get('name') or '?')
+        if check.get('passed', True):
+            passed_check_names.append(label)
+        else:
+            failed_checks.append(label)
 
     return {
         'status': overall.get('status', 'unknown'),
@@ -137,6 +141,7 @@ def read_compliance_summary(project_path: str | None) -> dict[str, Any] | None:
         'checks_passed': int(overall.get('checks_passed', 0) or 0),
         'checks_total': int(overall.get('checks_total', 0) or 0),
         'failed_checks': failed_checks,
+        'passed_check_names': passed_check_names,
         'persisted_at': persisted_at_str,
         'age_seconds': age_seconds,
         'fresh': fresh,

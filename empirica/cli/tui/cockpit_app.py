@@ -427,14 +427,17 @@ class CockpitApp(App):
         return '\n'.join(_wrap_item('•', n.title) for n in items)
 
     def _format_compliance(self, inst: dict[str, Any]) -> str:
-        """One-line glyph when passing or compact; expanded view (header +
-        per-failure rows) when failing or `c` was pressed.
+        """Header is always-on; `c` toggles a passing-checks list below it.
 
-        Decision tree (David's UX call):
-          - No data → quiet placeholder (compliance not run for this project)
-          - All passing + not user-overridden → collapsed (just glyph + score)
-          - Any failing + not user-overridden → expanded (failures listed)
-          - User pressed `c` → flip whatever the default would have been
+        Layout David asked for:
+          - Header (every render): glyph + N/M + age + ', failing: X, Y'
+            when there are failures. Failure names live in the header so
+            the operator can never use a key to hide them.
+          - Default: header only.
+          - On `c`: header + per-passing-check rows (✓ name) so the
+            operator can confirm which checks actually ran clean.
+            The `c` toggle therefore has visible effect in both pass
+            and fail states without ever hiding a failure.
         """
         c = inst.get('compliance')
         if not c:
@@ -444,6 +447,7 @@ class CockpitApp(App):
         passed = c.get('checks_passed', 0)
         total = c.get('checks_total', 0)
         failed = c.get('failed_checks') or []
+        passed_names = c.get('passed_check_names') or []
         fresh = c.get('fresh', False)
         age = c.get('age_seconds')
 
@@ -466,28 +470,13 @@ class CockpitApp(App):
         if failed:
             head += f' · failing: {", ".join(failed)}'
 
-        # Failure visibility is preserved by the head line — the glyph + the
-        # comma-separated `failing: …` list both stay in the one-line summary.
-        # `c` toggles the per-check detail breakdown, which is the *additional*
-        # information beyond the head. Failures default-expand the detail
-        # (operator sees per-row context immediately); pass default-collapses
-        # it. `compliance_expanded` represents "user has toggled from default."
-        if failed:
-            show_detail = not self.compliance_expanded
-        else:
-            show_detail = self.compliance_expanded
-
-        if not show_detail:
+        if not self.compliance_expanded or not passed_names:
             return head
 
         lines = [head, '']
-        if failed:
-            for label in failed:
-                lines.append(_wrap_item('  ✗', f'{label}'))
-            lines.append('  (press `c` to collapse — failures stay in header)')
-        else:
-            lines.append(_wrap_item('  ✓', f'all {passed} checks passing'))
-            lines.append('  (press `c` to collapse)')
+        for label in passed_names:
+            lines.append(_wrap_item('  ✓', label))
+        lines.append('  (press `c` to collapse)')
         return '\n'.join(lines)
 
     @staticmethod
