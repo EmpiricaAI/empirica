@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import ClassVar, Optional
+from typing import ClassVar
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -51,15 +51,15 @@ class ChatApp(App):
 
     def __init__(
         self,
-        feed_path: Optional[Path] = None,
-        session_id: Optional[str] = None,
+        feed_path: Path | None = None,
+        session_id: str | None = None,
         feed_delay: float = 0.0,
     ) -> None:
         super().__init__()
         self.feed_path = feed_path
         self.session_id_to_resume = session_id
         self.feed_delay = feed_delay
-        self._session: Optional[ChatSession] = None
+        self._session: ChatSession | None = None
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -89,8 +89,8 @@ class ChatApp(App):
 
     async def _replay_feed(self) -> None:
         """Stream turns from a feed file into the conversation."""
-        assert self.feed_path is not None
-        assert self._session is not None
+        assert self.feed_path is not None  # noqa: S101 — type narrowing
+        assert self._session is not None  # noqa: S101 — type narrowing
         for turn in load_turns(self.feed_path):
             self._session.append(turn)
             self._convo().append_turn(turn)
@@ -99,7 +99,7 @@ class ChatApp(App):
 
     def on_chat_input_submitted(self, event: ChatInput.Submitted) -> None:
         """User pressed Enter on a non-empty input."""
-        assert self._session is not None
+        assert self._session is not None  # noqa: S101 — type narrowing
         turn = Turn.new(TurnKind.USER, event.text)
         self._session.append(turn)
         self._convo().append_turn(turn)
@@ -117,13 +117,13 @@ class ChatApp(App):
     def action_clear_input(self) -> None:
         try:
             self.query_one(ChatInput).load_text("")
-        except Exception:
+        except Exception:  # noqa: S110 — clear is best-effort UI op
             pass
 
 
 def run_chat(
-    feed_path: Optional[Path] = None,
-    session_id: Optional[str] = None,
+    feed_path: Path | None = None,
+    session_id: str | None = None,
     feed_delay: float = 0.0,
 ) -> int:
     app = ChatApp(feed_path=feed_path, session_id=session_id, feed_delay=feed_delay)

@@ -15,10 +15,10 @@ from __future__ import annotations
 import json
 import time
 import uuid
+from collections.abc import Iterator
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Iterator, Optional
 
 
 class TurnKind(str, Enum):
@@ -49,7 +49,7 @@ class Turn:
         return json.dumps(d, ensure_ascii=False)
 
     @classmethod
-    def from_jsonl(cls, line: str) -> "Turn":
+    def from_jsonl(cls, line: str) -> Turn:
         """Parse one JSONL line back to a Turn."""
         raw = json.loads(line)
         raw["kind"] = TurnKind(raw["kind"])
@@ -58,7 +58,7 @@ class Turn:
         return cls(**{k: v for k, v in raw.items() if k in known})
 
     @classmethod
-    def new(cls, kind: TurnKind, text: str = "", metadata: Optional[dict] = None) -> "Turn":
+    def new(cls, kind: TurnKind, text: str = "", metadata: dict | None = None) -> Turn:
         return cls(
             turn_id=str(uuid.uuid4()),
             ts_ms=int(time.time() * 1000),
@@ -85,7 +85,7 @@ class ChatSession:
     turns: list[Turn] = field(default_factory=list)
 
     @classmethod
-    def create(cls, root: Optional[Path] = None) -> "ChatSession":
+    def create(cls, root: Path | None = None) -> ChatSession:
         root = root or _default_chat_root()
         root.mkdir(parents=True, exist_ok=True)
         session_id = str(uuid.uuid4())
@@ -95,7 +95,7 @@ class ChatSession:
         return cls(session_id=session_id, jsonl_path=jsonl_path, turns=[])
 
     @classmethod
-    def load(cls, session_id: str, root: Optional[Path] = None) -> "ChatSession":
+    def load(cls, session_id: str, root: Path | None = None) -> ChatSession:
         root = root or _default_chat_root()
         jsonl_path = root / f"{session_id}.jsonl"
         if not jsonl_path.exists():
