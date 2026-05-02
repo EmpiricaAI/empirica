@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Secret-scan compliance check (trufflehog)
+
+- **New `secret_scan` check** in `compliance-report --security` —
+  invokes `trufflehog filesystem . --json --no-update` and produces a
+  tier-aware result: `findings_verified` (active credentials confirmed
+  by the issuing service's verifier — hard fail) vs
+  `findings_unverified` (regex/pattern-only matches — advisory). Only
+  verified findings fail the check; unverified are surfaced for review
+  but don't break the gate, since pattern-only matches against AI-key
+  detectors have a real FP rate when the verifier can't reach the
+  issuing service.
+- **Detector breakdown** in the verified case — per-detector counts
+  (e.g. `{"Anthropic": 1, "OpenAI": 2}`) so the human summary makes
+  the leak class legible at a glance.
+- **Tool selection rationale** logged as a decision: trufflehog over
+  gitleaks because the goal's primary criterion is AI-relevant
+  credential detection (OpenAI/Anthropic/Cohere/HuggingFace) — these
+  are first-class detectors with verifiers in trufflehog and only
+  community-rule additions in gitleaks. AGPL-3.0 license is fine for
+  separate-process invocation. Both tools require external install
+  (neither is shipped); when the binary is missing, the check returns
+  `status: unavailable` instead of crashing the report.
+- Mapped to EU AI Act Art. 15(4), ISO/IEC 42001:2023 A.7.5, GDPR Art. 32.
+
 ### Added — Visibility tiers Phase 0 (PROPOSAL_VISIBILITY_TIERS.md)
 
 - **`visibility` field on every artifact** — new TEXT column on

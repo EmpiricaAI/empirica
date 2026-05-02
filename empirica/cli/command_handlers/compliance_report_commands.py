@@ -62,6 +62,14 @@ REGULATORY_MAP: dict[str, dict[str, Any]] = {
             "gdpr": {"article": "Art. 25", "requirement": "Data protection by design and by default"},
         },
     },
+    "secret_scan": {
+        "check": "Secret/credential scan (trufflehog)",
+        "frameworks": {
+            "eu_ai_act": {"article": "Art. 15(4)", "requirement": "Cybersecurity — credential leak prevention"},
+            "iso_42001": {"clause": "A.7.5", "requirement": "Third-party components management — credential hygiene"},
+            "gdpr": {"article": "Art. 32", "requirement": "Security of processing — secret management"},
+        },
+    },
     "tech_docs": {
         "check": "Technical documentation (docs-assess)",
         "frameworks": {
@@ -909,6 +917,61 @@ def _add_regulatory_mapping(results: list[dict[str, Any]]) -> list[dict[str, Any
     return results
 
 
+def _parse_trufflehog_result(raw: dict[str, Any]) -> dict[str, Any]:
+    """Parse trufflehog filesystem-mode JSON output.
+
+    Trufflehog emits one JSON object per finding (line-delimited), not a
+    single JSON document. Each finding has a Verified bool — verified
+    findings are confirmed-active credentials (the verifier tested the
+    key against the issuing service); unverified are pattern matches
+    that may be false positives.
+
+    Tier-aware compliance call:
+      - findings_verified > 0  → fail (real, active credential leaked)
+      - findings_unverified > 0 → warn (advisory only — not a hard fail
+        because pattern-only matches have meaningful FP rates)
+    """
+    if raw.get("error"):
+        return {**raw, "check": "secret_scan", "findings": None, "status": "unavailable"}
+
+    verified = 0
+    unverified = 0
+    detector_breakdown: dict[str, int] = {}
+    try:
+        import json as _json
+        for line in (raw.get("stdout") or "").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                finding = _json.loads(line)
+            except _json.JSONDecodeError:
+                continue
+            if not isinstance(finding, dict):
+                continue
+            detector = finding.get("DetectorName") or finding.get("detector") or "?"
+            if finding.get("Verified") or finding.get("verified"):
+                verified += 1
+                detector_breakdown[detector] = detector_breakdown.get(detector, 0) + 1
+            else:
+                unverified += 1
+    except Exception:
+        pass
+
+    total = verified + unverified
+    return {
+        "check": "secret_scan",
+        "tool": "trufflehog (filesystem)",
+        "passed": verified == 0,
+        "findings_total": total,
+        "findings_verified": verified,
+        "findings_unverified": unverified,
+        "verified_detectors": detector_breakdown,
+        "status": "pass" if verified == 0 else "fail",
+        "duration_seconds": raw["duration_seconds"],
+    }
+
+
 def _parse_semgrep_result(raw: dict[str, Any]) -> dict[str, Any]:
     """Parse semgrep OWASP scan output."""
     if raw.get("error"):
@@ -990,6 +1053,18 @@ def run_compliance_report(
         )
         results.append(_parse_semgrep_result(semgrep_raw))
 
+        # Secret scan — trufflehog filesystem mode. --no-update skips
+        # detector self-update (CI-friendly). --json emits per-finding
+        # objects line-delimited. We don't pass --only-verified so the
+        # parser sees both verified (hard fail) and unverified (warn).
+        trufflehog_raw = _run_check(
+            "trufflehog",
+            ["trufflehog", "filesystem", str(project_root),
+             "--json", "--no-update"],
+            timeout=180,
+        )
+        results.append(_parse_trufflehog_result(trufflehog_raw))
+
     # Technical documentation — prefer docpistemic (framework-agnostic) if
     # installed; fall back to empirica's CLI/Core-Modules-only docs-assess.
     # Docpistemic handles server projects, src-layout, and non-CLI codebases
@@ -1057,6 +1132,7 @@ def _format_check_detail(name: str, check: dict[str, Any]) -> str:
         "tests": f"  {c.get('passed_count', '?')} passed, {c.get('failed_count', '?')} failed",
         "dep_audit": f"  {c.get('vulnerabilities', '?')} known CVEs",
         "security_scan": f"  {c.get('findings_critical', '?')} critical, {c.get('findings_total', '?')} total",
+        "secret_scan": f"  {c.get('findings_verified', '?')} verified, {c.get('findings_unverified', '?')} unverified",
         "release_chain": f"  v{c.get('version', '?')}: {c.get('published', '?')}/{c.get('total', '?')} channels",
         "ai_transparency": f"  {c.get('ai_attributed_commits', '?')}/{c.get('sample_size', '?')} commits attributed",
         "decision_transparency": f"  {c.get('rationale_coverage', '?')}% with rationale ({c.get('decisions_with_rationale', '?')}/{c.get('decisions_total', '?')})",
