@@ -32,6 +32,10 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(lr, 'EMPIRICA_DIR', fake_home)
     monkeypatch.setattr(sp, 'EMPIRICA_DIR', fake_home)
     monkeypatch.setattr(sp, 'GLOBAL_PAUSE_FILE', fake_home / 'sentinel_paused')
+    # Isolate from the host tmux server — discovery now scans live panes
+    # to surface pre-empirica Claude sessions, but tests should see only
+    # what they wrote.
+    monkeypatch.setattr(ist, '_live_tmux_panes', lambda: None)
     return fake_home, project
 
 
@@ -213,3 +217,75 @@ def test_instance_label_manual_overrides_project_basename(env):
     (home / 'instance_label_tmux_5').write_text('custom-name\n')
     state = ist.aggregate_instance_state('tmux_5')
     assert state['label'] == 'custom-name'
+
+
+# ─── Liveness-driven state symbol (Philipp's GitHub feedback) ─────────
+
+
+def test_state_idle_when_alive_with_closed_transaction(env, monkeypatch):
+    """Claude is running in pane %5 but its last transaction is closed.
+    Old logic returned 'closed' (⊘ — looks dead). New logic returns
+    'idle' (🟡 — alive, between tasks)."""
+    home, project = env
+    _bind_instance(home, project, 'tmux_5')
+    _write_transaction(project, 'tmux_5', status='closed', praxic_calls=2)
+    monkeypatch.setattr(ist, '_live_tmux_panes', lambda: {'5'})
+    state = ist.aggregate_instance_state('tmux_5', live_panes={'5'})
+    assert state['alive'] is True
+    assert state['state'] == 'idle'
+    assert state['phase'] == 'closed'  # phase column still carries the info
+
+
+def test_state_idle_when_alive_with_no_transaction(env, monkeypatch):
+    """Pre-empirica Claude session — alive in tmux, no state file written.
+    Should show 'idle' not 'no-claude'."""
+    monkeypatch.setattr(ist, '_live_tmux_panes', lambda: {'9'})
+    state = ist.aggregate_instance_state('tmux_9', live_panes={'9'})
+    assert state['alive'] is True
+    assert state['state'] == 'idle'
+
+
+def test_state_closed_when_dead_with_closed_transaction(env, monkeypatch):
+    """Cleanly closed dead instance — preserve ⊘ symbol for diagnostic
+    --include-dead view (distinct from ⊗ no-claude / abandoned)."""
+    import os
+    home, project = env
+    _bind_instance(home, project, 'tmux_5')
+    _write_transaction(project, 'tmux_5', status='closed', praxic_calls=0)
+    # Age the transaction file past the recent-activity fallback window
+    # (1h) so liveness can't claim alive on activity alone.
+    stale = time.time() - (2 * 60 * 60)
+    tx_file = project / '.empirica' / 'active_transaction_tmux_5.json'
+    os.utime(tx_file, (stale, stale))
+    monkeypatch.setattr(ist, '_live_tmux_panes', lambda: set())
+    state = ist.aggregate_instance_state('tmux_5', live_panes=set())
+    assert state['alive'] is False
+    assert state['state'] == 'closed'
+
+
+def test_discover_includes_tmux_panes_without_state_files(env, monkeypatch):
+    """Philipp's case: pane running claude but no instance_projects file
+    (session predates empirica install). Cockpit must still surface it."""
+    monkeypatch.setattr(ist, '_live_tmux_panes', lambda: {'4', '11'})
+    discovered = ist.discover_instances()
+    assert 'tmux_4' in discovered
+    assert 'tmux_11' in discovered
+
+
+def test_discover_unions_state_files_and_tmux_panes(env, monkeypatch):
+    """When some instances have state files and others are tmux-only,
+    discovery returns the union (deduped, sorted)."""
+    home, project = env
+    _bind_instance(home, project, 'tmux_5')
+    _bind_instance(home, project, 'term-pts-7')
+    monkeypatch.setattr(ist, '_live_tmux_panes', lambda: {'5', '8'})
+    discovered = ist.discover_instances()
+    assert discovered == ['term-pts-7', 'tmux_5', 'tmux_8']
+
+
+def test_discover_when_tmux_unavailable(env, monkeypatch):
+    """When tmux query fails (returns None), only state-file discovery runs."""
+    home, project = env
+    _bind_instance(home, project, 'tmux_5')
+    monkeypatch.setattr(ist, '_live_tmux_panes', lambda: None)
+    assert ist.discover_instances() == ['tmux_5']

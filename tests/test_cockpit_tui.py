@@ -53,6 +53,10 @@ def cockpit_env(tmp_path, monkeypatch):
     monkeypatch.setattr(
         enrichment, 'ENP_PENDING_PATH', fake_home / 'enp' / 'pending.json',
     )
+    # Discovery now scans live tmux panes to surface pre-empirica Claude
+    # sessions; isolate tests from the host tmux server so they only see
+    # the instances they explicitly bind.
+    monkeypatch.setattr(instance_state, '_live_tmux_panes', lambda: None)
     return fake_home, project
 
 

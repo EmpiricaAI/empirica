@@ -245,33 +245,42 @@ def _read_transaction_state(project_path: str, instance_id: str) -> dict[str, An
     return result
 
 
-def _derive_state_symbol(tx_state: dict[str, Any], instance_files_mtime: float | None) -> str:
-    """Derive the cockpit state from transaction + file age.
+def _derive_state_symbol(
+    tx_state: dict[str, Any],
+    instance_files_mtime: float | None,
+    alive: bool = True,
+) -> str:
+    """Derive the cockpit state from liveness + transaction + file age.
+
+    Liveness is the primary signal: a Claude process that is running but
+    between transactions is 🟡 idle (ready for work), not ⊘ closed (which
+    visually reads as 'dead'). The phase column carries the open/closed
+    transaction info separately, so we don't lose it.
 
     Returns one of: 'active' | 'idle' | 'stuck' | 'closed' | 'no-claude'
     """
-    last_seconds = tx_state.get('last_activity_seconds')
+    if not alive:
+        # Dead — distinguish 'cleanly closed' (had a finished transaction)
+        # from 'no-claude' (no transaction or abandoned > 24h).
+        if tx_state['phase'] == 'closed':
+            return 'closed'
+        if tx_state['phase'] == 'no-transaction' and instance_files_mtime is not None:
+            age = datetime.now(tz=UTC).timestamp() - instance_files_mtime
+            if age <= ABANDONED_WINDOW_S:
+                return 'closed'
+        return 'no-claude'
 
-    # No transaction at all — fall back to instance file age.
-    if tx_state['phase'] == 'no-transaction':
-        if instance_files_mtime is None:
-            return 'no-claude'
-        age = datetime.now(tz=UTC).timestamp() - instance_files_mtime
-        if age > ABANDONED_WINDOW_S:
-            return 'no-claude'
-        return 'closed'
+    # Alive with an open transaction — bucket on last_activity age.
+    if tx_state['phase'] in ('noetic', 'praxic'):
+        last_seconds = tx_state.get('last_activity_seconds')
+        if last_seconds is None or last_seconds < ACTIVE_WINDOW_S:
+            return 'active'
+        if last_seconds < IDLE_WINDOW_S:
+            return 'idle'
+        return 'stuck'
 
-    if tx_state['phase'] == 'closed':
-        return 'closed'
-
-    # Open transaction — bucket on last_activity.
-    if last_seconds is None:
-        return 'closed'
-    if last_seconds < ACTIVE_WINDOW_S:
-        return 'active'
-    if last_seconds < IDLE_WINDOW_S:
-        return 'idle'
-    return 'stuck'
+    # Alive but no open transaction — Claude is running between tasks.
+    return 'idle'
 
 
 def discover_instances() -> list[str]:
@@ -280,6 +289,12 @@ def discover_instances() -> list[str]:
     Walks the standard state-file globs under ~/.empirica/ and unions the
     derived instance_ids. Excludes loop pause sidecars (different suffix
     shape) and known global files.
+
+    Also unions in any tmux pane currently running claude as foreground —
+    this catches sessions started before empirica was installed (no
+    state file ever written) so the cockpit can still see them.
+    Synthetic ``tmux_{pane}`` IDs are stable across cockpit refreshes
+    because tmux pane numbers are stable for the lifetime of the pane.
     """
     EMPIRICA_DIR.mkdir(parents=True, exist_ok=True)
     seen: set[str] = set()
@@ -289,6 +304,11 @@ def discover_instances() -> list[str]:
             instance_id = _instance_id_from_filename(path.name)
             if instance_id and not LOOP_PAUSE_PATTERN.match(path.name):
                 seen.add(instance_id)
+
+    live_panes = _live_tmux_panes()
+    if live_panes:
+        for pane in live_panes:
+            seen.add(f'tmux_{pane}')
 
     return sorted(seen)
 
@@ -339,7 +359,15 @@ def aggregate_instance_state(
         }
 
     instance_mtime = _newest_instance_file_mtime(instance_id)
-    state = _derive_state_symbol(tx_state, instance_mtime)
+
+    liveness = is_alive(
+        instance_id,
+        last_activity_seconds=tx_state['last_activity_seconds'],
+        live_panes=live_panes,
+        current_instance_id=current_instance_id,
+    )
+
+    state = _derive_state_symbol(tx_state, instance_mtime, alive=liveness.alive)
 
     sentinel = sentinel_status(instance_id)
 
@@ -373,13 +401,6 @@ def aggregate_instance_state(
         }
     else:
         transaction = None
-
-    liveness = is_alive(
-        instance_id,
-        last_activity_seconds=tx_state['last_activity_seconds'],
-        live_panes=live_panes,
-        current_instance_id=current_instance_id,
-    )
 
     # 'ask' supersedes the file-derived phase when CC is waiting for input.
     asking = is_asking(instance_id)
