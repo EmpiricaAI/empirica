@@ -18,13 +18,16 @@ cites these files when emitting findings; Phase 1 only ships them
 
 ## Refresh policy
 
-Phase 1 ships **stubs** — title, canonical URL, and section-header
-skeleton. The full corpus content fills in via:
+The bundled corpus ships with **populated section bodies** — summary-
+grade content sufficient for the auditor's citation needs. Section IDs
+match the canonical frameworks exactly so citations remain valid across
+refreshes. Updates land via:
 
 - the **Phase 3 corpus-refresh loop** (monthly cron) which pulls the
-  latest published versions, OR
+  latest published versions of each framework, OR
 - a **manual commit** by anyone with the canonical text on hand.
 
-Stubs are intentionally light so the package stays slim and the
-auditor agent's citations point at structure that will hold up once
-real content lands.
+Each file declares its own freshness in the front-matter `Status:` line.
+Operators can drop in their own organisation-specific corpus extensions
+under `~/.empirica/security-corpus/`; the auditor sees both bundled and
+local files when running.

@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Security corpus populated (was Phase 1 stubs)
+
+- **5 corpus files now ship with summary-grade canonical bodies**
+  instead of section-ID-only stubs. Coverage: OWASP LLM Top 10 (2025),
+  OWASP Agentic Top 10 (Dec 2025), NIST AI RMF 1.0, MITRE ATLAS,
+  Google SAIF. Total corpus 737 lines (was 252).
+- **Each section** has: canonical-source attribution, scanner relevance
+  (which collector surfaces evidence for it), and concrete mitigations
+  the auditor can recommend. The `services-auditor` skill's citations
+  now resolve to real text instead of `_stub._` placeholders.
+- **Section IDs unchanged** — every previously-citable anchor (LLM-A01
+  through LLM-A10, Agentic-A01 through Agentic-A10, GOVERN-1.5,
+  MEASURE-2.7, T1499, SAIF-2, etc.) still resolves. Future Phase 3
+  corpus-refresh runs replace bodies in place; citations don't break.
+- **README refresh policy** updated — corpus is no longer marked
+  "stub" by default; per-file `Status:` front-matter declares freshness.
+
 ### Added — Scanner Phase 3 audit fire (services-audit + ntfy)
 
 - **`empirica services-audit`** — one fire of the biweekly audit loop.
