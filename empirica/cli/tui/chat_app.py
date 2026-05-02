@@ -81,6 +81,7 @@ class ChatApp(App):
     BINDINGS: ClassVar[list[Binding]] = [
         Binding("ctrl+q", "quit", "Quit"),
         Binding("ctrl+l", "clear_input", "Clear input"),
+        Binding("ctrl+m", "model_selector", "Model selector"),
     ]
 
     TITLE = "empirica chat"
@@ -631,6 +632,18 @@ class ChatApp(App):
             self.query_one(ChatInput).load_text("")
         except Exception:  # noqa: S110 — clear is best-effort UI op
             pass
+
+    def action_model_selector(self) -> None:
+        """Open the Phase 12 modal model selector (Ctrl+M)."""
+        from empirica.cli.tui.chat.model_selector import ModelSelectorModal
+
+        def _on_dismiss(model_name: str | None) -> None:
+            if model_name and self.registry.set_active_model(model_name):
+                self._refresh_subtitle()
+                self._emit_system(
+                    f"model set to {model_name} on provider {self.registry.active_provider_name}"
+                )
+        self.push_screen(ModelSelectorModal(self.registry), _on_dismiss)
 
 
 # Populate the dispatch table now that ChatApp's methods are defined.
