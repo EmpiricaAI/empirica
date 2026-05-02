@@ -1,6 +1,6 @@
 # Event-Listener — separate concept from cron loops
 
-**Status:** Shipped in 1.8.17 (proposal authored 2026-04-30, items 1–4 landed same week)
+**Status:** Shipped in 1.8.18 (proposal authored 2026-04-30, items 1–4 landed same week)
 **Author:** David + Claude Code (Opus 4.7 1M)
 **Related:**
 - `PROPOSAL_LOOP_SELF_SCHEDULING.md` (cron-mode loops, sister concept)
@@ -9,7 +9,7 @@
 - `empirica/plugins/claude-code-integration/skills/inbox-listener/SKILL.md` (listener body template, v1.0.0)
 
 > This document was the design proposal that landed as the listener subsystem.
-> Items 1–4 of the implementation ordering shipped on develop ahead of 1.8.17:
+> Items 1–4 of the implementation ordering shipped on develop ahead of 1.8.18:
 > `e32f7dee8` (pause-cancels-cron), `e656f24c6` (CLI + registry),
 > `60b167c2d` (install/uninstall bridge + skill), `df80895a3` + `577207cc3`
 > (TUI L/E binary toggle + project.yaml auto-install). Items 5 (cockpit/TUI
@@ -276,7 +276,7 @@ all other cron-mode loops benefit immediately.
 ## Implementation ordering (when we get to building)
 
 1. **Pause-actually-cancels-cron fix** — small, scoped,
-   independently-valuable. Ship as 1.8.17 alongside the shell-construct
+   independently-valuable. Ship as 1.8.18 alongside the shell-construct
    fix already on develop.
 2. **`empirica listener` CLI + registry** — mirrors `empirica loop`
    structure. Pause/resume must kill/restart the Monitor task.

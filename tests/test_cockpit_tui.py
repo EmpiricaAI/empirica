@@ -498,7 +498,7 @@ async def test_no_recent_widget(cockpit_env):
             app.query_one('#recent')
 
 
-# ─── L button mechanical-kill regression (1.8.17 + this commit) ────────────
+# ─── L button mechanical-kill regression (1.8.18 + this commit) ────────────
 
 
 @pytest.mark.asyncio

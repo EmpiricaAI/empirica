@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.18] — 2026-05-02
+
 ### Added — Security corpus populated (was Phase 1 stubs)
 
 - **5 corpus files now ship with summary-grade canonical bodies**

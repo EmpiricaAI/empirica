@@ -1,6 +1,6 @@
 # Notify Dispatcher
 
-> **Version:** 1.8.17 (no dispatcher changes; doc stamp added 2026-04-30)
+> **Version:** 1.8.18 (no dispatcher changes; doc stamp added 2026-04-30)
 
 Single CLI verb every loop body and hook calls to send notifications.
 The dispatcher decides where the event goes based on user config
