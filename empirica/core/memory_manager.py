@@ -37,7 +37,7 @@ def get_memory_dir(project_path: str | None = None) -> Path | None:
     where path-key is the absolute path with / replaced by -
 
     Args:
-        project_path: Explicit project path. If None, uses CWD and git root.
+        project_path: Explicit project path. If None, uses git root.
 
     Returns:
         Path to memory directory, or None if not found.
@@ -47,15 +47,10 @@ def get_memory_dir(project_path: str | None = None) -> Path | None:
     if project_path:
         candidates.append(Path(project_path).resolve())
 
-    # Try CWD
-    try:
-        candidates.append(Path.cwd().resolve())
-    except PermissionError:
-        logger.warning("Permission denied accessing CWD for memory dir resolution")
-    except Exception:
-        pass
-
-    # Try git root
+    # Try git root — Claude Code can reset CWD between hook invocations
+    # (subprocess parent-CWD inheritance is unreliable here), so we
+    # don't trust CWD as a project-resolution signal. Git root walks
+    # up from the actual filesystem anchor and is stable.
     try:
         import subprocess
         result = subprocess.run(
@@ -87,12 +82,19 @@ def get_memory_md_path(project_path: str | None = None) -> Path | None:
 def resolve_project_id(session_id: str, db_path: str | None = None) -> str | None:
     """Resolve project_id from session_id via DB lookup."""
     if not db_path:
-        candidate = Path.cwd() / '.empirica' / 'sessions' / 'sessions.db'
-        if not candidate.exists():
-            candidate = Path.home() / '.empirica' / 'sessions' / 'sessions.db'
-        if not candidate.exists():
+        # Use canonical resolver instead of guessing from CWD —
+        # CWD-relative `.empirica/sessions/sessions.db` could route to
+        # a sibling project's DB under tmux/cwd-mismatch conditions,
+        # which leaks artifacts across project boundaries.
+        try:
+            from empirica.config.path_resolver import get_session_db_path
+            resolved = get_session_db_path()
+            if resolved.exists():
+                db_path = str(resolved)
+        except Exception:
+            pass
+        if not db_path:
             return None
-        db_path = str(candidate)
 
     try:
         conn = sqlite3.connect(db_path)
@@ -119,12 +121,17 @@ def fetch_ranked_artifacts(session_id: str, db_path: str | None = None,
     result = {'findings': [], 'unknowns': [], 'dead_ends': [], 'goals': [], 'mistakes': []}
 
     if not db_path:
-        candidate = Path.cwd() / '.empirica' / 'sessions' / 'sessions.db'
-        if not candidate.exists():
-            candidate = Path.home() / '.empirica' / 'sessions' / 'sessions.db'
-        if not candidate.exists():
+        # Canonical resolver only — see resolve_project_id() above for why
+        # CWD-relative DB lookup is unsafe.
+        try:
+            from empirica.config.path_resolver import get_session_db_path
+            resolved = get_session_db_path()
+            if resolved.exists():
+                db_path = str(resolved)
+        except Exception:
+            pass
+        if not db_path:
             return result
-        db_path = str(candidate)
 
     try:
         project_id = resolve_project_id(session_id, db_path)

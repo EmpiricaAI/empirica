@@ -232,6 +232,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **memory_manager.py CWD-fallback hygiene** — closes the third leg of
+  the #95 root-cause cluster (alongside the resolver-raise and
+  grounded-verify CWD fixes already shipped in 1.8.16). `get_memory_dir`
+  no longer probes `Path.cwd()` as a candidate; explicit `project_path`
+  + git root remain. `resolve_project_id` and `fetch_ranked_artifacts`
+  now use the canonical `get_session_db_path()` resolver instead of
+  guessing the sessions.db location from CWD, which could route memory
+  writes to a sibling project's DB under tmux/cwd-mismatch conditions.
+  25/25 memory_manager tests still pass.
 - **Cockpit `c` toggle now reveals the passing checks instead of the
   failing ones** — David's intent was always: failures are part of the
   panel header (operator can never hide them via a key) and `c` flips
