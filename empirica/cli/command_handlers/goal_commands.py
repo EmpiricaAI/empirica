@@ -2618,15 +2618,27 @@ def _prune_test_pollution(cursor, project_id: str, dry_run: bool) -> list[dict]:
     """
     # Test pollution often has NULL project_id (test runner doesn't set it).
     # Match on the test-pattern AND (project matches OR project is NULL).
+    # Patterns split into two families:
+    #   prefix forms — 'Test ...', 'E2E test ...', 'Final test ...'
+    #   suffix forms — '... test', 'No X test', 'Post-fix test', 'Invalid X test'
+    # Suffix forms catch the throwaway names test runners and old
+    # development phases leave behind.
     cursor.execute(
         "SELECT id, objective, ai_id FROM goals "
         "WHERE is_completed = 0 "
         "AND (project_id = ? OR project_id IS NULL) "
-        "AND (objective LIKE 'Test %' OR objective LIKE 'test %' "
+        "AND ("
+        "     objective LIKE 'Test %' OR objective LIKE 'test %' "
         "     OR objective LIKE 'E2E test%' "
-        "     OR objective LIKE '%test issue%' "
-        "     OR objective LIKE '%test goal%' "
-        "     OR ai_id LIKE 'test-%' OR ai_id = 'test')",
+        "     OR objective LIKE 'Final test%' "
+        "     OR objective LIKE 'Post-fix test%' "
+        "     OR objective LIKE 'Invalid % test%' "
+        "     OR objective LIKE 'No % test%' "
+        "     OR objective LIKE '% test goal%' "
+        "     OR objective LIKE '% test issue%' "
+        "     OR objective LIKE '%smoke test%' "
+        "     OR ai_id LIKE 'test-%' OR ai_id = 'test'"
+        ")",
         (project_id,),
     )
     rows = cursor.fetchall()
@@ -2661,10 +2673,14 @@ def _prune_auto_stale(cursor, project_id: str, days: int, dry_run: bool) -> list
     completed is effectively stale.
     """
     cutoff = time.time() - (days * 86400)
+    # Match unscoped (NULL project_id) goals too — those accumulate from
+    # one-off test runs and CLI invocations outside any project context,
+    # and are exactly the noise this command exists to clean up.
     cursor.execute(
         "SELECT id, objective, created_timestamp FROM goals "
         "WHERE is_completed = 0 AND status = 'in_progress' "
-        "AND created_timestamp < ? AND project_id = ?",
+        "AND created_timestamp < ? "
+        "AND (project_id = ? OR project_id IS NULL)",
         (cutoff, project_id),
     )
     rows = cursor.fetchall()
