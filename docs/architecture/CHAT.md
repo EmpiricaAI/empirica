@@ -397,6 +397,7 @@ Sized for incremental shipping. Each phase ends with a working binary
 | **11** | ✅ | Batch artifact operations slash commands. `/batch PATH` (log-artifacts from JSON file), `/resolve-batch ID1 ID2…`, `/delete-batch ID1 ID2…` — wrappers around existing empirica CLI batch endpoints. All dev-internal (in `/help debug`). Subprocess pipe-to-CLI pattern, tolerant to non-JSON responses (raw_output fallback). 11 mocked-subprocess tests. Useful for bulk cleanup + AI-driven artifact graphs (agentic mode) + reviewer-batch-resolves. | ~320 | `0fbe991a9` | `fa433410` |
 | **4b** | ✅ | Artifact-card action buttons wired to real CLI/local-state actions. (unknown, resolve) → empirica unknown-resolve. (*, pin) → ~/.empirica/chat_pinned_{session_id}.json (append-only, corruption-tolerant). (*, discuss) → SystemTurn context injection. (finding, confirm) / (decision, ack) / (decision, reverse) / (unknown, escalate) / (*, challenge) → log_finding chained with subject for searchability. New actions.resolve_unknown wrapper. 7 tests on wrapper + pin file persistence. | ~230 | `a7e73103d` | (no goal — pending v1) |
 | **7** | ✅ | Replay mode (`--replay SESSION_ID`). Read-only playback of past chat sessions. Loads jsonl from ~/.empirica/chat_sessions/, renders all turns, disables LLM dispatch on non-slash input. Mutually exclusive with --session-id and --feed (validated in command handler with helpful error messages). Slash commands still work in replay (review surface without dispatch). Banner SystemTurn at mount documents the mode. 9 tests (construction, input dispatch, parser flag, 3 validation paths). | ~170 | `0b7e3db17` | (no goal — pending v1) |
+| **10** | ✅ | Pre/post compact lifecycle hooks (`/compact` slash). Mirrors CC plugin pattern. Save: ~/.empirica/chat_breadcrumbs/{session_id}.yaml captures provider+model+autonomy_mode+statusline_mode+last 12 user/agent turns. Restore: on session resume, breadcrumb loads as a SystemTurn 'recovery message' at top of timeline so AI re-orients with mode + recent context. Pure-data module (empirica/core/chat/compact.py) with minimal YAML emitter/parser (no pyyaml dep). 12 tests (round-trip, format_recovery_message, YAML round-trip). Auto-trigger at 90% token deferred to Phase 10b (depends on Phase 9). | ~430 | `080b128d4` | `ed7bdef6` |
 
 ### Pending — v1 backlog
 
@@ -415,10 +416,9 @@ work doesn't lose specificity when picked up later.
 | Phase | Theme | LOC est. | Goal |
 |---|---|---|---|
 | **9** | Token tracking + per-model context window awareness — token bar UI (`\|\|\|\|\|\|\| 47%`), per-provider tokenizer, auto-compact suggest at 80/90% | ~300 | `544a6000` |
-| **10** | Pre/post compact lifecycle hooks — chat session state save/recover via `~/.empirica/chat_breadcrumbs/{session_id}.yaml`, mirrors CC's plugin compact hooks | ~200 | `ed7bdef6` |
 
-Total v0 shipped: ~4595 LOC across 16 phases. Pending v1 backlog:
-~600 LOC across 3 phases. Forward scope: ~500 LOC across 2 phases.
+Total v0 shipped: ~5025 LOC across 17 phases. Pending v1 backlog:
+~600 LOC across 3 phases. Forward scope: ~300 LOC across 1 phase.
 Phase numbers are not strictly ordered — pick by leverage.
 
 ### Conversational-layer surface principle (T43 + T44 framing)
