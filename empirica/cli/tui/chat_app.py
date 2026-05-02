@@ -53,6 +53,7 @@ from empirica.core.chat.translator_client import (
 from .chat.artifact_card import ArtifactCard
 from .chat.conversation import ConversationScroll
 from .chat.input import ChatInput
+from .chat.statusline import RENDER_MODES, StatuslinePanel
 
 REFRESH_SECONDS = 2.0
 
@@ -62,9 +63,12 @@ class ChatApp(App):
 
     CSS = """
     Screen { layout: vertical; }
+    #chat-statusline { dock: top; }
     #chat-conversation { height: 1fr; }
     #chat-input { dock: bottom; }
     """
+
+    STATUSLINE_REFRESH_SECONDS = 2.0
 
     BINDINGS: ClassVar[list[Binding]] = [
         Binding("ctrl+q", "quit", "Quit"),
@@ -111,6 +115,7 @@ class ChatApp(App):
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
+        yield StatuslinePanel()
         with Vertical():
             yield ConversationScroll(id="chat-conversation")
             yield ChatInput(id="chat-input")
@@ -126,6 +131,15 @@ class ChatApp(App):
 
         # Reflect active provider:model in the header subtitle
         self._refresh_subtitle()
+
+        # Tick the statusline panel so it stays current as the project's
+        # epistemic state evolves (other instances logging artifacts, etc).
+        try:
+            sp = self.query_one(StatuslinePanel)
+            sp.refresh_now()
+            self.set_interval(self.STATUSLINE_REFRESH_SECONDS, sp.refresh_now)
+        except Exception:  # noqa: BLE001 — pre-mount or test context
+            pass
 
         # Optional: replay a sample feed (no app-server dep — useful for
         # reviewing the rendering UX before wiring upstream).
@@ -292,6 +306,7 @@ class ChatApp(App):
                 "  /provider NAME         switch active provider\n"
                 "  /models                list models on active provider\n"
                 "  /model NAME            set active model\n"
+                "  /statusline [MODE]     cycle (or set) statusline mode: basic|default|learning|full\n"
                 "  /finding TEXT          create a finding (renders as inline card)\n"
                 "  /decision TEXT         create a decision\n"
                 "  /unknown TEXT          create an unknown question\n"
@@ -339,6 +354,22 @@ class ChatApp(App):
                 self._emit_system(f"model set to {rest} on provider {self.registry.active_provider_name}")
             else:
                 self._emit_system("/model: no active provider — use /provider NAME first")
+            return
+
+        if cmd == "statusline":
+            try:
+                sp = self.query_one(StatuslinePanel)
+            except Exception:  # noqa: BLE001
+                self._emit_system("/statusline: panel not mounted")
+                return
+            if rest:
+                if sp.set_mode(rest):
+                    self._emit_system(f"statusline mode → {rest}")
+                else:
+                    self._emit_system(f"unknown statusline mode: {rest!r} (valid: {', '.join(RENDER_MODES)})")
+            else:
+                new_mode = sp.cycle_mode()
+                self._emit_system(f"statusline mode → {new_mode}  (cycle through {', '.join(RENDER_MODES)})")
             return
 
         if not rest:
