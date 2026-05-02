@@ -188,6 +188,7 @@ from .scan_commands import (
     handle_scan_diff_command,
     handle_scan_history_command,
     handle_scan_show_command,
+    handle_services_audit_command,
 )
 from .security_audit_commands import handle_security_audit_command
 from .sentinel_commands import (
@@ -402,6 +403,7 @@ __all__ = [
     'handle_scan_diff_command',
     'handle_scan_history_command',
     'handle_scan_show_command',
+    'handle_services_audit_command',
     'handle_security_audit_command',
     'handle_sentinel_check_command',
     'handle_sentinel_load_profile_command',

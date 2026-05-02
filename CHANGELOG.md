@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Scanner Phase 3 audit fire (services-audit + ntfy)
+
+- **`empirica services-audit`** — one fire of the biweekly audit loop.
+  Captures a fresh `scan --save`, locates the previous entry in
+  `scan_history_<project_id>.jsonl`, diffs current vs prior, and emits
+  a notification through `empirica.core.notify.dispatcher` when novel
+  running services are detected. Returns structured JSON with a
+  `result` field (`found` / `empty` / `fail`) shaped to feed straight
+  into `loop heartbeat --result`.
+- **Notification body** lists added processes (first 3 by name) and
+  added listening port count, severity `warning`, source
+  `loop:services-audit`, tags `[services-audit, security]`. Stdout
+  fallback when ntfy isn't configured (existing dispatcher behavior).
+- **`--no-notify`** flag suppresses dispatch for testing / dry-run.
+- **Loop wiring** is the standard cron template — register a loop
+  named `services-audit` with the canonical biweekly cron
+  (`0 6 1,15 * *`), have the body call `empirica services-audit`,
+  feed `.result` from the JSON into `loop heartbeat --result`. The
+  command is the body; the loop registry is the schedule.
+- 5 tests cover: first-run-no-prior, no-change, novelty triggers
+  notify, --no-notify suppresses dispatch, no-project-id returns
+  fail.
+
 ### Added — Scanner Phase 3 history verbs
 
 - **`empirica scan-history`** — list past scan snapshots for the project

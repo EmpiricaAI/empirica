@@ -396,6 +396,164 @@ def handle_scan_diff_command(args) -> int:
     return 0
 
 
+def _emit_audit_notification(_scan_id: str, diff: dict,
+                              project_id: str | None) -> dict:
+    """Emit a notification when a services audit detects novel additions.
+
+    Returns a small status dict so callers know whether anything was
+    sent. Failure to dispatch isn't fatal — the scan + diff already
+    happened and are persisted.
+    """
+    proc_added = diff.get('processes', {}).get('added') or []
+    listen_added = diff.get('listeners', {}).get('added') or []
+    if not (proc_added or listen_added):
+        return {'emitted': False, 'reason': 'no novelty'}
+
+    try:
+        from empirica.core.notify.config import load_config
+        from empirica.core.notify.dispatcher import dispatch
+        from empirica.core.notify.event import NotifyEvent
+    except Exception as exc:
+        return {'emitted': False, 'reason': f'notify import failed: {exc}'}
+
+    parts = []
+    if proc_added:
+        parts.append(f'+{len(proc_added)} processes ({", ".join(proc_added[:3])}'
+                     f'{"…" if len(proc_added) > 3 else ""})')
+    if listen_added:
+        parts.append(f'+{len(listen_added)} listeners')
+    summary = '; '.join(parts)
+
+    event = NotifyEvent(
+        severity='warning',
+        title='Services audit: new running services detected',
+        message=summary,
+        rationale=(
+            'biweekly services-audit cron noticed processes or listening '
+            'ports that were not in the previous snapshot'
+        ),
+        source='loop:services-audit',
+        tags=['services-audit', 'security'],
+    )
+    try:
+        config = load_config()
+        result = dispatch(event, config, project_id=project_id)
+        return {
+            'emitted': True,
+            'backend': result.resolved_backend,
+            'fell_back': result.fell_back,
+        }
+    except Exception as exc:
+        return {'emitted': False, 'reason': f'dispatch failed: {exc}'}
+
+
+def handle_services_audit_command(args) -> int:
+    """`empirica services-audit` — one fire of the biweekly audit loop.
+
+    Runs scan --save, diffs against the previous snapshot in the
+    project's history, and emits a notification when novel services
+    appear. Returns structured JSON the loop body can read to set its
+    heartbeat result (found / empty / fail).
+    """
+    from empirica.core.scanner import collect_snapshot
+    output_format = getattr(args, 'output', 'json')
+    project_id = _resolve_project_id(args)
+    skip_notify = getattr(args, 'no_notify', False)
+
+    if not project_id:
+        msg = "no project_id resolved — services-audit needs a project context"
+        if output_format == 'json':
+            print(json.dumps({'ok': False, 'error': msg, 'result': 'fail'}))
+        else:
+            print(f'❌ {msg}')
+        return 1
+
+    # 1) Capture the new snapshot.
+    try:
+        snapshot = collect_snapshot()
+    except Exception as exc:
+        msg = f'scan failed: {exc}'
+        if output_format == 'json':
+            print(json.dumps({'ok': False, 'error': msg, 'result': 'fail'}))
+        else:
+            print(f'❌ {msg}')
+        return 1
+
+    snapshot_dict = snapshot.to_dict()
+    saved_paths = _persist_scan(snapshot_dict, project_id)
+
+    # 2) Find the previous entry — history is ordered oldest→newest, so
+    # the second-to-last is the prior fire (last is the one we just wrote).
+    history = _read_history(project_id)
+    prior_id = None
+    if len(history) >= 2:
+        prior_id = history[-2].get('scan_id')
+
+    diff: dict = {}
+    if prior_id:
+        prior_snapshot = _read_snapshot(prior_id)
+        if prior_snapshot is not None:
+            diff = _compute_scan_diff(prior_snapshot, snapshot_dict)
+
+    # 3) Decide loop result + (maybe) fire a notification.
+    novelty = bool(
+        diff.get('processes', {}).get('added')
+        or diff.get('listeners', {}).get('added')
+    )
+    result_kind = 'found' if novelty else 'empty'
+
+    notify_status: dict = {'emitted': False, 'reason': 'skipped'}
+    if novelty and not skip_notify:
+        notify_status = _emit_audit_notification(
+            snapshot_dict.get('scan_id') or '?', diff, project_id,
+        )
+    elif not novelty:
+        notify_status['reason'] = 'no novelty'
+
+    payload = {
+        'ok': True,
+        'project_id': project_id,
+        'scan_id': snapshot_dict.get('scan_id'),
+        'prior_scan_id': prior_id,
+        'result': result_kind,        # consumed by `loop heartbeat --result`
+        'novelty': {
+            'processes_added': diff.get('processes', {}).get('added', []),
+            'processes_removed': diff.get('processes', {}).get('removed', []),
+            'listeners_added': diff.get('listeners', {}).get('added', []),
+            'listeners_removed': diff.get('listeners', {}).get('removed', []),
+        },
+        'saved': saved_paths,
+        'notify': notify_status,
+    }
+
+    if output_format == 'json':
+        print(json.dumps(payload, indent=2, default=str))
+    else:
+        _print_services_audit_human(payload, novelty, prior_id, notify_status)
+    return 0
+
+
+def _print_services_audit_human(payload: dict, novelty: bool,
+                                 prior_id: str | None,
+                                 notify_status: dict) -> None:
+    """Human-readable rendering for services-audit. Pulled out so the
+    handler stays under the C901 threshold."""
+    print(f'🔍 services-audit: scan {payload["scan_id"][:8]} → {payload["result"]}')
+    if novelty:
+        n = payload['novelty']
+        if n['processes_added']:
+            print(f'   +processes: {", ".join(n["processes_added"])}')
+        if n['listeners_added']:
+            print(f'   +listeners: {", ".join(n["listeners_added"])}')
+        if notify_status.get('emitted'):
+            print(f'   notified via {notify_status.get("backend")}')
+        return
+    if prior_id:
+        print(f'   (no novelty since {prior_id[:8]})')
+    else:
+        print('   (first scan — no prior to diff against)')
+
+
 def handle_scan_command(args) -> int:
     """`empirica scan` — emit a deterministic inventory snapshot.
 

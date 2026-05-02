@@ -523,6 +523,7 @@ def main(args=None):
             'scan-history': handle_scan_history_command,
             'scan-show': handle_scan_show_command,
             'scan-diff': handle_scan_diff_command,
+            'services-audit': handle_services_audit_command,
 
             # Checkpoint commands
             'checkpoint-create': handle_checkpoint_create_command,

@@ -66,3 +66,23 @@ cockpit.scanner.read_surface (defaults applied if absent).
                       help='Project UUID (overrides auto-resolution)')
     diff.add_argument('--output', choices=['human', 'json'], default='human',
                       help='Output format (default: human)')
+
+    audit = subparsers.add_parser(
+        'services-audit',
+        help='One fire of the services-audit loop: scan + diff vs prior + '
+             'notify on novel services',
+        description='Captures a fresh snapshot via `scan --save`, diffs it '
+                    'against the previous entry in the project history, and '
+                    'emits a notification when novel running services appear. '
+                    'Returns structured JSON with a result field (found / '
+                    'empty / fail) for the loop body to feed into '
+                    '`loop heartbeat --result`.',
+    )
+    audit.add_argument('--no-notify', action='store_true',
+                       help='Skip notification dispatch even when novelty '
+                            'detected (testing / dry-run mode)')
+    audit.add_argument('--project-id',
+                       help='Project UUID (overrides auto-resolution)')
+    audit.add_argument('--output', choices=['human', 'json'], default='json',
+                       help='Output format (default: json — loop bodies '
+                            'consume this)')
