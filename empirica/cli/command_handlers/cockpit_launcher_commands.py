@@ -101,26 +101,7 @@ def handle_cockpit_launch_command(args) -> int:
         return _handle_groups_launch(config, output, quiet)
 
     # 2. Abnormal-exit detection
-    abnormal = detect_abnormal_exit()
-    abnormal_payload: dict | None = None
-    if isinstance(abnormal, AbnormalExit):
-        abnormal_payload = {
-            'kind': 'abnormal_exit',
-            'started_at': abnormal.started_at,
-            'duration_lost_seconds': abnormal.duration_lost_seconds,
-            'likely_cause': abnormal.likely_cause,
-        }
-        if config.warn_on_abnormal_exit and not quiet and output == 'human':
-            print('⚠️  Previous cockpit session ended without clean shutdown')
-            print(f'   started: {_format_iso(abnormal.started_at)}')
-            print(f'   duration: {_format_age(abnormal.duration_lost_seconds)} ago')
-            print(f'   likely cause: {abnormal.likely_cause}')
-            print('   Suggested: empirica instance prune --dry-run')
-    elif isinstance(abnormal, SessionAlreadyRunning):
-        # Already running — caller will attach below.
-        if output == 'human':
-            print(f'ℹ️  Cockpit session "{config.session_name}" already running '
-                  f'(pid {abnormal.pid}). Attaching.')
+    abnormal_payload = _check_and_print_abnormal(config, quiet, output)
 
     # 3. Bring up the layout
     result = launch_cockpit(config)
@@ -160,6 +141,30 @@ def handle_cockpit_launch_command(args) -> int:
     os.execvp('tmux', ['tmux', 'attach-session', '-t', result.session_name])  # noqa: S606 — tmux is the OS executable, args are sanitized config values
     # execvp doesn't return on success; if we get here, something failed.
     return 1
+
+
+def _check_and_print_abnormal(config, quiet: bool, output: str) -> dict | None:
+    """Detect abnormal-exit / already-running, print human warnings,
+    return the JSON payload field for the caller. Extracted to keep
+    handle_cockpit_launch_command under the C901 complexity bar."""
+    abnormal = detect_abnormal_exit()
+    if isinstance(abnormal, AbnormalExit):
+        if config.warn_on_abnormal_exit and not quiet and output == 'human':
+            print('⚠️  Previous cockpit session ended without clean shutdown')
+            print(f'   started: {_format_iso(abnormal.started_at)}')
+            print(f'   duration: {_format_age(abnormal.duration_lost_seconds)} ago')
+            print(f'   likely cause: {abnormal.likely_cause}')
+            print('   Suggested: empirica instance prune --dry-run')
+        return {
+            'kind': 'abnormal_exit',
+            'started_at': abnormal.started_at,
+            'duration_lost_seconds': abnormal.duration_lost_seconds,
+            'likely_cause': abnormal.likely_cause,
+        }
+    if isinstance(abnormal, SessionAlreadyRunning) and output == 'human':
+        print(f'ℹ️  Cockpit session "{config.session_name}" already running '
+              f'(pid {abnormal.pid}). Attaching.')
+    return None
 
 
 def _handle_groups_launch(config, output: str, quiet: bool) -> int:
@@ -223,8 +228,8 @@ def _handle_groups_launch(config, output: str, quiet: bool) -> int:
         print('  Pin each window to the KDE taskbar (right-click → Pin), then')
         print('  Meta+1..N jumps directly to that group.')
         print()
-        print(f'  Detach all: empirica cockpit detach   (writes clean-shutdown marker)')
-        print(f'  Refresh:    empirica cockpit launch   (re-wraps surviving sessions)')
+        print('  Detach all: empirica cockpit detach   (writes clean-shutdown marker)')
+        print('  Refresh:    empirica cockpit launch   (re-wraps surviving sessions)')
     return 0 if result.all_ok() else 1
 
 
