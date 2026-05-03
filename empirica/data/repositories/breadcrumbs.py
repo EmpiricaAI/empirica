@@ -10,6 +10,7 @@ import logging
 import time
 import uuid
 
+from ..epistemic_source import normalize_epistemic_source
 from ..visibility import normalize_visibility
 from .base import BaseRepository
 
@@ -128,6 +129,7 @@ class BreadcrumbRepository(BaseRepository):
         entity_id: str | None = None,
         source_ids: list[str] | None = None,
         visibility: str | None = None,
+        epistemic_source: str | None = None,
     ) -> str:
         """Log a project finding (what was learned/discovered)
 
@@ -183,17 +185,20 @@ class BreadcrumbRepository(BaseRepository):
         # Serialize explicit source IDs (from source-add) as JSON for the column
         source_refs_json = json.dumps(source_ids) if source_ids else None
         visibility_tier = normalize_visibility(visibility)
+        source_tag = normalize_epistemic_source(epistemic_source)
 
         self._execute("""
             INSERT INTO project_findings (
                 id, project_id, session_id, goal_id, subtask_id,
                 finding, created_timestamp, finding_data, subject, impact,
-                transaction_id, entity_type, entity_id, source_refs, visibility
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                transaction_id, entity_type, entity_id, source_refs, visibility,
+                epistemic_source
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             finding_id, project_id, session_id, goal_id, subtask_id,
             finding, time.time(), json.dumps(finding_data), subject, impact,
-            transaction_id, entity_type, entity_id, source_refs_json, visibility_tier
+            transaction_id, entity_type, entity_id, source_refs_json, visibility_tier,
+            source_tag
         ))
 
         self.commit()
@@ -214,6 +219,7 @@ class BreadcrumbRepository(BaseRepository):
         entity_type: str | None = None,
         entity_id: str | None = None,
         visibility: str | None = None,
+        epistemic_source: str | None = None,
     ) -> str:
         """Log a project unknown (what's still unclear)
 
@@ -263,17 +269,18 @@ class BreadcrumbRepository(BaseRepository):
         }
 
         visibility_tier = normalize_visibility(visibility)
+        source_tag = normalize_epistemic_source(epistemic_source)
 
         self._execute("""
             INSERT INTO project_unknowns (
                 id, project_id, session_id, goal_id, subtask_id,
                 unknown, created_timestamp, unknown_data, subject, impact,
-                transaction_id, entity_type, entity_id, visibility
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                transaction_id, entity_type, entity_id, visibility, epistemic_source
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             unknown_id, project_id, session_id, goal_id, subtask_id,
             unknown, time.time(), json.dumps(unknown_data), subject, impact,
-            transaction_id, entity_type, entity_id, visibility_tier
+            transaction_id, entity_type, entity_id, visibility_tier, source_tag
         ))
 
         self.commit()
@@ -325,6 +332,7 @@ class BreadcrumbRepository(BaseRepository):
         entity_type: str | None = None,
         entity_id: str | None = None,
         visibility: str | None = None,
+        epistemic_source: str | None = None,
     ) -> str:
         """Log a project dead end (what didn't work)
 
@@ -373,17 +381,18 @@ class BreadcrumbRepository(BaseRepository):
         }
 
         visibility_tier = normalize_visibility(visibility)
+        source_tag = normalize_epistemic_source(epistemic_source)
 
         self._execute("""
             INSERT INTO project_dead_ends (
                 id, project_id, session_id, goal_id, subtask_id,
                 approach, why_failed, created_timestamp, dead_end_data, subject,
-                transaction_id, entity_type, entity_id, visibility
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                transaction_id, entity_type, entity_id, visibility, epistemic_source
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             dead_end_id, project_id, session_id, goal_id, subtask_id,
             approach, why_failed, time.time(), json.dumps(dead_end_data), subject,
-            transaction_id, entity_type, entity_id, visibility_tier
+            transaction_id, entity_type, entity_id, visibility_tier, source_tag
         ))
 
         self.commit()
@@ -616,6 +625,7 @@ class BreadcrumbRepository(BaseRepository):
         entity_type: str | None = None,
         entity_id: str | None = None,
         visibility: str | None = None,
+        epistemic_source: str | None = None,
     ) -> str:
         """
         Log a mistake for learning and future prevention.
@@ -653,19 +663,20 @@ class BreadcrumbRepository(BaseRepository):
         }
 
         visibility_tier = normalize_visibility(visibility)
+        source_tag = normalize_epistemic_source(epistemic_source)
 
         self._execute("""
             INSERT INTO mistakes_made (
                 id, session_id, goal_id, project_id, mistake, why_wrong,
                 cost_estimate, root_cause_vector, prevention,
                 created_timestamp, mistake_data, transaction_id,
-                entity_type, entity_id, visibility
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                entity_type, entity_id, visibility, epistemic_source
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             mistake_id, session_id, goal_id, project_id, mistake, why_wrong,
             cost_estimate, root_cause_vector, prevention,
             time.time(), json.dumps(mistake_data), transaction_id,
-            entity_type, entity_id, visibility_tier
+            entity_type, entity_id, visibility_tier, source_tag
         ))
 
         self.commit()
@@ -750,6 +761,7 @@ class BreadcrumbRepository(BaseRepository):
         entity_type: str | None = None,
         entity_id: str | None = None,
         visibility: str | None = None,
+        epistemic_source: str | None = None,
     ) -> str:
         """Log an unverified belief to the assumptions table."""
         assumption_id = str(uuid.uuid4())
@@ -760,17 +772,18 @@ class BreadcrumbRepository(BaseRepository):
             entity_id = project_id
 
         visibility_tier = normalize_visibility(visibility)
+        source_tag = normalize_epistemic_source(epistemic_source)
 
         self._execute("""
             INSERT INTO assumptions (
                 id, assumption, confidence, status,
                 entity_type, entity_id, project_id, session_id,
-                transaction_id, goal_id, created_timestamp, visibility
-            ) VALUES (?, ?, ?, 'unverified', ?, ?, ?, ?, ?, ?, ?, ?)
+                transaction_id, goal_id, created_timestamp, visibility, epistemic_source
+            ) VALUES (?, ?, ?, 'unverified', ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             assumption_id, assumption, confidence,
             entity_type, entity_id, project_id, session_id,
-            transaction_id, goal_id, time.time(), visibility_tier
+            transaction_id, goal_id, time.time(), visibility_tier, source_tag
         ))
 
         self.commit()
@@ -795,6 +808,7 @@ class BreadcrumbRepository(BaseRepository):
         entity_id: str | None = None,
         evidence_refs: list[str] | None = None,
         visibility: str | None = None,
+        epistemic_source: str | None = None,
     ) -> str:
         """Log a decision choice point to the decisions table."""
         decision_id = str(uuid.uuid4())
@@ -806,19 +820,22 @@ class BreadcrumbRepository(BaseRepository):
 
         evidence_refs_json = json.dumps(evidence_refs) if evidence_refs else None
         visibility_tier = normalize_visibility(visibility)
+        source_tag = normalize_epistemic_source(epistemic_source)
 
         self._execute("""
             INSERT INTO decisions (
                 id, choice, alternatives, rationale,
                 confidence_at_decision, reversibility,
                 entity_type, entity_id, project_id, session_id,
-                transaction_id, goal_id, created_timestamp, evidence_refs, visibility
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                transaction_id, goal_id, created_timestamp, evidence_refs, visibility,
+                epistemic_source
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             decision_id, choice, alternatives, rationale,
             confidence, reversibility,
             entity_type, entity_id, project_id, session_id,
-            transaction_id, goal_id, time.time(), evidence_refs_json, visibility_tier
+            transaction_id, goal_id, time.time(), evidence_refs_json, visibility_tier,
+            source_tag
         ))
 
         self.commit()

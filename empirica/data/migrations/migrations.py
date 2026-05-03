@@ -1264,6 +1264,7 @@ ALL_MIGRATIONS: list[tuple[str, str, Callable]] = [
     ("037_composable_lessons", "Evolve lessons into composable epistemic patterns with abstraction levels, sharing, EKG connections, triggers, output renderers", lambda cursor: migration_037_composable_lessons(cursor)),
     ("038_goal_lifecycle_simplify", "Simplify goal lifecycle: convert stale/blocked to in_progress, support planned status", lambda cursor: migration_038_goal_lifecycle_simplify(cursor)),
     ("039_artifact_visibility", "Add visibility tier (public/shared/local, default shared) to artifact tables for Phase 0 visibility primitive (PROPOSAL_VISIBILITY_TIERS.md)", lambda cursor: migration_039_artifact_visibility(cursor)),
+    ("040_epistemic_source", "Add epistemic_source field (intuition/search/mixed/NULL) to artifact tables for source-aware Sentinel calibration substrate (PROMPT_FOR_EMPIRICA_CLAUDE_source_aware_sentinel.md)", lambda cursor: migration_040_epistemic_source(cursor)),
 ]
 
 
@@ -1449,4 +1450,47 @@ def migration_039_artifact_visibility(cursor: sqlite3.Cursor):
 
     logger.info(
         f"✅ Migration 039 complete: visibility column added to {len(artifact_tables)} artifact tables"
+    )
+
+
+def migration_040_epistemic_source(cursor: sqlite3.Cursor):
+    """Add epistemic_source field to artifact tables (source-aware Sentinel substrate).
+
+    Source tags how the AI arrived at the artifact:
+      - 'intuition': training data + already-loaded session context, no
+        external retrieval since the goal opened
+      - 'search':    external retrieval this session (file read, grep, glob,
+        web fetch, MCP tool call, project_search, etc.)
+      - 'mixed':     both intuition and search contributed
+      - NULL:        legacy / not yet tagged (default for back-compat)
+
+    Tables affected (same set as visibility migration 039, minus goals
+    which describe intent rather than epistemic content):
+      - project_findings, project_unknowns, project_dead_ends
+      - mistakes_made, assumptions, decisions
+
+    Per-goal source ratios become a calibration signal — vectors asserted
+    high while every artifact is intuition-tagged is the gaming surface
+    described in ecodex's brief. v0 is data-primitive only; the routing
+    rule (gate route to "investigate" when claims are high but evidence
+    is all-intuition) is deferred until calibration history accumulates.
+
+    See docs/architecture/PROMPT_FOR_EMPIRICA_CLAUDE_source_aware_sentinel.md.
+    """
+    artifact_tables = [
+        'project_findings',
+        'project_unknowns',
+        'project_dead_ends',
+        'mistakes_made',
+        'assumptions',
+        'decisions',
+    ]
+    for table in artifact_tables:
+        add_column_if_missing(cursor, table, "epistemic_source", "TEXT")
+        cursor.execute(
+            f"CREATE INDEX IF NOT EXISTS idx_{table}_epistemic_source ON {table}(epistemic_source)"
+        )
+
+    logger.info(
+        f"✅ Migration 040 complete: epistemic_source column added to {len(artifact_tables)} artifact tables"
     )
