@@ -934,11 +934,14 @@ brew install empirica
             info("Would run: python3 -m pytest tests/ -x -q --tb=short")
             return True
 
+        # 600s ceiling: full suite is ~3-4min on cold cache. Scanner integration
+        # alone can take ~80s — 300s left no headroom and timed out in 1.8.19
+        # release prep. Bump gives ~2x safety margin.
         result = subprocess.run(
             ["python3", "-m", "pytest", "tests/", "-x", "-q", "--tb=short",
              "--ignore=tests/integration", "--ignore=tests/manual_test_goals.py",
              "-p", "no:cacheprovider"],
-            capture_output=True, text=True, timeout=300,
+            capture_output=True, text=True, timeout=600,
             cwd=str(self.repo_root),
         )
 
