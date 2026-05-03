@@ -247,9 +247,13 @@ Infer epistemic actions from conversation naturally:
 | Error made | `mistake-log` |
 | Choice point | `decision-log` |
 | External material cited (URL, doc, paper, transcript) | `source-add` then link via `sourced_from` in `log-artifacts` |
+| Logging an artifact you generated without external retrieval | `--epistemic-source intuition` — be honest, don't paper it as `search` |
+| Logging an artifact shaped by reads/greps/web/MCP this session | `--epistemic-source search` |
 | Intentional stub / placeholder created | `goals-create --status planned` at the same time — names what fills it and when, so stubs don't fall through the cracks |
 | Low confidence | Stay noetic, investigate |
 | Ready to act | CHECK → praxic |
+
+**Source-aware Sentinel substrate** — the optional `--epistemic-source {intuition|search|mixed}` flag on every `*-log` command (and `data.epistemic_source` in `log-artifacts` payloads) tags how you arrived at the artifact. The POSTFLIGHT calibration_reflection surfaces a per-transaction `epistemic_provenance` block with intuition/search counts and a ratio. v0 is visibility-only — there's no routing rule yet. Be honest: vectors asserted high while every artifact is intuition-tagged is exactly the rubber-stamp CHECK pattern the substrate is built to expose.
 
 ---
 

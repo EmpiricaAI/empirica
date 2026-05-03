@@ -296,6 +296,24 @@ empirica decision-log --choice "Use SQLite over Postgres" --rationale "Single-us
 empirica source-add --title "RFC 6749" --source-url "https://..." --source-type spec
 ```
 
+### Source-Aware Calibration Substrate
+
+Every `*-log` command accepts `--epistemic-source {intuition|search|mixed}`
+(and `log-artifacts` accepts `data.epistemic_source` per node). It tags how
+you arrived at the artifact:
+
+- **intuition** — generated from training data + already-loaded session
+  context, no external retrieval since the goal opened
+- **search** — produced or substantially shaped by an external retrieval
+  this session (file read, grep, glob, web fetch, MCP, project_search)
+- **mixed** — both contributed
+
+POSTFLIGHT's `calibration_reflection.epistemic_provenance` block surfaces
+the per-transaction ratio (intuition vs search counts). v0 is visibility-
+only — no gate routing — but be honest: vectors asserted high while every
+artifact is intuition-tagged is the rubber-stamp CHECK pattern the
+substrate exists to expose.
+
 ---
 
 ## MEMORY COMMANDS (Qdrant)
@@ -554,6 +572,8 @@ Empirica is **cognitive infrastructure**, not just a CLI. In practice:
 - Error made -> mistake-log (with prevention)
 - Unverified belief -> assumption-log
 - Choice point -> decision-log
+- Logging an artifact generated without external retrieval -> add --epistemic-source intuition
+- Logging an artifact shaped by reads/greps/web/MCP this session -> add --epistemic-source search
 - Intentional stub / placeholder created -> goals-create --status planned (at the same time, so stubs don't fall through the cracks)
 - Low confidence -> stay NOETIC
 - Ready to act -> CHECK gate, PRAXIC

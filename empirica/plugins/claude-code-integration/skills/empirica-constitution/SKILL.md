@@ -71,6 +71,15 @@ I discovered something
 ├── Choice point → empirica decision-log --choice "..." --rationale "..."
 └── External reference → empirica source-add --title "..." --source-url "..."
 
+How did I arrive at this artifact? (source-aware Sentinel substrate)
+├── From training data + already-loaded context → add --epistemic-source intuition
+├── From this-session retrieval (read/grep/glob/web/MCP) → --epistemic-source search
+├── Both contributed → --epistemic-source mixed
+└── In log-artifacts batch payloads → set "epistemic_source" on each node's data
+   (POSTFLIGHT calibration_reflection.epistemic_provenance shows the per-transaction
+    ratio; v0 is visibility-only — no gate routing. Be honest: vectors asserted
+    high while every artifact is intuition-tagged is the rubber-stamp CHECK pattern.)
+
 I need to remember across sessions
 ├── Fact with confidence → Qdrant eidetic (automatic via finding-log)
 ├── Session narrative → Qdrant episodic (automatic via POSTFLIGHT)
