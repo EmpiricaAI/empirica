@@ -23,7 +23,9 @@ from __future__ import annotations
 
 from empirica.core.cockpit.launcher.config import (
     DEFAULT_CONFIG_PATH,
+    GroupSpec,
     LauncherConfig,
+    PaneSpec,
     ProjectSpec,
     StatusWindow,
     load_config,
@@ -44,10 +46,14 @@ from empirica.core.cockpit.launcher.state import (
     write_session_start,
 )
 from empirica.core.cockpit.launcher.tmux import (
+    GroupLaunchResult,
+    GroupsLaunchResult,
     LaunchResult,
+    alacritty_available,
     cockpit_kill,
     cockpit_session_exists,
     launch_cockpit,
+    launch_groups,
 )
 
 __all__ = [
@@ -57,16 +63,22 @@ __all__ = [
     'LAST_SESSION_START_PATH',
     'LOCK_PATH',
     'AbnormalExit',
+    'GroupLaunchResult',
+    'GroupSpec',
+    'GroupsLaunchResult',
     'LaunchResult',
     'LauncherConfig',
+    'PaneSpec',
     'ProjectSpec',
     'SessionAlreadyRunning',
     'StatusWindow',
+    'alacritty_available',
     'cockpit_kill',
     'cockpit_session_exists',
     'cockpit_status',
     'detect_abnormal_exit',
     'launch_cockpit',
+    'launch_groups',
     'load_config',
     'write_clean_shutdown',
     'write_default_config',

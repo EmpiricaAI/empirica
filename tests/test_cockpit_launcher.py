@@ -196,6 +196,159 @@ def test_write_default_config_round_trips(tmp_path):
     assert reloaded.status_windows  # has the default monitor window
 
 
+# ─── Groups mode (alacritty surface) ─────────────────────────────────────
+
+
+def test_groups_mode_parses_full_yaml(tmp_path):
+    """Groups + panes + surface override + alacritty_args round-trip."""
+    yaml_path = tmp_path / 'config.yaml'
+    yaml_path.write_text("""
+session_name: my-cockpit
+projects:
+  - name: empirica
+    path: /home/user/empirica
+  - name: outreach
+    path: /home/user/outreach
+groups:
+  - name: main
+    panes:
+      - {project: empirica}
+      - {project: outreach}
+  - name: cockpit
+    split: vertical
+    panes:
+      - {project: empirica, label: empirica-extra}
+      - {command: empirica cockpit, label: cockpit-tui}
+surface: alacritty
+alacritty_args: ['--option', 'font.size=11']
+""")
+    config = launcher_config.load_config(path=yaml_path)
+    assert config.is_groups_mode()
+    assert config.surface == 'alacritty'
+    assert config.alacritty_args == ['--option', 'font.size=11']
+    assert len(config.groups) == 2
+
+    main = config.groups[0]
+    assert main.name == 'main'
+    assert main.split == 'horizontal'      # default
+    assert len(main.panes) == 2
+    assert main.panes[0].project_ref == 'empirica'
+    assert main.panes[1].project_ref == 'outreach'
+
+    cockpit = config.groups[1]
+    assert cockpit.split == 'vertical'
+    assert cockpit.panes[1].inline_command == 'empirica cockpit'
+    assert cockpit.panes[1].label == 'cockpit-tui'
+
+    # Project lookup by name
+    assert config.project_by_name('empirica').path == '/home/user/empirica'
+    assert config.project_by_name('does-not-exist') is None
+
+
+def test_groups_mode_back_compat_no_groups(tmp_path):
+    """Without ``groups:``, surface defaults to 'tmux' (legacy)."""
+    yaml_path = tmp_path / 'config.yaml'
+    yaml_path.write_text("""
+session_name: legacy
+projects:
+  - name: alpha
+    path: /tmp/alpha
+""")
+    config = launcher_config.load_config(path=yaml_path)
+    assert not config.is_groups_mode()
+    assert config.surface == 'tmux'
+    assert config.groups == []
+
+
+def test_groups_mode_pane_filtering(tmp_path):
+    """Empty/malformed panes are dropped silently."""
+    yaml_path = tmp_path / 'config.yaml'
+    yaml_path.write_text("""
+groups:
+  - name: g1
+    panes:
+      - {project: real}
+      - {}                        # no project / no command — drop
+      - "string-not-dict"         # malformed — drop
+      - {project: another}
+  - name: g2
+    panes: []                     # empty — group dropped
+  - {}                            # no name — drop
+""")
+    config = launcher_config.load_config(path=yaml_path)
+    assert len(config.groups) == 1
+    assert config.groups[0].name == 'g1'
+    assert len(config.groups[0].panes) == 2
+
+
+def test_groups_mode_serialize_round_trip(tmp_path):
+    """Write a groups-mode config, reload, verify equivalence."""
+    config_path = tmp_path / 'cockpit' / 'config.yaml'
+    config_path.parent.mkdir(parents=True)
+
+    # Build manually then write via internal serializer
+    cfg = launcher_config.LauncherConfig(
+        session_name='test',
+        surface='alacritty',
+        projects=[launcher_config.ProjectSpec(name='p1', path='/tmp/p1')],
+        groups=[launcher_config.GroupSpec(
+            name='g1',
+            panes=[
+                launcher_config.PaneSpec(project_ref='p1'),
+                launcher_config.PaneSpec(inline_command='echo hello'),
+            ],
+            split='horizontal',
+        )],
+    )
+    import yaml as _yaml
+    config_path.write_text(_yaml.safe_dump(launcher_config._serialize(cfg), sort_keys=False))
+
+    reloaded = launcher_config.load_config(path=config_path)
+    assert reloaded.surface == 'alacritty'
+    assert len(reloaded.groups) == 1
+    g = reloaded.groups[0]
+    assert g.name == 'g1'
+    assert g.panes[0].project_ref == 'p1'
+    assert g.panes[1].inline_command == 'echo hello'
+
+
+def test_alacritty_available_check():
+    """Smoke check — alacritty is present on the dev machine and CI image
+    respectively, but the function shouldn't raise."""
+    from empirica.core.cockpit.launcher import alacritty_available
+    result = alacritty_available()
+    assert isinstance(result, bool)
+
+
+def test_handle_groups_launch_no_alacritty(tmp_cockpit_dir, capsys, monkeypatch):
+    """If alacritty isn't on PATH, the groups handler errors out cleanly
+    and points the operator at the legacy tmux surface fallback."""
+    from empirica.core.cockpit.launcher import (
+        GroupSpec,
+        LauncherConfig,
+        PaneSpec,
+        ProjectSpec,
+    )
+    from empirica.core.cockpit.launcher import tmux as launcher_tmux
+    from empirica.cli.command_handlers.cockpit_launcher_commands import _handle_groups_launch
+
+    monkeypatch.setattr(launcher_tmux, 'alacritty_available', lambda: False)
+    # Also patch the re-export the handler imports through
+    from empirica.cli.command_handlers import cockpit_launcher_commands as cmds
+    monkeypatch.setattr(cmds, 'alacritty_available', lambda: False)
+
+    config = LauncherConfig(
+        groups=[GroupSpec(name='g1', panes=[PaneSpec(project_ref='p1')])],
+        projects=[ProjectSpec(name='p1', path='/tmp/p1')],
+        surface='alacritty',
+    )
+    rc = _handle_groups_launch(config, output='json', quiet=True)
+    assert rc == 1
+    out = json.loads(capsys.readouterr().out)
+    assert out['ok'] is False
+    assert 'alacritty not found' in out['error'].lower()
+
+
 # ─── CLI handlers (no-tmux paths) ────────────────────────────────────────
 
 

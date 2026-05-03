@@ -50,6 +50,11 @@ when the previous session ended without writing a clean-shutdown marker
     launch.add_argument('--quiet-warnings', action='store_true',
                         help='Suppress the abnormal-exit warning even when '
                              'the previous session ended uncleanly')
+    launch.add_argument('--surface', choices=['tmux', 'alacritty'],
+                        help='Override the surface from config. tmux = legacy '
+                             'single-attach. alacritty = one alacritty window per '
+                             'group with WM_CLASS for KDE Meta+1..N switching '
+                             '(requires "groups:" in config).')
     launch.add_argument('--output', choices=['human', 'json'], default='human',
                         help='Output format')
 
