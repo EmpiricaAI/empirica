@@ -52,7 +52,7 @@ def _read_work_phase(project_path: str | None, instance_id: str | None) -> str |
     try:
         from empirica.core.cockpit.instance_state import _read_transaction_state
         state = _read_transaction_state(project_path, instance_id)
-    except Exception:  # noqa: BLE001 — never block statusline on this
+    except Exception:
         return None
     phase = state.get("phase") if isinstance(state, dict) else None
     if phase in ("noetic", "praxic"):
@@ -122,7 +122,7 @@ class StatuslinePanel(Static):
                 InstanceResolver,
                 get_instance_id,
             )
-        except Exception as e:  # noqa: BLE001 — surface if empirica internals shift
+        except Exception as e:
             return f"[dim]statusline unavailable: {type(e).__name__}[/dim]"
 
         instance_id = get_instance_id()
@@ -139,9 +139,9 @@ class StatuslinePanel(Static):
             if hasattr(resolver, "session_id"):
                 try:
                     session_id = resolver.session_id()
-                except Exception:  # noqa: BLE001
+                except Exception:
                     session_id = None
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: S110 — best-effort resolver init (pre-mount/test)
             pass
 
         try:
@@ -151,7 +151,7 @@ class StatuslinePanel(Static):
                 project_path=project_path,
                 session_id=session_id,
             )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             return f"[dim]statusline error: {type(e).__name__}[/dim]"
 
         work_phase = _read_work_phase(project_path, instance_id)
