@@ -370,10 +370,24 @@ def test_status_handler_returns_clean_state(tmp_cockpit_dir, capsys, monkeypatch
     assert out['last_session_start'] == 'never'
 
 
-def test_detach_handler_writes_clean_marker(tmp_cockpit_dir, capsys):
+def test_detach_handler_writes_clean_marker(tmp_cockpit_dir, capsys, monkeypatch):
+    """The detach handler runs `tmux detach-client` as a side-effect.
+    Without target args that command detaches whatever client TMUX env
+    var points at — which is the dev's live tmux when running tests
+    under one. Belt-and-suspenders: mock the subprocess call here so
+    even if conftest's TMUX-stripping is bypassed, the test can never
+    touch a real tmux server. The test target is the marker write +
+    JSON output, not the tmux side-effect itself."""
+    import subprocess as _subprocess
+
     from empirica.cli.command_handlers.cockpit_launcher_commands import (
         handle_cockpit_detach_command,
     )
+
+    monkeypatch.setattr(_subprocess, 'run', lambda *a, **kw: SimpleNamespace(
+        returncode=0, stdout='', stderr='',
+    ))
+
     args = SimpleNamespace(output='json')
     rc = handle_cockpit_detach_command(args)
     assert rc == 0

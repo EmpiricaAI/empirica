@@ -50,7 +50,7 @@ def isolate_empirica_instance():
     # Save and strip terminal identity vars
     saved_env = {}
     identity_vars = (
-        "TMUX_PANE", "WINDOWID", "TERM_SESSION_ID",
+        "TMUX", "TMUX_PANE", "WINDOWID", "TERM_SESSION_ID",
         "EMPIRICA_INSTANCE_ID", "EMPIRICA_HEADLESS",
     )
     for var in identity_vars:
@@ -60,8 +60,12 @@ def isolate_empirica_instance():
     os.environ["EMPIRICA_INSTANCE_ID"] = test_instance_id
     os.environ["EMPIRICA_HEADLESS"] = "true"
 
-    # Strip terminal vars so subprocesses don't inherit them
-    for var in ("TMUX_PANE", "WINDOWID", "TERM_SESSION_ID"):
+    # Strip terminal vars so subprocesses don't inherit them.
+    # CRITICAL: TMUX is included — without it, any test that subshells `tmux`
+    # without a -t target (e.g. `tmux detach-client`) acts on the user's
+    # live tmux server. test_detach_handler_writes_clean_marker actually
+    # detached the dev's live tmux session before this was added.
+    for var in ("TMUX", "TMUX_PANE", "WINDOWID", "TERM_SESSION_ID"):
         os.environ.pop(var, None)
 
     # Belt-and-suspenders: back up active_transaction files
