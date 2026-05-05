@@ -319,6 +319,81 @@ class GoalRepository:
             logger.error(f"Error querying transaction goals: {e}")
             return []
 
+    def list_active_criteria_for_session(self, session_id: str):
+        """Return (Goal, SuccessCriterion) pairs for active goals in a session.
+
+        Active = not is_completed AND status != 'planned'. A goal with N
+        criteria yields N tuples. Used by the POSTFLIGHT criterion-evaluator
+        bridge to find which criteria need evaluation.
+        """
+        from .types import Goal
+
+        try:
+            cursor = self.db.conn.execute("""
+                SELECT goal_data FROM goals
+                WHERE session_id = ?
+                  AND is_completed = 0
+                  AND COALESCE(status, 'in_progress') != 'planned'
+                ORDER BY created_timestamp
+            """, (session_id,))
+            rows = cursor.fetchall()
+        except Exception as e:
+            logger.error(f"Error listing active criteria for session {session_id}: {e}")
+            return []
+
+        pairs = []
+        for row in rows:
+            try:
+                goal = Goal.from_dict(json.loads(row[0]))
+            except Exception as e:
+                logger.debug(f"Skipping malformed goal_data: {e}")
+                continue
+            for sc in goal.success_criteria:
+                pairs.append((goal, sc))
+        return pairs
+
+    def update_is_met(self, criterion_id: str, is_met: bool) -> bool:
+        """Update is_met on a SuccessCriterion. Best-effort, no raise.
+
+        Syncs both the normalized success_criteria row and the parent goal's
+        goal_data JSON blob so reads from either path see consistent state.
+        Returns True if the row was updated, False if not found or on error.
+        """
+        try:
+            cursor = self.db.conn.execute(
+                "UPDATE success_criteria SET is_met = ? WHERE id = ?",
+                (1 if is_met else 0, criterion_id),
+            )
+            if cursor.rowcount == 0:
+                logger.debug(f"No success_criterion row for id={criterion_id}")
+                return False
+
+            gid_row = self.db.conn.execute(
+                "SELECT goal_id FROM success_criteria WHERE id = ?",
+                (criterion_id,),
+            ).fetchone()
+            if gid_row:
+                goal = self.get_goal(gid_row[0])
+                if goal:
+                    for sc in goal.success_criteria:
+                        if sc.id == criterion_id:
+                            sc.is_met = is_met
+                            break
+                    self.db.conn.execute(
+                        "UPDATE goals SET goal_data = ? WHERE id = ?",
+                        (json.dumps(goal.to_dict()), goal.id),
+                    )
+
+            self.db.conn.commit()
+            return True
+        except Exception as e:
+            logger.error(f"Error updating is_met for criterion {criterion_id}: {e}")
+            try:
+                self.db.conn.rollback()
+            except Exception as rb_err:
+                logger.debug(f"Rollback also failed: {rb_err}")
+            return False
+
     def update_goal_completion(self, goal_id: str, is_completed: bool = True) -> bool:
         """
         Update goal completion status

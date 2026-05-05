@@ -3350,6 +3350,7 @@ def _build_postflight_result(
     compliance_result, compliance_error, postflight_grounded_vectors,
     postflight_grounded_rationale, vectors, resolved_project_path,
     postflight_coverage=None,
+    goal_criteria=None,
 ):
     """Build the postflight result dict including compliance, three-vector, memory hot-cache.
 
@@ -3397,6 +3398,9 @@ def _build_postflight_result(
     # file coverage" plainly so subsequent transactions self-correct.
     if postflight_coverage:
         result["coverage"] = postflight_coverage
+
+    if goal_criteria:
+        result["goal_criteria"] = goal_criteria
 
     _postflight_update_memory_hot_cache(session_id, resolved_project_path)
 
@@ -3500,6 +3504,35 @@ def _cortex_read_calibration_summary(project_path: str | None = None) -> dict:
     except Exception:
         pass
     return {}
+
+
+def _run_postflight_goal_criteria(session_id, transaction_id):
+    """Evaluate active goals' success_criteria against POSTFLIGHT state.
+
+    Bridge from goal-declared criteria → live POSTFLIGHT signal. Loads
+    active criteria for the session, dispatches each to its registered
+    evaluator (keyed on validation_method), persists is_met. Returns
+    the goal_criteria response block, or None if nothing was evaluated.
+
+    Empty EvidenceBundle is passed for G1 — SubtaskCompletionEvaluator
+    queries the goal/task DB directly and doesn't need bundle items.
+    G2's EvidenceMetricEvaluator will need bundle plumbing from the
+    grounded-verification pipeline.
+    """
+    try:
+        from empirica.core.post_test.collector import EvidenceBundle
+        from empirica.core.post_test.criterion_evaluators import evaluate_goal_criteria
+
+        empty_bundle = EvidenceBundle(session_id=session_id)
+        block = evaluate_goal_criteria(
+            session_id=session_id,
+            evidence=empty_bundle,
+            transaction_id=transaction_id,
+        )
+        return block if block.get("evaluated", 0) > 0 else None
+    except Exception as e:
+        logger.debug(f"Goal-criteria evaluation skipped: {e}")
+        return None
 
 
 def _run_postflight_cortex_sync(session_id, reasoning, resolved_project_path):
@@ -3811,6 +3844,10 @@ def handle_postflight_submit_command(args):
                 tx_info["work_context"], tx_info["work_type"], tx_info["transaction_id"],
                 project_path=resolved_project_path,
             )
+            goal_criteria_block = _soft_run("goal_criteria", warnings,
+                _run_postflight_goal_criteria,
+                session_id, tx_info["transaction_id"],
+            )
             _soft_run("storage_pipeline", warnings,
                 _run_postflight_storage_pipeline,
                 session_id=session_id, vectors=vectors, deltas=deltas,
@@ -3839,6 +3876,7 @@ def handle_postflight_submit_command(args):
                 postflight_grounded_rationale=parsed["grounded_rationale"],
                 postflight_coverage=parsed.get("coverage"),
                 vectors=vectors, resolved_project_path=resolved_project_path,
+                goal_criteria=goal_criteria_block,
             )
             if retrospective:
                 result["retrospective"] = retrospective
