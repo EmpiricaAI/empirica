@@ -55,6 +55,7 @@ class ProseEvidenceCollector:
 
         collectors = [
             ("prose_quality", self._collect_prose_quality),
+            ("prose_stylometry", self._collect_prose_stylometry),
             ("document_metrics", self._collect_document_metrics),
             ("source_quality", self._collect_source_quality),
             ("action_verification", self._collect_action_verification),
@@ -280,6 +281,129 @@ class ProseEvidenceCollector:
             logger.debug(f"vale analysis failed: {e}")
 
         return items
+
+    # --- Prose Stylometry (voice-drift detection) ---
+
+    def _collect_prose_stylometry(self) -> list[EvidenceItem]:
+        """Compute stylometric fingerprint of session prose; detect voice drift.
+
+        Activation:
+          - Combined text ≥ 200 words (markers noisy below this).
+          - Voice profile resolved via load_voice_fingerprint(name). When no
+            profile is found, fingerprint is still computed and surfaced —
+            without composite_drift — so callers can see the markers even
+            without a comparison baseline.
+
+        Voice resolution priority:
+          1. EMPIRICA_VOICE env var (override for testing or per-invocation)
+          2. <project>/.empirica/voice/.default (single-line voice name)
+          3. ~/.empirica/voice/.default
+
+        Output:
+          - EvidenceItem source=prose_stylometry, metric_name=composite_drift
+            with direction="lower_is_better" so the goal-criterion
+            EvidenceMetricEvaluator gates correctly (smaller drift = closer
+            to voice = better).
+          - When no voice profile, emits a fingerprint-only EvidenceItem.
+        """
+        from . import stylometry
+
+        items: list[EvidenceItem] = []
+        texts = self._get_session_texts()
+        if not texts:
+            return items
+
+        combined_text = "\n\n".join(texts)
+        token_count = len(combined_text.split())
+        if token_count < 200:
+            return items
+
+        output_fp = stylometry.compute_fingerprint(combined_text)
+        if not output_fp.get("markers"):
+            return items
+
+        voice_name = self._resolve_voice_name()
+        if not voice_name:
+            # Fingerprint-only: surface the measured markers; no drift comparison.
+            items.append(EvidenceItem(
+                source="prose_stylometry",
+                metric_name="prose_stylometry_fingerprint",
+                value=0.0,
+                raw_value={
+                    "voice_profile": None,
+                    "output_fingerprint": output_fp["markers"],
+                    "n_tokens": output_fp["n"],
+                },
+                quality=EvidenceQuality.OBJECTIVE,
+                supports_vectors=["coherence", "signal", "clarity"],
+                direction="lower_is_better",
+            ))
+            return items
+
+        voice_fp = stylometry.load_voice_fingerprint(
+            voice_name, project_root=self._resolve_project_root()
+        )
+        if voice_fp is None:
+            logger.debug(f"Voice profile {voice_name!r} declared but fingerprint not found")
+            return items
+
+        drift = stylometry.compute_drift(output_fp, voice_fp)
+
+        items.append(EvidenceItem(
+            source="prose_stylometry",
+            metric_name="prose_stylometry_composite_drift",
+            value=drift["composite_drift"],
+            raw_value=drift["composite_drift"],
+            quality=EvidenceQuality.OBJECTIVE,
+            supports_vectors=["coherence", "signal", "clarity"],
+            metadata={
+                "voice_profile": f"{voice_name}@{voice_fp.get('version', 'unknown')}",
+                "drift_direction": drift["drift_direction"],
+                "exceeds_tolerance": drift["exceeds_tolerance"],
+                "drift_per_marker": drift["drift_per_marker"],
+                "n_tokens": output_fp["n"],
+            },
+            direction="lower_is_better",
+        ))
+        return items
+
+    def _resolve_voice_name(self) -> str | None:
+        """Resolve which voice profile to compare against, if any."""
+        import os
+
+        env_voice = os.environ.get("EMPIRICA_VOICE")
+        if env_voice:
+            return env_voice.strip()
+
+        project_root = self._resolve_project_root()
+        candidates: list[Path] = []
+        if project_root:
+            candidates.append(Path(project_root) / ".empirica" / "voice" / ".default")
+        candidates.append(Path.home() / ".empirica" / "voice" / ".default")
+
+        for path in candidates:
+            if path.exists():
+                try:
+                    name = path.read_text(encoding="utf-8").strip()
+                    if name:
+                        return name
+                except OSError as e:
+                    logger.debug(f"Failed to read default voice from {path}: {e}")
+        return None
+
+    def _resolve_project_root(self) -> str | None:
+        """Resolve the project root path from this collector's session.
+
+        Looks up the session's project_id and returns its trajectory_path
+        if available. Falls back to None — load_voice_fingerprint then
+        only checks the user-global path.
+        """
+        try:
+            from empirica.utils.session_resolver import InstanceResolver as R
+            project_path = R.project_path()
+            return str(project_path) if project_path else None
+        except Exception:
+            return None
 
     # --- Document Metrics (replaces git metrics) ---
 
