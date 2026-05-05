@@ -6,7 +6,9 @@ Split from project_commands.py for maintainability.
 
 import json
 import logging
+import re
 import sqlite3
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -18,10 +20,102 @@ from .project_commands import get_workspace_db_path
 logger = logging.getLogger(__name__)
 
 
+_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
+_URL_RE = re.compile(r"https?://\S+", re.I)
+
+
 def _is_uuid(s: str) -> bool:
     """Check if a string looks like a UUID."""
-    import re
-    return bool(re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', s, re.I))
+    return bool(_UUID_RE.match(s))
+
+
+# ── Source-provenance nudge (content-aware) ──
+#
+# Prior nudge surfaces (CHECK reminder, POSTFLIGHT retrospective, system prompt)
+# all proved ineffective — adoption check on 2026-05-11 returned 0/50 of
+# decisions and 0/50 of findings with source_refs populated. The pattern of
+# prospective generic nudges fails because the nudge fires far from the
+# moment of artifact creation and doesn't cite anything specific.
+#
+# This nudge fires AT the moment of *-log invocation, when the artifact text
+# itself shows external citation (currently: URLs) but no source flag is
+# provided. The warning names the detected pattern and suggests the exact
+# remediation. Non-blocking — the artifact still gets logged.
+
+
+def _detect_external_citations(text: str | None) -> list[str]:
+    """Return short descriptions of external citations detected in `text`.
+
+    Currently detects HTTP(S) URLs. Returns up to 3 detected patterns;
+    returns empty list when text is None/empty or contains nothing flagged.
+
+    URL detection is conservative — only proper protocol prefixes count.
+    Cross-repo file path detection is intentionally out of scope for v1
+    (too much false-positive noise from stack traces, log paths, etc).
+    """
+    if not text:
+        return []
+    found: list[str] = []
+    for match in _URL_RE.findall(text)[:3]:
+        # Strip common trailing punctuation that's almost never part of a URL
+        cleaned = match.rstrip(".,;:)]'\"")
+        found.append(f"URL {cleaned}")
+    return found
+
+
+def _has_explicit_source(args) -> bool:
+    """True if the user provided any explicit provenance flag.
+
+    Counts: --source (source_ids), --evidence (evidence_refs), or any
+    --epistemic-source other than 'intuition'. The intuition tag is a
+    declaration of "no external source", so it counts as honest absence
+    rather than provenance.
+    """
+    if getattr(args, "source_ids", None):
+        return True
+    if getattr(args, "evidence_refs", None):
+        return True
+    epistemic_source = getattr(args, "epistemic_source", None)
+    return bool(epistemic_source) and epistemic_source != "intuition"
+
+
+def _warn_unsourced_citations_if_needed(args, *texts: str | None) -> None:
+    """Emit a stderr nudge when artifact text shows external citation but
+    no provenance flag is set. Non-blocking; the artifact still logs.
+
+    Suppressed when --output json (machine consumers don't want stderr
+    noise interleaved) and when EMPIRICA_SUPPRESS_PROVENANCE_NUDGE=1.
+    """
+    if getattr(args, "output", "human") == "json":
+        return
+    import os
+    if os.environ.get("EMPIRICA_SUPPRESS_PROVENANCE_NUDGE"):
+        return
+    if _has_explicit_source(args):
+        return
+
+    citations: list[str] = []
+    for text in texts:
+        citations.extend(_detect_external_citations(text))
+        if len(citations) >= 3:
+            citations = citations[:3]
+            break
+
+    if not citations:
+        return
+
+    summary = "; ".join(citations)
+    print(
+        f"⚠ source-provenance: external citation detected ({summary}) but no "
+        f"--source provided. Either:\n"
+        f"   1. `empirica source-add --title \"...\" --url \"...\" --noetic` then "
+        f"re-log with `--source <id>`\n"
+        f"   2. Tag intent with `--epistemic-source search` to record that you "
+        f"retrieved external material this session\n"
+        f"   3. Pass `EMPIRICA_SUPPRESS_PROVENANCE_NUDGE=1` if this artifact "
+        f"genuinely has no external origin (citation is illustrative).",
+        file=sys.stderr,
+    )
 
 
 # ── Edge declaration (inline graph linkage) ──
@@ -731,6 +825,9 @@ def handle_finding_log_command(args):
         # Source-aware Sentinel substrate: optional intuition|search|mixed tag
         epistemic_source = (config_data or {}).get('epistemic_source') or getattr(args, 'epistemic_source', None)
 
+        # Content-aware provenance nudge (non-blocking)
+        _warn_unsourced_citations_if_needed(args, finding)
+
         # Store to SQLite (durable)
         finding_id = db.log_finding(
             project_id=ctx['project_id'],
@@ -848,6 +945,9 @@ def handle_unknown_log_command(args):
         if ctx['output_format'] != 'json':
             from empirica.cli.cli_utils import print_project_context
             print_project_context(quiet=True)
+
+        # Content-aware provenance nudge (non-blocking)
+        _warn_unsourced_citations_if_needed(args, unknown)
 
         # Store to SQLite (durable)
         unknown_id = db.log_unknown(
@@ -1166,6 +1266,9 @@ def handle_deadend_log_command(args):
         why_failed = (config_data or {}).get('why_failed') or getattr(args, 'why_failed', None)
         epistemic_source = (config_data or {}).get('epistemic_source') or getattr(args, 'epistemic_source', None)
 
+        # Content-aware provenance nudge (non-blocking)
+        _warn_unsourced_citations_if_needed(args, approach, why_failed)
+
         # Store to SQLite (durable)
         dead_end_id = db.log_dead_end(
             project_id=ctx['project_id'],
@@ -1303,6 +1406,9 @@ def handle_assumption_log_command(args):
         confidence = (config_data or {}).get('confidence', 0.5) or getattr(args, 'confidence', 0.5)
         domain = (config_data or {}).get('domain') or getattr(args, 'domain', None)
         epistemic_source = (config_data or {}).get('epistemic_source') or getattr(args, 'epistemic_source', None)
+
+        # Content-aware provenance nudge (non-blocking)
+        _warn_unsourced_citations_if_needed(args, assumption)
 
         # Store to SQLite (durable)
         assumption_id = db.log_assumption(
@@ -1474,6 +1580,9 @@ def handle_decision_log_command(args):
         evidence_refs = cfg.get('evidence_refs') or getattr(args, 'evidence_refs', None)
         epistemic_source = cfg.get('epistemic_source') or getattr(args, 'epistemic_source', None)
         alternatives_json = json.dumps(alternatives_list) if alternatives_list else None
+
+        # Content-aware provenance nudge (non-blocking)
+        _warn_unsourced_citations_if_needed(args, choice, rationale)
 
         # Store to SQLite (durable)
         decision_id = db.log_decision(
@@ -1932,6 +2041,9 @@ def handle_mistake_log_command(args):
         via = getattr(args, 'via', None)
         visibility = getattr(args, 'visibility', None)
         epistemic_source = getattr(args, 'epistemic_source', None)
+
+        # Content-aware provenance nudge (non-blocking)
+        _warn_unsourced_citations_if_needed(args, mistake, why_wrong, prevention)
 
         if not session_id:
             session_id = R.session_id()
