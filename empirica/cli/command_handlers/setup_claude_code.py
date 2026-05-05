@@ -27,7 +27,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 PLUGIN_NAME = "empirica"
-PLUGIN_VERSION = "1.8.20"
+PLUGIN_VERSION = "1.9.0"
 
 
 def _resolve_empirica_version() -> str:

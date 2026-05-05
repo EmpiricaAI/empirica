@@ -162,7 +162,7 @@ class InstanceIdRequiredError(ValueError):
     using `except Exception` — including the TUI and background loops —
     catch it cleanly without crashing the host process. Same hazard pattern
     that motivated the resolve_project_id → ProjectNotFoundError migration
-    (1.8.20).
+    (1.9.0).
     """
 
 

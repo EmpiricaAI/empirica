@@ -852,7 +852,7 @@ stages 3-4 had already written the reflex.
    unconditionally before stages 5-7 (storage, compliance, cortex
    sync) had any chance to fail. Half-success: reflex written, exit 1.
 
-**Fix (multi-part, landed across 1.8.15 + 1.8.20):**
+**Fix (multi-part, landed across 1.8.15 + 1.9.0):**
 
 - POSTFLIGHT pipeline restructured (workflow_commands.py:3452+):
   - **Stage 0 (NEW)** pre-validates session row + project_id BEFORE
@@ -890,9 +890,9 @@ supported configurations. The fix above means the resolver leak that
 exposed his setup is closed; it doesn't add multi-`.empirica` support.
 
 **Commits:** `101a06c17` (POSTFLIGHT pipeline restructure — 1.8.15),
-`c389f6a06` (cortex sync from session row — 1.8.20), `27d76bc13`
-(resolve_project_id raises — 1.8.20), `ec94dca1f` (grounded
-verification CWD fix — 1.8.20). Tests in
+`c389f6a06` (cortex sync from session row — 1.9.0), `27d76bc13`
+(resolve_project_id raises — 1.9.0), `ec94dca1f` (grounded
+verification CWD fix — 1.9.0). Tests in
 `tests/test_postflight_pipeline_restructure.py` (19 cases) and
 `tests/test_project_resolver_raise.py` (8 cases).
 

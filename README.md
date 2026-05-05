@@ -2,7 +2,7 @@
 
 > **We Gave AI a Mirror. Now It Measures What It Believes.**
 
-[![Version](https://img.shields.io/badge/version-1.8.20-blue)](https://github.com/Nubaeon/empirica/releases/tag/v1.8.20)
+[![Version](https://img.shields.io/badge/version-1.9.0-blue)](https://github.com/Nubaeon/empirica/releases/tag/v1.9.0)
 [![PyPI](https://img.shields.io/pypi/v/empirica)](https://pypi.org/project/empirica/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -100,13 +100,13 @@ empirica setup-claude-code
 
 ```bash
 # Security-hardened Alpine image (~276MB, recommended)
-docker pull nubaeon/empirica:1.8.20-alpine
+docker pull nubaeon/empirica:1.9.0-alpine
 
 # Standard image (Debian slim, ~414MB)
-docker pull nubaeon/empirica:1.8.20
+docker pull nubaeon/empirica:1.9.0
 
 # Run
-docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.8.20 /bin/bash
+docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.9.0 /bin/bash
 ```
 </details>
 
@@ -266,6 +266,101 @@ The result: Claude Code's native capabilities, enhanced with measurement, gating
 
 ---
 
+## What's New in 1.9.0
+
+**Goal-criterion bridge — quality gates that auto-evaluate**
+
+- **`criterion_evaluators` package** — validation_method-keyed registry.
+  Goals declare `quality_gate:<metric>@<op>:<threshold>` and the bridge
+  routes to the right evaluator at POSTFLIGHT.
+- **`EvidenceMetricEvaluator`** — auto-evaluates any criterion whose
+  metric matches an evidence bundle key (test pass-rate, ruff violations,
+  stylometry drift, etc.). No per-criterion glue code needed.
+- **Typed criterion parser** — `goals-create --success-criteria
+  "quality_gate:test_pass_rate@>=:0.95"` parses to typed
+  `CriterionDeclaration` with method, metric, op, threshold.
+- **Goal repository extensions** — `list_active_criteria_for_session`,
+  `update_is_met`, `add_success_criterion` for the bridge.
+
+**Stylometric drift collector — voice consistency for outreach work**
+
+- **12 prosodic markers** — contractions, first-person, function-word
+  ratio, MTLD, sentence-length stdev, avg word length, punctuation
+  distribution, question/exclamation/em-dash rates, sentence-initial
+  diversity, paragraph rhythm.
+- **Voice fingerprints** — `~/.empirica/voice/<name>.fingerprint.json`
+  with target/tolerance/n shape. Project-local override at
+  `.empirica/voice/`.
+- **Drift direction inference** — `formal_pull` / `informal_pull` /
+  `mixed` / `within_tolerance` / `no_signal`. Composite drift score
+  surfaces in PREFLIGHT/POSTFLIGHT evidence bundle.
+
+**Content-aware source provenance nudge**
+
+- **Adoption gap closed** — prior generic nudges (CHECK, POSTFLIGHT,
+  system prompt) measured 0% `source-add` adoption. New nudge fires AT
+  the moment of artifact creation (`finding-log`, `decision-log`, etc.)
+  when the artifact text shows external citation but no `--source`.
+- **Three escape hatches** — `--source <url>`, `--epistemic-source
+  search` (acknowledges retrieval), or `EMPIRICA_SUPPRESS_SOURCE_NUDGE=1`
+  env var.
+
+**Bulk project-link CLI — Cortex registration at scale**
+
+- **`empirica projects-discover`** — filesystem walk discovers
+  `.empirica/project.yaml` markers across a parent directory. Skips
+  into nested project roots without missing siblings.
+- **`empirica projects-list`** — lists discovered projects with metadata
+  (path, project_id, last activity).
+- **`empirica projects-bulk-register`** — registers all discovered
+  projects with Empirica Cortex via /v1/projects/register, with
+  /v1/admin/projects fallback on 404/405. Idempotent on 409. **Cortex-
+  dependent** — requires running Cortex instance.
+
+**Live-scan semantic index — staleness invalidation**
+
+- **mtime-based cache** — `semantic_index.json` regenerates when source
+  docs are newer than the cache. Live consumers (`project_embed` at
+  session-end, `doc_planner` for noetic guidance) get fresh data without
+  manual `generate_semantic_index.py` runs.
+
+**Sentinel quote-aware shell parsing**
+
+- **False-positive `>` in quoted code** fixed — `_has_dangerous_redirects`
+  now uses `_contains_outside_quotes`, matching the existing pipe/chain
+  detection. Code containing `>` inside string literals no longer trips
+  the redirect guard.
+
+**Template version parameterization (Philipp #100)**
+
+- **System prompts no longer hardcode versions** — `CLAUDE.md` and
+  `empirica-system-prompt-lean.md` use `{{ empirica_version }}` and
+  `{{ generated_date }}` placeholders. Substituted at write-time by
+  `setup-claude-code` from the installed package version. Drift cannot
+  recur.
+
+**Documentation refresh**
+
+- **`UPGRADE_TO_1.9.md`** — replaces `UPGRADE_TO_1.7.md`. Covers
+  Sentinel reframe (1.8.0), domain registry, three-vector model, lean
+  core, plugin rename, EPP, listener subsystem, cockpit.
+- **`PROJECT_SWITCHING_FOR_AIS.md`** — full rewrite as authoritative
+  reference for cross-project work. Old guide retired.
+- **`TMUX_MULTI_PANE_GUIDE.md`** — added Cockpit section + cross-link
+  to `instance_isolation/README.md`.
+
+**Internal**
+
+- **`EvidenceItem.direction`** + has/get/direction helpers on
+  `EvidenceBundle` — uniform access for one-sided evaluators.
+- **9 compliance consistency regression tests** — property-test sweep
+  locks in single-source-of-truth invariant for the 11-check
+  compliance pipeline.
+- **40+ tests added** for criterion evaluators, post-test goal
+  integration, stylometry, criterion parser, provenance nudge,
+  semantic index, sentinel shell constructs, projects-discover,
+  template render.
+
 ## What's New in 1.8.20
 
 - **`empirica commit-context <sha>`** (new CLI). Aggregates artifacts
@@ -408,6 +503,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 **Author:** David S. L. Van Assche
-**Version:** 1.8.20
+**Version:** 1.9.0
 
 *Turtles all the way down — built with its own epistemic framework, measuring what it knows at every step.*

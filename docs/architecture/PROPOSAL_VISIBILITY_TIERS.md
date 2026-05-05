@@ -113,7 +113,7 @@ empirica visibility setup                        # one-time git-crypt setup wiza
 
 ## Cockpit integration
 
-New panel below `#compliance` (mirrors the pattern from 1.8.20):
+New panel below `#compliance` (mirrors the pattern from 1.9.0):
 
 ```
 🔒 visibility — 1247 shared · 42 public · 89 local (clean)
@@ -139,9 +139,9 @@ New panel below `#compliance` (mirrors the pattern from 1.8.20):
 
 | Phase | Version | Scope | Effort |
 |---|---|---|---|
-| **Phase 0** | 1.8.20 | `visibility` field on all artifacts (metadata only, no encryption yet). Agents classify at write time. CLI list/show. | ~1 day |
-| **Phase 1** | 1.8.20 | git-crypt integration: `.gitattributes` declarations, `empirica visibility setup` wizard, key management docs. Encrypts existing shared-tier artifacts. | ~2 days |
-| **Phase 2** | 1.8.20 | `empirica visibility audit` loop (biweekly): re-classify existing artifacts, flag drift, propose reclassifications. Cockpit panel. | ~3 days |
+| **Phase 0** | 1.9.0 | `visibility` field on all artifacts (metadata only, no encryption yet). Agents classify at write time. CLI list/show. | ~1 day |
+| **Phase 1** | 1.9.0 | git-crypt integration: `.gitattributes` declarations, `empirica visibility setup` wizard, key management docs. Encrypts existing shared-tier artifacts. | ~2 days |
+| **Phase 2** | 1.9.0 | `empirica visibility audit` loop (biweekly): re-classify existing artifacts, flag drift, propose reclassifications. Cockpit panel. | ~3 days |
 | **Phase 3** | 1.9.x | Per-team key-sharing workflows; GPG-based multi-user setup; encrypted backup tooling. Compliance reporting (data-residency stories). | ~1 week |
 
 Phase 0 alone is useful — agents start emitting with explicit visibility, even before encryption. Phase 1 closes the leak. Phase 2 makes it self-maintaining. Phase 3 productionizes for teams.

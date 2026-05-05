@@ -7,6 +7,196 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Goal-driven post-tests bridge
+
+Goals can now declare measurable success criteria that auto-evaluate at
+POSTFLIGHT. The "I preserved your voice" / "all subtasks done" / "metric X
+under threshold" claim becomes a falsifiable check with a number attached.
+
+- **Evaluator protocol + registry** at `empirica/core/post_test/criterion_evaluators/`.
+  `CriterionContext`, `CriterionResult`, `CriterionEvaluator` Protocol; first-applicable
+  dispatch with exception isolation (raises absorbed as skipped, not fatal).
+- **`SubtaskCompletionEvaluator`** (built-in, auto-registered for `validation_method=completion`):
+  ratio of completed subtasks vs threshold, default 1.0. Zero-subtask path falls back to
+  `is_completed` flag, otherwise skipped.
+- **`EvidenceMetricEvaluator`** (built-in, `validation_method=quality_gate`): reads a named
+  metric from the POSTFLIGHT `EvidenceBundle`, applies the metric's declared
+  `direction` (`higher_is_better` / `lower_is_better`) for op selection, compares against
+  threshold. Skips cleanly on missing metric.
+- **`goal_criteria` block in POSTFLIGHT response** with per-criterion results
+  (`evaluated`, `passed`, `failed`, `skipped`, `iteration_needed`). Self-diagnosing —
+  when an evaluator is registered but doesn't apply (metric absent), the message names
+  the evaluator and explains why instead of "no evaluator registered".
+- **`GoalRepository.list_active_criteria_for_session` + `update_is_met`** persist
+  evaluation results to both the normalized `success_criteria` table and the parent
+  goal's `goal_data` JSON for read-path consistency.
+- **`GoalRepository.add_success_criterion(...)`** SDK helper for programmatic
+  criterion authoring.
+
+### Added — Typed `--success-criteria` parser
+
+`empirica goals-create --success-criteria '["method:metric@op:threshold", ...]'`
+now parses the typed expression form. Examples:
+
+```bash
+empirica goals-create --objective "Preserve David's voice in published outreach articles" \
+  --success-criteria '["quality_gate:prose_stylometry_composite_drift@<=0.25"]'
+
+empirica goals-create --objective "Refactor auth module" \
+  --success-criteria '["completion:subtask_ratio@>=0.9"]'
+```
+
+Bare strings continue to default to `validation_method=completion` for backward
+compatibility. Op `<=` / `>=` is informational — evaluator's direction inference handles
+comparison semantics. Malformed expressions fall back to bare-string completion (no crash).
+
+### Added — Stylometry / voice-drift collector
+
+Computes 12 stylometric markers from session prose and compares against a voice
+fingerprint at `~/.empirica/voice/<name>.fingerprint.json`. Emits
+`prose_stylometry_composite_drift` as an `EvidenceItem` consumable by the
+goal-criterion `EvidenceMetricEvaluator` — turns voice preservation from
+asserted into measured.
+
+- T1 markers: contractions ratio, first-person ratio, function-word ratio,
+  type-token MTLD, sentence-length stdev, avg word length.
+- T2 markers: punctuation distribution, question/exclamation/em-dash rates,
+  sentence-initial token diversity, paragraph rhythm.
+- Voice resolution priority: `EMPIRICA_VOICE` env > project `.empirica/voice/.default`
+  > user `~/.empirica/voice/.default`. Activation gated on prose ≥ 200 words.
+- Drift direction inference: `formal_pull` / `informal_pull` / `mixed` /
+  `within_tolerance` / `no_signal` from formal-aligned marker movements.
+- Pure stdlib + hardcoded contraction (~50) and function-word (~150) lists. No
+  heavyweight deps. Curly apostrophes normalized.
+- Background: van Nuenen et al. (April 2026) — all frontier models drift toward
+  formality regardless of voice-preservation prompts. Voice belongs at the
+  measurement layer, not the instruction layer.
+
+### Added — Content-aware source-provenance nudge
+
+When `*-log` commands receive text containing URLs but no `--source` flag, the
+CLI emits a stderr nudge naming the detected URL and listing three concrete
+remediations (`empirica source-add` then re-log, tag with `--epistemic-source
+search`, or suppress with `EMPIRICA_SUPPRESS_PROVENANCE_NUDGE=1`).
+Non-blocking — artifact still logs.
+
+Closes the long-standing source-adoption gap (prior nudges at CHECK and
+POSTFLIGHT measured 0% adoption). Symmetric `--source` flag added to
+`assumption-log`, `decision-log`, `mistake-log` parsers (previously only on
+finding/unknown/deadend).
+
+### Added — `EvidenceItem.direction` + `EvidenceBundle.has`/`get`/`direction` helpers
+
+Net-new optional `direction: str = "higher_is_better"` field on `EvidenceItem`.
+Collectors emitting raw error counts / violation densities should set
+`"lower_is_better"`. New `EvidenceBundle` helpers for named-metric lookup —
+`has(metric)` / `get(metric)` (prefers `raw_value` when scalar, falls back to
+normalized `value`) / `direction(metric)`. Used by goal-criterion
+EvidenceMetricEvaluator. Backward-compatible — existing emitters don't need
+changes.
+
+### Added — Live-scan semantic index
+
+`docs/SEMANTIC_INDEX.yaml` is no longer a hand-managed cache that drifts every
+release. The loader detects staleness against source mtimes and live-scans
+automatically, writing the refreshed result back so subsequent reads stay fast.
+Graceful degradation when scan fails (falls back to stale cache before
+returning None).
+
+- `scan_project` extracted to `empirica/core/docs/semantic_scan.py` so loader
+  + generator script share the implementation.
+- `load_semantic_index(force_scan=False, write_back=True)` — optional kwargs;
+  positional callers unaffected.
+- The committed YAML is deleted; will regenerate on first call. (Was 326
+  entries cached vs 434 live = 33% stale, 6 weeks of doc additions invisible
+  to semantic search.)
+
+### Added — `empirica projects-discover` + `projects-list` + `projects-bulk-register`
+
+Power-user CLI for bulk-linking N local `.empirica/` repos to Cortex in one shot.
+Per `empirica-extension/docs/v0.5-BULK-PROJECT-LINK.md`.
+
+- **`projects-discover`** walks roots (default `$HOME`) for projects identified
+  by `.empirica/project.yaml`. Outputs YAML/JSON manifest with path, name,
+  `repo_url` (ssh→https normalized), `git_remote_origin`. Default cache:
+  `~/.empirica/discovered_projects.yaml`. `--max-depth`, `--include-hidden`
+  flags. Skips noise dirs (`node_modules`, `.git`, `.venv`, `__pycache__`,
+  `build`, `dist`, etc.).
+- **`projects-list`** reads cached manifest with `--refresh` for fresh scan.
+  Table / yaml / json output.
+- **`projects-bulk-register`** [Cortex-dependent] iterates manifest and POSTs
+  each to Cortex's `/v1/projects/register`, falling back to `/v1/admin/projects`
+  on 404/405. Idempotent — 409 (already exists) is silent skip. Network errors
+  and other 4xx/5xx logged + loop continues. `--dry-run`, `--cortex-url`,
+  `--api-key`, `--timeout` flags.
+
+### Fixed — Sentinel quote-aware redirect detection (#NN)
+
+`gh api ... | python3 -c "if x > 5: ..."` no longer false-positive blocked.
+The `>` inside quoted python code was being treated as a shell file-redirect.
+`_has_dangerous_redirects` now uses `_contains_outside_quotes` to match the
+quote-aware logic already used by pipe and chain detection. Real redirects
+(`cat foo > out.txt`) still block. Heredocs and stderr-suppress (`2>&1`,
+`2>/dev/null`) still safe.
+
+### Fixed — System-prompt template version drift (#100)
+
+Closes Philipp's #100. The lean and full system-prompt templates had hardcoded
+`v1.7.0` strings — drifted 8 minor versions before being caught. Every release
+silently re-introduced drift.
+
+Templates now use `{{ empirica_version }}` and `{{ generated_date }}`
+placeholders. `setup-claude-code` substitutes them at write-time from
+`empirica.__version__` and today's UTC date via the new
+`_render_versioned_template` helper. Source templates never mutated; idempotent
+re-renders. Real-template sanity tests fail if anyone reverts to a hardcoded
+version. The drift cannot recur.
+
+### Fixed — Goal-criterion dispatcher diagnostic message
+
+When evaluators are registered but none apply (e.g., quality_gate criterion
+whose named metric isn't in the bundle), the dispatcher now reports
+`"Registered evaluator(s) for 'quality_gate' did not apply
+(EvidenceMetricEvaluator) — required input absent"` instead of the misleading
+`"No evaluator registered"`. Distinguishes the two paths in the response so
+the failure mode is diagnosable without source-reading.
+
+### Internal — Project-context guide rewrite
+
+`docs/guides/PROJECT_SWITCHING_FOR_AIS.md` rewritten as authoritative reference.
+The previous version was framed as "problem-to-solve" for the `project-switch`
+verb that shipped in 1.3.0. New content covers what actually ships: TTY-pane
+instance isolation, three resolution coordinates (`instance_id` /
+`claude_session_id` / `project_id`), session row as canonical truth, project_id
+resolution priority, cross-project `--project-id` flag, common failure modes
+table, system-prompt guidance block.
+
+### Internal — Tmux multi-pane guide refresh + cockpit section
+
+`docs/guides/TMUX_MULTI_PANE_GUIDE.md` adds a Cockpit section
+(launch/status/groups/TUI/notify_dispatcher) and rewires "Related Documentation"
+to point at `instance_isolation/README.md` (entry point) plus new cross-refs to
+`COCKPIT.md` and `NOTIFY.md`.
+
+### Internal — `UPGRADE_TO_1.7.md` → `UPGRADE_TO_1.9.md`
+
+Old 1.7-era plugin-rename + lean-core-as-experimental doc replaced. New doc
+covers the 1.7→1.9 jump: goal-driven post-tests, stylometry, source nudge,
+cockpit + groups, source-aware Sentinel substrate, commit-context + edge
+declaration, live-scan semantic index, quote-aware redirect, lean core as
+default. Plugin README inbound link updated.
+
+### Internal — Compliance JSON↔human consistency regression tests
+
+9 tests in `tests/test_compliance_consistency.py` lock in the invariant that
+`compliance-report` JSON and human-formatted output always agree on
+status/score/passed-counts. Both formats read the same `report["overall"]`
+dict produced by `_compute_overall_status` — no parallel computation, no
+cache. Tests sweep pass/fail combinations and use sentinel-mismatched values
+to prove single-source-of-truth.
+
+## [1.8.20] — 2026-05-04
+
 ### Added — Graph + temporal layer for the artifact store
 
 The session that's been logging into `refs/notes/empirica/*` for months now

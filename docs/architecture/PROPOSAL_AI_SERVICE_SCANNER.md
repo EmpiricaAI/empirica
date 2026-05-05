@@ -3,7 +3,7 @@
 **Status:** Draft (2026-04-30)
 **Author:** David S. L. Van Assche + Claude Code (Opus 4.7 1M)
 **Related:**
-- [`PROPOSAL_EVENT_LISTENER.md`](PROPOSAL_EVENT_LISTENER.md) — loop/listener primitives this rides on (shipped 1.8.20)
+- [`PROPOSAL_EVENT_LISTENER.md`](PROPOSAL_EVENT_LISTENER.md) — loop/listener primitives this rides on (shipped 1.9.0)
 - [`COCKPIT.md`](COCKPIT.md) — visibility surface; new `services` panel proposed alongside `compliance`
 - [`../research/COVERAGE_VECTORS_PAPER_OUTLINE.md`](../research/COVERAGE_VECTORS_PAPER_OUTLINE.md) — methodological companion: coverage as a first-class metric
 
@@ -15,9 +15,9 @@ The code-scanning space is saturated: Anthropic Claude Code Security, OpenAI Aar
 
 Three things make this distinct, and we lead with them:
 
-1. **Live running-state inventory, not source-code analysis.** Those tools scan code at rest. This scans processes, sockets, scheduled tasks, plugin manifests, and held connections — what's *actually executing on this machine right now.* The empirica-outreach orphan-cron incident (1.8.20 work) is the canonical failure mode; no static analyzer would have caught it.
+1. **Live running-state inventory, not source-code analysis.** Those tools scan code at rest. This scans processes, sockets, scheduled tasks, plugin manifests, and held connections — what's *actually executing on this machine right now.* The empirica-outreach orphan-cron incident (1.9.0 work) is the canonical failure mode; no static analyzer would have caught it.
 2. **Epistemic measurement applied to a real failure mode.** Findings carry confidence + citation, with a coverage co-metric ("the agent saw N/M of available signals"). The methodological contribution — coverage vectors as a first-class metric — is paper-worthy on its own and unique to bounded-transaction frameworks like Empirica. See companion paper outline.
-3. **Local-first, developer-workflow integrated.** No cloud telemetry, no SOC analyst persona. Sits next to `empirica status`, integrates with the loop/listener/notify infrastructure already shipped in 1.8.20. Audience is solo devs and small teams running AI-heavy stacks on their own machines.
+3. **Local-first, developer-workflow integrated.** No cloud telemetry, no SOC analyst persona. Sits next to `empirica status`, integrates with the loop/listener/notify infrastructure already shipped in 1.9.0. Audience is solo devs and small teams running AI-heavy stacks on their own machines.
 
 The product is a developer-side implementation of what OWASP Agentic Top 10 (Dec 2025) explicitly recommends: *"Conduct a skill inventory across all agent platforms in use — treat this as an immediate priority given active exploitation confirmed in 2026."* Enterprise vendors (Bessemer-funded segment: Obsidian, Palo Alto, CrowdStrike, Trend Micro, Qualys, Microsoft agent-governance-toolkit) are all building the SOC-shaped version. The dev-machine shape is empty.
 
@@ -30,8 +30,8 @@ Modern dev machines accumulate AI-touching services that the user did not delibe
 - Multiple Claude Code instances across tmux panes (some with stale active_transaction files)
 - Background `ollama serve` from yesterday's experiment
 - Several MCP servers from various plugins (chrome MCP, claude-mem MCP, empirica-mcp, others)
-- Held curl listeners from 1.8.20 work (what triggered this proposal)
-- CronCreate jobs from days/weeks ago — pre-1.8.20 we had no way to inventory them
+- Held curl listeners from 1.9.0 work (what triggered this proposal)
+- CronCreate jobs from days/weeks ago — pre-1.9.0 we had no way to inventory them
 - Browser MCP extension state
 - Background `qdrant` daemon
 - AI-related env vars exporting API keys with broad read scope
@@ -229,7 +229,7 @@ Read-only by design. No `empirica scan kill` or similar. Findings carry `recomme
 
 ## Cockpit integration
 
-New `#services` panel below `#compliance` (mirrors the pattern shipped in 1.8.20):
+New `#services` panel below `#compliance` (mirrors the pattern shipped in 1.9.0):
 
 ```
 🔍 services — 12 known · 2 flagged · 1 unknown (5m ago)
@@ -255,7 +255,7 @@ Press `s` to expand. Failures (high-confidence findings) show by default; passin
 ```
 
 Action surfaces (read-only, but actionable):
-- **ntfy:** new high-confidence finding → push notification (re-uses 1.8.20 dispatcher)
+- **ntfy:** new high-confidence finding → push notification (re-uses 1.9.0 dispatcher)
 - **Notify integration:** `--source services-scanner` matched in routing rules
 - **Click-through:** finding → detail view → copy-paste recommended action
 
@@ -297,9 +297,9 @@ L-click in cockpit installs both. The biweekly cadence stacks cleanly with the c
 
 | Phase | Version | Scope | Effort |
 |---|---|---|---|
-| **1** | 1.8.20 | One-shot `empirica scan` + scanner module + read-surface YAML + bundled corpus + Markdown report. Deterministic only — no AI judgment yet. | ~3 days |
-| **2** | 1.8.20 | `--explain` AI judgment layer + `services-auditor` persona + cockpit `#services` panel + click-to-expand. | ~5 days |
-| **3** | 1.8.20 | Biweekly loop + ntfy integration + history/diff verbs + corpus-refresh loop. | ~3 days |
+| **1** | 1.9.0 | One-shot `empirica scan` + scanner module + read-surface YAML + bundled corpus + Markdown report. Deterministic only — no AI judgment yet. | ~3 days |
+| **2** | 1.9.0 | `--explain` AI judgment layer + `services-auditor` persona + cockpit `#services` panel + click-to-expand. | ~5 days |
+| **3** | 1.9.0 | Biweekly loop + ntfy integration + history/diff verbs + corpus-refresh loop. | ~3 days |
 | **4** | 1.9.x | RAG over corpus (Qdrant collection) + dynamic CVE feed + cross-instance fleet view. | ~2 weeks |
 
 Phase 1 alone solves the empirica-outreach orphan-cron failure mode. Phase 2 adds the empirica-distinctive judgment + coverage. Phase 3 makes it autonomous.
