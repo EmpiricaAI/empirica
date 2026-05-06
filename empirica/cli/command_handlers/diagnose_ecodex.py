@@ -37,6 +37,16 @@ from empirica.cli.command_handlers.diagnose import (
 
 _ECODEX_PLUGIN_KEY = "empirica@nubaeon"
 
+# Subset of vendored hook scripts whose drift matters most. We don't diff
+# every file because some legitimately diverge (vendored copies may carry
+# ecodex-specific patches over master). These three are the load-bearing
+# ones — if they drift, the discipline pipeline behavior drifts with them.
+_VENDORED_DRIFT_SENTINELS = (
+    "hooks/sentinel-gate.py",
+    "hooks/tool-router.py",
+    "hooks/transaction-enforcer.py",
+)
+
 
 # ---------------------------------------------------------------------------
 # Plugin install — codex-empirica-plugin
@@ -97,6 +107,151 @@ def check_ecodex_plugin_installed() -> CheckResult:
             "plugin_key": manifest_data.get("name", _ECODEX_PLUGIN_KEY),
         },
     )
+
+
+def _resolve_ecodex_repo_root() -> Path | None:
+    """Best-effort resolve the ecodex repo root.
+
+    Walks up from the doctor's own location looking for a clone of
+    ``ecodex/`` at sibling depth, or honors ECODEX_REPO env override.
+    Used by the vendored-drift check to compare on-disk source files
+    against the canonical ~/.claude/plugins/local/empirica/ source.
+    """
+    override = os.environ.get("ECODEX_REPO")
+    if override:
+        candidate = Path(override).expanduser()
+        if (candidate / "codex-rs" / "codex-empirica-plugin").is_dir():
+            return candidate
+    # Common sibling layouts in this monorepo.
+    for guess in (
+        Path.home() / "empirical-ai" / "ecodex",
+        Path.cwd() / "ecodex",
+        Path.cwd().parent / "ecodex",
+    ):
+        if (guess / "codex-rs" / "codex-empirica-plugin").is_dir():
+            return guess
+    return None
+
+
+def check_ecodex_plugin_vendored_freshness() -> CheckResult:
+    """Detect drift between vendored hook scripts in ecodex source vs the
+    canonical CC empirica install at ``~/.claude/plugins/local/empirica/``.
+
+    Tx-AK regression detector. The vendoring workflow is manual: maintainer
+    runs ``ecodex/scripts/sync-empirica-assets.sh`` after empirica releases
+    new hooks. If that step is missed, ecodex ships with stale discipline
+    behavior — bugs fixed in master remain in vendored copies, new safelist
+    entries don't propagate, etc. WARN (not FAIL) because some divergence
+    is normal during empirica's active dev — the goal is surfacing, not
+    blocking.
+
+    Compares the three load-bearing hook scripts (sentinel-gate.py,
+    tool-router.py, transaction-enforcer.py) by content hash. Skips when
+    either source isn't available (e.g. CC empirica not installed; ecodex
+    repo not at expected path).
+    """
+    import hashlib
+
+    cc_empirica_hooks = (
+        Path.home() / ".claude" / "plugins" / "local" / "empirica" / "hooks"
+    )
+    if not cc_empirica_hooks.is_dir():
+        return CheckResult(
+            name="ecodex plugin vendored freshness",
+            status=SKIP,
+            detail=(
+                f"CC empirica master not present at {cc_empirica_hooks} — "
+                "cannot compare drift"
+            ),
+        )
+    repo_root = _resolve_ecodex_repo_root()
+    if repo_root is None:
+        return CheckResult(
+            name="ecodex plugin vendored freshness",
+            status=SKIP,
+            detail=(
+                "ecodex repo root not found (set ECODEX_REPO to override) — "
+                "cannot compare drift"
+            ),
+        )
+    vendored_root = (
+        repo_root / "codex-rs" / "codex-empirica-plugin" / "assets" / "hooks_scripts"
+    )
+    if not vendored_root.is_dir():
+        return CheckResult(
+            name="ecodex plugin vendored freshness",
+            status=SKIP,
+            detail=f"vendored hooks_scripts/ missing at {vendored_root}",
+        )
+
+    drifted: list[dict[str, str]] = []
+    fresh: list[str] = []
+    for relpath in _VENDORED_DRIFT_SENTINELS:
+        # Master uses hooks/<name>.py; vendored uses hooks_scripts/hooks/<name>.py.
+        master_path = cc_empirica_hooks.parent / relpath
+        vendored_path = vendored_root / relpath
+        if not master_path.is_file() or not vendored_path.is_file():
+            continue
+        master_hash = hashlib.sha256(master_path.read_bytes()).hexdigest()
+        vendored_hash = hashlib.sha256(vendored_path.read_bytes()).hexdigest()
+        if master_hash != vendored_hash:
+            master_mtime = int(master_path.stat().st_mtime)
+            vendored_mtime = int(vendored_path.stat().st_mtime)
+            age_seconds = master_mtime - vendored_mtime
+            drifted.append(
+                {
+                    "file": relpath,
+                    "vendored_age_seconds": str(age_seconds),
+                    "vendored_age_human": _format_age(age_seconds),
+                }
+            )
+        else:
+            fresh.append(relpath)
+
+    if not drifted:
+        return CheckResult(
+            name="ecodex plugin vendored freshness",
+            status=PASS,
+            detail=f"{len(fresh)} sentinel files in sync with master",
+            data={"fresh_files": fresh},
+        )
+    summary = ", ".join(f"{d['file']} ({d['vendored_age_human']})" for d in drifted)
+    return CheckResult(
+        name="ecodex plugin vendored freshness",
+        status=WARN,
+        detail=f"vendored drift: {summary}",
+        hint=(
+            "Re-vendor with `ecodex/scripts/sync-empirica-assets.sh`, "
+            "review the diff, bump PLUGIN_VERSION if hook contract changed, "
+            "commit, rebuild, reinstall."
+        ),
+        data={"drifted": drifted, "fresh": fresh},
+    )
+
+
+def _format_age(seconds: int) -> str:
+    """Human-readable drift description.
+
+    Positive seconds = master is newer than vendored (vendored is stale —
+    needs re-sync). Negative seconds = vendored is newer than master
+    (vendored carries patches not yet upstreamed; usually fine but flagged
+    so the maintainer is aware).
+    """
+    if seconds < 0:
+        magnitude = _format_magnitude(-seconds)
+        return f"vendored ahead by {magnitude}"
+    magnitude = _format_magnitude(seconds)
+    return f"vendored stale by {magnitude}"
+
+
+def _format_magnitude(seconds: int) -> str:
+    if seconds < 60:
+        return f"{seconds}s"
+    if seconds < 3600:
+        return f"{seconds // 60}m"
+    if seconds < 86400:
+        return f"{seconds // 3600}h"
+    return f"{seconds // 86400}d"
 
 
 def check_ecodex_plugin_writable_roots_declared() -> CheckResult:
@@ -840,6 +995,11 @@ def run_all_checks_ecodex(*, fast: bool = False) -> list[CheckResult]:
     # state write hits EROFS and sentinel silently fail-opens. Subtle dark
     # failure (Tx-AI regression detector).
     results.append(check_ecodex_plugin_writable_roots_declared())
+    # Vendored hook drift — vendoring is a manual maintainer step; if missed,
+    # ecodex ships stale discipline. WARN-level surfacing (Tx-AK regression
+    # detector). Skips when ECODEX_REPO can't be located or CC empirica
+    # isn't installed locally.
+    results.append(check_ecodex_plugin_vendored_freshness())
     # Feature gate — without this on, the plugin's hooks ALL silently no-op.
     # Subtle failure mode (no error, just dark integration); doctor catches it.
     results.append(check_ecodex_plugin_hooks_feature_enabled())
