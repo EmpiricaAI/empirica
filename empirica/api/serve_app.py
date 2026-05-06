@@ -27,13 +27,26 @@ logger = logging.getLogger(__name__)
 # These mirror the TypeScript interfaces in empirica-client.ts
 
 class HealthResponse(BaseModel):
-    """Matches extension's HealthResponse interface."""
+    """Matches extension's HealthResponse interface.
+
+    Includes the daemon's active-project info (v0.5+) so the extension can:
+    - Match its dropdown's active project_id against the daemon's reported
+      project_id to decide try-daemon-first vs Cortex-fallback dispatch.
+    - Populate the project dropdown for Empirica-only users (no Cortex).
+    """
     ok: bool = True
     version: str = "0.1.0"
     api_version: str = "v1"
     ollama: bool = False
     claude_mem: bool = False
     qdrant: bool = False
+
+    # Active project info (v0.5+). All None if daemon launched outside any project.
+    project_id: str | None = None
+    project_path: str | None = None
+    project_name: str | None = None
+    project_slug: str | None = None
+    repo_url: str | None = None
 
 
 class ArtifactPayload(BaseModel):
@@ -99,10 +112,17 @@ def create_serve_app() -> FastAPI:
 
     @app.get("/api/v1/health", response_model=HealthResponse)
     async def health():  # pyright: ignore[reportUnusedFunction]
-        """Health check — reports available integrations."""
+        """Health check — reports integrations + active project info."""
+        from empirica.api.daemon_project import get_cached_daemon_project
+        project = get_cached_daemon_project() or {}
         return HealthResponse(
             ollama=_check_ollama(),
             qdrant=_check_qdrant(),
+            project_id=project.get("project_id"),
+            project_path=project.get("project_path"),
+            project_name=project.get("project_name"),
+            project_slug=project.get("project_slug"),
+            repo_url=project.get("repo_url"),
         )
 
     @app.post("/api/v1/artifacts/import", response_model=ArtifactImportResponse)

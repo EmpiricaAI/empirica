@@ -330,13 +330,38 @@ def _wire_edges(db, edges: list[dict], ref_map: dict[str, str]) -> int:
     return wired
 
 
-def _store_edge(db, from_id: str, to_id: str, relation: str):
-    """Store an edge relationship in the artifact's data column."""
+def _store_edge(db, from_id: str, to_id: str, relation: str, metadata: dict | None = None):
+    """Store an edge relationship.
+
+    Writes to the canonical `artifact_edges` table (post-migration 041) AND
+    keeps the legacy data.edges JSON in the artifact's data column populated
+    where one exists. Dual-write is a transitional compat layer — readers
+    that haven't migrated to the edge table yet keep working. Once all
+    readers use the edge table, the data.edges JSON arm can be removed.
+
+    Edges from `assumptions` and `decisions` (which have no data column)
+    used to silently drop here; now they're recorded in the edge table.
+    """
     if not db.conn:
         return
 
     cursor = db.conn.cursor()
 
+    # Canonical write: artifact_edges table (works for ALL artifact types,
+    # including assumptions and decisions which previously dropped edges).
+    try:
+        meta_json = json.dumps(metadata) if metadata else None
+        cursor.execute(
+            "INSERT OR IGNORE INTO artifact_edges (from_id, to_id, relation, metadata) "
+            "VALUES (?, ?, ?, ?)",
+            (from_id, to_id, relation, meta_json),
+        )
+    except Exception as e:
+        logger.debug(f"_store_edge: artifact_edges write failed (non-fatal): {e}")
+
+    # Legacy compat: also update data.edges JSON for tables that have a data column,
+    # so existing readers (e.g. UIs reading directly from finding_data) keep seeing
+    # the edge until they migrate to the edge table.
     for _atype, (table, id_col, data_col) in _ARTIFACT_TABLES.items():
         if not data_col:
             continue
@@ -351,15 +376,22 @@ def _store_edge(db, from_id: str, to_id: str, relation: str):
                     pass
 
             edges_list = existing_data.get('edges', [])
-            edges_list.append({'to': to_id, 'relation': relation})
-            existing_data['edges'] = edges_list
-
-            cursor.execute(
-                f"UPDATE {table} SET {data_col} = ? WHERE {id_col} = ?",
-                (json.dumps(existing_data), from_id),
+            # Dedupe — don't append the same edge twice
+            already_present = any(
+                e.get('to') == to_id and e.get('relation') == relation
+                for e in edges_list
             )
+            if not already_present:
+                edges_list.append({'to': to_id, 'relation': relation})
+                existing_data['edges'] = edges_list
+                cursor.execute(
+                    f"UPDATE {table} SET {data_col} = ? WHERE {id_col} = ?",
+                    (json.dumps(existing_data), from_id),
+                )
             db.conn.commit()
             return
+
+    db.conn.commit()
 
 
 def _auto_embed_node(node: dict, artifact_id: str, context: dict):
@@ -480,32 +512,56 @@ def _resolve_graph_context(graph: dict, args, db) -> dict | None:
     }
 
 
-def handle_log_artifacts_command(args):
-    """Handle log-artifacts command: batch artifact logging with graph format."""
-    if getattr(args, 'schema', False):
-        return _print_schema_and_exit(LOG_ARTIFACTS_SCHEMA, 'log-artifacts')
+def log_artifacts_graph(
+    graph: dict,
+    *,
+    session_id: str | None = None,
+    project_id: str | None = None,
+    transaction_id: str | None = None,
+    goal_id: str | None = None,
+) -> dict:
+    """Pure function: log a graph batch (nodes + edges) and return the result dict.
+
+    Daemon's POST /api/v1/artifacts/log calls this directly; CLI's
+    handle_log_artifacts_command wraps it to print JSON + return exit code.
+
+    Resolution priority for context: explicit args > graph["session_id"|...] > R.context().
+    Returns: {"ok": bool, "created": {ref: id}, "nodes_created": int,
+              "edges_wired": int, "errors": [str], "alias_warnings"?: [str]}
+    """
+    from empirica.data.session_database import SessionDatabase
+
+    db = SessionDatabase()
     try:
-        from empirica.data.session_database import SessionDatabase
+        # Build a synthetic args-like object for _resolve_graph_context (reuses
+        # the existing R.context() chain). Explicit args win over graph fields.
+        # _resolve_graph_context reads graph["session_id"|"project_id"|"goal_id"|"transaction_id"]
+        # then args fields; merge our overrides into a graph copy so it picks them up.
+        from types import SimpleNamespace
+        ctx_args = SimpleNamespace(session_id=session_id, project_id=project_id)
+        graph_for_ctx = dict(graph)
+        if session_id:
+            graph_for_ctx["session_id"] = session_id
+        if project_id:
+            graph_for_ctx["project_id"] = project_id
+        if transaction_id:
+            graph_for_ctx["transaction_id"] = transaction_id
+        if goal_id:
+            graph_for_ctx["goal_id"] = goal_id
 
-        graph = _read_graph_input(args)
-        if not graph:
-            return 1
-
-        db = SessionDatabase()
-        context = _resolve_graph_context(graph, args, db)
+        context = _resolve_graph_context(graph_for_ctx, ctx_args, db)
         if not context:
-            db.close()
-            return 1
+            return {"ok": False, "error": "Could not resolve session_id or project_id"}
 
-        # Sort nodes by creation order
         nodes = graph.get('nodes', [])
-        sorted_nodes = sorted(nodes, key=lambda n: CREATION_ORDER.index(n.get('type', 'finding'))
-                              if n.get('type') in CREATION_ORDER else 99)
+        sorted_nodes = sorted(
+            nodes,
+            key=lambda n: CREATION_ORDER.index(n.get('type', 'finding'))
+            if n.get('type') in CREATION_ORDER else 99,
+        )
 
-        # Create nodes
         ref_map: dict[str, str] = {}
         created_errors: list[str] = []
-
         for node in sorted_nodes:
             artifact_id = _create_node(db, node, context)
             if artifact_id:
@@ -514,15 +570,11 @@ def handle_log_artifacts_command(args):
             else:
                 created_errors.append(f"Failed to create {node['type']} '{node['ref']}'")
 
-        # Wire edges
         edges = graph.get('edges', [])
         edges_wired = _wire_edges(db, edges, ref_map) if edges else 0
 
-        db.close()
-
         # Git notes (non-fatal)
         try:
-            # Just trigger a breadcrumb write for the batch
             import subprocess
             subprocess.run(
                 ['git', 'notes', '--ref=breadcrumbs', 'append', '-m',
@@ -542,8 +594,32 @@ def handle_log_artifacts_command(args):
         warnings = graph.get('_alias_warnings')
         if warnings:
             result['alias_warnings'] = warnings
+        return result
+    finally:
+        db.close()
+
+
+def handle_log_artifacts_command(args):
+    """Handle log-artifacts command: batch artifact logging with graph format.
+
+    Thin wrapper around log_artifacts_graph() — handles arg parsing, JSON I/O,
+    and exit code. Pure logic lives in log_artifacts_graph() so the daemon can
+    call it without subprocess overhead.
+    """
+    if getattr(args, 'schema', False):
+        return _print_schema_and_exit(LOG_ARTIFACTS_SCHEMA, 'log-artifacts')
+    try:
+        graph = _read_graph_input(args)
+        if not graph:
+            return 1
+
+        result = log_artifacts_graph(
+            graph,
+            session_id=getattr(args, 'session_id', None),
+            project_id=getattr(args, 'project_id', None),
+        )
         print(json.dumps(result, indent=2))
-        return 0
+        return 0 if result.get('ok') else 1
 
     except Exception as e:
         handle_cli_error(e, "Log artifacts", getattr(args, 'verbose', False))

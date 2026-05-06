@@ -1265,6 +1265,7 @@ ALL_MIGRATIONS: list[tuple[str, str, Callable]] = [
     ("038_goal_lifecycle_simplify", "Simplify goal lifecycle: convert stale/blocked to in_progress, support planned status", lambda cursor: migration_038_goal_lifecycle_simplify(cursor)),
     ("039_artifact_visibility", "Add visibility tier (public/shared/local, default shared) to artifact tables for Phase 0 visibility primitive (PROPOSAL_VISIBILITY_TIERS.md)", lambda cursor: migration_039_artifact_visibility(cursor)),
     ("040_epistemic_source", "Add epistemic_source field (intuition/search/mixed/NULL) to artifact tables for source-aware Sentinel calibration substrate (PROMPT_FOR_EMPIRICA_CLAUDE_source_aware_sentinel.md)", lambda cursor: migration_040_epistemic_source(cursor)),
+    ("041_artifact_edges", "Add normalized artifact_edges table + backfill from data.edges JSON (v0.5 LOCAL-ARTIFACTS daemon — fixes silent edge-drop on assumptions/decisions, enables cheap inverse queries)", lambda cursor: migration_041_artifact_edges(cursor)),
 ]
 
 
@@ -1493,4 +1494,86 @@ def migration_040_epistemic_source(cursor: sqlite3.Cursor):
 
     logger.info(
         f"✅ Migration 040 complete: epistemic_source column added to {len(artifact_tables)} artifact tables"
+    )
+
+
+def migration_041_artifact_edges(cursor: sqlite3.Cursor):
+    """Add normalized artifact_edges table + backfill from denormalized data.edges JSON.
+
+    Replaces the denormalized edge storage (`{table}.{type}_data` JSON column with
+    `data.edges = [{to, relation}, ...]`) with a real relational table:
+
+        artifact_edges(from_id, to_id, relation, created_at, metadata)
+
+    Why: inverse queries ("what points AT this finding?") were O(N tables × N rows)
+    before — required scanning every artifact table's data column. Now: O(log n)
+    via the (to_id, relation) index. Also fixes a silent bug where edges from
+    `assumptions` and `decisions` (which had no data column) were silently dropped
+    by the old `_store_edge` helper.
+
+    metadata JSON is forward-compat — lets edges carry per-edge confidence,
+    created_by, epistemic_source without future migrations.
+
+    Backfill: scans data.edges JSON in tables that have it and inserts into
+    artifact_edges. Idempotent via PRIMARY KEY (from_id, to_id, relation) +
+    INSERT OR IGNORE. Safe to run multiple times.
+
+    Companion to v0.5-LOCAL-ARTIFACTS spec — daemon `/api/v1/artifacts/graph`
+    endpoint depends on this table for cheap recursive traversal.
+    """
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS artifact_edges (
+            from_id    TEXT NOT NULL,
+            to_id      TEXT NOT NULL,
+            relation   TEXT NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            metadata   TEXT,
+            PRIMARY KEY (from_id, to_id, relation)
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_artifact_edges_to ON artifact_edges(to_id, relation)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_artifact_edges_from ON artifact_edges(from_id)")
+
+    # Backfill from existing data.edges JSON. Only tables that had a data column
+    # before this migration — assumptions/decisions had none, so no edges to backfill.
+    import json as _json
+    backfill_tables = [
+        ("project_findings", "id", "finding_data"),
+        ("project_unknowns", "id", "unknown_data"),
+        ("project_dead_ends", "id", "dead_end_data"),
+        ("mistakes_made", "id", "mistake_data"),
+        ("goals", "id", "goal_data"),
+    ]
+    backfilled_total = 0
+    for table, id_col, data_col in backfill_tables:
+        try:
+            cursor.execute(f"SELECT {id_col}, {data_col} FROM {table} WHERE {data_col} IS NOT NULL")
+            rows = cursor.fetchall()
+        except sqlite3.OperationalError:
+            continue  # table doesn't exist in this DB (fresh / partial schema)
+        for row in rows:
+            from_id, raw = row[0], row[1]
+            if not raw:
+                continue
+            try:
+                data = _json.loads(raw)
+            except (_json.JSONDecodeError, TypeError):
+                continue
+            edges = data.get("edges") or []
+            for edge in edges:
+                to_id = edge.get("to")
+                relation = edge.get("relation")
+                if not (to_id and relation):
+                    continue
+                try:
+                    cursor.execute(
+                        "INSERT OR IGNORE INTO artifact_edges (from_id, to_id, relation) VALUES (?, ?, ?)",
+                        (from_id, to_id, relation),
+                    )
+                    backfilled_total += cursor.rowcount
+                except sqlite3.Error:
+                    continue
+
+    logger.info(
+        f"✅ Migration 041 complete: artifact_edges table created, {backfilled_total} edges backfilled"
     )
