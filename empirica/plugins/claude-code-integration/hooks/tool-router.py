@@ -20,6 +20,7 @@ Performance target: < 2 seconds (runs on every prompt).
 
 import json
 import sys
+import time
 from pathlib import Path
 
 # ============================================================================
@@ -193,30 +194,40 @@ def build_semantic_pushback_check(prompt: str) -> str | None:
 # size the probe to the hypothesis BEFORE branching wider.
 
 INVESTIGATION_PROPORTIONALITY_BLOCK = """<investigation-proportionality>
-The user's prompt contains a hypothesis marker or proportional-scope cue
-(e.g. "I think...", "maybe...", "might need...", "check on...", "verify",
-"quick look").
+**STOP.** The user's prompt contains a hypothesis marker or
+proportional-scope cue ("I think...", "maybe...", "might need...",
+"check on...", "verify", "quick look").
 
-Before broader investigation:
+**Your FIRST action MUST be the smallest disconfirming probe** — a
+single bash / grep / read that would prove the user's hypothesis wrong
+if wrong, or confirm a key prediction if right. Not a survey. Not a
+mental model. One probe.
 
-1. NAME the hypothesis the user supplied or implied (one sentence).
-2. RUN the smallest disconfirming probe — usually a single bash/grep/read
-   that would PROVE the hypothesis wrong if wrong, or confirm a key
-   prediction if right.
-3. ONLY IF the probe disconfirms or surfaces a new question → expand
-   investigation. Reading >5 files before testing the user's hypothesis
-   is a red flag for over-investigation.
+Required sequence:
+1. **NAME the hypothesis** in your reply (one sentence: "Hypothesis: X").
+2. **RUN the disconfirming probe** as your next tool call.
+3. ONLY IF the probe disconfirms or surfaces a new question, expand
+   investigation. Otherwise, answer.
 
-This is NOT a ban on thorough work — it's a gate on UPFRONT scope. After
-the probe, you may still need depth. The discipline is "test first,
-expand on evidence", not "skim and assume".
+**Hard rule:** the Sentinel firewall is now armed. After 5 read/grep/glob
+tool calls without naming a hypothesis and running a probe, further
+investigation tools will be DENIED with the same reasoning. This is
+not a soft suggestion — it's a runtime constraint. Survey-mode is
+explicitly blocked here because the user already gave you the
+hypothesis to test.
 
-Anti-patterns:
-- Reading the entire subsystem to verify a one-line config change
+Anti-patterns this block kills:
+- Reading the entire subsystem to verify a one-line config change.
 - Running grep across the codebase before checking if the answer is in
-  the user's own message
-- Building a mental model of code you haven't touched yet, when one
-  command would tell you which path to look at
+  the user's own message.
+- Building a mental model of code you haven't touched, when one command
+  would tell you which path to look at.
+
+This is NOT a ban on thorough work — depth is fine AFTER the probe.
+The discipline is "test first, expand on evidence", not "skim and
+assume". When you genuinely need to map an unfamiliar subsystem, the
+prompt won't trigger this block. When the user hands you a hypothesis,
+test it.
 </investigation-proportionality>"""
 
 
@@ -255,6 +266,47 @@ PROPORTIONALITY_SCOPE_PATTERNS = [
 # alone) still match. EPP threshold is 20 because pushback semantics need
 # longer context; proportionality cues are usually shorter.
 PROPORTIONALITY_MIN_LENGTH = 12
+
+
+def _proportionality_state_path(session_id: str) -> Path:
+    """Where the Sentinel-side investigation budget counter lives.
+
+    Keyed by codex/claude session_id so multiple concurrent sessions
+    don't share a budget. Lives under ~/.empirica/state/ (pre-existing
+    transient-state dir; sentinel-gate writes other state files here).
+    """
+    safe_sid = "".join(c if c.isalnum() or c in "-_" else "_" for c in (session_id or "no-sid"))
+    return Path.home() / ".empirica" / "state" / f"proportionality_{safe_sid}.json"
+
+
+def _arm_proportionality_budget(session_id: str, limit: int = 5) -> None:
+    """Tx-AG: arm the read/grep/glob budget so sentinel-gate can deny
+    investigation-as-procrastination after `limit` tool calls.
+
+    Called from the UserPromptSubmit handler when the proportionality
+    block fires. Sentinel-gate reads this file in PreToolUse to track
+    counts. State decays naturally — overwritten on each new
+    hypothesis-bearing prompt; stale files (>1h old) are ignored by
+    the reader. Fail-quiet: if state dir isn't writable, tool-router
+    just emits the soft-block context and continues.
+    """
+    if not session_id:
+        return
+    try:
+        path = _proportionality_state_path(session_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "armed_at": time.time(),
+            "tool_count": 0,
+            "limit": limit,
+            "session_id": session_id,
+        }
+        path.write_text(json.dumps(payload))
+    except OSError:
+        # Hard fail-quiet: budget arming is best-effort. If the disk is
+        # full or the state dir is unwritable, the soft-block context
+        # already shipped above is the fallback.
+        pass
 
 
 def build_investigation_proportionality_check(prompt: str) -> str | None:
@@ -653,6 +705,12 @@ def main():
     # graceful. Block acknowledges nuance internally so false positives
     # cost ~10 lines of context, no behavior break.
     proportionality_check = build_investigation_proportionality_check(prompt)
+    if proportionality_check:
+        # Tx-AG: also arm the Sentinel-side budget so the discipline is
+        # enforceable, not just suggested. Empirically, the soft block
+        # alone got ignored (8 searches in David's 2026-05-06 test).
+        # Codex hook payload uses session_id at the top level.
+        _arm_proportionality_budget(input_data.get("session_id", ""))
 
     # EPP semantic pushback check — always-on for substantive prompts.
     # Injected LAST in context_parts to exploit attention recency bias.

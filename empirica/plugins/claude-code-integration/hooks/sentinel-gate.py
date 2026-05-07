@@ -31,6 +31,7 @@ Related but NOT consumed here:
 import json
 import os
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -2773,6 +2774,75 @@ def _run_authorization_pipeline(hook_input: dict, tool_name: str, tool_input: di
         db.close()
 
 
+def _proportionality_state_path(session_id: str) -> Path:
+    """Mirror tool-router.py's path computation. The pair must agree on
+    the same key per session for the budget to function."""
+    safe_sid = "".join(c if c.isalnum() or c in "-_" else "_" for c in (session_id or "no-sid"))
+    return Path.home() / ".empirica" / "state" / f"proportionality_{safe_sid}.json"
+
+
+def _check_proportionality_budget(hook_input: dict, tool_name: str) -> str | None:
+    """Tx-AG: enforce investigation-proportionality budget.
+
+    tool-router.py arms the budget when the proportionality block fires
+    on a hypothesis-bearing prompt. This function increments a counter
+    on each Read/Grep/Glob and returns a deny reason once the limit is
+    exceeded — turning a soft context-injection block into a runtime
+    constraint the model can't ignore.
+
+    Returns None to allow (default), a string reason to deny.
+
+    Fail-quiet: any IO/JSON/path error returns None — we never block on
+    our own state plumbing.
+    """
+    if tool_name not in ('Read', 'Grep', 'Glob'):
+        return None
+    session_id = hook_input.get('session_id', '')
+    if not session_id:
+        return None
+    path = _proportionality_state_path(session_id)
+    try:
+        if not path.exists():
+            return None
+        data = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+
+    # Stale armings shouldn't block forever. 1h timeout matches the
+    # implicit "this turn" framing — if the model hasn't acted on the
+    # block within an hour, the conversational context is gone.
+    armed_at = data.get("armed_at", 0)
+    if time.time() - armed_at > 3600:
+        try:
+            path.unlink()
+        except OSError:
+            pass
+        return None
+
+    count = int(data.get("tool_count", 0)) + 1
+    limit = int(data.get("limit", 5))
+    data["tool_count"] = count
+    try:
+        path.write_text(json.dumps(data))
+    except OSError:
+        pass
+
+    if count > limit:
+        return (
+            f"Investigation-proportionality budget exceeded "
+            f"({count} read/grep/glob calls since the hypothesis-bearing prompt; "
+            f"limit={limit}). The user gave you a hypothesis to test. "
+            f"Your next action MUST be: (1) state the hypothesis explicitly "
+            f"in your reply (\"Hypothesis: ...\"), (2) run a single "
+            f"bash/grep/read that confirms or disconfirms it. "
+            f"Survey-mode is blocked until the next user prompt resets "
+            f"the budget. If you genuinely need to map this subsystem first, "
+            f"answer the user with the hypothesis-test result and ask them "
+            f"whether to expand."
+        )
+    return None
+
+
 def main():
     try:
         hook_input = json.loads(sys.stdin.read() or '{}')
@@ -2783,6 +2853,16 @@ def main():
     tool_input = hook_input.get('tool_input', {})
 
     _track_tool_usage(hook_input, tool_name, tool_input)
+
+    # Tx-AG: investigation-proportionality budget enforcement. When
+    # tool-router.py armed the budget on a hypothesis-bearing prompt,
+    # deny Read/Grep/Glob once the limit is exceeded. Soft text blocks
+    # were empirically insufficient (model ignored them); this is the
+    # runtime constraint that makes the discipline real.
+    proportionality_deny = _check_proportionality_budget(hook_input, tool_name)
+    if proportionality_deny:
+        respond("deny", proportionality_deny)
+        sys.exit(0)
 
     # Noetic firewall: whitelist-based access control
     noetic_result = _noetic_firewall_check(tool_name, tool_input, hook_input)
