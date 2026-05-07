@@ -133,6 +133,6 @@ rapid:
 
 ## See Also
 
-- [BEADS Integration Design](BEADS_INTEGRATION_DESIGN.md)
-- [Session Snapshot Guide](../production/23_SESSION_CONTINUITY.md)
-- [Project Bootstrap Guide](../production/03_BASIC_USAGE.md)
+- [BEADS Integration Design](../developers/BEADS_INTEGRATION_DESIGN.md)
+- [Session Continuity (Bootstrap Recovery)](FIRST_TIME_SETUP.md)
+- [Empirica Natural Language Guide](EMPIRICA_NATURAL_LANGUAGE_GUIDE.md)

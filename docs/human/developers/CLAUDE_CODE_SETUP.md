@@ -535,9 +535,9 @@ Note: `empirica-mcp` runs as stdio server, not CLI with --help.
 
 ## What's Next?
 
-- **Full system prompt:** [CLAUDE.md](../system-prompts/CLAUDE.md) (179 lines)
-- **All CLI commands:** [CLI Reference](../reference/CLI_COMMANDS_UNIFIED.md)
-- **Epistemic transaction workflow:** [Workflow Guide](../architecture/NOETIC_PRAXIC_FRAMEWORK.md)
+- **Full system prompt:** [CLAUDE.md](system-prompts/CLAUDE.md) (179 lines)
+- **All CLI commands:** [CLI Reference](CLI_COMMANDS_UNIFIED.md)
+- **Epistemic transaction workflow:** [Workflow Guide](../../architecture/NOETIC_PRAXIC_FRAMEWORK.md)
 
 ---
 

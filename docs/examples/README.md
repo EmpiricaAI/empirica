@@ -45,6 +45,6 @@ cp docs/examples/project.yaml.example .empirica/project.yaml
 
 ## See Also
 
-- [Configuration Architecture](../architecture/CONFIGURATION_REFERENCE.md)
+- [Configuration Architecture](../reference/CONFIGURATION_REFERENCE.md)
 - [Installation Guide](../human/end-users/02_INSTALLATION.md)
 - [Getting Started](../human/end-users/01_START_HERE.md)

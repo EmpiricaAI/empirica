@@ -233,4 +233,4 @@ This means:
 
 - [Natural Language Guide](EMPIRICA_NATURAL_LANGUAGE_GUIDE.md) — How to talk to Claude about Empirica concepts
 - [Taxonomy](../../reference/TAXONOMY.md) — The complete vocabulary (technical reference)
-- [Getting Started](guides/FIRST_TIME_SETUP.md) — Initial setup instructions
+- [Getting Started](FIRST_TIME_SETUP.md) — Initial setup instructions

@@ -127,8 +127,7 @@ Empirica supports two distinct usage patterns:
 - **CASCADE:** Praxic-focused (execute subtasks efficiently)
 - **Examples:** Mini-agent implementing tests, code formatters
 
-**Quick Rule:** Use AI for thinking/planning, Agent for execution.  
-**See:** [`docs/AI_VS_AGENT_EMPIRICA_PATTERNS.md`](AI_VS_AGENT_EMPIRICA_PATTERNS.md) for detailed patterns.
+**Quick Rule:** Use AI for thinking/planning, Agent for execution.
 
 ---
 

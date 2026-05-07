@@ -236,7 +236,7 @@ integrations:
 - [BEADS Repository](https://github.com/steveyegge/beads)
 - [BEADS Quickstart](https://github.com/steveyegge/beads/blob/main/docs/QUICKSTART.md)
 - [BEADS Extension Pattern](https://github.com/steveyegge/beads/blob/main/docs/EXTENDING.md)
-- [Empirica CASCADE Workflow](../production/06_CASCADE_FLOW.md)
+- [Empirica Noetic-Praxic Framework](../../architecture/NOETIC_PRAXIC_FRAMEWORK.md)
 
 ---
 

@@ -334,7 +334,7 @@ POSTFLIGHT         POSTFLIGHT        POSTFLIGHT
 
 ## References
 
-- [Epistemic Transaction Workflow](./CHECK_SEMANTICS_FORMALIZATION.md)
+- [Epistemic Transaction Workflow](./NOETIC_PRAXIC_FRAMEWORK.md)
 - [Storage Architecture](./STORAGE_ARCHITECTURE_COMPLETE.md)
 - [Qdrant Integration](./QDRANT_EPISTEMIC_INTEGRATION.md)
 - [Main Architecture Overview](./README.md)

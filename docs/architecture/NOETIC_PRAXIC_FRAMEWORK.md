@@ -4,7 +4,6 @@
 
 **Related docs:**
 - [SENTINEL_ARCHITECTURE.md](./SENTINEL_ARCHITECTURE.md) - Gate control (noetic→praxic transition)
-- [CASCADE Workflow](../../plugins/claude-code-integration/skills/empirica-framework/references/cascade-workflow.md) - Phase details and commands
 - [EPISTEMIC_STATE_COMPLETE_CAPTURE.md](./EPISTEMIC_STATE_COMPLETE_CAPTURE.md) - Full state capture design
 - [Architecture README](./README.md) - System overview
 

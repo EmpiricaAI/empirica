@@ -367,6 +367,6 @@ This is why Empirica's epistemic approach is powerful: **facts + epistemic state
 
 ## Next Steps
 
-- Read: [NOETIC_PRAXIC_FRAMEWORK.md](../architecture/NOETIC_PRAXIC_FRAMEWORK.md) - How the loop works
-- Read: [SESSION_GOAL_WORKFLOW.md](./SESSION_GOAL_WORKFLOW.md) - Creating goals for multi-session work
+- Read: [NOETIC_PRAXIC_FRAMEWORK.md](../../architecture/NOETIC_PRAXIC_FRAMEWORK.md) - How the loop works
+- Read: [SESSION_GOAL_WORKFLOW.md](../end-users/SESSION_GOAL_WORKFLOW.md) - Creating goals for multi-session work
 - Try: Create 2-3 sessions on same project, notice how bootstrap accelerates learning

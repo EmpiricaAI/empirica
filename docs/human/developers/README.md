@@ -102,4 +102,4 @@ Sentinel computes thresholds dynamically from calibration data in `.breadcrumbs.
 
 ---
 
-**For architecture details:** See [../architecture/](../architecture/)
+**For architecture details:** See [../../architecture/](../../architecture/)

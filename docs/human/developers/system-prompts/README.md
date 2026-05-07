@@ -73,7 +73,7 @@ python3 scripts/sync_system_prompts.py
 
 ### Reference
 
-See [../../reference/](../../reference/) for API docs and configuration reference.
+See [../../../reference/](../../../reference/) for API docs and configuration reference.
 
 ---
 

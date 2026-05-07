@@ -699,7 +699,7 @@ Thresholds:
 
 ## Next Steps
 
-- See [02_QUICKSTART_CLI.md](02_QUICKSTART_CLI.md) for using vectors in practice
+- See [04_QUICKSTART_CLI.md](04_QUICKSTART_CLI.md) for using vectors in practice
 - See [Sentinel Architecture](../../architecture/SENTINEL_ARCHITECTURE.md) for PREFLIGHT→CHECK→POSTFLIGHT→POST-TEST workflow
 - See [EMPIRICA_EXPLAINED_SIMPLE.md](EMPIRICA_EXPLAINED_SIMPLE.md) for system overview
 

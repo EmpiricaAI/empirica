@@ -9,7 +9,6 @@ The Sentinel is the gate controller of Empirica's cognitive architecture. It gov
 - [Sentinel Constitution](./SENTINEL_CONSTITUTION.md) - Governance principles for the measurement system
 - [NOETIC_PRAXIC_FRAMEWORK.md](./NOETIC_PRAXIC_FRAMEWORK.md) - The noetic/praxic phase framework
 - [Phase-Aware Calibration](./PHASE_AWARE_CALIBRATION.md) - How phase-split tool counts feed calibration
-- [Epistemic Transaction Workflow](../../plugins/claude-code-integration/skills/empirica-framework/references/cascade-workflow.md) - PREFLIGHT→CHECK→POSTFLIGHT phases
 - [CONFIGURATION_REFERENCE.md](../reference/CONFIGURATION_REFERENCE.md) - EMPIRICA_SENTINEL_LOOPING and autopilot settings
 
 ## Philosophy

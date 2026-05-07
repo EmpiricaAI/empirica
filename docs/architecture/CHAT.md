@@ -4,8 +4,7 @@
 >
 > **Status:** Spec (T33). Implementation pending.
 > **Sister:** [`COCKPIT.md`](COCKPIT.md) (multi-instance orchestration — complementary, not replaced)
-> **Related:** [`EWM.md`](EWM.md), [`EPISTEMIC_PROMPT_ENGINE.md`](EPISTEMIC_PROMPT_ENGINE.md),
->   ecodex translator + event tap (`ecodex/codex-rs/codex-empirica-translator/`)
+> **Related:** ecodex translator + event tap (`ecodex/codex-rs/codex-empirica-translator/`)
 
 ---
 

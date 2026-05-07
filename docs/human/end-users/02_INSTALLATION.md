@@ -381,7 +381,7 @@ rm -rf .empirica/
 
 - **Issues:** Check [03_TROUBLESHOOTING.md](03_TROUBLESHOOTING.md)
 - **Documentation:** Browse `docs/` directory
-- **Source code:** See [reference/CANONICAL_DIRECTORY_STRUCTURE.md](reference/CANONICAL_DIRECTORY_STRUCTURE.md)
+- **Source code:** [github.com/Nubaeon/empirica](https://github.com/Nubaeon/empirica)
 
 ---
 

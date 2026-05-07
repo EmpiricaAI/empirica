@@ -491,5 +491,5 @@ works, the provenance link is just absent.
 
 - [NOETIC_PRAXIC_FRAMEWORK.md](../../architecture/NOETIC_PRAXIC_FRAMEWORK.md) — Thinking phases
 - [SENTINEL_ARCHITECTURE.md](../../architecture/SENTINEL_ARCHITECTURE.md) — Gate enforcement
-- [GROUNDED_CALIBRATION.md](../../architecture/GROUNDED_CALIBRATION.md) — POST-TEST verification
+- [PHASE_AWARE_CALIBRATION.md](../../architecture/PHASE_AWARE_CALIBRATION.md) — POST-TEST verification
 - [SESSION_RESOLVER_API.md](../SESSION_RESOLVER_API.md) — Transaction-first resolution
