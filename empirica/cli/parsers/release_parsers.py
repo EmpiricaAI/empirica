@@ -77,6 +77,37 @@ def add_release_parsers(subparsers):
         help='Look back N days for memory items (default: 30)'
     )
 
+    # Docs link check — broken-link integrity for tech docs
+    link_parser = subparsers.add_parser(
+        'docs-link-check',
+        help='Verify markdown internal links — finds broken relative paths in tech docs',
+        description=(
+            "Walks the project (or --root) for *.md files outside SKIP_DIRS "
+            "(.git, .venv, node_modules, _archive, etc.), extracts markdown links, "
+            "and verifies each relative-path link resolves to an existing file. "
+            "External URLs and pure anchors are not checked. "
+            "Tier-prioritised output: top-level README, per-folder READMEs, then all others. "
+            "Exit code 0 = clean, 1 = broken links found, 2 = invalid args."
+        ),
+    )
+    link_parser.add_argument(
+        '--root',
+        default=None,
+        help='Project root to scan (default: current directory).',
+    )
+    link_parser.add_argument(
+        '--exclude',
+        action='append',
+        default=None,
+        help='Additional directory names to skip (repeatable). On top of the default skip set.',
+    )
+    link_parser.add_argument(
+        '--output',
+        choices=['human', 'json'],
+        default='human',
+        help='Output format. JSON shape: {scanned_files, broken_total, passed, tiers}.',
+    )
+
     # Docs explain - focused information retrieval
     explain_parser = subparsers.add_parser(
         'docs-explain',
