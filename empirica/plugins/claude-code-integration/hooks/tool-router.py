@@ -674,6 +674,97 @@ def _build_aap_context(prompt: str) -> str:
     )
 
 
+def _resolve_project_id_for_session(session_id: str) -> str | None:
+    """Look up the project_id for a session_id. Returns None on any failure."""
+    if not session_id:
+        return None
+    try:
+        sys.path.insert(0, str(Path.home() / 'empirical-ai' / 'empirica'))
+        from empirica.data.session_database import SessionDatabase
+        db = SessionDatabase()
+        if db.conn is None:
+            return None
+        cursor = db.conn.cursor()
+        cursor.execute("SELECT project_id FROM sessions WHERE session_id = ?", (session_id,))
+        row = cursor.fetchone()
+        db.close()
+        return row[0] if row and row[0] else None
+    except Exception:
+        return None
+
+
+def _resolve_project_id_via_active_work(claude_session_id: str | None) -> tuple[str | None, str | None]:
+    """Fallback: resolve (project_id, project_path) from active_work file.
+
+    Returns (None, None) on any failure. project_path is also returned so
+    the prompt-relevance helper can search the right project's DB even
+    when the session-DB lookup fails.
+
+    The file usually has empirica_session_id and project_path rather than
+    project_id directly. We try project_id first (forward-compat), then
+    look up the session in the project_path's local DB.
+    """
+    if not claude_session_id:
+        return None, None
+    try:
+        active_work = Path.home() / '.empirica' / f'active_work_{claude_session_id}.json'
+        if not active_work.exists():
+            return None, None
+        data = json.loads(active_work.read_text())
+        project_path = data.get('project_path')
+
+        direct_pid = data.get('project_id')
+        if direct_pid:
+            return direct_pid, project_path
+
+        empirica_sid = data.get('empirica_session_id')
+        if empirica_sid and project_path:
+            db_path = Path(project_path) / '.empirica' / 'sessions' / 'sessions.db'
+            if db_path.exists():
+                import sqlite3 as _sql
+                conn = _sql.connect(str(db_path))
+                try:
+                    cur = conn.cursor()
+                    cur.execute(
+                        "SELECT project_id FROM sessions WHERE session_id = ?",
+                        (empirica_sid,),
+                    )
+                    row = cur.fetchone()
+                    if row and row[0]:
+                        return row[0], project_path
+                finally:
+                    conn.close()
+        return None, project_path
+    except Exception:
+        return None, None
+
+
+def _build_prompt_relevance_block(prompt: str, session_id: str | None,
+                                   claude_session_id: str | None) -> str:
+    """Surface artifacts from prior project knowledge that are semantically
+    similar to the user's prompt. Latency-bound (~200ms ceiling) and never
+    raises — failures degrade to empty string.
+
+    Resolution chain for project_id: Empirica session → active_work file
+    keyed off the Claude Code session UUID. project_path is also resolved
+    so the prompt-relevance helper hits the right project's local DB for
+    the legacy reverse-hash fallback.
+    """
+    project_id = _resolve_project_id_for_session(session_id) if session_id else None
+    project_path: str | None = None
+    if not project_id:
+        project_id, project_path = _resolve_project_id_via_active_work(claude_session_id)
+    if not project_id:
+        return ""
+    try:
+        from empirica.core.bootstrap import build_prompt_relevance_context
+        return build_prompt_relevance_context(
+            project_id, prompt, project_path=project_path,
+        )
+    except Exception:
+        return ""
+
+
 def main():
     """Main hook handler."""
     try:
@@ -717,9 +808,18 @@ def main():
     # Phase 0 (2026-04-07) verified effect across Opus/Sonnet/Haiku.
     semantic_check = build_semantic_pushback_check(prompt)
 
+    # Prompt-relevance prior context: top-N artifacts from prior project
+    # knowledge that are semantically similar to the prompt. Conditions
+    # the AI's first response on external grounding rather than internal
+    # weights alone. ~200ms hot-path budget; always returns "" on failure.
+    prompt_relevance = _build_prompt_relevance_block(
+        prompt, session_id, input_data.get("session_id")
+    )
+
     # Combine contexts. Order matters: routing first (high-level mode),
     # then aap (hedge correction), then proportionality (scope sizing),
-    # then EPP (pushback handling) LAST for attention-recency.
+    # then prompt-relevance (concrete prior grounding), then EPP last
+    # for attention-recency on pushback handling.
     context_parts = []
     if advice:
         context_parts.append(f"<epistemic-routing>\n{advice}\n</epistemic-routing>")
@@ -727,6 +827,8 @@ def main():
         context_parts.append(aap_context)
     if proportionality_check:
         context_parts.append(proportionality_check)
+    if prompt_relevance:
+        context_parts.append(prompt_relevance)
     if semantic_check:
         # Placed LAST — highest attention weight in the injected context window
         context_parts.append(semantic_check)
