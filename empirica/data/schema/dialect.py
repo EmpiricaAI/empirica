@@ -10,6 +10,7 @@ Transformations applied:
 - BOOLEAN DEFAULT 0 → BOOLEAN DEFAULT FALSE
 - BOOLEAN DEFAULT 1 → BOOLEAN DEFAULT TRUE
 - Column name 'do' → '"do"' (reserved word quoting)
+- strftime('%s', 'now') → EXTRACT(EPOCH FROM NOW())  (UNIX-epoch float default)
 """
 
 import logging
@@ -70,6 +71,20 @@ def adapt_schema_sql(sql: str, dialect: str) -> str:
         r'(\s+)(do)(\s+REAL)',
         r'\1"do"\3',
         adapted
+    )
+
+    # 5. strftime('%s', 'now') → EXTRACT(EPOCH FROM NOW())
+    # SQLite uses strftime to get a UNIX-epoch float for `created_at REAL` defaults
+    # (verification_schema.py:82, verification_schema.py:151, migrations.py:1085 in v1.9.0).
+    # Postgres has no strftime; EXTRACT(EPOCH FROM NOW()) returns DOUBLE PRECISION
+    # which auto-casts to REAL. Tolerant of optional whitespace inside the call.
+    # Without this translation, fresh project-bootstrap on a Postgres backend fails with
+    # `function strftime(unknown, unknown) does not exist` mid-migration.
+    adapted = re.sub(
+        r"strftime\s*\(\s*'%s'\s*,\s*'now'\s*\)",
+        "EXTRACT(EPOCH FROM NOW())",
+        adapted,
+        flags=re.IGNORECASE
     )
 
     return adapted
