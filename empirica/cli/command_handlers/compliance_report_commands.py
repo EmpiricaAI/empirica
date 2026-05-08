@@ -772,9 +772,14 @@ def _parse_docpistemic_result(raw: dict[str, Any]) -> dict[str, Any]:
         documented = epistemic.get("documented_features", 0)
         total = epistemic.get("total_features", 0)
         passed = coverage >= 70
+        # Honor the tool field from the JSON when present so the report
+        # correctly attributes rust-docs-assess vs docpistemic — the
+        # output schemas overlap deliberately, but the runner identity
+        # matters for understanding what was measured.
+        tool_name = data.get("tool") or "docpistemic"
         return {
             "check": "tech_docs",
-            "tool": "docpistemic",
+            "tool": tool_name,
             "passed": passed,
             "coverage_percent": round(coverage, 1),
             "documented": documented,
@@ -1121,11 +1126,37 @@ def run_compliance_report(
         )
         results.append(_parse_trufflehog_result(trufflehog_raw))
 
-    # Technical documentation — prefer docpistemic (framework-agnostic) if
-    # installed; fall back to empirica's CLI/Core-Modules-only docs-assess.
-    # Docpistemic handles server projects, src-layout, and non-CLI codebases
-    # that empirica's metric mishandles (returns 0/0).
-    if _docpistemic_available():
+    # Technical documentation — runner selection in priority order:
+    #
+    # 1. Explicit override via .empirica/compliance.yaml:
+    #        tech_docs:
+    #          tool: rust-docs-assess  (or "docpistemic" / "docs-assess")
+    #
+    #    This is how Rust-only forks (ecodex) opt into the Rust-aware
+    #    counter without docpistemic mis-discovering upstream Python
+    #    surface as undocumented features.
+    #
+    # 2. docpistemic (framework-agnostic CLI) when installed.
+    #    Handles server projects, src-layout, multi-framework codebases.
+    #
+    # 3. empirica docs-assess (CLI/Core-Modules-only) — fallback.
+    tech_docs_tool = (config.get("tech_docs", {}) or {}).get("tool")
+
+    if tech_docs_tool == "rust-docs-assess":
+        docs_raw = _run_check(
+            "rust-docs-assess",
+            ["empirica", "rust-docs-assess",
+             "--project-root", str(project_root),
+             "--output", "json"],
+            timeout=60,
+        )
+        results.append(_parse_docpistemic_result(docs_raw))
+    elif tech_docs_tool == "docs-assess":
+        docs_raw = _run_check(
+            "docs-assess", ["empirica", "docs-assess", "--output", "json"], timeout=60,
+        )
+        results.append(_parse_docs_result(docs_raw))
+    elif _docpistemic_available():
         docs_raw = _run_check(
             "docpistemic",
             ["docpistemic", "assess", str(project_root), "--output", "json"],

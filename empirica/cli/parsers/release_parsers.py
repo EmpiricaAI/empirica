@@ -176,3 +176,43 @@ def add_release_parsers(subparsers):
         default='human',
         help='Output format'
     )
+
+    # Rust-aware docs assessment — counts pub items + /// docs in
+    # Cargo.toml workspace member crates. Use this for Rust projects
+    # where docs-assess (Python-focused) and docpistemic (Python-biased
+    # discovery) mishandle the surface.
+    rust_docs_parser = subparsers.add_parser(
+        'rust-docs-assess',
+        help='Rust-aware documentation coverage — pub items + /// docs in workspace crates'
+    )
+    rust_docs_parser.add_argument(
+        '--project-root',
+        help='Root directory of the project (default: current directory)'
+    )
+    rust_docs_parser.add_argument(
+        '--include',
+        action='append',
+        default=[],
+        help='Path prefix to include (relative to project_root). Can repeat. '
+             'When set, only matching crates are walked. Combines with '
+             '.empirica/rust_docs.toml [rust_docs] include list.'
+    )
+    rust_docs_parser.add_argument(
+        '--exclude',
+        action='append',
+        default=[],
+        help='Path prefix to skip. Can repeat. Combines with config exclude list. '
+             'Excludes win over includes — safety bias is to skip.'
+    )
+    rust_docs_parser.add_argument(
+        '--strict',
+        action='store_true',
+        help='Only /// outer doc comments count; reject #[doc=...] attribute form. '
+             'More conservative, more honest.'
+    )
+    rust_docs_parser.add_argument(
+        '--output',
+        choices=['human', 'json'],
+        default='human',
+        help='Output format. JSON shape compatible with docpistemic for compliance-report.'
+    )

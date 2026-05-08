@@ -146,6 +146,7 @@ from .command_handlers.concept_graph_commands import (
     handle_concept_top,
 )
 from .command_handlers.docs_commands import handle_docs_assess, handle_docs_explain
+from .command_handlers.rust_docs_commands import handle_rust_docs_assess
 from .command_handlers.docs_link_check_commands import handle_docs_link_check_command
 from .command_handlers.mcp_commands import (
     handle_mcp_call_command,
@@ -689,6 +690,7 @@ def main(args=None):
             'release-ready': handle_release_ready_command,
             'docs-assess': handle_docs_assess,
             'docs-explain': handle_docs_explain,
+            'rust-docs-assess': handle_rust_docs_assess,
             'docs-link-check': handle_docs_link_check_command,
             'bootstrap-context': handle_bootstrap_context_command,
 
