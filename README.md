@@ -2,7 +2,7 @@
 
 > **We Gave AI a Mirror. Now It Measures What It Believes.**
 
-[![Version](https://img.shields.io/badge/version-1.9.1-blue)](https://github.com/Nubaeon/empirica/releases/tag/v1.9.1)
+[![Version](https://img.shields.io/badge/version-1.9.2-blue)](https://github.com/Nubaeon/empirica/releases/tag/v1.9.2)
 [![PyPI](https://img.shields.io/pypi/v/empirica)](https://pypi.org/project/empirica/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -100,13 +100,13 @@ empirica setup-claude-code
 
 ```bash
 # Security-hardened Alpine image (~276MB, recommended)
-docker pull nubaeon/empirica:1.9.1-alpine
+docker pull nubaeon/empirica:1.9.2-alpine
 
 # Standard image (Debian slim, ~414MB)
-docker pull nubaeon/empirica:1.9.1
+docker pull nubaeon/empirica:1.9.2
 
 # Run
-docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.9.1 /bin/bash
+docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.9.2 /bin/bash
 ```
 </details>
 
@@ -266,7 +266,7 @@ The result: Claude Code's native capabilities, enhanced with measurement, gating
 
 ---
 
-## What's New in 1.9.1
+## What's New in 1.9.2
 
 **v0.5 LOCAL-ARTIFACTS daemon** — 16 new endpoints unlock the chrome extension's
 full Artifacts pane evolution. Empirica-only users (no Cortex account) can see
@@ -498,6 +498,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 **Author:** David S. L. Van Assche
-**Version:** 1.9.1
+**Version:** 1.9.2
 
 *Turtles all the way down — built with its own epistemic framework, measuring what it knows at every step.*

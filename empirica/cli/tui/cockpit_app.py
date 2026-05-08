@@ -170,7 +170,7 @@ class CockpitApp(App):
         # when checking each project's inbox at a glance.
         yield Static('notifications', id='notif-header')
         yield Static('', id='notif')
-        # Compliance panel (1.9.1): last `empirica compliance-report`
+        # Compliance panel (1.9.2): last `empirica compliance-report`
         # result for the selected instance's project. Green collapsed
         # to one line; yellow/red default-expanded showing failures.
         # Press `c` to toggle expansion.
@@ -613,7 +613,7 @@ class CockpitApp(App):
         """Toggle all loops via the proper command handlers.
 
         Calls handle_loop_pause_command / handle_loop_resume_command so the
-        new mechanical pause-cancels-cron mechanism (1.9.1) fires:
+        new mechanical pause-cancels-cron mechanism (1.9.2) fires:
           - pause writes loop_uninstall_pending_*.json containing the
             recorded job_id when scheduler_kind=cron-create
           - the loop-uninstall-pickup hook surfaces it as system-reminder

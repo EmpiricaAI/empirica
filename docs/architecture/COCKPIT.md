@@ -2,11 +2,11 @@
 
 > Multi-instance state visibility and per-instance controls.
 >
-> **Version:** 1.9.1
+> **Version:** 1.9.2
 > **Updated:** 2026-04-30
 > **Specs:** `../specs/PROPOSAL_SENTINEL_LOOP_TUI.md` (loops + cockpit base),
 > [`PROPOSAL_EVENT_LISTENER.md`](PROPOSAL_EVENT_LISTENER.md) (listener subsystem,
-> shipped 1.9.1)
+> shipped 1.9.2)
 
 ---
 
@@ -260,7 +260,7 @@ timestamp from backoff state, and installs a one-shot scheduler job at
 that timestamp. The returned `next_scheduled_job_id` flows back via
 heartbeat so `empirica loop pause` can cancel it.
 
-### Mechanical pause via pickup hook (1.9.1+)
+### Mechanical pause via pickup hook (1.9.2+)
 
 Pause now means the scheduler is **mechanically** silent — not just a
 sidecar flag the body checks. When `empirica loop pause` runs against
@@ -281,7 +281,7 @@ a loop with `scheduler_kind=cron-create` and a recorded
 
 Backoff stretches the actual fire interval — empty streaks compound,
 found/fail snap back to base. Pause-as-mechanical-cancel was the
-1.9.1 fix for the token-bleed bug where `empirica loop pause` left
+1.9.2 fix for the token-bleed bug where `empirica loop pause` left
 the recurring CronCreate job firing every interval.
 
 ### The pickup-hook pattern (loop + listener install/uninstall)

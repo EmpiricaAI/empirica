@@ -7,6 +7,111 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.2] — 2026-05-08
+
+### Added — Three-circle bootstrap aggregator (v0.6 spec)
+
+Replaces the uniform-decay model with a three-circle surfacing model that
+captures different "kinds of relevance" instead of treating everything as a
+recency function. Implements `docs/specs/PROPOSAL_BOOTSTRAP_AGGREGATOR.md`.
+
+- **Circle 1 — `active_state`** — recency-decayed via per-type half-lives
+  (∞ for in-progress goals/subtasks, 30d for findings/decisions, 14d for
+  dead-ends/mistakes). Tiebreaker only — circle is small.
+- **Circle 2 — `persistent_reference`** — never decays, fixed budgets.
+  Decisions with active outcome (rationale still load-bearing), verified
+  or falsified assumptions (now ground truth), sources (citation base).
+- **Circle 3 — `topic_relevant_backlog`** — Qdrant cosine similarity to
+  active topic (default threshold 0.65), per-type slot budgets. Surfaces
+  open backlog plus completed-on-topic / resolved-on-topic / dead-ends-on-
+  topic for anti-clobber. Skipped when no topic detected.
+- **Active topic detection** — deterministic 3-step fallback chain:
+  transaction.task_context + active_goal.objective → recent (7d)
+  high-impact findings → none.
+- **Wire shape `schema_version: "2"`** — three top-level keys, every item
+  carries `weight`, `surface_reason`, `similarity_score` (circle 3 only),
+  `related_to[]` (depth=1 edge fold from `artifact_edges` via single
+  batched query).
+- **Public API**: `build_bootstrap_payload()` — pure function consumed by
+  the CLI hooks (post-compact / session-init), the daemon endpoint
+  `GET /api/v1/bootstrap`, and the MCP tool
+  `mcp__empirica__bootstrap_context`. New `empirica bootstrap-context`
+  CLI verb for direct introspection.
+
+### Added — Bootstrap injection trio (Items 4/5/6)
+
+Three new injection surfaces that surface relevant artifacts at the moments
+the AI is making decisions, not just at session start.
+
+- **Item 6 — `*-log` response enrichment with `suggested_links`** — every
+  `finding-log` / `unknown-log` / `deadend-log` / `mistake-log` /
+  `assumption-log` / `decision-log` call now returns up to 5 semantically
+  similar existing artifacts above 0.65 cosine similarity. AI can anchor
+  edges via `--related-to <id>` on a follow-up call. Closes the "AI
+  doesn't think to link artifacts" gap measured by `edges_with_artifacts`
+  in the v0.5 substrate retrospective.
+- **Item 4 — PreToolUse file-relevance nudge** — when the AI is about to
+  Edit/Write/MultiEdit a file, the sentinel-gate hook now surfaces a one-
+  line summary of artifacts already referencing that file:
+  `FILE-RELEVANCE: 2 findings, 3 dead-ends reference this file`. SQLite
+  LIKE search across all six artifact text columns, ~50ms hot-path budget
+  via per-table query caps.
+- **Item 5 — UserPromptSubmit prompt-relevance** — every substantive user
+  prompt now triggers an embed → semantic search → `<prior-context>` block
+  injection. Top-3 most-similar artifacts above threshold appear in
+  additionalContext so the AI's first response is conditioned on prior
+  project knowledge rather than internal weights alone. ~200ms hot-path
+  budget.
+
+### Added — Compliance + lint enhancements
+
+- **`empirica docs-link-check`** — general broken-link checker for tech
+  docs. Tier-prioritized output (key README, per-folder READMEs, deep
+  links). Standalone CLI verb plus opt-in compliance check.
+- **`tech_docs_links` compliance check** — separate from `tech_docs`
+  coverage. Mapped to EU AI Act Art. 11 + Annex IV.
+- **`repo_hygiene` version_file** — now accepts Rust `Cargo.toml` and
+  Node `package.json` shapes alongside Python `pyproject.toml`, supporting
+  cross-language repos in the empirica ecosystem.
+- **`rust-docs-assess` (Tx-BA)** — Rust-aware tech_docs check that
+  understands `cargo doc` semantics so Rust crates aren't penalized for
+  missing Python-style docstrings.
+- **Tx-AG investigation-proportionality budget** — the soft block on
+  `<investigation-proportionality>` was empirically ineffective (8 search
+  rounds in a hypothesis-bearing user prompt). Sentinel-side budget now
+  *enforces* the limit, denying Read/Grep/Glob once the per-prompt budget
+  is exceeded. Hard constraint instead of soft text.
+- **Tx-AJ EMPIRICA_SENTINEL_FAIL_CLOSED toggle** — opt-in fail-closed mode
+  for hardened deployments. Default unchanged (fail-open + SENTINEL_CRASH
+  to stderr) for dev. Production agentic frameworks can flip the bit so
+  sentinel crashes deny rather than silently allow.
+- **Tx-AK ecodex vendored hook drift detector** — `empirica diagnose
+  --frontend ecodex` now flags when the empirica plugin's vendored hook
+  scripts have drifted from canonical sources, catching silent skews.
+
+### Added — Side-fix surfaced by Item 6
+
+Three Qdrant embed functions (`embed_single_memory_item`,
+`embed_assumption`, `embed_decision`) previously omitted `artifact_id`
+from their payloads. This silently broke `circle_3._qdrant_similarity_pull`
+in the bootstrap aggregator — `payload.get("artifact_id")` always missed,
+so `topic_relevant_backlog` returned empty in practice. All three payloads
+now include `artifact_id`. SQLite reverse-hash fallback in
+`suggested_links` resolves pre-fix Qdrant points without requiring a
+`project-embed` rebuild.
+
+### Internal
+
+- 84 new tests across the bootstrap surface (29 aggregator + 19
+  suggested_links + 17 file_relevance + 19 prompt_relevance). Full suite
+  green at 2293 passed, 4 skipped.
+- `empirica-mcp/` brought into the repo's lint scope. Was previously
+  outside `tool.ruff.include`. 25 ruff errors cleaned (mostly auto-fixable
+  whitespace + import ordering); one C901 noqa'd on the flat MCP-tool
+  routing function with a refactor goal logged for the next cycle.
+
+## [1.9.1] — 2026-05-06
+
 ### Added — v0.5 LOCAL-ARTIFACTS daemon (T1-T5)
 
 The `empirica serve` daemon gains 16 new endpoints for local artifact access,

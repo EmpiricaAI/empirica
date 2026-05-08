@@ -1,6 +1,6 @@
 # Empirica System Prompt - CLAUDE v1.7.0 (Lean Core)
 
-**Model:** CLAUDE | **Syncs with:** Empirica v1.9.1
+**Model:** CLAUDE | **Syncs with:** Empirica v1.9.2
 **Canonical source:** `~/.claude/empirica-system-prompt.md`
 **Status:** This file is a REFERENCE COPY. The canonical system prompt
 is installed by the Empirica plugin and lives at the path above.

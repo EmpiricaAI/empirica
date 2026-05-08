@@ -1,6 +1,6 @@
 # Graph + Temporal Layer
 
-**Status:** shipped in 1.9.1
+**Status:** shipped in 1.9.2
 
 The artifact store gains a *primary-key-by-commit* dimension. Findings,
 decisions, dead-ends, mistakes, unknowns, assumptions, goals, and cascades
@@ -201,7 +201,7 @@ About a past commit → empirica commit-context <sha> [--depth N]
   Splitting into focused modules (PREFLIGHT/CHECK/POSTFLIGHT
   handlers, retrospective+nudges helpers, output formatters) is the
   highest-leverage refactor in the codebase but multi-transaction
-  work, deferred from 1.9.1.
+  work, deferred from 1.9.2.
 
 ---
 
