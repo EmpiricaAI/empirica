@@ -446,7 +446,12 @@ def determine_work_phase(phase: str, gate_decision: str | None = None) -> str:
 def format_phase_state(phase: str, work_phase: str, composite: float, gate_decision: str | None = None) -> str:
     """Format transaction phase + work state as compact indicator.
 
-    Examples: PRE 🔍65% | CHK 🔍82%→ | CHK ⚙65%… | POST ⚙92% Δ ✓
+    Examples: PRE 🔍65% | CHK 🔍82%→ | CHK 🔨65%… | POST 🔨92% Δ ✓
+
+    Praxic emoji is 🔨 (hammer, U+1F528 — east-asian-width: W). Was ⚙
+    (U+2699, eaw: N/ambiguous) which terminal-rendered narrow on some
+    surfaces and wide on others, causing the digits next to it to overlap
+    or clip. 🔨 also matches the existing docs in CLAUDE_CODE_SETUP.md.
     """
     # Phase abbreviation
     phase_abbrev = {
@@ -459,7 +464,7 @@ def format_phase_state(phase: str, work_phase: str, composite: float, gate_decis
     if work_phase == 'noetic':
         emoji = "🔍"
     else:
-        emoji = "⚙"
+        emoji = "🔨"
 
     pct = int(composite * 100)
     color = _color_by_value(composite)
