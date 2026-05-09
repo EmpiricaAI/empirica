@@ -172,7 +172,6 @@ Each segment answers a different question:
 | `🔍 / 🔨` | Investigating or acting? | `🔍` noetic, `🔨` praxic (work_phase) |
 | `XX%` after phase emoji | **Phase composite** — see breakdown below | per-phase formula |
 | `→ / …` | CHECK gate decision | `→` proceed (praxic next) · `…` investigate more |
-| `🔎XX%` or `🔎XX%·` | **External-grounding share** of confidence | `(search + 0.5·mixed) / (intuition + search + mixed)`. Trailing gray `·` = transaction-scoped (shifts visibly per `*-log --epistemic-source` call across the cascade). No marker = project rolling-window fallback when the transaction has no tagged artifacts yet. |
 | `K:X% C:X%` | Individual `know` and `context` vectors | raw vector values, color-coded by tier |
 | `Δ ✓ / ⚠ / △` | Learning delta sign at POSTFLIGHT | net positive / negative / neutral |
 | `N%ctx` | Context window used | from Claude Code's stdin context block |
@@ -190,15 +189,10 @@ They are *different aggregates over different vector subsets* by design. The pha
 
 So at POSTFLIGHT you can legitimately see `K=95% C=95%` (high know/context — what you investigated landed solidly) yet `POST 🔨70%` (post composite around 70% because state/change/completion/impact averaged to that). Both numbers are correct on their own terms — they answer different questions.
 
-**How `🔎XX%` relates to `⚡XX%`**
-
-`⚡XX%` is the AI's self-reported confidence. `🔎XX%` tells you how much of the underlying evidence base is **externally grounded** (reads, searches, observations, sources logged with `--epistemic-source search`) vs **intuition** (training-data assertions logged with `--epistemic-source intuition`). High `⚡` with low `🔎` is a calibration warning: the AI claims confidence but most of what it's logging is from training data, not from this session's investigation.
-
-The trailing `·` marker tells you which scope the score is reading from. With the dot (`🔎50%·`), you're seeing **cascade progression** — only artifacts logged in the active PRE→CHK→POST transaction count, so each new `*-log --epistemic-source` call shifts the score visibly. Without the dot (`🔎67%`), the transaction has no tagged artifacts yet, so the widget falls back to the **project rolling window** (last 20 tagged artifacts across all transactions) — a stable trend that doesn't go dark at PREFLIGHT.
-
 **What's not on the live statusline**
 
 - `↕XX%` Sentinel threshold (know gate) was removed in 1.9.2 — Sentinel-scoped, not actionable mid-tool-call. Available via `empirica sentinel-status` for debug.
+- An external-grounding share indicator (intuition vs search ratio) was tried in 1.9.2 and pulled in 1.9.3. The signal is highly diagnostic in surfaces that *lack* a grounding harness (Claude Desktop chat, plain web LLM UIs). In Claude Code the AI is grounded by default — codebase reads, hooks, MCP, project bootstrap, sentinel — so the indicator hovered high and didn't actionably shift behavior. The `epistemic_provenance` block surfaced in POSTFLIGHT calibration_reflection still carries the same data for retrospective analysis.
 
 ---
 
