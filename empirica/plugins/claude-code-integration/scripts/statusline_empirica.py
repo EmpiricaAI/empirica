@@ -481,21 +481,26 @@ def format_phase_state(phase: str, work_phase: str, composite: float, gate_decis
 
 def get_provenance_share(db, transaction_id: str | None,
                          project_id: str | None = None,
-                         window: int = 20) -> tuple[float, int] | None:
-    """Compute external-grounding share over the last N project artifacts.
+                         window: int = 20) -> tuple[float, int, str] | None:
+    """Compute external-grounding share with cascade-aware scoping.
 
-    Returns (ext_share, n_tagged) where ext_share ∈ [0.0, 1.0] is the
-    fraction of tagged artifacts that came from external observation/search
-    (not training-data intuition). `mixed` artifacts count as half-grounded.
+    Returns (ext_share, n_tagged, scope) where:
+      - ext_share ∈ [0.0, 1.0] = (search + 0.5·mixed) / n_tagged
+      - n_tagged = number of source-tagged artifacts in the active scope
+      - scope = "tx" if scoped to current transaction (visible progression
+        as PRE → CHK → POST artifacts log), or "project" if falling back
+        to the project rolling window (no transaction signal yet)
 
-    Lookup widens beyond the current transaction so the widget stays
-    visible across sessions. Most recent `window` tagged artifacts in the
-    project — gives a rolling trend that's always available once any
-    tagged artifact exists, instead of going dark for fresh transactions.
+    Why two scopes:
+      - Project-window stays visible from cold-start, gives stable trend
+      - Transaction-scoped shows real cascade progression — each *-log
+        with --epistemic-source shifts the score within the same
+        transaction, instead of being damped by N-window over the whole
+        project history
 
-    Returns None only when the project has zero tagged artifacts ever
-    (cold start) or DB lookup fails. Hot-path cost ~3-8ms (6 small SELECTs
-    bounded by `window`).
+    Resolution: try transaction scope first (cascade progression); fall
+    back to project window when transaction has zero tagged artifacts
+    yet (so the widget doesn't go dark at PREFLIGHT).
     """
     if not db or not getattr(db, 'conn', None):
         return None
@@ -505,50 +510,83 @@ def get_provenance_share(db, transaction_id: str | None,
         'project_findings', 'project_unknowns', 'project_dead_ends',
         'mistakes_made', 'assumptions', 'decisions',
     )
-    sources: list[str] = []
+
+    # 1. Try current-transaction scope first (cascade progression)
+    if transaction_id:
+        tx_sources: list[str] = []
+        for table in artifact_tables:
+            try:
+                cursor.execute(
+                    f"SELECT epistemic_source FROM {table} "
+                    f"WHERE transaction_id = ? AND epistemic_source IS NOT NULL",
+                    (transaction_id,),
+                )
+                tx_sources.extend(row[0] for row in cursor.fetchall())
+            except Exception:
+                continue
+        if tx_sources:
+            ext, n = _compute_ext_share(tx_sources)
+            return (ext, n, "tx")
+
+    # 2. Fall back to project rolling window (recency-merged across tables)
+    project_rows: list[tuple[str, float]] = []  # (source, created_timestamp)
     for table in artifact_tables:
         try:
             if project_id:
                 cursor.execute(
-                    f"SELECT epistemic_source FROM {table} "
+                    f"SELECT epistemic_source, created_timestamp FROM {table} "
                     f"WHERE project_id = ? AND epistemic_source IS NOT NULL "
                     f"ORDER BY created_timestamp DESC LIMIT ?",
                     (project_id, window),
                 )
             else:
                 cursor.execute(
-                    f"SELECT epistemic_source FROM {table} "
+                    f"SELECT epistemic_source, created_timestamp FROM {table} "
                     f"WHERE epistemic_source IS NOT NULL "
                     f"ORDER BY created_timestamp DESC LIMIT ?",
                     (window,),
                 )
-            sources.extend(row[0] for row in cursor.fetchall())
+            project_rows.extend(cursor.fetchall())
         except Exception:
-            continue  # Pre-040 DB without epistemic_source column
+            continue
 
-    if not sources:
+    if not project_rows:
         return None
 
-    # Take the N most-recent across all types (already top-N per table; trim again)
-    sources = sources[:window]
+    # Recency-merge across tables — true rolling window of last N project-wide
+    project_rows.sort(key=lambda r: r[1] or 0, reverse=True)
+    sources = [r[0] for r in project_rows[:window]]
+    if not sources:
+        return None
+    ext, n = _compute_ext_share(sources)
+    return (ext, n, "project")
+
+
+def _compute_ext_share(sources: list[str]) -> tuple[float, int]:
+    """Helper: count by source and return (ext_share, n_tagged)."""
     counts = {'intuition': 0, 'search': 0, 'mixed': 0}
     for s in sources:
         if s in counts:
             counts[s] += 1
     n_tagged = sum(counts.values())
     if n_tagged == 0:
-        return None
+        return (0.0, 0)
     grounded = counts['search'] + 0.5 * counts['mixed']
     return (grounded / n_tagged, n_tagged)
 
 
-def format_provenance(provenance: tuple[float, int] | None) -> str | None:
-    """Render `🔎XX%` external-grounding indicator. None when no signal.
+def format_provenance(provenance: tuple[float, int, str] | None) -> str | None:
+    """Render `🔎XX%[·]` external-grounding indicator. None when no signal.
 
     🔎 (right-pointing magnifying glass, U+1F50E) deliberately distinct from
     🔍 (left-pointing, U+1F50D) used by the phase-state badge — both convey
     "investigation/search" but the right-pointing variant marks aggregate
     grounding share rather than current-phase mode.
+
+    Trailing `·` (gray middle-dot) marks transaction-scoped reading — the
+    score reflects only artifacts logged in this PRE→CHK→POST cascade and
+    will visibly progress per-`*-log` call. No marker means project rolling
+    window fallback (no transaction signal yet).
 
     Color: green ≥60% (mostly externally grounded), yellow 30-60% (mixed
     intuition + search), red <30% (intuition-heavy — confidence largely
@@ -556,7 +594,7 @@ def format_provenance(provenance: tuple[float, int] | None) -> str | None:
     """
     if provenance is None:
         return None
-    ext_share, _n = provenance
+    ext_share, _n, scope = provenance
     pct = int(ext_share * 100)
     if ext_share >= 0.60:
         color = Colors.BRIGHT_GREEN
@@ -564,7 +602,8 @@ def format_provenance(provenance: tuple[float, int] | None) -> str | None:
         color = Colors.YELLOW
     else:
         color = Colors.RED
-    return f"🔎{color}{pct}%{Colors.RESET}"
+    marker = f"{Colors.GRAY}·{Colors.RESET}" if scope == "tx" else ""
+    return f"🔎{color}{pct}%{Colors.RESET}{marker}"
 
 
 def format_vector_colored(label: str, value: float) -> str:
