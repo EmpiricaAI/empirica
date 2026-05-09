@@ -479,40 +479,66 @@ def format_phase_state(phase: str, work_phase: str, composite: float, gate_decis
     return f"{Colors.BLUE}{phase_abbrev}{Colors.RESET} {emoji}{color}{pct}%{Colors.RESET}"
 
 
-def get_provenance_share(db, transaction_id: str | None) -> tuple[float, int] | None:
-    """Compute external-grounding share for the current transaction.
+def get_provenance_share(db, transaction_id: str | None,
+                         project_id: str | None = None,
+                         window: int = 20) -> tuple[float, int] | None:
+    """Compute external-grounding share over the last N project artifacts.
 
     Returns (ext_share, n_tagged) where ext_share ∈ [0.0, 1.0] is the
     fraction of tagged artifacts that came from external observation/search
     (not training-data intuition). `mixed` artifacts count as half-grounded.
 
-    Returns None when there's no signal yet (no tagged artifacts in the
-    transaction). Statusline omits the widget in that case.
+    Lookup widens beyond the current transaction so the widget stays
+    visible across sessions. Most recent `window` tagged artifacts in the
+    project — gives a rolling trend that's always available once any
+    tagged artifact exists, instead of going dark for fresh transactions.
 
-    Reuses `_compute_epistemic_provenance` from the grounded-calibration
-    pipeline so the source of truth is shared. Hot-path cost ~5ms (6 small
-    indexed SELECTs).
+    Returns None only when the project has zero tagged artifacts ever
+    (cold start) or DB lookup fails. Hot-path cost ~3-8ms (6 small SELECTs
+    bounded by `window`).
     """
-    if not transaction_id:
-        return None
-    try:
-        from empirica.core.post_test.grounded_calibration import (
-            _compute_epistemic_provenance,
-        )
-    except ImportError:
-        return None
-    try:
-        prov = _compute_epistemic_provenance(db, transaction_id)
-    except Exception:
+    if not db or not getattr(db, 'conn', None):
         return None
 
-    intuition = prov.get('intuition_artifacts', 0)
-    search = prov.get('search_artifacts', 0)
-    mixed = prov.get('mixed_artifacts', 0)
-    n_tagged = intuition + search + mixed
+    cursor = db.conn.cursor()
+    artifact_tables = (
+        'project_findings', 'project_unknowns', 'project_dead_ends',
+        'mistakes_made', 'assumptions', 'decisions',
+    )
+    sources: list[str] = []
+    for table in artifact_tables:
+        try:
+            if project_id:
+                cursor.execute(
+                    f"SELECT epistemic_source FROM {table} "
+                    f"WHERE project_id = ? AND epistemic_source IS NOT NULL "
+                    f"ORDER BY created_timestamp DESC LIMIT ?",
+                    (project_id, window),
+                )
+            else:
+                cursor.execute(
+                    f"SELECT epistemic_source FROM {table} "
+                    f"WHERE epistemic_source IS NOT NULL "
+                    f"ORDER BY created_timestamp DESC LIMIT ?",
+                    (window,),
+                )
+            sources.extend(row[0] for row in cursor.fetchall())
+        except Exception:
+            continue  # Pre-040 DB without epistemic_source column
+
+    if not sources:
+        return None
+
+    # Take the N most-recent across all types (already top-N per table; trim again)
+    sources = sources[:window]
+    counts = {'intuition': 0, 'search': 0, 'mixed': 0}
+    for s in sources:
+        if s in counts:
+            counts[s] += 1
+    n_tagged = sum(counts.values())
     if n_tagged == 0:
         return None
-    grounded = search + 0.5 * mixed
+    grounded = counts['search'] + 0.5 * counts['mixed']
     return (grounded / n_tagged, n_tagged)
 
 
@@ -1484,7 +1510,7 @@ def main():
         goal = get_active_goal(db, session_id)
         open_counts = get_open_counts(db, session_id, project_id=project_id)
         # threshold_info intentionally not fetched — Sentinel-scoped, not surfaced live
-        provenance = get_provenance_share(db, transaction_id)
+        provenance = get_provenance_share(db, transaction_id, project_id=project_id)
         db.close()
 
         if output_json:
