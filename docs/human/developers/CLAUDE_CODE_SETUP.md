@@ -153,14 +153,50 @@ cat ~/.claude/plugins/local/empirica/templates/settings-statusline.json
 - `learning`: Focus on vector changes
 - `full`: Everything with raw values
 
-**Status indicators:**
-- `⚡84%` = confidence score (⚡ high, 💡 good, 💫 uncertain, 🌑 low)
-- `↕70%` = Sentinel threshold (know gate) — user-facing only, AI cannot see this
-- `🎯3 ❓12/5` = open goals (3) and unknowns (12 total, 5 blocking goals)
-- `PRE/CHECK/POST` = Transaction phase (abbreviated)
-- `🔍65%` / `🔨80%` = work state (investigating / acting) with composite score
-- `K:90% C:85%` = know/context vectors (color-coded by gap to threshold)
-- `Δ +K +C` = learning delta (POSTFLIGHT only)
+### Reading the statusline
+
+A live render at CHECK looks like this:
+
+```
+[empirica] ⚡80% │ 🎯28 ❓47/23 │ CHK 🔨88%→ │ 🔎87% │ K:90% C:92% │ Δ ✓ │ 58%ctx
+```
+
+Each segment answers a different question:
+
+| Segment | Question answered | Formula |
+|---|---|---|
+| `[empirica]` | Which project? | `project.yaml display_name` (truncated to 20) |
+| `⚡84%` | **Overall confidence** | `0.40·know + 0.30·(1−uncertainty) + 0.20·context + 0.10·completion` |
+| `🎯N ❓N/N` | What's still open? | open goals · open unknowns / blocking unknowns |
+| `PRE / CHK / POST` | Where am I in the transaction? | `PREFLIGHT` / `CHECK` / `POSTFLIGHT` abbrev |
+| `🔍 / 🔨` | Investigating or acting? | `🔍` noetic, `🔨` praxic (work_phase) |
+| `XX%` after phase emoji | **Phase composite** — see breakdown below | per-phase formula |
+| `→ / …` | CHECK gate decision | `→` proceed (praxic next) · `…` investigate more |
+| `🔎XX%` | **External-grounding share** of confidence | `(search + 0.5·mixed) / (intuition + search + mixed)` over last 20 tagged artifacts in the project |
+| `K:X% C:X%` | Individual `know` and `context` vectors | raw vector values, color-coded by tier |
+| `Δ ✓ / ⚠ / △` | Learning delta sign at POSTFLIGHT | net positive / negative / neutral |
+| `N%ctx` | Context window used | from Claude Code's stdin context block |
+
+**How phase composite (`PRE/CHK/POST XX%`) relates to overall confidence (`⚡XX%`)**
+
+They are *different aggregates over different vector subsets* by design. The phase composite asks "given what this phase is about, how am I doing on the vectors that matter for it?" The overall confidence asks "how confident is the AI overall, weighted by the four most-load-bearing vectors?"
+
+| Phase | Vectors averaged | What it measures |
+|---|---|---|
+| **CHECK** composite | `know, context, clarity, coherence, signal, density` | Readiness to act |
+| **POSTFLIGHT** composite | `state, change, completion, impact` | Did the action deliver |
+| **noetic** composite | `clarity, coherence, signal, density` | Investigation quality |
+| **⚡ overall** | `know, 1−uncertainty, context, completion` | Weighted confidence band |
+
+So at POSTFLIGHT you can legitimately see `K=95% C=95%` (high know/context — what you investigated landed solidly) yet `POST 🔨70%` (post composite around 70% because state/change/completion/impact averaged to that). Both numbers are correct on their own terms — they answer different questions.
+
+**How `🔎XX%` relates to `⚡XX%`**
+
+`⚡XX%` is the AI's self-reported confidence. `🔎XX%` tells you how much of the underlying evidence base is **externally grounded** (reads, searches, observations, sources logged with `--epistemic-source search`) vs **intuition** (training-data assertions logged with `--epistemic-source intuition`). High `⚡` with low `🔎` is a calibration warning: the AI claims confidence but most of what it's logging is from training data, not from this session's investigation.
+
+**What's not on the live statusline**
+
+- `↕XX%` Sentinel threshold (know gate) was removed in 1.9.2 — Sentinel-scoped, not actionable mid-tool-call. Available via `empirica sentinel-status` for debug.
 
 ---
 

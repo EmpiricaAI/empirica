@@ -543,11 +543,16 @@ def get_provenance_share(db, transaction_id: str | None,
 
 
 def format_provenance(provenance: tuple[float, int] | None) -> str | None:
-    """Render `ext:XX%` indicator. Returns None when there's nothing to show.
+    """Render `🔎XX%` external-grounding indicator. None when no signal.
 
-    Color: green ≥60% (mostly grounded), yellow 30-60% (mixed), red <30%
-    (intuition-heavy — confidence is largely training-data intuition without
-    external verification this transaction).
+    🔎 (right-pointing magnifying glass, U+1F50E) deliberately distinct from
+    🔍 (left-pointing, U+1F50D) used by the phase-state badge — both convey
+    "investigation/search" but the right-pointing variant marks aggregate
+    grounding share rather than current-phase mode.
+
+    Color: green ≥60% (mostly externally grounded), yellow 30-60% (mixed
+    intuition + search), red <30% (intuition-heavy — confidence largely
+    from training-data without external verification).
     """
     if provenance is None:
         return None
@@ -559,7 +564,7 @@ def format_provenance(provenance: tuple[float, int] | None) -> str | None:
         color = Colors.YELLOW
     else:
         color = Colors.RED
-    return f"{Colors.GRAY}ext:{Colors.RESET}{color}{pct}%{Colors.RESET}"
+    return f"🔎{color}{pct}%{Colors.RESET}"
 
 
 def format_vector_colored(label: str, value: float) -> str:
