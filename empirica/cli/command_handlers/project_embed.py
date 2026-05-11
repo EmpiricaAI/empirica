@@ -251,18 +251,93 @@ def _query_memory_artifacts(db, project_id):
 
 
 def _rehydrate_eidetic(project_id, findings, embed_eidetic_fn, check_fn):
-    """Rehydrate eidetic collection from findings. Returns count embedded."""
+    """Rehydrate eidetic collection from findings. Returns count embedded.
+
+    Uses batch embedding to avoid sequential per-finding round-trips
+    (which on a slow local embedder costs ~Nfindings × 4-6s).
+    Falls back to the per-finding ``embed_eidetic_fn`` if batch embedding
+    is unavailable (provider import error, Qdrant down, etc.).
+    """
     import hashlib
+    import time
 
     eidetic_count = 0
     if not (check_fn() and findings):
         return eidetic_count
 
+    # Pre-filter empty-text findings and pair each with its content hash.
+    valid = []
     for f in findings:
         finding_text = f.get('finding', '')
         if not finding_text:
             continue
-        content_hash = hashlib.md5(finding_text.encode()).hexdigest()
+        valid.append((f, finding_text, hashlib.md5(finding_text.encode()).hexdigest()))
+    if not valid:
+        return 0
+
+    # Try batched embed path first.
+    try:
+        from empirica.core.qdrant.collections import _eidetic_collection
+        from empirica.core.qdrant.connection import (
+            _get_embeddings_batch_for_collection,
+            _get_qdrant_client,
+            _get_qdrant_imports,
+        )
+        _, _, _, PointStruct = _get_qdrant_imports()
+        client = _get_qdrant_client()
+        if client is None:
+            raise RuntimeError("Qdrant client unavailable")
+        coll = _eidetic_collection(project_id)
+
+        embed_batch_size = int(os.environ.get("EMPIRICA_EMBED_BATCH_SIZE", "50"))
+        texts = [t for (_, t, _) in valid]
+        vectors: list = []
+        create_if_missing = True
+        for i in range(0, len(texts), embed_batch_size):
+            batch_vectors = _get_embeddings_batch_for_collection(
+                client, coll, texts[i:i + embed_batch_size],
+                create_if_missing=create_if_missing,
+            )
+            vectors.extend(batch_vectors)
+            create_if_missing = False
+
+        points = []
+        now = time.time()
+        for (f, finding_text, content_hash), vector in zip(valid, vectors):
+            if vector is None:
+                continue
+            impact = f.get('impact')
+            base_confidence = float(impact) if impact else 0.6
+            fact_id = f.get('id', content_hash)
+            point_id = int(hashlib.md5(fact_id.encode()).hexdigest()[:15], 16)
+            payload = {
+                "type": "fact",
+                "content": finding_text[:500] if finding_text else None,
+                "content_full": finding_text if len(finding_text) <= 500 else None,
+                "content_hash": content_hash,
+                "domain": f.get('subject'),
+                "confidence": base_confidence,
+                "confirmation_count": 1,
+                "first_seen": now,
+                "last_confirmed": now,
+                "source_sessions": [f.get('session_id')] if f.get('session_id') else [],
+                "source_findings": [f.get('id')] if f.get('id') else [],
+                "tags": [f.get('subject')] if f.get('subject') else [],
+            }
+            points.append(PointStruct(id=point_id, vector=vector, payload=payload))
+
+        if points:
+            # Upsert in chunks so we don't blow past Qdrant's request body limit
+            # when finding counts run into the thousands.
+            upsert_chunk = 256
+            for i in range(0, len(points), upsert_chunk):
+                client.upsert(collection_name=coll, points=points[i:i + upsert_chunk])
+        return len(points)
+    except Exception as e:
+        logger.debug(f"Eidetic batch path unavailable ({e}); falling back to per-finding embed")
+
+    # Fallback: sequential per-finding via the injected embed_eidetic_fn.
+    for f, finding_text, content_hash in valid:
         impact = f.get('impact')
         base_confidence = float(impact) if impact else 0.6
         try:

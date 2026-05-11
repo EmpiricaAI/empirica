@@ -104,11 +104,21 @@ def upsert_docs(project_id: str, docs: list[dict]) -> int:
             return 0
         coll = _docs_collection(project_id)
 
-        # Batch embed all texts at once (much faster than sequential)
+        # Batch embed texts (chunked to avoid API payload limits / per-batch timeouts).
+        # Without chunking, a single POST of N×~1200-char prompts can exceed the
+        # provider's read timeout on slower local embedders (e.g. CPU Ollama).
+        import os
         texts = [d.get("text", "") for d in docs]
-        vectors = _get_embeddings_batch_for_collection(
-            client, coll, texts, create_if_missing=True,
-        )
+        embed_batch_size = int(os.environ.get("EMPIRICA_EMBED_BATCH_SIZE", "50"))
+        vectors = []
+        create_if_missing = True  # only on first batch; subsequent batches reuse the collection
+        for i in range(0, len(texts), embed_batch_size):
+            batch_texts = texts[i:i + embed_batch_size]
+            batch_vectors = _get_embeddings_batch_for_collection(
+                client, coll, batch_texts, create_if_missing=create_if_missing,
+            )
+            vectors.extend(batch_vectors)
+            create_if_missing = False
 
         points = []
         for d, vector in zip(docs, vectors):
@@ -148,8 +158,10 @@ def upsert_memory(project_id: str, items: list[dict]) -> int:
 
         # Batch embed texts (chunked to avoid API payload limits)
         import hashlib
+        import os
         texts = [it.get("text", "") for it in items]
-        embed_batch_size = 50
+        # batch size tunable for slower local embedders (Intel Mac + Ollama: use 10)
+        embed_batch_size = int(os.environ.get("EMPIRICA_EMBED_BATCH_SIZE", "50"))
         vectors = []
         for i in range(0, len(texts), embed_batch_size):
             batch_texts = texts[i:i + embed_batch_size]
