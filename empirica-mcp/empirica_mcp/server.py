@@ -120,15 +120,21 @@ TOOL_REGISTRY: dict[str, dict] = {
     },
 
     # --- Noetic artifacts ---
+    # `visibility` (public/shared/local) and `epistemic_source` (intuition/
+    # search/mixed) are part of the cross-Claude intelligence-sharing
+    # discipline — exposed on every log verb so the MCP path stays at
+    # parity with the CLI and the provenance flags are enforceable
+    # through either interface (v1.9.5+).
     "finding_log": {
         "cli": "finding-log",
         "params": {"finding": "--finding", "impact": "--impact", "session_id": "--session-id",
                    "goal_id": "--goal-id", "subtask_id": "--subtask-id", "project_id": "--project-id",
                    "subject": "--subject", "scope": "--scope",
                    "entity_type": "--entity-type", "entity_id": "--entity-id", "via": "--via",
-                   "source_ids": "--source"},
+                   "source_ids": "--source",
+                   "visibility": "--visibility", "epistemic_source": "--epistemic-source"},
         "required": ["finding"],
-        "desc": "Log a finding (what was learned). Use source_ids to link to epistemic sources.",
+        "desc": "Log a finding (what was learned). Use source_ids to link to epistemic sources, visibility to opt into cross-project sharing, epistemic_source to tag provenance.",
         "list_params": ["source_ids"],
     },
     "unknown_log": {
@@ -136,7 +142,8 @@ TOOL_REGISTRY: dict[str, dict] = {
         "params": {"unknown": "--unknown", "session_id": "--session-id",
                    "goal_id": "--goal-id", "subtask_id": "--subtask-id", "project_id": "--project-id",
                    "subject": "--subject", "scope": "--scope",
-                   "entity_type": "--entity-type", "entity_id": "--entity-id", "via": "--via"},
+                   "entity_type": "--entity-type", "entity_id": "--entity-id", "via": "--via",
+                   "visibility": "--visibility", "epistemic_source": "--epistemic-source"},
         "required": ["unknown"],
         "desc": "Log an unknown (what needs investigation)",
     },
@@ -145,7 +152,8 @@ TOOL_REGISTRY: dict[str, dict] = {
         "params": {"approach": "--approach", "why_failed": "--why-failed", "session_id": "--session-id",
                    "goal_id": "--goal-id", "subtask_id": "--subtask-id", "project_id": "--project-id",
                    "subject": "--subject", "scope": "--scope",
-                   "entity_type": "--entity-type", "entity_id": "--entity-id", "via": "--via"},
+                   "entity_type": "--entity-type", "entity_id": "--entity-id", "via": "--via",
+                   "visibility": "--visibility", "epistemic_source": "--epistemic-source"},
         "required": ["approach", "why_failed"],
         "desc": "Log a dead-end (approach that didn't work)",
     },
@@ -153,7 +161,8 @@ TOOL_REGISTRY: dict[str, dict] = {
         "cli": "mistake-log",
         "params": {"mistake": "--mistake", "why_wrong": "--why-wrong", "prevention": "--prevention",
                    "session_id": "--session-id", "goal_id": "--goal-id", "project_id": "--project-id",
-                   "scope": "--scope", "entity_type": "--entity-type", "entity_id": "--entity-id"},
+                   "scope": "--scope", "entity_type": "--entity-type", "entity_id": "--entity-id",
+                   "visibility": "--visibility", "epistemic_source": "--epistemic-source"},
         "required": ["mistake", "why_wrong", "prevention"],
         "desc": "Log a mistake (error to avoid in future)",
     },
@@ -161,7 +170,8 @@ TOOL_REGISTRY: dict[str, dict] = {
         "cli": "assumption-log",
         "params": {"assumption": "--assumption", "confidence": "--confidence", "domain": "--domain",
                    "session_id": "--session-id", "goal_id": "--goal-id", "project_id": "--project-id",
-                   "entity_type": "--entity-type", "entity_id": "--entity-id", "via": "--via"},
+                   "entity_type": "--entity-type", "entity_id": "--entity-id", "via": "--via",
+                   "visibility": "--visibility", "epistemic_source": "--epistemic-source"},
         "required": ["assumption"],
         "desc": "Log an unverified assumption with confidence level",
     },
@@ -171,7 +181,8 @@ TOOL_REGISTRY: dict[str, dict] = {
                    "reversibility": "--reversibility", "confidence": "--confidence", "domain": "--domain",
                    "session_id": "--session-id", "goal_id": "--goal-id", "project_id": "--project-id",
                    "entity_type": "--entity-type", "entity_id": "--entity-id", "via": "--via",
-                   "evidence_refs": "--evidence"},
+                   "evidence_refs": "--evidence",
+                   "visibility": "--visibility", "epistemic_source": "--epistemic-source"},
         "required": ["choice", "rationale"],
         "desc": "Log a decision with rationale. Use evidence_refs to link to supporting findings.",
         "list_params": ["evidence_refs"],
@@ -557,6 +568,8 @@ _ENUM_PARAMS = {
     "detail_level": ["summary", "detailed", "full"],
     "phase": ["PREFLIGHT", "CHECK", "ACT", "POSTFLIGHT"],
     "priority": ["low", "normal", "high", "urgent"],
+    "visibility": ["public", "shared", "local"],
+    "epistemic_source": ["intuition", "search", "mixed"],
 }
 
 
