@@ -272,8 +272,15 @@ class TestReflexesTableSchema:
             conn.close()
 
 
+@pytest.mark.integration
 class TestCheckpointVectorStorage:
-    """Test Bug #3: Checkpoints created with empty vectors"""
+    """Test Bug #3: Checkpoints created with empty vectors.
+
+    Marked integration: the `session_with_vectors` fixture calls
+    `SessionDatabase()` which requires a resolvable sessions.db path
+    (git-initialized CWD or $EMPIRICA_SESSION_DB). Fresh CI runners
+    lack that environment. Run explicitly: pytest -m integration ...
+    """
 
     @pytest.fixture
     def session_with_vectors(self, tmp_path):
