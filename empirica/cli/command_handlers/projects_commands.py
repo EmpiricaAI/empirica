@@ -296,8 +296,161 @@ def handle_projects_discover_command(args) -> None:
                     )
             except OSError as e:
                 print(f"⚠ Failed to write manifest cache: {e}", file=sys.stderr)
+
+        # v1.10.0+: --register also upserts into ~/.empirica/registry.yaml
+        # (the daemon's served set). --prune additionally drops stale entries.
+        if getattr(args, "register", False):
+            try:
+                summary = _register_discovered_to_registry(
+                    manifest, prune=getattr(args, "prune", False),
+                )
+                print(
+                    f"\n📌 Registry updated: +{summary['added']} new, "
+                    f"~{summary['updated']} updated"
+                    + (f", −{summary['pruned']} pruned" if summary["pruned"] else "")
+                    + f" → {summary['total']} total",
+                    file=sys.stderr,
+                )
+            except Exception as e:
+                print(f"⚠ Failed to update registry: {e}", file=sys.stderr)
     except Exception as e:
         handle_cli_error(e, "projects-discover")
+
+
+def _register_discovered_to_registry(
+    manifest: dict[str, Any], *, prune: bool = False
+) -> dict[str, int]:
+    """Upsert discovered projects into ~/.empirica/registry.yaml.
+
+    Reads each discovered project's `.empirica/project.yaml` to extract the
+    canonical project_id (Cortex UUID for registered projects; local slug
+    for Empirica-only users). Falls back to directory name slug.
+
+    Returns a summary of {added, updated, pruned, total}.
+    """
+    from empirica.api.registry import (
+        load_registry,
+        prune_stale,
+        save_registry,
+        upsert_project,
+    )
+
+    registry = load_registry()
+    existing_ids = {p.get("project_id") for p in registry.get("projects", [])}
+
+    added = 0
+    updated = 0
+    for entry in manifest.get("projects", []):
+        raw_path = entry.get("path") or ""
+        proj_yaml = _read_project_yaml_for_registry(raw_path)
+        project_id = (
+            proj_yaml.get("project_id")
+            or entry.get("project_id")
+            or entry.get("slug")
+            or entry.get("name")
+        )
+        if not project_id:
+            continue
+        slug = entry.get("slug") or proj_yaml.get("slug") or entry.get("name") or ""
+        name = (
+            proj_yaml.get("display_name")
+            or proj_yaml.get("name")
+            or entry.get("name")
+            or ""
+        )
+        was_existing = project_id in existing_ids
+        upsert_project(
+            registry,
+            project_id=project_id,
+            slug=slug,
+            name=name,
+            path=raw_path,
+            repo_url=entry.get("repo_url"),
+        )
+        if was_existing:
+            updated += 1
+        else:
+            added += 1
+            existing_ids.add(project_id)
+
+    pruned_count = 0
+    if prune:
+        _, removed = prune_stale(registry)
+        pruned_count = len(removed)
+
+    save_registry(registry)
+    return {
+        "added": added,
+        "updated": updated,
+        "pruned": pruned_count,
+        "total": len(registry.get("projects", [])),
+    }
+
+
+def _read_project_yaml_for_registry(raw_path: str) -> dict[str, Any]:
+    """Read .empirica/project.yaml for a discovered project. Returns {} on miss.
+
+    Helper isolated so the registration path doesn't import yaml at module
+    level (it's already loaded via the file-top import, but this scopes the
+    read for clarity).
+    """
+    if not raw_path:
+        return {}
+    try:
+        content = (Path(raw_path) / ".empirica" / "project.yaml").read_text(encoding="utf-8")
+        data = yaml.safe_load(content)
+        return data if isinstance(data, dict) else {}
+    except (OSError, yaml.YAMLError):
+        return {}
+
+
+def handle_daemon_list_command(args) -> None:
+    """Handle the daemon-list command (v1.10.0).
+
+    Prints the contents of ~/.empirica/registry.yaml — the daemon's served set.
+    """
+    try:
+        from empirica.api.registry import DEFAULT_REGISTRY_PATH, load_registry
+
+        registry = load_registry()
+        projects = registry.get("projects", [])
+
+        output_format = getattr(args, "output", "table")
+        if output_format == "json":
+            sys.stdout.write(json.dumps(registry, indent=2) + "\n")
+            return
+        if output_format == "yaml":
+            sys.stdout.write(
+                yaml.dump(registry, default_flow_style=False, sort_keys=False, allow_unicode=True)
+            )
+            return
+
+        # Table format
+        if not projects:
+            print(f"# Registry at {DEFAULT_REGISTRY_PATH} is empty or missing.")
+            print(
+                "# Populate via: empirica projects-discover --register",
+                file=sys.stderr,
+            )
+            return
+
+        name_w = max(len(p.get("name", "")) for p in projects)
+        slug_w = max(len(p.get("slug", "")) for p in projects)
+        header = f"{'NAME':{name_w}}  {'SLUG':{slug_w}}  PROJECT_ID                              PATH"
+        sys.stdout.write(header + "\n")
+        sys.stdout.write("-" * len(header) + "\n")
+        for p in projects:
+            pid = p.get("project_id", "")
+            pid_short = pid[:36] if len(pid) > 36 else pid.ljust(36)
+            sys.stdout.write(
+                f"{p.get('name',''):{name_w}}  "
+                f"{p.get('slug',''):{slug_w}}  "
+                f"{pid_short}  "
+                f"{p.get('path','')}\n"
+            )
+        sys.stdout.write(f"\n{len(projects)} projects registered.\n")
+    except Exception as e:
+        handle_cli_error(e, "daemon-list")
 
 
 def handle_projects_list_command(args) -> None:

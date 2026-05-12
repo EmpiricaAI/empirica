@@ -7,7 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.9.3] — 2026-05-12
+## [1.10.0] — 2026-05-12
+
+### Added — Daemon multi-project support
+
+The `empirica serve` daemon now serves all locally-known projects from a
+registry instead of being bound to one project at startup. Tier 2/3 users
+with multiple `.empirica/` directories on the same machine no longer need
+to restart the daemon to switch project context.
+
+- **`~/.empirica/registry.yaml`** — new registry file listing projects the
+  daemon is willing to serve. Atomic writes (tempfile + rename). YAML
+  chosen so users can hand-edit with comments. Schema:
+  ```yaml
+  version: 1
+  projects:
+    - project_id: 748a81a2-ac14-45b8-a185-994997b76828
+      slug: empirica
+      name: empirica
+      path: /home/user/empirical-ai/empirica
+      repo_url: https://github.com/Nubaeon/empirica
+      last_seen: 2026-05-12T08:32:00Z
+  ```
+  `project_id` is the Cortex UUID when registered, or a local slug for
+  Empirica-only users.
+
+- **Per-request `?project_id=X` query param** on every GET `/api/v1/`
+  endpoint. No param → CWD-bound active project (existing behavior,
+  backward-compat). `?project_id=X` → registry lookup. `?path=Y` →
+  power-user bypass (opens `Y/.empirica/` directly, no registry lookup).
+  Endpoints covered: `/health`, `/bootstrap`, `/goals`, `/findings`,
+  `/decisions`, `/unknowns`, `/mistakes`, `/dead-ends`, `/assumptions`,
+  `/sources`, `/artifacts/graph`, `/artifacts/{id}`.
+
+- **`/api/v1/health` exposes `known_projects[]`** — full registry surfaced
+  in the health response so the Chrome extension can populate its project
+  dropdown without round-tripping Cortex.
+
+- **`empirica projects-discover --register`** flag — after scanning, upsert
+  each discovered project into `~/.empirica/registry.yaml`. Reads each
+  project's `.empirica/project.yaml` to extract the canonical `project_id`
+  (Cortex UUID when registered; slug otherwise). Idempotent.
+
+- **`empirica projects-discover --register --prune`** — also remove
+  registry entries whose path no longer exists or no longer contains
+  `.empirica/`.
+
+- **`empirica daemon-list`** verb — prints the registry contents
+  (table / yaml / json) for quick inspection.
+
+- **27 new tests** across `tests/test_registry.py` (registry module:
+  load/save round-trip, atomic write, upsert idempotency, prune semantics)
+  and `tests/test_daemon_multi_project.py` (route-level: `?project_id=X`
+  hits + 404 misses, `?path=Y` bypass, no-params CWD fallback, 503 when
+  daemon unbound).
 
 ### Security
 

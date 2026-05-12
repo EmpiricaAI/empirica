@@ -56,6 +56,41 @@ def add_projects_parsers(subparsers) -> None:
             "Use '-' to write to stdout only."
         ),
     )
+    discover.add_argument(
+        "--register",
+        action="store_true",
+        help=(
+            "After scanning, upsert each discovered project into "
+            "~/.empirica/registry.yaml (the daemon's served set). Idempotent — "
+            "matches on project_id. (v1.10.0+)"
+        ),
+    )
+    discover.add_argument(
+        "--prune",
+        action="store_true",
+        help=(
+            "Only with --register: also remove registry entries whose path "
+            "no longer exists or no longer contains .empirica/."
+        ),
+    )
+
+    # ── daemon-list ────────────────────────────────────────────────────
+    daemon_list = subparsers.add_parser(
+        "daemon-list",
+        help="List projects registered with the local daemon (~/.empirica/registry.yaml).",
+        description=(
+            "Print the contents of ~/.empirica/registry.yaml — the set of "
+            "projects the local `empirica serve` daemon is willing to route "
+            "?project_id= requests to. Populate via `empirica projects-discover "
+            "--register` or hand-edit the YAML. (v1.10.0+)"
+        ),
+    )
+    daemon_list.add_argument(
+        "--output",
+        choices=["yaml", "json", "table"],
+        default="table",
+        help="Output format (default: table).",
+    )
 
     # ── projects-list ──────────────────────────────────────────────────
     listing = subparsers.add_parser(

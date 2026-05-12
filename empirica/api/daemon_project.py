@@ -235,3 +235,84 @@ def get_cached_daemon_project(refresh: bool = False) -> dict | None:
         _cached_project = resolve_daemon_project()
         _cached = True
     return _cached_project
+
+
+# ── v1.10.0 multi-project resolution ───────────────────────────────────
+
+
+def resolve_for_request(
+    project_id: str | None = None,
+    project_path_override: str | None = None,
+) -> dict | None:
+    """Resolve the project for a single request.
+
+    Precedence (high → low):
+      1. `project_path_override` (`?path=Y`) — power-user bypass. Walks up
+         from Y looking for `.empirica/project.yaml`. No registry lookup.
+         Returns None if Y has no `.empirica/` subdirectory.
+      2. `project_id` (`?project_id=X`) — registry lookup. Returns None if
+         X is not registered; caller maps None → 404.
+      3. Neither — falls back to `get_cached_daemon_project()` (current
+         CWD-bound behavior; backward-compat).
+
+    Symlinks are followed (Path.resolve in both walk-up and path-override).
+    """
+    if project_path_override:
+        candidate = Path(project_path_override).resolve(strict=False)
+        if not (candidate / ".empirica" / "project.yaml").is_file():
+            walked = _walk_up_for_empirica(candidate)
+            if walked is None:
+                return None
+            candidate = walked
+        return _synthesize_project_entry(candidate)
+
+    if project_id:
+        from empirica.api.registry import find_by_project_id, load_registry
+        entry = find_by_project_id(load_registry(), project_id)
+        if not entry:
+            return None
+        candidate = Path(entry["path"]).resolve(strict=False)
+        if not (candidate / ".empirica").is_dir():
+            # Registry entry points at a path that no longer has .empirica/.
+            # Don't synthesize — caller maps None → 404 so the user knows
+            # the registry is stale and can run `projects-discover
+            # --register --prune`.
+            return None
+        return {
+            "project_id": entry.get("project_id"),
+            "project_path": str(candidate),
+            "project_name": entry.get("name") or candidate.name,
+            "project_slug": entry.get("slug") or candidate.name,
+            "repo_url": entry.get("repo_url"),
+        }
+
+    return get_cached_daemon_project()
+
+
+def _synthesize_project_entry(project_path: Path) -> dict:
+    """Build a project dict for a path that may not be in the registry.
+
+    Mirrors `resolve_daemon_project()` shape so callers can use the result
+    interchangeably with the cached CWD-bound resolver.
+    """
+    project_yaml = _read_project_yaml(project_path)
+    project_name = (
+        project_yaml.get("display_name")
+        or project_yaml.get("name")
+        or project_path.name
+    )
+    yaml_id = project_yaml.get("project_id")
+    project_uuid = _resolve_project_uuid(project_path, yaml_id)
+    project_id = project_uuid or yaml_id
+    project_slug = (
+        _slugify_project_name(yaml_id)
+        if (yaml_id and not _looks_uuid(yaml_id))
+        else _slugify_project_name(project_name)
+    )
+    return {
+        "project_id": project_id,
+        "project_path": str(project_path),
+        "project_name": project_name,
+        "project_slug": project_slug,
+        "repo_url": _read_git_remote(project_path),
+    }

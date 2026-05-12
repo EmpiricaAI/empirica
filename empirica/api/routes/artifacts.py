@@ -27,35 +27,72 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 
-from empirica.api.daemon_project import get_cached_daemon_project
+from empirica.api.daemon_project import (
+    get_cached_daemon_project,
+    resolve_for_request,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["artifacts"])
 
 
-# ── Project-scope guard ──────────────────────────────────────────────
+# ── Project-scope resolution ─────────────────────────────────────────
 
 
-def _require_project_path() -> str:
-    """Return the daemon's active project path or raise 503.
+def _resolve_project_dict(
+    project_id: str | None = None,
+    path: str | None = None,
+) -> dict:
+    """Resolve the project dict for one request.
 
-    Per spec: when daemon is launched outside any project tree, the new
-    per-project endpoints return 503 with a hint to either cd into a
-    project tree before running `empirica serve` or to set the active
-    project via `empirica project-switch`.
+    Precedence:
+      1. `?path=Y` — power-user bypass, opens Y/.empirica/ directly.
+      2. `?project_id=X` — registry lookup. 404 if X not in registry.
+      3. Neither — falls back to daemon's cached CWD-bound project. 503
+         if daemon wasn't launched inside any project tree.
+
+    Returns a project dict (project_id / project_path / project_name /
+    project_slug / repo_url) or raises HTTPException (404 / 503).
     """
+    if project_id or path:
+        project = resolve_for_request(project_id=project_id, project_path_override=path)
+        if not project or not project.get("project_path"):
+            if path:
+                raise HTTPException(
+                    status_code=404,
+                    detail={
+                        "error": "path is not an Empirica project",
+                        "hint": (
+                            f"No .empirica/project.yaml found at or above {path}. "
+                            "Use ?project_id=X with a registered project, or omit "
+                            "both params to use the daemon's CWD-bound project."
+                        ),
+                    },
+                )
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "error": "project not registered with daemon",
+                    "hint": (
+                        "Run `empirica projects-discover --register` or add the "
+                        "project to ~/.empirica/registry.yaml"
+                    ),
+                },
+            )
+        return project
+
     project = get_cached_daemon_project()
     if not project or not project.get("project_path"):
         raise HTTPException(
             status_code=503,
             detail=(
                 "Daemon not bound to a project. Run `empirica serve` from inside "
-                "a project tree (or set active project with `empirica project-switch`) "
-                "and restart."
+                "a project tree, register projects via `empirica projects-discover "
+                "--register`, or pass ?project_id=X / ?path=Y per request."
             ),
         )
-    return project["project_path"]
+    return project
 
 
 # ── DB connection (per-request) ──────────────────────────────────────
@@ -80,12 +117,24 @@ class _ReadOnlyDB:
             self.conn.close()
 
 
-def _open_db() -> _ReadOnlyDB:
-    """Open a read-only sqlite connection to the daemon's project sqlite."""
+def _open_db_for(project: dict) -> _ReadOnlyDB:
+    """Open a read-only sqlite connection to the resolved project's sqlite."""
     from pathlib import Path
-    project_path = _require_project_path()
+    project_path = project["project_path"]
     db_path = str(Path(project_path) / ".empirica" / "sessions" / "sessions.db")
     return _ReadOnlyDB(db_path)
+
+
+def _open_db() -> _ReadOnlyDB:
+    """Backward-compat alias for endpoints that haven't been threaded with
+    per-request `?project_id=X` / `?path=Y` yet.
+
+    Resolves the daemon's CWD-bound active project (current single-project
+    behavior). New endpoints should prefer `_open_db_for(_resolve_project_dict(...))`
+    instead so they honor per-request project selection.
+    """
+    project = _resolve_project_dict(None, None)
+    return _open_db_for(project)
 
 
 # ── Edge attachment ──────────────────────────────────────────────────
@@ -449,19 +498,22 @@ def _list_goals(db, project_id: str, status: str, limit: int) -> list[dict[str, 
 
 
 @router.get("/findings")
-async def list_findings(limit: int = Query(50, ge=1, le=500)):
-    """List recent findings in the daemon's active project."""
-    project = get_cached_daemon_project()
-    if not project:
-        raise HTTPException(status_code=503, detail="Daemon not bound to a project")
-    project_id = project.get("project_id")
-    if not project_id:
+async def list_findings(
+    limit: int = Query(50, ge=1, le=500),
+    project_id: str | None = Query(None, description="Registered project_id; falls back to daemon's CWD-bound project if omitted"),
+    path: str | None = Query(None, description="Filesystem path to project (power-user bypass; .empirica/project.yaml must exist)"),
+):
+    """List recent findings. Scope: `?project_id=X` (registry), `?path=Y`
+    (bypass), or daemon's CWD-bound project (default)."""
+    project = _resolve_project_dict(project_id, path)
+    proj_pid = project.get("project_id")
+    if not proj_pid:
         return {"findings": [], "project_id": None}
-    db = _open_db()
+    db = _open_db_for(project)
     try:
-        rows = _list_findings(db, project_id, limit)
+        rows = _list_findings(db, proj_pid, limit)
         rows = _attach_related_to(db, rows)
-        return {"findings": rows, "project_id": project_id}
+        return {"findings": rows, "project_id": proj_pid}
     finally:
         db.close()
 
@@ -470,52 +522,56 @@ async def list_findings(limit: int = Query(50, ge=1, le=500)):
 async def list_unknowns(
     status: str = Query("open", pattern="^(open|resolved|all)$"),
     limit: int = Query(50, ge=1, le=500),
+    project_id: str | None = Query(None),
+    path: str | None = Query(None),
 ):
-    project = get_cached_daemon_project()
-    if not project:
-        raise HTTPException(status_code=503, detail="Daemon not bound to a project")
-    project_id = project.get("project_id")
-    if not project_id:
+    project = _resolve_project_dict(project_id, path)
+    proj_pid = project.get("project_id")
+    if not proj_pid:
         return {"unknowns": [], "project_id": None}
-    db = _open_db()
+    db = _open_db_for(project)
     try:
-        rows = _list_unknowns(db, project_id, status, limit)
+        rows = _list_unknowns(db, proj_pid, status, limit)
         rows = _attach_related_to(db, rows)
-        return {"unknowns": rows, "project_id": project_id}
+        return {"unknowns": rows, "project_id": proj_pid}
     finally:
         db.close()
 
 
 @router.get("/dead-ends")
-async def list_dead_ends(limit: int = Query(50, ge=1, le=500)):
-    project = get_cached_daemon_project()
-    if not project:
-        raise HTTPException(status_code=503, detail="Daemon not bound to a project")
-    project_id = project.get("project_id")
-    if not project_id:
+async def list_dead_ends(
+    limit: int = Query(50, ge=1, le=500),
+    project_id: str | None = Query(None),
+    path: str | None = Query(None),
+):
+    project = _resolve_project_dict(project_id, path)
+    proj_pid = project.get("project_id")
+    if not proj_pid:
         return {"dead_ends": [], "project_id": None}
-    db = _open_db()
+    db = _open_db_for(project)
     try:
-        rows = _list_dead_ends(db, project_id, limit)
+        rows = _list_dead_ends(db, proj_pid, limit)
         rows = _attach_related_to(db, rows)
-        return {"dead_ends": rows, "project_id": project_id}
+        return {"dead_ends": rows, "project_id": proj_pid}
     finally:
         db.close()
 
 
 @router.get("/mistakes")
-async def list_mistakes(limit: int = Query(50, ge=1, le=500)):
-    project = get_cached_daemon_project()
-    if not project:
-        raise HTTPException(status_code=503, detail="Daemon not bound to a project")
-    project_id = project.get("project_id")
-    if not project_id:
+async def list_mistakes(
+    limit: int = Query(50, ge=1, le=500),
+    project_id: str | None = Query(None),
+    path: str | None = Query(None),
+):
+    project = _resolve_project_dict(project_id, path)
+    proj_pid = project.get("project_id")
+    if not proj_pid:
         return {"mistakes": [], "project_id": None}
-    db = _open_db()
+    db = _open_db_for(project)
     try:
-        rows = _list_mistakes(db, project_id, limit)
+        rows = _list_mistakes(db, proj_pid, limit)
         rows = _attach_related_to(db, rows)
-        return {"mistakes": rows, "project_id": project_id}
+        return {"mistakes": rows, "project_id": proj_pid}
     finally:
         db.close()
 
@@ -524,52 +580,56 @@ async def list_mistakes(limit: int = Query(50, ge=1, le=500)):
 async def list_assumptions(
     confidence_min: float = Query(0.0, ge=0.0, le=1.0),
     limit: int = Query(50, ge=1, le=500),
+    project_id: str | None = Query(None),
+    path: str | None = Query(None),
 ):
-    project = get_cached_daemon_project()
-    if not project:
-        raise HTTPException(status_code=503, detail="Daemon not bound to a project")
-    project_id = project.get("project_id")
-    if not project_id:
+    project = _resolve_project_dict(project_id, path)
+    proj_pid = project.get("project_id")
+    if not proj_pid:
         return {"assumptions": [], "project_id": None}
-    db = _open_db()
+    db = _open_db_for(project)
     try:
-        rows = _list_assumptions(db, project_id, confidence_min, limit)
+        rows = _list_assumptions(db, proj_pid, confidence_min, limit)
         rows = _attach_related_to(db, rows)
-        return {"assumptions": rows, "project_id": project_id}
+        return {"assumptions": rows, "project_id": proj_pid}
     finally:
         db.close()
 
 
 @router.get("/decisions")
-async def list_decisions(limit: int = Query(50, ge=1, le=500)):
-    project = get_cached_daemon_project()
-    if not project:
-        raise HTTPException(status_code=503, detail="Daemon not bound to a project")
-    project_id = project.get("project_id")
-    if not project_id:
+async def list_decisions(
+    limit: int = Query(50, ge=1, le=500),
+    project_id: str | None = Query(None),
+    path: str | None = Query(None),
+):
+    project = _resolve_project_dict(project_id, path)
+    proj_pid = project.get("project_id")
+    if not proj_pid:
         return {"decisions": [], "project_id": None}
-    db = _open_db()
+    db = _open_db_for(project)
     try:
-        rows = _list_decisions(db, project_id, limit)
+        rows = _list_decisions(db, proj_pid, limit)
         rows = _attach_related_to(db, rows)
-        return {"decisions": rows, "project_id": project_id}
+        return {"decisions": rows, "project_id": proj_pid}
     finally:
         db.close()
 
 
 @router.get("/sources")
-async def list_sources(limit: int = Query(50, ge=1, le=500)):
-    project = get_cached_daemon_project()
-    if not project:
-        raise HTTPException(status_code=503, detail="Daemon not bound to a project")
-    project_id = project.get("project_id")
-    if not project_id:
+async def list_sources(
+    limit: int = Query(50, ge=1, le=500),
+    project_id: str | None = Query(None),
+    path: str | None = Query(None),
+):
+    project = _resolve_project_dict(project_id, path)
+    proj_pid = project.get("project_id")
+    if not proj_pid:
         return {"sources": [], "project_id": None}
-    db = _open_db()
+    db = _open_db_for(project)
     try:
-        rows = _list_sources(db, project_id, limit)
+        rows = _list_sources(db, proj_pid, limit)
         rows = _attach_related_to(db, rows)
-        return {"sources": rows, "project_id": project_id}
+        return {"sources": rows, "project_id": proj_pid}
     finally:
         db.close()
 
@@ -578,18 +638,18 @@ async def list_sources(limit: int = Query(50, ge=1, le=500)):
 async def list_goals(
     status: str = Query("active", pattern="^(active|completed|planned|all)$"),
     limit: int = Query(50, ge=1, le=500),
+    project_id: str | None = Query(None),
+    path: str | None = Query(None),
 ):
-    project = get_cached_daemon_project()
-    if not project:
-        raise HTTPException(status_code=503, detail="Daemon not bound to a project")
-    project_id = project.get("project_id")
-    if not project_id:
+    project = _resolve_project_dict(project_id, path)
+    proj_pid = project.get("project_id")
+    if not proj_pid:
         return {"goals": [], "project_id": None}
-    db = _open_db()
+    db = _open_db_for(project)
     try:
-        rows = _list_goals(db, project_id, status, limit)
+        rows = _list_goals(db, proj_pid, status, limit)
         rows = _attach_related_to(db, rows)
-        return {"goals": rows, "project_id": project_id}
+        return {"goals": rows, "project_id": proj_pid}
     finally:
         db.close()
 
@@ -634,8 +694,15 @@ def _resolve_artifact_by_id(db, artifact_id: str) -> tuple[str, str, str] | None
 def _walk_graph(  # noqa: C901 — graph walker has multiple branches but reads linearly
     db, seed_id: str | None, session_id: str | None,
     depth: int, max_nodes: int, type_filter: set[str] | None,
+    project_id_for_seed: str | None = None,
 ) -> tuple[list[dict], list[dict]]:
-    """BFS over artifact_edges (bidirectional). Returns (nodes, edges)."""
+    """BFS over artifact_edges (bidirectional). Returns (nodes, edges).
+
+    project_id_for_seed: used only when neither seed_id nor session_id is
+    provided — scopes the project-wide seed scan to a specific project
+    (passed by the route handler after resolving ?project_id= / ?path=).
+    Falls back to cached daemon project for legacy callers.
+    """
     cursor = db.conn.cursor()
 
     seeds: set[str] = set()
@@ -655,8 +722,10 @@ def _walk_graph(  # noqa: C901 — graph walker has multiple branches but reads 
             if len(seeds) >= max_nodes:
                 break
     else:
-        project = get_cached_daemon_project() or {}
-        project_id = project.get("project_id")
+        project_id = project_id_for_seed
+        if project_id is None:
+            project = get_cached_daemon_project() or {}
+            project_id = project.get("project_id")
         if project_id:
             for _type, table, id_col in _TYPE_TABLE_MAP:
                 try:
@@ -743,29 +812,16 @@ def _walk_graph(  # noqa: C901 — graph walker has multiple branches but reads 
 
 
 @router.get("/bootstrap")
-async def get_bootstrap():
-    """Three-circle artifact graph bootstrap context.
-
-    Returns the v2 wire shape (schema_version "2") with active_state,
-    persistent_reference, and topic_relevant_backlog top-level sections.
-    See docs/specs/PROPOSAL_BOOTSTRAP_AGGREGATOR.md for the design.
-
-    503 contract identical to other per-project endpoints: returned when
-    the daemon isn't bound to a project.
+async def get_bootstrap(
+    project_id: str | None = Query(None),
+    path: str | None = Query(None),
+):
+    """Three-circle artifact graph bootstrap context. Scope: `?project_id=X`,
+    `?path=Y`, or daemon's CWD-bound project (default).
     """
     from empirica.core.bootstrap import build_bootstrap_payload
 
-    project = get_cached_daemon_project()
-    if not project or not project.get("project_path"):
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "Daemon not bound to a project. Run `empirica serve` from inside "
-                "a project tree (or set active project with `empirica project-switch`) "
-                "and restart."
-            ),
-        )
-
+    project = _resolve_project_dict(project_id, path)
     payload = build_bootstrap_payload(
         project_path=project["project_path"],
         project_id=project.get("project_id"),
@@ -780,29 +836,33 @@ async def get_artifact_graph(
     depth: int = Query(2, ge=0, le=10),
     types: str | None = Query(None),
     max_nodes: int = Query(500, ge=1, le=2000),
+    project_id: str | None = Query(None),
+    path: str | None = Query(None),
 ):
-    """Connected component as nodes + edges.
+    """Connected component as nodes + edges. Scope: `?project_id=X`, `?path=Y`,
+    or daemon's CWD-bound project (default).
 
     seed_id: BFS from one artifact (depth N).
     session_id: graph of artifacts created in that session.
     Neither: project-wide graph (capped at max_nodes, default 500).
     types: comma-separated type filter (finding,decision,...).
     """
-    project = get_cached_daemon_project()
-    if not project:
-        raise HTTPException(status_code=503, detail="Daemon not bound to a project")
-    project_id = project.get("project_id")
-    if not project_id:
+    project = _resolve_project_dict(project_id, path)
+    proj_pid = project.get("project_id")
+    if not proj_pid:
         return {"nodes": [], "edges": [], "project_id": None}
 
     type_filter: set[str] | None = None
     if types:
         type_filter = {t.strip() for t in types.split(",") if t.strip()}
 
-    db = _open_db()
+    db = _open_db_for(project)
     try:
-        nodes, edges = _walk_graph(db, seed_id, session_id, depth, max_nodes, type_filter)
-        return {"nodes": nodes, "edges": edges, "project_id": project_id}
+        nodes, edges = _walk_graph(
+            db, seed_id, session_id, depth, max_nodes, type_filter,
+            project_id_for_seed=proj_pid,
+        )
+        return {"nodes": nodes, "edges": edges, "project_id": proj_pid}
     finally:
         db.close()
 
@@ -810,10 +870,16 @@ async def get_artifact_graph(
 # ── Single-artifact CRUD (T3) — registered AFTER /artifacts/graph ────
 
 
-def _list_one_by_type(db, artifact_type: str, artifact_id: str) -> dict | None:
-    """Return the single-row dict for an artifact, using the per-type list helpers."""
-    project = get_cached_daemon_project() or {}
-    project_id = project.get("project_id")
+def _list_one_by_type(db, artifact_type: str, artifact_id: str, project_id: str | None = None) -> dict | None:
+    """Return the single-row dict for an artifact, using the per-type list helpers.
+
+    `project_id` should be passed by the route handler (resolved from
+    ?project_id= / ?path= / cached project). Falls back to cached daemon
+    project for legacy callers.
+    """
+    if project_id is None:
+        project = get_cached_daemon_project() or {}
+        project_id = project.get("project_id")
     if not project_id:
         return None
     if artifact_type == "finding":
@@ -841,22 +907,26 @@ def _list_one_by_type(db, artifact_type: str, artifact_id: str) -> dict | None:
 
 
 @router.get("/artifacts/{artifact_id}")
-async def get_artifact(artifact_id: str):
-    """Fetch one artifact + all its edges (full neighborhood).
+async def get_artifact(
+    artifact_id: str,
+    project_id: str | None = Query(None),
+    path: str | None = Query(None),
+):
+    """Fetch one artifact + all its edges (full neighborhood). Scope:
+    `?project_id=X`, `?path=Y`, or daemon's CWD-bound project (default).
 
     Type is inferred polymorphically by scanning artifact tables.
     Returns 404 if the id doesn't exist in any table.
     """
-    project = get_cached_daemon_project()
-    if not project:
-        raise HTTPException(status_code=503, detail="Daemon not bound to a project")
-    db = _open_db()
+    project = _resolve_project_dict(project_id, path)
+    proj_pid = project.get("project_id")
+    db = _open_db_for(project)
     try:
         resolved = _resolve_artifact_by_id(db, artifact_id)
         if not resolved:
             raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found")
         artifact_type, _table, _id_col = resolved
-        row = _list_one_by_type(db, artifact_type, artifact_id)
+        row = _list_one_by_type(db, artifact_type, artifact_id, project_id=proj_pid)
         if not row:
             raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not in active project")
         rows = _attach_related_to(db, [row])

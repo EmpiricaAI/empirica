@@ -590,6 +590,7 @@ def main(args=None):
             'projects-discover': handle_projects_discover_command,
             'projects-list': handle_projects_list_command,
             'projects-bulk-register': handle_projects_bulk_register_command,
+            'daemon-list': handle_daemon_list_command,
 
             # Finding/unknown/deadend/assumption/decision logging
             'finding-log': handle_finding_log_command,

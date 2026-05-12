@@ -29,10 +29,10 @@ logger = logging.getLogger(__name__)
 class HealthResponse(BaseModel):
     """Matches extension's HealthResponse interface.
 
-    Includes the daemon's active-project info (v0.5+) so the extension can:
-    - Match its dropdown's active project_id against the daemon's reported
-      project_id to decide try-daemon-first vs Cortex-fallback dispatch.
-    - Populate the project dropdown for Empirica-only users (no Cortex).
+    Includes the daemon's active-project info (v0.5+) and, since v1.10.0,
+    the registry of locally-known projects (`known_projects`) so the
+    extension can offer all of them in its dropdown without round-tripping
+    Cortex.
     """
     ok: bool = True
     version: str = "0.1.0"
@@ -47,6 +47,10 @@ class HealthResponse(BaseModel):
     project_name: str | None = None
     project_slug: str | None = None
     repo_url: str | None = None
+
+    # Registry of locally-known projects (v1.10.0+). Empty list when
+    # ~/.empirica/registry.yaml is absent — single-project mode.
+    known_projects: list[dict] = Field(default_factory=list)
 
 
 class ArtifactPayload(BaseModel):
@@ -116,8 +120,10 @@ def create_serve_app() -> FastAPI:
 
     @app.get("/api/v1/health", response_model=HealthResponse)
     async def health():  # pyright: ignore[reportUnusedFunction]
-        """Health check — reports integrations + active project info."""
+        """Health check — reports integrations, active project info, and
+        the locally-known project registry (v1.10.0+)."""
         from empirica.api.daemon_project import get_cached_daemon_project
+        from empirica.api.registry import list_known_projects
         project = get_cached_daemon_project() or {}
         return HealthResponse(
             ollama=_check_ollama(),
@@ -127,6 +133,7 @@ def create_serve_app() -> FastAPI:
             project_name=project.get("project_name"),
             project_slug=project.get("project_slug"),
             repo_url=project.get("repo_url"),
+            known_projects=list_known_projects(),
         )
 
     @app.post("/api/v1/artifacts/import", response_model=ArtifactImportResponse)

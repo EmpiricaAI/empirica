@@ -194,6 +194,7 @@ from .project_search import (
 )
 from .project_update import handle_project_update_command
 from .projects_commands import (
+    handle_daemon_list_command,
     handle_projects_bulk_register_command,
     handle_projects_discover_command,
     handle_projects_list_command,
@@ -418,6 +419,7 @@ __all__ = [
     'handle_project_search_command',
     'handle_project_switch_command',
     'handle_project_update_command',
+    'handle_daemon_list_command',
     'handle_projects_bulk_register_command',
     'handle_projects_discover_command',
     'handle_projects_list_command',
