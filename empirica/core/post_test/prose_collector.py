@@ -106,7 +106,7 @@ class ProseEvidenceCollector:
         """Run textstat readability analysis."""
         items = []
         try:
-            import textstat
+            import textstat  # pyright: ignore[reportMissingImports]
 
             fk_grade = textstat.flesch_kincaid_grade(text)  # pyright: ignore[reportAttributeAccessIssue]
             fog_index = textstat.gunning_fog(text)  # pyright: ignore[reportAttributeAccessIssue]
@@ -176,7 +176,7 @@ class ProseEvidenceCollector:
         try:
             import tempfile
 
-            from proselint.tools import LintFile
+            from proselint.tools import LintFile  # pyright: ignore[reportMissingImports]
 
             # proselint >= 0.14 uses LintFile API
             with tempfile.NamedTemporaryFile(

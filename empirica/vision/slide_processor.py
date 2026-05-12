@@ -13,10 +13,10 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 try:
-    import cv2
+    import cv2  # pyright: ignore[reportMissingImports]
     import numpy as np
-    import pytesseract
-    from PIL import Image
+    import pytesseract  # pyright: ignore[reportMissingImports]
+    from PIL import Image  # pyright: ignore[reportMissingImports]
     HAS_VISION = True
 except ImportError:
     HAS_VISION = False

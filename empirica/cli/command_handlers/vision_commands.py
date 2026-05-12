@@ -16,7 +16,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 try:
-    from PIL import Image
+    from PIL import Image  # pyright: ignore[reportMissingImports]
     HAS_PIL = True
 except ImportError:
     HAS_PIL = False
