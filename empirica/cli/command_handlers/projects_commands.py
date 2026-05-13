@@ -518,13 +518,24 @@ CORTEX_ADMIN_PATH = "/v1/admin/projects"
 
 
 def _resolve_cortex_config(args) -> tuple[str | None, str | None]:
-    """Return (cortex_url, api_key) from args or env."""
-    url = (
-        getattr(args, "cortex_url", None)
-        or os.environ.get("CORTEX_REMOTE_URL")
-        or os.environ.get("CORTEX_URL")
-    )
-    key = getattr(args, "api_key", None) or os.environ.get("CORTEX_API_KEY")
+    """Return (cortex_url, api_key) by precedence:
+
+    1. CLI flags (`--cortex-url`, `--api-key`) — explicit per-invocation override
+    2. Env vars (`CORTEX_REMOTE_URL` / `CORTEX_URL`, `CORTEX_API_KEY`)
+    3. `cortex:` block in `~/.empirica/credentials.yaml` via the
+       centralized CredentialsLoader (so users don't have to export
+       env vars in every shell — mirrors the extension's chrome.storage
+       save on the browser side)
+    """
+    arg_url = getattr(args, "cortex_url", None)
+    arg_key = getattr(args, "api_key", None)
+    if arg_url and arg_key:
+        return arg_url.rstrip("/"), arg_key
+
+    from empirica.config.credentials_loader import get_credentials_loader
+    cfg = get_credentials_loader().get_cortex_config()
+    url = arg_url or cfg.get("url")
+    key = arg_key or cfg.get("api_key")
     return (url.rstrip("/") if url else None, key or None)
 
 

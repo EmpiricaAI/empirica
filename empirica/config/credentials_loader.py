@@ -182,6 +182,39 @@ class CredentialsLoader:
         logger.info(f"   Loaded {loaded_count} API keys from dotfiles")
         return credentials
 
+    def get_cortex_config(self) -> dict[str, str | None]:
+        """Return Cortex {url, api_key} resolved by precedence:
+
+        1. Env vars (CORTEX_REMOTE_URL / CORTEX_URL, CORTEX_API_KEY)
+        2. `cortex:` block in credentials file (~/.empirica/credentials.yaml)
+        3. Empty strings if neither
+
+        The browser extension stores its own copy in chrome.storage
+        (`cortexUrl` + `cortexApiKey`); this is the CLI-side equivalent
+        so users don't have to export env vars in every shell.
+
+        Returns: {"url": str | None, "api_key": str | None}
+        """
+        env_url = os.getenv("CORTEX_REMOTE_URL") or os.getenv("CORTEX_URL")
+        env_key = os.getenv("CORTEX_API_KEY")
+        if env_url and env_key:
+            return {"url": env_url.rstrip("/"), "api_key": env_key}
+
+        if not self._credentials_cache:
+            self._load_credentials()
+
+        file_cfg = self._credentials_cache.get("cortex") if self._credentials_cache else None
+        file_url = file_cfg.get("url") if isinstance(file_cfg, dict) else None
+        file_key = file_cfg.get("api_key") if isinstance(file_cfg, dict) else None
+
+        # Env wins per-field — partial-env-override is fine
+        url = env_url or file_url
+        key = env_key or file_key
+        return {
+            "url": url.rstrip("/") if url else None,
+            "api_key": key or None,
+        }
+
     def get_provider_config(self, provider: str) -> dict[str, Any] | None:
         """
         Get configuration for a specific provider

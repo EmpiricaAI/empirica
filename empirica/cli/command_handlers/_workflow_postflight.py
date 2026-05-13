@@ -1160,8 +1160,10 @@ def _run_postflight_cortex_sync(session_id, reasoning, resolved_project_path):
     """
 
     try:
-        _cortex_url = os.environ.get('CORTEX_REMOTE_URL', '')
-        _cortex_key = os.environ.get('CORTEX_API_KEY', '')
+        from empirica.config.credentials_loader import get_credentials_loader
+        _cfg = get_credentials_loader().get_cortex_config()
+        _cortex_url = _cfg.get("url") or ""
+        _cortex_key = _cfg.get("api_key") or ""
         if not (_cortex_url and _cortex_key):
             return
 

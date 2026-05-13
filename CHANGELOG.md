@@ -49,6 +49,31 @@ block the local archive; status surfaces in the response as
 tests covering env-unset no-op, success path, HTTPError, URLError,
 `CORTEX_URL` alias.
 
+### Added — Cortex creds via `~/.empirica/credentials.yaml`
+
+The browser extension saves `cortexUrl` + `cortexApiKey` to chrome.storage
+so users don't re-enter creds per browser session. The CLI had no
+equivalent — only env-var resolution. v1.9.4 wires Cortex into the
+existing `CredentialsLoader` so a `cortex:` block in
+`~/.empirica/credentials.yaml` is now picked up by all three Cortex
+call sites (`projects-bulk-register`, `source-archive` Cortex sync,
+POSTFLIGHT `/v1/sync` push).
+
+```yaml
+# ~/.empirica/credentials.yaml
+version: 1.0
+cortex:
+  url: https://cortex.getempirica.com
+  api_key: ctx_empirica_mem_...
+```
+
+Per-field precedence: CLI flags → env vars → credentials file → None.
+Setting `CORTEX_API_KEY` in env still picks `url` up from the file —
+useful for CI where the key is a secret but the URL is stable.
+
+7 new tests in `tests/test_cortex_credentials_loader.py` covering the
+precedence matrix.
+
 ### Changed — `projects-bulk-register` sources from `registry.yaml`
 
 The command was over-engineered. Mid-1.9.4 cycle, David flagged the

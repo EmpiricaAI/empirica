@@ -1,5 +1,39 @@
 # Cross-Project Intelligence
 
+## Configuring Cortex creds (CLI)
+
+Empirica's CLI talks to Cortex for `projects-bulk-register`,
+`source-archive` sync, and POSTFLIGHT artifact push. Three resolution
+sources (highest precedence first):
+
+1. **CLI flags** — `--cortex-url`, `--api-key` (per-invocation override)
+2. **Env vars** — `CORTEX_REMOTE_URL` (or `CORTEX_URL`), `CORTEX_API_KEY`
+3. **`~/.empirica/credentials.yaml`** — `cortex:` block:
+
+```yaml
+# ~/.empirica/credentials.yaml
+version: 1.0
+
+cortex:
+  url: https://cortex.getempirica.com
+  api_key: ctx_empirica_mem_...
+
+# Other AI provider creds (optional)
+providers:
+  openai:
+    api_key: sk-...
+```
+
+The browser extension stores the same `cortexUrl` + `cortexApiKey` in
+chrome.storage. The CLI file is the equivalent for terminal/agent
+sessions — saves having to `export CORTEX_API_KEY=...` in every shell.
+
+Resolution is per-field: setting `CORTEX_API_KEY` in env still picks
+up `url` from the credentials file. Useful for CI environments where
+the key comes from a secret store but the URL is stable.
+
+---
+
 Empirica is multi-project by design. Three mechanisms compose:
 
 | Mechanism | Direction | Use |

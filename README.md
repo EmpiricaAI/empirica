@@ -301,6 +301,14 @@ sharing workflow. v1.9.4 closes that gap:
   `global_learnings` Qdrant collection; the richer per-project walk +
   push-based auto-surface at project-bootstrap are deferred goals
 
+**Cortex creds via `~/.empirica/credentials.yaml`.** The browser
+extension saves cortex url + api_key to chrome.storage; v1.9.4 wires
+the CLI equivalent. A `cortex:` block in `~/.empirica/credentials.yaml`
+is now picked up by `projects-bulk-register`, `source-archive` Cortex
+sync, and POSTFLIGHT `/v1/sync` push. Precedence: CLI flags → env vars
+→ credentials file. Saves having to `export CORTEX_API_KEY=...` in
+every shell.
+
 **`projects-bulk-register` simplified — sources from `registry.yaml`.**
 The command was over-engineered through accumulated handoff iterations.
 Mid-cycle reset: `registry.yaml` (added in 1.9.3 for the daemon multi-

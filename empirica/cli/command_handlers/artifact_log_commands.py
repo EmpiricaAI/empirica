@@ -2033,18 +2033,18 @@ def _push_source_archive_to_cortex(
     so the user can see whether the remote side was notified. Network or HTTP
     failures NEVER fail the local archive — they're logged and reported.
 
-    No-op when CORTEX_REMOTE_URL or CORTEX_API_KEY are unset.
+    No-op when Cortex creds (env vars or ~/.empirica/credentials.yaml)
+    are unset. Resolved via the centralized CredentialsLoader.
     """
-    import os
     import urllib.error
     import urllib.request
 
-    url = os.environ.get("CORTEX_REMOTE_URL") or os.environ.get("CORTEX_URL")
-    key = os.environ.get("CORTEX_API_KEY")
+    from empirica.config.credentials_loader import get_credentials_loader
+    cfg = get_credentials_loader().get_cortex_config()
+    url = cfg.get("url")
+    key = cfg.get("api_key")
     if not url or not key:
         return None
-
-    url = url.rstrip("/")
     body = json.dumps({"reason": reason, "target_id": target_id}).encode("utf-8")
     req = urllib.request.Request(
         f"{url}/v1/sources/{full_id}",
