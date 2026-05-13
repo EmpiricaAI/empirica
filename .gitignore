@@ -67,6 +67,14 @@ test_goals_session
 # reference, so the original draft is intentionally not version-controlled.
 docs/specs/
 
+# AI-to-AI coordination prompts and autonomous-build plans — David-facing
+# context that isn't part of the public docs surface. PROMPT_FOR_*.md
+# files are tactical prompts passed between Claude instances; OVERNIGHT
+# plans are personal autonomous-build briefs. Drop them anywhere under
+# docs/ and they stay local.
+docs/**/PROMPT_FOR_*.md
+docs/**/*OVERNIGHT*PLAN*.md
+
 # Security-sensitive files
 *.pem
 *.key

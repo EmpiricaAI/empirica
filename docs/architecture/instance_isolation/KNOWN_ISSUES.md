@@ -393,7 +393,7 @@ Sentinel hook does NOT use CWD cross-check (CWD unreliable in hooks per 11.10).
 **Symptom (in empirica-cortex after `/compact`):**
 ```
 _validate_session_in_db: session cd738ee9... NOT FOUND in project-local DB:
-  /home/yogapad/empirical-ai/empirica-cortex/.empirica/sessions/sessions.db
+  <project-path>/.empirica/sessions/sessions.db
   Recent sessions in DB: [('8a7693e2', 'superpowers:code-reviewer'),
                           ('0592a9c3', 'Explore'),
                           ('ee07936a', 'general-purpose'), ...]

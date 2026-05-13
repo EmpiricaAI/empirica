@@ -9,7 +9,7 @@ services:
     container_name: empirica-api-gateway
     volumes:
       - ./:/app
-      - /home/yogapad/.empirica:/root/.empirica:ro  # Read-only config
+      - ${HOME}/.empirica:/root/.empirica:ro  # Read-only config
     working_dir: /app
     command: >
       bash -c "

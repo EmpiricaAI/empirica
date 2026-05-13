@@ -850,20 +850,23 @@ def check_empirica_proportionality_block_wired() -> CheckResult:
     the build_investigation_proportionality_check call (or the block
     constant) silently disables the over-investigation guard.
     """
-    candidates = [
-        Path("/home/yogapad/empirical-ai/empirica/empirica/plugins/claude-code-integration/hooks/tool-router.py"),
-        # Bundled-into-ecodex copy
-        Path.home()
-        / ".codex"
-        / "plugins"
-        / "cache"
-        / "nubaeon"
-        / "empirica"
-        / "0.1.0"
-        / "hooks_scripts"
-        / "hooks"
-        / "tool-router.py",
-    ]
+    # Source-tree path (when running from a local empirica checkout) +
+    # bundled-into-ecodex fallback (production install). Resolves via
+    # the running package's __file__ so it works on any user's machine
+    # without baked-in /home/yogapad assumptions.
+    try:
+        import empirica
+        empirica_root = Path(empirica.__file__).resolve().parent
+        source_tree_hook = empirica_root / "plugins" / "claude-code-integration" / "hooks" / "tool-router.py"
+    except (ImportError, AttributeError, ValueError):
+        source_tree_hook = None
+
+    bundled_hook = (
+        Path.home() / ".codex" / "plugins" / "cache" / "nubaeon" / "empirica"
+        / "0.1.0" / "hooks_scripts" / "hooks" / "tool-router.py"
+    )
+    candidates = [p for p in [source_tree_hook, bundled_hook] if p is not None]
+
     router_file: Path | None = None
     for c in candidates:
         if c.is_file():
