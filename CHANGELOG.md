@@ -7,6 +7,178 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.4] — 2026-05-13
+
+### Added — CI/CD scaffolding (.github/workflows/)
+
+empirica's first end-to-end CI/CD harness. Three workflows + Dependabot
++ architecture doc. Patterned on ecodex's CI shape, translated to Python.
+
+- `ci.yml` — push/PR to `main` + `develop` runs ruff + pyright + pytest
+  matrix (Python 3.11 + 3.13) + `empirica compliance-report` + pip-audit
+- `release.yml` — tag-triggered (`v*.*.*`) PyPI publishing via OIDC
+  trusted publishers (no PYPI_API_TOKEN secret needed once configured) +
+  Docker build/push (Debian + Alpine) + Homebrew tap auto-update +
+  GitHub release. Chocolatey out-of-band (kars85 lane).
+- `dependency-scan.yml` — weekly + on `pyproject.toml` PRs: pip-audit
+  --strict, hard-fails on any unfixed CVE
+- `dependabot.yml` — weekly grouped updates: `pinned-security`
+  (cryptography, gitpython, lxml, pydantic, python-dotenv,
+  python-multipart, requests), `lint-and-test` (ruff, pyright, pytest*),
+  GitHub Actions version updates
+- `docs/architecture/CI_CD.md` — full workflow inventory, secrets
+  reference, OIDC trusted-publisher setup, local↔CI alignment plan
+
+### Added — MCP / CLI parity for visibility + epistemic_source
+
+The `mcp__empirica__finding_log`, `unknown_log`, `deadend_log`,
+`mistake_log`, `assumption_log`, `decision_log` tools now expose
+`--visibility {public,shared,local}` and
+`--epistemic-source {intuition,search,mixed}` as enum params. Closes
+the gap where the cross-Claude intelligence-sharing discipline was
+only enforceable through bash CLI, not through the MCP path.
+`_ENUM_PARAMS` extended in `empirica-mcp/empirica_mcp/server.py`.
+
+### Added — `source-archive` Cortex sync (Phase 1.5)
+
+When `CORTEX_REMOTE_URL` + `CORTEX_API_KEY` are set, `empirica
+source-archive` now calls `DELETE /v1/sources/{id}` on Cortex after
+the local archive succeeds. Best-effort — network/HTTP failures never
+block the local archive; status surfaces in the response as
+`{"cortex": {"synced": false, "status": N, "error": "..."}}`. 7 new
+tests covering env-unset no-op, success path, HTTPError, URLError,
+`CORTEX_URL` alias.
+
+### Added — `projects-bulk-register --only-existing` + `--force-metadata-update`
+
+Extension Claude v0.7.8 + follow-up handoff:
+
+- `--force-metadata-update` sets `force_metadata_update: true` in each
+  POST body so Cortex's safe-update logic backfills UUID-shaped
+  placeholder names + empty repo_urls on already-existing rows
+- `--only-existing` pre-queries Cortex `GET /v1/collections` and
+  filters the manifest down to the intersection (match by name OR
+  repo_url so local-slug ↔ Cortex-UUID renames still resolve)
+- Both flags are independent and compose. David's main case:
+  `empirica projects-bulk-register --only-existing --force-metadata-update`
+  refreshes metadata on the registered subset only
+- `--only-existing --dry-run` now correctly previews the intersection
+  (not the full manifest — fixed mid-cycle after David hit the bug)
+- New `_workflow_postflight._cortex_resolve_project_metadata()` enriches
+  the `/v1/sync` payload with `name + repo_url` so Cortex's auto-create
+  on unknown project_ids no longer seeds rows with `name=<UUID>`,
+  `repo_url=""` (the EC-2 root cause from the handoff)
+
+### Added — empirica-mcp tests
+
+The empirica-mcp package shipped 319 tests across 3 new files:
+
+- `test_command_builder.py` — `_build_cli_command`, `_resolve_cwd`,
+  `_err_text` from the v1.9.3 refactor
+- `test_tool_schema.py` — `_build_tool_schema` branches (numeric /
+  boolean / enum / list / stdin_json / submit_* special cases)
+- `test_registry_integrity.py` — parametrized over every TOOL_REGISTRY
+  entry: required keys present, required ⊆ params, list_params ⊆ params,
+  positional ∉ params, schema builds without error, registry size floor
+
+Caught one real registry bug in the process (`noetic_batch` declared
+`required: ["intent"]` but `intent` lives in stdin JSON, not params).
+
+### Added — `workflow_commands.py` split (3933 LOC → 4 modules)
+
+Largest single file in the codebase split via AST-driven prefix
+grouping. Public handler signatures + import paths preserved; legacy
+test imports keep working via re-export shim:
+
+- `_workflow_shared.py` (612 LOC) — db/session resolution, sentinel
+  hook invocation, retrospective counters, vector normalization,
+  noetic/voice guidance, retrospective helpers (shared by check +
+  postflight)
+- `_workflow_preflight.py` (747 LOC) — `handle_preflight_submit_command`
+  + pattern retrieval + behavioral feedback
+- `_workflow_check.py` (1103 LOC) — `handle_check_command` +
+  `handle_check_submit_command` + gate logic + drift + blindspot scan
+- `_workflow_postflight.py` (1431 LOC) — `handle_postflight_submit_command`
+  + storage pipeline (qdrant/cortex/breadcrumbs/episodic/snapshots) +
+  grounded verification + compliance loop
+- `workflow_commands.py` (61 LOC) — thin re-export shim
+
+### Changed — cross-project artifact sharing taught in system prompt + docs
+
+The `--visibility {public,shared,local}` flag and `project-search
+--global` have been available for releases but nothing taught AIs to
+use them as a coherent cross-Claude intelligence-sharing discipline.
+Three doc updates:
+
+- `empirica-system-prompt-lean.md` (COLLABORATIVE MODE table) — new
+  signal→action rows for `--visibility shared` on ecosystem-wide
+  findings, `project-search --task --global` proactive lookups, and
+  cross-project artifact writing via `--project-id <name>`. New
+  section explaining visibility tiers + honest scope caveat
+- `docs/reference/api/CROSS_PROJECT.md` — new "Visibility (push side)"
+  section with the public/shared/local matrix and when to use which
+- Caveat surfaced in both: v1.9.3 `--global` only hits the
+  `global_learnings` Qdrant collection, not the full per-project
+  surface (the broader walk is a deferred goal)
+
+### Changed — empirica-mcp `call_tool()` refactored D27→C14
+
+Extracted `_build_cli_command`, `_resolve_cwd`, `_err_text` helpers.
+Drops the noqa: C901 suppression. Behavior unchanged.
+
+### Fixed — broken markdown links to gitignored draft directories
+
+5 broken links in `docs/architecture/PROPOSAL_AI_SERVICE_SCANNER.md`
+and `docs/guides/UPGRADE_TO_1.9.md` pointed at `docs/specs/` and
+`docs/research/` — both intentionally gitignored as draft directories.
+Converted to plain-text references: `*text* — \`path\` (local-only
+draft, not in public repo)`. Local sees the files and the links
+resolve there too; CI's fresh checkout no longer flags 5 broken links
+that pass locally.
+
+### Removed — internal-only docs from public tree
+
+Audit pass for content that shouldn't be in the public repo:
+
+- `docs/architecture/CHAT_OVERNIGHT_PLAN.md` (260 LOC) — David's
+  personal autonomous-build brief (moved to gitignored
+  `.empirica/notes/historical/`)
+- `docs/architecture/PROMPT_FOR_EMPIRICA_CLAUDE_source_aware_sentinel.md`
+  (222 LOC) — AI-to-AI handoff prompt (same destination)
+- `docker-compose.yml`: `/home/yogapad/.empirica` → `${HOME}/.empirica`
+- `empirica/cli/command_handlers/diagnose_ecodex.py:854`: hardcoded
+  `/home/yogapad/empirical-ai/...` path → resolves via
+  `Path(empirica.__file__).parent / "plugins/..."`
+- `docs/architecture/instance_isolation/KNOWN_ISSUES.md:396`: example
+  path anonymized to `<project-path>/...`
+
+Plus forward-looking `.gitignore` patterns:
+```
+docs/**/PROMPT_FOR_*.md
+docs/**/*OVERNIGHT*PLAN*.md
+```
+
+### CI / compliance
+
+Hardened the CI compliance step to match local environment:
+
+- `fetch-depth: 0` + `fetch-tags: true` on the compliance job so
+  `release_chain` sees the git tag and `ai_transparency` can sample
+  50 commits (was 0 with default fetch-depth: 1)
+- Install `[dev,api,tui,vector]` + `./empirica-mcp[dev]` so pyright's
+  80 `reportMissingImports` (flask, fastapi, mcp, etc.) disappear
+- 8 environment-dependent test files marked `@pytest.mark.integration`
+  (subprocess `empirica`, git-init CWD, populated DB requirements).
+  CI runs `pytest -m "not integration"`. Integration job for those 85
+  tests is a logged follow-up
+- 5 hardcoded `/home/yogapad/...` paths in tests replaced with
+  `REPO_ROOT = Path(__file__).resolve().parents[3]`
+- Per-line `# pyright: ignore[reportMissingImports]` on
+  guarded-by-try-except PIL/cv2/textstat/proselint imports
+
+Compliance score on CI now 1.0 (8/8 deterministic checks); was 0.5
+(4 passing, 4 failing on env-specific grounds).
+
 ## [1.9.3] — 2026-05-12
 
 ### Added — Daemon multi-project support
