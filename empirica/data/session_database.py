@@ -1881,7 +1881,7 @@ class SessionDatabase:
         return situation
 
     def _count_project_artifacts(self, project_id: str) -> dict:
-        """Live counts for a project — sessions + goals.
+        """Live counts for a project — sessions + transactions + goals.
 
         The `projects.total_sessions` / `total_goals` columns are
         denormalized counters that were never wired to insert triggers
@@ -1889,7 +1889,13 @@ class SessionDatabase:
         columns, callers that want accurate counts should use this helper
         instead of reading those columns directly.
 
-        Cost: 2 indexed COUNT(*) queries. ~2ms on a warm cache.
+        `total_transactions` is the more meaningful unit-of-work measure
+        (sessions are compaction-window boundaries; transactions are
+        actual PREFLIGHT→POSTFLIGHT cycles). Counted via distinct
+        transaction_ids on reflexes — each transaction creates ≥1
+        reflex row at PREFLIGHT.
+
+        Cost: 3 indexed COUNT queries. ~3ms on a warm cache.
         """
         try:
             sessions_count = self._execute(
@@ -1899,6 +1905,14 @@ class SessionDatabase:
         except Exception:
             sessions_count = 0
         try:
+            transactions_count = self._execute(
+                "SELECT COUNT(DISTINCT transaction_id) FROM reflexes "
+                "WHERE project_id = ? AND transaction_id IS NOT NULL",
+                (project_id,),
+            ).fetchone()[0]
+        except Exception:
+            transactions_count = 0
+        try:
             # Goals are session-scoped — count via the sessions join
             goals_count = self._execute(
                 "SELECT COUNT(*) FROM goals WHERE session_id IN "
@@ -1907,7 +1921,11 @@ class SessionDatabase:
             ).fetchone()[0]
         except Exception:
             goals_count = 0
-        return {'total_sessions': int(sessions_count), 'total_goals': int(goals_count)}
+        return {
+            'total_sessions': int(sessions_count),
+            'total_transactions': int(transactions_count),
+            'total_goals': int(goals_count),
+        }
 
     def _execute(self, sql: str, params: tuple = ()):
         """Convenience wrapper for self.conn.cursor().execute() in this module."""
@@ -1939,6 +1957,7 @@ class SessionDatabase:
             'status': project.get('status', 'active'),
             'repos': repos,
             'total_sessions': counts['total_sessions'],
+            'total_transactions': counts['total_transactions'],
             'total_goals': counts['total_goals'],
         }
 
