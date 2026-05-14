@@ -603,13 +603,28 @@ class BreadcrumbRepository(BaseRepository):
         return [dict(row) for row in cursor.fetchall()]
 
     def get_project_reference_docs(self, project_id: str) -> list[dict]:
-        """Get all reference docs for a project"""
+        """Get all reference docs for a project.
+
+        `doc_data` JSON column is decoded to a native dict so consumers
+        (extension renderer, AI bootstrap) don't have to do a second
+        json.loads.
+        """
         cursor = self._execute("""
             SELECT * FROM project_reference_docs
             WHERE project_id = ?
             ORDER BY created_timestamp DESC
         """, (project_id,))
-        return [dict(row) for row in cursor.fetchall()]
+        rows = []
+        for row in cursor.fetchall():
+            d = dict(row)
+            doc_data = d.get('doc_data')
+            if isinstance(doc_data, str) and doc_data:
+                try:
+                    d['doc_data'] = json.loads(doc_data)
+                except (ValueError, TypeError):
+                    pass  # leave as string if not valid JSON
+            rows.append(d)
+        return rows
 
     def log_mistake(
         self,

@@ -296,7 +296,23 @@ class GoalDataRepository(BaseRepository):
         }
 
     def get_project_goals(self, project_id: str) -> dict:
-        """Get incomplete and active goals for a project"""
+        """Get incomplete and active goals for a project.
+
+        JSON columns (`scope`, `goal_data`) are decoded to native dicts so
+        consumers (extension renderer, AI bootstrap) don't have to do a
+        second json.loads — they were previously returned as escaped
+        strings inside the row dict.
+        """
+        def _decode(row_dict: dict, *cols: str) -> dict:
+            for c in cols:
+                v = row_dict.get(c)
+                if isinstance(v, str) and v:
+                    try:
+                        row_dict[c] = json.loads(v)
+                    except (ValueError, TypeError):
+                        pass  # leave as string if it isn't valid JSON
+            return row_dict
+
         # Get incomplete goals
         cursor = self._execute("""
             SELECT id, objective, scope, status, created_timestamp
@@ -305,7 +321,7 @@ class GoalDataRepository(BaseRepository):
             AND is_completed = 0
             ORDER BY created_timestamp DESC
         """, (project_id,))
-        incomplete_goals = [dict(row) for row in cursor.fetchall()]
+        incomplete_goals = [_decode(dict(row), 'scope') for row in cursor.fetchall()]
         # Deduplicate by objective (same goal may be created across sessions)
         incomplete_goals = self._dedupe_by_objective(incomplete_goals)
 
@@ -321,7 +337,7 @@ class GoalDataRepository(BaseRepository):
             GROUP BY g.id
             ORDER BY g.created_timestamp DESC
         """, (project_id,))
-        active_goals = [dict(row) for row in cursor.fetchall()]
+        active_goals = [_decode(dict(row), 'scope', 'goal_data') for row in cursor.fetchall()]
         # Deduplicate by objective (same goal may be created across sessions)
         active_goals = self._dedupe_by_objective(active_goals)
 
