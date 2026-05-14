@@ -1736,8 +1736,49 @@ class SessionDatabase:
         return result
 
 
+    def _count_project_artifacts(self, project_id: str) -> dict:
+        """Live counts for a project — sessions + goals.
+
+        The `projects.total_sessions` / `total_goals` columns are
+        denormalized counters that were never wired to insert triggers
+        and have drifted to 0. Until we either add triggers or drop the
+        columns, callers that want accurate counts should use this helper
+        instead of reading those columns directly.
+
+        Cost: 2 indexed COUNT(*) queries. ~2ms on a warm cache.
+        """
+        try:
+            sessions_count = self._execute(
+                "SELECT COUNT(*) FROM sessions WHERE project_id = ?",
+                (project_id,),
+            ).fetchone()[0]
+        except Exception:
+            sessions_count = 0
+        try:
+            # Goals are session-scoped — count via the sessions join
+            goals_count = self._execute(
+                "SELECT COUNT(*) FROM goals WHERE session_id IN "
+                "(SELECT session_id FROM sessions WHERE project_id = ?)",
+                (project_id,),
+            ).fetchone()[0]
+        except Exception:
+            goals_count = 0
+        return {'total_sessions': int(sessions_count), 'total_goals': int(goals_count)}
+
+    def _execute(self, sql: str, params: tuple = ()):
+        """Convenience wrapper for self.conn.cursor().execute() in this module."""
+        cur = self.conn.cursor()
+        cur.execute(sql, params)
+        return cur
+
     def _build_project_metadata(self, project: dict) -> dict:
-        """Build project metadata dict from a resolved project row."""
+        """Build project metadata dict from a resolved project row.
+
+        Counter fields (`total_sessions`, `total_goals`) are populated
+        from live queries via `_count_project_artifacts` since the
+        stored denormalized columns are stale (never wired to insert
+        triggers).
+        """
         repos = project.get('repos', []) or []
         if isinstance(repos, str):
             try:
@@ -1745,14 +1786,16 @@ class SessionDatabase:
             except Exception:
                 repos = []
 
+        counts = self._count_project_artifacts(project['id'])
+
         return {
             'id': project['id'],
             'name': project.get('name', 'Unknown'),
             'description': project.get('description', ''),
             'status': project.get('status', 'active'),
             'repos': repos,
-            'total_sessions': project.get('total_sessions', 0),
-            'total_goals': project.get('total_goals', 0),
+            'total_sessions': counts['total_sessions'],
+            'total_goals': counts['total_goals'],
         }
 
     @staticmethod

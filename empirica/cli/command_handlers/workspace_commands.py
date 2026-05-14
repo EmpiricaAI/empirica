@@ -202,8 +202,12 @@ def _wsmap_match_empirica_projects(git_repos):
             repo['empirica_project'] = None
             continue
 
+        # total_sessions: live COUNT(*) because the projects.total_sessions
+        # denormalized column is stale (never wired to insert trigger).
         cursor.execute("""
-            SELECT id, name, status, total_sessions,
+            SELECT id, name, status,
+                   (SELECT COUNT(*) FROM sessions s
+                    WHERE s.project_id = projects.id) as total_sessions,
                    (SELECT r.know FROM reflexes r
                     JOIN sessions s ON s.session_id = r.session_id
                     WHERE s.project_id = projects.id
@@ -362,9 +366,14 @@ def _wslist_query_projects(args):
     db = SessionDatabase()
     cursor = db.conn.cursor()
 
+    # total_sessions: live COUNT(*) because the projects.total_sessions
+    # denormalized column is stale (never wired to insert trigger).
     query = """
         SELECT id, name, description, status, project_type, project_tags,
-               parent_project_id, total_sessions, last_activity_timestamp
+               parent_project_id,
+               (SELECT COUNT(*) FROM sessions s WHERE s.project_id = projects.id)
+                    AS total_sessions,
+               last_activity_timestamp
         FROM projects
     """
     params = []
