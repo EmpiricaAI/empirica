@@ -115,7 +115,10 @@ test = [
     "dirty-equals>=0.7",
 ]
 lint = [
-    "ruff>=0.1.0",
+    # Pinned to minor (auto-pickup patches, no surprise rule additions).
+    # Bump the floor + ceiling deliberately when adopting new ruff features —
+    # see findings on the recurring local-vs-CI slip pattern (2026-05-14).
+    "ruff>=0.15.13,<0.16",
 ]
 typecheck = [
     "pyright>=1.1.330",
