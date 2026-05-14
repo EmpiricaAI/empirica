@@ -70,8 +70,13 @@ CANONICAL_LOOPS: list[dict[str, Any]] = [
             "cortex_outbox_poll(ai_id=<self>, status=changed). "
             "Self-throttles when an empirica transaction is open. "
             "Backoff: 30s base → 5m max on consecutive empty polls; "
-            "resets to 30s on any non-empty result."
+            "resets to 30s on any non-empty result. "
+            "Body skill: /cortex-mailbox-poll."
         ),
+        # By convention, loop name == body-skill name. When the loop-install
+        # pickup hook surfaces the pending file, the AI calls /loop with
+        # the matching skill template.
+        "body_skill": "cortex-mailbox-poll",
     },
 ]
 
