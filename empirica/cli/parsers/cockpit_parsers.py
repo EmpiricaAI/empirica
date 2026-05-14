@@ -232,6 +232,10 @@ def _add_loop_group(subparsers):
                           help='Backoff floor (default: same as --interval)')
     install.add_argument('--max-interval', default='4h',
                           help='Backoff ceiling (default: 4h)')
+    install.add_argument('--body-skill',
+                          help='Optional: paired skill name whose `## Cron Prompt Template` '
+                               'section becomes the install request prompt_template. Auto-resolved '
+                               'from canonical_loops.CANONICAL_LOOPS by loop name when not given.')
     _add_instance(install)
     _add_output(install)
 

@@ -32,6 +32,7 @@ then deletes them. Idempotent — re-requesting just rewrites the file.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -63,19 +64,83 @@ def list_pending(instance_id: str) -> list[Path]:
     return sorted(EMPIRICA_DIR.glob(f'loop_install_pending_{safe_inst}_*.json'))
 
 
+def _extract_skill_prompt_template(body_skill: str) -> str | None:
+    """Find a skill's `## Cron Prompt Template` code block and return its
+    contents — the actual prompt body the AI runs each fire.
+
+    Looks for the skill in two locations (runtime first, then repo):
+      1. ~/.claude/plugins/local/empirica/skills/<name>/SKILL.md
+      2. <repo>/empirica/plugins/claude-code-integration/skills/<name>/SKILL.md
+
+    The skill is expected to have a section `## Cron Prompt Template`
+    followed by a fenced code block (```bash ... ``` or just ``` ... ```)
+    whose contents are the loop body. Returns the code block text on
+    success, None if the skill or section isn't found.
+
+    The convention pairs with `canonical_loops.py`'s `body_skill` field —
+    loop name == skill name == body source.
+    """
+    from pathlib import Path
+
+    candidates = [
+        Path.home() / '.claude' / 'plugins' / 'local' / 'empirica' / 'skills' / body_skill / 'SKILL.md',
+        Path(__file__).resolve().parents[2] / 'plugins' / 'claude-code-integration' / 'skills' / body_skill / 'SKILL.md',
+    ]
+    skill_path: Path | None = None
+    for c in candidates:
+        if c.exists():
+            skill_path = c
+            break
+    if skill_path is None:
+        return None
+
+    try:
+        text = skill_path.read_text(encoding='utf-8')
+    except OSError:
+        return None
+
+    # Find the Cron Prompt Template heading
+    marker = '## Cron Prompt Template'
+    idx = text.find(marker)
+    if idx == -1:
+        return None
+    after_heading = text[idx + len(marker):]
+
+    # Find the first fenced code block after the heading
+    fence_match = re.search(r'\n```[a-zA-Z]*\n(.*?)\n```', after_heading, re.DOTALL)
+    if not fence_match:
+        return None
+    return fence_match.group(1).rstrip() + '\n'
+
+
 def render_loop_cron_prompt(
     name: str,
     interval: str,
     description: str = '',
     base_interval: str = '15m',
     max_interval: str = '4h',
+    body_skill: str | None = None,
 ) -> str:
     """Render the loop-cron skill template with placeholders substituted.
 
     Self-scheduling per PROPOSAL_LOOP_SELF_SCHEDULING — body owns the
     schedule, installs each next fire via empirica loop schedule-next +
     CronCreate(recurring=False).
+
+    If `body_skill` is given AND the skill's `## Cron Prompt Template`
+    section can be extracted, the returned prompt is the skill's body
+    verbatim (not the generic template with a `[... your actual work ...]`
+    placeholder). This is how canonical loops surface their actual body
+    to the install-pickup hook → no merge step needed at AI fire time.
+
+    Falls back to the generic loop-cron template when the skill isn't
+    found, so CLI users without a paired skill still get a useful
+    install-request template.
     """
+    if body_skill:
+        skill_body = _extract_skill_prompt_template(body_skill)
+        if skill_body is not None:
+            return skill_body
     desc = description or f'{name} self-scheduling loop'
     return f"""\
 At start (idempotent — safe to call every fire):
@@ -164,9 +229,17 @@ def write_pending(
     requested_by: str | None = None,
     base_interval: str = '15m',
     max_interval: str = '4h',
+    body_skill: str | None = None,
 ) -> Path:
     """Write a pending install request. Idempotent — overwrites existing
-    file with the same instance_id+name."""
+    file with the same instance_id+name.
+
+    `body_skill`, when given, instructs render_loop_cron_prompt to look
+    up the matching skill's `## Cron Prompt Template` section and use
+    that as the prompt_template (instead of the generic template with
+    a `[... your actual work ...]` placeholder). Convention: loop name
+    == skill name when both are present.
+    """
     EMPIRICA_DIR.mkdir(parents=True, exist_ok=True)
     path = pending_path(instance_id, name)
     request = LoopInstallRequest(
@@ -180,6 +253,7 @@ def write_pending(
         prompt_template=render_loop_cron_prompt(
             name=name, interval=interval, description=description,
             base_interval=base_interval, max_interval=max_interval,
+            body_skill=body_skill,
         ),
     )
     with open(path, 'w', encoding='utf-8') as f:

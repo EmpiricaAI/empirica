@@ -421,6 +421,20 @@ def handle_loop_install_request_command(args) -> int:
     name = args.name
     interval = args.interval
     description = getattr(args, 'description', '') or ''
+    # Optional body_skill: if a paired skill exists with this loop's
+    # name in the canonical catalog (or explicitly via --body-skill),
+    # render_loop_cron_prompt uses its `## Cron Prompt Template` section
+    # as the full prompt — no `[... your actual work ...]` placeholder.
+    body_skill = getattr(args, 'body_skill', None)
+    if not body_skill:
+        # Auto-resolve from canonical catalog by loop name
+        try:
+            from empirica.core.cockpit.canonical_loops import canonical_loop_by_name
+            entry = canonical_loop_by_name(name)
+            if entry and entry.get('body_skill'):
+                body_skill = entry['body_skill']
+        except Exception:
+            pass  # canonical lookup is best-effort
     # Fallback chain: explicit --base-interval > --interval > '15m' default.
     # Same fallback applies to interval itself when absent: project.yaml
     # entries with `kind: cron` + `cron: "..."` legitimately omit interval
@@ -478,6 +492,7 @@ def handle_loop_install_request_command(args) -> int:
         requested_by=requested_by,
         base_interval=base_interval,
         max_interval=max_interval,
+        body_skill=body_skill,
     )
 
     payload = {

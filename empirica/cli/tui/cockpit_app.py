@@ -817,6 +817,10 @@ class CockpitApp(App):
                 description=cfg.get('description', ''),
                 base_interval=cfg.get('base_interval'),
                 max_interval=cfg.get('max_interval'),
+                # Canonical loops carry an optional `body_skill` — the handler
+                # uses it to substitute the skill's actual prompt template
+                # instead of the generic `[... your actual work ...]` placeholder.
+                body_skill=cfg.get('body_skill'),
                 output='json',
             )
             try:
