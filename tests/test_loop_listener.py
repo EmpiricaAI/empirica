@@ -44,16 +44,46 @@ def test_build_subscribe_url_strips_trailing_slash():
     assert _build_subscribe_url("https://x.example/", "t") == "https://x.example/t/json"
 
 
+def test_build_subscribe_url_appends_tag_filter():
+    """Tag-filter subscription drops per-event broadcast wakes from
+    'every listener wakes' to 'only relevant listeners wake.' Requires
+    cortex to publish with X-Tags including this ai_id."""
+    url = _build_subscribe_url(
+        "https://ntfy.example.com", "orchestration-events", tag_filter="cortex",
+    )
+    assert url == "https://ntfy.example.com/orchestration-events/json?tags=cortex"
+
+
+def test_build_subscribe_url_no_tag_filter_by_default():
+    """Back-compat: when no tag filter, URL matches the legacy unfiltered
+    subscribe URL — listener receives every message on the topic."""
+    url = _build_subscribe_url(
+        "https://ntfy.example.com", "orchestration-events",
+    )
+    assert "?tags=" not in url
+
+
 def test_basic_auth_header_encodes_credentials():
-    h = _basic_auth_header("alice", "s3cret")
+    """Legacy basic-auth path: user + password → Basic header.
+    Token arg None means fall through to basic-auth branch."""
+    h = _basic_auth_header("alice", "s3cret", None)
     assert h["Authorization"].startswith("Basic ")
     # base64('alice:s3cret') = 'YWxpY2U6czNjcmV0'
     assert h["Authorization"] == "Basic YWxpY2U6czNjcmV0"
 
 
 def test_basic_auth_header_empty_when_no_creds():
-    assert _basic_auth_header(None, None) == {}
-    assert _basic_auth_header("", "") == {}
+    """No user, no password, no token → no auth header (anonymous)."""
+    assert _basic_auth_header(None, None, None) == {}
+    assert _basic_auth_header("", "", None) == {}
+
+
+def test_ntfy_auth_header_prefers_token_via_bearer():
+    """Token (tk_ prefix) wins over user/password → Bearer header.
+    This is the preferred path for ntfy access tokens, which are
+    revocable + don't expose the account password."""
+    h = _basic_auth_header("alice", "s3cret", "tk_jbp82d9aadkaylkzg4kkqjlv3enau")
+    assert h["Authorization"] == "Bearer tk_jbp82d9aadkaylkzg4kkqjlv3enau"
 
 
 # ── Event filter ─────────────────────────────────────────────────────────
@@ -102,20 +132,20 @@ class _FakeProc:
 
 
 def test_missing_credentials_exits_with_code_2(monkeypatch):
-    """Without ntfy user+password configured, listener refuses to start
-    rather than silently no-op'ing."""
+    """Without ntfy creds (token OR user+password) configured, listener
+    refuses to start rather than silently no-op'ing."""
     from empirica.config.credentials_loader import get_credentials_loader
     loader = get_credentials_loader()
     monkeypatch.setattr(loader, "get_ntfy_config", lambda: {
         "url": "https://ntfy.test", "topic": "t",
-        "user": None, "password": None,
+        "user": None, "password": None, "token": None,
     })
     err = io.StringIO()
     out = io.StringIO()
     rc = run_listener("cortex", output_stream=out, err_stream=err,
                       _initial_catchup=False)
     assert rc == 2
-    assert "no ntfy basic-auth credentials" in err.getvalue()
+    assert "no ntfy credentials configured" in err.getvalue()
 
 
 def test_each_message_event_triggers_catchup(monkeypatch):

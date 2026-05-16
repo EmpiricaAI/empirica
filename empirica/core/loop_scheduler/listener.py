@@ -75,10 +75,25 @@ def _install_signal_handlers() -> None:
     signal.signal(signal.SIGINT, _stop)
 
 
-def _build_subscribe_url(ntfy_url: str, topic: str) -> str:
-    """ntfy's JSON-stream endpoint — one message per stdout line."""
+def _build_subscribe_url(
+    ntfy_url: str, topic: str, tag_filter: str | None = None,
+) -> str:
+    """ntfy's JSON-stream endpoint — one message per stdout line.
+
+    When `tag_filter` is set, append `?tags=<filter>` so ntfy only delivers
+    messages tagged with that value. This relies on cortex publishing with
+    `X-Tags: <source_claude>,<target_claudes...>` (proposed as cortex commit
+    pending 2026-05-16 — until shipped, callers should leave this None or
+    set EMPIRICA_NTFY_TAG_FILTER=false to avoid filtering out every event).
+
+    Server-side filtering shrinks per-event wake traffic from "every
+    listener wakes" to "only relevant listeners wake."
+    """
     safe_topic = urllib.parse.quote(topic, safe="")
-    return f"{ntfy_url.rstrip('/')}/{safe_topic}/json"
+    base = f"{ntfy_url.rstrip('/')}/{safe_topic}/json"
+    if tag_filter:
+        return f"{base}?tags={urllib.parse.quote(tag_filter, safe=',')}"
+    return base
 
 
 def _ntfy_auth_header(
@@ -210,7 +225,19 @@ def run_listener(  # noqa: C901 — held-connection loop; clarity beats decompos
         err_stream.write(f"listener: ntfy config load failed: {e}\n")
         return 2
 
-    url = _build_subscribe_url(ntfy["url"], ntfy["topic"])
+    # Tag-filter subscription (opt-in via EMPIRICA_NTFY_TAG_FILTER=true).
+    # Requires cortex to publish with `X-Tags: <source>,<targets...>` —
+    # pending cortex proposal 2026-05-16. Until shipped, leave the env
+    # var off (default) so listener receives all messages on the topic.
+    # Filter value is the instance's ai_id so we only get events tagged
+    # for this instance.
+    import os as _os
+    tag_filter = (
+        instance_id
+        if _os.getenv("EMPIRICA_NTFY_TAG_FILTER", "").lower() == "true"
+        else None
+    )
+    url = _build_subscribe_url(ntfy["url"], ntfy["topic"], tag_filter=tag_filter)
     headers = _ntfy_auth_header(
         ntfy.get("user"), ntfy.get("password"), ntfy.get("token"),
     )
