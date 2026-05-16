@@ -19,7 +19,6 @@ from pathlib import Path
 
 from empirica.utils.session_resolver import is_project_root
 
-
 # ── is_project_root predicate ────────────────────────────────────────────
 
 
