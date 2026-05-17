@@ -88,6 +88,19 @@ PREFLIGHT --> CHECK --> POSTFLIGHT --> POST-TEST
  Assessment    Gate        Delta       Verification
 ```
 
+**AUTO-PROCEED:** CHECK is the noetic→praxic gate, but Sentinel skips
+it automatically when your PREFLIGHT vectors clear the dynamic threshold
+(`know` high enough AND `uncertainty` low enough — bars adapt via
+Brier-calibrated history). For trivial, well-understood work where
+PREFLIGHT is honestly high-confidence, you do NOT need a ceremonial
+CHECK before praxic tools. The gate is honest about your beliefs.
+
+The anti-pattern Sentinel catches: **PREFLIGHT-with-high-uncertainty →
+immediate CHECK with no intervening Read/Grep/investigate** (rubber-
+stamp). Real noetic work between the two is the only legitimate path
+from moderate PREFLIGHT to a passing CHECK. Inflating vectors to dodge
+the gate shows up later as belief↔observation divergence.
+
 POSTFLIGHT triggers automatic post-test verification:
 deterministic services (tests, artifacts, git, goals) collect observations
 and compare them to your belief vectors. The divergence signals where work
