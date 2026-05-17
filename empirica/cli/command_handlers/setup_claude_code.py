@@ -21,6 +21,8 @@ import os
 import shutil
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -854,6 +856,173 @@ def _print_credentials_summary(state: dict) -> None:
         print("   Skip this prompt next time: --skip-credentials")
 
 
+def _resolve_tenant_overrides(args) -> dict:
+    """Pull --org-id / --tenant-slug / --mesh-id-prefix from args.
+
+    Missing values stay None so the REST fetch can fill them in.
+    """
+    return {
+        "org_id": getattr(args, "org_id", None),
+        "tenant_slug": getattr(args, "tenant_slug", None),
+        "mesh_id_prefix": getattr(args, "mesh_id_prefix", None),
+    }
+
+
+def _fetch_tenant_metadata(
+    cortex_url: str,
+    api_key: str,
+    timeout: float = 10.0,
+) -> dict | None:
+    """GET `{cortex_url}/v1/tenant/me` and pull {org_id, tenant_slug, mesh_id_prefix}.
+
+    Returns the three fields on 2xx, None on HTTP error / network failure /
+    malformed JSON. Mirrors the Bearer-auth + urllib pattern used by
+    projects_commands._post_project — kept inline to avoid an import cycle
+    with the bulk-register handler.
+    """
+    url = f"{cortex_url.rstrip('/')}/v1/tenant/me"
+    req = urllib.request.Request(
+        url,
+        method="GET",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Accept": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read().decode("utf-8")
+            body = json.loads(raw) if raw else {}
+    except (urllib.error.HTTPError, urllib.error.URLError, OSError, TimeoutError, json.JSONDecodeError):
+        return None
+    return {
+        "org_id": body.get("org_id"),
+        "tenant_slug": body.get("tenant_slug"),
+        "mesh_id_prefix": body.get("mesh_id_prefix"),
+    }
+
+
+def _persist_tenant_metadata(
+    project_root: Path,
+    *,
+    org_id: str | None,
+    tenant_slug: str | None,
+    mesh_id_prefix: str | None,
+) -> bool:
+    """Merge tenant fields into `<project_root>/.empirica/project.yaml`.
+
+    Returns True iff any field was newly written. Returns False if:
+      - no fields supplied, or
+      - no project.yaml under project_root (caller should warn separately), or
+      - all supplied fields already match what's on disk.
+
+    Existing top-level keys are preserved (atomic merge — mirrors
+    save_cortex_config's safety contract).
+    """
+    if all(v is None for v in (org_id, tenant_slug, mesh_id_prefix)):
+        return False
+    project_yaml = project_root / ".empirica" / "project.yaml"
+    if not project_yaml.exists():
+        return False
+    try:
+        import yaml
+    except ImportError:
+        return False
+    try:
+        existing = yaml.safe_load(project_yaml.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return False
+    if not isinstance(existing, dict):
+        return False
+    changed = False
+    for key, value in (
+        ("org_id", org_id),
+        ("tenant_slug", tenant_slug),
+        ("mesh_id_prefix", mesh_id_prefix),
+    ):
+        if value is not None and existing.get(key) != value:
+            existing[key] = value
+            changed = True
+    if not changed:
+        return False
+    project_yaml.write_text(
+        yaml.safe_dump(existing, sort_keys=False, default_flow_style=False),
+        encoding="utf-8",
+    )
+    return True
+
+
+def _resolve_and_persist_tenant_metadata(
+    args,
+    output_format: str,
+    project_root: Path | None = None,
+) -> dict | None:
+    """Resolve {org_id, tenant_slug, mesh_id_prefix} and merge into project.yaml.
+
+    Precedence per field: CLI flag > REST `/v1/tenant/me` > unset.
+    REST is skipped entirely when all three flags are supplied.
+    When REST is needed but cortex creds are missing, we no-op silently.
+
+    Returns the resolved metadata dict (with None entries for unresolved
+    fields), or None when nothing could be resolved at all.
+    """
+    if project_root is None:
+        project_root = Path.cwd()
+
+    overrides = _resolve_tenant_overrides(args)
+    metadata: dict[str, str | None]
+    if all(overrides.values()):
+        metadata = overrides
+    else:
+        try:
+            from empirica.config.credentials_loader import get_credentials_loader
+            loader = get_credentials_loader()
+            loader.reload()
+            cortex_cfg = loader.get_cortex_config()
+        except Exception:
+            cortex_cfg = {}
+        cortex_url = cortex_cfg.get("url")
+        api_key = cortex_cfg.get("api_key")
+        if not (cortex_url and api_key):
+            if any(overrides.values()) and output_format != 'json':
+                # Flags partially supplied but no api_key to fill the rest.
+                metadata = overrides
+            else:
+                return None
+        else:
+            rest = _fetch_tenant_metadata(cortex_url, api_key)
+            if rest is None:
+                if output_format != 'json':
+                    print(
+                        "   ⚠️  Couldn't fetch tenant metadata from cortex "
+                        "(use --org-id / --tenant-slug / --mesh-id-prefix to set manually)"
+                    )
+                if any(overrides.values()):
+                    metadata = overrides
+                else:
+                    return None
+            else:
+                metadata = {
+                    key: overrides[key] or rest.get(key)
+                    for key in ("org_id", "tenant_slug", "mesh_id_prefix")
+                }
+
+    wrote = _persist_tenant_metadata(project_root, **metadata)
+    if output_format != 'json':
+        if wrote:
+            print(
+                f"   ✓ tenant metadata persisted to .empirica/project.yaml "
+                f"(org_id={metadata['org_id']}, tenant_slug={metadata['tenant_slug']}, "
+                f"mesh_id_prefix={metadata['mesh_id_prefix']})"
+            )
+        elif not (project_root / ".empirica" / "project.yaml").exists():
+            print(
+                f"   ℹ️  Tenant metadata resolved but no .empirica/project.yaml "
+                f"in {project_root} — run 'empirica project-init' to persist"
+            )
+    return metadata
+
+
 def _check_credentials_state() -> dict:
     """Return current credentials state for the setup summary.
 
@@ -1069,6 +1238,14 @@ def handle_setup_claude_code_command(args):
         if not skip_credentials:
             creds_state = _run_credentials_wizard(creds_state, output_format)
 
+        # Stage 6.6: Tenant metadata resolution (cortex Phase 1 mesh — prop_jc5f4h5).
+        # Fetch org_id/tenant_slug/mesh_id_prefix from /v1/tenant/me and merge
+        # into .empirica/project.yaml so per-AI session bootstraps can compose
+        # the three ai_id forms (short/tenant/mesh) without a cortex round-trip
+        # every time. Flags --org-id / --tenant-slug / --mesh-id-prefix
+        # override the REST fetch field-by-field.
+        tenant_metadata = _resolve_and_persist_tenant_metadata(args, output_format)
+
         # Stage 7: Output
         if output_format == 'json':
             return {
@@ -1083,6 +1260,7 @@ def handle_setup_claude_code_command(args):
                     "ntfy_ok": creds_state["ntfy_ok"],
                     "issues": creds_state["issues"],
                 },
+                "tenant_metadata": tenant_metadata,
                 "hooks_configured": [
                     "PreToolUse (Sentinel)",
                     "PreCompact",

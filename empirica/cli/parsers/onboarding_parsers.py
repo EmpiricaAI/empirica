@@ -47,6 +47,24 @@ Run this after 'brew install empirica' or 'pip install empirica'.
         action='store_true',
         help='Skip the credentials validation + wizard (use env vars or pre-populated credentials.yaml)'
     )
+    # Tenant metadata escape hatches — override the cortex /v1/tenant/me fetch
+    # field-by-field. Useful when running setup-claude-code without cortex
+    # creds, or pre-baking tenant identity into a fleet image.
+    setup_cc_parser.add_argument(
+        '--org-id',
+        default=None,
+        help='Override tenant org_id (skip cortex /v1/tenant/me fetch for this field)'
+    )
+    setup_cc_parser.add_argument(
+        '--tenant-slug',
+        default=None,
+        help='Override tenant_slug (skip cortex /v1/tenant/me fetch for this field)'
+    )
+    setup_cc_parser.add_argument(
+        '--mesh-id-prefix',
+        default=None,
+        help='Override mesh_id_prefix (skip cortex /v1/tenant/me fetch for this field)'
+    )
     setup_cc_parser.add_argument(
         '--skip-claude-md',
         action='store_true',
