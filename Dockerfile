@@ -11,7 +11,7 @@ FROM python:3.11-slim-bookworm
 
 LABEL maintainer="Empirica Team"
 LABEL description="Epistemic self-assessment framework for AI agents"
-LABEL version="1.9.6"
+LABEL version="1.9.7"
 
 # Set working directory
 WORKDIR /app
@@ -28,11 +28,11 @@ RUN apt-get update && apt-get upgrade -y \
 RUN pip install --no-cache-dir --upgrade pip setuptools "wheel>=0.46.2"
 
 # Copy package files
-COPY dist/empirica-1.9.6-py3-none-any.whl /tmp/
+COPY dist/empirica-1.9.7-py3-none-any.whl /tmp/
 
 # Install Empirica with security flags
-RUN pip install --no-cache-dir --no-compile /tmp/empirica-1.9.6-py3-none-any.whl \
-    && rm /tmp/empirica-1.9.6-py3-none-any.whl \
+RUN pip install --no-cache-dir --no-compile /tmp/empirica-1.9.7-py3-none-any.whl \
+    && rm /tmp/empirica-1.9.7-py3-none-any.whl \
     && pip cache purge 2>/dev/null || true
 
 # Create directory for user data

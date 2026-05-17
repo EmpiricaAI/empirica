@@ -2,7 +2,7 @@
 
 > **We Gave AI a Mirror. Now It Measures What It Believes.**
 
-[![Version](https://img.shields.io/badge/version-1.9.6-blue)](https://github.com/Nubaeon/empirica/releases/tag/v1.9.6)
+[![Version](https://img.shields.io/badge/version-1.9.7-blue)](https://github.com/Nubaeon/empirica/releases/tag/v1.9.7)
 [![PyPI](https://img.shields.io/pypi/v/empirica)](https://pypi.org/project/empirica/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -100,13 +100,13 @@ empirica setup-claude-code
 
 ```bash
 # Security-hardened Alpine image (~276MB, recommended)
-docker pull nubaeon/empirica:1.9.6-alpine
+docker pull nubaeon/empirica:1.9.7-alpine
 
 # Standard image (Debian slim, ~414MB)
-docker pull nubaeon/empirica:1.9.6
+docker pull nubaeon/empirica:1.9.7
 
 # Run
-docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.9.6 /bin/bash
+docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.9.7 /bin/bash
 ```
 </details>
 
@@ -266,105 +266,16 @@ The result: Claude Code's native capabilities, enhanced with measurement, gating
 
 ---
 
-## What's New in 1.9.6
+## What's New in 1.9.7
 
-**Empirica's first CI/CD harness.** Three GitHub Actions workflows
-shipped: `ci.yml` (ruff + pyright + pytest matrix on Python 3.11 + 3.13
-+ `empirica compliance-report` + pip-audit), `release.yml` (tag-triggered
-PyPI publishing via OIDC trusted publishers + Docker + Homebrew tap
-auto-update), `dependency-scan.yml` (weekly pip-audit + Dependabot
-grouped updates). `docs/architecture/CI_CD.md` documents the full setup
-including OIDC trusted-publisher configuration steps. Compliance score
-on CI: 1.0 (8/8 deterministic checks).
-
-**MCP / CLI parity for `--visibility` + `--epistemic-source`.** All 6
-`mcp__empirica__*_log` tools (finding/unknown/deadend/mistake/assumption/
-decision) now expose both flags as enum params. The cross-Claude
-intelligence-sharing discipline (`visibility ∈ {public, shared, local}`,
-`epistemic_source ∈ {intuition, search, mixed}`) is enforceable through
-either MCP or bash CLI — no more dropping to bash to tag through the
-right interface.
-
-**Cross-project artifact sharing taught.** The `--visibility` flag and
-`project-search --global` have been available for releases, but nothing
-in the system prompt or docs taught AIs to use them as a coherent
-sharing workflow. v1.9.6 closes that gap:
-
-- New signal→action rows in the lean system prompt's COLLABORATIVE MODE
-  table: cross-codebase finding → `--visibility shared`, starting work
-  on a new topic → `project-search --global` first, cross-project log →
-  `--project-id <name>`
-- New "Visibility (push side)" section in `docs/reference/api/CROSS_PROJECT.md`
-  with a when-to-use-which matrix (`local` for tactical, `shared` for
-  ecosystem patterns, `public` for security/reusable lessons)
-- Honest scope caveat in both surfaces: v1.9.6 `--global` only hits the
-  `global_learnings` Qdrant collection; the richer per-project walk +
-  push-based auto-surface at project-bootstrap are deferred goals
-
-**Cortex creds via `~/.empirica/credentials.yaml`.** The browser
-extension saves cortex url + api_key to chrome.storage; v1.9.6 wires
-the CLI equivalent. A `cortex:` block in `~/.empirica/credentials.yaml`
-is now picked up by `projects-bulk-register`, `source-archive` Cortex
-sync, and POSTFLIGHT `/v1/sync` push. Precedence: CLI flags → env vars
-→ credentials file. Saves having to `export CORTEX_API_KEY=...` in
-every shell.
-
-**`projects-bulk-register` simplified — sources from `registry.yaml`.**
-The command was over-engineered through accumulated handoff iterations.
-Mid-cycle reset: `registry.yaml` (added in 1.9.3 for the daemon multi-
-project work) is already the user's curated set, so `bulk-register` now
-reads from it directly. No more Cortex `/v1/collections` round-trip
-to compute an intersection at command time — the curation happens
-once when you run `projects-discover --register`, and bulk-register
-just syncs what you've curated.
-
-- **Default**: reads `~/.empirica/registry.yaml`
-- **`--from-discovered`**: opt-in to read the raw scanner output
-  (`discovered_projects.yaml`) for "register everything I have"
-- **`--force-metadata-update`**: still kept — sets body flag for
-  Cortex's safe-update of existing rows
-- **Removed**: `--only-existing` flag, the intersection-fetch logic
-  (~80 LOC, 7 tests). The intersection now happens at curation, not
-  at sync time.
-- POSTFLIGHT `/v1/sync` payload also enriched with `name + repo_url`
-  so Cortex's auto-create on unknown project_ids no longer seeds rows
-  with `name=<UUID>`, `repo_url=""` (EC-2 root cause from the v0.7.8
-  handoff).
-
-**`source-archive` Cortex sync.** When `CORTEX_REMOTE_URL +
-CORTEX_API_KEY` are set, archiving locally now also calls Cortex's
-`DELETE /v1/sources/{id}`. Best-effort — failures never block local
-archive; status surfaces in response as
-`{"cortex": {"synced": true, "status": 200}}`.
-
-**`workflow_commands.py` split.** 3933 LOC → 4 focused modules
-(`_workflow_shared` 612 + `_workflow_preflight` 747 +
-`_workflow_check` 1103 + `_workflow_postflight` 1431) plus a 61-LOC
-re-export shim. Largest single-file refactor in the codebase.
-External imports preserved.
-
-**empirica-mcp bootstrapped 319 tests.** Three new test files cover
-the `_build_cli_command` / `_resolve_cwd` / `_err_text` helpers from
-the v1.9.3 refactor, `_build_tool_schema` branches, and TOOL_REGISTRY
-integrity (parametrized over every entry). Plus `empirica-mcp/call_tool()`
-refactored from D27 → C14 cyclomatic complexity, dropping a noqa: C901.
-
-**Internal-only docs removed from public tree.** Audit pass found
-2 internal docs (`CHAT_OVERNIGHT_PLAN.md` — David's autonomous-build
-brief, and `PROMPT_FOR_EMPIRICA_CLAUDE_source_aware_sentinel.md` —
-AI-to-AI handoff prompt) shipped publicly. Moved to gitignored
-`.empirica/notes/historical/`. Also fixed 3 hardcoded `/home/yogapad/...`
-paths (docker-compose.yml, diagnose_ecodex.py, KNOWN_ISSUES.md). Added
-forward-looking `.gitignore` patterns: `docs/**/PROMPT_FOR_*.md` and
-`docs/**/*OVERNIGHT*PLAN*.md`.
-
-**5 broken docs links fixed** — references to gitignored `docs/specs/`
-and `docs/research/` drafts in committed `.md` files converted to
-plain-text refs (links resolved locally where the targets exist, broke
-on fresh CI checkout where they don't).
-
-Full suite **2320 passed, 4 skipped** (release-gate run).
-
+- **`cortex-mailbox-send` skill** (`4c09b6174`) — paired to `cortex-mailbox-poll`. Documents
+- **Mesh-active skill-load precondition** (`c0fcc071c`) — when a listener Monitor is armed
+- **`WHEN TO LOAD SKILLS` section** in both templates (`c0fcc071c`) — behavioral load
+- **Goals/subtasks worked example** in `TRANSACTION DISCIPLINE` (`c0fcc071c`) —
+- **Race-tolerant `create_github_release`** in `scripts/release.py` (`57870621c`). When the
+- **Verbose `update_homebrew_tap` diagnostics** (`57870621c`). Per-candidate path logging
+- **Lint cleanup**: `S110` noqa-with-reason on the `ai_id` fallback in
+- **ntfy tag-filter subscription** (`fcd4ed0fa`, `c9981f35e`). Listener subscribes with
 ## What's New in 1.9.0
 
 **Goal-criterion bridge — quality gates that auto-evaluate**
@@ -546,6 +457,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 **Author:** David S. L. Van Assche
-**Version:** 1.9.6
+**Version:** 1.9.7
 
 *Turtles all the way down — built with its own epistemic framework, measuring what it knows at every step.*
