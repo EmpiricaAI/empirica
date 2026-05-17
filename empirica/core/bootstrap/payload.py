@@ -196,12 +196,55 @@ def _build_project_block(db_path: Path, project_id: str) -> dict | None:
             ).fetchone()[0]
         except Exception:
             ts = row["total_sessions"] or 0
+        # Transactions live as transaction_id columns scattered across the
+        # artifact tables — there is no standalone `transactions` table.
+        # Count distinct transaction_ids across all artifact tables scoped
+        # to this project's sessions. (Fixes prop_aq5p from extension AI:
+        # previous query targeted a non-existent table, silent except
+        # swallowed the error, tt always returned 0 on the bootstrap card.)
         try:
-            tt = conn.execute(
-                "SELECT COUNT(*) FROM transactions WHERE project_id = ?",
-                (project_id,),
-            ).fetchone()[0]
-        except Exception:
+            tt = conn.execute("""
+                WITH project_sessions AS (
+                    SELECT session_id FROM sessions WHERE project_id = ?
+                )
+                SELECT COUNT(DISTINCT transaction_id) FROM (
+                    SELECT transaction_id FROM goals
+                        WHERE session_id IN (SELECT session_id FROM project_sessions)
+                        AND transaction_id IS NOT NULL
+                    UNION
+                    SELECT transaction_id FROM project_findings
+                        WHERE session_id IN (SELECT session_id FROM project_sessions)
+                        AND transaction_id IS NOT NULL
+                    UNION
+                    SELECT transaction_id FROM project_unknowns
+                        WHERE session_id IN (SELECT session_id FROM project_sessions)
+                        AND transaction_id IS NOT NULL
+                    UNION
+                    SELECT transaction_id FROM project_dead_ends
+                        WHERE session_id IN (SELECT session_id FROM project_sessions)
+                        AND transaction_id IS NOT NULL
+                    UNION
+                    SELECT transaction_id FROM mistakes_made
+                        WHERE session_id IN (SELECT session_id FROM project_sessions)
+                        AND transaction_id IS NOT NULL
+                    UNION
+                    SELECT transaction_id FROM assumptions
+                        WHERE session_id IN (SELECT session_id FROM project_sessions)
+                        AND transaction_id IS NOT NULL
+                    UNION
+                    SELECT transaction_id FROM decisions
+                        WHERE session_id IN (SELECT session_id FROM project_sessions)
+                        AND transaction_id IS NOT NULL
+                    UNION
+                    SELECT transaction_id FROM reflexes
+                        WHERE session_id IN (SELECT session_id FROM project_sessions)
+                        AND transaction_id IS NOT NULL
+                )
+            """, (project_id,)).fetchone()[0]
+        except _sq.OperationalError:
+            # Narrow exception: catches "no such table" / "no such column"
+            # if the schema drifts again, surfaces other DB errors instead
+            # of silently swallowing them.
             tt = 0
         try:
             tg = conn.execute(
