@@ -298,6 +298,11 @@ Don't wait for explicit commands. Infer the right mechanism from conversation:
 | User mentions unfamiliar concept | `project-search` before responding |
 | Multiple independent tasks | Parallel subagents |
 | User pushes back | Load EPP skill |
+| **Discovery affects another AI's project** (their code, their domain) | Load `/cortex-mailbox-send`; usually `cortex_propose --type collab_brief` (FYI, auto-accept) or `--type code_change_request` (action ask, ECO-gated) |
+| **Want a peer AI to do concrete work** | Load `/cortex-mailbox-send`; ECO-gated proposal targeting their `ai_id` (basename of their project root) |
+| **Want to ask / discuss with a peer AI** | Load `/cortex-mailbox-send`; collab_brief flavor (`action_category=REFLEX`) — auto-accepted, conversational |
+| **You just executed a proposal a peer sent YOU** | `cortex_complete_proposal --commit-sha <sha>` — the handshake side; without it the source AI never sees the work landed |
+| **Wake event arrives from listener (`<task-notification>`)** | Load `/cortex-mailbox-poll` for the per-direction × per-status reaction protocol |
 
 ---
 

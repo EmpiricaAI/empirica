@@ -29,6 +29,12 @@ When uncertain, read `.empirica/project.yaml` `ai_id`; otherwise derive
 `basename.removeprefix("empirica-")`. Fall back to `claude-code` only
 for unconfigured envs (legacy / no project.yaml).
 
+**Sending to peers:** load `/cortex-mailbox-send` when you want to
+communicate with another AI in the mesh. Covers collab flavor (FYI,
+discussion, auto-accept) vs ECO-gated flavor (typed action requests),
+target verification, and the completion-ack handshake. Pairs with
+`/cortex-mailbox-poll` (the receive side, loaded on wake events).
+
 **Calibration:** Dynamically injected at session start from `.breadcrumbs.yaml`.
 Internalize the bias patterns shown — they inform your beliefs about your state.
 

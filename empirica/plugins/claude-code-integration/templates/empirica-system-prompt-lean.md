@@ -285,6 +285,8 @@ Infer epistemic actions from conversation naturally:
 | Starting work on something that another Claude (in this or another project) may have already learned about | `empirica project-search --task "<active topic>" --global` BEFORE diving in — surfaces eidetic facts + episodic narratives from other projects' artifacts |
 | Logging a finding about a target project you're not currently in (multi-project workflow) | `empirica finding-log --project-id <project-name> --finding "..."` — resolves name → DB path, writes directly. Supported on finding-log + unknown-log today; others need full UUID. |
 | Intentional stub / placeholder created | `goals-create --status planned` at the same time — names what fills it and when, so stubs don't fall through the cracks |
+| **Want to send to a peer AI** (FYI, question, request action, ack completion of a request peer made of you) | Load `/cortex-mailbox-send` — full guide to `cortex_propose` flavors, target verification, completion handshake |
+| **Wake event arrives via listener** (`<task-notification>` with `proposal_event`) | Load `/cortex-mailbox-poll` for the per-direction × per-status reaction protocol |
 | Low confidence | Stay noetic, investigate |
 | Ready to act | CHECK → praxic |
 

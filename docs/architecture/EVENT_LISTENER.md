@@ -221,8 +221,10 @@ so the source AI knows which commit landed its work.
 
 ### Reaction protocol
 
-Each AI session loads the **`cortex-mailbox-poll`** skill, which has the
-per-direction per-status reaction logic:
+Each AI session loads the **`cortex-mailbox-poll`** skill (the receive
+side) for the per-direction per-status reaction logic, and the
+**`cortex-mailbox-send`** skill (the send side) for the corresponding
+"how do I emit / reply / ack" guidance:
 
 | direction | status | reaction |
 |---|---|---|
