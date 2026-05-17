@@ -149,7 +149,7 @@ def _project_ai_id(project_path: str | None) -> str | None:
             aid = data.get('ai_id')
             if aid:
                 return str(aid)
-    except Exception:
+    except Exception:  # noqa: S110 — fallback chain; malformed YAML / missing yaml module → derive from basename below
         pass
     basename = Path(project_path).name
     return basename.removeprefix('empirica-') or basename or None

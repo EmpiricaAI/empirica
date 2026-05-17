@@ -138,6 +138,7 @@ class ReleaseManager:
         local_formula = self.repo_root / "packaging/homebrew/empirica.rb"
         if not local_formula.exists():
             warning(f"Local formula not found: {local_formula}")
+            warning("Skipping homebrew tap update — compliance release_chain check will surface this on next run.")
             return
 
         # Look for tap repo in common locations
@@ -146,17 +147,22 @@ class ReleaseManager:
             Path.home() / "empirical-ai" / "homebrew-tap",   # home dir
         ]
 
+        info(f"Searching for tap repo (looking for {len(tap_candidates)} candidate paths)")
         tap_repo = None
         for candidate in tap_candidates:
-            if (candidate / "empirica.rb").exists():
+            marker = candidate / "empirica.rb"
+            if marker.exists():
                 tap_repo = candidate
+                info(f"  ✓ found at: {tap_repo}")
                 break
+            else:
+                info(f"  ✗ not at:   {candidate} (no empirica.rb)")
 
         if tap_repo is None:
-            warning("Homebrew tap repo not found. Checked:")
-            for c in tap_candidates:
-                warning(f"  {c}")
-            info("Manual step: copy packaging/homebrew/empirica.rb to your tap repo and push")
+            warning("Homebrew tap repo not found. Manual step needed:")
+            warning(f"  cp {local_formula} <your-tap-repo>/empirica.rb")
+            warning("  cd <your-tap-repo> && git commit -am 'Update empirica to {self.version}' && git push")
+            warning("Compliance release_chain check will surface this gap until republished.")
             return
 
         tap_formula = tap_repo / "empirica.rb"
@@ -863,13 +869,36 @@ brew install empirica
 ```
 """
 
-        self.run_command([
+        # Race tolerance — CI's release workflow may publish first.
+        # Try create; on failure check if release already exists and just
+        # upload assets. Without this, the script sys.exit's mid-publish and
+        # downstream steps (homebrew tap, chocolatey) silently skip.
+        # (1.9.6 missed homebrew via exactly this race; 2026-05-17.)
+        create_result = self.run_command([
             "gh", "release", "create", tag,
             *assets,
             "--title", f"v{self.version}",
-            "--notes", notes
-        ])
-        success(f"Created GitHub release: {tag}")
+            "--notes", notes,
+        ], check=False)
+
+        if create_result.returncode == 0:
+            success(f"Created GitHub release: {tag}")
+            return
+
+        # Check whether the release exists (CI race) vs a real failure
+        view_result = self.run_command(
+            ["gh", "release", "view", tag], check=False,
+        )
+        if view_result.returncode == 0:
+            warning(f"Release {tag} already exists (likely CI race) — uploading assets with --clobber")
+            self.run_command(
+                ["gh", "release", "upload", tag, *assets, "--clobber"],
+            )
+            success(f"Uploaded assets to existing GitHub release: {tag}")
+            return
+
+        # Real failure — surface it the way error() does (sys.exit).
+        error(f"gh release create failed and release {tag} does not exist: {create_result.stderr.strip()}")
 
     def run_version_update(self):
         """Update version strings only (no build/publish)."""

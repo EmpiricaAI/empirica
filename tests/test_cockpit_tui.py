@@ -194,10 +194,9 @@ async def test_auto_accept_chip_shows_off_state(cockpit_env, monkeypatch):
     state without pressing 'a' first."""
     from textual.widgets import Static
 
-    from empirica.cli.tui import CockpitApp
-
     # Force the aggregator to return auto_accept=False (OFF, known state).
     import empirica.cli.tui.cockpit_app as cockpit_module
+    from empirica.cli.tui import CockpitApp
 
     real_aggregate = cockpit_module.aggregate_all
 
@@ -228,8 +227,8 @@ async def test_auto_accept_chip_shows_on_state(cockpit_env, monkeypatch):
     """The loud ⚡AUTO-ACCEPT marker remains for the ON state."""
     from textual.widgets import Static
 
-    from empirica.cli.tui import CockpitApp
     import empirica.cli.tui.cockpit_app as cockpit_module
+    from empirica.cli.tui import CockpitApp
 
     real_aggregate = cockpit_module.aggregate_all
 
