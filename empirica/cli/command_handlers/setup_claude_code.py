@@ -27,7 +27,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 PLUGIN_NAME = "empirica"
-PLUGIN_VERSION = "1.9.7"
+PLUGIN_VERSION = "1.9.8"
 
 
 def _resolve_empirica_version() -> str:
@@ -52,7 +52,7 @@ def _render_versioned_template(src: Path, dst: Path) -> None:
     """Write `src` to `dst` with template placeholders substituted.
 
     Placeholders:
-      {{ empirica_version }}  → installed empirica version (e.g. "1.9.7")
+      {{ empirica_version }}  → installed empirica version (e.g. "1.9.8")
       {{ generated_date }}    → today's UTC date (e.g. "2026-05-05")
 
     Closes Philipp's #100 — without this, the template's hardcoded version

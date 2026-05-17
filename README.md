@@ -2,7 +2,7 @@
 
 > **We Gave AI a Mirror. Now It Measures What It Believes.**
 
-[![Version](https://img.shields.io/badge/version-1.9.7-blue)](https://github.com/Nubaeon/empirica/releases/tag/v1.9.7)
+[![Version](https://img.shields.io/badge/version-1.9.8-blue)](https://github.com/Nubaeon/empirica/releases/tag/v1.9.8)
 [![PyPI](https://img.shields.io/pypi/v/empirica)](https://pypi.org/project/empirica/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -100,13 +100,13 @@ empirica setup-claude-code
 
 ```bash
 # Security-hardened Alpine image (~276MB, recommended)
-docker pull nubaeon/empirica:1.9.7-alpine
+docker pull nubaeon/empirica:1.9.8-alpine
 
 # Standard image (Debian slim, ~414MB)
-docker pull nubaeon/empirica:1.9.7
+docker pull nubaeon/empirica:1.9.8
 
 # Run
-docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.9.7 /bin/bash
+docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.9.8 /bin/bash
 ```
 </details>
 
@@ -266,7 +266,7 @@ The result: Claude Code's native capabilities, enhanced with measurement, gating
 
 ---
 
-## What's New in 1.9.7
+## What's New in 1.9.8
 
 - **`cortex-mailbox-send` skill** (`4c09b6174`) — paired to `cortex-mailbox-poll`. Documents
 - **Mesh-active skill-load precondition** (`c0fcc071c`) — when a listener Monitor is armed
@@ -457,6 +457,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 **Author:** David S. L. Van Assche
-**Version:** 1.9.7
+**Version:** 1.9.8
 
 *Turtles all the way down — built with its own epistemic framework, measuring what it knows at every step.*
