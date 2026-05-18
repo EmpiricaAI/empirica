@@ -1,138 +1,115 @@
-# goals-ready Command Guide
+# `goals-ready` — Finding Actionable Work
 
-## Overview
+`empirica goals-ready` shows goals you can pick up right now —
+combining BEADS dependency state with your current epistemic state.
 
-The `goals-ready` command combines BEADS dependency tracking with Empirica epistemic state to show tasks you're ACTUALLY ready to work on.
+## What It Filters On
 
-## Concept
-
-**BEADS answers:** "What tasks are unblocked?" (no blocking dependencies)  
-**Empirica answers:** "What tasks am I ready for?" (sufficient epistemic state)  
-**`goals-ready` combines both:** "What should I work on RIGHT NOW?"
+| Source | Question | Filter |
+|---|---|---|
+| **BEADS** | Are blockers cleared? | `bd ready` for paired goals |
+| **Epistemic state** | Are my current vectors high enough to act? | `--min-confidence`, `--max-uncertainty` |
+| **BEADS priority** | Is this important enough? | `--min-priority {1\|2\|3}` |
 
 ## Usage
 
 ```bash
-# Basic usage
-empirica goals-ready --session-id <SESSION_ID>
+# Default — show all ready goals
+empirica goals-ready
 
-# With filters
-empirica goals-ready --session-id <SESSION_ID> \
-  --min-confidence 0.7 \
-  --max-uncertainty 0.3 \
-  --output json
+# Filter to high-confidence-needed work only
+empirica goals-ready --min-confidence 0.7 --max-uncertainty 0.3
+
+# Only show P1 BEADS issues
+empirica goals-ready --min-priority 1
+
+# JSON for scripting
+empirica goals-ready --output json
 ```
+
+`--session-id` is optional — auto-detected from the active session.
+
+---
 
 ## How It Works
 
-1. **Query BEADS:** Get unblocked issues (no blocking dependencies)
-2. **Get Epistemic State:** Fetch latest PREFLIGHT/CHECK vectors
-3. **Calculate Fitness:** Match task requirements to current capability
-4. **Filter & Rank:** Return tasks above fitness threshold
+1. **List active goals** in the current project (status `in_progress` +
+   `planned`).
+2. **For BEADS-paired goals**, check `bd ready` — drop any with open
+   blocking dependencies.
+3. **Compute fit** against your latest PREFLIGHT/CHECK vectors:
+   - Confidence floor: drop if `overall_confidence < --min-confidence`
+   - Uncertainty ceiling: drop if `uncertainty > --max-uncertainty`
+4. **Sort + return** — ordered by BEADS priority first, then fit.
 
-## Epistemic Fitness Score
+If a goal is **not BEADS-paired**, it passes the dependency filter
+trivially (no blockers tracked = no blockers detected).
 
-```
-fitness = 1.0 - (know_gap + do_gap + context_gap + uncertainty_penalty) / 4.0
-
-Where:
-- know_gap = max(0, required_know - current_know)
-- do_gap = max(0, required_do - current_do)  
-- context_gap = max(0, required_context - current_context)
-- uncertainty_penalty = current_uncertainty * 0.3
-```
-
-## Task Requirements
-
-Tasks can specify epistemic requirements in the goals table:
-```sql
-required_know: 0.8    -- Minimum knowledge level
-required_do: 0.7      -- Minimum execution capability
-required_context: 0.7 -- Minimum context understanding
-```
+---
 
 ## Example Output
 
 ```
-🎯 Ready Work (3 tasks):
+🎯 Ready Work (3 goals):
 
-1. ✅ Implement OAuth2 client [bd-a1b2]
-   Epistemic fit: 0.85
-   - Requires: know=0.8 (you have: 0.9) ✅
-   - Requires: do=0.7 (you have: 0.85) ✅
-   - Dependencies: 0 blockers
-   
-2. ⚠️  Debug token refresh [bd-c3d4]
-   Epistemic fit: 0.65
-   - Requires: know=0.9 (you have: 0.9) ✅
-   - Requires: context=0.8 (you have: 0.7) ⚠️
-   - Suggest: Quick investigation first
-   
-3. ❌ Refactor auth module [bd-e5f6]
-   Epistemic fit: 0.45 (below threshold)
-   - Requires: know=0.95 (you have: 0.9) ⚠️
-   - Suggest: Investigate before starting
+1. ✅ Implement OAuth2 client          [bd-a1b2, P1]
+   fit: 0.85 | uncertainty: 0.18 | confidence: 0.82
+   no open blockers
+
+2. ⚠️  Debug token refresh             [bd-c3d4, P2]
+   fit: 0.65 | uncertainty: 0.42 | confidence: 0.71
+   suggest: more investigation before acting
+
+3. ⏸  Refactor auth module            [bd-e5f6, P3]
+   below threshold — uncertainty 0.55 > 0.30 ceiling
 ```
+
+---
 
 ## Multi-AI Coordination
 
-Different AIs can query ready work and get tasks matching their capabilities:
+Different AIs working on the same project will see different ready
+sets depending on their breadcrumb-calibrated vectors:
 
-**Reasoning AI (high know, low do):**
-```bash
-$ empirica goals-ready --session-id reasoning-sess
-→ Gets: Architecture, design, code review tasks
-```
+- An AI with high `know` on a domain will surface architecture goals
+- An AI with high `do` but moderate `know` will surface implementation
+  goals
+- Both AIs see the same BEADS unblock state — that's git-shared
 
-**Acting AI (high do, moderate know):**
-```bash
-$ empirica goals-ready --session-id acting-sess  
-→ Gets: Implementation, testing, refactoring tasks
-```
-
-## Integration with BEADS
-
-```bash
-# Create goal with BEADS integration
-empirica goals-create \
-  --session-id sess-123 \
-  --objective "Implement OAuth2" \
-  --use-beads \
-  --required-know 0.8 \
-  --required-do 0.7
-
-# Query ready work
-empirica goals-ready --session-id sess-123
-
-# Complete and sync
-bd close bd-a1b2 --reason "Completed"
-bd sync
-```
-
-## Benefits
-
-1. **Prevents Premature Work:** Won't suggest tasks you're not ready for
-2. **Triggers Investigation:** Low fitness → investigate first
-3. **Multi-AI Routing:** Automatic task allocation by capability
-4. **Calibration Feedback:** Track prediction accuracy over time
+---
 
 ## Configuration
 
-Fitness thresholds can be configured per-profile in `empirica/config/investigation_profiles.yaml`:
+The default fit thresholds come from the project's compliance
+configuration. To override per-invocation, use the CLI flags above.
+
+To dial defaults at the project level, edit
+`.empirica/project.yaml`:
 
 ```yaml
-exploratory:
-  min_epistemic_fitness: 0.5  # Willing to learn on the job
-  
-rigorous:
-  min_epistemic_fitness: 0.8  # Only high-confidence tasks
-  
-rapid:
-  min_epistemic_fitness: 0.6  # Balanced approach
+goals_ready:
+  default_min_confidence: 0.6
+  default_max_uncertainty: 0.4
 ```
+
+---
+
+## When It's Useful
+
+- **Multi-session catch-up.** "What was I in the middle of?"
+- **Multi-AI handoff.** Another AI's session left work; what's now ready?
+- **Triage.** Several goals open; which can I actually act on right now?
+
+## When It's Not
+
+- **Solo single-transaction work.** `goals-list` is enough.
+- **Exploratory work.** Vectors aren't set yet, so the fit filter is
+  noisy.
+
+---
 
 ## See Also
 
-- [BEADS Integration Design](../developers/BEADS_INTEGRATION_DESIGN.md)
-- [Session Continuity (Bootstrap Recovery)](FIRST_TIME_SETUP.md)
-- [Empirica Natural Language Guide](EMPIRICA_NATURAL_LANGUAGE_GUIDE.md)
+- **BEADS basics:** [BEADS_QUICKSTART.md](BEADS_QUICKSTART.md)
+- **Goal lifecycle:** [SESSION_GOAL_WORKFLOW.md](SESSION_GOAL_WORKFLOW.md)
+- **Vector meaning:** [05_EPISTEMIC_VECTORS_EXPLAINED.md](05_EPISTEMIC_VECTORS_EXPLAINED.md)

@@ -161,23 +161,25 @@ touch ~/.empirica/test && rm ~/.empirica/test
 
 ### Problem: Git notes not working
 ```
-fatal: refs/empirica/checkpoints does not exist
+fatal: ref refs/notes/empirica_findings does not exist
 ```
 
-**Cause:** Git notes namespace not initialized
+**Cause:** Git notes namespace not initialized. Empirica uses one ref
+per artifact type (`refs/notes/empirica_findings`,
+`refs/notes/empirica_decisions`, etc.).
 
 **Solution:**
 ```bash
-# Create first checkpoint to initialize
-empirica checkpoint-create --session-id <SESSION_ID>
+# Logging any artifact creates the ref
+empirica finding-log --finding "Init test" --impact 0.1
 
-# Or manually initialize
-git notes --ref=empirica/checkpoints add -m "init" HEAD
+# Inspect what exists
+git for-each-ref refs/notes/empirica_*
 ```
 
-### Problem: Cannot push checkpoints
+### Problem: Cannot push notes
 ```
-error: cannot update ref 'refs/notes/empirica/checkpoints'
+error: cannot update ref 'refs/notes/empirica_findings'
 ```
 
 **Cause:** Git repository not configured or no commits
@@ -240,21 +242,24 @@ EOF
 Error: Vector 'know' must be between 0.0 and 1.0
 ```
 
-**Cause:** Incorrect value format in JSON input
+**Cause:** Incorrect value format in JSON input (e.g., > 1.0, nested
+under a `foundation` key, missing).
 
-**Solution:**
+**Solution:** All 13 vectors live flat at the root of `vectors`. There
+are no tier sub-objects.
 ```json
 {
   "vectors": {
     "engagement": 0.8,
-    "foundation": {
-      "know": 0.7,    // Must be 0.0-1.0
-      "do": 0.6,
-      "context": 0.5
-    }
+    "know": 0.7,
+    "do": 0.6,
+    "context": 0.5,
+    "uncertainty": 0.3
   }
 }
 ```
+You don't need all 13 every time — `know`, `do`, `context`,
+`engagement`, `uncertainty` plus phase-relevant subset is sufficient.
 
 ---
 
@@ -304,44 +309,38 @@ empirica project-bootstrap --output json
 Error: Failed to create goal
 ```
 
-**Cause:** Missing required fields or session issue
+**Cause:** Missing required fields or no active transaction (when not
+passing `--session-id`).
 
-**Solution:**
+**Solution:** Goals can be created with flags (most common) or JSON
+stdin.
 ```bash
-# Verify session exists
-empirica sessions-show --session-id <SESSION_ID>
+# Flags (most common — session_id auto-derived if a transaction is open)
+empirica goals-create --objective "Clear objective" \
+  --description "Markdown body with success criteria, links, context"
 
-# Use JSON mode for clarity
-cat > goal.json << EOF
-{
-  "session_id": "<SESSION_ID>",
-  "objective": "Clear objective description",
-  "scope": {
-    "breadth": 0.5,
-    "duration": 0.5,
-    "coordination": 0.3
-  }
-}
-EOF
-
-echo "$(cat goal.json)" | empirica goals-create -
+# Or with explicit session-id
+empirica goals-create --session-id <SESSION_ID> --objective "..."
 ```
+`--description` accepts up to 8000 chars of markdown and is rendered
+in the TUI and extension.
 
 ### Problem: Subtask not completing
 ```
 Error: Cannot complete subtask
 ```
 
-**Cause:** Invalid task ID or dependency issues
+**Cause:** Invalid subtask_id or missing required evidence flag.
 
 **Solution:**
 ```bash
 # List all subtasks for goal
 empirica goals-get-subtasks --goal-id <GOAL_ID>
 
-# Verify task ID is correct
-# Check dependencies are completed first
+# Complete with evidence (commit SHA, test result, file path)
+empirica goals-complete-subtask --subtask-id <ID> --evidence "commit abc123"
 ```
+Note: the flag is `--subtask-id`, not `--task-id`.
 
 ---
 
@@ -434,41 +433,29 @@ empirica sessions-list --output json | cat -v
 
 ## Getting More Help
 
+### Built-in Diagnostics
+
+```bash
+empirica diagnose       # Claude Code integration health (~10 checks)
+empirica doctor         # General install health
+empirica system-status  # Runtime status (loops, listeners, daemon)
+```
+
 ### Enable Verbose Mode
+
 ```bash
 empirica --verbose <command>
 ```
 
-### Check Logs
-```bash
-# View session logs (if logging enabled)
-ls -la ~/.empirica/sessions/
-
-# Check system logs
-journalctl | grep empirica  # Linux systemd
-tail -f /var/log/syslog     # Linux syslog
-```
-
 ### Diagnostic Information
+
 ```bash
-# Gather debug info
-echo "Empirica version:"
-pip show empirica | grep Version
-
-echo "Python version:"
-python --version
-
-echo "Git version:"
-git --version
-
-echo "Database info:"
-ls -lh .empirica/sessions/sessions.db
-
-echo "Session count:"
-empirica sessions-list --output json | jq '.sessions_count'
-
-echo "Project count:"
-empirica project-list --output json | jq '.projects_count'
+empirica --version                              # Empirica version
+python --version                                # Python (need 3.10+)
+git --version                                   # Git
+ls -lh .empirica/sessions/sessions.db           # DB size
+empirica sessions-list --limit 5                # Recent sessions
+empirica projects-list                          # Locally-known projects
 ```
 
 ### Reset Everything (Last Resort)

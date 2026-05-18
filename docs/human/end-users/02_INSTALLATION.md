@@ -22,7 +22,7 @@ You should see the list of available commands.
 ### 3. Initialize a project in your repo
 ```bash
 cd your-project           # must be a git repo or an existing directory
-empirica project-init     # creates .empirica/ with config.yaml + project.yaml
+empirica project-init     # creates .empirica/ + .empirica/project.yaml (project identity)
 ```
 
 This step creates the **project-local sessions database** that Empirica writes
@@ -47,7 +47,8 @@ and `SessionStart` will create a session for you.
 
 ### 5. (Standalone users) Create your first session manually
 ```bash
-empirica session-create --ai-id myai
+# ai_id defaults to the project basename (set by project-init in step 3)
+empirica session-create --ai-id $(basename $PWD)
 
 # Output shows session_id and auto-detected project
 ```
@@ -73,7 +74,7 @@ next step. Especially useful if the statusline isn't showing up in Claude Code.
 pip install empirica
 
 # Specific version
-pip install empirica==1.9.6
+pip install empirica==1.9.8
 
 # With MCP server for Claude Desktop/Cursor
 pip install empirica empirica-mcp
@@ -91,13 +92,13 @@ brew install empirica
 ### Option 3: Docker
 ```bash
 # Standard image
-docker pull nubaeon/empirica:1.9.6
+docker pull nubaeon/empirica:1.9.8
 
 # Security-hardened Alpine (recommended)
-docker pull nubaeon/empirica:1.9.6-alpine
+docker pull nubaeon/empirica:1.9.8-alpine
 
 # Run
-docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.9.6 /bin/bash
+docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.9.8 /bin/bash
 ```
 
 ### Option 4: From Source
@@ -166,18 +167,22 @@ git config --global user.email "your@email.com"
 After installation, Empirica creates directories on first use:
 
 ```
-~/.empirica/                    # User data directory
-├── empirica.db                 # SQLite database
-├── sessions/                   # Session data
-├── projects/                   # Project tracking
-└── credentials.yaml            # API keys (optional)
+~/.empirica/                    # User-tenant data (shared across projects)
+├── credentials.yaml            # Cortex + ntfy creds (optional)
+├── workspace/workspace.db      # Cross-project registry + rollups
+├── registry.yaml               # Daemon's served-project set
+└── tty_sessions/               # TTY → claude_session_id mapping (transient)
 
-<your-repo>/.empirica/          # Project-specific data
-├── sessions/                   # Local session cache
-└── slides/                     # Vision assessments (if using vision)
+<your-repo>/.empirica/          # Per-project data
+├── project.yaml                # ✅ Committed — project identity
+├── sessions/sessions.db        # ❌ Gitignored — sessions, transactions, artifacts
+├── breadcrumbs.yaml            # ❌ Gitignored — per-AI calibration
+└── config.yaml                 # ❌ Gitignored — path/runtime config
+
+<your-repo>/.git/refs/notes/empirica_*  # Per-artifact-type git notes
 ```
 
-**Note:** `.empirica/` directories are gitignored by default.
+**Note:** `.empirica/` is gitignored except for `.empirica/project.yaml`.
 
 ---
 
@@ -222,7 +227,7 @@ empirica goals-list
 # Error: ModuleNotFoundError: No module named 'empirica'
 # Solution: Ensure pip installed to correct Python environment
 
-python --version      # Check Python version (3.8+ required)
+python --version      # Check Python version (3.10+ required)
 which python          # Check Python path
 pip show empirica     # Verify installation
 ```
@@ -238,10 +243,12 @@ chmod 755 ~/.empirica/
 
 ### Git Notes Error
 ```bash
-# Error: fatal: refs/empirica/checkpoints does not exist
-# Solution: Create first checkpoint to initialize git notes
+# Error: fatal: ref refs/notes/empirica_findings does not exist
+# Solution: Empirica creates one ref per artifact type on first log.
+#          Just log any artifact to initialize:
 
-empirica checkpoint-create --session-id <SESSION_ID>
+empirica finding-log --finding "Init" --impact 0.1
+git for-each-ref refs/notes/empirica_*    # inspect what exists
 ```
 
 ### Command Not Found
@@ -286,7 +293,7 @@ pip3 install empirica
 
 ### Windows
 ```powershell
-# Install Python from python.org (3.8+)
+# Install Python from python.org (3.10+)
 # Install git from git-scm.com
 
 # Install Empirica
@@ -343,12 +350,12 @@ brew install tesseract              # macOS
 python -m empirica.vision.slide_processor --help
 ```
 
-### MCP Server (for Claude Desktop)
+### MCP Server (for Claude Desktop / Cursor / Windsurf)
 ```bash
-# Already included in main install
-# Configure in Claude Desktop settings
+# Install the standalone MCP server package
+pip install empirica-mcp
 
-# See: guides/MCP_INSTALLATION.md
+# See: MCP_INSTALLATION.md for client configuration
 ```
 
 ---

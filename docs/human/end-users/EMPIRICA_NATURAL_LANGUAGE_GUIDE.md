@@ -52,14 +52,16 @@ The AI will automatically:
 
 ### What the Statusline Shows
 
-The statusline in your terminal displays the AI's current state:
+The statusline in your terminal displays the AI's current state.
+A typical line looks like:
 
 ```
-🧠 know:0.72 unc:0.18 │ ⏱ noetic │ 🎯 2 goals │ 📊 T3
+🧠 know:0.72 unc:0.18 │ ⏱ noetic │ 🎯 2 goals │ 📊 tx:active
 ```
 
-This tells you: the AI's knowledge level (0.72), uncertainty (0.18), current phase (noetic/investigating),
-active goals (2), and which transaction it's on (T3). You can use this to guide the conversation:
+It tells you the AI's knowledge level, uncertainty, current phase
+(noetic/praxic), active goals, and transaction state. You can use it
+to guide the conversation:
 
 - Low know + high uncertainty → "Take more time investigating"
 - High know + low uncertainty → "I think we're ready to implement"
@@ -81,14 +83,17 @@ Every piece of measured work is a **transaction** — a cycle of investigation f
 by action, bookended by measurement:
 
 ```
-PREFLIGHT → Investigate → CHECK → Implement → POSTFLIGHT → POST-TEST
-   │           │            │         │            │            │
-Baseline    Noetic       Gate     Praxic       Measure     Verify vs
-Assessment   phase      decision   phase       learning     evidence
+PREFLIGHT → Investigate → CHECK → Implement → POSTFLIGHT
+   │           │            │         │            │
+Baseline    Noetic       Gate     Praxic       Close window
+Assessment  phase       decision  phase        + grounded verification
 ```
 
 **Both investigation and implementation happen within the same transaction.**
 CHECK is a gate *inside* the transaction, not a boundary between transactions.
+POSTFLIGHT closes the measurement window and triggers deterministic
+services (tests, git, code-quality, codebase model) which surface
+divergence between the AI's beliefs and observable outcomes.
 
 ### Your Role: Guide with Natural Language
 
@@ -248,9 +253,11 @@ Empirica uses Claude Code's hook system to automate the workflow:
 
 | Hook | When it fires | What it does |
 |------|--------------|-------------|
-| **SessionStart** | Conversation begins | Creates session, loads context from previous work |
+| **SessionStart** | Conversation begins | Creates session, loads context, posts breadcrumbs |
 | **PreToolUse** | Before any tool call | Sentinel gate — blocks praxic tools until CHECK passes |
-| **PreCompact** | Before context compression | Auto-commits state so nothing is lost |
+| **PreCompact** | Before context compression | Saves state to breadcrumbs so nothing is lost |
+| **PostCompact** | After compression | Recovers state + posts orientation context |
+| **UserPromptSubmit** | Each user message | Context injection (active goals, artifact reminders) |
 | **SessionEnd** | Conversation ends | Cleanup, persist final state |
 
 This means measurement happens without you doing anything. The AI's epistemic state
@@ -271,24 +278,28 @@ with it — another AI working on the same repo can see what was learned.
 
 ### Dual-Track Calibration: How Trust Is Earned
 
-Calibration measures how well the AI knows what it knows:
+Calibration measures whether the AI's beliefs match observable outcomes:
 
-**Track 1 (Self-referential):** PREFLIGHT → POSTFLIGHT delta. Did the AI's
-self-assessment change consistently? This catches bias patterns ("always underestimates
-completion by +0.8").
+**Track 1 — Learning trajectory (self-referential):** PREFLIGHT →
+POSTFLIGHT vector delta. Did the AI's self-assessment change
+consistently across transactions? This catches bias patterns ("always
+underestimates completion by +0.5").
 
-**Track 2 (Grounded):** After POSTFLIGHT, deterministic services collect observations —
-did tests pass? How many files changed? Were goals completed? These observations are
-compared to the AI's belief vectors. Divergence signals where work discipline may need
-attention — it is not a measure of what the AI "really knows," but of whether its
-beliefs are converging with service observations over time.
+**Track 2 — Grounded observations:** After POSTFLIGHT, deterministic
+services collect measurements — did tests pass? How many files changed?
+Was ruff clean? Did goals close with evidence? These observations are
+compared to the AI's belief vectors. Divergence is a **discipline
+signal**, not a verdict on truth — it points at where work discipline
+needs attention (more grounding before CHECK, more commits before
+POSTFLIGHT, broader artifact logging).
 
-**Why this matters:** Good calibration → Sentinel loosens gates → AI gets more autonomy.
-Bad calibration → tighter gates → more investigation required before acting.
+**Why this matters:** Good calibration → Sentinel loosens gates → AI
+gets more autonomy. Worse calibration → tighter gates → more
+investigation required before acting.
 
-This is **earned autonomy** — the AI earns trust through demonstrated accuracy, not
-through assertion. Gaming vectors (inflating self-assessment) is caught by Track 2
-and degrades autonomy.
+This is **earned autonomy** — trust through demonstrated accuracy, not
+through assertion. Gaming vectors (inflating self-assessment) is
+caught by grounded observations and degrades autonomy over time.
 
 **You can check calibration:** "How's your calibration looking?" or "Show me the
 calibration report." The AI will run `empirica calibration-report`.

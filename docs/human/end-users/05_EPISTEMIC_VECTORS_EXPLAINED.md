@@ -1,708 +1,305 @@
-# 📊 Understanding the 13 Epistemic Vectors
+# The 13 Epistemic Vectors
 
-**A complete guide to Empirica's 13-vector epistemic self-awareness system**
+Empirica measures epistemic state across **13 vectors**, each on `0.0–1.0`. You
+report them honestly in PREFLIGHT/CHECK/POSTFLIGHT; the system grounds them
+against observations from deterministic services (tests, git, ruff,
+codebase model) and surfaces divergence as your calibration signal.
 
----
+**Not all vectors matter equally for all work.** They split into three
+roles:
 
-## Overview
+| Role | Vectors | Why it's grouped this way |
+|---|---|---|
+| **Foundation** (always load-bearing) | `know`, `do`, `context` | Feasibility — can you do this task at all? |
+| **Meta** (quality of self-assessment) | `engagement`, `uncertainty` | Self-referential — are your other vectors trustworthy? |
+| **Phase-dependent** (weighted by work_type) | `clarity`, `coherence`, `signal`, `density`, `state`, `change`, `completion`, `impact` | Importance shifts by what you're doing |
 
-Empirica measures epistemic state across **13 vectors** organized into **4 tiers**:
-
-| Tier | Vectors | Purpose | Weight |
-|------|---------|---------|--------|
-| **TIER 0** | ENGAGEMENT | Gate (must ≥ 0.6 to proceed) | 15% |
-| **TIER 1** | KNOW, DO, CONTEXT | Foundation knowledge | 35% |
-| **TIER 2** | CLARITY, COHERENCE, SIGNAL, DENSITY | Comprehension | 25% |
-| **TIER 3** | STATE, CHANGE, COMPLETION, IMPACT | Execution capability | 25% |
-| **META** | UNCERTAINTY | Explicit unknown tracking | (separate) |
-
-**Key Principle:** Rate what you **ACTUALLY know right now**, not what you hope to figure out.
-
----
-
-## TIER 0: ENGAGEMENT (The Gate)
-
-### ENGAGEMENT
-**Weight:** 15% of overall confidence  
-**Range:** 0.0 - 1.0  
-**Threshold:** ≥ 0.6 (must pass to proceed)
-
-**What it measures:**
-The quality of collaborative intelligence - is meaningful work possible?
-
-**High ENGAGEMENT (0.7+):**
-- Clear task definition
-- Realistic scope
-- Collaborative context present
-- Can make meaningful progress
-
-**Low ENGAGEMENT (< 0.6):**
-- Vague or unclear task
-- Unrealistic expectations
-- Missing critical context
-- Cannot proceed effectively
-
-**Example:**
-```
-Task: "Do the thing"
-ENGAGEMENT: 0.35 → STOP, need clarification
-
-Task: "Analyze auth.py for SQL injection vulnerabilities"
-ENGAGEMENT: 0.85 → PROCEED
-```
-
-**Why it's a gate:**
-Low engagement means the task itself needs clarification before any work can begin.
+**Key principle:** rate what you ACTUALLY know right now. Inflated
+vectors produce divergence from grounded observations — that divergence
+is exactly the discipline signal the system is built to expose, not a
+score to optimize.
 
 ---
 
-## TIER 1: FOUNDATION (35% Weight)
+## Foundation — Feasibility
 
-### 1. KNOW - Domain Knowledge
-**What it measures:**
-Understanding of relevant domain, concepts, technologies, or subject matter.
+These three are load-bearing for every transaction.
 
-**High KNOW (0.8+):**
-- Deep domain understanding
-- Familiar with concepts
-- Know tools and approaches
-- Understand implications
+### `know` — Domain knowledge
 
-**Low KNOW (< 0.5):**
-- Unfamiliar domain
-- Lack relevant knowledge
-- Don't know the tools
-- Missing context
+How well you understand the domain, concepts, technologies relevant to
+the task.
 
-**Example:**
-```
-Task: "Implement OAuth2 authentication"
-KNOW: 0.85 → "Familiar with OAuth2 flows, security considerations"
+| Range | Meaning |
+|---|---|
+| 0.8+ | Deep familiarity |
+| 0.5–0.7 | Working knowledge |
+| 0.3–0.5 | Some exposure |
+| <0.3 | Unfamiliar territory |
 
-Task: "Fix quantum entanglement algorithm"
-KNOW: 0.25 → "No quantum computing background"
-```
+**Low `know` triggers:** investigation, search, read docs, ask user.
 
-**Investigation Strategy:**
-Low KNOW → Use web_search, documentation, or ask user for domain context
+### `do` — Execution capability
 
----
+Can you execute the required actions? Tools, access, technical
+capability.
 
-### 2. DO - Execution Capability
-**What it measures:**
-Ability to execute required actions - technical capability and tool access.
+| Range | Meaning |
+|---|---|
+| 0.8+ | Have everything needed |
+| 0.5–0.7 | Mostly capable, some gaps |
+| <0.5 | Missing critical tools / access |
 
-**High DO (0.8+):**
-- Have necessary tools/access
-- Technical capability present
-- Can execute the steps
-- Know implementation approach
+**Low `do` triggers:** check tool availability, ask about permissions.
 
-**Low DO (< 0.5):**
-- Missing required tools
-- Lack technical capability
-- Can't execute steps
-- Unknown implementation path
+### `context` — Situational awareness
 
-**Example:**
-```
-Task: "Update database schema"
-DO: 0.90 → "Have DB access, know SQL, can run migrations"
+Understanding of the surrounding state — project, history, constraints,
+files involved.
 
-Task: "Deploy to production K8s cluster"
-DO: 0.30 → "No kubectl access, no credentials"
-```
+| Range | Meaning |
+|---|---|
+| 0.8+ | Mapped the relevant surface |
+| 0.5–0.7 | Partial picture |
+| <0.5 | Don't know what's around |
 
-**Investigation Strategy:**
-Low DO → Check available tools, ask user about access/permissions
+**Low `context` triggers:** read files, grep, run `project-bootstrap`.
 
 ---
 
-### 3. CONTEXT - Environmental Context
-**What it measures:**
-Understanding of environment, current state, surrounding systems, constraints.
+## Meta — Self-Assessment Quality
 
-**High CONTEXT (0.8+):**
-- Understand environment
-- Know system state
-- Aware of constraints
-- See bigger picture
+These two govern whether your other vectors are trustworthy at all.
 
-**Low CONTEXT (< 0.5):**
-- Don't understand environment
-- Unclear on current state
-- Missing constraints
-- Lack broader context
+### `engagement`
 
-**Example:**
-```
-Task: "Refactor authentication module"
-CONTEXT: 0.75 → "Know codebase structure, dependencies, tests"
+How actively you're working the problem. Distractions, half-attention,
+mismatched scope all pull this down. The system uses it as a sanity
+gate — low engagement means even high `know` shouldn't be trusted.
 
-Task: "Fix production issue"
-CONTEXT: 0.35 → "Don't know what's deployed, no log access"
-```
+| Range | Meaning |
+|---|---|
+| 0.8+ | Fully on the task |
+| 0.5–0.7 | Working but not fully engaged |
+| <0.5 | Disengaged — vectors questionable |
 
-**Investigation Strategy:**
-Low CONTEXT → Use workspace scanning, read files, check git history
+### `uncertainty`
 
----
+What you DON'T know — explicit. **Higher is more uncertain.** Inverted
+direction from the other vectors.
 
-## TIER 2: COMPREHENSION (25% Weight)
+| Range | Meaning |
+|---|---|
+| <0.2 | Very confident |
+| 0.3–0.5 | Some unknowns |
+| 0.5–0.7 | Significant unknowns |
+| >0.8 | Should be investigating, not acting |
 
-### 4. CLARITY - Request Clarity
-**What it measures:**
-How clear and well-defined the request is.
-
-**High CLARITY (0.8+):**
-- Request is specific
-- Goals are clear
-- Requirements defined
-- Success criteria known
-
-**Low CLARITY (< 0.5):**
-- Vague request
-- Unclear goals
-- Ambiguous requirements
-- Success criteria undefined
-
-**Example:**
-```
-Task: "Implement rate limiting: 100 req/min per user, Redis backend, exponential backoff"
-CLARITY: 0.95 → "Extremely specific"
-
-Task: "Make it better"
-CLARITY: 0.15 → "Completely vague"
-```
-
-**Investigation Strategy:**
-Low CLARITY → **HIGHEST PRIORITY** - Ask user for clarification
+`uncertainty` is **excluded from the calibration score** — it's
+derived from the same gaps it would be scored against. But it gates
+the CHECK decision: high `uncertainty` means stay noetic.
 
 ---
 
-### 5. COHERENCE - Logical Coherence
-**What it measures:**
-Internal logical consistency of request and approach.
+## Phase-Dependent — Weighted by `work_type`
 
-**High COHERENCE (0.8+):**
-- Request makes logical sense
-- Parts fit together
-- No contradictions
-- Approach is sound
+These eight matter differently depending on what you're doing.
 
-**Low COHERENCE (< 0.5):**
-- Request has contradictions
-- Parts don't fit
-- Logical issues
-- Approach unclear
+### Comprehension cluster: `clarity`, `coherence`, `signal`, `density`
 
-**Example:**
-```
-Task: "Add authentication to public API that should be accessible without login"
-COHERENCE: 0.25 → "Contradictory requirements"
+How well you understand what's in front of you.
 
-Task: "Add OAuth2 to protect user data endpoints"
-COHERENCE: 0.90 → "Logically coherent"
-```
+| Vector | What it measures |
+|---|---|
+| `clarity` | How clear the path forward is |
+| `coherence` | Internal consistency of your understanding |
+| `signal` | Quality of information you're working with (vs. noise) |
+| `density` | Relevant knowledge per unit of context |
 
-**Investigation Strategy:**
-Low COHERENCE → Ask user to resolve contradictions
+Weighted up for `work_type: docs` and `research`.
 
----
+### Execution cluster: `state`, `change`, `completion`, `impact`
 
-### 6. SIGNAL - Signal vs Noise
-**What it measures:**
-Ratio of useful information to irrelevant details.
+What's happening to the system.
 
-**High SIGNAL (0.8+):**
-- Clear signal
-- Relevant information
-- Focused request
-- Minimal noise
+| Vector | What it measures |
+|---|---|
+| `state` | Awareness of current system / project state |
+| `change` | Amount of change made in this transaction |
+| `completion` | Progress toward the current phase goal (noetic OR praxic) |
+| `impact` | Significance of the work to the project |
 
-**Low SIGNAL (< 0.5):**
-- Lost in noise
-- Too much irrelevant info
-- Unfocused request
-- Hard to extract meaning
-
-**Example:**
-```
-Task: "Fix login bug where users can't authenticate after password reset"
-SIGNAL: 0.90 → "Clear problem statement"
-
-Task: "So yesterday I was thinking... [500 words]... can you check the thing?"
-SIGNAL: 0.20 → "Signal buried in noise"
-```
-
-**Investigation Strategy:**
-Low SIGNAL → Use goals to extract structured objectives
+Weighted up for `work_type: code` (execution matters most when shipping).
 
 ---
 
-### 7. DENSITY - Information Density
-**What it measures:**
-How much information is packed into the request. **Note:** HIGH density is problematic (inverted vector).
+## `work_type` Scaling
 
-**Low DENSITY (0.3-0.5) - GOOD:**
-- Manageable information load
-- Not overwhelming
-- Can process comfortably
-- Right amount of detail
+The `work_type` you declare in PREFLIGHT changes which evidence sources
+the post-test pipeline weights when grounding your vectors:
 
-**High DENSITY (0.8+) - BAD:**
-- Information overload
-- Too much at once
-- Overwhelming complexity
-- Cognitive saturation
+| `work_type` | What it weights |
+|---|---|
+| `code` | execution 0.40, foundation 0.30 (shipping matters most) |
+| `research` | comprehension 0.35, meta 0.25 |
+| `docs` | comprehension 0.40 |
+| `debug` | investigation-heavy; lower praxic expectations |
+| `infra` | infrastructure/config; code-quality / pytest down-weighted |
+| `release` | mechanical pipeline; all evidence excluded (self-assessment stands) |
+| `remote-ops` | SSH / server-side work the local Sentinel can't observe (`calibration_status=ungrounded_remote_ops`) |
 
-**Example:**
-```
-Task: "Implement user authentication"
-DENSITY: 0.35 → "Simple, manageable"
+`docs`, `config`, `data`, `comms`, `design`, `audit` are also valid.
 
-Task: "Implement OAuth2 + SAML + LDAP + MFA + SSO + biometric + hardware tokens + ..."
-DENSITY: 0.95 → "Information overload"
-```
-
-**Investigation Strategy:**
-High DENSITY → Break down into manageable pieces using goals
+Set it honestly. Mismatched `work_type` produces meaningless divergence.
 
 ---
 
-## TIER 3: EXECUTION (25% Weight)
+## Reporting Vectors
 
-### 8. STATE - Current State Understanding
-**What it measures:**
-Understanding of where things currently are.
+In PREFLIGHT / CHECK / POSTFLIGHT JSON:
 
-**High STATE (0.8+):**
-- Clear picture of current state
-- Know what exists
-- Understand implementation
-- See starting point
-
-**Low STATE (< 0.5):**
-- Unclear current state
-- Don't know what exists
-- Missing implementation details
-- Can't see starting point
-
-**Example:**
-```
-Task: "Update API to v2"
-STATE: 0.85 → "Know current v1 structure, endpoints, consumers"
-
-Task: "Improve the system"
-STATE: 0.25 → "Don't know current system state"
-```
-
-**Investigation Strategy:**
-Low STATE → Scan workspace, read files, check current implementation
-
----
-
-### 9. CHANGE - Change Tracking
-**What it measures:**
-Ability to track and manage changes.
-
-**High CHANGE (0.8+):**
-- Can track progress
-- See what changes
-- Monitor evolution
-- Detect regressions
-
-**Low CHANGE (< 0.5):**
-- Can't track changes
-- No change visibility
-- Can't monitor progress
-- Can't detect issues
-
-**Example:**
-```
-Task: "Refactor with tests"
-CHANGE: 0.90 → "Tests provide change validation"
-
-Task: "Modify production DB directly"
-CHANGE: 0.20 → "No way to track/validate changes"
-```
-
-**Investigation Strategy:**
-Low CHANGE → Ask about version control, testing, validation
-
----
-
-### 10. COMPLETION - Path to Completion
-**What it measures:**
-Visibility of path to completion and success criteria.
-
-**High COMPLETION (0.8+):**
-- Clear path to done
-- Know the steps
-- Can measure progress
-- Success criteria clear
-
-**Low COMPLETION (< 0.5):**
-- Unclear path forward
-- Don't know steps
-- Can't measure progress
-- Success criteria vague
-
-**Example:**
-```
-Task: "Add rate limiting: 1) Redis, 2) Middleware, 3) Tests, 4) Deploy"
-COMPLETION: 0.95 → "Clear path to completion"
-
-Task: "Make app production-ready"
-COMPLETION: 0.30 → "Unclear what this means or how to achieve"
-```
-
-**Investigation Strategy:**
-Low COMPLETION → Create structured goals with subtasks
-
----
-
-### 11. IMPACT - Consequence Prediction
-**What it measures:**
-Ability to predict consequences and understand impact.
-
-**High IMPACT (0.8+):**
-- Understand consequences
-- Can predict effects
-- Know risks
-- See implications
-
-**Low IMPACT (< 0.5):**
-- Can't predict consequences
-- Unknown effects
-- Risks unclear
-- Missing implications
-
-**Example:**
-```
-Task: "Add caching with TTL and invalidation"
-IMPACT: 0.85 → "Can predict effects on performance, consistency"
-
-Task: "Modify core algorithm"
-IMPACT: 0.35 → "Unclear system-wide effects"
-```
-
-**Investigation Strategy:**
-Low IMPACT → Ask user about constraints and acceptable impacts
-
----
-
-## META: UNCERTAINTY (Explicit Unknown Tracking)
-
-### UNCERTAINTY ⭐
-**Type:** Meta-epistemic (explicit tracking, separate from 13 vectors)  
-**Range:** 0.0 - 1.0  
-**Interpretation:** 0.0 = certain, 1.0 = highly uncertain
-
-**What it measures:**
-Explicit awareness of epistemic limitations - "what you don't know about what you don't know."
-
-**Why it's different:**
-- **Not included in overall_confidence calculation** (meta-layer)
-- Tracks uncertainty ABOUT the 13-vector assessment itself
-- Enables PREFLIGHT/POSTFLIGHT comparison
-- Validates investigation effectiveness
-
-**Components:**
-- **Epistemic Gaps:** Known unknowns in domain
-- **Model Limitations:** Awareness of training boundaries
-- **Temporal Uncertainty:** How much could have changed
-- **Contextual Uncertainty:** Missing situational info
-
-**High UNCERTAINTY (0.7+):**
-- Significant epistemic gaps
-- Domain beyond training
-- Many unknowns
-- Investigation strongly recommended
-
-**Low UNCERTAINTY (< 0.3):**
-- Confident in assessment
-- Domain well-understood
-- Few unknowns
-- Can proceed confidently
-
-**Example:**
-```
-PREFLIGHT:
-Task: "Fix quantum entanglement algorithm"
-UNCERTAINTY: 0.85 → "No quantum physics background, many unknowns"
-Action: INVESTIGATE
-
-POSTFLIGHT:
-UNCERTAINTY: 0.30 → "Found papers, understand approach now"
-Δuncertainty: -0.55 (investigation was effective!)
-Action: PROCEED
-```
-
-**PREFLIGHT/POSTFLIGHT Pattern:**
-```python
-# PREFLIGHT: Before investigation
+```json
 {
-    'know': 0.35,
-    'uncertainty': 0.75,  # High uncertainty
-    'overall_confidence': 0.48
+  "task_context": "Fix auth bug in token validation",
+  "work_type": "code",
+  "vectors": {
+    "know": 0.55,
+    "uncertainty": 0.40,
+    "context": 0.65,
+    "clarity": 0.70,
+    "coherence": 0.65,
+    "signal": 0.60,
+    "density": 0.50,
+    "state": 0.45,
+    "change": 0.0,
+    "completion": 0.0,
+    "impact": 0.60,
+    "do": 0.85,
+    "engagement": 0.90
+  },
+  "reasoning": "Read the validator surface but haven't traced the refresh path yet."
 }
-
-# ... investigation happens via CHECK phases ...
-
-# POSTFLIGHT: After investigation
-{
-    'know': 0.80,           # Knowledge increased
-    'uncertainty': 0.25,    # Uncertainty reduced!
-    'overall_confidence': 0.82
-}
-
-# Validate investigation was effective
-delta_uncertainty = -0.50  # Reduced by 50%!
-delta_knowledge = +0.45    # Knowledge increased
-# ✅ Investigation was successful
 ```
 
-**Investigation Strategy:**
-- UNCERTAINTY > 0.80 → **Always investigate** (too many unknowns)
-- UNCERTAINTY 0.50-0.80 → Investigate if critical domain
-- UNCERTAINTY < 0.50 → Investigation optional
-- **Track Δuncertainty** to validate investigation effectiveness
+You don't need to send all 13 every time — the foundation + meta five
+(`know`, `do`, `context`, `engagement`, `uncertainty`) plus
+phase-relevant subset is plenty. The system fills missing entries
+with neutral defaults.
 
 ---
 
-## How Vectors Combine
+## CHECK Gate
 
-### Overall Confidence Formula
-```python
-overall_confidence = (
-    engagement * 0.15 +                    # TIER 0 (gate)
-    foundation_confidence * 0.35 +         # TIER 1 (KNOW, DO, CONTEXT)
-    comprehension_confidence * 0.25 +      # TIER 2 (CLARITY, COHERENCE, SIGNAL, DENSITY)
-    execution_confidence * 0.25            # TIER 3 (STATE, CHANGE, COMPLETION, IMPACT)
-)
+CHECK is the noetic→praxic transition gate. The Sentinel evaluates
+your vectors plus dynamic thresholds from `.empirica/breadcrumbs.yaml`
+(calibrated from your prior transactions), not fixed cutoffs.
 
-# UNCERTAINTY is tracked separately (meta-layer)
-```
+**Three outcomes:**
+- `proceed` — vectors + grounded predictive ability are sufficient
+- `investigate` — keep gathering evidence
+- `auto-proceed` — vectors high enough that no CHECK ceremony is needed
 
-### Tier Calculations
-```python
-# TIER 1: Foundation (equal weights)
-foundation = (know + do + context) / 3
+**When CHECK is needed vs. not:**
+- **Not needed:** your predictive ability for the next action is
+  grounded in data you've actually pulled this session (files read,
+  patterns verified, behaviors observed).
+- **Needed:** your predictive ability rests on priors and assumptions
+  instead of session-gathered evidence. Do the real grounding work
+  FIRST, then CHECK reflects what you actually found.
 
-# TIER 2: Comprehension (DENSITY is inverted!)
-comprehension = (clarity + coherence + signal + (1 - density)) / 4
-
-# TIER 3: Execution (equal weights)
-execution = (state + change + completion + impact) / 4
-```
-
-**Important:** DENSITY is inverted - high density is BAD (information overload).
+**Anti-pattern:** PREFLIGHT immediately followed by CHECK with high
+vectors and no intervening reads. That inflates beliefs without
+grounding — the divergence pipeline catches it.
 
 ---
 
-## Decision Thresholds
+## PREFLIGHT → POSTFLIGHT Delta = Learning
 
-### ENGAGEMENT Gate
-```
-ENGAGEMENT < 0.60 → STOP (need clarification)
-ENGAGEMENT ≥ 0.60 → PROCEED to work
-```
+The whole point of measurement is to compute the delta:
 
-### CHECK Phase Decision
 ```
-Overall Confidence < 0.70 → INVESTIGATE MORE
-Overall Confidence ≥ 0.70 → PROCEED WITH WORK
-```
-
-### UNCERTAINTY Guidelines
-```
-UNCERTAINTY > 0.80 → Must investigate
-UNCERTAINTY 0.50-0.80 → Should investigate if critical
-UNCERTAINTY < 0.50 → Can proceed
+PREFLIGHT vectors  →  noetic work  →  CHECK  →  praxic work  →  POSTFLIGHT vectors
+                                                                          │
+                                                                          ▼
+                                                          Δ = your learning trajectory
+                                                          + grounded observations
+                                                          = calibration signal
 ```
 
----
+**Track Δ_uncertainty especially.** If you started a transaction with
+`uncertainty: 0.7` and ended with `uncertainty: 0.3`, the investigation
+worked. If `uncertainty` stayed at 0.7, you either learned nothing or
+underestimated the unknowns.
 
-## Real-World Example: OAuth2 Implementation
+**Grounded observations** (after POSTFLIGHT) come from:
+- `git`: commits, files changed, LOC delta
+- `code_quality`: ruff violations, radon complexity, pyright errors
+- `pytest`: test results (at goal completion)
+- `codebase_model`: entities discovered
+- `triage`: goals completed, artifacts logged
+- `noetic`: investigation thoroughness
 
-### PREFLIGHT Assessment
-```python
-{
-    "engagement": 0.85,  # Clear task
-    "foundation": {
-        "know": 0.75,    # Familiar with OAuth2
-        "do": 0.80,      # Have tools/access
-        "context": 0.60   # Some codebase knowledge
-    },
-    "comprehension": {
-        "clarity": 0.90,     # Well-defined task
-        "coherence": 0.85,   # Logically sound
-        "signal": 0.80,      # Clear requirements
-        "density": 0.40      # Manageable complexity (low is good!)
-    },
-    "execution": {
-        "state": 0.50,       # Need to explore current auth
-        "change": 0.70,      # Git + tests available
-        "completion": 0.65,  # Rough path visible
-        "impact": 0.55       # Some risks unclear
-    },
-    "uncertainty": 0.55  # Moderate uncertainty
-}
-
-# Overall Confidence: 0.71 → PROCEED (but investigate low vectors)
-```
-
-### After Investigation (POSTFLIGHT)
-```python
-{
-    "engagement": 0.90,
-    "foundation": {
-        "know": 0.85,    # Learned specifics
-        "do": 0.85,
-        "context": 0.80   # Explored codebase
-    },
-    "comprehension": {
-        "clarity": 0.95,
-        "coherence": 0.90,
-        "signal": 0.85,
-        "density": 0.35   # Still manageable
-    },
-    "execution": {
-        "state": 0.85,       # Mapped current system
-        "change": 0.80,
-        "completion": 0.90,  # Clear implementation path
-        "impact": 0.80       # Understood risks
-    },
-    "uncertainty": 0.25  # Low uncertainty
-}
-
-# Overall Confidence: 0.85 → HIGH CONFIDENCE
-# Δuncertainty: -0.30 (investigation effective!)
-```
-
----
-
-## Investigation Strategies by Vector
-
-| Low Vector | Investigation Strategy | Tools/Actions |
-|------------|------------------------|---------------|
-| **ENGAGEMENT** | Clarify task | Ask user specific questions |
-| **KNOW** | Learn domain | web_search, documentation, ask user |
-| **DO** | Check capabilities | Verify tools, check access |
-| **CONTEXT** | Explore environment | Scan workspace, read files, check git |
-| **CLARITY** | Get specifics | Ask user for requirements |
-| **COHERENCE** | Resolve contradictions | Ask user to clarify |
-| **SIGNAL** | Extract objectives | Create structured goals |
-| **DENSITY** | Break down | Create goals + subtasks |
-| **STATE** | Map current | Read code, check DB, explore |
-| **CHANGE** | Setup tracking | Verify git, tests, validation |
-| **COMPLETION** | Define path | Create goals with success criteria |
-| **IMPACT** | Understand risks | Ask about constraints, acceptable impacts |
-| **UNCERTAINTY** | Investigate unknowns | Target investigation at knowledge gaps |
+Divergence between your beliefs and these observations is **discipline
+feedback**, not a verdict on truth. It points at where work discipline
+needs attention (more grounding before CHECK, more commits before
+POSTFLIGHT, broader artifact logging, etc.).
 
 ---
 
 ## Common Patterns
 
-### Pattern 1: "I Don't Know This Domain"
+### "I don't know this domain"
 ```
-KNOW: 0.30 (low)
-UNCERTAINTY: 0.80 (high)
-→ INVESTIGATE: web_search, ask user for context
-```
-
-### Pattern 2: "Vague Request"
-```
-CLARITY: 0.25 (low)
-COHERENCE: 0.40 (low)
-→ ASK USER: specific questions to clarify
+know: 0.30, uncertainty: 0.80
+→ Stay noetic. Investigate before any praxic action.
 ```
 
-### Pattern 3: "Don't Know Current State"
+### "Vague request"
 ```
-STATE: 0.30 (low)
-CONTEXT: 0.35 (low)
-→ EXPLORE: scan workspace, read files, check git
-```
-
-### Pattern 4: "Information Overload"
-```
-DENSITY: 0.90 (high - bad!)
-COMPLETION: 0.30 (low)
-→ BREAK DOWN: create goals + subtasks
+clarity: 0.25, coherence: 0.40
+→ Ask user for specifics before opening a transaction.
 ```
 
-### Pattern 5: "Can't Predict Impact"
+### "Don't know what's there"
 ```
-IMPACT: 0.35 (low)
-UNCERTAINTY: 0.70 (high)
-→ ASK USER: constraints, acceptable impacts, risks
+state: 0.30, context: 0.35
+→ project-bootstrap, grep, read.
+```
+
+### "Everything blurs together"
+```
+density: 0.85 (low), signal: 0.30 (low)
+→ Break into smaller goals + subtasks.
+```
+
+### "Can't predict consequences"
+```
+impact: 0.35, uncertainty: 0.70
+→ Ask user about constraints + acceptable side-effects.
 ```
 
 ---
 
-## Calibration Tips
+## Calibration Honesty
 
-### Be Honest About What You Know
-- ❌ "I could probably figure this out" → KNOW: 0.80
-- ✅ "I don't know this domain" → KNOW: 0.30
+The calibration pipeline rewards accurate self-assessment, not high
+scores.
 
-### Rate Current State, Not Future Hope
-- ❌ "After investigation, I'll know" → KNOW: 0.70
-- ✅ "Right now, I don't know" → KNOW: 0.30
+- ❌ "I could probably figure this out" → `know: 0.80`
+- ✅ "I don't know this domain yet" → `know: 0.30`
 
-### High Uncertainty is GOOD
-- ❌ Hiding uncertainty to seem confident
-- ✅ Honestly reporting high uncertainty triggers investigation
+- ❌ "I'm confident I'll get it right" → `uncertainty: 0.1`
+- ✅ "Multiple unknowns I can't size yet" → `uncertainty: 0.7`
 
-### Use POSTFLIGHT to Validate
-- Track Δuncertainty to measure learning
-- If uncertainty didn't decrease, investigation was ineffective
-- Calibrate future assessments based on actual learning
+High uncertainty isn't weakness — it's the signal the Sentinel uses to
+decide whether to require more investigation. Hiding it produces silent
+divergence later.
 
 ---
 
-## Quick Reference Card
+## See Also
 
-```
-TIER 0 (Gate, 15%):
-├─ ENGAGEMENT (≥0.6 to proceed)
-
-TIER 1 (Foundation, 35%):
-├─ KNOW (domain knowledge)
-├─ DO (execution capability)
-└─ CONTEXT (environmental understanding)
-
-TIER 2 (Comprehension, 25%):
-├─ CLARITY (request specificity)
-├─ COHERENCE (logical consistency)
-├─ SIGNAL (useful vs noise)
-└─ DENSITY (info load, inverted!)
-
-TIER 3 (Execution, 25%):
-├─ STATE (current understanding)
-├─ CHANGE (tracking capability)
-├─ COMPLETION (path visibility)
-└─ IMPACT (consequence prediction)
-
-META (Separate):
-└─ UNCERTAINTY (explicit unknown tracking)
-
-Thresholds:
-• ENGAGEMENT < 0.6 → STOP
-• Confidence < 0.7 → INVESTIGATE
-• UNCERTAINTY > 0.8 → MUST INVESTIGATE
-```
-
----
-
-## Next Steps
-
-- See [04_QUICKSTART_CLI.md](04_QUICKSTART_CLI.md) for using vectors in practice
-- See [Sentinel Architecture](../../architecture/SENTINEL_ARCHITECTURE.md) for PREFLIGHT→CHECK→POSTFLIGHT→POST-TEST workflow
-- See [EMPIRICA_EXPLAINED_SIMPLE.md](EMPIRICA_EXPLAINED_SIMPLE.md) for system overview
-
----
-
-**Remember:** Epistemic transparency > task completion speed. High uncertainty is a signal to investigate, not hide!
+- **CLI basics:** [04_QUICKSTART_CLI.md](04_QUICKSTART_CLI.md)
+- **Workflow:** [SESSION_GOAL_WORKFLOW.md](SESSION_GOAL_WORKFLOW.md)
+- **Sentinel architecture:** [../../architecture/SENTINEL_ARCHITECTURE.md](../../architecture/SENTINEL_ARCHITECTURE.md)
+- **Plain-English overview:** [EMPIRICA_EXPLAINED_SIMPLE.md](EMPIRICA_EXPLAINED_SIMPLE.md)

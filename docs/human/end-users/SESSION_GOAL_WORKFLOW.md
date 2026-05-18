@@ -1,395 +1,247 @@
-# Empirica Session and Goal Workflow Guide
+# Session and Goal Workflow
 
-This guide explains Empirica's goal management system with transaction-aware tracking.
+This is the day-to-day rhythm of working inside Empirica: sessions hold
+context, transactions hold measurement, goals hold structure.
 
-## Understanding the Architecture
+---
 
-### Key Concepts
+## The Three Layers
 
-1. **Sessions**: Temporal work containers that track AI activity (bounded by context windows)
-2. **Transactions**: Measurement windows (PREFLIGHT → work → POSTFLIGHT) that track epistemic state
-3. **Goals**: Objectives with success criteria that can span multiple transactions and sessions
-4. **Subtasks**: Smaller tasks that contribute to goal completion
-5. **Scope Vectors**: Define goal characteristics (breadth, duration, coordination)
+| Layer | Purpose | Lifetime |
+|---|---|---|
+| **Session** | Continuous AI working window | Compaction / explicit close |
+| **Transaction** | Epistemic measurement cycle | PREFLIGHT → POSTFLIGHT |
+| **Goal** | Tracked unit of work | Until `goals-complete` |
 
-### Sessions vs Transactions
+A session contains many transactions. A goal can span many transactions
+(and many sessions). Every artifact you log carries a `transaction_id`
+linking it back to the measurement window it belongs to.
 
-| Concept | Purpose | Bounded By | Persists |
-|---------|---------|------------|----------|
-| **Session** | Temporal container | Context window (compaction) | No |
-| **Transaction** | Measurement cycle | PREFLIGHT → POSTFLIGHT | Yes |
-| **Goal** | Structural objective | Completion criteria | Yes |
+---
 
-**Key insight:** Goals can span multiple transactions and sessions. A single goal might start in Session 1, continue through Session 2, and complete in Session 3. Each PREFLIGHT→POSTFLIGHT cycle measures your epistemic progress toward the goal.
-
-### Why Sessions Matter
-
-Empirica uses sessions to:
-- **Maintain context** across multiple interactions
-- **Track progress** on long-running objectives
-- **Provide continuity** when switching between tasks
-- **Enable collaboration** between multiple AIs
-
-## Basic Workflow
-
-### 1. Create or Resume a Session
+## Minimal Workflow
 
 ```bash
-# Create a new session
-empirica session-create --ai-id claude-copilot --subject "documentation"
+# 1. Create a session (once per AI working window)
+empirica session-create --ai-id $(basename $PWD) --output json
+# → returns session_id
 
-# Resume an existing session
-empirica sessions-list  # Find your session ID
-empirica sessions-resume --session-id 81a9dfd3
-```
-
-**Tip**: Use `empirica project-bootstrap` to get session context automatically.
-
-### 2. Create Goals
-
-```bash
-# Create a goal with JSON config
-cat > my_goal.json << 'EOF'
-{
-    "session_id": "81a9dfd3",
-    "objective": "Complete documentation for core modules",
-    "scope": {
-        "breadth": 0.8,
-        "duration": 0.7,
-        "coordination": 0.3
-    },
-    "estimated_complexity": 0.6,
-    "success_criteria": [
-        {
-            "description": "Document goals module",
-            "threshold": 1.0
-        },
-        {
-            "description": "Document persona module",
-            "threshold": 1.0
-        }
-    ]
-}
-EOF
-
-empirica goals-create my_goal.json
-```
-
-### 3. Add Subtasks
-
-```bash
-# Add subtasks to your goal
-goal_id="ac48c59b-76de-47db-943c-3f557d270435"
-
-empirica goals-add-subtask --goal-id $goal_id \
-    --description "Document goals validation module" \
-    --importance high
-
-empirica goals-add-subtask --goal-id $goal_id \
-    --description "Document goals repository module" \
-    --importance high
-```
-
-### 4. Work on Subtasks
-
-```bash
-# List your goals to see progress
-empirica goals-list --session-id 81a9dfd3
-
-# Check specific goal progress
-empirica goals-progress --goal-id $goal_id
-
-# Mark subtasks as complete when done
-empirica goals-complete-subtask --task-id subtask-id-123 \
-    --evidence "docs/reference/GOALS_VALIDATION.md"
-```
-
-### 5. Complete Goals
-
-```bash
-# When all subtasks are complete, mark goal as complete
-empirica goals-complete --goal-id $goal_id
-```
-
-## Advanced Workflow Patterns
-
-### Transaction-Aware Goal Work
-
-Goals are measured through PREFLIGHT→POSTFLIGHT transaction cycles:
-
-```bash
-# 1. Start a transaction (establishes baseline)
+# 2. Open a measurement window
 empirica preflight-submit - << 'EOF'
 {
-  "session_id": "auto",
-  "task_description": "Implement user authentication",
-  "vectors": {"know": 0.6, "uncertainty": 0.4, "do": 0.2}
+  "task_context": "What you're about to do",
+  "vectors": {"know": 0.5, "uncertainty": 0.5, "context": 0.6},
+  "reasoning": "Honest baseline"
 }
 EOF
 
-# 2. Create goal (session_id auto-derived from transaction)
+# 3. Create a goal that ties this work to a tracked unit
 empirica goals-create --objective "Implement JWT authentication"
 
-# 3. Do the work, log findings as you go
-empirica finding-log --finding "JWT RS256 is more secure" --impact 0.7
+# 4. (Optional) decompose into subtasks
+empirica goals-add-subtask --goal-id <GOAL_ID> --description "Map current auth surface"
+empirica goals-add-subtask --goal-id <GOAL_ID> --description "Implement RS256 signing"
+empirica goals-add-subtask --goal-id <GOAL_ID> --description "Write integration tests"
 
-# 4. Complete subtasks
-empirica goals-complete-subtask --task-id subtask-123
+# 5. Investigate — log as you discover
+empirica finding-log --finding "Current Auth0 setup uses HS256" --impact 0.7
+empirica unknown-log --unknown "Are refresh tokens in scope?"
 
-# 5. Close transaction (measures learning delta)
-empirica postflight-submit - << 'EOF'
+# 6. Gate noetic → praxic
+empirica check-submit - << 'EOF'
 {
-  "session_id": "auto",
-  "vectors": {"know": 0.85, "uncertainty": 0.15, "do": 0.7},
-  "summary": "Implemented JWT auth with RS256 signing"
+  "vectors": {"know": 0.8, "uncertainty": 0.2, "context": 0.85},
+  "reasoning": "Understand the auth surface, ready to implement"
 }
 EOF
+
+# 7. Do the work + complete subtasks as you go
+# ... write code, run tests ...
+empirica goals-complete-subtask --subtask-id <ID> --evidence "commit abc123 — auth.py + tests pass"
+
+# 8. Close the transaction
+empirica postflight-submit - << 'EOF'
+{
+  "vectors": {"know": 0.92, "uncertainty": 0.1, "context": 0.9, "completion": 1.0},
+  "reasoning": "JWT auth shipped, tests green. Compare to PREFLIGHT for the learning delta."
+}
+EOF
+
+# 9. Close the goal
+empirica goals-complete --goal-id <GOAL_ID> --reason "Shipped + tested"
 ```
 
-**Key point:** When inside a transaction (after PREFLIGHT), you don't need `--session-id` — it's auto-derived.
+When you're inside an open transaction, `session_id` is auto-derived
+from the active transaction file. Pass `--session-id` only when you
+need to target a different session (handoff / discovery flows).
 
-### Planned Goals Workflow (Collaborative Planning)
+---
 
-Goals can be created with `--status planned` to log them without starting work.
-This enables a collaborative planning pattern: catalog goals first, review and
-prioritize with the user, then activate and execute.
+## Goal Lifecycle
+
+Goals move through three states:
+
+| State | Meaning | When |
+|---|---|---|
+| `planned` | Logged, not started | Use for backlog / collaborative planning |
+| `in_progress` | Active | Default on `goals-create` |
+| `completed` | Done | After `goals-complete` |
+
+### Planned goals — collaborative planning
 
 ```bash
-# 1. Catalog goals collaboratively (all start as planned)
+# Catalog goals first, decide priorities together, then activate
 empirica goals-create --objective "Implement auth middleware" --status planned
 empirica goals-create --objective "Add session management" --status planned
 empirica goals-create --objective "Write integration tests" --status planned
 
-# 2. Review what's planned
-empirica goals-list    # shows planned + in_progress goals
+# See what's queued
+empirica goals-list --status planned
 
-# 3. Activate a goal when ready to work on it
-#    (goals-create without --status defaults to in_progress)
-#    Or start a PREFLIGHT referencing the planned goal
-
-# 4. Goal lifecycle: planned → in_progress → completed
-#    - planned: logged, not started, excluded from metrics
-#    - in_progress: actively being worked on
-#    - completed: done, with reason
+# Activate when ready
+empirica goals-activate --goal-id <ID>
 ```
 
-**When to use planned goals:**
-- Decomposing a large task before starting any transaction
-- Logging future work ideas without polluting active goal counts
-- Building a backlog that the AI and user review together
+Planned goals are excluded from active metrics — they don't pollute
+in-progress counts. Use this when decomposing a large piece of work
+before starting any transaction.
 
-**Key difference from inline creation:** Planned goals let you separate
-the "what needs doing" conversation from the "doing it" transactions.
-This produces better-scoped transactions because the work is pre-defined.
+---
 
-### Multi-Session Collaboration
+## Goal Decomposition (Subtasks)
+
+A goal with subtasks is the natural unit for grounded calibration:
+each subtask is one tracked chunk of AI work that gets evidence on
+completion.
 
 ```bash
-# AI 1 creates session and initial goals
-ai1_session="81a9dfd3"
-empirica session-create --ai-id ai-1 --session-id $ai1_session
-empirica goals-create --objective "Research topic"  # session_id auto-derived
+# Add a subtask
+empirica goals-add-subtask --goal-id <GOAL_ID> --description "Map current auth surface"
+# → returns subtask_id
 
-# AI 2 continues the work in same session
-empirica sessions-resume --session-id $ai1_session
-empirica goals-add-subtask --goal-id goal-id --description "Write report"
+# List subtasks
+empirica goals-get-subtasks --goal-id <GOAL_ID>
 
-# Check combined progress
-empirica goals-progress --goal-id goal-id
+# Complete with evidence (commit SHA, test result, file path)
+empirica goals-complete-subtask --subtask-id <ID> --evidence "commit abc123"
+
+# Check goal progress
+empirica goals-progress --goal-id <GOAL_ID>
 ```
 
-### Goal Discovery
+**Decompose at PREFLIGHT, not retroactively.** A subtask added after
+the work is done is a self-graded checkbox, not a tracked unit.
+
+---
+
+## Discovering and Resuming Work
 
 ```bash
-# Discover goals from other sessions
-empirica goals-discover --from-ai-id claude-research
+# See active goals in this project
+empirica goals-list
 
-# Claim a discovered goal for your session
-empirica goals-claim --goal-id discovered-goal-id --session-id your-session-id
+# See goals across all projects (workspace registry)
+empirica goals-discover
+
+# Resume a goal another AI worked on
+empirica goals-resume --goal-id <ID> --ai-id $(basename $PWD)
+
+# Claim a goal (creates branch if BEADS enabled)
+empirica goals-claim --goal-id <ID>
 ```
 
-### Session Handoff
+`goals-ready` shows goals you're epistemically ready to work on
+(combining BEADS dependency unblock state + your current vector state):
 
 ```bash
-# Create handoff when switching AIs
-empirica handoff-create --session-id 81a9dfd3 \
-    --to-ai claude-research \
-    --context "Please continue documentation work"
-
-# Query handoffs to see pending work
-empirica handoff-query --session-id 81a9dfd3
+empirica goals-ready
 ```
 
-## Common Pitfalls and Solutions
+---
 
-### ❌ Problem: "Session ID required" Error
+## Handoffs
 
-**Cause**: Trying to use goal commands without specifying a session.
-
-**Solution**:
-```bash
-# Always specify session ID
-actual_session=$(empirica sessions-list --limit 1 | grep -oP '⏳ \K[^ ]+')
-empirica goals-list --session-id $actual_session
-```
-
-### ❌ Problem: "No PREFLIGHT checkpoint found"
-
-**Cause**: Starting work without creating a baseline assessment.
-
-**Solution**:
-```bash
-# Always start with PREFLIGHT
-empirica preflight
-# Then begin your work...
-```
-
-### ❌ Problem: Goals Not Showing Up
-
-**Cause**: Goals are session-specific and you're checking the wrong session.
-
-**Solution**:
-```bash
-# Check all sessions first
-empirica sessions-list
-
-# Then check goals for the correct session
-empirica goals-list --session-id correct-session-id
-```
-
-## Best Practices
-
-### Session Management
-
-1. **One session per workstream**: Keep related work in one session
-2. **Meaningful session names**: Use `--subject` to describe the work
-3. **Regular checkpoints**: Use `empirica memory-compact` for long sessions
-4. **Clean up completed sessions**: Archive finished work
-
-### Goal Design
-
-1. **SMART goals**: Specific, Measurable, Achievable, Relevant, Time-bound
-2. **Appropriate scope**: Use scope vectors accurately
-3. **Clear success criteria**: Make completion objective
-4. **Manageable subtasks**: Break goals into 3-7 subtasks
-
-### Workflow Efficiency
+When you're handing off to another AI or another session:
 
 ```bash
-# Use project-bootstrap for context
-empirica project-bootstrap
+empirica handoff-create \
+  --task-summary "Auth middleware shipped; refresh tokens still TODO" \
+  --key-findings "JWT RS256 chosen" "Auth0 already provides PKCE" \
+  --next-session-context "Wire refresh-token rotation; spec is at docs/specs/AUTH.md"
 
-# Check ready work before starting
-empirica goals-ready --session-id your-session-id
-
-# Use tab completion for commands
-empirica <TAB><TAB>
-
-# Get help when needed
-empirica goals-list --help
+# Receiving end:
+empirica handoff-query --ai-id <THEIR_AI_ID> --limit 5
 ```
 
-## Integration with BEADS (Optional)
+A handoff is roughly 90% smaller than carrying full context into the
+next session.
+
+---
+
+## Common Pitfalls
+
+**"No active transaction"** — call `preflight-submit` first. Most goal
+commands work without one but log/CHECK requires it.
+
+**"No CHECK passed"** — submit `check-submit` with `proceed: true` before
+running praxic tools (Edit, Write, Bash). The Sentinel gates the
+noetic→praxic transition.
+
+**Goal not showing in list** — `goals-list` defaults to in-progress.
+Use `--status planned` or `--status completed` or `--status all`.
+
+**Subtask added but no progress shown** — check the goal-id matches:
+`empirica goals-get-subtasks --goal-id <ID>`.
+
+---
+
+## BEADS Integration (Optional)
+
+If the `bd` CLI is installed and `.empirica/project.yaml` opts in
+(`beads: { default_enabled: true }` or `--use-beads` flag), goals
+get a paired BEADS issue:
 
 ```bash
-# Create goals with BEADS integration
-empirica goals-create goal_config.json --use-beads
-
-# BEADS goals show up in goals-ready
-empirica goals-ready --session-id your-session-id
-
-# Complete BEADS-linked goals
-empirica goals-complete --goal-id beads-goal-id --use-beads
+empirica goals-create --objective "Implement auth" --use-beads
+# → goal_id + beads_issue_id (e.g. bd-a1b2)
 ```
 
-## Visual Workflow
+BEADS adds dependency tracking + ready-work detection on top of
+Empirica's epistemic layer. See [BEADS_QUICKSTART.md](BEADS_QUICKSTART.md).
 
-```mermaid
-graph TD
-    A[Start Work] --> B[Create/Resume Session]
-    B --> C[Create Goals]
-    C --> D[Add Subtasks]
-    D --> E[Work on Subtasks]
-    E --> F{Subtask Complete?}
-    F -->|Yes| G[Mark Subtask Complete]
-    F -->|No| E
-    G --> H{All Subtasks Complete?}
-    H -->|Yes| I[Mark Goal Complete]
-    H -->|No| D
-    I --> J[Session Complete]
+---
+
+## Visual Flow
+
+```
+  ┌────────────────────────────────────────────────────────────┐
+  │  Session (working window)                                  │
+  │                                                            │
+  │  ┌──────────────────────────────────────────────────────┐  │
+  │  │  Transaction 1                                       │  │
+  │  │  PREFLIGHT → noetic → CHECK → praxic → POSTFLIGHT    │  │
+  │  │                                                      │  │
+  │  │  goals-create — opens Goal A                         │  │
+  │  │  goals-complete-subtask × N                          │  │
+  │  └──────────────────────────────────────────────────────┘  │
+  │                                                            │
+  │  ┌──────────────────────────────────────────────────────┐  │
+  │  │  Transaction 2                                       │  │
+  │  │  PREFLIGHT → noetic → CHECK → praxic → POSTFLIGHT    │  │
+  │  │                                                      │  │
+  │  │  goals-complete-subtask × N                          │  │
+  │  │  goals-complete — closes Goal A                      │  │
+  │  └──────────────────────────────────────────────────────┘  │
+  │                                                            │
+  └────────────────────────────────────────────────────────────┘
 ```
 
-## Troubleshooting
+---
 
-### Check Session Status
+## See Also
 
-```bash
-empirica sessions-show --session-id 81a9dfd3
-```
-
-### Verify Goal Existence
-
-```bash
-empirica goals-list --session-id 81a9dfd3
-```
-
-### Debug Command Issues
-
-```bash
-# Use verbose mode
-empirica goals-list --session-id 81a9dfd3 --verbose
-
-# Check logs
-empirica monitor --type error
-```
-
-## Example: Complete Documentation Workflow
-
-```bash
-# 1. Start session
-session_id=$(empirica session-create --ai-id claude-copilot --subject "documentation" | grep -oP '"session_id": "\K[^"]+')
-
-# 2. Create documentation goal
-cat > doc_goal.json << 'EOF'
-{
-    "session_id": "'$session_id'",
-    "objective": "Document core Empirica modules",
-    "scope": {"breadth": 0.8, "duration": 0.7, "coordination": 0.2},
-    "estimated_complexity": 0.6
-}
-EOF
-
-goal_id=$(empirica goals-create doc_goal.json | grep -oP '"goal_id": "\K[^"]+')
-
-# 3. Add documentation subtasks
-empirica goals-add-subtask --goal-id $goal_id --description "Document goals module" --importance high
-task1=$(empirica goals-get-subtasks --goal-id $goal_id | grep -oP 'Task ID: \K[^-]+')
-
-empirica goals-add-subtask --goal-id $goal_id --description "Document persona module" --importance high
-task2=$(empirica goals-get-subtasks --goal-id $goal_id | grep -oP 'Task ID: \K[^-]+' | tail -1)
-
-# 4. Work on subtasks
-# ... do documentation work ...
-
-# 5. Mark subtasks complete
-empirica goals-complete-subtask --task-id $task1 --evidence "docs/reference/GOALS_MODULE.md"
-empirica goals-complete-subtask --task-id $task2 --evidence "docs/reference/PERSONA_MODULE.md"
-
-# 6. Complete goal
-empirica goals-complete --goal-id $goal_id
-
-# 7. Check progress
-empirica goals-progress --goal-id $goal_id
-```
-
-## Summary
-
-Empirica's session and goal system provides:
-
-✅ **Context continuity** across multiple interactions
-✅ **Progress tracking** for complex objectives
-✅ **Collaboration support** between multiple AIs
-✅ **Structured workflow** for systematic work
-✅ **Integration** with BEADS and other systems
-
-**Remember**: Always work within a session, create clear goals, and track progress systematically!
+- **First time:** [FIRST_TIME_SETUP.md](FIRST_TIME_SETUP.md)
+- **CLI basics:** [04_QUICKSTART_CLI.md](04_QUICKSTART_CLI.md)
+- **Vectors:** [05_EPISTEMIC_VECTORS_EXPLAINED.md](05_EPISTEMIC_VECTORS_EXPLAINED.md)
+- **Project model:** [PROJECT_MANAGEMENT_FOR_USERS.md](PROJECT_MANAGEMENT_FOR_USERS.md)
+- **BEADS:** [BEADS_QUICKSTART.md](BEADS_QUICKSTART.md)

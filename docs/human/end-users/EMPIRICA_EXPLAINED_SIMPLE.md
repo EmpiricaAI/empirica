@@ -1,9 +1,8 @@
-# Empirica Explained Simply
+# Empirica, Explained Simply
 
-**What it is:** A system that helps AI agents know what they know (and don't know), track project learning, and collaborate effectively.
-
-**Date:** 2026-02-22
-**Version:** 5.0
+**What it is:** A measurement layer for AI work. It tracks what your
+AI knows, what it's learning, what it's failed at, and how its beliefs
+match (or don't match) observable outcomes — so you can trust it more.
 
 ---
 
@@ -18,417 +17,279 @@ AI:  [Implements something that compiles but is wrong]
 You: [Wastes hours debugging]
 ```
 
-**Root cause:** AI can't distinguish between "I know this" and "I think I can figure this out."
+**Root cause:** AI can't reliably distinguish "I know this" from
+"I think I can figure this out."
 
 ---
 
-## The Solution: Empirica
+## The Solution
 
-Empirica makes AI agents **epistemically honest** - they track what they actually know vs what they're guessing about.
+Empirica makes AI agents **epistemically honest** — they declare what
+they actually know vs what they're guessing about, then act on it.
 
 ```
 You: "Can you implement OAuth2 authentication?"
-AI:  "My knowledge: 0.45/1.0, uncertainty: 0.70
-      Let me investigate the spec first..."
-AI:  [Reads docs, searches codebase]
-AI:  "Knowledge now: 0.85, uncertainty: 0.20. Ready to proceed."
+AI:  "know=0.45, uncertainty=0.70 — let me investigate the spec first."
+AI:  [Reads docs, searches the codebase, logs findings]
+AI:  "know=0.85, uncertainty=0.20 — ready to proceed."
 AI:  [Implements correctly]
 ```
+
+The system then **grounds** those self-assessments against deterministic
+observations (tests passing, commits landed, code complexity changed)
+and surfaces the divergence as a discipline signal. Good calibration →
+the AI earns autonomy.
 
 ---
 
 ## Three Systems in One
 
-### 1. Epistemic Ledger (Self-Awareness)
+### 1. Epistemic ledger (self-assessment)
 
-Track **13 dimensions** of knowledge across 3 tiers:
+13 vectors on `0.0–1.0`, reported at PREFLIGHT (start), CHECK (gate),
+and POSTFLIGHT (end) of every measured chunk of work. See
+[05_EPISTEMIC_VECTORS_EXPLAINED.md](05_EPISTEMIC_VECTORS_EXPLAINED.md)
+for the full set; the foundation five are:
 
-**Tier 0 - Foundation:**
-- **ENGAGEMENT**: Am I focused on the right thing?
-- **KNOW**: Do I understand the domain? (not confidence - actual knowledge)
-- **DO**: Can I actually do this? (skills, tools, access)
-- **CONTEXT**: Do I understand the situation? (files, architecture, constraints)
+- **know** — domain understanding
+- **do** — execution capability
+- **context** — situational awareness
+- **engagement** — focused vs distracted
+- **uncertainty** — explicit unknowns (higher = more uncertain)
 
-**Tier 1 - Comprehension:**
-- **CLARITY**: Do I understand the requirements?
-- **COHERENCE**: Does my understanding make sense?
-- **SIGNAL**: Is the information I have useful?
-- **DENSITY**: Is this too much/too little information?
+### 2. Project memory (compressed context loading)
 
-**Tier 2 - Execution:**
-- **STATE**: Where am I in the process?
-- **CHANGE**: What's changing as I work?
-- **COMPLETION**: How complete is this?
-- **IMPACT**: What's the effect of my work?
-
-**Meta:**
-- **UNCERTAINTY**: What am I unsure about?
-
-### 2. Dynamic Context Loader (Project Memory)
-
-**Problem:** AI agents lose context between sessions.
-
-**Solution:** Load relevant project memory on-demand:
+Every project has its own `.empirica/sessions/sessions.db`. The AI
+logs findings, unknowns, dead-ends, assumptions, decisions, and
+mistakes as it works — all anchored to the transaction they were
+made in. Future sessions load this context in ~800 tokens via
+`empirica project-bootstrap`, instead of starting from a blank slate.
 
 ```bash
-empirica project-bootstrap --project-id <PROJECT_ID>
+empirica finding-log --finding "Auth uses Auth0 SSO with PKCE" --impact 0.7
+empirica unknown-log --unknown "How are refresh tokens stored?"
+empirica deadend-log --approach "Tried passport.js" --why-failed "Too heavy"
 ```
 
-**Shows (~800 tokens):**
-- Recent **findings** (what was learned)
-- Open **unknowns** (what's still unclear)
-- **Dead ends** (what didn't work)
-- Key **reference docs**
-- Related **skills**
+### 3. Goal tracking (structural progress)
 
-**Result:** New session starts with compressed, relevant context instead of blank slate.
+Goals are tracked units of AI work, optionally decomposed into
+subtasks. Each subtask gets evidence (commit SHA, test result, file
+path) when complete. Goal-per-transaction discipline is what makes
+grounded calibration possible.
 
-### 3. Predictive Task Management (Goal System)
-
-**Problem:** Traditional task tracking doesn't capture epistemic uncertainty.
-
-**Solution:** Goals scoped by epistemic dimensions:
-
-```python
-goal = {
-    "objective": "Implement OAuth2 authentication",
-    "scope": {
-        "breadth": 0.6,      # Medium scope (0=function, 1=codebase)
-        "duration": 0.4,     # Medium duration (0=hours, 1=months)
-        "coordination": 0.3  # Low coordination needed
-    },
-    "estimated_complexity": 0.65
-}
+```bash
+empirica goals-create --objective "Implement OAuth2 client with PKCE"
+empirica goals-add-subtask --goal-id <ID> --description "Map current auth"
+empirica goals-complete-subtask --subtask-id <ID> --evidence "commit abc123"
 ```
-
-**Subtasks** track:
-- Importance (critical/high/medium/low)
-- Dependencies
-- Completion status
-- Findings/unknowns per subtask
-
-**BEADS Integration:**
-- `goals-claim`: Create git branch + link to issue tracker
-- `goals-discover`: Find goals from other AI agents
-- `goals-resume`: Take over someone else's goal
-- `goals-complete`: Merge branch + close issue
-
-**Result:** Multi-agent collaboration with epistemic handoff.
 
 ---
 
 ## The CASCADE Workflow
 
-Think of CASCADE like doing homework properly:
+Every measured chunk of work follows the same shape:
 
-### 1. PREFLIGHT (Before Starting)
-**"What do I already know?"**
+```
+PREFLIGHT → (noetic: investigate) → CHECK → (praxic: implement) → POSTFLIGHT
+```
+
+### 1. PREFLIGHT — "What do I know going in?"
+
+Opens the measurement window. Honest baseline.
 
 ```bash
-# Opens an epistemic transaction (measurement window)
 empirica preflight-submit - << 'EOF'
 {
   "task_context": "Implement OAuth2 authentication",
-  "vectors": {"know": 0.45, "uncertainty": 0.7, "context": 0.5, "clarity": 0.6},
-  "reasoning": "Low domain knowledge, high uncertainty"
+  "vectors": {"know": 0.45, "uncertainty": 0.7, "context": 0.5},
+  "reasoning": "Familiar with OAuth2 generally, haven't read this codebase's auth surface yet."
 }
 EOF
 ```
 
-- Assess epistemic vectors **honestly**
-- Not "I can figure it out" but "What do I know RIGHT NOW?"
-- Opens a transaction for measuring learning
+### 2. Noetic phase — "Reduce my uncertainty"
 
-### 2. INVESTIGATE (Reduce Uncertainty)
-**"Let me learn what I need to know"**
+Read, search, log. Praxic tools (Edit/Write/Bash) are blocked by the
+Sentinel until CHECK passes — this is the noetic firewall.
 
 ```bash
-# Log findings as you discover them (session_id auto-derived)
-empirica finding-log --finding "OAuth2 uses PKCE flow for public clients" --impact 0.7
-empirica unknown-log --unknown "How to handle token refresh in our architecture?"
-empirica deadend-log --approach "Tried implicit flow" --why-failed "Deprecated for security"
+empirica finding-log --finding "Auth0 PKCE is used" --impact 0.7
+empirica unknown-log --unknown "Refresh token rotation TBD"
 ```
 
-- Research documentation, search codebase
-- Log findings, unknowns, dead-ends as breadcrumbs
-- These persist in memory and inform future sessions
+### 3. CHECK — "Am I ready to act?"
 
-### 3. CHECK (Decision Gate)
-**"Am I ready to proceed?"**
+Gate between investigation and action.
 
 ```bash
 empirica check-submit - << 'EOF'
 {
-  "vectors": {"know": 0.75, "uncertainty": 0.3, "context": 0.8, "clarity": 0.85},
-  "reasoning": "Investigated OAuth2 spec, found existing patterns"
+  "vectors": {"know": 0.8, "uncertainty": 0.2, "context": 0.85},
+  "reasoning": "Understand the auth surface, ready to implement."
 }
 EOF
 ```
 
-- Sentinel gates praxic action (Edit, Write) until CHECK passes
-- Returns `proceed` or `investigate` (keep exploring)
+Returns `proceed` or `investigate`. (Or auto-proceeds if your vectors
+are high enough that no CHECK ceremony is needed.)
 
-### 4. PRAXIC Phase (Do the Work)
-**"Execute with goal tracking"**
+### 4. Praxic phase — "Do the work"
+
+Write code, run tests, commit. Keep logging as new things come up.
+
+### 5. POSTFLIGHT — "What did I learn?"
+
+Closes the window. The system computes:
+
+- **Learning delta:** PREFLIGHT → POSTFLIGHT vector change
+- **Grounded observations:** tests, git, code-quality, codebase model
+- **Divergence:** where your beliefs vs observations don't match
+
+That divergence is your calibration signal — not a verdict on truth,
+but pointers at where work discipline needs attention next time.
 
 ```bash
-# Create and complete goals
-empirica goals-create --objective "Implement OAuth2 client with PKCE"
-# ... write code, run tests ...
-empirica goals-complete --goal-id <ID> --reason "Implementation verified"
-```
-
-### 5. POSTFLIGHT (Measure Learning)
-**"What did I actually learn?"**
-
-```bash
-# Closes the transaction + triggers grounded verification
 empirica postflight-submit - << 'EOF'
 {
-  "vectors": {"know": 0.85, "uncertainty": 0.15, "context": 0.9, "clarity": 0.9},
-  "reasoning": "Learned OAuth2 PKCE flow, implemented and tested"
+  "vectors": {"know": 0.92, "uncertainty": 0.1, "context": 0.9, "completion": 1.0},
+  "reasoning": "OAuth2 + PKCE shipped, tests pass."
 }
 EOF
 ```
-
-- Learning delta: PREFLIGHT vs POSTFLIGHT vectors
-- Grounded verification (POST-TEST): deterministic services collect observations (tests, git, goals) and compare them to the AI's belief vectors. Divergence signals where work discipline may need attention.
-- Belief calibration trend: are the AI's beliefs about its state converging with service observations over time?
 
 ---
 
-## Real-World Example
-
-### Scenario: "Implement user authentication"
+## A Real Example
 
 **Without Empirica:**
 ```
 1. AI starts implementing immediately
 2. Makes architectural assumptions
-3. Implements OAuth2 incorrectly
-4. Code compiles but has security holes
-5. Hours wasted debugging
+3. Implements OAuth2 with a security hole
+4. Hours wasted debugging
 ```
 
 **With Empirica:**
 
-**PREFLIGHT:**
 ```
-KNOW (auth domain): 0.40  ⚠️
-CONTEXT (our architecture): 0.30  ⚠️
-UNCERTAINTY: 0.75  ⚠️
-→ Recommendation: INVESTIGATE
-```
+PREFLIGHT: know=0.40, context=0.30, uncertainty=0.75 → investigate first
 
-**INVESTIGATE:**
-```bash
-# Log as you discover (session_id auto-derived)
-empirica finding-log --finding "System uses Auth0 for SSO" --impact 0.7
-empirica unknown-log --unknown "How to handle session persistence?"
-```
+NOETIC:    log findings: "Auth0 SSO used", "PKCE required for public clients"
+           log unknown:  "How are refresh tokens stored?"
 
-**CHECK:**
-```bash
-empirica check-submit -   # Returns: proceed
-```
+CHECK:     know=0.80, context=0.85, uncertainty=0.20 → proceed
 
-**PRAXIC (Execute):**
-```bash
-empirica goals-create --objective "Integrate Auth0 OAuth2"
-# ... implement ...
-empirica goals-complete --goal-id <ID> --reason "Auth0 integrated, tests pass"
-```
+PRAXIC:    goals-create "Integrate Auth0 OAuth2 with PKCE"
+           implement, test, commit
 
-**POSTFLIGHT:**
-```bash
-empirica postflight-submit -
-# Learning delta: KNOW 0.40 → 0.85 (+0.45), UNCERTAINTY 0.75 → 0.20 (-0.55)
-# Grounded verification: tests pass, git shows 3 files changed
-# Calibration: GOOD
+POSTFLIGHT: know=0.92, uncertainty=0.10
+           Δuncertainty = -0.65  (investigation effective!)
+           grounded: tests passed, 3 files changed, ruff clean
 ```
 
 ---
 
-## Key Benefits
+## Where Things Live (4-Layer Storage)
 
-### 1. Prevents Confabulation
-AI can't claim knowledge it doesn't have - the ledger tracks reality.
+| Layer | What | Where |
+|---|---|---|
+| **HOT** | Active transaction state | Process memory |
+| **WARM** | Sessions, transactions, artifacts | `.empirica/sessions/sessions.db` (SQLite, per-project) |
+| **SEARCH** | Semantic retrieval | Qdrant collections (per-project + `global_learnings`) |
+| **COLD** | Versioned + sharable | Git notes (`refs/notes/empirica_*`) |
 
-### 2. Systematic Learning
-Investigate **before** acting when uncertainty is high.
-
-### 3. Measurable Progress
-Learning deltas show **actual** knowledge growth, not subjective claims.
-
-### 4. Project Continuity
-Context loader eliminates "starting from scratch" between sessions.
-
-### 5. Multi-Agent Collaboration
-BEADS integration allows AI agents to discover and resume each other's work.
-
-### 6. Token Efficiency
-- Git checkpoints: ~85% token reduction
-- Handoff reports: ~90% token reduction
-- Project bootstrap: Compressed context (~800 tokens)
+What this means for you:
+- Cloning a repo with empirica history = empty `.empirica/` (gitignored)
+- `git fetch refs/notes/empirica_*` pulls in the team's epistemic trail
+- `empirica project-search --task "..."` queries WARM + SEARCH for relevant artifacts
 
 ---
 
-## Architecture Overview
+## Hooks: Why Everything Is Automatic (Claude Code)
 
-### Core Components
+When you run `empirica setup-claude-code`, Empirica installs hooks
+that drive measurement without you doing anything:
 
-```
-empirica/
-├── core/                          # Epistemic framework
-│   ├── canonical/                 # 13-vector assessment
-│   ├── qdrant/                    # Semantic search (optional)
-│   └── lessons/                   # Procedural knowledge
-│
-├── data/                          # SQLite storage
-│   ├── session_database.py        # Main API
-│   └── schema/                    # Table schemas
-│
-├── cli/                           # Command-line interface (138+ commands)
-│   ├── command_handlers/          # Command implementations
-│   └── parsers/                   # Argument parsers
-│
-└── utils/                         # Session resolver, path resolver
-```
+| Hook | Fires | What it does |
+|---|---|---|
+| `SessionStart` | Conversation begins | Creates session, loads project context, posts breadcrumbs |
+| `PreToolUse` | Before any tool call | Sentinel gate — blocks praxic tools until CHECK passes |
+| `PreCompact` | Before context compression | Saves state to breadcrumbs so nothing is lost |
+| `PostCompact` | After compression | Recovers state |
+| `SessionEnd` | Conversation ends | Cleanup + persist final state |
+| `UserPromptSubmit` | Each user message | Context injection (active goals, artifact reminders) |
 
-### Data Storage (per-project)
-
-```
-.empirica/
-├── sessions/
-│   └── sessions.db                # SQLite database (per project)
-├── ref-docs/                      # Reference documents
-├── PROJECT_CONFIG.yaml            # Project configuration
-└── .breadcrumbs.yaml              # Calibration data
-```
-
-### Git Integration
-
-```
-git notes refs/empirica/checkpoints   # Compressed session data
-git notes refs/empirica/handoffs      # Session handoff reports
-git notes refs/empirica/breadcrumbs   # Learning trajectory
-git notes refs/empirica/goals         # Goal discovery
-```
+This is why measurement "just works" once installed — the AI doesn't
+have to remember to call PREFLIGHT or CHECK; the hooks make it
+natural.
 
 ---
 
-## Command Quick Reference
+## Dual-Track Calibration
 
-### Session Management
-```bash
-empirica session-create --ai-id myai
-empirica sessions-list
-empirica sessions-resume --ai-id myai
-```
+Calibration measures how well the AI's beliefs match observable outcomes.
 
-### CASCADE Workflow
-```bash
-empirica preflight-submit -             # PREFLIGHT (JSON stdin)
-empirica check-submit -                 # CHECK gate (JSON stdin)
-empirica postflight-submit -            # POSTFLIGHT (JSON stdin)
-```
+**Track 1 — self-referential (learning trajectory):** PREFLIGHT →
+POSTFLIGHT delta. Catches bias patterns like "always underestimates
+completion by +0.5."
 
-### Noetic Artifacts (log as you work)
-```bash
-empirica finding-log --finding "..." --impact 0.7    # What was learned
-empirica unknown-log --unknown "..."                  # What's unclear
-empirica deadend-log --approach "..." --why-failed "..."  # Failed approaches
-```
+**Track 2 — grounded (service observations):** After POSTFLIGHT, services
+collect deterministic measurements (tests, git, complexity) and surface
+divergence from your beliefs. Doesn't claim to know what the AI "really"
+knew — it tells you where to look for discipline gaps next time.
 
-### Project Tracking
-```bash
-empirica project-init                   # Initialize in CWD
-empirica project-bootstrap              # Load project context
-empirica project-list                   # List all projects
-empirica project-switch <name>          # Switch project
-```
-
-### Goals & Subtasks
-```bash
-empirica goals-create --session-id <ID> --objective "..."
-empirica goals-add-subtask --goal-id <ID> --description "..."
-empirica goals-complete-subtask --task-id <ID>
-empirica goals-progress --goal-id <ID>
-```
-
-### Multi-Agent Collaboration
-```bash
-empirica goals-discover                    # Find goals from other AIs
-empirica goals-resume --goal-id <ID>       # Resume someone's goal
-empirica goals-claim --goal-id <ID>        # Create branch + issue link
-empirica goals-complete --goal-id <ID>     # Merge + close
-```
-
-### Git Integration
-```bash
-empirica checkpoint-create --session-id <ID>
-empirica checkpoint-load --session-id <ID>
-empirica handoff-create --session-id <ID>
-empirica handoff-query --ai-id myai
-```
+Better calibration → Sentinel loosens gates → AI gets more autonomy.
+Worse calibration → tighter gates → more investigation required.
+**Autonomy is earned, not asserted.**
 
 ---
 
-## What Makes Empirica Different?
+## The Cognitive Immune System
 
-### Traditional AI Workflows:
-- AI claims confidence without evidence
-- No systematic learning tracking
-- Context lost between sessions
-- No collaboration framework
-- Token-inefficient handoffs
+The system learns from mistakes:
 
-### Empirica:
-- ✅ **Genuine self-assessment** (13 epistemic vectors)
-- ✅ **Systematic investigation** (CASCADE workflow)
-- ✅ **Measurable learning** (delta tracking)
-- ✅ **Dynamic context loading** (project-bootstrap)
-- ✅ **Multi-agent collaboration** (BEADS integration)
-- ✅ **Token-efficient persistence** (git notes)
+- **Findings** are antigens — new facts that challenge beliefs
+- **Lessons** are antibodies — procedural knowledge with confidence
+  that decays (min floor 0.3) when contradicted by new findings
+- **Dead-ends** prevent re-exploration — once an approach fails, the
+  reason is logged and surfaced if you try the same thing again
+
+Mistakes have prevention strategies. Failed approaches are remembered.
+Patterns are recognized across sessions and (with `--visibility shared`)
+across projects.
 
 ---
 
-## Getting Started
+## What Makes It Different
 
-### 1. Install
+| Traditional AI workflows | Empirica |
+|---|---|
+| AI claims confidence without evidence | 13-vector self-assessment with grounded verification |
+| No systematic learning tracking | PREFLIGHT → POSTFLIGHT delta + artifact graph |
+| Context lost between sessions | `project-bootstrap` compressed context |
+| No collaboration framework | Goals, handoffs, BEADS, cortex-mediated mesh |
+| Token-heavy handoffs | ~90% reduction via handoff reports |
+
+---
+
+## Get Started
+
 ```bash
 pip install empirica
+cd your-project              # any git repo
+empirica project-init        # mints .empirica/ + project.yaml
+empirica setup-claude-code   # Claude Code users only
+empirica diagnose            # sanity check
 ```
 
-### 2. Initialize project + create session
-```bash
-cd your-project
-empirica project-init
-empirica session-create --ai-id myai --output json
-```
-
-### 3. Run CASCADE workflow
-```bash
-empirica preflight-submit -        # Assess baseline (JSON stdin)
-# Investigate... log findings...
-empirica check-submit -            # Gate check
-# Act... complete goals...
-empirica postflight-submit -       # Measure learning
-```
-
-### 4. For Claude Code integration
-```bash
-empirica setup-claude-code         # Installs plugin, hooks, CLAUDE.md
-```
+See [FIRST_TIME_SETUP.md](FIRST_TIME_SETUP.md) for the full walkthrough,
+[04_QUICKSTART_CLI.md](04_QUICKSTART_CLI.md) for daily CLI usage, and
+[05_EPISTEMIC_VECTORS_EXPLAINED.md](05_EPISTEMIC_VECTORS_EXPLAINED.md)
+for the 13 vectors.
 
 ---
 
-## Next Steps
-
-- **For users:** See [01_START_HERE.md](01_START_HERE.md)
-- **For developers:** See [CLI Commands](../developers/CLI_COMMANDS_UNIFIED.md)
-- **For Claude Code:** Run `empirica setup-claude-code`
-
----
-
-**Key Insight:** Empirica isn't just tracking - it's a **systematic approach to AI that knows what it knows**, learns efficiently, and collaborates effectively across sessions and agents.
+**Key insight:** Empirica isn't task tracking. It's a measurement layer
+that makes AI work checkable — and the divergence between belief and
+observation is where collaboration actually improves over time.

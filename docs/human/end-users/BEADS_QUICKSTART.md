@@ -1,136 +1,134 @@
-## BEADS Integration (Optional Issue Tracking)
+# BEADS Integration — Quick Start
 
-Empirica can optionally integrate with **BEADS** (Dependency-Aware Issue Tracker) to track goals as issues with automatic dependency management.
+[BEADS](https://github.com/cased/beads) is a dependency-aware git-native
+issue tracker. Empirica can optionally pair each goal with a BEADS issue
+so you get dependency tracking and ready-work detection on top of the
+epistemic layer.
 
-### What is BEADS?
+**Optional.** Goals work fine without BEADS — `--use-beads` is an
+opt-in flag (or set `beads: default_enabled: true` per-project).
 
-- Dependency-aware issue tracking (tracks blockers automatically)
-- Git-friendly (syncs to `.beads/issues.jsonl`)
-- Agent-optimized (JSON output, ready work detection)
-- Works alongside Empirica's epistemic tracking
+---
 
-### Installation
+## Install BEADS
 
 ```bash
-pip install beads-project
+# Install the bd CLI (uses uv if available, otherwise pip)
+curl -fsSL https://raw.githubusercontent.com/cased/beads/main/scripts/install.sh | bash
+
+# Initialize in your project
 cd your-project
 bd init
 ```
 
-### Usage
+That creates `.beads/config.yaml` (committed) and `.beads/beads.db`
+(gitignored). `bd ready`, `bd close`, etc. work from there.
 
-**Create goal with BEADS tracking:**
+---
+
+## Use With Goals
+
+### Per-goal opt-in
+
 ```bash
-empirica goals-create \
-  --session-id <SESSION> \
-  --objective "Implement OAuth2 authentication" \
-  --success-criteria "Auth works" \
-  --use-beads
+empirica goals-create --objective "Implement OAuth2" --use-beads
+# → returns goal_id + beads_issue_id (e.g. bd-a1b2)
 
-# Output includes beads_issue_id
-{
-  "ok": true,
-  "goal_id": "uuid-here",
-  "beads_issue_id": "empirica-abc",  # ← Automatically created!
-  ...
-}
+empirica goals-add-subtask --goal-id <GOAL_ID> \
+  --description "Research OAuth2 spec" --use-beads
+# → returns subtask_id + beads_issue_id (hierarchical, e.g. bd-a1b2.1)
 ```
 
-**Add subtasks with dependencies:**
-```bash
-empirica goals-add-subtask \
-  --goal-id <GOAL_ID> \
-  --description "Map OAuth2 endpoints" \
-  --importance high \
-  --use-beads
-
-# Subtask automatically linked as dependency in BEADS
-```
-
-**Find ready work (BEADS + Epistemic):**
-```bash
-empirica goals-ready --session-id <SESSION>
-
-# Combines:
-# - BEADS: What's unblocked by dependencies?
-# - Empirica: What am I epistemically ready for?
-# Result: Tasks you can actually do right now
-```
-
-### Per-Project Configuration
-
-Enable BEADS by default for a project:
+### Per-project default
 
 ```yaml
 # .empirica/project.yaml
 beads:
-  default_enabled: true  # Goals use BEADS unless --no-beads
+  default_enabled: true     # Every goal gets a BEADS issue unless --no-beads
 ```
 
-Priority order:
-1. `--use-beads` flag (always wins)
-2. Config file `"use_beads": true`
-3. Project default `default_enabled: true`
-4. Default: opt-in (false)
+Resolution order: `--use-beads`/`--no-beads` flag > config file >
+project default > opt-out.
 
-### Why Use BEADS?
+---
 
-**Without BEADS:**
-- Goals tracked in database only
-- No dependency awareness
-- Manual tracking of what's blocked
+## Find Ready Work
 
-**With BEADS:**
-- Goals synced to issue tracker
-- Automatic dependency tracking
-- `bd ready` shows unblocked work
-- Git-friendly (version controlled issues)
-- `goals-ready` combines dependencies + epistemic state
+Once goals + BEADS are paired, `goals-ready` shows tasks that are:
 
-### Example Workflow
+1. **BEADS-unblocked** — no open blocking dependencies
+2. **Epistemically fit** — your current vectors match the task's
+   declared requirements (where they exist)
+
+```bash
+empirica goals-ready
+```
+
+See [BEADS_GOALS_READY_GUIDE.md](BEADS_GOALS_READY_GUIDE.md) for how
+the fit calculation works.
+
+---
+
+## Example Flow
 
 ```bash
 # 1. Create goal with BEADS
-empirica goals-create \
-  --session-id $SESSION \
-  --objective "Add OAuth2 support" \
-  --use-beads
+empirica goals-create --objective "Add OAuth2 support" --use-beads
+# → goal_id, beads_issue_id=bd-a1b2
 
-# 2. Add subtasks (auto-linked as dependencies)
-empirica goals-add-subtask --goal-id $GOAL --description "Research OAuth2 spec" --use-beads
-empirica goals-add-subtask --goal-id $GOAL --description "Implement token refresh" --use-beads
+# 2. Decompose
+empirica goals-add-subtask --goal-id <GOAL_ID> \
+  --description "Research OAuth2 spec" --use-beads
+empirica goals-add-subtask --goal-id <GOAL_ID> \
+  --description "Implement token refresh" --use-beads
+# → bd-a1b2.1 (research) + bd-a1b2.2 (token refresh, blocked by research)
 
-# 3. Check ready work
-bd ready  # Shows: "Research OAuth2 spec" (no blockers)
-          # Hides: "Implement token refresh" (blocked by research)
+# 3. Check what's actionable
+bd ready
+# → Shows "Research OAuth2 spec" (no blockers)
+# → Hides "Implement token refresh" (blocked by research)
 
-# 4. Work on unblocked task
-empirica preflight-submit -   # JSON via stdin (opens transaction)
-# ... do work ...
-empirica postflight-submit -  # JSON via stdin (closes transaction)
+# 4. Work
+empirica preflight-submit -
+# ... investigate, log findings ...
+empirica goals-complete-subtask --subtask-id <ID> --evidence "commit abc123"
 
-# 5. Complete task
-bd close empirica-abc --reason "Research complete"
+# 5. Close the BEADS issue
+bd close bd-a1b2.1 --reason "Research complete"
 
-# 6. Next task becomes unblocked automatically
-bd ready  # Now shows: "Implement token refresh"
+# 6. Next subtask becomes ready
+bd ready    # → "Implement token refresh"
 ```
 
-### When to Use BEADS
+---
 
-**Use BEADS when:**
-- Multiple sessions working on same project
-- Complex dependencies between tasks
-- Want git-trackable issue history
-- Need dependency-aware work queues
+## When BEADS Helps
 
-**Skip BEADS when:**
-- Single-session exploratory work
-- No external dependencies
-- Prefer simpler setup
+| Use it when | Skip it when |
+|---|---|
+| Multiple sessions on the same project | Single-session exploratory work |
+| Complex dependencies between tasks | No dependencies between tasks |
+| Want git-trackable issue history | `bd` CLI isn't installed |
+| Need cross-AI handoff via dependency state | Prefer simpler setup |
 
-### Learn More
+---
 
-- BEADS GitHub: https://github.com/cased/beads
-- `bd --help` for CLI reference
-- `empirica goals-ready --help` for filtering options
+## Graceful Degradation
+
+If the `bd` CLI isn't installed:
+- `--use-beads` prints a warning
+- Goal/subtask creation continues normally
+- `beads_issue_id` stays `null`
+- Everything else works
+
+The integration is genuinely optional — no Empirica feature requires
+BEADS.
+
+---
+
+## See Also
+
+- **goals-ready details:** [BEADS_GOALS_READY_GUIDE.md](BEADS_GOALS_READY_GUIDE.md)
+- **BEADS upstream:** https://github.com/cased/beads
+- **BEADS design notes (internal):** [../developers/BEADS_INTEGRATION_DESIGN.md](../developers/BEADS_INTEGRATION_DESIGN.md)
+- **`bd --help`** for the full BEADS CLI reference

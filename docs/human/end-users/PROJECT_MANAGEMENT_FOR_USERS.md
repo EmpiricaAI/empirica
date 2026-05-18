@@ -1,291 +1,200 @@
-# Project Management Guide for Empirica Users
+# Project Management for Empirica Users
 
-## Understanding Empirica's Project-Centric Design
+Empirica is project-centric. Each git repo gets its own project identity,
+its own SQLite database, its own epistemic history. This guide covers the
+day-to-day commands for living with that model.
 
-Empirica is designed around **projects** - each project has its own:
-- ✅ **Database** (`.empirica/sessions/sessions.db`)
-- ✅ **Git repository** (auto-detected from git remote)
-- ✅ **Epistemic context** (findings, unknowns, goals)
-- ✅ **Configuration** (`.empirica/config.yaml`)
+---
 
-## Basic Project Operations
+## Project Identity
 
-### 1. Initialize a New Project
+Every Empirica project owns:
+
+| Asset | Path | In git? |
+|---|---|---|
+| Project identity (`project_id`, `ai_id`, `name`, repo URL) | `.empirica/project.yaml` | ✅ committed |
+| Per-project SQLite (sessions, transactions, artifacts) | `.empirica/sessions/sessions.db` | ❌ gitignored |
+| Per-AI calibration breadcrumbs | `.empirica/breadcrumbs.yaml` | ❌ gitignored |
+| Path/runtime config | `.empirica/config.yaml` | ❌ gitignored |
+| Git-notes-anchored artifacts | `.git/refs/notes/empirica_*` | ✅ in `.git/`, not pushed by default |
+
+The repo-level `~/.empirica/` directory holds user-tenant config that's
+shared across all projects: cortex creds, ntfy creds, the local-daemon
+registry, and the workspace database.
+
+---
+
+## Basic Operations
+
+### Initialize a project
 
 ```bash
-# Navigate to your git repository
 cd your-project
-
-# Initialize Empirica (creates .empirica/ directory)
 empirica project-init
 ```
 
-**What this does:**
-- Creates `.empirica/config.yaml` with project settings
-- Registers project in local database
-- Links project to git repository URL
+Writes `.empirica/project.yaml` with:
+- `project_id` — UUID
+- `name`, `description`, `repository`
+- `ai_id` — derived from the project basename (strips `empirica-` prefix
+  so `empirica-cortex` → `cortex`). Override with `--ai-id custom-name`.
 
-### 2. Switch Between Projects
+You only run this once per repo. Re-run with `--force` if you want to
+overwrite an existing `project.yaml`.
+
+### Switch projects
 
 ```bash
-# Simply change directories
 cd ../other-project
-
-# Empirica automatically detects project from git remote
-empirica project-bootstrap  # Shows current project context
-```
-
-**How it works:**
-- Empirica reads `.git/config` to find repository URL
-- Matches URL to project in database
-- Loads project-specific context
-
-### 3. List All Projects
-
-```bash
-empirica project-list
-```
-
-Shows all projects with:
-- Project ID (for API commands)
-- Description
-- Session count
-- Active status
-
-### 4. Get Project Context
-
-```bash
-empirica project-bootstrap --project-id <PROJECT_ID>
-```
-
-Returns:
-- Recent findings (what was learned)
-- Open unknowns (what's unclear)
-- Dead ends (what didn't work)
-- Reference documents
-
-## Advanced Project Management
-
-### Project-Specific Commands
-
-All commands automatically use the current project:
-
-```bash
-# Create session (auto-linked to current project)
-empirica session-create --ai-id myagent
-
-# Log finding (auto-linked to current project)
-empirica finding-log --session-id <ID> --finding "..."
-
-# Create goal (auto-linked to current project)
-empirica goals-create --session-id <ID> --objective "..."
-```
-
-### Manual Project Specification
-
-Override auto-detection:
-
-```bash
-empirica session-create --ai-id myagent --project-id <PROJECT_ID>
-```
-
-## Database & Migration
-
-### How Database Works
-
-Each project has its own SQLite database:
-- Location: `.empirica/sessions/sessions.db`
-- Contains: sessions, findings, unknowns, goals, checkpoints
-- **Isolated per-project**: No shared data between projects
-
-### Database Schema Updates
-
-Empirica handles migrations automatically:
-
-```bash
-# When you run any command, Empirica checks schema version
-# If outdated, it runs migrations automatically
-# No manual intervention needed
-```
-
-### Schema Migration Process
-
-1. **Check version**: Empirica compares current schema with required version
-2. **Run migrations**: Applies SQL migrations from `empirica/data/migrations/`
-3. **Update version**: Records new schema version in database
-
-**You never need to run migrations manually!**
-
-## Best Practices
-
-### 1. One Project Per Repository
-
-```bash
-# ✅ GOOD: One git repo = One Empirica project
-my-project/          # Git repo
-  .git/               # Git files
-  .empirica/          # Empirica project data
-  src/                # Your code
-```
-
-### 2. Clear Project Descriptions
-
-```bash
-# Set descriptive project name during init
-empirica project-init --description "My Awesome AI Project"
-```
-
-### 3. Regular Context Loading
-
-```bash
-# Always load context when starting work
-echo '{"session_id": "...", "vectors": {...}}' | empirica preflight-submit -
 empirica project-bootstrap
 ```
 
-### 4. Project Isolation
+That's it. Project context is keyed on the CWD's git root — no explicit
+switch is needed. `project-bootstrap` prints the current project's
+recent findings, open unknowns, top-confidence artifacts, and active
+goals.
+
+### Inspect what's registered
 
 ```bash
-# Each project has separate:
-# - Database (no shared data)
-# - Configuration
-# - Epistemic history
-# - Git notes (optional)
+# Locally-known projects in the daemon registry
+empirica projects-list
+
+# What the daemon is currently serving
+empirica daemon-list
+
+# Walk the filesystem for projects with .empirica/project.yaml
+empirica projects-discover
+
+# Bulk-register discovered projects on Cortex (requires CORTEX_API_KEY)
+empirica projects-bulk-register
 ```
 
-## Troubleshooting
+### Update project metadata
 
-### "Project not found" Error
-
-**Cause**: Git remote URL doesn't match any registered project
-
-**Fix**:
 ```bash
-# Option 1: Reinitialize project
-empirica project-init --force
-
-# Option 2: Specify project manually
-empirica session-create --project-id <PROJECT_ID>
+empirica project-update --type software --domain "AI infrastructure"
+empirica project-update --description "New description"
 ```
 
-### Database Corruption
+`project-update` merges into `.empirica/project.yaml` atomically.
 
-**Cause**: Rare, but can happen with abrupt shutdowns
+---
 
-**Fix**:
+## Auto-Detection vs Explicit `--project-id`
+
+By default, every command resolves the project from the current working
+directory's git root. Override with `--project-id <UUID>` when:
+
+- Writing an artifact into a different project's DB from inside this one:
+  ```bash
+  empirica finding-log --project-id <OTHER_UUID> --finding "..."
+  ```
+- Running maintenance against a non-CWD project.
+
+Most CLI commands accept `--project-id`. Where it's not yet wired,
+`cd` into the target project first.
+
+---
+
+## Database & Migrations
+
+Schema migrations run automatically. When any command opens the SQLite
+DB, the migration runner compares the recorded schema version against
+the migrations listed in `empirica/data/migrations/migrations.py`,
+applies any missing migrations in order, and updates the version. You
+don't run migrations by hand.
+
+Latest migration as of 1.9.8: `045_assumption_decision_description`.
+
+To force-replay migrations after a manual schema fix:
 ```bash
-# Backup database
-cp .empirica/sessions/sessions.db .empirica/sessions/sessions.db.backup
-
-# Reinitialize (creates new database)
-rm -rf .empirica/sessions/
-empirica project-init
+empirica rebuild --migrations-only
 ```
 
-## Multi-Project Workflows
+---
 
-### Working on Multiple Projects
+## Cross-Project View (Workspace)
 
-```bash
-# Project A
-cd project-a
-empirica project-bootstrap  # Shows Project A context
-# ... work on Project A ...
-
-# Project B
-cd ../project-b
-empirica project-bootstrap  # Shows Project B context
-# ... work on Project B ...
-```
-
-### Cross-Project Coordination
+The workspace database at `~/.empirica/workspace/workspace.db` keeps
+a registry of every project Empirica has seen plus rollup analytics.
 
 ```bash
-# Share findings between projects
-echo '{"finding": "...", "project_id": "PROJECT_B_ID"}' | empirica finding-log -
-```
-
-## Security & Privacy
-
-### Data Isolation
-
-- ✅ Each project database is **completely isolated**
-- ✅ No shared data between projects
-- ✅ `.empirica/` is in `.gitignore` (never committed)
-- ✅ Git notes are optional (you control what's shared)
-
-### Backup Recommendations
-
-```bash
-# Backup project data
-cp -r .empirica/ empirica-backup-$(date +%Y%m%d)/
-
-# Restore from backup
-cp -r empirica-backup-*/.empirica/ .
-```
-
-## Global Workspace: Cross-Project View
-
-Beyond individual projects, Empirica maintains a **global workspace registry** at `~/.empirica/workspace/workspace.db`.
-
-### Why This Matters
-
-Each project has its own `.empirica/` directory with findings, unknowns, goals, and transactions. The workspace database provides:
-
-- **Portfolio view**: See all 27+ projects at a glance
-- **Cross-project patterns**: "Every time I approach caching, I underestimate complexity"
-- **Anti-patterns**: "Redis approach failed in 3/5 projects — avoid unless X"
-- **Knowledge transfer**: Link findings across projects
-
-### Workspace Commands
-
-```bash
-# Discover all projects under a directory
-empirica workspace-init --path ~/projects
-
-# List all registered projects with stats
+# Snapshot view
 empirica workspace-overview
 
-# Sync stats from a project's local database
+# Walk a directory tree and register every project found
+empirica workspace-init --path ~/projects
+
+# Pull stats from a project's SQLite into workspace.db
 empirica workspace-map
+
+# Semantic search across all projects' Qdrant collections
+empirica project-search --task "auth flow" --global
 ```
 
-### What Gets Tracked Globally
-
-| Per-Project | Global Workspace |
-|-------------|------------------|
-| Findings, unknowns, dead-ends | Project registry with trajectory paths |
+| Per-project SQLite | Workspace DB |
+|---|---|
+| Sessions, transactions | Project registry + paths |
+| Findings, unknowns, dead-ends | Aggregated stats |
 | Goals, subtasks | Cross-project patterns |
-| Sessions, transactions | Knowledge transfer links |
-| Epistemic state | Summary statistics |
+| Per-AI calibration | Project trajectories |
+
+The workspace layer is what makes "what have I learned about auth
+across all 27 projects?" answerable.
+
+---
+
+## Sharing Per-Project Epistemic Data
+
+Artifacts are written to `refs/notes/empirica_*` in your local git, one
+ref per artifact type. They're **not pushed by default**.
+
+```bash
+# Share your team's epistemic trail
+git push origin 'refs/notes/empirica_*:refs/notes/empirica_*'
+
+# Pull a teammate's
+git fetch origin 'refs/notes/empirica_*:refs/notes/empirica_*'
+```
+
+For cross-AI orchestration (proposals, completion handshakes), see
+`docs/architecture/EVENT_LISTENER.md` — cortex + ntfy mediate that
+layer, not git.
 
 ---
 
 ## Sessions vs Transactions
 
-**Important distinction:**
+| Concept | What it is | Bounded by |
+|---|---|---|
+| **Session** | A continuous AI working window | Compaction / explicit close |
+| **Transaction** | A measurement cycle (PREFLIGHT → POSTFLIGHT) | Your choice — typically one coherent chunk of work |
 
-| Concept | What It Is | Scope |
-|---------|------------|-------|
-| **Session** | Context window (compact boundary) | AI internal |
-| **Transaction** | PREFLIGHT→work→POSTFLIGHT→post-test | Epistemic measurement |
-
-- Sessions can span multiple transactions
-- Transactions can span multiple sessions (if compaction happens mid-transaction)
-- **Transactions are the atomic unit** for epistemic trajectories
-
-All noetic artifacts (findings, unknowns, dead-ends) include a `transaction_id` linking them to the measurement window they belong to.
+A session can contain many transactions. A transaction can outlive a
+session (POSTFLIGHT after a compaction). Every artifact is linked to
+the transaction it was logged within — that's how the calibration
+pipeline grounds your beliefs against observable outcomes.
 
 ---
 
-## Summary
+## Troubleshooting
 
-**Key Points:**
-1. ✅ **Auto-switching**: Empirica detects projects from git remote
-2. ✅ **Auto-migrations**: Database schema updates automatically
-3. ✅ **Isolation**: Each project has separate database/config
-4. ✅ **Global registry**: Workspace database tracks all projects
-5. ✅ **Cross-project patterns**: Learn from trajectories across projects
-6. ✅ **Transaction tracking**: All artifacts linked to measurement windows
+**"No project found at $PWD"** — run `empirica project-init`.
 
-**Need help?** Check `empirica project-list` and `empirica project-bootstrap --help`
+**`project-bootstrap` shows empty context** — no artifacts logged yet for
+this project. Use `finding-log` / `unknown-log` / `decision-log` and
+re-bootstrap.
+
+**Project on disk but not in registry** — `empirica projects-discover --register`.
+
+**Database corruption** — see `03_TROUBLESHOOTING.md`.
+
+---
+
+## See Also
+
+- **First time:** [FIRST_TIME_SETUP.md](FIRST_TIME_SETUP.md)
+- **CLI basics:** [04_QUICKSTART_CLI.md](04_QUICKSTART_CLI.md)
+- **Workflow:** [SESSION_GOAL_WORKFLOW.md](SESSION_GOAL_WORKFLOW.md)
+- **Cross-project queries:** `docs/reference/api/CROSS_PROJECT.md`

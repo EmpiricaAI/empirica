@@ -1,382 +1,338 @@
 # CLI Quick Start
 
-**Time:** 10 minutes  
-**Best for:** Terminal workflows, scripts, automation  
-**Prerequisites:** Empirica installed (see [02_INSTALLATION.md](02_INSTALLATION.md))
+**Time:** 10 minutes. **Prerequisites:** `pip install empirica` and `empirica project-init` in your repo (see [FIRST_TIME_SETUP.md](FIRST_TIME_SETUP.md)).
+
+This guide walks the most common CLI commands. For the full reference,
+see [CLI_COMMANDS_UNIFIED.md](../developers/CLI_COMMANDS_UNIFIED.md).
 
 ---
 
-## Quick Example: Complete Workflow
+## The Core Loop
 
-### 1. Create a Session
-```bash
-# AI-first mode (JSON)
-echo '{"ai_id": "myai", "session_type": "development"}' | empirica session-create -
+Every measured chunk of work follows the same shape:
 
-# Output:
-# {
-#   "ok": true,
-#   "session_id": "abc123...",
-#   "ai_id": "myai",
-#   "project_id": "auto-detected-uuid"
-# }
+```
+PREFLIGHT → (noetic: investigate) → CHECK → (praxic: implement) → POSTFLIGHT
 ```
 
-**Save the session_id** - you'll need it for the workflow.
-
-### 2. Run PREFLIGHT Assessment
 ```bash
-# AI-first mode (JSON via stdin) — opens a transaction
+# 1. Create a session (once per AI working window)
+SESSION_ID=$(empirica session-create --ai-id $(basename $PWD) --output json | jq -r .session_id)
+
+# 2. Open a transaction
 empirica preflight-submit - << 'EOF'
 {
-  "task_context": "What you're about to do",
-  "vectors": {"know": 0.45, "uncertainty": 0.7, "context": 0.5, "clarity": 0.6},
-  "reasoning": "Honest baseline assessment"
+  "task_context": "Fix auth bug in token validation",
+  "vectors": {"know": 0.45, "uncertainty": 0.6, "context": 0.5, "clarity": 0.7},
+  "reasoning": "Seen the area, haven't read the actual code yet."
 }
 EOF
 
-# Legacy mode (flags)
-empirica preflight --session-id <SESSION_ID>
-```
+# 3. Investigate (noetic phase — log as you discover)
+empirica finding-log --finding "Token audience check is skipped on refresh" --impact 0.8
+empirica unknown-log --unknown "Does the same gap exist on access-token validation?"
+empirica deadend-log --approach "Tried patching the JWT lib" --why-failed "We don't own that code path"
 
-**What it does:**
-- Opens an epistemic transaction (measurement window)
-- Records your baseline vectors for learning measurement
-- Returns session_id + transaction_id for subsequent commands
-
-### 3. Investigate (noetic phase)
-```bash
-# Log what you learn (session_id auto-derived from active transaction)
-empirica finding-log --finding "System uses Auth0 for SSO" --impact 0.7
-
-# Log what's unclear
-empirica unknown-log --unknown "How to handle token refresh?"
-
-# Log failed approaches (prevents re-exploration)
-empirica deadend-log --approach "Tried WebSockets" --why-failed "Server doesn't support WS"
-```
-
-### 4. CHECK Gate (Sentinel)
-```bash
-# AI-first mode (JSON via stdin)
+# 4. Gate the noetic → praxic transition
 empirica check-submit - << 'EOF'
 {
-  "vectors": {"know": 0.75, "uncertainty": 0.3, "context": 0.8, "clarity": 0.85},
-  "reasoning": "Investigated auth architecture, ready to implement"
+  "vectors": {"know": 0.8, "uncertainty": 0.2, "context": 0.85, "clarity": 0.9},
+  "reasoning": "Read the validator, understand the gap, ready to fix."
 }
 EOF
 
-# Legacy mode (flags)
-empirica check --session-id <SESSION_ID>
-```
+# 5. Do the work (write code, run tests, commit)
+empirica goals-create --objective "Fix audience check on refresh path"
+# ... write code ...
+empirica goals-complete --goal-id <ID> --reason "Fix shipped, tests cover the regression"
 
-**Output:**
-- `proceed` — ready for praxic action (write code, edit files)
-- `investigate` — keep exploring in noetic phase
-
-### 5. Do the Work (praxic phase)
-```bash
-# Create and complete goals
-empirica goals-create --objective "Implement OAuth2 client with PKCE"
-empirica goals-complete --goal-id <GOAL_ID> --reason "OAuth2 PKCE flow implemented and tested"
-```
-
-### 6. Run POSTFLIGHT (closes the transaction)
-```bash
-# AI-first mode (JSON via stdin) — closes transaction + triggers grounded verification
+# 6. Close the transaction
 empirica postflight-submit - << 'EOF'
 {
-  "vectors": {"know": 0.85, "uncertainty": 0.15, "context": 0.9, "clarity": 0.9},
-  "reasoning": "Learned OAuth2 PKCE flow, implemented and tested. Compare to PREFLIGHT baseline."
+  "vectors": {"know": 0.92, "uncertainty": 0.1, "context": 0.9, "completion": 1.0},
+  "reasoning": "Audience check now enforced on both paths. POSTFLIGHT delta = learning."
 }
 EOF
-
-# Legacy mode (flags)
-empirica postflight --session-id <SESSION_ID>
 ```
 
-**What it measures:**
-- Learning delta: PREFLIGHT vs POSTFLIGHT vectors
-- Grounded verification (POST-TEST): deterministic services collect observations (tests, git, goals) and compare them to the AI's belief vectors. Divergence signals where work discipline may need attention.
-- Belief calibration trend: are the AI's beliefs about its state converging with service observations over time?
-
-### 7. Create Handoff (optional)
-```bash
-# For resuming work later or handing off to another agent
-empirica handoff-create --session-id <SESSION_ID> \
-    --task-summary "Implemented OAuth2 authentication" \
-    --key-findings "Auth0 SSO integrated" "PKCE flow works" \
-    --next-session-context "Token refresh still needs work"
-
-# Query handoffs later
-empirica handoff-query --ai-id myai --limit 5
-```
+POSTFLIGHT also triggers grounded verification: deterministic services
+(ruff, pyright, tests, git, codebase model) collect observations and
+surface divergence from your beliefs. That divergence is your
+calibration signal.
 
 ---
 
-## Common Commands
+## Sessions & Transactions
 
-### Session Management
 ```bash
-# Create session
-empirica session-create --ai-id myai
+# Create
+empirica session-create --ai-id $(basename $PWD)
+empirica session-create --ai-id myai --output json    # machine-readable
 
-# List all sessions
+# List
 empirica sessions-list
+empirica sessions-list --limit 5 --output json
 
-# Show session details
+# Show
 empirica sessions-show --session-id <ID>
 
-# Resume previous sessions
-empirica sessions-resume --ai-id myai --count 1
+# Resume a prior session
+empirica sessions-resume --ai-id $(basename $PWD) --count 1
 ```
 
-### Project Management
+When you're inside an open transaction, `session_id` is auto-derived —
+you don't need to pass it to log/CHECK/POSTFLIGHT.
+
+---
+
+## Projects
+
 ```bash
-# Create project
-empirica project-create --name "My Project" \
-    --description "Project description"
+# Initialize this repo as an Empirica project
+empirica project-init
 
-# Bootstrap context
-empirica project-bootstrap --project-id <PROJECT_ID>
+# Load current project context (recent findings, open goals, etc.)
+empirica project-bootstrap
 
-# List projects
-empirica project-list
+# List all locally-known projects
+empirica projects-list
+
+# Switch by directory — auto-detected
+cd ../other-project && empirica project-bootstrap
 ```
 
-### Goals & Subtasks
+See [PROJECT_MANAGEMENT_FOR_USERS.md](PROJECT_MANAGEMENT_FOR_USERS.md)
+for the full project model.
+
+---
+
+## Goals & Subtasks
+
 ```bash
-# Create goal
-empirica goals-create --session-id <SESSION_ID> \
-    --objective "Implement feature X"
+# Create a goal (defaults to in_progress)
+empirica goals-create --objective "Implement JWT auth" \
+  --description "RS256 signing, audience check on both validate + refresh paths"
 
-# Add subtask
-empirica goals-add-subtask --goal-id <GOAL_ID> \
-    --description "Research approach" \
-    --importance high
+# Plan a goal without starting work
+empirica goals-create --objective "Migrate to Redis sessions" --status planned
 
-# Complete subtask
-empirica goals-complete-subtask --task-id <TASK_ID>
+# Decompose into subtasks
+empirica goals-add-subtask --goal-id <GOAL_ID> --description "Map current auth surface"
+empirica goals-add-subtask --goal-id <GOAL_ID> --description "Implement RS256"
+empirica goals-add-subtask --goal-id <GOAL_ID> --description "Write integration tests"
 
-# Check progress
+# List + progress
+empirica goals-list
+empirica goals-list --status planned
 empirica goals-progress --goal-id <GOAL_ID>
+
+# Complete with evidence
+empirica goals-complete-subtask --subtask-id <ID> --evidence "commit abc123"
+empirica goals-complete --goal-id <GOAL_ID> --reason "Shipped + tested"
+
+# Find ready work (BEADS unblocked + epistemically fit)
+empirica goals-ready
 ```
 
-### Multi-Agent Collaboration (BEADS)
-**BEADS** (Dependency-Aware Issue Tracker) integrates with Empirica for dependency-aware goal tracking.
+`--description` accepts up to 8000 chars of markdown — use it for
+substantive context, success criteria, and links. The TUI and extension
+render it as prettified markdown.
+
+---
+
+## Artifacts (Log as You Work)
 
 ```bash
-# Create goal with BEADS tracking
-empirica goals-create \
-  --session-id <SESSION_ID> \
-  --objective "Implement OAuth2" \
-  --success-criteria "Auth works" \
-  --use-beads  # ← Automatically creates BEADS issue
+# Discoveries
+empirica finding-log --finding "Routes use Bearer tokens" --impact 0.6
+empirica finding-log --finding "Lib X has a bug at v2.3" --impact 0.7 --epistemic-source search
 
-# Add subtasks with auto-dependencies
-empirica goals-add-subtask \
-  --goal-id <GOAL_ID> \
-  --description "Research OAuth2 spec" \
-  --use-beads  # ← Auto-links as dependency
+# Open questions
+empirica unknown-log --unknown "How are refresh tokens stored?"
 
-# Find ready work (BEADS + Epistemic)
-empirica goals-ready --session-id <SESSION_ID>
-# Combines: BEADS dependencies + epistemic state
-# Result: Tasks you can actually do right now
+# Failed approaches (so you and future-you don't repeat them)
+empirica deadend-log --approach "Tried passport.js" --why-failed "Too heavy for JWT-only"
+
+# Errors made
+empirica mistake-log --mistake "Bumped to v2.3 without checking changelog" \
+  --why-wrong "v2.3 introduced the audience-check regression" \
+  --prevention "Read upstream changelog on every bump"
+
+# Beliefs you're working from
+empirica assumption-log --assumption "Redis is available in prod" --confidence 0.7
+
+# Decisions you make
+empirica decision-log --choice "Use RS256 over HS256" --rationale "Public verifier separation"
+
+# External sources cited
+empirica source-add --title "RFC 7519 — JWT" --source-url "https://datatracker.ietf.org/doc/html/rfc7519"
 ```
 
-**Per-project default:**
-```yaml
-# .empirica/project.yaml
-beads:
-  default_enabled: true  # Enable by default
-```
+Provenance: `--epistemic-source intuition|search|mixed` records whether
+the artifact came from session reads vs priors. Honest tagging produces
+honest calibration.
 
-**Learn more:** [BEADS Quickstart](BEADS_QUICKSTART.md)
+Visibility: `--visibility local|shared|public` opts an artifact into
+cross-project surfacing via Qdrant. Default is `local`.
 
-### Git Integration
+---
+
+## Batch Operations
+
+When logging ≥3 connected artifacts in one transaction, use the graph
+form instead of N individual `*-log` calls:
+
 ```bash
-# Create checkpoint (saves to git notes)
-empirica checkpoint-create --session-id <SESSION_ID>
+empirica log-artifacts - << 'EOF'
+{
+  "nodes": [
+    {"ref": "f1", "type": "finding",
+     "data": {"finding": "JWT validator skips audience on refresh", "impact": 0.8}},
+    {"ref": "d1", "type": "decision",
+     "data": {"choice": "Enforce audience on both paths",
+              "rationale": "Closes the symmetric gap",
+              "reversibility": "exploratory"}}
+  ],
+  "edges": [
+    {"from": "d1", "to": "f1", "relation": "evidence"}
+  ]
+}
+EOF
+```
 
-# Load checkpoint
-empirica checkpoint-load --session-id <SESSION_ID>
+Edges anchor artifacts in the commit-context graph — `empirica
+commit-context <sha>` walks them.
 
-# List checkpoints
-empirica checkpoint-list --session-id <SESSION_ID>
+---
 
-# Show differences
-empirica checkpoint-diff --session-id <SESSION_ID>
+## Inspecting the Project
+
+```bash
+# Recent findings, open unknowns, active goals
+empirica project-bootstrap
+
+# Search across this project's Qdrant
+empirica project-search --task "auth bug"
+
+# Cross-project search (global_learnings collection)
+empirica project-search --task "JWT pattern" --global
+
+# Walk commit-anchored artifacts
+empirica commit-context HEAD
+empirica commit-context --range HEAD~10..HEAD
+
+# Calibration report
+empirica calibration-report
+empirica calibration-report --learning-trajectory    # PREFLIGHT→POSTFLIGHT deltas
 ```
 
 ---
 
 ## Output Formats
 
-### Default (Human-Friendly)
 ```bash
-empirica sessions-list
-# Colorized, formatted output with tables
-```
-
-### JSON (AI-Friendly)
-```bash
-empirica sessions-list --output json
-# Machine-readable JSON
-```
-
-### AI-First Mode (stdin)
-```bash
-# Send JSON via stdin
-echo '{"ai_id": "myai"}' | empirica session-create -
-
-# Useful for programmatic usage
-cat config.json | empirica goals-create -
+empirica sessions-list                    # Human-friendly (colored)
+empirica sessions-list --output json      # JSON for scripting
+echo '{...}' | empirica session-create -  # AI-first JSON stdin
 ```
 
 ---
 
-## Typical Workflows
+## Common Workflows
 
-### Solo Development Session
+### Solo work, single transaction
+
 ```bash
-# 1. Start
-SESSION_ID=$(empirica session-create --ai-id myai --output json | jq -r .session_id)
-
-# 2. Load project context
-empirica project-bootstrap --output json
-
-# 3. Create goal + assess
-empirica goals-create --objective "Fix auth bug"
 empirica preflight-submit -    # JSON via stdin
-
-# 4. Investigate + act
-empirica finding-log --finding "Found root cause in token validation"
-empirica check-submit -        # Gate check
-# ... write code ...
-
-# 5. Complete
-empirica goals-complete --goal-id <ID> --reason "Bug fixed, tests pass"
-empirica postflight-submit -   # Closes transaction
+# ... investigate + log ...
+empirica check-submit -        # gate
+# ... implement + commit ...
+empirica goals-complete --goal-id <ID> --reason "..."
+empirica postflight-submit -   # close
 ```
 
-### Multi-Agent Goal Handoff
-```bash
-# Agent 1: Create goal
-GOAL_ID=$(empirica goals-create --session-id $SESSION_ID \
-    --objective "Refactor authentication" --output json | jq -r .goal_id)
-
-empirica goals-add-subtask --goal-id $GOAL_ID \
-    --description "Research current implementation" --importance high
-
-empirica goals-claim --goal-id $GOAL_ID  # Creates branch + issue
-
-# Agent 2: Discover and resume
-empirica goals-discover
-empirica goals-resume --goal-id $GOAL_ID --ai-id agent2
-empirica goals-complete --goal-id $GOAL_ID  # Merges + closes
-```
-
-### Long-Running Project
-```bash
-# Day 1: Initialize
-PROJECT_ID=$(empirica project-create --name "Feature X" --output json | jq -r .project_id)
-
-# Day 2: Bootstrap context
-empirica project-bootstrap --project-id $PROJECT_ID
-# Shows: recent findings, unknowns, dead-ends, reference docs
-
-# Day N: Track discoveries
-empirica finding-log --project-id $PROJECT_ID \
-    --finding "API uses REST not GraphQL"
-
-empirica deadend-log --project-id $PROJECT_ID \
-    --approach "Tried using WebSockets" \
-    --why-failed "Server doesn't support WS protocol"
-```
-
----
-
-## Tips & Best Practices
-
-### 1. Be Honest in Assessments
-- PREFLIGHT: Rate what you know **right now**, not what you can figure out
-- Don't inflate scores - the system learns from accurate self-assessment
-
-### 2. Use Project Bootstrap
-- Start each session with `project-bootstrap` to load relevant context
-- Saves tokens and prevents "starting from scratch"
-
-### 3. Log as You Go
-- Use `finding-log`, `unknown-log`, `deadend-log` during work
-- Creates searchable epistemic trail for future sessions
-
-### 4. Create Handoffs
-- Even for solo work, handoffs help resume efficiently
-- ~90% token reduction vs full context
-
-### 5. Leverage Git Integration
-- Checkpoints are cheap (~85% token reduction)
-- Create checkpoints before risky changes
-
----
-
-## What's Next?
-
-- **Learn about vectors:** [05_EPISTEMIC_VECTORS_EXPLAINED.md](05_EPISTEMIC_VECTORS_EXPLAINED.md)
-- **Understand CASCADE:** [Sentinel Architecture](../../architecture/SENTINEL_ARCHITECTURE.md) - PREFLIGHT→CHECK→POSTFLIGHT workflow
-- **See all commands:** [CLI Commands Unified](../developers/CLI_COMMANDS_UNIFIED.md)
-- **Having issues?** [03_TROUBLESHOOTING.md](03_TROUBLESHOOTING.md)
-
----
-
-## Quick Reference Card
+### Long-running goal across sessions
 
 ```bash
-# Essential Commands (CASCADE workflow)
-empirica session-create --ai-id myai          # Start session
-empirica project-bootstrap                    # Load project context
-empirica goals-create --objective "..."       # Create goal
-empirica preflight-submit -                   # PREFLIGHT (JSON stdin)
-empirica check-submit -                       # CHECK gate (JSON stdin)
-empirica postflight-submit -                  # POSTFLIGHT (JSON stdin)
-empirica handoff-create --session-id <ID>     # Create handoff
+# Session 1
+empirica goals-create --objective "Refactor auth" --status planned
+# ...activate when ready in next session...
 
-# Noetic Artifacts (log as you work)
-empirica finding-log --finding "..."          # What was learned
-empirica unknown-log --unknown "..."          # What's unclear
-empirica deadend-log --approach "..."         # Failed approaches
+# Session N
+empirica goals-activate --goal-id <ID>
+empirica preflight-submit -
+# ... work on subtasks ...
+empirica goals-complete-subtask --subtask-id <ID> --evidence "commit ..."
+empirica postflight-submit -
+```
 
-# Praxic Artifacts (track progress)
-empirica goals-create --objective "..."       # Create goal
-empirica goals-complete --goal-id <ID>        # Complete goal
-empirica goals-list                           # List active goals
+### Handoff to another AI / session
 
-# Calibration
-empirica calibration-report                        # Grounded calibration (default)
-empirica calibration-report --learning-trajectory  # Self-referential (PREFLIGHT->POSTFLIGHT deltas)
+```bash
+empirica handoff-create \
+  --task-summary "Auth middleware shipped; refresh-token rotation TODO" \
+  --key-findings "RS256 chosen" "Auth0 already provides PKCE" \
+  --next-session-context "Wire rotation; spec at docs/specs/AUTH.md"
 
-# Global Workspace (cross-project)
-empirica workspace-overview                   # Portfolio view
-empirica project-switch <name>                # Switch project
+# Receiving end:
+empirica handoff-query --ai-id <THEIR_AI_ID> --limit 5
 ```
 
 ---
 
-## Sessions vs Transactions
+## AI-Mesh Orchestration (Optional)
 
-**Key distinction** for understanding Empirica:
+If you've set up cortex creds in `~/.empirica/credentials.yaml`, you can
+send work to other AIs:
 
-| Concept | What It Is | When It Ends |
-|---------|------------|--------------|
-| **Session** | Context window | When Claude compacts memory |
-| **Transaction** | Epistemic measurement unit | POSTFLIGHT completes |
+```bash
+# Start the listener subprocess (subscribes to ntfy wake bridge)
+empirica loop listen --instance $(basename $PWD)
 
-- **Sessions** are internal (context boundaries)
-- **Transactions** are the real unit (PREFLIGHT→work→POSTFLIGHT)
-- All findings/unknowns/dead-ends have a `transaction_id`
-- Transactions can span multiple sessions (if compaction happens mid-work)
+# In another AI session: see what was queued for you
+# (via Cortex MCP — see docs/architecture/EVENT_LISTENER.md)
+```
+
+The full send/receive surface lives in the `cortex-mailbox-send` /
+`cortex-mailbox-poll` skills (loaded by AIs when a Monitor is armed).
 
 ---
 
-**Remember:** Empirica works best when you're honest about what you know. The system is designed to help you learn systematically, not to judge you for uncertainty.
+## Quick Reference
+
+```bash
+# Essentials
+empirica session-create --ai-id $(basename $PWD)
+empirica project-bootstrap
+empirica preflight-submit -
+empirica check-submit -
+empirica postflight-submit -
+
+# Artifacts
+empirica finding-log --finding "..." --impact 0.7
+empirica unknown-log --unknown "..."
+empirica decision-log --choice "..." --rationale "..."
+empirica goals-create --objective "..." --description "..."
+empirica goals-complete --goal-id <ID> --reason "..."
+
+# Inspection
+empirica goals-list
+empirica project-search --task "..."
+empirica calibration-report
+empirica commit-context HEAD
+
+# Diagnostics
+empirica diagnose       # integration health
+empirica doctor         # install health
+empirica system-status  # runtime status
+```
+
+---
+
+## Next Steps
+
+- **The 13 vectors:** [05_EPISTEMIC_VECTORS_EXPLAINED.md](05_EPISTEMIC_VECTORS_EXPLAINED.md)
+- **Full CLI reference:** [CLI_COMMANDS_UNIFIED.md](../developers/CLI_COMMANDS_UNIFIED.md)
+- **Project model:** [PROJECT_MANAGEMENT_FOR_USERS.md](PROJECT_MANAGEMENT_FOR_USERS.md)
+- **Workflow patterns:** [SESSION_GOAL_WORKFLOW.md](SESSION_GOAL_WORKFLOW.md)
+- **Troubleshooting:** [03_TROUBLESHOOTING.md](03_TROUBLESHOOTING.md)

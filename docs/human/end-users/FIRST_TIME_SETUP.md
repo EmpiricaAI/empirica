@@ -1,312 +1,240 @@
 # First-Time Setup Guide
 
-**For new Empirica users**
-
-## 🎯 TL;DR
-
-When you first install Empirica, you get a **completely clean slate**. Your data is isolated from:
-- Other users' data
-- The Empirica development team's data
-- Other projects on your machine
-
-**Just run:** `empirica session-create --ai-id your-name` and you're ready!
+**For new Empirica users.** Three commands to a working install, then you're measuring.
 
 ---
 
-## 📊 Data Isolation Architecture
+## TL;DR
 
-### 1. Session Database (`.empirica/sessions/sessions.db`)
-
-**Location:** `<your-git-repo>/.empirica/sessions/sessions.db`
-
-**What happens:**
-- ✅ **First session creation**: Empirica auto-creates `.empirica/sessions/sessions.db`
-- ✅ **Git isolation**: `.empirica/` is in `.gitignore` (never committed)
-- ✅ **Per-repo**: Each git repo gets its own database
-- ✅ **Clean slate**: Cloning a repo = empty database
-
-**Example:**
 ```bash
-# First time in your project
-cd ~/my-project
-empirica session-create --ai-id alice
-
-# Creates: ~/my-project/.empirica/sessions/sessions.db
-# Only YOU can see this data!
+pip install empirica                 # 1. Install the CLI
+cd your-project                       # 2. Any git repo
+empirica project-init                 # 3. Mints .empirica/ + project.yaml
+empirica setup-claude-code            # (optional, Claude Code users) installs plugin + hooks
+empirica diagnose                     # Sanity check — green = ready
 ```
 
----
-
-### 2. Git Notes (`refs/notes/empirica/*`)
-
-**Location:** `.git/refs/notes/empirica/*`
-
-**What happens:**
-- ✅ **Storage**: Epistemic checkpoints stored as git notes
-- ✅ **Git isolation**: Stored in `.git/` (local only)
-- ✅ **Not pushed by default**: Requires explicit `git push origin refs/notes/*`
-- ✅ **Per-repo**: Each repo has separate git notes
-
-**Sharing git notes (optional):**
-```bash
-# Push your epistemic history to remote
-git push origin refs/notes/empirica/*
-
-# Pull someone else's epistemic history
-git fetch origin refs/notes/empirica/*:refs/notes/empirica/*
-```
-
-**Privacy:** You control whether to share epistemic data!
+`project-init` is the step new users miss most. Without it, every other
+command fails with `Cannot determine sessions.db path`. The
+`diagnose` command walks every integration check and points at the
+exact missing step if anything's off.
 
 ---
 
-### 3. BEADS Issue Tracking (`.beads/`)
+## Data Isolation — What You Get
 
-**Location:** `<your-git-repo>/.beads/`
+Empirica writes data in **three places**, each isolated by design:
 
-**What happens:**
-- ✅ **Config tracked**: `.beads/config.yaml` in git
-- ✅ **Database isolated**: `.beads/beads.db` in `.gitignore`
-- ✅ **Issues tracked**: `.beads/issues.jsonl` in git (optional)
-- ✅ **Per-repo**: Each repo gets separate BEADS database
+| Path | Contents | In git? | Pushed by default? |
+|---|---|---|---|
+| `<repo>/.empirica/` | Project DB + project.yaml + credentials cache | `.empirica/*` gitignored except `project.yaml` (and `credentials.yaml` if you opt in) | n/a |
+| `<repo>/.git/refs/notes/empirica_*` | Per-artifact git notes (findings, decisions, etc.) | yes (in `.git/`) | **No** — `git push origin refs/notes/empirica_*` to share |
+| `~/.empirica/` | User-tenant config: cortex creds, ntfy creds, registry of projects | n/a | n/a |
 
-**Example:**
-```bash
-# First BEADS command
-bd create "My first task" -t task
-
-# Creates: .beads/beads.db (NOT committed to git)
-```
+**Clean-slate guarantees:**
+- Cloning a repo with Empirica history = empty `.empirica/` (gitignored)
+- Cloning + `git fetch refs/notes/*` pulls in the team's epistemic trail
+- Your user-tenant config in `~/.empirica/` never travels with a repo
 
 ---
 
-### 4. Project Auto-Mapping
+## Step-by-Step
 
-**How Empirica maps sessions to projects:**
-
-1. **First session in a repo**: Empirica checks git remote URL
-2. **Auto-creates project**: Based on `git remote get-url origin`
-3. **Links sessions**: All sessions in this repo → this project
-
-**Example:**
-```bash
-# Your repo: https://github.com/alice/my-app.git
-empirica session-create --ai-id alice
-# Auto-creates project: "my-app" with UUID abc-123
-
-# Your colleague Bob in same repo
-empirica session-create --ai-id bob
-# Creates NEW project UUID (different from yours!)
-# Each user gets independent project tracking
-```
-
----
-
-## 🚀 First-Time Workflow
-
-### Step 1: Install Empirica
+### 1. Install
 
 ```bash
 pip install empirica
+# (optional, for Claude Desktop / Cursor / Windsurf MCP):
+pip install empirica-mcp
 ```
 
-### Step 2: Navigate to Your Project
+Verify:
+```bash
+empirica --version
+```
+
+### 2. Initialize the project
 
 ```bash
-cd ~/your-project
+cd your-project          # any git repo
+empirica project-init
 ```
 
-### Step 3: Create Your First Session
+This creates:
+- `.empirica/` — gitignored except for `project.yaml`
+- `.empirica/project.yaml` — project identity (committed):
+  - `project_id` (UUID)
+  - `name`, `description`, `repository`
+  - `ai_id` — **derived from project basename**, e.g. `your-project`. Strips
+    `empirica-` prefix if present so `empirica-cortex` → `cortex`. This is
+    how your AI is addressed in cross-AI orchestration.
+- `.empirica/sessions/sessions.db` — created on first session-create
+
+### 3. (Optional) Set up Claude Code
+
+If you're using Claude Code as your AI:
 
 ```bash
-# AI-first JSON mode (recommended)
-echo '{"ai_id": "your-name", "session_type": "development"}' | empirica session-create -
-
-# Legacy CLI mode
-empirica session-create --ai-id your-name
+empirica setup-claude-code
 ```
 
-**Output:**
-```json
-{
-  "ok": true,
-  "session_id": "abc-123-...",
-  "project_id": "xyz-789-...",
-  "message": "Session created successfully"
-}
-```
+This installs the empirica plugin to `~/.claude/plugins/local/empirica/`,
+writes `~/.claude/CLAUDE.md`, registers PreToolUse / PreCompact /
+SessionStart hooks in `~/.claude/settings.json`, and registers the MCP
+server in `~/.claude/mcp.json`.
 
-### Step 4: Load Project Context
+It also runs an **interactive credentials wizard** if you don't already
+have `~/.empirica/credentials.yaml`. The wizard prompts for:
+- **Cortex** (orchestration API) — URL + `ctx_…` API key
+- **ntfy** (push wake bridge) — URL + topic + auth token
+
+After the api_key prompt, the wizard fetches `/v1/tenant/me` and persists
+`{org_id, tenant_slug, mesh_id_prefix}` to your project.yaml so your AI
+gets fully-qualified mesh addressing on first run. Skip the wizard with
+`--skip-credentials` if you already have creds in env vars or files.
+
+### 4. Diagnose
 
 ```bash
-empirica project-bootstrap --project-id <YOUR_PROJECT_ID>
+empirica diagnose
 ```
 
-**First time:** Shows empty project (no findings, goals, etc.)
-
-### Step 5: Start Working with CASCADE
-
-```bash
-# PREFLIGHT assessment
-empirica preflight-submit <YOUR_SESSION_ID> \
-  --vectors '{"engagement": 0.8, ...}' \
-  --reasoning "Starting work..."
-
-# Do your work...
-
-# POSTFLIGHT assessment
-empirica postflight-submit <YOUR_SESSION_ID> \
-  --vectors '{"engagement": 0.9, ...}' \
-  --reasoning "Completed work..."
-```
+Walks ~10 checks (Python version, CLI on PATH, plugin install,
+statusline, hooks, MCP server, cortex reachability, …) and prints
+PASS / FAIL / WARN with actionable hints. Run this when something
+isn't working.
 
 ---
 
-## 📁 What Gets Created?
+## Your First Transaction
 
-### In Your Git Repo
+Empirica's measurement unit is the **transaction**: `PREFLIGHT → noetic
+work → CHECK → praxic work → POSTFLIGHT`. Open the window, do the
+work, close it.
+
+```bash
+# Create a session (transaction lifecycle hangs off this)
+empirica session-create --ai-id $(basename $PWD) --output json
+# → returns session_id
+
+# Open a measurement window
+empirica preflight-submit - << 'EOF'
+{
+  "task_context": "Fix the auth bug",
+  "vectors": {"know": 0.5, "uncertainty": 0.5, "context": 0.6},
+  "reasoning": "I've seen this area before but haven't read the actual code yet."
+}
+EOF
+
+# Investigate (noetic phase) — log as you discover
+empirica finding-log --finding "Token validation skips audience check" --impact 0.7
+empirica unknown-log --unknown "Does the refresh path also skip it?"
+
+# Gate the noetic → praxic transition
+empirica check-submit - << 'EOF'
+{
+  "vectors": {"know": 0.8, "uncertainty": 0.2, "context": 0.85},
+  "reasoning": "Understand the code path, ready to fix."
+}
+EOF
+
+# Do the work (write code, run tests, commit)
+# ...
+
+# Close the measurement window
+empirica postflight-submit - << 'EOF'
+{
+  "vectors": {"know": 0.9, "uncertainty": 0.15, "context": 0.9, "completion": 1.0},
+  "reasoning": "Fix shipped, tests pass. Compare to PREFLIGHT — this is the learning delta."
+}
+EOF
+```
+
+PREFLIGHT → POSTFLIGHT delta is your **learning trajectory**. POSTFLIGHT
+also collects grounded observations (tests, git, code-quality) from
+deterministic services and surfaces divergence between your beliefs and
+what the services measured — that's your **calibration signal**.
+
+---
+
+## Sharing Epistemic Data (Optional)
+
+Empirica writes artifacts to `refs/notes/empirica_*` in your local git
+notes. These are **not pushed automatically**. To share with a team:
+
+```bash
+# Push your epistemic trail
+git push origin 'refs/notes/empirica_*:refs/notes/empirica_*'
+
+# Pull a teammate's
+git fetch origin 'refs/notes/empirica_*:refs/notes/empirica_*'
+```
+
+For shared cortex-mediated orchestration (AIs proposing work to each
+other), see `docs/architecture/EVENT_LISTENER.md`.
+
+---
+
+## What Gets Created
 
 ```
 your-project/
-├── .empirica/              # ✅ Created, ❌ Not in git (.gitignored)
-│   ├── config.yaml         # Path configuration
-│   ├── sessions/
-│   │   └── sessions.db     # YOUR session data (SQLite)
-│   ├── identity/           # AI identity keys
-│   ├── metrics/            # Performance metrics
-│   └── messages/           # Message logs
+├── .empirica/                          # mostly gitignored
+│   ├── project.yaml                    # ✅ committed (project identity)
+│   ├── sessions/sessions.db            # ❌ gitignored
+│   ├── credentials.yaml                # ❌ gitignored (or in ~/.empirica/)
+│   └── breadcrumbs.yaml                # ❌ gitignored (per-AI calibration)
 │
-├── .beads/                 # BEADS issue tracking
-│   ├── config.yaml         # ✅ In git
-│   ├── beads.db            # ❌ Not in git (.gitignored)
-│   └── issues.jsonl        # ✅ In git (optional)
+├── .beads/                             # optional BEADS issue tracker
+│   ├── config.yaml                     # ✅ committed
+│   ├── beads.db                        # ❌ gitignored
+│   └── issues.jsonl                    # ✅ optional commit
 │
-└── .git/
-    └── refs/notes/empirica/  # ❌ Not pushed by default
+└── .git/refs/notes/empirica_*          # ✅ in git, ❌ not pushed by default
 ```
 
 ---
 
-## 🔒 Privacy & Security
+## FAQ
 
-### What's Private (Never Leaves Your Machine)
+**Q: Will I see other users' data when I clone a repo?**
+No. `.empirica/sessions/sessions.db` is gitignored. The committed parts
+(`project.yaml`, `.beads/config.yaml`) carry no per-user data.
 
-- ✅ `.empirica/sessions/sessions.db` - Your session history
-- ✅ `.empirica/identity/` - Your AI identity keys
-- ✅ `.beads/beads.db` - Your BEADS database
-- ✅ `.git/refs/notes/empirica/*` - Your epistemic checkpoints (unless you push)
+**Q: Can I use Empirica in multiple repos?**
+Yes — each repo is independent. The user-tenant config in `~/.empirica/`
+is shared across all of them; per-project state stays per-project.
 
-### What's Shared (In Git)
+**Q: Where does `ai_id` come from?**
+`empirica project-init` derives it from the project root basename
+(stripping `empirica-` prefix where present) and writes it to
+`project.yaml`. To override: `--ai-id custom-name` on project-init, or
+hand-edit `project.yaml`.
 
-- ✅ `.beads/config.yaml` - BEADS configuration (no sensitive data)
-- ✅ `.beads/issues.jsonl` - Issue tracking (optional, can .gitignore)
-- ❌ Nothing else by default
-
-### Sharing Epistemic Data (Optional)
-
+**Q: How do I reset?**
 ```bash
-# Share your epistemic checkpoints with team
-git push origin refs/notes/empirica/*
+# Delete one project's history
+rm -rf .empirica/sessions/   # losing transactions
+git update-ref -d refs/notes/empirica_findings  # losing artifact notes
 
-# Pull team member's checkpoints
-git fetch origin refs/notes/empirica/*:refs/notes/empirica/*
-
-# View someone else's epistemic journey
-empirica session-snapshot --session-id <THEIR_SESSION_ID>
+# Fully reset (last resort)
+rm -rf .empirica/ ~/.empirica/
+empirica project-init  # start over
 ```
 
 ---
 
-## 🤔 FAQ
+## Next Steps
 
-### Q: Will I see the Empirica team's development data?
-
-**A: No!** Data is per-repo. When you clone Empirica's repo:
-- `.empirica/` is empty (git-ignored)
-- `.git/refs/notes/` is empty (not pushed by default)
-- You start with a clean slate
-
-### Q: Will other users see my session data?
-
-**A: No!** Unless you explicitly:
-1. Push git notes: `git push origin refs/notes/*`
-2. Share your `.empirica/sessions/sessions.db` file (not recommended)
-
-### Q: Can I use Empirica in multiple repos?
-
-**A: Yes!** Each repo gets separate:
-- Session database
-- Git notes
-- Project UUID
-
-### Q: What if I want shared team epistemic data?
-
-**A: Push git notes!**
-```bash
-# One-time setup: Push notes to remote
-git push origin refs/notes/empirica/*
-
-# Team members: Pull notes
-git fetch origin refs/notes/empirica/*:refs/notes/empirica/*
-```
-
-### Q: Can I delete my session history?
-
-**A: Yes!**
-```bash
-# Delete local session database
-rm -rf .empirica/sessions/
-
-# Delete git notes
-git notes --ref=empirica remove <commit-hash>
-```
+1. **CLI basics:** [04_QUICKSTART_CLI.md](04_QUICKSTART_CLI.md)
+2. **Understand the 13 vectors:** [05_EPISTEMIC_VECTORS_EXPLAINED.md](05_EPISTEMIC_VECTORS_EXPLAINED.md)
+3. **Plain-English overview:** [EMPIRICA_EXPLAINED_SIMPLE.md](EMPIRICA_EXPLAINED_SIMPLE.md)
+4. **Troubleshooting:** [03_TROUBLESHOOTING.md](03_TROUBLESHOOTING.md)
 
 ---
 
-## 🎓 Advanced: Custom Data Locations
+## Need Help?
 
-### Environment Variables
-
-```bash
-# Override session DB location
-export EMPIRICA_SESSION_DB=~/my-custom-empirica/sessions.db
-empirica session-create --ai-id alice
-
-# Override entire .empirica root
-export EMPIRICA_DATA_DIR=~/my-custom-empirica
-```
-
-### Config File (`.empirica/config.yaml`)
-
-```yaml
-version: '2.0'
-root: /custom/path/.empirica
-paths:
-  sessions: sessions/sessions.db
-  identity: identity/
-  metrics: metrics/
-settings:
-  auto_checkpoint: true
-  git_integration: true
-```
-
----
-
-## 🚀 Next Steps
-
-1. **Read the quickstart:** [01_START_HERE.md](01_START_HERE.md)
-2. **CLI guide:** [04_QUICKSTART_CLI.md](04_QUICKSTART_CLI.md)
-3. **Understand vectors:** [05_EPISTEMIC_VECTORS_EXPLAINED.md](05_EPISTEMIC_VECTORS_EXPLAINED.md)
-4. **Setup Claude Code:** `empirica setup-claude-code`
-
----
-
-## 📞 Need Help?
-
+- **`empirica diagnose`** for integration checks
+- **`empirica --help`** or **`empirica <command> --help`**
 - **GitHub Issues:** https://github.com/Nubaeon/empirica/issues
-- **Documentation:** `docs/`
-- **System Prompt:** `.github/copilot-instructions.md` (v4.1 AI-first JSON)
-
----
-
-**Welcome to Empirica!** 🎉 You're starting with a clean slate and full control over your epistemic data.
