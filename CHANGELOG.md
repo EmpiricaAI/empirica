@@ -7,6 +7,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.9] — 2026-05-18
+
+### Added — Mesh-aware setup wizard (cortex Phase 1 mesh empirica-side)
+- **`compose_ai_id_forms` helper** (`4df678298`) — local mirror of
+  `cortex.tenant.compose_ai_id_forms` for cross-AI mesh addressing.
+  Returns the three forms (`short` / `tenant` / `mesh`) keyed off
+  `tenant_slug` + `mesh_id_prefix` + project basename. Kwargs-only
+  signature so the two string fields can't swap silently. Trusts
+  cortex's `mesh_id_prefix` as returned (doesn't recompute) — if
+  cortex changes its slug rule we don't silently drift.
+- **`setup-claude-code` tenant resolution** (`54792e5d2`) — after the
+  api_key prompt in the credentials wizard, fetches
+  `{cortex_url}/v1/tenant/me` with Bearer auth and merges
+  `{org_id, tenant_slug, mesh_id_prefix}` into `.empirica/project.yaml`
+  alongside `ai_id`. Atomic merge preserves unrelated keys.
+- **Escape-hatch flags** — `--org-id` / `--tenant-slug` /
+  `--mesh-id-prefix` on `setup-claude-code` override the REST fetch
+  field-by-field (fleet images can pre-bake one field and let REST
+  fill the rest). All-three-flag invocations skip the REST call entirely.
+- Network/401/malformed-JSON failures degrade silently with a warn in
+  human mode; no crash. JSON mode surfaces `tenant_metadata: null` so
+  callers can detect.
+- 23 unit tests cover REST happy/401/network/malformed, persist
+  new-file/merge/no-op/partial paths, end-to-end flag-only/REST-fills/
+  flag-overrides-REST/no-creds-no-flags paths.
+
+### Fixed — Release script no longer rewrites historical version refs
+- **`scripts/release.py sweep_version` removed** — the catch-all
+  did `content.replace(old_version, self.version)` across every
+  `.md/.py/.toml/.yaml` file in the repo, which silently rewrote
+  *historical* version references ("shipped in v1.9.6",
+  "(v1.9.6+)" feature-introduced markers, test section headers,
+  migration descriptions) into false history. The 1.9.7→1.9.8
+  cycle produced 32 working-tree changes — only 1 was a legit
+  current-version pointer.
+- Replacement: every legit current-version pointer file has an
+  explicit regex pattern in `update_version_strings`. Missing
+  patterns are added there as we discover them — that's a
+  noticed-and-corrected miss, not a silent rewrite. `docs/README.md`
+  and `EXTENDING_EMPIRICA.md` added to the pattern list (the two
+  legit hits the broken sweep used to catch).
+- Bytecode cache invalidation extracted into `clear_bytecode_cache()`
+  so the useful side-effect of the old sweep survives.
+
+### Changed — Full sweep of `docs/human/` for content currency (1.9.9 org-sync prep)
+- 16 files rewritten / heavily edited against current truth (canonical
+  loops, wake mesh, ai_id basename, tenant resolution, sources
+  lifecycle, daemon registry, cockpit TUI, refs/notes/empirica_*
+  per-artifact-type, sentinel dynamic-threshold calibration).
+- Net delta: 30 files, +2425/-6316 (~3900 lines of cruft removed).
+- Deleted 3 aspirational/planning docs that never shipped:
+  `BEADS_DOCS_UPDATES.md` (executed checklist),
+  `Security/PRIVACY_AGENT.md` ("Sentinel handles it now"),
+  `Security/SECURITY_EPISTEMIC_VECTORS.md` (Design Proposal),
+  `doppler_secrets_guide_for_ais.md` (Doppler not used by empirica).
+- `docs/diagnose-ecodex.md` → `docs/reference/diagnose-ecodex.md`
+  (misfiled at docs/ root — it's a CLI command reference).
+- `CLI_COMMANDS_UNIFIED.md` got a currency disclaimer + version-header
+  bump; full regeneration from current parsers tracked as planned goal.
+
 ### Fixed — Daemon ships goal/decision/assumption description through list endpoints
 - Migrations 043 + 045 added `description` columns to goals/decisions/
   assumptions (Linear/GitHub/Jira title+body pattern), but the daemon's

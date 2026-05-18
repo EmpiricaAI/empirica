@@ -463,6 +463,20 @@ class ReleaseManager:
                 r'version:\s*"[^"]+"',
                 f'version: "{self.version}"',
             ),
+            # docs/README.md current-version pointer (the one legit hit
+            # that broken-sweep_version used to catch — the other 31
+            # were historical refs that should NOT be rewritten)
+            (
+                self.repo_root / "docs" / "README.md",
+                r'\*\*Version:\*\*\s+[0-9]+\.[0-9]+\.[0-9]+',
+                f'**Version:** {self.version}',
+            ),
+            # docs/human/developers/EXTENDING_EMPIRICA.md "**Version:**" header
+            (
+                self.repo_root / "docs" / "human" / "developers" / "EXTENDING_EMPIRICA.md",
+                r'\*\*Version:\*\*\s+[0-9]+\.[0-9]+\.[0-9]+',
+                f'**Version:** {self.version}',
+            ),
         ]
 
         # Dockerfile.alpine (same patterns as Dockerfile)
@@ -505,62 +519,13 @@ class ReleaseManager:
             else:
                 info(f"Would update: {filepath}")
 
-    def sweep_version(self, old_version: str):
-        """Broad sweep: replace old_version → self.version in all version-bearing files.
+    def clear_bytecode_cache(self):
+        """Clear __pycache__ so stale .pyc files don't shadow new version strings.
 
-        Catches references that targeted regex patterns miss: Dockerfile comments,
-        README docker commands, CLAUDE.md headers, DOCKERHUB_README, etc.
-        Skips CHANGELOG files (historical references) and .git directory.
+        Called after `update_version_strings` so long-running editable-install
+        Python processes (e.g., empirica CLI between releases) don't report
+        stale `__version__`.
         """
-        log("\n" + "=" * 60)
-        log(f"🔍 Sweeping {old_version} → {self.version}")
-        log("=" * 60)
-
-        sweep_files = []
-        skip_names = {"CHANGELOG.md", "release.py"}
-        skip_dirs = {".git", ".venv", ".venv-mcp", "dist", "build",
-                     ".empirica_reflex_logs", "node_modules", "__pycache__",
-                     ".qdrant_data"}
-        extensions = {".md", ".py", ".toml", ".yaml", ".yml", ".json", ".rb",
-                      ".nuspec", ".ps1", ".sh"}
-
-        for ext in extensions:
-            for filepath in self.repo_root.rglob(f"*{ext}"):
-                if any(d in filepath.parts for d in skip_dirs):
-                    continue
-                if filepath.name in skip_names:
-                    continue
-                if ".egg-info" in str(filepath):
-                    continue
-                sweep_files.append(filepath)
-
-        # Also include Dockerfiles (no extension)
-        for name in ["Dockerfile", "Dockerfile.alpine"]:
-            p = self.repo_root / name
-            if p.exists():
-                sweep_files.append(p)
-
-        updated = 0
-        for filepath in sweep_files:
-            try:
-                content = filepath.read_text()
-            except (UnicodeDecodeError, PermissionError):
-                continue
-
-            if old_version not in content:
-                continue
-
-            new_content = content.replace(old_version, self.version)
-            if not self.dry_run:
-                filepath.write_text(new_content)
-                success(f"Swept: {filepath.relative_to(self.repo_root)}")
-            else:
-                info(f"Would sweep: {filepath.relative_to(self.repo_root)}")
-            updated += 1
-
-        info(f"Sweep complete: {updated} files updated")
-
-        # Clear bytecode cache so stale .pyc files don't shadow new version strings
         cleared = 0
         for pycache in self.repo_root.rglob("__pycache__"):
             if pycache.is_dir():
@@ -568,6 +533,19 @@ class ReleaseManager:
                 cleared += 1
         if cleared:
             info(f"Cleared {cleared} __pycache__ directories")
+
+    # NOTE: `sweep_version` was removed in 1.9.9.
+    #
+    # It did a naive `content.replace(old_version, self.version)` across every
+    # .md/.py/.toml/.yaml file in the repo, which rewrote historical version
+    # references ("shipped in v1.9.6", "(v1.9.6+)" feature markers, test section
+    # headers, etc.) into false history. The 1.9.7 → 1.9.8 cycle produced 32
+    # working-tree changes — only 1 was a legit current-version pointer.
+    #
+    # Replacement: every legit current-version pointer file has an explicit
+    # regex pattern in `update_version_strings`. Missing patterns are added
+    # there as we discover them — that's a noticed-and-corrected miss, not a
+    # silent false-history rewrite.
 
     def sync_readme_whats_new(self):
         """Sync README 'What's New' section from CHANGELOG.
@@ -914,13 +892,14 @@ brew install empirica
         if not self.old_version:
             error("--old-version required for version-only mode")
 
-        # Targeted regex updates (structural patterns)
+        # Targeted regex updates (structural patterns).
+        # `update_version_strings` covers every legit current-version pointer
+        # explicitly. The naive `sweep_version` catch-all was removed in 1.9.9 —
+        # missed patterns get added there, not papered over by a broad replace.
         self.update_version_strings()
         self.update_dockerfile()
         self.update_chocolatey_nuspec()
-
-        # Broad sweep catches everything else (comments, docker examples, etc.)
-        self.sweep_version(self.old_version)
+        self.clear_bytecode_cache()
 
         success(f"All version strings updated to {self.version}")
         info("Homebrew formula SHA256 will be updated during full release.")
@@ -1177,10 +1156,10 @@ brew install empirica
             if not self.dry_run:
                 self.ensure_main_branch()
 
-            # Update version strings
+            # Update version strings (targeted regex — `sweep_version`
+            # removed in 1.9.9; see comment in clear_bytecode_cache)
             self.update_version_strings()
-            if self.old_version:
-                self.sweep_version(self.old_version)
+            self.clear_bytecode_cache()
 
             # Sync README What's New from CHANGELOG
             self.sync_readme_whats_new()
@@ -1328,10 +1307,10 @@ brew install empirica
             if not self.dry_run:
                 self.ensure_main_branch()
 
-            # Update version strings and sweep
+            # Update version strings (targeted regex — `sweep_version`
+            # removed in 1.9.9; see comment in clear_bytecode_cache)
             self.update_version_strings()
-            if self.old_version:
-                self.sweep_version(self.old_version)
+            self.clear_bytecode_cache()
 
             # Build packages
             self.build_package()
