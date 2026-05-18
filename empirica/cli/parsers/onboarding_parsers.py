@@ -240,3 +240,8 @@ Exit codes:
         default='json',
         help='Output format (default: json — Desktop calls expect machine-readable)'
     )
+    doctor_parser.add_argument(
+        '--strict-warn',
+        action='store_true',
+        help='Exit code 2 when any WARN check fires (default: only FAIL fires non-zero exit)'
+    )
