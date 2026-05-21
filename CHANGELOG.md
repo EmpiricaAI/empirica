@@ -7,6 +7,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.9.10] — 2026-05-21
+
+### Added — Mesh interaction primitives
+
+- **`empirica mailbox reply` verb** (`567715e40`, `a6e713146`) — atomic
+  `cortex_propose` + `cortex_complete_proposal` in one call, fixing the
+  AI ack-discipline gap (the second-call-forgotten anti-pattern flagged
+  in the `/cortex-mailbox-send` skill). Smart defaults: target_claudes
+  auto-derives from `parent.source_claude`, title prefixes "Re:",
+  source_claude resolves from `.empirica/project.yaml`. `--no-close`
+  opt-out for follow-up-question case. JSON + human output.
+  Closes prop_rau4ymp62 (extension).
+
+- **`empirica listener on/arm/off` verbs** (`7c5a9f684`, `b85fdfa7d`) —
+  AI-ergonomic facade for the canonical mesh listener. `on`
+  auto-resolves ai_id/name/topic, short-circuits via
+  `persistent_listener.is_listener_running()`, emits structured
+  `next_step` JSON with Monitor command + `after_arm` hint. `arm <task_id>`
+  records the Monitor task id into `listener_active_*.json`. `off`
+  emits `next_step` JSON with TaskStop + `after_stop=unregister`. The
+  9 existing power-user verbs (register/pause/resume/etc.) stay
+  untouched. session-monitor-arm.py hook delegates to
+  `empirica listener on --output json` (single source of truth);
+  `/inbox-listener` skill rewritten (v2.0.0) to teach the canonical
+  3-step flow. Closes prop_oxrhoehv4 (extension, Phase 1 + Phase 2).
+
+- **Heartbeat emitter in persistent listener** (`7d9399c8f`) — daemon
+  thread inside `empirica loop listen` body POSTs to
+  `{cortex_url}/v1/listeners/heartbeat` every 45s with
+  `{ai_id, instance_id, capabilities: []}`. Machine-anchored liveness
+  signal for cortex's extension UI aggregation. Closes prop_5rlp6tk
+  (option-b: persistent-service-only emission per Q4 thread).
+
+### Added — Doctor expansion
+
+- **5 new doctor checks** (`75331bcb0`) — `check_tailscale`,
+  `check_ollama_backend`, `check_extension`, `check_outreach`,
+  `check_project_drift`. Bumps doctor 18 → 23 checks. All SKIP cleanly
+  on missing deps. `check_project_drift` surfaces the
+  "project_id present locally but missing from Cortex user.project_ids"
+  gap. Closes prop_ilf6uy4q (cortex).
+
+- **`check_outreach` Python-shape refinement** (`8112457ec`) — accepts
+  both `pyproject.toml` (Python: `.venv` or `*.egg-info` probe) and
+  `package.json` (Node: `node_modules`). Refinement from cortex AI
+  (prop_vvn45fwk).
+
+### Fixed
+
+- **session-init: heal legacy slug-shape project_id** (`f3f0115d2`) —
+  new `_heal_project_yaml_project_id_at_init` step detects non-UUID
+  `project_id` in `.empirica/project.yaml` and rewrites it to the
+  canonical UUID via `workspace.db global_projects.trajectory_path`
+  lookup. Self-heals legacy clones (empirica, empirica-outreach,
+  empirica-platform) on next session start.
+
+- **doctor.check_project_drift field-key compat** (`f3f0115d2`) —
+  Cortex `/v1/users/me/projects` returns each project keyed as `id`,
+  not `project_id`. Accept both keys (forward-compat).
+
+- **CI green** (`99d3fba4a`) — 4 test failures + tech_docs compliance
+  threshold. Two test fixes for c27819963 call-count drift, two for
+  wrong-target `patch` decorators on local imports, and a
+  `docs/reference/INTERNAL_CLASSES.md` reference index lifting
+  tech_docs coverage 68.9% → 94.5% (well above the 70% gate).
+
 ## [1.9.9] — 2026-05-18
 
 ### Added — Mesh-aware setup wizard (cortex Phase 1 mesh empirica-side)
