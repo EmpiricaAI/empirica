@@ -699,7 +699,10 @@ def check_project_drift(cwd: Path | None = None) -> Check:
     try:
         payload = json.loads(body) if body else {}
         projects = payload.get("projects", []) if isinstance(payload, dict) else (payload or [])
-        ids = {p.get("project_id") for p in projects if isinstance(p, dict)}
+        # Cortex /v1/users/me/projects returns each project keyed by `id`,
+        # not `project_id`. Accept both for compatibility with future shape changes.
+        ids = {p.get("id") or p.get("project_id") for p in projects if isinstance(p, dict)}
+        ids.discard(None)
     except (json.JSONDecodeError, AttributeError):
         return Check("Project drift (Cortex membership)", WARN, "malformed projects payload")
     if local_pid in ids:

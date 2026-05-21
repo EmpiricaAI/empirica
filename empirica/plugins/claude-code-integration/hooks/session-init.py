@@ -236,6 +236,75 @@ def _cortex_remote_sync(result: dict) -> None:
         result["cortex_sync"] = _write_cortex_cache(sync_result, sync_project_id)
 
 
+_PROJECT_ID_UUID_RE = re.compile(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+    re.IGNORECASE,
+)
+
+
+def _heal_project_yaml_project_id_at_init(project_root: str | None) -> None:
+    """Validate-and-heal .empirica/project.yaml project_id at session-init.
+
+    Legacy projects init'd before project-init switched to UUIDs have
+    project_id=<slug> (e.g. "empirica", "empirica-outreach") instead
+    of the canonical workspace.db UUID. This causes mismatches in any
+    code that reads project.yaml directly — including doctor's
+    check_project_drift (which compares against /v1/users/me/projects
+    UUIDs and naturally fails on a slug).
+
+    Heal: look up the canonical UUID via workspace.db
+    global_projects.trajectory_path (same key the session-id healer
+    uses) and rewrite yaml. Idempotent — no-op when yaml already has
+    a UUID-shape value.
+
+    Non-fatal — logs to stderr on issue, never blocks session boot.
+    """
+    if not project_root:
+        return
+    try:
+        import yaml
+        project_yaml = Path(project_root) / '.empirica' / 'project.yaml'
+        if not project_yaml.exists():
+            return
+        cfg = yaml.safe_load(project_yaml.read_text()) or {}
+        current = cfg.get('project_id', '') or ''
+        if _PROJECT_ID_UUID_RE.match(current):
+            return  # already UUID-shaped — nothing to do
+
+        # Look up canonical UUID via workspace.db trajectory_path
+        import sqlite3
+        ws_db = Path.home() / '.empirica' / 'workspace' / 'workspace.db'
+        if not ws_db.exists():
+            return
+        trajectory = str(Path(project_root) / '.empirica')
+        conn = sqlite3.connect(str(ws_db))
+        try:
+            cursor = conn.execute(
+                "SELECT id FROM global_projects WHERE trajectory_path = ?",
+                (trajectory,),
+            )
+            row = cursor.fetchone()
+        finally:
+            conn.close()
+        if not row:
+            return  # not registered — leave alone, never guess
+        canonical_uuid = row[0]
+        if canonical_uuid == current:
+            return  # already matches (defensive — UUID regex should've caught)
+
+        # Atomic rewrite — preserve key order via sort_keys=False
+        cfg['project_id'] = canonical_uuid
+        project_yaml.write_text(yaml.safe_dump(cfg, sort_keys=False))
+        print(
+            f"session-init: healed project.yaml project_id "
+            f"{current!r} → {canonical_uuid[:8]}… (slug-shape legacy)",
+            file=sys.stderr,
+        )
+    except Exception as e:
+        print(f"session-init: project.yaml heal skipped "
+              f"({type(e).__name__}: {e})", file=sys.stderr)
+
+
 def _heal_session_project_id_at_init(session_id: str, project_root: str | None) -> None:
     """Validate-and-heal session.project_id at session-init boundary.
 
@@ -316,6 +385,10 @@ def create_session_and_bootstrap(ai_id: str, project_id: str | None = None) -> d
         # Step 1b: Heal session.project_id if session-create's resolution
         # bound to a stale project (ghost-project_id pattern). Idempotent.
         _heal_session_project_id_at_init(session_id, os.environ.get('PWD') or os.getcwd())
+
+        # Step 1c: Heal .empirica/project.yaml project_id if it's a slug-shape
+        # legacy value (pre-UUID project-init era). Idempotent.
+        _heal_project_yaml_project_id_at_init(os.environ.get('PWD') or os.getcwd())
 
         # Step 2: Run bootstrap
         bootstrap_data, project_context = _run_bootstrap(session_id, env)

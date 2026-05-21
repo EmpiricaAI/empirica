@@ -561,7 +561,8 @@ def test_check_project_drift_skips_without_cortex_creds(tmp_path, monkeypatch):
     assert result.status == SKIP
 
 
-def test_check_project_drift_passes_when_pid_in_scope(tmp_path, monkeypatch):
+def test_check_project_drift_passes_when_pid_in_scope_id_shape(tmp_path, monkeypatch):
+    """Cortex's actual response shape: each project has `id`, not `project_id`."""
     import yaml
     (tmp_path / ".empirica").mkdir()
     (tmp_path / ".empirica" / "project.yaml").write_text(
@@ -569,11 +570,26 @@ def test_check_project_drift_passes_when_pid_in_scope(tmp_path, monkeypatch):
     )
     monkeypatch.setenv("CORTEX_REMOTE_URL", "https://example.com")
     monkeypatch.setenv("CORTEX_API_KEY", "ctx_test")
-    body = json.dumps({"projects": [{"project_id": "uuid-x"}, {"project_id": "uuid-y"}]})
+    body = json.dumps({"projects": [{"id": "uuid-x"}, {"id": "uuid-y"}]})
     with patch("empirica.cli.command_handlers.doctor._http_get", return_value=(200, body)):
         result = check_project_drift(tmp_path)
     assert result.status == PASS
     assert result.data["scope_size"] == 2
+
+
+def test_check_project_drift_accepts_project_id_shape_too(tmp_path, monkeypatch):
+    """Forward-compat: `project_id` keyed entries also work."""
+    import yaml
+    (tmp_path / ".empirica").mkdir()
+    (tmp_path / ".empirica" / "project.yaml").write_text(
+        yaml.safe_dump({"project_id": "uuid-x"})
+    )
+    monkeypatch.setenv("CORTEX_REMOTE_URL", "https://example.com")
+    monkeypatch.setenv("CORTEX_API_KEY", "ctx_test")
+    body = json.dumps({"projects": [{"project_id": "uuid-x"}]})
+    with patch("empirica.cli.command_handlers.doctor._http_get", return_value=(200, body)):
+        result = check_project_drift(tmp_path)
+    assert result.status == PASS
 
 
 def test_check_project_drift_warns_when_pid_missing(tmp_path, monkeypatch):
@@ -584,7 +600,7 @@ def test_check_project_drift_warns_when_pid_missing(tmp_path, monkeypatch):
     )
     monkeypatch.setenv("CORTEX_REMOTE_URL", "https://example.com")
     monkeypatch.setenv("CORTEX_API_KEY", "ctx_test")
-    body = json.dumps({"projects": [{"project_id": "uuid-y"}]})
+    body = json.dumps({"projects": [{"id": "uuid-y"}]})
     with patch("empirica.cli.command_handlers.doctor._http_get", return_value=(200, body)):
         result = check_project_drift(tmp_path)
     assert result.status == WARN
