@@ -415,3 +415,106 @@ def test_tee_failure_does_not_break_stdout_stream(monkeypatch, tmp_path):
     assert count == 1
     assert "prop_abc12345" not in out.getvalue()  # different proposal id
     assert out.getvalue().strip(), "stdout was empty — tee failure shouldn't suppress it"
+
+
+# ── Version-drift auto-restart (goal 62347fc4) ──────────────────────────
+
+
+def test_check_version_drift_returns_none_when_match(monkeypatch):
+    """No drift when in-process __version__ matches dist-info version."""
+    import empirica
+    monkeypatch.setattr(empirica, "__version__", "9.9.9")
+    monkeypatch.setattr(
+        listener_mod.importlib.metadata, "version", lambda _: "9.9.9",
+    )
+    assert listener_mod._check_version_drift() is None
+
+
+def test_check_version_drift_returns_tuple_on_mismatch(monkeypatch):
+    """Drift returns (in_process, installed) when pip upgraded under us."""
+    import empirica
+    monkeypatch.setattr(empirica, "__version__", "1.9.10")
+    monkeypatch.setattr(
+        listener_mod.importlib.metadata, "version", lambda _: "1.9.11",
+    )
+    result = listener_mod._check_version_drift()
+    assert result == ("1.9.10", "1.9.11")
+
+
+def test_check_version_drift_returns_none_on_metadata_error(monkeypatch):
+    """Best-effort: metadata lookup failure must not crash the listener."""
+    def boom(_):
+        raise importlib_metadata_error()
+    import importlib.metadata as md
+
+    def importlib_metadata_error():
+        return md.PackageNotFoundError("empirica")
+
+    monkeypatch.setattr(listener_mod.importlib.metadata, "version", boom)
+    assert listener_mod._check_version_drift() is None
+
+
+def test_listener_exits_cleanly_on_version_drift(monkeypatch):
+    """When drift fires post-stream-drop, run_listener returns 0 (clean
+    exit) so systemd Restart=always relaunches with the new code."""
+    from empirica.config.credentials_loader import get_credentials_loader
+    loader = get_credentials_loader()
+    monkeypatch.setattr(loader, "get_ntfy_config", lambda: {
+        "url": "https://ntfy.test", "topic": "t",
+        "user": "u", "password": "p",
+    })
+    # Simulate pip upgrade landed: dist-info says newer than in-process
+    import empirica
+    monkeypatch.setattr(empirica, "__version__", "1.9.10")
+    monkeypatch.setattr(
+        listener_mod.importlib.metadata, "version", lambda _: "1.9.11",
+    )
+
+    def fake_factory(url, headers):
+        return _FakeProc([])  # immediate EOF triggers drift check
+
+    monkeypatch.setattr(listener_mod, "_emit_catchup_events",
+                        lambda *a, **kw: 0)
+
+    err = io.StringIO()
+    rc = run_listener("empirica", output_stream=io.StringIO(),
+                      err_stream=err, _stream_factory=fake_factory,
+                      _sleep=lambda s: None, _initial_catchup=False)
+    assert rc == 0
+    assert "version drift" in err.getvalue()
+    assert "1.9.10" in err.getvalue() and "1.9.11" in err.getvalue()
+
+
+def test_listener_continues_reconnect_when_no_drift(monkeypatch):
+    """Without drift, the listener takes the normal reconnect path
+    (backoff sleep) rather than exiting."""
+    from empirica.config.credentials_loader import get_credentials_loader
+    loader = get_credentials_loader()
+    monkeypatch.setattr(loader, "get_ntfy_config", lambda: {
+        "url": "https://ntfy.test", "topic": "t",
+        "user": "u", "password": "p",
+    })
+    # Versions match — no drift
+    monkeypatch.setattr(
+        listener_mod, "_check_version_drift", lambda: None,
+    )
+
+    def fake_factory(url, headers):
+        return _FakeProc([])
+
+    monkeypatch.setattr(listener_mod, "_emit_catchup_events",
+                        lambda *a, **kw: 0)
+
+    sleeps = []
+
+    def fake_sleep(s):
+        sleeps.append(s)
+        # Stop after first backoff confirms no-drift path
+        raise ListenerStopped("test")
+
+    rc = run_listener("empirica", output_stream=io.StringIO(),
+                      err_stream=io.StringIO(),
+                      _stream_factory=fake_factory, _sleep=fake_sleep,
+                      _initial_catchup=False)
+    assert rc == 0
+    assert len(sleeps) == 1  # took the backoff path, not the drift-exit path

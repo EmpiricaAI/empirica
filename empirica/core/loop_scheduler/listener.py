@@ -45,6 +45,7 @@ Failure modes handled:
 from __future__ import annotations
 
 import base64
+import importlib.metadata
 import json
 import logging
 import signal
@@ -66,6 +67,34 @@ _AUTH_FAIL_BACKOFF_SEC = 300.0  # 5 min — auth issues rarely self-fix in secon
 
 class ListenerStopped(Exception):
     """Raised on SIGTERM/SIGINT so the main loop can exit cleanly."""
+
+
+class ListenerUpgraded(Exception):
+    """Raised when in-process empirica version differs from the installed
+    dist-info — pip upgrade landed under a running listener. Caller exits
+    cleanly with code 0 so systemd Restart=always / launchd KeepAlive=true
+    relaunches the service against the new code on disk."""
+
+
+def _check_version_drift() -> tuple[str, str] | None:
+    """Return (in_process_version, installed_version) on drift, None otherwise.
+
+    `empirica.__version__` is frozen at import time. `importlib.metadata.version`
+    re-reads the dist-info every call — pip overwrites that file on upgrade.
+    A mismatch means a pip upgrade happened under the running listener and
+    the in-memory code is stale.
+
+    Returns None on any error (missing dist-info, import failure) — drift
+    check is best-effort, must never crash the listener.
+    """
+    try:
+        from empirica import __version__ as in_process
+        installed = importlib.metadata.version("empirica")
+        if in_process != installed:
+            return (in_process, installed)
+    except Exception:
+        return None
+    return None
 
 
 def _install_signal_handlers() -> None:
@@ -344,6 +373,21 @@ def run_listener(  # noqa: C901 — held-connection loop; clarity beats decompos
                 _emit_catchup_events(instance_id, loop_name, output_stream)
             except Exception as e:
                 err_stream.write(f"listener: post-drop catch-up failed: {e}\n")
+
+            # Reconnect is the natural restart boundary — check if a pip
+            # upgrade landed under us. Self-exit with code 0 lets
+            # systemd Restart=always / launchd KeepAlive=true relaunch
+            # the service against the new code on disk. Without this, the
+            # listener pins to the pre-upgrade version until next reboot.
+            drift = _check_version_drift()
+            if drift is not None:
+                in_proc, installed = drift
+                err_stream.write(
+                    f"listener: version drift detected — in-process v{in_proc}, "
+                    f"installed v{installed}. Exiting for clean relaunch.\n"
+                )
+                raise ListenerUpgraded(f"{in_proc} != {installed}")
+
             if not connected_ok:
                 _sleep(_AUTH_FAIL_BACKOFF_SEC)
                 backoff = _RECONNECT_BASE_SEC
@@ -352,6 +396,9 @@ def run_listener(  # noqa: C901 — held-connection loop; clarity beats decompos
                 backoff = min(backoff * 2, _RECONNECT_MAX_SEC)
     except ListenerStopped as e:
         err_stream.write(f"listener: stopped by {e}\n")
+        return 0
+    except ListenerUpgraded as e:
+        err_stream.write(f"listener: upgraded ({e}) — exiting for relaunch\n")
         return 0
     except Exception as e:
         err_stream.write(f"listener: unexpected exit: {type(e).__name__}: {e}\n")
