@@ -327,12 +327,18 @@ def create_argument_parser():
     return parser
 
 
+# Categorized command map used by `empirica help` AND by
+# `scripts/generate_cli_docs.py` (which emits the unified-reference doc).
+# Adding a new command? Wire its parser in `add_*_parsers()` first; then
+# add it here so it appears under a category. Commands not listed here
+# still work but surface in the generator's "uncategorized" section as
+# drift signal.
 _HELP_CATEGORIES = {
     'session': ['session-create', 'sessions-list', 'sessions-show', 'sessions-export', 'sessions-resume', 'session-snapshot', 'memory-compact', 'transaction-adopt'],
     'workflow': ['preflight-submit', 'check', 'check-submit', 'postflight-submit'],
     'goals': ['goals-create', 'goals-list', 'goals-search', 'goals-complete', 'goals-claim', 'goals-add-subtask', 'goals-add-dependency', 'goals-complete-subtask', 'goals-get-subtasks', 'goals-progress', 'goals-discover', 'goals-ready', 'goals-resume', 'goals-mark-stale', 'goals-get-stale', 'goals-refresh'],
-    'logging': ['finding-log', 'unknown-log', 'unknown-list', 'unknown-resolve', 'deadend-log', 'assumption-log', 'decision-log', 'mistake-log', 'mistake-query', 'refdoc-add', 'source-add', 'act-log', 'investigate-log', 'log-artifacts', 'resolve-artifacts', 'delete-artifacts'],
-    'project': ['project-init', 'project-update', 'project-create', 'project-list', 'project-switch', 'project-bootstrap', 'project-handoff', 'project-search', 'project-embed', 'code-embed', 'doc-check'],
+    'logging': ['finding-log', 'unknown-log', 'unknown-list', 'unknown-resolve', 'deadend-log', 'assumption-log', 'decision-log', 'mistake-log', 'mistake-query', 'refdoc-add', 'source-add', 'act-log', 'investigate-log', 'log-artifacts', 'resolve-artifacts', 'delete-artifacts', 'epistemics-list', 'epistemics-show', 'noetic-batch'],
+    'project': ['project-init', 'project-update', 'project-create', 'project-list', 'project-switch', 'project-bootstrap', 'project-handoff', 'project-search', 'project-embed', 'code-embed', 'doc-check', 'bootstrap-context', 'projects-discover', 'projects-list', 'projects-bulk-register'],
     'workspace': ['workspace-init', 'workspace-map', 'workspace-list', 'workspace-overview', 'workspace-search', 'engagement-focus', 'ecosystem-check', 'save', 'history'],
     'checkpoint': ['checkpoint-create', 'checkpoint-load', 'checkpoint-list', 'checkpoint-diff', 'checkpoint-sign', 'checkpoint-verify', 'checkpoint-signatures'],
     'sync': ['sync-config', 'sync-push', 'sync-pull', 'sync-status', 'rebuild', 'artifacts-generate'],
@@ -341,8 +347,8 @@ _HELP_CATEGORIES = {
     'handoff': ['handoff-create', 'handoff-query'],
     'issue': ['issue-list', 'issue-show', 'issue-handoff', 'issue-resolve', 'issue-export', 'issue-stats'],
     'investigation': ['investigate', 'investigate-create-branch', 'investigate-checkpoint-branch', 'investigate-merge-branches', 'investigate-multi'],
-    'monitoring': ['monitor', 'assess-state', 'trajectory-project', 'efficiency-report', 'workflow-patterns', 'calibration-report', 'commit-context', 'compact-analysis'],
-    'cockpit': ['status', 'tui', 'sentinel', 'loop', 'listener', 'instance'],
+    'monitoring': ['monitor', 'assess-state', 'trajectory-project', 'efficiency-report', 'workflow-patterns', 'calibration-report', 'commit-context', 'compact-analysis', 'compliance-report'],
+    'cockpit': ['status', 'tui', 'sentinel', 'loop', 'listener', 'instance', 'mailbox', 'cockpit', 'daemon-list', 'notify'],
     'skills': ['skill-suggest', 'skill-fetch', 'skill-extract'],
     'architecture': ['assess-component', 'assess-compare', 'assess-directory'],
     'agents': ['agent-spawn', 'agent-report', 'agent-aggregate', 'agent-parallel', 'agent-export', 'agent-import', 'agent-discover'],
