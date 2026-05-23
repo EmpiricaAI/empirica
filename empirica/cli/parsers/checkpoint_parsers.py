@@ -200,7 +200,14 @@ def add_checkpoint_parsers(subparsers):
     # Mistake log command
     mistake_log_parser = subparsers.add_parser(
         'mistake-log',
-        help='Log a mistake for learning and future prevention'
+        help=(
+            'Log an error YOU made + how to prevent it. Use when you '
+            'introduced a bug, mis-applied a pattern, broke an assumption, '
+            'or otherwise produced output that needed correction. Differs '
+            'from deadend-log (an approach that didn\'t work) — mistakes '
+            'are about your decision-making, dead-ends about the approach. '
+            'The --prevention flag is the load-bearing field for future-you.'
+        ),
     )
     mistake_log_parser.add_argument('--project-id', help='Project UUID')
     mistake_log_parser.add_argument('--session-id', required=False, help='Session UUID (auto-derived from active transaction)')
@@ -223,7 +230,13 @@ def add_checkpoint_parsers(subparsers):
     # Mistake query command
     mistake_query_parser = subparsers.add_parser(
         'mistake-query',
-        help='Query logged mistakes'
+        help=(
+            'Look up logged mistakes — useful before tackling work that '
+            'echoes a pattern you\'ve gotten wrong before. Filter by '
+            '--session-id (this session\'s only) or --goal-id (mistakes '
+            'against a specific goal). For semantic search across mistake '
+            'narratives, use `project-search --task "..."` instead.'
+        ),
     )
     mistake_query_parser.add_argument('--session-id', help='Filter by session UUID')
     mistake_query_parser.add_argument('--goal-id', help='Filter by goal UUID')
@@ -497,7 +510,15 @@ def add_checkpoint_parsers(subparsers):
     finding_log_parser = subparsers.add_parser(
         'finding-log',
         aliases=['fl'],
-        help='Log a project finding (what was learned/discovered)'
+        help=(
+            'Log a discovery — something concrete you NOW know that wasn\'t '
+            'obvious before. Use for: facts surfaced from a read/grep, '
+            'patterns observed in the codebase, verified assumptions, '
+            'resolved unknowns, behaviors confirmed by experiment. The '
+            'core building block of the project knowledge graph. '
+            '--impact 0.0-1.0 weights how much it matters. Pair with '
+            '--source <id> when the finding came from external material.'
+        ),
     )
     finding_log_parser.add_argument('config', nargs='?', help='JSON config file or - for stdin (AI-first mode)')
     finding_log_parser.add_argument('--project-id', required=False, help='Project UUID')
@@ -521,7 +542,14 @@ def add_checkpoint_parsers(subparsers):
     unknown_log_parser = subparsers.add_parser(
         'unknown-log',
         aliases=['ul'],
-        help='Log a project unknown (what\'s still unclear)'
+        help=(
+            'Log an open question — something you\'d need to know before '
+            'acting confidently, but don\'t yet. Use when investigation '
+            'surfaces a gap (file not read yet, behavior unclear, decision '
+            'pending input). The Sentinel CHECK gate reads open unknowns '
+            'as a signal you may still be noetic. Close with '
+            '`unknown-resolve` once answered (ideally with a finding link).'
+        ),
     )
     unknown_log_parser.add_argument('config', nargs='?', help='JSON config file or - for stdin (AI-first mode)')
     unknown_log_parser.add_argument('--project-id', required=False, help='Project UUID')
@@ -544,7 +572,13 @@ def add_checkpoint_parsers(subparsers):
     # Unknown resolve command
     unknown_resolve_parser = subparsers.add_parser(
         'unknown-resolve',
-        help='Mark unknown as resolved'
+        help=(
+            'Close an open unknown — pass the answer as --resolved-by and '
+            'optionally link the finding that answered it via --finding. '
+            'Run before POSTFLIGHT to drop the CHECK-gate weight of stale '
+            'questions and surface the resolution as evidence for the '
+            'next transaction\'s grounded calibration.'
+        ),
     )
     unknown_resolve_parser.add_argument('--unknown-id', required=True, help='Unknown UUID')
     unknown_resolve_parser.add_argument('--resolved-by', required=True, help='How was this unknown resolved?')
@@ -555,7 +589,13 @@ def add_checkpoint_parsers(subparsers):
     # Unknown list command
     unknown_list_parser = subparsers.add_parser(
         'unknown-list',
-        help='List project unknowns (open or resolved)'
+        help=(
+            'List open project unknowns (default) or resolved ones with '
+            '--resolved. Useful at PREFLIGHT to surface stale questions '
+            'that should be cleaned up, or between transactions to triage '
+            'what still needs investigation. For cross-project unknowns, '
+            'use `project-search --task "..." --global`.'
+        ),
     )
     unknown_list_parser.add_argument('--project-id', required=False, help='Project UUID')
     unknown_list_parser.add_argument('--session-id', required=False, help='Session UUID (to derive project)')
@@ -570,7 +610,14 @@ def add_checkpoint_parsers(subparsers):
     deadend_log_parser = subparsers.add_parser(
         'deadend-log',
         aliases=['de'],
-        help='Log a project dead end (what didn\'t work)'
+        help=(
+            'Log an approach that didn\'t work. Use when you tried '
+            'something and the result rules out a path (lib X doesn\'t '
+            'support Y, refactor strategy hit a wall, fix attempt made '
+            'things worse). Differs from mistake-log (an error you made) '
+            '— dead-ends are about the approach. CHECK reads dead-ends '
+            'as evidence of search effort. --why-failed is load-bearing.'
+        ),
     )
     deadend_log_parser.add_argument('config', nargs='?', help='JSON config file or - for stdin (AI-first mode)')
     deadend_log_parser.add_argument('--project-id', required=False, help='Project UUID')
@@ -594,7 +641,15 @@ def add_checkpoint_parsers(subparsers):
     # Assumption log command
     assumption_log_parser = subparsers.add_parser(
         'assumption-log',
-        help='Log an unverified assumption (what you\'re taking for granted)'
+        help=(
+            'Log a belief you\'re acting on without verification. Use when '
+            'proceeding requires taking something for granted (e.g. "Redis '
+            'is available", "the spec is current"). Differs from '
+            'finding-log (verified fact) — assumptions are explicitly '
+            'unverified, with a --confidence 0.0-1.0 stating how much you '
+            'trust them. Convert to finding-log once verified, or '
+            'decision-log if you decide to act despite the uncertainty.'
+        ),
     )
     assumption_log_parser.add_argument('config', nargs='?', help='JSON config file or - for stdin (AI-first mode)')
     assumption_log_parser.add_argument('--project-id', required=False, help='Project UUID')
@@ -614,7 +669,16 @@ def add_checkpoint_parsers(subparsers):
     # Decision log command
     decision_log_parser = subparsers.add_parser(
         'decision-log',
-        help='Log a decision with alternatives and rationale'
+        help=(
+            'Log a deliberate choice between alternatives. Use at every '
+            'fork: which library, which approach, which trade-off, even '
+            '"keep the current behavior" when it was reconsidered. '
+            '--rationale explains the WHY, --alternatives lists what was '
+            'rejected, --reversibility flags how easily it can be undone '
+            '(exploratory / committal / forced). Link supporting findings '
+            'via --evidence <id>. The audit trail for "why is the code '
+            'this way?" questions.'
+        ),
     )
     decision_log_parser.add_argument('config', nargs='?', help='JSON config file or - for stdin (AI-first mode)')
     decision_log_parser.add_argument('--project-id', required=False, help='Project UUID')
@@ -638,7 +702,13 @@ def add_checkpoint_parsers(subparsers):
     # Reference doc add command
     refdoc_add_parser = subparsers.add_parser(
         'refdoc-add',
-        help='Add a reference document to project (legacy — use source-add instead)'
+        help=(
+            'DEPRECATED — use `source-add --source-type document` instead. '
+            'Kept for backward compatibility with older scripts/skills. '
+            'Sources are the unified surface for both noetic (evidence IN) '
+            'and praxic (output OUT) external material; refdocs were '
+            'noetic-only and lacked direction tagging.'
+        ),
     )
     refdoc_add_parser.add_argument('--project-id', required=True, help='Project UUID')
     refdoc_add_parser.add_argument('--doc-path', required=True, help='Document path')
@@ -649,7 +719,15 @@ def add_checkpoint_parsers(subparsers):
     # Source add command — entity-agnostic source logging with direction
     source_add_parser = subparsers.add_parser(
         'source-add',
-        help='Add an epistemic source (noetic: evidence IN, praxic: output OUT)'
+        help=(
+            'Register external material as a citable source. Use for any '
+            'evidence outside the current code (RFC, paper, blog, customer '
+            'call, design doc, screenshot, vendor contract). Pass --noetic '
+            'when it informed your knowledge, --praxic when you produced '
+            'it as output. Returns a source UUID — link it from findings / '
+            'decisions / dead-ends via `--source <uuid>` on those *-log '
+            'commands so the audit trail traces back to origin.'
+        ),
     )
     source_add_parser.add_argument('--title', required=True, help='Source title')
     source_add_parser.add_argument('--description', help='Source description')
@@ -673,7 +751,14 @@ def add_checkpoint_parsers(subparsers):
     # Source list command
     source_list_parser = subparsers.add_parser(
         'source-list',
-        help='List epistemic sources for a project'
+        help=(
+            'List registered sources for a project. Filter by --type '
+            '(document/code/web/api/…) or --direction (noetic/praxic/all). '
+            'Useful for finding the source UUID to cite in a new artifact, '
+            'or for auditing what external material has informed the '
+            'project. Archived sources are hidden by default — pass '
+            '--include-archived for forensics.'
+        ),
     )
     source_list_parser.add_argument('--project-id', help='Project UUID or name (auto-derived from context)')
     source_list_parser.add_argument('--type', dest='source_type', help='Filter by source type (document, code, web, api, etc.)')
@@ -687,7 +772,14 @@ def add_checkpoint_parsers(subparsers):
     # Source archive command (SOURCES_LIFECYCLE_SPEC Phase 1 — soft-delete)
     source_archive_parser = subparsers.add_parser(
         'source-archive',
-        help='Soft-delete an epistemic source (preserves edges + citing artifacts)'
+        help=(
+            'Soft-delete a source. Use when the source is no longer valid '
+            '(file deleted, URL dead, superseded by newer material). Edges '
+            'from citing artifacts are preserved so the audit trail stays '
+            'intact — the source just disappears from default listings. '
+            'Pass --reason superseded + --target-id <newer-uuid> to chain '
+            'forward to the replacement.'
+        ),
     )
     source_archive_parser.add_argument('--source-id', required=True,
         help='Source UUID (or unique prefix) to archive')
@@ -702,7 +794,14 @@ def add_checkpoint_parsers(subparsers):
     # Graph artifact commands — batch logging and resolution
     log_artifacts_parser = subparsers.add_parser(
         'log-artifacts',
-        help='Batch log connected artifacts with graph format (nodes + edges)',
+        help=(
+            'Log ≥3 connected artifacts in one call instead of N individual '
+            '*-log invocations. Accepts a JSON graph (nodes = typed '
+            'artifacts, edges = relationships). Use when artifacts have '
+            'declared edges between them (sourced_from, evidence_for, '
+            'supersedes, etc.) — the batch keeps the graph atomic. For a '
+            'single artifact, prefer the per-type *-log command.'
+        ),
         description="""
 Log a connected set of epistemic artifacts in one call.
 
@@ -724,7 +823,13 @@ Example:
 
     resolve_artifacts_parser = subparsers.add_parser(
         'resolve-artifacts',
-        help='Batch resolve open artifacts (unknowns, assumptions, goals)',
+        help=(
+            'Close multiple open artifacts (unknowns, assumptions, goals) '
+            'in one call. Typically used pre-POSTFLIGHT to clean up the '
+            'ledger when investigation answered several questions at once. '
+            'For a single artifact, prefer the per-type resolve verb '
+            '(unknown-resolve, goals-complete).'
+        ),
         description="""
 Batch resolve multiple open artifacts in one call.
 
@@ -742,7 +847,14 @@ Example:
 
     delete_artifacts_parser = subparsers.add_parser(
         'delete-artifacts',
-        help='Batch delete non-pertinent artifacts (anti-pollution cleanup)',
+        help=(
+            'Remove stale, duplicate, or test-noise artifacts from the '
+            'ledger. Unlike resolve-artifacts (closes WITH a resolution '
+            'reason), this hard-deletes from SQLite + Qdrant. The deletion '
+            'itself is logged as a decision for audit. Use --dry-run first '
+            'to preview. For "still valid but answered", use resolve. For '
+            '"never should have been logged", use this.'
+        ),
         description="""
 Delete stale or non-pertinent artifacts from the epistemic chain.
 
@@ -820,7 +932,14 @@ Example:
     goals_create_parser = subparsers.add_parser(
         'goals-create',
         aliases=['goal-create', 'gc'],
-        help='Create new goal (AI-first: use config file, Legacy: use flags)'
+        help=(
+            'Create a new goal — the unit of tracked work. One per coherent '
+            'deliverable: a feature, a fix, a doc sweep. Set --status planned '
+            'when scoped-but-not-started (collaborative planning); '
+            'in_progress when actively working. For multi-step work, follow '
+            'with goals-add-subtask per distinct unit. AI-first: pass JSON '
+            'via stdin/file; legacy: --objective + flags.'
+        ),
     )
 
     # AI-FIRST: Positional config file argument (optional, takes precedence)
@@ -852,7 +971,14 @@ Example:
     goals_add_subtask_parser = subparsers.add_parser(
         'goals-add-subtask',
         aliases=['goal-add-subtask'],
-        help='Add subtask to existing goal'
+        help=(
+            'Decompose a goal into trackable units. One subtask per distinct '
+            'piece of work you\'ll execute (read this, edit that, write '
+            'these tests). Decompose at PREFLIGHT, not retroactively — '
+            'subtasks added after the work is done are self-graded checkboxes, '
+            'not tracked units. Close each with goals-complete-subtask + '
+            '--evidence as you finish.'
+        ),
     )
     goals_add_subtask_parser.add_argument('--goal-id', required=True, help='Goal UUID')
     goals_add_subtask_parser.add_argument('--description', required=True, help='Subtask description')
@@ -876,7 +1002,13 @@ Example:
     goals_complete_subtask_parser = subparsers.add_parser(
         'goals-complete-subtask',
         aliases=['goal-complete-subtask'],
-        help='Mark subtask as complete'
+        help=(
+            'Close a subtask with evidence of completion. Always pass '
+            '--evidence: commit SHA, test result, file path, link — '
+            'whatever proves the work landed. Empty completions inflate '
+            'the goal-completion vector without grounding it. Close '
+            'as-you-go, not batched at the end.'
+        ),
     )
     # Use subtask-id as primary parameter, with task-id as deprecated alias for backward compatibility
     goals_complete_subtask_parser.add_argument('--subtask-id', help='Subtask UUID (preferred)')
@@ -888,14 +1020,27 @@ Example:
     goals_progress_parser = subparsers.add_parser(
         'goals-progress',
         aliases=['goal-progress'],
-        help='Get goal completion progress'
+        help=(
+            'Show subtask-level progress for a single goal: how many '
+            'subtasks total, how many completed, with their evidence. '
+            'Useful before deciding whether to close the goal '
+            '(goals-complete) or whether more subtasks are needed.'
+        ),
     )
     goals_progress_parser.add_argument('--goal-id', required=True, help='Goal UUID')
     goals_progress_parser.add_argument('--output', choices=['human', 'json'], default='human', help='Output format')
     goals_progress_parser.add_argument('--verbose', action='store_true', help='Show detailed operation info')
 
     # Goals get-subtasks command (NEW)
-    goals_get_subtasks_parser = subparsers.add_parser('goals-get-subtasks', help='Get detailed subtask information')
+    goals_get_subtasks_parser = subparsers.add_parser(
+        'goals-get-subtasks',
+        help=(
+            'Dump the full subtask list for a goal (id, description, '
+            'status, evidence, importance). Useful for picking the next '
+            'subtask to work on, or for grepping subtask ids when '
+            'completing several at once.'
+        ),
+    )
     goals_get_subtasks_parser.add_argument('--goal-id', required=True, help='Goal UUID')
     goals_get_subtasks_parser.add_argument('--output', choices=['human', 'json'], default='human', help='Output format')
 
@@ -903,7 +1048,15 @@ Example:
     goals_list_parser = subparsers.add_parser(
         'goals-list',
         aliases=['goal-list', 'gl'],
-        help='List goals'
+        help=(
+            'List goals in the current project. Default: active '
+            '(in_progress). Use --status {planned,in_progress,completed,all,drift} '
+            'for finer filtering; "drift" surfaces goals where the status '
+            'text disagrees with is_completed (data-integrity check). '
+            'Scope-* flags filter on goal-shape vectors (breadth, '
+            'duration, coordination). For semantic queries, use '
+            'goals-search.'
+        ),
     )
     goals_list_parser.add_argument('--ai-id', help='Filter by AI identifier')
     goals_list_parser.add_argument('--session-id', help='Derive project_id from session (convenience)')
@@ -924,8 +1077,17 @@ Example:
     goals_list_parser.add_argument('--verbose', action='store_true', help='Show detailed operation info')
 
     # Goals semantic search command (Qdrant-powered)
-    goals_search_parser = subparsers.add_parser('goals-search',
-        help='Semantic search for goals across sessions (Qdrant)')
+    goals_search_parser = subparsers.add_parser(
+        'goals-search',
+        help=(
+            'Semantic search across goals + subtasks (Qdrant embeddings). '
+            'Finds matches by meaning, not just keyword — "authentication '
+            'system" surfaces "user login flow", "JWT validation". Pass '
+            'a positional query string. Use to find prior work on a topic '
+            'before duplicating effort, or to resurface relevant goals '
+            'across sessions. For status-only listing, use goals-list.'
+        ),
+    )
     goals_search_parser.add_argument('query', help='Search query (e.g., "authentication system")')
     goals_search_parser.add_argument('--project-id', help='Project ID (auto-detects if not provided)')
     goals_search_parser.add_argument('--type', choices=['goal', 'subtask'],
@@ -943,7 +1105,17 @@ Example:
         help='Show detailed operation info')
 
     # goals-ready command (BEADS integration - Phase 1)
-    goals_ready_parser = subparsers.add_parser('goals-ready', help='Query ready work (BEADS + epistemic filtering)')
+    goals_ready_parser = subparsers.add_parser(
+        'goals-ready',
+        help=(
+            'Find work that\'s ready to start — open goals/subtasks with '
+            'their dependencies satisfied AND your current epistemic state '
+            'meets the confidence/uncertainty thresholds. Wraps BEADS '
+            'priority filtering with empirica\'s vector gates. Use when '
+            'asking "what can I tackle next?" rather than scrolling '
+            'goals-list manually.'
+        ),
+    )
     goals_ready_parser.add_argument('--session-id', required=False, help='Session UUID (auto-detects active session if not provided)')
     goals_ready_parser.add_argument('--min-confidence', type=float, default=0.7, help='Minimum confidence threshold (0.0-1.0)')
     goals_ready_parser.add_argument('--max-uncertainty', type=float, default=0.3, help='Maximum uncertainty threshold (0.0-1.0)')
@@ -952,21 +1124,47 @@ Example:
     goals_ready_parser.add_argument('--verbose', action='store_true', help='Show detailed operation info')
 
     # Goals-discover command (NEW: Phase 1 - Cross-AI Goal Discovery)
-    goals_discover_parser = subparsers.add_parser('goals-discover', help='Discover goals from other AIs via git')
+    goals_discover_parser = subparsers.add_parser(
+        'goals-discover',
+        help=(
+            'Surface goals created by OTHER AIs in this project (via git '
+            'notes sync). Use for cross-AI coordination — "what is the '
+            'cortex AI working on right now?" — before duplicating or '
+            'colliding. Filter by --from-ai-id or --session-id. Pair with '
+            'goals-resume to pick one up.'
+        ),
+    )
     goals_discover_parser.add_argument('--from-ai-id', help='Filter by AI creator')
     goals_discover_parser.add_argument('--session-id', help='Filter by session')
     goals_discover_parser.add_argument('--output', choices=['human', 'json'], default='human', help='Output format')
     goals_discover_parser.add_argument('--verbose', action='store_true', help='Show detailed operation info')
 
     # Goals-resume command (NEW: Phase 1 - Cross-AI Goal Handoff)
-    goals_resume_parser = subparsers.add_parser('goals-resume', help='Resume another AI\'s goal')
+    goals_resume_parser = subparsers.add_parser(
+        'goals-resume',
+        help=(
+            'Take over a goal another AI started. Reassigns the goal\'s '
+            'ai_id to you, imports its subtasks + history into your '
+            'session\'s context. Use after goals-discover surfaces work '
+            'a peer left mid-flight, or during planned handoff.'
+        ),
+    )
     goals_resume_parser.add_argument('goal_id', help='Goal ID to resume')
     goals_resume_parser.add_argument('--ai-id', default='empirica_cli', help='Your AI identifier')
     goals_resume_parser.add_argument('--output', choices=['human', 'json'], default='human', help='Output format')
     goals_resume_parser.add_argument('--verbose', action='store_true', help='Show detailed operation info')
 
     # Goals-claim command (NEW: Phase 3a - Git Bridge)
-    goals_claim_parser = subparsers.add_parser('goals-claim', help='Claim goal, create git branch, link to BEADS')
+    goals_claim_parser = subparsers.add_parser(
+        'goals-claim',
+        help=(
+            'Start working on a goal: create a git branch named after it, '
+            'link to the BEADS issue, optionally run PREFLIGHT. Differs '
+            'from goals-resume (takeover of a peer\'s goal) — claim is for '
+            'goals already yours that you\'re committing to start. Skip '
+            'branch creation with --no-branch for non-code goals.'
+        ),
+    )
     goals_claim_parser.add_argument('--goal-id', required=True, help='Goal UUID to claim')
     goals_claim_parser.add_argument('--create-branch', action='store_true', default=True, help='Create git branch (default: True)')
     goals_claim_parser.add_argument('--no-branch', dest='create_branch', action='store_false', help='Skip branch creation')
@@ -978,7 +1176,13 @@ Example:
     goals_complete_parser = subparsers.add_parser(
         'goals-complete',
         aliases=['goal-complete'],
-        help='Complete goal, merge branch, close BEADS issue'
+        help=(
+            'Close a goal as done. Pass --reason explaining what shipped '
+            '(commit SHAs, what got verified). Optional: --merge-branch + '
+            '--delete-branch to wrap the git side, --run-postflight to '
+            'auto-close the active transaction. Run BEFORE postflight-submit '
+            'so the closure shows up in the transaction\'s grounded evidence.'
+        ),
     )
     goals_complete_parser.add_argument('--goal-id', required=True, help='Goal UUID to complete')
     goals_complete_parser.add_argument('--run-postflight', action='store_true', help='Run POSTFLIGHT before completing')
@@ -1024,30 +1228,61 @@ written to git notes (breadcrumbs ref) for audit trail.
     goals_prune_parser.add_argument('--verbose', action='store_true', help='Show detailed output')
 
     # Goals mark-stale command (used by pre-compact hooks)
-    goals_mark_stale_parser = subparsers.add_parser('goals-mark-stale',
-        help='Mark in_progress goals as stale during memory compaction')
+    goals_mark_stale_parser = subparsers.add_parser(
+        'goals-mark-stale',
+        help=(
+            'Flag in_progress goals as stale (typically called by the '
+            'pre-compact hook before context loss). Marks them for '
+            're-evaluation on the other side. Not for manual cleanup — '
+            'use goals-prune for that. Pair: goals-get-stale to retrieve.'
+        ),
+    )
     goals_mark_stale_parser.add_argument('--session-id', required=True, help='Session UUID')
     goals_mark_stale_parser.add_argument('--reason', default='memory_compact',
         help='Reason for marking stale (default: memory_compact)')
     goals_mark_stale_parser.add_argument('--output', choices=['human', 'json'], default='human', help='Output format')
 
     # Goals get-stale command (retrieve stale goals needing re-evaluation)
-    goals_get_stale_parser = subparsers.add_parser('goals-get-stale',
-        help='Get stale goals that need re-evaluation after compaction')
+    goals_get_stale_parser = subparsers.add_parser(
+        'goals-get-stale',
+        help=(
+            'List goals marked stale by goals-mark-stale (typically '
+            'set by the pre-compact hook). Used after compaction to '
+            'decide which goals to refresh (still relevant) vs prune '
+            '(superseded by what happened). Pair: goals-refresh / '
+            'goals-prune.'
+        ),
+    )
     goals_get_stale_parser.add_argument('--session-id', help='Filter by session ID')
     goals_get_stale_parser.add_argument('--project-id', help='Filter by project ID')
     goals_get_stale_parser.add_argument('--output', choices=['human', 'json'], default='human', help='Output format')
 
     # Goals activate command (transition planned → in_progress, link to transaction)
-    goals_activate_parser = subparsers.add_parser('goals-activate',
+    goals_activate_parser = subparsers.add_parser(
+        'goals-activate',
         aliases=['goal-activate'],
-        help='Activate a planned goal — set to in_progress and link to current transaction')
+        help=(
+            'Flip a planned goal to in_progress and link it to the active '
+            'transaction. Use when you\'re ready to start work on a goal '
+            'created earlier as planned (collaborative pre-scoping). Differs '
+            'from goals-claim — activate is the same-AI status transition; '
+            'claim is the lifecycle hook (branch, BEADS).'
+        ),
+    )
     goals_activate_parser.add_argument('--goal-id', required=True, help='Goal UUID to activate (prefix match)')
     goals_activate_parser.add_argument('--output', choices=['human', 'json'], default='json', help='Output format')
 
     # Goals refresh command (mark stale goal as in_progress after regaining context)
-    goals_refresh_parser = subparsers.add_parser('goals-refresh',
-        help='Refresh a stale goal back to in_progress (AI has regained context)')
+    goals_refresh_parser = subparsers.add_parser(
+        'goals-refresh',
+        help=(
+            'Move a stale goal back to in_progress after you\'ve regained '
+            'context (typically post-compact). Use after goals-get-stale '
+            'surfaces the goal and you\'ve confirmed it\'s still relevant. '
+            'For irrelevant stale goals, prefer goals-complete (with reason) '
+            'or goals-prune.'
+        ),
+    )
     goals_refresh_parser.add_argument('--goal-id', required=True, help='Goal UUID to refresh')
     goals_refresh_parser.add_argument('--output', choices=['human', 'json'], default='human', help='Output format')
 

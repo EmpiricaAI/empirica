@@ -23,7 +23,7 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.9.10
-**Generated:** 2026-05-22 13:01:47 UTC
+**Generated:** 2026-05-23 12:39:32 UTC
 **Total commands:** 231 (across 26 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -225,93 +225,93 @@ Adopt an orphaned transaction from a different instance (e.g., after tmux restar
 
 #### `empirica preflight-submit`  _(aliases: `pre`, `preflight`)_
 
-Submit preflight assessment (AI-first: use config file, Legacy: use flags)
+Open an epistemic transaction. Records baseline vectors + task context as the starting measurement point. Must be called before any praxic tool (Edit/Write/Bash); the Sentinel firewall enforces this. Pairs with check-submit (mid-cycle gate) and postflight-submit (close). AI-first: pass JSON via stdin or a config file path.
 
 **Arguments:**
 
 - `config` — **required**
-  JSON config file path or "-" for stdin (AI-first mode)
+  JSON config file path, or "-" to read JSON from stdin (AI-first mode). Required unless using --vectors / --reasoning flags. The JSON object holds the full assessment payload — `vectors`, `reasoning`, optional `session_id`, plus PREFLIGHT-only `task_context` / `work_type` / `domain` / `criticality`. Example: `empirica preflight-submit - <<EOF\n{"vectors":{...}, "reasoning":"..."}\nEOF`
 - `--session-id` — optional
-  Session ID (legacy)
+  Session UUID (legacy flag-based mode). Normally auto-derived from the active transaction file; only needed when running outside a transaction or against a specific session_id.
 - `--vectors` — optional
-  Epistemic vectors as JSON string or dict (legacy)
+  Epistemic vectors as a JSON dict (legacy mode). Prefer passing them inside the config-file payload instead. Example: '{"know":0.7, "uncertainty":0.2, "context":0.6, "engagement":0.9}'
 - `--reasoning` — optional
-  Reasoning for assessment scores (legacy)
+  Free-text narrative explaining the baseline assessment (legacy mode). What you know, what you don't, why these vector values reflect your actual epistemic state right now. Prefer setting in the config-file payload as `"reasoning": "..."`.
 - `--voice` — optional
-  Voice profile name to load for outreach drafting (e.g. --voice david). Profile is resolved via the empirica voice loader.
+  Voice profile name to load for outreach drafting work (e.g. `--voice david`). Resolved via the empirica voice loader. Only relevant for outreach / publishing transactions; ignored for code / docs / research work.
 - `--output` — optional · type=`choice` · choices={human, json} · default=`json`
-  Output format (default: json for AI)
+  Output format (default: json — AI-friendly, machine-parsable). Use `human` when reading by eye at the terminal.
 - `--verbose` — optional · flag
-  Show detailed operation info
+  Echo extra operation info to stderr (DB paths, timing, debug detail). Doesn't affect the structured output on stdout.
 
 #### `empirica check`
 
-Execute epistemic check (AI-first: use config file, Legacy: use flags)
+Run an epistemic check WITHOUT submitting it as the gate decision. Use this to probe whether your current state would pass the noetic→praxic gate before committing to the transition. For actually gating, use `check-submit`.
 
 **Arguments:**
 
 - `config` — **required**
-  JSON config file path or "-" for stdin (AI-first mode)
+  JSON config file path, or "-" to read JSON from stdin (AI-first mode). Required unless using --vectors / --reasoning flags. The JSON object holds the full assessment payload — `vectors`, `reasoning`, optional `session_id`, plus PREFLIGHT-only `task_context` / `work_type` / `domain` / `criticality`. Example: `empirica preflight-submit - <<EOF\n{"vectors":{...}, "reasoning":"..."}\nEOF`
 - `--session-id` — optional
-  Session ID (legacy)
+  Session UUID (legacy flag-based mode). Normally auto-derived from the active transaction file; only needed when running outside a transaction or against a specific session_id.
 - `--findings` — optional
-  Investigation findings as JSON array (legacy)
+  Investigation findings logged this transaction, as a JSON array (legacy mode). Usually unnecessary — the gate reads logged findings from the active transaction directly.
 - `--unknowns` — optional
-  Remaining unknowns as JSON array (legacy)
+  Open unknowns at the gate, as a JSON array (legacy mode). Usually unnecessary — the gate reads logged unknowns from the active transaction directly. See also --remaining-unknowns.
 - `--remaining-unknowns` — optional
-  Alias for --unknowns (legacy)
+  Alias for --unknowns (legacy compatibility shim).
 - `--confidence` — optional · type=`float`
-  Confidence score (0.0-1.0) (legacy)
+  Overall confidence score 0.0–1.0 (legacy mode). The gate prefers the per-vector breakdown in the config payload; --confidence is a flat-scalar fallback for old callers.
 - `--output` — optional · type=`choice` · choices={human, json} · default=`json`
-  Output format (default: json for AI)
+  Output format (default: json — AI-friendly, machine-parsable). Use `human` when reading by eye at the terminal.
 - `--verbose` — optional · flag
-  Show detailed analysis
+  Show detailed gate-decision analysis (which vectors blocked, what threshold inflation was applied, Brier scoring detail).
 
 #### `empirica check-submit`
 
-Submit check assessment (AI-first: use config file, Legacy: use flags)
+Submit a check assessment AND apply the gate decision. Pass `decision`=`proceed` to move to the praxic phase, `investigate` to stay noetic, `proceed_with_caution` for a soft gate. The Sentinel firewall reads the result to allow/deny subsequent praxic tools. Required after PREFLIGHT before any Edit/Write/Bash.
 
 **Arguments:**
 
 - `config` — **required**
-  JSON config file path or "-" for stdin (AI-first mode)
+  JSON config file path, or "-" to read JSON from stdin (AI-first mode). Required unless using --vectors / --reasoning flags. The JSON object holds the full assessment payload — `vectors`, `reasoning`, optional `session_id`, plus PREFLIGHT-only `task_context` / `work_type` / `domain` / `criticality`. Example: `empirica preflight-submit - <<EOF\n{"vectors":{...}, "reasoning":"..."}\nEOF`
 - `--session-id` — optional
-  Session ID (legacy)
+  Session UUID (legacy flag-based mode). Normally auto-derived from the active transaction file; only needed when running outside a transaction or against a specific session_id.
 - `--vectors` — optional
-  Epistemic vectors as JSON string or dict (legacy)
+  Epistemic vectors as a JSON dict (legacy mode). Prefer passing them inside the config-file payload instead. Example: '{"know":0.7, "uncertainty":0.2, "context":0.6, "engagement":0.9}'
 - `--decision` — optional · type=`choice` · choices={proceed, investigate, proceed_with_caution}
-  Decision made (legacy)
+  Gate decision (legacy mode). `proceed` → praxic phase unlocks. `investigate` → stay noetic, more reads/searches needed. `proceed_with_caution` → soft gate (tools unlock but Sentinel logs a warning). Usually carried inside the config payload rather than this flag.
 - `--reasoning` — optional
-  Reasoning for decision (legacy)
+  Free-text explaining the gate decision (legacy mode). What investigation answered the original unknowns, what residual uncertainty remains, why proceeding now is the right call.
 - `--cycle` — optional · type=`int`
-  Investigation cycle number (legacy)
+  Investigation cycle number (legacy mode). 1 on first CHECK, increments if you re-investigate then re-CHECK before proceeding.
 - `--round` — optional · type=`int`
-  Round number (for checkpoint tracking) (legacy)
+  Round number used for checkpoint tracking across multi-stage investigations (legacy mode).
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
-  Output format
+  Output format (default: human — readable at the terminal). Use `json` when scripting or feeding into another tool.
 - `--verbose` — optional · flag
-  Show detailed operation info
+  Echo extra operation info to stderr (DB paths, timing, debug detail). Doesn't affect the structured output on stdout.
 
 #### `empirica postflight-submit`  _(aliases: `post`, `postflight`)_
 
-Submit postflight assessment (AI-first: use config file, Legacy: use flags)
+Close the epistemic transaction. Records final vectors + a reasoning narrative describing what changed since PREFLIGHT. Triggers the grounded-calibration pipeline (compares your beliefs to deterministic evidence: git, lint, tests, artifact logs). Run after committing the work — uncommitted edits are invisible to the change/state/do evidence sensors.
 
 **Arguments:**
 
 - `config` — **required**
-  JSON config file path or "-" for stdin (AI-first mode)
+  JSON config file path, or "-" to read JSON from stdin (AI-first mode). Required unless using --vectors / --reasoning flags. The JSON object holds the full assessment payload — `vectors`, `reasoning`, optional `session_id`, plus PREFLIGHT-only `task_context` / `work_type` / `domain` / `criticality`. Example: `empirica preflight-submit - <<EOF\n{"vectors":{...}, "reasoning":"..."}\nEOF`
 - `--session-id` — optional
-  Session ID (legacy)
+  Session UUID (legacy flag-based mode). Normally auto-derived from the active transaction file; only needed when running outside a transaction or against a specific session_id.
 - `--vectors` — optional
-  Epistemic vectors as JSON string or dict (legacy)
+  Epistemic vectors as a JSON dict (legacy mode). Prefer passing them inside the config-file payload instead. Example: '{"know":0.7, "uncertainty":0.2, "context":0.6, "engagement":0.9}'
 - `--reasoning` — optional
-  Description of what changed from preflight (legacy)
+  Free-text describing what changed from PREFLIGHT to POSTFLIGHT (legacy mode). Surface what you learned, what surprised you, what you shipped, what residual unknowns carry into the next transaction.
 - `--changes` — optional
-  Alias for --reasoning (deprecated, use --reasoning)
+  Deprecated alias for --reasoning. Use --reasoning instead.
 - `--output` — optional · type=`choice` · choices={human, json} · default=`json`
-  Output format (default: json for AI)
+  Output format (default: json — AI-friendly, machine-parsable). Use `human` when reading by eye at the terminal.
 - `--verbose` — optional · flag
-  Show detailed operation info
+  Echo extra operation info to stderr (DB paths, timing, debug detail). Doesn't affect the structured output on stdout.
 
 ---
 
@@ -319,7 +319,7 @@ Submit postflight assessment (AI-first: use config file, Legacy: use flags)
 
 #### `empirica goals-create`  _(aliases: `goal-create`, `gc`)_
 
-Create new goal (AI-first: use config file, Legacy: use flags)
+Create a new goal — the unit of tracked work. One per coherent deliverable: a feature, a fix, a doc sweep. Set --status planned when scoped-but-not-started (collaborative planning); in_progress when actively working. For multi-step work, follow with goals-add-subtask per distinct unit. AI-first: pass JSON via stdin/file; legacy: --objective + flags.
 
 **Arguments:**
 
@@ -364,7 +364,7 @@ Create new goal (AI-first: use config file, Legacy: use flags)
 
 #### `empirica goals-list`  _(aliases: `goal-list`, `gl`)_
 
-List goals
+List goals in the current project. Default: active (in_progress). Use --status {planned,in_progress,completed,all,drift} for finer filtering; "drift" surfaces goals where the status text disagrees with is_completed (data-integrity check). Scope-* flags filter on goal-shape vectors (breadth, duration, coordination). For semantic queries, use goals-search.
 
 **Arguments:**
 
@@ -401,7 +401,7 @@ List goals
 
 #### `empirica goals-search`
 
-Semantic search for goals across sessions (Qdrant)
+Semantic search across goals + subtasks (Qdrant embeddings). Finds matches by meaning, not just keyword — "authentication system" surfaces "user login flow", "JWT validation". Pass a positional query string. Use to find prior work on a topic before duplicating effort, or to resurface relevant goals across sessions. For status-only listing, use goals-list.
 
 **Arguments:**
 
@@ -426,7 +426,7 @@ Semantic search for goals across sessions (Qdrant)
 
 #### `empirica goals-complete`  _(aliases: `goal-complete`)_
 
-Complete goal, merge branch, close BEADS issue
+Close a goal as done. Pass --reason explaining what shipped (commit SHAs, what got verified). Optional: --merge-branch + --delete-branch to wrap the git side, --run-postflight to auto-close the active transaction. Run BEFORE postflight-submit so the closure shows up in the transaction's grounded evidence.
 
 **Arguments:**
 
@@ -449,7 +449,7 @@ Complete goal, merge branch, close BEADS issue
 
 #### `empirica goals-claim`
 
-Claim goal, create git branch, link to BEADS
+Start working on a goal: create a git branch named after it, link to the BEADS issue, optionally run PREFLIGHT. Differs from goals-resume (takeover of a peer's goal) — claim is for goals already yours that you're committing to start. Skip branch creation with --no-branch for non-code goals.
 
 **Arguments:**
 
@@ -468,7 +468,7 @@ Claim goal, create git branch, link to BEADS
 
 #### `empirica goals-add-subtask`  _(aliases: `goal-add-subtask`)_
 
-Add subtask to existing goal
+Decompose a goal into trackable units. One subtask per distinct piece of work you'll execute (read this, edit that, write these tests). Decompose at PREFLIGHT, not retroactively — subtasks added after the work is done are self-graded checkboxes, not tracked units. Close each with goals-complete-subtask + --evidence as you finish.
 
 **Arguments:**
 
@@ -506,7 +506,7 @@ Add dependency between goals (Goal A depends on Goal B)
 
 #### `empirica goals-complete-subtask`  _(aliases: `goal-complete-subtask`)_
 
-Mark subtask as complete
+Close a subtask with evidence of completion. Always pass --evidence: commit SHA, test result, file path, link — whatever proves the work landed. Empty completions inflate the goal-completion vector without grounding it. Close as-you-go, not batched at the end.
 
 **Arguments:**
 
@@ -521,7 +521,7 @@ Mark subtask as complete
 
 #### `empirica goals-get-subtasks`
 
-Get detailed subtask information
+Dump the full subtask list for a goal (id, description, status, evidence, importance). Useful for picking the next subtask to work on, or for grepping subtask ids when completing several at once.
 
 **Arguments:**
 
@@ -532,7 +532,7 @@ Get detailed subtask information
 
 #### `empirica goals-progress`  _(aliases: `goal-progress`)_
 
-Get goal completion progress
+Show subtask-level progress for a single goal: how many subtasks total, how many completed, with their evidence. Useful before deciding whether to close the goal (goals-complete) or whether more subtasks are needed.
 
 **Arguments:**
 
@@ -545,7 +545,7 @@ Get goal completion progress
 
 #### `empirica goals-discover`
 
-Discover goals from other AIs via git
+Surface goals created by OTHER AIs in this project (via git notes sync). Use for cross-AI coordination — "what is the cortex AI working on right now?" — before duplicating or colliding. Filter by --from-ai-id or --session-id. Pair with goals-resume to pick one up.
 
 **Arguments:**
 
@@ -560,7 +560,7 @@ Discover goals from other AIs via git
 
 #### `empirica goals-ready`
 
-Query ready work (BEADS + epistemic filtering)
+Find work that's ready to start — open goals/subtasks with their dependencies satisfied AND your current epistemic state meets the confidence/uncertainty thresholds. Wraps BEADS priority filtering with empirica's vector gates. Use when asking "what can I tackle next?" rather than scrolling goals-list manually.
 
 **Arguments:**
 
@@ -579,7 +579,7 @@ Query ready work (BEADS + epistemic filtering)
 
 #### `empirica goals-resume`
 
-Resume another AI's goal
+Take over a goal another AI started. Reassigns the goal's ai_id to you, imports its subtasks + history into your session's context. Use after goals-discover surfaces work a peer left mid-flight, or during planned handoff.
 
 **Arguments:**
 
@@ -594,7 +594,7 @@ Resume another AI's goal
 
 #### `empirica goals-mark-stale`
 
-Mark in_progress goals as stale during memory compaction
+Flag in_progress goals as stale (typically called by the pre-compact hook before context loss). Marks them for re-evaluation on the other side. Not for manual cleanup — use goals-prune for that. Pair: goals-get-stale to retrieve.
 
 **Arguments:**
 
@@ -607,7 +607,7 @@ Mark in_progress goals as stale during memory compaction
 
 #### `empirica goals-get-stale`
 
-Get stale goals that need re-evaluation after compaction
+List goals marked stale by goals-mark-stale (typically set by the pre-compact hook). Used after compaction to decide which goals to refresh (still relevant) vs prune (superseded by what happened). Pair: goals-refresh / goals-prune.
 
 **Arguments:**
 
@@ -620,7 +620,7 @@ Get stale goals that need re-evaluation after compaction
 
 #### `empirica goals-refresh`
 
-Refresh a stale goal back to in_progress (AI has regained context)
+Move a stale goal back to in_progress after you've regained context (typically post-compact). Use after goals-get-stale surfaces the goal and you've confirmed it's still relevant. For irrelevant stale goals, prefer goals-complete (with reason) or goals-prune.
 
 **Arguments:**
 
@@ -635,7 +635,7 @@ Refresh a stale goal back to in_progress (AI has regained context)
 
 #### `empirica finding-log`  _(aliases: `fl`)_
 
-Log a project finding (what was learned/discovered)
+Log a discovery — something concrete you NOW know that wasn't obvious before. Use for: facts surfaced from a read/grep, patterns observed in the codebase, verified assumptions, resolved unknowns, behaviors confirmed by experiment. The core building block of the project knowledge graph. --impact 0.0-1.0 weights how much it matters. Pair with --source <id> when the finding came from external material.
 
 **Arguments:**
 
@@ -682,7 +682,7 @@ Log a project finding (what was learned/discovered)
 
 #### `empirica unknown-log`  _(aliases: `ul`)_
 
-Log a project unknown (what's still unclear)
+Log an open question — something you'd need to know before acting confidently, but don't yet. Use when investigation surfaces a gap (file not read yet, behavior unclear, decision pending input). The Sentinel CHECK gate reads open unknowns as a signal you may still be noetic. Close with `unknown-resolve` once answered (ideally with a finding link).
 
 **Arguments:**
 
@@ -729,7 +729,7 @@ Log a project unknown (what's still unclear)
 
 #### `empirica unknown-list`
 
-List project unknowns (open or resolved)
+List open project unknowns (default) or resolved ones with --resolved. Useful at PREFLIGHT to surface stale questions that should be cleaned up, or between transactions to triage what still needs investigation. For cross-project unknowns, use `project-search --task "..." --global`.
 
 **Arguments:**
 
@@ -752,7 +752,7 @@ List project unknowns (open or resolved)
 
 #### `empirica unknown-resolve`
 
-Mark unknown as resolved
+Close an open unknown — pass the answer as --resolved-by and optionally link the finding that answered it via --finding. Run before POSTFLIGHT to drop the CHECK-gate weight of stale questions and surface the resolution as evidence for the next transaction's grounded calibration.
 
 **Arguments:**
 
@@ -769,7 +769,7 @@ Mark unknown as resolved
 
 #### `empirica deadend-log`  _(aliases: `de`)_
 
-Log a project dead end (what didn't work)
+Log an approach that didn't work. Use when you tried something and the result rules out a path (lib X doesn't support Y, refactor strategy hit a wall, fix attempt made things worse). Differs from mistake-log (an error you made) — dead-ends are about the approach. CHECK reads dead-ends as evidence of search effort. --why-failed is load-bearing.
 
 **Arguments:**
 
@@ -818,7 +818,7 @@ Log a project dead end (what didn't work)
 
 #### `empirica assumption-log`
 
-Log an unverified assumption (what you're taking for granted)
+Log a belief you're acting on without verification. Use when proceeding requires taking something for granted (e.g. "Redis is available", "the spec is current"). Differs from finding-log (verified fact) — assumptions are explicitly unverified, with a --confidence 0.0-1.0 stating how much you trust them. Convert to finding-log once verified, or decision-log if you decide to act despite the uncertainty.
 
 **Arguments:**
 
@@ -859,7 +859,7 @@ Log an unverified assumption (what you're taking for granted)
 
 #### `empirica decision-log`
 
-Log a decision with alternatives and rationale
+Log a deliberate choice between alternatives. Use at every fork: which library, which approach, which trade-off, even "keep the current behavior" when it was reconsidered. --rationale explains the WHY, --alternatives lists what was rejected, --reversibility flags how easily it can be undone (exploratory / committal / forced). Link supporting findings via --evidence <id>. The audit trail for "why is the code this way?" questions.
 
 **Arguments:**
 
@@ -910,7 +910,7 @@ Log a decision with alternatives and rationale
 
 #### `empirica mistake-log`
 
-Log a mistake for learning and future prevention
+Log an error YOU made + how to prevent it. Use when you introduced a bug, mis-applied a pattern, broke an assumption, or otherwise produced output that needed correction. Differs from deadend-log (an approach that didn't work) — mistakes are about your decision-making, dead-ends about the approach. The --prevention flag is the load-bearing field for future-you.
 
 **Arguments:**
 
@@ -957,7 +957,7 @@ Log a mistake for learning and future prevention
 
 #### `empirica mistake-query`
 
-Query logged mistakes
+Look up logged mistakes — useful before tackling work that echoes a pattern you've gotten wrong before. Filter by --session-id (this session's only) or --goal-id (mistakes against a specific goal). For semantic search across mistake narratives, use `project-search --task "..."` instead.
 
 **Arguments:**
 
@@ -974,7 +974,7 @@ Query logged mistakes
 
 #### `empirica refdoc-add`
 
-Add a reference document to project (legacy — use source-add instead)
+DEPRECATED — use `source-add --source-type document` instead. Kept for backward compatibility with older scripts/skills. Sources are the unified surface for both noetic (evidence IN) and praxic (output OUT) external material; refdocs were noetic-only and lacked direction tagging.
 
 **Arguments:**
 
@@ -991,7 +991,7 @@ Add a reference document to project (legacy — use source-add instead)
 
 #### `empirica source-add`
 
-Add an epistemic source (noetic: evidence IN, praxic: output OUT)
+Register external material as a citable source. Use for any evidence outside the current code (RFC, paper, blog, customer call, design doc, screenshot, vendor contract). Pass --noetic when it informed your knowledge, --praxic when you produced it as output. Returns a source UUID — link it from findings / decisions / dead-ends via `--source <uuid>` on those *-log commands so the audit trail traces back to origin.
 
 **Arguments:**
 
@@ -1028,43 +1028,43 @@ Add an epistemic source (noetic: evidence IN, praxic: output OUT)
 
 #### `empirica act-log`
 
-Log actions taken during ACT phase
+Log a batch of praxic actions (file edits, commands run, commits made) with their artifacts. Use to record a coherent unit of execution work in one call rather than several. For tracking individual artifact creations, prefer per-type *-log commands; for tracking task completion, prefer goals-complete-subtask with --evidence.
 
 **Arguments:**
 
 - `--session-id` — optional
-  Session ID (auto-derived from active transaction)
+  Session UUID. Auto-derived from active transaction if omitted.
 - `--actions` — **required**
-  JSON array of actions taken
+  JSON array describing actions taken. Example: '["Edited src/x.py", "Added test_y", "Ran ruff check"]'.
 - `--artifacts` — optional
-  JSON array of files modified/created
+  JSON array of files modified/created/deleted. Example: '["src/x.py", "tests/test_y.py"]'. Augments git for actions that don't produce a commit yet.
 - `--goal-id` — optional
-  Goal UUID being worked on
+  Goal UUID this action sequence advanced. Ties act-log to a tracked work unit.
 - `--output` — optional · type=`choice` · choices={json, text} · default=`text`
-  Output format (json or text)
+  Output format. Use `json` when scripting; `text` for terminal.
 - `--verbose` — optional · flag
-  Verbose output
+  Echo extra diagnostic info to stderr.
 
 #### `empirica investigate-log`
 
-Log investigation findings during INVESTIGATE phase
+Log a batch of findings produced by an investigation phase. Use when you have multiple related discoveries to record at once (e.g. after reading several files, running a series of greps). For single discoveries, prefer finding-log directly.
 
 **Arguments:**
 
 - `--session-id` — optional
-  Session ID (auto-derived from active transaction)
+  Session UUID. Auto-derived from active transaction if omitted.
 - `--findings` — **required**
-  JSON array of findings discovered
+  JSON array of finding strings or {finding, impact} objects. Example: '["X uses Y", "Z deprecated since v3"]' or '[{"finding":"X uses Y","impact":0.7}]'.
 - `--evidence` — optional
-  JSON object with evidence (file paths, line numbers, etc.)
+  JSON object linking findings to supporting evidence — file paths, line numbers, commit SHAs, URLs. Example: '{"files":["src/x.py:42"], "commits":["abc123"]}'.
 - `--output` — optional · type=`choice` · choices={json, text} · default=`text`
-  Output format (json or text)
+  Output format. Use `json` when scripting; `text` for terminal.
 - `--verbose` — optional · flag
-  Verbose output
+  Echo extra diagnostic info to stderr.
 
 #### `empirica log-artifacts`
 
-Batch log connected artifacts with graph format (nodes + edges)
+Log ≥3 connected artifacts in one call instead of N individual *-log invocations. Accepts a JSON graph (nodes = typed artifacts, edges = relationships). Use when artifacts have declared edges between them (sourced_from, evidence_for, supersedes, etc.) — the batch keeps the graph atomic. For a single artifact, prefer the per-type *-log command.
 
 **Arguments:**
 
@@ -1083,7 +1083,7 @@ Batch log connected artifacts with graph format (nodes + edges)
 
 #### `empirica resolve-artifacts`
 
-Batch resolve open artifacts (unknowns, assumptions, goals)
+Close multiple open artifacts (unknowns, assumptions, goals) in one call. Typically used pre-POSTFLIGHT to clean up the ledger when investigation answered several questions at once. For a single artifact, prefer the per-type resolve verb (unknown-resolve, goals-complete).
 
 **Arguments:**
 
@@ -1098,7 +1098,7 @@ Batch resolve open artifacts (unknowns, assumptions, goals)
 
 #### `empirica delete-artifacts`
 
-Batch delete non-pertinent artifacts (anti-pollution cleanup)
+Remove stale, duplicate, or test-noise artifacts from the ledger. Unlike resolve-artifacts (closes WITH a resolution reason), this hard-deletes from SQLite + Qdrant. The deletion itself is logged as a decision for audit. Use --dry-run first to preview. For "still valid but answered", use resolve. For "never should have been logged", use this.
 
 **Arguments:**
 
@@ -4400,7 +4400,7 @@ Analyze goal feasibility
 
 #### `empirica goals-activate`  _(aliases: `goal-activate`)_
 
-Activate a planned goal — set to in_progress and link to current transaction
+Flip a planned goal to in_progress and link it to the active transaction. Use when you're ready to start work on a goal created earlier as planned (collaborative pre-scoping). Differs from goals-claim — activate is the same-AI status transition; claim is the lifecycle hook (branch, BEADS).
 
 **Arguments:**
 
@@ -4805,7 +4805,7 @@ One fire of the services-audit loop: scan + diff vs prior + notify on novel serv
 
 #### `empirica source-archive`
 
-Soft-delete an epistemic source (preserves edges + citing artifacts)
+Soft-delete a source. Use when the source is no longer valid (file deleted, URL dead, superseded by newer material). Edges from citing artifacts are preserved so the audit trail stays intact — the source just disappears from default listings. Pass --reason superseded + --target-id <newer-uuid> to chain forward to the replacement.
 
 **Arguments:**
 
@@ -4822,7 +4822,7 @@ Soft-delete an epistemic source (preserves edges + citing artifacts)
 
 #### `empirica source-list`
 
-List epistemic sources for a project
+List registered sources for a project. Filter by --type (document/code/web/api/…) or --direction (noetic/praxic/all). Useful for finding the source UUID to cite in a new artifact, or for auditing what external material has informed the project. Archived sources are hidden by default — pass --include-archived for forensics.
 
 **Arguments:**
 
