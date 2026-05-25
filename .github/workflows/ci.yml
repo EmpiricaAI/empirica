@@ -20,7 +20,7 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Python 3.13
         uses: actions/setup-python@v5
@@ -65,7 +65,7 @@ jobs:
         python: ["3.11", "3.13"]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Python ${{ matrix.python }}
         uses: actions/setup-python@v5
@@ -106,7 +106,7 @@ jobs:
     needs: [lint-and-types]  # don't run if lint is broken
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           # Full history + tags so compliance-report's release_chain check
           # can verify git_tag exists for the current version, and
