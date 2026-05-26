@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — entity CLI surface (Practice Model backing)
+
+Four new verbs query the workspace's `entity_registry` + `entity_memberships`
+tables without dropping into raw SQL. Backs the Practice Model concept
+introduced in `/empirica-constitution` Section XIII:
+
+- `empirica entity-list [--type T] [--status S] [--limit N]` — list registered
+  entities (project, contact, organization, engagement, user).
+- `empirica entity-show <type:id>` — full entity record + incoming/outgoing
+  membership edges. Supports partial id resolution (≥4 chars).
+- `empirica entity-walk <type:id> [--depth N]` — BFS the membership graph in
+  both directions. Cycle protection + truncation flag at depth limit.
+- `empirica entity-search <query> [--type T]` — case-insensitive LIKE search
+  on `display_name` + `description`. Use `project-search` for semantic search
+  across artifacts; this is text-match for entities.
+
+All verbs support `--output {human|json}`. Read-only — added to the
+sentinel-gate tier1 allowlist.
+
+`WorkspaceDBRepository._ensure_workspace_schema` now creates `entity_registry`
+and `entity_memberships` if missing — these were assumed-present before and
+broke on fresh installs.
+
 ### Changed — `subtask` → `task` rename (BREAKING)
 
 CLI verbs and flags renamed to align with Claude Code's `Task` primitive

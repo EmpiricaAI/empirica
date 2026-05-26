@@ -130,6 +130,47 @@ def _ensure_workspace_schema(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_entity_artifacts_engagement
         ON entity_artifacts(engagement_id)
     """)
+    # entity_registry: the global directory of first-class entities
+    # (project, contact, organization, engagement, user, …). Backs the
+    # Practice Model surface (entity-list / entity-show / entity-walk /
+    # entity-search).
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS entity_registry (
+            entity_type TEXT NOT NULL,
+            entity_id TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            description TEXT,
+            source_db TEXT NOT NULL,
+            source_table TEXT NOT NULL,
+            emoji_state TEXT,
+            status TEXT DEFAULT 'active',
+            created_at REAL NOT NULL,
+            updated_at REAL,
+            metadata TEXT,
+            PRIMARY KEY (entity_type, entity_id)
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_entity_registry_type ON entity_registry(entity_type)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_entity_registry_status ON entity_registry(status)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_entity_registry_emoji ON entity_registry(emoji_state)")
+    # entity_memberships: M:N typed relationships between entities
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS entity_memberships (
+            entity_type TEXT NOT NULL,
+            entity_id TEXT NOT NULL,
+            group_type TEXT NOT NULL,
+            group_id TEXT NOT NULL,
+            role TEXT,
+            joined_at REAL NOT NULL,
+            left_at REAL,
+            created_at REAL NOT NULL,
+            notes TEXT,
+            PRIMARY KEY (entity_type, entity_id, group_type, group_id)
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_entity_memberships_member ON entity_memberships(entity_type, entity_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_entity_memberships_group ON entity_memberships(group_type, group_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_entity_memberships_active ON entity_memberships(left_at)")
     conn.commit()
 
 
@@ -435,3 +476,188 @@ class WorkspaceDBRepository(BaseRepository):
             (engagement_id, limit)
         )
         return [dict(row) for row in cursor.fetchall()]
+
+    # --- entity_registry / entity_memberships (CLI surface backing) ---
+
+    def list_entities(
+        self,
+        entity_type: str | None = None,
+        status: str = 'active',
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """List entities from the registry.
+
+        Args:
+            entity_type: Optional filter by entity_type (project, contact, ...).
+                         None = all types.
+            status: 'active' (default), 'inactive', 'archived', or 'all'.
+            limit: Max rows to return.
+        """
+        params: list[Any] = []
+        where: list[str] = []
+        if entity_type:
+            where.append("entity_type = ?")
+            params.append(entity_type)
+        if status != 'all':
+            where.append("status = ?")
+            params.append(status)
+        where_clause = ("WHERE " + " AND ".join(where)) if where else ""
+        params.append(limit)
+        cursor = self._execute(
+            f"SELECT * FROM entity_registry {where_clause} "
+            f"ORDER BY updated_at DESC, created_at DESC LIMIT ?",
+            tuple(params),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+    def get_entity(
+        self, entity_type: str, entity_id: str
+    ) -> dict[str, Any] | None:
+        """Get a single entity by (type, id). Returns None if not found.
+
+        Supports prefix-match on entity_id (8+ chars) when no exact match —
+        same convention as subtask UUID resolution.
+        """
+        cursor = self._execute(
+            "SELECT * FROM entity_registry WHERE entity_type = ? AND entity_id = ?",
+            (entity_type, entity_id),
+        )
+        row = cursor.fetchone()
+        if row:
+            return dict(row)
+        if len(entity_id) >= 4:
+            cursor = self._execute(
+                "SELECT * FROM entity_registry WHERE entity_type = ? AND entity_id LIKE ? "
+                "ORDER BY created_at DESC LIMIT 2",
+                (entity_type, f"{entity_id}%"),
+            )
+            rows = cursor.fetchall()
+            if len(rows) == 1:
+                return dict(rows[0])
+        return None
+
+    def search_entities(
+        self,
+        query: str,
+        entity_type: str | None = None,
+        status: str = 'active',
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """Text-search entities by display_name + description.
+
+        Uses LIKE %query% — case-insensitive. For semantic search across
+        artifacts, use project-search / workspace-search instead.
+        """
+        like = f"%{query}%"
+        params: list[Any] = [like, like]
+        where = ["(display_name LIKE ? COLLATE NOCASE OR description LIKE ? COLLATE NOCASE)"]
+        if entity_type:
+            where.append("entity_type = ?")
+            params.append(entity_type)
+        if status != 'all':
+            where.append("status = ?")
+            params.append(status)
+        params.append(limit)
+        cursor = self._execute(
+            f"SELECT * FROM entity_registry WHERE {' AND '.join(where)} "
+            f"ORDER BY updated_at DESC, created_at DESC LIMIT ?",
+            tuple(params),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+    def get_entity_memberships(
+        self, entity_type: str, entity_id: str
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Get incoming + outgoing membership edges for an entity.
+
+        Returns:
+            {"member_of": [...], "members": [...]}
+            - member_of: groups this entity belongs to
+            - members: entities that belong to this entity (when it's a group)
+
+            Only active edges (left_at IS NULL) are returned.
+        """
+        out_cursor = self._execute(
+            """SELECT * FROM entity_memberships
+               WHERE entity_type = ? AND entity_id = ? AND left_at IS NULL
+               ORDER BY joined_at DESC""",
+            (entity_type, entity_id),
+        )
+        member_of = [dict(row) for row in out_cursor.fetchall()]
+        in_cursor = self._execute(
+            """SELECT * FROM entity_memberships
+               WHERE group_type = ? AND group_id = ? AND left_at IS NULL
+               ORDER BY joined_at DESC""",
+            (entity_type, entity_id),
+        )
+        members = [dict(row) for row in in_cursor.fetchall()]
+        return {"member_of": member_of, "members": members}
+
+    def walk_entity_graph(
+        self,
+        start_type: str,
+        start_id: str,
+        max_depth: int = 2,
+    ) -> dict[str, Any]:
+        """BFS the entity membership graph from a starting node.
+
+        Walks edges in both directions (member_of + members) with cycle
+        protection. Returns a tree-shaped result for human/JSON rendering.
+
+        Args:
+            start_type: Starting entity_type.
+            start_id: Starting entity_id (full or unambiguous prefix).
+            max_depth: How many edges to traverse before stopping. 0 = just
+                       the starting node + its 1-hop edges in the response
+                       (depth=0 returns the node alone, no traversal).
+
+        Returns:
+            {
+                "root": {entity dict + "depth": 0},
+                "nodes": [list of all visited entities with their depth],
+                "edges": [list of membership rows traversed],
+                "truncated": bool,  # True if max_depth limited the walk
+            }
+            Returns {"root": None} if the start entity doesn't exist.
+        """
+        start = self.get_entity(start_type, start_id)
+        if not start:
+            return {"root": None, "nodes": [], "edges": [], "truncated": False}
+        resolved_id = start["entity_id"]
+        seen: set[tuple[str, str]] = {(start_type, resolved_id)}
+        nodes = [{**start, "depth": 0}]
+        edges: list[dict[str, Any]] = []
+        frontier: list[tuple[str, str, int]] = [(start_type, resolved_id, 0)]
+        truncated = False
+        while frontier:
+            ntype, nid, depth = frontier.pop(0)
+            if depth >= max_depth:
+                if depth == max_depth and self.get_entity_memberships(ntype, nid)["member_of"] + \
+                                          self.get_entity_memberships(ntype, nid)["members"]:
+                    truncated = True
+                continue
+            memberships = self.get_entity_memberships(ntype, nid)
+            for edge in memberships["member_of"]:
+                edges.append({**edge, "direction": "outgoing"})
+                neighbor = (edge["group_type"], edge["group_id"])
+                if neighbor not in seen:
+                    seen.add(neighbor)
+                    n_ent = self.get_entity(*neighbor)
+                    if n_ent:
+                        nodes.append({**n_ent, "depth": depth + 1})
+                        frontier.append((*neighbor, depth + 1))
+            for edge in memberships["members"]:
+                edges.append({**edge, "direction": "incoming"})
+                neighbor = (edge["entity_type"], edge["entity_id"])
+                if neighbor not in seen:
+                    seen.add(neighbor)
+                    n_ent = self.get_entity(*neighbor)
+                    if n_ent:
+                        nodes.append({**n_ent, "depth": depth + 1})
+                        frontier.append((*neighbor, depth + 1))
+        return {
+            "root": {**start, "depth": 0},
+            "nodes": nodes,
+            "edges": edges,
+            "truncated": truncated,
+        }

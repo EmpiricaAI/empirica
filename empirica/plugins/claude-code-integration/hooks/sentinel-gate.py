@@ -424,6 +424,8 @@ EMPIRICA_TIER1_PREFIXES = (
     'empirica get-epistemic-state', 'empirica get-calibration-report',
     'empirica monitor',
     'empirica workspace-overview', 'empirica workspace-map',
+    'empirica entity-list', 'empirica entity-show',
+    'empirica entity-walk', 'empirica entity-search',
     'empirica efficiency-report', 'empirica skill-suggest',
     'empirica goals-ready', 'empirica list-goals',
     'empirica query-mistakes', 'empirica query-handoff',

@@ -645,7 +645,7 @@ def _run_unknowns_resolved_check(context: dict[str, Any]) -> CheckResult:
 
 
 def _run_scope_coverage_check(context: dict[str, Any]) -> CheckResult:
-    """Check that goal subtasks are completed (scope coverage)."""
+    """Check that goal tasks are completed (scope coverage)."""
     try:
         from empirica.data.session_database import SessionDatabase
         db = SessionDatabase()

@@ -833,7 +833,7 @@ def handle_goals_add_task_command(args):
                 "ok": False,
                 "task_id": None,
                 "goal_id": goal_id,
-                "message": "Failed to save subtask to database",
+                "message": "Failed to save task to database",
                 "description": description,
                 "importance": importance.value
             }
@@ -842,7 +842,7 @@ def handle_goals_add_task_command(args):
         if hasattr(args, 'output') and args.output == 'json':
             print(json.dumps(result, indent=2))
         else:
-            print("✅ Subtask added successfully")
+            print("✅ Task added successfully")
             print(f"   Task ID: {result['task_id']}")
             print(f"   Goal: {goal_id[:8]}...")
             print(f"   Description: {description[:80]}...")
@@ -851,11 +851,10 @@ def handle_goals_add_task_command(args):
                 print(f"   Estimated tokens: {estimated_tokens}")
 
         task_repo.close()
-        # Return None to avoid exit code issues and duplicate output
         return None
 
     except Exception as e:
-        handle_cli_error(e, "Add subtask", getattr(args, 'verbose', False))
+        handle_cli_error(e, "Add task", getattr(args, 'verbose', False))
 
 
 def handle_goals_add_dependency_command(args):
@@ -1318,23 +1317,23 @@ def handle_goals_get_tasks_command(args):
         resolved_goal_id = goal.id if goal else goal_id
         goal_repo.close()
 
-        # Use task repository to get subtasks with resolved ID
+        # Repository method name stays internal (get_goal_subtasks); the
+        # CLI/JSON-output vocabulary is `task` everywhere.
         task_repo = TaskRepository()
-        subtasks = task_repo.get_goal_subtasks(resolved_goal_id)
+        tasks = task_repo.get_goal_subtasks(resolved_goal_id)
 
-        if not subtasks:
+        if not tasks:
             result = {
                 "ok": False,
                 "goal_id": goal_id,
-                "message": "No subtasks found for goal",
-                "subtasks": [],
+                "message": "No tasks found for goal",
+                "tasks": [],
                 "timestamp": time.time()
             }
         else:
-            # Convert subtasks to dict format
-            subtasks_dict = []
-            for task in subtasks:
-                subtasks_dict.append({
+            tasks_dict = []
+            for task in tasks:
+                tasks_dict.append({
                     "task_id": task.id,
                     "description": task.description,
                     "status": task.status.value,
@@ -1351,16 +1350,16 @@ def handle_goals_get_tasks_command(args):
                     "dead_ends": task.dead_ends if hasattr(task, 'dead_ends') else []
                 })
 
-            completed_count = sum(1 for t in subtasks if t.status.value == "completed")
+            completed_count = sum(1 for t in tasks if t.status.value == "completed")
 
             result = {
                 "ok": True,
                 "goal_id": goal_id,
-                "message": "Subtasks retrieved successfully",
-                "subtasks_count": len(subtasks),
+                "message": "Tasks retrieved successfully",
+                "tasks_count": len(tasks),
                 "completed_count": completed_count,
-                "in_progress_count": len(subtasks) - completed_count,
-                "subtasks": subtasks_dict,
+                "in_progress_count": len(tasks) - completed_count,
+                "tasks": tasks_dict,
                 "timestamp": time.time()
             }
 
@@ -1369,10 +1368,10 @@ def handle_goals_get_tasks_command(args):
             print(json.dumps(result, indent=2))
         else:
             if result.get('ok'):
-                print(f"✅ Found {result['subtasks_count']} subtask(s) for goal {goal_id[:8]}...")
-                print(f"   Progress: {result['completed_count']}/{result['subtasks_count']} completed")
+                print(f"✅ Found {result['tasks_count']} task(s) for goal {goal_id[:8]}...")
+                print(f"   Progress: {result['completed_count']}/{result['tasks_count']} completed")
                 print()
-                for i, task in enumerate(result['subtasks'], 1):
+                for i, task in enumerate(result['tasks'], 1):
                     status_icon = "✅" if task['status'] == "completed" else "⏳"
                     print(f"{status_icon} {i}. {task['description']}")
                     print(f"   Status: {task['status']} | Importance: {task.get('importance', 'medium')}")
@@ -1384,14 +1383,13 @@ def handle_goals_get_tasks_command(args):
                     if task.get('dead_ends'):
                         print(f"   Dead ends: {len(task['dead_ends'])} avoided")
             else:
-                print(f"❌ {result.get('message', 'Error retrieving subtasks')}")
+                print(f"❌ {result.get('message', 'Error retrieving tasks')}")
 
         task_repo.close()
-        # Return None to avoid exit code issues and duplicate output
         return None
 
     except Exception as e:
-        handle_cli_error(e, "Get subtasks", getattr(args, 'verbose', False))
+        handle_cli_error(e, "Get tasks", getattr(args, 'verbose', False))
 
 
 def handle_sessions_resume_command(args):
@@ -1553,7 +1551,7 @@ def handle_goals_search_command(args):
         if sync_first:
             synced = sync_goals_to_qdrant(project_id)
             if output != 'json':
-                print(f"📦 Synced {synced} goals/subtasks to Qdrant")
+                print(f"📦 Synced {synced} goals/tasks to Qdrant")
 
         # Perform semantic search
         results = search_goals(

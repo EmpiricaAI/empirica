@@ -375,9 +375,11 @@ Cross-referencing pattern:
 contact:Georg ←member-of→ org:MastersOfDirt ←served-by→ practice:mesh-support ←uses→ skill:cowork-recovery-mac
 ```
 
-From any node, walking edges gives full context. Today this requires
-direct SQL against `workspace.db`; an `entity-search` / `entity-walk`
-CLI surface is a deferred goal.
+From any node, walking edges gives full context. Four verbs back this:
+`empirica entity-list` (by type/status), `entity-show <type:id>` (one
+entity + incoming/outgoing edges), `entity-walk <type:id> [--depth N]`
+(BFS with cycle protection), `entity-search <query>` (text match on
+display_name + description). All support `--output {human|json}`.
 
 ### When practice ≠ working directory
 

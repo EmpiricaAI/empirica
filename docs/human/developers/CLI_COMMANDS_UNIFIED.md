@@ -23,8 +23,8 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.9.11
-**Generated:** 2026-05-26 08:37:49 UTC
-**Total commands:** 231 (across 26 categories)
+**Generated:** 2026-05-26 09:09:56 UTC
+**Total commands:** 235 (across 26 categories)
 
 For the most up-to-date detail on any single command, prefer
 `empirica <command> --help` — the generator extracts the same `help`
@@ -67,7 +67,7 @@ require `--session-id` (`project-bootstrap`, `sessions-show`,
 | [goals](#goals) | 16 | `goals-create`, `goals-list`, `goals-search`, … |
 | [logging](#logging) | 20 | `finding-log`, `unknown-log`, `unknown-list`, … |
 | [project](#project) | 16 | `project-init`, `project-update`, `project-create`, … |
-| [workspace](#workspace) | 9 | `workspace-init`, `workspace-map`, `workspace-list`, … |
+| [workspace](#workspace) | 13 | `workspace-init`, `workspace-map`, `workspace-list`, … |
 | [checkpoint](#checkpoint) | 7 | `checkpoint-create`, `checkpoint-load`, `checkpoint-list`, … |
 | [sync](#sync) | 6 | `sync-config`, `sync-push`, `sync-pull`, … |
 | [profile](#profile) | 4 | `profile-sync`, `profile-prune`, `profile-status`, … |
@@ -1688,6 +1688,70 @@ Show epistemic timeline from git log + notes
 - `--limit` — optional · type=`int` · default=`20`
   Maximum entries
 - `--output` — optional · type=`choice` · choices={json, human} · default=`human`
+  Output format
+
+#### `empirica entity-list`
+
+List entities from the workspace registry. Currently populated types: project, contact, organization, engagement, user. Default scope is active entities; use --status all to include inactive/archived.
+
+**Arguments:**
+
+- `--type` — optional
+  Filter by entity_type (project|contact|organization|engagement|user)
+- `--status` — optional · type=`choice` · choices={active, inactive, archived, all} · default=`active`
+  Filter by status (default: active)
+- `--limit` — optional · type=`int` · default=`100`
+  Max rows (default: 100)
+- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
+  Output format
+
+#### `empirica entity-show`
+
+Show one entity's full record plus membership edges (incoming and outgoing). Pass entity as 'type:id' or split via --type + --id. The id can be a full value or unambiguous prefix (≥4 chars).
+
+**Arguments:**
+
+- `entity` — **required**
+  Entity reference as "type:id" (or use --type + --id)
+- `--type` — optional
+  Entity type (alternative to positional)
+- `--id` — optional
+  Entity id (alternative to positional)
+- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
+  Output format
+
+#### `empirica entity-walk`
+
+BFS the membership graph from a starting entity, following edges in both directions (member_of + members). Pass the start node as 'type:id'. Default depth is 2; increase with --depth. Cycles are detected and skipped.
+
+**Arguments:**
+
+- `entity` — **required**
+  Start entity as "type:id" (or use --type + --id)
+- `--type` — optional
+  Entity type (alternative to positional)
+- `--id` — optional
+  Entity id (alternative to positional)
+- `--depth` — optional · type=`int` · default=`2`
+  Max traversal depth (default: 2)
+- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
+  Output format
+
+#### `empirica entity-search`
+
+Text-search entities by display_name + description (case-insensitive LIKE). For semantic search across artifacts, use project-search or workspace-search instead.
+
+**Arguments:**
+
+- `query` — **required**
+  Search query (e.g. "MastersOfDirt")
+- `--type` — optional
+  Optional entity_type filter
+- `--status` — optional · type=`choice` · choices={active, inactive, archived, all} · default=`active`
+  Filter by status (default: active)
+- `--limit` — optional · type=`int` · default=`50`
+  Max results (default: 50)
+- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
 
 ---

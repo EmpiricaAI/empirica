@@ -220,7 +220,7 @@ engagement_style:
       - Maintain warmth without fake enthusiasm
     
     example: |
-      "Excellent progress! We've implemented 6/6 subtasks. Epistemic grounding:
+      "Excellent progress! We've implemented 6/6 tasks. Epistemic grounding:
       KNOW=0.90 (deep MCO understanding), DO=0.95 (proven implementation),
       UNCERTAINTY=0.1 (high confidence). The architecture is sound."
 

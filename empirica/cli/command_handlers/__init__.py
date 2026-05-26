@@ -78,6 +78,12 @@ from .ecosystem_commands import (
     handle_ecosystem_check_command,
 )
 from .enp_commands import handle_enp_setup_command
+from .entity_commands import (
+    handle_entity_list_command,
+    handle_entity_search_command,
+    handle_entity_show_command,
+    handle_entity_walk_command,
+)
 from .epistemics_commands import (
     handle_epistemics_list_command,
     handle_epistemics_search_command,
@@ -494,6 +500,11 @@ __all__ = [  # noqa: RUF022
     'handle_workspace_overview_command',
     # Workspace search + engagement focus + git abstractions
     'handle_workspace_search_command',
+    # Entity registry CLI (Practice Model backing)
+    'handle_entity_list_command',
+    'handle_entity_search_command',
+    'handle_entity_show_command',
+    'handle_entity_walk_command',
 
     # Session-end command
     # 'handle_session_end_command',  # removed - use handoff-create

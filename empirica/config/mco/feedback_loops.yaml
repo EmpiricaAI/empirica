@@ -328,7 +328,7 @@ feedback_loops:
           auto_actions:
             - action: "create_emergency_checkpoint"
             - action: "reduce_task_scope"
-              reduction: "chunk_into_subtasks"
+              reduction: "chunk_into_tasks"
 
     drift_response:
       enabled: true

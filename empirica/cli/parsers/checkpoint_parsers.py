@@ -379,6 +379,65 @@ def add_checkpoint_parsers(subparsers):
     workspace_overview_parser.add_argument('--filter', choices=['active', 'inactive', 'complete'], help='Filter projects by status')
     workspace_overview_parser.add_argument('--verbose', action='store_true', help='Show detailed operation info')
 
+    # Entity registry CLI surface (backs the Practice Model — see /empirica-constitution XIII).
+    # Reads from ~/.empirica/workspace/workspace.db (entity_registry + entity_memberships).
+    entity_list_parser = subparsers.add_parser(
+        'entity-list',
+        help=(
+            'List entities from the workspace registry. Currently populated '
+            'types: project, contact, organization, engagement, user. '
+            'Default scope is active entities; use --status all to include '
+            'inactive/archived.'
+        ),
+    )
+    entity_list_parser.add_argument('--type', help='Filter by entity_type (project|contact|organization|engagement|user)')
+    entity_list_parser.add_argument('--status', choices=['active', 'inactive', 'archived', 'all'], default='active', help='Filter by status (default: active)')
+    entity_list_parser.add_argument('--limit', type=int, default=100, help='Max rows (default: 100)')
+    entity_list_parser.add_argument('--output', choices=['human', 'json'], default='human', help='Output format')
+
+    entity_show_parser = subparsers.add_parser(
+        'entity-show',
+        help=(
+            "Show one entity's full record plus membership edges (incoming "
+            "and outgoing). Pass entity as 'type:id' or split via --type "
+            "+ --id. The id can be a full value or unambiguous prefix "
+            '(≥4 chars).'
+        ),
+    )
+    entity_show_parser.add_argument('entity', nargs='?', help='Entity reference as "type:id" (or use --type + --id)')
+    entity_show_parser.add_argument('--type', dest='entity_type', help='Entity type (alternative to positional)')
+    entity_show_parser.add_argument('--id', dest='entity_id', help='Entity id (alternative to positional)')
+    entity_show_parser.add_argument('--output', choices=['human', 'json'], default='human', help='Output format')
+
+    entity_walk_parser = subparsers.add_parser(
+        'entity-walk',
+        help=(
+            'BFS the membership graph from a starting entity, following '
+            'edges in both directions (member_of + members). Pass the '
+            "start node as 'type:id'. Default depth is 2; increase with "
+            '--depth. Cycles are detected and skipped.'
+        ),
+    )
+    entity_walk_parser.add_argument('entity', nargs='?', help='Start entity as "type:id" (or use --type + --id)')
+    entity_walk_parser.add_argument('--type', dest='entity_type', help='Entity type (alternative to positional)')
+    entity_walk_parser.add_argument('--id', dest='entity_id', help='Entity id (alternative to positional)')
+    entity_walk_parser.add_argument('--depth', type=int, default=2, help='Max traversal depth (default: 2)')
+    entity_walk_parser.add_argument('--output', choices=['human', 'json'], default='human', help='Output format')
+
+    entity_search_parser = subparsers.add_parser(
+        'entity-search',
+        help=(
+            'Text-search entities by display_name + description (case-'
+            'insensitive LIKE). For semantic search across artifacts, use '
+            'project-search or workspace-search instead.'
+        ),
+    )
+    entity_search_parser.add_argument('query', help='Search query (e.g. "MastersOfDirt")')
+    entity_search_parser.add_argument('--type', help='Optional entity_type filter')
+    entity_search_parser.add_argument('--status', choices=['active', 'inactive', 'archived', 'all'], default='active', help='Filter by status (default: active)')
+    entity_search_parser.add_argument('--limit', type=int, default=50, help='Max results (default: 50)')
+    entity_search_parser.add_argument('--output', choices=['human', 'json'], default='human', help='Output format')
+
     # Workspace map command
     workspace_map_parser = subparsers.add_parser(
         'workspace-map',
