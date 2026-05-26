@@ -416,7 +416,7 @@ EMPIRICA_TIER1_PREFIXES = (
     'empirica epistemics-list', 'empirica epistemics-show',
     'empirica goals-list', 'empirica goal-list', 'empirica gl',  # Goal list + aliases
     'empirica goals-progress', 'empirica goal-progress',  # Goal progress + alias
-    'empirica get-goal-progress', 'empirica get-goal-subtasks', 'empirica goals-get-subtasks',
+    'empirica get-goal-progress', 'empirica goals-get-tasks',
     'empirica goals-discover', 'empirica goal-analysis',  # Goal queries
     'empirica project-bootstrap', 'empirica project-search',
     'empirica project-switch', 'empirica project-list',  # Administrative - always allowed
@@ -467,12 +467,12 @@ EMPIRICA_TIER2_PREFIXES = (
     'empirica log-artifacts', 'empirica resolve-artifacts', 'empirica delete-artifacts',  # Batch artifact operations
     'empirica goals-create', 'empirica goal-create', 'empirica gc',  # Goal create + aliases
     'empirica goals-complete', 'empirica goal-complete',  # Goal complete + alias
-    'empirica goals-add-subtask', 'empirica goal-add-subtask',  # Add subtask + alias
-    'empirica goals-complete-subtask', 'empirica goal-complete-subtask',  # Complete subtask + alias
+    'empirica goals-add-task', 'empirica goal-add-task',  # Add task + alias
+    'empirica goals-complete-task', 'empirica goal-complete-task',  # Complete task + alias
     'empirica goals-add-dependency', 'empirica goals-resume',  # Goal management
     'empirica goals-claim',
     'empirica session-create', 'empirica session-end',
-    'empirica create-goal', 'empirica add-subtask', 'empirica complete-subtask',
+    'empirica create-goal', 'empirica add-task', 'empirica complete-task',
     'empirica create-handoff', 'empirica resume-goal',
     'empirica unknown-resolve', 'empirica issue-handoff',
     'empirica project-init', 'empirica project-embed',

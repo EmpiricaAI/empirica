@@ -60,7 +60,7 @@ def add_action_parsers(subparsers):
             'unit of execution work in one call rather than several. For '
             'tracking individual artifact creations, prefer per-type *-log '
             'commands; for tracking task completion, prefer '
-            'goals-complete-subtask with --evidence.'
+            'goals-complete-task with --evidence.'
         ),
     )
     act_log_parser.add_argument(

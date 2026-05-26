@@ -90,7 +90,7 @@ numbers need adjusting.
 |-------|------|----------|
 | Investigation outputs | **Noetic artifacts** | findings, unknowns, dead-ends, mistakes, blindspots, lessons |
 | Intent layer | **Epistemic intent** | assumptions (unverified beliefs), decisions (choice points), intent edges (provenance) |
-| Action outputs | **Praxic artifacts** | goals, subtasks, commits |
+| Action outputs | **Praxic artifacts** | goals, tasks, commits |
 | State measurements | **Epistemic state** | vectors, calibration, drift, snapshots, deltas |
 | Verification outputs | **Grounded evidence** | test results, artifact ratios, git metrics, goal completion |
 | Measurement cycle | **Epistemic transaction** | PREFLIGHT -> work -> POSTFLIGHT -> post-test (produces delta + verification) |
@@ -237,26 +237,26 @@ POSTFLIGHT when any of these occur:
 
 ### Within-Transaction Discipline
 
-- **Goal-per-transaction:** Link each transaction to an empirica goal. Create subtasks
+- **Goal-per-transaction:** Link each transaction to an empirica goal. Create tasks
   when the goal has distinct steps. Use `--status planned` for goals logged but not yet started.
 
   **Worked example** (user asks "audit X, fix gaps, ship"):
   ```bash
   empirica goals-create --objective "Audit X + ship fixes" --description "..."
   # → goal_id = G
-  empirica goals-add-subtask --goal-id G --description "Audit: read surfaces, surface gaps"
-  empirica goals-add-subtask --goal-id G --description "Apply fixes per audit findings"
-  empirica goals-add-subtask --goal-id G --description "Verify + commit"
-  # ...execute subtask 1...
-  empirica goals-complete-subtask --subtask-id S1 --evidence "audit findings logged: ids 1,2,3"
-  # ...execute subtask 2 → commit...
-  empirica goals-complete-subtask --subtask-id S2 --evidence "commit abc123 — 4 files edited"
+  empirica goals-add-task --goal-id G --description "Audit: read surfaces, surface gaps"
+  empirica goals-add-task --goal-id G --description "Apply fixes per audit findings"
+  empirica goals-add-task --goal-id G --description "Verify + commit"
+  # ...execute task 1...
+  empirica goals-complete-task --task-id S1 --evidence "audit findings logged: ids 1,2,3"
+  # ...execute task 2 → commit...
+  empirica goals-complete-task --task-id S2 --evidence "commit abc123 — 4 files edited"
   # ...etc. Then goals-complete + POSTFLIGHT.
   ```
-  Decompose at PREFLIGHT, not retroactively. A subtask added after the work
+  Decompose at PREFLIGHT, not retroactively. A task added after the work
   is done is a self-graded checkbox, not a tracked unit.
 
-- **Commit-per-subtask:** Commit after each completed subtask or coherent work unit.
+- **Commit-per-task:** Commit after each completed task or coherent work unit.
   Don't batch commits to the end — uncommitted work is invisible to grounded calibration.
 - **Artifact breadth:** Log decisions, assumptions, dead-ends, and mistakes as they
   occur — not just findings. Single-type logging leaves calibration gaps ungrounded.
@@ -756,7 +756,7 @@ work discipline may need attention, not where vector values need adjusting.
 | pytest results | Pass rate, coverage | OBJECTIVE | know, do, clarity |
 | Git metrics | Commits, files changed | OBJECTIVE | do, change, state |
 | Code quality | ruff violations, radon complexity, pyright errors | SEMI_OBJECTIVE | clarity, coherence, density, signal, know, do |
-| Goal completion | Subtask ratios, token accuracy | SEMI_OBJECTIVE | completion, do, know |
+| Goal completion | Task ratios, token accuracy | SEMI_OBJECTIVE | completion, do, know |
 | Artifact counts | Findings/dead-ends ratio, unknowns resolved | SEMI_OBJECTIVE | know, uncertainty, signal |
 | Issue tracking | Resolution rate, severity density | SEMI_OBJECTIVE | impact, signal |
 | Sentinel decisions | CHECK proceed/investigate ratio | SEMI_OBJECTIVE | context, uncertainty |
@@ -786,8 +786,8 @@ The completion vector means different things depending on your current thinking 
 | **PRAXIC** | "Have I implemented enough to ship?" | Meets stated objective, ready to commit |
 
 **How to determine your phase:**
-- No subtasks started / investigating / exploring → **NOETIC**
-- Subtasks in progress / writing code / executing → **PRAXIC**
+- No tasks started / investigating / exploring → **NOETIC**
+- Tasks in progress / writing code / executing → **PRAXIC**
 - CHECK returned "investigate" → **NOETIC**
 - CHECK returned "proceed" → **PRAXIC**
 

@@ -526,7 +526,7 @@ def add_checkpoint_parsers(subparsers):
     finding_log_parser.add_argument('--finding', required=False, help='Short title — what was learned/discovered. Rendered as markdown; use --description for rich body if the title alone is too dense.')
     finding_log_parser.add_argument('--description', help='Optional rich markdown body — rendered in the extension and skill surfaces. Use sections, lists, code blocks, tables, links for nuance that doesn\'t fit the short --finding title.')
     finding_log_parser.add_argument('--goal-id', help='Optional goal UUID')
-    finding_log_parser.add_argument('--subtask-id', help='Optional subtask UUID')
+    finding_log_parser.add_argument('--task-id', help='Optional task UUID')
     finding_log_parser.add_argument('--subject', help='Subject/workstream identifier (auto-detected from directory if omitted)')
     finding_log_parser.add_argument('--impact', type=float, help='Impact score 0.0-1.0 (importance of this finding, auto-derived from CASCADE if omitted)')
     finding_log_parser.add_argument('--scope', choices=['session', 'project', 'both'], help='Scope: session (ephemeral), project (persistent), or both (dual-log). Auto-inferred if omitted.')
@@ -557,7 +557,7 @@ def add_checkpoint_parsers(subparsers):
     unknown_log_parser.add_argument('--unknown', required=False, help='Short title — what is unclear/unknown. Rendered as markdown; use --description for rich body when the question has context.')
     unknown_log_parser.add_argument('--description', help='Optional rich markdown body — context behind the question, what you tried, what would resolve it. Rendered in extension and skill surfaces.')
     unknown_log_parser.add_argument('--goal-id', help='Optional goal UUID')
-    unknown_log_parser.add_argument('--subtask-id', help='Optional subtask UUID')
+    unknown_log_parser.add_argument('--task-id', help='Optional task UUID')
     unknown_log_parser.add_argument('--subject', help='Subject/workstream identifier (auto-detected from directory if omitted)')
     unknown_log_parser.add_argument('--impact', type=float, help='Impact score 0.0-1.0 (importance of this unknown, auto-derived from CASCADE if omitted)')
     unknown_log_parser.add_argument('--scope', choices=['session', 'project', 'both'], help='Scope: session (ephemeral), project (persistent), or both (dual-log). Auto-inferred if omitted.')
@@ -626,7 +626,7 @@ def add_checkpoint_parsers(subparsers):
     deadend_log_parser.add_argument('--why-failed', required=False, help='Short title — why it failed. Rendered as markdown.')
     deadend_log_parser.add_argument('--description', help='Optional rich markdown body — full account: what you expected, what happened, signals you noticed, what alternative might work. Rendered in extension and skill surfaces.')
     deadend_log_parser.add_argument('--goal-id', help='Optional goal UUID')
-    deadend_log_parser.add_argument('--subtask-id', help='Optional subtask UUID')
+    deadend_log_parser.add_argument('--task-id', help='Optional task UUID')
     deadend_log_parser.add_argument('--subject', help='Subject/workstream identifier (auto-detected from directory if omitted)')
     deadend_log_parser.add_argument('--impact', type=float, help='Impact score 0.0-1.0 (importance of this dead end, auto-derived from CASCADE if omitted)')
     deadend_log_parser.add_argument('--scope', choices=['session', 'project', 'both'], help='Scope: session (ephemeral), project (persistent), or both (dual-log). Auto-inferred if omitted.')
@@ -926,7 +926,7 @@ Example:
             'deliverable: a feature, a fix, a doc sweep. Set --status planned '
             'when scoped-but-not-started (collaborative planning); '
             'in_progress when actively working. For multi-step work, follow '
-            'with goals-add-subtask per distinct unit. AI-first: pass JSON '
+            'with goals-add-task per distinct unit. AI-first: pass JSON '
             'via stdin/file; legacy: --objective + flags.'
         ),
     )
@@ -956,26 +956,26 @@ Example:
     goals_create_parser.add_argument('--output', choices=['human', 'json'], default='human', help='Output format')
     goals_create_parser.add_argument('--verbose', action='store_true', help='Show detailed operation info')
 
-    # Goals add-subtask command
-    goals_add_subtask_parser = subparsers.add_parser(
-        'goals-add-subtask',
-        aliases=['goal-add-subtask'],
+    # Goals add-task command
+    goals_add_task_parser = subparsers.add_parser(
+        'goals-add-task',
+        aliases=['goal-add-task'],
         help=(
-            'Decompose a goal into trackable units. One subtask per distinct '
+            'Decompose a goal into trackable units. One task per distinct '
             'piece of work you\'ll execute (read this, edit that, write '
             'these tests). Decompose at PREFLIGHT, not retroactively — '
-            'subtasks added after the work is done are self-graded checkboxes, '
-            'not tracked units. Close each with goals-complete-subtask + '
+            'tasks added after the work is done are self-graded checkboxes, '
+            'not tracked units. Close each with goals-complete-task + '
             '--evidence as you finish.'
         ),
     )
-    goals_add_subtask_parser.add_argument('--goal-id', required=True, help='Goal UUID')
-    goals_add_subtask_parser.add_argument('--description', required=True, help='Subtask description')
-    goals_add_subtask_parser.add_argument('--importance', choices=['critical', 'high', 'medium', 'low'], default='medium', help='Epistemic importance')
-    goals_add_subtask_parser.add_argument('--dependencies', help='Dependencies as JSON array')
-    goals_add_subtask_parser.add_argument('--estimated-tokens', type=int, help='Estimated token usage')
-    goals_add_subtask_parser.add_argument('--use-beads', action='store_true', help='Create BEADS subtask and link to goal')
-    goals_add_subtask_parser.add_argument('--output', choices=['human', 'json'], default='human', help='Output format')
+    goals_add_task_parser.add_argument('--goal-id', required=True, help='Goal UUID')
+    goals_add_task_parser.add_argument('--description', required=True, help='Task description')
+    goals_add_task_parser.add_argument('--importance', choices=['critical', 'high', 'medium', 'low'], default='medium', help='Epistemic importance')
+    goals_add_task_parser.add_argument('--dependencies', help='Dependencies as JSON array')
+    goals_add_task_parser.add_argument('--estimated-tokens', type=int, help='Estimated token usage')
+    goals_add_task_parser.add_argument('--use-beads', action='store_true', help='Create BEADS task and link to goal')
+    goals_add_task_parser.add_argument('--output', choices=['human', 'json'], default='human', help='Output format')
 
     # Goals add-dependency command (NEW: Goal-to-goal dependencies)
     goals_add_dep_parser = subparsers.add_parser('goals-add-dependency',
@@ -987,51 +987,49 @@ Example:
     goals_add_dep_parser.add_argument('--description', help='Description of dependency relationship')
     goals_add_dep_parser.add_argument('--output', choices=['human', 'json'], default='human', help='Output format')
 
-    # Goals complete-subtask command
-    goals_complete_subtask_parser = subparsers.add_parser(
-        'goals-complete-subtask',
-        aliases=['goal-complete-subtask'],
+    # Goals complete-task command
+    goals_complete_task_parser = subparsers.add_parser(
+        'goals-complete-task',
+        aliases=['goal-complete-task'],
         help=(
-            'Close a subtask with evidence of completion. Always pass '
+            'Close a task with evidence of completion. Always pass '
             '--evidence: commit SHA, test result, file path, link — '
             'whatever proves the work landed. Empty completions inflate '
             'the goal-completion vector without grounding it. Close '
             'as-you-go, not batched at the end.'
         ),
     )
-    # Use subtask-id as primary parameter, with task-id as deprecated alias for backward compatibility
-    goals_complete_subtask_parser.add_argument('--subtask-id', help='Subtask UUID (preferred)')
-    goals_complete_subtask_parser.add_argument('--task-id', help='Subtask UUID (deprecated, use --subtask-id)')
-    goals_complete_subtask_parser.add_argument('--evidence', help='Completion evidence (commit hash, file path, etc.)')
-    goals_complete_subtask_parser.add_argument('--output', choices=['human', 'json'], default='human', help='Output format')
+    goals_complete_task_parser.add_argument('--task-id', required=True, help='Task UUID (full or unambiguous prefix)')
+    goals_complete_task_parser.add_argument('--evidence', help='Completion evidence (commit hash, file path, etc.)')
+    goals_complete_task_parser.add_argument('--output', choices=['human', 'json'], default='human', help='Output format')
 
     # Goals progress command
     goals_progress_parser = subparsers.add_parser(
         'goals-progress',
         aliases=['goal-progress'],
         help=(
-            'Show subtask-level progress for a single goal: how many '
-            'subtasks total, how many completed, with their evidence. '
+            'Show task-level progress for a single goal: how many '
+            'tasks total, how many completed, with their evidence. '
             'Useful before deciding whether to close the goal '
-            '(goals-complete) or whether more subtasks are needed.'
+            '(goals-complete) or whether more tasks are needed.'
         ),
     )
     goals_progress_parser.add_argument('--goal-id', required=True, help='Goal UUID')
     goals_progress_parser.add_argument('--output', choices=['human', 'json'], default='human', help='Output format')
     goals_progress_parser.add_argument('--verbose', action='store_true', help='Show detailed operation info')
 
-    # Goals get-subtasks command (NEW)
-    goals_get_subtasks_parser = subparsers.add_parser(
-        'goals-get-subtasks',
+    # Goals get-tasks command
+    goals_get_tasks_parser = subparsers.add_parser(
+        'goals-get-tasks',
         help=(
-            'Dump the full subtask list for a goal (id, description, '
+            'Dump the full task list for a goal (id, description, '
             'status, evidence, importance). Useful for picking the next '
-            'subtask to work on, or for grepping subtask ids when '
+            'task to work on, or for grepping task ids when '
             'completing several at once.'
         ),
     )
-    goals_get_subtasks_parser.add_argument('--goal-id', required=True, help='Goal UUID')
-    goals_get_subtasks_parser.add_argument('--output', choices=['human', 'json'], default='human', help='Output format')
+    goals_get_tasks_parser.add_argument('--goal-id', required=True, help='Goal UUID')
+    goals_get_tasks_parser.add_argument('--output', choices=['human', 'json'], default='human', help='Output format')
 
     # Goals list command
     goals_list_parser = subparsers.add_parser(
@@ -1069,7 +1067,7 @@ Example:
     goals_search_parser = subparsers.add_parser(
         'goals-search',
         help=(
-            'Semantic search across goals + subtasks (Qdrant embeddings). '
+            'Semantic search across goals + tasks (Qdrant embeddings). '
             'Finds matches by meaning, not just keyword — "authentication '
             'system" surfaces "user login flow", "JWT validation". Pass '
             'a positional query string. Use to find prior work on a topic '
@@ -1079,7 +1077,7 @@ Example:
     )
     goals_search_parser.add_argument('query', help='Search query (e.g., "authentication system")')
     goals_search_parser.add_argument('--project-id', help='Project ID (auto-detects if not provided)')
-    goals_search_parser.add_argument('--type', choices=['goal', 'subtask'],
+    goals_search_parser.add_argument('--type', choices=['goal', 'task'],
         help='Filter by type (default: both)')
     goals_search_parser.add_argument('--status', choices=['in_progress', 'complete', 'pending', 'completed'],
         help='Filter by status')

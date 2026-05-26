@@ -76,7 +76,7 @@ numbers need adjusting.
 |-------|------|----------|
 | Investigation outputs | **Noetic artifacts** | findings, unknowns, dead-ends, mistakes, blindspots, lessons |
 | Intent layer | **Epistemic intent** | assumptions, decisions, intent edges |
-| Action outputs | **Praxic artifacts** | goals, subtasks, commits |
+| Action outputs | **Praxic artifacts** | goals, tasks, commits |
 | State measurements | **Epistemic state** | vectors, calibration, drift, snapshots, deltas |
 | Verification outputs | **Grounded evidence** | test results, artifact ratios, git metrics, goal completion |
 | Measurement cycle | **Epistemic transaction** | PREFLIGHT -> work -> POSTFLIGHT -> post-test |
@@ -184,7 +184,7 @@ PREFLIGHT → [noetic: investigate] → CHECK → [praxic: implement] → POSTFL
 
 **Within-transaction discipline:**
 - **Goal-per-transaction:** Every transaction links to an empirica goal. If the
-  user's request is multi-step, decompose into subtasks at PREFLIGHT — not later.
+  user's request is multi-step, decompose into tasks at PREFLIGHT — not later.
   - `goals-create --objective "..." --description "..."` — `objective` is a
     title (≤256), `description` is the rich body (≤8000) carrying context,
     success criteria, links. **Use `--description` for anything substantive.**
@@ -197,10 +197,10 @@ PREFLIGHT → [noetic: investigate] → CHECK → [praxic: implement] → POSTFL
     Same convention applies to `--description` on `finding-log`,
     `decision-log`, `assumption-log`, `unknown-log`, `mistake-log`,
     `deadend-log`.
-  - `goals-add-subtask --goal-id <ID> --description "..."` — one subtask per
-    distinct unit of work the AI will execute. Subtasks are how
+  - `goals-add-task --goal-id <ID> --description "..."` — one task per
+    distinct unit of work the AI will execute. Tasks are how
     AI-tasks-as-tracked-units make grounded calibration possible.
-  - `goals-complete-subtask --subtask-id <ID> --evidence "..."` — close as you
+  - `goals-complete-task --task-id <ID> --evidence "..."` — close as you
     finish each one, with evidence (commit SHA, test result, file path).
   - Use `--status planned` on goals-create when the goal is queued but not
     yet started (collaborative planning pattern).
@@ -209,18 +209,18 @@ PREFLIGHT → [noetic: investigate] → CHECK → [praxic: implement] → POSTFL
   ```bash
   empirica goals-create --objective "Audit X + ship fixes" --description "..."
   # → goal_id = G
-  empirica goals-add-subtask --goal-id G --description "Audit: read surfaces, surface gaps"
-  empirica goals-add-subtask --goal-id G --description "Apply fixes per audit findings"
-  empirica goals-add-subtask --goal-id G --description "Verify + commit"
-  # ...execute subtask 1...
-  empirica goals-complete-subtask --subtask-id S1 --evidence "audit findings logged: ids 1,2,3"
-  # ...execute subtask 2 → commit...
-  empirica goals-complete-subtask --subtask-id S2 --evidence "commit abc123 — 4 files edited"
+  empirica goals-add-task --goal-id G --description "Audit: read surfaces, surface gaps"
+  empirica goals-add-task --goal-id G --description "Apply fixes per audit findings"
+  empirica goals-add-task --goal-id G --description "Verify + commit"
+  # ...execute task 1...
+  empirica goals-complete-task --task-id S1 --evidence "audit findings logged: ids 1,2,3"
+  # ...execute task 2 → commit...
+  empirica goals-complete-task --task-id S2 --evidence "commit abc123 — 4 files edited"
   # ...etc. Then goals-complete + POSTFLIGHT.
   ```
-  Decompose at PREFLIGHT, not retroactively. A subtask added after the work
+  Decompose at PREFLIGHT, not retroactively. A task added after the work
   is done is a self-graded checkbox, not a tracked unit.
-- **Commit-per-subtask:** Commit after each completed subtask or coherent work unit.
+- **Commit-per-task:** Commit after each completed task or coherent work unit.
   Don't batch commits to the end. Uncommitted work is invisible to grounded calibration.
 - **Artifact breadth:** Log decisions, assumptions, dead-ends, and mistakes as they
   occur — not just findings. Single-type logging leaves calibration gaps ungrounded.
@@ -369,8 +369,8 @@ Infer epistemic actions from conversation naturally:
 | Signal | Action |
 |--------|--------|
 | Single-step task described | `goals-create --objective "<title>" --description "<context-rich markdown body: why, success criteria, links>"`. Write `--description` as **markdown** (extension renders it as prettified markdown — use headings, lists, code fences, links). Skip `--description` only for truly trivial titles. |
-| Multi-step task described | `goals-create` first, then `goals-add-subtask` per step — each subtask is one tracked unit of AI work |
-| Subtask completed (commit/test/result) | `goals-complete-subtask --subtask-id <ID> --evidence "..."` (commit SHA, test result, link) |
+| Multi-step task described | `goals-create` first, then `goals-add-task` per step — each task is one tracked unit of AI work |
+| Task completed (commit/test/result) | `goals-complete-task --task-id <ID> --evidence "..."` (commit SHA, test result, link) |
 | Discovery made | `finding-log` |
 | Uncertainty | `unknown-log` |
 | Approach failed | `deadend-log` |

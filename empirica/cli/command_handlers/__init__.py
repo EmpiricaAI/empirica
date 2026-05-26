@@ -90,14 +90,14 @@ from .git_commands import handle_history_command, handle_save_command
 from .goal_commands import (
     handle_goals_activate_command,
     handle_goals_add_dependency_command,
-    handle_goals_add_subtask_command,
+    handle_goals_add_task_command,
     handle_goals_claim_command,
     handle_goals_complete_command,
-    handle_goals_complete_subtask_command,
+    handle_goals_complete_task_command,
     handle_goals_create_command,
     handle_goals_discover_command,
     handle_goals_get_stale_command,
-    handle_goals_get_subtasks_command,
+    handle_goals_get_tasks_command,
     handle_goals_list_command,
     handle_goals_mark_stale_command,
     handle_goals_progress_command,
@@ -327,15 +327,15 @@ __all__ = [  # noqa: RUF022
     'handle_finding_log_command',
     'handle_goals_activate_command',    # Activate planned goal → in_progress
     'handle_goals_add_dependency_command',
-    'handle_goals_add_subtask_command',
+    'handle_goals_add_task_command',
     'handle_goals_claim_command',  # Phase 3a - Git bridge
     'handle_goals_complete_command',  # Phase 3a - Git bridge
-    'handle_goals_complete_subtask_command',
+    'handle_goals_complete_task_command',
     # NEW: Goal Management Commands (MCP v2 Integration)
     'handle_goals_create_command',
     'handle_goals_discover_command',
     'handle_goals_get_stale_command',   # Get stale goals needing re-evaluation
-    'handle_goals_get_subtasks_command',
+    'handle_goals_get_tasks_command',
     'handle_goals_list_command',
     'handle_goals_mark_stale_command',  # Pre-compact hook - mark goals stale
     'handle_goals_progress_command',

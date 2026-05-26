@@ -261,11 +261,11 @@ protocols:
       - "Success criteria must be specific and measurable"
       - "Goal scope coherence validated automatically"
 
-  add_subtask:
-    name: "Add Subtask to Goal"
-    description: "Add subtask to existing goal"
+  add_task:
+    name: "Add Task to Goal"
+    description: "Add task to existing goal"
     category: "goals"
-    
+
     input_schema:
       type: "object"
       required: ["goal_id", "description"]
@@ -275,11 +275,11 @@ protocols:
           description: "Goal identifier"
         description:
           type: "string"
-          description: "Subtask description"
+          description: "Task description"
         importance:
           type: "string"
           enum: ["critical", "high", "medium", "low"]
-          description: "Subtask importance level"
+          description: "Task importance level"
         dependencies:
           type: "array"
           items: {type: "string"}
@@ -287,50 +287,50 @@ protocols:
         estimated_tokens:
           type: "integer"
           description: "Estimated token usage"
-    
+
     output_schema:
       type: "object"
       required: ["task_id", "success"]
       properties:
         task_id:
           type: "string"
-          description: "Generated subtask identifier"
+          description: "Generated task identifier"
         success:
           type: "boolean"
-          description: "Whether subtask was added successfully"
-    
+          description: "Whether task was added successfully"
+
     validation_rules:
-      - "Goal must exist before adding subtask"
+      - "Goal must exist before adding task"
       - "Description must be non-empty"
       - "Dependencies must reference existing tasks"
 
-  complete_subtask:
-    name: "Complete Subtask"
-    description: "Mark subtask as complete with evidence"
+  complete_task:
+    name: "Complete Task"
+    description: "Mark task as complete with evidence"
     category: "goals"
-    
+
     input_schema:
       type: "object"
       required: ["task_id", "evidence"]
       properties:
         task_id:
           type: "string"
-          description: "Subtask identifier"
+          description: "Task identifier"
         evidence:
           type: "string"
           description: "Completion evidence (commit hash, file path, etc.)"
-    
+
     output_schema:
       type: "object"
       required: ["success", "message"]
       properties:
         success:
           type: "boolean"
-          description: "Whether subtask was marked complete"
+          description: "Whether task was marked complete"
         message:
           type: "string"
           description: "Completion status message"
-    
+
     validation_rules:
       - "Task must exist and not already be complete"
       - "Evidence must be provided and valid"

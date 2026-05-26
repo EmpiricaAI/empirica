@@ -141,7 +141,7 @@ Noetic Artifacts (breadcrumbs - log as you work):
 
 Praxic Artifacts (goals - track progress):
    $ empirica goals-create --objective "..."     # Create goal
-   $ empirica goals-add-subtask --goal-id <ID>   # Add subtask
+   $ empirica goals-add-task --goal-id <ID>      # Add task
    $ empirica goals-complete --goal-id <ID>      # Complete goal
    $ empirica goals-list                         # Show active goals
 

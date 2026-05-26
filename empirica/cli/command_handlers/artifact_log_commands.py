@@ -295,7 +295,9 @@ def _extract_scalar_fields(config_data, args):
     session_id = (config_data or {}).get('session_id') or getattr(args, 'session_id', None)
     project_id = (config_data or {}).get('project_id') or getattr(args, 'project_id', None)
     goal_id = (config_data or {}).get('goal_id') or getattr(args, 'goal_id', None)
-    subtask_id = (config_data or {}).get('subtask_id') or getattr(args, 'subtask_id', None)
+    # CLI flag is --task-id (args.task_id); JSON config keeps 'subtask_id' as the
+    # internal artifact field name. Both routes land in the same internal variable.
+    subtask_id = (config_data or {}).get('subtask_id') or getattr(args, 'task_id', None)
     impact = (config_data or {}).get('impact') or getattr(args, 'impact', None)
     visibility = (config_data or {}).get('visibility') or getattr(args, 'visibility', None)
     return output_format, session_id, project_id, goal_id, subtask_id, impact, visibility

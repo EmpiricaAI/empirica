@@ -3,8 +3,9 @@ Goal Commands - MCP v2 Integration Commands
 
 Handles CLI commands for:
 - goals-create: Create new goal
-- goals-add-subtask: Add subtask to existing goal
-- goals-complete-subtask: Mark subtask as complete
+- goals-add-task: Add task to existing goal
+- goals-complete-task: Mark task as complete
+- goals-get-tasks: List tasks for a goal
 - goals-progress: Get goal completion progress
 - goals-list: List goals
 - sessions-resume: Resume previous sessions
@@ -674,8 +675,8 @@ def handle_goals_create_command(args):
         handle_cli_error(e, "Create goal", getattr(args, 'verbose', False))
 
 
-def handle_goals_add_subtask_command(args):
-    """Handle goals-add-subtask command"""
+def handle_goals_add_task_command(args):
+    """Handle goals-add-task command"""
     try:
 
         from empirica.core.goals.repository import GoalRepository
@@ -972,42 +973,26 @@ def handle_goals_add_dependency_command(args):
         handle_cli_error(e, "Add goal dependency", getattr(args, 'verbose', False))
 
 
-def handle_goals_complete_subtask_command(args):
-    """Handle goals-complete-subtask command"""
+def handle_goals_complete_task_command(args):
+    """Handle goals-complete-task command"""
     try:
         from empirica.core.tasks.repository import TaskRepository
         from empirica.core.tasks.types import TaskStatus
 
-        # Parse arguments with backward compatibility
-        # Priority: subtask_id (new) > task_id (deprecated)
-        if hasattr(args, 'subtask_id') and args.subtask_id:
-            task_id = args.subtask_id
-            if hasattr(args, 'task_id') and args.task_id and args.task_id != args.subtask_id:
-                print("⚠️  Warning: Both --subtask-id and --task-id provided. Using --subtask-id.", file=sys.stderr)
-        elif hasattr(args, 'task_id') and args.task_id:
-            task_id = args.task_id
-            print("ℹ️  Note: --task-id is deprecated. Please use --subtask-id instead.", file=sys.stderr)
-        else:
-            print(json.dumps({
-                "ok": False,
-                "error": "Either --subtask-id or --task-id is required",
-                "hint": "Preferred: empirica goals-complete-subtask --subtask-id <ID>"
-            }))
-            sys.exit(1)
-
+        task_id = args.task_id
         evidence = args.evidence
 
-        # Use the Task repository
         task_repo = TaskRepository()
 
-        # Complete the subtask in database
+        # update_subtask_status keeps its internal name (DB column is `subtasks.id`);
+        # the user-facing vocabulary is `task` everywhere.
         success = task_repo.update_subtask_status(task_id, TaskStatus.COMPLETED, evidence)
 
         if success:
             result = {
                 "ok": True,
                 "task_id": task_id,
-                "message": "Subtask marked as complete",
+                "message": "Task marked as complete",
                 "evidence": evidence,
                 "timestamp": time.time()
             }
@@ -1015,16 +1000,16 @@ def handle_goals_complete_subtask_command(args):
             result = {
                 "ok": False,
                 "task_id": task_id,
-                "error": "subtask_not_found",
-                "message": f"No subtask matches id '{task_id}' (full UUID or unambiguous prefix required)",
-                "hint": "Verify with: empirica goals-get-subtasks --goal-id <goal-id>"
+                "error": "task_not_found",
+                "message": f"No task matches id '{task_id}' (full UUID or unambiguous prefix required)",
+                "hint": "Verify with: empirica goals-get-tasks --goal-id <goal-id>"
             }
 
         # Format output
         if hasattr(args, 'output') and args.output == 'json':
             print(json.dumps(result, indent=2))
         elif success:
-            print("✅ Subtask marked as complete")
+            print("✅ Task marked as complete")
             print(f"   Task ID: {task_id}")
             if evidence:
                 print(f"   Evidence: {evidence[:80]}...")
@@ -1038,7 +1023,7 @@ def handle_goals_complete_subtask_command(args):
         return None
 
     except Exception as e:
-        handle_cli_error(e, "Complete subtask", getattr(args, 'verbose', False))
+        handle_cli_error(e, "Complete task", getattr(args, 'verbose', False))
 
 
 def handle_goals_progress_command(args):
@@ -1318,8 +1303,8 @@ def handle_goals_list_command(args):
         handle_cli_error(e, "List goals", getattr(args, 'verbose', False))
 
 
-def handle_goals_get_subtasks_command(args):
-    """Handle goals-get-subtasks command - get detailed subtask information"""
+def handle_goals_get_tasks_command(args):
+    """Handle goals-get-tasks command - get detailed task information"""
     try:
         from empirica.core.goals.repository import GoalRepository
         from empirica.core.tasks.repository import TaskRepository

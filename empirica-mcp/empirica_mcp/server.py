@@ -285,18 +285,18 @@ TOOL_REGISTRY: dict[str, dict] = {
         "required": ["goal_id"],
         "desc": "Mark a goal as complete",
     },
-    "goals_add_subtask": {
-        "cli": "goals-add-subtask",
+    "goals_add_task": {
+        "cli": "goals-add-task",
         "params": {"goal_id": "--goal-id", "description": "--description",
                    "importance": "--importance"},
         "required": ["goal_id", "description"],
-        "desc": "Add a subtask to a goal",
+        "desc": "Add a task to a goal",
     },
-    "goals_complete_subtask": {
-        "cli": "goals-complete-subtask",
+    "goals_complete_task": {
+        "cli": "goals-complete-task",
         "params": {"task_id": "--task-id", "evidence": "--evidence"},
         "required": ["task_id"],
-        "desc": "Mark a subtask as complete",
+        "desc": "Mark a task as complete",
     },
     "goals_progress": {
         "cli": "goals-progress",

@@ -214,8 +214,8 @@ def handle_mcp_list_tools_command(args):
         print("\n🎯 Goal Management:")
         goal_tools = [
             ("create_goal", "Create structured goal with ScopeVector"),
-            ("add_subtask", "Add subtask to existing goal"),
-            ("complete_subtask", "Mark subtask as complete"),
+            ("add_task", "Add task to existing goal"),
+            ("complete_task", "Mark task as complete"),
             ("get_goal_progress", "Check goal completion progress"),
             ("list_goals", "List all goals for session"),
         ]
