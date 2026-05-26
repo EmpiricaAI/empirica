@@ -93,6 +93,35 @@ compromised, your re-verification via `cortex_inbox_poll(status="accepted")`
 against the proposal_id is the auth boundary — Cortex only returns
 ECO-decided state. Hijacking the wake signal cannot widen your authority.
 
+### Step 0 — Recipient gate (always check this first)
+
+**Before any of the below, verify the event is addressed to YOU.** The
+shared `loop_fires.log` carries events for every AI on the mesh; the
+Monitor that bridges those fires into your session is supposed to
+`grep '"instance_id": "<your-ai-id>"'`, but a session armed before that
+filter existed (or one that was set up wide for debugging) will see the
+whole stream. Defense in depth: check before you act.
+
+Two-line check:
+
+1. **`event["instance_id"]` must equal your own `ai_id`** (read from
+   `.empirica/project.yaml` `ai_id:` field — or
+   `basename.removeprefix('empirica-')`). If they differ, this event
+   belongs to another AI's inbox/outbox — silently ignore it, do not
+   fetch the proposal, do not log a goal.
+2. **If `direction == "inbox"`, also confirm the underlying proposal's
+   `target_claudes` contains your `ai_id`** when you fetch it (via
+   `cortex_get_proposal` or `cortex_inbox_poll`). This is belt + braces
+   — the listener filter is the first gate, the proposal target list
+   is the second.
+
+If you see events with `instance_id` other than yours arriving
+repeatedly, your Monitor command is the wrong shape. The CLI emits
+the correctly-filtered command via `empirica listener on` — re-run
+`empirica setup-claude-code --force` (or arm a fresh Monitor using
+the command in `empirica listener on --output json`'s
+`next_step.args.command`).
+
 **What to do — depends on `direction`:**
 
 ### `direction: "inbox"` — proposal is FOR you (ECO-gated)
