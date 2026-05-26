@@ -84,6 +84,27 @@ CANONICAL_LOOPS: list[dict[str, Any]] = [
         # Must match VALID_SCHEDULER_KIND in loop_registry.py.
         "scheduler_kind": "systemd-user",
     },
+    {
+        # Housekeeping: prune expired git-notes mesh messages once a day.
+        # The `empirica message-cleanup` verb already exists — this entry
+        # just gives it a schedule so AIs aren't doing it by hand (and the
+        # mesh inbox stays focused on un-read messages).
+        # Cron form: 03:17 daily — odd minute to avoid lining up with
+        # other workspace cron entries that prefer round numbers.
+        "name": "message-cleanup",
+        "kind": "cron",
+        "cron": "17 3 * * *",
+        "description": (
+            "Daily cleanup of expired git-notes mesh messages. Body: "
+            "`empirica message-cleanup --output json` — removes messages "
+            "past their expiry_at timestamp and prints a receipt. "
+            "Pure CLI verb (no MCP, no AI judgment needed); the loop "
+            "body skill just invokes it and reports the receipt count. "
+            "Body skill: /message-cleanup."
+        ),
+        "body_skill": "message-cleanup",
+        "scheduler_kind": "systemd-user",
+    },
 ]
 
 

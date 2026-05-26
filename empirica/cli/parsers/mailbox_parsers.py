@@ -74,6 +74,15 @@ def add_mailbox_parsers(subparsers):
         help="Send reply WITHOUT closing parent (follow-up question case)",
     )
     reply.add_argument(
+        "--no-archive", action="store_true",
+        help=(
+            "Close the parent but do NOT archive it. Default behaviour archives "
+            "the parent after close to keep your inbox view focused on "
+            "un-actioned work. Use --no-archive when you want the parent to "
+            "stay visible in audit / status=accepted polls."
+        ),
+    )
+    reply.add_argument(
         "--output", choices=["human", "json"], default="json",
         help="Output format (default: json)",
     )

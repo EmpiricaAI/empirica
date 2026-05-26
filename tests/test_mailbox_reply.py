@@ -28,6 +28,7 @@ def _make_args(**overrides):
         "result": "shipped",
         "commit_sha": None,
         "no_close": False,
+        "no_archive": False,
         "output": "json",
     }
     defaults.update(overrides)
@@ -48,6 +49,9 @@ def _record_post():
         if "/complete" in url:
             return 200, {"ok": True, "proposal_id": "prop_parent",
                          "status": "completed"}
+        if "/archive" in url:
+            return 200, {"ok": True, "proposal_id": "prop_parent",
+                         "status": "archived"}
         return 404, {"ok": False, "error": "unknown"}
     return calls, fn
 
@@ -193,9 +197,78 @@ def test_no_close_skips_complete_call(capsys):
     urls = [c["url"] for c in calls]
     assert any("/propose" in u for u in urls)
     assert not any("/complete" in u for u in urls)
+    assert not any("/archive" in u for u in urls)  # no close → no archive
     out = capsys.readouterr().out
     assert '"parent_closed": false' in out
+    assert '"parent_archived": false' in out
     assert '"result": null' in out
+
+
+# ─── Auto-archive on completion (default) ─────────────────────────────
+
+
+def test_default_auto_archives_after_complete(capsys):
+    """Default behaviour: after parent close, also archive it."""
+    calls, post = _record_post()
+    rc = handle_mailbox_reply_command(
+        _make_args(),  # no_archive defaults to False
+        _resolve_cortex_creds=_creds(),
+        _resolve_ai_id=_ai_id(),
+        _http_post=post,
+        _fetch_parent=_fetch_parent(),
+    )
+    assert rc == 0
+    urls = [c["url"] for c in calls]
+    assert any("/v1/orchestration/prop_parent/archive" in u for u in urls)
+    out = capsys.readouterr().out
+    assert '"parent_closed": true' in out
+    assert '"parent_archived": true' in out
+
+
+def test_no_archive_keeps_parent_visible(capsys):
+    """--no-archive: close the parent but skip the archive step."""
+    calls, post = _record_post()
+    rc = handle_mailbox_reply_command(
+        _make_args(no_archive=True),
+        _resolve_cortex_creds=_creds(),
+        _resolve_ai_id=_ai_id(),
+        _http_post=post,
+        _fetch_parent=_fetch_parent(),
+    )
+    assert rc == 0
+    urls = [c["url"] for c in calls]
+    assert any("/complete" in u for u in urls)
+    assert not any("/archive" in u for u in urls)
+    out = capsys.readouterr().out
+    assert '"parent_closed": true' in out
+    assert '"parent_archived": false' in out
+
+
+def test_archive_failure_does_not_block_reply(capsys):
+    """If archive POST fails, propose+complete results still surface ok."""
+    calls = []
+
+    def post(url, body, api_key, timeout):
+        calls.append({"url": url})
+        if "/propose" in url:
+            return 200, {"ok": True, "proposal_id": "prop_new_xyz"}
+        if "/complete" in url:
+            return 200, {"ok": True}
+        if "/archive" in url:
+            return 500, {"ok": False, "error": "internal"}
+        return 404, {"ok": False}
+
+    rc = handle_mailbox_reply_command(
+        _make_args(),
+        _resolve_cortex_creds=_creds(),
+        _resolve_ai_id=_ai_id(),
+        _http_post=post,
+        _fetch_parent=_fetch_parent(),
+    )
+    assert rc == 0  # reply still succeeds
+    out = capsys.readouterr().out
+    assert '"parent_closed": true' in out
+    assert '"parent_archived": false' in out
 
 
 # ─── Failure modes ────────────────────────────────────────────────────

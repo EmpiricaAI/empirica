@@ -230,12 +230,43 @@ def handle_mailbox_reply_command(  # noqa: C901 — CLI handler with 7 validatio
         else:
             parent_closed = True
 
+    # Step 3: cortex_archive_proposal on the parent (unless --no-archive or close failed)
+    # Once the parent is completed, archiving removes it from cortex_inbox_poll's
+    # status filters — keeps the AI's inbox view focused on un-actioned work.
+    # Opt-out via --no-archive if you want the parent to stay visible in
+    # status=accepted polls for audit/review purposes.
+    parent_archived = False
+    no_archive = bool(getattr(args, "no_archive", False))
+    if parent_closed and not no_archive:
+        archive_url = f"{cortex_url.rstrip('/')}/v1/orchestration/{parent_id}/archive"
+        archive_body = {
+            "api_key": api_key,
+            "reason": f"auto-archived after mailbox reply (replied via {new_proposal_id})",
+        }
+        a_status, archive_resp = _http_post(archive_url, archive_body, api_key, 10.0)
+        archive_ok = (
+            isinstance(archive_resp, dict)
+            and 200 <= a_status < 300
+            and (archive_resp.get("ok") is not False)
+            and archive_resp.get("error") is None
+        )
+        if archive_ok:
+            parent_archived = True
+        else:
+            sys.stderr.write(
+                f"mailbox reply: archive of parent {parent_id[:18]}… FAILED "
+                f"(status={a_status}): {archive_resp}. "
+                f"Parent stays in inbox until manually archived via "
+                f"cortex_archive_proposal.\n"
+            )
+
     # Structured output
     result = {
         "ok": True,
         "new_proposal_id": new_proposal_id,
         "parent_id": parent_id,
         "parent_closed": parent_closed,
+        "parent_archived": parent_archived,
         "result": (getattr(args, "result", None) or "shipped") if not no_close else None,
         "target_claudes": target_claudes,
         "title": title,
@@ -246,7 +277,8 @@ def handle_mailbox_reply_command(  # noqa: C901 — CLI handler with 7 validatio
         if no_close:
             action = "kept-open (--no-close)"
         elif parent_closed:
-            action = f"closed (result={result['result']})"
+            tag = "+archived" if parent_archived else (" (archive-failed)" if not no_archive else "")
+            action = f"closed (result={result['result']}){tag}"
         else:
             action = "complete-failed (see stderr; manual ack needed)"
         sys.stdout.write(

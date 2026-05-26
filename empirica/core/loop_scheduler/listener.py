@@ -215,6 +215,9 @@ def _emit_catchup_events(
     # Tee is best-effort: any write failure is logged + ignored so the
     # primary Monitor stream stays unaffected.
     log_path = Path.home() / ".empirica" / "loop_fires.log"
+    # Rotate before append — cap unbounded growth at MAX_LINES with
+    # hysteresis (keep last KEEP_LINES when over cap).
+    _rotate_fires_log_if_oversized(log_path)
     for ev in events:
         line = ev.to_log_line()
         output_stream.write(line + "\n")
@@ -225,6 +228,59 @@ def _emit_catchup_events(
             logger.debug(f"loop_fires.log tee failed (non-fatal): {e}")
     output_stream.flush()
     return len(events)
+
+
+# Ring-buffer-style cap on the shared fires log. The file is append-only
+# from many writers (one per ai_id's listener process) — letting it grow
+# unboundedly causes (a) disk bloat over weeks, (b) slow `tail -F` start
+# in fresh Monitor arms that don't pass `-n 0`. Rotation keeps the last
+# _FIRES_LOG_KEEP_LINES whenever the file passes _FIRES_LOG_MAX_LINES.
+# Hysteresis (gap between max and keep) amortizes the cost — rotation
+# only runs every ~500 events past the cap, not on every single append.
+_FIRES_LOG_MAX_LINES = 2000
+_FIRES_LOG_KEEP_LINES = 1500
+
+
+def _rotate_fires_log_if_oversized(log_path: Path) -> None:
+    """Truncate to the last _FIRES_LOG_KEEP_LINES if file exceeds _FIRES_LOG_MAX_LINES.
+
+    Best-effort — any failure is logged and ignored so the primary tee
+    path stays unaffected.
+
+    The whole file is read into memory; at 2000 lines × ~200 bytes/line
+    that's ~400KB, well within budget for a tool that runs once per
+    catch-up cycle. If event rates grow into the hundreds-of-thousands
+    territory, switch to a streaming tail or rotate by size+mtime.
+    """
+    try:
+        if not log_path.exists():
+            return
+        with open(log_path, encoding="utf-8") as f:
+            lines = f.readlines()
+        if len(lines) <= _FIRES_LOG_MAX_LINES:
+            return
+        kept = lines[-_FIRES_LOG_KEEP_LINES:]
+        # Atomic-ish replace: write to a temp file in the same dir, fsync,
+        # rename. Avoids leaving a half-written log if the process dies
+        # mid-write.
+        import os
+        import tempfile
+        log_dir = log_path.parent
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=str(log_dir),
+            prefix=".loop_fires.", suffix=".tmp", delete=False,
+        ) as tmp:
+            tmp.writelines(kept)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+            tmp_path = tmp.name
+        os.replace(tmp_path, log_path)
+        logger.debug(
+            f"loop_fires.log rotated: dropped {len(lines) - len(kept)} old "
+            f"lines, kept last {len(kept)}"
+        )
+    except OSError as e:
+        logger.debug(f"loop_fires.log rotation failed (non-fatal): {e}")
 
 
 def run_listener(  # noqa: C901 — held-connection loop; clarity beats decomposition here
