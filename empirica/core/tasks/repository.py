@@ -31,7 +31,7 @@ class TaskRepository:
 
     def _resolve_subtask_id(self, subtask_id: str) -> str | None:
         """
-        Resolve partial subtask ID to full UUID.
+        Resolve subtask ID (partial or full) to full UUID, verifying it exists.
 
         Args:
             subtask_id: Partial (8+ chars) or full UUID
@@ -39,11 +39,6 @@ class TaskRepository:
         Returns:
             Full UUID or None if not found
         """
-        # If it looks like a full UUID (contains hyphens), return as-is
-        if "-" in subtask_id:
-            return subtask_id
-
-        # Partial UUID - query database with prefix match
         try:
             cursor = self.db.conn.execute(
                 "SELECT id FROM subtasks WHERE id LIKE ? ORDER BY created_timestamp DESC",
@@ -59,7 +54,7 @@ class TaskRepository:
                 logger.warning(f"Multiple subtasks match '{subtask_id}' - using most recent")
 
             resolved = results[0][0]
-            logger.debug(f"Resolved partial subtask ID '{subtask_id}' to {resolved}")
+            logger.debug(f"Resolved subtask ID '{subtask_id}' to {resolved}")
             return resolved
 
         except Exception as e:

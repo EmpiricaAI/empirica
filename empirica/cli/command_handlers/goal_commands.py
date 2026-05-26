@@ -1015,21 +1015,26 @@ def handle_goals_complete_subtask_command(args):
             result = {
                 "ok": False,
                 "task_id": task_id,
-                "message": "Failed to complete subtask",
-                "evidence": evidence
+                "error": "subtask_not_found",
+                "message": f"No subtask matches id '{task_id}' (full UUID or unambiguous prefix required)",
+                "hint": "Verify with: empirica goals-get-subtasks --goal-id <goal-id>"
             }
 
         # Format output
         if hasattr(args, 'output') and args.output == 'json':
             print(json.dumps(result, indent=2))
-        else:
+        elif success:
             print("✅ Subtask marked as complete")
             print(f"   Task ID: {task_id}")
             if evidence:
                 print(f"   Evidence: {evidence[:80]}...")
+        else:
+            print(f"❌ {result['message']}", file=sys.stderr)
+            print(f"   {result['hint']}", file=sys.stderr)
 
         task_repo.close()
-        # Return None to avoid exit code issues and duplicate output
+        if not success:
+            sys.exit(1)
         return None
 
     except Exception as e:
