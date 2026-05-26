@@ -3,7 +3,7 @@
 ## Problem
 AIs forget to:
 - Create sessions under the correct project
-- Use goals and subtasks for task tracking
+- Use goals and tasks for task tracking
 - Log findings and unknowns as breadcrumbs
 - Complete CASCADE workflow (PREFLIGHT → POSTFLIGHT)
 
@@ -385,7 +385,7 @@ SELECT AVG(finding_count) FROM (
     GROUP BY session_id
 );
 
--- Sessions with goals/subtasks
+-- Sessions with goals/tasks
 SELECT COUNT(*) FROM sessions
 WHERE EXISTS(SELECT 1 FROM goals WHERE session_id = sessions.session_id);
 ```
@@ -393,4 +393,4 @@ WHERE EXISTS(SELECT 1 FROM goals WHERE session_id = sessions.session_id);
 **Target metrics:**
 - 90%+ sessions have PREFLIGHT + POSTFLIGHT
 - 5+ findings per session average
-- 60%+ sessions use goals/subtasks
+- 60%+ sessions use goals/tasks

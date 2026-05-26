@@ -191,7 +191,7 @@ for handoff in history:
 
 ## Project Knowledge Management
 
-### `log_finding(self, project_id: str, session_id: str, finding: str, goal_id: Optional[str] = None, subtask_id: Optional[str] = None) -> str`
+### `log_finding(self, project_id: str, session_id: str, finding: str, goal_id: Optional[str] = None, task_id: Optional[str] = None) -> str`
 
 Log a project finding (discovery or insight).
 
@@ -200,7 +200,7 @@ Log a project finding (discovery or insight).
 - `session_id: str` - Session where finding was made
 - `finding: str` - Description of the finding
 - `goal_id: Optional[str]` - Optional associated goal
-- `subtask_id: Optional[str]` - Optional associated subtask
+- `task_id: Optional[str]` - Optional associated task
 
 **Returns:** `str` - Finding ID
 
@@ -232,7 +232,7 @@ for finding in findings:
     print(f"Finding: {finding['finding']}")
 ```
 
-### `log_unknown(self, project_id: str, session_id: str, unknown: str, goal_id: Optional[str] = None, subtask_id: Optional[str] = None) -> str`
+### `log_unknown(self, project_id: str, session_id: str, unknown: str, goal_id: Optional[str] = None, task_id: Optional[str] = None) -> str`
 
 Log an unknown or unresolved question for the project.
 
@@ -241,7 +241,7 @@ Log an unknown or unresolved question for the project.
 - `session_id: str` - Session where unknown was identified
 - `unknown: str` - Description of the unknown
 - `goal_id: Optional[str]` - Optional associated goal
-- `subtask_id: Optional[str]` - Optional associated subtask
+- `task_id: Optional[str]` - Optional associated task
 
 **Returns:** `str` - Unknown ID
 
@@ -291,7 +291,7 @@ success = project_repo.resolve_unknown(
 )
 ```
 
-### `log_dead_end(self, project_id: str, session_id: str, approach: str, why_failed: str, goal_id: Optional[str] = None, subtask_id: Optional[str] = None) -> str`
+### `log_dead_end(self, project_id: str, session_id: str, approach: str, why_failed: str, goal_id: Optional[str] = None, task_id: Optional[str] = None) -> str`
 
 Log a failed approach or dead end.
 
@@ -301,7 +301,7 @@ Log a failed approach or dead end.
 - `approach: str` - Description of the failed approach
 - `why_failed: str` - Explanation of why it failed
 - `goal_id: Optional[str]` - Optional associated goal
-- `subtask_id: Optional[str]` - Optional associated subtask
+- `task_id: Optional[str]` - Optional associated task
 
 **Returns:** `str` - Dead end ID
 

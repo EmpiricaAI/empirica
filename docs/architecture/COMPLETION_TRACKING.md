@@ -173,7 +173,7 @@ Set goals     Track progress    Record completion  Grounded Verification
 empirica goals-progress --goal-id <ID>
 
 # Mark subtask complete
-empirica goals-complete-subtask --subtask-id <ID> --evidence "commit:abc1234"
+empirica goals-complete-task --task-id <ID> --evidence "commit:abc1234"
 
 # Get session metrics
 empirica monitor --session-id <ID>

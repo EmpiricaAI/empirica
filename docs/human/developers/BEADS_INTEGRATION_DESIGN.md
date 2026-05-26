@@ -14,7 +14,7 @@ provenance. They link via a foreign key on the goals table.
 ```
 ┌──────────────────────────────────────────────────────────┐
 │  Empirica CLI                                            │
-│  (goals-create / goals-add-subtask / goals-claim / …)    │
+│  (goals-create / goals-add-task / goals-claim / …)    │
 └────────────────────────┬─────────────────────────────────┘
                          │
         ┌────────────────┴───────────────┐
@@ -61,8 +61,8 @@ beads_issue_id TEXT  -- NULL when BEADS not used; FK by convention
 CREATE INDEX idx_goals_beads_issue_id ON goals(beads_issue_id);
 ```
 
-Subtasks inherit the parent goal's BEADS pairing if created with
-`--use-beads`. BEADS subtask IDs are hierarchical
+Tasks inherit the parent goal's BEADS pairing if created with
+`--use-beads`. BEADS task IDs are hierarchical
 (`bd-a1b2.1`, `bd-a1b2.2`, …).
 
 ---
@@ -83,7 +83,7 @@ Order of precedence when deciding whether a new goal gets a BEADS issue:
 `BeadsAdapter.is_available()` checks for the `bd` CLI on PATH. When
 missing:
 
-- `--use-beads` flag → warning logged, goal/subtask continues normally
+- `--use-beads` flag → warning logged, goal/task continues normally
 - `beads_issue_id` stays `NULL`
 - All Empirica features work without modification
 
@@ -107,7 +107,7 @@ The original integration design (Dec 2025) proposed five phases:
 | Phase | Scope | Status |
 |---|---|---|
 | 1 | Optional subprocess adapter, FK link in goals table | ✅ shipped |
-| 2 | `--use-beads` on goals-create / goals-add-subtask | ✅ shipped |
+| 2 | `--use-beads` on goals-create / goals-add-task | ✅ shipped |
 | 3 | `goals-claim` + branch mapping + `goals-complete` | ✅ shipped |
 | 4 | `goals-ready` combining BEADS + epistemic state | ✅ shipped |
 | 5 | Sentinel branch watcher (auto-suggest merge/abandon) | ❌ not yet — tracked as a planned goal |

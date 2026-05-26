@@ -169,7 +169,7 @@ The statusline reads every `*.json` in that directory and appends the labels (cy
 ```
 
 - `[project:ai@sid]` — project label, AI ID, 4-char session ID prefix
-- `auth-f (2/5)` — active goal (truncated to 12 chars) with subtask progress
+- `auth-f (2/5)` — active goal (truncated to 12 chars) with task progress
 - All vectors shown with 2-letter labels (`K`, `U`, `C`, `D`, `Co`, …)
 
 ---

@@ -320,7 +320,7 @@ def _format_active_work_section(breadcrumbs):
         for goal in breadcrumbs['active_goals'][:5]:
             beads_link = f" [BEADS: {goal['beads_issue_id']}]" if goal.get('beads_issue_id') else " \u26a0\ufe0f No BEADS link"
             safe_print(f"      \u2022 [{goal['id'][:8]}] {goal['objective']}{beads_link}")
-            safe_print(f"        AI: {goal['ai_id']} | Subtasks: {goal['subtask_count']}")
+            safe_print(f"        AI: {goal['ai_id']} | Tasks: {goal['subtask_count']}")
 
             # Show recent findings for this goal
             goal_findings = [f for f in breadcrumbs.get('findings_with_goals', []) if f['goal_id'] == goal['id']]
@@ -382,7 +382,7 @@ def _format_flow_scores_section(flow_metrics):
         safe_print("   \U0001f4a1 Flow Triggers (Optimize for these):")
         safe_print("      \u2705 CASCADE complete (PREFLIGHT \u2192 POSTFLIGHT)")
         safe_print("      \u2705 Bootstrap loaded early")
-        safe_print("      \u2705 Goal with subtasks")
+        safe_print("      \u2705 Goal with tasks")
         safe_print("      \u2705 CHECK for high-scope work")
         safe_print("      \u2705 AI naming convention (<model>-<workstream>)")
         safe_print()

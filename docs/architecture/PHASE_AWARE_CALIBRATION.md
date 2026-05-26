@@ -74,7 +74,7 @@ deps" is a high-value epistemic outcome. The evidence is the coverage, not the b
 |--------|-----------------|---------|
 | pytest results | Implementation correctness | OBJECTIVE |
 | Git metrics (commits, files changed) | Action volume | OBJECTIVE |
-| Goal/subtask completions | Delivery | SEMI-OBJECTIVE |
+| Goal/task completions | Delivery | SEMI-OBJECTIVE |
 | Artifact counts (findings from implementation) | Discovery during action | SEMI-OBJECTIVE |
 | Issue resolution | Problem solving | SEMI-OBJECTIVE |
 

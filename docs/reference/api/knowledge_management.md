@@ -38,7 +38,7 @@ from empirica.data.repositories.breadcrumbs import BreadcrumbRepository
 breadcrumb_repo = BreadcrumbRepository()
 ```
 
-### `log_finding(self, project_id: str, session_id: str, finding: str, goal_id: Optional[str] = None, subtask_id: Optional[str] = None, subject: Optional[str] = None, tags: Optional[List[str]] = None) -> str`
+### `log_finding(self, project_id: str, session_id: str, finding: str, goal_id: Optional[str] = None, task_id: Optional[str] = None, subject: Optional[str] = None, tags: Optional[List[str]] = None) -> str`
 
 Log a new finding discovered during work.
 
@@ -47,7 +47,7 @@ Log a new finding discovered during work.
 - `session_id: str` - Session where finding was made
 - `finding: str` - Description of the finding
 - `goal_id: Optional[str]` - Optional associated goal
-- `subtask_id: Optional[str]` - Optional associated subtask
+- `task_id: Optional[str]` - Optional associated task
 - `subject: Optional[str]` - Optional subject area
 - `tags: Optional[List[str]]` - Optional tags for categorization
 
@@ -90,7 +90,7 @@ for finding in recent_findings:
     print(f"Finding: {finding['finding'][:50]}...")
 ```
 
-### `log_unknown(self, project_id: str, session_id: str, unknown: str, goal_id: Optional[str] = None, subtask_id: Optional[str] = None, subject: Optional[str] = None, tags: Optional[List[str]] = None) -> str`
+### `log_unknown(self, project_id: str, session_id: str, unknown: str, goal_id: Optional[str] = None, task_id: Optional[str] = None, subject: Optional[str] = None, tags: Optional[List[str]] = None) -> str`
 
 Log an unknown or unresolved question.
 
@@ -99,7 +99,7 @@ Log an unknown or unresolved question.
 - `session_id: str` - Session where unknown was identified
 - `unknown: str` - Description of the unknown
 - `goal_id: Optional[str]` - Optional associated goal
-- `subtask_id: Optional[str]` - Optional associated subtask
+- `task_id: Optional[str]` - Optional associated task
 - `subject: Optional[str]` - Optional subject area
 - `tags: Optional[List[str]]` - Optional tags for categorization
 
@@ -162,7 +162,7 @@ success = breadcrumb_repo.resolve_unknown(
 )
 ```
 
-### `log_dead_end(self, project_id: str, session_id: str, approach: str, why_failed: str, goal_id: Optional[str] = None, subtask_id: Optional[str] = None, subject: Optional[str] = None, tags: Optional[List[str]] = None) -> str`
+### `log_dead_end(self, project_id: str, session_id: str, approach: str, why_failed: str, goal_id: Optional[str] = None, task_id: Optional[str] = None, subject: Optional[str] = None, tags: Optional[List[str]] = None) -> str`
 
 Log a failed approach or dead end.
 
@@ -172,7 +172,7 @@ Log a failed approach or dead end.
 - `approach: str` - Description of the failed approach
 - `why_failed: str` - Explanation of why it failed
 - `goal_id: Optional[str]` - Optional associated goal
-- `subtask_id: Optional[str]` - Optional associated subtask
+- `task_id: Optional[str]` - Optional associated task
 - `subject: Optional[str]` - Optional subject area
 - `tags: Optional[List[str]]` - Optional tags for categorization
 

@@ -363,7 +363,7 @@ CREATE TABLE project_findings (
     project_id TEXT NOT NULL,
     session_id TEXT NOT NULL,
     goal_id TEXT,
-    subtask_id TEXT,
+    task_id TEXT,
     finding TEXT NOT NULL,
     created_timestamp REAL NOT NULL,
     finding_data TEXT NOT NULL,  -- JSON metadata
@@ -382,7 +382,7 @@ CREATE TABLE project_unknowns (
     project_id TEXT NOT NULL,
     session_id TEXT NOT NULL,
     goal_id TEXT,
-    subtask_id TEXT,
+    task_id TEXT,
     unknown TEXT NOT NULL,
     is_resolved BOOLEAN DEFAULT FALSE,
     resolved_by TEXT,
@@ -426,7 +426,7 @@ When AI A → AI B handoff occurs:
 
 **From SQLite:**
 - Session metadata (ai_id, timestamp, CASCADE phase)
-- Goals tree (objectives, subtasks, completion status)
+- Goals tree (objectives, tasks, completion status)
 - PREFLIGHT/CHECK/POSTFLIGHT trajectory
 - Mistakes made during session
 

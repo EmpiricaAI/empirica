@@ -250,7 +250,7 @@ def _query_handoffs(scope: str, session_id: str, project_id: str,
 
 def _query_goals(scope: str, session_id: str, project_id: str,
                  limit: int, status: str, ai_id: str, since: str) -> list[dict]:
-    """Query goals with subtasks"""
+    """Query goals with tasks"""
     from empirica.data.session_database import SessionDatabase
     db = SessionDatabase()
 

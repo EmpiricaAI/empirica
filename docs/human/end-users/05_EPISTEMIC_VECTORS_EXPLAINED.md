@@ -269,7 +269,7 @@ state: 0.30, context: 0.35
 ### "Everything blurs together"
 ```
 density: 0.85 (low), signal: 0.30 (low)
-→ Break into smaller goals + subtasks.
+→ Break into smaller goals + tasks.
 ```
 
 ### "Can't predict consequences"

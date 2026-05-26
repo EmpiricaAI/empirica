@@ -93,7 +93,7 @@ class FlowStateMetrics:
         if bootstrap_score < 0.5:
             recommendations.append("Load project-bootstrap early for better context")
         if goal_score < 0.5:
-            recommendations.append("Create goals with subtasks for better structure")
+            recommendations.append("Create goals with tasks for better structure")
         if learning_score < 0.3:
             recommendations.append("Increase learning rate: More investigation, less guessing")
         if check_score < 0.5:

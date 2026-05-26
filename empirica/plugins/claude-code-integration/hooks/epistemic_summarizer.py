@@ -116,7 +116,9 @@ def format_item(weight: float, item: dict, item_type: str) -> str:
         status = item.get('status', 'pending')
         text = f"{text} ({status})"
     elif item_type == 'subtask':
-        text = item.get('description', 'Unknown subtask')
+        # internal type tag stays 'subtask' (matches SubTask class + subtasks table);
+        # user-visible fallback string says 'task' (matches CLI vocabulary)
+        text = item.get('description', 'Unknown task')
         importance = item.get('importance', 'medium')
         goal_context = item.get('goal_objective', '')
         if goal_context:

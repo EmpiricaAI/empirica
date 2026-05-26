@@ -152,8 +152,8 @@ CLI flags. Common gotchas:
 
 | Tool | Correct |
 |---|---|
-| `goals_add_subtask` | `importance` (not `epistemic_importance`) |
-| `goals_complete_subtask` | `subtask_id` (not `task_id`) |
+| `goals_add_task` | `importance` (not `epistemic_importance`) |
+| `goals_complete_task` | `task_id` (not `task_id`) |
 | Goal scope | `{"breadth": 0.3, "duration": 0.2, "coordination": 0.1}` |
 | Success criteria | array of objects with `description` + `threshold` |
 | Vector JSON | flat at root of `vectors`, no tier sub-objects |

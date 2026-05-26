@@ -38,10 +38,10 @@ EOF
 # 3. Create a goal that ties this work to a tracked unit
 empirica goals-create --objective "Implement JWT authentication"
 
-# 4. (Optional) decompose into subtasks
-empirica goals-add-subtask --goal-id <GOAL_ID> --description "Map current auth surface"
-empirica goals-add-subtask --goal-id <GOAL_ID> --description "Implement RS256 signing"
-empirica goals-add-subtask --goal-id <GOAL_ID> --description "Write integration tests"
+# 4. (Optional) decompose into tasks
+empirica goals-add-task --goal-id <GOAL_ID> --description "Map current auth surface"
+empirica goals-add-task --goal-id <GOAL_ID> --description "Implement RS256 signing"
+empirica goals-add-task --goal-id <GOAL_ID> --description "Write integration tests"
 
 # 5. Investigate — log as you discover
 empirica finding-log --finding "Current Auth0 setup uses HS256" --impact 0.7
@@ -55,9 +55,9 @@ empirica check-submit - << 'EOF'
 }
 EOF
 
-# 7. Do the work + complete subtasks as you go
+# 7. Do the work + complete tasks as you go
 # ... write code, run tests ...
-empirica goals-complete-subtask --subtask-id <ID> --evidence "commit abc123 — auth.py + tests pass"
+empirica goals-complete-task --task-id <ID> --evidence "commit abc123 — auth.py + tests pass"
 
 # 8. Close the transaction
 empirica postflight-submit - << 'EOF'
@@ -108,28 +108,28 @@ before starting any transaction.
 
 ---
 
-## Goal Decomposition (Subtasks)
+## Goal Decomposition (Tasks)
 
-A goal with subtasks is the natural unit for grounded calibration:
-each subtask is one tracked chunk of AI work that gets evidence on
+A goal with tasks is the natural unit for grounded calibration:
+each task is one tracked chunk of AI work that gets evidence on
 completion.
 
 ```bash
-# Add a subtask
-empirica goals-add-subtask --goal-id <GOAL_ID> --description "Map current auth surface"
-# → returns subtask_id
+# Add a task
+empirica goals-add-task --goal-id <GOAL_ID> --description "Map current auth surface"
+# → returns task_id
 
-# List subtasks
-empirica goals-get-subtasks --goal-id <GOAL_ID>
+# List tasks
+empirica goals-get-tasks --goal-id <GOAL_ID>
 
 # Complete with evidence (commit SHA, test result, file path)
-empirica goals-complete-subtask --subtask-id <ID> --evidence "commit abc123"
+empirica goals-complete-task --task-id <ID> --evidence "commit abc123"
 
 # Check goal progress
 empirica goals-progress --goal-id <GOAL_ID>
 ```
 
-**Decompose at PREFLIGHT, not retroactively.** A subtask added after
+**Decompose at PREFLIGHT, not retroactively.** A task added after
 the work is done is a self-graded checkbox, not a tracked unit.
 
 ---
@@ -190,8 +190,8 @@ noetic→praxic transition.
 **Goal not showing in list** — `goals-list` defaults to in-progress.
 Use `--status planned` or `--status completed` or `--status all`.
 
-**Subtask added but no progress shown** — check the goal-id matches:
-`empirica goals-get-subtasks --goal-id <ID>`.
+**Task added but no progress shown** — check the goal-id matches:
+`empirica goals-get-tasks --goal-id <ID>`.
 
 ---
 
@@ -222,14 +222,14 @@ Empirica's epistemic layer. See [BEADS_QUICKSTART.md](BEADS_QUICKSTART.md).
   │  │  PREFLIGHT → noetic → CHECK → praxic → POSTFLIGHT    │  │
   │  │                                                      │  │
   │  │  goals-create — opens Goal A                         │  │
-  │  │  goals-complete-subtask × N                          │  │
+  │  │  goals-complete-task × N                          │  │
   │  └──────────────────────────────────────────────────────┘  │
   │                                                            │
   │  ┌──────────────────────────────────────────────────────┐  │
   │  │  Transaction 2                                       │  │
   │  │  PREFLIGHT → noetic → CHECK → praxic → POSTFLIGHT    │  │
   │  │                                                      │  │
-  │  │  goals-complete-subtask × N                          │  │
+  │  │  goals-complete-task × N                          │  │
   │  │  goals-complete — closes Goal A                      │  │
   │  └──────────────────────────────────────────────────────┘  │
   │                                                            │

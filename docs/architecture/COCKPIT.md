@@ -170,7 +170,7 @@ them to the cockpit on impulse — write a separate proposal first.
 - **ntfy event triggers** (push when CHECK blocks, finding logged, etc.) — separate concern
 - **Per-project / per-user ntfy topic routing** — separate concern
 - **Priority feedback / learning loop** (👍/👎 calibrating thresholds) — separate concern
-- **Goal subtask progress bars on the status row** — defer until "I can't tell what this Claude is working on" actually surfaces
+- **Goal task progress bars on the status row** — defer until "I can't tell what this Claude is working on" actually surfaces
 - **tmux-pane scan as primary discovery** — instances are discovered via state files; tmux-pane scan is at most a future enrichment
 - **Process-level "is Claude alive in this pane" detection** — defer; transaction-state staleness is a sufficient proxy for v1
 

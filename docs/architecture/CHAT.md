@@ -77,7 +77,7 @@ glance-and-go like cockpit).
 │    │   ┌─ Finding card    (impact, subject, confirm/reject)
 │    │   ├─ Decision card   (rationale, reversibility, evidence links)
 │    │   ├─ Unknown card    (resolve / convert-to-finding)
-│    │   ├─ Goal card       (subtasks, completion %)
+│    │   ├─ Goal card       (tasks, completion %)
 │    │   └─ Transaction card (PREFLIGHT/CHECK/POSTFLIGHT vectors)
 │    └─ Tool call (collapsed by default — Ctrl-O to expand all)
 │
@@ -141,7 +141,7 @@ Per-artifact-type quick actions:
 | `mistake` | acknowledge · add-prevention · discuss |
 | `dead_end` | acknowledge · discuss |
 | `assumption` | confirm (→ finding) · falsify (→ decision) · discuss |
-| `goal` | view-subtasks · complete · split · re-scope |
+| `goal` | view-tasks · complete · split · re-scope |
 | `transaction` | view-vectors · view-deltas · view-grounded-calibration |
 | `source` | open-link · view-citations · discuss |
 

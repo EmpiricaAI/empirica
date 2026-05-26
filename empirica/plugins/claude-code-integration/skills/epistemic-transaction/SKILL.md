@@ -55,9 +55,9 @@ empirica unknown-log --unknown "How does the session store handle concurrent acc
 empirica assumption-log --assumption "Database migrations run automatically" --confidence 0.6 --domain infrastructure
 ```
 
-### Step P3: Decompose into Goals (and subtasks)
+### Step P3: Decompose into Goals (and tasks)
 
-A **goal** is one coherent deliverable. **Subtasks** are the AI-tracked
+A **goal** is one coherent deliverable. **Tasks** are the AI-tracked
 units of work *inside* a goal — distinct steps that each end in a
 commit / test result / verifiable evidence.
 
@@ -79,30 +79,30 @@ storage (separate goal). Success: all routes except /health
 require valid JWT, role-based guards work, unit tests pass.
 References: RFC 7519, prior decision deead8f2 on bcrypt."
 
-# Decompose into subtasks — one per distinct unit of AI work
-empirica goals-add-subtask --goal-id <ID> --description "Read existing middleware chain"
-empirica goals-add-subtask --goal-id <ID> --description "Implement JWT validation middleware"
-empirica goals-add-subtask --goal-id <ID> --description "Add role-based guards"
-empirica goals-add-subtask --goal-id <ID> --description "Write unit tests + commit"
+# Decompose into tasks — one per distinct unit of AI work
+empirica goals-add-task --goal-id <ID> --description "Read existing middleware chain"
+empirica goals-add-task --goal-id <ID> --description "Implement JWT validation middleware"
+empirica goals-add-task --goal-id <ID> --description "Add role-based guards"
+empirica goals-add-task --goal-id <ID> --description "Write unit tests + commit"
 ```
 
-**When to decompose into subtasks (vs single-shot goal):**
-- Multi-file work → one subtask per file or logical unit
-- Investigation followed by implementation → one subtask per phase
-- Anything that will produce ≥2 commits → subtasks make per-commit
+**When to decompose into tasks (vs single-shot goal):**
+- Multi-file work → one task per file or logical unit
+- Investigation followed by implementation → one task per phase
+- Anything that will produce ≥2 commits → tasks make per-commit
   evidence linkage explicit
-- Anything you'd otherwise track in a TodoWrite — log as subtasks
+- Anything you'd otherwise track in a TodoWrite — log as tasks
   instead so the work is grounded against calibration
 
-**As you complete each subtask, close it with evidence:**
+**As you complete each task, close it with evidence:**
 
 ```bash
-empirica goals-complete-subtask \
-  --subtask-id <ID> \
+empirica goals-complete-task \
+  --task-id <ID> \
   --evidence "Commit abc1234: JWT validation middleware + unit tests passing"
 ```
 
-The `--evidence` field is what makes subtasks *grounded* AI work
+The `--evidence` field is what makes tasks *grounded* AI work
 rather than self-reported progress. Tie it to a commit SHA, test
 result, or file path — something deterministic that grounded
 calibration can verify.
@@ -709,14 +709,14 @@ They are behavioral commitments, not code enforcement — internalize them.
 ### Rule 1: Goal-per-Transaction
 
 Every transaction should reference an empirica goal. If the goal has distinct
-steps, create subtasks to track them:
+steps, create tasks to track them:
 
 ```bash
 # At PREFLIGHT, link to a goal
 empirica goals-create --objective "Implement X"  # if not already created
-empirica goals-add-subtask --goal-id <ID> --description "Read and understand module Y"
-empirica goals-add-subtask --goal-id <ID> --description "Write implementation"
-empirica goals-add-subtask --goal-id <ID> --description "Add tests"
+empirica goals-add-task --goal-id <ID> --description "Read and understand module Y"
+empirica goals-add-task --goal-id <ID> --description "Write implementation"
+empirica goals-add-task --goal-id <ID> --description "Add tests"
 
 # For goals you want to log but not start yet:
 empirica goals-create --objective "Future: refactor Y" --status planned
@@ -727,9 +727,9 @@ grounded calibration has nothing to measure your completion claims against.
 `planned` goals are visible in `goals-list` but excluded from measurement
 until moved to `in_progress`.
 
-### Rule 2: Commit-per-Subtask
+### Rule 2: Commit-per-Task
 
-Commit after each completed subtask or coherent work unit. Don't batch commits
+Commit after each completed task or coherent work unit. Don't batch commits
 to the end of the transaction. Each commit should be meaningful and atomic.
 
 ```
@@ -776,14 +776,16 @@ empirica postflight-submit -
 unknown resolution feed grounded calibration's completion and know vectors.
 If you POSTFLIGHT first, the evidence is invisible to calibration.
 
-### Rule 5: Subtask-Task Visibility (When Using Claude Code Tasks)
+### Rule 5: Mirror Empirica Tasks → Claude Code Tasks (Visibility)
 
-For larger transactions, map empirica subtasks to Claude Code tasks so the
-user sees progress. Create tasks at PREFLIGHT, update as you complete:
+Empirica tasks and Claude Code Tasks share the same name now (this is
+deliberate — they're the same shape of work, tracked in two surfaces).
+For larger transactions, mirror empirica tasks to Claude Code Tasks so
+the user sees progress. Create at PREFLIGHT, update as you complete:
 
 ```
-empirica goals-add-subtask → Claude Code TaskCreate (mirror)
-empirica goals-complete-subtask → Claude Code TaskUpdate (mirror)
+empirica goals-add-task → Claude Code TaskCreate (mirror)
+empirica goals-complete-task → Claude Code TaskUpdate (mirror)
 ```
 
 This is advisory — use your judgment on when the user benefits from
@@ -795,11 +797,11 @@ visible task tracking vs when it's overhead.
 
 | Phase | Commands |
 |-------|----------|
-| **Planning** | `goals-create`, `goals-add-subtask`, `unknown-log`, `assumption-log` |
+| **Planning** | `goals-create`, `goals-add-task`, `unknown-log`, `assumption-log` |
 | **PREFLIGHT** | `preflight-submit` (opens transaction) |
 | **Noetic** | `noetic-batch` (3+ ops in one call — preferred), `source-add`, `finding-log`, `unknown-log`, `deadend-log`, `assumption-log` |
 | **CHECK** | `check-submit` (gates noetic → praxic) |
-| **Praxic** | `finding-log`, `decision-log`, `goals-complete-subtask` |
+| **Praxic** | `finding-log`, `decision-log`, `goals-complete-task` |
 | **Before POSTFLIGHT** | `goals-complete`, `unknown-resolve`, or batch: `resolve-artifacts` |
 | **POSTFLIGHT** | `postflight-submit` (closes transaction + triggers grounded verification) |
 | **Between** | `goals-list`, `resolve-artifacts` (batch), `delete-artifacts` (cleanup) |
@@ -813,7 +815,7 @@ Given a spec or feature description:
 
 1. **Read it fully** — don't start decomposing mid-read
 2. **Identify nouns** — these are your domains/modules (potential goal boundaries)
-3. **Identify verbs** — these are your actions (potential subtasks)
+3. **Identify verbs** — these are your actions (potential tasks)
 4. **Identify dependencies** — A before B? Separate transactions, ordered
 5. **Identify unknowns** — what the spec doesn't say (log immediately)
 6. **Identify assumptions** — what you're inferring (log with confidence)

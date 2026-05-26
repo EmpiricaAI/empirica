@@ -34,9 +34,9 @@ That creates `.beads/config.yaml` (committed) and `.beads/beads.db`
 empirica goals-create --objective "Implement OAuth2" --use-beads
 # → returns goal_id + beads_issue_id (e.g. bd-a1b2)
 
-empirica goals-add-subtask --goal-id <GOAL_ID> \
+empirica goals-add-task --goal-id <GOAL_ID> \
   --description "Research OAuth2 spec" --use-beads
-# → returns subtask_id + beads_issue_id (hierarchical, e.g. bd-a1b2.1)
+# → returns task_id + beads_issue_id (hierarchical, e.g. bd-a1b2.1)
 ```
 
 ### Per-project default
@@ -77,9 +77,9 @@ empirica goals-create --objective "Add OAuth2 support" --use-beads
 # → goal_id, beads_issue_id=bd-a1b2
 
 # 2. Decompose
-empirica goals-add-subtask --goal-id <GOAL_ID> \
+empirica goals-add-task --goal-id <GOAL_ID> \
   --description "Research OAuth2 spec" --use-beads
-empirica goals-add-subtask --goal-id <GOAL_ID> \
+empirica goals-add-task --goal-id <GOAL_ID> \
   --description "Implement token refresh" --use-beads
 # → bd-a1b2.1 (research) + bd-a1b2.2 (token refresh, blocked by research)
 
@@ -91,12 +91,12 @@ bd ready
 # 4. Work
 empirica preflight-submit -
 # ... investigate, log findings ...
-empirica goals-complete-subtask --subtask-id <ID> --evidence "commit abc123"
+empirica goals-complete-task --task-id <ID> --evidence "commit abc123"
 
 # 5. Close the BEADS issue
 bd close bd-a1b2.1 --reason "Research complete"
 
-# 6. Next subtask becomes ready
+# 6. Next task becomes ready
 bd ready    # → "Implement token refresh"
 ```
 
@@ -117,7 +117,7 @@ bd ready    # → "Implement token refresh"
 
 If the `bd` CLI isn't installed:
 - `--use-beads` prints a warning
-- Goal/subtask creation continues normally
+- Goal/task creation continues normally
 - `beads_issue_id` stays `null`
 - Everything else works
 

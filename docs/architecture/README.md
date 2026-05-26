@@ -45,7 +45,7 @@ Empirica is a **measurement-first epistemic framework** for AI agents. It provid
 │  ┌──────────────┐ ┌──────────────┐ ┌────────────────┐  │
 │  │ Sentinel     │ │ Calibration  │ │ Goal           │  │
 │  │ Orchestrator │ │ Engine       │ │ Orchestration  │  │
-│  │ (gate+nudge) │ │ (dual-track) │ │ (subtasks)     │  │
+│  │ (gate+nudge) │ │ (dual-track) │ │ (tasks)     │  │
 │  └──────────────┘ └──────────────┘ └────────────────┘  │
 │                                                          │
 │  ┌──────────────┐ ┌──────────────┐ ┌────────────────┐  │

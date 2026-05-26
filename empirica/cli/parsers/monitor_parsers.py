@@ -114,7 +114,7 @@ Evidence sources:
 - Test results (pytest JSON reports)
 - Git metrics (commits, lines changed)
 - Artifact counts (findings, unknowns, dead-ends)
-- Goal/subtask completion ratios
+- Goal/task completion ratios
 
 Use --learning-trajectory to see PREFLIGHT→POSTFLIGHT deltas (learning, not calibration).
         """)

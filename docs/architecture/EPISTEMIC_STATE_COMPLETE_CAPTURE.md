@@ -142,7 +142,7 @@
     "current": {
       "id": "...",
       "objective": "Debug action hooks",
-      "progress": "2/4 subtasks complete"
+      "progress": "2/4 tasks complete"
     }
   },
   "handoffs": {

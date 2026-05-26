@@ -89,7 +89,7 @@ registers it in `~/.claude/mcp.json` for you.
 |---|---|
 | **Lifecycle** | `cortex_session_init`, `preflight_submit`, `check_submit`, `postflight_submit` |
 | **Artifacts** | `finding_log`, `unknown_log`, `decision_log`, `assumption_log`, `deadend_log`, `mistake_log`, `source_add`, `log_artifacts` |
-| **Goals** | `goals_create`, `goals_add_subtask`, `goals_complete_subtask`, `goals_complete`, `goals_list`, `goals_ready` |
+| **Goals** | `goals_create`, `goals_add_task`, `goals_complete_task`, `goals_complete`, `goals_list`, `goals_ready` |
 | **Search/Inspect** | `project_search`, `investigate`, `commit_context`, `calibration_report` |
 | **Compliance** | `compliance_report`, `release_ready`, `docs_assess`, `docs_link_check` |
 | **Mesh** | `cortex_propose`, `cortex_inbox_poll`, `cortex_complete_proposal`, `cortex_collab_post` |

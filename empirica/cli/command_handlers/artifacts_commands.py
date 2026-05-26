@@ -11,7 +11,7 @@ Output structure:
     ├── unknowns.md         # Open questions
     ├── dead-ends.md        # Failed approaches
     ├── mistakes.md         # Errors with prevention
-    ├── goals.md            # Work units with subtasks
+    ├── goals.md            # Work units with tasks
     ├── transactions.md     # PREFLIGHT→CHECK→POSTFLIGHT trajectories
     ├── sessions.md         # Session timeline
     ├── handoffs.md         # Session continuity reports
@@ -462,14 +462,14 @@ def _render_mistakes(mistakes):
 
 
 def _render_goals(goals, tasks_by_goal):
-    """Render goals.md — all goals with subtasks inline."""
+    """Render goals.md — all goals with tasks inline."""
     # Sort by most recent first
     goals.sort(key=lambda x: _get_ts(x[1]), reverse=True)
 
     lines = [
         "# Goals",
         "",
-        "> Work units with subtasks and epistemic tracking.",
+        "> Work units with tasks and epistemic tracking.",
         f"> {len(goals)} total",
         "",
     ]
@@ -484,12 +484,12 @@ def _render_goals(goals, tasks_by_goal):
         date = _format_date_short(data.get("created_at") or data.get("created_timestamp", ""))
         sid = _short_id(data.get("session_id", ""))
 
-        # Get subtasks from tasks namespace
-        subtasks = tasks_by_goal.get(gid, [])
-        total = len(subtasks)
-        completed = sum(1 for s in subtasks if s.get("completed_timestamp"))
+        # Get tasks from the tasks namespace
+        tasks = tasks_by_goal.get(gid, [])
+        total = len(tasks)
+        completed = sum(1 for s in tasks if s.get("completed_timestamp"))
         pct = int(completed / total * 100) if total > 0 else 0
-        progress = f"{completed}/{total} ({pct}%)" if total > 0 else "no subtasks"
+        progress = f"{completed}/{total} ({pct}%)" if total > 0 else "no tasks"
 
         lines.extend([
             f"<a id=\"goal-{short}\"></a>",
@@ -507,8 +507,8 @@ def _render_goals(goals, tasks_by_goal):
             )
             lines.append("")
 
-        if subtasks:
-            for st in subtasks:
+        if tasks:
+            for st in tasks:
                 done = bool(st.get("completed_timestamp"))
                 icon = "\u2705" if done else "\u2b1c"
                 desc = _truncate(st.get("description", ""), 100)
@@ -952,7 +952,7 @@ def _render_readme(counts, recent_items):
         f"| \u2753 [Unknowns](unknowns.md) | **{counts.get('unknowns', 0)}** | Open questions |",
         f"| \U0001f6ab [Dead Ends](dead-ends.md) | **{counts.get('dead_ends', 0)}** | Failed approaches |",
         f"| \u26a0\ufe0f [Mistakes](mistakes.md) | **{counts.get('mistakes', 0)}** | Errors + prevention |",
-        f"| \U0001f3af [Goals](goals.md) | **{counts.get('goals', 0)}** | Work units + subtasks |",
+        f"| \U0001f3af [Goals](goals.md) | **{counts.get('goals', 0)}** | Work units + tasks |",
         f"| \U0001f4ca [Sessions](sessions.md) | **{counts.get('sessions', 0)}** | Session timeline |",
         f"| \U0001f9ec [Transactions](transactions.md) | **{counts.get('transactions', 0)}** | Epistemic trajectories |",
         f"| \U0001f91d [Handoffs](handoffs.md) | **{counts.get('handoffs', 0)}** | Session continuity |",
@@ -1044,7 +1044,7 @@ def generate_artifacts(workspace_root, output_dir=None, verbose=False):
     handoffs = _read_all_notes(workspace, "handoff")
     signatures = _read_all_notes(workspace, "signatures")
 
-    # Tasks (subtasks) — index by goal_id
+    # Tasks — index by goal_id
     raw_tasks = _read_all_notes(workspace, "tasks")
     tasks_by_goal = {}
     for _tid, tdata in raw_tasks:
@@ -1068,7 +1068,7 @@ def generate_artifacts(workspace_root, output_dir=None, verbose=False):
         print(f"  Dead ends:    {len(dead_ends)}")
         print(f"  Mistakes:     {len(mistakes)}")
         print(f"  Goals:        {len(goals)}")
-        print(f"  Subtasks:     {len(raw_tasks)}")
+        print(f"  Tasks:        {len(raw_tasks)}")
         print(f"  Sessions:     {len(sessions_map)}")
         print(f"  Transactions: {sum(len(v) for v in sessions_map.values())} checkpoints")
         print(f"  Handoffs:     {len(handoffs)}")

@@ -125,8 +125,8 @@ All events will be logged with format: `[EpistemicBus] {event_type}: agent={agen
 | `GOAL_CREATED` | New goal created |
 | `GOAL_UPDATED` | Goal modified |
 | `GOAL_COMPLETED` | Goal marked complete |
-| `SUBTASK_CREATED` | Subtask added to goal |
-| `SUBTASK_COMPLETED` | Subtask marked done |
+| `SUBTASK_CREATED` | Task added to goal |
+| `SUBTASK_COMPLETED` | Task marked done |
 
 ### Session Events
 

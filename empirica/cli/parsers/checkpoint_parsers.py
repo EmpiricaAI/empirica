@@ -1095,7 +1095,7 @@ Example:
     goals_ready_parser = subparsers.add_parser(
         'goals-ready',
         help=(
-            'Find work that\'s ready to start — open goals/subtasks with '
+            'Find work that\'s ready to start — open goals/tasks with '
             'their dependencies satisfied AND your current epistemic state '
             'meets the confidence/uncertainty thresholds. Wraps BEADS '
             'priority filtering with empirica\'s vector gates. Use when '
@@ -1131,7 +1131,7 @@ Example:
         'goals-resume',
         help=(
             'Take over a goal another AI started. Reassigns the goal\'s '
-            'ai_id to you, imports its subtasks + history into your '
+            'ai_id to you, imports its tasks + history into your '
             'session\'s context. Use after goals-discover surfaces work '
             'a peer left mid-flight, or during planned handoff.'
         ),

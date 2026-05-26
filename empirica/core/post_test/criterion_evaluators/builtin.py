@@ -48,7 +48,7 @@ class SubtaskCompletionEvaluator:
                     passed=True,
                     value=1.0,
                     threshold=threshold,
-                    summary="Goal marked complete (no subtasks)",
+                    summary="Goal marked complete (no tasks)",
                 )
             return CriterionResult(
                 criterion_id=ctx.criterion.id,
@@ -58,7 +58,7 @@ class SubtaskCompletionEvaluator:
                 skipped=True,
                 value=0.0,
                 threshold=threshold,
-                summary="No subtasks and goal not marked complete — no signal",
+                summary="No tasks and goal not marked complete — no signal",
             )
 
         ratio = progress.get("completion_percentage", 0.0) / 100.0
@@ -70,9 +70,9 @@ class SubtaskCompletionEvaluator:
             passed=passed,
             value=ratio,
             threshold=threshold,
-            summary=f"subtask completion {ratio:.0%} vs threshold {threshold:.0%}",
+            summary=f"task completion {ratio:.0%} vs threshold {threshold:.0%}",
             iteration_needed=(not passed and ctx.criterion.is_required),
-            next_transaction="Complete remaining required subtasks" if not passed else None,
+            next_transaction="Complete remaining required tasks" if not passed else None,
         )
 
 

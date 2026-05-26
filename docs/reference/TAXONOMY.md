@@ -56,14 +56,14 @@ Produced during action/implementation. Represent what is being built and what wa
 
 | Artifact | Definition | Mutability | Storage |
 |----------|-----------|------------|---------|
-| **Goal** | A structural work unit with an objective and completion criteria. Persists across sessions. Contains subtasks. | Dynamic | WARM (SQLite) |
-| **Subtask** | A decomposed work unit within a goal. Has importance level and optional dependencies. Completed with evidence. | Dynamic | WARM (SQLite) |
+| **Goal** | A structural work unit with an objective and completion criteria. Persists across sessions. Contains tasks. | Dynamic | WARM (SQLite) |
+| **Task** | A decomposed work unit within a goal. Has importance level and optional dependencies. Completed with evidence. | Dynamic | WARM (SQLite) |
 | **Commit** | A code change checkpoint in version control. The atomic unit of shipped work. | Static once created | COLD (git) |
 
 **Relationships:**
-- Goal → contains Subtasks (1:N)
+- Goal → contains Tasks (1:N)
 - Goal → links to Findings, Unknowns, Dead-ends, Mistakes (semantic association)
-- Subtask → completed with evidence (commit hash, file path, test result)
+- Task → completed with evidence (commit hash, file path, test result)
 - Commit → captures praxic output, closes the implementation loop
 
 ---
@@ -200,10 +200,10 @@ PREFLIGHT ──► [Noetic Phase] ──► CHECK ──► [Praxic Phase] ─�
   BEGIN         investigate        GATE       implement         COMMIT        VERIFY
                findings                      goals completed
                unknowns                      code committed
-               dead-ends                     subtasks done
+               dead-ends                     tasks done
 ```
 
-PREFLIGHT opens the transaction (BEGIN). The agent investigates, producing **noetic artifacts** (findings, unknowns, dead-ends, assumptions, decisions). CHECK gates the transition from investigation to action. The agent implements, producing **praxic artifacts** (goal completions, commits, subtask evidence). POSTFLIGHT closes the transaction (COMMIT) and captures the learning delta. POST-TEST verifies against objective evidence.
+PREFLIGHT opens the transaction (BEGIN). The agent investigates, producing **noetic artifacts** (findings, unknowns, dead-ends, assumptions, decisions). CHECK gates the transition from investigation to action. The agent implements, producing **praxic artifacts** (goal completions, commits, task evidence). POSTFLIGHT closes the transaction (COMMIT) and captures the learning delta. POST-TEST verifies against objective evidence.
 
 **The noetic-praxic split is the transaction's internal structure.** CHECK does not end the transaction — it gates the transition within it. Splitting noetic and praxic into separate transactions breaks the measurement cycle and produces meaningless deltas.
 
@@ -240,7 +240,7 @@ A temporal interval corresponding to one context window. Created on conversation
 
 ### 4.4 Goal (structural)
 
-A persistent work unit that outlives sessions. Owns subtasks and links to epistemic artifacts.
+A persistent work unit that outlives sessions. Owns tasks and links to epistemic artifacts.
 
 **Properties:**
 - Persists across sessions indefinitely
@@ -380,8 +380,8 @@ Actions performed on or with Empirica concepts.
 | Operation | Description |
 |-----------|------------|
 | **Log** | Create a noetic artifact (finding, unknown, dead-end, mistake). |
-| **Create** | Create a praxic artifact (goal, subtask). |
-| **Complete** | Mark a subtask or goal as done, with evidence/reason. |
+| **Create** | Create a praxic artifact (goal, task). |
+| **Complete** | Mark a task or goal as done, with evidence/reason. |
 | **Resolve** | Close an unknown when the answer is found. |
 
 ### 8.4 Execution (Praxic)
@@ -435,7 +435,7 @@ Where a concept lives in the four-layer storage architecture.
 | Layer | Medium | Access speed | Contents |
 |-------|--------|-------------|----------|
 | **HOT** | In-memory / context window | Instant | Active session state, current vectors |
-| **WARM** | SQLite | Fast | Sessions, goals, subtasks, findings, unknowns, assessments |
+| **WARM** | SQLite | Fast | Sessions, goals, tasks, findings, unknowns, assessments |
 | **SEARCH** | Qdrant (vector DB) | Semantic | Embedded findings, lessons, episodic memory |
 | **COLD** | Git notes, YAML files | Slow / archival | Lessons, calibration snapshots, breadcrumbs, epistemic checkpoints |
 
@@ -467,7 +467,7 @@ Every Empirica term mapped to its closest developer-familiar equivalent. Where t
 | **Blindspot** | Coverage gap / unknown unknown | Computed from negative space, not manually identified |
 | **Lesson** | Best practice / runbook entry | Decays when contradicted by evidence (immune system) |
 | **Goal** | Epic / user story | Persists across sessions, owns epistemic artifacts |
-| **Subtask** | Task / ticket | Completed with evidence (not just status change) |
+| **Task** | Task / ticket | Completed with evidence (not just status change) |
 | **Vector** | Metric dimension | Self-assessed, bias-corrected, 13 dimensions |
 | **Assessment** | Health check / status report | Formal snapshot of all 13 vectors with reasoning |
 | **Delta** | Diff / change measurement | Vector-wise difference = quantified learning |
@@ -524,7 +524,7 @@ How the major concepts relate to each other:
    │  ┌────────┐    ┌────────┐  │
    │  │NOETIC  │───►│PRAXIC  │  │
    │  │findings│ C  │goals   │  │
-   │  │unknowns│ H  │subtasks│  │
+   │  │unknowns│ H  │tasks│  │
    │  │dead-   │ E  │commits │  │
    │  │ ends   │ C  │        │  │
    │  │assump- │ K  │        │  │
@@ -600,7 +600,7 @@ Quick lookup for any term:
 | Ref-doc | 6 | Context |
 | Sentinel | 5.2 / 7 | System / Agent |
 | Session | 4.2 | Structure |
-| Subtask | 1.2 | Praxic Artifact |
+| Task | 1.2 | Praxic Artifact |
 | Tool Router | 5.4 | System |
 | Trajectory | 4.2 | Structure |
 | Transaction | 4.1 | Structure |

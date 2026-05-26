@@ -204,7 +204,7 @@ Empirica commands use a two-tier system instead of a blanket whitelist (prevents
 **Tier 2 — State-changing (allowed because they ARE the epistemic workflow):**
 - Transaction: `preflight-submit`, `check-submit`, `postflight-submit`
 - Breadcrumbs: `finding-log`, `unknown-log`, `deadend-log`, `mistake-log`, `assumption-log`, `decision-log`, `source-add`, `refdoc-add`
-- Goals: `goals-create`, `goals-complete`, `goals-add-subtask`, `goals-complete-subtask`, `goals-add-dependency`, `goals-resume`, `goals-claim`, `goals-mark-stale`, `goals-refresh`
+- Goals: `goals-create`, `goals-complete`, `goals-add-task`, `goals-complete-task`, `goals-add-dependency`, `goals-resume`, `goals-claim`, `goals-mark-stale`, `goals-refresh`
 - Session: `session-create`
 - Project: `project-init`, `project-embed`
 - Lessons: `lesson-create`, `lesson-load`, `lesson-path`, `lesson-replay-start`, `lesson-replay-end`, `lesson-embed`

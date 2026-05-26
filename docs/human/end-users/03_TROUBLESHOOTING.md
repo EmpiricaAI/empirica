@@ -325,22 +325,22 @@ empirica goals-create --session-id <SESSION_ID> --objective "..."
 `--description` accepts up to 8000 chars of markdown and is rendered
 in the TUI and extension.
 
-### Problem: Subtask not completing
+### Problem: Task not completing
 ```
-Error: Cannot complete subtask
+Error: Cannot complete task
 ```
 
-**Cause:** Invalid subtask_id or missing required evidence flag.
+**Cause:** Invalid task_id or missing required evidence flag.
 
 **Solution:**
 ```bash
-# List all subtasks for goal
-empirica goals-get-subtasks --goal-id <GOAL_ID>
+# List all tasks for goal
+empirica goals-get-tasks --goal-id <GOAL_ID>
 
 # Complete with evidence (commit SHA, test result, file path)
-empirica goals-complete-subtask --subtask-id <ID> --evidence "commit abc123"
+empirica goals-complete-task --task-id <ID> --evidence "commit abc123"
 ```
-Note: the flag is `--subtask-id`, not `--task-id`.
+Note: the flag is `--task-id`, not `--task-id`.
 
 ---
 

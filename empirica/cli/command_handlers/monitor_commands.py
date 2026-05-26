@@ -899,7 +899,7 @@ def _calculate_trajectory_paths(
         'viable': scope_expand_viable,
         'description': 'Broaden task scope. Current grounding supports expansion.',
         'blockers': scope_blockers,
-        'action': 'Add subtasks or related goals, then re-baseline with PREFLIGHT'
+        'action': 'Add tasks or related goals, then re-baseline with PREFLIGHT'
     })
 
     # HANDOFF path - transfer to different AI

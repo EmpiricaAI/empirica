@@ -108,8 +108,8 @@ These tools send full JSON via stdin to the CLI (no hanging).
 | `goals_create` | `goals-create` | Create a new goal |
 | `goals_list` | `goals-list` | List goals |
 | `goals_complete` | `goals-complete` | Mark a goal as complete |
-| `goals_add_subtask` | `goals-add-subtask` | Add a subtask to a goal |
-| `goals_complete_subtask` | `goals-complete-subtask` | Mark a subtask as complete |
+| `goals_add_task` | `goals-add-task` | Add a task to a goal |
+| `goals_complete_task` | `goals-complete-task` | Mark a task as complete |
 | `goals_progress` | `goals-progress` | Get goal progress details |
 | `goals_search` | `goals-search` | Search goals by text |
 | `goals_ready` | `goals-ready` | List goals ready for work |

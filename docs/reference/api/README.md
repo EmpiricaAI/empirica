@@ -14,7 +14,7 @@
 
 ### [Goals & Tasks](goals_tasks.md)
 - **GoalRepository** - Goal creation, tracking, and completion
-- **Subtask management** - Task breakdown and progress tracking
+- **Task management** - Task breakdown and progress tracking
 - **Goal-tree operations** - Hierarchical goal management
 
 ### [Project Management](project_management.md)

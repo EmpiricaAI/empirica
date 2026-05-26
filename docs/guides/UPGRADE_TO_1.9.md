@@ -27,10 +27,10 @@ Goals can now declare measurable success criteria that auto-evaluate at
 POSTFLIGHT. Three validation methods:
 
 ```bash
-# Subtask completion ratio
+# Task completion ratio
 empirica goals-create \
   --objective "Refactor auth module" \
-  --success-criteria '["completion:subtask_ratio@>=0.9"]'
+  --success-criteria '["completion:task_ratio@>=0.9"]'
 
 # Quality-gate against a named EvidenceItem metric
 empirica goals-create \

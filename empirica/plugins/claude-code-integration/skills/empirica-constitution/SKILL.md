@@ -266,8 +266,8 @@ Phase-aware completion — the meaning of "done" depends on which phase you're i
 | **PRAXIC** | "Have I implemented enough to ship?" | Meets stated objective, ready to commit |
 
 **How to determine your phase:**
-- No subtasks started / investigating / exploring → NOETIC
-- Subtasks in progress / writing code / executing → PRAXIC
+- No tasks started / investigating / exploring → NOETIC
+- Tasks in progress / writing code / executing → PRAXIC
 - CHECK returned "investigate" → NOETIC
 - CHECK returned "proceed" → PRAXIC
 

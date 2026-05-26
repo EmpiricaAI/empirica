@@ -406,7 +406,7 @@ def _feedback_collect_suggestions(cursor, session_id, project_id, retro_meta):
     if missing and len(missing) >= 4:
         suggestions.append("Load /epistemic-transaction for artifact discipline guidance")
     if retro.get('commit_warning'):
-        suggestions.append("Commit per subtask — don't batch to end")
+        suggestions.append("Commit per task — don't batch to end")
 
     try:
         cursor.execute("""

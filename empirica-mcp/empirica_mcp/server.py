@@ -128,7 +128,7 @@ TOOL_REGISTRY: dict[str, dict] = {
     "finding_log": {
         "cli": "finding-log",
         "params": {"finding": "--finding", "impact": "--impact", "session_id": "--session-id",
-                   "goal_id": "--goal-id", "subtask_id": "--subtask-id", "project_id": "--project-id",
+                   "goal_id": "--goal-id", "task_id": "--task-id", "project_id": "--project-id",
                    "subject": "--subject", "scope": "--scope",
                    "entity_type": "--entity-type", "entity_id": "--entity-id", "via": "--via",
                    "source_ids": "--source",
@@ -140,7 +140,7 @@ TOOL_REGISTRY: dict[str, dict] = {
     "unknown_log": {
         "cli": "unknown-log",
         "params": {"unknown": "--unknown", "session_id": "--session-id",
-                   "goal_id": "--goal-id", "subtask_id": "--subtask-id", "project_id": "--project-id",
+                   "goal_id": "--goal-id", "task_id": "--task-id", "project_id": "--project-id",
                    "subject": "--subject", "scope": "--scope",
                    "entity_type": "--entity-type", "entity_id": "--entity-id", "via": "--via",
                    "visibility": "--visibility", "epistemic_source": "--epistemic-source"},
@@ -150,7 +150,7 @@ TOOL_REGISTRY: dict[str, dict] = {
     "deadend_log": {
         "cli": "deadend-log",
         "params": {"approach": "--approach", "why_failed": "--why-failed", "session_id": "--session-id",
-                   "goal_id": "--goal-id", "subtask_id": "--subtask-id", "project_id": "--project-id",
+                   "goal_id": "--goal-id", "task_id": "--task-id", "project_id": "--project-id",
                    "subject": "--subject", "scope": "--scope",
                    "entity_type": "--entity-type", "entity_id": "--entity-id", "via": "--via",
                    "visibility": "--visibility", "epistemic_source": "--epistemic-source"},
@@ -561,7 +561,7 @@ _ENUM_PARAMS = {
     "source_type": ["doc", "spec", "paper", "blog", "video", "code", "api", "other"],
     "status": ["in_progress", "completed", "stale", "abandoned", "new", "resolved", "unread", "read", "all"],
     "severity": ["low", "medium", "high", "critical"],
-    "type": ["auto", "file", "directory", "concept", "comprehensive", "goal", "subtask"],
+    "type": ["auto", "file", "directory", "concept", "comprehensive", "goal", "task"],
     "detail_level": ["summary", "detailed", "full"],
     "phase": ["PREFLIGHT", "CHECK", "ACT", "POSTFLIGHT"],
     "priority": ["low", "normal", "high", "urgent"],

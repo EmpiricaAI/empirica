@@ -33,7 +33,7 @@ metrics = FlowStateMetrics(db=session_database)
 | `cascade_completeness` | 0.25 | PREFLIGHT→POSTFLIGHT completion |
 | `learning_velocity` | 0.20 | Know increase per hour |
 | `bootstrap_usage` | 0.15 | Early context loading |
-| `goal_structure` | 0.15 | Active goals with subtasks |
+| `goal_structure` | 0.15 | Active goals with tasks |
 | `check_usage` | 0.15 | Mid-session confidence checks |
 | `session_continuity` | 0.10 | AI naming convention consistency |
 

@@ -671,7 +671,7 @@ Goals organize work with **epistemic context** and enable **cross-AI coordinatio
       "Propose fixes"
     ],
     "estimated_complexity": 0.65,
-    "subtasks": [
+    "tasks": [
       {
         "task_id": "uuid-1",
         "description": "Review authentication code",
@@ -733,14 +733,14 @@ empirica goals-resume abc123 --ai-id minimax-agent
 Goal created by: claude-code (10:00)
 Goal resumed by: minimax-agent (11:30)
   → Epistemic handoff: KNOW 0.6→0.7, UNCERTAINTY 0.4→0.3
-  → Subtask completed: "Analyze session management"
+  → Task completed: "Analyze session management"
 Goal completed: minimax-agent (12:00)
 ```
 
 ### Benefits
 - **Distributed collaboration:** Goals in git notes (pull to sync)
 - **Epistemic context:** AI-2 knows what AI-1 understood
-- **Progress tracking:** Subtasks completed by either AI
+- **Progress tracking:** Tasks completed by either AI
 - **Provenance:** Full lineage of who did what
 
 ---## Handoff Report System
@@ -876,7 +876,7 @@ Every goal/handoff tracks:
 - **Who created:** Original AI
 - **Who resumed:** Subsequent AIs (with timestamps)
 - **Epistemic shifts:** How understanding changed
-- **Work completed:** Subtasks by each AI
+- **Work completed:** Tasks by each AI
 
 ### Synchronization
 ```bash

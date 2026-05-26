@@ -106,7 +106,7 @@ for the full project model.
 
 ---
 
-## Goals & Subtasks
+## Goals & Tasks
 
 ```bash
 # Create a goal (defaults to in_progress)
@@ -116,10 +116,10 @@ empirica goals-create --objective "Implement JWT auth" \
 # Plan a goal without starting work
 empirica goals-create --objective "Migrate to Redis sessions" --status planned
 
-# Decompose into subtasks
-empirica goals-add-subtask --goal-id <GOAL_ID> --description "Map current auth surface"
-empirica goals-add-subtask --goal-id <GOAL_ID> --description "Implement RS256"
-empirica goals-add-subtask --goal-id <GOAL_ID> --description "Write integration tests"
+# Decompose into tasks
+empirica goals-add-task --goal-id <GOAL_ID> --description "Map current auth surface"
+empirica goals-add-task --goal-id <GOAL_ID> --description "Implement RS256"
+empirica goals-add-task --goal-id <GOAL_ID> --description "Write integration tests"
 
 # List + progress
 empirica goals-list
@@ -127,7 +127,7 @@ empirica goals-list --status planned
 empirica goals-progress --goal-id <GOAL_ID>
 
 # Complete with evidence
-empirica goals-complete-subtask --subtask-id <ID> --evidence "commit abc123"
+empirica goals-complete-task --task-id <ID> --evidence "commit abc123"
 empirica goals-complete --goal-id <GOAL_ID> --reason "Shipped + tested"
 
 # Find ready work (BEADS unblocked + epistemically fit)
@@ -261,8 +261,8 @@ empirica goals-create --objective "Refactor auth" --status planned
 # Session N
 empirica goals-activate --goal-id <ID>
 empirica preflight-submit -
-# ... work on subtasks ...
-empirica goals-complete-subtask --subtask-id <ID> --evidence "commit ..."
+# ... work on tasks ...
+empirica goals-complete-task --task-id <ID> --evidence "commit ..."
 empirica postflight-submit -
 ```
 

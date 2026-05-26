@@ -271,7 +271,7 @@ The result: Claude Code's native capabilities, enhanced with measurement, gating
 - **`cortex-mailbox-send` skill** (`4c09b6174`) — paired to `cortex-mailbox-poll`. Documents
 - **Mesh-active skill-load precondition** (`c0fcc071c`) — when a listener Monitor is armed
 - **`WHEN TO LOAD SKILLS` section** in both templates (`c0fcc071c`) — behavioral load
-- **Goals/subtasks worked example** in `TRANSACTION DISCIPLINE` (`c0fcc071c`) —
+- **Goals/tasks worked example** in `TRANSACTION DISCIPLINE` (`c0fcc071c`) —
 - **Race-tolerant `create_github_release`** in `scripts/release.py` (`57870621c`). When the
 - **Verbose `update_homebrew_tap` diagnostics** (`57870621c`). Per-candidate path logging
 - **Lint cleanup**: `S110` noqa-with-reason on the `ai_id` fallback in

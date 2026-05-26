@@ -65,7 +65,7 @@ Walks edges from each artifact's note JSON to depth N, rendering the
 1. `<type>_data.edges[]` — graph-format outgoing edges from
    `log-artifacts` (entries are `{to, relation}`).
 2. `goal_id` — implicit pointer to the parent goal.
-3. `subtask_id` — implicit pointer to the parent subtask.
+3. `task_id` — implicit pointer to the parent task.
 4. `<type>_data.parent_id` (+ `parent_type`) — sub-artifact hierarchy.
 
 Cycle detection via a `visited` set. Unresolved targets render as stubs

@@ -311,7 +311,7 @@ daemon's active project.
 Type-specific fields layer on top: `confidence`/`status`/`resolution_finding_id`
 on assumptions; `choice`/`rationale`/`alternatives`/`reversibility`/`outcome`/`regret_score`
 on decisions; `approach`/`why_failed` on dead_ends; `why_wrong`/`prevention` on
-mistakes; `objective`/`subtasks[]`/`is_completed` on goals; `url`/`source_type`/`description`
+mistakes; `objective`/`tasks[]`/`is_completed` on goals; `url`/`source_type`/`description`
 on sources.
 
 **503 contract:** Every per-type endpoint returns 503 with a hint when the daemon

@@ -261,7 +261,7 @@ task_repo.create_dependency(
 
 ### `decompose_goal(self, goal_id: str, decomposition_strategy: str = 'horizontal') -> List[str]`
 
-Decompose a goal into subtasks using a specific strategy.
+Decompose a goal into tasks using a specific strategy.
 
 **Parameters:**
 - `goal_id: str` - Goal identifier to decompose
@@ -271,21 +271,21 @@ Decompose a goal into subtasks using a specific strategy.
 
 **Example:**
 ```python
-subtask_ids = goal_repo.decompose_goal(
+task_ids = goal_repo.decompose_goal(
     goal_id="xyz-789",
     decomposition_strategy="functional"
 )
-print(f"Created {len(subtask_ids)} subtasks for goal")
+print(f"Created {len(task_ids)} tasks for goal")
 ```
 
 ### `get_goal_tree(self, goal_id: str) -> Dict`
 
-Get complete goal tree with all subtasks and dependencies.
+Get complete goal tree with all tasks and dependencies.
 
 **Parameters:**
 - `goal_id: str` - Goal identifier
 
-**Returns:** `Dict` - Tree structure with goal and all subtasks
+**Returns:** `Dict` - Tree structure with goal and all tasks
 
 **Example:**
 ```python

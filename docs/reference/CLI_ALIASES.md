@@ -35,8 +35,8 @@ Aliases reduce typing for frequently used commands. They're especially useful fo
 | `goals-list` | `gl`, `goal-list` | List goals |
 | `goals-complete` | `goal-complete` | Mark goal complete |
 | `goals-progress` | `goal-progress` | Check goal progress |
-| `goals-add-subtask` | `goal-add-subtask` | Add subtask to goal |
-| `goals-complete-subtask` | `goal-complete-subtask` | Complete a subtask |
+| `goals-add-task` | `goal-add-task` | Add task to goal |
+| `goals-complete-task` | `goal-complete-task` | Complete a task |
 
 ### Logging (Breadcrumbs)
 | Command | Aliases | Description |

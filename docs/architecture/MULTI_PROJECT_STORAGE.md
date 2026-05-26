@@ -25,7 +25,7 @@ Empirica uses a **project-local primary** architecture:
                               │  │   • projects table              │   │
                               │  │   • sessions table              │   │
                               │  │   • reflexes (vectors)          │   │
-                              │  │   • goals, subtasks             │   │
+                              │  │   • goals, tasks             │   │
                               │  │   • project_findings            │   │
                               │  │   • project_unknowns            │   │
                               │  │   • project_dead_ends           │   │
@@ -105,7 +105,7 @@ Empirica uses a **project-local primary** architecture:
                               │  • handoffs       │         goals       │
                               │  • sources        │            │        │
                               │                   │            ▼        │
-                              │                   │        subtasks     │
+                              │                   │        tasks     │
                               │                   │                     │
                               └─────────────────────────────────────────┘
 ```

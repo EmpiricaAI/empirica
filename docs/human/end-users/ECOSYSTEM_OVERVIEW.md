@@ -28,7 +28,7 @@ how your understanding has changed over time.
 
 Every project gets its own database. It tracks:
 - **Sessions** + **transactions** — your work history
-- **Goals** + **subtasks** — structural progress
+- **Goals** + **tasks** — structural progress
 - **Findings, unknowns, dead-ends, decisions, assumptions, mistakes** — epistemic artifacts (all carry `transaction_id`)
 - **Calibration breadcrumbs** — per-AI bias patterns
 
@@ -100,7 +100,7 @@ extensions layer different surfaces on top.
 ┌────────────────────────────────────────────────────────────────┐
 │  PER-PROJECT  ( <repo>/.empirica/ )                            │
 ├────────────────────────────────────────────────────────────────┤
-│  sessions.db  ────  Goals, subtasks                            │
+│  sessions.db  ────  Goals, tasks                            │
 │                     Findings, unknowns, dead-ends              │
 │                     Decisions, assumptions, mistakes           │
 │                     Sessions, transactions, breadcrumbs        │

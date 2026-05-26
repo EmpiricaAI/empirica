@@ -451,7 +451,7 @@ that doesn't opt in.
 | `files_inspected` / `files_relevant` | Files the agent read vs files matching task scope |
 | `artifacts_inspected` / `artifacts_relevant` | Knowledge artifacts referenced vs surfaced in PREFLIGHT recall |
 | `citations_made` / `citations_available` | Ground-truth sources cited vs sources available in domain corpus |
-| `subagents_dispatched` / `subagents_relevant` | Delegated investigations vs decomposable subtasks |
+| `subagents_dispatched` / `subagents_relevant` | Delegated investigations vs decomposable tasks |
 | `tools_invoked` / `tools_available` | Tools the agent invoked vs tools available for task type |
 | `scalar` | Optional aggregate coverage 0.0–1.0 (typically derived) |
 | `notes` | Free-form prose; what the AI wants the human to know |

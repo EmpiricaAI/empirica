@@ -133,14 +133,14 @@ policy.telemetry
 
 **Module:** `empirica.data.repositories.goals`
 
-Thin ORM layer for goal and subtask CRUD. Business logic lives in `GoalRepository` (`empirica.core.goals.repository`).
+Thin ORM layer for goal and task CRUD. Business logic lives in `GoalRepository` (`empirica.core.goals.repository`).
 
 | Method | Description |
 |--------|-------------|
 | `create_goal(session_id, objective, ...)` | Create a new goal |
 | `update_goal(goal_id, ...)` | Update goal fields |
 | `get_goals(session_id)` | List goals for session |
-| `create_subtask(goal_id, ...)` | Add subtask to goal |
+| `create_task(goal_id, ...)` | Add task to goal |
 
 ### CommandRepository
 

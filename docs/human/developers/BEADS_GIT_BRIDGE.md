@@ -115,7 +115,7 @@ empirica goals-claim --goal-id <GOAL_ID> --run-preflight
 
 # 3. Work on the branch (already checked out)
 # ... edit, commit ...
-empirica goals-complete-subtask --subtask-id <ID> --evidence "commit abc123"
+empirica goals-complete-task --task-id <ID> --evidence "commit abc123"
 
 # 4. Complete
 empirica goals-complete --goal-id <GOAL_ID> --reason "Shipped + tested" \

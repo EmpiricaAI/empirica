@@ -1787,7 +1787,7 @@ class DocsExplainAgent:
     TOPIC_ALIASES: ClassVar[dict[str, list[str]]] = {
         "vectors": ["epistemic", "vectors", "know", "uncertainty", "engagement", "preflight", "postflight"],
         "session": ["session", "create", "start", "cascade", "workflow"],
-        "goals": ["goals", "objectives", "subtasks", "tracking", "progress"],
+        "goals": ["goals", "objectives", "tasks", "subtasks", "tracking", "progress"],
         "check": ["check", "gate", "sentinel", "proceed", "investigate"],
         "findings": ["findings", "unknowns", "dead ends", "breadcrumbs", "learning"],
         "lessons": ["lessons", "procedural", "atomics", "replay", "knowledge graph"],

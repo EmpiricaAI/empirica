@@ -23,7 +23,7 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.9.11
-**Generated:** 2026-05-25 19:22:23 UTC
+**Generated:** 2026-05-26 08:37:49 UTC
 **Total commands:** 231 (across 26 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -319,7 +319,7 @@ Close the epistemic transaction. Records final vectors + a reasoning narrative d
 
 #### `empirica goals-create`  _(aliases: `goal-create`, `gc`)_
 
-Create a new goal — the unit of tracked work. One per coherent deliverable: a feature, a fix, a doc sweep. Set --status planned when scoped-but-not-started (collaborative planning); in_progress when actively working. For multi-step work, follow with goals-add-subtask per distinct unit. AI-first: pass JSON via stdin/file; legacy: --objective + flags.
+Create a new goal — the unit of tracked work. One per coherent deliverable: a feature, a fix, a doc sweep. Set --status planned when scoped-but-not-started (collaborative planning); in_progress when actively working. For multi-step work, follow with goals-add-task per distinct unit. AI-first: pass JSON via stdin/file; legacy: --objective + flags.
 
 **Arguments:**
 
@@ -401,7 +401,7 @@ List goals in the current project. Default: active (in_progress). Use --status {
 
 #### `empirica goals-search`
 
-Semantic search across goals + subtasks (Qdrant embeddings). Finds matches by meaning, not just keyword — "authentication system" surfaces "user login flow", "JWT validation". Pass a positional query string. Use to find prior work on a topic before duplicating effort, or to resurface relevant goals across sessions. For status-only listing, use goals-list.
+Semantic search across goals + tasks (Qdrant embeddings). Finds matches by meaning, not just keyword — "authentication system" surfaces "user login flow", "JWT validation". Pass a positional query string. Use to find prior work on a topic before duplicating effort, or to resurface relevant goals across sessions. For status-only listing, use goals-list.
 
 **Arguments:**
 
@@ -409,7 +409,7 @@ Semantic search across goals + subtasks (Qdrant embeddings). Finds matches by me
   Search query (e.g., "authentication system")
 - `--project-id` — optional
   Project ID (auto-detects if not provided)
-- `--type` — optional · type=`choice` · choices={goal, subtask}
+- `--type` — optional · type=`choice` · choices={goal, task}
   Filter by type (default: both)
 - `--status` — optional · type=`choice` · choices={in_progress, complete, pending, completed}
   Filter by status
@@ -466,16 +466,16 @@ Start working on a goal: create a git branch named after it, link to the BEADS i
 - `--verbose` — optional · flag
   Show detailed operation info
 
-#### `empirica goals-add-subtask`  _(aliases: `goal-add-subtask`)_
+#### `empirica goals-add-task`  _(aliases: `goal-add-task`)_
 
-Decompose a goal into trackable units. One subtask per distinct piece of work you'll execute (read this, edit that, write these tests). Decompose at PREFLIGHT, not retroactively — subtasks added after the work is done are self-graded checkboxes, not tracked units. Close each with goals-complete-subtask + --evidence as you finish.
+Decompose a goal into trackable units. One task per distinct piece of work you'll execute (read this, edit that, write these tests). Decompose at PREFLIGHT, not retroactively — tasks added after the work is done are self-graded checkboxes, not tracked units. Close each with goals-complete-task + --evidence as you finish.
 
 **Arguments:**
 
 - `--goal-id` — **required**
   Goal UUID
 - `--description` — **required**
-  Subtask description
+  Task description
 - `--importance` — optional · type=`choice` · choices={critical, high, medium, low} · default=`medium`
   Epistemic importance
 - `--dependencies` — optional
@@ -483,7 +483,7 @@ Decompose a goal into trackable units. One subtask per distinct piece of work yo
 - `--estimated-tokens` — optional · type=`int`
   Estimated token usage
 - `--use-beads` — optional · flag
-  Create BEADS subtask and link to goal
+  Create BEADS task and link to goal
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
 
@@ -504,24 +504,22 @@ Add dependency between goals (Goal A depends on Goal B)
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
 
-#### `empirica goals-complete-subtask`  _(aliases: `goal-complete-subtask`)_
+#### `empirica goals-complete-task`  _(aliases: `goal-complete-task`)_
 
-Close a subtask with evidence of completion. Always pass --evidence: commit SHA, test result, file path, link — whatever proves the work landed. Empty completions inflate the goal-completion vector without grounding it. Close as-you-go, not batched at the end.
+Close a task with evidence of completion. Always pass --evidence: commit SHA, test result, file path, link — whatever proves the work landed. Empty completions inflate the goal-completion vector without grounding it. Close as-you-go, not batched at the end.
 
 **Arguments:**
 
-- `--subtask-id` — optional
-  Subtask UUID (preferred)
-- `--task-id` — optional
-  Subtask UUID (deprecated, use --subtask-id)
+- `--task-id` — **required**
+  Task UUID (full or unambiguous prefix)
 - `--evidence` — optional
   Completion evidence (commit hash, file path, etc.)
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
 
-#### `empirica goals-get-subtasks`
+#### `empirica goals-get-tasks`
 
-Dump the full subtask list for a goal (id, description, status, evidence, importance). Useful for picking the next subtask to work on, or for grepping subtask ids when completing several at once.
+Dump the full task list for a goal (id, description, status, evidence, importance). Useful for picking the next task to work on, or for grepping task ids when completing several at once.
 
 **Arguments:**
 
@@ -532,7 +530,7 @@ Dump the full subtask list for a goal (id, description, status, evidence, import
 
 #### `empirica goals-progress`  _(aliases: `goal-progress`)_
 
-Show subtask-level progress for a single goal: how many subtasks total, how many completed, with their evidence. Useful before deciding whether to close the goal (goals-complete) or whether more subtasks are needed.
+Show task-level progress for a single goal: how many tasks total, how many completed, with their evidence. Useful before deciding whether to close the goal (goals-complete) or whether more tasks are needed.
 
 **Arguments:**
 
@@ -560,7 +558,7 @@ Surface goals created by OTHER AIs in this project (via git notes sync). Use for
 
 #### `empirica goals-ready`
 
-Find work that's ready to start — open goals/subtasks with their dependencies satisfied AND your current epistemic state meets the confidence/uncertainty thresholds. Wraps BEADS priority filtering with empirica's vector gates. Use when asking "what can I tackle next?" rather than scrolling goals-list manually.
+Find work that's ready to start — open goals/tasks with their dependencies satisfied AND your current epistemic state meets the confidence/uncertainty thresholds. Wraps BEADS priority filtering with empirica's vector gates. Use when asking "what can I tackle next?" rather than scrolling goals-list manually.
 
 **Arguments:**
 
@@ -579,7 +577,7 @@ Find work that's ready to start — open goals/subtasks with their dependencies 
 
 #### `empirica goals-resume`
 
-Take over a goal another AI started. Reassigns the goal's ai_id to you, imports its subtasks + history into your session's context. Use after goals-discover surfaces work a peer left mid-flight, or during planned handoff.
+Take over a goal another AI started. Reassigns the goal's ai_id to you, imports its tasks + history into your session's context. Use after goals-discover surfaces work a peer left mid-flight, or during planned handoff.
 
 **Arguments:**
 
@@ -651,8 +649,8 @@ Log a discovery — something concrete you NOW know that wasn't obvious before. 
   Optional rich markdown body — rendered in the extension and skill surfaces. Use sections, lists, code blocks, tables, links for nuance that doesn't fit the short --finding title.
 - `--goal-id` — optional
   Optional goal UUID
-- `--subtask-id` — optional
-  Optional subtask UUID
+- `--task-id` — optional
+  Optional task UUID
 - `--subject` — optional
   Subject/workstream identifier (auto-detected from directory if omitted)
 - `--impact` — optional · type=`float`
@@ -698,8 +696,8 @@ Log an open question — something you'd need to know before acting confidently,
   Optional rich markdown body — context behind the question, what you tried, what would resolve it. Rendered in extension and skill surfaces.
 - `--goal-id` — optional
   Optional goal UUID
-- `--subtask-id` — optional
-  Optional subtask UUID
+- `--task-id` — optional
+  Optional task UUID
 - `--subject` — optional
   Subject/workstream identifier (auto-detected from directory if omitted)
 - `--impact` — optional · type=`float`
@@ -787,8 +785,8 @@ Log an approach that didn't work. Use when you tried something and the result ru
   Optional rich markdown body — full account: what you expected, what happened, signals you noticed, what alternative might work. Rendered in extension and skill surfaces.
 - `--goal-id` — optional
   Optional goal UUID
-- `--subtask-id` — optional
-  Optional subtask UUID
+- `--task-id` — optional
+  Optional task UUID
 - `--subject` — optional
   Subject/workstream identifier (auto-detected from directory if omitted)
 - `--impact` — optional · type=`float`
@@ -1047,7 +1045,7 @@ Soft-delete a source. Use when the source is no longer valid (file deleted, URL 
 
 #### `empirica act-log`
 
-Log a batch of praxic actions (file edits, commands run, commits made) with their artifacts. Use to record a coherent unit of execution work in one call rather than several. For tracking individual artifact creations, prefer per-type *-log commands; for tracking task completion, prefer goals-complete-subtask with --evidence.
+Log a batch of praxic actions (file edits, commands run, commits made) with their artifacts. Use to record a coherent unit of execution work in one call rather than several. For tracking individual artifact creations, prefer per-type *-log commands; for tracking task completion, prefer goals-complete-task with --evidence.
 
 **Arguments:**
 

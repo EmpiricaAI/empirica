@@ -320,7 +320,7 @@ they do not score. The AI gives the score.
 | pytest results | OBJECTIVE | know, do, clarity |
 | Git metrics | OBJECTIVE | do, change, state |
 | Code quality (ruff, radon, pyright) | OBJECTIVE | clarity, coherence, density, signal, know, do |
-| Goal/subtask completion | SEMI_OBJECTIVE | completion, do, know |
+| Goal/task completion | SEMI_OBJECTIVE | completion, do, know |
 | Artifact ratios | SEMI_OBJECTIVE | know, uncertainty, signal |
 | Issue resolution | SEMI_OBJECTIVE | impact, signal |
 | Sentinel decisions | SEMI_OBJECTIVE | context, uncertainty |
@@ -394,7 +394,7 @@ db.record_checkpoint(
    ↓
 3. Work phase (noetic investigation, praxic action)
    - Log findings, unknowns, dead-ends
-   - Complete subtasks, goals
+   - Complete tasks, goals
    ↓
 4. CHECK → Gate decision (proceed/investigate)
    ↓

@@ -74,14 +74,14 @@ empirica deadend-log --approach "Tried passport.js" --why-failed "Too heavy"
 ### 3. Goal tracking (structural progress)
 
 Goals are tracked units of AI work, optionally decomposed into
-subtasks. Each subtask gets evidence (commit SHA, test result, file
+tasks. Each task gets evidence (commit SHA, test result, file
 path) when complete. Goal-per-transaction discipline is what makes
 grounded calibration possible.
 
 ```bash
 empirica goals-create --objective "Implement OAuth2 client with PKCE"
-empirica goals-add-subtask --goal-id <ID> --description "Map current auth"
-empirica goals-complete-subtask --subtask-id <ID> --evidence "commit abc123"
+empirica goals-add-task --goal-id <ID> --description "Map current auth"
+empirica goals-complete-task --task-id <ID> --evidence "commit abc123"
 ```
 
 ---

@@ -96,7 +96,7 @@ PREFLIGHT → [noetic/praxic as needed] → CHECK → [noetic/praxic as needed] 
 | Anti-patterns with explanations | Self-improvement protocol |
 | Calibration patterns and examples | What gets injected dynamically |
 | Workflow patterns (Quick Task, Investigation, Complex) | |
-| Goals and subtask management | |
+| Goals and task management | |
 | Epistemic subagent spawning | |
 | Handoff types (Investigation, Complete, Planning) | |
 | Semantic search triggers | |
@@ -118,7 +118,7 @@ PREFLIGHT → [noetic/praxic as needed] → CHECK → [noetic/praxic as needed] 
 
 | Belongs Here | Does NOT Belong Here |
 |--------------|---------------------|
-| Active goals and subtasks | How to use Empirica |
+| Active goals and tasks | How to use Empirica |
 | Recent findings (high-impact learnings) | Bias corrections |
 | Open unknowns (unresolved questions) | Workflow patterns |
 | Dead ends (approaches that failed) | Command reference |

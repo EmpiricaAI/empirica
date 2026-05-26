@@ -137,7 +137,7 @@ empirica project-search --task "auth flow" --global
 |---|---|
 | Sessions, transactions | Project registry + paths |
 | Findings, unknowns, dead-ends | Aggregated stats |
-| Goals, subtasks | Cross-project patterns |
+| Goals, tasks | Cross-project patterns |
 | Per-AI calibration | Project trajectories |
 
 The workspace layer is what makes "what have I learned about auth

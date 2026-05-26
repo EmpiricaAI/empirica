@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — `subtask` → `task` rename (BREAKING)
+
+CLI verbs and flags renamed to align with Claude Code's `Task` primitive
+and other AI agent vocabularies. Clean break — no deprecated aliases.
+
+- **CLI verbs:** `goals-add-subtask` → `goals-add-task`,
+  `goals-complete-subtask` → `goals-complete-task`,
+  `goals-get-subtasks` → `goals-get-tasks` (plus singular aliases:
+  `goal-add-task`, `goal-complete-task`)
+- **Flag:** `--subtask-id` → `--task-id` (canonical, required on
+  `goals-complete-task`). Also on `finding-log`, `unknown-log`,
+  `deadend-log` for linking artifacts to a task.
+- **`goals-search --type`:** choices `goal|subtask` → `goal|task`
+- **MCP tools:** `add_subtask` → `add_task`, `complete_subtask` →
+  `complete_task`. MCP server `TOOL_REGISTRY` updated.
+- **Sentinel allowlist** updated for the new verb names.
+- **Templates + skills + docs** swept: lean prompt, full CLAUDE.md,
+  epistemic-transaction skill, constitution skill, architecture docs,
+  end-user guides, reference docs, semantic index.
+
+Internal storage stays as-is: `SubTask` class, `subtasks` SQLite table,
+`TaskRepository._resolve_subtask_id`, `update_subtask_status`, and the
+`completed_subtasks`/`subtask_id` fields on `CompletionRecord` keep
+their names — clean CLI-vs-storage boundary.
+
+### Fixed — `goals-complete-subtask` silent-success on bad UUID
+
+`_resolve_subtask_id` in `empirica/core/tasks/repository.py`
+short-circuited any input containing `-` as a "full UUID" and returned
+it without DB validation. The downstream UPDATE silently affected 0
+rows and `update_subtask_status` returned True. CLI handler then
+printed `✅ Task marked as complete` regardless of repo result.
+
+Fix: resolver always queries DB (prefix match handles both partial +
+full UUID); handler gates the success print on the boolean and exits 1
+on failure. 8 unit tests pin the contract.
+
+### Security — pin `fastapi != 0.136.3` (MAL-2026-4750)
+
+fastapi 0.136.3 published 2026-05-23 with a hidden `fastar>=0.9.0`
+dependency injected into the `[standard]` extras group (dependency
+confusion / namespace abuse). pip-audit flagged it 2026-05-26.
+`pyproject.toml` now pins `fastapi>=0.115.0,!=0.136.3`. Drop the
+exclusion when 0.136.4+ ships or 0.136.3 is yanked.
+
 ## [1.9.11] — 2026-05-25
 
 ### Fixed — Listener wake delivery

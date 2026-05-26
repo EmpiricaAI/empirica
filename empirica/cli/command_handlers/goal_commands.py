@@ -511,7 +511,7 @@ def _goal_post_create_integrations(goal, session_id, objective, scope, success_c
                 "breadth": scope_breadth if scope_breadth >= 0.6 else None,
                 "duration": scope_duration if scope_duration >= 0.5 else None
             },
-            "suggested_timing": "after 1-2 subtasks or 30+ minutes",
+            "suggested_timing": "after 1-2 tasks or 30+ minutes",
             "command": f"empirica check --session-id {session_id}"
         }
 
@@ -753,10 +753,10 @@ def handle_goals_add_task_command(args):
                             # Create BEADS child issue (gets hierarchical ID like bd-a1b2.1)
                             beads_subtask_id = beads.create_issue(
                                 title=description,
-                                description=f"Empirica Subtask {subtask.id[:8]}\nParent Goal: {goal_id[:8]}",
+                                description=f"Empirica Task {subtask.id[:8]}\nParent Goal: {goal_id[:8]}",
                                 priority=priority,
                                 issue_type="task",
-                                labels=["empirica", "subtask"]
+                                labels=["empirica", "task"]
                             )
 
                             if beads_subtask_id:
@@ -774,13 +774,13 @@ def handle_goals_add_task_command(args):
                                     WHERE id = ?
                                 """, (beads_subtask_id, subtask.id))
                                 db.conn.commit()
-                                logger.info(f"Linked subtask {subtask.id[:8]} to BEADS issue {beads_subtask_id}")
+                                logger.info(f"Linked task {subtask.id[:8]} to BEADS issue {beads_subtask_id}")
                     else:
-                        logger.warning("Parent goal has no BEADS issue - cannot create linked subtask")
+                        logger.warning("Parent goal has no BEADS issue - cannot create linked task")
 
                     db.close()
                 except Exception as e:
-                    logger.warning(f"BEADS subtask integration failed: {e}")
+                    logger.warning(f"BEADS task integration failed: {e}")
                     # Continue without BEADS - it's optional
 
             # Qdrant embedding (safe degradation)
