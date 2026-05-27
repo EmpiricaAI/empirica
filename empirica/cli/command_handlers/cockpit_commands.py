@@ -1538,8 +1538,10 @@ def _resolve_canonical_ai_id(args) -> str | None:
 def handle_listener_on_command(args) -> int:
     """`empirica listener on` — arm the canonical mesh listener for ai_id.
 
-    Auto-resolves name (default `<ai_id>-inbox`), topic (canonical
-    `ntfy:orchestration-events?tags=<ai_id>`), and instance_id.
+    Auto-resolves name (default `<ai_id>-inbox`), topic (queried from
+    cortex `/v1/users/me/notification-channels` — falls back to legacy
+    `ntfy:orchestration-events?tags=<ai_id>` if cortex is unreachable
+    or the endpoint isn't shipped), and instance_id.
 
     Two arming modes, picked automatically by detecting whether the
     persistent OS service is running for `ai_id`:
@@ -1569,7 +1571,12 @@ def handle_listener_on_command(args) -> int:
         }, 'error: ai_id unresolved')
 
     name = getattr(args, 'name', None) or f'{ai_id}-inbox'
-    topic = getattr(args, 'topic', None) or f'ntfy:orchestration-events?tags={ai_id}'
+    topic = getattr(args, 'topic', None)
+    if not topic:
+        from empirica.core.cockpit.notification_channels import (
+            resolve_orchestration_events_topic,
+        )
+        topic = resolve_orchestration_events_topic(ai_id)
 
     # Detect persistent service. If present, pick the tail-Monitor mode;
     # otherwise the standalone-Monitor mode further down. Both paths share

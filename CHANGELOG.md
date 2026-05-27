@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.2] — 2026-05-27
+
+ECO_COLLAB_RESCOPE Phase 4 — `empirica listener on` now discovers the
+canonical per-org-prefixed ntfy topic from cortex instead of hardcoding
+the legacy bare `orchestration-events` name. Closes cortex
+`prop_oe7jz5...` (open since 2026-05-26, missed initially due to a
+Monitor recipient-gate bug — see "Fixed" below).
+
+### Added — Phase 4 ntfy topic discovery
+
+- **`empirica/core/cockpit/notification_channels.py`** — new module
+  modeled on the existing `auto_accept.py` pattern. Queries cortex
+  `/v1/users/me/notification-channels` with Bearer auth, caches the
+  response for 5 minutes, exposes `resolve_orchestration_events_topic(
+  ai_id)` which picks the channel with `kind="orchestration_events"`
+  (or substring match on topic name for older deploys) and appends
+  `?tags=<ai_id>` as the listener subscription suffix.
+- **`empirica listener on` default topic** now flows through the
+  resolver instead of the hardcoded string at `cockpit_commands.py:1572`.
+  Behavior is the same for users who already pass `--topic` explicitly;
+  the new default just works with no env-var override.
+- **Defensive fallback** — when cortex is unreachable, returns 404
+  (older deploys), auth fails, or returns no matching channel, the
+  resolver returns the legacy bare `ntfy:orchestration-events?tags=<id>`
+  shape. Dual-emit on the cortex side ensures continuity.
+- **13 unit tests** in `tests/test_cockpit_notification_channels.py`
+  cover the resolver, cache TTL, force-bypass, missing creds, request
+  failure, kind-vs-substring matching, defensive null handling.
+
+### Fixed — recipient gate in `/cortex-mailbox-poll` skill
+
+The Step-0 recipient gate told sessions to silently ignore events
+whose `instance_id` didn't match their own `ai_id`. When a Monitor
+runs in broadcast mode (description contains "all events" / "not
+filtered" / "corrected"), this rule silently dropped real proposals
+that targeted the AI but came through other AIs' loops.
+
+Rewrote Step 0 to make `target_claudes` (on the underlying proposal)
+the authoritative recipient list. `instance_id` is now a fast-path
+hint, not a gate. On `instance_id` mismatch, the skill now falls
+through to `cortex_get_proposal` to check `target_claudes` instead
+of silently ignoring. Added a catch-up safety net (run
+`cortex_inbox_poll` at session start / after compaction / on
+suspicion of Monitor drops).
+
+Root-cause incident: empirica missed 4 inbox proposals across 36+
+hours (1 from cortex about Phase 4, 3 from extension thread-replies)
+due to this exact pattern. Saved as `feedback_recipient_gate_target_claudes`
+in memory.
+
 ## [1.10.1] — 2026-05-26
 
 Documentation polish + clean-up pass following 1.10.0. No CLI surface

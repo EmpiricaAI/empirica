@@ -99,28 +99,54 @@ ECO-decided state. Hijacking the wake signal cannot widen your authority.
 shared `loop_fires.log` carries events for every AI on the mesh; the
 Monitor that bridges those fires into your session is supposed to
 `grep '"instance_id": "<your-ai-id>"'`, but a session armed before that
-filter existed (or one that was set up wide for debugging) will see the
-whole stream. Defense in depth: check before you act.
+filter existed — or one set up wide for debugging — will see the whole
+stream. Defense in depth: check before you act.
 
-Two-line check:
+**`target_claudes` is the authoritative recipient list, not
+`instance_id`.** `instance_id` identifies which AI's loop emitted the
+event into the shared log; `target_claudes` (on the underlying proposal)
+identifies who the proposal is FOR. These often agree but they are not
+the same field — confusing them is the most common way real messages get
+silently dropped.
 
-1. **`event["instance_id"]` must equal your own `ai_id`** (read from
-   `.empirica/project.yaml` `ai_id:` field — or
-   `basename.removeprefix('empirica-')`). If they differ, this event
-   belongs to another AI's inbox/outbox — silently ignore it, do not
-   fetch the proposal, do not log a goal.
-2. **If `direction == "inbox"`, also confirm the underlying proposal's
-   `target_claudes` contains your `ai_id`** when you fetch it (via
-   `cortex_get_proposal` or `cortex_inbox_poll`). This is belt + braces
-   — the listener filter is the first gate, the proposal target list
-   is the second.
+**Branching logic, in order:**
 
-If you see events with `instance_id` other than yours arriving
-repeatedly, your Monitor command is the wrong shape. The CLI emits
-the correctly-filtered command via `empirica listener on` — re-run
-`empirica setup-claude-code --force` (or arm a fresh Monitor using
-the command in `empirica listener on --output json`'s
-`next_step.args.command`).
+1. **Read your own `ai_id`** from `.empirica/project.yaml` `ai_id:`
+   field, or derive `basename.removeprefix('empirica-')`.
+
+2. **If `event["instance_id"] == your ai_id`** — fast path. The event
+   came through your own loop, so it's already targeted to you. Proceed
+   to the direction-specific handler below. No proposal fetch needed
+   just for the gate.
+
+3. **If `event["instance_id"] != your ai_id`** — DO NOT silently ignore.
+   Your Monitor is in broadcast mode (visible in its `description`:
+   phrases like "all events", "not filtered by instance_id", "corrected"
+   are tell-tales). Fall through to step 4 — `target_claudes` decides,
+   not `instance_id`.
+
+4. **Resolve `target_claudes` for this event.** Cheap path: if you've
+   recently polled your inbox you already know the proposal_id and can
+   look it up locally. Otherwise fetch with `cortex_get_proposal(
+   proposal_id=event["proposal_id"])`. Then:
+   - **`your ai_id IN target_claudes`** → proceed to the
+     direction-specific handler below. This is a real message for you
+     that came in via a broadcast or peer-emitted Monitor.
+   - **`your ai_id NOT IN target_claudes`** → silently ignore. The event
+     is observable noise from other AIs' loops, no action.
+
+5. **If you keep hitting step 4 repeatedly** (more than ~3 events per
+   session), your Monitor is set up wrong. Re-arm with the
+   correctly-filtered command via `empirica setup-claude-code --force`
+   or `empirica listener on --output json` (whose `next_step.args.command`
+   pins the `grep` filter for your `ai_id`). Fixing the Monitor at the
+   source is cheaper than per-event `cortex_get_proposal` calls.
+
+**Catch-up safety net:** at session start, after long pauses, or any
+time you suspect Monitor drops, run `cortex_inbox_poll(ai_id=<you>,
+status="accepted,changed")` directly. The Monitor is the *push* path
+for liveness; the inbox poll is the *pull* path for correctness. Both
+should agree; the poll wins on disagreement.
 
 **What to do — depends on `direction`:**
 
