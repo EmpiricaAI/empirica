@@ -22,7 +22,8 @@ class FindingsDeprecationEngine:
 
     # Deprecation constants
     TIME_DECAY_TAU_DAYS = 30   # e-folding time constant for exp decay (~21d half-life)
-    IMPACT_DECAY_K = 2.0       # high-impact facts resist decay: tau = TAU * (1 + K*impact)
+    LONGEVITY_DECAY_K = 2.0    # longevity modulator lengthens tau: tau = TAU * (1 + K*longevity)
+                               # (findings pass impact; lessons/eidetic pass confidence)
     COMPLETION_PENALTY = 0.3   # completed goals reduced by 30%
     DELTA_BOOST_FACTOR = 0.2   # execution state delta boost
 
@@ -35,7 +36,7 @@ class FindingsDeprecationEngine:
     }
 
     @staticmethod
-    def calculate_time_decay(created_timestamp, impact: float | None = None) -> float:
+    def calculate_time_decay(created_timestamp, longevity: float | None = None) -> float:
         """
         Exponential time-decay weight: exp(-age_days / tau).
 
@@ -43,19 +44,21 @@ class FindingsDeprecationEngine:
         90d -> 0.05). NOTE: this is the e-folding constant, not the half-life —
         the earlier docstring claiming "30d -> 0.5" was wrong.
 
-        Impact modulation (David-locked, decay thread prop_j7y7f4): when `impact`
-        is given, high-impact facts get a longer tau so structural knowledge does
-        not fade like tactical noise:
-            tau = 30 * (1 + 2*impact)   # impact 0->30d, 0.5->60d, 1.0->90d
-        e.g. an impact-0.9 fact: 30d->0.70, 90d->0.34, 180d->0.12.
+        Longevity modulation (David-locked, decay thread prop_j7y7f4): when
+        `longevity` is given, high-longevity artifacts get a longer tau so
+        durable knowledge does not fade like tactical noise:
+            tau = 30 * (1 + 2*longevity)   # 0->30d, 0.5->60d, 1.0->90d
+        The longevity modulator is impact for findings, and confidence for
+        lessons/eidetic facts (a well-established fact stays relevant longer).
+        e.g. a longevity-0.9 artifact: 30d->0.70, 90d->0.34, 180d->0.12.
 
-        When `impact` is None the curve is flat (current behaviour) — used by
+        When `longevity` is None the curve is flat (current behaviour) — used by
         calculate_relevance_score, which already weights impact separately and
         must NOT double-count it here.
 
         Args:
             created_timestamp: Unix timestamp (float or numeric string) of creation
-            impact: Optional 0.0-1.0 impact; lengthens tau when provided
+            longevity: Optional 0.0-1.0 modulator (impact|confidence); lengthens tau
 
         Returns:
             Float 0.0-1.0, where 1.0 = just created, ~0.0 = very old
@@ -73,8 +76,8 @@ class FindingsDeprecationEngine:
         age_days = (now - created_timestamp) / 86400
 
         tau = FindingsDeprecationEngine.TIME_DECAY_TAU_DAYS
-        if impact is not None:
-            tau *= 1 + FindingsDeprecationEngine.IMPACT_DECAY_K * max(0.0, min(1.0, impact))
+        if longevity is not None:
+            tau *= 1 + FindingsDeprecationEngine.LONGEVITY_DECAY_K * max(0.0, min(1.0, longevity))
 
         decay = math.exp(-age_days / tau)
         return max(0.0, min(1.0, decay))

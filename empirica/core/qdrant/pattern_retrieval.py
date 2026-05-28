@@ -250,10 +250,19 @@ def _enrich_memory_types(result, project_id, task_context, limits, include_eidet
     if include_eidetic:
         try:
             from .vector_store import search_eidetic
+            # Over-fetch + recency-rerank (confidence as longevity modulator,
+            # first_seen as the age) so stale eidetic facts sink.
+            eidetic_raw = search_eidetic(
+                project_id, task_context, min_confidence=0.5,
+                limit=limits["eidetic"] * _RECENCY_OVERFETCH)
+            eidetic_ranked = _apply_recency_rerank(
+                eidetic_raw, limits["eidetic"], modulator_key="confidence", ts_key="first_seen")
             result["eidetic_facts"] = [
                 {"content": e.get("content", ""), "confidence": e.get("confidence", 0.5),
-                 "domain": e.get("domain"), "confirmation_count": e.get("confirmation_count", 1), "score": e.get("score", 0.0)}
-                for e in search_eidetic(project_id, task_context, min_confidence=0.5, limit=limits["eidetic"])]
+                 "domain": e.get("domain"), "confirmation_count": e.get("confirmation_count", 1),
+                 "score": e.get("score", 0.0), "recency_weight": e.get("recency_weight", 1.0),
+                 "effective_score": e.get("effective_score", e.get("score", 0.0))}
+                for e in eidetic_ranked]
         except Exception as e:
             logger.debug(f"Eidetic retrieval failed: {e}")
             result["eidetic_facts"] = []
@@ -328,27 +337,33 @@ def _enrich_task_patterns(result, project_id, task_context, threshold, limits,
 
 
 # Over-fetch factor so recency re-ranking can actually drop a stale-but-similar
-# finding in favour of a fresher relevant one (not just reorder the top-N).
-_FINDINGS_RECENCY_OVERFETCH = 3
+# item in favour of a fresher relevant one (not just reorder the top-N).
+_RECENCY_OVERFETCH = 3
 
 
-def _apply_findings_recency(findings_raw: list[dict], limit: int) -> list[dict]:
-    """Re-rank findings by recency at READ time (decay P1/a): effective_score =
-    cosine score x time-decay weight, then take top `limit`.
+def _apply_recency_rerank(
+    items: list[dict], limit: int, *,
+    modulator_key: str = "impact", ts_key: str = "timestamp",
+) -> list[dict]:
+    """Re-rank artifacts by recency at READ time (decay P1): effective_score =
+    cosine score x time-decay weight, then take top `limit`. Over-fetch upstream
+    so a stale-but-similar item can be dropped for a fresher relevant one.
 
-    Reuses FindingsDeprecationEngine.calculate_time_decay (30-day half-life) —
-    the canonical findings time-decay, which until now was applied only in the
-    breadcrumbs retrieval path, NOT in this Qdrant PREFLIGHT retrieval. So a
-    finding about code removed months ago no longer ranks identically to one
-    written today. Ranking-only: NO stored confidence mutation.
+    Reuses FindingsDeprecationEngine.calculate_time_decay — the canonical decay
+    curve, which until now was applied only in the breadcrumbs path, NOT this
+    Qdrant PREFLIGHT retrieval. The longevity modulator (longer tau = resists
+    ageing) comes from `modulator_key`: impact for findings, confidence for
+    lessons/eidetic (a well-established fact stays relevant longer). Timestamp
+    from `ts_key`: findings/lessons store an ISO `timestamp`; eidetic stores
+    `first_seen`. Ranking-only: NO stored confidence mutation. Dead-ends are
+    deliberately NOT recency-ranked (never-decay decision).
 
-    The memory payload stores `timestamp` as an ISO string (finding-log writes
-    datetime.now().isoformat()), but calculate_time_decay only float()s strings,
-    so the ISO value must be normalised to a unix ts first or it silently scores
-    0.5 for everything. Missing/unparseable timestamp -> neutral weight 1.0
-    (never penalise on bad data).
+    calculate_time_decay only float()s strings, so an ISO value must be
+    normalised to unix first or it silently scores 0.5 for everything.
+    Missing/unparseable timestamp -> neutral weight 1.0 (never penalise on bad
+    data).
     """
-    if not findings_raw:
+    if not items:
         return []
     try:
         from datetime import datetime
@@ -368,21 +383,19 @@ def _apply_findings_recency(findings_raw: list[dict], limit: int) -> list[dict]:
                 except (ValueError, TypeError):
                     return None
 
-        for f in findings_raw:
-            unix_ts = _unix(f.get("timestamp"))
-            # Impact-modulated decay: high-impact facts resist ageing (tau scales
-            # with impact) so structural knowledge does not fade like tactical noise.
+        for it in items:
+            unix_ts = _unix(it.get(ts_key))
             recency = (
-                FindingsDeprecationEngine.calculate_time_decay(unix_ts, impact=f.get("impact"))
+                FindingsDeprecationEngine.calculate_time_decay(unix_ts, longevity=it.get(modulator_key))
                 if unix_ts else 1.0
             )
-            f["recency_weight"] = round(recency, 4)
-            f["effective_score"] = (f.get("score", 0.0) or 0.0) * recency
-        findings_raw.sort(key=lambda f: f.get("effective_score", 0.0), reverse=True)
-        return findings_raw[:limit]
+            it["recency_weight"] = round(recency, 4)
+            it["effective_score"] = (it.get("score", 0.0) or 0.0) * recency
+        items.sort(key=lambda it: it.get("effective_score", 0.0), reverse=True)
+        return items[:limit]
     except Exception as e:
-        logger.debug(f"_apply_findings_recency failed; falling back to score order: {e}")
-        return findings_raw[:limit]
+        logger.debug(f"_apply_recency_rerank failed; falling back to score order: {e}")
+        return items[:limit]
 
 
 def retrieve_task_patterns(
@@ -437,23 +450,28 @@ def retrieve_task_patterns(
     # Adaptive limits: scale retrieval depth by vector state
     limits = _compute_adaptive_limits(vectors, limit)
 
-    # Search for lessons (procedural knowledge)
+    # Search for lessons (procedural knowledge). Over-fetch, then recency-rerank
+    # with confidence as the longevity modulator so stale lessons sink.
     lessons_raw = _search_memory_by_type(
         project_id,
         f"How to: {task_context}",
         "lesson",
-        limits["lessons"],
+        limits["lessons"] * _RECENCY_OVERFETCH,
         threshold
     )
+    lessons_ranked = _apply_recency_rerank(
+        lessons_raw, limits["lessons"], modulator_key="confidence", ts_key="timestamp")
     lessons = [
         {
             "name": l.get("text", "").replace("LESSON: ", "").split(" - ")[0] if l.get("text") else "",
             "description": l.get("text", "").split(" - ")[1].split(" Domain:")[0] if " - " in l.get("text", "") else "",
             "domain": l.get("domain", ""),
             "confidence": l.get("confidence", 0.8),
-            "score": l.get("score", 0.0)
+            "score": l.get("score", 0.0),
+            "recency_weight": l.get("recency_weight", 1.0),
+            "effective_score": l.get("effective_score", l.get("score", 0.0)),
         }
-        for l in lessons_raw
+        for l in lessons_ranked
     ]
 
     # Search for dead ends (what NOT to try)
@@ -479,10 +497,11 @@ def retrieve_task_patterns(
         project_id,
         task_context,
         "finding",
-        limits["findings"] * _FINDINGS_RECENCY_OVERFETCH,
+        limits["findings"] * _RECENCY_OVERFETCH,
         threshold
     )
-    findings_ranked = _apply_findings_recency(findings_raw, limits["findings"])
+    findings_ranked = _apply_recency_rerank(
+        findings_raw, limits["findings"], modulator_key="impact", ts_key="timestamp")
     relevant_findings = [
         {
             "finding": f.get("text", ""),

@@ -154,6 +154,9 @@ def search_eidetic(
                 "confirmation_count": r.payload.get("confirmation_count"),
                 "source_sessions": r.payload.get("source_sessions", []),
                 "tags": r.payload.get("tags", []),
+                # creation time (unix or ISO) for read-time recency ranking
+                "first_seen": r.payload.get("first_seen"),
+                "last_confirmed": r.payload.get("last_confirmed"),
             }
             for r in results.points
         ]
