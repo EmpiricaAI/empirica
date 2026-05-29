@@ -291,54 +291,54 @@ def _emit_catchup_events(
     return len(events)
 
 
-# Ring-buffer-style cap on the shared fires log. The file is append-only
-# from many writers (one per ai_id's listener process) — letting it grow
-# unboundedly causes (a) disk bloat over weeks, (b) slow `tail -F` start
-# in fresh Monitor arms that don't pass `-n 0`. Rotation keeps the last
-# _FIRES_LOG_KEEP_LINES whenever the file passes _FIRES_LOG_MAX_LINES.
-# Hysteresis (gap between max and keep) amortizes the cost — rotation
-# only runs every ~500 events past the cap, not on every single append.
+# Size cap on the shared fires log. The file is append-only from many
+# writers (one per ai_id's listener process) — left unbounded it causes
+# disk bloat over weeks + slow `tail -F` start in fresh Monitor arms.
+#
+# Rotation is BY RENAME (current -> .1, then a fresh empty file at the
+# watched path), NEVER an in-place rewrite. The wake-delivery Monitors
+# `tail -F` this file; `tail -F` re-reads from offset 0 whenever the
+# watched path's inode changes or the file shrinks. The previous
+# rewrite-in-place (keep last N lines at the same path) therefore made
+# every rotation re-emit the retained window as DUPLICATE wake events —
+# a replay storm across every mesh listener's session (David, 2026-05-29).
+# Renaming hands tail a fresh empty inode, so only new appends emit; the
+# old lines live in `<log>.1` for cockpit/history readers. A fresh empty
+# file is self-hysteretic — it won't rotate again until it regrows past
+# the cap, so there's no thrash and no keep-N tuning to maintain.
 _FIRES_LOG_MAX_LINES = 2000
-_FIRES_LOG_KEEP_LINES = 1500
 
 
 def _rotate_fires_log_if_oversized(log_path: Path) -> None:
-    """Truncate to the last _FIRES_LOG_KEEP_LINES if file exceeds _FIRES_LOG_MAX_LINES.
+    """Rotate the fires log by RENAME when it exceeds _FIRES_LOG_MAX_LINES.
+
+    Moves the current log to `<log>.1` (overwriting any previous `.1`) and
+    leaves a fresh empty file at `log_path`. MUST NOT keep the retained
+    tail at the watched path — `tail -F` Monitors would re-read it and
+    re-fire every retained event as a duplicate wake (see module note).
 
     Best-effort — any failure is logged and ignored so the primary tee
-    path stays unaffected.
-
-    The whole file is read into memory; at 2000 lines × ~200 bytes/line
-    that's ~400KB, well within budget for a tool that runs once per
-    catch-up cycle. If event rates grow into the hundreds-of-thousands
-    territory, switch to a streaming tail or rotate by size+mtime.
+    path stays unaffected. The line count is computed by streaming (not
+    slurping the whole file) since rotation runs once per catch-up cycle.
     """
     try:
         if not log_path.exists():
             return
         with open(log_path, encoding="utf-8") as f:
-            lines = f.readlines()
-        if len(lines) <= _FIRES_LOG_MAX_LINES:
+            line_count = sum(1 for _ in f)
+        if line_count <= _FIRES_LOG_MAX_LINES:
             return
-        kept = lines[-_FIRES_LOG_KEEP_LINES:]
-        # Atomic-ish replace: write to a temp file in the same dir, fsync,
-        # rename. Avoids leaving a half-written log if the process dies
-        # mid-write.
         import os
-        import tempfile
-        log_dir = log_path.parent
-        with tempfile.NamedTemporaryFile(
-            mode="w", encoding="utf-8", dir=str(log_dir),
-            prefix=".loop_fires.", suffix=".tmp", delete=False,
-        ) as tmp:
-            tmp.writelines(kept)
-            tmp.flush()
-            os.fsync(tmp.fileno())
-            tmp_path = tmp.name
-        os.replace(tmp_path, log_path)
+        rotated = log_path.with_name(log_path.name + ".1")
+        # Atomic rename: current -> .1 (replaces any prior .1). If this
+        # raises, the live log is untouched (no partial state).
+        os.replace(log_path, rotated)
+        # Fresh empty file at the watched path so tail -F follows a clean
+        # inode and subsequent appends start from zero.
+        log_path.touch()
         logger.debug(
-            f"loop_fires.log rotated: dropped {len(lines) - len(kept)} old "
-            f"lines, kept last {len(kept)}"
+            f"loop_fires.log rotated by rename: moved {line_count} lines to "
+            f"{rotated.name}, fresh empty log started"
         )
     except OSError as e:
         logger.debug(f"loop_fires.log rotation failed (non-fatal): {e}")
