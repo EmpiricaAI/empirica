@@ -276,3 +276,77 @@ class TestCortexResolveProjectId:
             mock_db_cls.side_effect = OSError("DB locked")
             result = _cortex_resolve_project_id('session-004')
             assert result == ""
+
+
+# ─── _cortex_extract_transaction_graph (full-set graph sync) ────────────────
+# David-directed full-set /v1/sync: the sender builds a {nodes,edges} graph
+# covering the whole artifact set + edges, mirroring the log-artifacts node
+# schema so Cortex's process_artifact_graph ingests it directly.
+
+
+class TestCortexExtractTransactionGraph:
+    def _build_db_with_tx(self, tmp_path):
+        from empirica.data.session_database import SessionDatabase
+        db = SessionDatabase(db_path=str(tmp_path / "graph.db"))
+        return db
+
+    def _patch_tx(self, monkeypatch, db, tx_id):
+        from empirica.cli.command_handlers import _workflow_postflight as wp
+        monkeypatch.setattr(wp.R, "transaction_read",
+                            lambda *a, **k: {"transaction_id": tx_id})
+        monkeypatch.setattr(wp, "_get_db_for_session", lambda _sid: db)
+        return wp
+
+    def test_graph_covers_full_set_with_goal_and_artifact_edges(self, tmp_path, monkeypatch):
+        db = self._build_db_with_tx(tmp_path)
+        PID, SID, TX, GID = "proj", "sess", "tx-graph-1", "goal-xyz"
+        fid = db.log_finding(PID, SID, "a real finding", impact=0.8,
+                             goal_id=GID, transaction_id=TX)
+        did = db.log_decision(PID, SID, choice="chose X", rationale="grounded",
+                              goal_id=GID, transaction_id=TX)
+        # an inter-artifact edge
+        from empirica.cli.command_handlers.graph_commands import _store_edge
+        _store_edge(db, fid, did, "supports")
+
+        wp = self._patch_tx(monkeypatch, db, TX)
+        graph = wp._cortex_extract_transaction_graph(SID)
+
+        # full set: both node types present, keyed by their real UUIDs
+        types = {n["type"] for n in graph["nodes"]}
+        assert {"finding", "decision"} <= types
+        refs = {n["ref"] for n in graph["nodes"]}
+        assert fid in refs and did in refs
+
+        # node data matches the log-artifacts per-type field convention
+        fnode = next(n for n in graph["nodes"] if n["ref"] == fid)
+        assert fnode["data"]["finding"] == "a real finding"
+        assert fnode["data"]["impact"] == 0.8
+        dnode = next(n for n in graph["nodes"] if n["ref"] == did)
+        assert dnode["data"]["choice"] == "chose X"
+        assert dnode["data"]["rationale"] == "grounded"
+
+        # per-artifact goal edges + the canonical artifact_edges edge
+        goal_edges = [e for e in graph["edges"] if e["relation"] == "addresses_goal"]
+        assert {e["from"] for e in goal_edges} == {fid, did}
+        assert all(e["to"] == GID for e in goal_edges)
+        assert any(e["relation"] == "supports" and e["from"] == fid and e["to"] == did
+                   for e in graph["edges"])
+
+    def test_graph_empty_when_no_artifacts_in_transaction(self, tmp_path, monkeypatch):
+        db = self._build_db_with_tx(tmp_path)
+        wp = self._patch_tx(monkeypatch, db, "tx-with-nothing")
+        assert wp._cortex_extract_transaction_graph("sess") == {}
+
+    def test_graph_empty_when_no_open_transaction(self, tmp_path, monkeypatch):
+        from empirica.cli.command_handlers import _workflow_postflight as wp
+        monkeypatch.setattr(wp.R, "transaction_read", lambda *a, **k: None)
+        assert wp._cortex_extract_transaction_graph("sess") == {}
+
+    def test_goal_edge_omitted_when_artifact_has_no_goal(self, tmp_path, monkeypatch):
+        db = self._build_db_with_tx(tmp_path)
+        PID, SID, TX = "proj", "sess", "tx-nogoal"
+        db.log_finding(PID, SID, "goalless finding", impact=0.5, transaction_id=TX)
+        wp = self._patch_tx(monkeypatch, db, TX)
+        graph = wp._cortex_extract_transaction_graph(SID)
+        assert len(graph["nodes"]) == 1
+        assert [e for e in graph["edges"] if e["relation"] == "addresses_goal"] == []

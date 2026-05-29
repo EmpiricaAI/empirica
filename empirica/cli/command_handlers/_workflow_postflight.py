@@ -1078,6 +1078,145 @@ def _cortex_extract_transaction_delta(session_id):
         pass
     return _tx_delta
 
+
+# (table, node_type, [(db_column, node_data_key), ...]). Mirrors the canonical
+# log-artifacts node schema (graph_commands._create_node) so Cortex's
+# process_artifact_graph ingests the payload with no shape translation.
+_CORTEX_GRAPH_SPECS = (
+    ("project_findings", "finding",
+     (("finding", "finding"), ("impact", "impact"), ("subject", "subject"))),
+    ("project_unknowns", "unknown",
+     (("unknown", "unknown"), ("subject", "subject"))),
+    ("project_dead_ends", "dead_end",
+     (("approach", "approach"), ("why_failed", "why_failed"),
+      ("impact", "impact"), ("subject", "subject"))),
+    ("mistakes_made", "mistake",
+     (("mistake", "mistake"), ("why_wrong", "why_wrong"),
+      ("prevention", "prevention"))),
+    ("assumptions", "assumption",
+     (("assumption", "assumption"), ("confidence", "confidence"),
+      ("status", "status"))),
+    ("decisions", "decision",
+     (("choice", "choice"), ("rationale", "rationale"),
+      ("alternatives", "alternatives"), ("reversibility", "reversibility"))),
+)
+
+_CORTEX_GRAPH_PER_TYPE_CAP = 20
+
+
+def _cortex_graph_artifact_nodes(sdb, tx_id):
+    """Nodes + per-artifact goal edges for a transaction's artifacts.
+
+    Returns (nodes, seen_ids, goal_edges). Each node uses the artifact's own
+    UUID as `ref` (Cortex resolves ref->UUID) with per-type `data` fields
+    matching the *-log commands. A missing column on an old DB skips that type.
+    """
+    nodes: list[dict] = []
+    goal_edges: list[dict] = []
+    seen_ids: set[str] = set()
+    for _tbl, _ntype, _cols in _CORTEX_GRAPH_SPECS:
+        _col_sql = ", ".join(c for c, _ in _cols)
+        try:
+            _rows = sdb.conn.execute(
+                f"SELECT id, goal_id, {_col_sql} FROM {_tbl} "
+                f"WHERE transaction_id = ? LIMIT {_CORTEX_GRAPH_PER_TYPE_CAP}",
+                (tx_id,),
+            ).fetchall()
+        except Exception:
+            continue
+        for _r in _rows:
+            _aid = _r["id"]
+            if not _aid:
+                continue
+            _data = {dk: _r[c] for c, dk in _cols if _r[c] is not None}
+            nodes.append({"ref": _aid, "type": _ntype, "data": _data})
+            seen_ids.add(_aid)
+            if _r["goal_id"]:
+                goal_edges.append({"from": _aid, "to": _r["goal_id"],
+                                   "relation": "addresses_goal"})
+    return nodes, seen_ids, goal_edges
+
+
+def _cortex_graph_edges(sdb, seen_ids):
+    """Canonical artifact_edges rows from the given artifacts.
+
+    Returns (edges, edge_targets). Empty on a pre-041 DB (no artifact_edges) —
+    the per-artifact goal edges still ship regardless.
+    """
+    edges: list[dict] = []
+    targets: set[str] = set()
+    try:
+        _ph = ",".join("?" * len(seen_ids))
+        _erows = sdb.conn.execute(
+            f"SELECT from_id, to_id, relation FROM artifact_edges "
+            f"WHERE from_id IN ({_ph})",
+            tuple(seen_ids),
+        ).fetchall()
+        for _e in _erows:
+            edges.append({"from": _e["from_id"], "to": _e["to_id"],
+                          "relation": _e["relation"]})
+            targets.add(_e["to_id"])
+    except Exception:
+        pass
+    return edges, targets
+
+
+def _cortex_graph_source_nodes(sdb, targets, seen_ids):
+    """Source nodes for edge targets that resolve to an epistemic_source.
+
+    Mutates seen_ids to include any source added (so callers can dedupe).
+    """
+    nodes: list[dict] = []
+    _unknown = [t for t in targets if t and t not in seen_ids]
+    if not _unknown:
+        return nodes
+    try:
+        _sph = ",".join("?" * len(_unknown))
+        _srows = sdb.conn.execute(
+            f"SELECT id, title, source_type, description "
+            f"FROM epistemic_sources WHERE id IN ({_sph})",
+            tuple(_unknown),
+        ).fetchall()
+        for _s in _srows:
+            if _s["id"] in seen_ids:
+                continue
+            _sd = {"title": _s["title"]}
+            if _s["source_type"]:
+                _sd["source_type"] = _s["source_type"]
+            if _s["description"]:
+                _sd["description"] = _s["description"]
+            nodes.append({"ref": _s["id"], "type": "source", "data": _sd})
+            seen_ids.add(_s["id"])
+    except Exception:
+        pass
+    return nodes
+
+
+def _cortex_extract_transaction_graph(session_id):
+    """Build {nodes, edges} for the transaction's FULL artifact set.
+
+    Companion to _cortex_extract_transaction_delta: the flat delta carries the
+    legacy 3 types for backward-compat; this graph carries the whole set
+    (findings/unknowns/dead_ends/mistakes/assumptions/decisions + sources) plus
+    edges, so Cortex's graph receiver (process_artifact_graph) embeds everything.
+    Edges = per-artifact `addresses_goal` edges + the canonical artifact_edges
+    rows. Wholly best-effort: any failure degrades to a partial/empty graph.
+    """
+    try:
+        _tx_data = R.transaction_read()
+        _tx_id = _tx_data.get('transaction_id', '') if _tx_data else ''
+        if not _tx_id:
+            return {}
+        _sdb = _get_db_for_session(session_id)
+        nodes, seen_ids, goal_edges = _cortex_graph_artifact_nodes(_sdb, _tx_id)
+        if not nodes:
+            return {}
+        edges, targets = _cortex_graph_edges(_sdb, seen_ids)
+        nodes += _cortex_graph_source_nodes(_sdb, targets, seen_ids)
+        return {"nodes": nodes, "edges": goal_edges + edges}
+    except Exception:
+        return {}
+
 def _cortex_read_calibration_summary(project_path: str | None = None) -> dict:
     """Read calibration summary from .breadcrumbs.yaml. Returns dict.
 
@@ -1172,6 +1311,7 @@ def _run_postflight_cortex_sync(session_id, reasoning, resolved_project_path):
         _meta = _cortex_resolve_project_metadata(session_id)
         _sync_pid = _meta.get("project_id") or _cortex_resolve_project_id(session_id)
         _tx_delta = _cortex_extract_transaction_delta(session_id)
+        _tx_graph = _cortex_extract_transaction_graph(session_id)
         _cal = _cortex_read_calibration_summary(resolved_project_path)
 
         _body = {
@@ -1180,6 +1320,11 @@ def _run_postflight_cortex_sync(session_id, reasoning, resolved_project_path):
             "calibration_summary": _cal,
             "delta": _tx_delta,
         }
+        # Full-set graph payload — process_artifact_graph ingests the whole
+        # artifact set + edges. Additive: delta stays for backward-compat;
+        # the content-hash upsert on the receiver makes the overlap idempotent.
+        if _tx_graph.get("nodes"):
+            _body["graph"] = _tx_graph
         # Enrich with name + repo_url so Cortex's auto-create path on
         # unknown project_ids gets proper metadata instead of name=<UUID>.
         # Fix for the bulk-register / postflight-sync contamination bug

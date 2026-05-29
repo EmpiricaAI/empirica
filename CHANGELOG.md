@@ -18,6 +18,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   land in `loop_fires.log` (readable on next poll); the persistent-service
   Monitor grep now excludes `"actionability": "fyi"` (backward-compatible —
   lines without the field still wake).
+- **Full-set Cortex graph sync at POSTFLIGHT.** `/v1/sync` now also sends a
+  `graph` payload (`_cortex_extract_transaction_graph`) covering the whole
+  artifact set — findings/unknowns/dead_ends/mistakes/assumptions/decisions +
+  sources — plus edges: the canonical `artifact_edges` rows and a per-artifact
+  `addresses_goal` edge from each row's `goal_id`. Nodes mirror the
+  `log-artifacts` schema (artifact UUID as `ref`, per-type `data` fields) so
+  Cortex's `process_artifact_graph` ingests them directly. Additive — the flat
+  `delta` stays for backward-compat (receiver content-hash upsert makes the
+  overlap idempotent); best-effort (degrades to partial/empty, never aborts the
+  sync). Beads `issue` nodes pending Cortex's `issue` node type.
 
 ## [1.10.4] — 2026-05-29
 
