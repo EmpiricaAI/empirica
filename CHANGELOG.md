@@ -32,6 +32,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Sentinel `work_type=remote-ops` no longer deadlocks SSH-recon.** The work-type
+  gate-relaxation tuple in `is_safe_bash_command` covered `infra/config/debug`
+  but omitted `remote-ops` (never-implemented gap, not a regression), so a
+  remote-ops AI couldn't pass CHECK to do the SSH recon that grounds CHECK in
+  the first place. Two-part fix: (1) added `remote-ops` to the work-type
+  expansion tuple so `INFRA_SAFE_PREFIXES` (docker, systemctl, ss, tmux) flow
+  for pre/post-SSH local inspection; (2) under `work_type=remote-ops`,
+  `ssh/rsync/scp` pass wholesale BEFORE the `dangerous_operators/redirects`
+  checks — the PREFLIGHT declaration IS the gate (calibration is already
+  `ungrounded_remote_ops`), so per-command classification of compound recon
+  (stdin-redirect script-piped SSH) blocks legitimate work without buying any
+  calibration. Local writes stay subject to normal gating — they ARE
+  observable. Found by mesh-support during Philipp's onboarding.
+
 - **Listener drift self-exit now bypassable for non-supervised hosts**
   (`EMPIRICA_LISTENER_NO_DRIFT_EXIT`). `_check_version_drift`'s upgrade-exit
   assumes a supervisor (systemd `Restart=always` / launchd `KeepAlive`) will

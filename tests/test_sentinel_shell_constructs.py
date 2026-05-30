@@ -293,3 +293,68 @@ class TestQuoteAwareRedirects:
         assert not gate._has_dangerous_redirects(cmd)
         cmd = 'gh api foo 2>/dev/null'
         assert not gate._has_dangerous_redirects(cmd)
+
+
+# ─── remote-ops gate relaxation (prop_lwsgoxrw6, mesh-support) ─────────────
+# Closes the SSH-recon deadlock: work_type=remote-ops gets a per-command
+# pass for ssh/rsync/scp (the AI's PREFLIGHT declaration IS the gate;
+# local sensors can't observe the remote box so calibration is already
+# ungrounded_remote_ops), plus the INFRA_SAFE_PREFIXES expansion that
+# infra/config/debug already get.
+
+
+class TestRemoteOpsGateRelaxation:
+    def _set_work_type(self, gate, wt):
+        gate._current_work_type = wt
+        # Reset the one-shot nudge state so each test starts clean.
+        gate._remote_ops_nudge = None
+        gate._remote_ops_nudged = False
+
+    def test_remote_ops_passes_script_piped_ssh(self, gate):
+        """The exact deadlock mesh-support reported: ssh host 'zsh -s' < file
+        is script-piped + has a stdin redirect — without the relaxation it
+        gates to praxic + dangerous_redirect rejects it. Under remote-ops the
+        declaration IS the gate."""
+        self._set_work_type(gate, 'remote-ops')
+        assert gate.is_safe_bash_command(
+            {'command': "ssh host 'zsh -s' < /tmp/probe.sh"}
+        )
+
+    def test_remote_ops_passes_compound_rsync(self, gate):
+        self._set_work_type(gate, 'remote-ops')
+        assert gate.is_safe_bash_command(
+            {'command': 'rsync -avz --delete src/ host:/dest/'}
+        )
+
+    def test_non_remote_ops_still_classifies_ssh_per_command(self, gate):
+        """The relaxation is gated on work_type — infra/config/debug + an
+        unset work_type must still hit is_safe_remote_command."""
+        for wt in (None, 'infra', 'config', 'debug', 'code'):
+            self._set_work_type(gate, wt)
+            assert not gate.is_safe_bash_command(
+                {'command': "ssh host 'zsh -s' < /tmp/probe.sh"}
+            ), f"work_type={wt} unexpectedly passed a script-piped ssh"
+
+    def test_remote_ops_inline_ssh_read_still_safe(self, gate):
+        """Backward-compat: clean inline read still passes (used to pass via
+        is_safe_remote_command; now passes via the work_type short-circuit)."""
+        self._set_work_type(gate, 'remote-ops')
+        assert gate.is_safe_bash_command({'command': 'ssh host ls /opt'})
+
+    def test_remote_ops_does_not_relax_local_writes(self, gate):
+        """Local writes (cat > /tmp/foo) stay subject to normal gating —
+        they ARE observable locally, no calibration reason to relax."""
+        self._set_work_type(gate, 'remote-ops')
+        assert not gate.is_safe_bash_command(
+            {'command': 'cat > /tmp/probe.sh'}
+        )
+
+    def test_remote_ops_gets_infra_safe_prefixes(self, gate):
+        """Secondary: remote-ops joins infra/config/debug in the L1295
+        work-type expansion so system inspection (docker, systemctl, ss)
+        flows for the local pre/post-SSH inspection step too."""
+        self._set_work_type(gate, 'remote-ops')
+        # Use a command that's only safe via INFRA_SAFE_PREFIXES (docker is
+        # a representative member).
+        if any(p.startswith('docker') for p in gate.INFRA_SAFE_PREFIXES):
+            assert gate.is_safe_bash_command({'command': 'docker ps'})

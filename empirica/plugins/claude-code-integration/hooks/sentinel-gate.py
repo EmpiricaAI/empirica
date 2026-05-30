@@ -1291,10 +1291,26 @@ def is_safe_bash_command(tool_input: dict) -> bool:
     if is_safe_empirica_command(command):
         return True
 
-    # Work-type expansion: infra/config/debug get broader safe commands
-    if _current_work_type in ('infra', 'config', 'debug'):
+    # Work-type expansion: infra/config/debug/remote-ops get broader safe
+    # commands. remote-ops added here so system inspection (docker, systemctl,
+    # ss, tmux) flows for a remote-ops AI that's inspecting locally before/
+    # after SSH-recon. The SSH branch below is the load-bearing relaxation.
+    if _current_work_type in ('infra', 'config', 'debug', 'remote-ops'):
         cmd = command.lstrip()
         if any(cmd.startswith(prefix) for prefix in INFRA_SAFE_PREFIXES):
+            return True
+
+    # Under work_type=remote-ops, SSH/rsync/scp pass wholesale — the AI's
+    # PREFLIGHT declaration IS the gate, since local sensors can't observe
+    # the remote box (calibration is already ungrounded_remote_ops). This
+    # MUST run before the dangerous_operators/redirects checks below: real
+    # recon often uses stdin redirects (ssh host 'cmd' < script.sh) which
+    # the per-command classifier rejects. Local writes (cat > /tmp/foo)
+    # stay subject to normal gating — those ARE observable.
+    if _current_work_type == 'remote-ops':
+        rcmd = command.lstrip()
+        if rcmd.startswith(('ssh ', 'rsync ', 'scp ', 'ssh-')):
+            _maybe_nudge_remote_ops(rcmd)
             return True
 
     if _has_dangerous_operators(command):
