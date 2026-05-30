@@ -146,7 +146,15 @@ def test_on_emits_monitor_next_step_with_correct_command(tmp_path, monkeypatch, 
     out = json.loads(capsys.readouterr().out)
     ns = out['next_step']
     assert ns['tool'] == 'Monitor'
-    assert ns['args']['command'] == 'empirica loop listen --instance myai'
+    # Standalone Monitor wraps the listener spawn in a supervisor loop —
+    # the listener's design assumes a relauncher (systemd/launchd) on its
+    # intentional clean exits (SIGTERM during reconnect, ListenerUpgraded
+    # on drift); Claude Code's Monitor isn't a supervisor, so the wrapper
+    # provides those semantics by default. cf. cockpit_commands.py L1647+
+    # + cortex prop_6kevxb63 (the SIGTERM-during-reconnect finding).
+    assert ns['args']['command'] == (
+        'while true; do empirica loop listen --instance myai; sleep 3; done'
+    )
     assert ns['args']['persistent'] is True
     assert 'after_arm' in ns
     assert 'empirica listener arm' in ns['after_arm']
