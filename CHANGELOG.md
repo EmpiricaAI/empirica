@@ -28,7 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Cortex's `process_artifact_graph` ingests them directly. Additive — the flat
   `delta` stays for backward-compat (receiver content-hash upsert makes the
   overlap idempotent); best-effort (degrades to partial/empty, never aborts the
-  sync). Beads `issue` nodes pending Cortex's `issue` node type.
+  sync). `bead` nodes flow through this path now that cortex's receiver
+  projection (`6448b09`) projects them server-side.
 
 ### Fixed
 
@@ -89,6 +90,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the listener stays up regardless of install skew. Found by ecodex during mesh
   onboarding.
 
+- **`log-artifacts` no longer drops per-edge metadata silently.** `_wire_edges`
+  in `cli/command_handlers/graph_commands.py:362` called `_store_edge` without
+  passing `edge.get('metadata')` — so payloads carrying
+  `{"role": "required"}` on a `worked_by` edge persisted with `metadata=NULL`
+  in `artifact_edges`. Affected every artifact edge with metadata, not just
+  beads, but bead `worked_by.role` is the load-bearing case (escalate-on-silence
+  and the log-level dispatch proposal both rely on the role tier driving
+  attention/wake semantics). Schema docs, the bead spec §3, and the
+  just-shipped `/cortex-mailbox-send` Flavor 3 all documented metadata as
+  supported; the code dropped it. Verified empirically during bead e2e test
+  (bead `5189733f` pre-fix → NULL; bead `4e49da5d` post-fix → metadata
+  persists as JSON). Pre-fix beads will have NULL `worked_by` metadata until
+  re-emitted.
+
 ### Added
 
 - **Bead v0 implementation — `beads` table + `db.log_bead` + real
@@ -122,9 +137,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ride the existing `artifact_edges.metadata` JSON column — no migration.
   Names settled across a 3-way design exchange with cortex + extension on
   2026-05-30 (threads `prop_5poy5gcuwvd6…` → `prop_dk7koed4i5d…` →
-  `prop_skopvh53ufc…`). `_create_node('bead')` is a logging stub for now;
-  the bead table + `db.log_bead` repo function land with cortex's
-  `BEAD_COORDINATION_RECORD.md` architecture doc.
+  `prop_skopvh53ufc…`). Initial schema-lock landed as a logging stub; the
+  full implementation (table + `db.log_bead` + real `_create_node('bead')`)
+  shipped in the Bead v0 implementation entry above, alongside cortex's
+  `BEAD_COORDINATION_RECORD.md` architecture doc (`78e3a6b`).
 
 - **Mesh send guidance adopts Cortex Phase B (`cortex_collab` / `cortex_propose`
   / `cortex_publish`).** The `cortex-mailbox-send` skill, `empirica-constitution`
@@ -135,6 +151,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   PreToolUse matcher gating `cortex_propose`) is intentionally deferred until
   Cortex's B.2 hard-exclude lands — the human remains the gate meanwhile.
   `cortex_propose(type=collab_brief)` still works (non-breaking).
+
+- **`/cortex-mailbox-send` Flavor 3 — bead as the sustained-coordination
+  primitive.** Adds a third concept to the mesh-send skill: between single-turn
+  `cortex_collab` and graduated `cortex_propose` sits the bead — a structured
+  coordination record (`coordination_state` + `worked_by[role]` + `tracks`
+  edges) logged via `empirica log-artifacts` with a `bead` node. Covers when
+  to start one (≥3 round sustained threads, named owner+workers, cross-tenant
+  sustained coordination, pre-graduation hook), `worked_by` role tiers
+  (`required` / `participating` / `observer`) and their wake/attention
+  semantics under the queued escalate-on-silence build, the
+  `coordination_state` lifecycle, the graduation contract (`cortex_propose`
+  with `payload.bead_id` + `parent_id=<thread_root>` + `sourced_from=<doc>`),
+  the extension-as-AFK-ambassador attribution pattern (`source_claude=<lead>`
+  + `payload.proxy_actor=extension`), and the cross-org System tab routing
+  for `scope=cross_org`. Companion `empirica-cortex-prompt.md` (David's
+  personal global mesh-layer @include) gains a parallel BEADS section
+  pointing at the same canonical spec
+  (`empirica-cortex/docs/architecture/BEAD_COORDINATION_RECORD.md`).
+
+- **Graduation discipline encoded — AIs take lead on collab → proposal
+  bumping.** New "Who graduates — the discipline" subsection in
+  `/cortex-mailbox-send` Flavor 3: when a collab thread converges on an
+  actionable ask, the AI whose most-recent reply is most-converged (most
+  concrete next-step, least hedging, clearest source-grounding) **emits the
+  proposal directly** instead of waiting for the human to scroll
+  per-instance ECO queues. Trust the shared intelligence — an AI that
+  inflates its collab-confidence to grab the bump faces rejection at the
+  ECO gate (human or `empirica-autonomy`), which lands on the inflating
+  AI's calibration record. Self-honesty is the equilibrium; the ECO gate
+  is the truth-teller. Two new anti-patterns added (letting convergence
+  not graduate, inflating collab-confidence to win the bump). Companion
+  paragraph in `empirica-cortex-prompt.md` BEADS section anchors the
+  imperative at the system-prompt level. Future mediated primitive
+  (`cortex_graduate_collab`) tracked as planned goal if discipline-only
+  proves noisy in practice.
+
+- **AI_ID convention adopts cortex's `cfc83e8` lenient resolver.**
+  `/cortex-mailbox-send` AI_ID section reframed: canonical wire form is
+  now the **full project slug** (`empirica-cortex`, `empirica-extension`,
+  …); the org-empirica short alias (bare `cortex`, `extension`, …) is a
+  convenience the lenient resolver normalizes server-side. Default to the
+  canonical full slug for cross-org generality — non-empirica orgs (NLE,
+  MOD, Hinetra) get strict canonical resolution with no alias mapping.
+  Recovery section split into two scenarios: total typo (cortex's
+  bounce-back-on-no-match emits `delivery_failed` back to source) vs
+  resolved-wrong-target (wrapper pattern with `parent_id` link). Two new
+  anti-patterns added: `empirica-claude`-style decorations now surface a
+  `delivery_failed` rather than silent-drop, and stripping the prefix
+  when the target org is unknown fails silently cross-org. Per-org alias
+  conventions reference the new `empirica-org-prompt.md` include.
+
+- **`/empirica-constitution` slimmed to deep-governance layer
+  (439 → 222 LOC).** Sections I-VIII (routing tree, mechanism reference,
+  anti-patterns, natural interpretation) were heavily duplicated by the
+  system prompt's operational routing — those move out. The skill now
+  carries only the unique deep-governance content: phase-aware completion
+  (§I, formerly IX), the cognitive immune system (§II, XI), the turtle
+  principle (§III, XII), and the practice model (§IV, XIII — practitioner
+  vs practice vs agent vs client vs engagement; entity registry; when
+  practice ≠ working directory; the three "project" types) plus the Core
+  Principle. Frontmatter description narrows the triggers to those
+  deeper questions ("what counts as done", "practice model", "cognitive
+  immune"). System prompt remains the operational-routing source of
+  truth; constitution is the layer underneath.
 
 ## [1.10.4] — 2026-05-29
 
