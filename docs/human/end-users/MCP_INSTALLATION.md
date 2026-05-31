@@ -6,16 +6,14 @@ For most CLI-driven workflows (Claude Code, terminal-based AI agents),
 **use the Empirica CLI directly — it's faster and simpler**. MCP is for
 GUI clients that don't shell out.
 
-> **`empirica-mcp` vs cortex MCP.** This doc covers **`empirica-mcp`** —
-> the MCP server for Empirica's local CLI surface (preflight/check/
-> postflight, finding-log, goals, project-search, etc.). It is **NOT**
-> the cortex MCP server, which exposes `cortex_*` tools
-> (`cortex_propose`, `cortex_collab`, `cortex_inbox_poll`, etc.) for
-> cross-AI mesh coordination. Cortex MCP is a **separate** package
-> configured separately and only relevant if you've opted into the
-> mesh layer — see [`docs/architecture/EVENT_LISTENER.md`](../../architecture/EVENT_LISTENER.md)
-> for that path. The two servers can coexist in your client config
-> under different names.
+> **`empirica-mcp` vs the Empirica Cortex MCP.** This doc covers
+> **`empirica-mcp`** — the MCP server for Empirica's local CLI surface
+> (preflight/check/postflight, finding-log, goals, project-search,
+> etc.). It is **NOT** the [Empirica Cortex](https://getempirica.com)
+> MCP, which is a separate proprietary serving layer for cross-AI mesh
+> coordination. Cortex MCP is a separate package configured separately
+> and only relevant if you've opted into the mesh layer. The two
+> servers can coexist in your client config under different names.
 
 ---
 
@@ -111,12 +109,10 @@ Run `empirica mcp-list-tools` to see the **exact** registered set against
 your installed version — the names and grouping above can drift between
 releases. The `mcp-list-tools` output is the source of truth.
 
-> **What's NOT in `empirica-mcp`.** The `cortex_*` mesh tools
-> (`cortex_propose`, `cortex_collab`, `cortex_inbox_poll`,
-> `cortex_complete_proposal`, `cortex_collab_post`, etc.) come from the
-> separate cortex MCP server. If you need those, configure cortex MCP
-> in addition to `empirica-mcp` — they live alongside each other under
-> different names in the same client config.
+> **What's NOT in `empirica-mcp`.** Cross-AI mesh tools come from the
+> separate [Empirica Cortex](https://getempirica.com) MCP server. If you
+> need them, configure Cortex MCP in addition to `empirica-mcp` — the
+> two coexist under different names in the same client config.
 
 ---
 

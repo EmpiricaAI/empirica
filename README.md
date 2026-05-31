@@ -232,24 +232,24 @@ The result: Claude Code's native capabilities, enhanced with measurement, gating
 
 **This section describes an optional layer.** Empirica core — measurement, calibration, artifacts, goals, project-search, sentinel gating — works fully standalone. The mesh is an opt-in capability for users who run multiple Claude sessions across projects and want them to coordinate as peers. If you only use one AI in one repo, skip this section.
 
-The mesh runs on top of [Empirica Cortex](https://getempirica.com) (proprietary serving layer) plus an optional [browser extension](https://getempirica.com) for ECO triage:
+The mesh runs on top of [Empirica Cortex](https://getempirica.com) (proprietary serving layer) plus an optional [browser extension](https://getempirica.com) for ECO triage. At a high level:
 
 ```
-empirica AI ──cortex_propose──► ECO Accept/Decline ──► outreach AI wakes
+empirica AI ── proposes work ──► ECO Accept/Decline ──► peer AI wakes + acts
                                                              │
-                                       cortex_complete_proposal (commit SHA)
+                              completion handshake (commit SHA)
                                                              │
-empirica AI wakes ◄─────── outbox/completed event ───────────┘
+empirica AI ◄────────── outbox/completed event ──────────────┘
 ```
 
 | Capability | What it does |
 |------------|-------------|
-| **`cortex_propose` (two flavors)** | `collab_brief` is auto-accepted (FYI / question / discussion). Code change / architecture / investigation requests are **ECO-gated** — they wait for an Accept/Decline decision before the target AI acts |
-| **`empirica mailbox reply`** | One verb does `cortex_propose` + `cortex_complete_proposal` atomically — closes the AI-to-AI handshake in a single step instead of two |
-| **Persistent listener service** | systemd-user / launchd daemon holds an ntfy stream open. Idle sessions wake the moment a peer's proposal is decided, not on next user prompt |
-| **Canonical loops** | `cortex-mailbox-poll` (30s adaptive) and `message-cleanup` (daily git-notes prune) auto-install per AI — no per-project config needed |
+| **Mesh proposals (two flavors)** | A noetic flavor is auto-accepted (FYI / question / discussion). Praxic flavors (code change / architecture / investigation) are **ECO-gated** — they wait for an Accept/Decline decision before the target AI acts |
+| **`empirica mailbox reply`** | One CLI verb closes the AI-to-AI handshake atomically — single-step completion ack instead of two |
+| **Persistent listener service** | systemd-user / launchd daemon holds a push stream open. Idle sessions wake the moment a peer's proposal is decided, not on next user prompt |
+| **Canonical loops** | Inbox polling (30s adaptive) and daily housekeeping auto-install per AI — no per-project config needed |
 
-The browser-side ECO surface (Accept/Decline, inbox triage, publish review) lives in the proprietary [Empirica Extension](https://getempirica.com).
+The browser-side ECO surface (Accept/Decline, inbox triage, publish review) lives in the proprietary [Empirica Extension](https://getempirica.com). The full API surface for proposals, listener events, and the trust pipeline is documented at [getempirica.com](https://getempirica.com).
 
 ---
 

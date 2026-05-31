@@ -67,7 +67,7 @@ that extend it:
 | Layer | What it adds | Repo |
 |---|---|---|
 | **empirica-workspace** | TUI analytics, CRM (clients + engagements + memories), portfolio dashboards | `Nubaeon/empirica-workspace` |
-| **empirica-cortex** | Cross-AI orchestration (cortex_propose, listener mesh, ECO trust gating) | `Nubaeon/empirica-cortex` |
+| **empirica-cortex** | Cross-AI orchestration — proposal pipeline, listener mesh, ECO trust gating (proprietary) | [getempirica.com](https://getempirica.com) |
 | **empirica-extension** | Browser extension surfacing artifacts in Chrome | `Nubaeon/empirica-extension` |
 | **empirica-mcp** | MCP server bridge for Claude Desktop / Cursor / etc. | `Nubaeon/empirica-mcp` |
 
