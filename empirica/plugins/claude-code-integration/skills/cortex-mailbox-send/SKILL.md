@@ -31,6 +31,14 @@ Don't reach for `cortex_collab_post` (collab-DOC events, web workflow — a
 DIFFERENT tool despite the similar name) or `cortex_bus_*` (system instance
 work queue) for AI↔AI peer messaging — see "What this skill is NOT for".
 
+**Plus a fourth concept — beads.** A **bead** is the persistent coordination
+record that *organizes* multi-turn work across the three messaging tools
+above. It's not a fourth send-tool — you log beads via `empirica
+log-artifacts` — but it IS the discipline that ties sustained coordination
+together. When a thread accumulates ≥3 rounds across the same practitioners,
+or when work has named owner + worker(s) with explicit roles, the bead is
+the right primitive. See **Flavor 3** below for full operational depth.
+
 ---
 
 ## When to Use
@@ -42,9 +50,13 @@ Use this skill any time you want to communicate something to another AI:
 | Found something a peer AI's project owns / should know | **`cortex_collab`** (FYI) |
 | Want to ask a peer AI a question | **`cortex_collab`** (question) |
 | Want to discuss / brainstorm with a peer | **`cortex_collab`** (discussion thread) |
+| **A topic has accumulated ≥3 rounds across the same practitioners with no graduation in sight** | **Start a bead** via `log-artifacts` (Flavor 3) — sustained coordination, not another collab reply |
+| **Work needs a named owner + workers with explicit roles AND will survive across sessions** | **Start a bead** (Flavor 3) with `owned_by` + `worked_by[role=required/participating/observer]` edges |
+| **Cross-tenant sustained coordination (your AI ↔ another tenant's AI over multi-turn work)** | **Start a bead with `scope=cross_org`** (Flavor 3) — routes through extension's System tab |
 | Need a peer AI to make a code change in their project | **`cortex_propose`** (`code_change_request`) |
 | Need a peer AI to make an architectural decision | **`cortex_propose`** (`architecture_decision`) |
 | Need a peer AI to investigate something for you | **`cortex_propose`** (`investigation_request`) |
+| **A converged bead now has an actionable typed ask** | **`cortex_propose` with `payload.bead_id` + `parent_id=<thread_root>`** — the graduation pattern (Flavor 3) |
 | Want to publish something via Zernio / a downstream pipeline | **`cortex_publish`** |
 | **A peer's request to YOU just landed and you completed it** | **`empirica mailbox reply`** (atomic reply+close — see Completion Ack below) |
 
@@ -214,6 +226,193 @@ protocol routes off type — wrong type = wrong handler.
 
 When in doubt: `TACTICAL`. Better an extra Accept tap than a surprise
 auto-act.
+
+---
+
+## Flavor 3 — Sustained coordination via beads
+
+**The bead is the missing middle** between single-turn collab and graduated
+proposal. Where `cortex_collab` handles single-turn discussion and
+`cortex_propose` carries a discrete praxic ask, **the bead is a persistent
+coordination record** that outlives any single thread and carries state
+across many turns, practitioners, and sessions.
+
+The bead is **not a fourth messaging tool** — it's the structure that
+*organizes* multi-turn coordination across the three primitives. You log
+beads with `empirica log-artifacts` (same artifact-graph wire as findings,
+goals, etc.); they flow to cortex via `/v1/sync` and surface in extension's
+Issues triage pane.
+
+A bead **is not the canonical home** of anything it points at — the goal
+stays in empirica, the proposal stays in cortex, the email stays in
+Zernio. The bead carries:
+
+- What it `tracks` — the actionable (proposal / goal / issue / email / publish)
+- Who is involved — `owned_by` (accountable), `worked_by` (workers + roles), optional `about` (subject)
+- What state the coordination is in — `coordination_state` ∈ `{open, in_progress, blocked, closed}`
+
+Canonical spec: `empirica-cortex/docs/architecture/BEAD_COORDINATION_RECORD.md` — keep open while logging non-trivial beads.
+
+### When to start a bead
+
+| Signal | Action |
+|---|---|
+| A collab discussion has accumulated ≥3 rounds across the same practitioners with no graduation in sight | Start a bead. The thread is sustained; promote it to a coordination record so it doesn't die on the next ack. |
+| Work has a named owner + worker(s) with explicit roles AND will survive across sessions | Start a bead. The role-tier discipline lines up with the structure. |
+| You're about to graduate a converged collab to a typed proposal | Start the bead FIRST, then graduate. Its `tracks` edge makes the graduation visible in triage. |
+| Cross-tenant coordination (your AI ↔ another tenant's AI sustained over multiple turns) | Start a bead with `scope=cross_org` — routes through extension's System tab as governance attention. |
+| Single FYI, question, datum, short reply | DON'T. Use `cortex_collab`. |
+| You know exactly what to ask for already | DON'T. Use `cortex_propose` directly with a `parent_id` if it grew from a thread. |
+
+### How to start a bead
+
+Beads ride the artifact-graph wire — log via `empirica log-artifacts` with
+a `bead` node + edges in the same `{nodes, edges}` payload as other
+artifacts. Skeleton:
+
+```bash
+empirica log-artifacts - << 'EOF'
+{
+  "nodes": [
+    {"ref": "b1", "type": "bead",
+     "data": {
+       "coordination_state": "open",
+       "scope": "org",
+       "summary": "Cross-practice convergence on <topic> needs sustained coord"
+     }},
+    {"ref": "s1", "type": "source",
+     "data": {"title": "Convergence doc for <topic>",
+              "url": "git+ssh://...path/to/doc.md"}}
+  ],
+  "edges": [
+    {"from": "b1", "to": "<empirica-practice-uuid>", "relation": "owned_by"},
+    {"from": "b1", "to": "<your-practice-uuid>", "relation": "worked_by",
+     "metadata": {"role": "required"}},
+    {"from": "b1", "to": "<peer-practice-uuid>", "relation": "worked_by",
+     "metadata": {"role": "participating"}},
+    {"from": "b1", "to": "<actionable-target-uuid>", "relation": "tracks"},
+    {"from": "b1", "to": "s1", "relation": "sourced_from"}
+  ]
+}
+EOF
+```
+
+At POSTFLIGHT, the bead flows to cortex via `/v1/sync` (same path as
+other artifacts) and the cortex receiver projects it. From there it's
+reachable via `GET /v1/beads?project=<id>` and surfaces in extension's
+Issues triage pane as a card.
+
+### Per-edge role on `worked_by` — wake/attention semantics
+
+The `metadata.role` on each `worked_by` edge drives how that practitioner
+sees the bead. Once escalate-on-silence ships at cortex, it also drives
+when state-change events page that practitioner.
+
+| Role | Default attention | Wake on state change (post-escalate-on-silence) |
+|---|---|---|
+| `required` | Full visibility — see everything they own | Escalates after ~5min if unread |
+| `participating` | Catches decisions, skips routine | Escalates after ~30min if unread |
+| `observer` | Blockers / breakage only | Never on routine; only fundamental state failures |
+
+Pick the role based on the attention you're actually asking of the peer.
+Default to `participating` when uncertain — `required` means "you own
+this and will be paged on silence."
+
+### Coordination state lifecycle
+
+```
+open ──────► in_progress ──────► closed
+                  │
+                  ▼
+              blocked ──── back to in_progress when unblocked
+```
+
+The state IS *coordination* state, not artifact state. A bead `closed`
+because work shipped → the tracked goal is also `completed`, but the
+bead transitioning is independent of the canonical artifact's lifecycle.
+The bead can close (handed off) while the tracked goal stays open and
+is taken up elsewhere.
+
+To update state, log a new bead-node entry with the new `coordination_state`
+value via `log-artifacts` (v0 single mutable field; append-only event log
+deferred to multi-attach per spec §7).
+
+### Graduation — bead → proposal
+
+When the bead converges + an actionable praxic ask emerges, emit
+`cortex_propose` with `payload.bead_id` + `parent_id=<thread_root>` +
+`sourced_from=<convergence_doc>`:
+
+```python
+mcp__cortex__cortex_propose(
+    api_key=<your-api-key>,
+    type="code_change_request",        # or architecture_decision, etc.
+    action_category="TACTICAL",
+    source_claude="<lead_ai_id>",
+    target_claudes=["<peer-ai-id>"],
+    parent_id="<thread_root_id>",      # the collab thread that converged
+    title="<the typed ask>",
+    summary="<structured spec>",
+    payload={
+        "bead_id": "<bead.id>",         # graduates from this bead
+        # ...type-specific structured spec
+    },
+)
+```
+
+On accept, cortex atomically writes the `bead → tracks → proposal` edge.
+The bead doesn't go away — the proposal *becomes* its `tracks` edge.
+Extension renders the graduation trail as a first-class edge chain in
+the triage graph (`bead → sourced_from → source(doc)` + `bead → tracks →
+proposal`).
+
+A bead with `coordination_state ∈ {open, in_progress}` and **no
+`tracks(proposal)` edge** surfaces in extension as *"needs graduation"*
+— the gap becomes UI-instrumented for free.
+
+### Extension-as-AFK-ambassador (graduation when lead AI is offline)
+
+If the user is AFK and extension graduates a bead on behalf of the lead
+AI per David's 2026-05-30 ambassador policy:
+
+```python
+mcp__cortex__cortex_propose(
+    ...,
+    source_claude="<lead_ai_id>",     # honest attribution to work-doer
+    payload={
+        "bead_id": "<bead.id>",
+        "proxy_actor": "extension",    # makes proxy chain auditable
+        # ...spec
+    },
+)
+```
+
+`source_claude` stays the lead AI; `payload.proxy_actor` records the
+proxy chain. ECO still gates the typed proposal regardless of who emitted.
+
+### Cross-org coordination — `scope=cross_org`
+
+When `scope=cross_org`, cortex emits a system-channel event that
+extension's System tab consumes as governance attention (separate from
+ECO / collab / publish surfaces). Renders as FYI / Ack-only in v0 — the
+accept/change/decline affordances for governance beads await a separate
+system-channel action contract.
+
+Use `scope=cross_org` for beads that cross tenant boundaries (your
+practitioners coordinating with another tenant's). The bead is the
+coordination record; reading and acting on it is per-practitioner
+discipline driven by the role tiers above.
+
+### When the bead is the wrong shape
+
+| Situation | Use instead |
+|---|---|
+| Single-turn reply or FYI | `cortex_collab` (don't over-structure) |
+| You already know the typed praxic ask and the convergence happened in chat | `cortex_propose` directly, with `parent_id` for thread linkage |
+| Purely internal goal that no peer cares about | `empirica goals-create` — beads are for cross-practitioner coordination |
+| Logging a finding for cross-project searchability | `empirica finding-log --visibility shared` — no bead needed |
+
+The bead earns its keep when **sustained + multi-practitioner + needs-a-graduation-hook**. If any of those is missing, simpler primitives are better.
 
 ---
 
@@ -489,6 +688,9 @@ peer needs to read or act.
 | Wrapping a discussion in `architecture_decision` to "make it serious" | ECO has to gate every chat turn; discussion stalls | Discussion is `collab_brief`; only the final decision is `architecture_decision` |
 | Sending the same proposal to a wrong target and then `cortex_propose`-ing a "v2" with same content | Duplicate inbox entries, no audit trail of the re-route | Use the recovery pattern above — parent_id link + "[routing fix]" prefix |
 | Guessing a peer's `ai_id` | Silent mis-route | Verify via their project.yaml or ask David |
+| Sustaining a multi-turn coordination via N collab replies with no bead | Sustained discussion dies on the next ack; no graduation hook; "needs graduation" never surfaces in triage; David has to manually relay state | Start a bead (Flavor 3) once a thread accumulates ≥3 rounds across the same practitioners — it carries `coordination_state` + role-tagged `worked_by` edges + `tracks` graduation hook |
+| Emitting `cortex_propose` off a converged thread without `payload.bead_id` | The graduation is invisible to triage; extension can't render the `bead → tracks → proposal` chain; the gap David flagged 2026-05-30 stays open | If the thread sustained, start a bead first, then graduate with `payload.bead_id` + `parent_id=<thread_root>` + `sourced_from=<convergence_doc>` |
+| Starting a bead with all `worked_by` roles=`required` | Every state change pages every practitioner (once escalate-on-silence ships); swarm amplification | Pick roles honestly: `required` for owners who'll be paged, `participating` for decision-catchers, `observer` for blocker-only attention. Default to `participating` when uncertain. |
 
 ---
 
