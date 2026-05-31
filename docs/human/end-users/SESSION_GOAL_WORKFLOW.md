@@ -241,7 +241,9 @@ Empirica's epistemic layer. See [BEADS_QUICKSTART.md](BEADS_QUICKSTART.md).
 ## See Also
 
 - **First time:** [FIRST_TIME_SETUP.md](FIRST_TIME_SETUP.md)
+- **Discovery-side walkthrough (project-search, entity graph, commit-context):** [LOGGING_AND_FINDING.md](LOGGING_AND_FINDING.md)
 - **CLI basics:** [04_QUICKSTART_CLI.md](04_QUICKSTART_CLI.md)
 - **Vectors:** [05_EPISTEMIC_VECTORS_EXPLAINED.md](05_EPISTEMIC_VECTORS_EXPLAINED.md)
 - **Project model:** [PROJECT_MANAGEMENT_FOR_USERS.md](PROJECT_MANAGEMENT_FOR_USERS.md)
+- **Multi-project lifecycle:** [PROJECT_LIFECYCLE.md](PROJECT_LIFECYCLE.md)
 - **BEADS:** [BEADS_QUICKSTART.md](BEADS_QUICKSTART.md)
