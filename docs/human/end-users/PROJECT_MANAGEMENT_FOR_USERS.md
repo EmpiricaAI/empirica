@@ -202,6 +202,7 @@ re-bootstrap.
 ## See Also
 
 - **First time:** [FIRST_TIME_SETUP.md](FIRST_TIME_SETUP.md)
+- **Multi-project lifecycle (discover / register / sync / prune / unregister):** [PROJECT_LIFECYCLE.md](PROJECT_LIFECYCLE.md)
 - **CLI basics:** [04_QUICKSTART_CLI.md](04_QUICKSTART_CLI.md)
 - **Workflow:** [SESSION_GOAL_WORKFLOW.md](SESSION_GOAL_WORKFLOW.md)
 - **Cross-project queries:** `docs/reference/api/CROSS_PROJECT.md`
