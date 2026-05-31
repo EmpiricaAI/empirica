@@ -105,7 +105,6 @@ class ProposalEvent:
     new_or_changed: str  # "new" | "status_changed"
     direction: str = "inbox"  # "inbox" | "outbox" — tells AI which reaction
     commit_sha: str | None = None  # populated when status='completed'
-    actionability: str = "actionable"  # "actionable" | "fyi" — wake gate
     bead_id: str | None = None  # cortex stamps this when payload.bead_id is
     # present (graduation contract — BEAD_COORDINATION_RECORD.md §6.5). The
     # receiving AI uses it to look up the bead + render bridge-position.
@@ -130,7 +129,6 @@ class ProposalEvent:
             "eco_actor": self.eco_actor,
             "change_kind": self.new_or_changed,
             "commit_sha": self.commit_sha,
-            "actionability": self.actionability,
             "bead_id": self.bead_id,
             "bridge_position": self.bridge_position,
         })
@@ -281,57 +279,6 @@ def _extract_commit_sha(p: dict) -> str | None:
     return None
 
 
-_DIRECT_REQUEST_TYPES = frozenset({
-    "code_change_request", "investigation_request", "architecture_decision",
-    "spec_updated", "trust_escalation_request", "publish",
-})
-
-
-def _classify_actionability(p: dict, instance_id: str, direction: str) -> str:
-    """Classify a proposal as "actionable" (worth a session wake) or "fyi"
-    (pure-observability convergence chatter — readable on next poll, no wake).
-
-    Conservative by design: defaults to "actionable" so nothing requiring
-    action is silently swallowed. Only one narrow case is downgraded to
-    "fyi" — a deep-thread REFLEX collab_brief the recipient is merely CC'd
-    on (the "conceded / +1 / green-light" tail that woke every CC'd peer
-    this session). An emitter-supplied wake_hint (cortex option 3) overrides.
-    """
-    # Authoritative emit-side hint (cortex option 3) wins when present.
-    hint = str(p.get("wake_hint") or "").lower()
-    if hint in ("actionable", "fyi"):
-        return hint
-
-    ptype = str(p.get("type") or "").lower()
-
-    # collab_brief: the prior heuristic ("deep-thread + I'm a CC = fyi") was a
-    # v0 compromise that conflated convergence chatter ("conceded / +1 /
-    # green-light") with substantive deep-thread replies (counter-arguments,
-    # decisions, direction). Same envelope shape; different content.
-    #
-    # Reverted to actionable-by-default: a wake is the safe option since
-    # missing a substantive reply is a real cost (loop_fires.log:2026-05-30,
-    # 4 missed cortex messages incl. a BUILD-now decision in a thread I was
-    # actively driving). Convergence-chatter suppression is now strictly
-    # opt-in via emitter `wake_hint='fyi'` — which is what Phase B always
-    # intended for the noetic/praxic boundary; cortex/extension can tag their
-    # own "conceded / +1" acks. The wake_hint check above handles it.
-    if ptype == "collab_brief" and direction == "inbox":
-        return "actionable"
-
-    action_category = str(p.get("action_category") or "").upper()
-    # ECO-gated (non-REFLEX) → ECO decided, recipient must act.
-    if action_category and action_category != "REFLEX":
-        return "actionable"
-    # Concrete work/decision requests always wake regardless of category.
-    if ptype in _DIRECT_REQUEST_TYPES:
-        return "actionable"
-    # Outbox refinement → the source AI must revise + re-emit.
-    if direction == "outbox" and _proposal_status(p) == "changed":
-        return "actionable"
-    return "actionable"
-
-
 def build_event(
     p: dict, change_kind: str, instance_id: str, loop_name: str,
     *, direction: str = "inbox",
@@ -355,7 +302,6 @@ def build_event(
         new_or_changed=change_kind,
         direction=direction,
         commit_sha=_extract_commit_sha(p) if status == "completed" else None,
-        actionability=_classify_actionability(p, instance_id, direction),
         bead_id=_extract_bead_id(p),
         bridge_position=_extract_bridge_position(p),
     )

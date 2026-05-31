@@ -7,6 +7,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.6] — 2026-05-31
+
+Per cortex+extension contract 2026-05-31: the per-message `actionability`
+flag and its companion Monitor filter are dropped. The tool split
+(`cortex_collab` vs `cortex_propose`) IS the actionability signal; the
+per-event derivative was redundant and proved lossy — it silently filtered
+substantive deep-thread collab replies (counter-arguments, decisions,
+direction-changes) whenever they shared envelope shape with convergence
+chatter. With the filter gone, every `proposal_event` wakes regardless of
+shape.
+
+### Changed
+
+- **Listener filter wakes on every `proposal_event`.** The cockpit's
+  persistent-service tail Monitor command at `cockpit_commands.py:1644`
+  no longer appends `grep --line-buffered -v '"actionability": "fyi"'`.
+  Wake on every event for the matching `ai_id`. The wake is cheap
+  (one event, no action required); missing a substantive reply is not
+  (loop_fires.log evidence 2026-05-30: 4 substantive cortex messages
+  including a BUILD-now decision were filtered out as `fyi` when their
+  envelope shape matched the over-suppressing v0 heuristic).
+
+### Removed
+
+- **`actionability` field on `ProposalEvent` + `_classify_actionability`
+  classifier.** Both deleted from `empirica/core/loop_scheduler/content_poll.py`
+  along with the `_DIRECT_REQUEST_TYPES` set the classifier consumed.
+  `to_log_line()` no longer emits `"actionability": ...`; lines now go
+  straight from `change_kind` to `commit_sha` to `bead_id` to
+  `bridge_position`. `wake_hint` reading is gone (was only consumed by the
+  classifier; cortex may still emit the field on proposals — empirica just
+  doesn't act on it). 10 dead tests removed from
+  `tests/test_loop_content_poll.py`.
+
+### Confirmed (Contract 3, no code change needed)
+
+- **Initial inbox catch-up on listener arm — already shipped.** `listener.py`
+  `run_listener()` has `_initial_catchup=True` as the default keyword
+  argument; the catch-up phase fires `_emit_catchup_events` (which calls
+  `poll_and_diff(instance_id, loop_name, …)`) BEFORE entering the ntfy
+  subscribe loop. State persists per-instance via
+  `_state_path(instance_id, loop_name)` → `~/.empirica/loop_state/<inst>_<loop>.json`.
+  The previously-observed misses traced to the Contract-2 filter eating
+  the catch-up events before they reached the session, not to the catch-up
+  failing to run. With the filter removed, prior catch-up backlog now
+  surfaces correctly on next listener arm.
+
 ## [1.10.5] — 2026-05-31
 
 Patch release rolling up the bug fixes + AI-mesh skill sweep + bead v0
