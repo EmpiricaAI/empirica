@@ -521,67 +521,21 @@ def test_loud_warning_logged_on_total_failure(tmp_path, caplog):
     assert "empirica" in msgs
 
 
-# ─── bead_id passthrough (BEAD_COORDINATION_RECORD.md §6.5) ────────────────
-# When cortex stamps `bead_id` on the proposal envelope (graduation contract),
-# content_poll plumbs it through to the wake-event JSON so the receiving AI
-# can derive bridge_position client-side from coordination_state × edge × status.
+# ─── bead retirement (2026-06-02) ──────────────────────────────────────────
+# bead_id + bridge_position passthrough tests retired alongside the bead v0
+# concept. Wake-event payloads no longer carry those fields; cross-practitioner
+# coordination state lives on cortex-side SER (Shared Epistemic Record).
 
 
-def test_bead_id_top_level_pulled_into_event():
+def test_bead_fields_not_in_wake_event():
+    """ProposalEvent doesn't carry bead_id or bridge_position anymore —
+    those fields were padding for a concept that retired."""
     p = {"id": "p", "status": "accepted",
-         "type": "code_change_request", "title": "graduation fix",
-         "bead_id": "bd_abc"}
+         "type": "code_change_request", "title": "ordinary proposal"}
     ev = build_event(p, "new", "empirica", "cortex-mailbox-poll",
                      direction="inbox")
-    assert ev.bead_id == "bd_abc"
-    assert json.loads(ev.to_log_line())["bead_id"] == "bd_abc"
-
-
-def test_bead_id_falls_back_to_payload_for_transitional_shape():
-    """Older / in-flight payload-shaped envelopes — read both."""
-    p = {"id": "p", "status": "accepted", "type": "code_change_request",
-         "title": "graduation fix", "payload": {"bead_id": "bd_xyz"}}
-    ev = build_event(p, "new", "empirica", "cortex-mailbox-poll",
-                     direction="inbox")
-    assert ev.bead_id == "bd_xyz"
-
-
-def test_bead_id_omitted_when_not_a_graduation():
-    """Non-graduated proposals (no bead_id anywhere) carry None — the field
-    is present in the JSON for shape consistency but null."""
-    p = {"id": "p", "status": "accepted", "type": "collab_brief",
-         "title": "ordinary collab"}
-    ev = build_event(p, "new", "empirica", "cortex-mailbox-poll",
-                     direction="inbox")
-    assert ev.bead_id is None
-    assert json.loads(ev.to_log_line())["bead_id"] is None
-
-
-# ─── bridge_position passthrough (§6.5 6629265 amendment) ─────────────────
-
-
-def test_bridge_position_top_level_pulled_into_event():
-    """Cortex stamps `bridge_position` on the proposal envelope for post-
-    graduation states (BEAD_COORDINATION_RECORD.md §6.5, doc 6629265).
-    Receiver plumbs it through alongside bead_id; client only needs to derive
-    pre-graduation labels (noetic / needs-graduation) — those are absent."""
-    p = {"id": "p", "status": "accepted", "type": "code_change_request",
-         "title": "graduation fix",
-         "bead_id": "bd_abc", "bridge_position": "accepted"}
-    ev = build_event(p, "new", "empirica", "cortex-mailbox-poll",
-                     direction="inbox")
-    assert ev.bridge_position == "accepted"
+    assert not hasattr(ev, "bead_id")
+    assert not hasattr(ev, "bridge_position")
     parsed = json.loads(ev.to_log_line())
-    assert parsed["bridge_position"] == "accepted"
-    assert parsed["bead_id"] == "bd_abc"
-
-
-def test_bridge_position_absent_for_pre_graduation_states():
-    """Pre-graduation labels are client-derived from coordination_state ×
-    edge-presence × proposal.status — never stamped on the envelope."""
-    p = {"id": "p", "status": "accepted", "type": "collab_brief",
-         "title": "ordinary collab"}
-    ev = build_event(p, "new", "empirica", "cortex-mailbox-poll",
-                     direction="inbox")
-    assert ev.bridge_position is None
-    assert json.loads(ev.to_log_line())["bridge_position"] is None
+    assert "bead_id" not in parsed
+    assert "bridge_position" not in parsed
