@@ -184,10 +184,15 @@ def test_on_default_topic_includes_canonical_ntfy_path(tmp_path, monkeypatch, ca
     with patch(
         'empirica.core.loop_scheduler.persistent_listener.is_listener_running',
         return_value=False,
+    ), patch(
+        'empirica.core.cockpit.notification_channels.resolve_orchestration_events_topic',
+        return_value='ntfy:empirica-orchestration-events?tags=cortex',
     ):
         handle_listener_on_command(args)
     out = json.loads(capsys.readouterr().out)
-    assert out['topic'] == 'ntfy:orchestration-events?tags=cortex'
+    # Default topic is the per-org-prefixed canonical wake topic (NOT the
+    # deprecated bare 'orchestration-events', which has no ACL grant).
+    assert out['topic'] == 'ntfy:empirica-orchestration-events?tags=cortex'
 
 
 def test_on_writes_placeholder_state_file(tmp_path, monkeypatch):

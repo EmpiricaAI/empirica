@@ -1576,7 +1576,16 @@ def handle_listener_on_command(args) -> int:
         from empirica.core.cockpit.notification_channels import (
             resolve_orchestration_events_topic,
         )
-        topic = resolve_orchestration_events_topic(ai_id)
+        try:
+            topic = resolve_orchestration_events_topic(ai_id)
+        except RuntimeError as e:
+            # Resolver refuses to fall back to the dead bare topic when
+            # cortex is unreachable — surface a clean error rather than
+            # registering a listener that will 403 on every poll.
+            return _emit(args, {
+                'ok': False,
+                'error': str(e),
+            }, f'error: {e}')
 
     # Detect persistent service. If present, pick the tail-Monitor mode;
     # otherwise the standalone-Monitor mode further down. Both paths share

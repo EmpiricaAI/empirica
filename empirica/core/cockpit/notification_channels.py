@@ -19,12 +19,24 @@ Each `channels[i].topic` is a fully-resolved per-org topic name like
 `empirica-orchestration-events`. Filtering by AI is still done with
 the `?tags=<ai_id>` suffix at subscription time.
 
-## Fallback
+## No silent bare fallback (legacy topic killed — 2026-06)
 
-When cortex is unreachable, the endpoint returns 404 (older deploys),
-or auth fails, the resolver returns the legacy bare-name topic
-(`orchestration-events?tags=<ai_id>`) so the listener stays
-functional. Dual-emit still covers it during the transition window.
+The bare `orchestration-events` topic has NO ntfy ACL grant for
+non-admin users, so subscribing to it 403s on every poll. Worse, the
+old resolver fell back to it *silently* whenever it couldn't find an
+explicit `orchestration-events` channel in the endpoint payload — and
+cortex's payload never contained one (it lists eco/collab/system/
+publish/roster, keyed by `category` not `kind`). Net effect: the whole
+fleet silently pinned to the dead bare topic, generating a 403 storm,
+while the per-org migration looked "complete".
+
+So the resolver now DERIVES the per-org prefix from the sibling
+channels cortex DOES return (all fully `<org>-` prefixed, e.g.
+`empirica-system`) and constructs `<org>-orchestration-events`. If the
+endpoint is genuinely unreachable / returns nothing prefixable, it
+RAISES rather than silently subscribing to the dead bare topic — the
+caller surfaces a clean error instead of registering a 403-ing
+listener.
 
 ## Cache
 
@@ -124,26 +136,85 @@ def resolve_orchestration_events_topic(ai_id: str, *, force: bool = False) -> st
 
     Resolution order:
       1. Query cortex /v1/users/me/notification-channels
-      2. Find a channel with kind='orchestration_events' OR topic containing
-         'orchestration-events' — use its `topic` field as the per-org name
-      3. Fall back to bare 'orchestration-events' on any failure
+      2. Match an explicit orchestration-events channel — by cortex's
+         `category` field, the legacy `kind` field, OR a name-hint substring
+      3. Else DERIVE the per-org prefix from the sibling channels cortex
+         returns (all `<org>-` prefixed) and build `<org>-orchestration-events`
+      4. Else RAISE — never silently subscribe to the deprecated bare topic
+         (no ACL grant → 403 storm)
 
     Always appends `?tags=<ai_id>` for per-AI filtering and prepends the
     `ntfy:` scheme (matches the listener's existing topic shape).
     """
     body = fetch_notification_channels(force=force)
-    base_topic = "orchestration-events"  # legacy fallback
-    if body is not None:
-        channels = body.get("channels") or []
-        for ch in channels:
-            kind = ch.get("kind")
-            topic = ch.get("topic")
-            if not topic:
-                continue
-            if kind == _ORCH_EVENTS_KIND or _ORCH_EVENTS_NAME_HINT in topic:
-                base_topic = topic
-                break
+    base_topic = _resolve_base_topic(body)
+    if base_topic is None:
+        raise RuntimeError(
+            "Cannot resolve the per-org orchestration-events topic: cortex's "
+            f"{_PATH} endpoint was unreachable or returned no org-prefixed "
+            "channels. Refusing to fall back to the deprecated bare "
+            "'orchestration-events' topic (no ACL grant — it 403s). Check "
+            "cortex reachability / credentials, then retry."
+        )
     return f"ntfy:{base_topic}?tags={ai_id}"
+
+
+def _resolve_base_topic(body: dict | None) -> str | None:
+    """Per-org orchestration-events topic name from cortex's payload, or None.
+
+    None means: nothing to resolve from (caller should fail loud, NOT fall
+    back to the dead bare topic).
+    """
+    if not body:
+        return None
+    channels = body.get("channels") or []
+    # 1. Explicit orchestration-events channel. Cortex keys channels by
+    #    `category`; older shapes used `kind`. Accept either, plus a
+    #    name-hint substring so a future `empirica-orchestration-events`
+    #    channel is picked up directly.
+    for ch in channels:
+        topic = ch.get("topic")
+        if not topic:
+            continue
+        kind = ch.get("kind") or ch.get("category")
+        if kind == _ORCH_EVENTS_KIND or _ORCH_EVENTS_NAME_HINT in topic:
+            return topic
+    # 2. Derive the org prefix from sibling channels. Cortex returns every
+    #    channel fully org-prefixed (`empirica-system`, `empirica-eco-david`,
+    #    `mod-collab`, ...); the orchestration-events topic shares that
+    #    prefix even though the endpoint doesn't list it yet.
+    topics = [c.get("topic") for c in channels if c.get("topic")]
+    for key in ("system_topic", "eco_topic", "collab_topic", "roster_changed_topic"):
+        t = body.get(key)
+        if isinstance(t, dict) and t.get("topic"):
+            topics.append(t["topic"])
+    prefix = _derive_org_prefix(topics)
+    if prefix:
+        return f"{prefix}{_ORCH_EVENTS_NAME_HINT}"
+    return None
+
+
+def _derive_org_prefix(topics: list[str]) -> str | None:
+    """Org prefix (incl. trailing '-') from a set of per-org topic names.
+
+    Longest common prefix trimmed to the last '-' boundary. Needs >=2
+    distinct topics so the boundary is unambiguous (cortex always returns
+    several: eco/collab/system/publish/roster):
+
+        ['empirica-system', 'empirica-eco-david', 'empirica-publish'] -> 'empirica-'
+        ['mod-collab', 'mod-system']                                  -> 'mod-'
+
+    Returns None when it can't derive one safely.
+    """
+    import os
+
+    distinct = sorted({t for t in topics if t})
+    if len(distinct) < 2:
+        return None
+    lcp = os.path.commonprefix(distinct)
+    if "-" in lcp:
+        return lcp[: lcp.rindex("-") + 1]
+    return None
 
 
 def reset_cache() -> None:

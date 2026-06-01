@@ -135,30 +135,49 @@ def test_resolver_falls_back_to_substring_when_kind_missing(monkeypatch):
     assert topic == "ntfy:myorg-orchestration-events?tags=extension"
 
 
-def test_resolver_falls_back_to_bare_on_cortex_unreachable(monkeypatch):
+def test_resolver_raises_on_cortex_unreachable(monkeypatch):
+    """Cortex unreachable → RAISE, never the dead bare topic (no ACL → 403)."""
     _mock_creds(monkeypatch)
     monkeypatch.setattr(nc, "_request", lambda url, key: None)
-    topic = nc.resolve_orchestration_events_topic("empirica")
-    assert topic == "ntfy:orchestration-events?tags=empirica"
+    with pytest.raises(RuntimeError, match="orchestration-events"):
+        nc.resolve_orchestration_events_topic("empirica")
 
 
-def test_resolver_falls_back_to_bare_on_missing_creds(monkeypatch):
+def test_resolver_raises_on_missing_creds(monkeypatch):
+    """No cortex creds → RAISE rather than silently subscribe to bare."""
     _mock_creds_missing(monkeypatch)
-    topic = nc.resolve_orchestration_events_topic("empirica")
-    assert topic == "ntfy:orchestration-events?tags=empirica"
+    with pytest.raises(RuntimeError, match="orchestration-events"):
+        nc.resolve_orchestration_events_topic("empirica")
 
 
-def test_resolver_falls_back_to_bare_when_no_matching_channel(monkeypatch):
-    """Cortex responds but has no orchestration_events channel → bare."""
+def test_resolver_derives_prefix_when_no_explicit_channel(monkeypatch):
+    """No orchestration-events channel, but >=2 org-prefixed siblings →
+    derive the org prefix and build `<org>-orchestration-events`.
+
+    This is the real cortex payload shape: channels keyed by `category`
+    (eco/collab/system/publish/roster), none named orchestration-events."""
     _mock_creds(monkeypatch)
     body = {
         "channels": [
-            {"topic": "empirica-system", "kind": "system"},
+            {"topic": "empirica-eco-david", "category": "eco"},
+            {"topic": "empirica-collab-david", "category": "collab"},
+            {"topic": "empirica-system", "category": "system"},
+            {"topic": "empirica-publish", "category": "publish"},
         ],
     }
     monkeypatch.setattr(nc, "_request", lambda url, key: body)
     topic = nc.resolve_orchestration_events_topic("empirica")
-    assert topic == "ntfy:orchestration-events?tags=empirica"
+    assert topic == "ntfy:empirica-orchestration-events?tags=empirica"
+
+
+def test_resolver_raises_when_no_prefixable_channels(monkeypatch):
+    """Cortex responds but nothing prefix-derivable (single channel) →
+    RAISE, not bare fallback."""
+    _mock_creds(monkeypatch)
+    body = {"channels": [{"topic": "empirica-system", "category": "system"}]}
+    monkeypatch.setattr(nc, "_request", lambda url, key: body)
+    with pytest.raises(RuntimeError, match="orchestration-events"):
+        nc.resolve_orchestration_events_topic("empirica")
 
 
 def test_resolver_appends_tags_filter_per_ai(monkeypatch):

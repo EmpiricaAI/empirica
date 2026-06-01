@@ -472,7 +472,33 @@ def run_listener(  # noqa: C901 — held-connection loop; clarity beats decompos
         if _os.getenv("EMPIRICA_NTFY_TAG_FILTER", "true").lower() == "false"
         else instance_id
     )
-    url = _build_subscribe_url(ntfy["url"], ntfy["topic"], tag_filter=tag_filter)
+    # Per-org wake topic. The legacy bare `orchestration-events` topic
+    # (credentials_loader default) has no ntfy ACL grant for non-admin
+    # users → every poll 403s. Resolve the org-prefixed topic
+    # (`empirica-orchestration-events`) from cortex's notification-channels
+    # registry instead. An explicit ORCHESTRATION_NTFY_TOPIC override still
+    # wins (debug / custom deployments); resolution failure falls back to
+    # the configured topic with a loud log rather than silently.
+    base_topic = ntfy["topic"]
+    if not _os.getenv("ORCHESTRATION_NTFY_TOPIC"):
+        try:
+            from empirica.core.cockpit.notification_channels import (
+                _resolve_base_topic,
+                fetch_notification_channels,
+            )
+            resolved = _resolve_base_topic(fetch_notification_channels())
+            if resolved:
+                base_topic = resolved
+            else:
+                err_stream.write(
+                    "listener: per-org topic unresolved (cortex unreachable "
+                    f"or no prefixed channels); using {base_topic!r}\n"
+                )
+        except Exception as e:
+            err_stream.write(
+                f"listener: per-org topic resolve failed, using {base_topic!r}: {e}\n"
+            )
+    url = _build_subscribe_url(ntfy["url"], base_topic, tag_filter=tag_filter)
     headers = _ntfy_auth_header(
         ntfy.get("user"), ntfy.get("password"), ntfy.get("token"),
     )
