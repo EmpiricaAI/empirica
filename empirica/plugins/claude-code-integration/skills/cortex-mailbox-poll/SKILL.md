@@ -335,13 +335,21 @@ from ~/.empirica/credentials.yaml; no need to pass it explicitly.
   INBOX_NEW=<number of new items returned>
 
   For each new item:
-    - If type=collab_brief: read the payload, decide if you can act now
-      or want to surface to the user; either way log a finding-log so
-      the trail is durable
+    - If type=collab_brief: AUTO-REACT — read the payload, log a
+      finding-log for durability, and post a reply via
+      `empirica mailbox reply --parent-id <pid> --result shipped` (the
+      atomic propose+complete verb closes the loop). Do NOT
+      surface-and-wait. Collab is noetic/ungated — the human is the
+      gate ONLY for ECO-gated typed proposals (see below) and for
+      your own returning outbox state changes (status=changed/declined).
+      If a collab asks you a question, answer it directly; the
+      AI-to-AI substrate exists so the human doesn't have to dispatch.
     - If type=spec_updated: ack with cortex_archive_proposal once you've
       consumed the change
-    - If type=architecture_decision / code_change_request: surface to
-      the user (these need human ack before action)
+    - If type=architecture_decision / code_change_request / publish /
+      trust_escalation_request: these are ECO-gated typed proposals.
+      Surface to the user — they need explicit human Accept/Decline
+      before action. Do not auto-execute the underlying work.
     - For any item with parent_id: link your follow-up via parent_id
 
 Poll outbox via MCP — emit follow-ups for proposals that came back
@@ -404,20 +412,24 @@ toward max if everything stays quiet.
 The body shape above lists the rough decision tree. Detailed handling
 per proposal `type`:
 
-| type | Default action |
-|---|---|
-| `collab_brief` | Read payload, log finding-log with summary + impact, surface to user if requires their input |
-| `spec_updated` | Read the spec at `payload.path`, log finding-log "consumed spec X", archive the proposal via `cortex_archive_proposal` |
-| `architecture_decision` | Surface to user — these need explicit ack before action |
-| `code_change_request` | Surface to user if non-trivial; if a tiny mechanical change, can act and follow up |
-| `investigation_request` | Run the investigation via `cortex_research` or local tools, post results via `cortex_collab_post` |
-| `publish` | Compose draft per spec, follow voice profile, send back via `cortex_propose` parent-id linked |
-| `trust_escalation_request` | Always surface to user — never auto-act on trust changes |
+| type | Gate | Default action |
+|---|---|---|
+| `collab_brief` | **None (noetic, ungated)** | **Auto-react**: read payload, log finding-log, post a reply via `empirica mailbox reply --parent-id <pid> --result shipped` (atomic propose+complete). If the collab asks a question, answer it; if it shares context, ack/integrate it; if it converges, graduate to `cortex_propose` per the send-side discipline. **Do NOT surface-and-wait** — the human-as-dispatcher pattern breaks the AFK/ambassador model. |
+| `spec_updated` | None | Read spec at `payload.path`, log finding-log "consumed spec X", archive via `cortex_archive_proposal` |
+| `architecture_decision` | **ECO-gated** | Surface to user — needs explicit human Accept/Decline before action |
+| `code_change_request` | **ECO-gated** | Surface to user — same as above. Tiny mechanical changes can act-and-follow-up only if you're confident the user would auto-accept. |
+| `investigation_request` | None (auto-reflex) | Run the investigation via `cortex_research` or local tools, post results via reply collab_brief |
+| `publish` | **ECO-gated** | Surface to user — never auto-publish |
+| `trust_escalation_request` | **ECO-gated** | Always surface to user — never auto-act on trust changes |
+
+**The split is symmetric with the send side** (`/cortex-mailbox-send`): collab (noetic) flows ungated AI↔AI; ECO-gated typed proposals (`architecture_decision` / `code_change_request` / `publish` / `trust_escalation_request`) need the human gate. **Outbox state changes you receive** (`direction=outbox, status=changed/declined`) also surface to the user — those mean your own proposal needs human-aware refinement.
 
 For ANY proposal that requires acting (not just acknowledging), the AI
 should open an empirica transaction (PREFLIGHT) to record the work. The
 mailbox-poll itself is meant to be lightweight — its job is to detect
 and route, not to do the work inline.
+
+> **Why the noetic auto-reply rule exists** (extension's `prop_urke62v`, 2026-06-01, David-directed): when AIs surface every collab question to the human, the human becomes a dispatcher between AI instances — defeats the AFK/ambassador model and burns the human's attention on routing. Collab is ungated *specifically so* AIs can converge without human intervention. Pairs with Contract 2 (fyi-drop): every collab wake is now actionable but actionable-by-AI, not actionable-by-human.
 
 ---
 
