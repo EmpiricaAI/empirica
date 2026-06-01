@@ -1272,7 +1272,7 @@ ALL_MIGRATIONS: list[tuple[str, str, Callable]] = [
     ("045_assumption_decision_description", "Add description TEXT column to assumptions + decisions (markdown-first artifacts series — mirrors goals migration 043). Extension renders as prettified markdown.", lambda cursor: migration_045_assumption_decision_description(cursor)),
     ("046_refdocs_to_sources", "Migrate project_reference_docs rows into epistemic_sources with source_type='pointer'. Phase 1 of refdocs→sources unification (goal 3d6aeb08). Idempotent — skips rows already migrated by id. The old table stays in place this phase; reader+writer switch over to sources, CLI drop + table drop in a follow-up.", lambda cursor: migration_046_refdocs_to_sources(cursor)),
     ("047_drop_project_reference_docs", "Drop project_reference_docs table — Phase 3 of refdocs→sources unification (goal 3d6aeb08). All data was migrated to epistemic_sources(type='pointer') by migration 046; CLI surface was dropped in Phase 2 (no writers); reader was switched in Phase 1 (no readers). Final structural cleanup. Idempotent — skips when table doesn't exist (fresh DBs that never had it).", lambda cursor: migration_047_drop_project_reference_docs(cursor)),
-    ("048_beads_table", "Add beads table — coordination-records v0 (3-way HYBRID design with cortex + extension, 2026-05-30). First MUTABLE node type empirica carries; courier of coordination-state + references to actionables, never canonical home. Mirrors NODE_REQUIRED_FIELDS lock in graph_commands.py (b91a2b60b) + cortex BEAD_COORDINATION_RECORD.md §6 lifecycle.", lambda cursor: migration_048_beads_table(cursor)),
+    ("048_beads_table", "Add beads v0 coordination-records table (HISTORICAL — the v0 bead concept retired 2026-06-02 / empirica 1.11.2; cross-practitioner coordination state lives in cortex-resident SER now per empirica-cortex SHARED_EPISTEMIC_RECORD.md). Table kept intact for legacy-row readability; no current code path writes to it.", lambda cursor: migration_048_beads_table(cursor)),
 ]
 
 
@@ -1840,24 +1840,26 @@ def migration_042_impact_on_dead_ends_and_mistakes(cursor: sqlite3.Cursor):
 
 
 def migration_048_beads_table(cursor: sqlite3.Cursor):
-    """Add beads table — coordination-records v0 (3-way HYBRID).
+    """Add beads table — v0 coordination-records (3-way HYBRID, 2026-05-30).
 
-    First MUTABLE node type empirica's artifact-graph carries. The bead is a
-    COURIER: it tracks an actionable (goal, bd-issue, email, publish,
-    question) via the `tracks` edge in artifact_edges and carries the
-    coordination layer (state + who/about/who-works-it). It is NEVER the
-    canonical home of the artifact it tracks — that stays in goals / bd /
-    zernio. `coordination_state` (not bare `state`) keeps that discipline
-    visible at every read. `updated_at` mandatory because triage feeds order
+    HISTORICAL CONTEXT — RETIRED 2026-06-02 (empirica 1.11.2): the v0
+    bead-as-graph-node concept retired three-way (cortex/empirica/extension)
+    on 2026-06-01. Cross-practitioner coordination state lives in
+    cortex-resident SER (Shared Epistemic Record) now — see
+    `empirica-cortex/docs/architecture/SHARED_EPISTEMIC_RECORD.md`. The
+    `bead` node type + 4 v0 edges (`tracks`/`owned_by`/`about`/`worked_by`)
+    were removed from graph_commands.py NODE_REQUIRED_FIELDS +
+    VALID_RELATIONS in 1.11.2. This migration is kept intact for historical
+    DB consistency — existing installs run it once and inherit the table
+    with their pre-retirement rows readable. Future cleanup (DROP TABLE)
+    deferred to a separate migration.
+
+    Original v0 framing (preserved as historical record): the bead was a
+    COURIER tracking an actionable (goal, bd-issue, email, publish) via the
+    `tracks` edge + carrying the coordination layer (state + who/about/
+    who-works-it). `coordination_state` (not bare `state`) kept that
+    discipline visible; `updated_at` mandatory because triage feeds ordered
     by recency-of-change on a mutable artifact.
-
-    Schema language is locked in
-    `empirica/cli/command_handlers/graph_commands.py` NODE_REQUIRED_FIELDS
-    (`bead` → ['coordination_state', 'updated_at']) + VALID_RELATIONS
-    (`tracks`, `owned_by`, `about`, `worked_by`) — committed at b91a2b60b.
-    The cortex-side contract is `docs/architecture/BEAD_COORDINATION_RECORD.md`
-    in the cortex repo. Per-edge attributes (e.g. `worked_by.role`) ride
-    `artifact_edges.metadata` JSON — no schema change there.
 
     Idempotent — CREATE TABLE IF NOT EXISTS.
     """

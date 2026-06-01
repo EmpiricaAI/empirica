@@ -943,14 +943,21 @@ class BreadcrumbRepository(BaseRepository):
         epistemic_source: str | None = None,
         description: str | None = None,
     ) -> str:
-        """Log a bead (coordination-record) to the beads table.
+        """Log a bead (v0 coordination-record) to the legacy `beads` table.
 
-        Beads are the FIRST mutable node type empirica carries — couriers
-        of coordination-state + references, never canonical homes of the
-        artifact they track. State machine: open ↔ in_progress ↔ blocked,
-        any → closed. `updated_at` defaults to time.time(); callers should
-        touch it on every state transition along with `last_transition_actor`.
-        See cortex BEAD_COORDINATION_RECORD.md §6 lifecycle.
+        RETIRED 2026-06-02 (empirica 1.11.2). The v0 bead-as-graph-node
+        concept retired three-way (cortex/empirica/extension) on
+        2026-06-01; cross-practitioner coordination state now lives in
+        cortex-resident SER (Shared Epistemic Record) — see
+        `empirica-cortex/docs/architecture/SHARED_EPISTEMIC_RECORD.md`.
+
+        This method is kept as an inert legacy path so any pre-retirement
+        bead rows stay readable, but no current code path calls it. New
+        callers should use `cortex_propose(payload.action='create_ser')`
+        via the `/cortex-mailbox-send` skill.
+
+        State machine (v0, frozen): open ↔ in_progress ↔ blocked,
+        any → closed.
         """
         bead_id = str(uuid.uuid4())
 

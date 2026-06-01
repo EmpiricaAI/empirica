@@ -252,14 +252,15 @@ SCHEMAS = [
     )
     """,
 
-    # Beads: coordination-records (3-way HYBRID, 2026-05-30). First MUTABLE
-    # node type — courier of coordination-state + references; never the
-    # canonical home of the artifact it tracks. `coordination_state` (not
-    # bare `state`) keeps that discipline visible. `updated_at` mandatory
-    # because triage feeds order by recency-of-change on a mutable artifact.
-    # `beads_issue_id` is the HYBRID passthrough (present iff tracks(issue)).
-    # Schema language locked in graph_commands.py NODE_REQUIRED_FIELDS
-    # (b91a2b60b); aligned with cortex BEAD_COORDINATION_RECORD.md §6.
+    # Beads: v0 coordination-records — RETIRED 2026-06-02 (empirica 1.11.2).
+    # Cross-practitioner coordination state moved to cortex-resident SER
+    # (Shared Epistemic Record); see empirica-cortex SHARED_EPISTEMIC_RECORD.md.
+    # The table is kept here (non-destructive) so any pre-retirement rows
+    # remain readable; no current code path writes to it. The state-machine
+    # CHECK constraint stays for historical-row integrity. `beads_issue_id`
+    # is the legacy HYBRID passthrough to the `bd` issue tracker; that bd
+    # integration itself is unrelated to the bead-coordination concept and
+    # stays valid (see goals.beads_issue_id for the active path).
     """
     CREATE TABLE IF NOT EXISTS beads (
         id TEXT PRIMARY KEY,

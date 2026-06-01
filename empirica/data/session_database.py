@@ -2848,12 +2848,14 @@ class SessionDatabase:
         epistemic_source: str | None = None,
         description: str | None = None,
     ) -> str:
-        """Log a bead coordination-record (delegates to BreadcrumbRepository).
+        """Log a bead v0 coordination-record (delegates to BreadcrumbRepository).
 
-        First mutable node type — courier of coordination-state + references,
-        never canonical home. See cortex BEAD_COORDINATION_RECORD.md §6 for
-        the lifecycle and graph_commands.py NODE_REQUIRED_FIELDS for the
-        locked schema language.
+        RETIRED 2026-06-02 (empirica 1.11.2). The v0 bead concept retired
+        three-way (cortex/empirica/extension) 2026-06-01; cross-practitioner
+        coordination state lives in cortex-resident SER now — see
+        `empirica-cortex/docs/architecture/SHARED_EPISTEMIC_RECORD.md`.
+        Kept as an inert legacy path for backward read of pre-retirement
+        rows. New callers should use `cortex_propose(payload.action='create_ser')`.
         """
         return self.breadcrumbs.log_bead(
             project_id, session_id,
