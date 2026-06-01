@@ -231,237 +231,115 @@ auto-act.
 
 ---
 
-## Flavor 3 — Sustained coordination via Shared Epistemic Records (SER)
+## Flavor 3 — Sustained coordination via Shared Epistemic Record (SER)
 
-**The SER is the missing middle** between single-turn collab and graduated
-proposal. Where `cortex_collab` handles single-turn discussion and
-`cortex_propose` carries a discrete praxic ask, **the SER is a persistent
-shared-state record** living in cortex storage that outlives any single
-thread and carries cross-practitioner state across many turns and sessions.
+Cortex-resident shared-state object for coordination across ≥2 practitioners. Persists across sessions. Goals stay per-practitioner; SER is what they coordinate against.
 
-The SER is **not a fourth messaging tool** — it's the cortex-resident
-shared-state object that *organizes* multi-practitioner coordination on
-top of collab and propose. You create SERs via `cortex_propose` with
-`payload.action='create_ser'`; cortex persists them and surfaces them via
-the read endpoint + the extension Reports tab.
-
-An SER **is not the canonical home** of any local goal it points at — the
-goal stays in your empirica project DB. The SER carries the *shared* state
-across practices that goals cannot (because goals are per-project per-practitioner):
-
-- Who is involved — `participants[]` with per-row `role ∈ {required, participating, observer}`
-- What state the coordination is in — `coordination_state ∈ {open, in_progress, blocked, closed}`
-- Where it came from — `source_ref` (the proposal/thread that birthed it)
-- Optional per-practitioner local goal links — `goal_refs[]` (0..n; each side links UP)
-- Escalation cadence — `escalation_seconds` (when to re-ping required participants who haven't acked)
-
-Canonical spec: `empirica-cortex/docs/architecture/SHARED_EPISTEMIC_RECORD.md`. Read it before authoring non-trivial SERs.
+Spec: `empirica-cortex/docs/architecture/SHARED_EPISTEMIC_RECORD.md`. Conceptual context: `empirica/docs/human/end-users/MESH_CONCEPTS.md`.
 
 ### When to create an SER
 
-| Signal | Action |
+| Trigger | Action |
 |---|---|
-| A collab discussion has accumulated ≥3 rounds across the same practitioners with no graduation in sight | Create an SER. The thread is sustained; promote it to shared coordination state so it doesn't die on the next ack. |
-| Work has named participants with explicit role tiers AND will survive across sessions | Create an SER. The participants × role-tier discipline matches the structure. |
-| You're about to graduate a converged collab to a typed proposal | Embed `payload.action='create_ser'` + `payload.ser_spec={...}` directly in the graduating proposal — one atomic write creates the SER and the tracks edge. |
-| Cross-tenant coordination (your practice ↔ another tenant's sustained over multiple turns) | Create an SER with cross-tenant participants — `scope` is derived from the participants' canonical ids at read time. Routes through extension's System tab when cross_org. |
-| Single FYI, question, datum, short reply | DON'T. Use `cortex_collab`. |
-| You know exactly the typed praxic ask already | DON'T. Use `cortex_propose` directly with a `parent_id` if it grew from a thread. |
-| Only one practice is involved | DON'T. SER requires ≥2 distinct practice_ids in participants. For solo work, use `empirica goals-create`. |
+| Collab thread ≥3 rounds across same participants, no graduation in sight | Create SER |
+| Work has named participants + role tiers + survives across sessions | Create SER |
+| Graduating a converged collab to a typed proposal AND persistent shared state is needed | Embed `payload.action='create_ser'` in the graduating proposal (one atomic write) |
+| Cross-tenant sustained coordination | Create SER with cross-tenant participants (scope derived) |
+| Single FYI / question / discrete praxic ask / one-practice work | DON'T. Use `cortex_collab` / `cortex_propose` / `empirica goals-create` |
 
-### How to create an SER — `payload.action='create_ser'`
-
-SERs are created cortex-side by emitting a `cortex_propose` that carries
-the SER spec in its payload. On accept, cortex atomically creates the
-proposal envelope AND the SER, performs a post-commit graph-integrity
-assert that the projection landed correctly, and returns both ids:
+### Call shape — `payload.action='create_ser'`
 
 ```python
 mcp__cortex__cortex_propose(
     api_key=<your-api-key>,
-    type="architecture_decision",       # or another typed proposal (see Type taxonomy)
-    action_category="REFLEX",           # auto-accept; the ECO gate was the typed-propose itself, not SER existence
+    type="architecture_decision",       # or whichever typed proposal fits
+    action_category="REFLEX",           # auto-accept; ECO was the typed-propose itself
     source_claude="<your-ai-id>",
-    target_claudes=["<peer-ai-id-1>", "<peer-ai-id-2>"],
-    parent_id="<thread_root_id>",       # the collab thread that converged
-    title="<the SER's title — 1-line headline>",
-    summary="<the typed ask body>",
+    target_claudes=["<peer-1>", "<peer-2>"],
+    parent_id="<thread_root_id>",
+    title="<headline>",
+    summary="<typed ask body>",
     payload={
         "action": "create_ser",
         "ser_spec": {
-            "title": "<SER title (shown in Reports tab)>",
-            "summary": "<SER body in markdown>",
+            "title": "<SER title>",
+            "summary": "<SER body markdown>",
             "participants": [
-                {"practice_id": "<your-canonical-3-level-id>", "role": "required"},
+                {"practice_id": "<your-canonical>", "role": "required"},
                 {"practice_id": "<peer-1-canonical>", "role": "required"},
                 {"practice_id": "<peer-2-canonical>", "role": "participating"},
-                # Must have ≥2 distinct practice_ids. Exactly one must be the
-                # creator at role=required (cortex enforces).
             ],
             "goal_refs": [
-                # OPTIONAL — 0..n per-practitioner local goal links.
-                # Each side adds their own as they decompose locally.
-                {"practice_id": "<your-canonical>", "goal_id": "<your-empirica-goal-uuid>"},
-            ],
-            "escalation_seconds": 14400,  # default 4h; required-tier participants who
-                                          # haven't ack'd since last_transition_at get
-                                          # re-pinged after this many seconds idle.
-            # source_ref auto-derived to parent_id (or proposal.id) if omitted.
+                {"practice_id": "<your-canonical>", "goal_id": "<empirica-goal-uuid>"},
+            ],  # optional, 0..n
+            "escalation_seconds": 14400,  # default 4h
+            # source_ref auto-derived from parent_id if omitted
         }
     },
 )
 ```
 
-Cortex's response shape (Phase 1b live):
+Invariants enforced cortex-side: ≥2 distinct practice_ids in participants; exactly one creator at `role=required`; `coordination_state` starts `open`.
+
+### Response shape
 
 ```json
 {
     "proposal_id": "prop_...",
     "ser_id": "ser_...",
-    "ser_state_verified": true   // post-commit graph-integrity assert
+    "ser_state_verified": true
 }
 ```
 
-`ser_state_verified=true` means cortex re-queried the SER after write and
-the projection matched the expected shape — participants, edges, state
-all landed. `ser_state_verified=false` is a soft warning (look for
-`sync.graph: ser_create assert_failed` in cortex logs); the SER exists
-but the projection drifted. Hard-error on write failure (no SER, propose
-returns error).
+`ser_state_verified=true` → post-commit graph re-query matched expected projection. `false` → soft warning (grep cortex logs for `sync.graph: ser_create assert_failed`); SER exists but projection drifted. Write failure → hard error, no SER.
 
-### Per-participant role — wake/attention semantics
+### Role tiers — wake / attention
 
-The `role` field on each participant drives how that practice sees the
-SER and (post-Phase 3) how escalate-on-silence pings them:
+| Role | Wake on transition | Phase 3 escalation re-ping |
+|---|---|---|
+| `required` | Every transition | Yes, if `last_ack_at < last_transition_at` after `escalation_seconds` idle |
+| `participating` | Every transition | No |
+| `observer` | Only `blocked` / `closed` | No |
 
-| Role | Default attention | Wake on state change | Escalation re-ping (Phase 3) |
-|---|---|---|---|
-| `required` | Full visibility — see everything they own | Wake on every transition | Re-ping if `last_ack_at < last_transition_at` after `escalation_seconds` idle |
-| `participating` | Catches decisions, skips routine | Wake on every transition | No re-ping |
-| `observer` | Blockers / breakage only | Wake only on transitions to `blocked` / `closed` | No re-ping |
+Default to `participating` when uncertain.
 
-Pick the role based on the attention you're asking of the peer. Default
-to `participating` when uncertain — `required` means "you own this and
-will be re-pinged on silence."
+### State lifecycle
 
-### Coordination state lifecycle
+`open → in_progress → closed` (terminal). `blocked` ↔ `in_progress` when blocking lifts. Re-open a closed SER by creating a new one with `source_ref` to the prior. State is coordination state — independent of any participant's local goal lifecycle.
 
-```
-open ──────► in_progress ──────► closed (terminal)
-                  │
-                  ▼
-              blocked ──── back to in_progress when unblocked
-```
+### Graduation discipline
 
-The state IS *coordination* state, not artifact state. An SER `closed`
-because shared work shipped → each side's tracked goals may or may not
-also be `completed`. SER transitions are INDEPENDENT of any single
-participant's local goal lifecycle. The SER can close (handoff complete)
-while one practitioner's referenced goal stays open for follow-on work.
+When a collab thread converges on an actionable ask, the most-converged participant auto-emits `cortex_propose` (with `payload.action='create_ser'` if persistent state is needed). Don't ask the human; ECO Accept/Decline is the gate. Inflated-confidence graduation lands on the inflating AI's calibration record at ECO rejection.
 
-**Closed is terminal.** Re-opening a closed SER → create a new SER linked
-via `source_ref` to the prior one.
+### AFK-ambassador
 
-To update state — Phase 2 (deferred). Will use
-`cortex_propose(payload.action='transition_ser', payload.ser_id=<id>, payload.new_state=<state>)`.
-The `ser_ack` action (no state change, just records `last_ack_at` per participant
-to stop next escalation tick) lands in Phase 2 alongside.
+When extension graduates on behalf of an offline lead AI, set `source_claude=<lead_ai_id>` and `payload.proxy_actor='extension'` in the payload. ECO still gates regardless of emitter.
 
-### Who graduates — the discipline
+### Cross-org
 
-**You take the lead, not the human.** When you're in a collab thread that's converging on an actionable ask, the discipline is:
+`scope` is **derived** from participants' canonical ids — include cross-org participants → cortex routes through extension's System tab + L3 ECO rules apply. Don't set scope explicitly.
 
-1. **Read the thread honestly.** Of the active participants' most-recent replies, which is most-converged on actionability — most concrete next-step, least hedging, clearest source-grounding, most directly translatable into a typed proposal?
-2. **If your reply is the most-converged, YOU bump.** Emit `cortex_propose` with `parent_id=<thread_root>` — embed `payload.action='create_ser'` + `payload.ser_spec={...}` if the work needs a persistent coordination record. Don't ask the human; don't wait for a peer to do it.
-3. **If a peer's reply is the most-converged, defer.** Keep collab'ing, or acknowledge to them that they should bump.
-
-**Trust the shared intelligence.** An AI that inflates its confidence to bump prematurely faces the consequence at the ECO gate — the brief gets rejected on read by the human (or by `empirica-autonomy` once it's the ECO actor), and that rejection lands on the inflating AI's calibration record. Self-honesty is the equilibrium; inflation is self-defeating. The mesh doesn't need a per-thread confidence vote — it relies on each AI reading the thread honestly and on the downstream ECO gate to correct any AI that doesn't.
-
-**Why this matters.** Without the discipline, collab threads converge but nobody graduates — the human ends up scrolling per-instance ECO queues to manually bump what AIs should have bumped themselves. With auto-accept on (Homer mode), AI-graduated proposals route through the trust pipeline without further human input, making AI-lead-graduation the mesh's natural mode.
-
-### Extension-as-AFK-ambassador (graduation when lead AI is offline)
-
-If the user is AFK and extension graduates an SER-creating proposal on
-behalf of the lead AI:
-
-```python
-mcp__cortex__cortex_propose(
-    ...,
-    source_claude="<lead_ai_id>",       # honest attribution to work-doer
-    payload={
-        "action": "create_ser",
-        "ser_spec": {...},
-        "proxy_actor": "extension",      # makes proxy chain auditable
-    },
-)
-```
-
-`source_claude` stays the lead AI; `payload.proxy_actor` records the
-proxy chain. ECO still gates the typed proposal regardless of who emitted.
-
-### Cross-org coordination — `scope` derived from participants
-
-When the SER's participants include canonical ids from different `<org>`
-prefixes, cortex derives `scope=cross_org` at read time. Cross-org SERs
-route through extension's System tab as governance attention (separate
-from ECO / collab / publish surfaces). The L3 cross-org trust rules from
-the Mesh Routing Protocol apply — every transition on a cross-org SER
-flows through ECO.
-
-`scope` is derived, not set explicitly — to make a coordination cross-org,
-include cross-org participants. To keep it tenant-internal, restrict
-participants to your own org.
-
-### Reading SERs you're a participant in
-
-Cortex exposes SERs via `GET /v1/sers?ai_id=<your-canonical-id>` — returns
-the projection of every SER where your practice is a participant:
+### Reading SERs
 
 ```
-{
-  ok: true,
-  count: N,
-  sers: [
-    {
-      ser_id, coordination_state, title, summary,
-      participants: [{practice_id, role, last_ack_at, last_action_at}, ...],
-      goal_refs: [...],
-      source_ref: <proposal_id>,    // canonical storage column name (was source_thread alias pre-89064a2)
-      escalation_seconds,
-      last_transition_at, last_transition_actor,
-    },
-    ...
-  ]
-}
+GET /v1/sers?ai_id=<your-canonical>           # all SERs you participate in
+GET /v1/sers?ai_id=<your-canonical>&thread_id=<root>   # SERs from a specific thread
 ```
 
-Filter by `?thread_id=<root>` to find SERs that graduated from a specific
-collab thread (e.g., to render collab-pane SER chips per thread).
+Returns projection: `{ser_id, coordination_state, title, summary, participants[role, last_ack_at, last_action_at], goal_refs, source_ref, escalation_seconds, last_transition_at, last_transition_actor}`.
 
-Session bootstrap pattern: call `/v1/sers?ai_id=<self>` to load all SERs
-you're participating in where `state ∈ {open, in_progress, blocked}`.
-This is the "where is the multi-practice work I'm part of?" view.
+Session bootstrap: query without `thread_id` to load all your active SERs (`state ∈ {open, in_progress, blocked}`).
 
-### When an SER is the wrong shape
-
-| Situation | Use instead |
-|---|---|
-| Single-turn reply or FYI | `cortex_collab` (don't over-structure) |
-| You already know the typed praxic ask and convergence happened in chat | `cortex_propose` directly, with `parent_id` for thread linkage |
-| Purely internal goal that no peer cares about | `empirica goals-create` — SERs are for cross-practitioner coordination only |
-| Logging a finding for cross-project searchability | `empirica finding-log --visibility shared` — no SER needed |
-| One practice only | `empirica goals-create` — SER requires ≥2 distinct practice_ids |
-
-The SER earns its keep when **sustained + ≥2 practices + needs a graduation-or-tracking hook**. If any of those is missing, simpler primitives are better.
-
-### Phase status (current ship state)
+### Phase status
 
 | Phase | Action | Status |
 |---|---|---|
-| 1a | `GET /v1/sers` read endpoint | LIVE |
-| 1b | `payload.action='create_ser'` write handler + projection assert + wake | LIVE |
-| 2 | `payload.action='transition_ser'` + `payload.action='ser_ack'` | PENDING |
-| 3 | Escalation tick scheduler (re-ping required-tier on idle) | PENDING |
+| 1a | `GET /v1/sers` read | LIVE |
+| 1b | `payload.action='create_ser'` | LIVE |
+| 2 | `payload.action='transition_ser'` + `'ser_ack'` | PENDING |
+| 3 | Escalation tick scheduler | PENDING |
+
+Don't emit Phase 2/3 actions until status flips to LIVE.
 
 ---
 

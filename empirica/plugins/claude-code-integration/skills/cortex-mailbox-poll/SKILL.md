@@ -390,20 +390,9 @@ On MCP failure (network, auth, unexpected error):
 
 ---
 
-## Self-throttle rationale
+## Self-throttle
 
-The body's first real check (after pause) is whether `R.transaction_read()`
-returns an open transaction. If yes, the AI is mid-PREFLIGHT-to-POSTFLIGHT
-cycle — it's already focused on something. Polling the inbox right now
-would surface a notification that competes for attention against the
-in-flight work.
-
-Self-throttle returns `empty` (not `paused`) so the streak grows naturally
-toward `max_interval`. When the transaction eventually closes
-(POSTFLIGHT), the next fire happens on whatever the current schedule
-dictates — back to base 30s if a peer proposal arrived during the
-transaction (because the inbox will have new items), or stretching
-toward max if everything stays quiet.
+If `R.transaction_read()` returns an open transaction, the body returns `empty` (not `paused`) — streak grows toward `max_interval`. Resumes on next fire after POSTFLIGHT.
 
 ---
 
@@ -422,20 +411,15 @@ per proposal `type`:
 | `publish` | **ECO-gated** at the proposal layer | On `status=accepted`, compose + dispatch per the spec |
 | `trust_escalation_request` | **ECO-gated** at the proposal layer | On `status=accepted`, apply the trust change |
 
-**ECO gating IS the proposal's Accept/Change/Decline.** When you emit a `cortex_propose` (because collab converged and you're the initiator / highest-confidence / asked-to-take-it-on), the proposal routes through the ECO actor (human or autonomy delegate) automatically. **Auto-emit** when convergence happens. Do NOT ask the human "should I emit this proposal?" — that re-introduces the dispatcher pattern. When you RECEIVE an ECO-accepted proposal targeting you, proceed — the ECO actor already decided.
+**ECO gating IS the proposal's Accept/Change/Decline status.** Auto-emit on convergence; act on `status=accepted` for typed proposals targeting you. Do NOT re-ask the human at either end.
 
-**Symmetric with the send side** (`/cortex-mailbox-send`): collab flows ungated AI↔AI; ECO-gated typed proposals auto-emit on convergence and Accept/Change/Decline routes through the ECO actor without re-asking the human.
+**Surface to user only:**
+- `direction=outbox, status=changed` — read the change-note + emit refinement with `parent_id`. Only surface if the note needs clarification you can't infer.
+- `direction=outbox, status=declined` — surface so the user can correct the model. Update beliefs; don't re-emit without new evidence.
 
-**The ONLY cases that surface from the receive side:**
-- `direction=outbox, status=changed` — read the change-note and emit a refined proposal with `parent_id`. Surface only if the note needs clarification you can't infer.
-- `direction=outbox, status=declined` — surface so the user can correct the model. Update your beliefs; do not re-emit without new evidence.
+For any proposal requiring action, open an empirica transaction (PREFLIGHT) to record the work. The poll itself is lightweight — detect + route, don't do the work inline.
 
-For ANY proposal that requires acting (not just acknowledging), the AI
-should open an empirica transaction (PREFLIGHT) to record the work. The
-mailbox-poll itself is meant to be lightweight — its job is to detect
-and route, not to do the work inline.
-
-> **Why the noetic auto-reply rule exists.** Surfacing every collab question to the human turns the human into a dispatcher between AI instances — defeats the AFK/ambassador model. Collab is ungated specifically so AIs can converge without human intervention. Every collab wake is actionable-by-AI, not actionable-by-human.
+Conceptual context: `empirica/docs/human/end-users/MESH_CONCEPTS.md`.
 
 ---
 
