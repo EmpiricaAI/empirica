@@ -41,6 +41,12 @@
 | `PROJECT_MANAGEMENT_FOR_USERS.md` | Project model + auto-detection + workspace |
 | `MCP_INSTALLATION.md` | MCP server setup for GUI clients |
 
+### Mesh & Coordination
+| File | Purpose |
+|------|---------|
+| `MESH_CONCEPTS.md` | Why the mesh is different — practitioner/practice framing + epistemic actionable knowledge as the payload |
+| `MESH_SETUP.md` | How to set up the optional cortex / extension / ntfy layers on top of core |
+
 ### Integrations
 | File | Purpose |
 |------|---------|

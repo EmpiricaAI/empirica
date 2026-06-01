@@ -1,5 +1,7 @@
 # The Full Mesh Solution — Setup Guide
 
+> **Reading order tip:** if you haven't yet, start with [MESH_CONCEPTS.md](MESH_CONCEPTS.md) — it explains *why* the mesh works the way it does (practitioner/practice framing, what actually rides the wire between AIs). This doc is the *how*: installing the optional layers on top of core.
+
 **Empirica core works standalone.** Artifacts, goals, calibration, project-search, the sentinel gate, the artifact graph, commit-context, BEADS integration — all of these run on the local install without any further setup beyond `pip install empirica` and `empirica project-init`. If that's all you need, you're done.
 
 **This doc is for users who want the optional mesh layer.** The mesh adds:
