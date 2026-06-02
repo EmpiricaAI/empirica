@@ -1,5 +1,7 @@
 # BEADS–Git Bridge
 
+> **Naming note:** "BEADS" = the external [bd](https://github.com/cased/beads) issue tracker. NOT the retired v0 bead coordination record.
+
 **Status:** Shipped. Branch creation + mapping live since the
 `goals-claim` / `goals-complete` commands landed (see `goal_commands.py:2140`,
 `integrations/branch_mapping.py`).
