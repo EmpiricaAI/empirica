@@ -12,7 +12,9 @@ Architecture:
 - Graceful: if CLI not found, returns clear error
 - Stateless: no session state in the server itself
 
-Version: 1.8.14
+Version tracked via the empirica-mcp package metadata (see pyproject.toml).
+Last TOOL_REGISTRY re-verification against `empirica --help`: 2026-04-05
+(stale — see TOOL_REGISTRY refresh goal for the additions backlog).
 """
 
 import argparse

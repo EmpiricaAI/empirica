@@ -2,7 +2,17 @@
 
 **AI measurement and calibration tools via Model Context Protocol.**
 
-Exposes Empirica's 44 tools to Claude Desktop, IDEs, and any MCP-compatible environment. Track what AI knows, gate what it does, and compound learning across sessions — without needing Claude Code or Bash access.
+Exposes Empirica's tool surface to Claude Desktop, IDEs, and any
+MCP-compatible environment (Cursor, Gemini CLI, Codex, etc.). Track
+what AI knows, gate what it does, and compound learning across
+sessions — without needing Claude Code or Bash access.
+
+> **Tool surface (56 tools as of 1.11.2)** covers session lifecycle,
+> the epistemic transaction loop, artifact logging, goals, project
+> search, calibration, lessons, sync, and entity registry. A backlog
+> exists to add the recent `practice-context`, `commit-context`,
+> `listener`, `loop`, `notify`, `mailbox`, and `mesh` primitive
+> groups — see the empirica goals DB for the refresh goal.
 
 [![PyPI](https://img.shields.io/pypi/v/empirica-mcp)](https://pypi.org/project/empirica-mcp/)
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)]()
