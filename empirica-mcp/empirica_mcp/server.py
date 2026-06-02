@@ -546,6 +546,198 @@ TOOL_REGISTRY: dict[str, dict] = {
         "required": [],
         "desc": "Generate efficiency report for session",
     },
+
+    # --- Mesh + addressbook (added 2026-06-03) ---
+    "practice_context": {
+        "cli": "practice-context",
+        "params": {
+            "cortex_url": "--cortex-url",
+            "api_key": "--api-key",
+            "ai_id": "--ai-id",
+            "timeout": "--timeout",
+        },
+        "required": [],
+        "desc": (
+            "Ambassador addressbook — pulls /v1/users/me/roster from cortex "
+            "and projects each (tenant, project) seat with substrate annotation "
+            "(cortex|git|local). Optional --ai-id filter. Use this to verify the "
+            "canonical 3-form (`org.tenant.project`) before emitting target_claudes."
+        ),
+    },
+
+    # --- Temporal trail (added 2026-06-03) ---
+    "commit_context": {
+        "cli": "commit-context",
+        "params": {
+            "range": "--range",
+            "since": "--since",
+            "until": "--until",
+            "session": "--session",
+            "depth": "--depth",
+            "full": "--full",
+            "only_with_artifacts": "--only-with-artifacts",
+        },
+        "required": [],
+        "positional": "commit",
+        "desc": (
+            "Walk artifacts anchored to commit(s) via git notes. Modes: "
+            "single SHA (positional), --range (rev range), --since/--until "
+            "(date window), --session (all commits in a session). --depth N "
+            "expands the artifact graph; --full includes payloads."
+        ),
+    },
+
+    # --- Listener facade (added 2026-06-03) ---
+    "listener_on": {
+        "cli": "listener on",
+        "params": {
+            "ai_id": "--ai-id",
+            "name": "--name",
+            "topic": "--topic",
+            "instance_id": "--instance",
+        },
+        "required": [],
+        "desc": (
+            "Register listener + emit a Monitor command for in-session arming. "
+            "Idempotent. Pairs with `listener arm` (after Monitor returns a "
+            "task_id) and `listener off`."
+        ),
+    },
+    "listener_arm": {
+        "cli": "listener arm",
+        "params": {
+            "name": "--name",
+            "ai_id": "--ai-id",
+            "instance_id": "--instance",
+        },
+        "required": ["task_id"],
+        "positional": "task_id",
+        "desc": "Update listener state file with the Monitor task_id (so `listener off` can TaskStop it later).",
+    },
+    "listener_off": {
+        "cli": "listener off",
+        "params": {
+            "name": "--name",
+            "ai_id": "--ai-id",
+            "instance_id": "--instance",
+        },
+        "required": [],
+        "desc": "Emit a TaskStop command for the armed listener + clear state. Inverse of `listener on`/`arm`.",
+    },
+
+    # --- Loop scheduler (added 2026-06-03) ---
+    "loop_register": {
+        "cli": "loop register",
+        "params": {
+            "name": "--name",
+            "kind": "--kind",
+            "cron": "--cron",
+            "interval": "--interval",
+            "description": "--description",
+            "backoff": "--backoff",
+            "base_interval": "--base-interval",
+            "max_interval": "--max-interval",
+            "instance_id": "--instance",
+        },
+        "required": ["name", "kind"],
+        "desc": (
+            "Register a loop (idempotent). Kind: cron | interval | monitor. "
+            "Adaptive backoff supported via --backoff exponential + --base-interval/--max-interval."
+        ),
+    },
+    "loop_heartbeat": {
+        "cli": "loop heartbeat",
+        "params": {
+            "status": "--status",
+            "result": "--result",
+            "message": "--message",
+            "next_scheduled_job_id": "--next-scheduled-job-id",
+            "scheduler_kind": "--scheduler-kind",
+            "instance_id": "--instance",
+        },
+        "required": ["name"],
+        "positional": "name",
+        "desc": "Heartbeat a loop fire with result signal (found|empty|fail|paused). Optionally records the next scheduled job_id for pause/cancel.",
+    },
+    "loop_status": {
+        "cli": "loop status",
+        "params": {
+            "instance_id": "--instance",
+        },
+        "required": ["name"],
+        "positional": "name",
+        "desc": "Read loop registry state: pause flag, last fire, last result, streak position.",
+    },
+    "loop_schedule_next": {
+        "cli": "loop schedule-next",
+        "params": {
+            "instance_id": "--instance",
+        },
+        "required": ["name"],
+        "positional": "name",
+        "desc": "Compute the next fire interval per backoff policy + emit a cron_one_shot expression for CronCreate.",
+    },
+
+    # --- Notify dispatcher (added 2026-06-03) ---
+    "notify_emit": {
+        "cli": "notify emit",
+        "params": {
+            "severity": "--severity",
+            "title": "--title",
+            "message": "--message",
+            "rationale": "--rationale",
+            "tags": "--tags",
+            "click_url": "--click-url",
+            "actions": "--actions",
+            "source": "--source",
+            "topic_override": "--topic-override",
+            "backend_override": "--backend-override",
+            "dry_run": "--dry-run",
+        },
+        "required": ["severity", "title", "message"],
+        "desc": (
+            "Multi-backend notification dispatcher. Reads ~/.empirica/notify.yaml "
+            "for routing decisions. Severity: info|warning|critical. Backends: ntfy, "
+            "macos, dbus, slack, email — pluggable."
+        ),
+    },
+
+    # --- Mailbox atomic reply (added 2026-06-03) ---
+    "mailbox_reply": {
+        "cli": "mailbox reply",
+        "params": {
+            "parent_id": "--parent-id",
+            "summary": "--summary",
+            "title": "--title",
+            "type": "--type",
+            "target_claudes": "--target-claudes",
+            "source_claude": "--source-claude",
+            "payload": "--payload",
+            "result": "--result",
+            "commit_sha": "--commit-sha",
+            "no_close": "--no-close",
+            "no_archive": "--no-archive",
+        },
+        "required": ["parent_id", "summary"],
+        "desc": (
+            "Atomic cortex_propose reply + cortex_complete_proposal close in one "
+            "call. Fixes the AI ack-discipline gap (no separate completion step). "
+            "Type defaults to collab_brief; result {shipped,failed,wont_fix} on close."
+        ),
+    },
+
+    # --- Mesh health (added 2026-06-03) ---
+    "mesh_status": {
+        "cli": "mesh status",
+        "params": {},
+        "required": [],
+        "positional": "instance",
+        "desc": (
+            "Mesh health table — LOCAL (systemd/launchd service + loop_fires.log + "
+            "loops) and CORTEX BRIDGE (ntfy curl + inbox poll). Per-instance ai_id "
+            "rows, green/yellow/red, distinguishes DOWN vs WAITING (rate-limited)."
+        ),
+    },
 }
 
 # =============================================================================
@@ -649,7 +841,11 @@ def _build_cli_command(
     - Standard entries map `arguments` keys to CLI flags per `entry["params"]`,
       with `positional` and `list_params` for the special-case forms.
     """
-    cmd: list[str] = [EMPIRICA_CLI, entry["cli"], "--output", "json"]
+    # `cli` may be a multi-token subcommand path like "listener on", "loop
+    # register", "notify emit" — split so each token becomes its own argv
+    # entry. Single-verb entries (e.g., "session-create") split to a list
+    # of one and behave as before.
+    cmd: list[str] = [EMPIRICA_CLI, *entry["cli"].split(), "--output", "json"]
     if entry.get("stdin_json"):
         cmd.append("-")
         return cmd, json.dumps(arguments).encode("utf-8")
