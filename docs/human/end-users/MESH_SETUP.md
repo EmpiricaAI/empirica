@@ -204,7 +204,7 @@ For each AI session that should participate in the mesh, arm a listener:
 empirica listener on --ai-id <your-ai-id>
 ```
 
-`--ai-id` defaults to the project's basename (the `ai_id` from `.empirica/project.yaml`). The CLI returns structured JSON with the next step the AI should chain — typically arming a Monitor task that handles the wake events.
+`--ai-id` defaults to the local `ai_id` from `.empirica/project.yaml` (the exact project basename — `empirica-` prefix kept where present). The listener internally resolves the canonical 3-form `<org>.<tenant>.<exact-project-name>` for ntfy subscription tags and orchestration fetches via cortex's roster. The CLI returns structured JSON with the next step the AI should chain — typically arming a Monitor task that handles the wake events.
 
 For Claude Code sessions, the SessionStart hook automatically arms a Monitor when a canonical loop is registered for your `ai_id` — you usually don't need to call `listener on` manually. Verify your listener is alive:
 

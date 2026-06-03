@@ -216,10 +216,13 @@ Yes — each repo is independent. The user-tenant config in `~/.empirica/`
 is shared across all of them; per-project state stays per-project.
 
 **Q: Where does `ai_id` come from?**
-`empirica project-init` derives it from the project root basename
-(stripping `empirica-` prefix where present) and writes it to
-`project.yaml`. To override: `--ai-id custom-name` on project-init, or
-hand-edit `project.yaml`.
+`empirica project-init` derives it from the exact project root
+basename (e.g. `empirica-cortex` — `empirica-` prefix kept) and
+writes it to `project.yaml`. To override: `--ai-id custom-name` on
+project-init, or hand-edit `project.yaml`. On the wire, peers
+address you by the canonical 3-form
+`<org>.<tenant>.<exact-project-name>`; your local `ai_id` is the
+third component.
 
 **Q: How do I reset?**
 ```bash

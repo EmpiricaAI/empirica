@@ -244,55 +244,58 @@ next natural break.
 
 ## Naming convention — `ai_id` ↔ project root
 
-AIs are addressed in cortex orchestration (`target_claudes`,
-`source_claude`, inbox routing) by an `ai_id` derived from their
-project root's basename, with the `empirica-` prefix stripped where
-present.
+Local `ai_id` is the **exact project name** (directory basename,
+`empirica-` prefix kept):
 
-| Project root | `ai_id` |
+| Project root | local `ai_id` (project.yaml) |
 |---|---|
 | `~/empirical-ai/empirica` | `empirica` |
-| `~/empirical-ai/empirica-cortex` | `cortex` |
-| `~/empirical-ai/empirica-outreach` | `outreach` |
-| `~/empirical-ai/empirica-extension` | `extension` |
+| `~/empirical-ai/empirica-cortex` | `empirica-cortex` |
+| `~/empirical-ai/empirica-outreach` | `empirica-outreach` |
+| `~/empirical-ai/empirica-extension` | `empirica-extension` |
 | `~/code/myproject` | `myproject` |
 
+**On the wire — canonical 3-form is required**:
+`<org>.<tenant>.<exact-project-name>` (e.g.
+`empirica.david.empirica-cortex`). Listeners subscribe to ntfy with
+`?tags=<canonical>`. `target_claudes` / `source_claude` use the
+canonical. Cortex publishes only canonical tags; basename / alias
+forms bounce via `delivery_failed`. The canonical is resolvable from
+cortex's `/v1/users/me/roster` `ai_id_mesh` field or by prepending
+your known `<org>.<tenant>` to the local `ai_id`.
+
+**Shorter aliases** (`cortex`, `outreach`, `mesh-support`, etc.) are
+chat-layer shorthand documented in `*-org-prompt.md`; they are NOT
+the local `ai_id` and NOT wire-valid.
+
 **Where it's written:** `setup-claude-code` (via the `project_init`
-handler) derives this value and persists it as `ai_id` in
-`.empirica/project.yaml`. The mechanical implementation is
-`basename.removeprefix('empirica-')` — see
-`empirica.cli.command_handlers.project_init._derive_ai_id`.
+handler) derives the local `ai_id` and persists it in
+`.empirica/project.yaml`. The implementation is the directory
+basename — see `empirica.cli.command_handlers.project_init._derive_ai_id`.
 
 **Where it's read:** AI sessions read `ai_id` from project.yaml at
-session start. CLI commands accept `--ai-id` explicitly. Cortex's
-listener uses the value as the `instance_id` argument to
-`empirica loop listen --instance <id>` and as the `ai_id` filter
-when querying `/v1/orchestration/inbox?ai_id=<id>`.
+session start. CLI commands accept `--ai-id` explicitly. The listener
+process resolves to canonical for both the ntfy subscribe-tag filter
+and the `/v1/orchestration/inbox?ai_id=<canonical>` fetch (the
+`_resolve_canonical_ai_id` helper in `content_poll.py`).
 
 **Why this convention:** AIs are bound to projects (not models or
 workstreams), so the project's identity is the natural addressing
 layer. A user with a single project has a single AI. A user with
 multiple projects gets multiple addressable AIs out-of-the-box,
-keyed by their project layout. Cross-project orchestration falls
-out naturally because peer AIs already know each other's project
-names.
-
-**Migration:** Pre-2026-05-16 projects may have `ai_id` unset in
-`project.yaml` (the field is new). Re-running `setup-claude-code --force`
-on those projects refreshes the field. Project-internal callers should
-derive via the canonical chain — project.yaml → basename — and only
-fall back to empty (or a generic value) when neither resolves. The
-legacy `'claude-code'` literal was retired in 2026-06-02 so the
-sentinel + cache state correctly reflects multi-practice setups:
+keyed by their project layout. Cross-project orchestration is
+unambiguous because the canonical 3-form is globally unique by
+construction.
 
 ```python
 # Canonical: rely on InstanceResolver for the full chain
 from empirica.utils.session_resolver import InstanceResolver
 ai_id = InstanceResolver.ai_id() or ''
 
-# Or inline-explicit:
+# Or inline-explicit (use the directory basename as-is):
+import os
 ai_id = (project_yaml.get('ai_id')
-         or basename.removeprefix('empirica-')
+         or os.path.basename(project_root)
          or '')   # empty = honest about not knowing
 ```
 

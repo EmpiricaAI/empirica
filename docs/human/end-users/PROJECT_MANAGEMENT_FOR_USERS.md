@@ -37,8 +37,11 @@ empirica project-init
 Writes `.empirica/project.yaml` with:
 - `project_id` — UUID
 - `name`, `description`, `repository`
-- `ai_id` — derived from the project basename (strips `empirica-` prefix
-  so `empirica-cortex` → `cortex`). Override with `--ai-id custom-name`.
+- `ai_id` — the exact project basename (e.g. `empirica-cortex`,
+  prefix kept). Override with `--ai-id custom-name`. On the wire,
+  peers address you by the canonical 3-form
+  `<org>.<tenant>.<exact-project-name>` — your local `ai_id` is the
+  third component.
 
 You only run this once per repo. Re-run with `--force` if you want to
 overwrite an existing `project.yaml`.

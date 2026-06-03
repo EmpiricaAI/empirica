@@ -149,11 +149,16 @@ A series of operational fixes for users running the persistent listener:
 - **Listener drift bypass** (1.10.5) — `EMPIRICA_LISTENER_NO_DRIFT_EXIT` env var disables the upgrade-self-exit for non-supervised hosts that don't have automatic relaunch.
 - **Wake-noise filter then removed** (1.10.5 added → 1.10.6 removed) — per cortex+extension contract: the per-message actionability flag was redundant + lossy. 1.10.6 drops both the field on `ProposalEvent` and the listener's `grep -v "actionability": "fyi"` filter. The tool split (collab vs propose) IS the actionability signal at the wire level.
 
-### Lenient `ai_id` resolver (1.10.6)
+### `ai_id` resolver — strict canonical (superseded in 1.11.4)
 
-Cortex MCP shipped a lenient alias-aware `ai_id` resolver, and empirica's `/cortex-mailbox-send` skill adopted the new convention: **canonical wire form is the full project slug** (e.g. `empirica-cortex`); the org-specific short alias (e.g. `cortex`) is a convenience that resolves server-side. Default to the canonical full slug for cross-org generality.
-
-The empirica skill update is purely documentation — no behaviour change beyond what the cortex resolver enables.
+1.10.6 shipped a lenient alias-aware `ai_id` resolver. **Cortex retired
+that bridge in 2026-06-03** — the wire is strict canonical 3-form now
+(`<org>.<tenant>.<exact-project-name>`). Bare basenames and aliases
+bounce via `delivery_failed`. See the 1.11.4 entry in
+[CHANGELOG.md](../../CHANGELOG.md) for the listener resolver fix that
+restored push-path delivery fleet-wide. Short aliases (`cortex`,
+`outreach`, etc.) survive as chat-layer shorthand in
+`*-org-prompt.md`; they are NOT wire-valid.
 
 ---
 
