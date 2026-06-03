@@ -454,24 +454,44 @@ def run_listener(  # noqa: C901 — held-connection loop; clarity beats decompos
         return 2
 
     # Tag-filter subscription. Cortex publishes events with
-    # `X-Tags: zap,orchestration_event,<source_claude>,<target_claudes...>`
-    # (commit ae92166 shipped 2026-05-16). Default ON — listeners
-    # subscribe with `?tags=<their_ai_id>` so they only receive events
-    # touching their instance. Reduces per-event wake traffic from
-    # O(N_instances) to O(involved_instances). Verified live against
-    # cortex prod: positive case (source=empirica) delivered; negative
-    # case (source=ecodex, target=cortex) silenced as expected.
+    # `X-Tags: zap,orchestration_event,<source_canonical>,<target_canonicals...>`
+    # where each canonical is the full 3-form `<org>.<tenant>.<project>`.
+    # Listeners subscribe `?tags=<their_canonical>` so they only receive
+    # events touching their instance — reduces per-event wake traffic
+    # from O(N_instances) to O(involved_instances). The basename /
+    # alias-stripped publish bridge is retired; subscribing with the
+    # basename matches NOTHING (live pushes silently dropped, only
+    # catch-up poll catches up).
     #
     # Override: set `EMPIRICA_NTFY_TAG_FILTER=false` to disable and
     # receive every event on the topic. Useful for debugging or for
     # listeners that need cross-instance visibility (e.g., audit
     # dashboards).
     import os as _os
-    tag_filter = (
-        None
-        if _os.getenv("EMPIRICA_NTFY_TAG_FILTER", "true").lower() == "false"
-        else instance_id
-    )
+    if _os.getenv("EMPIRICA_NTFY_TAG_FILTER", "true").lower() == "false":
+        tag_filter = None
+    else:
+        # Resolve canonical 3-form for the subscription tag. Without
+        # this the subscribe filter never matches cortex's published
+        # tag set → live pushes silently dropped, only catch-up works.
+        try:
+            from empirica.config.credentials_loader import get_credentials_loader as _gc
+            from empirica.core.loop_scheduler.content_poll import (
+                _resolve_canonical_ai_id,
+            )
+            _cfg = _gc().get_cortex_config()
+            _curl, _ckey = _cfg.get("url"), _cfg.get("api_key")
+            tag_filter = (
+                _resolve_canonical_ai_id(_curl, _ckey, instance_id)
+                if _curl and _ckey else instance_id
+            )
+        except Exception as e:
+            err_stream.write(
+                f"listener: canonical tag resolution failed ({e}); "
+                f"falling back to basename {instance_id!r} — live "
+                f"pushes will be silently dropped\n"
+            )
+            tag_filter = instance_id
     # Per-org wake topic. The legacy bare `orchestration-events` topic
     # (credentials_loader default) has no ntfy ACL grant for non-admin
     # users → every poll 403s. Resolve the org-prefixed topic
