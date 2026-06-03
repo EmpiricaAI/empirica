@@ -86,7 +86,7 @@ jobs:
 
     steps:
       - name: Download empirica artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: empirica-dist
           path: dist/
@@ -107,7 +107,7 @@ jobs:
 
     steps:
       - name: Download empirica-mcp artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: empirica-mcp-dist
           path: dist/
@@ -205,7 +205,7 @@ jobs:
 
       - name: Download empirica sdist
         if: steps.secrets.outputs.skip == 'false'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: empirica-dist
           path: dist/
@@ -260,7 +260,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts/
 
