@@ -54,6 +54,46 @@ Five existing user-facing docs got their mesh-vs-core framing sharpened (README,
 
 ---
 
+## Patch series after 1.11.0
+
+If you're upgrading mid-stream and want a single-doc summary of what
+each 1.11.x patch added on top of 1.11.0, here it is. Full details
+remain in `CHANGELOG.md`.
+
+- **1.11.1 (2026-06-01)** — `mesh status` and `mesh diagnose` now
+  distinguish `RED "curl subscription dead"` from
+  `YELLOW "rate-limited — curl absent during 30-min backoff"`. UX-only
+  fix; no behavior change. Surfaced 90 minutes after 1.11.0 by
+  mesh-support escalation when a listener entered intentional 429
+  backoff and the previous status was misleading.
+- **1.11.2 (2026-06-02)** — code-side completion of the bead v0 →
+  SER migration. `bead` node type, the 4 v0 edges
+  (`tracks`/`owned_by`/`about`/`worked_by`), the `_workflow_postflight`
+  beads-sync group, and `bead_id`/`bridge_position` listener event
+  fields all removed. `'blocked'` added to the goal status enum.
+  `/cortex-mailbox-send` skill bead vocab residuals retired.
+- **1.11.3 (2026-06-03)** — naming hygiene + MCP refresh + new
+  `practice-context` CLI:
+  - New `empirica practice-context` CLI for verifying canonical 3-form
+    (`<org>.<tenant>.<project>`) addresses before mesh sends.
+  - 13 mesh primitives added to `empirica-mcp` `TOOL_REGISTRY` (now
+    70 tools total, up from 57). Desktop harnesses (Claude Desktop,
+    Cursor, Gemini CLI, Codex) can now reach the full surface.
+  - `requires: cortex` marker + 🌐 prefix in `mcp-list-tools` makes
+    the empirica/cortex boundary visible (65 standalone, 4
+    cortex-orchestrated).
+  - 5 obsolete MCP CLI commands deleted
+    (`mcp-start`/`stop`/`status`/`test`/`call` — targeted a dead path);
+    `mcp-list-tools` rebuilt to read the live registry.
+  - Internal sentinel + cache + canonical-git layers retired the
+    `'claude-code'` hardcoded ai_id default in favor of the
+    `InstanceResolver` chain — important for multi-practice setups
+    where the same machine runs several ai_ids.
+  - Listener tests no longer require cortex creds in CI (autouse mock).
+  - New end-user doc: `docs/human/end-users/MCP_FOR_DESKTOP_HARNESSES.md`.
+
+---
+
 ## Highlights since 1.10.4
 
 If you skipped 1.10.5 + 1.10.6 patches and are jumping straight from 1.10.4, you pick up the rolled-up patch content. (If you've already been running 1.10.6 these are review only.)
@@ -69,16 +109,16 @@ If you skipped 1.10.5 + 1.10.6 patches and are jumping straight from 1.10.4, you
 
 The retirement decision and new design landed in [`empirica-cortex/docs/architecture/SHARED_EPISTEMIC_RECORD.md`](https://github.com/getempirica/empirica-cortex/blob/main/docs/architecture/SHARED_EPISTEMIC_RECORD.md). The v0 design is preserved at the same repo under `docs/archive/BEAD_COORDINATION_RECORD_v0.md` for historical reference.
 
-**What stays in empirica.** The `beads` table from migration 048 is left in place — non-destructive. Any v0 beads you emitted during the 1.10.5 window stay readable. No further `bead` artifacts get emitted from any current code path. Cleanup of the unused table is deferred until v1.12+.
+**What stays in empirica.** The `beads` table from migration 048 is left in place — non-destructive. Any v0 beads you emitted during the 1.10.5 window stay readable. As of 1.11.2 no current code path emits `bead` artifacts and the v0 edges (`tracks` / `owned_by` / `about` / `worked_by`) have been retired from `VALID_RELATIONS`. Cleanup of the unused table itself is deferred to a future release.
 
 **What you do.**
 
 | If you are… | Action |
 |---|---|
 | Not running mesh | Nothing. The bead concept was invisible to you in 1.10.5 and stays invisible |
-| Running mesh, never emitted a v0 bead | Nothing. SER lives in cortex; the next mailbox-skill update wires your AIs into it |
-| Emitted v0 beads during 1.10.5 | The rows stay readable. Don't re-emit. The SER spec is the new direction — your future coordination state lives in cortex, not in your empirica graph |
-| Building against the v0 bead API (custom code) | Migrate to the SER actions (`ser_create` / `ser_set_state` / `ser_ack`) once cortex ships them. SER v1 minimal spec is locked; v1 build is on cortex side |
+| Running mesh, never emitted a v0 bead | Nothing. SER (Phase 1a + 1b live as of 2026-06-01) handles cross-practitioner coordination; the `/cortex-mailbox-send` skill (1.11.0+) directs your AIs through `payload.action='create_ser'` |
+| Emitted v0 beads during 1.10.5 | The rows stay readable. Don't re-emit. SER replaces the concept at the cortex layer |
+| Building against the v0 bead API (custom code) | Migrate to the cortex SER actions: `cortex_propose` with `payload.action='create_ser'` (LIVE), and the read endpoint `GET /v1/sers?ai_id=<canonical>` (LIVE). State transitions (`transition_ser`, `ser_ack`) + escalation tick still PENDING cortex-side |
 
 **Why this matters for the 1.11 conceptual story.** SER is the cross-practitioner primitive; **goals** stay the per-practitioner work primitive. They live at different altitudes and don't compete. See [`MESH_CONCEPTS.md`](../human/end-users/MESH_CONCEPTS.md) for the full framing of why this split is intentional and what each layer carries.
 

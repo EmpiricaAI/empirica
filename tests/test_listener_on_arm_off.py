@@ -12,12 +12,36 @@ import types
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from empirica.cli.command_handlers.cockpit_commands import (
     _resolve_canonical_ai_id,
     handle_listener_arm_command,
     handle_listener_off_command,
     handle_listener_on_command,
 )
+
+
+@pytest.fixture(autouse=True)
+def _mock_notification_channels(monkeypatch):
+    """Mock cortex's notification-channels resolver so tests don't reach prod.
+
+    `handle_listener_on_command` calls `resolve_orchestration_events_topic`
+    which fans out to cortex's `/v1/users/me/notification-channels`. CI
+    runners don't have cortex credentials, so the unmocked call raises
+    RuntimeError ("Cannot resolve the per-org orchestration-events
+    topic…") and breaks every test that exercises `on`. Autouse fixture
+    returns a canonical-looking topic string so the listener-on path
+    proceeds without external dependency.
+
+    Individual tests that need to override (e.g. the explicit-topic
+    test) patch the same symbol in their own `with patch(...)` block —
+    pytest applies the inner mock and the autouse remains harmless.
+    """
+    monkeypatch.setattr(
+        'empirica.core.cockpit.notification_channels.resolve_orchestration_events_topic',
+        lambda ai_id: f'ntfy:empirica-orchestration-events?tags={ai_id}',
+    )
 
 
 def _make_args(**overrides):

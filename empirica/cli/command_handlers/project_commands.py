@@ -322,9 +322,14 @@ def _write_marker_files(marker_dir, project_path, folder_name,
         as_suffix = R.instance_suffix()
         if as_suffix:
             as_file = marker_dir / f'active_session{as_suffix}'
+            try:
+                from empirica.utils.session_resolver import InstanceResolver
+                _ai_id = InstanceResolver.ai_id() or 'empirica'
+            except Exception:
+                _ai_id = 'empirica'
             as_data = {
                 'session_id': empirica_session_id,
-                'project_path': project_path, 'ai_id': 'claude-code',
+                'project_path': project_path, 'ai_id': _ai_id,
             }
             with open(as_file, 'w') as f:
                 json.dump(as_data, f)
@@ -1034,10 +1039,15 @@ def _handle_active_work_update(project_path, project_id, folder_name,
             target_db_path = Path(project_path) / '.empirica' / 'sessions' / 'sessions.db'
             if target_db_path.exists():
                 from empirica.data.session_database import SessionDatabase
+                try:
+                    from empirica.utils.session_resolver import InstanceResolver
+                    _ai_id = InstanceResolver.ai_id() or 'empirica'
+                except Exception:
+                    _ai_id = 'empirica'
                 target_db = SessionDatabase(db_path=target_db_path)
                 healed = target_db.ensure_session_exists(
                     session_id=attached_session_id,
-                    ai_id='claude-code',
+                    ai_id=_ai_id,
                     project_id=project_id,
                 )
                 target_db.close()

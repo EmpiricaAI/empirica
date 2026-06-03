@@ -35,7 +35,7 @@ empirica training-export --output-path epistemic_training.jsonl
 empirica training-export --workspace --output-path full_dataset.jsonl
 
 # Filter by AI model
-empirica training-export --workspace --ai-id claude-code --output-path claude_data.jsonl
+empirica training-export --workspace --ai-id empirica --output-path claude_data.jsonl
 
 # Exclude noetic artifacts (smaller records)
 empirica training-export --no-artifacts --output-path vectors_only.jsonl
@@ -54,7 +54,7 @@ Each line is one epistemic transaction:
 ```json
 {
   "session_id": "abc-123",
-  "ai_id": "claude-code",
+  "ai_id": "empirica",
   "project_id": "empirica",
   "transaction_id": "tx-456",
   "preflight_ts": "2026-01-15T10:30:00",

@@ -24,7 +24,7 @@ The fundamental event structure. Events are just data - no behavior, no routing 
 ```python
 event = EpistemicEvent(
     event_type="preflight_complete",
-    agent_id="claude-code",
+    agent_id="empirica",
     session_id="abc123",
     data={"vectors": {"know": 0.7, "uncertainty": 0.3}},
     timestamp=time.time()

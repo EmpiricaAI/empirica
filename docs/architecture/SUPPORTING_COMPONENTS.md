@@ -144,7 +144,7 @@ ops = SignedGitOperations(
 # Create signed commit
 ops.signed_commit(
     message="feat: Implement OAuth2 flow",
-    author="claude-code",
+    author="empirica",
     sign=True
 )
 

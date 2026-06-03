@@ -112,6 +112,47 @@ def add_release_parsers(subparsers):
         help='Output format (default: json — what hooks/MCP consume).',
     )
 
+    # Practice context — Ambassador addressbook (Lane 2 of cortex prop_7r5tihxyqr)
+    practice_context_parser = subparsers.add_parser(
+        'practice-context',
+        help='Ambassador addressbook — project roster as per-practitioner rows with substrate',
+        description=(
+            "Pulls /v1/users/me/roster from cortex and projects each "
+            "(tenant, project) seat as a practitioner row with substrate "
+            "annotation (cortex|git|local). The substrate field determines "
+            "transport for messaging the practitioner. Used by autonomy's "
+            "Ambassador to know who exists in the mesh + how to reach them. "
+            "Lane 2 of David's Ambassador design-of-record."
+        ),
+    )
+    practice_context_parser.add_argument(
+        '--cortex-url',
+        default=None,
+        help='Cortex base URL override (else env CORTEX_URL or ~/.empirica/credentials.yaml).',
+    )
+    practice_context_parser.add_argument(
+        '--api-key',
+        default=None,
+        help='Cortex API key override (else env CORTEX_API_KEY or credentials.yaml).',
+    )
+    practice_context_parser.add_argument(
+        '--ai-id',
+        default=None,
+        help='Filter to a single ai_id (default: all).',
+    )
+    practice_context_parser.add_argument(
+        '--timeout',
+        type=float,
+        default=10.0,
+        help='HTTP timeout in seconds (default: 10).',
+    )
+    practice_context_parser.add_argument(
+        '--output',
+        choices=['human', 'json'],
+        default='human',
+        help='Output format (default: human table; json for autonomy / scripting).',
+    )
+
     # Docs link check — broken-link integrity for tech docs
     link_parser = subparsers.add_parser(
         'docs-link-check',

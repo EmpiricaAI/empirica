@@ -1741,7 +1741,15 @@ def handle_calibration_report_command(args):
         import json
         from datetime import datetime
 
-        ai_id = getattr(args, 'ai_id', None) or 'claude-code'
+        ai_id = getattr(args, 'ai_id', None)
+        if not ai_id:
+            try:
+                from empirica.utils.session_resolver import InstanceResolver
+                ai_id = InstanceResolver.ai_id()
+            except Exception:
+                ai_id = None
+        if not ai_id:
+            ai_id = 'empirica'  # final fallback; calibration filter will warn
         weeks = getattr(args, 'weeks', 8)
         include_tests = getattr(args, 'include_tests', False)
         min_samples = getattr(args, 'min_samples', 10)
@@ -1857,7 +1865,8 @@ def handle_system_status_command(args):
         # Auto-detect session if not provided
         if not session_id:
             try:
-                session_id = R.latest_session_id(ai_id='claude-code', active_only=True)
+                resolved_ai_id = R.ai_id() or 'empirica'
+                session_id = R.latest_session_id(ai_id=resolved_ai_id, active_only=True)
             except Exception:
                 pass
 
@@ -1866,7 +1875,7 @@ def handle_system_status_command(args):
                 print(json.dumps({"ok": False, "error": "No active session found"}))
             else:
                 print("\n  No active Empirica session found.")
-                print("  Run: empirica session-create --ai-id claude-code")
+                print("  Run: empirica session-create --ai-id <your-ai-id>  # e.g., empirica, cortex")
             return
 
         # Create dashboard and get status

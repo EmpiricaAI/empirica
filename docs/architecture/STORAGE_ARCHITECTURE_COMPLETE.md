@@ -655,7 +655,7 @@ Goals organize work with **epistemic context** and enable **cross-AI coordinatio
 {
   "goal_id": "uuid-v4",
   "session_id": "abc123",
-  "ai_id": "claude-code",
+  "ai_id": "empirica",
   "created_at": "2025-01-29T10:00:00Z",
   
   "goal_data": {
@@ -701,7 +701,7 @@ Goals organize work with **epistemic context** and enable **cross-AI coordinatio
   
   "lineage": [
     {
-      "ai_id": "claude-code",
+      "ai_id": "empirica",
       "action": "created",
       "timestamp": "2025-01-29T10:00:00Z"
     },
@@ -719,7 +719,7 @@ Goals organize work with **epistemic context** and enable **cross-AI coordinatio
 #### Goal Discovery
 ```bash
 # AI-2 discovers goals from AI-1
-empirica goals-discover --from-ai-id claude-code
+empirica goals-discover --from-ai-id empirica
 ```
 
 #### Goal Resume with Epistemic Handoff
@@ -730,7 +730,7 @@ empirica goals-resume abc123 --ai-id minimax-agent
 
 #### Lineage Tracking
 ```
-Goal created by: claude-code (10:00)
+Goal created by: empirica (10:00)
 Goal resumed by: minimax-agent (11:30)
   → Epistemic handoff: KNOW 0.6→0.7, UNCERTAINTY 0.4→0.3
   → Task completed: "Analyze session management"
@@ -758,7 +758,7 @@ Enable **session continuity** without transferring full context (98% compression
 ```json
 {
   "session_id": "abc123",
-  "ai_id": "claude-code",
+  "ai_id": "empirica",
   "timestamp": "2025-01-29T14:00:00Z",
   
   "task_summary": "Audited authentication system. Found 3 vulnerabilities...",
@@ -862,7 +862,7 @@ AI-2: Complete → Create new handoff
 empirica goals-discover
 
 # Find goals by specific AI
-empirica goals-discover --from-ai-id claude-code
+empirica goals-discover --from-ai-id empirica
 
 # Find goals by session
 empirica goals-discover --session-id abc123

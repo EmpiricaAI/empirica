@@ -187,7 +187,7 @@ goal ──addresses_goal── finding
         sourced_from ──► source(doc)
 ```
 
-Edges are typed: `evidence`, `raised_by`, `grounded_by`, `resolves`, `invalidates`, `sourced_from`, `caused_by`, `prevents`, `attached_to`. (The v0 bead-specific edges `tracks` / `owned_by` / `about` / `worked_by` shipped in 1.10.5 with the retired bead concept; they remain in `VALID_RELATIONS` for backward compatibility with rows emitted in that window, but no current code path emits them. Cross-practitioner coordination state has moved to Shared Epistemic Records in cortex — see [`MESH_CONCEPTS.md`](MESH_CONCEPTS.md).)
+Edges are typed: `evidence`, `raised_by`, `grounded_by`, `resolves`, `invalidates`, `sourced_from`, `caused_by`, `prevents`, `attached_to`. (The v0 bead-specific edges `tracks` / `owned_by` / `about` / `worked_by` shipped in 1.10.5 + were retired in 1.11.2. Cross-practitioner coordination state has moved to Shared Epistemic Records in cortex — see [`MESH_CONCEPTS.md`](MESH_CONCEPTS.md).)
 
 You can declare edges when you log, or use `log-artifacts` to log a batch with edges in one call:
 

@@ -118,7 +118,7 @@ Evidence sources:
 
 Use --learning-trajectory to see PREFLIGHT→POSTFLIGHT deltas (learning, not calibration).
         """)
-    calibration_parser.add_argument('--ai-id', help='Filter by AI identifier (default: claude-code)')
+    calibration_parser.add_argument('--ai-id', help='Filter by AI identifier (default: all; canonical ai_ids derived from project basename)')
     calibration_parser.add_argument('--weeks', type=int, default=8,
         help='Number of weeks to analyze (default: 8)')
     calibration_parser.add_argument('--include-tests', action='store_true',

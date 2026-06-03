@@ -1,5 +1,7 @@
 # BEADS Integration — Architecture
 
+> **Naming note:** "BEADS" = the external [bd](https://github.com/cased/beads) dependency-graph issue tracker. NOT the retired v0 "bead coordination record" concept (see [MESH_CONCEPTS.md](../end-users/MESH_CONCEPTS.md) for what replaced that).
+
 **Status:** Shipped. The original design ([archived intent](#original-design-intent))
 is now reflected in code; this doc tracks where the live pieces live.
 

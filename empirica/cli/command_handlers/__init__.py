@@ -146,14 +146,7 @@ from .lesson_commands import (
     handle_lesson_search_command,
     handle_lesson_stats_command,
 )
-from .mcp_commands import (
-    handle_mcp_call_command,
-    handle_mcp_list_tools_command,
-    handle_mcp_start_command,
-    handle_mcp_status_command,
-    handle_mcp_stop_command,
-    handle_mcp_test_command,
-)
+from .mcp_commands import handle_mcp_list_tools_command
 from .monitor_commands import (
     handle_assess_state_command,
     handle_calibration_dispute_command,
@@ -382,13 +375,8 @@ __all__ = [  # noqa: RUF022
     # Loop / sentinel group dispatchers — re-exported for cli_core wildcard import
     'handle_loop_group_command',
     'handle_mco_load_command',
-    'handle_mcp_call_command',
+    # MCP inspection (lifecycle owned by harness mcp.json — 5 commands retired 2026-06-03)
     'handle_mcp_list_tools_command',
-    # MCP commands
-    'handle_mcp_start_command',
-    'handle_mcp_status_command',
-    'handle_mcp_stop_command',
-    'handle_mcp_test_command',
     'handle_memory_compact_command',
     # Mistake Logging commands (Learning from Failures)
     'handle_mistake_log_command',

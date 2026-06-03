@@ -175,7 +175,7 @@ from empirica.core.epistemic_bus import get_global_bus, EventTypes, EpistemicEve
 if drift_report.drift_detected:
     bus.publish(EpistemicEvent(
         event_type=EventTypes.CALIBRATION_DRIFT_DETECTED,
-        agent_id="claude-code",
+        agent_id="empirica",
         session_id=session_id,
         data={"severity": drift_report.severity, "pattern": drift_report.pattern}
     ))

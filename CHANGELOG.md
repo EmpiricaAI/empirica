@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.11.3] — 2026-06-03
+
+A patch release dominated by hygiene: legacy `claude-code` literals retired from internal sentinel + cache + canonical-git layers, the MCP CLI surface gets a deep refresh, and the empirica-mcp package gains 13 mesh primitives so non-Claude-Code harnesses (Claude Desktop, Cursor, Gemini CLI, Codex) can reach the full tool surface. New `practice-context` CLI for the Ambassador addressbook (lane 2 of cortex `prop_7r5tihxyqr`).
+
+### Added
+
+- **`empirica practice-context` CLI** — Ambassador addressbook. Reads cortex's `/v1/users/me/roster` and renders per-practitioner rows with substrate annotation (`cortex|git|local`). Use it to verify the canonical 3-form (`<org>.<tenant>.<project>`) before emitting `target_claudes` — `ai_id_mesh` field on each row is the exact string the resolver accepts. Lane 2 of David's Ambassador design-of-record (`prop_7r5tihxyqr`, ratified 2026-06-02). Unblocked by cortex's Lane 1 substrate ship (`ac47e66` + `ace05e4`).
+- **13 mesh primitives registered in empirica-mcp `TOOL_REGISTRY`** — `practice_context`, `commit_context`, `listener_on`/`arm`/`off`, `loop_register`/`heartbeat`/`status`/`schedule_next`, `notify_emit`, `mailbox_reply`, `mesh_status`. Tool count 57 → 70. `_build_cli_command` now splits multi-token cli strings (e.g. `"listener on"`, `"loop register"`) so subcommands work.
+- **`requires: cortex` marker on `TOOL_REGISTRY` entries** — surfaces the empirica/cortex boundary in `mcp-list-tools` output. 4 cortex-orchestrated tools (`practice_context`, `mailbox_reply` strict; `listener_on`, `mesh_status` partial) rendered with 🌐 prefix + legend; the other 65 work standalone. Base empirica users see clearly which tools need the mesh backend.
+- **`docs/human/end-users/MCP_FOR_DESKTOP_HARNESSES.md`** — new ~320-line guide covering pipx install, per-harness mcp.json configs (Claude Desktop, Cursor, Gemini CLI, Codex), the 70-tool inventory, self-enforcement model for the noetic firewall without hooks, canonical 3-form addressing, troubleshooting. Fills the on-ramp gap for non-Claude-Code clients.
+
+### Changed
+
+- **Sentinel + cache + canonical-git layers derive `ai_id` from `InstanceResolver`** — `statusline_cache.py:from_dict`/`update_partial`, `monitor_commands.py`, `project_commands.py`, `canonical/empirica_git/source_store.py` + `checkpoint_manager.py` no longer hardcode `'claude-code'` as the ai_id default. Cache entries from different practitioners on the same machine now carry the correct practice identity. `from_dict` honestly returns `''` when the field is missing (we don't substitute our own identity for the writer's); `update_partial` derives via the canonical chain because we DO know who we are at write time.
+- **CLI surface examples** — argparse defaults and help-text examples migrated from `claude-code` to `empirica` (or generic enumeration of canonical ids). `onboard.py` handler chains through `InstanceResolver` instead of returning `'claude-code'` as fallback. Differentiated 5 legitimate other-layer references (frontend selection, source platform, dispatch-bus instance_id, git-notes messaging) — those KEEP.
+- **Docs naming sweep** — 13 architecture + guide + developer docs updated to use `empirica` as the canonical example ai_id throughout. `EVENT_LISTENER.md` migration section now describes the `InstanceResolver` chain instead of the retired `'claude-code'` fallback.
+- **`empirica-mcp/README.md` tool count** — `44 tools` → `70 tools` (post-refresh) with the new mesh primitives inline.
+- **`mcp.json` template description** — adds pipx prerequisite note + pointer to the new desktop-harnesses doc.
+- **`mcp-list-tools` rebuilt** — reads `TOOL_REGISTRY` from the installed `empirica-mcp` package and groups by prefix dynamically. Was hardcoded with a stale snapshot of tool names (e.g. `discover_goals` — doesn't exist in the current registry). Now reflects what the running server actually exposes.
+- **`MESH_SETUP.md` Step 7** — verify-end-to-end section now leads with `practice-context` as the canonical-slug lookup before the test send. Common mistake closed.
+- **`/cortex-mailbox-poll` skill** — `ser_escalation` event_type handler added (cortex Phase 3 escalation tick — env-gated by `CORTEX_SER_ESCALATION_ENABLED`, default OFF). Teaches discriminator (`escalation=true`, `source_claude=system:ser-escalation`), SER projection fetch, act-or-ack response shape, §5.3 silencing property, defer-as-goal pattern. Canonical + plugin mirror updated in lockstep.
+
+### Fixed
+
+- **Listener tests no longer require cortex credentials in CI** — `tests/test_listener_on_arm_off.py` autouse fixture mocks `empirica.core.cockpit.notification_channels.resolve_orchestration_events_topic` so the 8+ `handle_listener_on_command` tests don't fan out to cortex's `/v1/users/me/notification-channels`. CI develop went from red to green; un-blocks every PR that touched the listener path (incl. dependabot `actions/download-artifact@v8`).
+
+### Removed
+
+- **5 obsolete MCP CLI lifecycle commands** — `mcp-start`, `mcp-stop`, `mcp-status`, `mcp-test`, `mcp-call` targeted a dead path (`mcp_local/empirica_mcp_server.py` — file removed long ago, only historical archive remains). Lifecycle ownership now lives in:
+  - `pipx install empirica-mcp` (installation)
+  - Harness `mcp.json` files (startup, env, stdio piping)
+  - Harness MCP debug surface (status check)
+  Only `empirica mcp-list-tools` (rebuilt to read the live registry) remains.
+
+### Note (planned, deferred to a later release)
+
+- **Mesh backend protocol spec (Option C)** — publishing the HTTP API cortex implements as a public spec so OSS can build alternative backends. Logged as a planned goal, blocked on SER `ser_4272a07793` lifecycle locking in. The play mirrors AT Protocol / Bluesky: spec open, production-quality requires real engineering (autonomy + extension + mesh-support is the proof).
+
 ## [1.11.2] — 2026-06-02
 
 Code-side cleanup completing the bead-v0 retirement. Cortex shipped its lane on 2026-06-01 (`b6071ff` — see SER spec at empirica-cortex `85e5e46`); this release retires the remaining empirica-side bead surface so residual emits don't get silently dropped by cortex's stricter validation.

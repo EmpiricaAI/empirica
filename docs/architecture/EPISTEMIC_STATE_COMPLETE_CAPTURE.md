@@ -149,7 +149,7 @@
     "count": 5,
     "most_recent": {
       "timestamp": "...",
-      "from_ai": "claude-code-verbose-fix",
+      "from_ai": "empirica-verbose-fix",
       "summary": "Completed hook debugging"
     }
   }
@@ -177,7 +177,7 @@
 {
   "session": {
     "session_id": "abc123",
-    "ai_id": "claude-code-hook-debug",
+    "ai_id": "empirica-hook-debug",
     "project_id": "def456",
     "start_time": "2025-12-26T00:03:00",
     "duration_minutes": 67,
@@ -216,10 +216,10 @@
     "description": "Empirica CLI and framework",
     "repos": ["https://github.com/Nubaeon/empirica.git"],
     "active_sessions": [
-      {"session_id": "abc123", "ai_id": "claude-code-hook-debug"},
+      {"session_id": "abc123", "ai_id": "empirica-hook-debug"},
       {"session_id": "xyz789", "ai_id": "qwen-testing"}
     ],
-    "ai_collaborators": ["claude-code-hook-debug", "qwen-testing", "claude-code-verbose-fix"],
+    "ai_collaborators": ["empirica-hook-debug", "qwen-testing", "empirica-verbose-fix"],
     "total_sessions": 42,
     "learning_deltas": {
       "know": 0.15,  // Average learning across sessions

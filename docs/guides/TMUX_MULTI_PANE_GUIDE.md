@@ -64,12 +64,12 @@ In each pane, set up the project context:
 ```bash
 # Pane 0: API project
 cd ~/projects/api
-empirica session-create --ai-id claude-code
+empirica session-create --ai-id empirica
 empirica project-switch api
 
 # Pane 1: Frontend project
 cd ~/projects/frontend
-empirica session-create --ai-id claude-code
+empirica session-create --ai-id empirica
 empirica project-switch frontend
 ```
 

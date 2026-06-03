@@ -21,7 +21,7 @@ Examples:
   empirica query deadends --scope project --project-id <ID>
   empirica query mistakes --limit 20
   empirica query issues --status new
-  empirica query handoffs --ai-id claude-code
+  empirica query handoffs --ai-id empirica
   empirica query goals --status active
   empirica query blockers --limit 10         # Goal-linked unknowns (blockers)
         '''

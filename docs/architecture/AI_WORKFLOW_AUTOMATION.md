@@ -24,7 +24,7 @@ TOOL_RESULT="$2"
 # Check if empirica session exists
 if ! empirica sessions-list --output json | grep -q "end_time.*null"; then
     echo "⚠️  No active Empirica session detected" >&2
-    echo "💡 Create one with: empirica session-create --ai-id claude-code" >&2
+    echo "💡 Create one with: empirica session-create --ai-id empirica" >&2
 fi
 
 # Remind to log findings after significant work
@@ -97,7 +97,7 @@ def ensure_session(ai_id: str = None) -> str:
 
     # No active session - create one
     if not ai_id:
-        ai_id = os.getenv('AI_ID', 'claude-code')
+        ai_id = os.getenv('AI_ID', 'empirica')
 
     session_id = db.create_session(ai_id=ai_id)
     print(f"✨ Auto-created Empirica session: {session_id}", file=sys.stderr)
@@ -152,7 +152,7 @@ SESSION_ID=$(empirica sessions-list --output json | jq -r '.sessions[] | select(
 
 if [ -z "$SESSION_ID" ]; then
     echo "Creating new Empirica session..." >&2
-    SESSION_ID=$(empirica session-create --ai-id claude-code --output json | jq -r '.session_id')
+    SESSION_ID=$(empirica session-create --ai-id empirica --output json | jq -r '.session_id')
 fi
 
 # Export for child commands
@@ -210,7 +210,7 @@ class EmpricaMCPServer:
 **BEFORE starting ANY task:**
 ```bash
 # 1. Create session (ALWAYS)
-empirica session-create --ai-id claude-code --output json
+empirica session-create --ai-id empirica --output json
 
 # 2. Run PREFLIGHT (ALWAYS)
 empirica preflight-submit config.json
@@ -354,7 +354,7 @@ SessionStart (new) ──► session-init.py
 
 ```bash
 # Set in shell rc file or Claude Code config
-export EMPIRICA_AI_ID="claude-code"
+export EMPIRICA_AI_ID="empirica"
 export EMPIRICA_AUTO_SESSION=true  # Enable auto-session creation
 export EMPIRICA_PROJECT_ID="ea2f33a4-d808-434b-b776-b7246bd6134a"
 ```

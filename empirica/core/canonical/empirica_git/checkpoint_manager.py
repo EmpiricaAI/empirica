@@ -164,7 +164,7 @@ class CheckpointManager:
         Format (compressed for ~85% token reduction):
         {
             "session_id": "abc123",
-            "ai_id": "claude-code",
+            "ai_id": "empirica",  # caller passes from InstanceResolver.ai_id()
             "phase": "PREFLIGHT",
             "round": 1,
             "timestamp": "2025-11-27T...",

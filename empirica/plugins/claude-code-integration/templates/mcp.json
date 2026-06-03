@@ -8,7 +8,7 @@
         "EMPIRICA_EPISTEMIC_MODE": "true"
       },
       "tools": ["*"],
-      "description": "Empirica epistemic framework - epistemic transaction workflow, goals, findings"
+      "description": "Empirica epistemic framework — epistemic transaction workflow, goals, findings, mesh primitives. Prerequisite: `pipx install empirica-mcp` (or `pip install empirica[mcp]`) so $HOME/.local/bin/empirica-mcp exists. See docs/human/end-users/MCP_FOR_DESKTOP_HARNESSES.md."
     }
   }
 }

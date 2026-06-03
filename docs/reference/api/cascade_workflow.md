@@ -22,7 +22,7 @@ PREFLIGHT ──► CHECK ──► POSTFLIGHT ──► POST-TEST ──► COM
 > **Verified at 1.11.0.** The three core verbs (`preflight-submit`, `check-submit`, `postflight-submit`) remain present and behave as documented. Notable additions since this doc was first written:
 > - **`work_type`** declarations expand the gate-relaxation tuple — `code`/`infra`/`research`/`release`/`debug`/`config`/`docs`/`data`/`comms`/`design`/`audit`/`remote-ops` (`remote-ops` recognises SSH/rsync/scp paths the local sentinel can't observe; calibration returns `ungrounded_remote_ops`)
 > - **Bead artifact type** (1.10.5, retired in 1.11) — the v0 bead concept has been replaced by Shared Epistemic Records (SERs) at the cortex layer; see [MESH_CONCEPTS.md](../../human/end-users/MESH_CONCEPTS.md) for the conceptual framing and the [SER spec](https://github.com/getempirica/empirica-cortex/blob/main/docs/architecture/SHARED_EPISTEMIC_RECORD.md) for the data model
-> - **Edge metadata persistence fix** (1.10.5) — per-edge `metadata` JSON on `worked_by` (and other typed-edge relations) now persists correctly through `log-artifacts`
+> - **Edge metadata persistence fix** (1.10.5) — per-edge `metadata` JSON on typed-edge relations now persists correctly through `log-artifacts` (originally fixed for the retired bead edges; the underlying bug fix is independently useful for any artifact edge carrying metadata)
 > - **The artifact graph + commit-context walker** for finding what you logged — see [LOGGING_AND_FINDING.md](../../human/end-users/LOGGING_AND_FINDING.md)
 >
 > User-facing walkthroughs: [SESSION_GOAL_WORKFLOW.md](../../human/end-users/SESSION_GOAL_WORKFLOW.md) and [LOGGING_AND_FINDING.md](../../human/end-users/LOGGING_AND_FINDING.md).

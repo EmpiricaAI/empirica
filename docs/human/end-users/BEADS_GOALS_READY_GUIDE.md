@@ -1,5 +1,7 @@
 # `goals-ready` — Finding Actionable Work
 
+> **Naming note:** "BEADS" here is the external [bd](https://github.com/cased/beads) issue tracker (dependency-graph), not the retired v0 bead coordination record (see [MESH_CONCEPTS.md](MESH_CONCEPTS.md) for what replaced that — Shared Epistemic Records in cortex).
+
 `empirica goals-ready` shows goals you can pick up right now —
 combining BEADS dependency state with your current epistemic state.
 

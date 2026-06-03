@@ -102,10 +102,13 @@ class StatuslineCacheEntry:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> 'StatuslineCacheEntry':
         """Create from dictionary."""
-        # Handle missing fields gracefully
+        # Handle missing fields gracefully. Missing ai_id means the entry
+        # was written by code older than the mesh ai_id convention — return
+        # '' rather than substituting our own identity for the original
+        # writer's. The statusline degrades gracefully on empty ai_id.
         return cls(
             session_id=data.get('session_id', ''),
-            ai_id=data.get('ai_id', 'claude-code'),
+            ai_id=data.get('ai_id', ''),
             instance_id=data.get('instance_id', ''),
             project_id=data.get('project_id'),
             project_name=data.get('project_name'),
@@ -164,7 +167,7 @@ class StatuslineCache:
         # Write (from CASCADE handlers)
         cache.write(StatuslineCacheEntry(
             session_id="...",
-            ai_id="claude-code",
+            ai_id="empirica",  # canonical: derive from InstanceResolver.ai_id()
             instance_id=get_instance_id(),
             phase="PREFLIGHT",
             vectors={...},
@@ -270,10 +273,19 @@ class StatuslineCache:
         """
         entry = self.read(max_age=float('inf'))  # Don't check staleness for updates
         if entry is None:
-            # Create new entry with provided fields
+            # Create new entry — derive ai_id from the canonical mesh chain
+            # (project.yaml → basename) rather than hardcoding a default.
+            # We DO know our own identity here, unlike from_dict.
+            ai_id = kwargs.get('ai_id')
+            if not ai_id:
+                try:
+                    from empirica.utils.session_resolver import InstanceResolver
+                    ai_id = InstanceResolver.ai_id() or ''
+                except Exception:
+                    ai_id = ''
             entry = StatuslineCacheEntry(
                 session_id=kwargs.get('session_id', ''),
-                ai_id=kwargs.get('ai_id', 'claude-code'),
+                ai_id=ai_id,
                 instance_id=self.instance_id,
             )
 

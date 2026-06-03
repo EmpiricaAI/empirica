@@ -1,49 +1,29 @@
-"""MCP server management command parsers."""
+"""MCP server inspection command parsers.
+
+Historical: this module used to register `mcp-start`/`stop`/`status`/
+`test`/`call` parsers. Those CLI commands were retired 2026-06-03 — the
+MCP server lifecycle is now owned by the harness's MCP config file
+(Claude Desktop, Cursor, Gemini CLI, Codex). Only `mcp-list-tools`
+remains as a read-only inspection surface.
+"""
 
 
 def add_mcp_parsers(subparsers):
-    """Add MCP server management command parsers"""
+    """Add MCP inspection command parsers."""
 
-    # mcp start - Start MCP server
-    mcp_start = subparsers.add_parser(
-        'mcp-start',
-        help='Start Empirica MCP server in background'
-    )
-    mcp_start.add_argument('--verbose', '-v', action='store_true', help='Show detailed output')
-
-    # mcp stop - Stop MCP server
-    mcp_stop = subparsers.add_parser(
-        'mcp-stop',
-        help='Stop Empirica MCP server'
-    )
-    mcp_stop.add_argument('--verbose', '-v', action='store_true', help='Show detailed output')
-
-    # mcp status - Check MCP server status
-    mcp_status = subparsers.add_parser(
-        'mcp-status',
-        help='Check Empirica MCP server status'
-    )
-    mcp_status.add_argument('--verbose', '-v', action='store_true', help='Show detailed process info')
-
-    # mcp test - Test MCP server connection
-    mcp_test = subparsers.add_parser(
-        'mcp-test',
-        help='Test Empirica MCP server connection'
-    )
-    mcp_test.add_argument('--verbose', '-v', action='store_true', help='Show detailed output')
-
-    # mcp list-tools - List available MCP tools
+    # mcp-list-tools — read the TOOL_REGISTRY from the installed
+    # empirica-mcp package and render it (dynamic, not hardcoded).
     mcp_list_tools = subparsers.add_parser(
         'mcp-list-tools',
-        help='List available MCP tools'
+        help='List MCP tools registered in the installed empirica-mcp package',
+        description=(
+            'Reads the TOOL_REGISTRY from the empirica-mcp package and '
+            'renders one row per registered tool, grouped by prefix. '
+            'Useful for debugging "is this tool registered? what CLI '
+            'does it route to?" without launching a full MCP session.'
+        ),
     )
-    mcp_list_tools.add_argument('--verbose', '-v', action='store_true', help='Show usage examples')
-
-    # mcp call - Call MCP tool directly (for testing)
-    mcp_call = subparsers.add_parser(
-        'mcp-call',
-        help='Call MCP tool directly (experimental)'
+    mcp_list_tools.add_argument(
+        '--verbose', '-v', action='store_true',
+        help='Show tip for inspecting per-tool param schemas',
     )
-    mcp_call.add_argument('tool_name', help='Name of the MCP tool to call')
-    mcp_call.add_argument('arguments', nargs='?', default='{}', help='JSON arguments for the tool')
-    mcp_call.add_argument('--verbose', '-v', action='store_true', help='Show detailed output')

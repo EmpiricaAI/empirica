@@ -12,7 +12,18 @@ from ..cli_utils import handle_cli_error
 def handle_onboard_command(args):
     """Interactive onboarding guide for new users"""
     try:
-        ai_id = getattr(args, 'ai_id', 'claude-code')
+        ai_id = getattr(args, 'ai_id', None)
+        if not ai_id:
+            try:
+                from empirica.utils.session_resolver import InstanceResolver
+                ai_id = InstanceResolver.ai_id()
+            except Exception:
+                ai_id = None
+        if not ai_id:
+            # Final fallback for first-run cases where the project isn't
+            # initialized yet — basename derivation handled by setup-claude-code
+            # at project-init time. Until then, surface a generic example.
+            ai_id = 'empirica'
 
         print(f"""
 ╔══════════════════════════════════════════════════════════════════════╗
@@ -236,7 +247,7 @@ Claude Code (recommended):
    # Installs plugin, hooks, CLAUDE.md, MCP server
 
 MCP Server (for any AI agent):
-   $ empirica mcp-start
+   $ empirica mcp-list-tools  # inspection only
    # Exposes Empirica as MCP tools
 
 Python API:

@@ -22,9 +22,9 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.9.11
-**Generated:** 2026-05-26 09:09:56 UTC
-**Total commands:** 235 (across 26 categories)
+**Framework version:** 1.11.3
+**Generated:** 2026-06-02 23:13:44 UTC
+**Total commands:** 232 (across 26 categories)
 
 For the most up-to-date detail on any single command, prefer
 `empirica <command> --help` — the generator extracts the same `help`
@@ -66,7 +66,7 @@ require `--session-id` (`project-bootstrap`, `sessions-show`,
 | [workflow](#workflow) | 4 | `preflight-submit`, `check`, `check-submit`, … |
 | [goals](#goals) | 16 | `goals-create`, `goals-list`, `goals-search`, … |
 | [logging](#logging) | 20 | `finding-log`, `unknown-log`, `unknown-list`, … |
-| [project](#project) | 16 | `project-init`, `project-update`, `project-create`, … |
+| [project](#project) | 17 | `project-init`, `project-update`, `project-create`, … |
 | [workspace](#workspace) | 13 | `workspace-init`, `workspace-map`, `workspace-list`, … |
 | [checkpoint](#checkpoint) | 7 | `checkpoint-create`, `checkpoint-load`, `checkpoint-list`, … |
 | [sync](#sync) | 6 | `sync-config`, `sync-push`, `sync-pull`, … |
@@ -83,7 +83,7 @@ require `--session-id` (`project-bootstrap`, `sessions-show`,
 | [sentinel](#sentinel) | 4 | `sentinel-orchestrate`, `sentinel-load-profile`, `sentinel-status`, … |
 | [personas](#personas) | 4 | `persona-list`, `persona-show`, `persona-promote`, … |
 | [lessons](#lessons) | 9 | `lesson-create`, `lesson-load`, `lesson-list`, … |
-| [mcp](#mcp) | 6 | `mcp-start`, `mcp-stop`, `mcp-status`, … |
+| [mcp](#mcp) | 1 | `mcp-list-tools` |
 | [memory](#memory) | 6 | `memory-prime`, `memory-scope`, `memory-value`, … |
 | [vision](#vision) | 1 | `vision` |
 | [domains](#domains) | 4 | `domain-list`, `domain-show`, `domain-resolve`, … |
@@ -353,8 +353,8 @@ Create a new goal — the unit of tracked work. One per coherent deliverable: a 
   Metadata as JSON object
 - `--use-beads` — optional · flag
   Create BEADS issue and link to goal
-- `--status` — optional · type=`choice` · choices={planned, in_progress} · default=`in_progress`
-  Initial status: 'planned' (logged, not started) or 'in_progress' (active, default)
+- `--status` — optional · type=`choice` · choices={planned, in_progress, blocked} · default=`in_progress`
+  Initial status: 'planned' (logged, not started), 'in_progress' (active, default), or 'blocked' (waiting on external dependency)
 - `--force` — optional · flag
   Create goal even if similar goal exists
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
@@ -390,7 +390,7 @@ List goals in the current project. Default: active (in_progress). Use --status {
   Filter by maximum coordination (0.0-1.0)
 - `--completed` — optional · flag
   Show completed goals (default: active). Use --status for finer filtering.
-- `--status` — optional · type=`choice` · choices={planned, in_progress, completed, all, drift}
+- `--status` — optional · type=`choice` · choices={planned, in_progress, blocked, completed, all, drift}
   Filter by lifecycle status. Takes precedence over --completed. "drift" surfaces rows where status text disagrees with is_completed (canonical).
 - `--limit` — optional · type=`int` · default=`20`
   Max results (default: 20)
@@ -1325,7 +1325,7 @@ Show epistemic breadcrumbs for project
 - `--session-id` — optional
   Session UUID (auto-resolved from project if omitted)
 - `--ai-id` — optional
-  AI identifier to load epistemic handoff for (e.g., claude-code)
+  AI identifier to load epistemic handoff for (e.g., empirica, cortex; derives from project basename if omitted)
 - `--subject` — optional
   Subject/workstream to filter by (auto-detected from directory if omitted)
 - `--check-integrity` — optional · flag
@@ -1452,6 +1452,23 @@ Emit the bootstrap context payload (schema v2) — three-circle artifact graph
   Cosine threshold for circle 3 topic-relevance pull (default: 0.65).
 - `--output` — optional · type=`choice` · choices={human, json} · default=`json`
   Output format (default: json — what hooks/MCP consume).
+
+#### `empirica practice-context`
+
+Ambassador addressbook — project roster as per-practitioner rows with substrate
+
+**Arguments:**
+
+- `--cortex-url` — optional
+  Cortex base URL override (else env CORTEX_URL or ~/.empirica/credentials.yaml).
+- `--api-key` — optional
+  Cortex API key override (else env CORTEX_API_KEY or credentials.yaml).
+- `--ai-id` — optional
+  Filter to a single ai_id (default: all).
+- `--timeout` — optional · type=`float` · default=`10.0`
+  HTTP timeout in seconds (default: 10).
+- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
+  Output format (default: human table; json for autonomy / scripting).
 
 #### `empirica projects-sync`
 
@@ -2450,7 +2467,7 @@ Generate calibration report from grounded evidence
 **Arguments:**
 
 - `--ai-id` — optional
-  Filter by AI identifier (default: claude-code)
+  Filter by AI identifier (default: all; canonical ai_ids derived from project basename)
 - `--weeks` — optional · type=`int` · default=`8`
   Number of weeks to analyze (default: 8)
 - `--include-tests` — optional · flag
@@ -3224,6 +3241,8 @@ Atomic propose + complete in one call — fixes the AI ack-discipline gap (skip 
   Optional commit_sha attached to parent completion
 - `--no-close` — optional · flag
   Send reply WITHOUT closing parent (follow-up question case)
+- `--no-archive` — optional · flag
+  Close the parent but do NOT archive it. Default behaviour archives the parent after close to keep your inbox view focused on un-actioned work. Use --no-archive when you want the parent to stay visible in audit / status=accepted polls.
 - `--output` — optional · type=`choice` · choices={human, json} · default=`json`
   Output format (default: json)
 
@@ -3848,63 +3867,14 @@ Show lesson storage statistics
 
 ## mcp
 
-#### `empirica mcp-start`
-
-Start Empirica MCP server in background
-
-**Arguments:**
-
-- `--verbose` / `-v` — optional · flag
-  Show detailed output
-
-#### `empirica mcp-stop`
-
-Stop Empirica MCP server
-
-**Arguments:**
-
-- `--verbose` / `-v` — optional · flag
-  Show detailed output
-
-#### `empirica mcp-status`
-
-Check Empirica MCP server status
-
-**Arguments:**
-
-- `--verbose` / `-v` — optional · flag
-  Show detailed process info
-
-#### `empirica mcp-test`
-
-Test Empirica MCP server connection
-
-**Arguments:**
-
-- `--verbose` / `-v` — optional · flag
-  Show detailed output
-
 #### `empirica mcp-list-tools`
 
-List available MCP tools
+List MCP tools registered in the installed empirica-mcp package
 
 **Arguments:**
 
 - `--verbose` / `-v` — optional · flag
-  Show usage examples
-
-#### `empirica mcp-call`
-
-Call MCP tool directly (experimental)
-
-**Arguments:**
-
-- `tool_name` — **required**
-  Name of the MCP tool to call
-- `arguments` — **required** · default=`{}`
-  JSON arguments for the tool
-- `--verbose` / `-v` — optional · flag
-  Show detailed output
+  Show tip for inspecting per-tool param schemas
 
 ---
 
@@ -4103,8 +4073,8 @@ Interactive introduction to Empirica (recommended for first-time users)
 
 **Arguments:**
 
-- `--ai-id` — optional · default=`claude-code`
-  AI identifier (optional, default: claude-code)
+- `--ai-id` — optional
+  AI identifier (optional, derives from project basename or .empirica/project.yaml)
 
 #### `empirica setup-claude-code`
 
@@ -4597,6 +4567,75 @@ Load MCO (Meta-Agent Configuration Object) configuration
 - `--verbose` — optional · flag
   Show detailed output
 
+#### `empirica mesh`
+
+Unified mesh diagnostic + control surface across listener instances and (optional) cortex bridge
+
+**Subcommands:**
+
+##### `empirica mesh status`
+
+Show health table across mesh instances (green/yellow/red + reason)
+
+**Arguments:**
+
+- `instance` — **required**
+  ai_id (default: enumerate all installed listener services)
+- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
+
+
+##### `empirica mesh diagnose`
+
+Deep per-instance diagnostic + suggest exact fix command
+
+**Arguments:**
+
+- `instance` — **required**
+  ai_id to diagnose
+
+
+##### `empirica mesh restart`
+
+Restart the listener service for an instance (clears curl zombies)
+
+**Arguments:**
+
+- `instance` — **required**
+  ai_id to restart
+
+
+##### `empirica mesh on`
+
+Install + start + enable the listener service for an instance
+
+**Arguments:**
+
+- `instance` — **required**
+  ai_id to bring online
+
+
+##### `empirica mesh off`
+
+Stop the listener service for an instance
+
+**Arguments:**
+
+- `instance` — **required**
+  ai_id to bring offline
+- `--uninstall` — optional · flag
+  Also remove the systemd/launchd unit (default: stop only)
+
+
+##### `empirica mesh tail`
+
+Live tail loop_fires.log filtered by instance(s)
+
+**Arguments:**
+
+- `instance` — **required**
+  ai_id (default: tail all installed instances)
+
+
 #### `empirica message-channels`
 
 List channels with message counts
@@ -4945,7 +4984,7 @@ Export epistemic transaction data as JSONL for model fine-tuning
 - `--project-id` — optional
   Filter by project (prefix match)
 - `--ai-id` — optional
-  Filter by AI ID (e.g., claude-code)
+  Filter by AI ID (e.g., empirica, cortex, autonomy)
 - `--min-vectors` — optional · type=`int` · default=`3`
   Minimum vector count to include a transaction (default: 3)
 - `--no-artifacts` — optional · flag

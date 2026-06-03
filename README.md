@@ -2,7 +2,7 @@
 
 > **We Gave AI a Mirror. Now It Measures What It Believes.**
 
-[![Version](https://img.shields.io/badge/version-1.11.2-blue)](https://github.com/Nubaeon/empirica/releases/tag/v1.11.2)
+[![Version](https://img.shields.io/badge/version-1.11.3-blue)](https://github.com/Nubaeon/empirica/releases/tag/v1.11.3)
 [![PyPI](https://img.shields.io/pypi/v/empirica)](https://pypi.org/project/empirica/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -101,13 +101,13 @@ empirica setup-claude-code
 
 ```bash
 # Security-hardened Alpine image (~276MB, recommended)
-docker pull nubaeon/empirica:1.11.2-alpine
+docker pull nubaeon/empirica:1.11.3-alpine
 
 # Standard image (Debian slim, ~414MB)
-docker pull nubaeon/empirica:1.11.2
+docker pull nubaeon/empirica:1.11.3
 
 # Run
-docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.11.2 /bin/bash
+docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.11.3 /bin/bash
 ```
 </details>
 
@@ -253,6 +253,27 @@ The browser-side ECO surface (Accept/Decline, inbox triage, publish review) live
 
 ---
 
+## Mesh + Shared Epistemic Record (1.11.0)
+
+The cross-AI coordination layer. Practitioners in different practices coordinate not via text-only chat but via **epistemic envelopes** that carry calibrated state, source-tagged provenance, noetic/praxic intent, and workflow position.
+
+- **Practitioner / practice** framing — practices are calibrated epistemic specializations that persist; practitioners (the LLMs) are fungible. See [MESH_CONCEPTS.md](docs/human/end-users/MESH_CONCEPTS.md).
+- **Shared Epistemic Record (SER)** — cortex-resident shared-state object for coordination across ≥2 practitioners. Goals stay per-practitioner; SER carries the *joint* state (`coordination_state`, role-tiered participants, escalate-on-silence). Three actions: `create_ser` / `transition_ser` / `ser_ack`. Spec at `empirica-cortex/docs/architecture/SHARED_EPISTEMIC_RECORD.md`.
+- **`empirica mesh` command cluster** (1.11.0) — unified diagnostic + control surface across listener instances + the optional cortex bridge:
+  ```bash
+  empirica mesh status              # per-instance health (local + cortex bridge)
+  empirica mesh diagnose <ai_id>    # deep diagnostic + suggested fix command
+  empirica mesh restart <ai_id>     # systemd/launchd restart + verify
+  empirica mesh on|off <ai_id>      # install + start | stop the listener
+  empirica mesh tail [<ai_id>]      # live-tail loop_fires.log
+  ```
+- **Listener self-heal** — in-process watchdog terminates stale curl streams (TCP-zombie detection at 120s by default); HTTP 429 detection applies long backoff with catch-up poll continuing during the window.
+- **Mesh Routing Protocol v0** locked four-way with cortex + extension + mesh-support. L1/L2/L3 trust model, server-stamped layer annotation, participant-scoped thread reads.
+
+The full mesh requires cortex + extension; **empirica core works standalone** for single-tenant multi-practitioner coordination via local git-notes messaging + goals + workspace.
+
+---
+
 ## Practice Model + Entity Graph (1.10.0)
 
 Empirica's workspace stores entities (projects, contacts, organisations, engagements, users) in `entity_registry` with typed edges in `entity_memberships`. The **Practice Model** frames this consistently:
@@ -298,7 +319,7 @@ All read-only, all support `--output json`. Backs cross-project orchestration, C
 | **[Architecture](docs/architecture/)** | Technical reference for contributors |
 | **[Claude Code Setup](docs/human/developers/CLAUDE_CODE_SETUP.md)** | Install + system prompt + plugin wiring |
 | **[Changelog](CHANGELOG.md)** | Full release history — every version since 1.0 |
-| **[Upgrade to 1.10](docs/guides/UPGRADE_TO_1.10.md)** | Migration guide for the `subtask` → `task` CLI rename |
+| **[Upgrade to 1.11](docs/guides/UPGRADE_TO_1.11.md)** | Migration guide rolling up 1.10.5+1.10.6+1.11.x — bead v0 → SER, mesh substrate hardening, MESH_CONCEPTS framing |
 
 ---
 
@@ -318,12 +339,14 @@ All read-only, all support `--output json`. Backs cross-project orchestration, C
 
 ---
 
-## What's New in 1.10.4
+## What's New in 1.11
 
-- **Windows: every hook failed on every event — fixed (#111)** — `setup-claude-code` now writes forward-slash hook paths (Git Bash was eating the backslashes)
-- **Listener replay storms fixed** — `loop_fires.log` rotates by rename, so the wake-Monitors stop re-firing duplicate events across the mesh
-- **`gh run`/`gh workflow` reads un-gated** in the Sentinel — CI-status checks no longer need a CHECK gate
-- **Decay recency extended to lessons + eidetic** — the read-time recency rerank now covers lessons + eidetic facts (longevity modulator), not just findings
+- **Shared Epistemic Record (SER)** — new cortex-resident shared-state primitive for cross-practitioner coordination, replacing the v0 bead concept. Goals stay per-practitioner; SER is what ≥2 practitioners coordinate against. See [MESH_CONCEPTS.md](docs/human/end-users/MESH_CONCEPTS.md) for the practitioner/practice framing and `empirica-cortex/docs/architecture/SHARED_EPISTEMIC_RECORD.md` for the spec.
+- **`empirica mesh` command cluster** — unified diagnostic + control surface (`status`, `diagnose`, `restart`, `on`, `off`, `tail`) across listener instances and the optional cortex bridge. Distinguishes local-only health from cortex-bridge health; auto-flags silent-zombie and rate-limit-backoff states distinctly
+- **Listener self-heal** — in-process watchdog terminates stale curl streams (TCP zombie detection), HTTP 429 detection applies long backoff with catch-up poll continuing during the window, both pair with the mesh command
+- **Mesh Routing Protocol v0 locked four-way** — L1/L2/L3 layer model, server-stamped layer annotation on every proposal + wake event, participant-scoped `/v1/orchestration/threads` (closes cross-tenant collab visibility leaks)
+- **Relevance / decay unification** — every temporal Qdrant collection (memory, eidetic, decisions, assumptions, episodic, goals) now carries `created_at` so cortex's serving-side composition-C age-based decay applies uniformly
+- **`'blocked'` added to `goal.status` enum** — per-practitioner goals can mark themselves blocked when waiting on external dependencies; cross-practitioner shared state lives in SER, not the local goal
 ---
 
 ## Privacy & Data
@@ -353,6 +376,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 **Author:** David S. L. Van Assche
-**Version:** 1.11.2
+**Version:** 1.11.3
 
 *Turtles all the way down — built with its own epistemic framework, measuring what it knows at every step.*

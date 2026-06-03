@@ -145,7 +145,7 @@ Coordination primitives available without cortex:
 | AI #1 wants to tell AI #2 about something | `empirica message-send --to <ai_id> --subject "..." --body "..."` |
 | AI #2 checks for new messages | `empirica message-inbox` (or auto-poll via local listener) |
 | Reply to a message | `empirica message-reply --parent-id <id> --body "..."` |
-| Coordinate sustained work across both | `empirica goals-create` with `worked_by` edges; both practices update `coordination_state` as work progresses |
+| Coordinate sustained work across both | Each practice creates its own `empirica goals-create` (status: `planned` / `in_progress` / `blocked` / `completed`); cross-practice messages reference each other's goal IDs by hand. (Shared cross-practitioner state lives in cortex's SER — see layer 2 below for the upgrade path.) |
 | AI #1 wants to pick up where AI #3 left off | `empirica resume-goal <goal_id>` — loads goal context + linked artifacts |
 | Cross-project search of work artifacts | `empirica project-search --task "..." --global` (walks workspace.db across all projects on this machine) |
 | See who's working on what right now | `empirica status --all` (TUI cockpit) |

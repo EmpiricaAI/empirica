@@ -223,6 +223,13 @@ Claude should run the command and surface findings + open goals.
 The fastest path to a green status: `empirica diagnose` and follow the
 PASS/FAIL hints.
 
+> **Using a different AI harness?** Claude Desktop, Cursor, Gemini CLI,
+> Codex, and other MCP-compatible clients use the same `empirica-mcp`
+> binary but a different config path — see
+> [`MCP_FOR_DESKTOP_HARNESSES.md`](../end-users/MCP_FOR_DESKTOP_HARNESSES.md)
+> for per-harness `mcp.json` examples + the self-enforcement model
+> for the noetic firewall when there are no hooks.
+
 ---
 
 ## Quick Reference

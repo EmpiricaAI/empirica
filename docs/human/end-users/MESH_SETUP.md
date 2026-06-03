@@ -238,12 +238,33 @@ empirica listener resume <listener-name>
 
 ## Step 7 — Verify End-to-End
 
-Once Steps 1–6 are done, test the mesh round-trip from one of your AIs:
+### 7a. Look up the canonical address of a peer
+
+Before sending, confirm the exact 3-form for your target. The
+`practice-context` CLI (added 1.11.3) reads your roster from cortex
+and renders each registered practitioner with its `ai_id_mesh` —
+the canonical form to put in `target_claudes`:
+
+```bash
+empirica practice-context --output json | jq '.practices[].ai_id_mesh'
+# → "empirica.you.empirica"
+# → "empirica.you.empirica-cortex"
+# → "empirica.you.empirica-extension"
+# → "empirica.peer.empirica-mesh-support"
+# → ...
+```
+
+Use that exact string. Bare basenames (`cortex`), 2-form
+(`you.cortex`), and prefix-stripped forms (`empirica.you.cortex` when
+the slug is `empirica-cortex`) all bounce via `delivery_failed`.
+The canonical 3-form does not bounce.
+
+### 7b. Test the round-trip
 
 ```bash
 # From your AI session (or any terminal with valid CORTEX_API_KEY)
 empirica mailbox send \
-  --target-claudes <peer-ai-id> \
+  --target-claudes <peer-canonical-ai_id_mesh> \
   --type collab_brief \
   --title "Mesh smoke test from $(date)" \
   --summary "Verifying inter-AI comms. This is a collab — auto-accepted."

@@ -115,7 +115,7 @@ storage.store_handoff(session_id, report)
 
 # Query by AI or date
 recent = storage.query_handoffs(
-    ai_id="claude-code",
+    ai_id="empirica",
     since="2025-01-01",
     limit=10
 )
@@ -149,7 +149,7 @@ handoff = storage.load_handoff(session_id, prefer='database')
 
 # Query with automatic merge from git notes
 handoffs = storage.query_handoffs(
-    ai_id="claude-code",
+    ai_id="empirica",
     include_git=True  # Merge git notes not in database
 )
 
@@ -170,7 +170,7 @@ status = storage.check_sync_status(session_id)
 ```json
 {
   "session_id": "abc123-...",
-  "ai_id": "claude-code",
+  "ai_id": "empirica",
   "timestamp": "2025-01-07T10:30:00Z",
   "task_summary": "Implemented OAuth2 authentication",
   "duration_seconds": 1800,

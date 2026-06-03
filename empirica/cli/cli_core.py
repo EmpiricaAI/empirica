@@ -148,14 +148,7 @@ from .command_handlers.concept_graph_commands import (
 from .command_handlers.docs_commands import handle_docs_assess, handle_docs_explain
 from .command_handlers.docs_link_check_commands import handle_docs_link_check_command
 from .command_handlers.mailbox_commands import handle_mailbox_group_command
-from .command_handlers.mcp_commands import (
-    handle_mcp_call_command,
-    handle_mcp_list_tools_command,
-    handle_mcp_start_command,
-    handle_mcp_status_command,
-    handle_mcp_stop_command,
-    handle_mcp_test_command,
-)
+from .command_handlers.mcp_commands import handle_mcp_list_tools_command
 from .command_handlers.memory_commands import (
     handle_memory_prime_command,
     handle_memory_report_command,
@@ -180,6 +173,7 @@ from .command_handlers.persona_commands import (
     handle_persona_promote_command,
     handle_persona_show_command,
 )
+from .command_handlers.practice_context_commands import handle_practice_context_command
 from .command_handlers.query_commands import handle_query_command
 from .command_handlers.release_commands import handle_release_command, handle_release_ready_command
 from .command_handlers.rust_docs_commands import handle_rust_docs_assess
@@ -268,7 +262,7 @@ def create_argument_parser():
         usage='empirica [--version] [--verbose] <command> [args]',
         description='Empirica - Measurement and calibration layer for AI',
         formatter_class=GroupedHelpFormatter,
-        epilog="Examples:\n  empirica session-create --ai-id claude-code\n  empirica preflight-submit -     # JSON on stdin\n  empirica finding-log --finding \"Discovered X\" --impact 0.7\n  empirica goals-create --objective \"Implement Y\"\n  empirica project-bootstrap     # Load project context"
+        epilog="Examples:\n  empirica session-create --ai-id empirica\n  empirica preflight-submit -     # JSON on stdin\n  empirica finding-log --finding \"Discovered X\" --impact 0.7\n  empirica goals-create --objective \"Implement Y\"\n  empirica project-bootstrap     # Load project context"
     )
 
     # Global options (must come before subcommand)
@@ -341,7 +335,7 @@ _HELP_CATEGORIES = {
     'workflow': ['preflight-submit', 'check', 'check-submit', 'postflight-submit'],
     'goals': ['goals-create', 'goals-list', 'goals-search', 'goals-complete', 'goals-claim', 'goals-add-task', 'goals-add-dependency', 'goals-complete-task', 'goals-get-tasks', 'goals-progress', 'goals-discover', 'goals-ready', 'goals-resume', 'goals-mark-stale', 'goals-get-stale', 'goals-refresh'],
     'logging': ['finding-log', 'unknown-log', 'unknown-list', 'unknown-resolve', 'deadend-log', 'assumption-log', 'decision-log', 'mistake-log', 'mistake-query', 'source-add', 'source-list', 'source-archive', 'act-log', 'investigate-log', 'log-artifacts', 'resolve-artifacts', 'delete-artifacts', 'epistemics-list', 'epistemics-show', 'noetic-batch'],
-    'project': ['project-init', 'project-update', 'project-create', 'project-list', 'project-switch', 'project-bootstrap', 'project-handoff', 'project-search', 'project-embed', 'code-embed', 'doc-check', 'bootstrap-context', 'projects-sync', 'projects-discover', 'projects-list', 'projects-bulk-register'],
+    'project': ['project-init', 'project-update', 'project-create', 'project-list', 'project-switch', 'project-bootstrap', 'project-handoff', 'project-search', 'project-embed', 'code-embed', 'doc-check', 'bootstrap-context', 'practice-context', 'projects-sync', 'projects-discover', 'projects-list', 'projects-bulk-register'],
     'workspace': ['workspace-init', 'workspace-map', 'workspace-list', 'workspace-overview', 'workspace-search', 'engagement-focus', 'ecosystem-check', 'save', 'history', 'entity-list', 'entity-show', 'entity-walk', 'entity-search'],
     'checkpoint': ['checkpoint-create', 'checkpoint-load', 'checkpoint-list', 'checkpoint-diff', 'checkpoint-sign', 'checkpoint-verify', 'checkpoint-signatures'],
     'sync': ['sync-config', 'sync-push', 'sync-pull', 'sync-status', 'rebuild', 'artifacts-generate'],
@@ -358,7 +352,7 @@ _HELP_CATEGORIES = {
     'sentinel': ['sentinel-orchestrate', 'sentinel-load-profile', 'sentinel-status', 'sentinel-check'],
     'personas': ['persona-list', 'persona-show', 'persona-promote', 'persona-find'],
     'lessons': ['lesson-create', 'lesson-load', 'lesson-list', 'lesson-search', 'lesson-recommend', 'lesson-path', 'lesson-replay-start', 'lesson-replay-end', 'lesson-stats'],
-    'mcp': ['mcp-start', 'mcp-stop', 'mcp-status', 'mcp-test', 'mcp-list-tools', 'mcp-call'],
+    'mcp': ['mcp-list-tools'],
     'memory': ['memory-prime', 'memory-scope', 'memory-value', 'pattern-check', 'session-rollup', 'memory-report'],
     'vision': ['vision'],
     'domains': ['domain-list', 'domain-show', 'domain-resolve', 'domain-validate'],
@@ -715,6 +709,7 @@ def main(args=None):
             'rust-docs-assess': handle_rust_docs_assess,
             'docs-link-check': handle_docs_link_check_command,
             'bootstrap-context': handle_bootstrap_context_command,
+            'practice-context': handle_practice_context_command,
 
             # Lesson commands (Epistemic Procedural Knowledge)
             'lesson-create': handle_lesson_create_command,
@@ -747,13 +742,8 @@ def main(args=None):
             'concept-top': handle_concept_top,
             'concept-related': handle_concept_related,
 
-            # MCP server management commands
-            'mcp-start': handle_mcp_start_command,
-            'mcp-stop': handle_mcp_stop_command,
-            'mcp-status': handle_mcp_status_command,
-            'mcp-test': handle_mcp_test_command,
+            # MCP inspection (lifecycle now owned by harness mcp.json configs)
             'mcp-list-tools': handle_mcp_list_tools_command,
-            'mcp-call': handle_mcp_call_command,
 
             # Inter-agent messaging commands
             'message-send': handle_message_send_command,

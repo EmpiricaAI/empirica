@@ -1,5 +1,7 @@
 # BEADS Integration — Quick Start
 
+> **Naming note:** "BEADS" here refers to the external [bd](https://github.com/cased/beads) dependency-graph issue tracker that empirica integrates with for goal decomposition + ready-work filtering. This is unrelated to the v0 "bead coordination record" concept that was retired in 1.11.2 — see [MESH_CONCEPTS.md](MESH_CONCEPTS.md) for the cross-practitioner-coordination story (which now lives in cortex SER, not as a graph node).
+
 [BEADS](https://github.com/cased/beads) is a dependency-aware git-native
 issue tracker. Empirica can optionally pair each goal with a BEADS issue
 so you get dependency tracking and ready-work detection on top of the

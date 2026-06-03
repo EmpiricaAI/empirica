@@ -59,7 +59,7 @@ class GitSourceStore:
         description: str | None = None,
         confidence: float = 0.7,
         direction: str = 'noetic',
-        ai_id: str = 'claude-code',
+        ai_id: str = '',  # canonical: caller passes ai_id from InstanceResolver.ai_id()
     ) -> bool:
         if not self._git_available or not self._has_commits():
             return False

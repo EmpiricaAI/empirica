@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "empirica"
-version = "1.11.2"
+version = "1.11.3"
 description = "Measurement and calibration layer for AI — track what it knows, gate what it does"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -51,6 +51,7 @@ dependencies = [
     "gitpython>=3.1.41",        # Security: CVE-2024-22190 RCE fix
     "lxml>=6.1.0",              # Security: CVE-2026-41066 XXE in default parser config (transitive via newspaper4k/trafilatura/python-docx)
     "python-multipart>=0.0.27", # Security: CVE-2026-42561 fix (transitive via mcp/nicegui/p4-confidence-tracker; direct pin overrides)
+    "pyjwt>=2.13.0",            # Security: PYSEC-2026-175/177/178/179 fixes (transitive via mcp)
 
     # Optional but commonly used
     "anthropic>=0.39.0",        # Anthropic SDK for adapters

@@ -207,6 +207,62 @@ when it went out — these events are informational acks for the source AI.
 Outbox `accepted` is NEVER surfaced (informational — target will act on
 the next tick of their inbox poll). Saves chat noise.
 
+### `event=ser_escalation` — SER re-ping (cortex Phase 3, env-gated)
+
+A separate wake shape rides the same `proposal_event` channel when an
+SER you're a `required`-tier participant of has been idle past its
+escalation interval and you haven't acked since the last transition.
+Cortex emits these from `system:ser-escalation` (env-gated by
+`CORTEX_SER_ESCALATION_ENABLED`, default OFF; interval
+`CORTEX_SER_ESCALATION_INTERVAL_S`, default 600s).
+
+```json
+{"event": "ser_escalation", "event_type": "proposal_event",
+ "ser_id": "ser_xxx", "ser_state": "in_progress",
+ "source_claude": "system:ser-escalation",
+ "target_claudes": ["<your_canonical_id>"],
+ "escalation": true,
+ "idle_for_seconds": 14400}
+```
+
+**Discriminator:** `escalation=true` distinguishes re-pings from first
+delivery on the same channel. `source_claude=system:ser-escalation`
+identifies the cortex internal emitter.
+
+**What to do:**
+
+1. **Verify it's for you** — `your ai_id IN target_claudes`. Cortex
+   currently relies on the SER caller to set `target_claudes` correctly
+   (caller-controlled per v1; see cortex `prop_ealogh` defer flag).
+2. **Re-engage with the SER.** Fetch the SER projection:
+   ```python
+   GET /v1/sers/{ser_id}
+   ```
+   Read `coordination_state`, `last_transition_at`, `last_transition_actor`,
+   and your row in `participants[]` (your `last_action_at`,
+   `last_ack_at`). The escalation fires because either:
+   - You haven't acted (your `last_action_at < last_transition_at`),
+     and the SER needs you to transition / ack / contribute, OR
+   - You haven't even acked the last transition (`last_ack_at IS NULL`
+     or `< last_transition_at`)
+3. **Act, then ack to silence the next tick.** Either:
+   - Take the substantive action (transition the SER via
+     `cortex_propose(payload.action='transition_ser', transition_spec=...)`),
+     OR
+   - If just acknowledging receipt without state change is the right
+     posture (e.g. an SER you're observing but not blocking on),
+     emit `cortex_propose(payload.action='ser_ack', ack_spec={...})` —
+     this stamps your `last_ack_at` and **suppresses the next
+     escalation tick for you** until the SER's next transition (spec
+     §5.3 — read-and-waiting participants don't get spammed).
+4. **Closed SERs never escalate.** If `coordination_state=closed` when
+   you fetch, the tick was racing closure — no action needed.
+
+**If mid-transaction**, follow the same defer-as-goal pattern as inbox
+proposals: log a goal `"Process ser_escalation: <ser_id>"` and pick up
+at the next natural break. SER escalations are designed to wait — the
+next tick fires another 10min later, not immediately.
+
 ### Heartbeat event (legacy fallback)
 
 ```json

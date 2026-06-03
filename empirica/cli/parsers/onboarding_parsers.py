@@ -10,8 +10,8 @@ def add_onboarding_parsers(subparsers):
     )
     onboard_parser.add_argument(
         '--ai-id',
-        default='claude-code',
-        help='AI identifier (optional, default: claude-code)'
+        default=None,
+        help='AI identifier (optional, derives from project basename or .empirica/project.yaml)'
     )
 
     # Setup Claude Code command - configure Claude Code integration

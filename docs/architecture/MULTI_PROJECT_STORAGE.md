@@ -217,11 +217,11 @@ empirica project-create --name "My App" --repos "frontend,backend,shared"
 ```bash
 # In each repo, sessions auto-link via project detection
 cd ~/code/frontend
-empirica session-create --ai-id claude-code
+empirica session-create --ai-id empirica
 # Detects project from git remote / config
 
 # Or explicitly link
-empirica session-create --ai-id claude-code --project-id abc-123
+empirica session-create --ai-id empirica --project-id abc-123
 ```
 
 ### 3. Bootstrap Context

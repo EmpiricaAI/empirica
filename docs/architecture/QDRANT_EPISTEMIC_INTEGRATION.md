@@ -81,7 +81,7 @@ Empirica uses a **dual-database architecture** for optimal AI learning:
   "vector": [1536-dim embedding of combined reasoning],
   "payload": {
     "session_id": "uuid",
-    "ai_id": "claude-code",
+    "ai_id": "empirica",
     "timestamp": "2025-12-19T10:30:00",
     "task_description": "Implement OAuth2 authentication",
 
@@ -439,7 +439,7 @@ When AI A → AI B handoff occurs:
 ```json
 {
   "session_id": "uuid",
-  "from_ai": "claude-code",
+  "from_ai": "empirica",
   "to_ai": "sonnet",
   "epistemic_state": {
     "last_checkpoint": "POSTFLIGHT",

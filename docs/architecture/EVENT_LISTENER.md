@@ -278,14 +278,22 @@ out naturally because peer AIs already know each other's project
 names.
 
 **Migration:** Pre-2026-05-16 projects may have `ai_id` unset in
-`project.yaml` (the field is new). Falling back to `claude-code` is
-the legacy default. Re-running `setup-claude-code --force` on those
-projects refreshes the field. Project-internal callers should:
+`project.yaml` (the field is new). Re-running `setup-claude-code --force`
+on those projects refreshes the field. Project-internal callers should
+derive via the canonical chain — project.yaml → basename — and only
+fall back to empty (or a generic value) when neither resolves. The
+legacy `'claude-code'` literal was retired in 2026-06-02 so the
+sentinel + cache state correctly reflects multi-practice setups:
 
 ```python
+# Canonical: rely on InstanceResolver for the full chain
+from empirica.utils.session_resolver import InstanceResolver
+ai_id = InstanceResolver.ai_id() or ''
+
+# Or inline-explicit:
 ai_id = (project_yaml.get('ai_id')
          or basename.removeprefix('empirica-')
-         or 'claude-code')
+         or '')   # empty = honest about not knowing
 ```
 
 ---

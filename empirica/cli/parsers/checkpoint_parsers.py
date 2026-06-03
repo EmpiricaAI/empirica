@@ -355,7 +355,7 @@ def add_checkpoint_parsers(subparsers):
     )
     project_bootstrap_parser.add_argument('--project-id', required=False, help='Project UUID or name (auto-detected from git remote if omitted)')
     project_bootstrap_parser.add_argument('--session-id', required=False, help='Session UUID (auto-resolved from project if omitted)')
-    project_bootstrap_parser.add_argument('--ai-id', required=False, help='AI identifier to load epistemic handoff for (e.g., claude-code)')
+    project_bootstrap_parser.add_argument('--ai-id', required=False, help='AI identifier to load epistemic handoff for (e.g., empirica, cortex; derives from project basename if omitted)')
     project_bootstrap_parser.add_argument('--subject', help='Subject/workstream to filter by (auto-detected from directory if omitted)')
     project_bootstrap_parser.add_argument('--check-integrity', action='store_true', help='Analyze doc-code integrity (adds ~2s)')
     project_bootstrap_parser.add_argument('--context-to-inject', action='store_true', help='Generate markdown context for AI prompt injection')
@@ -963,7 +963,7 @@ Example:
     training_export_parser.add_argument('--workspace', action='store_true',
         help='Export from ALL project databases in workspace (not just current)')
     training_export_parser.add_argument('--project-id', help='Filter by project (prefix match)')
-    training_export_parser.add_argument('--ai-id', help='Filter by AI ID (e.g., claude-code)')
+    training_export_parser.add_argument('--ai-id', help='Filter by AI ID (e.g., empirica, cortex, autonomy)')
     training_export_parser.add_argument('--min-vectors', type=int, default=3,
         help='Minimum vector count to include a transaction (default: 3)')
     training_export_parser.add_argument('--no-artifacts', action='store_true',
