@@ -69,13 +69,16 @@ content that crosses a project boundary.
 
 **Canonical wire form is the fully-qualified `org.tenant.project` triple.** Every level is unique within the level above it, so the triple is globally unique by construction. Two tenants with the same project slug (e.g. each tenant having an `empirica` project) don't collide: `empirica.alice.empirica` ≠ `empirica.bob.empirica`.
 
-Older 2-level slugs (e.g. `empirica-cortex`) and short aliases (e.g. `cortex`, per org-specific includes) still resolve via cortex's lenient resolver — transition-compatible — but emitters should send the 3-level triple.
+**Strict canonical — no lenient resolution anymore (2026-06-02, commit
+`629bb29`).** Older 2-level slugs and short aliases bounce via
+`delivery_failed`. The 3-form is the ONLY form that resolves on the
+wire.
 
 | Form | Example | Status |
 |---|---|---|
-| Canonical (3-level, fully-qualified) | `empirica.alice.empirica-cortex` | **Recommended.** Globally unique. Self-describing — consumers parse `{org, tenant, project}` directly. |
-| 2-level project slug | `empirica-cortex` | Resolves within an org; ambiguous cross-tenant. |
-| Short alias | `cortex` | Resolves only inside the alias-aware org; breaks cross-org. |
+| Canonical (3-level, fully-qualified) | `empirica.alice.empirica-cortex` | **REQUIRED on the wire.** Globally unique. Self-describing — consumers parse `{org, tenant, project}` directly. |
+| 2-level project slug | `empirica-cortex` | ❌ Bounces via `delivery_failed`. |
+| Short alias | `cortex` | ❌ Bounces. Aliases are a chat-layer convenience documented in `*-org-prompt.md`; they are NOT wire-valid. |
 
 **Delimiter:** `.` separates levels (DNS-style). Project / tenant / org names may contain `-` and `_` freely but MUST NOT contain `.`. Decode:
 
@@ -106,13 +109,13 @@ canonical_id.split(".", 2)  # → [org, tenant, project_slug]
 
 | You might write | Correct value |
 |---|---|
-| `empirica-claude` | `<org>.<tenant>.empirica` (3-level canonical) |
-| `claude-code` | the project's 3-level canonical form |
-| `cortex-claude` | `<org>.<tenant>.empirica-cortex` (3-level canonical) |
+| `cortex` (short alias) | `<org>.<tenant>.empirica-cortex` (3-level canonical) |
+| `empirica-cortex` (bare slug) | `<org>.<tenant>.empirica-cortex` (3-level canonical) |
+| `empirica-claude`, `claude-code`, `cortex-claude` | the project's 3-level canonical form (`-claude` / `claude-` decorations are legacy artifacts and don't resolve) |
 | The model name (`opus`, `sonnet`) | the project's 3-level canonical form |
-| Bare `empirica-cortex` cross-tenant | `<org>.<tenant>.empirica-cortex` — bare slug is ambiguous |
+| Stripping the `empirica-` prefix | KEEP the prefix — it's part of the exact project name |
 
-The `-claude` / `claude-` decorations are legacy artifacts and don't resolve.
+All non-canonical forms bounce via `delivery_failed` — your listener wakes with the bounce so you learn. Silent drops don't happen.
 
 ---
 

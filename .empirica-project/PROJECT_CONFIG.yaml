@@ -5,7 +5,7 @@ project:
   name: "empirica-development"
   description: "Using Empirica to manage Empirica itself - dogfooding at its finest"
   repository: "https://github.com/Nubaeon/empirica"
-  version: "1.11.3"
+  version: "1.11.4"
   
 bootstrap:
   # What contributors should know when starting work

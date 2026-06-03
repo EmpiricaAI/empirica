@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.11.4] — 2026-06-03
+
+A critical-bugfix patch shipping the same day as 1.11.3. **Recommend immediate upgrade for any user running a persistent listener** — fleet-wide silent wake-event break since the cortex strict-canonical addressing rollout (commit `629bb29`, 2026-06-02). Also rolls up a system-prompt / skill consistency pass surfaced by mesh-support's `prop_l4behx3jl` while debugging cross-tenant addressing.
+
+### Fixed
+
+- **CRITICAL: Listener orchestration fetch now resolves canonical 3-form ai_id before GET** (`empirica/core/loop_scheduler/content_poll.py`). Cortex's `/v1/orchestration/{inbox,outbox}` endpoints require `<org>.<tenant>.<project>` since 2026-06-02; listeners were passing the bare basename → cortex returned **0 proposals silently** → catch-up emitted nothing despite ntfy events arriving → every practitioner went deaf to mesh wakes. Symptom in logs: `listener: ntfy event arrived → running catch-up` lines without subsequent `proposal_event` JSON lines. New `_resolve_canonical_ai_id()` reads cortex `/v1/users/me/roster`, maps basename → `ai_id_mesh`, cached per-process (listener restart drops cache via version-drift self-relaunch). Handles both root (`empirica`) and prefix-stripped basenames (`extension` → `empirica-extension`) via fallback. Verified live: 50/45/89/19/22 catch-up events emitted on empirica/autonomy/extension/mesh-support/outreach after restart. Cross-tenant wakes (Philipp ↔ David) recover on the same code change.
+
+### Changed
+
+- **AI_ID convention in templates + skills aligned with strict-canonical** (per mesh-support `prop_l4behx3jl`, ECO-accepted via Homer auto-mode). Templates + skills used to teach "strip the `empirica-` prefix" as the ai_id, contradicting the strict-canonical model David ratified in `629bb29`. They now teach the **exact project name** (prefix kept) as the ai_id; shorter aliases (`cortex`, `outreach`, `mesh-support`) explicitly documented as chat-layer shorthand that lives in `*-org-prompt.md`, NOT on the wire. Updated surfaces:
+  - `empirica-system-prompt-lean.md` (rendered template)
+  - `CLAUDE.md` (full template)
+  - `/cortex-mailbox-poll` skill (AI_ID convention + resolution code)
+  - `/cortex-mailbox-send` skill (canonical-form table — "Older 2-level slugs ... transition-compatible" wording replaced with "Strict canonical — no lenient resolution anymore"; wrong-values-to-avoid table now flags bare slugs + stripped prefixes as wrong)
+  - Plugin mirrors at `~/.claude/plugins/local/empirica/skills/` synced
+
+### Note
+
+- Knock-on cleanup tracked separately: existing `.empirica/project.yaml` `ai_id` fields set to the stripped form (David's own `mesh-support`, etc.) still work because cortex resolves aliases by `user_id`. A consistent canonicalization pass (project.yaml `ai_id` = exact project name across the org) is the clean follow-up — non-urgent because the listener fix above closes the silent-break, but worth a sweep before SER state hits 3-way enforcement.
+
 ## [1.11.3] — 2026-06-03
 
 A patch release dominated by hygiene: legacy `claude-code` literals retired from internal sentinel + cache + canonical-git layers, the MCP CLI surface gets a deep refresh, and the empirica-mcp package gains 13 mesh primitives so non-Claude-Code harnesses (Claude Desktop, Cursor, Gemini CLI, Codex) can reach the full tool surface. New `practice-context` CLI for the Ambassador addressbook (lane 2 of cortex `prop_7r5tihxyqr`).

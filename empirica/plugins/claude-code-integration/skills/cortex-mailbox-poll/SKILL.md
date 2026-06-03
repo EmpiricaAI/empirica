@@ -36,21 +36,28 @@ project-specific config takes precedence over this canonical default.
 
 ## AI_ID convention
 
-Your `ai_id` is the basename of your project's root directory (with
-`empirica-` prefix stripped where present). The full mapping table
-lives in `~/.claude/empirica-system-prompt.md` and the wire-level
-detail in `docs/architecture/EVENT_LISTENER.md`. Quick reference:
+Your `ai_id` is the **exact name of your project** (directory basename,
+`empirica-` prefix KEPT). The full convention lives in
+`~/.claude/empirica-system-prompt.md` (canonical) +
+`empirica-org-prompt.md` (org-specific aliases) + wire-level detail in
+`docs/architecture/EVENT_LISTENER.md`. Quick reference:
 
 | Project root | `ai_id` |
 |---|---|
 | `~/empirical-ai/empirica` | `empirica` |
-| `~/empirical-ai/empirica-cortex` | `cortex` |
-| `~/empirical-ai/empirica-outreach` | `outreach` |
+| `~/empirical-ai/empirica-cortex` | `empirica-cortex` |
+| `~/empirical-ai/empirica-outreach` | `empirica-outreach` |
+
+Shorter human aliases (`cortex`, `outreach`, etc.) live in the
+org-prompt layer and are used in chat — but **not** on the wire.
 
 Read your canonical id from `.empirica/project.yaml`'s `ai_id` field
 (set by `setup-claude-code` at project init). Use it in
-`session-create --ai-id <id>`, `cortex_propose source_claude=<id>`,
-and `target_claudes=[<peer-ids>]` calls.
+`session-create --ai-id <id>`. For `target_claudes` and
+`source_claude`, use the canonical 3-form
+`<org>.<tenant>.<exact-project-name>` (e.g.
+`empirica.david.empirica-cortex`) — bare basenames bounce via
+`delivery_failed`.
 
 ---
 
@@ -294,15 +301,15 @@ interactive — 15m is too slow when a peer Claude is waiting.
 
 ## Resolving `ai_id` for the poll
 
-Cortex inbox/outbox are scoped to a specific AI identity (e.g. `outreach`,
-`cortex`, `extension`, `autonomy`, `empirica`). The body resolves `ai_id`
-from project context, in this order:
+Cortex inbox/outbox are scoped to a specific AI identity (e.g.
+`empirica-outreach`, `empirica-cortex`, `empirica-extension`,
+`empirica-autonomy`, `empirica`). The body resolves `ai_id` from
+project context, in this order:
 
-1. **Project's `CLAUDE.md`** — look for an `AI_ID:` line or `**AI_ID:**`
-   header. This is the canonical per-project convention.
-2. **Project name fallback** — if the project is `empirica-outreach`,
-   strip the `empirica-` prefix → `outreach`. If just `empirica`,
-   use `empirica` as-is.
+1. **Project's `.empirica/project.yaml`** — read the `ai_id:` field
+   (canonical per-project value, set by `setup-claude-code`).
+2. **Project name fallback** — use the directory basename as-is
+   (keep the `empirica-` prefix).
 3. **`EMPIRICA_AI_ID` env var** — last-resort explicit override (for
    environments that don't have a project file).
 
@@ -362,13 +369,11 @@ for parent in [Path.cwd()] + list(Path.cwd().parents):
             print(m.group(1)); raise SystemExit
         break
 
-# 2. Project name fallback (strip 'empirica-' prefix)
+# 2. Project name fallback (use directory basename as-is, keep prefix)
 project_path = os.getcwd()
 name = Path(project_path).name
-if name.startswith('empirica-'):
-    print(name[len('empirica-'):]); raise SystemExit
-if name == 'empirica':
-    print('empirica'); raise SystemExit
+if name:
+    print(name); raise SystemExit
 
 # 3. Env var override
 ai_id = os.environ.get('EMPIRICA_AI_ID')
