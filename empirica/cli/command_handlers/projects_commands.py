@@ -1059,6 +1059,35 @@ def handle_projects_bulk_register_command(args) -> None:
 # ── projects-unregister ─────────────────────────────────────────────────
 
 
+def _resolve_project_id_from_yaml() -> str | None:
+    """Walk up from cwd looking for `.empirica/project.yaml` and return its
+    `project_id` field, or None if not found / not readable."""
+    try:
+        project_path = Path.cwd()
+        for parent in [project_path, *project_path.parents]:
+            yaml_path = parent / ".empirica" / "project.yaml"
+            if yaml_path.exists():
+                with open(yaml_path) as f:
+                    data = yaml.safe_load(f) or {}
+                return data.get("project_id")
+    except Exception as e:
+        logger.debug(f"project.yaml resolution failed: {e}")
+    return None
+
+
+def _classify_unregister_outcome(
+    status: int, purge: bool,
+) -> tuple[bool, str]:
+    """Map cortex /v1/projects/unregister status code → (ok, outcome)."""
+    if status in (200, 201, 204):
+        return True, ("purged" if purge else "archived")
+    if status == 404:
+        return False, "not_found"
+    if status == 409:
+        return True, "already_archived"  # idempotent — already in target state
+    return False, "error"
+
+
 def handle_projects_unregister_command(args) -> None:
     """Unregister a project from Cortex (soft archive by default, --purge to hard-delete).
 
@@ -1087,24 +1116,10 @@ def handle_projects_unregister_command(args) -> None:
         output_format = getattr(args, "output", "human")
         timeout = float(getattr(args, "timeout", 10.0))
 
-        # Resolve project_id if not supplied directly
-        if not project_id:
-            if slug:
-                # Slug resolution happens at the cortex endpoint — pass it through
-                pass
-            else:
-                # Try to read project_id from .empirica/project.yaml
-                try:
-                    project_path = Path.cwd()
-                    for parent in [project_path, *project_path.parents]:
-                        yaml_path = parent / ".empirica" / "project.yaml"
-                        if yaml_path.exists():
-                            with open(yaml_path) as f:
-                                data = yaml.safe_load(f) or {}
-                            project_id = data.get("project_id")
-                            break
-                except Exception as e:
-                    logger.debug(f"project.yaml resolution failed: {e}")
+        # Resolve project_id from .empirica/project.yaml when neither
+        # --project-id nor --slug was supplied. Slug → handled by cortex.
+        if not project_id and not slug:
+            project_id = _resolve_project_id_from_yaml()
 
         if not project_id and not slug:
             print(
@@ -1145,19 +1160,7 @@ def handle_projects_unregister_command(args) -> None:
             cortex_url, CORTEX_UNREGISTER_PATH, payload, api_key, timeout,
         )
 
-        outcome: str
-        if status in (200, 201, 204):
-            outcome = "purged" if purge else "archived"
-            ok = True
-        elif status == 404:
-            outcome = "not_found"
-            ok = False
-        elif status == 409:
-            outcome = "already_archived"
-            ok = True  # idempotent — already in target state
-        else:
-            outcome = "error"
-            ok = False
+        ok, outcome = _classify_unregister_outcome(status, purge)
 
         result = {
             "ok": ok,
