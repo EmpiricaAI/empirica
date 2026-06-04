@@ -298,13 +298,38 @@ def handle_projects_discover_command(args) -> None:
 
         # v1.9.6+: --register also upserts into ~/.empirica/registry.yaml
         # (the daemon's served set). --prune additionally drops stale entries.
-        if getattr(args, "register", False):
+        # v1.11.x+: --register NAME filters the upsert to a single project
+        # (matched by directory basename or project.yaml name).
+        register_target = getattr(args, "register", None)
+        if register_target is not None:
+            register_manifest = manifest
+            single_target = None
+            if register_target != "*":
+                single_target = str(register_target)
+                register_manifest = _filter_manifest_to_target(manifest, single_target)
+                if not register_manifest.get("projects"):
+                    print(
+                        f"⚠ No discovered project matches --register {single_target!r} "
+                        f"(checked directory basename + project.yaml name). "
+                        f"Try `empirica projects-discover` without --register to see "
+                        f"what was found.",
+                        file=sys.stderr,
+                    )
+                    return
+            if single_target and getattr(args, "prune", False):
+                print(
+                    "⚠ --prune ignored: only meaningful with --register without NAME "
+                    "(targeted register doesn't sweep the registry).",
+                    file=sys.stderr,
+                )
             try:
                 summary = _register_discovered_to_registry(
-                    manifest, prune=getattr(args, "prune", False),
+                    register_manifest,
+                    prune=getattr(args, "prune", False) and single_target is None,
                 )
+                target_note = f" ({single_target!r})" if single_target else ""
                 print(
-                    f"\n📌 Registry updated: +{summary['added']} new, "
+                    f"\n📌 Registry updated{target_note}: +{summary['added']} new, "
                     f"~{summary['updated']} updated"
                     + (f", −{summary['pruned']} pruned" if summary["pruned"] else "")
                     + f" → {summary['total']} total",
@@ -314,6 +339,36 @@ def handle_projects_discover_command(args) -> None:
                 print(f"⚠ Failed to update registry: {e}", file=sys.stderr)
     except Exception as e:
         handle_cli_error(e, "projects-discover")
+
+
+def _filter_manifest_to_target(
+    manifest: dict[str, Any], target: str,
+) -> dict[str, Any]:
+    """Filter a discover-manifest down to a single named project.
+
+    Matches against (in order): directory basename (manifest entry.name),
+    project.yaml.name, project.yaml.display_name. Case-sensitive exact
+    match — no partials or globs (those belong on a separate `--match`
+    flag if needed). Returns a manifest with `projects` narrowed to the
+    matching entry/entries; preserves all other manifest keys.
+    """
+    matches: list[dict[str, Any]] = []
+    for entry in manifest.get("projects", []):
+        candidates: list[str] = []
+        if entry.get("name"):
+            candidates.append(str(entry["name"]))
+        if entry.get("path"):
+            candidates.append(Path(entry["path"]).name)
+        proj_yaml = _read_project_yaml_for_registry(entry.get("path") or "")
+        for key in ("name", "display_name"):
+            v = proj_yaml.get(key)
+            if v:
+                candidates.append(str(v))
+        if target in candidates:
+            matches.append(entry)
+    out = dict(manifest)
+    out["projects"] = matches
+    return out
 
 
 def _register_discovered_to_registry(

@@ -58,19 +58,25 @@ def add_projects_parsers(subparsers) -> None:
     )
     discover.add_argument(
         "--register",
-        action="store_true",
+        nargs="?",
+        const="*",
+        default=None,
+        metavar="NAME",
         help=(
             "After scanning, upsert each discovered project into "
             "~/.empirica/registry.yaml (the daemon's served set). Idempotent — "
-            "matches on project_id. (v1.9.6+)"
+            "matches on project_id. Pass NAME to register a single project "
+            "by directory basename or project.yaml name (e.g. `--register "
+            "empirica-mesh-support`); pass no value to register all "
+            "discovered projects. (v1.9.6+)"
         ),
     )
     discover.add_argument(
         "--prune",
         action="store_true",
         help=(
-            "Only with --register: also remove registry entries whose path "
-            "no longer exists or no longer contains .empirica/."
+            "Only with --register (no NAME): also remove registry entries "
+            "whose path no longer exists or no longer contains .empirica/."
         ),
     )
 
