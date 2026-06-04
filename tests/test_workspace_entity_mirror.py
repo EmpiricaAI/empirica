@@ -26,7 +26,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-
 # --- Schema parity: ensure_workspace_schema creates the entity tables ---
 
 
