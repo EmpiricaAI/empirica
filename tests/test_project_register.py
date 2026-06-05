@@ -100,7 +100,11 @@ def _run_register(tmp_path: Path, args: SimpleNamespace, capsys):
         except SystemExit as e:
             exit_code = e.code if e.code is not None else 0
     finally:
-        for p in patches:
+        # Stop in reverse order — multiple patches on the same Path.home
+        # capture their "original" as the prior mock; forward-order stop
+        # then leaves the first mock installed, polluting Path.home for
+        # subsequent tests (notably test_session_init_canonical_loops).
+        for p in reversed(patches):
             p.stop()
     out, err = capsys.readouterr()
     payload = None
