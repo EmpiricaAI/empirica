@@ -678,6 +678,196 @@ async def list_sources(
         db.close()
 
 
+@router.get("/sources/{source_id}/content")
+async def get_source_content(
+    source_id: str,
+    project_id: str | None = Query(None),
+    path: str | None = Query(None),
+):
+    """Return the content for a source row, or signal that the client should
+    fetch the URL directly.
+
+    Response shapes:
+      - URL source (http/https) → ``{"source_id": ..., "kind": "url", "url": ...}``
+        Client fetches the URL directly (avoids CORS-on-localhost-proxy
+        complexity for the simple case).
+      - Local file source → ``{"source_id": ..., "kind": "file", "path": ...,
+        "content": <text>, "size_bytes": N, "encoding": "utf-8"}``.
+      - 404 — source_id not found in ``epistemic_sources`` for the resolved
+        project, OR a file source whose path does not exist on disk.
+      - 422 — path source resolves outside the project tree (defense in
+        depth against ``../`` traversal).
+
+    Closes the extension blocker reported in prop_fzb63fnlx5 + prop_bcsecxo2rr:
+    daemon previously served only metadata, so the extension's source viewer
+    rendered empty. With this endpoint a viewer can branch on ``kind`` and
+    render inline or hand the URL to the browser.
+    """
+    project = _resolve_project_dict(project_id, path)
+    proj_pid = project.get("project_id")
+    if not proj_pid:
+        raise HTTPException(
+            status_code=503,
+            detail="Daemon has no active project. Pass ?project_id= or ?path=.",
+        )
+
+    db = _open_db_for(project)
+    try:
+        row = _fetch_source_row(db, proj_pid, source_id)
+        if not row:
+            raise HTTPException(
+                status_code=404,
+                detail=f"source_id {source_id!r} not found in project {proj_pid!r}",
+            )
+
+        url = row["source_url"] or ""
+        if _looks_like_url(url):
+            return {
+                "source_id": source_id,
+                "kind": "url",
+                "url": url,
+                "title": row["title"],
+                "source_type": row["source_type"],
+            }
+
+        return _resolve_file_source(
+            source_id, row, project["project_path"],
+        )
+    finally:
+        db.close()
+
+
+def _fetch_source_row(db, project_id: str, source_id: str) -> dict | None:
+    """Read one ``epistemic_sources`` row by id, scoped to project."""
+    cursor = db.conn.cursor()
+    cursor.execute(
+        "SELECT id, title, source_url, source_type, description "
+        "FROM epistemic_sources WHERE project_id = ? AND id = ? LIMIT 1",
+        (project_id, source_id),
+    )
+    r = cursor.fetchone()
+    if not r:
+        return None
+    return {
+        "id": r[0], "title": r[1], "source_url": r[2],
+        "source_type": r[3], "description": r[4],
+    }
+
+
+def _looks_like_url(value: str) -> bool:
+    """Detect URL sources for the kind branch."""
+    return value.startswith(("http://", "https://"))
+
+
+# Conventional locations a source path may resolve against, relative to
+# the project root. First match wins. Order matters: explicit sources
+# dir first, then docs, then the project root itself for backwards-
+# compatible "path was stored relative to the project" rows.
+_SOURCE_PATH_PREFIXES = ("", ".empirica/sources", "docs", "docs/sources")
+
+# Cap bytes returned — file sources are read into memory + JSON-encoded
+# for the response. 10MB is generous for a viewer endpoint without
+# being a DOS vector. Larger files return a truncation marker so the
+# viewer can fall back to "open in editor" UX.
+_MAX_SOURCE_CONTENT_BYTES = 10 * 1024 * 1024
+
+
+def _resolve_file_source(
+    source_id: str, row: dict, project_path: str,
+) -> dict:
+    """Walk the fallback paths for a non-URL source and return content + meta.
+
+    Raises HTTPException(404) when no candidate resolves, and
+    HTTPException(422) when a candidate escapes the project tree.
+    """
+    from pathlib import Path
+
+    raw = row["source_url"] or ""
+    root = Path(project_path).resolve()
+    resolved: Path | None = None
+    candidates: list[Path] = []
+    for prefix in _SOURCE_PATH_PREFIXES:
+        if not raw:
+            continue
+        candidate = (root / prefix / raw) if prefix else (root / raw)
+        candidates.append(candidate)
+        try:
+            candidate_resolved = candidate.resolve()
+        except (OSError, RuntimeError):
+            continue
+        # Defense in depth — refuse traversal even if the file exists.
+        try:
+            candidate_resolved.relative_to(root)
+        except ValueError:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"source path {raw!r} resolves outside project root "
+                    f"{str(root)!r} — refusing to serve"
+                ),
+            ) from None
+        if candidate_resolved.is_file():
+            resolved = candidate_resolved
+            break
+
+    # Also accept an absolute path that lands inside the project tree.
+    if resolved is None and raw.startswith("/"):
+        try:
+            abs_resolved = Path(raw).resolve()
+            abs_resolved.relative_to(root)
+            if abs_resolved.is_file():
+                resolved = abs_resolved
+        except (OSError, RuntimeError, ValueError):
+            resolved = None
+
+    if resolved is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"file source {raw!r} not found on disk for project "
+                f"{str(root)!r}; tried prefixes {_SOURCE_PATH_PREFIXES!r}"
+            ),
+        )
+
+    size = resolved.stat().st_size
+    if size > _MAX_SOURCE_CONTENT_BYTES:
+        return {
+            "source_id": source_id,
+            "kind": "file",
+            "path": str(resolved.relative_to(root)),
+            "size_bytes": size,
+            "truncated": True,
+            "content": None,
+            "title": row["title"],
+            "source_type": row["source_type"],
+            "hint": (
+                f"file exceeds {_MAX_SOURCE_CONTENT_BYTES} byte cap; "
+                "open it directly in an editor"
+            ),
+        }
+
+    try:
+        content = resolved.read_text(encoding="utf-8")
+        encoding = "utf-8"
+    except UnicodeDecodeError:
+        # Binary or unknown encoding — return base64 so the viewer can
+        # branch on encoding to render or download.
+        import base64
+        content = base64.b64encode(resolved.read_bytes()).decode("ascii")
+        encoding = "base64"
+
+    return {
+        "source_id": source_id,
+        "kind": "file",
+        "path": str(resolved.relative_to(root)),
+        "size_bytes": size,
+        "encoding": encoding,
+        "content": content,
+        "title": row["title"],
+        "source_type": row["source_type"],
+    }
+
+
 @router.get("/goals")
 async def list_goals(
     status: str = Query("active", pattern="^(active|completed|planned|all)$"),
