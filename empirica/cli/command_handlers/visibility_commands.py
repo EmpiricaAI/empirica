@@ -16,16 +16,20 @@ from empirica.data.session_database import SessionDatabase
 from empirica.data.visibility import VISIBILITY_TIERS
 from empirica.utils.session_resolver import InstanceResolver as R
 
-# Each artifact table → (table, content_column_for_preview)
-_ARTIFACT_TABLES: dict[str, tuple[str, str]] = {
-    'finding': ('project_findings', 'finding'),
-    'unknown': ('project_unknowns', 'unknown'),
-    'dead_end': ('project_dead_ends', 'approach'),
-    'mistake': ('mistakes_made', 'mistake'),
-    'assumption': ('assumptions', 'assumption'),
-    'decision': ('decisions', 'choice'),
-    'goal': ('goals', 'objective'),
-    'source': ('epistemic_sources', 'title'),
+# Each artifact table → (table, content_column_for_preview, timestamp_column).
+# The timestamp column name diverges across artifact tables — the 7 epistemic
+# tables use `created_timestamp` (REAL), epistemic_sources uses `discovered_at`
+# (TIMESTAMP) — so visibility queries must read the column name per table or
+# they fail with `no such column: created_timestamp` on the sources branch.
+_ARTIFACT_TABLES: dict[str, tuple[str, str, str]] = {
+    'finding': ('project_findings', 'finding', 'created_timestamp'),
+    'unknown': ('project_unknowns', 'unknown', 'created_timestamp'),
+    'dead_end': ('project_dead_ends', 'approach', 'created_timestamp'),
+    'mistake': ('mistakes_made', 'mistake', 'created_timestamp'),
+    'assumption': ('assumptions', 'assumption', 'created_timestamp'),
+    'decision': ('decisions', 'choice', 'created_timestamp'),
+    'goal': ('goals', 'objective', 'created_timestamp'),
+    'source': ('epistemic_sources', 'title', 'discovered_at'),
 }
 
 
@@ -90,8 +94,8 @@ def _count_by_tier(cursor, table: str, project_id: str | None) -> dict[str, int]
     return counts
 
 
-def _recent_for_tier(cursor, table: str, content_col: str, tier: str,
-                     project_id: str | None, limit: int) -> list[dict]:
+def _recent_for_tier(cursor, table: str, content_col: str, ts_col: str,
+                     tier: str, project_id: str | None, limit: int) -> list[dict]:
     if not _table_has_visibility_column(cursor, table):
         return []
 
@@ -105,8 +109,8 @@ def _recent_for_tier(cursor, table: str, content_col: str, tier: str,
         params.append(project_id)
 
     cursor.execute(
-        f"SELECT id, {content_col} as content, created_timestamp "
-        f"FROM {table} {where} ORDER BY created_timestamp DESC LIMIT ?",
+        f"SELECT id, {content_col} as content, {ts_col} as ts "
+        f"FROM {table} {where} ORDER BY {ts_col} DESC LIMIT ?",
         (*params, limit),
     )
     return [dict(row) for row in cursor.fetchall()]
@@ -129,7 +133,7 @@ def handle_visibility_list_command(args) -> int:  # noqa: C901 — list+filter+o
     by_type: dict[str, dict[str, int]] = {}
     totals = dict.fromkeys(VISIBILITY_TIERS, 0)
 
-    for atype, (table, _content_col) in _ARTIFACT_TABLES.items():
+    for atype, (table, _content_col, _ts_col) in _ARTIFACT_TABLES.items():
         if type_filter and atype != type_filter:
             continue
         counts = _count_by_tier(cursor, table, project_id)
@@ -142,17 +146,17 @@ def handle_visibility_list_command(args) -> int:  # noqa: C901 — list+filter+o
     if limit and (tier_filter or output_format == 'human'):
         target_tiers = [tier_filter] if tier_filter else list(VISIBILITY_TIERS)
         for tier in target_tiers:
-            for atype, (table, content_col) in _ARTIFACT_TABLES.items():
+            for atype, (table, content_col, ts_col) in _ARTIFACT_TABLES.items():
                 if type_filter and atype != type_filter:
                     continue
-                rows = _recent_for_tier(cursor, table, content_col, tier,
-                                        project_id, limit)
+                rows = _recent_for_tier(cursor, table, content_col, ts_col,
+                                        tier, project_id, limit)
                 for row in rows:
                     samples[tier].append({
                         'type': atype,
                         'id': row['id'],
                         'content': (row['content'] or '')[:120],
-                        'created_timestamp': row['created_timestamp'],
+                        'created_timestamp': row['ts'],
                     })
             # Trim to global per-tier limit (most recent overall).
             # Timestamps may be either float epoch or ISO strings depending on
@@ -226,11 +230,11 @@ def handle_visibility_show_command(args) -> int:
 
     cursor = db.conn.cursor()
     match: dict | None = None
-    for atype, (table, content_col) in _ARTIFACT_TABLES.items():
+    for atype, (table, content_col, ts_col) in _ARTIFACT_TABLES.items():
         if not _table_has_visibility_column(cursor, table):
             continue
         cursor.execute(
-            f"SELECT id, {content_col} as content, visibility, created_timestamp "
+            f"SELECT id, {content_col} as content, visibility, {ts_col} as ts "
             f"FROM {table} WHERE id LIKE ? LIMIT 1",
             (f"{artifact_id}%",),
         )
@@ -241,7 +245,7 @@ def handle_visibility_show_command(args) -> int:
                 'id': row['id'],
                 'content': row['content'],
                 'visibility': row['visibility'] or 'shared',
-                'created_timestamp': row['created_timestamp'],
+                'created_timestamp': row['ts'],
             }
             break
     db.close()
