@@ -255,7 +255,14 @@ class PersistentListenerService:
         return self._install_launchd(ai_id, log_path)
 
     def _install_systemd(self, ai_id: str, log_path: Path) -> Path:
-        """Write the systemd-user unit file for `ai_id` + daemon-reload + enable --now."""
+        """Write the systemd-user unit file for `ai_id` + daemon-reload + enable --now.
+
+        Self-heals from the pre-strict-canonical naming convention: if a
+        legacy stripped-form unit exists (e.g. `empirica-listener-autonomy.service`
+        when installing `empirica-listener-empirica-autonomy.service`), uninstall
+        it first to prevent duplicate-listener double-delivery.
+        """
+        self._purge_legacy_systemd_unit(ai_id)
         unit_name = _unit_name(ai_id)
         unit_file = _systemd_user_dir() / f"{unit_name}.service"
         unit_file.write_text(
@@ -272,7 +279,13 @@ class PersistentListenerService:
         return unit_file
 
     def _install_launchd(self, ai_id: str, log_path: Path) -> Path:
-        """Write the launchd plist for `ai_id` + bootout-then-load via launchctl."""
+        """Write the launchd plist for `ai_id` + bootout-then-load via launchctl.
+
+        Self-heals from the pre-strict-canonical naming convention: if a
+        legacy stripped-form plist exists, unload + remove it first to
+        prevent duplicate-listener double-delivery.
+        """
+        self._purge_legacy_launchd_plist(ai_id)
         plist_file = _launchd_agents_dir() / f"com.empirica.listener.{_safe(ai_id)}.plist"
         # If a previous version is loaded, unload first so launchctl picks up the new file
         if plist_file.exists():
@@ -289,6 +302,71 @@ class PersistentListenerService:
         _launchctl("load", "-w", str(plist_file), check=True)
         logger.info("Installed launchd listener service: %s", plist_file)
         return plist_file
+
+    # ── Legacy self-heal ────────────────────────────────────────────────
+
+    @staticmethod
+    def _legacy_short_form(ai_id: str) -> str | None:
+        """If `ai_id` is the strict-canonical `empirica-<rest>` form, return
+        the pre-canonical stripped form (`<rest>`). Otherwise None.
+
+        Pre-canonical convention (deprecated): `InstanceResolver.ai_id()`
+        stripped the `empirica-` prefix, so `empirica-autonomy` ai_id
+        resolved to `autonomy` and the systemd unit was
+        `empirica-listener-autonomy.service`. After f7cd0433a the
+        prefix is always kept, and new installs create
+        `empirica-listener-empirica-autonomy.service`. Existing units on
+        disk from the legacy run need cleanup so the host doesn't carry
+        two listeners after the convention swap.
+        """
+        if ai_id.startswith("empirica-") and ai_id != "empirica-":
+            stripped = ai_id.removeprefix("empirica-")
+            if stripped and stripped != ai_id:
+                return stripped
+        return None
+
+    def _purge_legacy_systemd_unit(self, ai_id: str) -> None:
+        """Best-effort remove the pre-canonical stripped-form unit.
+
+        Never raises — if the legacy unit doesn't exist or systemctl is
+        unavailable, this is a no-op. Logs the action so post-install
+        audits can see what was healed.
+        """
+        legacy = self._legacy_short_form(ai_id)
+        if not legacy:
+            return
+        legacy_unit_name = _unit_name(legacy)
+        legacy_unit_file = _systemd_user_dir() / f"{legacy_unit_name}.service"
+        if not legacy_unit_file.exists():
+            return
+        logger.info(
+            "Purging legacy stripped-form systemd unit %s before installing canonical %s",
+            legacy_unit_file, _unit_name(ai_id),
+        )
+        _systemctl("disable", "--now", f"{legacy_unit_name}.service", check=False)
+        try:
+            legacy_unit_file.unlink()
+        except OSError as e:
+            logger.warning("Failed to remove legacy unit file %s: %s", legacy_unit_file, e)
+        _systemctl("daemon-reload", check=False)
+
+    def _purge_legacy_launchd_plist(self, ai_id: str) -> None:
+        """Best-effort remove the pre-canonical stripped-form launchd plist."""
+        legacy = self._legacy_short_form(ai_id)
+        if not legacy:
+            return
+        legacy_plist = _launchd_agents_dir() / f"com.empirica.listener.{_safe(legacy)}.plist"
+        if not legacy_plist.exists():
+            return
+        logger.info(
+            "Purging legacy stripped-form launchd plist %s before installing canonical",
+            legacy_plist,
+        )
+        _launchctl("unload", str(legacy_plist), check=False)
+        try:
+            legacy_plist.unlink()
+        except OSError as e:
+            logger.warning("Failed to remove legacy plist %s: %s", legacy_plist, e)
 
     # ── Uninstall ───────────────────────────────────────────────────────
 

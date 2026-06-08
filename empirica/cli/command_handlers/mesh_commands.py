@@ -49,6 +49,15 @@ CREDENTIALS_YAML = Path.home() / ".empirica" / "credentials.yaml"
 # zombie. Tuned to be above the normal idle gap between cortex polls.
 ZOMBIE_THRESHOLD_SECONDS = 1800  # 30 min
 
+# Freshness window for the listener's positive-liveness health marker.
+# The listener writes ~/.empirica/listener_health_<ai_id>.json with
+# status=ok + ts on every successful poll cycle. If the marker is fresher
+# than this window, the listener has confirmed itself alive — even if no
+# events have arrived in the ZOMBIE_THRESHOLD_SECONDS window. Quiet-but-
+# healthy is the dominant idle case on real-world mesh traffic; flagging
+# it as zombie triggers pointless restarts.
+HEALTH_MARKER_FRESH_SECONDS = 300  # 5 min
+
 # How many recent lines of the listener log to scan for backoff-state markers.
 # Only the last few entries matter for "what state is this listener in right
 # now?" — scanning the whole file would over-report old backoff windows that
@@ -189,6 +198,42 @@ def _last_fire_for(ai_id: str) -> tuple[datetime | None, int]:
     return last_ts, fires_last_hour
 
 
+def _listener_health_freshness(ai_id: str) -> float | None:
+    """Seconds since the listener's positive-liveness health marker was
+    last written. None if the marker is missing, malformed, or marked
+    degraded.
+
+    The listener writes ``~/.empirica/listener_health_<ai_id>.json`` with
+    ``status=ok`` + ``ts`` on every successful poll cycle (per
+    listener.py ``_clear_fail_heartbeat``). A fresh ``status=ok`` marker
+    is positive proof the listener is alive even when no events have
+    arrived — the dominant idle case in real mesh traffic.
+
+    ``status=degraded`` markers return None so the caller falls back to
+    the existing fire-flow heuristic (degraded markers carry their own
+    surfacing).
+    """
+    health_file = Path.home() / ".empirica" / f"listener_health_{ai_id}.json"
+    if not health_file.exists():
+        return None
+    try:
+        data = json.loads(health_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if data.get("status") != "ok":
+        return None
+    ts = data.get("ts")
+    if not ts:
+        return None
+    try:
+        marker_at = datetime.fromisoformat(ts)
+    except (TypeError, ValueError):
+        return None
+    if marker_at.tzinfo is None:
+        marker_at = marker_at.replace(tzinfo=timezone.utc)
+    return (datetime.now(tz=timezone.utc) - marker_at).total_seconds()
+
+
 def _detect_backoff_state(ai_id: str) -> str | None:
     """Read the recent tail of the listener log to detect whether the
     listener is currently in a backoff window (curl intentionally killed
@@ -264,6 +309,19 @@ def _compute_health(s: dict, cortex_configured: bool) -> tuple[str, str]:
             if backoff == "auth_fail":
                 return "yellow", "auth/HTTP backoff — curl absent during 5-min backoff; catch-up poll still running"
             return "red", "curl subscription dead — cortex bridge broken"
+        # Curl is alive and we have idle gap > ZOMBIE_THRESHOLD. Cross-
+        # reference the listener's positive-liveness health marker
+        # before flagging zombie — a fresh status=ok marker is direct
+        # confirmation the listener completed a poll cycle recently and
+        # is just genuinely idle, not stuck. Avoids false-positive
+        # restart recommendations on quiet-but-healthy listeners.
+        health_age = _listener_health_freshness(s["ai_id"])
+        if health_age is not None and health_age <= HEALTH_MARKER_FRESH_SECONDS:
+            return (
+                "green",
+                f"quiet but healthy — no fires in {int(idle_seconds // 60)}m "
+                f"but listener health ok ({int(health_age)}s ago)",
+            )
         return "red", f"zombie suspected: no fires in {int(idle_seconds // 60)} min"
 
     # No fires recorded yet — fall through to the curl-pid + backoff

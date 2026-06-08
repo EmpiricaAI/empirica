@@ -22,6 +22,7 @@ _compute_health so recent fires return green regardless of curl-pid.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from empirica.cli.command_handlers.mesh_commands import (
     ZOMBIE_THRESHOLD_SECONDS,
@@ -155,6 +156,100 @@ def test_service_not_installed_returns_yellow():
     s = _state(service_installed=False)
     color, _ = _compute_health(s, cortex_configured=True)
     assert color == "yellow"
+
+
+# --- Watchdog cross-reference with listener_health_<ai_id>.json ---
+#
+# Symptom (autonomy practitioner, 2026-06-08): mesh status flagged
+# canonical empirica-autonomy as "zombie suspected: no fires in 44min"
+# while the listener was actually alive + subscribed, just genuinely
+# idle. The fire-flow heuristic alone can't tell quiet-but-healthy from
+# dead. Fix: cross-reference the positive-liveness health marker the
+# listener writes on every successful poll cycle.
+
+
+def _write_health_marker(home: Path, ai_id: str, *, status: str, age_seconds: float):
+    """Write listener_health_<ai_id>.json with the given staleness."""
+    import json as _json
+    health_file = home / ".empirica" / f"listener_health_{ai_id}.json"
+    health_file.parent.mkdir(parents=True, exist_ok=True)
+    ts = _now_utc() - timedelta(seconds=age_seconds)
+    health_file.write_text(_json.dumps({
+        "instance_id": ai_id, "loop": "cortex-mailbox-poll",
+        "status": status, "ts": ts.isoformat(),
+    }))
+
+
+def test_silent_fires_with_fresh_health_marker_returns_green(monkeypatch, tmp_path):
+    """The autonomy practitioner's exact case: curl alive, no fires in
+    > zombie threshold, but listener health marker is fresh (status=ok,
+    ts within HEALTH_MARKER_FRESH_SECONDS) — listener is quiet but
+    healthy, not zombie. Pre-fix this returned red; post-fix green.
+    """
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _write_health_marker(tmp_path, "cortex", status="ok", age_seconds=60)
+    silent = _now_utc() - timedelta(seconds=ZOMBIE_THRESHOLD_SECONDS + 600)
+    s = _state(curl_pid=5678, last_fire=silent)
+    color, msg = _compute_health(s, cortex_configured=True)
+    assert color == "green"
+    assert "quiet but healthy" in msg
+    assert "44m" in msg or "40m" in msg
+
+
+def test_silent_fires_with_stale_health_marker_still_red_zombie(monkeypatch, tmp_path):
+    """Health marker is too old (older than HEALTH_MARKER_FRESH_SECONDS)
+    — falls back to the existing zombie-suspected flag. The listener
+    health signal has to be FRESH to override fire-flow silence."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _write_health_marker(tmp_path, "cortex", status="ok", age_seconds=3600)  # 1hr stale
+    silent = _now_utc() - timedelta(seconds=ZOMBIE_THRESHOLD_SECONDS + 60)
+    s = _state(curl_pid=5678, last_fire=silent)
+    color, msg = _compute_health(s, cortex_configured=True)
+    assert color == "red"
+    assert "zombie" in msg
+
+
+def test_silent_fires_with_degraded_health_marker_still_red_zombie(monkeypatch, tmp_path):
+    """status=degraded marker (listener explicitly self-reports unhealthy)
+    must NOT shield the zombie flag — that would mask a real problem."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _write_health_marker(tmp_path, "cortex", status="degraded", age_seconds=60)
+    silent = _now_utc() - timedelta(seconds=ZOMBIE_THRESHOLD_SECONDS + 60)
+    s = _state(curl_pid=5678, last_fire=silent)
+    color, _ = _compute_health(s, cortex_configured=True)
+    assert color == "red"
+
+
+def test_silent_fires_with_no_health_marker_still_red_zombie(monkeypatch, tmp_path):
+    """No marker on disk → fall back to the existing heuristic. Preserves
+    pre-fix behavior for instances that haven't written a marker yet."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    silent = _now_utc() - timedelta(seconds=ZOMBIE_THRESHOLD_SECONDS + 60)
+    s = _state(curl_pid=5678, last_fire=silent)
+    color, _ = _compute_health(s, cortex_configured=True)
+    assert color == "red"
+
+
+def test_health_freshness_helper_handles_malformed_marker(monkeypatch, tmp_path):
+    """Helper must not crash on bad JSON / missing fields / bad ts."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    from empirica.cli.command_handlers.mesh_commands import (
+        _listener_health_freshness,
+    )
+    (tmp_path / ".empirica").mkdir()
+    # Bad JSON
+    (tmp_path / ".empirica" / "listener_health_a.json").write_text("not json {")
+    assert _listener_health_freshness("a") is None
+    # Missing ts
+    (tmp_path / ".empirica" / "listener_health_b.json").write_text('{"status":"ok"}')
+    assert _listener_health_freshness("b") is None
+    # Bad ts
+    (tmp_path / ".empirica" / "listener_health_c.json").write_text(
+        '{"status":"ok","ts":"not a timestamp"}'
+    )
+    assert _listener_health_freshness("c") is None
+    # No file at all
+    assert _listener_health_freshness("nonexistent") is None
 
 
 def test_service_inactive_returns_red():

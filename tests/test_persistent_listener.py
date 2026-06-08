@@ -183,6 +183,119 @@ def test_install_launchd_writes_plist(tmp_path, monkeypatch):
     assert "<key>RunAtLoad</key>" in content
 
 
+# ─── Legacy stripped-form self-heal ─────────────────────────────────────
+#
+# Pre-strict-canonical convention: InstanceResolver.ai_id() stripped the
+# `empirica-` prefix, so `empirica-autonomy` resolved to `autonomy` and
+# the systemd unit was `empirica-listener-autonomy.service`. After
+# f7cd0433a the prefix is kept; new installs create
+# `empirica-listener-empirica-autonomy.service`. The install path now
+# self-heals: it removes any pre-canonical stripped-form unit before
+# installing the canonical one so the host doesn't carry two
+# subscribers (which causes ntfy double-delivery — autonomy practitioner
+# hit this 2026-06-08).
+
+
+def test_legacy_short_form_derives_stripped_basename():
+    assert PersistentListenerService._legacy_short_form("empirica-autonomy") == "autonomy"
+    assert PersistentListenerService._legacy_short_form("empirica-cortex") == "cortex"
+    assert PersistentListenerService._legacy_short_form("empirica-mesh-support") == "mesh-support"
+
+
+def test_legacy_short_form_returns_none_for_root_and_non_empirica():
+    # Root practice basename `empirica` has no prefix to strip
+    assert PersistentListenerService._legacy_short_form("empirica") is None
+    # Non-empirica project: no stripped form
+    assert PersistentListenerService._legacy_short_form("myproject") is None
+    # Edge case: literal `empirica-` would strip to empty
+    assert PersistentListenerService._legacy_short_form("empirica-") is None
+
+
+def test_install_systemd_purges_legacy_stripped_unit(tmp_path, monkeypatch):
+    """The autonomy practitioner's case: legacy `empirica-listener-autonomy.service`
+    already on disk from pre-canonical install. Installing the new
+    canonical `empirica-listener-empirica-autonomy.service` must purge
+    the legacy one first so the host doesn't end up with two listeners."""
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    legacy_dir = tmp_path / ".config" / "systemd" / "user"
+    legacy_dir.mkdir(parents=True)
+    legacy_unit = legacy_dir / "empirica-listener-autonomy.service"
+    legacy_unit.write_text("[Unit]\nDescription=legacy stripped-form\n")
+
+    systemctl_calls = []
+
+    def _fake_systemctl(*args, **_kw):
+        systemctl_calls.append(args)
+        return subprocess.CompletedProcess([], 0, "", "")
+
+    with patch("empirica.core.loop_scheduler.persistent_listener.is_systemd_available",
+               return_value=True), \
+         patch("empirica.core.loop_scheduler.persistent_listener.is_launchd_available",
+               return_value=False), \
+         patch("empirica.core.loop_scheduler.persistent_listener._systemctl",
+               side_effect=_fake_systemctl):
+        service = PersistentListenerService(empirica_bin="/path/to/empirica")
+        service.install("empirica-autonomy")
+
+    # Legacy unit was disabled + removed before canonical install
+    assert not legacy_unit.exists()
+    disable_calls = [a for a in systemctl_calls
+                     if "disable" in a and "empirica-listener-autonomy.service" in a]
+    assert disable_calls, f"legacy unit not disabled (calls: {systemctl_calls})"
+
+    # Canonical unit now exists
+    canonical_unit = legacy_dir / "empirica-listener-empirica-autonomy.service"
+    assert canonical_unit.exists()
+
+
+def test_install_systemd_skips_purge_when_no_legacy_unit(tmp_path, monkeypatch):
+    """Fresh install (no legacy unit) — purge is a no-op, canonical install proceeds."""
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    systemctl_calls = []
+
+    def _fake_systemctl(*args, **_kw):
+        systemctl_calls.append(args)
+        return subprocess.CompletedProcess([], 0, "", "")
+
+    with patch("empirica.core.loop_scheduler.persistent_listener.is_systemd_available",
+               return_value=True), \
+         patch("empirica.core.loop_scheduler.persistent_listener.is_launchd_available",
+               return_value=False), \
+         patch("empirica.core.loop_scheduler.persistent_listener._systemctl",
+               side_effect=_fake_systemctl):
+        service = PersistentListenerService(empirica_bin="/path/to/empirica")
+        service.install("empirica-cortex")
+
+    # No legacy disable call — would target empirica-listener-cortex.service
+    disable_calls = [a for a in systemctl_calls
+                     if "disable" in a and "empirica-listener-cortex.service" in a]
+    assert disable_calls == [], "purge fired despite no legacy unit on disk"
+
+
+def test_install_systemd_skips_purge_for_root_practice(tmp_path, monkeypatch):
+    """Root practice (`empirica`) has no stripped form — no purge attempt."""
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    systemctl_calls = []
+
+    def _fake_systemctl(*args, **_kw):
+        systemctl_calls.append(args)
+        return subprocess.CompletedProcess([], 0, "", "")
+
+    with patch("empirica.core.loop_scheduler.persistent_listener.is_systemd_available",
+               return_value=True), \
+         patch("empirica.core.loop_scheduler.persistent_listener.is_launchd_available",
+               return_value=False), \
+         patch("empirica.core.loop_scheduler.persistent_listener._systemctl",
+               side_effect=_fake_systemctl):
+        service = PersistentListenerService(empirica_bin="/path/to/empirica")
+        service.install("empirica")
+
+    # Canonical install only — no disable on a stripped form
+    disable_calls = [a for a in systemctl_calls
+                     if "disable" in a and a != ("disable", "--now", "empirica-listener-empirica.service")]
+    assert disable_calls == []
+
+
 # ─── Uninstall ──────────────────────────────────────────────────────────
 
 
