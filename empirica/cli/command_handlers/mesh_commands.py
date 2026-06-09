@@ -699,6 +699,264 @@ def handle_mesh_tail_command(args) -> int:
     return 0
 
 
+# ── mesh migrate-topics ─────────────────────────────────────────────────
+#
+# Closes empirica's slice of SER ser_dd1955ae07e04949a28bd5bc (canonical
+# ntfy channel model). The retired bare `orchestration-events` topic and
+# any legacy per-practice topic are detected and rewritten to the
+# per-tenant canonical (`<org>-orchestration-events-<tenant>`) resolved
+# from cortex's notification-channels endpoint.
+#
+# A topic is RETIRED when:
+#   - it equals the bare `orchestration-events` (no org/tenant prefix)
+#   - or it lacks the `-orchestration-events-` segment that identifies a
+#     per-tenant channel (pre-T16/T17 per-org or per-practice form)
+# A topic is CANONICAL when it matches `<something>-orchestration-events-<something>`.
+
+
+def _strip_ntfy_topic_url(raw: str) -> str:
+    """Drop `ntfy:` scheme + `?tags=...` query so we can compare the
+    bare topic name across credentials.yaml + listener_active markers."""
+    base = raw or ""
+    if base.startswith("ntfy:"):
+        base = base[len("ntfy:"):]
+    return base.split("?", 1)[0]
+
+
+def _is_retired_topic(base: str) -> bool:
+    if not base:
+        return False
+    if base == "orchestration-events":
+        return True
+    return "-orchestration-events-" not in base
+
+
+def _migrate_credentials_topic(canonical_base: str, apply: bool) -> dict:
+    """Inspect + (optionally) rewrite the `ntfy.topic` field in
+    ~/.empirica/credentials.yaml.
+
+    Reads the file directly rather than via `CredentialsLoader.get_ntfy_config`
+    so we distinguish "topic explicitly set in the file" from "loader fell
+    back to the default `orchestration-events`". The migration ONLY rewrites
+    explicit retired topics; absent topic stays absent (listener resolves
+    canonical at runtime).
+    """
+    try:
+        import os as _os
+
+        import yaml
+
+        from empirica.config.credentials_loader import (
+            CredentialsLoader,
+        )
+    except Exception as e:
+        return {"checked": False, "error": f"credentials loader unavailable: {e}"}
+
+    env_path = _os.environ.get("EMPIRICA_CREDENTIALS_PATH")
+    target = Path(env_path) if env_path else (Path.home() / ".empirica" / "credentials.yaml")
+    if not target.exists():
+        return {"checked": True, "current": None, "action": "skip", "reason": "credentials.yaml not found"}
+    try:
+        raw_doc = yaml.safe_load(target.read_text(encoding="utf-8")) or {}
+    except Exception as e:
+        return {"checked": False, "error": f"could not read credentials.yaml: {e}"}
+    ntfy_block = raw_doc.get("ntfy")
+    if not isinstance(ntfy_block, dict) or "topic" not in ntfy_block:
+        return {"checked": True, "current": None, "action": "skip", "reason": "no explicit ntfy.topic set (listener resolves at runtime)"}
+    current = ntfy_block.get("topic") or ""
+    base = _strip_ntfy_topic_url(current)
+    if not _is_retired_topic(base):
+        return {"checked": True, "current": base, "action": "keep", "reason": "already canonical"}
+    entry = {
+        "checked": True,
+        "current": base,
+        "canonical": canonical_base,
+        "action": "rewrite",
+        "applied": False,
+    }
+    if apply:
+        try:
+            CredentialsLoader().save_ntfy_config(topic=canonical_base)
+            entry["applied"] = True
+        except Exception as e:
+            entry["error"] = str(e)
+            entry["applied"] = False
+    # Reset singleton cache so the next get_ntfy_config sees the write.
+    CredentialsLoader._credentials_cache = None
+    return entry
+
+
+def _migrate_listener_active_markers(canonical_base: str, apply: bool) -> list[dict]:
+    """Inspect + (optionally) rewrite the `topic` field on every
+    ~/.empirica/listener_active_*.json marker that's pinned to a retired
+    topic. Per-AI tag suffix is preserved."""
+    reports: list[dict] = []
+    home_empirica = Path.home() / ".empirica"
+    if not home_empirica.is_dir():
+        return reports
+    for marker in sorted(home_empirica.glob("listener_active_*.json")):
+        try:
+            data = json.loads(marker.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as e:
+            reports.append({
+                "file": str(marker),
+                "action": "error",
+                "error": f"unreadable: {e}",
+            })
+            continue
+        raw_topic = data.get("topic") or ""
+        if not raw_topic:
+            reports.append({"file": str(marker), "action": "skip", "reason": "no topic field"})
+            continue
+        base = _strip_ntfy_topic_url(raw_topic)
+        if not _is_retired_topic(base):
+            reports.append({"file": str(marker), "current": base, "action": "keep"})
+            continue
+        # Preserve the `?tags=<ai_id>` suffix; rebuild with the canonical base.
+        tag_q = ""
+        if "?" in raw_topic:
+            tag_q = "?" + raw_topic.split("?", 1)[1]
+        new_topic = f"ntfy:{canonical_base}{tag_q}"
+        entry = {
+            "file": str(marker),
+            "current": raw_topic,
+            "rewritten": new_topic,
+            "action": "rewrite",
+            "applied": False,
+        }
+        if apply:
+            try:
+                data["topic"] = new_topic
+                marker.write_text(
+                    json.dumps(data, indent=2), encoding="utf-8",
+                )
+                entry["applied"] = True
+            except OSError as e:
+                entry["error"] = str(e)
+                entry["applied"] = False
+        reports.append(entry)
+    return reports
+
+
+def handle_mesh_migrate_topics_command(args) -> int:
+    """`empirica mesh migrate-topics` — rewrite retired ntfy topics in
+    credentials.yaml + listener_active markers to the per-tenant canonical
+    resolved from cortex's notification-channels endpoint.
+
+    Closes empirica's slice of SER ser_dd1955ae07e04949a28bd5bc."""
+    apply = bool(getattr(args, "apply", False))
+    output = getattr(args, "output", "human")
+
+    try:
+        from empirica.core.cockpit.notification_channels import (
+            _resolve_base_topic,
+            fetch_notification_channels,
+        )
+    except Exception as e:
+        payload = {"ok": False, "error": f"notification_channels module unavailable: {e}"}
+        if output == "json":
+            print(json.dumps(payload, indent=2))
+        else:
+            print(f"error: {payload['error']}")
+        return 2
+
+    body = fetch_notification_channels(force=True)
+    canonical_base = _resolve_base_topic(body)
+    if not canonical_base:
+        payload = {
+            "ok": False,
+            "error": (
+                "Cortex's notification-channels endpoint returned no canonical "
+                "orchestration_events topic. Check cortex reachability + "
+                "credentials, then retry."
+            ),
+        }
+        if output == "json":
+            print(json.dumps(payload, indent=2))
+        else:
+            print(f"error: {payload['error']}")
+        return 2
+
+    creds_report = _migrate_credentials_topic(canonical_base, apply)
+    marker_reports = _migrate_listener_active_markers(canonical_base, apply)
+    rewrites_pending = sum(
+        1 for r in [creds_report, *marker_reports]
+        if r.get("action") == "rewrite" and not r.get("applied")
+    )
+    rewrites_done = sum(
+        1 for r in [creds_report, *marker_reports]
+        if r.get("action") == "rewrite" and r.get("applied")
+    )
+
+    payload = {
+        "ok": True,
+        "dry_run": not apply,
+        "canonical_base": canonical_base,
+        "credentials": creds_report,
+        "listener_active": marker_reports,
+        "rewrites_pending": rewrites_pending,
+        "rewrites_applied": rewrites_done,
+    }
+
+    if output == "json":
+        print(json.dumps(payload, indent=2))
+    else:
+        _render_migrate_topics_human(
+            canonical_base, creds_report, marker_reports, apply, rewrites_pending,
+        )
+    return 0
+
+
+def _render_migrate_topics_creds_line(creds_report: dict, canonical_base: str) -> None:
+    action = creds_report.get("action", "?")
+    if action == "rewrite":
+        tag = "✓ rewritten" if creds_report.get("applied") else "(would rewrite)"
+        print(f"    {creds_report.get('current')} → {canonical_base}  {tag}")
+    elif action == "keep":
+        print(f"    {creds_report.get('current')}  ✓ already canonical")
+    elif action == "skip":
+        print(f"    (none) — {creds_report.get('reason')}")
+    elif action == "error":
+        print(f"    ! error: {creds_report.get('error')}")
+
+
+def _render_migrate_topics_marker_line(marker: dict) -> None:
+    name = Path(marker["file"]).name
+    a = marker.get("action", "?")
+    if a == "rewrite":
+        tag = "✓ rewritten" if marker.get("applied") else "(would rewrite)"
+        print(f"    - {name}  {tag}")
+        print(f"        {marker.get('current')}")
+        print(f"      → {marker.get('rewritten')}")
+    elif a == "keep":
+        print(f"    - {name}  ✓ keep ({marker.get('current')})")
+    elif a == "skip":
+        print(f"    - {name}  -- {marker.get('reason')}")
+    elif a == "error":
+        print(f"    - {name}  ! error: {marker.get('error')}")
+
+
+def _render_migrate_topics_human(
+    canonical_base: str, creds_report: dict, marker_reports: list[dict],
+    apply: bool, rewrites_pending: int,
+) -> None:
+    mode = "APPLIED" if apply else "DRY RUN"
+    print(f"mesh migrate-topics — {mode}")
+    print(f"  canonical per-tenant topic: {canonical_base}")
+    print()
+    print("  credentials.yaml ntfy.topic:")
+    _render_migrate_topics_creds_line(creds_report, canonical_base)
+    print()
+    print("  ~/.empirica/listener_active_*.json:")
+    if not marker_reports:
+        print("    (no markers found)")
+    for r in marker_reports:
+        _render_migrate_topics_marker_line(r)
+    if not apply and rewrites_pending:
+        print()
+        print(f"  {rewrites_pending} pending rewrite(s). Run with --apply to write.")
+
+
 _MESH_DISPATCH = {
     "status": handle_mesh_status_command,
     "diagnose": handle_mesh_diagnose_command,
@@ -706,6 +964,7 @@ _MESH_DISPATCH = {
     "on": handle_mesh_on_command,
     "off": handle_mesh_off_command,
     "tail": handle_mesh_tail_command,
+    "migrate-topics": handle_mesh_migrate_topics_command,
 }
 
 
@@ -713,7 +972,7 @@ def handle_mesh_group_command(args) -> int:
     action = getattr(args, "mesh_action", None)
     if not action:
         sys.stderr.write(
-            "usage: empirica mesh <status|diagnose|restart|on|off|tail> [args...]\n"
+            "usage: empirica mesh <status|diagnose|restart|on|off|tail|migrate-topics> [args...]\n"
         )
         return 2
     handler = _MESH_DISPATCH.get(action)
@@ -726,6 +985,7 @@ def handle_mesh_group_command(args) -> int:
 __all__ = [
     "handle_mesh_diagnose_command",
     "handle_mesh_group_command",
+    "handle_mesh_migrate_topics_command",
     "handle_mesh_off_command",
     "handle_mesh_on_command",
     "handle_mesh_restart_command",

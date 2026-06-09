@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.11.9
-**Generated:** 2026-06-08 12:41:23 UTC
+**Framework version:** 1.11.10
+**Generated:** 2026-06-09 08:45:55 UTC
 **Total commands:** 240 (across 26 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -4730,6 +4730,17 @@ Live tail loop_fires.log filtered by instance(s)
 
 - `instance` — **required**
   ai_id (default: tail all installed instances)
+
+
+##### `empirica mesh migrate-topics`
+
+Migrate legacy per-practice + retired bare ntfy topics to the per-tenant canonical (closes SER canonical-channel model)
+
+**Arguments:**
+
+- `--apply` — optional · flag
+  Actually rewrite credentials.yaml + listener_active markers (default: dry-run reports what would change)
+- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
 
 
 #### `empirica mesh-agreements`

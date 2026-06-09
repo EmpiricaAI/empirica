@@ -1212,15 +1212,16 @@ def _check_credentials_state() -> dict:
         issues.append(f"cortex: missing {', '.join(missing)}")
 
     ntfy_url_ok = bool(ntfy.get("url"))
-    ntfy_topic_ok = bool(ntfy.get("topic"))
     ntfy_auth_ok = bool(ntfy.get("token") or (ntfy.get("user") and ntfy.get("password")))
-    ntfy_ok = ntfy_url_ok and ntfy_topic_ok and ntfy_auth_ok
+    # `topic` is no longer required in credentials.yaml — the listener
+    # resolves the per-tenant canonical from cortex's channels endpoint
+    # at startup. Per SER ser_dd1955ae07e04949a28bd5bc the wizard
+    # never seeds it, so absence is the new normal.
+    ntfy_ok = ntfy_url_ok and ntfy_auth_ok
     if not ntfy_ok:
         missing = []
         if not ntfy_url_ok:
             missing.append("url")
-        if not ntfy_topic_ok:
-            missing.append("topic")
         if not ntfy_auth_ok:
             missing.append("token (or user+password)")
         issues.append(f"ntfy: missing {', '.join(missing)}")
@@ -1296,24 +1297,32 @@ def _run_credentials_wizard(state: dict, output_format: str) -> dict:
         print("→ ntfy (push wake bridge — listener subscribes here)")
         default_url = state["ntfy_url"] or "https://ntfy.getempirica.com"
         url_in = input(f"   URL [{default_url}]: ").strip() or default_url
-        topic_in = input("   Topic [orchestration-events]: ").strip() or "orchestration-events"
+        # NOTE: we intentionally don't prompt for `topic`. The listener
+        # resolves the per-tenant canonical topic from cortex's
+        # /v1/users/me/notification-channels endpoint at startup
+        # (see notification_channels.resolve_orchestration_events_topic).
+        # Seeding a default here used to write the retired bare
+        # `orchestration-events` topic into every new credentials.yaml,
+        # which has no ACL grant → 403 storm on every poll. Closing
+        # SER ser_dd1955ae07e04949a28bd5bc empirica-side: per-tenant
+        # canonical channels + per-AI tag, never per-practice topics
+        # seeded by the client.
         print("   Auth: token (preferred) OR user+password")
         token_in = input("   Access token (starts with tk_, leave blank to use basic auth): ").strip()
         user_in = pw_in = ""
         if not token_in:
             user_in = input("   Username: ").strip()
             pw_in = input("   Password: ").strip()
-        if url_in or topic_in or token_in or (user_in and pw_in):
+        if url_in or token_in or (user_in and pw_in):
             try:
                 loader.save_ntfy_config(
                     url=url_in or None,
-                    topic=topic_in or None,
                     token=token_in or None,
                     user=user_in or None,
                     password=pw_in or None,
                 )
                 ntfy_changed = True
-                print("   ✓ ntfy block written")
+                print("   ✓ ntfy block written (topic will be resolved from cortex at listener startup)")
             except Exception as e:
                 print(f"   ⚠️  Failed to write ntfy block: {e}")
         print()

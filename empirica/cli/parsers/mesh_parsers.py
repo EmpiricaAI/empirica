@@ -90,5 +90,30 @@ def add_mesh_parsers(subparsers) -> None:
         help="ai_id (default: tail all installed instances)",
     )
 
+    # migrate-topics
+    migrate = mesh_subs.add_parser(
+        "migrate-topics",
+        help="Migrate legacy per-practice + retired bare ntfy topics to "
+             "the per-tenant canonical (closes SER canonical-channel model)",
+        description=(
+            "Inspects ~/.empirica/credentials.yaml `ntfy.topic` and every "
+            "`~/.empirica/listener_active_*.json` topic, detects retired "
+            "forms (bare `orchestration-events`, pre-tenant per-org form, "
+            "or any per-practice topic without `-orchestration-events-` "
+            "structure), queries cortex's notification-channels endpoint "
+            "for the canonical per-tenant topic, and rewrites the "
+            "credentials block + listener_active markers in place. "
+            "Dry-run by default; pass --apply to actually write."
+        ),
+    )
+    migrate.add_argument(
+        "--apply", action="store_true",
+        help="Actually rewrite credentials.yaml + listener_active markers "
+             "(default: dry-run reports what would change)",
+    )
+    migrate.add_argument(
+        "--output", choices=["human", "json"], default="human",
+    )
+
 
 __all__ = ["add_mesh_parsers"]

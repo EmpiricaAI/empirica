@@ -5,6 +5,18 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Empirica's slice of SER `ser_dd1955ae07e04949a28bd5bc` (canonical ntfy channel model). The end state, agreed across cortex / empirica / extension / mesh-support: per-tenant channels only, ZERO per-practice topics. New practices ride the per-tenant `<org>-orchestration-events-<tenant>` channel with `?tags=<ai_id>`. Empirica's three landings: (1) wizard never seeds the retired bare topic, (2) listener resolves canonical at startup (verified — already in 1.11.10), (3) `mesh migrate-topics` rewrites legacy installs to canonical.
+
+### Added
+
+- **`empirica mesh migrate-topics [--apply]`** (`empirica/cli/command_handlers/mesh_commands.py`). Inspects `~/.empirica/credentials.yaml` `ntfy.topic` and every `~/.empirica/listener_active_*.json` marker; detects retired forms (bare `orchestration-events`, pre-tenant per-org form `<org>-orchestration-events`, or per-practice topics that lack the `-orchestration-events-` segment); queries cortex's `/v1/users/me/notification-channels` for the canonical per-tenant topic; rewrites in place. Preserves the `?tags=<ai_id>` suffix on listener_active markers. Refuses to silently fall back if cortex returns no canonical (exit 2 with actionable error). Dry-run by default; per-target reason rationale in both JSON payload and human render. 19 tests in `tests/test_mesh_migrate_topics.py`.
+
+### Changed
+
+- **`setup-claude-code` credentials wizard no longer prompts for `ntfy.topic`** (`empirica/cli/command_handlers/setup_claude_code.py`). The prior default `"orchestration-events"` (the retired bare topic) seeded every new credentials.yaml with a topic that has no ACL grant — every poll 403s and the listener's runtime resolver path was structurally unreachable. The wizard now writes only `{url, token | user+password}` and the listener resolves the per-tenant canonical from cortex's notification-channels endpoint at startup (already shipped in 1.11.10 via `notification_channels.resolve_orchestration_events_topic`). Credential-state validation drops `topic` from the required-fields list — absence is the new normal.
+
 ## [1.11.10] — 2026-06-08
 
 Two tracks land together: substrate work converging the SER tracks (canonical project identity `ser_542199e3` + membrane `ser_4272`) into observable substrate, AND a mesh-listener reliability sweep — two field reports of silent-zombie listener stalls (mesh-support `prop_rbrlwiu7zfgkxm245guu6f2ala`, cortex's own 95-min initial-catch-up stall) drove a hard-exit liveness probe, plus the local⟂cortex cross-correlation verb (`mesh diagnose --cortex`) that lets `ecosystem-update` self-verify after future cutovers, plus a GC pass over stale `listener_active_*.json` markers. SER substrate adds a single-verb atomic register, a workspace backfill verb, a daemon source-content endpoint, write-time visibility ladders, and session-bootstrap mesh-agreements sync.
