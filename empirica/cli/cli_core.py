@@ -335,7 +335,7 @@ _HELP_CATEGORIES = {
     'session': ['session-create', 'sessions-list', 'sessions-show', 'sessions-export', 'sessions-resume', 'session-snapshot', 'memory-compact', 'transaction-adopt'],
     'workflow': ['preflight-submit', 'check', 'check-submit', 'postflight-submit'],
     'goals': ['goals-create', 'goals-list', 'goals-search', 'goals-complete', 'goals-claim', 'goals-add-task', 'goals-add-dependency', 'goals-complete-task', 'goals-get-tasks', 'goals-progress', 'goals-discover', 'goals-ready', 'goals-resume', 'goals-mark-stale', 'goals-get-stale', 'goals-refresh'],
-    'logging': ['finding-log', 'unknown-log', 'unknown-list', 'unknown-resolve', 'deadend-log', 'assumption-log', 'decision-log', 'mistake-log', 'mistake-query', 'source-add', 'source-list', 'sources-map', 'source-archive', 'act-log', 'investigate-log', 'log-artifacts', 'resolve-artifacts', 'delete-artifacts', 'epistemics-list', 'epistemics-show', 'noetic-batch'],
+    'logging': ['finding-log', 'unknown-log', 'unknown-list', 'unknown-resolve', 'deadend-log', 'assumption-log', 'decision-log', 'mistake-log', 'mistake-query', 'source-add', 'source-list', 'sources-map', 'sources-reconcile', 'source-archive', 'act-log', 'investigate-log', 'log-artifacts', 'resolve-artifacts', 'delete-artifacts', 'epistemics-list', 'epistemics-show', 'noetic-batch'],
     'project': ['project-init', 'project-update', 'project-create', 'project-list', 'project-switch', 'project-bootstrap', 'project-handoff', 'project-search', 'project-embed', 'code-embed', 'doc-check', 'bootstrap-context', 'practice-context', 'projects-sync', 'projects-discover', 'projects-list', 'projects-bulk-register', 'projects-unregister'],
     'workspace': ['workspace-init', 'workspace-map', 'workspace-list', 'workspace-overview', 'workspace-search', 'engagement-focus', 'ecosystem-check', 'save', 'history', 'entity-list', 'entity-show', 'entity-walk', 'entity-search'],
     'checkpoint': ['checkpoint-create', 'checkpoint-load', 'checkpoint-list', 'checkpoint-diff', 'checkpoint-sign', 'checkpoint-verify', 'checkpoint-signatures'],
@@ -628,6 +628,7 @@ def main(args=None):
             'source-add': handle_source_add_command,
             'source-list': handle_source_list_command,
             'sources-map': handle_sources_map_command,
+            'sources-reconcile': handle_sources_reconcile_command,
             'source-archive': handle_source_archive_command,
             'epp-activate': handle_epp_activate_command,
 

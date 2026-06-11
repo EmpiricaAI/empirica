@@ -902,6 +902,32 @@ def add_checkpoint_parsers(subparsers):
     source_archive_parser.add_argument('--output', choices=['human', 'json'], default='human', help='Output format')
     source_archive_parser.add_argument('--verbose', action='store_true', help='Verbose output')
 
+    # Sources reconcile (unified source identity — adopt catalogue uuids)
+    sources_reconcile_parser = subparsers.add_parser(
+        'sources-reconcile',
+        help=(
+            'Match local sources against the central catalogue by content '
+            'identity and adopt the catalogue uuid (PK-swap + cascade of '
+            'edges, supersession pointers, finding source_refs). Also '
+            'lazy-backfills content_hash/size/canonical_path on file-backed '
+            'rows that predate migration 050. Dry-run by default; pass '
+            '--apply to perform the swaps. Run `empirica rebuild` after an '
+            'applied reconcile to re-point Qdrant entries.'
+        ),
+    )
+    sources_reconcile_parser.add_argument('--apply', action='store_true',
+        help='Perform the confirmed swaps (default: dry-run report)')
+    sources_reconcile_parser.add_argument('--project-id',
+        help='Project UUID (auto-derived from active session when omitted)')
+    sources_reconcile_parser.add_argument('--cortex-url',
+        help='Cortex base URL (default: credentials.yaml / CORTEX_URL env)')
+    sources_reconcile_parser.add_argument('--api-key',
+        help='Cortex API key (default: credentials.yaml / CORTEX_API_KEY env)')
+    sources_reconcile_parser.add_argument('--output', choices=['human', 'json'],
+        default='human', help='Output format')
+    sources_reconcile_parser.add_argument('--verbose', action='store_true',
+        help='Verbose output')
+
     # Graph artifact commands — batch logging and resolution
     log_artifacts_parser = subparsers.add_parser(
         'log-artifacts',
