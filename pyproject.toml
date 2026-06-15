@@ -44,7 +44,7 @@ dependencies = [
     "requests>=2.33.0",         # Security: CVE-2026-25645 fix
 
     # Security and cryptography
-    "cryptography>=44.0.1,<49", # Security: CVE-2024-6119, CVE-2024-12797 fixes (44.0.1 floor).
+    "cryptography>=44.0.1,<50", # Security: CVE-2024-6119, CVE-2024-12797 fixes (44.0.1 floor).
                                 # Upper bound <48 keeps shared-env compat with hardware-token tools
                                 # (pynitrokey, spsdk, etc.) that pin cryptography<47-<48. Bump
                                 # the cap when those ecosystems catch up; we use no 48-only API.
