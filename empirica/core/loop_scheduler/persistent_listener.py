@@ -409,13 +409,25 @@ class PersistentListenerService:
             )
         installed = path.exists()
         active = False
-        if installed:
-            if self.backend == "systemd":
+        if self.backend == "systemd":
+            if installed:
                 r = _systemctl("is-active", f"{_unit_name(ai_id)}.service")
                 active = (r.stdout or "").strip() == "active"
-            else:  # launchd
+        else:  # launchd
+            # The RUNNING label is authoritative independent of where the plist
+            # file lives. launchd can load a service from a domain/dir other than
+            # ~/Library/LaunchAgents (e.g. bootstrapped into gui/<uid>, showing
+            # PPID 1). Gating the liveness check on path.exists() then
+            # false-negatives, and the caller (session-monitor-arm) arms a
+            # DUPLICATE listener. Check the label regardless of plist location;
+            # stay defensive against a launchctl timeout so status() never raises.
+            try:
                 r = _launchctl("list", f"com.empirica.listener.{_safe(ai_id)}")
                 active = r.returncode == 0
+            except Exception:
+                active = False
+            # A loaded-but-plist-elsewhere service still counts as installed.
+            installed = installed or active
         return ListenerStatus(
             ai_id=ai_id, backend=self.backend, installed=installed,
             active=active, unit_path=str(path), log_path=str(log_path),

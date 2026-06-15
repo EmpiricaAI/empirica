@@ -397,6 +397,69 @@ def test_status_installed_but_inactive(tmp_path, monkeypatch):
     assert status.active is False
 
 
+# ─── launchd liveness: decoupled from plist-file location ──────────────
+
+
+def test_status_launchd_active_when_loaded_but_plist_elsewhere(tmp_path, monkeypatch):
+    """Regression (duplicate-listener bug, prop_f4holded): launchd can load a
+    service from a domain/dir other than ~/Library/LaunchAgents (symptom: PPID
+    1), so the plist isn't at unit_path — but `launchctl list <label>` shows it
+    loaded. status() must report active=True regardless of plist-file existence,
+    else session-monitor-arm reads active=False and arms a DUPLICATE listener."""
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    # Deliberately do NOT create the plist under ~/Library/LaunchAgents.
+    with patch("empirica.core.loop_scheduler.persistent_listener.is_systemd_available",
+               return_value=False), \
+         patch("empirica.core.loop_scheduler.persistent_listener.is_launchd_available",
+               return_value=True), \
+         patch("empirica.core.loop_scheduler.persistent_listener.sys") as mock_sys, \
+         patch("empirica.core.loop_scheduler.persistent_listener._launchctl",
+               return_value=subprocess.CompletedProcess([], 0, "12345\t0\tcom.empirica.listener.cortex\n", "")):
+        mock_sys.platform = "darwin"
+        service = PersistentListenerService(empirica_bin="empirica")
+        status = service.status("cortex")
+
+    assert status.backend == "launchd"
+    assert status.active is True        # liveness from the label, not the plist file
+    assert status.installed is True     # loaded-but-plist-elsewhere still counts as installed
+
+
+def test_status_launchd_inactive_when_label_not_loaded(tmp_path, monkeypatch):
+    """launchctl list of an unknown label returns non-zero → not active."""
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    with patch("empirica.core.loop_scheduler.persistent_listener.is_systemd_available",
+               return_value=False), \
+         patch("empirica.core.loop_scheduler.persistent_listener.is_launchd_available",
+               return_value=True), \
+         patch("empirica.core.loop_scheduler.persistent_listener.sys") as mock_sys, \
+         patch("empirica.core.loop_scheduler.persistent_listener._launchctl",
+               return_value=subprocess.CompletedProcess([], 113, "", "Could not find service")):
+        mock_sys.platform = "darwin"
+        service = PersistentListenerService(empirica_bin="empirica")
+        status = service.status("cortex")
+
+    assert status.active is False
+    assert status.installed is False
+
+
+def test_status_launchd_never_raises_on_launchctl_timeout(tmp_path, monkeypatch):
+    """A slow launchctl must not propagate TimeoutExpired out of status()
+    (would otherwise be swallowed by is_listener_running → silent false-negative)."""
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    with patch("empirica.core.loop_scheduler.persistent_listener.is_systemd_available",
+               return_value=False), \
+         patch("empirica.core.loop_scheduler.persistent_listener.is_launchd_available",
+               return_value=True), \
+         patch("empirica.core.loop_scheduler.persistent_listener.sys") as mock_sys, \
+         patch("empirica.core.loop_scheduler.persistent_listener._launchctl",
+               side_effect=subprocess.TimeoutExpired(cmd="launchctl", timeout=5)):
+        mock_sys.platform = "darwin"
+        service = PersistentListenerService(empirica_bin="empirica")
+        status = service.status("cortex")  # must not raise
+
+    assert status.active is False
+
+
 # ─── Fail-safe wrappers ────────────────────────────────────────────────
 
 
