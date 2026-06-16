@@ -22,9 +22,9 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.12.0
-**Generated:** 2026-06-14 19:55:18 UTC
-**Total commands:** 242 (across 26 categories)
+**Framework version:** 1.12.1
+**Generated:** 2026-06-16 13:22:57 UTC
+**Total commands:** 243 (across 26 categories)
 
 For the most up-to-date detail on any single command, prefer
 `empirica <command> --help` — the generator extracts the same `help`
@@ -2605,6 +2605,8 @@ Generate compliance report mapped to regulatory frameworks
 
 - `--tests` — optional · flag
   Include test suite execution (slow)
+- `--emit` — optional · flag
+  Emit the result to cortex System│Diagnostics (POST /v1/system/event; needs a cortex api_key)
 - `--dep-audit` — optional · flag
   Include dependency CVE audit
 - `--security` — optional · flag
@@ -4607,6 +4609,21 @@ Log EPP (Epistemic Persistence Protocol) activation — self-reported telemetry
   Output format
 - `--verbose` — optional · flag
   Verbose output
+
+#### `empirica forgejo-publish`
+
+Provision a managed Forgejo remote for a project (operator / self-hosting power-user tool, not an end-user default): POST /v1/projects/{id}/forgejo-publish, write the deploy key 0600, add the 'forgejo' git remote, and push the cortex-supplied refspecs. This is the PUSH mode for projects with no existing remote — distinct from the managed pull-mirror path. Leaves 'origin' (repo_url) untouched.
+
+**Arguments:**
+
+- `path` — **required** · default=`.`
+  Project root path (default: current directory)
+- `--rotate` — optional · flag
+  Mint a fresh deploy key (revokes the prior) — also the way to re-push an already-published project.
+- `--description` — optional
+  Optional Forgejo repo description.
+- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
+  Output format
 
 #### `empirica goal-analysis`
 
