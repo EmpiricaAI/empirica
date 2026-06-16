@@ -135,6 +135,41 @@ def _set_forgejo_remote(project_path: Path, url: str) -> None:
         _git(project_path, "remote", "add", FORGEJO_REMOTE_NAME, url)
 
 
+NOTES_PUSH_BATCH = 250  # refs per RPC — pushing thousands of note refs in one
+#                         RPC times out at the gateway (HTTP 504).
+
+
+def _is_notes_wildcard(spec: str) -> bool:
+    """A `+refs/notes/...*:...` wildcard refspec (can match thousands of refs)."""
+    src = spec.split(":", 1)[0].lstrip("+").strip()
+    return src.startswith("refs/notes/") and src.endswith("*")
+
+
+def _push_refspec(project_path: Path, push_url: str, spec: str) -> tuple[bool, str]:
+    """Push one refspec. A notes wildcard is enumerated and pushed in batches —
+    a single RPC with thousands of note refs 504s at the gateway. Non-notes
+    refspecs (heads/tags) push in one shot. Returns (ok, last_stderr).
+    """
+    if not _is_notes_wildcard(spec):
+        r = _git(project_path, "push", push_url, spec)
+        return r.returncode == 0, (r.stderr or "")
+
+    base = spec.split(":", 1)[0].lstrip("+").strip()[:-1]  # drop trailing '*'
+    force_pfx = "+" if spec.lstrip().startswith("+") else ""
+    listing = _git(project_path, "for-each-ref", "--format=%(refname)", base)
+    refs = [r for r in (listing.stdout or "").splitlines() if r.strip()]
+    if not refs:
+        return True, ""  # nothing to mirror — benign
+    ok, last_err = True, ""
+    for i in range(0, len(refs), NOTES_PUSH_BATCH):
+        batch = refs[i:i + NOTES_PUSH_BATCH]
+        r = _git(project_path, "push", push_url, *(f"{force_pfx}{ref}:{ref}" for ref in batch))
+        if r.returncode != 0:
+            ok = False
+            last_err = r.stderr or last_err
+    return ok, last_err
+
+
 def handle_forgejo_publish_command(args) -> int:
     """Provision a managed Forgejo remote + push the project to it."""
     output_json = getattr(args, "output", "human") == "json"
@@ -192,13 +227,13 @@ def handle_forgejo_publish_command(args) -> int:
     push_results: dict[str, bool] = {}
     for spec in refspecs:
         # Push to the credentialed URL directly so the `forgejo` remote + git
-        # config stay secret-free (the composed form is never persisted).
-        r = _git(project_path, "push", push_url, spec)
-        push_results[spec] = r.returncode == 0
-        if r.returncode != 0 and not output_json:
+        # config stay secret-free (the composed form is never persisted). Notes
+        # wildcards are chunked to stay under the gateway timeout.
+        ok, err = _push_refspec(project_path, push_url, spec)
+        push_results[spec] = ok
+        if not ok and not output_json:
             # Scrub the token from any error echo.
-            err = (r.stderr or "").strip().replace(token, "***")[:200]
-            print(f"   ✗ push {spec}: {err}")
+            print(f"   ✗ push {spec}: {(err or '').strip().replace(token, '***')[:200]}")
 
     ok = all(push_results.values()) if push_results else True
     return _emit({

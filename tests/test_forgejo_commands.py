@@ -116,13 +116,11 @@ def test_publish_happy_path_pushes_all_refspecs(tmp_path, monkeypatch, capsys):
     root = _make_project(tmp_path)
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
 
-    pushes = []
+    pushed = []
 
-    def fake_git(path, *args, **kw):
-        if args and args[0] == "push":
-            pushes.append((args[1], args[2]))  # (push_url, refspec)
-            return _proc(returncode=0)
-        return _proc(stdout="origin\n")
+    def fake_push_refspec(pp, url, spec):
+        pushed.append((url, spec))
+        return True, ""
 
     with patch.object(fc, "_resolve_cortex_config", lambda: ("https://cortex.example", "ctx_k")), \
          patch.object(fc, "_forgejo_publish_post", lambda *a, **k: (200, {
@@ -131,14 +129,71 @@ def test_publish_happy_path_pushes_all_refspecs(tmp_path, monkeypatch, capsys):
              "forgejo_token_user": _TOKEN_USER,
              "refspecs": _REFSPECS,
          })), \
-         patch.object(fc, "_git", fake_git):
+         patch.object(fc, "_set_forgejo_remote", lambda *a, **k: None), \
+         patch.object(fc, "_push_refspec", fake_push_refspec):
         args = SimpleNamespace(path=str(root), output="json", rotate=False, description=None)
         code = fc.handle_forgejo_publish_command(args)
 
     assert code == 0
     # all three refspecs pushed, each to the credentialed composed URL (not a remote name)
-    assert {p[1] for p in pushes} == set(_REFSPECS)
-    assert all(p[0].startswith(f"https://{_TOKEN_USER}:{_TOKEN}@") for p in pushes)
+    assert {spec for _, spec in pushed} == set(_REFSPECS)
+    assert all(url.startswith(f"https://{_TOKEN_USER}:{_TOKEN}@") for url, _ in pushed)
+
+
+# ── notes-ref chunking (avoid gateway 504 on large note volumes) ────────
+
+
+def test_is_notes_wildcard():
+    assert fc._is_notes_wildcard("+refs/notes/empirica/*:refs/notes/empirica/*")
+    assert fc._is_notes_wildcard("refs/notes/empirica/*:refs/notes/empirica/*")
+    assert not fc._is_notes_wildcard("+refs/heads/*:refs/heads/*")
+    assert not fc._is_notes_wildcard("+refs/tags/*:refs/tags/*")
+
+
+def test_push_refspec_non_notes_is_single_push(tmp_path):
+    calls = []
+
+    def fake_git(path, *args, **kw):
+        calls.append(args)
+        return _proc(returncode=0)
+
+    with patch.object(fc, "_git", fake_git):
+        ok, _ = fc._push_refspec(tmp_path, "URL", "+refs/heads/*:refs/heads/*")
+    assert ok is True
+    assert calls == [("push", "URL", "+refs/heads/*:refs/heads/*")]
+
+
+def test_push_refspec_notes_chunked_into_batches(tmp_path):
+    refs = "\n".join(f"refs/notes/empirica/findings/{i}" for i in range(600))
+    push_batches = []
+
+    def fake_git(path, *args, **kw):
+        if args and args[0] == "for-each-ref":
+            return _proc(stdout=refs + "\n")
+        if args and args[0] == "push":
+            push_batches.append(args[2:])  # explicit refspecs after (push, URL)
+            return _proc(returncode=0)
+        return _proc(returncode=0)
+
+    with patch.object(fc, "_git", fake_git):
+        ok, _ = fc._push_refspec(tmp_path, "URL", "+refs/notes/empirica/*:refs/notes/empirica/*")
+    assert ok is True
+    assert len(push_batches) == 3                     # 250 + 250 + 100
+    assert len(push_batches[0]) == 250
+    assert len(push_batches[2]) == 100
+    # explicit force refspecs, never the wildcard
+    assert push_batches[0][0] == "+refs/notes/empirica/findings/0:refs/notes/empirica/findings/0"
+
+
+def test_push_refspec_notes_empty_is_benign(tmp_path):
+    def fake_git(path, *args, **kw):
+        if args and args[0] == "for-each-ref":
+            return _proc(stdout="")
+        return _proc(returncode=0)
+
+    with patch.object(fc, "_git", fake_git):
+        ok, _ = fc._push_refspec(tmp_path, "URL", "+refs/notes/empirica/*:refs/notes/empirica/*")
+    assert ok is True  # nothing to mirror is not a failure
 
 
 def test_publish_already_published_no_key_is_ok_with_note(tmp_path, monkeypatch):
