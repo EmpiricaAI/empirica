@@ -38,21 +38,29 @@ def patch_asyncio_for_mcp():
     # Suppress warnings FIRST
     suppress_asyncio_warnings()
 
-    # Patch httpx to not complain about event loop closure
-    try:
-        import httpx
-        # Monkey-patch httpx AsyncClient.__del__ to ignore errors
-        original_del = getattr(httpx.AsyncClient, "__del__", None)
-        if original_del is not None:
-            def safe_del(self) -> None:
-                """Safely cleanup AsyncClient, ignoring event loop closure errors."""
-                try:
-                    original_del(self)
-                except Exception:
-                    pass  # Ignore all cleanup errors
-            httpx.AsyncClient.__del__ = safe_del  # pyright: ignore[reportAttributeAccessIssue]
-    except (ImportError, AttributeError):
-        pass  # httpx not installed or already patched
+    # Patch httpx to not complain about event loop closure — but ONLY if httpx
+    # has already been imported by something else (an MCP/cloud-embedding path).
+    # Importing httpx here purely to patch __del__ costs ~190ms on EVERY CLI
+    # invocation, even for commands that never make a network call. The
+    # ResourceWarnings / "Event loop is closed" messages this guards against are
+    # already silenced unconditionally by suppress_asyncio_warnings() above, so
+    # skipping the monkey-patch when httpx is absent is functionally safe.
+    import sys
+    httpx = sys.modules.get("httpx")
+    if httpx is not None:
+        try:
+            # Monkey-patch httpx AsyncClient.__del__ to ignore errors
+            original_del = getattr(httpx.AsyncClient, "__del__", None)
+            if original_del is not None:
+                def safe_del(self) -> None:
+                    """Safely cleanup AsyncClient, ignoring event loop closure errors."""
+                    try:
+                        original_del(self)
+                    except Exception:
+                        pass  # Ignore all cleanup errors
+                httpx.AsyncClient.__del__ = safe_del  # pyright: ignore[reportAttributeAccessIssue]
+        except AttributeError:
+            pass  # httpx internals changed — nothing to patch
 
     # Store reference to avoid premature closure
     _event_loop_ref = None

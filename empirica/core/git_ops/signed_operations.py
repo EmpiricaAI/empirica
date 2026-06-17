@@ -31,24 +31,49 @@ from datetime import datetime, timezone  # type: ignore[reportAttributeAccessIss
 from pathlib import Path
 from typing import Any
 
-# Temporarily remove empirica.core.git from sys.modules to import GitPython 'git' module
-_empirica_git_module = sys.modules.pop('empirica.core.git', None)
+# GitPython is a heavy import (~140ms). It is only needed when an actual git
+# operation runs (commit/verify/git-notes I/O), never just to import this
+# module. We load it lazily so that `import empirica.cli` — which transitively
+# imports this module via the command-handler re-export shim — does not pay the
+# GitPython cost for commands that never touch git (e.g. goals-list).
+#
+# The names GitRepo, GitCommandError and GIT_PYTHON_AVAILABLE resolve on first
+# access: externally via PEP 562 module __getattr__, internally via the
+# _load_gitpython() call at the top of SignedGitOperations.__init__ (the only
+# entry point through which git operations are reached).
+_GIT_LOADED = False
 
-try:
-    # Now import the actual GitPython library
-    import git
-    GitRepo = git.Repo
-    GitCommandError = git.GitCommandError
-    GIT_PYTHON_AVAILABLE = True
-except ImportError:
-    # GitPython not installed - use fallback
-    GitRepo = None
-    GitCommandError = Exception
-    GIT_PYTHON_AVAILABLE = False
-finally:
-    # Restore empirica.core.git if it was there
-    if _empirica_git_module is not None:
-        sys.modules['empirica.core.git'] = _empirica_git_module
+
+def _load_gitpython() -> None:
+    """Import GitPython on demand and publish the module-level names. Idempotent."""
+    global _GIT_LOADED, GitRepo, GitCommandError, GIT_PYTHON_AVAILABLE
+    if _GIT_LOADED:
+        return
+    # Temporarily remove empirica.core.git so the import resolves the real
+    # GitPython 'git' module rather than our package sharing the leaf name.
+    _empirica_git_module = sys.modules.pop('empirica.core.git', None)
+    try:
+        import git
+        GitRepo = git.Repo
+        GitCommandError = git.GitCommandError
+        GIT_PYTHON_AVAILABLE = True
+    except ImportError:
+        # GitPython not installed - use fallback
+        GitRepo = None
+        GitCommandError = Exception
+        GIT_PYTHON_AVAILABLE = False
+    finally:
+        if _empirica_git_module is not None:
+            sys.modules['empirica.core.git'] = _empirica_git_module
+    _GIT_LOADED = True
+
+
+def __getattr__(name: str):
+    """PEP 562 lazy access for the GitPython-backed module names."""
+    if name in ("GitRepo", "GitCommandError", "GIT_PYTHON_AVAILABLE"):
+        _load_gitpython()
+        return globals()[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 from empirica.core.persona.signing_persona import SigningPersona  # noqa: E402 — after sys.modules guard
 
@@ -101,6 +126,8 @@ class SignedGitOperations:
             git.InvalidGitRepositoryError: If path is not a git repo
             ImportError: If GitPython not installed
         """
+        # Resolve GitPython lazily on first construction (see module header).
+        _load_gitpython()
         if not GIT_PYTHON_AVAILABLE:
             raise ImportError("GitPython not installed - git operations unavailable. Install with: pip install gitpython")
 
