@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import signal
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -221,3 +222,42 @@ def test_off_reaps_orphans_and_removes_state_file(tmp_path, monkeypatch, capsys)
     assert out['reaped_orphans'][0]['removed'] is True
     # next_step protocol unchanged
     assert out['next_step']['tool'] == 'TaskStop'
+
+
+# ─── launchd-supervised exclusion (prop_vicjvq4: gc reaped live workers) ──
+
+_IS_RUNNING = "empirica.core.loop_scheduler.persistent_listener.is_listener_running"
+
+
+def test_ai_id_from_listener_cmdline():
+    from empirica.core.cockpit.listener_processes import _ai_id_from_listener_cmdline as f
+    assert f("empirica loop listen --instance empirica-outreach") == "empirica-outreach"
+    assert f('tail -F x | grep \'"instance_id": "empirica-pilot"\'') == "empirica-pilot"
+    assert f("random unrelated command") is None
+
+
+def test_macos_excludes_launchd_backed_loop_listen_but_keeps_log_tail(monkeypatch):
+    """On macOS, launchd reparents live workers to PID 1 — they must NOT be
+    reaped when the service is up. A log_tail bridge stays a real orphan."""
+    monkeypatch.setattr(sys, "platform", "darwin")
+    with patch(_IS_RUNNING, return_value=True), _patched_ps():
+        orphans = walk_orphan_listener_processes()
+    assert all(o["kind"] != "loop_listen" for o in orphans)   # live workers spared
+    assert any(o["kind"] == "log_tail" for o in orphans)      # session bridge still orphan
+
+
+def test_macos_reaps_unbacked_loop_listen(monkeypatch):
+    """macOS but no loaded launchd service for the ai_id → genuine orphan."""
+    monkeypatch.setattr(sys, "platform", "darwin")
+    with patch(_IS_RUNNING, return_value=False), _patched_ps():
+        orphans = walk_orphan_listener_processes()
+    assert any(o["kind"] == "loop_listen" for o in orphans)
+
+
+def test_linux_unchanged_ppid1_is_orphan(monkeypatch):
+    """systemd-user supervision never reparents to PID 1, so PID 1 genuinely
+    means orphaned — the launchd exclusion must not run on linux."""
+    monkeypatch.setattr(sys, "platform", "linux")
+    with _patched_ps():
+        orphans = walk_orphan_listener_processes()
+    assert any(o["kind"] == "loop_listen" for o in orphans)

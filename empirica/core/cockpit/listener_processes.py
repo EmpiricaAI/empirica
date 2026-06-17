@@ -77,6 +77,55 @@ def walk_listener_processes() -> list[dict]:
     return procs
 
 
+def _ai_id_from_listener_cmdline(cmdline: str) -> str | None:
+    """Extract the ai_id from a listener cmdline.
+
+    loop_listen: ``empirica loop listen --instance <ai_id>``.
+    log_tail:    grep filter ``"instance_id": "<ai_id>"``.
+    """
+    m = re.search(r"--instance\s+(\S+)", cmdline)
+    if m:
+        return m.group(1).strip("'\"")
+    m = re.search(r'"instance_id":\s*"([^"]+)"', cmdline)
+    if m:
+        return m.group(1)
+    return None
+
+
+def _is_supervised_listener(proc: dict) -> bool:
+    """True if a PID-1 ``loop_listen`` proc is a live OS-supervised worker.
+
+    macOS launchd reparents its supervised services to PID 1 (unlike
+    systemd-user, whose children's parent is the ``systemd --user`` process,
+    never PID 1). So on macOS a live launchd-backed worker looks exactly like an
+    orphan to the PPID-1 walk — without this check, ``gc --apply`` reaps live
+    workers (→ KeepAlive respawn → churn). Guarded to darwin only: on
+    systemd hosts PID 1 genuinely means orphaned, so the check must not run
+    there (it would protect real Linux orphans that coexist with a live
+    service). Only ``loop_listen`` is OS-supervised — a ``log_tail`` Monitor
+    bridge is per-session and is a genuine orphan when reparented. Delegates to
+    ``is_listener_running``, whose launchd branch was corrected in the
+    duplicate-listener fix.
+    """
+    if proc.get("kind") != "loop_listen":
+        return False
+    import sys
+    # getattr form avoids the static literal-narrowing that would otherwise
+    # mark the macOS branch unreachable on a non-darwin analysis host.
+    if getattr(sys, "platform", "") != "darwin":
+        return False
+    ai = _ai_id_from_listener_cmdline(proc.get("cmdline", ""))
+    if not ai:
+        return False
+    try:
+        from empirica.core.loop_scheduler.persistent_listener import (
+            is_listener_running,
+        )
+        return is_listener_running(ai)
+    except Exception:
+        return False
+
+
 def walk_orphan_listener_processes(ai_id: str | None = None) -> list[dict]:
     """Listener processes whose parent session is dead (reparented to PID 1).
 
@@ -96,7 +145,9 @@ def walk_orphan_listener_processes(ai_id: str | None = None) -> list[dict]:
             p for p in orphans
             if instance_re.search(p["cmdline"]) or tail_marker in p["cmdline"]
         ]
-    return orphans
+    # Drop live launchd-supervised workers — on macOS they're reparented to
+    # PID 1 and would otherwise be mis-flagged as orphans and reaped.
+    return [p for p in orphans if not _is_supervised_listener(p)]
 
 
 def reap_processes(
