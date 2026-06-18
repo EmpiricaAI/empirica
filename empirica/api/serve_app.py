@@ -16,6 +16,7 @@ API contract matches empirica-extension/src/api/empirica-client.ts:
 
 import json
 import logging
+import os
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -408,11 +409,50 @@ def _register_credentials_routes(app: FastAPI) -> None:
 
 # ── Internal Handlers ────────────────────────────────────────────────
 
+def _config_ollama_url() -> str | None:
+    """Read `embeddings.ollama_url` from ~/.empirica/config.yaml DIRECTLY.
+
+    Deliberately does NOT import empirica.core.qdrant.embeddings — that module
+    pulls in the openai SDK (~0.5s+ import) and this runs in the /health request
+    hot path (the daemon must answer health fast, e.g. for the extension's poll
+    + the e2e startup probe). Mirrors the embeddings resolver's config read
+    (env-over-config is applied by the caller).
+    """
+    try:
+        import yaml
+        cfg_path = os.path.expanduser("~/.empirica/config.yaml")
+        if not os.path.exists(cfg_path):
+            return None
+        with open(cfg_path, encoding="utf-8") as f:
+            full = yaml.safe_load(f) or {}
+        return (full.get("embeddings") or {}).get("ollama_url")
+    except Exception:
+        return None
+
+
+def _resolve_ollama_url() -> str:
+    """Ollama URL the same way embeddings resolves it: env > config.yaml
+    embeddings.ollama_url > localhost. So serve health reflects the ACTUAL
+    configured backend instead of false-negating on a remote-Ollama setup.
+    """
+    return os.environ.get(
+        "EMPIRICA_OLLAMA_URL", _config_ollama_url() or "http://localhost:11434",
+    ).rstrip("/")
+
+
+def _resolve_qdrant_url() -> str:
+    """Qdrant URL honoring EMPIRICA_QDRANT_URL (the same env `_get_qdrant_client`
+    uses) before falling back to localhost — so remote-Qdrant setups don't
+    false-negative in serve health.
+    """
+    return os.environ.get("EMPIRICA_QDRANT_URL", "http://localhost:6333").rstrip("/")
+
+
 def _check_ollama() -> bool:
-    """Check if Ollama is available locally."""
+    """Check if Ollama is reachable at the configured ollama_url."""
     try:
         import urllib.request
-        req = urllib.request.Request("http://localhost:11434/api/tags", method="GET")
+        req = urllib.request.Request(f"{_resolve_ollama_url()}/api/tags", method="GET")
         with urllib.request.urlopen(req, timeout=2):
             return True
     except Exception:
@@ -420,10 +460,10 @@ def _check_ollama() -> bool:
 
 
 def _check_qdrant() -> bool:
-    """Check if Qdrant is available locally."""
+    """Check if Qdrant is reachable at the configured qdrant_url."""
     try:
         import urllib.request
-        req = urllib.request.Request("http://localhost:6333/collections", method="GET")
+        req = urllib.request.Request(f"{_resolve_qdrant_url()}/collections", method="GET")
         with urllib.request.urlopen(req, timeout=2):
             return True
     except Exception:

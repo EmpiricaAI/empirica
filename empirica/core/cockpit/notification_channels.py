@@ -149,8 +149,12 @@ def resolve_orchestration_events_topic(ai_id: str, *, force: bool = False) -> st
       4. Else RAISE — never silently subscribe to the deprecated bare topic
          (no ACL grant → 403 storm)
 
-    Always appends `?tags=<ai_id>` for per-AI filtering and prepends the
-    `ntfy:` scheme (matches the listener's existing topic shape).
+    Always appends `?tags=<canonical-3-form>` for per-AI filtering and prepends
+    the `ntfy:` scheme (matches the listener's existing topic shape). The tag is
+    canonicalized to the full `<org>.<tenant>.<project>` form — the SAME tag
+    cortex publishes and `loop listen` subscribes with — so an in-session
+    listener armed via `listener on` matches live ntfy pushes instead of relying
+    on catch-up polling. (Subscribing with the bare slug matches nothing.)
     """
     body = fetch_notification_channels(force=force)
     base_topic = _resolve_base_topic(body)
@@ -162,7 +166,30 @@ def resolve_orchestration_events_topic(ai_id: str, *, force: bool = False) -> st
             "'orchestration-events' topic (no ACL grant — it 403s). Check "
             "cortex reachability / credentials, then retry."
         )
-    return f"ntfy:{base_topic}?tags={ai_id}"
+    return f"ntfy:{base_topic}?tags={_canonical_tag(ai_id)}"
+
+
+def _canonical_tag(ai_id: str) -> str:
+    """Resolve `ai_id` to its canonical 3-form (`<org>.<tenant>.<project>`) for
+    the subscribe tag — the single source of truth shared with `loop listen`
+    (both call `_resolve_canonical_ai_id`). Cortex publishes events tagged with
+    the 3-form; subscribing with the bare slug matches nothing (live pushes
+    silently dropped, only catch-up poll catches up).
+
+    Falls back to the bare `ai_id` when cortex creds are absent or the roster
+    lookup fails — `_resolve_canonical_ai_id` already returns the basename
+    unchanged on failure, so the failure is loud (0-result warnings) not silent.
+    """
+    creds = _cortex_creds()
+    if creds is None:
+        return ai_id
+    try:
+        from empirica.core.loop_scheduler.content_poll import (
+            _resolve_canonical_ai_id,
+        )
+        return _resolve_canonical_ai_id(creds[0], creds[1], ai_id)
+    except Exception:
+        return ai_id
 
 
 def _resolve_base_topic(body: dict | None) -> str | None:
