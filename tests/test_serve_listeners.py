@@ -98,3 +98,35 @@ def test_endpoint_returns_rows(fake_home):
     assert body["ok"] is True
     insts = {row["instance_id"] for row in body["listeners"]}
     assert insts == {"empirica", "ecodex"}
+
+
+def test_endpoint_open_when_guard_inactive(fake_home, monkeypatch):
+    """No token set configured (loopback case) → no auth required.
+
+    This is the extension's local read; it must stay unauthenticated.
+    """
+    monkeypatch.delenv("EMPIRICA_ENTITY_MINT_TOKENS", raising=False)
+    client = TestClient(sa.create_serve_app())
+    assert client.get("/api/v1/listeners").status_code == 200
+
+
+def test_endpoint_401_when_guard_active_and_no_bearer(fake_home, monkeypatch):
+    """Token set configured (non-loopback deployment) → bearer required.
+
+    The rows carry ntfy topic names + last-message bodies, so a
+    network-exposed daemon must not serve them unauthenticated.
+    """
+    monkeypatch.setenv("EMPIRICA_ENTITY_MINT_TOKENS", "emk_secret_one")
+    client = TestClient(sa.create_serve_app())
+    assert client.get("/api/v1/listeners").status_code == 401
+
+
+def test_endpoint_200_when_guard_active_with_valid_bearer(fake_home, monkeypatch):
+    monkeypatch.setenv("EMPIRICA_ENTITY_MINT_TOKENS", "emk_secret_one,emk_secret_two")
+    client = TestClient(sa.create_serve_app())
+    r = client.get(
+        "/api/v1/listeners",
+        headers={"Authorization": "Bearer emk_secret_two"},
+    )
+    assert r.status_code == 200
+    assert r.json()["ok"] is True

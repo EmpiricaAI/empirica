@@ -4,9 +4,22 @@ The `empirica serve` daemon is a localhost FastAPI server that provides REST end
 for the Empirica Chrome extension. The extension extracts epistemic artifacts client-side
 (in TypeScript) and sends them to this daemon for storage in the Empirica database.
 
-**Security model:** Localhost-only by default (`127.0.0.1`). No authentication is required.
-CORS is configured to allow all origins so that `chrome-extension://` URLs can reach the
-server. The security boundary is the network interface, not CORS.
+**Security model:** Localhost-only by default (`127.0.0.1`). For the same-box extension
+case the security boundary is the network interface, not CORS (which is configured to
+allow `chrome-extension://` and localhost origins).
+
+Two surfaces change this picture when the daemon is bound **beyond loopback**:
+
+- **`POST /api/v1/entities`** (the contact-mint endpoint) is guarded by an entity-mint
+  service token — see [Entity Mint](#post-apiv1entities-entity-mint).
+- **`GET /api/v1/listeners`** is guarded by the same token (it exposes listener topic
+  names and last-message bodies).
+
+The daemon **refuses to start** (`assert_bind_safe`) when bound to a non-loopback host
+with no token configured, so the mint and listener surfaces are never exposed
+unauthenticated. Configure the valid-token set via `EMPIRICA_ENTITY_MINT_TOKENS`
+(comma-separated `emk_…` tokens). Loopback (same-box) daemons stay auth-free — the guard
+is inactive when no token set is configured, so the extension's local reads are unchanged.
 
 **Source:** `empirica/api/serve_app.py`
 
@@ -61,8 +74,11 @@ Health check endpoint. Reports daemon status, availability of optional integrati
 
 **Response:** `HealthResponse` (200 OK)
 
-The endpoint probes `localhost:11434` (Ollama) and `localhost:6333` (Qdrant) with a
-2-second timeout to determine availability.
+The endpoint probes the **configured** Ollama and Qdrant backends with a 2-second timeout
+to determine availability. The URLs are resolved the same way embeddings resolves them —
+`EMPIRICA_OLLAMA_URL` / `EMPIRICA_QDRANT_URL` env var → `~/.empirica/config.yaml`
+(`embeddings.ollama_url`) → `localhost:11434` / `localhost:6333` — so a remote backend is
+probed at its real address rather than always reporting localhost.
 
 The active-project fields (`project_id`, `project_path`, `project_name`,
 `project_slug`, `repo_url`) are populated from the daemon's project resolution at
@@ -89,6 +105,68 @@ curl http://localhost:8000/api/v1/health
   "project_slug": "empirica",
   "repo_url": "https://github.com/Nubaeon/empirica"
 }
+```
+
+---
+
+### POST /api/v1/entities (Entity Mint)
+
+Idempotently mint a **contact** into the workspace `entity_registry`. Re-minting with the
+same identity (email first, then a deterministic name/company slug) returns the existing
+`entity_id` with `created=false` — so the same call is a safe no-op on repeat. The returned
+id is the canonical `contact_id` that same-box consumers (e.g. a CRM MCP server) carry as
+their foreign key.
+
+**Auth:** guarded by an entity-mint service-token bearer **when the daemon binds beyond
+loopback** (the hosted deployment). On a loopback daemon the guard is inactive and no bearer
+is required. See the [Security model](#empirica-serve-api-reference) above and
+`empirica/api/entity_mint_auth.py`.
+
+**Request:** `EntityCreateRequest`
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `type` | str | Must be `"contact"` (v1 mints contacts only; `422` otherwise) |
+| `name` | str | Required, contact display name |
+| `email` | str? | Primary identity key for idempotency |
+| `phone` | str? | |
+| `role` | str? | |
+| `company_name` | str? | Part of the fallback identity slug when no email |
+| `description` | str? | |
+| `metadata` | dict? | Extra fields merged into the registry row |
+
+**Response:** `{ok, entity_id, created, matched_by}` (200) — `created` is `false` on a
+verified no-op. `422` for a non-contact type; `400` on mint failure; `401` on
+missing/invalid token when the guard is active.
+
+```bash
+# Non-loopback (guarded) daemon:
+curl -X POST http://host:8000/api/v1/entities \
+  -H "Authorization: Bearer emk_…" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"contact","name":"Ada Lovelace","email":"ada@example.com"}'
+```
+
+---
+
+### GET /api/v1/listeners
+
+Registered mesh listeners plus heartbeat freshness, merged from the on-disk listener
+registry and per-instance health markers. Lets the extension flag silent receive failures
+(a listener that's alive but no longer receiving) without reading `~/.empirica/` directly.
+Read-only.
+
+**Auth:** guarded by the same entity-mint service token as `/api/v1/entities` — the rows
+carry listener `topic` names (which are ntfy subscribe credentials) and `last_message`
+bodies, so a network-exposed daemon must not serve them unauthenticated. The guard is
+inactive on a loopback daemon, so the extension's local read is unchanged.
+
+**Response:** `ListenersResponse` → `{ok, listeners: [ListenerRow]}`. Each `ListenerRow`:
+`instance_id`, `name`, `description`, `topic`, `wake_count`, `last_wake_at`, `last_message`,
+`registered_at`, `health_status` (`ok`|`degraded`|`null`), `health_loop`, `health_ts`.
+
+```bash
+curl http://localhost:8000/api/v1/listeners
 ```
 
 ---
@@ -332,9 +410,8 @@ curl 'http://localhost:8000/api/v1/assumptions?confidence_min=0.7'
 
 Companion to `GET /api/v1/sources` (metadata-only): returns the actual content
 behind a single source row, so a UI viewer can render inline. Added to close
-the source-viewer gap surfaced by extension `prop_fzb63fnlx5` + `prop_bcsecxo2rr`
-— the daemon previously served metadata only, so viewers rendered empty when a
-user clicked through.
+the source-viewer gap — the daemon previously served metadata only, so viewers
+rendered empty when a user clicked through.
 
 ### Response shapes (client branches on `kind`)
 

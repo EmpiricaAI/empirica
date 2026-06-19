@@ -5,6 +5,26 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Serve-daemon hardening and a lighter import surface: the entity-mint and listener
+endpoints are now service-token guarded when the daemon binds beyond loopback, the
+`openai` embeddings provider drops its SDK dependency, and CLI startup sheds two heavy
+imports.
+
+### Added
+- **`GET /api/v1/listeners`** — the serve daemon exposes the registered mesh listeners plus heartbeat freshness, merged from the on-disk registry and health markers, so the Chrome extension can flag silent receive failures (a listener that's alive but no longer receiving) without reading `~/.empirica/` directly. Read-only.
+- **Service-token auth for the hosted entity-mint endpoint** — `POST /api/v1/entities` (and `GET /api/v1/listeners`) are guarded by an `emk_…` bearer token when the daemon binds beyond loopback. Configure the valid-token set via `EMPIRICA_ENTITY_MINT_TOKENS` (comma-separated, rotation-friendly). The daemon refuses to start when bound to a non-loopback host with no token configured (fail-closed), so these surfaces are never exposed unauthenticated. Loopback (same-box) daemons stay auth-free and unchanged.
+
+### Changed
+- **`empirica serve` `/health` reflects the actual configured backends** — Ollama and Qdrant reachability probes now resolve their URLs the same way embeddings does (env var → `~/.empirica/config.yaml` `embeddings.ollama_url` → localhost) instead of always probing hardcoded `localhost:11434` / `localhost:6333`.
+- **`openai` embeddings provider is now REST-only** — the `openai` Python SDK is no longer a dependency; embeddings call the `/v1/embeddings` endpoint directly over HTTP. `OPENAI_API_KEY` is still used for auth; no behaviour change for users.
+- **Faster CLI startup** — `httpx` and `GitPython` imports are deferred off the CLI startup path, trimming cold-start overhead for commands that never touch them.
+
+### Fixed
+- **`listener-on` subscribe tag is canonicalized to the 3-form**, so wake routing addresses the correct practitioner.
+- **Listener garbage collection no longer reaps live launchd-supervised workers** on macOS — liveness derives from the running process rather than the launchd plist location.
+
 ## [1.12.1] — 2026-06-16
 
 A managed-Forgejo publishing path for projects with no public remote, the compliance-report diagnostics emit (an account-gated free funnel into Cortex's System │ Diagnostics surface), plus a sentinel-gating correctness fix and two listener/hook reliability fixes.

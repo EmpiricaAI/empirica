@@ -19,9 +19,11 @@ import logging
 import os
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+
+from empirica.api.entity_mint_auth import verify_mint_bearer
 
 logger = logging.getLogger(__name__)
 
@@ -258,12 +260,24 @@ def create_serve_app() -> FastAPI:
             logger.error(f"Profile sync failed: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=str(e)) from e
 
-    @app.get("/api/v1/listeners", response_model=ListenersResponse)
+    @app.get(
+        "/api/v1/listeners",
+        response_model=ListenersResponse,
+        dependencies=[Depends(verify_mint_bearer)],
+    )
     async def listeners():  # pyright: ignore[reportUnusedFunction]
         """Registered mesh listeners + heartbeat freshness, merged from the
         on-disk registry + health markers. Lets the extension flag silent
         receive failures (seat alive but deaf) without reading ~/.empirica/
-        directly. Read-only, localhost — same trust surface as /health."""
+        directly. Read-only.
+
+        Guarded by the entity-mint service token: the rows carry listener
+        topic names (ntfy subscribe credentials) and last-message bodies, so
+        a network-exposed daemon must not serve them unauthenticated. The
+        guard is inactive when no token set is configured (the loopback
+        same-box case the extension uses), so local reads are unchanged;
+        a non-loopback bind already requires EMPIRICA_ENTITY_MINT_TOKENS via
+        assert_bind_safe, which then also gates this route."""
         return ListenersResponse(
             ok=True,
             listeners=[ListenerRow(**row) for row in _gather_listeners()],
