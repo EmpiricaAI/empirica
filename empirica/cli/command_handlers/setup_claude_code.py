@@ -1013,6 +1013,19 @@ def _persist_tenant_metadata(
         if value is not None and existing.get(key) != value:
             existing[key] = value
             changed = True
+    # Derive the strict canonical 3-form seat (`org.tenant.project`) from the
+    # effective mesh_id_prefix + the project's ai_id, and persist it so the
+    # daemon/model can pass `seat` to cortex_session_init without re-composing.
+    # Self-heals: recomputes even when the three fields above were unchanged
+    # (e.g. a project.yaml that has mesh_id_prefix + ai_id but no seat yet).
+    from empirica.config.project_config_loader import compose_canonical_seat
+    seat = compose_canonical_seat(
+        mesh_id_prefix=existing.get("mesh_id_prefix") or "",
+        ai_id=existing.get("ai_id") or "",
+    )
+    if seat is not None and existing.get("canonical_seat") != seat:
+        existing["canonical_seat"] = seat
+        changed = True
     if not changed:
         return False
     project_yaml.write_text(
