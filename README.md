@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/nubaeon-empirica-badge.png)](https://mseep.ai/app/nubaeon-empirica)
+
 # Empirica
 
 > **We Gave AI a Mirror. Now It Measures What It Believes.**
