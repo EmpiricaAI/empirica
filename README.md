@@ -339,13 +339,15 @@ All read-only, all support `--output json`. Backs cross-project orchestration, C
 
 ---
 
-## What's New in 1.12.1
+## What's New in 1.12.2
 
-- **`empirica forgejo-publish`** — provision a managed Forgejo remote for a project and push it up (`empirica/cli/command_handlers/forgejo_commands.py`). The operator / self-hosting provisioning verb for a project with no existing origin (Forgejo's managed pull-mirror can't apply without one to pull from): Cortex mints a per-project, owner-scoped bot token over HTTPS; the token is stashed `0600` under `~/.config/empirica/forgejo-tokens/<uuid>`; a credential-free `forgejo` remote is added (the canonical `origin` repo_url is never touched); and each refspec is pushed to a credentialed URL composed only at push-time and never persisted to git config. Notes-ref wildcards are enumerated and pushed in batches of 250 — a single RPC carrying thousands of note refs 504s at the gateway. 16 tests in `tests/test_forgejo_commands.py`.
-- **`empirica compliance-report --emit`** — emit the compliance assessment as a `diagnostics` system event to Cortex (`POST /v1/system/event`), surfacing in the System │ Diagnostics view (`empirica/cli/command_handlers/system_event.py`, `compliance_report_commands.py`). Account-gated free diagnostics: the EU AI Act / GDPR / ISO check results become a shareable, queryable record. 9 tests in `tests/test_system_event.py`.
-- **Sentinel no longer over-gates newline-separated `empirica` command chains** (`plugins/claude-code-integration/hooks/sentinel-gate.py`). A multi-line Bash block of individually-noetic `empirica` calls was being classified off its first segment alone; the classifier now splits on newlines (heredoc-guarded so `<< EOF` blocks aren't shredded) and routes each segment independently. The same pass closes a firewall over-allow where a piped `empirica goals-list | sh` slipped through as noetic — pipe segments now route through the pipe-chain classifier. 10 new regression tests.
-- **Listener liveness detection decoupled from the launchd plist-file location** — macOS launchd reparents supervised services, so liveness now derives from the running process rather than the plist path, ending a class of false orphan-classification on launchd-managed installs.
-- **Hooks resolve the canonical `ai_id`** instead of hardcoding `claude-code`, so per-practice wake routing addresses the correct practitioner.
+- **`GET /api/v1/listeners`** — the serve daemon exposes the registered mesh listeners plus heartbeat freshness, merged from the on-disk registry and health markers, so the Chrome extension can flag silent receive failures (a listener that's alive but no longer receiving) without reading `~/.empirica/` directly. Read-only.
+- **Service-token auth for the hosted entity-mint endpoint** — `POST /api/v1/entities` (and `GET /api/v1/listeners`) are guarded by an `emk_…` bearer token when the daemon binds beyond loopback. Configure the valid-token set via `EMPIRICA_ENTITY_MINT_TOKENS` (comma-separated, rotation-friendly). The daemon refuses to start when bound to a non-loopback host with no token configured (fail-closed), so these surfaces are never exposed unauthenticated. Loopback (same-box) daemons stay auth-free and unchanged.
+- **`empirica serve` `/health` reflects the actual configured backends** — Ollama and Qdrant reachability probes now resolve their URLs the same way embeddings does (env var → `~/.empirica/config.yaml` `embeddings.ollama_url` → localhost) instead of always probing hardcoded `localhost:11434` / `localhost:6333`.
+- **`openai` embeddings provider is now REST-only** — the `openai` Python SDK is no longer a dependency; embeddings call the `/v1/embeddings` endpoint directly over HTTP. `OPENAI_API_KEY` is still used for auth; no behaviour change for users.
+- **Faster CLI startup** — `httpx` and `GitPython` imports are deferred off the CLI startup path, trimming cold-start overhead for commands that never touch them.
+- **`listener-on` subscribe tag is canonicalized to the 3-form**, so wake routing addresses the correct practitioner.
+- **Listener garbage collection no longer reaps live launchd-supervised workers** on macOS — liveness derives from the running process rather than the launchd plist location.
 ---
 
 ## Privacy & Data
