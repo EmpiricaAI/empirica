@@ -1537,6 +1537,13 @@ def handle_postflight_submit_command(args):
                     "deltas": deltas, "trajectory_issues": trajectory_issues,
                     "transaction_id": tx_info["transaction_id"],
                     "tool_call_count": tx_info["tool_call_count"],
+                    # Persisted for the next PREFLIGHT's prior-tx feedback + the
+                    # retrospective gate: work_type (mechanical-exemption) and
+                    # phase_tool_counts (praxic_tool_calls = the "was there
+                    # substantive praxic activity" signal). Both come from the
+                    # already-loaded tx_info — no git read, no reordering.
+                    "work_type": tx_info["work_type"],
+                    "phase_tool_counts": tx_info["phase_tool_counts"],
                     "avg_turns_at_start": tx_info["avg_turns"],
                     "context_shifts": tx_info["context_shifts"] if tx_info["context_shifts"].get('unsolicited_prompts', 0) > 0 else None,
                     "entity_context": tx_info["entity_context"] or None,
