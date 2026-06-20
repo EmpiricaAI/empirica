@@ -170,8 +170,11 @@ window. POSTFLIGHT closes it and captures what you learned.
 ### Why Transactions Matter
 
 Transactions enable **long-running sessions** across compaction boundaries.
-Each POSTFLIGHT offloads your work to persistent memory (SQLite, Qdrant, git notes).
-Without measurement, compaction loses context permanently.
+Each POSTFLIGHT offloads your work to persistent memory (SQLite, Qdrant, git notes),
+so compaction becomes a routine swap of active conversation for durable state —
+bootstrap re-grounds you, and `project-search` / `investigate` retrieve the rest.
+The discipline is what makes context abundant: what you log persists; what you
+skip logging is the only thing that can be lost.
 
 ### Goals Drive Transactions
 
