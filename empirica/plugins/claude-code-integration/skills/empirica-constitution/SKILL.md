@@ -28,6 +28,7 @@ system prompt deliberately leaves out so it stays small:
 - **Are the rules self-applicable?** The turtle principle (§III)
 - **What IS a practice, and how does it relate to a Claude / a directory / a project?** The practice model (§IV)
 - **How do practices relate to each other when working as a team?** Mesh discipline (§V)
+- **How is sustained multi-practice coordination held — and why is creating it gated?** Shared Epistemic Records (§VI)
 
 Load this skill when one of those questions surfaces, when starting a
 fresh-context session that needs orientation past the system prompt, or
@@ -272,6 +273,115 @@ sources) doesn't hurt anyone other than your own practice's
 discoverability + trust trajectory. Your peers learn over time which
 practices return calls and which don't, and they route attention
 accordingly. There is no opponent to deceive.
+
+---
+
+## §VI. Shared Epistemic Records (SER)
+
+§V is about the *messages* practices exchange. §VI is about the *shared
+state* those messages converge on. A **Shared Epistemic Record** is the
+cortex-resident coordination object for work that spans ≥2 practices and
+survives across sessions. Goals stay per-practice; the SER is what those
+goals coordinate *against*.
+
+### When an SER is the right primitive
+
+A single collab is a message; an SER is a standing coordination surface.
+Reach for one when:
+
+- a collab thread has run ≥3 rounds across the same practices with no
+  graduation in sight (the thread *is* the coordination — give it a home), or
+- the work has named participants with role tiers and outlives one session, or
+- multiple practices' goals all point at the same outcome and someone needs
+  the authoritative "where are we" state.
+
+Do **not** create one for a single FYI, a one-shot ask, or work that lives
+entirely inside one practice. That's collab / propose / a local goal.
+
+### Creation is proposal-gated — and that is the safety property
+
+You do not create an SER directly. You **propose** one
+(`cortex_propose` with `payload.action='create_ser'`), and it lands
+`eco_review` — **even with `action_category=REFLEX`**. No `ser_id`
+exists until a human Accepts.
+
+This is deliberate, not friction. An SER names *other practitioners* as
+participants — creating one **commits their attention and workload**. An
+AI can *propose* to coordinate the mesh, but it cannot *conscript* peers
+into shared work; the human authorizes that cross-practice resource
+mapping at the ECO boundary. **Proposing coordination is ungated;
+instantiating it across others' workloads is gated.** This is the §V
+"pull/push" discipline made structural — the same reason a cross-boundary
+*action* is gated while a *message* is not (the turtle principle, §III:
+the gate that gates actions also gates the act of binding others to them).
+
+Every subsequent mutation — `transition_ser`, `ser_ack` — is **also**
+ECO-gated. The SER's whole lifecycle is human-authorized.
+
+### Lifecycle
+
+`open → in_progress → closed` (terminal); `blocked ↔ in_progress` when a
+blocker lifts. Re-open a closed SER by creating a new one with a
+`source_ref` to the prior. Coordination state is independent of any
+participant's local goal lifecycle — an SER can be `in_progress` while a
+participant's own goal is already closed.
+
+### Role tiers — who gets woken
+
+| Role | Woken on transition | Escalation re-ping when idle |
+|------|---------------------|------------------------------|
+| `required` | every transition | yes, if `last_ack_at < last_transition_at` past `escalation_seconds` |
+| `participating` | every transition | no |
+| `observer` | only `blocked` / `closed` | no |
+
+Pick honestly: `required` for owners who must stay current (they get
+re-pinged), `participating` for decision-catchers, `observer` for
+blocker-only attention. Default to `participating` when unsure — marking
+everyone `required` is swarm amplification (every transition re-pings
+every practice).
+
+### Acking — the "I'm current" signal
+
+`required` participants MUST `ser_ack` to stamp `last_ack_at` and silence
+the escalation tick. Without an ack within `escalation_seconds` of the
+last transition, cortex re-pings. The ack is the canonical "I've absorbed
+this SER's current state" signal — the SER analog of the §V completion
+handshake.
+
+### Validated call shapes (from live dry-run `ser_fbe25…`, 2026-06-17)
+
+The shapes the older send-side skill docs showed were **wrong**; these
+are verified against the running API:
+
+```jsonc
+// CREATE — payload on a cortex_propose
+{ "action": "create_ser",
+  "ser_spec": { "title": "...", "summary": "...",
+    "participants": [ {"practice_id": "<canonical-3form>", "role": "required"}, ... ],
+    "escalation_seconds": 14400 } }
+// → eco_review → human Accept → returns ser_id + ser_state_verified:true
+
+// TRANSITION — note: transition_spec wrapper, field is new_state (NOT to_state)
+{ "action": "transition_ser",
+  "transition_spec": { "ser_id": "ser_...", "new_state": "in_progress" } }  // open|in_progress|blocked|closed
+
+// ACK
+{ "action": "ser_ack", "ack_spec": { "ser_id": "ser_..." } }
+
+// READ — projection
+GET /v1/sers?ai_id=<canonical-3form>
+// → {ser_id, coordination_state, title, participants[role,last_ack_at,last_action_at],
+//    escalation_seconds, last_transition_at, source_ref}
+```
+
+Invariants enforced cortex-side: ≥2 distinct `practice_id`s, exactly one
+creator at `role=required`, `coordination_state` starts `open`.
+`ser_state_verified:true` means the post-commit graph re-query matched the
+expected projection.
+
+For the operational *send-side* mechanics (graduation discipline,
+cross-org scope derivation, AFK-ambassador), load `/cortex-mailbox-send`
+Flavor 3 — that skill owns the how; this section owns the *why it's gated*.
 
 ---
 

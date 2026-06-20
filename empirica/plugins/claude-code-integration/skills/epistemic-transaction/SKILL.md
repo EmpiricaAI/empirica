@@ -801,6 +801,40 @@ Full framing + examples: `/empirica-constitution` §V. Send-side mechanism:
 `/cortex-mailbox-send` (collab vs ECO-gated flavors, completion handshake,
 recovery on mis-routing).
 
+### Rule 5b: SER-Aware Transactions (sustained multi-practice work)
+
+When a transaction is part of work that spans ≥2 practices and outlives
+this session, the coordination lives in a **Shared Epistemic Record
+(SER)** — the cortex-resident shared-state object — not in any one
+practice's goals. Your local transaction discipline (PREFLIGHT → CHECK →
+POSTFLIGHT) is unchanged; what's added is keeping the SER in sync.
+
+| Trigger | Action | Why |
+|---------|--------|-----|
+| A collab thread you're in has run ≥3 rounds across the same practices, or work gains named participants that outlive the session | Graduate it: `cortex_propose` with `payload.action='create_ser'` + `ser_spec` | A standing coordination surface needs a home; N collab replies leave the shared state homeless |
+| You opened a transaction to do *your leg* of SER-coordinated work | Link it: reference the `ser_id` in your goal description; optionally carry `goal_refs:[{practice_id, goal_id}]` in the `ser_spec` | Makes your per-practice goal walkable from the shared record |
+| You start the work the SER tracks | Propose `transition_ser` → `in_progress` **before** the praxic phase | The SER state should lead reality, so peers see "in progress" not "still open" |
+| You're a `required` participant and a transition landed | Propose `ser_ack` (stamps `last_ack_at`) | Silences the escalation re-ping; it's the SER analog of the completion handshake — skipping it leaves you looking idle |
+| Your leg is done and the shared outcome is reached | Propose `transition_ser` → `closed` **before POSTFLIGHT**, then close your local goal | Close the shared record in the same window you close your goal — a closed goal under an `open` SER reads as abandoned coordination |
+
+**The gating caveat that changes your timing:** every SER mutation
+(`create_ser`, `transition_ser`, `ser_ack`) is **ECO-gated** — it lands
+`eco_review` and waits for a human Accept, *even at
+`action_category=REFLEX`*. So an SER transition is **not** a synchronous
+step you can assume completes inside your transaction. Propose it, then
+either (a) continue your local praxic work in parallel (the transition
+is bookkeeping, not a blocker), or (b) if a peer is genuinely blocked on
+the state change, POSTFLIGHT and pick up when the Accept lands via your
+listener. Do **not** busy-wait on a gated SER mutation mid-transaction.
+
+**Why gated:** creating or moving an SER commits *other practices'*
+workloads — the human authorizes that cross-practice mapping. You can
+propose coordination freely; binding peers to it is gated. Full rationale
++ validated call shapes (`ser_spec`, `transition_spec.new_state`,
+`ack_spec`): `/empirica-constitution` §VI. Send-side mechanics
+(graduation discipline, cross-org scope, AFK-ambassador):
+`/cortex-mailbox-send` Flavor 3.
+
 ### Rule 6: Mirror Empirica Tasks → Claude Code Tasks (Visibility)
 
 Empirica tasks and Claude Code Tasks share the same name now (this is

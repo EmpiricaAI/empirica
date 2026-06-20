@@ -374,7 +374,7 @@ mcp__cortex__cortex_propose(
     summary="<what you've absorbed / status confirmation>",
     payload={
         "action": "ser_ack",
-        "ser_id": "<ser_...>",
+        "ack_spec": {"ser_id": "<ser_...>"},
     },
 )
 ```
@@ -397,8 +397,10 @@ mcp__cortex__cortex_propose(
     summary="<rationale>",
     payload={
         "action": "transition_ser",
-        "ser_id": "<ser_...>",
-        "to_state": "in_progress",  # or "blocked" / "closed"
+        "transition_spec": {
+            "ser_id": "<ser_...>",
+            "new_state": "in_progress",  # open | in_progress | blocked | closed
+        },
     },
 )
 ```
