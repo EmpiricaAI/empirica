@@ -438,6 +438,8 @@ EMPIRICA_TIER1_PREFIXES = (
     'empirica discover-goals', 'empirica list-identities',
     'empirica issue-list',
     'empirica docs-assess',  # Documentation assessment - read-only investigation tool
+    'empirica doctor',  # Read-only diagnostic — MUST stay allowed (recovery escape hatch)
+    'empirica diagnose',  # Read-only mesh/listener diagnostic — recovery escape hatch
     'empirica calibration-report',  # Calibration analysis - read-only
     'empirica compact-analysis',  # Compact event analysis - read-only
     'empirica commit-context',  # Per-commit artifact aggregator - read-only
@@ -1972,6 +1974,26 @@ def _noetic_firewall_check(tool_name: str, tool_input: dict, hook_input: dict) -
     return None
 
 
+def _in_linked_git_worktree() -> bool:
+    """True if CWD is inside a LINKED git worktree (vs the main checkout).
+
+    A linked worktree (`git worktree add`) marks its root with a `.git` *file*
+    (`gitdir: …/worktrees/…`), whereas the main checkout has a `.git` *directory*.
+    Pure filesystem stat — no subprocess — so it's cheap enough for the per-tool
+    PreToolUse path. Used as a worktree-aware subagent signal: isolation:worktree
+    subagents run here; the real practitioner runs in the main checkout.
+    """
+    try:
+        cwd = Path.cwd()
+        for d in [cwd, *cwd.parents]:
+            g = d / '.git'
+            if g.exists():
+                return g.is_file()  # file → linked worktree; dir → main checkout
+    except Exception:
+        pass
+    return False
+
+
 def _detect_subagent(claude_session_id: str) -> bool:
     """Detect if the current invocation is from a subagent.
 
@@ -2011,6 +2033,15 @@ def _detect_subagent(claude_session_id: str) -> bool:
         # No active_work file for this claude_session_id — likely a subagent
         # (or session-init failed / project initialized mid-session).
         #
+        # Worktree-aware signal (ecodex prop_3dih #3, David architectural flag):
+        # isolation:worktree subagents run in a LINKED git worktree where the
+        # active_work lookup above fails — without this they fall through and risk
+        # mis-detection as the PARENT (then get measured, polluting parent state).
+        # Safe: the real practitioner runs in the main checkout and has its
+        # active_work (Path 1), so only genuine subagents reach this Path-2 branch.
+        if _in_linked_git_worktree():
+            return True
+
         # TIGHTENED CHECK (fixes #68): Don't just check if active_session exists —
         # verify its session matches the current transaction. Stale active_session
         # files from other projects/sessions cause false positive subagent detection.
@@ -2127,6 +2158,31 @@ def _validate_check_record(cursor, session_id: str, current_transaction_id, pref
     Returns (know, uncertainty, decision, check_timestamp) on success,
     or ("deny", message) tuple on failure.
     """
+    # ── RECOVERY ESCAPE HATCH (ecodex prop_3dih #1, David-flagged) ──────────
+    # A firewall must NEVER gate its own escape hatch. Empirica's discipline /
+    # recovery verbs (check/postflight-submit, *-log, note, doctor) + noetic
+    # tools must ALWAYS pass — regardless of CHECK / rush / stuck state. The
+    # safe-command escapes below live only in the no-CHECK-row branch; without
+    # this hoist, a rushed assessment (short noetic + 0 artifacts) makes EVERY
+    # praxic call — INCLUDING the postflight that would clear it — deny "Rushed
+    # assessment", an unrecoverable deadlock. Covers both the no-CHECK-row and
+    # the has-CHECK-row (rush) paths.
+    if (
+        tool_name in NOETIC_TOOLS
+        or tool_name in NOETIC_MCP_CHROME
+        or tool_name in NOETIC_MCP_CORTEX
+        or _is_empirica_mcp_tool(tool_name)
+        or (
+            tool_name == 'Bash'
+            and tool_input
+            and (
+                is_safe_bash_command(tool_input)
+                or is_safe_empirica_command(tool_input.get('command', ''))
+            )
+        )
+    ):
+        return None
+
     if current_transaction_id:
         cursor.execute("""
             SELECT know, uncertainty, reflex_data, timestamp
