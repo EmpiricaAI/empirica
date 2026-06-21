@@ -5,6 +5,66 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.3] — 2026-06-21
+
+A discipline-and-reliability release: a low-friction scratchpad for AIs, a
+PREFLIGHT "breather" that catches unlogged work, two new deterministic guards
+that end whole classes of silent drift, and a sweep of silently-dead queries
+revived. Most of the value is in things that *stop failing quietly*.
+
+### Added
+- **`empirica note`** — a fast scratchpad note-to-self for jotting things to
+  revisit, captured mid-flow and triaged at the retrospective. The middle
+  ground between a full artifact (friction) and holding a thought in context
+  (lost at compaction): transaction-scoped, metadata-only (not shared, not
+  embedded), and surfaced at POSTFLIGHT under `untriaged_notes`. CLI:
+  `note "…" [--tag followup|doubt|idea]`, `note --list`, `note --clear`; also
+  available as an MCP tool for Desktop/Chat AIs.
+- **Retrospective soft-gate** — at PREFLIGHT, when the previous transaction made
+  substantive praxic tool calls but logged zero epistemic artifacts (on a
+  non-mechanical `work_type`), the response surfaces a non-blocking breather to
+  log what was learned. Note-aware (notes earn partial credit), env-toggleable
+  (`EMPIRICA_RETROSPECTIVE_GATE`), and cleared by logging or by passing
+  `retrospective_reason`.
+- **MCP↔CLI parity guard** — a test that introspects the real CLI parser and
+  fails if any MCP tool maps a flag the CLI no longer accepts, plus a capability
+  floor keeping core flags exposed. Replaces stale manual re-verification.
+- **SQL schema-reference guard** — a test that validates every static SQL query
+  against the real schema, catching references to non-existent columns/tables
+  (the silent-`OperationalError`-swallowed-by-broad-except class).
+- **Import-budget gate** — a test keeping the CLI and serve `/health` hot paths
+  free of eager heavy imports (LLM SDKs, vector store, web stack).
+
+### Fixed
+- **Revived 12 silently-dead static SQL queries** whose columns had been renamed
+  or removed and whose errors were swallowed by broad `except` — features that
+  had quietly no-op'd: calibration-insight bias detection, sentinel goal-scope
+  loop sizing, turtle-persona grounding, PREFLIGHT calibration trend, the
+  test-pollution goal prune, the daemon artifact insert, unknown-resolve,
+  issue-category update, and subtask-importance, among others.
+- **PREFLIGHT prior-transaction behavioral feedback** was dead for an unknown
+  duration — it queried a non-existent column and the error was swallowed, so
+  `previous_transaction_feedback` was always null. Now reads the correct
+  `reflex_data`.
+- **Project-id resolution** read a non-existent `.empirica/project.json`; all
+  sites now route through the canonical, `project.yaml`-authoritative resolver
+  (`project.yaml.example` regenerated to the v2.0 schema).
+- **MCP param drift** — surfaced `--description` on every `*-log` tool plus
+  `--source`/`--cost-estimate`/`--root-cause-vector` and the `goals-create`
+  scope/status/success-criteria flags the CLI already accepted; added local
+  (cortex-free) goal-lifecycle + read-side logging-query tools.
+- **Mesh seat** now persists the strict canonical 3-form into `project.yaml` at
+  session init.
+
+### Changed
+- **POSTFLIGHT** now persists `work_type` + phase tool-counts into `reflex_data`,
+  feeding the next PREFLIGHT's behavioral feedback and the retrospective gate.
+- **Removed the monolithic `CLAUDE.md` prompt template + `--full-prompt`** — the
+  system prompt is the lean template plus ecosystem `@include`s; non-Claude
+  users needing a monolith are out of scope (community-maintained).
+- **Reframed context-scarcity language to abundance/retrieval** across the system
+  prompt and skills, and documented the note scratchpad there.
+
 ## [1.12.2] — 2026-06-19
 
 Serve-daemon hardening and a lighter import surface: the entity-mint and listener

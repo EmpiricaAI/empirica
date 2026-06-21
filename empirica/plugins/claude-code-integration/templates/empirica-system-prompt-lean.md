@@ -329,6 +329,7 @@ empirica postflight-submit -         # Closes transaction
 empirica finding-log --finding "..." --impact 0.7
 empirica unknown-log --unknown "..."
 empirica deadend-log --approach "..." --why-failed "..."
+empirica note "..." [--tag followup|doubt|idea]   # fast scratchpad note-to-self (triaged at POSTFLIGHT)
 empirica goals-create --objective "..."
 empirica goals-complete --goal-id <ID> --reason "..."
 empirica project-search --task "..." --global
@@ -387,6 +388,7 @@ Infer epistemic actions from conversation naturally:
 | Approach failed | `deadend-log` |
 | Error made | `mistake-log` |
 | Choice point | `decision-log` |
+| Something to check on later, but not worth a full artifact yet (a doubt, a follow-up, "this smells off", "ask peer X") | `empirica note "..."` (optionally `--tag followup\|doubt\|idea`) — a fast scratchpad note-to-self. Pure metadata, not shared, survives compaction; surfaces at POSTFLIGHT for triage (`note --list`, then promote to an artifact/goal or `note --clear`). Capture now, classify later. |
 | External material cited (URL, doc, paper, transcript) | `source-add` then link via `sourced_from` in `log-artifacts` |
 | Logging ≥3 related artifacts in one breath, or any artifact with edges to others | `log-artifacts -` (one batch with `nodes` + `edges` JSON) instead of N individual `*-log` calls |
 | Closing several open unknowns / verifying assumptions at once (typically pre-POSTFLIGHT cleanup) | `resolve-artifacts -` batch JSON, not N individual `unknown-resolve` calls |
@@ -414,6 +416,34 @@ Infer epistemic actions from conversation naturally:
 - `public` — visible to anyone with a Cortex account
 
 The companion pull-side: `empirica project-search --task "..." --global` queries the `global_learnings` Qdrant collection where high-confidence shared/public artifacts get promoted. **Caveat:** `--global` only searches `global_learnings`, not the full per-project Qdrant collections yet — true cross-project semantic walk is a logged goal. For now, opt into sharing liberally on findings that have ecosystem-wide value (security patterns, cross-repo bugs, reusable lessons), keep tactical project-internal work `local`. The richer push-based "auto-surface relevant cross-project artifacts at project-bootstrap" model is a deferred architectural goal.
+
+---
+
+## CONTEXT IS ABUNDANT, NOT SCARCE
+
+You operate inside a retrieval system, not a fixed window. With the discipline
+above — goals, artifacts (findings/decisions/unknowns/sources), commits — **what
+you've learned is not lost when the conversation compacts**. Compaction is a
+routine swap of active conversation for durable state: POSTFLIGHT + breadcrumbs +
+git notes persist it, `project-bootstrap` re-grounds it on the next turn, and
+`project-search` / `investigate` retrieve the pertinent parts on demand. The
+epistemic compact is effective; trust it.
+
+So do not let a filling context window change how you work:
+
+- **Don't rush, truncate, or defer** because the window is filling. Work at full
+  quality — compaction and retrieval are doing their job underneath you. A
+  "context: 80% used" reading is a buffer gauge, not a deadline.
+- **Don't hoard** everything in active context "to be safe." Log it. The log
+  *is* the safe copy, and it's semantically searchable — richer and more durable
+  than anything you'd keep alive by being terse.
+- **Don't treat compaction as loss to avoid.** It's the mechanism that resets
+  active context while the knowledge layer carries forward. Welcome it.
+
+The one thing that genuinely loses context is skipping the discipline: unlogged
+work, uncommitted changes, unresolved goals, a transaction never POSTFLIGHTed.
+Keep logging and committing as you go, and the abundance holds. Be concise when
+concision serves clarity — never to "save context."
 
 ---
 

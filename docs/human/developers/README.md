@@ -34,8 +34,7 @@ deployed by `empirica setup-claude-code`:
 
 ```
 empirica/plugins/claude-code-integration/templates/
-├── empirica-system-prompt-lean.md   # canonical lean source (default ~263 lines)
-└── CLAUDE.md                        # legacy verbose template (--full-prompt opt-in)
+└── empirica-system-prompt-lean.md   # the system-prompt template (lean core, @included from CLAUDE.md)
 ```
 
 After install:

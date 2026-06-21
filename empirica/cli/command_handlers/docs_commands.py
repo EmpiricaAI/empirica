@@ -1135,32 +1135,17 @@ class EpistemicDocsAgent:
         return refs[:5]  # Limit results
 
     def _detect_project_id(self) -> str | None:
-        """Detect project ID from sessions.db (authoritative) or .empirica config (fallback)."""
+        """Detect project ID via the canonical local resolver.
+
+        project.yaml is authoritative (the 1.12 project-identity design),
+        sessions.db is the fallback. See `_get_project_id_from_local_db`.
+        Previously this read a non-existent `.empirica/project.json`.
+        """
         try:
-            # Primary: sessions.db is authoritative
-            from empirica.utils.session_resolver import InstanceResolver as R
-            db_project_id = R.project_id_from_db(self.root)
-            if db_project_id:
-                return db_project_id
-
-            # Fallback: project.yaml for fresh projects
-            import yaml
-            project_yaml = self.root / ".empirica" / "project.yaml"
-            if project_yaml.exists():
-                with open(project_yaml) as f:
-                    data = yaml.safe_load(f)
-                    if data and data.get("project_id"):
-                        return data["project_id"]
-
-            # Fallback: Try .empirica/project.json
-            project_json = self.root / ".empirica" / "project.json"
-            if project_json.exists():
-                data = json.loads(project_json.read_text())
-                return data.get("project_id")
-
+            from empirica.utils.session_resolver import _get_project_id_from_local_db
+            return _get_project_id_from_local_db(self.root)
         except Exception:
-            pass
-        return None
+            return None
 
     def _extract_doc_sections(self, content: str) -> list[tuple[str, str]]:
         """Extract sections from markdown content by headers."""
@@ -1830,31 +1815,18 @@ class DocsExplainAgent:
         return self.root / "docs"
 
     def _detect_project_id(self) -> str | None:
-        """Detect project ID from .empirica config or database."""
-        try:
-            # Try reading from .empirica/project.json
-            project_file = self.root / ".empirica" / "project.json"
-            if project_file.exists():
-                import json
-                data = json.loads(project_file.read_text())
-                return data.get("project_id")
+        """Detect project ID via the canonical local resolver.
 
-            # Try querying database for project matching this path
-            from empirica.data.session_database import SessionDatabase
-            db = SessionDatabase()
-            cursor = db.conn.cursor()
-            cursor.execute("""
-                SELECT project_id FROM projects
-                WHERE root_path LIKE ? OR name = ?
-                ORDER BY created_timestamp DESC LIMIT 1
-            """, (f"%{self.root.name}%", self.root.name))
-            row = cursor.fetchone()
-            db.close()
-            if row:
-                return row[0]
+        project.yaml is authoritative (the 1.12 project-identity design),
+        sessions.db is the fallback. See `_get_project_id_from_local_db`.
+        Previously this read a non-existent `.empirica/project.json` as its
+        primary path (always dead), masking a broken projects-table fallback.
+        """
+        try:
+            from empirica.utils.session_resolver import _get_project_id_from_local_db
+            return _get_project_id_from_local_db(self.root)
         except Exception:
-            pass
-        return None
+            return None
 
     def _check_qdrant_available(self) -> bool:
         """Check if Qdrant is available for semantic search."""

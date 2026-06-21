@@ -255,3 +255,28 @@ def compose_ai_id_forms(
         "tenant": f"{tenant_slug}_{basename}",
         "mesh": f"{mesh_id_prefix}_{basename}",
     }
+
+
+def compose_canonical_seat(*, mesh_id_prefix: str, ai_id: str) -> str | None:
+    """Compose the strict canonical 3-form mesh seat `org.tenant.project`.
+
+    This is the DOT-separated wire form that cortex's strict-canonical
+    resolver (`find_users_for_ai_id`, which decodes via `split('.', 2)`)
+    and the `seat` parameter of `cortex_session_init` expect. It is
+    DISTINCT from `compose_ai_id_forms` above, whose `_`-joined forms are
+    the older mesh-addressing convention — do not use those for `seat`.
+
+    `mesh_id_prefix` is the `<org>.<tenant>` prefix cortex returns in
+    session_init / `/v1/tenant/me` (e.g. `empirica.david`); `ai_id` is the
+    project's canonical basename (e.g. `empirica`). Result:
+    `empirica.david.empirica`.
+
+    Returns None when either input is empty, so callers can skip writing a
+    malformed seat (a wrong-form seat is rejected silently by the
+    strict-canonical send resolver).
+    """
+    prefix = (mesh_id_prefix or "").strip().rstrip(".")
+    basename = (ai_id or "").strip()
+    if not prefix or not basename:
+        return None
+    return f"{prefix}.{basename}"

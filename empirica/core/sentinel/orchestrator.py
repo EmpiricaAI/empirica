@@ -1153,7 +1153,7 @@ class Sentinel:
         db = SessionDatabase()
         cursor = db.conn.cursor()
         cursor.execute(
-            "SELECT scope_breadth, scope_duration, scope_coordination FROM goals WHERE id = ?",
+            "SELECT scope FROM goals WHERE id = ?",
             (goal_id,)
         )
         row = cursor.fetchone()
@@ -1161,11 +1161,24 @@ class Sentinel:
 
         sentinel = cls(session_id=session_id)
 
-        if row:
+        # goals.scope is a JSON blob: {"breadth": .., "duration": .., "coordination": ..}
+        # (written by GoalRepository.create_goal). Parse defensively — legacy rows
+        # may hold a float/string instead of a dict.
+        scope_data: dict = {}
+        if row and row[0]:
+            import json
+            try:
+                parsed = json.loads(row[0])
+                if isinstance(parsed, dict):
+                    scope_data = parsed
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        if scope_data:
             sentinel.init_loop_tracking(
-                scope_breadth=row[0] or 0.5,
-                scope_duration=row[1] or 0.5,
-                scope_coordination=row[2] or 0.3
+                scope_breadth=scope_data.get('breadth') or 0.5,
+                scope_duration=scope_data.get('duration') or 0.5,
+                scope_coordination=scope_data.get('coordination') or 0.3
             )
 
         return sentinel

@@ -158,17 +158,16 @@ def test_lean_template_uses_version_placeholder():
     )
 
 
-def test_full_claude_md_template_uses_version_placeholder():
+def test_no_monolithic_claude_md_template():
+    """The monolithic full-prompt template was removed (1.12.x): the lean
+    template is the only system-prompt source, @included from CLAUDE.md. A
+    self-contained prompt for a non-Claude harness is out of scope (community
+    territory). This guards against the duplicate reappearing."""
     template = _project_template_path("CLAUDE.md")
-    text = template.read_text(encoding="utf-8")
-    # Header version + Syncs-with line + Claude Model Delta line all parameterized
-    assert text.count("{{ empirica_version }}") >= 3, (
-        "CLAUDE.md template should have {{ empirica_version }} in 3+ places"
+    assert not template.exists(), (
+        "templates/CLAUDE.md (monolithic full-prompt) should not exist — "
+        "the lean template is the single source, @included from the user's CLAUDE.md"
     )
-    assert "{{ generated_date }}" in text
-    # No hardcoded v1.7.x versions anywhere in the header region
-    header = "\n".join(text.splitlines()[:10])
-    assert "v1.7.0" not in header
 
 
 def test_real_lean_template_renders_without_placeholders_remaining(tmp_path):

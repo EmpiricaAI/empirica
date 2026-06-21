@@ -164,6 +164,7 @@ from .monitor_commands import (
     handle_workflow_patterns_command,
 )
 from .noetic_batch_commands import handle_noetic_batch_command
+from .note_commands import handle_note_command
 from .notify_commands import (
     handle_notify_backends_command,
     handle_notify_config_command,
@@ -334,6 +335,7 @@ __all__ = [  # noqa: RUF022
     'handle_epistemics_stats_command',
     'handle_epp_activate_command',
     'handle_finding_log_command',
+    'handle_note_command',
     'handle_forgejo_publish_command',
     'handle_goals_activate_command',    # Activate planned goal → in_progress
     'handle_goals_add_dependency_command',

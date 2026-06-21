@@ -29,7 +29,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 PLUGIN_NAME = "empirica"
-PLUGIN_VERSION = "1.12.2"
+PLUGIN_VERSION = "1.12.3"
 
 
 def _resolve_empirica_version() -> str:
@@ -575,18 +575,21 @@ def _install_plugin_files(source_dir, plugin_dir, output_format):
         print(f"   ✓ Plugin installed to {plugin_dir}")
 
 
-def _install_claude_md(plugin_dir, claude_dir, use_full, output_format):
-    """Install Empirica system prompt and CLAUDE.md include reference."""
+def _install_claude_md(plugin_dir, claude_dir, output_format):
+    """Install Empirica system prompt and CLAUDE.md include reference.
+
+    The Empirica prompt is the lean core (`empirica-system-prompt.md`,
+    skills-on-demand) written to its own file and @included from the user's
+    CLAUDE.md — so CLAUDE.md stays a thin shell carrying only the user's own
+    nuance, while the ecosystem body lives in the @included prompt. There is
+    no monolithic full-prompt variant: a self-contained system prompt for a
+    non-Claude harness is out of scope here (community territory).
+    """
     if output_format != 'json':
         print("\n📝 Installing Empirica system prompt...")
 
-    # Select prompt template: lean (default) or full (traditional, opt-in)
-    if use_full:
-        claude_md_src = plugin_dir / "templates" / "CLAUDE.md"
-        prompt_label = "full (traditional)"
-    else:
-        claude_md_src = plugin_dir / "templates" / "empirica-system-prompt-lean.md"
-        prompt_label = "lean core (skills on demand)"
+    claude_md_src = plugin_dir / "templates" / "empirica-system-prompt-lean.md"
+    prompt_label = "lean core (skills on demand)"
 
     claude_md_dst = claude_dir / "CLAUDE.md"
     empirica_prompt_dst = claude_dir / "empirica-system-prompt.md"
@@ -1013,6 +1016,19 @@ def _persist_tenant_metadata(
         if value is not None and existing.get(key) != value:
             existing[key] = value
             changed = True
+    # Derive the strict canonical 3-form seat (`org.tenant.project`) from the
+    # effective mesh_id_prefix + the project's ai_id, and persist it so the
+    # daemon/model can pass `seat` to cortex_session_init without re-composing.
+    # Self-heals: recomputes even when the three fields above were unchanged
+    # (e.g. a project.yaml that has mesh_id_prefix + ai_id but no seat yet).
+    from empirica.config.project_config_loader import compose_canonical_seat
+    seat = compose_canonical_seat(
+        mesh_id_prefix=existing.get("mesh_id_prefix") or "",
+        ai_id=existing.get("ai_id") or "",
+    )
+    if seat is not None and existing.get("canonical_seat") != seat:
+        existing["canonical_seat"] = seat
+        changed = True
     if not changed:
         return False
     project_yaml.write_text(
@@ -1376,7 +1392,6 @@ def handle_setup_claude_code_command(args):
         skip_mcp = getattr(args, 'skip_mcp', False)
         skip_claude_md = getattr(args, 'skip_claude_md', False)
         skip_credentials = getattr(args, 'skip_credentials', False)
-        use_full = getattr(args, 'full_prompt', False)
 
         # Find bundled plugins
         source_dir = _get_plugin_source_dir()
@@ -1409,7 +1424,7 @@ def handle_setup_claude_code_command(args):
 
         # Stage 3: Install CLAUDE.md
         if not skip_claude_md:
-            _install_claude_md(plugin_dir, claude_dir, use_full, output_format)
+            _install_claude_md(plugin_dir, claude_dir, output_format)
 
         # Stage 4: Configure settings.json
         settings_file = claude_dir / "settings.json"

@@ -473,6 +473,7 @@ EMPIRICA_TIER2_PREFIXES = (
     'empirica preflight-submit', 'empirica check-submit', 'empirica postflight-submit',
     'empirica finding-log', 'empirica unknown-log', 'empirica deadend-log',
     'empirica mistake-log', 'empirica log-mistake',
+    'empirica note',  # Scratchpad note-to-self (metadata-only, ungated like *-log)
     'empirica log-artifacts', 'empirica resolve-artifacts', 'empirica delete-artifacts',  # Batch artifact operations
     'empirica goals-create', 'empirica goal-create', 'empirica gc',  # Goal create + aliases
     'empirica goals-complete', 'empirica goal-complete',  # Goal complete + alias
@@ -2176,12 +2177,12 @@ def _validate_check_record(cursor, session_id: str, current_transaction_id, pref
         if noetic_duration < min_duration:
             cursor.execute("""
                 SELECT COUNT(*) FROM project_findings
-                WHERE session_id = ? AND timestamp > ? AND timestamp < ?
+                WHERE session_id = ? AND created_timestamp > ? AND created_timestamp < ?
             """, (session_id, preflight_ts, check_ts))
             findings = cursor.fetchone()[0]
             cursor.execute("""
                 SELECT COUNT(*) FROM project_unknowns
-                WHERE session_id = ? AND timestamp > ? AND timestamp < ?
+                WHERE session_id = ? AND created_timestamp > ? AND created_timestamp < ?
             """, (session_id, preflight_ts, check_ts))
             unknowns = cursor.fetchone()[0]
             if findings == 0 and unknowns == 0:

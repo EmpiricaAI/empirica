@@ -339,7 +339,7 @@ class AutoIssueCaptureService:
             # Update issue_category field
             cursor.execute("""
                 UPDATE auto_captured_issues
-                SET issue_category = ?
+                SET category = ?
                 WHERE id = ?
             """, (issue_type, issue_id))
 

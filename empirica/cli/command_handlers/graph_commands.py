@@ -673,7 +673,7 @@ def handle_resolve_artifacts_command(args):  # noqa: C901 — batch dispatcher f
                     cursor = db.conn.cursor()
                     cursor.execute(
                         "UPDATE project_unknowns SET is_resolved = 1, resolved_by = ?, "
-                        "resolved_timestamp = datetime('now') WHERE unknown_id LIKE ?",
+                        "resolved_timestamp = datetime('now') WHERE id LIKE ?",
                         (resolution, f"{artifact_id}%"),
                     )
                     if cursor.rowcount > 0:

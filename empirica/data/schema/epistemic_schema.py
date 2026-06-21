@@ -99,4 +99,26 @@ SCHEMAS = [
                 )
     """,
 
+    # Schema 4 — scratchpad notes (note-to-self)
+    #
+    # Low-friction, transaction-scoped jottings captured mid-flow and reviewed
+    # at the POSTFLIGHT retrospective. Pure metadata: NOT shared, NOT embedded
+    # in Qdrant, NOT written to git notes. `triaged` flips to 1 once the note
+    # has been promoted to an artifact/goal or consciously discarded.
+    """
+    CREATE TABLE IF NOT EXISTS notes (
+                    note_id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    transaction_id TEXT,
+                    project_id TEXT,
+                    ai_id TEXT,
+                    text TEXT NOT NULL,
+                    tag TEXT,
+                    created_at REAL NOT NULL,
+                    triaged INTEGER DEFAULT 0,
+
+                    FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+                )
+    """,
+
 ]

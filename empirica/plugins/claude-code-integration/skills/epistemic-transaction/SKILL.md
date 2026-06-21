@@ -754,10 +754,22 @@ transaction should capture what was relevant:
 | Made an error | `mistake-log` |
 | Discovered something | `finding-log` |
 | Hit an open question | `unknown-log` |
+| Noticed something to revisit, but not worth a full artifact mid-flow | `note "..."` (scratchpad) |
 
 **Why:** Single-type artifact logging (only findings) leaves calibration
 gaps ungrounded. The retrospective breadth_note will flag this, but by then
 the measurement window is closing.
+
+**Scratchpad notes vs artifacts.** `empirica note "..."` is the low-friction
+middle ground between logging a full artifact (structured, embedded) and
+holding a thought in context (lost at compaction). Use it to jot a follow-up,
+doubt, or "check this later" *without* breaking stride to classify it. Notes
+are transaction-scoped, pure-metadata (not shared, not embedded), and surface
+at POSTFLIGHT under `untriaged_notes`. At the retrospective, triage them:
+`note --list` → promote the keepers to a finding/decision/goal → `note --clear`.
+Capture now, classify later. (The retrospective soft-gate is note-aware — real
+praxic work with zero artifacts *and* zero notes is the strongest "logged
+nothing" signal.)
 
 ### Rule 4: Close Artifacts Before POSTFLIGHT
 

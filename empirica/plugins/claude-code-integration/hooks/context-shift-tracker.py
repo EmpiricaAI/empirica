@@ -96,13 +96,15 @@ def _build_context_usage_output(claude_session_id):
 
         ctx_msg = f"context: {int(used_pct)}% used"
 
-        # High usage: compaction may be near — reinforce that it is lossless
-        # under empirica discipline so the practitioner doesn't degrade work.
+        # High usage: compaction may be near. State the abundance model
+        # affirmatively — the % is informational, not a deadline — so the
+        # practitioner keeps working at full quality instead of rushing.
         if used_pct > 80:
             ctx_msg += (
-                " | compaction (if it comes) is lossless — goals/artifacts/"
-                "git-notes persist + bootstrap re-grounds. Do NOT truncate, "
-                "rush, or defer work; keep logging + committing as normal."
+                " | this is a buffer reading, not a deadline. If compaction "
+                "comes it's lossless: your logged goals/artifacts/git-notes "
+                "persist and bootstrap re-grounds you. Keep working at full "
+                "quality and keep logging — the log is the durable copy."
             )
 
         # At >85% context, advise auto-switching to CWD project
@@ -131,8 +133,8 @@ def _maybe_append_project_switch_hint(ctx_msg, claude_session_id):
             if tx_project and str(Path(tx_project).resolve()) != cwd:
                 ctx_msg += (
                     f" | CWD project differs from transaction project"
-                    f" — consider project-switch to {Path(cwd).name}"
-                    f" before compaction"
+                    f" — project-switch to {Path(cwd).name} when convenient"
+                    f" to keep artifacts attributed correctly"
                 )
     except Exception:
         pass

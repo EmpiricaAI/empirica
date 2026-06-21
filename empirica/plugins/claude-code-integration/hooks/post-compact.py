@@ -737,11 +737,11 @@ def _load_dynamic_context(session_id: str, ai_id: str, pre_snapshot: dict) -> di
         context["pending_subtasks"] = []
         for goal in context["active_goals"]:
             cursor.execute("""
-                SELECT id, description, status, importance, created_timestamp
+                SELECT id, description, status, epistemic_importance, created_timestamp
                 FROM subtasks
                 WHERE goal_id = ? AND status != 'completed'
                 ORDER BY
-                    CASE importance
+                    CASE epistemic_importance
                         WHEN 'critical' THEN 1
                         WHEN 'high' THEN 2
                         WHEN 'medium' THEN 3
@@ -981,9 +981,10 @@ def _generate_new_session_prompt(pre_vectors: dict, dynamic_context: dict, old_s
 
 Your context was just compacted — a routine, lossless event under empirica
 discipline: goals, artifacts, breadcrumbs, and git notes all persist, and the
-bootstrap context below re-grounds you. Do NOT truncate, rush, or defer work
-because compaction happened. The previous session ({old_session_id[:8]}...)
-was **COMPLETE** (had POSTFLIGHT).
+bootstrap context below re-grounds you. Pick up at full quality — what
+mattered was logged and is loaded below; the log is the durable copy, and
+anything else is a `project-search` / `investigate` away. The previous
+session ({old_session_id[:8]}...) was **COMPLETE** (had POSTFLIGHT).
 
 **✅ Session created:** `{new_session_id}`
 **✅ Project context loaded via bootstrap**
@@ -1211,8 +1212,8 @@ def _generate_transaction_continue_prompt(pre_vectors: dict, dynamic_context: di
 
 Your context was compacted but your **transaction is still open** — for an
 open transaction, compaction is a non-event. No new PREFLIGHT or CHECK
-needed - just continue where you left off at full quality (no truncating,
-rushing, or deferring).
+needed — just continue where you left off, at full quality. The measurement
+window is still open; the work simply resumes.
 
 **⚡ ACTIVE TRANSACTION:**
    Transaction: {tx_id}... | Session: {tx_session}... | Project: {tx_project}
@@ -1301,10 +1302,10 @@ def _generate_check_prompt(pre_vectors: dict, pre_reasoning: str, dynamic_contex
 
 Your context was just compacted — routine and lossless under empirica
 discipline: goals, artifacts, breadcrumbs, and git notes persist, and the
-re-grounding steps below restore working context. Do NOT truncate, rush, or
-defer work because compaction happened. Your previous vectors
-(know={pre_know}, uncertainty={pre_unc}) reflect pre-compact context —
-re-ground first, then CHECK with fresh values.
+re-grounding steps below restore working context. Pick up at full quality.
+Your previous vectors (know={pre_know}, uncertainty={pre_unc}) reflect
+pre-compact context — re-ground first (load context below, search if you
+need more), then CHECK with fresh values.
 {tx_context}{last_task_section}{temporal_trail}
 {epistemic_focus}{calibration_section}
 

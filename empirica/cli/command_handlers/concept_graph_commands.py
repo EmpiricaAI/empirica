@@ -24,32 +24,29 @@ def _get_concept_graph():
 
 
 def _get_project_id(args):
-    """Get project ID from args or via unified context resolver."""
+    """Get project ID from args or via the canonical local resolver.
+
+    project.yaml is authoritative, sessions.db is the fallback (see
+    `_get_project_id_from_local_db`). Previously this read a non-existent
+    `.empirica/project.json` at both the resolved-path and CWD sites.
+    """
     if hasattr(args, 'project_id') and args.project_id:
         return args.project_id
 
-    # Try unified context resolver first
+    from empirica.utils.session_resolver import _get_project_id_from_local_db
+
+    # Prefer the unified context resolver's project path; else CWD.
+    project_path = None
     try:
         from empirica.utils.session_resolver import InstanceResolver as R
-        context = R.context()
-        project_path = context.get('project_path')
-        if project_path:
-            project_file = Path(project_path) / ".empirica" / "project.json"
-            if project_file.exists():
-                import json as json_mod
-                data = json_mod.loads(project_file.read_text())
-                return data.get("project_id")
+        project_path = R.context().get('project_path')
     except Exception:
         pass
 
-    # Fallback: Try reading from CWD .empirica/project.json
-    project_file = Path.cwd() / ".empirica" / "project.json"
-    if project_file.exists():
-        import json as json_mod
-        data = json_mod.loads(project_file.read_text())
-        return data.get("project_id")
-
-    return None
+    try:
+        return _get_project_id_from_local_db(Path(project_path) if project_path else Path.cwd())
+    except Exception:
+        return None
 
 
 def _get_db_path():

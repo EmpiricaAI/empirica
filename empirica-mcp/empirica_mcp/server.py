@@ -13,8 +13,10 @@ Architecture:
 - Stateless: no session state in the server itself
 
 Version tracked via the empirica-mcp package metadata (see pyproject.toml).
-Last TOOL_REGISTRY re-verification against `empirica --help`: 2026-04-05
-(stale — see TOOL_REGISTRY refresh goal for the additions backlog).
+TOOL_REGISTRY flag-parity against the real CLI is now enforced automatically by
+tests/test_cli_parity.py (no more manual re-verification dates): it fails if any
+mapped --flag stops existing on its CLI subcommand, and a curated capability
+floor keeps core flags (--description, goal scope/status) exposed.
 """
 
 import argparse
@@ -133,11 +135,23 @@ TOOL_REGISTRY: dict[str, dict] = {
                    "goal_id": "--goal-id", "task_id": "--task-id", "project_id": "--project-id",
                    "subject": "--subject", "scope": "--scope",
                    "entity_type": "--entity-type", "entity_id": "--entity-id", "via": "--via",
-                   "source_ids": "--source",
+                   "source_ids": "--source", "description": "--description",
                    "visibility": "--visibility", "epistemic_source": "--epistemic-source"},
         "required": ["finding"],
         "desc": "Log a finding (what was learned). Use source_ids to link to epistemic sources, visibility to opt into cross-project sharing, epistemic_source to tag provenance.",
         "list_params": ["source_ids"],
+    },
+    "note": {
+        "cli": "note",
+        "params": {"tag": "--tag", "session_id": "--session-id", "project_id": "--project-id"},
+        "positional": "text",
+        "required": ["text"],
+        "desc": "Jot a quick note-to-self (scratchpad) while in flow — for things to "
+                "check on after the current work. Faster + lower-friction than a full "
+                "finding/decision: pure metadata, NOT shared, NOT embedded. Notes are "
+                "transaction-scoped, survive context compaction, and surface at "
+                "POSTFLIGHT for triage. Optional tag: followup | doubt | idea. "
+                "Review/clear via CLI: empirica note --list / --clear.",
     },
     "unknown_log": {
         "cli": "unknown-log",
@@ -145,9 +159,11 @@ TOOL_REGISTRY: dict[str, dict] = {
                    "goal_id": "--goal-id", "task_id": "--task-id", "project_id": "--project-id",
                    "subject": "--subject", "scope": "--scope",
                    "entity_type": "--entity-type", "entity_id": "--entity-id", "via": "--via",
+                   "source_ids": "--source", "description": "--description",
                    "visibility": "--visibility", "epistemic_source": "--epistemic-source"},
         "required": ["unknown"],
-        "desc": "Log an unknown (what needs investigation)",
+        "desc": "Log an unknown (what needs investigation). Use description for a rich body.",
+        "list_params": ["source_ids"],
     },
     "deadend_log": {
         "cli": "deadend-log",
@@ -155,27 +171,35 @@ TOOL_REGISTRY: dict[str, dict] = {
                    "goal_id": "--goal-id", "task_id": "--task-id", "project_id": "--project-id",
                    "subject": "--subject", "scope": "--scope",
                    "entity_type": "--entity-type", "entity_id": "--entity-id", "via": "--via",
+                   "source_ids": "--source", "description": "--description",
                    "visibility": "--visibility", "epistemic_source": "--epistemic-source"},
         "required": ["approach", "why_failed"],
-        "desc": "Log a dead-end (approach that didn't work)",
+        "desc": "Log a dead-end (approach that didn't work). Use description for a rich body.",
+        "list_params": ["source_ids"],
     },
     "mistake_log": {
         "cli": "mistake-log",
         "params": {"mistake": "--mistake", "why_wrong": "--why-wrong", "prevention": "--prevention",
                    "session_id": "--session-id", "goal_id": "--goal-id", "project_id": "--project-id",
                    "scope": "--scope", "entity_type": "--entity-type", "entity_id": "--entity-id",
+                   "cost_estimate": "--cost-estimate", "root_cause_vector": "--root-cause-vector",
+                   "source_ids": "--source", "description": "--description",
                    "visibility": "--visibility", "epistemic_source": "--epistemic-source"},
         "required": ["mistake", "why_wrong", "prevention"],
-        "desc": "Log a mistake (error to avoid in future)",
+        "desc": "Log a mistake (error to avoid in future). cost_estimate + root_cause_vector "
+                "capture severity + which vector misfired; description for a rich body.",
+        "list_params": ["source_ids"],
     },
     "assumption_log": {
         "cli": "assumption-log",
         "params": {"assumption": "--assumption", "confidence": "--confidence", "domain": "--domain",
                    "session_id": "--session-id", "goal_id": "--goal-id", "project_id": "--project-id",
                    "entity_type": "--entity-type", "entity_id": "--entity-id", "via": "--via",
+                   "source_ids": "--source", "description": "--description",
                    "visibility": "--visibility", "epistemic_source": "--epistemic-source"},
         "required": ["assumption"],
-        "desc": "Log an unverified assumption with confidence level",
+        "desc": "Log an unverified assumption with confidence level. description for a rich body.",
+        "list_params": ["source_ids"],
     },
     "decision_log": {
         "cli": "decision-log",
@@ -183,11 +207,14 @@ TOOL_REGISTRY: dict[str, dict] = {
                    "reversibility": "--reversibility", "confidence": "--confidence", "domain": "--domain",
                    "session_id": "--session-id", "goal_id": "--goal-id", "project_id": "--project-id",
                    "entity_type": "--entity-type", "entity_id": "--entity-id", "via": "--via",
-                   "evidence_refs": "--evidence",
+                   "evidence_refs": "--evidence", "evidence_from": "--evidence-from",
+                   "source_ids": "--source", "description": "--description",
                    "visibility": "--visibility", "epistemic_source": "--epistemic-source"},
         "required": ["choice", "rationale"],
-        "desc": "Log a decision with rationale. Use evidence_refs to link to supporting findings.",
-        "list_params": ["evidence_refs"],
+        "desc": "Log a decision with rationale. Use evidence_refs/evidence_from to link "
+                "supporting findings, source_ids for external sources, description for a rich "
+                "markdown body.",
+        "list_params": ["evidence_refs", "evidence_from", "source_ids"],
     },
     "source_add": {
         "cli": "source-add",
@@ -195,6 +222,32 @@ TOOL_REGISTRY: dict[str, dict] = {
                    "description": "--description", "session_id": "--session-id"},
         "required": ["title", "source_type"],
         "desc": "Add an epistemic source reference",
+    },
+    # --- Read-side logging queries (curated coverage; all local, no cortex) ---
+    "source_list": {
+        "cli": "source-list",
+        "params": {"project_id": "--project-id", "type": "--type",
+                   "direction": "--direction", "include_archived": "--include-archived"},
+        "required": [],
+        "desc": "List epistemic sources for the project (filter by type/direction).",
+    },
+    "mistake_query": {
+        "cli": "mistake-query",
+        "params": {"session_id": "--session-id", "goal_id": "--goal-id", "limit": "--limit"},
+        "required": [],
+        "desc": "Query logged mistakes (lessons to avoid repeating).",
+    },
+    "epistemics_list": {
+        "cli": "epistemics-list",
+        "params": {"session_id": "--session-id"},
+        "required": [],
+        "desc": "List epistemic artifacts for a session.",
+    },
+    "epistemics_show": {
+        "cli": "epistemics-show",
+        "params": {"session_id": "--session-id", "phase": "--phase"},
+        "required": [],
+        "desc": "Show epistemic artifact detail for a session (optionally by phase).",
     },
 
     # --- Batch artifact graph (parity with Cortex MCP cortex_log_artifacts/resolve/delete) ---
@@ -270,9 +323,15 @@ TOOL_REGISTRY: dict[str, dict] = {
     # --- Goals ---
     "goals_create": {
         "cli": "goals-create",
-        "params": {"objective": "--objective", "session_id": "--session-id", "project_id": "--project-id"},
+        "params": {"objective": "--objective", "description": "--description",
+                   "session_id": "--session-id", "project_id": "--project-id",
+                   "scope_breadth": "--scope-breadth", "scope_duration": "--scope-duration",
+                   "scope_coordination": "--scope-coordination",
+                   "success_criteria": "--success-criteria",
+                   "estimated_complexity": "--estimated-complexity", "status": "--status"},
         "required": ["objective"],
-        "desc": "Create a new goal",
+        "desc": "Create a new goal. Use description for a rich markdown body (why/success "
+                "criteria/links), scope_* for sizing, status=planned to queue without starting.",
     },
     "goals_list": {
         "cli": "goals-list",
@@ -293,6 +352,44 @@ TOOL_REGISTRY: dict[str, dict] = {
                    "importance": "--importance"},
         "required": ["goal_id", "description"],
         "desc": "Add a task to a goal",
+    },
+    # --- Goal lifecycle (curated coverage; all local, no cortex dependency) ---
+    "goals_get_tasks": {
+        "cli": "goals-get-tasks",
+        "params": {"goal_id": "--goal-id"},
+        "required": ["goal_id"],
+        "desc": "List the tasks of a goal with their status/evidence.",
+    },
+    "goals_discover": {
+        "cli": "goals-discover",
+        "params": {"from_ai_id": "--from-ai-id", "session_id": "--session-id"},
+        "required": [],
+        "desc": "Semantic search for goals across sessions (local Qdrant).",
+    },
+    "goals_activate": {
+        "cli": "goals-activate",
+        "params": {"goal_id": "--goal-id"},
+        "required": ["goal_id"],
+        "desc": "Activate a planned goal (planned → in_progress).",
+    },
+    "goals_refresh": {
+        "cli": "goals-refresh",
+        "params": {"goal_id": "--goal-id"},
+        "required": ["goal_id"],
+        "desc": "Mark a stale goal back to in_progress (e.g. after regaining context).",
+    },
+    "goals_mark_stale": {
+        "cli": "goals-mark-stale",
+        "params": {"session_id": "--session-id", "reason": "--reason"},
+        "required": [],
+        "desc": "Mark in-progress goals stale (e.g. at compaction).",
+    },
+    "goals_add_dependency": {
+        "cli": "goals-add-dependency",
+        "params": {"goal_id": "--goal-id", "depends_on": "--depends-on",
+                   "type": "--type", "description": "--description"},
+        "required": ["goal_id", "depends_on"],
+        "desc": "Declare a goal-to-goal dependency.",
     },
     "goals_complete_task": {
         "cli": "goals-complete-task",
@@ -760,9 +857,10 @@ TOOL_REGISTRY: dict[str, dict] = {
 # =============================================================================
 
 _NUMERIC_PARAMS = {"impact", "confidence", "estimated_complexity", "limit", "weeks", "count",
-                   "max_age", "deadline", "wait_timeout", "ttl"}
+                   "max_age", "deadline", "wait_timeout", "ttl",
+                   "scope_breadth", "scope_duration", "scope_coordination", "cost_estimate"}
 _BOOLEAN_PARAMS = {"grounded", "trajectory", "completed", "resolved", "all", "planning_only",
-                   "turtle", "cost", "health", "wait", "dry_run", "force"}
+                   "turtle", "cost", "health", "wait", "dry_run", "force", "include_archived"}
 _ENUM_PARAMS = {
     "reversibility": ["exploratory", "committal", "forced"],
     "scope": ["session", "project", "both"],

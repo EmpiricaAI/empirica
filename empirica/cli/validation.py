@@ -139,6 +139,19 @@ class PreflightInput(BaseModel):
         ),
         pattern="^[a-z][a-z0-9_-]*$",
     )
+    retrospective_reason: str | None = Field(
+        default=None,
+        max_length=2000,
+        description=(
+            "Acknowledgment that clears the retrospective soft-gate. The gate "
+            "fires at PREFLIGHT when the previous transaction made substantive "
+            "praxic tool calls but logged 0 epistemic artifacts (on a "
+            "non-mechanical work_type). Provide a one-line reason why nothing "
+            "was logged (e.g. 'pure mechanical rename, no decisions') to "
+            "acknowledge and proceed — or instead log the missed artifacts, "
+            "which clears the gate on the next transaction's POSTFLIGHT."
+        ),
+    )
 
     @field_validator('session_id')
     @classmethod
