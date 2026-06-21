@@ -2743,21 +2743,24 @@ def _prune_test_pollution(cursor, project_id: str, dry_run: bool) -> list[dict]:
     #   suffix forms — '... test', 'No X test', 'Post-fix test', 'Invalid X test'
     # Suffix forms catch the throwaway names test runners and old
     # development phases leave behind.
+    # ai_id lives on sessions, not goals — LEFT JOIN so test-pollution goals
+    # with a NULL session_id still match on the objective patterns.
     cursor.execute(
-        "SELECT id, objective, ai_id FROM goals "
-        "WHERE is_completed = 0 "
-        "AND (project_id = ? OR project_id IS NULL) "
+        "SELECT g.id, g.objective, s.ai_id FROM goals g "
+        "LEFT JOIN sessions s ON g.session_id = s.session_id "
+        "WHERE g.is_completed = 0 "
+        "AND (g.project_id = ? OR g.project_id IS NULL) "
         "AND ("
-        "     objective LIKE 'Test %' OR objective LIKE 'test %' "
-        "     OR objective LIKE 'E2E test%' "
-        "     OR objective LIKE 'Final test%' "
-        "     OR objective LIKE 'Post-fix test%' "
-        "     OR objective LIKE 'Invalid % test%' "
-        "     OR objective LIKE 'No % test%' "
-        "     OR objective LIKE '% test goal%' "
-        "     OR objective LIKE '% test issue%' "
-        "     OR objective LIKE '%smoke test%' "
-        "     OR ai_id LIKE 'test-%' OR ai_id = 'test'"
+        "     g.objective LIKE 'Test %' OR g.objective LIKE 'test %' "
+        "     OR g.objective LIKE 'E2E test%' "
+        "     OR g.objective LIKE 'Final test%' "
+        "     OR g.objective LIKE 'Post-fix test%' "
+        "     OR g.objective LIKE 'Invalid % test%' "
+        "     OR g.objective LIKE 'No % test%' "
+        "     OR g.objective LIKE '% test goal%' "
+        "     OR g.objective LIKE '% test issue%' "
+        "     OR g.objective LIKE '%smoke test%' "
+        "     OR s.ai_id LIKE 'test-%' OR s.ai_id = 'test'"
         ")",
         (project_id,),
     )

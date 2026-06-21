@@ -442,12 +442,15 @@ def _feedback_compute_calibration_trend(cursor, ai_id, project_id):
     if not project_id:
         return None
     try:
+        # grounded_verifications has no project_id column — join through sessions.
         cursor.execute("""
-            SELECT overall_calibration_score FROM grounded_verifications
-            WHERE ai_id = ? AND project_id = ?
-            AND overall_calibration_score IS NOT NULL
-            AND overall_calibration_score > 0
-            ORDER BY created_at DESC LIMIT 10
+            SELECT gv.overall_calibration_score
+            FROM grounded_verifications gv
+            JOIN sessions s ON gv.session_id = s.session_id
+            WHERE gv.ai_id = ? AND s.project_id = ?
+            AND gv.overall_calibration_score IS NOT NULL
+            AND gv.overall_calibration_score > 0
+            ORDER BY gv.created_at DESC LIMIT 10
         """, (ai_id, project_id))
         recent_scores = [r[0] for r in cursor.fetchall()]
         if len(recent_scores) < 3:
@@ -520,8 +523,9 @@ def _preflight_get_last_session_ts(db, project_id, session_id):
     """Get the last session timestamp for adaptive pattern retrieval depth."""
     try:
         cursor = db.conn.cursor()
+        # sessions has no updated_at column; start_time is the ISO-8601 row time.
         cursor.execute("""
-            SELECT MAX(updated_at) FROM sessions
+            SELECT MAX(start_time) FROM sessions
             WHERE project_id = ? AND session_id != ?
         """, (project_id, session_id))
         row = cursor.fetchone()

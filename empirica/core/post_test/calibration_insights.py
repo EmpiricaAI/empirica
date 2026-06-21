@@ -120,8 +120,8 @@ class CalibrationInsightsAnalyzer:
             cursor = self.db.conn.cursor()
             cursor.execute(
                 """SELECT verification_id, session_id, phase, evidence_count,
-                          grounded_coverage, calibration_score, gaps, metadata,
-                          created_at
+                          grounded_coverage, overall_calibration_score,
+                          calibration_gaps, created_at
                    FROM grounded_verifications
                    ORDER BY created_at DESC
                    LIMIT ?""",
@@ -137,12 +137,6 @@ class CalibrationInsightsAnalyzer:
                         gaps = json.loads(row[6])
                     except (json.JSONDecodeError, TypeError):
                         pass
-                metadata = {}
-                if row[7]:
-                    try:
-                        metadata = json.loads(row[7])
-                    except (json.JSONDecodeError, TypeError):
-                        pass
                 records.append({
                     'verification_id': row[0],
                     'session_id': row[1],
@@ -151,8 +145,7 @@ class CalibrationInsightsAnalyzer:
                     'grounded_coverage': row[4],
                     'calibration_score': row[5],
                     'gaps': gaps,
-                    'metadata': metadata,
-                    'created_at': row[8],
+                    'created_at': row[7],
                 })
             return records
         except Exception as e:

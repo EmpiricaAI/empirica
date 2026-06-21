@@ -52,14 +52,28 @@ def handle_agent_spawn_command(args) -> dict | int | None:
             try:
                 db = SessionDatabase()
                 cursor = db.conn.cursor()
+                # Vectors live in individual reflexes columns, not a JSON blob
+                # (reflex_data only holds prompt_summary/uncertainty_notes).
+                # Kept as a static query so the schema-reference guard validates it.
                 cursor.execute("""
-                    SELECT vectors_json FROM reflexes
+                    SELECT know, do, context, clarity, coherence, signal,
+                           density, state, change, completion, impact,
+                           uncertainty, engagement
+                    FROM reflexes
                     WHERE session_id = ? AND phase IN ('PREFLIGHT', 'POSTFLIGHT')
                     ORDER BY timestamp DESC LIMIT 1
                 """, (session_id,))
                 row = cursor.fetchone()
-                if row and row[0]:
-                    grounding = json.loads(row[0])
+                if row:
+                    vector_cols = [
+                        'know', 'do', 'context', 'clarity', 'coherence',
+                        'signal', 'density', 'state', 'change', 'completion',
+                        'impact', 'uncertainty', 'engagement',
+                    ]
+                    grounding = {
+                        col: row[i] for i, col in enumerate(vector_cols)
+                        if row[i] is not None
+                    }
                 db.close()
             except Exception:
                 pass

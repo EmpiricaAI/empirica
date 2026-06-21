@@ -1844,10 +1844,10 @@ class DocsExplainAgent:
             db = SessionDatabase()
             cursor = db.conn.cursor()
             cursor.execute("""
-                SELECT project_id FROM projects
-                WHERE root_path LIKE ? OR name = ?
+                SELECT id FROM projects
+                WHERE name = ?
                 ORDER BY created_timestamp DESC LIMIT 1
-            """, (f"%{self.root.name}%", self.root.name))
+            """, (self.root.name,))
             row = cursor.fetchone()
             db.close()
             if row:
