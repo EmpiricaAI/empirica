@@ -242,7 +242,7 @@ def compose_ai_id_forms(
 
     Mirrors cortex.tenant.compose_ai_id_forms — kept local so empirica doesn't
     take a runtime dependency on the cortex package. Trusts `mesh_id_prefix`
-    as cortex returns it (via /v1/tenant/me or cortex_session_init) rather
+    as cortex returns it (via /v1/users/me or cortex_session_init) rather
     than recomputing it, so we don't drift if cortex changes its slug rule.
 
     Forms (progressively qualified — pick the narrowest that disambiguates):
@@ -267,7 +267,7 @@ def compose_canonical_seat(*, mesh_id_prefix: str, ai_id: str) -> str | None:
     the older mesh-addressing convention — do not use those for `seat`.
 
     `mesh_id_prefix` is the `<org>.<tenant>` prefix cortex returns in
-    session_init / `/v1/tenant/me` (e.g. `empirica.david`); `ai_id` is the
+    session_init / `/v1/users/me` (e.g. `empirica.david`); `ai_id` is the
     project's canonical basename (e.g. `empirica`). Result:
     `empirica.david.empirica`.
 

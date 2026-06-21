@@ -946,14 +946,14 @@ def _fetch_tenant_metadata(
     api_key: str,
     timeout: float = 10.0,
 ) -> dict | None:
-    """GET `{cortex_url}/v1/tenant/me` and pull {org_id, tenant_slug, mesh_id_prefix}.
+    """GET `{cortex_url}/v1/users/me` and pull {org_id, tenant_slug, mesh_id_prefix}.
 
     Returns the three fields on 2xx, None on HTTP error / network failure /
     malformed JSON. Mirrors the Bearer-auth + urllib pattern used by
     projects_commands._post_project — kept inline to avoid an import cycle
     with the bulk-register handler.
     """
-    url = f"{cortex_url.rstrip('/')}/v1/tenant/me"
+    url = f"{cortex_url.rstrip('/')}/v1/users/me"
     req = urllib.request.Request(
         url,
         method="GET",
@@ -1045,7 +1045,7 @@ def _resolve_and_persist_tenant_metadata(
 ) -> dict | None:
     """Resolve {org_id, tenant_slug, mesh_id_prefix} and merge into project.yaml.
 
-    Precedence per field: CLI flag > REST `/v1/tenant/me` > unset.
+    Precedence per field: CLI flag > REST `/v1/users/me` > unset.
     REST is skipped entirely when all three flags are supplied.
     When REST is needed but cortex creds are missing, we no-op silently.
 
@@ -1450,7 +1450,7 @@ def handle_setup_claude_code_command(args):
             creds_state = _run_credentials_wizard(creds_state, output_format)
 
         # Stage 6.6: Tenant metadata resolution (cortex Phase 1 mesh — prop_jc5f4h5).
-        # Fetch org_id/tenant_slug/mesh_id_prefix from /v1/tenant/me and merge
+        # Fetch org_id/tenant_slug/mesh_id_prefix from /v1/users/me and merge
         # into .empirica/project.yaml so per-AI session bootstraps can compose
         # the three ai_id forms (short/tenant/mesh) without a cortex round-trip
         # every time. Flags --org-id / --tenant-slug / --mesh-id-prefix

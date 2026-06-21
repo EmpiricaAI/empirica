@@ -499,7 +499,7 @@ def _heal_mesh_metadata_at_init(project_root: str | None) -> None:
     ``canonical_seat``, ``cortex_session_init`` cannot pick a seat for a
     multi-practice api_key (returns ``multi_project_no_seat``) and every mesh
     send must hand-compose ``source_claude``. This self-heals it: resolve the
-    tenant metadata from cortex's ``/v1/tenant/me`` and persist it — which also
+    tenant metadata from cortex's ``/v1/users/me`` and persist it — which also
     composes the strict canonical 3-form seat (``org.tenant.project``) via
     ``compose_canonical_seat``.
 
