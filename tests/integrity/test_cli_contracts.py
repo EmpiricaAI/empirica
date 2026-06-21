@@ -42,13 +42,19 @@ def _discover_json_output_commands():
         # Pattern: foo_parser = subparsers.add_parser('command-name', ...)
         var_to_cmd = {}
         for m in re.finditer(
-            r"(\w+_parser)\s*=\s*subparsers\.add_parser\(\s*'([a-z][-a-z0-9]*)'",
+            r"(\w+_parser)\s*=\s*subparsers\.add_parser\(\s*[\"']([a-z][-a-z0-9]*)[\"']",
             content,
         ):
             var_to_cmd[m.group(1)] = m.group(2)
 
         # Find lines where a parser variable adds '--output' with 'json' choice.
-        for m in re.finditer(r"(\w+_parser)\.add_argument\(\s*'--output'.*?'json'", content):
+        # Quote-agnostic + DOTALL so it survives ruff-format reflow (multi-line
+        # add_argument, double-quoted strings).
+        for m in re.finditer(
+            r"(\w+_parser)\.add_argument\(\s*[\"']--output[\"'].*?[\"']json[\"']",
+            content,
+            re.DOTALL,
+        ):
             var_name = m.group(1)
             if var_name in var_to_cmd:
                 commands.add(var_to_cmd[var_name])

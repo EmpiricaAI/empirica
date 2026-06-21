@@ -80,9 +80,9 @@ class TestGateSourceRegression:
         src = _src(SENTINEL_GATE_PATH)
         # Old line was:
         #   if know >= thresholds['know_min'] and uncertainty <= thresholds['uncertainty_max']:
-        assert "know >= thresholds['know_min'] and uncertainty <= thresholds['uncertainty_max']" not in src
+        assert 'know >= thresholds["know_min"] and uncertainty <= thresholds["uncertainty_max"]' not in src
         # New line:
-        assert "if uncertainty <= thresholds['uncertainty_max']:" in src
+        assert 'if uncertainty <= thresholds["uncertainty_max"]:' in src
 
     def test_sentinel_hooks_evaluator_is_uncertainty_only(self):
         """sentinel_hooks.py SentinelDecision evaluator uses uncertainty only."""
