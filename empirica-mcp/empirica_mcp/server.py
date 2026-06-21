@@ -139,6 +139,18 @@ TOOL_REGISTRY: dict[str, dict] = {
         "desc": "Log a finding (what was learned). Use source_ids to link to epistemic sources, visibility to opt into cross-project sharing, epistemic_source to tag provenance.",
         "list_params": ["source_ids"],
     },
+    "note": {
+        "cli": "note",
+        "params": {"tag": "--tag", "session_id": "--session-id", "project_id": "--project-id"},
+        "positional": "text",
+        "required": ["text"],
+        "desc": "Jot a quick note-to-self (scratchpad) while in flow — for things to "
+                "check on after the current work. Faster + lower-friction than a full "
+                "finding/decision: pure metadata, NOT shared, NOT embedded. Notes are "
+                "transaction-scoped, survive context compaction, and surface at "
+                "POSTFLIGHT for triage. Optional tag: followup | doubt | idea. "
+                "Review/clear via CLI: empirica note --list / --clear.",
+    },
     "unknown_log": {
         "cli": "unknown-log",
         "params": {"unknown": "--unknown", "session_id": "--session-id",

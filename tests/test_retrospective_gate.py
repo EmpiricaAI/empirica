@@ -84,6 +84,22 @@ def test_env_toggle_disables(monkeypatch):
     assert _feedback_compute_retrospective_gate(_pf_meta(), None) is None
 
 
+def test_zero_artifacts_zero_notes_is_strong():
+    gate = _feedback_compute_retrospective_gate(_pf_meta(), None, untriaged_note_count=0)
+    assert gate is not None
+    assert gate["severity"] == "strong"
+    assert gate["untriaged_note_count"] == 0
+    assert "finding-log" in gate["breather"]  # "log something" wording
+
+
+def test_notes_present_softens_to_promote():
+    gate = _feedback_compute_retrospective_gate(_pf_meta(), None, untriaged_note_count=3)
+    assert gate is not None
+    assert gate["severity"] == "soft"
+    assert gate["untriaged_note_count"] == 3
+    assert "Promote" in gate["breather"]  # "promote your notes" wording
+
+
 def test_no_pf_meta_is_safe():
     assert _feedback_compute_retrospective_gate(None, None) is None
 

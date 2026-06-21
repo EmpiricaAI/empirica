@@ -596,12 +596,48 @@ def _build_retrospective(session_id: str, transaction_id: str | None) -> dict:
             pass
 
         _maybe_add_deferred_proposals_note(cursor, session_id, retro)
+        _maybe_add_untriaged_notes(cursor, session_id, transaction_id, retro)
 
         db.close()
         return retro
     except Exception as e:
         logger.debug(f"Retrospective feedback failed (non-fatal): {e}")
         return {}
+
+
+def _maybe_add_untriaged_notes(cursor, session_id: str, transaction_id, retro: dict) -> None:
+    """Surface scratchpad notes-to-self for triage at the retrospective.
+
+    The POSTFLIGHT review moment: untriaged notes from this transaction (or the
+    session, if no transaction) are surfaced so the AI can promote them to
+    artifacts/goals or discard them (then `empirica note --clear`). Scoped,
+    metadata-only, non-fatal. Tolerates the table not existing on older DBs.
+    """
+    try:
+        if transaction_id:
+            rows = cursor.execute(
+                "SELECT text, tag FROM notes WHERE session_id = ? AND "
+                "transaction_id = ? AND triaged = 0 ORDER BY created_at",
+                (session_id, transaction_id),
+            ).fetchall()
+        else:
+            rows = cursor.execute(
+                "SELECT text, tag FROM notes WHERE session_id = ? AND "
+                "triaged = 0 ORDER BY created_at",
+                (session_id,),
+            ).fetchall()
+        if not rows:
+            return
+        retro["untriaged_notes"] = [
+            {"text": r[0], "tag": r[1]} for r in rows
+        ]
+        retro["untriaged_notes_hint"] = (
+            f"{len(rows)} untriaged note(s)-to-self from this transaction. "
+            "Promote any worth keeping to a finding/decision/goal, then "
+            "`empirica note --clear`."
+        )
+    except Exception:
+        pass  # notes table may not exist on older DBs — non-fatal
 
 
 def _maybe_add_deferred_proposals_note(cursor, session_id: str, retro: dict) -> None:

@@ -473,6 +473,7 @@ EMPIRICA_TIER2_PREFIXES = (
     'empirica preflight-submit', 'empirica check-submit', 'empirica postflight-submit',
     'empirica finding-log', 'empirica unknown-log', 'empirica deadend-log',
     'empirica mistake-log', 'empirica log-mistake',
+    'empirica note',  # Scratchpad note-to-self (metadata-only, ungated like *-log)
     'empirica log-artifacts', 'empirica resolve-artifacts', 'empirica delete-artifacts',  # Batch artifact operations
     'empirica goals-create', 'empirica goal-create', 'empirica gc',  # Goal create + aliases
     'empirica goals-complete', 'empirica goal-complete',  # Goal complete + alias
