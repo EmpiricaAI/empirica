@@ -478,7 +478,7 @@ def add_checkpoint_parsers(subparsers):
         help="Stop after local writes (workspace.db + registry.yaml). Use offline-first or when cortex is down.",
     )
     project_register_parser.add_argument(
-        "--skip-user-link", action="store_true", help="Skip the defensive POST /v1/users/me/projects after register."
+        "--skip-user-link", action="store_true", help="Skip the defensive user-project link after register."
     )
     project_register_parser.add_argument(
         "--force-metadata-update",
@@ -502,7 +502,7 @@ def add_checkpoint_parsers(subparsers):
         help=(
             "Provision a managed Forgejo remote for a project (operator / "
             "self-hosting power-user tool, not an end-user default): POST "
-            "/v1/projects/{id}/forgejo-publish, write the deploy key 0600, add "
+            "cortex's forgejo-publish endpoint, write the deploy key 0600, add "
             "the 'forgejo' git remote, and push the cortex-supplied refspecs. "
             "This is the PUSH mode for projects with no existing remote — "
             "distinct from the managed pull-mirror path. Leaves 'origin' "

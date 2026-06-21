@@ -26,7 +26,7 @@ If you only have one or two Empirica projects, you probably don't need this doc 
                  │  (the daemon's served project set)     │
                  └────────────┬───────────────────────────┘
                               │
-                  projects-bulk-register (POST to /v1/projects/register)
+                  projects-bulk-register (registers with cortex)
                               │
                               ▼
                  ┌────────────────────────────────────────┐
@@ -55,7 +55,7 @@ empirica projects-sync              # commit
 1. **Discover** — walk your filesystem from `$HOME` (override with `--root`) looking for `.empirica/` directories
 2. **Cache the manifest** — write to `~/.empirica/discovered_projects.yaml` so future runs are fast
 3. **Upsert local registry** — register every discovered project in `~/.empirica/registry.yaml` (the daemon's served set)
-4. **Push to Cortex** — `POST /v1/projects/register` for each (skipped if you don't have Cortex creds; idempotent on re-run)
+4. **Push to Cortex** — registers each project with cortex (skipped if you don't have Cortex creds; idempotent on re-run)
 
 That's the recommended primary entry point. The lower-level verbs (`projects-discover`, `projects-bulk-register`, etc.) stay available for fine-grained control — covered below for the cases that need them.
 
@@ -191,7 +191,7 @@ empirica projects-sync --prune
 - Filter at query time (`project-search --project-id <only-the-one-you-want>`)
 - Cortex maintainers can manually archive on request
 
-**Tracked for build:** the design is scoped (soft archive vs hard delete with `--purge`, cascade semantics for artifacts under archived projects, authorization model). When the cortex `/v1/projects/unregister` endpoint lands, empirica will gain a `projects-unregister` CLI mirroring the existing flag shape:
+**Tracked for build:** the design is scoped (soft archive vs hard delete with `--purge`, cascade semantics for artifacts under archived projects, authorization model). When the cortex unregister endpoint lands, empirica will gain a `projects-unregister` CLI mirroring the existing flag shape:
 
 ```bash
 # (NOT YET BUILT — design only)

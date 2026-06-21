@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.12.3
-**Generated:** 2026-06-21 12:21:51 UTC
+**Framework version:** 1.12.4
+**Generated:** 2026-06-21 21:39:43 UTC
 **Total commands:** 244 (across 26 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -2629,7 +2629,7 @@ Generate compliance report mapped to regulatory frameworks
 - `--tests` — optional · flag
   Include test suite execution (slow)
 - `--emit` — optional · flag
-  Emit the result to cortex System│Diagnostics (POST /v1/system/event; needs a cortex api_key)
+  Emit the result to cortex System│Diagnostics (needs a cortex api_key)
 - `--dep-audit` — optional · flag
   Include dependency CVE audit
 - `--security` — optional · flag
@@ -4226,11 +4226,11 @@ Configure Claude Code integration (hooks, CLAUDE.md, MCP server)
 - `--skip-listener-service` — optional · flag
   Skip installing the persistent listener service (systemd-user / launchd). Use when you want session-only Monitor.
 - `--org-id` — optional
-  Override tenant org_id (skip cortex /v1/tenant/me fetch for this field)
+  Override tenant org_id (skip cortex tenant-metadata fetch for this field)
 - `--tenant-slug` — optional
-  Override tenant_slug (skip cortex /v1/tenant/me fetch for this field)
+  Override tenant_slug (skip cortex tenant-metadata fetch for this field)
 - `--mesh-id-prefix` — optional
-  Override mesh_id_prefix (skip cortex /v1/tenant/me fetch for this field)
+  Override mesh_id_prefix (skip cortex tenant-metadata fetch for this field)
 - `--skip-claude-md` — optional · flag
   Skip CLAUDE.md installation (keep existing system prompt)
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
@@ -4633,7 +4633,7 @@ Log EPP (Epistemic Persistence Protocol) activation — self-reported telemetry
 
 #### `empirica forgejo-publish`
 
-Provision a managed Forgejo remote for a project (operator / self-hosting power-user tool, not an end-user default): POST /v1/projects/{id}/forgejo-publish, write the deploy key 0600, add the 'forgejo' git remote, and push the cortex-supplied refspecs. This is the PUSH mode for projects with no existing remote — distinct from the managed pull-mirror path. Leaves 'origin' (repo_url) untouched.
+Provision a managed Forgejo remote for a project (operator / self-hosting power-user tool, not an end-user default): POST cortex's forgejo-publish endpoint, write the deploy key 0600, add the 'forgejo' git remote, and push the cortex-supplied refspecs. This is the PUSH mode for projects with no existing remote — distinct from the managed pull-mirror path. Leaves 'origin' (repo_url) untouched.
 
 **Arguments:**
 
@@ -4835,7 +4835,7 @@ Mesh sharing agreement mirror — sync / list cortex agreements locally
 
 ##### `empirica mesh-agreements sync`
 
-Pull GET /v1/orgs/me/mesh_sharing_agreements; upsert into entity_registry
+Pull the org mesh-sharing agreements from cortex; upsert into entity_registry
 
 **Arguments:**
 
@@ -5021,7 +5021,7 @@ Atomic single-project register: read .empirica/project.yaml at PATH, dual-write 
 - `--no-cortex` — optional · flag
   Stop after local writes (workspace.db + registry.yaml). Use offline-first or when cortex is down.
 - `--skip-user-link` — optional · flag
-  Skip the defensive POST /v1/users/me/projects after register.
+  Skip the defensive user-project link after register.
 - `--force-metadata-update` — optional · flag
   Carry force_metadata_update:true so cortex refreshes name/repo_url on an existing row.
 - `--cortex-url` — optional

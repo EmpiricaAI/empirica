@@ -18,7 +18,7 @@ either be properly documented or moved to a less prominent home.
 
 - `HeartbeatEmitter` — `empirica/core/loop_scheduler/heartbeat.py`. Daemon
   thread inside `empirica loop listen` that posts liveness signals to
-  Cortex's `/v1/listeners/heartbeat` every 45s. Per prop_5rlp6tk (option-b).
+  Cortex's listener-heartbeat endpoint every 45s.
 - `ListenerStatus` — `empirica/core/loop_scheduler/persistent_listener.py`.
   Snapshot dataclass: `(ai_id, backend, installed, active, unit_path, log_path)`.
 - `PersistentListenerService` — same file. Install / uninstall / inspect the
@@ -145,7 +145,7 @@ either be properly documented or moved to a less prominent home.
 ## API + serving
 
 - `CortexCredentialsRequest`, `CortexCredentialsResponse` — Pydantic
-  models for the daemon's `/v1/cortex/credentials` endpoint
+  models for the daemon's cortex-credentials endpoint
   (`empirica/api/`). Used by the extension's "set Cortex creds" flow.
 
 ## Data + repositories

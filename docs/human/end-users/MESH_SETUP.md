@@ -166,7 +166,7 @@ For verifying ntfy connectivity:
 empirica diagnose      # ntfy reachability is part of the check
 ```
 
-If you're using the org-empirica hosted Cortex, topics auto-discover via the `/v1/users/me/notification-channels` endpoint — you don't manually configure topics. The listener will subscribe to your per-user topics automatically.
+If you're using the org-empirica hosted Cortex, topics auto-discover via cortex's notification-channels API — you don't manually configure topics. The listener will subscribe to your per-user topics automatically.
 
 ---
 

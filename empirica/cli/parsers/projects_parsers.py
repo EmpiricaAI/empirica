@@ -195,7 +195,7 @@ def add_projects_parsers(subparsers) -> None:
             "Register every discovered Empirica project on the Cortex backend "
             "in one shot.\n\n"
             "⚠ This command is Cortex-dependent. It POSTs to Cortex's "
-            "/v1/projects/register endpoint, so it requires:\n"
+            "the cortex project-register endpoint, so it requires:\n"
             "  • CORTEX_REMOTE_URL env var (or --cortex-url) pointing at a "
             "reachable Cortex instance\n"
             "  • CORTEX_API_KEY env var (or --api-key) for authentication\n\n"

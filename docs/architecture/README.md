@@ -73,7 +73,7 @@ Read these when you're actually working in the area. Grouped by concern.
 | [`QDRANT_EPISTEMIC_INTEGRATION.md`](QDRANT_EPISTEMIC_INTEGRATION.md) | Qdrant integration — collections, embedding pipeline. *(Dated 2025-12-19 — read with awareness.)* |
 | [`GRAPH_TEMPORAL_LAYER.md`](GRAPH_TEMPORAL_LAYER.md) | Edge declaration + commit-context walker. |
 | [`CANONICAL_STORAGE.md`](CANONICAL_STORAGE.md) | Foundation layer of the four-layer model. Reference detail; the complete picture is in `STORAGE_ARCHITECTURE_COMPLETE.md`. |
-| [`SYNC_ARCHITECTURE.md`](SYNC_ARCHITECTURE.md) | Daemon `/v1/sync` pipeline — git-notes ↔ cortex. |
+| [`SYNC_ARCHITECTURE.md`](SYNC_ARCHITECTURE.md) | Daemon sync pipeline — git-notes ↔ cortex. |
 | [`EPISTEMIC_STATE_COMPLETE_CAPTURE.md`](EPISTEMIC_STATE_COMPLETE_CAPTURE.md) | What gets captured per transaction + how it survives compaction. |
 | [`EPISTEMIC_BUS.md`](EPISTEMIC_BUS.md) | Event flow between subsystems. |
 

@@ -85,7 +85,7 @@ def add_release_parsers(subparsers):
         "practice-context",
         help="Ambassador addressbook — project roster as per-practitioner rows with substrate",
         description=(
-            "Pulls /v1/users/me/roster from cortex and projects each "
+            "Pulls the roster from cortex and projects each "
             "(tenant, project) seat as a practitioner row with substrate "
             "annotation (cortex|git|local). The substrate field determines "
             "transport for messaging the practitioner. Used by autonomy's "
@@ -136,7 +136,7 @@ def add_release_parsers(subparsers):
 
     mesh_agr_sync = mesh_agr_sub.add_parser(
         "sync",
-        help="Pull GET /v1/orgs/me/mesh_sharing_agreements; upsert into entity_registry",
+        help="Pull the org mesh-sharing agreements from cortex; upsert into entity_registry",
     )
     mesh_agr_sync.add_argument("--cortex-url", default=None, help="Cortex base URL override.")
     mesh_agr_sync.add_argument("--api-key", default=None, help="Cortex API key override.")

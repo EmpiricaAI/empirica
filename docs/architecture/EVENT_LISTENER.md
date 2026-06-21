@@ -31,7 +31,7 @@ ECO actor decision (phone / extension)
 ┌──────────────────────────────────────────────┐
 │ Cortex                                       │
 │   Status transition (eco_review → accepted) │
-│   /v1/orchestration/inbox?status=accepted…   │
+│   cortex inbox (status=accepted)…   │
 │                                              │
 │   ──► publish ntfy message (opaque ping)    │
 └─────────────────────┬────────────────────────┘
@@ -261,7 +261,7 @@ Local `ai_id` is the **exact project name** (directory basename,
 `?tags=<canonical>`. `target_claudes` / `source_claude` use the
 canonical. Cortex publishes only canonical tags; basename / alias
 forms bounce via `delivery_failed`. The canonical is resolvable from
-cortex's `/v1/users/me/roster` `ai_id_mesh` field or by prepending
+cortex's roster (the `ai_id_mesh` field) or by prepending
 your known `<org>.<tenant>` to the local `ai_id`.
 
 **Shorter aliases** (`cortex`, `outreach`, `mesh-support`, etc.) are
@@ -276,7 +276,7 @@ basename — see `empirica.cli.command_handlers.project_init._derive_ai_id`.
 **Where it's read:** AI sessions read `ai_id` from project.yaml at
 session start. CLI commands accept `--ai-id` explicitly. The listener
 process resolves to canonical for both the ntfy subscribe-tag filter
-and the `/v1/orchestration/inbox?ai_id=<canonical>` fetch (the
+and the cortex inbox fetch (by canonical ai_id) (the
 `_resolve_canonical_ai_id` helper in `content_poll.py`).
 
 **Why this convention:** AIs are bound to projects (not models or
