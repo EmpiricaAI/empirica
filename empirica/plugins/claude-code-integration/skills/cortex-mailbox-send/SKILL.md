@@ -110,6 +110,17 @@ canonical_id.split(".", 2)  # → [org, tenant, project_slug]
 
 All non-canonical forms bounce via `delivery_failed` — your listener wakes with the bounce so you learn. Silent drops don't happen.
 
+> **Send-side delivery is YOUR responsibility (David-ratified 2026-06-21).**
+> Cortex *routes and bounces* — it does **not** retry, remind, or escalate
+> on your behalf (the old reminder/escalation chain is retired). A message
+> you emit is *your* obligation to land: if it bounces (`delivery_failed`)
+> or you can't confirm it routed, **you refire it** — fix the canonical id
+> and re-send. Don't wait for a cortex nag; there won't be one. Once a
+> message is accepted, the durable mailbox + the receiver's own poll carry
+> it the rest of the way, and the autonomy watch-sweep is the systemic
+> backstop for anything that bounced and was never refired. Keep the mesh
+> stream clean: a refire is a deliberate act, never an automatic retry storm.
+
 ---
 
 ## Authentication — handled by the transport, NOT a tool argument

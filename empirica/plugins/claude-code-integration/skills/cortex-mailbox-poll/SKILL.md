@@ -151,6 +151,26 @@ status="accepted,changed")` directly. The Monitor is the *push* path
 for liveness; the inbox poll is the *pull* path for correctness. Both
 should agree; the poll wins on disagreement.
 
+> **Authoritative delivery model (David-ratified 2026-06-21).** The
+> **mailbox is the source of truth; push is liveness only.** A wake event
+> is a low-latency nudge that *something actionable landed* — never the
+> authority for what happened. Never act irreversibly on a push alone: the
+> durable proposal state (poll / `cortex_get_proposal`) is what you
+> reconcile against. Consequences:
+> - **You don't need a reaction branch for every status.** A dropped wake,
+>   a failed completion, an un-acked emission — all are reconciled on your
+>   next poll, not chased through the push stream.
+> - **Cortex does not babysit delivery.** There is no reminder / retry /
+>   escalation nag (that chain is retired — see `/inbox-listener`).
+>   Send-side reliability is the *sender's* job: refire on a
+>   `delivery_failed` bounce (see `/cortex-mailbox-send`).
+> - **Autonomy is the systemic crack-net.** Anything that genuinely slipped
+>   (a completion that failed, an item that landed but was never picked up,
+>   a send that bounced and wasn't refired) is swept by the canonical
+>   autonomy watch-layer — one quiet sweep with judgment, not N noisy
+>   per-message timers. You are not individually responsible for chasing
+>   every dropped signal; the sweep covers the tail.
+
 **What to do — depends on `direction`:**
 
 ### `direction: "inbox"` — proposal is FOR you (ECO-gated)
@@ -195,11 +215,21 @@ verified by the status field (`accepted`/`changed`/`declined` — never
 A proposal you emitted earlier just transitioned state. ECO already decided
 when it went out — these events are informational acks for the source AI.
 
-- status `completed`
-  → Target AI finished your work. Event carries `commit_sha` so you can
-  trace the landing. Log a finding (`empirica finding-log`) noting the
-  completion + commit. If there's a next-step you were waiting on, chain
-  to it now.
+- status `completed` / `shipped`
+  → Target AI finished your work successfully. Event carries `commit_sha`
+  so you can trace the landing. Log a finding (`empirica finding-log`)
+  noting the completion + commit. If there's a next-step you were waiting
+  on, chain to it now.
+- status `failed` / `wont_fix`
+  → Target AI did NOT land the work (tried and couldn't / declined to).
+  These are **honest completion outcomes, not error events** —
+  first-class results cortex emits verbatim (since fix `dbc1de5`). **Do
+  not chain the next step as if it shipped** — that leg is dead. Read the
+  reply note, reconcile, decide (re-scope / re-propose / drop). No frantic
+  handling: it's informational and poll-visible — if you were asleep when
+  it fired, your next outbox poll shows it and the autonomy watch-sweep
+  catches any that slip. (Per the authoritative delivery model above:
+  failure is a reconcile-on-poll state, not a push-reaction branch.)
 - status `changed`
   → ECO sent your emission back for refinement. Read `eco_decision.note`
   and emit a `parent_id`-linked refined proposal via `cortex_propose`.
