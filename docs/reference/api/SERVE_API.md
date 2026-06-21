@@ -321,6 +321,48 @@ curl -X POST http://localhost:8000/api/v1/profile/sync
 
 ---
 
+## Credentials & Daemon Grant Flow
+
+The daemon brokers two credential surfaces for the extension. Neither ever
+returns a full secret over the wire on a read.
+
+### ntfy / cortex credentials
+
+`POST /api/v1/credentials/ntfy` accepts a **`NtfyCredentialsRequest`**
+(`{url?, token?}` — at least one required) and merges it into the `ntfy:` block
+of `~/.empirica/credentials.yaml`. `GET /api/v1/credentials/ntfy` reads it back.
+Both return a **`NtfyCredentialsResponse`** — `token_preview` is the last 4
+characters only; the full token is never sent. The `topic` key is preserved on
+partial updates (the extension does not own the topic). The cortex pair
+(`/api/v1/credentials/cortex`, `CortexCredentialsRequest` / `CortexCredentialsResponse`)
+mirrors this shape.
+
+### Full-credential grant (device-code consent)
+
+Returning ambient credentials over the loopback API is unsafe, so full grants
+use an OAuth-device-code-shaped, explicitly-approved flow:
+
+1. **`POST /api/v1/credentials/grant/request`** — body **`CredentialGrantRequest`**
+   (`{requesting_app}`). The daemon mints a `device_code` / `user_code` pair,
+   persists a pending **`GrantRecord`** under `~/.empirica/daemon_grants/`, and
+   prints an approval hint to the operator's `empirica serve` stdout. Returns a
+   **`CredentialGrantRequestResponse`** with the codes and poll interval — **no
+   credentials**.
+2. The operator approves out-of-band: `empirica daemon-grant <user_code>`
+   (or `empirica daemon-deny <user_code>`).
+3. **`POST /api/v1/credentials/grant/poll`** — body **`CredentialGrantPollRequest`**
+   (`{device_code}` — possessing it proves the poll comes from the requesting
+   instance). Returns a **`CredentialGrantPollResponse`** whose `status` is
+   `pending | approved | denied | expired | not_found`. The full credentials
+   snapshot is delivered **exactly once**, on the first poll after approval;
+   thereafter the `device_code` resolves to `not_found` (one-shot delivery).
+
+`GrantRecord` status transitions: `pending → approved` (terminal, delivered then
+deleted), `pending → denied` (terminal, surfaced then deleted), `pending →
+expired` (computed at poll time from `expires_at`).
+
+---
+
 ## Active Project Resolution
 
 (v0.5+) The daemon resolves a single active project at startup and serves data
