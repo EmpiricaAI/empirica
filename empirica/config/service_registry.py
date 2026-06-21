@@ -898,6 +898,242 @@ def _run_provenance_depth_check(context: dict[str, Any]) -> CheckResult:
         )
 
 
+# ---------------------------------------------------------------------------
+# Connective-tissue check runners (graph-edge health — universal/domain-agnostic)
+#
+# These verify the *connective tissue* of the epistemic graph: whether
+# artifacts are linked, whether any float disconnected, and whether edges
+# reference artifacts that actually exist. They query the canonical
+# artifact_edges table (post-migration 041), which _store_edge dual-writes
+# and _delete_artifact_edges cleans — so it is the live, queryable-both-ways
+# source (the legacy <type>_data.edges JSON only holds outgoing edges).
+#
+# Domain-agnostic by construction: they assess graph *structure*, not content.
+# (empirica-designed, seeded by the prop_evj5 mesh FYI; the FYI's verbatim
+# three weren't recoverable, so these formalize signals the POSTFLIGHT
+# retrospective already emits — edges_with_artifacts / edge_density_note.)
+# ---------------------------------------------------------------------------
+
+# Core artifact tables that carry id + session_id + transaction_id and can be
+# edge endpoints. Mirrors _retro_count_edges in _workflow_shared.py.
+_EDGE_ARTIFACT_TABLES = (
+    "project_findings",
+    "project_unknowns",
+    "project_dead_ends",
+    "mistakes_made",
+    "assumptions",
+    "decisions",
+)
+
+# Universal work types for connective-tissue checks: every work_type EXCEPT
+# remote-ops, whose local sensors can't observe the work (calibration is
+# ungrounded there, so no builtin checks apply). Matches the artifact_breadth
+# enumeration — "domain-agnostic" means across domains (the '*' domain), not
+# across remote-ops.
+_CONNECTIVE_APPLIES_TO = (
+    ("code", "*"), ("infra", "*"), ("research", "*"), ("comms", "*"),
+    ("design", "*"), ("docs", "*"), ("data", "*"), ("debug", "*"),
+    ("config", "*"), ("audit", "*"), ("release", "*"),
+)
+
+
+def _collect_artifact_ids(
+    cursor, session_id: str | None = None, transaction_id: str | None = None
+) -> set[str]:
+    """Collect artifact UUIDs across the core artifact tables.
+
+    No filters → all ids (global existence checks). With session_id (and
+    optionally transaction_id) → scoped. Per-table try/except so a missing
+    column/table on an older DB never breaks the set.
+    """
+    ids: set[str] = set()
+    for table in _EDGE_ARTIFACT_TABLES:
+        try:
+            if transaction_id and session_id:
+                cursor.execute(
+                    f"SELECT id FROM {table} WHERE session_id = ? AND transaction_id = ?",
+                    (session_id, transaction_id),
+                )
+            elif session_id:
+                cursor.execute(f"SELECT id FROM {table} WHERE session_id = ?", (session_id,))
+            else:
+                cursor.execute(f"SELECT id FROM {table}")
+            ids.update(r[0] for r in cursor.fetchall() if r[0] is not None)
+        except Exception:
+            continue
+    return ids
+
+
+def _edge_touched_ids(cursor, ids: set[str]) -> set[str]:
+    """Subset of `ids` that appear as either endpoint of an artifact_edges row."""
+    if not ids:
+        return set()
+    ids_list = list(ids)
+    placeholders = ",".join("?" for _ in ids_list)
+    try:
+        cursor.execute(
+            f"SELECT from_id FROM artifact_edges WHERE from_id IN ({placeholders}) "
+            f"UNION SELECT to_id FROM artifact_edges WHERE to_id IN ({placeholders})",
+            (*ids_list, *ids_list),
+        )
+        touched = {r[0] for r in cursor.fetchall()}
+    except Exception:
+        return set()
+    return touched & ids
+
+
+def _run_edge_density_check(context: dict[str, Any]) -> CheckResult:
+    """Connective tissue: this transaction's artifacts should connect into the graph.
+
+    Of the artifacts logged in this transaction, how many appear as an endpoint
+    of an artifact_edges row. Lenient — only flags when >= 2 artifacts exist and
+    NONE are connected (mirrors the retrospective edge nudge). Non-blocking.
+    """
+    try:
+        session_id = context.get("session_id")
+        tx_id = context.get("transaction_id")
+        if not session_id:
+            return CheckResult(
+                check_id="edge_density", passed=True, details={"skipped": True},
+                summary="no session — skipped", duration_ms=0, ran_at=time.time(),
+            )
+        from empirica.data.session_database import SessionDatabase
+        db = SessionDatabase()
+        cursor = db.conn.cursor()
+        tx_ids = _collect_artifact_ids(cursor, session_id, tx_id)
+        total = len(tx_ids)
+        if total < 2:
+            db.close()
+            return CheckResult(
+                check_id="edge_density", passed=True,
+                details={"total": total, "note": "too few artifacts to assess density"},
+                summary=f"{total} artifact(s) — density n/a", duration_ms=0, ran_at=time.time(),
+            )
+        connected = len(_edge_touched_ids(cursor, tx_ids))
+        db.close()
+        ratio = connected / total
+        passed = connected >= 1
+        return CheckResult(
+            check_id="edge_density", passed=passed,
+            details={"total": total, "connected": connected, "ratio": round(ratio, 2)},
+            summary=f"{connected}/{total} transaction artifacts connected ({ratio:.0%})",
+            duration_ms=0, ran_at=time.time(),
+        )
+    except Exception as e:
+        return CheckResult(
+            check_id="edge_density", passed=True, details={"error": str(e)[:200]},
+            summary="edge density check failed (non-blocking)", duration_ms=0, ran_at=time.time(),
+        )
+
+
+def _run_orphan_artifacts_check(context: dict[str, Any]) -> CheckResult:
+    """Connective tissue: flag artifacts fully disconnected from the graph.
+
+    Session artifacts appearing in NO artifact_edges row (neither endpoint) are
+    orphans — invisible to the commit-context walker. Informational: only flags
+    when the session has >= 3 artifacts AND a majority are orphaned. Non-blocking.
+    """
+    try:
+        session_id = context.get("session_id")
+        if not session_id:
+            return CheckResult(
+                check_id="orphan_artifacts", passed=True, details={"skipped": True},
+                summary="no session — skipped", duration_ms=0, ran_at=time.time(),
+            )
+        from empirica.data.session_database import SessionDatabase
+        db = SessionDatabase()
+        cursor = db.conn.cursor()
+        session_ids = _collect_artifact_ids(cursor, session_id)
+        total = len(session_ids)
+        if total < 3:
+            db.close()
+            return CheckResult(
+                check_id="orphan_artifacts", passed=True,
+                details={"total": total, "note": "too few artifacts to assess"},
+                summary=f"{total} session artifact(s) — n/a", duration_ms=0, ran_at=time.time(),
+            )
+        connected = len(_edge_touched_ids(cursor, session_ids))
+        db.close()
+        orphans = total - connected
+        ratio = orphans / total
+        passed = ratio <= 0.5  # flag only when a majority are orphaned
+        return CheckResult(
+            check_id="orphan_artifacts", passed=passed,
+            details={"total": total, "orphans": orphans, "connected": connected,
+                     "orphan_ratio": round(ratio, 2)},
+            summary=f"{orphans}/{total} session artifacts orphaned ({ratio:.0%})",
+            duration_ms=0, ran_at=time.time(),
+        )
+    except Exception as e:
+        return CheckResult(
+            check_id="orphan_artifacts", passed=True, details={"error": str(e)[:200]},
+            summary="orphan artifacts check failed (non-blocking)", duration_ms=0, ran_at=time.time(),
+        )
+
+
+def _run_dangling_edges_check(context: dict[str, Any]) -> CheckResult:
+    """Connective tissue: edges must reference artifacts that exist.
+
+    For edges originating from this session's artifacts, verify each to_id
+    resolves to a real artifact. A to_id pointing at nothing is a dangling edge
+    — a typo'd ref, or an artifact deleted outside the edge-cleanup path.
+    Referential-integrity check: should be 0. Non-blocking.
+    """
+    try:
+        session_id = context.get("session_id")
+        if not session_id:
+            return CheckResult(
+                check_id="dangling_edges", passed=True, details={"skipped": True},
+                summary="no session — skipped", duration_ms=0, ran_at=time.time(),
+            )
+        from empirica.data.session_database import SessionDatabase
+        db = SessionDatabase()
+        cursor = db.conn.cursor()
+        session_ids = _collect_artifact_ids(cursor, session_id)
+        if not session_ids:
+            db.close()
+            return CheckResult(
+                check_id="dangling_edges", passed=True,
+                details={"total_edges": 0, "note": "no session artifacts"},
+                summary="no session artifacts — n/a", duration_ms=0, ran_at=time.time(),
+            )
+        ids_list = list(session_ids)
+        placeholders = ",".join("?" for _ in ids_list)
+        try:
+            cursor.execute(
+                f"SELECT from_id, to_id, relation FROM artifact_edges "
+                f"WHERE from_id IN ({placeholders})",
+                tuple(ids_list),
+            )
+            edges = cursor.fetchall()
+        except Exception:
+            edges = []
+        if not edges:
+            db.close()
+            return CheckResult(
+                check_id="dangling_edges", passed=True,
+                details={"total_edges": 0, "note": "no outgoing edges from session artifacts"},
+                summary="no edges to check", duration_ms=0, ran_at=time.time(),
+            )
+        all_ids = _collect_artifact_ids(cursor)  # global existence set
+        db.close()
+        dangling = [(f, t, r) for (f, t, r) in edges if t not in all_ids]
+        passed = len(dangling) == 0
+        return CheckResult(
+            check_id="dangling_edges", passed=passed,
+            details={"total_edges": len(edges), "dangling": len(dangling),
+                     "examples": [{"from": f, "to": t, "relation": r} for f, t, r in dangling[:5]]},
+            summary=f"{len(dangling)} dangling edge(s) of {len(edges)}" if dangling
+            else f"all {len(edges)} edges resolve",
+            duration_ms=0, ran_at=time.time(),
+        )
+    except Exception as e:
+        return CheckResult(
+            check_id="dangling_edges", passed=True, details={"error": str(e)[:200]},
+            summary="dangling edges check failed (non-blocking)", duration_ms=0, ran_at=time.time(),
+        )
+
+
 def _register_builtin_checks() -> None:
     """Register all built-in checks."""
     builtins = [
@@ -1014,6 +1250,35 @@ def _register_builtin_checks() -> None:
             runner=_run_provenance_depth_check,
             timeout_seconds=5,
             tags=("epistemic", "provenance"),
+            tier="goal_completion",
+        ),
+        # Connective-tissue checks (graph-edge health — universal / domain-agnostic)
+        CheckDeclaration(
+            check_id="edge_density",
+            tool="empirica-db",
+            applies_to=_CONNECTIVE_APPLIES_TO,
+            criterion_description="Transaction artifacts are connected into the graph (>=1 edge when >=2 artifacts)",
+            runner=_run_edge_density_check,
+            timeout_seconds=5,
+            tags=("epistemic", "connective-tissue", "universal"),
+        ),
+        CheckDeclaration(
+            check_id="orphan_artifacts",
+            tool="empirica-db",
+            applies_to=_CONNECTIVE_APPLIES_TO,
+            criterion_description="No majority of session artifacts left fully disconnected from the graph",
+            runner=_run_orphan_artifacts_check,
+            timeout_seconds=5,
+            tags=("epistemic", "connective-tissue", "universal"),
+        ),
+        CheckDeclaration(
+            check_id="dangling_edges",
+            tool="empirica-db",
+            applies_to=_CONNECTIVE_APPLIES_TO,
+            criterion_description="Every edge references an artifact that exists (referential integrity)",
+            runner=_run_dangling_edges_check,
+            timeout_seconds=5,
+            tags=("epistemic", "connective-tissue", "integrity"),
             tier="goal_completion",
         ),
     ]
