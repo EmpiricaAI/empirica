@@ -491,6 +491,80 @@ def _heal_session_project_id_at_init(session_id: str, project_root: str | None) 
               file=sys.stderr)
 
 
+def _heal_mesh_metadata_at_init(project_root: str | None) -> None:
+    """Backfill mesh tenant metadata into .empirica/project.yaml at session-init.
+
+    Projects init'd before the strict-canonical seat era have an ``ai_id`` but
+    none of {org_id, tenant_slug, mesh_id_prefix, canonical_seat}. Without
+    ``canonical_seat``, ``cortex_session_init`` cannot pick a seat for a
+    multi-practice api_key (returns ``multi_project_no_seat``) and every mesh
+    send must hand-compose ``source_claude``. This self-heals it: resolve the
+    tenant metadata from cortex's ``/v1/tenant/me`` and persist it — which also
+    composes the strict canonical 3-form seat (``org.tenant.project``) via
+    ``compose_canonical_seat``.
+
+    Read-only against cortex (a GET) — it never passes a ``seat`` to
+    session_init, so it cannot trip the seat-param anti-spoof path. That
+    (passing the composed seat) is the separate, cortex-phased Phase 2.
+
+    Idempotent — the ``canonical_seat`` fast-path returns BEFORE any network
+    call or heavy import, so the steady-state cost is a single yaml read.
+    Non-fatal — degrades silently when cortex creds are absent (offline /
+    un-onboarded) and never blocks session boot.
+    """
+    if not project_root:
+        return
+    try:
+        import yaml
+        project_yaml = Path(project_root) / '.empirica' / 'project.yaml'
+        if not project_yaml.exists():
+            return
+        cfg = yaml.safe_load(project_yaml.read_text()) or {}
+        if not isinstance(cfg, dict):
+            return
+        # Idempotent fast-path: already seated → no import, no network.
+        if cfg.get('canonical_seat'):
+            return
+        ai_id = cfg.get('ai_id')
+        if not ai_id:
+            return  # nothing to compose a seat from — leave alone, never guess
+
+        # Backfill needed — resolve cortex creds.
+        from empirica.config.credentials_loader import get_credentials_loader
+        loader = get_credentials_loader()
+        loader.reload()
+        cortex_cfg = loader.get_cortex_config()
+        cortex_url = cortex_cfg.get('url')
+        api_key = cortex_cfg.get('api_key')
+        if not (cortex_url and api_key):
+            return  # offline / un-onboarded — silent no-op
+
+        # Reuse setup-claude-code's REST + persist helpers (persist composes
+        # canonical_seat). Lazy-imported only on the unhealed path.
+        from empirica.cli.command_handlers.setup_claude_code import (
+            _fetch_tenant_metadata,
+            _persist_tenant_metadata,
+        )
+        metadata = _fetch_tenant_metadata(cortex_url, api_key)
+        if not metadata or not metadata.get('mesh_id_prefix'):
+            return  # can't compose a seat without the prefix — leave alone
+
+        wrote = _persist_tenant_metadata(Path(project_root), **metadata)
+        if wrote:
+            from empirica.config.project_config_loader import compose_canonical_seat
+            seat = compose_canonical_seat(
+                mesh_id_prefix=metadata['mesh_id_prefix'], ai_id=ai_id,
+            )
+            print(
+                f"session-init: backfilled project.yaml mesh metadata "
+                f"(canonical_seat={seat})",
+                file=sys.stderr,
+            )
+    except Exception as e:
+        print(f"session-init: mesh metadata backfill skipped "
+              f"({type(e).__name__}: {e})", file=sys.stderr)
+
+
 def create_session_and_bootstrap(ai_id: str, project_id: str | None = None) -> dict:
     """Create session + run bootstrap in sequence.
 
@@ -527,6 +601,12 @@ def create_session_and_bootstrap(ai_id: str, project_id: str | None = None) -> d
         # Step 1d: Heal .empirica/project.yaml ai_id if it's a stripped-prefix
         # legacy value (pre-strict-canonical era, 1.11.x). Idempotent.
         _heal_project_yaml_ai_id_at_init(os.environ.get('PWD') or os.getcwd())
+
+        # Step 1e: Backfill mesh tenant metadata (canonical_seat etc.) for
+        # ai_id-only project.yamls so cortex_session_init can seat a
+        # multi-practice api_key. Idempotent + cortex-read-only (no seat is
+        # passed here — that's the cortex-gated Phase 2).
+        _heal_mesh_metadata_at_init(os.environ.get('PWD') or os.getcwd())
 
         # Step 2: Run bootstrap
         bootstrap_data, project_context = _run_bootstrap(session_id, env)
