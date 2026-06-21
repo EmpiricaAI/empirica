@@ -94,13 +94,13 @@ def test_fetch_strips_trailing_slash_on_cortex_url():
     with patch("urllib.request.urlopen", side_effect=fake_urlopen):
         _fetch_tenant_metadata("https://cortex.example.com/", "ctx_test")
 
-    assert captured["url"] == "https://cortex.example.com/v1/tenant/me"
+    assert captured["url"] == "https://cortex.example.com/v1/users/me"
     assert captured["auth"] == "Bearer ctx_test"
 
 
 def test_fetch_http_error_returns_none():
     err = urllib.error.HTTPError(
-        url="https://cortex/v1/tenant/me", code=401,
+        url="https://cortex/v1/users/me", code=401,
         msg="Unauthorized", hdrs=None, fp=io.BytesIO(b""),  # type: ignore[arg-type]
     )
     with patch("urllib.request.urlopen", side_effect=err):

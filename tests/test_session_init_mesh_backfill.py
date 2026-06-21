@@ -4,7 +4,7 @@ Closes the seat gap (goal #7): projects init'd before the strict-canonical
 seat era have an ``ai_id`` but no {org_id, tenant_slug, mesh_id_prefix,
 canonical_seat}, so ``cortex_session_init`` returns ``multi_project_no_seat``
 for a multi-practice api_key. This hook step backfills the mesh metadata from
-cortex's ``/v1/tenant/me`` at session-init, persisting the strict canonical
+cortex's ``/v1/users/me`` at session-init, persisting the strict canonical
 3-form seat.
 
 Read-only against cortex (a GET); it never passes a ``seat`` to session_init
