@@ -58,6 +58,7 @@ def _preflight_parse_and_validate(args):
         criticality = getattr(validated, 'criticality', None)
         predicted_check_outcomes = getattr(validated, 'predicted_check_outcomes', None)
         voice = getattr(validated, 'voice', None)
+        retrospective_reason = getattr(validated, 'retrospective_reason', None)
     else:
         session_id = args.session_id
         vectors = parse_json_safely(args.vectors) if isinstance(args.vectors, str) else args.vectors
@@ -69,6 +70,7 @@ def _preflight_parse_and_validate(args):
         criticality = None
         predicted_check_outcomes = None
         voice = getattr(args, 'voice', None)
+        retrospective_reason = getattr(args, 'retrospective_reason', None)
 
         if not session_id or not vectors:
             print(json.dumps({
@@ -103,6 +105,7 @@ def _preflight_parse_and_validate(args):
         "criticality": criticality,
         "predicted_check_outcomes": predicted_check_outcomes,
         "voice": voice,
+        "retrospective_reason": retrospective_reason,
         "output_format": output_format,
     }
 
@@ -466,7 +469,77 @@ def _feedback_compute_calibration_trend(cursor, ai_id, project_id):
     except Exception:
         return None
 
-def _preflight_collect_behavioral_feedback(db, session_id, ai_id, project_id):
+# Work types where zero artifacts is expected, not a discipline gap. `release`
+# is a scripted mechanical pipeline (all evidence is excluded from its
+# calibration anyway). Extend deliberately.
+_RETROSPECTIVE_GATE_EXEMPT_WORK_TYPES = frozenset({'release'})
+
+def _feedback_compute_retrospective_gate(pf_meta, retrospective_reason):
+    """The retrospective soft-gate (Piece 2, Part C).
+
+    A breather between transactions. Fires at PREFLIGHT ONLY on the narrow,
+    high-signal pattern: the previous transaction made substantive praxic tool
+    calls but logged ZERO epistemic artifacts, on a non-mechanical work_type.
+    That combination means real work happened with nothing recorded — invisible
+    to grounded calibration.
+
+    Deliberately NOT generic PREFLIGHT nagging (a prior decision rejected that):
+    the trigger is specific, it is SOFT (a response field, never a hard block),
+    it is env-toggleable (EMPIRICA_RETROSPECTIVE_GATE=false), and it is cleared
+    either by logging the missed artifacts or by passing `retrospective_reason`
+    in this PREFLIGHT to acknowledge.
+
+    Returns a gate dict, or None when it should not fire.
+    """
+    if os.environ.get('EMPIRICA_RETROSPECTIVE_GATE', 'true').lower() != 'true':
+        return None
+    if not pf_meta:
+        return None
+
+    work_type = pf_meta.get('work_type')
+    # Unknown work_type can't be judged; exempt mechanical pipelines.
+    if not work_type or work_type in _RETROSPECTIVE_GATE_EXEMPT_WORK_TYPES:
+        return None
+
+    phase_tool_counts = pf_meta.get('phase_tool_counts') or {}
+    praxic_calls = phase_tool_counts.get('praxic_tool_calls', 0) or 0
+
+    retro = pf_meta.get('retrospective') or {}
+    counts = retro.get('artifact_counts') or {}
+    artifact_total = sum(v for v in counts.values() if isinstance(v, (int, float)))
+
+    # The high-signal pattern: real praxic activity, nothing logged.
+    if praxic_calls <= 0 or artifact_total > 0:
+        return None
+
+    gate = {
+        "trigger": (
+            f"Previous transaction made {praxic_calls} praxic tool call(s) "
+            f"(work_type={work_type}) but logged 0 epistemic artifacts. "
+            "Substantive work with no findings/decisions/dead-ends/mistakes is "
+            "invisible to grounded calibration."
+        ),
+        "soft": True,
+        "env_toggle": "Set EMPIRICA_RETROSPECTIVE_GATE=false to disable.",
+    }
+    if retrospective_reason:
+        gate["acknowledged"] = True
+        gate["retrospective_reason"] = retrospective_reason
+        gate["breather"] = "Acknowledged — proceeding. Reason recorded."
+    else:
+        gate["acknowledged"] = False
+        gate["breather"] = (
+            "Take a breather before continuing: log what the last transaction "
+            "learned — a finding, decision, dead-end, or mistake (empirica "
+            "finding-log / decision-log / deadend-log / mistake-log); they "
+            "attach to the prior transaction. If there was genuinely nothing "
+            "to record, pass retrospective_reason in this PREFLIGHT to "
+            "acknowledge and clear."
+        )
+    return gate
+
+def _preflight_collect_behavioral_feedback(db, session_id, ai_id, project_id,
+                                           retrospective_reason=None):
     """Pull discipline observations from last POSTFLIGHT.
 
     Vectors are beliefs about epistemic state -- deterministic services inform
@@ -503,6 +576,13 @@ def _preflight_collect_behavioral_feedback(db, session_id, ai_id, project_id):
             if previous_transaction_feedback is None:
                 previous_transaction_feedback = {}
             previous_transaction_feedback["calibration_trend"] = trend
+
+        # 4. Retrospective soft-gate — breather on real-work-zero-artifacts
+        gate = _feedback_compute_retrospective_gate(pf_meta, retrospective_reason)
+        if gate:
+            if previous_transaction_feedback is None:
+                previous_transaction_feedback = {}
+            previous_transaction_feedback["retrospective_gate"] = gate
 
         if previous_transaction_feedback:
             previous_transaction_feedback["note"] = (
@@ -696,7 +776,8 @@ def handle_preflight_submit_command(args):
 
             # Stage 8: Collect behavioral feedback from last transaction
             previous_transaction_feedback = _preflight_collect_behavioral_feedback(
-                db, session_id, cal["ai_id"], cal["project_id"]
+                db, session_id, cal["ai_id"], cal["project_id"],
+                retrospective_reason=parsed.get("retrospective_reason"),
             )
 
             # Stage 9: Retrieve patterns for task context
