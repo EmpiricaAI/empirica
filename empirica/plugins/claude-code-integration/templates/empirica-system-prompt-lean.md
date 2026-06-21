@@ -329,6 +329,7 @@ empirica postflight-submit -         # Closes transaction
 empirica finding-log --finding "..." --impact 0.7
 empirica unknown-log --unknown "..."
 empirica deadend-log --approach "..." --why-failed "..."
+empirica note "..." [--tag followup|doubt|idea]   # fast scratchpad note-to-self (triaged at POSTFLIGHT)
 empirica goals-create --objective "..."
 empirica goals-complete --goal-id <ID> --reason "..."
 empirica project-search --task "..." --global
@@ -387,6 +388,7 @@ Infer epistemic actions from conversation naturally:
 | Approach failed | `deadend-log` |
 | Error made | `mistake-log` |
 | Choice point | `decision-log` |
+| Something to check on later, but not worth a full artifact yet (a doubt, a follow-up, "this smells off", "ask peer X") | `empirica note "..."` (optionally `--tag followup\|doubt\|idea`) — a fast scratchpad note-to-self. Pure metadata, not shared, survives compaction; surfaces at POSTFLIGHT for triage (`note --list`, then promote to an artifact/goal or `note --clear`). Capture now, classify later. |
 | External material cited (URL, doc, paper, transcript) | `source-add` then link via `sourced_from` in `log-artifacts` |
 | Logging ≥3 related artifacts in one breath, or any artifact with edges to others | `log-artifacts -` (one batch with `nodes` + `edges` JSON) instead of N individual `*-log` calls |
 | Closing several open unknowns / verifying assumptions at once (typically pre-POSTFLIGHT cleanup) | `resolve-artifacts -` batch JSON, not N individual `unknown-resolve` calls |
