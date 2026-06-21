@@ -474,7 +474,33 @@ def _feedback_compute_calibration_trend(cursor, ai_id, project_id):
 # calibration anyway). Extend deliberately.
 _RETROSPECTIVE_GATE_EXEMPT_WORK_TYPES = frozenset({'release'})
 
-def _feedback_compute_retrospective_gate(pf_meta, retrospective_reason):
+def _feedback_count_untriaged_notes(cursor, session_id, pf_meta):
+    """Count untriaged scratchpad notes for the previous transaction.
+
+    Scoped to pf_meta's transaction_id (the transaction that just POSTFLIGHTed)
+    when available, else the session. Tolerates the notes table not existing on
+    older DBs. Returns 0 on any error.
+    """
+    try:
+        prev_tx = (pf_meta or {}).get('transaction_id')
+        if prev_tx:
+            row = cursor.execute(
+                "SELECT COUNT(*) FROM notes WHERE session_id = ? AND "
+                "transaction_id = ? AND triaged = 0",
+                (session_id, prev_tx),
+            ).fetchone()
+        else:
+            row = cursor.execute(
+                "SELECT COUNT(*) FROM notes WHERE session_id = ? AND triaged = 0",
+                (session_id,),
+            ).fetchone()
+        return row[0] if row else 0
+    except Exception:
+        return 0
+
+
+def _feedback_compute_retrospective_gate(pf_meta, retrospective_reason,
+                                         untriaged_note_count=0):
     """The retrospective soft-gate (Piece 2, Part C).
 
     A breather between transactions. Fires at PREFLIGHT ONLY on the narrow,
@@ -482,6 +508,11 @@ def _feedback_compute_retrospective_gate(pf_meta, retrospective_reason):
     calls but logged ZERO epistemic artifacts, on a non-mechanical work_type.
     That combination means real work happened with nothing recorded — invisible
     to grounded calibration.
+
+    Note-aware: scratchpad notes-to-self earn partial credit (intent WAS
+    captured, just not yet structured). With notes present the gate softens to
+    "promote your notes"; with 0 artifacts AND 0 notes it is the strongest
+    "logged literally nothing" signal.
 
     Deliberately NOT generic PREFLIGHT nagging (a prior decision rejected that):
     the trigger is specific, it is SOFT (a response field, never a hard block),
@@ -512,6 +543,7 @@ def _feedback_compute_retrospective_gate(pf_meta, retrospective_reason):
     if praxic_calls <= 0 or artifact_total > 0:
         return None
 
+    note_count = untriaged_note_count or 0
     gate = {
         "trigger": (
             f"Previous transaction made {praxic_calls} praxic tool call(s) "
@@ -520,12 +552,24 @@ def _feedback_compute_retrospective_gate(pf_meta, retrospective_reason):
             "invisible to grounded calibration."
         ),
         "soft": True,
+        # Notes earn partial credit: 0 artifacts + 0 notes is the strongest
+        # "logged literally nothing" signal; notes mean intent was captured.
+        "severity": "strong" if note_count == 0 else "soft",
+        "untriaged_note_count": note_count,
         "env_toggle": "Set EMPIRICA_RETROSPECTIVE_GATE=false to disable.",
     }
     if retrospective_reason:
         gate["acknowledged"] = True
         gate["retrospective_reason"] = retrospective_reason
         gate["breather"] = "Acknowledged — proceeding. Reason recorded."
+    elif note_count > 0:
+        gate["acknowledged"] = False
+        gate["breather"] = (
+            f"You left {note_count} untriaged note(s)-to-self last transaction "
+            "but logged 0 structured artifacts. Promote the keepers to "
+            "findings/decisions/goals (then `empirica note --clear`), or pass "
+            "retrospective_reason to acknowledge."
+        )
     else:
         gate["acknowledged"] = False
         gate["breather"] = (
@@ -577,8 +621,13 @@ def _preflight_collect_behavioral_feedback(db, session_id, ai_id, project_id,
                 previous_transaction_feedback = {}
             previous_transaction_feedback["calibration_trend"] = trend
 
-        # 4. Retrospective soft-gate — breather on real-work-zero-artifacts
-        gate = _feedback_compute_retrospective_gate(pf_meta, retrospective_reason)
+        # 4. Retrospective soft-gate — breather on real-work-zero-artifacts.
+        #    Note-aware: count the prior transaction's untriaged notes (partial
+        #    credit — intent captured even if not yet structured).
+        note_count = _feedback_count_untriaged_notes(cursor, session_id, pf_meta)
+        gate = _feedback_compute_retrospective_gate(
+            pf_meta, retrospective_reason, untriaged_note_count=note_count
+        )
         if gate:
             if previous_transaction_feedback is None:
                 previous_transaction_feedback = {}

@@ -675,6 +675,27 @@ def add_checkpoint_parsers(subparsers):
     finding_log_parser.add_argument('--output', choices=['human', 'json'], default='human', help='Output format')
     finding_log_parser.add_argument('--verbose', action='store_true', help='Show detailed operation info')
 
+    # Note command — fast scratchpad / note-to-self
+    note_parser = subparsers.add_parser(
+        'note',
+        help=(
+            'Jot a quick note-to-self while in flow — a scratchpad for things '
+            'to check on after the current work. Faster + lower-friction than a '
+            'full finding/decision: pure metadata, NOT shared, NOT embedded. '
+            'Notes are transaction-scoped and surface at POSTFLIGHT for triage '
+            '(promote to an artifact/goal, or discard). They survive context '
+            'compaction. Use --list to review, --clear to mark triaged.'
+        ),
+    )
+    note_parser.add_argument('text', nargs='?', help='The note text (positional, the common case)')
+    note_parser.add_argument('--text', dest='text_flag', help='The note text (flag form, for MCP/scripts)')
+    note_parser.add_argument('--tag', help='Optional free-form tag (suggested: followup | doubt | idea)')
+    note_parser.add_argument('--list', action='store_true', help='List untriaged notes for the current transaction/session')
+    note_parser.add_argument('--clear', action='store_true', help='Mark the current transaction/session notes as triaged')
+    note_parser.add_argument('--session-id', required=False, help='Session UUID')
+    note_parser.add_argument('--project-id', required=False, help='Project UUID')
+    note_parser.add_argument('--output', choices=['human', 'json'], default='human', help='Output format')
+
     # Unknown log command
     unknown_log_parser = subparsers.add_parser(
         'unknown-log',
