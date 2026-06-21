@@ -125,7 +125,7 @@ After plugin install, `setup-claude-code` runs the **credentials wizard**
 
 1. **Cortex** (orchestration API) — URL + `ctx_…` API key
 2. **ntfy** (push wake bridge) — URL + topic + auth token
-3. **Tenant resolution** — after the api_key, fetches `/v1/tenant/me`
+3. **Tenant resolution** — after the api_key, fetches your tenant metadata
    and persists `{org_id, tenant_slug, mesh_id_prefix}` to your
    project.yaml. Skip with `--org-id <X>` / `--tenant-slug <Y>` /
    `--mesh-id-prefix <Z>` flags if you want explicit values.

@@ -98,7 +98,7 @@ inert; everything local still works. You can always re-run
 want them.
 
 After the api_key prompt (if you supply one), the wizard fetches
-`/v1/tenant/me` and persists `{org_id, tenant_slug, mesh_id_prefix}` to
+your tenant metadata from cortex and persists `{org_id, tenant_slug, mesh_id_prefix}` to
 your project.yaml so your AI gets fully-qualified mesh addressing on
 first run. Skip the wizard with `--skip-credentials` if you already
 have creds in env vars or files — or to stay fully local.
