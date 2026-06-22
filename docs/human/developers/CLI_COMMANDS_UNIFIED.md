@@ -23,8 +23,8 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.12.4
-**Generated:** 2026-06-22 15:54:07 UTC
-**Total commands:** 244 (across 26 categories)
+**Generated:** 2026-06-22 16:23:47 UTC
+**Total commands:** 245 (across 26 categories)
 
 For the most up-to-date detail on any single command, prefer
 `empirica <command> --help` — the generator extracts the same `help`
@@ -67,7 +67,7 @@ require `--session-id` (`project-bootstrap`, `sessions-show`,
 | [goals](#goals) | 16 | `goals-create`, `goals-list`, `goals-search`, … |
 | [logging](#logging) | 23 | `finding-log`, `unknown-log`, `unknown-list`, … |
 | [project](#project) | 18 | `project-init`, `project-update`, `project-create`, … |
-| [workspace](#workspace) | 13 | `workspace-init`, `workspace-map`, `workspace-list`, … |
+| [workspace](#workspace) | 15 | `workspace-init`, `workspace-map`, `workspace-list`, … |
 | [checkpoint](#checkpoint) | 7 | `checkpoint-create`, `checkpoint-load`, `checkpoint-list`, … |
 | [sync](#sync) | 6 | `sync-config`, `sync-push`, `sync-pull`, … |
 | [profile](#profile) | 4 | `profile-sync`, `profile-prune`, `profile-status`, … |
@@ -1795,6 +1795,35 @@ Show epistemic timeline from git log + notes
 - `--output` — optional · type=`choice` · choices={json, human} · default=`human`
   Output format
 
+#### `empirica entity-create`
+
+Idempotent mint of a contact, engagement, or organization into the workspace entity registry. Contacts dedupe by email first (strongest key) then deterministic slug ('c-<name>[-<company>]'); engagements/organizations dedupe by slug id ('e-'/'o-' prefix, or pass --id explicitly). Re-minting the same identity returns the existing entity_id with created=false — a verified no-op. Other entity types (project, user) are written by their owning pipelines.
+
+**Arguments:**
+
+- `--type` — optional · type=`choice` · choices={contact, engagement, organization} · default=`contact`
+  Entity type to mint (default: contact)
+- `--name` — **required**
+  Entity display name
+- `--id` — optional
+  Explicit entity_id (engagement/organization only; defaults to a '<prefix>-<name>' slug)
+- `--email` — optional
+  Email (contact primary identity key for dedupe)
+- `--phone` — optional
+  Phone number (contact)
+- `--role` — optional
+  Role/title at their organization (contact)
+- `--company` — optional
+  Company/organization name (contact — folded into the slug)
+- `--description` — optional
+  Free-text context for the entity
+- `--metadata` — optional
+  Extra metadata as a JSON object string
+- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
+  Output format
+- `--verbose` — optional · flag
+  Verbose output
+
 #### `empirica entity-list`
 
 List entities from the workspace registry. Currently populated types: project, contact, organization, engagement, user. Default scope is active entities; use --status all to include inactive/archived.
@@ -1858,6 +1887,27 @@ Text-search entities by display_name + description (case-insensitive LIKE). For 
   Max results (default: 50)
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
+
+#### `empirica entity-link`
+
+Write (or soft-close) a typed membership edge between two entities: '<member> is <role> of <group>'. The write peer to entity-show/-walk's read path. Both refs are 'type:id'. Idempotent on the edge — re-linking updates role/notes and re-activates a soft-closed edge. Edges are never deleted; --close soft-closes (stamps left_at) so history stays auditable. Example: entity-link engagement:e-cowork-recovery organization:o-nle --role ticket_of
+
+**Arguments:**
+
+- `member` — **required**
+  Member entity as 'type:id' (e.g. engagement:e-x)
+- `group` — **required**
+  Group entity as 'type:id' (e.g. organization:o-y)
+- `--role` — optional
+  Relation verb for the edge (e.g. ticket_of, member, serves)
+- `--notes` — optional
+  Optional free-text note on the edge
+- `--close` — optional · flag
+  Soft-close the edge (stamp left_at) instead of writing it
+- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
+  Output format
+- `--verbose` — optional · flag
+  Verbose output
 
 ---
 
@@ -4586,33 +4636,6 @@ Edit file with metacognitive confidence assessment (prevents 80%% of edit failur
   Output format (optional, default: json)
 - `--verbose` — optional · flag
   Show detailed operation info
-
-#### `empirica entity-create`
-
-Idempotent contact mint into the workspace entity registry. Identity resolution: email match first (strongest key), then deterministic human-readable slug ('c-<name>[-<company>]') matching the existing registry convention. Re-calling with the same identity returns the existing entity_id with created=false — double-execute is a verified no-op. v1 mints contacts only.
-
-**Arguments:**
-
-- `--type` — optional · default=`contact`
-  Entity type (v1: contact only)
-- `--name` — **required**
-  Contact display name
-- `--email` — optional
-  Email (primary identity key for dedupe)
-- `--phone` — optional
-  Phone number
-- `--role` — optional
-  Role/title at their organization
-- `--company` — optional
-  Company/organization name (folded into the slug)
-- `--description` — optional
-  Free-text context for the contact
-- `--metadata` — optional
-  Extra metadata as a JSON object string
-- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
-  Output format
-- `--verbose` — optional · flag
-  Verbose output
 
 #### `empirica epp-activate`
 

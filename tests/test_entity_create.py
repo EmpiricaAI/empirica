@@ -18,7 +18,9 @@ import pytest
 from empirica.cli.command_handlers.entity_commands import (
     _slugify,
     handle_entity_create_command,
+    handle_entity_link_command,
     mint_contact,
+    mint_entity,
 )
 from empirica.data.repositories.workspace_db import (
     WorkspaceDBRepository,
@@ -121,6 +123,7 @@ def _make_args(**overrides):
     defaults = {
         "type": "contact",
         "name": "CLI Person",
+        "id": None,
         "email": None,
         "phone": None,
         "role": None,
@@ -150,10 +153,116 @@ def test_cli_creates_and_reports_json(repo, capsys):
     assert out["entity_id"] == "c-cli-person"
 
 
-def test_cli_rejects_non_contact_type(capsys):
+def test_cli_rejects_owned_pipeline_type(capsys):
+    # project/user are written by their owning pipelines, not entity-create.
     with pytest.raises(SystemExit) as exc:
-        handle_entity_create_command(_make_args(type="organization"))
+        handle_entity_create_command(_make_args(type="project"))
     assert exc.value.code == 1
+
+
+# ── mint_entity (engagement / organization) ────────────────────────────
+
+
+def test_mint_entity_organization_slug(repo):
+    result = mint_entity("organization", "NLE", repo=repo)
+    assert result["ok"] and result["created"] is True
+    assert result["entity_id"] == "o-nle"
+    row = repo.get_entity("organization", "o-nle")
+    assert row["display_name"] == "NLE" and row["source_table"] == "organization"
+
+
+def test_mint_entity_engagement_slug(repo):
+    result = mint_entity("engagement", "Cowork Recovery", repo=repo)
+    assert result["entity_id"] == "e-cowork-recovery"
+
+
+def test_mint_entity_idempotent(repo):
+    a = mint_entity("organization", "NLE", repo=repo)
+    b = mint_entity("organization", "NLE", repo=repo)
+    assert b["created"] is False and b["matched_by"] == "id"
+    assert b["entity_id"] == a["entity_id"]
+
+
+def test_mint_entity_explicit_id_overrides_slug(repo):
+    result = mint_entity("organization", "New Line Entertainment", entity_id="o-nle", repo=repo)
+    assert result["entity_id"] == "o-nle"
+
+
+def test_mint_entity_rejects_contact_and_unknown(repo):
+    # contacts have their own specialized path; unknown types are rejected.
+    assert mint_entity("contact", "x", repo=repo)["ok"] is False
+    assert mint_entity("project", "x", repo=repo)["ok"] is False
+
+
+def test_mint_entity_requires_name(repo):
+    assert mint_entity("organization", "", repo=repo)["ok"] is False
+
+
+def test_cli_creates_organization(repo, capsys):
+    with patch(
+        "empirica.cli.command_handlers.entity_commands.WorkspaceDBRepository.open",
+        return_value=repo,
+    ):
+        repo.__enter__ = lambda *a: repo
+        repo.__exit__ = lambda *a: False
+        with pytest.raises(SystemExit) as exc:
+            handle_entity_create_command(_make_args(type="organization", name="NLE"))
+    assert exc.value.code == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["ok"] and out["entity_id"] == "o-nle"
+
+
+# ── entity-link CLI ────────────────────────────────────────────────────
+
+
+def _link_args(member, group, **overrides):
+    defaults = {
+        "member": member,
+        "group": group,
+        "role": None,
+        "notes": None,
+        "close": False,
+        "output": "json",
+        "verbose": False,
+    }
+    defaults.update(overrides)
+    return SimpleNamespace(**defaults)
+
+
+def _patched_open(repo):
+    # The handler runs `with WorkspaceDBRepository.open(...) as r:`; the real
+    # __exit__ closes the connection (type-level dunder, so an instance-attr
+    # override is a no-op). We therefore assert on the handler's JSON output,
+    # not on the fixture repo after it returns. The write/close logic itself is
+    # covered against a live repo in tests/unit/test_entity_repo.py.
+    return patch(
+        "empirica.cli.command_handlers.entity_commands.WorkspaceDBRepository.open",
+        return_value=repo,
+    )
+
+
+def test_cli_link_writes_edge(repo, capsys):
+    with _patched_open(repo), pytest.raises(SystemExit) as exc:
+        handle_entity_link_command(_link_args("engagement:e-1", "organization:o-1", role="ticket_of"))
+    assert exc.value.code == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["ok"] and out["action"] == "linked" and out["role"] == "ticket_of"
+    assert out["member"] == "engagement:e-1" and out["group"] == "organization:o-1"
+
+
+def test_cli_link_rejects_bad_ref(repo, capsys):
+    with _patched_open(repo), pytest.raises(SystemExit) as exc:
+        handle_entity_link_command(_link_args("not-a-ref", "organization:o-1"))
+    assert exc.value.code == 1
+
+
+def test_cli_link_close(repo, capsys):
+    repo.upsert_entity_membership("engagement", "e-1", "organization", "o-1", role="ticket_of")
+    with _patched_open(repo), pytest.raises(SystemExit) as exc:
+        handle_entity_link_command(_link_args("engagement:e-1", "organization:o-1", close=True))
+    assert exc.value.code == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["action"] == "closed"
 
 
 # ── HTTP endpoint ──────────────────────────────────────────────────────

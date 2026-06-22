@@ -205,3 +205,80 @@ class TestWalkEntityGraph:
         result = tmp_workspace_repo.walk_entity_graph("project", "a", max_depth=0)
         assert len(result["nodes"]) == 1
         assert result["truncated"] is True
+
+
+class TestUpsertEntityMembership:
+    """The write peer to get_entity_memberships — used by the ERM graduation
+    path (engagement member_of organization, role='ticket_of')."""
+
+    def test_writes_a_new_edge(self, tmp_workspace_repo):
+        repo = tmp_workspace_repo
+        repo.upsert_entity_membership("engagement", "e-1", "organization", "o-1", role="ticket_of")
+        m = repo.get_entity_memberships("engagement", "e-1")
+        assert len(m["member_of"]) == 1
+        edge = m["member_of"][0]
+        assert edge["group_type"] == "organization" and edge["group_id"] == "o-1"
+        assert edge["role"] == "ticket_of" and edge["left_at"] is None
+
+    def test_idempotent_no_duplicate(self, tmp_workspace_repo):
+        repo = tmp_workspace_repo
+        repo.upsert_entity_membership("engagement", "e-1", "organization", "o-1", role="ticket_of")
+        repo.upsert_entity_membership("engagement", "e-1", "organization", "o-1", role="ticket_of")
+        assert len(repo.get_entity_memberships("engagement", "e-1")["member_of"]) == 1
+
+    def test_re_upsert_updates_role_and_notes(self, tmp_workspace_repo):
+        repo = tmp_workspace_repo
+        repo.upsert_entity_membership("engagement", "e-1", "organization", "o-1", role="member")
+        repo.upsert_entity_membership(
+            "engagement", "e-1", "organization", "o-1", role="ticket_of", notes="reclassified"
+        )
+        edge = repo.get_entity_memberships("engagement", "e-1")["member_of"][0]
+        assert edge["role"] == "ticket_of" and edge["notes"] == "reclassified"
+
+    def test_preserves_joined_at_on_conflict(self, tmp_workspace_repo):
+        repo = tmp_workspace_repo
+        repo.upsert_entity_membership("engagement", "e-1", "organization", "o-1", role="ticket_of")
+        first = repo.get_entity_memberships("engagement", "e-1")["member_of"][0]["joined_at"]
+        repo.upsert_entity_membership("engagement", "e-1", "organization", "o-1", role="ticket_of")
+        second = repo.get_entity_memberships("engagement", "e-1")["member_of"][0]["joined_at"]
+        assert first == second
+
+    def test_org_scoping_query(self, tmp_workspace_repo):
+        """The R2 query: open engagements where org=X (left_at IS NULL)."""
+        repo = tmp_workspace_repo
+        _insert_entity(repo, "engagement", "e-1", "E1", status="active")
+        _insert_entity(repo, "engagement", "e-2", "E2", status="active")
+        repo.upsert_entity_membership("engagement", "e-1", "organization", "o-1", role="ticket_of")
+        repo.upsert_entity_membership("engagement", "e-2", "organization", "o-2", role="ticket_of")
+        members = repo.get_entity_memberships("organization", "o-1")["members"]
+        assert len(members) == 1 and members[0]["entity_id"] == "e-1"
+
+
+class TestCloseEntityMembership:
+    def test_soft_close_stamps_left_at_not_delete(self, tmp_workspace_repo):
+        repo = tmp_workspace_repo
+        repo.upsert_entity_membership("engagement", "e-1", "organization", "o-1", role="ticket_of")
+        assert repo.close_entity_membership("engagement", "e-1", "organization", "o-1") is True
+        # Excluded from active memberships...
+        assert repo.get_entity_memberships("engagement", "e-1")["member_of"] == []
+        # ...but the row still exists (auditable history).
+        cur = repo._execute("SELECT left_at FROM entity_memberships WHERE entity_type='engagement' AND entity_id='e-1'")
+        rows = cur.fetchall()
+        assert len(rows) == 1 and rows[0]["left_at"] is not None
+
+    def test_close_nonexistent_returns_false(self, tmp_workspace_repo):
+        assert tmp_workspace_repo.close_entity_membership("engagement", "nope", "organization", "o-1") is False
+
+    def test_close_is_idempotent(self, tmp_workspace_repo):
+        repo = tmp_workspace_repo
+        repo.upsert_entity_membership("engagement", "e-1", "organization", "o-1", role="ticket_of")
+        assert repo.close_entity_membership("engagement", "e-1", "organization", "o-1") is True
+        assert repo.close_entity_membership("engagement", "e-1", "organization", "o-1") is False
+
+    def test_re_upsert_reactivates_closed_edge(self, tmp_workspace_repo):
+        repo = tmp_workspace_repo
+        repo.upsert_entity_membership("engagement", "e-1", "organization", "o-1", role="ticket_of")
+        repo.close_entity_membership("engagement", "e-1", "organization", "o-1")
+        repo.upsert_entity_membership("engagement", "e-1", "organization", "o-1", role="ticket_of")
+        active = repo.get_entity_memberships("engagement", "e-1")["member_of"]
+        assert len(active) == 1 and active[0]["left_at"] is None

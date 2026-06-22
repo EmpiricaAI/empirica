@@ -675,6 +675,70 @@ class WorkspaceDBRepository(BaseRepository):
         members = [dict(row) for row in in_cursor.fetchall()]
         return {"member_of": member_of, "members": members}
 
+    def upsert_entity_membership(
+        self,
+        entity_type: str,
+        entity_id: str,
+        group_type: str,
+        group_id: str,
+        role: str | None = None,
+        notes: str | None = None,
+    ) -> None:
+        """Insert (or re-activate) a typed membership edge between two entities.
+
+        The write peer to ``get_entity_memberships`` — mirrors
+        ``upsert_entity``: idempotent on the membership PK
+        (entity_type, entity_id, group_type, group_id). Re-writing the same
+        edge updates ``role``/``notes`` and clears ``left_at`` (re-activating a
+        soft-closed edge) rather than duplicating; the original ``joined_at`` /
+        ``created_at`` are preserved on conflict. Used by the ERM graduation
+        path, e.g. ``engagement`` member_of ``organization`` with
+        ``role='ticket_of'``.
+
+        Edges are never deleted — closing a membership is a soft-close via
+        ``close_entity_membership`` (sets ``left_at``), so the history stays
+        auditable.
+        """
+        now = time.time()
+        self._execute(
+            """
+            INSERT INTO entity_memberships
+                (entity_type, entity_id, group_type, group_id,
+                 role, joined_at, left_at, created_at, notes)
+            VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)
+            ON CONFLICT(entity_type, entity_id, group_type, group_id) DO UPDATE SET
+                role = excluded.role,
+                left_at = NULL,
+                notes = excluded.notes
+            """,
+            (entity_type, entity_id, group_type, group_id, role, now, now, notes),
+        )
+        self.commit()
+
+    def close_entity_membership(
+        self,
+        entity_type: str,
+        entity_id: str,
+        group_type: str,
+        group_id: str,
+    ) -> bool:
+        """Soft-close an active membership edge by stamping ``left_at``.
+
+        Returns True if an active edge was closed, False if no matching
+        active edge existed. Never deletes the row — a closed edge stays in
+        the table (excluded from ``get_entity_memberships``, which filters on
+        ``left_at IS NULL``) so the relationship history remains auditable.
+        Idempotent: closing an already-closed edge is a no-op returning False.
+        """
+        cursor = self._execute(
+            """UPDATE entity_memberships SET left_at = ?
+               WHERE entity_type = ? AND entity_id = ?
+                 AND group_type = ? AND group_id = ? AND left_at IS NULL""",
+            (time.time(), entity_type, entity_id, group_type, group_id),
+        )
+        self.commit()
+        return cursor.rowcount > 0
+
     def walk_entity_graph(
         self,
         start_type: str,

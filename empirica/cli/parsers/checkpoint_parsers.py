@@ -562,21 +562,32 @@ def add_checkpoint_parsers(subparsers):
     entity_create_parser = subparsers.add_parser(
         "entity-create",
         help=(
-            "Idempotent contact mint into the workspace entity registry. "
-            "Identity resolution: email match first (strongest key), then "
-            "deterministic human-readable slug ('c-<name>[-<company>]') "
-            "matching the existing registry convention. Re-calling with the "
-            "same identity returns the existing entity_id with created=false "
-            "— double-execute is a verified no-op. v1 mints contacts only."
+            "Idempotent mint of a contact, engagement, or organization into "
+            "the workspace entity registry. Contacts dedupe by email first "
+            "(strongest key) then deterministic slug ('c-<name>[-<company>]'); "
+            "engagements/organizations dedupe by slug id ('e-'/'o-' prefix, or "
+            "pass --id explicitly). Re-minting the same identity returns the "
+            "existing entity_id with created=false — a verified no-op. Other "
+            "entity types (project, user) are written by their owning pipelines."
         ),
     )
-    entity_create_parser.add_argument("--type", default="contact", help="Entity type (v1: contact only)")
-    entity_create_parser.add_argument("--name", required=True, help="Contact display name")
-    entity_create_parser.add_argument("--email", help="Email (primary identity key for dedupe)")
-    entity_create_parser.add_argument("--phone", help="Phone number")
-    entity_create_parser.add_argument("--role", help="Role/title at their organization")
-    entity_create_parser.add_argument("--company", help="Company/organization name (folded into the slug)")
-    entity_create_parser.add_argument("--description", help="Free-text context for the contact")
+    entity_create_parser.add_argument(
+        "--type",
+        default="contact",
+        choices=["contact", "engagement", "organization"],
+        help="Entity type to mint (default: contact)",
+    )
+    entity_create_parser.add_argument("--name", required=True, help="Entity display name")
+    entity_create_parser.add_argument(
+        "--id",
+        dest="id",
+        help="Explicit entity_id (engagement/organization only; defaults to a '<prefix>-<name>' slug)",
+    )
+    entity_create_parser.add_argument("--email", help="Email (contact primary identity key for dedupe)")
+    entity_create_parser.add_argument("--phone", help="Phone number (contact)")
+    entity_create_parser.add_argument("--role", help="Role/title at their organization (contact)")
+    entity_create_parser.add_argument("--company", help="Company/organization name (contact — folded into the slug)")
+    entity_create_parser.add_argument("--description", help="Free-text context for the entity")
     entity_create_parser.add_argument("--metadata", help="Extra metadata as a JSON object string")
     entity_create_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
     entity_create_parser.add_argument("--verbose", action="store_true", help="Verbose output")
@@ -628,6 +639,29 @@ def add_checkpoint_parsers(subparsers):
     )
     entity_search_parser.add_argument("--limit", type=int, default=50, help="Max results (default: 50)")
     entity_search_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
+
+    entity_link_parser = subparsers.add_parser(
+        "entity-link",
+        help=(
+            "Write (or soft-close) a typed membership edge between two "
+            "entities: '<member> is <role> of <group>'. The write peer to "
+            "entity-show/-walk's read path. Both refs are 'type:id'. "
+            "Idempotent on the edge — re-linking updates role/notes and "
+            "re-activates a soft-closed edge. Edges are never deleted; "
+            "--close soft-closes (stamps left_at) so history stays auditable. "
+            "Example: entity-link engagement:e-cowork-recovery "
+            "organization:o-nle --role ticket_of"
+        ),
+    )
+    entity_link_parser.add_argument("member", help="Member entity as 'type:id' (e.g. engagement:e-x)")
+    entity_link_parser.add_argument("group", help="Group entity as 'type:id' (e.g. organization:o-y)")
+    entity_link_parser.add_argument("--role", help="Relation verb for the edge (e.g. ticket_of, member, serves)")
+    entity_link_parser.add_argument("--notes", help="Optional free-text note on the edge")
+    entity_link_parser.add_argument(
+        "--close", action="store_true", help="Soft-close the edge (stamp left_at) instead of writing it"
+    )
+    entity_link_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
+    entity_link_parser.add_argument("--verbose", action="store_true", help="Verbose output")
 
     # Workspace map command
     workspace_map_parser = subparsers.add_parser(

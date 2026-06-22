@@ -206,17 +206,90 @@ def mint_contact(
         return _resolve(opened)
 
 
+# Deterministic human-readable id prefixes for the entity types mint_entity
+# handles, matching the registry convention (contacts use 'c-' but mint via
+# the specialized mint_contact path, so they're intentionally absent here).
+# Used by mint_entity when no explicit --id is supplied.
+_ENTITY_ID_PREFIX: dict[str, str] = {
+    "engagement": "e",
+    "organization": "o",
+}
+
+
+def mint_entity(
+    entity_type: str,
+    name: str,
+    entity_id: str | None = None,
+    description: str | None = None,
+    extra_metadata: dict | None = None,
+    repo: WorkspaceDBRepository | None = None,
+) -> dict[str, Any]:
+    """Idempotent mint for non-contact entities (engagement, organization).
+
+    The general sibling of ``mint_contact`` — contacts keep their specialized
+    email-dedupe path; engagement/organization dedupe by their slug id
+    (no email key). Identity:
+
+      - explicit ``entity_id`` if given (mesh callers that already own a
+        canonical id pass it verbatim — e.g. an org id of ``o-nle``);
+      - otherwise the deterministic slug ``<prefix>-<name-slug>`` where prefix
+        is ``e`` (engagement) / ``o`` (organization), matching the registry's
+        human-readable convention.
+
+    Re-minting the same (entity_type, entity_id) returns the existing row with
+    created=False — a verified no-op, the same idempotent-ask convention the
+    contact mint follows. ``upsert_entity`` itself refreshes metadata/desc on
+    re-mint, so callers can also use it to update an existing row.
+    """
+    import time
+
+    if entity_type not in _ENTITY_ID_PREFIX:
+        return {"ok": False, "error": f"mint_entity does not handle entity_type={entity_type!r}"}
+    if not name or not name.strip():
+        return {"ok": False, "error": "name is required"}
+    name = name.strip()
+
+    eid = entity_id.strip() if entity_id else f"{_ENTITY_ID_PREFIX[entity_type]}-{_slugify(name)}"
+
+    def _resolve(repo: WorkspaceDBRepository) -> dict[str, Any]:
+        existing = repo.get_entity(entity_type, eid)
+        created = existing is None
+        metadata = {"minted_at": time.time(), "minted_by": "entity-create"}
+        if extra_metadata:
+            metadata.update(extra_metadata)
+        repo.upsert_entity(
+            entity_type=entity_type,
+            entity_id=eid,
+            display_name=name,
+            source_db="workspace",
+            source_table=entity_type,
+            description=description,
+            metadata=json.dumps(metadata),
+        )
+        return {"ok": True, "entity_id": eid, "created": created, "matched_by": None if created else "id"}
+
+    if repo is not None:
+        return _resolve(repo)
+    with WorkspaceDBRepository.open() as opened:
+        return _resolve(opened)
+
+
+_ENTITY_CREATE_TYPES = ("contact", "engagement", "organization")
+_ENTITY_CREATE_EMOJI = {"contact": "👤", "engagement": "🤝", "organization": "🏢"}
+
+
 def handle_entity_create_command(args):
-    """Handle entity-create command — idempotent contact mint (v1: contacts only)."""
+    """Handle entity-create command — idempotent mint of contacts,
+    engagements, and organizations into the workspace entity registry."""
     try:
         output = getattr(args, "output", "human")
         entity_type = getattr(args, "type", "contact")
-        if entity_type != "contact":
+        if entity_type not in _ENTITY_CREATE_TYPES:
             err = {
                 "ok": False,
                 "error": "unsupported_entity_type",
-                "message": f"entity-create v1 mints contacts only (got {entity_type!r}). "
-                "Other entity types are written by their owning pipelines.",
+                "message": f"entity-create mints {', '.join(_ENTITY_CREATE_TYPES)} (got {entity_type!r}). "
+                "Other entity types (project, user) are written by their owning pipelines.",
             }
             print(
                 json.dumps(err, indent=2) if output == "json" else f"❌ {err['message']}",
@@ -229,20 +302,33 @@ def handle_entity_create_command(args):
         if raw_meta:
             extra = json.loads(raw_meta)
 
-        result = mint_contact(
-            name=getattr(args, "name", None),
-            email=getattr(args, "email", None),
-            phone=getattr(args, "phone", None),
-            role=getattr(args, "role", None),
-            company_name=getattr(args, "company", None),
-            description=getattr(args, "description", None),
-            extra_metadata=extra,
-        )
+        if entity_type == "contact":
+            # Contacts keep the specialized email-dedupe identity path.
+            result = mint_contact(
+                name=getattr(args, "name", None),
+                email=getattr(args, "email", None),
+                phone=getattr(args, "phone", None),
+                role=getattr(args, "role", None),
+                company_name=getattr(args, "company", None),
+                description=getattr(args, "description", None),
+                extra_metadata=extra,
+            )
+        else:
+            # engagement / organization dedupe by slug id (no email key).
+            result = mint_entity(
+                entity_type=entity_type,
+                name=getattr(args, "name", None),
+                entity_id=getattr(args, "id", None),
+                description=getattr(args, "description", None),
+                extra_metadata=extra,
+            )
+
         if output == "json":
             print(json.dumps(result, indent=2, default=str))
         elif result.get("ok"):
             verb = "created" if result["created"] else f"exists (matched by {result['matched_by']})"
-            print(f"👤 Contact {verb}: {result['entity_id']}")
+            emoji = _ENTITY_CREATE_EMOJI.get(entity_type, "•")
+            print(f"{emoji} {entity_type.capitalize()} {verb}: {result['entity_id']}")
         else:
             print(f"❌ {result.get('error')}", file=sys.stderr)
         sys.exit(0 if result.get("ok") else 1)
@@ -423,3 +509,73 @@ def handle_entity_search_command(args):
             print(_format_entity_line(e))
     except Exception as e:
         handle_cli_error(e, "entity-search", getattr(args, "verbose", False))
+
+
+def _parse_ref(ref: str | None) -> tuple[str | None, str | None]:
+    """Parse a 'type:id' entity reference into (type, id). Either may be None."""
+    if not ref or ":" not in ref:
+        return None, None
+    t, i = ref.split(":", 1)
+    return (t.strip() or None), (i.strip() or None)
+
+
+def handle_entity_link_command(args):
+    """Handle entity-link command — write (or soft-close) a typed membership
+    edge between two entities: '<member> is <role> of <group>'.
+
+    The write peer to entity-show/-walk's read path. Both refs are 'type:id'.
+    Example: entity-link engagement:e-cowork-recovery organization:o-nle
+             --role ticket_of
+    """
+    try:
+        output = getattr(args, "output", "human")
+        m_type, m_id = _parse_ref(getattr(args, "member", None))
+        g_type, g_id = _parse_ref(getattr(args, "group", None))
+        if not (m_type and m_id and g_type and g_id):
+            err = "Both member and group must be 'type:id' (e.g. engagement:e-x organization:o-y)"
+            print(
+                json.dumps({"ok": False, "error": err}, indent=2) if output == "json" else f"❌ {err}",
+                file=sys.stderr if output != "json" else sys.stdout,
+            )
+            sys.exit(1)
+
+        role = getattr(args, "role", None)
+        notes = getattr(args, "notes", None)
+        closing = getattr(args, "close", False)
+
+        with WorkspaceDBRepository.open(ensure_schema=True) as repo:
+            if closing:
+                changed = repo.close_entity_membership(m_type, m_id, g_type, g_id)
+                action = "closed" if changed else "no_active_edge"
+            else:
+                repo.upsert_entity_membership(
+                    entity_type=m_type,
+                    entity_id=m_id,
+                    group_type=g_type,
+                    group_id=g_id,
+                    role=role,
+                    notes=notes,
+                )
+                action = "linked"
+
+        result = {
+            "ok": True,
+            "action": action,
+            "member": f"{m_type}:{m_id}",
+            "group": f"{g_type}:{g_id}",
+            "role": role,
+        }
+        if output == "json":
+            print(json.dumps(result, indent=2, default=str))
+        elif action == "linked":
+            rel = f" ({role})" if role else ""
+            print(f"🔗 {m_type}:{m_id} → {g_type}:{g_id}{rel}")
+        elif action == "closed":
+            print(f"🔻 Closed edge {m_type}:{m_id} → {g_type}:{g_id}")
+        else:
+            print(f"• No active edge {m_type}:{m_id} → {g_type}:{g_id} to close")
+        sys.exit(0)
+    except SystemExit:
+        raise
+    except Exception as e:
+        handle_cli_error(e, "entity-link", getattr(args, "verbose", False))
