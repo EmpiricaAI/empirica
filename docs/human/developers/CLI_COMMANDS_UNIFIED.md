@@ -23,8 +23,8 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.12.4
-**Generated:** 2026-06-22 16:23:47 UTC
-**Total commands:** 245 (across 26 categories)
+**Generated:** 2026-06-22 22:59:10 UTC
+**Total commands:** 246 (across 26 categories)
 
 For the most up-to-date detail on any single command, prefer
 `empirica <command> --help` — the generator extracts the same `help`
@@ -75,7 +75,7 @@ require `--session-id` (`project-bootstrap`, `sessions-show`,
 | [handoff](#handoff) | 2 | `handoff-create`, `handoff-query` |
 | [issue](#issue) | 6 | `issue-list`, `issue-show`, `issue-handoff`, … |
 | [investigation](#investigation) | 5 | `investigate`, `investigate-create-branch`, `investigate-checkpoint-branch`, … |
-| [monitoring](#monitoring) | 9 | `monitor`, `assess-state`, `trajectory-project`, … |
+| [monitoring](#monitoring) | 10 | `monitor`, `assess-state`, `trajectory-project`, … |
 | [cockpit](#cockpit) | 13 | `status`, `tui`, `sentinel`, … |
 | [skills](#skills) | 3 | `skill-suggest`, `skill-fetch`, `skill-extract` |
 | [architecture](#architecture) | 3 | `assess-component`, `assess-compare`, `assess-directory` |
@@ -2626,6 +2626,17 @@ Generate calibration report from grounded evidence
   Show all calibration disputes (open and resolved)
 - `--brier` — optional · flag
   Show Brier score decomposition per phase (reliability, resolution, uncertainty)
+
+#### `empirica grounding-export`
+
+Export one practice's current grounding state (self-assessed + grounded 13-vectors + divergence) as JSON
+
+**Arguments:**
+
+- `--ai-id` — **required**
+  Practice to export (canonical 3-form or bare basename)
+- `--output` — optional · type=`choice` · choices={human, json} · default=`json`
+  Output format (default: json)
 
 #### `empirica commit-context`
 
