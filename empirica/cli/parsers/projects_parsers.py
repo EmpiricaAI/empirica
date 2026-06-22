@@ -294,10 +294,12 @@ def add_projects_parsers(subparsers) -> None:
     # power-user surface for fine control.
     sync = subparsers.add_parser(
         "projects-sync",
+        aliases=["project-sync"],
         help=(
             "One-shot: walk filesystem → upsert ~/.empirica/registry.yaml → "
             "register on Cortex. Idempotent. Use --no-cortex for offline, "
-            "--no-write for pure preview, --dry-run for full preview."
+            "--no-write for pure preview, --dry-run for full preview. "
+            "(Alias: project-sync.)"
         ),
         description=(
             "Master command for end-to-end project sync. Equivalent to:\n"

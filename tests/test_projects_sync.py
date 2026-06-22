@@ -270,3 +270,45 @@ def test_filters_dropping_everything_does_not_crash(capsys):
         pc.handle_projects_sync_command(args)
 
     mock_post.assert_not_called()
+
+
+# ── `project-sync` (singular) alias → `projects-sync` ─────────────────
+# Practitioners + the extension reach for the singular `project-sync`;
+# the canonical verb is plural. The alias closes that natural-language gap.
+
+
+def test_project_sync_alias_parses_and_shares_args():
+    """The singular alias is accepted by the parser and shares the
+    projects-sync flag surface."""
+    import argparse
+
+    from empirica.cli.parsers.projects_parsers import add_projects_parsers
+
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(dest="command")
+    add_projects_parsers(subparsers)
+
+    # Alias parses without error and shares the --dry-run/--no-cortex flags.
+    args = parser.parse_args(["project-sync", "--dry-run", "--no-cortex", "--no-write"])
+    assert args.command in ("project-sync", "projects-sync")
+    assert args.dry_run is True and args.no_cortex is True
+
+
+def test_project_sync_alias_dispatches_end_to_end():
+    """Regression guard for the dispatch dict: argparse `aliases=` only
+    affects parsing — `args.command` carries the invoked alias string, so
+    without an explicit dispatch entry the alias fails with 'Unknown command'.
+    This runs the real CLI to prove the full parse→dispatch chain works."""
+    import subprocess
+
+    result = subprocess.run(
+        ["empirica", "project-sync", "--dry-run", "--no-cortex", "--no-write"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, f"alias dispatch failed: {result.stderr or result.stdout}"
+    # Dispatched to the projects-sync handler (dry-run preview output — the
+    # human status lines print to stderr; the JSON path would be stdout).
+    combined = result.stdout + result.stderr
+    assert "DRY RUN" in combined or "Discovered" in combined

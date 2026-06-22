@@ -733,6 +733,9 @@ def main(args=None):
             "projects-discover": handle_projects_discover_command,
             "projects-list": handle_projects_list_command,
             "projects-sync": handle_projects_sync_command,
+            # Alias: argparse `aliases=` only covers parsing/--help; args.command
+            # carries the invoked alias string, so dispatch needs its own entry.
+            "project-sync": handle_projects_sync_command,
             "projects-bulk-register": handle_projects_bulk_register_command,
             "projects-unregister": handle_projects_unregister_command,
             "project-register": handle_project_register_command,

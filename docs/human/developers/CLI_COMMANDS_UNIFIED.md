@@ -23,7 +23,7 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.12.4
-**Generated:** 2026-06-21 21:39:43 UTC
+**Generated:** 2026-06-22 15:54:07 UTC
 **Total commands:** 244 (across 26 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -1535,9 +1535,9 @@ Ambassador addressbook — project roster as per-practitioner rows with substrat
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format (default: human table; json for autonomy / scripting).
 
-#### `empirica projects-sync`
+#### `empirica projects-sync`  _(aliases: `project-sync`)_
 
-One-shot: walk filesystem → upsert ~/.empirica/registry.yaml → register on Cortex. Idempotent. Use --no-cortex for offline, --no-write for pure preview, --dry-run for full preview.
+One-shot: walk filesystem → upsert ~/.empirica/registry.yaml → register on Cortex. Idempotent. Use --no-cortex for offline, --no-write for pure preview, --dry-run for full preview. (Alias: project-sync.)
 
 **Arguments:**
 
