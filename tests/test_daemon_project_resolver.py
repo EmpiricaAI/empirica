@@ -357,7 +357,7 @@ def test_resolve_for_request_returns_uuid_project_id_for_uuid_yaml(tmp_path):
                 "slug": "empirica-cortex",
                 "name": "empirica-cortex",
                 "path": str(proj),
-                "repo_url": "https://github.com/Nubaeon/empirica-cortex",
+                "repo_url": "https://github.com/EmpiricaAI/empirica-cortex",
             }
         ],
     }
@@ -371,7 +371,7 @@ def test_resolve_for_request_returns_uuid_project_id_for_uuid_yaml(tmp_path):
     # Slug + name + repo_url still carry the human-readable form for routing.
     assert result["project_slug"] == "empirica-cortex"
     assert result["project_name"] == "empirica-cortex"
-    assert result["repo_url"] == "https://github.com/Nubaeon/empirica-cortex"
+    assert result["repo_url"] == "https://github.com/EmpiricaAI/empirica-cortex"
     assert result["project_path"] == str(proj)
 
 
@@ -391,7 +391,7 @@ def test_resolve_for_request_preserves_registry_metadata_overrides(tmp_path):
                 "slug": "empirica-extension",
                 "name": "Empirica Extension",  # human-friendly name
                 "path": str(proj),
-                "repo_url": "https://github.com/Nubaeon/empirica-extension",
+                "repo_url": "https://github.com/EmpiricaAI/empirica-extension",
             }
         ],
     }
@@ -403,7 +403,7 @@ def test_resolve_for_request_preserves_registry_metadata_overrides(tmp_path):
     assert result["project_id"] == uuid  # UUID for DB
     assert result["project_slug"] == "empirica-extension"  # registry override
     assert result["project_name"] == "Empirica Extension"  # registry override
-    assert result["repo_url"] == "https://github.com/Nubaeon/empirica-extension"
+    assert result["repo_url"] == "https://github.com/EmpiricaAI/empirica-extension"
 
 
 def test_resolve_for_request_slug_yaml_still_resolves(tmp_path):

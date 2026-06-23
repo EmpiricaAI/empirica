@@ -90,7 +90,7 @@ empirica setup-claude-code --force
 <summary>Homebrew (macOS)</summary>
 
 ```bash
-brew tap nubaeon/tap
+brew tap empiricaai/tap
 brew install empirica
 empirica setup-claude-code
 ```

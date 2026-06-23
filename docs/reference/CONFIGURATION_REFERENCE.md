@@ -723,7 +723,7 @@ has_key = loader.has_credential("MINIMAX_API_KEY")
   - CHECK: `calibration_bias` (systematic bias detection)
   - Does NOT affect: POSTFLIGHT grounded verification (always runs), Sentinel gating (always uses raw vectors), learning trajectory (informational)
 
-> **Cross-project calibration, multi-entity pattern matching, TUI analytics, and API integrations** are available in [empirica-workspace](https://github.com/Nubaeon/empirica-workspace) — the commercial extension for teams and organizations.
+> **Cross-project calibration, multi-entity pattern matching, TUI analytics, and API integrations** are available in [empirica-workspace](https://github.com/EmpiricaAI/empirica-workspace) — the commercial extension for teams and organizations.
 
 ### Features
 

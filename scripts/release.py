@@ -885,7 +885,7 @@ docker pull nubaeon/empirica:{self.version}
 
 ### Homebrew
 ```bash
-brew tap nubaeon/tap
+brew tap empiricaai/tap
 brew install empirica
 ```
 """
