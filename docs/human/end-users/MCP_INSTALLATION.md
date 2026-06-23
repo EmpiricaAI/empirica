@@ -26,7 +26,7 @@ which empirica-mcp     # verify on PATH
 
 Or via Homebrew:
 ```bash
-brew install nubaeon/tap/empirica
+brew install empiricaai/tap/empirica
 ```
 
 The `empirica-mcp` package ships its own entry point — it shells out to

@@ -2,10 +2,10 @@
 # Documentation: https://docs.brew.sh/Formula-Cookbook
 #
 # This is the packaging template. The actual formula is in:
-#   https://github.com/Nubaeon/homebrew-tap/blob/main/empirica.rb
+#   https://github.com/EmpiricaAI/homebrew-tap/blob/main/empirica.rb
 #
 # Installation:
-#   brew tap nubaeon/tap
+#   brew tap empiricaai/tap
 #   brew install empirica
 
 class Empirica < Formula

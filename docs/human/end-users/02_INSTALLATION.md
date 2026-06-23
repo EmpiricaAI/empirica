@@ -85,7 +85,7 @@ pip install --upgrade empirica
 
 ### Option 2: Homebrew (macOS)
 ```bash
-brew tap nubaeon/tap
+brew tap empiricaai/tap
 brew install empirica
 ```
 
