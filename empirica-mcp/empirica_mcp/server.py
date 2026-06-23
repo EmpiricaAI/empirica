@@ -1131,7 +1131,7 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
                         "purpose": "Measurement and calibration layer for AI — track what it knows, gate what it does",
                         "workflow": "PREFLIGHT → CHECK → work → POSTFLIGHT",
                         "vectors": 13,
-                        "docs": "https://github.com/Nubaeon/empirica",
+                        "docs": "https://github.com/EmpiricaAI/empirica",
                         "commands": sorted(TOOL_REGISTRY.keys()),
                     },
                     indent=2,

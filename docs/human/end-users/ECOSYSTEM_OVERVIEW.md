@@ -69,7 +69,7 @@ that extend it:
 | **empirica-workspace** | TUI analytics, CRM (clients + engagements + memories), portfolio dashboards | `Nubaeon/empirica-workspace` |
 | **empirica-cortex** | Cross-AI orchestration — proposal pipeline, listener mesh, ECO trust gating (proprietary) | [getempirica.com](https://getempirica.com) |
 | **empirica-extension** | Browser extension surfacing artifacts in Chrome | `Nubaeon/empirica-extension` |
-| **empirica-mcp** | MCP server bridge for Claude Desktop / Cursor / etc. | `Nubaeon/empirica-mcp` |
+| **empirica-mcp** | MCP server bridge for Claude Desktop / Cursor / etc. | `EmpiricaAI/empirica` (`empirica-mcp/`) |
 
 Base empirica (this package) is the measurement + storage core. The
 extensions layer different surfaces on top.

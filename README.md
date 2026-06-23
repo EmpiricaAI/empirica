@@ -2,7 +2,7 @@
 
 > **We Gave AI a Mirror. Now It Measures What It Believes.**
 
-[![Version](https://img.shields.io/badge/version-1.12.4-blue)](https://github.com/Nubaeon/empirica/releases/tag/v1.12.4)
+[![Version](https://img.shields.io/badge/version-1.12.4-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.12.4)
 [![PyPI](https://img.shields.io/pypi/v/empirica)](https://pypi.org/project/empirica/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -327,7 +327,7 @@ All read-only, all support `--output json`. Backs cross-project orchestration, C
 
 | Project | Description | Status |
 |---------|-------------|--------|
-| **[Empirica](https://github.com/Nubaeon/empirica)** | Core measurement system — epistemic transactions, Sentinel, calibration, 13 vectors | Open source |
+| **[Empirica](https://github.com/EmpiricaAI/empirica)** | Core measurement system — epistemic transactions, Sentinel, calibration, 13 vectors | Open source |
 | **[Empirica Iris](https://github.com/Nubaeon/empirica-iris)** | Epistemic browser automation with SVG spatial indexing — Sentinel gating for visual interactions | Open source |
 | **[Docpistemic](https://github.com/Nubaeon/docpistemic)** | Epistemic documentation coverage assessment — know what your docs know | Open source |
 | **[Breadcrumbs](https://github.com/Nubaeon/breadcrumbs)** | Survive context compacts with git notes — dead simple session continuity | Open source |
@@ -335,7 +335,7 @@ All read-only, all support `--output json`. Backs cross-project orchestration, C
 | **[Empirica Workspace](https://getempirica.com)** | Entity Knowledge Graph, Epistemic Prompt Engine, CRM, portfolio dashboard | Proprietary |
 | **[Empirica Extension](https://getempirica.com)** | Chrome extension — desktop face of the mesh. ECO Accept/Decline, inbox/outbox triage, publish review, conversation extraction from Claude.ai / ChatGPT / Gemini / Grok | Proprietary |
 
-**Building something with Empirica?** [Open an issue](https://github.com/Nubaeon/empirica/issues) to get listed.
+**Building something with Empirica?** [Open an issue](https://github.com/EmpiricaAI/empirica/issues) to get listed.
 
 ---
 
@@ -362,8 +362,8 @@ No cloud dependencies. No telemetry. Your epistemic data is yours.
 ## Community & Support
 
 - **Website:** [getempirica.com](https://getempirica.com)
-- **Issues:** [GitHub Issues](https://github.com/Nubaeon/empirica/issues)
-- **Discussions:** [GitHub Discussions](https://github.com/Nubaeon/empirica/discussions)
+- **Issues:** [GitHub Issues](https://github.com/EmpiricaAI/empirica/issues)
+- **Discussions:** [GitHub Discussions](https://github.com/EmpiricaAI/empirica/discussions)
 
 ---
 

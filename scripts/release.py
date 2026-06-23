@@ -403,8 +403,8 @@ class ReleaseManager:
             # README.md version badge and footer
             (
                 self.repo_root / "README.md",
-                r'badge/version-[0-9]+\.[0-9]+\.[0-9]+-blue\)\]\(https://github\.com/Nubaeon/empirica/releases/tag/v[0-9]+\.[0-9]+\.[0-9]+\)',
-                f'badge/version-{self.version}-blue)](https://github.com/Nubaeon/empirica/releases/tag/v{self.version})',
+                r'badge/version-[0-9]+\.[0-9]+\.[0-9]+-blue\)\]\(https://github\.com/EmpiricaAI/empirica/releases/tag/v[0-9]+\.[0-9]+\.[0-9]+\)',
+                f'badge/version-{self.version}-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v{self.version})',
             ),
             # README.md docker tag references (standalone — added 1.8.16 to plug the
             # gap that left "nubaeon/empirica:1.8.14" lying around after the 1.8.15
@@ -1324,7 +1324,7 @@ brew install empirica
             info(f"PyPI (MCP): https://pypi.org/project/empirica-mcp/{self.version}/")
             info(f"Docker: docker pull nubaeon/empirica:{self.version}")
             info(f"Docker: docker pull nubaeon/empirica:{self.version}-alpine")
-            info(f"GitHub: https://github.com/Nubaeon/empirica/releases/tag/v{self.version}")
+            info(f"GitHub: https://github.com/EmpiricaAI/empirica/releases/tag/v{self.version}")
             info(f"Homebrew: brew upgrade empirica")
             info(f"Chocolatey: choco upgrade empirica")
 
@@ -1399,7 +1399,7 @@ brew install empirica
             info(f"PyPI (MCP): https://pypi.org/project/empirica-mcp/{self.version}/")
             info(f"Docker: docker pull nubaeon/empirica:{self.version}")
             info(f"Docker: docker pull nubaeon/empirica:{self.version}-alpine")
-            info(f"GitHub: https://github.com/Nubaeon/empirica/releases/tag/v{self.version}")
+            info(f"GitHub: https://github.com/EmpiricaAI/empirica/releases/tag/v{self.version}")
             info(f"Homebrew: brew upgrade empirica")
             info(f"Chocolatey: choco upgrade empirica")
 

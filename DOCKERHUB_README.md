@@ -4,9 +4,9 @@
 
 Teaching AI to know what it knows—and what it doesn't.
 
-[![GitHub](https://img.shields.io/badge/GitHub-Nubaeon%2Fempirica-blue)](https://github.com/Nubaeon/empirica)
+[![GitHub](https://img.shields.io/badge/GitHub-EmpiricaAI%2Fempirica-blue)](https://github.com/EmpiricaAI/empirica)
 [![PyPI](https://img.shields.io/pypi/v/empirica)](https://pypi.org/project/empirica/)
-[![License](https://img.shields.io/badge/license-MIT-green)](https://github.com/Nubaeon/empirica/blob/main/LICENSE)
+[![License](https://img.shields.io/badge/license-MIT-green)](https://github.com/EmpiricaAI/empirica/blob/main/LICENSE)
 
 ---
 
@@ -175,9 +175,9 @@ docker run --rm nubaeon/empirica:1.6.6-alpine empirica --version
 
 | Resource | Link |
 |----------|------|
-| Full Documentation | [github.com/Nubaeon/empirica/docs](https://github.com/Nubaeon/empirica/tree/main/docs) |
-| CLI Reference | [CLI_COMMANDS_UNIFIED.md](https://github.com/Nubaeon/empirica/blob/main/docs/human/developers/CLI_COMMANDS_UNIFIED.md) |
-| CASCADE Workflow | [CASCADE_WORKFLOW.md](https://github.com/Nubaeon/empirica/blob/main/docs/architecture/CASCADE_WORKFLOW.md) |
+| Full Documentation | [github.com/EmpiricaAI/empirica/docs](https://github.com/EmpiricaAI/empirica/tree/main/docs) |
+| CLI Reference | [CLI_COMMANDS_UNIFIED.md](https://github.com/EmpiricaAI/empirica/blob/main/docs/human/developers/CLI_COMMANDS_UNIFIED.md) |
+| CASCADE Workflow | [CASCADE_WORKFLOW.md](https://github.com/EmpiricaAI/empirica/blob/main/docs/architecture/CASCADE_WORKFLOW.md) |
 | Getting Started | [getempirica.com](https://getempirica.com) |
 
 ---
@@ -186,6 +186,6 @@ docker run --rm nubaeon/empirica:1.6.6-alpine empirica --version
 
 MIT License
 
-**GitHub:** [github.com/Nubaeon/empirica](https://github.com/Nubaeon/empirica)
+**GitHub:** [github.com/EmpiricaAI/empirica](https://github.com/EmpiricaAI/empirica)
 
 **Website:** [getempirica.com](https://getempirica.com)

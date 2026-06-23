@@ -53,5 +53,5 @@ cp agent.md ~/.claude/plugins/local/empirica/agents/token-budget.md
 
 ## Requires
 
-- [Empirica](https://github.com/Nubaeon/empirica) installed (`pip install empirica`)
+- [Empirica](https://github.com/EmpiricaAI/empirica) installed (`pip install empirica`)
 - Claude Code session transcripts (`.claude/projects/*/*.jsonl`)

@@ -15,7 +15,7 @@ iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocola
 
 ### 2. Clone Repo and Navigate
 ```powershell
-git clone https://github.com/Nubaeon/empirica.git
+git clone https://github.com/EmpiricaAI/empirica.git
 cd empirica/packaging/chocolatey
 ```
 

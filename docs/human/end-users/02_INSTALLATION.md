@@ -104,7 +104,7 @@ docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.12.4 /bin/
 ### Option 4: From Source
 ```bash
 # Clone repository
-git clone https://github.com/Nubaeon/empirica.git
+git clone https://github.com/EmpiricaAI/empirica.git
 cd empirica
 
 # Install in development mode
@@ -310,7 +310,7 @@ For contributors or advanced users:
 
 ```bash
 # Clone repository
-git clone https://github.com/Nubaeon/empirica.git
+git clone https://github.com/EmpiricaAI/empirica.git
 cd empirica
 
 # Create virtual environment
@@ -388,7 +388,7 @@ rm -rf .empirica/
 
 - **Issues:** Check [03_TROUBLESHOOTING.md](03_TROUBLESHOOTING.md)
 - **Documentation:** Browse `docs/` directory
-- **Source code:** [github.com/Nubaeon/empirica](https://github.com/Nubaeon/empirica)
+- **Source code:** [github.com/EmpiricaAI/empirica](https://github.com/EmpiricaAI/empirica)
 
 ---
 

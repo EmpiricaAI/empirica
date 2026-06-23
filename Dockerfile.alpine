@@ -69,5 +69,5 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s \
 CMD ["empirica", "--help"]
 
 # Security labels
-LABEL org.opencontainers.image.source="https://github.com/Nubaeon/empirica"
+LABEL org.opencontainers.image.source="https://github.com/EmpiricaAI/empirica"
 LABEL org.opencontainers.image.licenses="MIT"

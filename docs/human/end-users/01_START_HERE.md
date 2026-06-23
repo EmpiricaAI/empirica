@@ -32,7 +32,7 @@ The core mechanic:
 pip install empirica
 
 # Or from source
-git clone https://github.com/Nubaeon/empirica.git
+git clone https://github.com/EmpiricaAI/empirica.git
 cd empirica && pip install -e .
 
 # Verify

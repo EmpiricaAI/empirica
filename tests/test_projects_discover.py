@@ -161,15 +161,17 @@ def test_walk_finds_nested_projects_when_outer_is_also_a_project(tmp_path):
 
 
 def test_normalize_ssh_form_strips_git_suffix():
-    assert _normalize_remote_url("git@github.com:Nubaeon/empirica.git") == "https://github.com/Nubaeon/empirica"
+    assert _normalize_remote_url("git@github.com:EmpiricaAI/empirica.git") == "https://github.com/EmpiricaAI/empirica"
 
 
 def test_normalize_ssh_form_without_git_suffix():
-    assert _normalize_remote_url("git@github.com:Nubaeon/empirica") == "https://github.com/Nubaeon/empirica"
+    assert _normalize_remote_url("git@github.com:EmpiricaAI/empirica") == "https://github.com/EmpiricaAI/empirica"
 
 
 def test_normalize_https_form_strips_git_suffix():
-    assert _normalize_remote_url("https://github.com/Nubaeon/empirica.git") == "https://github.com/Nubaeon/empirica"
+    assert (
+        _normalize_remote_url("https://github.com/EmpiricaAI/empirica.git") == "https://github.com/EmpiricaAI/empirica"
+    )
 
 
 def test_normalize_http_form_passes_through():

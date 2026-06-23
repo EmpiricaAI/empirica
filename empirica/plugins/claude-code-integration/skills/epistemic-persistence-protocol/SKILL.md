@@ -11,7 +11,7 @@ description: >
   This skill prevents both full capitulation (abandoning positions under emotional
   pressure) and inverse sycophancy (resisting all pushback uniformly). It replaces
   the Anti-Agreement Protocol (AAP) with a calibrated, evidence-gated approach.
-  Part of the Empirica epistemic measurement framework (github.com/Nubaeon/empirica).
+  Part of the Empirica epistemic measurement framework (github.com/EmpiricaAI/empirica).
 ---
 
 # Epistemic Persistence Protocol (EPP)
@@ -254,7 +254,7 @@ Part of the Empirica epistemic measurement and governance framework.
 Developed to address RLHF-induced sycophancy through architectural
 epistemic governance rather than prompt-level instruction.
 
-MIT License — github.com/Nubaeon/empirica
+MIT License — github.com/EmpiricaAI/empirica
 
 The Epistemic Persistence Protocol was designed by David (Nubaeon) and Claude
 as a CASCADE module addressing calibrated position-holding under pushback.
