@@ -23,7 +23,7 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.12.4
-**Generated:** 2026-06-23 13:46:29 UTC
+**Generated:** 2026-06-23 14:45:52 UTC
 **Total commands:** 246 (across 26 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -5024,6 +5024,50 @@ Validate a module.yaml manifest (structural; fail-fast before install)
 
 - `path` — **required**
   Path to the module.yaml to validate
+- `--output` — optional · type=`choice` · choices={json, text} · default=`json`
+  Output format (default: json)
+
+
+##### `empirica module fetch`
+
+Stage a module's distribution artifacts (auth-gated pre-step before seat + provision)
+
+**Arguments:**
+
+- `path` — **required**
+  Path to the module.yaml
+- `--dry-run` — optional · flag
+  Compute the fetch plan; write nothing
+- `--registry` — optional
+  Plugin-archive registry base URL (default: $EMPIRICA_MODULE_REGISTRY)
+- `--index-url` — optional
+  pip index URL for python_packages (default: $EMPIRICA_MODULE_INDEX_URL)
+- `--staging-root` — optional
+  Override the staging root (default: ~/.empirica/module_staging)
+- `--output` — optional · type=`choice` · choices={json, text} · default=`json`
+  Output format (default: json)
+
+
+##### `empirica module provision`
+
+Plugin layer: place files, register automations, grant ntfy topics, check env
+
+**Arguments:**
+
+- `path` — **required**
+  Path to the module.yaml
+- `--dry-run` — optional · flag
+  Compute the provision plan; perform nothing
+- `--plugin-root` — optional
+  Override plugin root (default: ~/.claude/plugins/local)
+- `--staging-root` — optional
+  Staging root holding fetched artifacts
+- `--cortex-url` — optional
+  Cortex base URL for ntfy ACL grants (default: credentials.yaml)
+- `--org` — optional
+  Org slug for ntfy grant users (e.g. empirica); topics skip without it
+- `--tenant` — optional
+  Tenant slug for the subscriber grant user
 - `--output` — optional · type=`choice` · choices={json, text} · default=`json`
   Output format (default: json)
 

@@ -23,10 +23,13 @@ crashing.
 
 from __future__ import annotations
 
+import contextlib
+import json
 import os
 import shutil
 import subprocess
 import sys
+import tarfile
 import urllib.error
 import urllib.request
 from importlib import metadata
@@ -35,8 +38,13 @@ from pathlib import Path
 from empirica.core.modules.manifest import ModuleManifest
 
 STAGING_ROOT = Path.home() / ".empirica" / "module_staging"
+CLAUDE_PLUGIN_ROOT = Path.home() / ".claude" / "plugins" / "local"
 REGISTRY_ENV = "EMPIRICA_MODULE_REGISTRY"  # base URL for plugin-archive fetch
 INDEX_ENV = "EMPIRICA_MODULE_INDEX_URL"  # auth-gated pip index for python_packages
+
+# manifest automation.kind → empirica loop-registry kind (the registry has no
+# "listener" kind; a persistent stream-watcher IS a monitor-kind loop).
+_AUTOMATION_KIND_MAP = {"listener": "monitor", "interval": "interval", "cron": "cron"}
 
 
 def _resolve_secret_ref(ref: str | None) -> tuple[str | None, str]:
@@ -203,6 +211,166 @@ def fetch_module(
         "module": manifest.name,
         "dry_run": dry_run,
         "staged_path": str(staged),
+        "steps": steps,
+        "errors": errors,
+    }
+
+
+# ── provision (leg 3): the plugin layer ─────────────────────────────────────
+
+
+def _place_plugin_artifact(
+    manifest: ModuleManifest, staging_root: Path | None, plugin_root: Path | None, dry_run: bool
+) -> dict:
+    """Place the staged plugin archive into ~/.claude/plugins/local/<name>/."""
+    archive = manifest.artifacts.plugin_archive
+    dest = (plugin_root or CLAUDE_PLUGIN_ROOT) / manifest.name
+    if not archive:
+        return {
+            "kind": "plugin_files",
+            "target": manifest.name,
+            "status": "no_artifact",
+            "detail": "no plugin_archive declared",
+        }
+    if dest.exists() and any(dest.iterdir()):
+        return {"kind": "plugin_files", "target": str(dest), "status": "skipped", "detail": "already populated"}
+    staged = (staging_root or STAGING_ROOT) / manifest.name / Path(archive).name
+    if not staged.exists():
+        return {"kind": "plugin_files", "target": archive, "status": "not_staged", "detail": "run `module fetch` first"}
+    if dry_run:
+        return {
+            "kind": "plugin_files",
+            "target": str(dest),
+            "status": "would_place",
+            "detail": f"extract {staged.name}",
+        }
+    try:
+        dest.mkdir(parents=True, exist_ok=True)
+        if tarfile.is_tarfile(staged):
+            with tarfile.open(staged) as tf:
+                tf.extractall(dest, filter="data")  # filter=data → safe extraction (py3.11.4+)
+        else:
+            shutil.copy2(staged, dest / staged.name)
+        return {"kind": "plugin_files", "target": str(dest), "status": "placed", "detail": staged.name}
+    except (OSError, tarfile.TarError) as e:
+        return {"kind": "plugin_files", "target": archive, "status": "error", "detail": str(e)[:300]}
+
+
+def _register_automation(auto, dry_run: bool) -> dict:
+    """Register one automation via the canonical ``empirica loop register`` (idempotent)."""
+    kind = _AUTOMATION_KIND_MAP.get(auto.kind, auto.kind)
+    cmd = ["empirica", "loop", "register", "--name", auto.name, "--kind", kind]
+    if auto.kind == "interval" and auto.interval:
+        cmd += ["--interval", auto.interval]
+    elif auto.kind == "cron" and auto.cron:
+        cmd += ["--cron", auto.cron]
+    # loop register has no --command: it tracks the schedulable entry. A listener's
+    # command-as-service supervision (systemd autostart/restart) is the front-door's
+    # `empirica loop enable` step, not register's job.
+    note = " (command-supervision via `loop enable`)" if auto.kind == "listener" else ""
+    if dry_run:
+        return {"kind": "automation", "target": auto.name, "status": "would_register", "detail": " ".join(cmd) + note}
+    try:
+        subprocess.run(cmd, capture_output=True, text=True, timeout=60, check=True)
+        return {"kind": "automation", "target": auto.name, "status": "registered", "detail": f"kind={kind}{note}"}
+    except subprocess.CalledProcessError as e:
+        return {
+            "kind": "automation",
+            "target": auto.name,
+            "status": "error",
+            "detail": (e.stderr or e.stdout or "register failed").strip()[:300],
+        }
+    except (subprocess.SubprocessError, OSError) as e:
+        return {"kind": "automation", "target": auto.name, "status": "error", "detail": str(e)[:300]}
+
+
+def _post_grants(cortex_url: str, api_key: str, grants: list[dict]) -> tuple[bool, str]:
+    """POST ntfy ACL grants to cortex admin (the contract cortex shipped)."""
+    url = cortex_url.rstrip("/") + "/v1/admin/ntfy/grants"
+    body = json.dumps({"grants": grants}).encode()
+    req = urllib.request.Request(url, data=body, method="POST")
+    req.add_header("Authorization", f"Bearer {api_key}")
+    req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return (resp.status in (200, 207), f"http {resp.status}")
+    except urllib.error.HTTPError as e:
+        return False, f"http {e.code}"
+    except (urllib.error.URLError, OSError) as e:
+        return False, str(e)[:300]
+
+
+def _grant_topics(manifest, cortex_url, cortex_api_key, org, tenant, dry_run) -> list[dict]:
+    """Register + grant each declared ntfy topic via the cortex admin ACL endpoint."""
+    topics = manifest.requires_runtime.topics
+    if not topics:
+        return []
+    if not (cortex_url and cortex_api_key and org):
+        return [
+            {"kind": "topic", "target": t, "status": "unconfigured", "detail": "needs cortex url/api_key + --org"}
+            for t in topics
+        ]
+    publisher = f"{org}-cortex-publisher"
+    subscriber = f"{org}-u-{tenant}" if tenant else f"{org}-{manifest.name}-subscriber"
+    out = []
+    for t in topics:
+        grants = [
+            {"user": publisher, "topic": t, "permission": "rw"},
+            {"user": subscriber, "topic": t, "permission": "read-only"},
+        ]
+        if dry_run:
+            out.append({"kind": "topic", "target": t, "status": "would_grant", "detail": json.dumps(grants)})
+            continue
+        ok, detail = _post_grants(cortex_url, cortex_api_key, grants)
+        out.append({"kind": "topic", "target": t, "status": "granted" if ok else "error", "detail": detail})
+    return out
+
+
+def _check_env(manifest) -> list[dict]:
+    """Presence-check each required env var. The value is never read (reference-only)."""
+    return [
+        {"kind": "env", "target": var, "status": "present" if var in os.environ else "missing", "detail": ""}
+        for var in manifest.requires_runtime.env
+    ]
+
+
+def provision_module(
+    manifest: ModuleManifest,
+    *,
+    dry_run: bool = False,
+    staging_root: Path | None = None,
+    plugin_root: Path | None = None,
+    cortex_url: str | None = None,
+    cortex_api_key: str | None = None,
+    org: str | None = None,
+    tenant: str | None = None,
+) -> dict:
+    """Run the plugin layer: place files, register automations, grant topics, check env.
+
+    Returns a receipt ``{ok, action, module, dry_run, steps, errors}``. A missing
+    env var is reported (``missing``) but is NOT an error — the value resolves at
+    runtime on the dispatching host, which may differ from the provisioning host.
+    """
+    if cortex_url is None or cortex_api_key is None:
+        # credentials absent/unreadable → topics simply report unconfigured
+        with contextlib.suppress(Exception):
+            from empirica.config.credentials_loader import CredentialsLoader
+
+            cfg = CredentialsLoader().get_cortex_config()
+            cortex_url = cortex_url or cfg.get("url")
+            cortex_api_key = cortex_api_key or cfg.get("api_key")
+
+    steps: list[dict] = [_place_plugin_artifact(manifest, staging_root, plugin_root, dry_run)]
+    steps += [_register_automation(a, dry_run) for a in manifest.provides.automations]
+    steps += _grant_topics(manifest, cortex_url, cortex_api_key, org, tenant, dry_run)
+    steps += _check_env(manifest)
+
+    errors = [f"{s['kind']} {s['target']}: {s['detail']}" for s in steps if s["status"] == "error"]
+    return {
+        "ok": not errors,
+        "action": "provision",
+        "module": manifest.name,
+        "dry_run": dry_run,
         "steps": steps,
         "errors": errors,
     }
