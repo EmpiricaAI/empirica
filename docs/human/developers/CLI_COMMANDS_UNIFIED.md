@@ -23,8 +23,8 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.12.4
-**Generated:** 2026-06-22 16:23:47 UTC
-**Total commands:** 245 (across 26 categories)
+**Generated:** 2026-06-23 13:46:29 UTC
+**Total commands:** 246 (across 26 categories)
 
 For the most up-to-date detail on any single command, prefer
 `empirica <command> --help` — the generator extracts the same `help`
@@ -5009,6 +5009,24 @@ View conversation thread
 - `--channel` — optional
   Filter by channel (optional)
 - `--output` — optional · type=`choice` · choices={human, json} · default=`json`
+
+#### `empirica module`
+
+Practice-module manifest tooling (validate; fetch/provision land in later legs)
+
+**Subcommands:**
+
+##### `empirica module validate`
+
+Validate a module.yaml manifest (structural; fail-fast before install)
+
+**Arguments:**
+
+- `path` — **required**
+  Path to the module.yaml to validate
+- `--output` — optional · type=`choice` · choices={json, text} · default=`json`
+  Output format (default: json)
+
 
 #### `empirica performance`
 
