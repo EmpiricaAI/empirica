@@ -493,6 +493,18 @@ class WorkspaceDBRepository(BaseRepository):
         )
         return [dict(row) for row in cursor.fetchall()]
 
+    def count_entity_artifacts(self, entity_type: str, entity_id: str) -> int:
+        """Count artifact links for an entity (list projection linked_artifact_count).
+
+        Uses idx_entity_artifacts_entity.
+        """
+        cursor = self._execute(
+            "SELECT COUNT(*) AS n FROM entity_artifacts WHERE entity_type = ? AND entity_id = ?",
+            (entity_type, entity_id),
+        )
+        row = cursor.fetchone()
+        return int(row["n"]) if row else 0
+
     # --- entity_registry / entity_memberships (CLI surface backing) ---
 
     def list_entities(
