@@ -12,6 +12,7 @@ manifest declaratively — it never imports a module's code to understand what
 the manifest would install.
 """
 
+from empirica.core.modules.executors import fetch_module, provision_module
 from empirica.core.modules.manifest import (
     ManifestError,
     ModuleManifest,
@@ -22,6 +23,8 @@ from empirica.core.modules.manifest import (
 __all__ = [
     "ManifestError",
     "ModuleManifest",
+    "fetch_module",
     "load_manifest",
+    "provision_module",
     "validate_manifest_file",
 ]
