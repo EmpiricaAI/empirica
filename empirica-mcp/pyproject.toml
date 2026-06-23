@@ -28,10 +28,10 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/Nubaeon/empirica"
-Documentation = "https://github.com/Nubaeon/empirica/tree/main/docs"
-Repository = "https://github.com/Nubaeon/empirica"
-Issues = "https://github.com/Nubaeon/empirica/issues"
+Homepage = "https://github.com/EmpiricaAI/empirica"
+Documentation = "https://github.com/EmpiricaAI/empirica/tree/main/docs"
+Repository = "https://github.com/EmpiricaAI/empirica"
+Issues = "https://github.com/EmpiricaAI/empirica/issues"
 
 [project.scripts]
 empirica-mcp = "empirica_mcp.server:run"

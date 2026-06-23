@@ -103,7 +103,7 @@ curl http://localhost:8000/api/v1/health
   "project_path": "/home/user/code/empirica",
   "project_name": "Empirica",
   "project_slug": "empirica",
-  "repo_url": "https://github.com/Nubaeon/empirica"
+  "repo_url": "https://github.com/EmpiricaAI/empirica"
 }
 ```
 

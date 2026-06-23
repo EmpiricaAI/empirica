@@ -1808,7 +1808,7 @@ to restart the daemon to switch project context.
       slug: empirica
       name: empirica
       path: /home/user/empirical-ai/empirica
-      repo_url: https://github.com/Nubaeon/empirica
+      repo_url: https://github.com/EmpiricaAI/empirica
       last_seen: 2026-05-12T08:32:00Z
   ```
   `project_id` is the Cortex UUID when registered, or a local slug for
@@ -5253,6 +5253,6 @@ First stable release of Empirica - genuine AI epistemic self-assessment framewor
 
 ## Links
 
-- [GitHub Repository](https://github.com/Nubaeon/empirica)
-- [Documentation](https://github.com/Nubaeon/empirica/tree/main/docs)
-- [Issue Tracker](https://github.com/Nubaeon/empirica/issues)
+- [GitHub Repository](https://github.com/EmpiricaAI/empirica)
+- [Documentation](https://github.com/EmpiricaAI/empirica/tree/main/docs)
+- [Issue Tracker](https://github.com/EmpiricaAI/empirica/issues)

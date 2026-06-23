@@ -170,6 +170,7 @@ from .command_handlers.message_commands import (
     handle_message_send_command,
     handle_message_thread_command,
 )
+from .command_handlers.module_commands import handle_module_group_command
 from .command_handlers.persona_commands import (
     handle_persona_find_command,
     handle_persona_list_command,
@@ -218,6 +219,7 @@ from .parsers import (
     add_memory_parsers,
     add_mesh_parsers,
     add_message_parsers,
+    add_module_parsers,
     add_monitor_parsers,
     add_notify_parsers,
     add_onboarding_parsers,
@@ -309,6 +311,7 @@ def create_argument_parser():
     add_release_parsers(subparsers)
     add_lesson_parsers(subparsers)
     add_onboarding_parsers(subparsers)
+    add_module_parsers(subparsers)
     add_trajectory_parsers(subparsers)
     add_concept_graph_parsers(subparsers)
     add_mcp_parsers(subparsers)
@@ -663,6 +666,7 @@ def main(args=None):
             # Cockpit (proposal: PROPOSAL_SENTINEL_LOOP_TUI.md)
             "sentinel": handle_sentinel_group_command,
             "loop": handle_loop_group_command,
+            "module": handle_module_group_command,
             "listener": handle_listener_group_command,
             "mailbox": handle_mailbox_group_command,
             "instance": handle_instance_group_command,

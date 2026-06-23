@@ -253,4 +253,4 @@ empirica project-init  # start over
 
 - **`empirica diagnose`** for integration checks
 - **`empirica --help`** or **`empirica <command> --help`**
-- **GitHub Issues:** https://github.com/Nubaeon/empirica/issues
+- **GitHub Issues:** https://github.com/EmpiricaAI/empirica/issues

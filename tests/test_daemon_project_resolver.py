@@ -260,20 +260,20 @@ def test_read_git_remote_normalizes_ssh_form(tmp_path, monkeypatch):
     def _fake_run(*args, **kwargs):
         from types import SimpleNamespace
 
-        return SimpleNamespace(returncode=0, stdout="git@github.com:Nubaeon/empirica.git\n")
+        return SimpleNamespace(returncode=0, stdout="git@github.com:EmpiricaAI/empirica.git\n")
 
     monkeypatch.setattr("subprocess.run", _fake_run)
-    assert _read_git_remote(tmp_path) == "https://github.com/Nubaeon/empirica"
+    assert _read_git_remote(tmp_path) == "https://github.com/EmpiricaAI/empirica"
 
 
 def test_read_git_remote_strips_dot_git_from_https(tmp_path, monkeypatch):
     def _fake_run(*args, **kwargs):
         from types import SimpleNamespace
 
-        return SimpleNamespace(returncode=0, stdout="https://github.com/Nubaeon/empirica.git\n")
+        return SimpleNamespace(returncode=0, stdout="https://github.com/EmpiricaAI/empirica.git\n")
 
     monkeypatch.setattr("subprocess.run", _fake_run)
-    assert _read_git_remote(tmp_path) == "https://github.com/Nubaeon/empirica"
+    assert _read_git_remote(tmp_path) == "https://github.com/EmpiricaAI/empirica"
 
 
 # ---------------------------------------------------------------------------
