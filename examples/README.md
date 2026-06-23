@@ -54,5 +54,5 @@ This means:
 
 ## Requires
 
-- [Empirica](https://github.com/Nubaeon/empirica) (`pip install empirica`)
+- [Empirica](https://github.com/EmpiricaAI/empirica) (`pip install empirica`)
 - Claude Code with Empirica plugin (`empirica setup-claude-code --force`)

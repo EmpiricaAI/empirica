@@ -310,6 +310,105 @@ def test_http_endpoint_rejects_non_contact():
     assert r.status_code == 422
 
 
+class _NoCloseCtx:
+    """Context manager that yields the fixture repo without closing it on exit.
+
+    The list route runs ``with WorkspaceDBRepository.open() as repo:``; the real
+    ``__exit__`` closes the connection (a type-level dunder, so an instance-attr
+    override is a no-op). Patching ``open`` to return this wrapper lets the route
+    reuse the fixture conn across requests — the fixture teardown owns the close.
+    """
+
+    def __init__(self, repo):
+        self._repo = repo
+
+    def __enter__(self):
+        return self._repo
+
+    def __exit__(self, *_a):
+        return False
+
+
+def test_http_list_entities_projection(repo):
+    """GET /api/v1/entities — the converged list projection (extension backing).
+
+    id/type/name always present; subtitle/health/linked_artifact_count derived
+    per type. health reads metadata.health (decision A); contact subtitle is
+    company_name; organization subtitle is metadata.domain.
+    """
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from empirica.api.routes.entities import router
+
+    mint_contact("List Person", email="list@x.example", company_name="NLE", role="CTO", repo=repo)
+    mint_entity(
+        "organization",
+        "NLE",
+        entity_id="o-nle",
+        extra_metadata={"domain": "nle.example", "health": "green"},
+        repo=repo,
+    )
+
+    app = FastAPI()
+    app.include_router(router)
+    client = TestClient(app)
+    with patch(
+        "empirica.data.repositories.workspace_db.WorkspaceDBRepository.open",
+        return_value=_NoCloseCtx(repo),
+    ):
+        r = client.get("/api/v1/entities")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["ok"] is True
+        by_id = {e["id"]: e for e in data["entities"]}
+
+        c = by_id["c-list-person-nle"]
+        assert c["type"] == "contact" and c["name"] == "List Person"
+        assert c["subtitle"] == "NLE"  # company_name wins over role
+        assert c["health"] is None  # no metadata.health on this contact
+        assert c["linked_artifact_count"] == 0
+
+        o = by_id["o-nle"]
+        assert o["type"] == "organization"
+        assert o["subtitle"] == "nle.example"  # metadata.domain
+        assert o["health"] == "green"  # metadata.health (decision A)
+
+        # type filter narrows to one type
+        r2 = client.get("/api/v1/entities", params={"type": "organization"})
+        ids = {e["id"] for e in r2.json()["entities"]}
+        assert "o-nle" in ids and "c-list-person-nle" not in ids
+
+
+def test_http_list_entities_tolerates_garbage_metadata(repo):
+    """A row with malformed metadata must not 500 the whole list projection."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from empirica.api.routes.entities import router
+
+    repo.upsert_entity(
+        entity_type="organization",
+        entity_id="o-broken",
+        display_name="Broken Co",
+        source_db="workspace.db",
+        source_table="organization",
+        metadata="{not valid json",
+    )
+
+    app = FastAPI()
+    app.include_router(router)
+    client = TestClient(app)
+    with patch(
+        "empirica.data.repositories.workspace_db.WorkspaceDBRepository.open",
+        return_value=_NoCloseCtx(repo),
+    ):
+        r = client.get("/api/v1/entities")
+        assert r.status_code == 200
+        o = {e["id"]: e for e in r.json()["entities"]}["o-broken"]
+        assert o["health"] is None and o["subtitle"] is None
+
+
 # ── Daemon deployment env support (per-org instances) ─────────────────
 
 

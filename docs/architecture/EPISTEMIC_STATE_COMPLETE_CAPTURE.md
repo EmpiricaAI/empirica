@@ -214,7 +214,7 @@
     "project_id": "def456",
     "name": "empirica",
     "description": "Empirica CLI and framework",
-    "repos": ["https://github.com/Nubaeon/empirica.git"],
+    "repos": ["https://github.com/EmpiricaAI/empirica.git"],
     "active_sessions": [
       {"session_id": "abc123", "ai_id": "empirica-hook-debug"},
       {"session_id": "xyz789", "ai_id": "qwen-testing"}

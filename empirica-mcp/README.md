@@ -236,9 +236,9 @@ docker run -p 3000:3000 nubaeon/empirica:1.6.6 empirica-mcp
 
 ## Documentation
 
-- [Empirica Documentation](https://github.com/Nubaeon/empirica/tree/main/docs)
+- [Empirica Documentation](https://github.com/EmpiricaAI/empirica/tree/main/docs)
 - [MCP Protocol](https://modelcontextprotocol.io)
 
 ## License
 
-MIT License - See [Empirica repository](https://github.com/Nubaeon/empirica) for details.
+MIT License - See [Empirica repository](https://github.com/EmpiricaAI/empirica) for details.

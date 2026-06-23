@@ -61,6 +61,6 @@ The agent works with whatever data you point it at:
 
 ## Requires
 
-- [Empirica](https://github.com/Nubaeon/empirica) installed (`pip install empirica`)
+- [Empirica](https://github.com/EmpiricaAI/empirica) installed (`pip install empirica`)
 - Claude Code with Empirica plugin (`empirica setup-claude-code --force`)
 - Your business data in an accessible format

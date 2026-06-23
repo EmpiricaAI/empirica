@@ -15,8 +15,8 @@ main (stable, production-ready)
 
 | Branch | Purpose | Direct commits | Install command |
 |---|---|---|---|
-| `main` | Production-ready, stable | Not allowed (PR + review) | `pip install git+https://github.com/Nubaeon/empirica.git@main` |
-| `develop` | Integration of new features | Allowed for maintainers | `pip install git+https://github.com/Nubaeon/empirica.git@develop` |
+| `main` | Production-ready, stable | Not allowed (PR + review) | `pip install git+https://github.com/EmpiricaAI/empirica.git@main` |
+| `develop` | Integration of new features | Allowed for maintainers | `pip install git+https://github.com/EmpiricaAI/empirica.git@develop` |
 | `feature/*` | New work | Free-form on your branch | — |
 | `hotfix/*` | Emergency fixes from main | Maintainers only | — |
 
@@ -59,7 +59,7 @@ When AI-pair-programmed, include the `Co-Authored-By` trailer so attribution is 
 ## Local setup
 
 ```bash
-git clone https://github.com/Nubaeon/empirica.git
+git clone https://github.com/EmpiricaAI/empirica.git
 cd empirica
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
@@ -182,6 +182,6 @@ Full meta-development guide: [`.empirica-project/README.md`](.empirica-project/R
 
 ## Reporting issues
 
-GitHub issues: https://github.com/Nubaeon/empirica/issues
+GitHub issues: https://github.com/EmpiricaAI/empirica/issues
 
 For sensitive issues (security, credentials), email `david@getempirica.com` directly.

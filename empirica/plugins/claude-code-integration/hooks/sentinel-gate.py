@@ -699,6 +699,11 @@ EMPIRICA_TIER2_PREFIXES = (
     "empirica profile-sync",
     "empirica profile-prune",  # Profile management - state-changing
     "empirica release",  # Release pipeline — mechanical, no PREFLIGHT needed
+    # Self-heal / maintenance verbs — must NEVER be rush-blocked, or a box with a
+    # stale hook can't run the very command that fixes it (deploy-staleness deadlock).
+    "empirica setup-claude-code",
+    "empirica plugin-sync",
+    "empirica plugin-version",
 )
 
 

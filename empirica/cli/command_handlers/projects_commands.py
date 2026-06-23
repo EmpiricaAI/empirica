@@ -125,8 +125,8 @@ def _normalize_remote_url(raw: str) -> str | None:
     """Convert ssh-form remotes to https-form. Pass through https-form. None on garbage.
 
     Examples:
-      git@github.com:Nubaeon/empirica.git → https://github.com/Nubaeon/empirica
-      https://github.com/Nubaeon/empirica.git → https://github.com/Nubaeon/empirica
+      git@github.com:EmpiricaAI/empirica.git → https://github.com/EmpiricaAI/empirica
+      https://github.com/EmpiricaAI/empirica.git → https://github.com/EmpiricaAI/empirica
     """
     if not raw:
         return None

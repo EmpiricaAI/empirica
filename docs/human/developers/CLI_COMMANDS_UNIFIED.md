@@ -23,8 +23,8 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.12.4
-**Generated:** 2026-06-22 22:41:07 UTC
-**Total commands:** 246 (across 26 categories)
+**Generated:** 2026-06-23 18:27:10 UTC
+**Total commands:** 248 (across 26 categories)
 
 For the most up-to-date detail on any single command, prefer
 `empirica <command> --help` — the generator extracts the same `help`
@@ -75,7 +75,7 @@ require `--session-id` (`project-bootstrap`, `sessions-show`,
 | [handoff](#handoff) | 2 | `handoff-create`, `handoff-query` |
 | [issue](#issue) | 6 | `issue-list`, `issue-show`, `issue-handoff`, … |
 | [investigation](#investigation) | 5 | `investigate`, `investigate-create-branch`, `investigate-checkpoint-branch`, … |
-| [monitoring](#monitoring) | 9 | `monitor`, `assess-state`, `trajectory-project`, … |
+| [monitoring](#monitoring) | 10 | `monitor`, `assess-state`, `trajectory-project`, … |
 | [cockpit](#cockpit) | 13 | `status`, `tui`, `sentinel`, … |
 | [skills](#skills) | 3 | `skill-suggest`, `skill-fetch`, `skill-extract` |
 | [architecture](#architecture) | 3 | `assess-component`, `assess-compare`, `assess-directory` |
@@ -2627,6 +2627,17 @@ Generate calibration report from grounded evidence
 - `--brier` — optional · flag
   Show Brier score decomposition per phase (reliability, resolution, uncertainty)
 
+#### `empirica grounding-export`
+
+Export one practice's current grounding state (self-assessed + grounded 13-vectors + divergence) as JSON
+
+**Arguments:**
+
+- `--ai-id` — **required**
+  Practice to export (canonical 3-form or bare basename)
+- `--output` — optional · type=`choice` · choices={human, json} · default=`json`
+  Output format (default: json)
+
 #### `empirica commit-context`
 
 Show artifacts (git notes under refs/notes/empirica/*) anchored to commits
@@ -5022,6 +5033,68 @@ View conversation thread
 - `--channel` — optional
   Filter by channel (optional)
 - `--output` — optional · type=`choice` · choices={human, json} · default=`json`
+
+#### `empirica module`
+
+Practice-module manifest tooling (validate; fetch/provision land in later legs)
+
+**Subcommands:**
+
+##### `empirica module validate`
+
+Validate a module.yaml manifest (structural; fail-fast before install)
+
+**Arguments:**
+
+- `path` — **required**
+  Path to the module.yaml to validate
+- `--output` — optional · type=`choice` · choices={json, text} · default=`json`
+  Output format (default: json)
+
+
+##### `empirica module fetch`
+
+Stage a module's distribution artifacts (auth-gated pre-step before seat + provision)
+
+**Arguments:**
+
+- `path` — **required**
+  Path to the module.yaml
+- `--dry-run` — optional · flag
+  Compute the fetch plan; write nothing
+- `--registry` — optional
+  Plugin-archive registry base URL (default: $EMPIRICA_MODULE_REGISTRY)
+- `--index-url` — optional
+  pip index URL for python_packages (default: $EMPIRICA_MODULE_INDEX_URL)
+- `--staging-root` — optional
+  Override the staging root (default: ~/.empirica/module_staging)
+- `--output` — optional · type=`choice` · choices={json, text} · default=`json`
+  Output format (default: json)
+
+
+##### `empirica module provision`
+
+Plugin layer: place files, register automations, grant ntfy topics, check env
+
+**Arguments:**
+
+- `path` — **required**
+  Path to the module.yaml
+- `--dry-run` — optional · flag
+  Compute the provision plan; perform nothing
+- `--plugin-root` — optional
+  Override plugin root (default: ~/.claude/plugins/local)
+- `--staging-root` — optional
+  Staging root holding fetched artifacts
+- `--cortex-url` — optional
+  Cortex base URL for ntfy ACL grants (default: credentials.yaml)
+- `--org` — optional
+  Org slug for ntfy grant users (e.g. empirica); topics skip without it
+- `--tenant` — optional
+  Tenant slug for the subscriber grant user
+- `--output` — optional · type=`choice` · choices={json, text} · default=`json`
+  Output format (default: json)
+
 
 #### `empirica performance`
 

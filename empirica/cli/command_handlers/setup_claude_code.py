@@ -850,7 +850,7 @@ def _register_marketplace(marketplace_dir, plugins_dir, claude_dir, plugin_dir, 
                 "name": PLUGIN_NAME,
                 "description": "Noetic firewall + CASCADE workflow automation for Claude Code",
                 "version": PLUGIN_VERSION,
-                "author": {"name": "Empirica Project", "url": "https://github.com/Nubaeon/empirica"},
+                "author": {"name": "Empirica Project", "url": "https://github.com/EmpiricaAI/empirica"},
                 "source": f"./{PLUGIN_NAME}",
                 "category": "productivity",
             }

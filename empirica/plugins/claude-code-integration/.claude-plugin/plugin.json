@@ -3,7 +3,7 @@
   "description": "4-phase epistemic transaction workflow (PREFLIGHT → CHECK → POSTFLIGHT → POST-TEST) with noetic firewall, dual-track calibration, and grounded verification for Claude Code",
   "author": {
     "name": "Empirica Project",
-    "url": "https://github.com/Nubaeon/empirica"
+    "url": "https://github.com/EmpiricaAI/empirica"
   },
   "version": "1.12.4"
 }

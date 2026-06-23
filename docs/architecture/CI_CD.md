@@ -105,11 +105,11 @@ Missing secrets → step skips with a `::warning::` (forks don't break).
 
 ### Homebrew tap
 
-The workflow checks out `Nubaeon/homebrew-tap`, updates `Formula/empirica.rb`
+The workflow checks out `EmpiricaAI/homebrew-tap`, updates `Formula/empirica.rb`
 with the new version + sha256, commits + pushes.
 
 Required secret:
-- `HOMEBREW_TAP_TOKEN` — PAT with `repo` scope on `Nubaeon/homebrew-tap`
+- `HOMEBREW_TAP_TOKEN` — PAT with `repo` scope on `EmpiricaAI/homebrew-tap`
 
 Missing token → step skips with a `::warning::`.
 

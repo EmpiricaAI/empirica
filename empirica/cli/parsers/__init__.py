@@ -64,6 +64,7 @@ from .mcp_parsers import add_mcp_parsers
 from .memory_parsers import add_memory_parsers
 from .mesh_parsers import add_mesh_parsers
 from .message_parsers import add_message_parsers
+from .module_parsers import add_module_parsers
 from .monitor_parsers import add_monitor_parsers
 from .notify_parsers import add_notify_parsers
 from .onboarding_parsers import add_onboarding_parsers
@@ -108,6 +109,7 @@ __all__ = [
     "add_memory_parsers",
     "add_mesh_parsers",
     "add_message_parsers",
+    "add_module_parsers",
     "add_monitor_parsers",
     "add_notify_parsers",
     "add_onboarding_parsers",

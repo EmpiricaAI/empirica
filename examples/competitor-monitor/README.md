@@ -75,6 +75,6 @@ This works because Empirica's findings persist across sessions. The agent search
 
 ## Requires
 
-- [Empirica](https://github.com/Nubaeon/empirica) installed (`pip install empirica`)
+- [Empirica](https://github.com/EmpiricaAI/empirica) installed (`pip install empirica`)
 - Claude Code with Empirica plugin (`empirica setup-claude-code --force`)
 - Web access (for fetching competitor pages)

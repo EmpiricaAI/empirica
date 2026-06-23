@@ -177,6 +177,31 @@ Use --learning-trajectory to see PREFLIGHT→POSTFLIGHT deltas (learning, not ca
         help="Show Brier score decomposition per phase (reliability, resolution, uncertainty)",
     )
 
+    # Grounding export - single-practice grounding snapshot for mesh (L1/L2) tooling
+    grounding_export_parser = subparsers.add_parser(
+        "grounding-export",
+        help="Export one practice's current grounding state (self-assessed + grounded 13-vectors + divergence) as JSON",
+        description="""
+Export a single practice's current grounding state — the cross-practice
+composition primitive for mesh-level tooling (e.g. autonomy's mesh-cohesion
+glance). Resolves a practice by --ai-id against this host's global sessions.db
+and emits self_assessed_13 (latest POSTFLIGHT), grounded_13 (evidence-derived
+beliefs), per-vector divergence, a holistic alignment score, evidence_count,
+and staleness.
+
+LOCALITY: resolves only practices present on THIS host (grounded beliefs live
+in this host's sessions.db). Cross-host/mesh-wide grounding is the separate
+L2/foundation piece (grounded snapshot pushed to cortex). Unknown/non-local
+ai_id → ok:false, reason:not_local.
+        """,
+    )
+    grounding_export_parser.add_argument(
+        "--ai-id", required=True, help="Practice to export (canonical 3-form or bare basename)"
+    )
+    grounding_export_parser.add_argument(
+        "--output", choices=["human", "json"], default="json", help="Output format (default: json)"
+    )
+
     # Calibration dispute command - AI pushback on measurement artifacts
     dispute_parser = subparsers.add_parser(
         "calibration-dispute",

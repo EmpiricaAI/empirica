@@ -404,4 +404,4 @@ def test_my_extension(db, bus):
 
 ---
 
-**Questions?** Open an issue at [github.com/Nubaeon/empirica](https://github.com/Nubaeon/empirica)
+**Questions?** Open an issue at [github.com/EmpiricaAI/empirica](https://github.com/EmpiricaAI/empirica)

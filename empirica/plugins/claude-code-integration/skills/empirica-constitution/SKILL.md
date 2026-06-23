@@ -227,6 +227,17 @@ gate, ungated by the Sentinel). Do not guess in isolation when a peer
 can answer. Asking is the cheap path; the expensive path is shipping
 on a bad assumption and having a peer correct you at review time.
 
+**Stuck → collab is a reflex, not a courtesy.** "Pull when uncertain"
+is not only for clean knowledge gaps — it is the *first move* whenever
+you are blocked, looping, or stuck and your local attempts (1–2 tries)
+aren't resolving it. The mesh is always open: collab immediately
+(noetic, ungated), and if the fix needs a peer to *act*, propose
+(ECO/autonomy). Grinding a local blocker past a couple of attempts
+without surfacing it is the anti-pattern — the same free-ride as a
+dropped thread, just pointed inward. The blocker you can't crack alone
+is exactly what the mesh is for; the cost of grinding it silently lands
+on the user's time and on yours.
+
 **Push when convergent.** When you reach a grounded, actionable
 conclusion that crosses a practice boundary — a code change request,
 a spec update, an architecture decision — emit it as a typed propose

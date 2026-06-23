@@ -230,7 +230,7 @@ You: "Fix the auth bug"
 
 ## Further Reading
 
-- [CLI Reference](https://github.com/Nubaeon/empirica/blob/main/docs/human/developers/CLI_COMMANDS_UNIFIED.md)
-- [Architecture](https://github.com/Nubaeon/empirica/tree/main/docs/architecture/)
+- [CLI Reference](https://github.com/EmpiricaAI/empirica/blob/main/docs/human/developers/CLI_COMMANDS_UNIFIED.md)
+- [Architecture](https://github.com/EmpiricaAI/empirica/tree/main/docs/architecture/)
 - [Training & Guides](https://getempirica.com)
-- [Upgrade Guide](https://github.com/Nubaeon/empirica/blob/main/docs/guides/UPGRADE_TO_1.9.md)
+- [Upgrade Guide](https://github.com/EmpiricaAI/empirica/blob/main/docs/guides/UPGRADE_TO_1.9.md)

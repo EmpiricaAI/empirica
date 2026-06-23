@@ -129,7 +129,7 @@ def test_registry_slug_preferred_over_name():
                 "slug": "empirica-cortex",
                 "name": "empirica-cortex",
                 "path": "/tmp/x",
-                "repo_url": "https://github.com/Nubaeon/empirica-cortex",
+                "repo_url": "https://github.com/EmpiricaAI/empirica-cortex",
             },
         ]
     )
@@ -148,7 +148,7 @@ def test_registry_slug_preferred_over_name():
 
     assert len(posted) == 1
     assert posted[0]["name"] == "empirica-cortex"
-    assert posted[0]["repo_url"] == "https://github.com/Nubaeon/empirica-cortex"
+    assert posted[0]["repo_url"] == "https://github.com/EmpiricaAI/empirica-cortex"
 
 
 # ─── Dry-run + force-metadata-update ────────────────────────────────

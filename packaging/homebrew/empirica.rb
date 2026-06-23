@@ -2,17 +2,17 @@
 # Documentation: https://docs.brew.sh/Formula-Cookbook
 #
 # This is the packaging template. The actual formula is in:
-#   https://github.com/Nubaeon/homebrew-tap/blob/main/empirica.rb
+#   https://github.com/EmpiricaAI/homebrew-tap/blob/main/empirica.rb
 #
 # Installation:
-#   brew tap nubaeon/tap
+#   brew tap empiricaai/tap
 #   brew install empirica
 
 class Empirica < Formula
   include Language::Python::Virtualenv
 
   desc "Epistemic self-assessment framework for AI agents"
-  homepage "https://github.com/Nubaeon/empirica"
+  homepage "https://github.com/EmpiricaAI/empirica"
   url "https://files.pythonhosted.org/packages/source/e/empirica/empirica-1.12.4.tar.gz"
   sha256 "37c7ac888ffa5c83f1db938f9451e58e2d63f915d64aa3b6fbef542a59b038ab"
   license "MIT"

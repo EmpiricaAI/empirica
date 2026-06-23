@@ -32,7 +32,7 @@ The core mechanic:
 pip install empirica
 
 # Or from source
-git clone https://github.com/Nubaeon/empirica.git
+git clone https://github.com/EmpiricaAI/empirica.git
 cd empirica && pip install -e .
 
 # Verify
@@ -193,7 +193,7 @@ For more: [03_TROUBLESHOOTING.md](03_TROUBLESHOOTING.md).
 
 ### For Teams
 
-- **[empirica-workspace](https://github.com/Nubaeon/empirica-workspace)** — cross-project calibration, multi-entity pattern matching, TUI analytics
+- **[empirica-workspace](https://github.com/EmpiricaAI/empirica-workspace)** — cross-project calibration, multi-entity pattern matching, TUI analytics
 
 ---
 

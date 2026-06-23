@@ -67,6 +67,36 @@ def test_recovery_verb_escapes_rush_guard(command):
     assert result is None, f"{command!r} should escape the gate (allow), got {result!r}"
 
 
+# --- self-heal verbs must escape the rush-guard (self-gated-fix gap) ---------- #
+# On a box with a stale hook, the very command that fixes the deadlock
+# (setup-claude-code / plugin-sync) must NOT itself be rush-blocked, or there is
+# no escape without a manual sentinel-pause.
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "empirica setup-claude-code",
+        "empirica setup-claude-code --force",
+        "empirica plugin-sync",
+        "empirica plugin-version",
+    ],
+)
+def test_self_heal_verbs_allow_listed(cmd):
+    assert sg.is_safe_empirica_command(cmd) is True
+
+
+@pytest.mark.parametrize("command", ["empirica setup-claude-code --force", "empirica plugin-sync"])
+def test_self_heal_verb_escapes_rush_guard(command):
+    result = sg._validate_check_record(
+        None,
+        "sess",
+        None,
+        0,
+        tool_input={"command": command},
+        tool_name="Bash",
+    )
+    assert result is None, f"{command!r} (self-heal) must escape the gate, got {result!r}"
+
+
 def test_noetic_tool_escapes_rush_guard():
     result = sg._validate_check_record(
         None,

@@ -10,5 +10,5 @@ Key Features:
 Perfect for AI agents that need genuine metacognitive awareness and calibration.
 
 PyPI: https://pypi.org/project/empirica/
-GitHub: https://github.com/Nubaeon/empirica
-Docs: https://github.com/Nubaeon/empirica/tree/main/docs
+GitHub: https://github.com/EmpiricaAI/empirica
+Docs: https://github.com/EmpiricaAI/empirica/tree/main/docs

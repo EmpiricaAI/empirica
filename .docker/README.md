@@ -1,7 +1,7 @@
 # Empirica - Epistemic Self-Assessment Framework for AI Agents
 
 **Docker Hub:** https://hub.docker.com/r/nubaeon/empirica  
-**GitHub:** https://github.com/Nubaeon/empirica  
+**GitHub:** https://github.com/EmpiricaAI/empirica  
 **PyPI:** https://pypi.org/project/empirica/
 
 ## What is Empirica?
@@ -173,23 +173,23 @@ docker run -it \
 
 ## Documentation
 
-- **Quick Start:** https://github.com/Nubaeon/empirica/blob/main/docs/human/end-users/01_START_HERE.md
-- **CLI Guide:** https://github.com/Nubaeon/empirica/blob/main/docs/human/end-users/04_QUICKSTART_CLI.md
-- **Installation:** https://github.com/Nubaeon/empirica/blob/main/docs/human/end-users/02_INSTALLATION.md
-- **Full Docs:** https://github.com/Nubaeon/empirica/tree/main/docs
+- **Quick Start:** https://github.com/EmpiricaAI/empirica/blob/main/docs/human/end-users/01_START_HERE.md
+- **CLI Guide:** https://github.com/EmpiricaAI/empirica/blob/main/docs/human/end-users/04_QUICKSTART_CLI.md
+- **Installation:** https://github.com/EmpiricaAI/empirica/blob/main/docs/human/end-users/02_INSTALLATION.md
+- **Full Docs:** https://github.com/EmpiricaAI/empirica/tree/main/docs
 
 ## Links
 
-- **GitHub Repository:** https://github.com/Nubaeon/empirica
+- **GitHub Repository:** https://github.com/EmpiricaAI/empirica
 - **PyPI Package:** https://pypi.org/project/empirica/
-- **Issues:** https://github.com/Nubaeon/empirica/issues
+- **Issues:** https://github.com/EmpiricaAI/empirica/issues
 - **License:** MIT
 
 ## Building from Source
 
 ```bash
 # Clone the repository
-git clone https://github.com/Nubaeon/empirica.git
+git clone https://github.com/EmpiricaAI/empirica.git
 cd empirica
 
 # Build the image
@@ -201,8 +201,8 @@ docker run -it empirica:custom empirica --help
 
 ## Support
 
-- GitHub Issues: https://github.com/Nubaeon/empirica/issues
-- Documentation: https://github.com/Nubaeon/empirica/tree/main/docs
+- GitHub Issues: https://github.com/EmpiricaAI/empirica/issues
+- Documentation: https://github.com/EmpiricaAI/empirica/tree/main/docs
 
 ---
 

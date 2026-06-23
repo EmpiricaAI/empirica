@@ -351,6 +351,7 @@ For full CLI reference: load `/empirica-commands` skill.
 - When user mentions something unfamiliar: `project-search` before responding
 - Surface insights proactively — don't wait to be asked
 {% if cortex %}- **Pull your weight in the mesh.** Multi-practitioner teams are only as strong as everyone doing their share: pull when uncertain (collab — auto-accepted, cheap), push when convergent (typed propose — ECO-gated), ack what you complete (closes the source AI's outbox), don't drop threads (reply even if "can't help"), and register canonical sources at `--visibility shared` so peers reference rather than re-derive. Full framing: `/empirica-constitution` §V.{% endif %}
+{% if cortex %}- **Stuck → collab, immediately — it's a reflex, not a courtesy.** If you're blocked, looping, or genuinely uncertain and your local moves (1–2 attempts) aren't resolving it, collab the mesh right then (noetic — always open, ungated by the Sentinel); if you need a peer to *do* something, propose (ECO/autonomy). Grinding a local blocker past a couple of attempts without surfacing it to the mesh is the anti-pattern — the blocker you can't crack alone is exactly what the mesh is for.{% endif %}
 
 ---
 

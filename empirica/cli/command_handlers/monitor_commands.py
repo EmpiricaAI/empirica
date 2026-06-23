@@ -2212,3 +2212,138 @@ def handle_workflow_patterns_command(args):
             print(json.dumps({"ok": False, "error": str(e)}))
         else:
             print(f"Error: {e}")
+
+
+# 13 canonical epistemic vectors, in declared order.
+_GROUNDING_VECTORS = (
+    "know",
+    "do",
+    "context",
+    "clarity",
+    "coherence",
+    "signal",
+    "density",
+    "state",
+    "change",
+    "completion",
+    "impact",
+    "engagement",
+    "uncertainty",
+)
+
+
+def handle_grounding_export_command(args):
+    """Export a single practice's current grounding state as JSON.
+
+    The cross-practice composition primitive for mesh-level (L1/L2) tooling
+    (autonomy's mesh-cohesion glance). Resolves a practice by --ai-id against
+    THIS host's global sessions.db and emits, as named-vector dicts:
+
+      { ok, ai_id, self_assessed_13, grounded_13, holistic_calibration_score,
+        divergence, evidence_count, last_updated, staleness_seconds,
+        source_session_id }
+
+    LOCALITY BOUNDARY: get_grounded_beliefs reads this host's sessions.db, so
+    this resolves only practices PRESENT ON THIS HOST. True mesh-wide grounding
+    (compose across tenants/hosts) needs the grounded snapshot pushed to cortex
+    — the separate L2/foundation piece. ai_id not local → ok:false, not_local.
+    """
+    import time
+
+    output = getattr(args, "output", "json")
+    raw = getattr(args, "ai_id", None)
+    if not raw:
+        msg = {"ok": False, "error": "--ai-id is required"}
+        print(json.dumps(msg) if output == "json" else f"Error: {msg['error']}")
+        return 1
+    # Accept the canonical 3-form (org.tenant.project) or the bare basename —
+    # the db stores the basename ai_id.
+    ai_id = raw.rsplit(".", 1)[-1] if "." in raw else raw
+
+    try:
+        from empirica.core.post_test.grounded_calibration import GroundedCalibrationManager
+        from empirica.data.session_database import SessionDatabase
+
+        db = SessionDatabase()
+        cur = db.conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM sessions WHERE ai_id = ?", (ai_id,))
+        has_sessions = cur.fetchone()[0] > 0
+
+        gm = GroundedCalibrationManager(db)
+        grounded = gm.get_grounded_beliefs(ai_id)
+
+        # Locality: present on this host iff it has sessions OR real grounded
+        # evidence here. get_grounded_beliefs can return zero-evidence defaults
+        # for unknown ai_ids, so it alone isn't a reliable presence signal.
+        has_grounded_evidence = any(grounded[v].evidence_count > 0 for v in grounded)
+        if not has_sessions and not has_grounded_evidence:
+            result = {
+                "ok": False,
+                "ai_id": ai_id,
+                "reason": "not_local",
+                "hint": "no sessions/grounding for this ai_id on this host; cross-host grounding is the L2 cortex-push piece",
+            }
+            print(json.dumps(result) if output == "json" else f"not local: {ai_id}")
+            return 1
+
+        grounded_13 = {v: round(grounded[v].mean, 4) for v in _GROUNDING_VECTORS if v in grounded}
+        grounded_last = max((grounded[v].last_updated for v in grounded), default=None)
+        evidence_count = sum(grounded[v].evidence_count for v in grounded) if grounded else 0
+
+        div_raw = gm.get_calibration_divergence(ai_id) or {}
+        divergence = {v: round(d["gap"], 4) for v, d in div_raw.items() if "gap" in d}
+
+        # Self-assessed: the latest POSTFLIGHT reflexes row for this practice.
+        cur.execute(
+            """
+            SELECT r.* FROM reflexes r
+            JOIN sessions s ON r.session_id = s.session_id
+            WHERE s.ai_id = ? AND r.phase = 'POSTFLIGHT'
+            ORDER BY r.timestamp DESC LIMIT 1
+            """,
+            (ai_id,),
+        )
+        row = cur.fetchone()
+        self_assessed_13, source_session_id, pf_ts = {}, None, None
+        if row is not None:
+            d = dict(row)
+            self_assessed_13 = {v: round(d[v], 4) for v in _GROUNDING_VECTORS if d.get(v) is not None}
+            source_session_id = d.get("session_id")
+            pf_ts = d.get("timestamp")
+
+        # Holistic alignment score: 1 - mean(|self-ref vs grounded gap|), [0,1].
+        # (The canonical POSTFLIGHT-computed holistic score lives in the
+        # practice's .breadcrumbs.yaml; this is the on-demand cross-track proxy.)
+        gaps = [abs(g) for g in divergence.values()]
+        holistic = round(max(0.0, 1.0 - (sum(gaps) / len(gaps))), 4) if gaps else None
+
+        last_updated = grounded_last or pf_ts
+        staleness = round(time.time() - last_updated, 1) if last_updated else None
+
+        result = {
+            "ok": True,
+            "ai_id": ai_id,
+            "self_assessed_13": self_assessed_13,
+            "grounded_13": grounded_13,
+            "holistic_calibration_score": holistic,
+            "divergence": divergence,
+            "evidence_count": evidence_count,
+            "last_updated": last_updated,
+            "staleness_seconds": staleness,
+            "source_session_id": source_session_id,
+        }
+        if output == "json":
+            print(json.dumps(result, indent=2))
+        else:
+            print(
+                f"grounding-export {ai_id}: holistic={holistic} | "
+                f"{len(grounded_13)} grounded / {len(self_assessed_13)} self-assessed vectors | "
+                f"evidence={evidence_count} | staleness={staleness}s"
+            )
+        return 0
+    except Exception as e:
+        if output == "json":
+            print(json.dumps({"ok": False, "ai_id": ai_id, "error": str(e)}))
+        else:
+            print(f"Error: {e}")
+        return 1
