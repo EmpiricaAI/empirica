@@ -104,6 +104,14 @@ def _add_practitioner_group(subparsers):
     plist.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
     plist.add_argument("--verbose", action="store_true", help="Verbose output")
 
+    hb = subs.add_parser("heartbeat", help="Push local presence to cortex's /v1/practitioners/heartbeat")
+    hb.add_argument("--session", help="claude_session_id to emit (default: all local non-stale practitioners)")
+    hb.add_argument(
+        "--include-stale", dest="include_stale", action="store_true", help="Include stale records when emitting all"
+    )
+    hb.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
+    hb.add_argument("--verbose", action="store_true", help="Verbose output")
+
 
 def _add_tui_command(subparsers):
     tui = subparsers.add_parser(

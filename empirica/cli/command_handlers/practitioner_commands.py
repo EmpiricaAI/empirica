@@ -110,18 +110,63 @@ def handle_practitioner_list_command(args) -> int:
         return 1
 
 
+def handle_practitioner_heartbeat_command(args) -> int:
+    """practitioner heartbeat — push local presence to cortex (one session or all).
+
+    Reads the local presence store and forwards each record to cortex's
+    POST /v1/practitioners/heartbeat. With --session, emits just that
+    practitioner; otherwise emits every local non-stale practitioner. This is
+    the one-shot the persistent service / loop body triggers on a cadence.
+    """
+    try:
+        from empirica.core.loop_scheduler.practitioner_heartbeat import (
+            emit_practitioner_heartbeat,
+        )
+        from empirica.core.practitioner_presence import list_presence, read_presence
+
+        session = getattr(args, "session", None)
+        if session:
+            rec = read_presence(session)
+            records = [rec] if rec else []
+        else:
+            records = list_presence(include_stale=getattr(args, "include_stale", False))
+
+        results = []
+        for rec in records:
+            code = emit_practitioner_heartbeat(rec)
+            results.append({"session_id": rec.get("claude_session_id"), "status_code": code})
+
+        if getattr(args, "output", "human") == "json":
+            print(json.dumps({"ok": True, "emitted": len(results), "results": results}, indent=2, default=str))
+            return 0
+        if not results:
+            print("(no local presence to emit)" if not session else f"(no local presence for {session[:12]})")
+            return 0
+        for r in results:
+            code = r["status_code"]
+            label = {0: "skipped (no cortex creds / unmappable)", 200: "ok", -1: "network error"}.get(
+                code, f"http {code}"
+            )
+            print(f"  📡 {(r['session_id'] or '?')[:12]} → {label}")
+        return 0
+    except Exception as e:
+        handle_cli_error(e, "practitioner heartbeat", getattr(args, "verbose", False))
+        return 1
+
+
 _DISPATCH = {
     "write": handle_practitioner_write_command,
     "clear": handle_practitioner_clear_command,
     "list": handle_practitioner_list_command,
+    "heartbeat": handle_practitioner_heartbeat_command,
 }
 
 
 def handle_practitioner_group_command(args) -> int:
-    """`empirica practitioner <write|clear|list>` dispatcher."""
+    """`empirica practitioner <write|clear|list|heartbeat>` dispatcher."""
     action = getattr(args, "practitioner_action", None)
     handler = _DISPATCH.get(action)
     if handler is None:
-        sys.stdout.write("usage: empirica practitioner <write|clear|list>\n")
+        sys.stdout.write("usage: empirica practitioner <write|clear|list|heartbeat>\n")
         return 2
     return handler(args)

@@ -607,6 +607,23 @@ def run_listener(  # noqa: C901 — held-connection loop; clarity beats decompos
     except Exception as e:
         err_stream.write(f"listener: heartbeat start failed (non-fatal): {e}\n")
 
+    # Start the practitioner-presence emitter. Forwards the LOCAL per-session
+    # presence store (one row per live claude_session) to cortex's
+    # /v1/practitioners/heartbeat so the mesh sees per-practitioner liveness +
+    # gate state. Machine-anchored like the listener heartbeat above. Failures
+    # are non-fatal — the emitter never crashes the listener.
+    practitioner_heartbeat = None
+    try:
+        from empirica.core.loop_scheduler.practitioner_heartbeat import (
+            PractitionerHeartbeatEmitter,
+        )
+
+        practitioner_heartbeat = PractitionerHeartbeatEmitter()
+        practitioner_heartbeat.start()
+        err_stream.write("listener: practitioner-presence emitter started\n")
+    except Exception as e:
+        err_stream.write(f"listener: practitioner emitter start failed (non-fatal): {e}\n")
+
     try:
         while True:
             proc = _stream_factory(url, headers)
@@ -776,6 +793,11 @@ def run_listener(  # noqa: C901 — held-connection loop; clarity beats decompos
                 heartbeat.stop(timeout=2.0)
             except Exception as e:
                 err_stream.write(f"listener: heartbeat stop failed (non-fatal): {e}\n")
+        if practitioner_heartbeat is not None:
+            try:
+                practitioner_heartbeat.stop(timeout=2.0)
+            except Exception as e:
+                err_stream.write(f"listener: practitioner emitter stop failed (non-fatal): {e}\n")
         if probe is not None:
             try:
                 probe.stop(timeout=2.0)
