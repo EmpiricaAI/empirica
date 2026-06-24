@@ -830,10 +830,17 @@ def _find_transaction_file(
     if exact.exists():
         return exact
 
-    # Fallback: scan suffix-mismatched files. Prefer the durable
-    # claude_session_id (survives compaction); fall back to empirica session_id.
+    # Fallback: scan suffix-mismatched files. Rank candidates and return the best
+    # rather than the first sorted match — claude_session_id is stable across the
+    # whole CC session, so many files (one per past transaction, each
+    # POSTFLIGHT-closed) share it; returning the first would resolve a STALE
+    # CLOSED transaction and make this firewall block praxic after a valid CHECK.
+    # Rank by (cc_match, is_open, updated_at) descending. Kept in sync with
+    # empirica/utils/session_resolver.py:_find_transaction_file.
     if not claude_session_id and not session_id:
         return None
+    best_rank = None
+    best_file = None
     try:
         for tx_file in sorted(empirica_dir.glob("active_transaction*.json")):
             try:
@@ -841,14 +848,17 @@ def _find_transaction_file(
                     tx_data = json.load(f)
             except Exception:
                 continue
-            if claude_session_id and tx_data.get("claude_session_id") == claude_session_id:
-                return tx_file
-            if session_id and tx_data.get("session_id") == session_id:
-                return tx_file
+            cc_match = bool(claude_session_id and tx_data.get("claude_session_id") == claude_session_id)
+            sess_match = bool(session_id and tx_data.get("session_id") == session_id)
+            if not (cc_match or sess_match):
+                continue
+            rank = (cc_match, tx_data.get("status") == "open", tx_data.get("updated_at") or 0.0)
+            if best_rank is None or rank > best_rank:
+                best_rank, best_file = rank, tx_file
     except Exception:
-        pass
+        return None
 
-    return None
+    return best_file
 
 
 def _resolve_empirica_session_id(claude_session_id: str | None) -> str | None:
