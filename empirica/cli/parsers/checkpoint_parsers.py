@@ -621,6 +621,61 @@ def add_checkpoint_parsers(subparsers):
     entity_walk_parser.add_argument("--depth", type=int, default=2, help="Max traversal depth (default: 2)")
     entity_walk_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
 
+    # --- engagement substrate CLI (rides the entities-mint path; operational) ---
+    engagement_create_parser = subparsers.add_parser(
+        "engagement-create",
+        help=(
+            "Create an engagement: mints the engagement entity (the entities-mint "
+            "path) then writes the operational sidecar row. Idempotent by slug. "
+            "Optionally link to an organization with --org (role='ticket_of')."
+        ),
+    )
+    engagement_create_parser.add_argument("--title", required=True, help="Engagement title")
+    engagement_create_parser.add_argument(
+        "--id", dest="id", help="Explicit engagement_id (defaults to an 'e-<title>' slug)"
+    )
+    engagement_create_parser.add_argument(
+        "--domain", help="Engagement domain (outreach|sales|support|security|infra|onboarding|...)"
+    )
+    engagement_create_parser.add_argument("--stage", help="Initial stage_id (must belong to --domain)")
+    engagement_create_parser.add_argument(
+        "--engagement-type", dest="engagement_type", default="outreach", help="Engagement type (default: outreach)"
+    )
+    engagement_create_parser.add_argument("--org", help="Organization entity_id to link as role='ticket_of'")
+    engagement_create_parser.add_argument("--description", help="Free-text context")
+    engagement_create_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
+    engagement_create_parser.add_argument("--verbose", action="store_true", help="Verbose output")
+
+    engagement_list_parser = subparsers.add_parser(
+        "engagement-list",
+        help="List engagements, filtered by --domain / --lifecycle / --org.",
+    )
+    engagement_list_parser.add_argument("--domain", help="Filter by domain")
+    engagement_list_parser.add_argument(
+        "--lifecycle", help="Filter by lifecycle_state (open|in_progress|blocked|closed)"
+    )
+    engagement_list_parser.add_argument("--org", help="Scope to an organization's tickets (role='ticket_of')")
+    engagement_list_parser.add_argument("--limit", type=int, default=100, help="Max rows (default: 100)")
+    engagement_list_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
+    engagement_list_parser.add_argument("--verbose", action="store_true", help="Verbose output")
+
+    engagement_show_parser = subparsers.add_parser(
+        "engagement-show",
+        help="Show one engagement's record + its membership edges.",
+    )
+    engagement_show_parser.add_argument("engagement_id", help="Engagement id (full value or unambiguous prefix)")
+    engagement_show_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
+    engagement_show_parser.add_argument("--verbose", action="store_true", help="Verbose output")
+
+    engagement_walk_parser = subparsers.add_parser(
+        "engagement-walk",
+        help="BFS the membership graph from an engagement (default depth 2).",
+    )
+    engagement_walk_parser.add_argument("engagement_id", help="Engagement id (full value or unambiguous prefix)")
+    engagement_walk_parser.add_argument("--depth", type=int, default=2, help="Max traversal depth (default: 2)")
+    engagement_walk_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
+    engagement_walk_parser.add_argument("--verbose", action="store_true", help="Verbose output")
+
     entity_search_parser = subparsers.add_parser(
         "entity-search",
         help=(
