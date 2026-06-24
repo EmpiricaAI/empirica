@@ -181,3 +181,80 @@ def test_route_domain_filter(client):
 def test_route_invalid_lifecycle_422(client):
     r = client.get("/api/v1/engagements?lifecycle=not_a_state")
     assert r.status_code == 422
+
+
+# ---- POST /api/v1/engagements (C3 create) ----------------------------------
+
+
+def test_create_minimal(client):
+    r = client.post("/api/v1/engagements", json={"domain": "support", "title": "Disk full"})
+    assert r.status_code == 200
+    eid = r.json()["engagement_id"]
+    # shows up in the GET feed
+    feed = client.get("/api/v1/engagements?domain=support").json()
+    assert any(e["id"] == eid and e["domain"] == "support" for e in feed["engagements"])
+
+
+def test_create_synthesizes_title_when_omitted(client):
+    # title is NOT NULL — omitting it must synthesize, never hit a DB null.
+    r = client.post("/api/v1/engagements", json={"domain": "support", "severity": "high", "org": "o1"})
+    assert r.status_code == 200
+    eid = r.json()["engagement_id"]
+    e = next(x for x in client.get("/api/v1/engagements").json()["engagements"] if x["id"] == eid)
+    assert e["title"].startswith("high · Acme Corp · ")  # severity · org_display · date
+    assert e["metadata"]["org_display"] == "Acme Corp"  # via the ticket_of edge, not stored
+
+
+def test_create_sets_ticket_of_and_metadata(client):
+    r = client.post(
+        "/api/v1/engagements",
+        json={"domain": "support", "title": "X", "org": "o1", "severity": "critical", "assignee_display": "Sam"},
+    )
+    eid = r.json()["engagement_id"]
+    e = next(x for x in client.get("/api/v1/engagements?org=o1").json()["engagements"] if x["id"] == eid)
+    assert e["metadata"]["org_display"] == "Acme Corp"  # ticket_of resolved
+    assert e["metadata"]["severity"] == "critical"
+    assert e["metadata"]["assignee_display"] == "Sam"
+    # org_display must NOT be stored in the raw metadata bag (read-synthesized only)
+    assert e["metadata"]["assignee_id"] is None
+
+
+def test_create_invalid_domain_422(client):
+    assert client.post("/api/v1/engagements", json={"domain": "not_a_domain", "title": "X"}).status_code == 422
+
+
+def test_create_invalid_severity_422(client):
+    r = client.post("/api/v1/engagements", json={"domain": "support", "title": "X", "severity": "nuclear"})
+    assert r.status_code == 422
+
+
+# ---- PATCH /api/v1/engagements/{id} (C3 triage) ----------------------------
+
+
+def test_patch_lifecycle_and_metadata(client):
+    eid = client.post("/api/v1/engagements", json={"domain": "support", "title": "Y", "severity": "low"}).json()[
+        "engagement_id"
+    ]
+    r = client.patch(f"/api/v1/engagements/{eid}", json={"lifecycle_state": "in_progress", "severity": "high"})
+    assert r.status_code == 200
+    e = next(x for x in client.get("/api/v1/engagements").json()["engagements"] if x["id"] == eid)
+    assert e["lifecycle_state"] == "in_progress"
+    assert e["metadata"]["severity"] == "high"  # merged over the create-time 'low'
+
+
+def test_patch_stage_transition(client):
+    eid = client.post("/api/v1/engagements", json={"domain": "support", "title": "Z"}).json()["engagement_id"]
+    r = client.patch(f"/api/v1/engagements/{eid}", json={"stage": "support.resolved", "outcome": "resolved"})
+    assert r.status_code == 200
+    e = next(x for x in client.get("/api/v1/engagements").json()["engagements"] if x["id"] == eid)
+    assert e["stage"] == "support.resolved"
+    assert e["outcome"] == "resolved"
+
+
+def test_patch_missing_404(client):
+    assert client.patch("/api/v1/engagements/e-nonexistent", json={"severity": "high"}).status_code == 404
+
+
+def test_patch_invalid_lifecycle_422(client):
+    eid = client.post("/api/v1/engagements", json={"domain": "support", "title": "Q"}).json()["engagement_id"]
+    assert client.patch(f"/api/v1/engagements/{eid}", json={"lifecycle_state": "nope"}).status_code == 422

@@ -776,6 +776,41 @@ class WorkspaceDBRepository(BaseRepository):
         )
         self.commit()
 
+    def update_entity_metadata(self, entity_type: str, entity_id: str, patch: dict[str, Any]) -> bool:
+        """Merge ``patch`` into an entity's metadata JSON (read-merge-write).
+
+        Keys with a None value are removed; others overwrite. Returns False if
+        the entity doesn't exist. Used by the engagements PATCH triage path
+        (severity / assignee writes on an existing engagement). Does NOT touch
+        org_display — that stays read-synthesized from the ticket_of edge.
+        """
+        cur = self._execute(
+            "SELECT metadata FROM entity_registry WHERE entity_type = ? AND entity_id = ?",
+            (entity_type, entity_id),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return False
+        meta: dict[str, Any] = {}
+        if row["metadata"]:
+            try:
+                parsed = json.loads(row["metadata"])
+                if isinstance(parsed, dict):
+                    meta = parsed
+            except (ValueError, TypeError):
+                meta = {}
+        for key, val in patch.items():
+            if val is None:
+                meta.pop(key, None)
+            else:
+                meta[key] = val
+        self._execute(
+            "UPDATE entity_registry SET metadata = ?, updated_at = ? WHERE entity_type = ? AND entity_id = ?",
+            (json.dumps(meta), time.time(), entity_type, entity_id),
+        )
+        self.commit()
+        return True
+
     def mark_entity_status(
         self,
         entity_type: str,
