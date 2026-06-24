@@ -1466,6 +1466,11 @@ ALL_MIGRATIONS: list[tuple[str, str, Callable]] = [
         "Add content-identity columns (content_hash, size_bytes, canonical_path, mime_type) to epistemic_sources — empirica slice of the unified source-identity model: reconcile matching + sync-when-small both key on content identity; canonical_path ends the source_url path/URL overload behind the title-in-url bug class.",
         lambda cursor: migration_050_source_content_identity(cursor),
     ),
+    (
+        "051_goals_engagement_id",
+        "Add nullable engagement_id column to goals — scopes a goal to an engagement (the artifact → goal → engagement linkage of the engagement substrate). Cross-db by-id reference (goals in sessions.db, engagements in workspace.db); no FK, enforced at the API layer.",
+        lambda cursor: migration_051_goals_engagement_id(cursor),
+    ),
 ]
 
 
@@ -2003,6 +2008,23 @@ def migration_050_source_content_identity(cursor: sqlite3.Cursor):
     add_column_if_missing(cursor, "epistemic_sources", "mime_type", "TEXT", "NULL")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_epistemic_sources_content_hash ON epistemic_sources(content_hash)")
     logger.info("✅ Migration 050 complete: content-identity columns added to epistemic_sources")
+
+
+def migration_051_goals_engagement_id(cursor: sqlite3.Cursor):
+    """Add `engagement_id` TEXT (nullable) column to goals.
+
+    Scopes a goal to an engagement — the canonical artifact → goal →
+    engagement linkage of the engagement substrate. Most goals are unscoped
+    (NULL); engagement-scoped goals carry the engagement_id.
+
+    No FK constraint: sqlite can't ALTER-add one, and goals live in sessions.db
+    while the engagements table lives in workspace.db — the link is a by-id
+    convention enforced at the API layer. Indexed for "goals where engagement=X"
+    lookups. Idempotent via add_column_if_missing.
+    """
+    add_column_if_missing(cursor, "goals", "engagement_id", "TEXT")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_goals_engagement_id ON goals(engagement_id)")
+    logger.info("✅ Migration 051 complete: engagement_id column added to goals")
 
 
 def migration_044_source_lifecycle(cursor: sqlite3.Cursor):
