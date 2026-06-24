@@ -184,7 +184,157 @@ def _ensure_workspace_schema(conn: sqlite3.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_entity_memberships_group ON entity_memberships(group_type, group_id)"
     )
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_entity_memberships_active ON entity_memberships(left_at)")
+
+    # Engagement substrate — vendored so a fresh install without
+    # empirica-workspace still gets the tables the engagement CLI + daemon read.
+    _apply_engagement_substrate(cursor)
     conn.commit()
+
+
+# ── Engagement substrate ─────────────────────────────────────────────────────
+# Vendored from empirica-workspace's canonical schema so empirica core can stand
+# the engagement substrate up on a fresh, workspace-less install (empirica core
+# does not depend on the empirica-workspace package). Canonical source of truth:
+#   - empirica_workspace/data/workspace_schema.py   (the 3 definition tables)
+#   - empirica_workspace/data/workspace_database.py  (_seed_engagement_domains)
+# Parity is asserted by tests/test_engagement_substrate_schema.py (drift-guard).
+
+_DEFAULT_ENGAGEMENT_DOMAINS = [
+    ("outreach", "Outreach", "Platform publishing, audience cultivation, content engagement"),
+    ("sales", "Sales", "Commercial pipeline, qualification to close"),
+    ("support", "Support", "Customer-reported issues, ticket triage and resolution"),
+    ("security", "Security", "Vulnerability reports, incident response, mitigation"),
+    ("infra", "Infra", "Infrastructure work, capacity, observability"),
+    ("onboarding", "Onboarding", "Customer kickoff to provisioning to live"),
+]
+
+_DEFAULT_ENGAGEMENT_STAGES = [
+    ("outreach.lead", "outreach", "Lead", 10),
+    ("outreach.qualified", "outreach", "Qualified", 20),
+    ("outreach.engaged", "outreach", "Engaged", 30),
+    ("outreach.proposing", "outreach", "Proposing", 40),
+    ("outreach.negotiating", "outreach", "Negotiating", 50),
+    ("sales.lead", "sales", "Lead", 10),
+    ("sales.qualified", "sales", "Qualified", 20),
+    ("sales.proposal", "sales", "Proposal", 30),
+    ("sales.negotiation", "sales", "Negotiation", 40),
+    ("sales.closed", "sales", "Closed", 50),
+    ("support.new", "support", "New", 10),
+    ("support.triaged", "support", "Triaged", 20),
+    ("support.in_progress", "support", "In progress", 30),
+    ("support.waiting_customer", "support", "Waiting customer", 40),
+    ("security.reported", "security", "Reported", 10),
+    ("security.triaged", "security", "Triaged", 20),
+    ("security.mitigating", "security", "Mitigating", 30),
+    ("security.verified", "security", "Verified", 40),
+    ("infra.planned", "infra", "Planned", 10),
+    ("infra.in_progress", "infra", "In progress", 20),
+    ("infra.deployed", "infra", "Deployed", 30),
+    ("onboarding.kickoff", "onboarding", "Kickoff", 10),
+    ("onboarding.provisioning", "onboarding", "Provisioning", 20),
+    ("onboarding.live", "onboarding", "Live", 30),
+]
+
+
+def _seed_engagement_domains(cursor: sqlite3.Cursor) -> None:
+    """Seed the 6 default engagement domains + 24 stages (idempotent INSERT OR
+    IGNORE). Mirrors empirica-workspace WorkspaceDatabase._seed_engagement_domains."""
+    now = time.time()
+    for did, dn, desc in _DEFAULT_ENGAGEMENT_DOMAINS:
+        cursor.execute(
+            "INSERT OR IGNORE INTO domain_definitions "
+            "(domain_id, display_name, description, visibility, created_at) VALUES (?, ?, ?, ?, ?)",
+            (did, dn, desc, "public", now),
+        )
+    for sid, dom, dn, ordi in _DEFAULT_ENGAGEMENT_STAGES:
+        cursor.execute(
+            "INSERT OR IGNORE INTO stage_definitions "
+            "(stage_id, domain, display_name, ordinal, created_at) VALUES (?, ?, ?, ?, ?)",
+            (sid, dom, dn, ordi, now),
+        )
+
+
+def _apply_engagement_substrate(cursor: sqlite3.Cursor) -> None:
+    """Create the engagement-substrate tables + seed default domains/stages.
+
+    Idempotent: CREATE TABLE IF NOT EXISTS (first-wins → converges with
+    empirica-workspace's ALTER-based evolution if both run) + INSERT OR IGNORE
+    seeds. The minimal engagements CREATE inlines the sidecar cols
+    (lifecycle_state/stage/domain/updated_at) and omits the contacts FK; the
+    lifecycle_state / outcome / domain enums are enforced at the API layer
+    (sqlite ALTER can't add CHECK)."""
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS domain_definitions (
+            domain_id TEXT PRIMARY KEY,
+            display_name TEXT NOT NULL,
+            description TEXT,
+            visibility TEXT DEFAULT 'shared' CHECK (visibility IN ('local', 'shared', 'public')),
+            created_at REAL NOT NULL,
+            created_by_ai_id TEXT
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS stage_definitions (
+            stage_id TEXT PRIMARY KEY,
+            domain TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            ordinal INTEGER NOT NULL,
+            is_terminal INTEGER DEFAULT 0,
+            expected_outcomes TEXT,
+            created_at REAL NOT NULL,
+            UNIQUE(domain, ordinal),
+            UNIQUE(domain, display_name)
+        )
+        """
+    )
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS practice_domains (
+            practice_id TEXT NOT NULL,
+            domain_id TEXT NOT NULL,
+            joined_at REAL NOT NULL,
+            left_at REAL,
+            PRIMARY KEY (practice_id, domain_id),
+            FOREIGN KEY (domain_id) REFERENCES domain_definitions(domain_id)
+        )
+        """
+    )
+    # Minimal engagements (sidecar cols inline, no contacts FK).
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS engagements (
+            engagement_id TEXT PRIMARY KEY,
+            contact_id TEXT,
+            project_id TEXT,
+            title TEXT NOT NULL,
+            description TEXT,
+            engagement_type TEXT DEFAULT 'outreach',
+            started_at REAL,
+            ended_at REAL,
+            status TEXT DEFAULT 'active',
+            outcome TEXT,
+            lifecycle_state TEXT DEFAULT 'open',
+            stage TEXT,
+            domain TEXT,
+            created_at REAL,
+            created_by_ai_id TEXT,
+            updated_at REAL
+        )
+        """
+    )
+    for idx in (
+        "CREATE INDEX IF NOT EXISTS idx_stage_def_domain ON stage_definitions(domain, ordinal)",
+        "CREATE INDEX IF NOT EXISTS idx_practice_domains_practice ON practice_domains(practice_id)",
+        "CREATE INDEX IF NOT EXISTS idx_practice_domains_active ON practice_domains(left_at)",
+        "CREATE INDEX IF NOT EXISTS idx_engagements_lifecycle ON engagements(lifecycle_state)",
+        "CREATE INDEX IF NOT EXISTS idx_engagements_domain ON engagements(domain)",
+        "CREATE INDEX IF NOT EXISTS idx_engagements_stage ON engagements(stage)",
+    ):
+        cursor.execute(idx)
+    _seed_engagement_domains(cursor)
 
 
 class WorkspaceDBRepository(BaseRepository):
