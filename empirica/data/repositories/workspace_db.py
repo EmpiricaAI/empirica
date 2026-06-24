@@ -235,6 +235,12 @@ _DEFAULT_ENGAGEMENT_STAGES = [
     ("onboarding.live", "onboarding", "Live", 30),
 ]
 
+# Engagement enums — enforced app-side. The engagement is an OPERATIONAL row
+# (sqlite ALTER can't add CHECK), so lifecycle/outcome validity lives at the repo
+# layer; domain/stage validity is checked against the definition tables.
+ENGAGEMENT_LIFECYCLE_STATES = frozenset({"open", "in_progress", "blocked", "closed"})
+ENGAGEMENT_OUTCOMES = frozenset({"won", "lost", "resolved", "wont_fix", "defer", "superseded"})
+
 
 def _seed_engagement_domains(cursor: sqlite3.Cursor) -> None:
     """Seed the 6 default engagement domains + 24 stages (idempotent INSERT OR
@@ -900,6 +906,218 @@ class WorkspaceDBRepository(BaseRepository):
         )
         self.commit()
         return cursor.rowcount > 0
+
+    # --- engagement substrate (operational SQL CRUD) ------------------------
+    # The engagement is the OPERATIONAL projection — a plain SQL row with no
+    # confidence/epistemic fields. Diagnostic findings stay EPISTEMIC and link
+    # in via entity_artifacts (artifact → goal → engagement); the two
+    # projections must not collapse. Enums are enforced here (app-side), and
+    # domain/stage are validated against the definition tables.
+
+    def create_engagement(
+        self,
+        engagement_id: str,
+        title: str,
+        *,
+        domain: str | None = None,
+        stage: str | None = None,
+        engagement_type: str = "outreach",
+        description: str | None = None,
+        contact_id: str | None = None,
+        project_id: str | None = None,
+        created_by_ai_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Create an engagement sidecar row (lifecycle_state='open').
+
+        Validates ``domain`` against domain_definitions and ``stage`` against
+        stage_definitions (for that domain) when provided — raises ValueError on
+        an unknown domain/stage. Returns the created row.
+        """
+        if domain is not None:
+            self._require_domain(domain)
+        if stage is not None:
+            self._require_stage(stage, domain)
+        now = time.time()
+        self._execute(
+            """
+            INSERT INTO engagements
+                (engagement_id, contact_id, project_id, title, description,
+                 engagement_type, status, lifecycle_state, stage, domain,
+                 started_at, created_at, created_by_ai_id, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'active', 'open', ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                engagement_id,
+                contact_id,
+                project_id,
+                title,
+                description,
+                engagement_type,
+                stage,
+                domain,
+                now,
+                now,
+                created_by_ai_id,
+                now,
+            ),
+        )
+        self.commit()
+        created = self.get_engagement(engagement_id)
+        if created is None:  # pragma: no cover — row was just inserted
+            raise RuntimeError(f"engagement {engagement_id!r} not found immediately after insert")
+        return created
+
+    def get_engagement(self, engagement_id: str) -> dict[str, Any] | None:
+        """Fetch a single engagement by id. Returns None if not found."""
+        cursor = self._execute("SELECT * FROM engagements WHERE engagement_id = ?", (engagement_id,))
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+    def list_engagements(
+        self,
+        *,
+        domain: str | None = None,
+        lifecycle_state: str | None = None,
+        org_id: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """List engagements, optionally filtered.
+
+        ``org_id`` scopes to engagements that are members of that organization
+        with role='ticket_of' (the canonical org→ticket linkage), joining
+        entity_memberships. ``lifecycle_state`` must be a valid state.
+        """
+        if lifecycle_state is not None and lifecycle_state not in ENGAGEMENT_LIFECYCLE_STATES:
+            raise ValueError(
+                f"invalid lifecycle_state '{lifecycle_state}' — must be one of {sorted(ENGAGEMENT_LIFECYCLE_STATES)}"
+            )
+        params: list[Any] = []
+        where: list[str] = []
+        join = ""
+        if org_id is not None:
+            join = " JOIN entity_memberships m ON m.entity_type = 'engagement' AND m.entity_id = e.engagement_id"
+            where.append(
+                "m.group_type = 'organization' AND m.group_id = ? AND m.role = 'ticket_of' AND m.left_at IS NULL"
+            )
+            params.append(org_id)
+        if domain is not None:
+            where.append("e.domain = ?")
+            params.append(domain)
+        if lifecycle_state is not None:
+            where.append("e.lifecycle_state = ?")
+            params.append(lifecycle_state)
+        where_clause = ("WHERE " + " AND ".join(where)) if where else ""
+        params.append(limit)
+        cursor = self._execute(
+            f"SELECT e.* FROM engagements e{join} {where_clause} ORDER BY e.updated_at DESC, e.created_at DESC LIMIT ?",
+            tuple(params),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+    def update_engagement(
+        self,
+        engagement_id: str,
+        *,
+        title: str | None = None,
+        description: str | None = None,
+        stage: str | None = None,
+        domain: str | None = None,
+        lifecycle_state: str | None = None,
+        outcome: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Update mutable engagement fields. Enforces the lifecycle + outcome
+        enums and validates domain/stage against the definition tables. Returns
+        the updated row, or None if the engagement doesn't exist. Bumps
+        updated_at. Passing no fields is a no-op read.
+        """
+        if lifecycle_state is not None and lifecycle_state not in ENGAGEMENT_LIFECYCLE_STATES:
+            raise ValueError(
+                f"invalid lifecycle_state '{lifecycle_state}' — must be one of {sorted(ENGAGEMENT_LIFECYCLE_STATES)}"
+            )
+        if outcome is not None and outcome not in ENGAGEMENT_OUTCOMES:
+            raise ValueError(f"invalid outcome '{outcome}' — must be one of {sorted(ENGAGEMENT_OUTCOMES)}")
+        if domain is not None:
+            self._require_domain(domain)
+        if stage is not None:
+            self._require_stage(stage, domain)
+        sets: list[str] = []
+        params: list[Any] = []
+        for col, val in (
+            ("title", title),
+            ("description", description),
+            ("stage", stage),
+            ("domain", domain),
+            ("lifecycle_state", lifecycle_state),
+            ("outcome", outcome),
+        ):
+            if val is not None:
+                sets.append(f"{col} = ?")
+                params.append(val)
+        if not sets:
+            return self.get_engagement(engagement_id)
+        sets.append("updated_at = ?")
+        params.append(time.time())
+        params.append(engagement_id)
+        cursor = self._execute(f"UPDATE engagements SET {', '.join(sets)} WHERE engagement_id = ?", tuple(params))
+        self.commit()
+        if cursor.rowcount == 0:
+            return None
+        return self.get_engagement(engagement_id)
+
+    # --- engagement domain/stage definitions + practice membership ----------
+
+    def list_domains(self) -> list[dict[str, Any]]:
+        """List the engagement domain definitions."""
+        cursor = self._execute("SELECT * FROM domain_definitions ORDER BY domain_id")
+        return [dict(row) for row in cursor.fetchall()]
+
+    def list_stages(self, domain: str | None = None) -> list[dict[str, Any]]:
+        """List stage definitions, optionally for one domain, ordered by ordinal."""
+        if domain is not None:
+            cursor = self._execute("SELECT * FROM stage_definitions WHERE domain = ? ORDER BY ordinal", (domain,))
+        else:
+            cursor = self._execute("SELECT * FROM stage_definitions ORDER BY domain, ordinal")
+        return [dict(row) for row in cursor.fetchall()]
+
+    def join_practice_domain(self, practice_id: str, domain_id: str) -> None:
+        """Register a practice as active in a domain (practice_domains).
+
+        Idempotent: re-joining an already-active (practice, domain) is a no-op;
+        re-joining one that was previously left clears left_at. Validates the
+        domain exists.
+        """
+        self._require_domain(domain_id)
+        now = time.time()
+        self._execute(
+            """
+            INSERT INTO practice_domains (practice_id, domain_id, joined_at, left_at)
+            VALUES (?, ?, ?, NULL)
+            ON CONFLICT(practice_id, domain_id) DO UPDATE SET left_at = NULL
+            """,
+            (practice_id, domain_id, now),
+        )
+        self.commit()
+
+    def get_practice_domains(self, practice_id: str) -> list[dict[str, Any]]:
+        """List the domains a practice is currently active in (left_at IS NULL)."""
+        cursor = self._execute(
+            "SELECT * FROM practice_domains WHERE practice_id = ? AND left_at IS NULL ORDER BY domain_id",
+            (practice_id,),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+    def _require_domain(self, domain_id: str) -> None:
+        cursor = self._execute("SELECT 1 FROM domain_definitions WHERE domain_id = ?", (domain_id,))
+        if cursor.fetchone() is None:
+            raise ValueError(f"unknown engagement domain '{domain_id}'")
+
+    def _require_stage(self, stage_id: str, domain: str | None) -> None:
+        cursor = self._execute("SELECT domain FROM stage_definitions WHERE stage_id = ?", (stage_id,))
+        row = cursor.fetchone()
+        if row is None:
+            raise ValueError(f"unknown engagement stage '{stage_id}'")
+        if domain is not None and row[0] != domain:
+            raise ValueError(f"stage '{stage_id}' belongs to domain '{row[0]}', not '{domain}'")
 
     def walk_entity_graph(
         self,
