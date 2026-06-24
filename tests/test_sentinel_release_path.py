@@ -83,6 +83,21 @@ def test_exempt_empirica_mcp_tool(sg):
     assert sg._is_recovery_or_measurement_action("mcp__empirica__noetic_batch", {}) is True
 
 
+def test_exempt_goals_tracking(sg):
+    # goals-* is MEASUREMENT (recording work + state), same class as *-log —
+    # so a practitioner can defer-as-goal even while gated (autonomy-ratified).
+    assert _bash(sg, "empirica goals-create --objective x") is True
+    assert _bash(sg, "cd /x\nempirica goals-complete-task --task-id y --evidence z") is True
+
+
+def test_loop_narrowed_to_control(sg):
+    # read/control/heartbeat subverbs are exempt …
+    assert _bash(sg, "empirica loop status") is True
+    assert _bash(sg, "empirica loop heartbeat cortex-mailbox-poll --status ok") is True
+    # … but register/install (infrastructure setup) is NOT — normal path.
+    assert _bash(sg, "empirica loop register --name x --kind interval") is False
+
+
 # ---- NOT exempt: the security boundary ----------------------------------
 
 
@@ -96,9 +111,10 @@ def test_not_exempt_pipe_to_destructive(sg):
 
 
 def test_not_exempt_non_recovery_empirica(sg):
-    # goals-create is workflow but not a gate-release/recovery verb — it goes
-    # through the normal path, not the universal exemption.
-    assert _bash(sg, "empirica goals-create --objective x") is False
+    # release is workflow but NOT a recovery/measurement verb (it deploys) — it
+    # goes through the normal path, never the universal exemption.
+    assert _bash(sg, "empirica release") is False
+    assert _bash(sg, "empirica session-create --ai-id x") is False
 
 
 def test_not_exempt_plain_praxic_bash(sg):
@@ -112,3 +128,33 @@ def test_not_exempt_non_bash_praxic_tool(sg):
         is False
     )
     assert sg._is_recovery_or_measurement_action("Write", {"file_path": "/x", "content": "y"}) is False
+
+
+# ---- governance on the set itself (autonomy's 2 invariants) --------------
+
+# Floor actions — the recovery whitelist must NEVER intersect these, even though
+# the pre-gate runs first (a future edit can't slip a floor-ish verb in).
+_FLOOR_TOKENS = ("publish", "trust-escalation", "trust_escalation", "release", "irreversible")
+# World-mutation / firewall-bypass tokens the whitelist must never contain.
+_WORLD_MUTATION_TOKENS = ("release", "deploy", "git ", "rm ", "docker", "ssh ")
+
+
+def test_invariant_disjoint_from_floor(sg):
+    """DISJOINT-FROM-FLOOR: recovery-whitelist ∩ floor-actions = ∅."""
+    for prefix in sg._RECOVERY_MEASUREMENT_PREFIXES:
+        verb = prefix.removeprefix("empirica ")
+        for floor in _FLOOR_TOKENS:
+            assert floor not in verb, f"floor token {floor!r} leaked into recovery whitelist via {prefix!r}"
+
+
+def test_invariant_no_world_mutation(sg):
+    """NO-WORLD-MUTATION: every exempt prefix is an `empirica <recovery/
+    measurement/control>` verb — never Edit/Write/git/bash/deploy. Adding a verb
+    must pass 'can this mutate the world / bypass the firewall for real work?'"""
+    for prefix in sg._RECOVERY_MEASUREMENT_PREFIXES:
+        assert prefix.startswith("empirica "), f"{prefix!r} is not an empirica verb"
+        for tok in _WORLD_MUTATION_TOKENS:
+            assert tok not in prefix, f"world-mutation token {tok!r} in {prefix!r}"
+    # The predicate itself never exempts a world action.
+    for cmd in ("git push", "rm -rf /tmp", "docker run x", "empirica release", "scripts/release.py"):
+        assert _bash(sg, cmd) is False, f"{cmd!r} must never be release-exempted"
