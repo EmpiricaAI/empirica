@@ -334,6 +334,50 @@ def _check_env(manifest) -> list[dict]:
     ]
 
 
+def _register_practice_domains(manifest: ModuleManifest, dry_run: bool) -> list[dict]:
+    """Register the module's practice in each declared engagement domain
+    (``provides.domains`` → ``practice_domains``). The practice is the module's
+    canonical seat (``seat_name``). Idempotent via ``join_practice_domain``;
+    unknown domain ids are reported as error steps (the engagement substrate
+    validates them). No-op when ``provides.domains`` is empty.
+    """
+    domains = manifest.provides.domains
+    if not domains:
+        return []
+    practice_id = manifest.seat_name
+    if dry_run:
+        return [
+            {
+                "kind": "practice_domain",
+                "target": d,
+                "status": "dry_run",
+                "detail": f"would join practice {practice_id!r} to domain {d!r}",
+            }
+            for d in domains
+        ]
+    steps: list[dict] = []
+    try:
+        from empirica.data.repositories.workspace_db import WorkspaceDBRepository
+
+        with WorkspaceDBRepository.open() as repo:
+            for d in domains:
+                try:
+                    repo.join_practice_domain(practice_id, d)
+                    steps.append(
+                        {
+                            "kind": "practice_domain",
+                            "target": d,
+                            "status": "ok",
+                            "detail": f"practice {practice_id!r} joined domain {d!r}",
+                        }
+                    )
+                except ValueError as ve:
+                    steps.append({"kind": "practice_domain", "target": d, "status": "error", "detail": str(ve)})
+    except Exception as e:  # workspace.db unavailable on this host
+        steps.append({"kind": "practice_domain", "target": "*", "status": "error", "detail": f"workspace.db: {e}"})
+    return steps
+
+
 def provision_module(
     manifest: ModuleManifest,
     *,
@@ -364,6 +408,7 @@ def provision_module(
     steps += [_register_automation(a, dry_run) for a in manifest.provides.automations]
     steps += _grant_topics(manifest, cortex_url, cortex_api_key, org, tenant, dry_run)
     steps += _check_env(manifest)
+    steps += _register_practice_domains(manifest, dry_run)
 
     errors = [f"{s['kind']} {s['target']}: {s['detail']}" for s in steps if s["status"] == "error"]
     return {

@@ -21,7 +21,7 @@ from empirica.core.modules.executors import provision_module
 from empirica.core.modules.manifest import load_manifest
 
 
-def _manifest(tmp_path, *, plugin_archive=None, automations=None, topics=None, env=None):
+def _manifest(tmp_path, *, plugin_archive=None, automations=None, topics=None, env=None, domains=None):
     body = {
         "name": "outreach",
         "seat_name": "empirica-outreach",
@@ -35,6 +35,8 @@ def _manifest(tmp_path, *, plugin_archive=None, automations=None, topics=None, e
         body["artifacts"]["plugin_archive"] = plugin_archive
     if automations is not None:
         body["provides"]["automations"] = automations
+    if domains is not None:
+        body["provides"]["domains"] = domains
     if topics is not None:
         body["requires_runtime"]["topics"] = topics
     if env is not None:
@@ -222,3 +224,50 @@ def test_cli_provision_dry_run_exit_0(tmp_path, capsys):
     rc = handle_module_provision_command(args)
     out = json.loads(capsys.readouterr().out)
     assert rc == 0 and out["ok"] is True and out["action"] == "provision"
+
+
+# ── provides.domains → practice_domains (A5) ─────────────────────────────
+
+
+def _pd_steps(receipt):
+    return [s for s in receipt["steps"] if s["kind"] == "practice_domain"]
+
+
+def test_no_domains_no_practice_domain_steps(tmp_path, monkeypatch):
+    monkeypatch.setenv("EMPIRICA_WORKSPACE_DB", str(tmp_path / "workspace.db"))
+    m = _manifest(tmp_path)
+    receipt = provision_module(m, dry_run=False, plugin_root=tmp_path / "p", staging_root=tmp_path / "s")
+    assert _pd_steps(receipt) == []
+
+
+def test_domains_dry_run_registers_nothing(tmp_path, monkeypatch):
+    monkeypatch.setenv("EMPIRICA_WORKSPACE_DB", str(tmp_path / "workspace.db"))
+    m = _manifest(tmp_path, domains=["outreach", "sales"])
+    receipt = provision_module(m, dry_run=True, plugin_root=tmp_path / "p", staging_root=tmp_path / "s")
+    pd = _pd_steps(receipt)
+    assert {s["target"] for s in pd} == {"outreach", "sales"}
+    assert all(s["status"] == "dry_run" for s in pd)
+
+
+def test_domains_provisioned_write_practice_domains(tmp_path, monkeypatch):
+    monkeypatch.setenv("EMPIRICA_WORKSPACE_DB", str(tmp_path / "workspace.db"))
+    m = _manifest(tmp_path, domains=["outreach", "support"])
+    receipt = provision_module(m, dry_run=False, plugin_root=tmp_path / "p", staging_root=tmp_path / "s")
+    pd = _pd_steps(receipt)
+    assert {s["target"] for s in pd} == {"outreach", "support"}
+    assert all(s["status"] == "ok" for s in pd)
+
+    from empirica.data.repositories.workspace_db import WorkspaceDBRepository
+
+    with WorkspaceDBRepository.open() as repo:
+        joined = {d["domain_id"] for d in repo.get_practice_domains("empirica-outreach")}
+    assert joined == {"outreach", "support"}
+
+
+def test_unknown_domain_is_error_step(tmp_path, monkeypatch):
+    monkeypatch.setenv("EMPIRICA_WORKSPACE_DB", str(tmp_path / "workspace.db"))
+    m = _manifest(tmp_path, domains=["not_a_domain"])
+    receipt = provision_module(m, dry_run=False, plugin_root=tmp_path / "p", staging_root=tmp_path / "s")
+    pd = _pd_steps(receipt)
+    assert pd and pd[0]["status"] == "error"
+    assert receipt["ok"] is False  # an error step makes the receipt not-ok
