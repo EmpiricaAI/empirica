@@ -60,6 +60,16 @@ EMPIRICA_PKG = REPO_ROOT / "empirica"
 # schema produces guaranteed false positives, not bugs.
 SKIP_DIR_NAMES = {"tests", "build", "dev_scripts", "__pycache__", "migrations"}
 
+# ``crm_schema.py`` is excluded deliberately: it defines + queries the *crm.db*
+# schema — a separate, NLE-scoped database this test does not build. Its queries
+# legitimately reference crm.db tables/columns (e.g. ``engagements.client_id``)
+# that don't exist in the session/workspace schema. These were skipped
+# automatically until workspace.db gained its own (different) ``engagements``
+# table; now that same-named table would mis-validate crm.db queries against it.
+# Validating crm.db queries here is a guaranteed false positive, not a bug —
+# same rationale as the ``migrations`` exclusion above.
+SKIP_FILES = {"empirica/data/crm_schema.py"}
+
 # Statement leading keywords we do NOT validate (DDL / pragmas / control).
 # These are not the bug class (a bad column in a SELECT/UPDATE/DELETE is), and
 # EXPLAIN-ing DDL or running PRAGMA via param substitution is noise.
@@ -175,7 +185,10 @@ def _collect_all_static_queries() -> list[tuple[Path, int, str]]:
     """Walk ``empirica/`` and collect every static SQL query."""
     queries: list[tuple[Path, int, str]] = []
     for py_file in EMPIRICA_PKG.rglob("*.py"):
-        if any(part in SKIP_DIR_NAMES for part in py_file.relative_to(REPO_ROOT).parts):
+        rel_parts = py_file.relative_to(REPO_ROOT).parts
+        if any(part in SKIP_DIR_NAMES for part in rel_parts):
+            continue
+        if py_file.relative_to(REPO_ROOT).as_posix() in SKIP_FILES:
             continue
         for lineno, sql in _iter_static_queries(py_file):
             queries.append((py_file, lineno, sql))
