@@ -173,6 +173,12 @@ def ensure_workspace_schema(conn) -> None:
         "CREATE INDEX IF NOT EXISTS idx_entity_memberships_group ON entity_memberships(group_type, group_id)"
     )
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_entity_memberships_active ON entity_memberships(left_at)")
+
+    # Engagement substrate — same vendored helper as WorkspaceDBRepository, so
+    # both ensure paths stand up an identical substrate.
+    from empirica.data.repositories.workspace_db import _apply_engagement_substrate
+
+    _apply_engagement_substrate(cursor)
     conn.commit()
 
 
