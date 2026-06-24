@@ -81,10 +81,24 @@ latent in existing data:
 | **Artifact attribution** | whose findings/decisions are load-bearing | `finding_refs` / artifact authorship |
 | **Epistemic lineage + track record** | the gap history, drift, phase discipline | `calibration_insights`, `phase_boundary`, trajectory gap series |
 
-**Shrinkage is mandatory.** A practitioner with 3 cycles showing a great Brier is
-not more reliable than the practice with 300 — it's under-sampled. The fold-weight
-must pull a thin practitioner's reliability toward the practice prior until it earns
-divergence, or a lucky short conversation hijacks the practice direction.
+**Shrinkage is mandatory** (model anchored by autonomy, 2026-06-24):
+
+- **Prior** = the practice aggregate calibration profile (the fold target — already
+  what calibration uses).
+- **Credibility weight**, not a fixed cycle count: Bühlmann `w = n / (n + k)`, where
+  `k = within-practitioner-var / between-practitioner-var`. ~`k` cycles → half-
+  credibility; self-calibrating, earned from data, no magic constant. A hard
+  "≥30 cycles" threshold is the deterministic-knob-substituting-for-reasoning
+  anti-pattern. **One** deterministic boolean below it: `n < n_min → w = 0` (pure
+  prior — below some `n` even the variance estimate is noise). Floor = boolean;
+  the credibility curve is the reasoned gray.
+- **Asymmetric** (the load-bearing gating call): shrink a thin practitioner claiming
+  *better-than-practice* **harder** than one claiming *worse*. Over-crediting a lucky
+  short conversation hijacks the practice direction; under-crediting just falls back
+  to the safe prior. Fail-closed = default toward the practice prior when the
+  practitioner's reliability estimate is uncertain — drive `w` off the **standard
+  error** of the practitioner's Brier (n-dependent), so uncertainty itself sets the
+  shrinkage.
 
 ---
 
@@ -125,13 +139,41 @@ flat.
 
 ---
 
-## 6. Open questions for ratification
+## 6. Resolutions (autonomy-anchored 2026-06-24) + open for David
 
+**Resolved by autonomy** (their lane: arbitration / shrinkage / gating-semantics),
+anchored in the existing control-model — *positions to calibrate against, not decrees*:
+
+- **Shrinkage model (B5)** → §3: Bühlmann credibility + `n < n_min` boolean floor +
+  asymmetric (harder shrink on better-than-practice claims, driven by Brier standard
+  error). Anchor = the practice prior.
+- **Arbitration trigger (B7)** → arbitration is **CHECK at the deliberation layer** —
+  it gates the noetic→praxic transition of a *multi*-practitioner deliberation.
+  Trigger on the **praxic boundary**, never on read-convergence (agreement isn't
+  authority — collab-convergence ≠ approval): when (a) an ECO-gated proposal
+  graduates out of the deliberation, (b) a SER transitions to a decision state, or
+  (c) a fold-back commits. Rare + high-signal, not per-read.
+- **Fold mechanism (B7)** → default **weight-at-query** (reversible by construction;
+  raw per-practitioner trajectory points stay source of truth, the fold is a derived
+  view that can be recomputed with a corrected shrinkage model). Literal profile
+  mutation only as a **gated promotion** of a converged, arbitrated, *repeatedly*-
+  confirmed direction — the POSTFLIGHT eidetic-promotion analog (confidence-gated,
+  capped, logged, reversible-with-audit). Never an automatic side-effect of a
+  deliberation.
+
+**Arbitration is itself a privileged action → subject to the floor it enforces (B7):**
+1. **Fail-closed** — no arbiter / a tie / sub-floor sample → flat practice prior +
+   escalate; never pick a thin practitioner's direction.
+2. **Un-self-dealing** — a practitioner cannot arbitrate in favor of its own read
+   (the two-key / no-recursion principle).
+3. **Feasibility veto** — the `do` / feasibility vector can **veto**, not merely
+   down-weight: a direction no live practitioner can execute is a non-starter
+   regardless of who proposed it.
+
+**Parity:** arbitration attaches the reliability-weighted direction as recorded basis
+(`arbitration_basis`, parallel to `autonomy_verdict_basis`) — it must NOT mutate the
+underlying gate's outcome semantics (the status-parity lesson).
+
+**Still open for David:**
 - **Summary/tl;dr as a first-class practitioner attribute** — wiring the CC
   conversation summary into the presence/entity record. Worth it?
-- **Shrinkage model** — what prior + sample-floor before a practitioner's divergence
-  counts (autonomy's lane).
-- **Arbitration trigger** — when does a deliberation get arbitrated (on convergence?
-  on an ECO gate? on a SER transition)?
-- **Fold mechanism** — does the practice profile literally update, or does the
-  practice just *weight retrieval* by practitioner reliability at query time?
