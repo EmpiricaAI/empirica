@@ -239,6 +239,7 @@ def _preflight_write_transaction_file(session_id, transaction_id, parsed):
         preflight_timestamp=time.time(),
         status="open",
         project_path=resolved_project_path,
+        claude_session_id=claude_session_id,
     )
 
     _preflight_enrich_transaction_file(resolved_project_path, parsed)

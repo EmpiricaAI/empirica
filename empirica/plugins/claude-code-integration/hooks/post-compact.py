@@ -71,7 +71,10 @@ def _temporal_trail_section(project_path: str | Path | None) -> str:
 
 
 def _write_active_transaction_for_new_conversation(
-    active_transaction: dict, project_path: str, instance_id: str | None = None
+    active_transaction: dict,
+    project_path: str,
+    instance_id: str | None = None,
+    claude_session_id: str | None = None,
 ) -> bool:
     """
     Write active_transaction file for the NEW conversation after compaction.
@@ -97,10 +100,15 @@ def _write_active_transaction_for_new_conversation(
 
         tx_file.parent.mkdir(parents=True, exist_ok=True)
 
-        # Update timestamp but preserve original transaction data
+        # Update timestamp but preserve original transaction data. Carry the
+        # DURABLE claude_session_id (B3) so the firewall can resolve this
+        # transaction even though the ephemeral instance suffix / empirica
+        # session_id may have rotated across the compaction boundary. Prefer the
+        # caller's value; fall back to whatever the snapshot captured.
         tx_data = {
             "transaction_id": active_transaction.get("transaction_id"),
             "session_id": active_transaction.get("session_id"),
+            "claude_session_id": claude_session_id or active_transaction.get("claude_session_id"),
             "preflight_timestamp": active_transaction.get("preflight_timestamp"),
             "status": active_transaction.get("status", "open"),
             "project_path": project_path,
@@ -411,7 +419,10 @@ def _handle_open_transaction(
         instance_id=instance_id,
     )
     _write_active_transaction_for_new_conversation(
-        active_transaction=active_transaction, project_path=str(project_root), instance_id=instance_id
+        active_transaction=active_transaction,
+        project_path=str(project_root),
+        instance_id=instance_id,
+        claude_session_id=claude_session_id,
     )
     _restore_hook_counters(hook_counters, project_root)
     return recovery_prompt, "CONTINUE_TRANSACTION", tx_session_id
