@@ -794,6 +794,86 @@ def is_transition_command(command: str) -> bool:
     return False
 
 
+# Recovery + measurement verbs that must be ALWAYS-OPEN, before every gate.
+# The release-path invariant: a gate must never block the action that clears it.
+# This set = the measurement-cycle gate-releases (preflight/check/postflight),
+# the epistemic-logging remedy that gates demand ("investigate and log"), the
+# self-heal verbs (a stale-gated box must run its own fix), and the manual
+# sentinel/listener controls. Curated subset of the Tier-1/Tier-2 whitelists.
+_RECOVERY_MEASUREMENT_PREFIXES = (
+    # Measurement-cycle gate releases (+ documented short aliases).
+    "empirica preflight-submit",
+    "empirica check-submit",
+    "empirica postflight-submit",
+    "empirica preflight",
+    "empirica postflight",
+    # Epistemic logging — the "investigate and log learnings first" remedy.
+    "empirica finding-log",
+    "empirica unknown-log",
+    "empirica deadend-log",
+    "empirica mistake-log",
+    "empirica log-mistake",
+    "empirica assumption-log",
+    "empirica decision-log",
+    "empirica log-artifacts",
+    "empirica resolve-artifacts",
+    "empirica delete-artifacts",
+    "empirica source-add",
+    "empirica note",
+    "empirica unknown-resolve",
+    # Recovery / self-heal — must run even from a stale-gated box.
+    "empirica doctor",
+    "empirica diagnose",
+    "empirica setup-claude-code",
+    "empirica plugin-sync",
+    # Sentinel / listener control — manual override + liveness.
+    "empirica sentinel",
+    "empirica listener",
+    "empirica loop",
+)
+
+
+def _is_recovery_or_measurement_action(tool_name: str, tool_input: dict | None) -> bool:
+    """Release-path invariant: recovery + measurement actions are ALWAYS allowed,
+    before every gate, so no gate (present or future) can trap a practitioner by
+    blocking the very action that clears it.
+
+    Robust to command shape. The failure that motivated this: a ``cd <path>``
+    followed by a NEWLINE then an ``empirica <verb> - <<EOF`` heredoc is
+    mis-parsed as praxic by is_safe_bash_command (only the ``&&`` form parsed) —
+    so the heredoc forms of check-submit / postflight-submit fell through to the
+    authorization pipeline and the rush-guard trapped them. We normalize ONLY a
+    leading ``cd <path>\\n`` to ``cd <path> && `` (leaving heredoc-body newlines
+    intact), then reuse is_safe_bash_command's segment-safety (which correctly
+    rejects chained praxic like ``&& rm -rf`` and allows benign ``| tail``),
+    and finally require that a recovery/measurement VERB is actually present so
+    the universal exemption stays narrow.
+    """
+    # Empirica MCP tools are epistemic workflow — always allowed.
+    if tool_name.startswith(EMPIRICA_MCP_PREFIX):
+        return True
+    if tool_name != "Bash" or not tool_input:
+        return False
+    command = tool_input.get("command") or ""
+    if not command.strip():
+        return False
+    # The sentinel pause/unpause toggle is a manual recovery override.
+    if is_toggle_command(command.strip()):
+        return True
+    # Normalize a leading `cd <path>\n` → `cd <path> && ` (the one shape
+    # is_safe_bash_command mis-parses); heredoc-body newlines are untouched.
+    normalized = re.sub(r"\A(\s*cd\s+[^\n&;|]+)\n", r"\1 && ", command, count=1)
+    # Reuse battle-tested segment-safety: rejects chained praxic, allows pipes
+    # to read-only filters. A command that isn't fully safe is never exempted.
+    if not is_safe_bash_command({"command": normalized}):
+        return False
+    # Narrow to the recovery/measurement set: strip a leading `cd … &&`, then
+    # take the leading token before any heredoc / pipe.
+    after_cd = re.sub(r"\A\s*cd\s+[^\n&;|]+\s*&&\s*", "", normalized, count=1)
+    leading = after_cd.split("<<", 1)[0].split("|", 1)[0].strip()
+    return any(leading.startswith(prefix) for prefix in _RECOVERY_MEASUREMENT_PREFIXES)
+
+
 # --- AUTONOMY CALIBRATION LOOP ---
 # Tracks tool call count per transaction and nudges at adaptive thresholds.
 # The nudge is informational — Claude decides when to POSTFLIGHT based on
@@ -3456,6 +3536,17 @@ def main():
 
     _track_tool_usage(hook_input, tool_name, tool_input)
     _set_file_relevance_nudge(tool_name, tool_input, hook_input.get("session_id"))
+
+    # Release-path invariant (universal pre-gate): recovery + measurement actions
+    # are ALWAYS-OPEN, evaluated BEFORE every other gate. No gate — rush-guard,
+    # proportionality, stale-detection, transaction-enforcer, or any future one —
+    # may block the action that clears it (check/postflight to release the
+    # measurement gates, *-log/note to satisfy "investigate and log first",
+    # doctor/setup-claude-code to self-heal a stale box, sentinel pause/resume to
+    # override). One chokepoint → parity-by-construction, not per-gate discipline.
+    if _is_recovery_or_measurement_action(tool_name, tool_input):
+        respond("allow", "Release-path exemption: recovery/measurement action (always-open)")
+        sys.exit(0)
 
     # Tx-AG: investigation-proportionality budget enforcement. When
     # tool-router.py armed the budget on a hypothesis-bearing prompt,
