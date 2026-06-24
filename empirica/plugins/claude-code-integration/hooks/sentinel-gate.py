@@ -1502,6 +1502,47 @@ def _is_inert_shape(stripped: str) -> bool:
     return bool(re.match(r"^[A-Za-z_][A-Za-z0-9_]*=\S*$", stripped))
 
 
+# Benign command wrappers that prefix a real command without altering its
+# safety character (they exec the inner command, possibly with their own
+# flags/args). remote-ops recon routinely wraps ssh in `timeout` to bound SSH
+# hangs — e.g. `timeout 160 ssh -o ConnectTimeout=12 host '...'` — so the
+# ssh/scp/rsync classifier must see THROUGH the wrapper, not match only the
+# leading token, or the wrapped form falls through to the rush-guard.
+_WRAPPER_PREFIX_RE = re.compile(
+    r"^\s*(?:(?:timeout|env|time|nice|nohup|stdbuf|ionice|setsid)"
+    r"(?:\s+(?:-\S+|\d\S*|[A-Za-z_]\w*=\S*))*\s+)+"
+)
+
+
+def _unwrap_command(command: str) -> str:
+    """Peel leading benign wrapper tokens (timeout/env/nice/...) + their option
+    args, returning the inner command verbatim. Conservative: only the known
+    wrappers above are stripped, with their unambiguous args (a flag, a numeric
+    duration like timeout's 160/160s, or a VAR=val env assignment). Never
+    raises; on any oddity returns the command unchanged.
+
+    Safety: a mis-peel can only make classification MORE restrictive — the only
+    path it reaches grants the remote relaxation iff the peeled result starts
+    with ssh/scp/rsync, and is_safe_remote_command still classifies the inner
+    ssh subcommand. Dangerous-operator/redirect checks run on the ORIGINAL
+    command, so a wrapper can never smuggle a local write past them.
+    """
+    try:
+        return _WRAPPER_PREFIX_RE.sub("", command, count=1) or command
+    except Exception:
+        return command
+
+
+def _remote_prefix(command: str) -> str | None:
+    """Return the unwrapped command if it starts with ssh/rsync/scp (seeing
+    through benign wrappers like `timeout`), else None. The returned string is
+    what should be passed to is_safe_remote_command for classification."""
+    unwrapped = _unwrap_command(command).lstrip()
+    if unwrapped.startswith(("ssh ", "rsync ", "scp ", "ssh-")):
+        return unwrapped
+    return None
+
+
 def _is_segment_safe(segment: str) -> bool:
     """Check if a single command segment (from && / || / ; chain) is safe.
 
@@ -1567,8 +1608,9 @@ def _is_segment_safe(segment: str) -> bool:
         return is_safe_pipe_chain(stripped)
     if is_safe_empirica_command(stripped):
         return True
-    if stripped.startswith(("ssh ", "rsync ", "scp ", "ssh-")):
-        return is_safe_remote_command(stripped)
+    _rcmd = _remote_prefix(stripped)
+    if _rcmd is not None:
+        return is_safe_remote_command(_rcmd)
     if _matches_safe_prefix(stripped):
         return True
 
@@ -1699,8 +1741,8 @@ def is_safe_bash_command(tool_input: dict) -> bool:
     # the per-command classifier rejects. Local writes (cat > /tmp/foo)
     # stay subject to normal gating — those ARE observable.
     if _current_work_type == "remote-ops":
-        rcmd = command.lstrip()
-        if rcmd.startswith(("ssh ", "rsync ", "scp ", "ssh-")):
+        rcmd = _remote_prefix(command)
+        if rcmd is not None:
             _maybe_nudge_remote_ops(rcmd)
             return True
 
@@ -1716,9 +1758,10 @@ def is_safe_bash_command(tool_input: dict) -> bool:
     cmd = command.lstrip()
 
     # Special cases: remote, sqlite, python
-    if cmd.startswith(("ssh ", "rsync ", "scp ", "ssh-")):
-        _maybe_nudge_remote_ops(cmd)
-        return is_safe_remote_command(cmd)
+    _rcmd = _remote_prefix(cmd)
+    if _rcmd is not None:
+        _maybe_nudge_remote_ops(_rcmd)
+        return is_safe_remote_command(_rcmd)
     if cmd.startswith("sqlite3 ") and is_safe_sqlite_command(cmd):
         return True
     if cmd.startswith(("python3 -c ", "python -c ")) and is_safe_python_command(cmd):
@@ -2470,7 +2513,7 @@ def _detect_subagent(claude_session_id: str) -> bool:
         # No active_work file for this claude_session_id — likely a subagent
         # (or session-init failed / project initialized mid-session).
         #
-        # Worktree-aware signal (ecodex prop_3dih #3, David architectural flag):
+        # Worktree-aware signal (David architectural flag):
         # isolation:worktree subagents run in a LINKED git worktree where the
         # active_work lookup above fails — without this they fall through and risk
         # mis-detection as the PARENT (then get measured, polluting parent state).
@@ -2600,6 +2643,16 @@ def _check_postflight_loop_closed(
     return None
 
 
+# work_type=remote-ops is ungrounded_remote_ops by design: the Sentinel's local
+# sensors can't observe the remote box, so a CHECK window with 0 LOCAL artifacts
+# in <30s is EXPECTED, not rushed — "investigate and log locally first" is a
+# category error there. Exempt it from the rush deny entirely. Also the
+# work_type-level safety net: even if a future command shape slips the noetic
+# classifier (as timeout-wrapped ssh did), a remote-ops session can never
+# deadlock on this guard.
+RUSH_GUARD_EXEMPT_WORK_TYPES = frozenset({"remote-ops"})
+
+
 def _validate_check_record(
     cursor,
     session_id: str,
@@ -2613,7 +2666,7 @@ def _validate_check_record(
     Returns (know, uncertainty, decision, check_timestamp) on success,
     or ("deny", message) tuple on failure.
     """
-    # ── RECOVERY ESCAPE HATCH (ecodex prop_3dih #1, David-flagged) ──────────
+    # ── RECOVERY ESCAPE HATCH (David-flagged) ──────────
     # A firewall must NEVER gate its own escape hatch. Empirica's discipline /
     # recovery verbs (check/postflight-submit, *-log, note, doctor) + noetic
     # tools must ALWAYS pass — regardless of CHECK / rush / stuck state. The
@@ -2696,13 +2749,25 @@ def _validate_check_record(
         noetic_duration = check_ts - preflight_ts
         min_duration = float(os.getenv("EMPIRICA_MIN_NOETIC_DURATION", "30"))
 
-        if noetic_duration < min_duration:
+        # Fix 3: remote-ops is exempt (ungrounded by design — see
+        # RUSH_GUARD_EXEMPT_WORK_TYPES). The work_type-level safety net so a
+        # remote-ops session can never deadlock on this guard regardless of how
+        # the command was shaped.
+        if noetic_duration < min_duration and _current_work_type not in RUSH_GUARD_EXEMPT_WORK_TYPES:
+            # Fix 2: count artifacts up to NOW, not the frozen check_ts. The
+            # pre-fix window (preflight_ts, check_ts) closes the instant CHECK is
+            # recorded, so a finding logged AFTER a rushed CHECK could never
+            # count — making "log learnings first" unsatisfiable and the deny
+            # unrecoverable (the constant-Ns deadlock). Counting
+            # to now makes the guard recoverable exactly as its message promises,
+            # while still denying a genuine zero-artifact rubber-stamp CHECK.
+            now = time.time()
             cursor.execute(
                 """
                 SELECT COUNT(*) FROM project_findings
                 WHERE session_id = ? AND created_timestamp > ? AND created_timestamp < ?
             """,
-                (session_id, preflight_ts, check_ts),
+                (session_id, preflight_ts, now),
             )
             findings = cursor.fetchone()[0]
             cursor.execute(
@@ -2710,7 +2775,7 @@ def _validate_check_record(
                 SELECT COUNT(*) FROM project_unknowns
                 WHERE session_id = ? AND created_timestamp > ? AND created_timestamp < ?
             """,
-                (session_id, preflight_ts, check_ts),
+                (session_id, preflight_ts, now),
             )
             unknowns = cursor.fetchone()[0]
             if findings == 0 and unknowns == 0:
