@@ -105,6 +105,10 @@ class Provides(BaseModel):
     agents: list[str] = Field(default_factory=list)
     hooks: list[str] = Field(default_factory=list)
     automations: list[Automation] = Field(default_factory=list)
+    domains: list[str] = Field(
+        default_factory=list,
+        description="Engagement domain ids this module's practice joins (→ practice_domains at provision)",
+    )
 
 
 class RequiresRuntime(BaseModel):
