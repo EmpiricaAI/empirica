@@ -5,6 +5,36 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.6] — 2026-06-24
+
+A feature + hardening patch: the practitioner-presence identity substrate, the
+engagement HTTP routes family, and two Sentinel firewall correctness fixes.
+
+### Added
+- **Practitioner presence** — a per-conversation presence substrate keyed on the
+  durable Claude session id (a session-as-practitioner identity that survives
+  compaction, while the measurement-cycle session id rotates). Written/cleared by
+  the session hooks and pushed to the intelligence layer's heartbeat endpoint
+  with the practice's canonical id, so live practitioners are addressable per
+  practice.
+- **Engagement HTTP routes** — `GET/POST/PATCH /api/v1/engagements`: the daemon
+  list feed (EngagementMin projection with synthesized org display + counts),
+  create (with `ticket_of` org linkage + a writable metadata bag), and triage
+  (lifecycle/stage transition + metadata update).
+- **`parent_org_id`** on `GET /api/v1/entities` organization rows (org→org
+  parentage projection).
+- **`support.resolved`** terminal engagement stage.
+- Practitioner Deliberation Model design proposal (`docs/architecture/`).
+
+### Fixed
+- **Sentinel transaction resolution** now prefers an OPEN transaction over a stale
+  CLOSED one — fixes a post-compaction gating regression where the firewall could
+  block praxic actions after a valid CHECK.
+- **Sentinel release-path invariant** — a universal recovery/measurement pre-gate
+  guarantees no gate can block the action that clears it (preflight/check/
+  postflight, the investigate-and-log remedy, self-heal, and sentinel controls
+  always flow, even from a stale-gated state).
+
 ## [1.12.5] — 2026-06-23
 
 A feature + hardening patch: the first legs of the installable
