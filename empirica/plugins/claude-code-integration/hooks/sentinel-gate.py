@@ -817,19 +817,45 @@ _RECOVERY_MEASUREMENT_PREFIXES = (
     "empirica decision-log",
     "empirica log-artifacts",
     "empirica resolve-artifacts",
+    # delete-artifacts mutates the EPISTEMIC record (the set's closest brush with
+    # mutation) — kept exempt CONSCIOUSLY: record-triage, dry-run by default, not
+    # a world action (autonomy-ratified 2026-06-24).
     "empirica delete-artifacts",
     "empirica source-add",
     "empirica note",
     "empirica unknown-resolve",
+    # Goal tracking — MEASUREMENT (recording what work exists + its state), same
+    # class as *-log. Exempt so a practitioner can defer-as-goal even while gated
+    # (the reaction-protocol "log a goal to process this proposal" path).
+    "empirica goals-create",
+    "empirica goal-create",
+    "empirica goals-add-task",
+    "empirica goal-add-task",
+    "empirica goals-complete",
+    "empirica goal-complete",
+    "empirica goals-complete-task",
+    "empirica goal-complete-task",
+    "empirica goals-list",
+    "empirica goal-list",
     # Recovery / self-heal — must run even from a stale-gated box.
     "empirica doctor",
     "empirica diagnose",
     "empirica setup-claude-code",
     "empirica plugin-sync",
-    # Sentinel / listener control — manual override + liveness.
+    # Sentinel / listener / loop control — manual override + liveness. NARROWED
+    # to read/control/heartbeat subverbs; loop register/install stays on the
+    # normal path (infrastructure setup, not recovery) — autonomy-ratified.
     "empirica sentinel",
-    "empirica listener",
-    "empirica loop",
+    "empirica listener on",
+    "empirica listener off",
+    "empirica listener status",
+    "empirica listener arm",
+    "empirica loop status",
+    "empirica loop heartbeat",
+    "empirica loop schedule-next",
+    "empirica loop pause",
+    "empirica loop resume",
+    "empirica loop record-wake",
 )
 
 
