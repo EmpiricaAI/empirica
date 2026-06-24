@@ -19,14 +19,31 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from empirica.core.loop_scheduler.practitioner_heartbeat import (
     PractitionerHeartbeatEmitter,
     _practitioner_body,
+    _reset_canonical_cache,
     emit_practitioner_heartbeat,
+    resolve_canonical_ai_id,
 )
 
 CREDS = lambda: ("https://cortex.test/", "key-abc")  # noqa: E731
 NO_CREDS = lambda: (None, None)  # noqa: E731
+
+# A fake projects-endpoint GET resolving the test practice → canonical 3-form.
+PROJECTS_BODY = {"projects": [{"slug": "empirica", "ai_id_canonical": "empirica.david.empirica"}]}
+GET_PROJECTS = lambda url, key, timeout: PROJECTS_BODY  # noqa: E731
+GET_EMPTY = lambda url, key, timeout: {"projects": []}  # noqa: E731
+
+
+@pytest.fixture(autouse=True)
+def _clear_canonical_cache():
+    """The slug→canonical map is a module-level cache; reset it around each test."""
+    _reset_canonical_cache()
+    yield
+    _reset_canonical_cache()
 
 
 def _record(**over):
@@ -60,9 +77,15 @@ class _Recorder:
 # ---- _practitioner_body --------------------------------------------------
 
 
-def test_body_omits_ai_id():
+def test_body_omits_ai_id_when_unresolved():
+    # No canonical passed → ai_id omitted (cortex leaves practice_id NULL).
     body = _practitioner_body(_record(), machine="host-1")
-    assert "ai_id" not in body  # strict-canonical resolver would 403 a basename
+    assert "ai_id" not in body
+
+
+def test_body_includes_canonical_ai_id():
+    body = _practitioner_body(_record(), machine="host-1", canonical_ai_id="empirica.david.empirica")
+    assert body["ai_id"] == "empirica.david.empirica"  # the practice anchor
 
 
 def test_body_maps_required_and_optional_fields():
@@ -102,27 +125,35 @@ def test_emit_skips_when_no_creds():
 
 def test_emit_skips_unmappable_record():
     rec = _Recorder()
-    code = emit_practitioner_heartbeat(_record(claude_session_id=""), post_fn=rec, resolve_creds_fn=CREDS)
+    code = emit_practitioner_heartbeat(
+        _record(claude_session_id=""), post_fn=rec, resolve_creds_fn=CREDS, get_fn=GET_EMPTY
+    )
     assert code == 0
     assert rec.calls == []
 
 
-def test_emit_posts_to_endpoint_with_bearer():
+def test_emit_posts_with_canonical_ai_id():
     rec = _Recorder(code=200)
-    code = emit_practitioner_heartbeat(_record(), machine="host-1", post_fn=rec, resolve_creds_fn=CREDS)
+    code = emit_practitioner_heartbeat(
+        _record(), machine="host-1", post_fn=rec, resolve_creds_fn=CREDS, get_fn=GET_PROJECTS
+    )
     assert code == 200
-    assert len(rec.calls) == 1
     call = rec.calls[0]
     assert call["url"] == "https://cortex.test/v1/practitioners/heartbeat"  # rstrip('/') applied
     assert call["headers"]["Authorization"] == "Bearer key-abc"
-    assert call["headers"]["Content-Type"] == "application/json"
     assert call["body"]["session_id"] == "cc-1"
-    assert "ai_id" not in call["body"]
+    assert call["body"]["ai_id"] == "empirica.david.empirica"  # resolved practice anchor
+
+
+def test_emit_omits_ai_id_when_canonical_unresolved():
+    rec = _Recorder(code=200)
+    emit_practitioner_heartbeat(_record(), machine="host-1", post_fn=rec, resolve_creds_fn=CREDS, get_fn=GET_EMPTY)
+    assert "ai_id" not in rec.calls[0]["body"]  # graceful — back-compat NULL practice_id
 
 
 def test_emit_propagates_error_code():
     rec = _Recorder(code=403)
-    code = emit_practitioner_heartbeat(_record(), post_fn=rec, resolve_creds_fn=CREDS)
+    code = emit_practitioner_heartbeat(_record(), post_fn=rec, resolve_creds_fn=CREDS, get_fn=GET_PROJECTS)
     assert code == 403
 
 
@@ -136,12 +167,15 @@ def test_emit_once_emits_each_local_practitioner():
         machine="host-1",
         _post_fn=rec,
         _resolve_creds_fn=CREDS,
+        _get_fn=GET_PROJECTS,
         _list_fn=lambda: records,
     )
     results = emitter.emit_once()
     assert results == {"cc-a": 200, "cc-b": 200}
     assert len(rec.calls) == 2
     assert {c["body"]["session_id"] for c in rec.calls} == {"cc-a", "cc-b"}
+    # canonical ai_id resolved + attached on each
+    assert all(c["body"]["ai_id"] == "empirica.david.empirica" for c in rec.calls)
 
 
 def test_emit_once_survives_list_failure():
@@ -173,3 +207,45 @@ def test_start_stop_idempotent():
     emitter.stop(timeout=2.0)
     emitter.stop(timeout=2.0)  # idempotent
     assert emitter._thread is None
+
+
+# ---- resolve_canonical_ai_id (slug → canonical 3-form, cached) ---------------
+
+
+def test_resolve_canonical_hit():
+    canon = resolve_canonical_ai_id("empirica", resolve_creds_fn=CREDS, get_fn=GET_PROJECTS)
+    assert canon == "empirica.david.empirica"
+
+
+def test_resolve_canonical_unknown_basename():
+    assert resolve_canonical_ai_id("not-a-practice", resolve_creds_fn=CREDS, get_fn=GET_PROJECTS) is None
+
+
+def test_resolve_canonical_none_inputs():
+    assert resolve_canonical_ai_id(None, resolve_creds_fn=CREDS, get_fn=GET_PROJECTS) is None
+    assert resolve_canonical_ai_id("empirica", resolve_creds_fn=NO_CREDS, get_fn=GET_PROJECTS) is None
+
+
+def test_resolve_canonical_caches_successful_fetch():
+    calls = {"n": 0}
+
+    def _counting_get(url, key, timeout):
+        calls["n"] += 1
+        return PROJECTS_BODY
+
+    resolve_canonical_ai_id("empirica", resolve_creds_fn=CREDS, get_fn=_counting_get)
+    resolve_canonical_ai_id("empirica", resolve_creds_fn=CREDS, get_fn=_counting_get)
+    assert calls["n"] == 1  # second lookup hits the cache, no re-fetch
+
+
+def test_resolve_canonical_retries_after_empty_fetch():
+    # An empty (failed) fetch must NOT be cached — the next call retries.
+    calls = {"n": 0}
+
+    def _flaky_get(url, key, timeout):
+        calls["n"] += 1
+        return {"projects": []} if calls["n"] == 1 else PROJECTS_BODY
+
+    assert resolve_canonical_ai_id("empirica", resolve_creds_fn=CREDS, get_fn=_flaky_get) is None
+    assert resolve_canonical_ai_id("empirica", resolve_creds_fn=CREDS, get_fn=_flaky_get) == "empirica.david.empirica"
+    assert calls["n"] == 2

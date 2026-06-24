@@ -75,12 +75,86 @@ def _default_resolve_creds() -> tuple[str | None, str | None]:
         return None, None
 
 
-def _practitioner_body(record: dict[str, Any], *, machine: str) -> dict[str, Any] | None:
+def _default_get(url: str, api_key: str, timeout: float) -> dict[str, Any]:
+    """HTTP GET → parsed JSON dict. Raises on error (callers wrap defensively)."""
+    req = urllib.request.Request(url, method="GET", headers={"Authorization": f"Bearer {api_key}"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+# Cached slug → canonical-3-form map (bootstrap-once; the canonical id is stable
+# for the process lifetime — it only changes on org/tenant/project rename, which
+# would require a restart anyway). Only a NON-empty fetch is cached, so a
+# transient failure retries on the next heartbeat.
+_CANONICAL_MAP: dict[str, str] | None = None
+
+
+def _reset_canonical_cache() -> None:
+    """Test seam — clear the cached canonical map."""
+    global _CANONICAL_MAP
+    _CANONICAL_MAP = None
+
+
+def _fetch_canonical_map(
+    resolve_creds_fn: Callable[[], tuple],
+    get_fn: Callable[[str, str, float], dict],
+    timeout: float,
+) -> dict[str, str]:
+    """slug → ai_id_canonical from cortex's GET /v1/users/me/projects.
+
+    cortex composes ai_id_canonical server-side (the strict-canonical 3-form), so
+    the emitter never assembles the string itself. Defensive — {} on any failure.
+    """
+    url, api_key = resolve_creds_fn()
+    if not url or not api_key:
+        return {}
+    try:
+        body = get_fn(f"{url.rstrip('/')}/v1/users/me/projects", api_key, timeout)
+        out: dict[str, str] = {}
+        for proj in body.get("projects") or []:
+            slug, canonical = proj.get("slug"), proj.get("ai_id_canonical")
+            if slug and canonical:
+                out[slug] = canonical
+        return out
+    except Exception:
+        return {}
+
+
+def resolve_canonical_ai_id(
+    practice_basename: str | None,
+    *,
+    resolve_creds_fn: Callable[[], tuple] = _default_resolve_creds,
+    get_fn: Callable[[str, str, float], dict] = _default_get,
+    timeout: float = _DEFAULT_TIMEOUT_SEC,
+) -> str | None:
+    """Resolve a practice basename (e.g. 'empirica') → its canonical 3-form.
+
+    ai_id is the PRACTICE ANCHOR cortex stores as practice_id; a bare basename
+    fails cortex's strict-canonical resolver, so the emitter must send the
+    canonical 3-form. Returns None when unresolvable → the emitter omits ai_id
+    (graceful NULL practice_id, the back-compat path).
+    """
+    global _CANONICAL_MAP
+    if not practice_basename:
+        return None
+    if _CANONICAL_MAP is None:
+        fetched = _fetch_canonical_map(resolve_creds_fn, get_fn, timeout)
+        if fetched:  # cache only a successful (non-empty) fetch
+            _CANONICAL_MAP = fetched
+        return fetched.get(practice_basename)
+    return _CANONICAL_MAP.get(practice_basename)
+
+
+def _practitioner_body(
+    record: dict[str, Any], *, machine: str, canonical_ai_id: str | None = None
+) -> dict[str, Any] | None:
     """Map a local presence record → cortex heartbeat body. None if unmappable.
 
-    ``ai_id`` is intentionally omitted (see module docstring). ``machine`` and
-    ``session_id`` are cortex-required and non-empty; a record without a
-    ``claude_session_id`` cannot be emitted and returns None.
+    ``machine`` and ``session_id`` are cortex-required and non-empty; a record
+    without a ``claude_session_id`` cannot be emitted and returns None.
+    ``ai_id`` is the canonical 3-form (the practice anchor cortex resolves to
+    practice_id) — included only when resolvable; omitted otherwise (cortex then
+    leaves practice_id NULL, the back-compat path).
     """
     session_id = (record.get("claude_session_id") or "").strip()
     if not session_id or not machine:
@@ -95,6 +169,8 @@ def _practitioner_body(record: dict[str, Any], *, machine: str) -> dict[str, Any
         "practitioner_id": record.get("practitioner_id"),
         "pending_question": record.get("pending_question"),
     }
+    if canonical_ai_id:
+        body["ai_id"] = canonical_ai_id
     # When blocked, surface the reason in cortex's blocked_reason column too.
     if status == "blocked" and record.get("pending_question"):
         body["blocked_reason"] = record["pending_question"]
@@ -107,9 +183,13 @@ def emit_practitioner_heartbeat(
     machine: str | None = None,
     post_fn: Callable[[str, bytes, dict, float], int] = _default_post,
     resolve_creds_fn: Callable[[], tuple] = _default_resolve_creds,
+    get_fn: Callable[[str, str, float], dict] = _default_get,
     timeout: float = _DEFAULT_TIMEOUT_SEC,
 ) -> int:
     """Emit one local presence record to cortex's practitioners/heartbeat.
+
+    Resolves the practice basename → canonical 3-form (so cortex populates
+    practice_id) and sends it as ``ai_id``; omits ai_id when unresolvable.
 
     Returns the HTTP status code: 200 on success, 4xx/5xx on cortex error, -1 on
     network failure, 0 when skipped (cortex creds unconfigured, or the record is
@@ -118,7 +198,12 @@ def emit_practitioner_heartbeat(
     url, api_key = resolve_creds_fn()
     if not url or not api_key:
         return 0  # SKIP — cortex not configured
-    body = _practitioner_body(record, machine=machine or socket.gethostname() or "unknown-host")
+    canonical = resolve_canonical_ai_id(
+        record.get("practice_ai_id"), resolve_creds_fn=resolve_creds_fn, get_fn=get_fn, timeout=timeout
+    )
+    body = _practitioner_body(
+        record, machine=machine or socket.gethostname() or "unknown-host", canonical_ai_id=canonical
+    )
     if body is None:
         return 0  # SKIP — unmappable record
     endpoint = f"{url.rstrip('/')}{_HEARTBEAT_ENDPOINT_PATH}"
@@ -160,6 +245,7 @@ class PractitionerHeartbeatEmitter:
         timeout_sec: float = _DEFAULT_TIMEOUT_SEC,
         _post_fn: Callable[[str, bytes, dict, float], int] = _default_post,
         _resolve_creds_fn: Callable[[], tuple] = _default_resolve_creds,
+        _get_fn: Callable[[str, str, float], dict] = _default_get,
         _list_fn: Callable[[], list] | None = None,
     ):
         self.machine = machine or socket.gethostname() or "unknown-host"
@@ -167,6 +253,7 @@ class PractitionerHeartbeatEmitter:
         self.timeout_sec = timeout_sec
         self._post_fn = _post_fn
         self._resolve_creds_fn = _resolve_creds_fn
+        self._get_fn = _get_fn
         self._list_fn = _list_fn or self._default_list
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
@@ -218,6 +305,7 @@ class PractitionerHeartbeatEmitter:
                     machine=self.machine,
                     post_fn=self._post_fn,
                     resolve_creds_fn=self._resolve_creds_fn,
+                    get_fn=self._get_fn,
                     timeout=self.timeout_sec,
                 )
             except Exception as e:
