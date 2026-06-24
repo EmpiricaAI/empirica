@@ -13,6 +13,7 @@ Usage:
         repo.upsert_project(project_id, name, trajectory_path, ...)
 """
 
+import json
 import logging
 import os
 import sqlite3
@@ -223,6 +224,10 @@ _DEFAULT_ENGAGEMENT_STAGES = [
     ("support.triaged", "support", "Triaged", 20),
     ("support.in_progress", "support", "In progress", 30),
     ("support.waiting_customer", "support", "Waiting customer", 40),
+    # Terminal stage (5-tuple: trailing is_terminal=1). The X2 board's 'resolved'
+    # column shows terminal cards with their outcome badge. Lockstep with
+    # empirica-workspace canonical seed (parity drift-guard).
+    ("support.resolved", "support", "Resolved", 50, 1),
     ("security.reported", "security", "Reported", 10),
     ("security.triaged", "security", "Triaged", 20),
     ("security.mitigating", "security", "Mitigating", 30),
@@ -252,11 +257,13 @@ def _seed_engagement_domains(cursor: sqlite3.Cursor) -> None:
             "(domain_id, display_name, description, visibility, created_at) VALUES (?, ?, ?, ?, ?)",
             (did, dn, desc, "public", now),
         )
-    for sid, dom, dn, ordi in _DEFAULT_ENGAGEMENT_STAGES:
+    for stage in _DEFAULT_ENGAGEMENT_STAGES:
+        sid, dom, dn, ordi = stage[0], stage[1], stage[2], stage[3]
+        is_terminal = stage[4] if len(stage) > 4 else 0  # optional 5th elem
         cursor.execute(
             "INSERT OR IGNORE INTO stage_definitions "
-            "(stage_id, domain, display_name, ordinal, created_at) VALUES (?, ?, ?, ?, ?)",
-            (sid, dom, dn, ordi, now),
+            "(stage_id, domain, display_name, ordinal, is_terminal, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (sid, dom, dn, ordi, is_terminal, now),
         )
 
 
@@ -1035,6 +1042,72 @@ class WorkspaceDBRepository(BaseRepository):
             tuple(params),
         )
         return [dict(row) for row in cursor.fetchall()]
+
+    def get_engagement_projection(self, engagement_id: str) -> dict[str, Any]:
+        """Daemon-side EngagementMin enrichment: counts + synthesized metadata.
+
+        ``member_count`` (entity_memberships where the engagement is the group),
+        ``linked_artifact_count`` (entity_artifacts by engagement) and
+        ``goal_count`` are all read from workspace.db; ``org_display`` resolves
+        the ``ticket_of`` edge → organization ``display_name``; severity/assignee
+        pass through from the engagement's ``entity_registry.metadata`` JSON.
+
+        NOTE: ``goal_count`` here is the daemon-LOCAL artifact→goal→engagement
+        linkage (entity_artifacts with artifact_type='goal'). The OPERATIONAL
+        ``goals.engagement_id`` count (migration 051) lives in the per-project
+        empirica.db — cross-db from the daemon's workspace.db — and is deferred.
+        """
+
+        def _count(sql: str, params: tuple) -> int:
+            row = self._execute(sql, params).fetchone()
+            return int(row["n"]) if row else 0
+
+        member_count = _count(
+            "SELECT COUNT(*) AS n FROM entity_memberships "
+            "WHERE group_type = 'engagement' AND group_id = ? AND left_at IS NULL",
+            (engagement_id,),
+        )
+        linked_artifact_count = _count(
+            "SELECT COUNT(*) AS n FROM entity_artifacts WHERE engagement_id = ?",
+            (engagement_id,),
+        )
+        goal_count = _count(
+            "SELECT COUNT(*) AS n FROM entity_artifacts WHERE engagement_id = ? AND artifact_type = 'goal'",
+            (engagement_id,),
+        )
+
+        org_row = self._execute(
+            "SELECT r.display_name AS org_display FROM entity_memberships m "
+            "JOIN entity_registry r ON r.entity_type = 'organization' AND r.entity_id = m.group_id "
+            "WHERE m.entity_type = 'engagement' AND m.entity_id = ? "
+            "AND m.group_type = 'organization' AND m.role = 'ticket_of' AND m.left_at IS NULL "
+            "LIMIT 1",
+            (engagement_id,),
+        ).fetchone()
+        org_display = org_row["org_display"] if org_row else None
+
+        reg = self._execute(
+            "SELECT metadata FROM entity_registry WHERE entity_type = 'engagement' AND entity_id = ?",
+            (engagement_id,),
+        ).fetchone()
+        meta: dict[str, Any] = {}
+        if reg and reg["metadata"]:
+            try:
+                parsed = json.loads(reg["metadata"])
+                if isinstance(parsed, dict):
+                    meta = parsed
+            except (ValueError, TypeError):
+                meta = {}
+
+        return {
+            "member_count": member_count,
+            "goal_count": goal_count,
+            "linked_artifact_count": linked_artifact_count,
+            "org_display": org_display,
+            "severity": meta.get("severity"),
+            "assignee_id": meta.get("assignee_id"),
+            "assignee_display": meta.get("assignee_display"),
+        }
 
     def update_engagement(
         self,

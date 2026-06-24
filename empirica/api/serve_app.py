@@ -223,6 +223,12 @@ def create_serve_app() -> FastAPI:
 
     app.include_router(entities_router)
 
+    # Engagements list feed (EngagementMin) — the daemon HTTP source for the
+    # extension X2 board (MV3, HTTP-only).
+    from empirica.api.routes.engagements import router as engagements_router
+
+    app.include_router(engagements_router)
+
     @app.get("/api/v1/health", response_model=HealthResponse)
     async def health():  # pyright: ignore[reportUnusedFunction]
         """Health check — reports integrations, active project info, and

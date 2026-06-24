@@ -50,13 +50,27 @@ def test_engagements_has_e1_cols_and_no_contacts_fk():
     assert conn.execute("PRAGMA foreign_key_list(engagements)").fetchall() == []
 
 
-def test_seeds_six_domains_twentyfour_stages():
+def test_seeds_six_domains_twentyfive_stages():
     conn = _fresh_db()
     wdb._apply_engagement_substrate(conn.cursor())
     conn.commit()
     domains = {r[0] for r in conn.execute("SELECT domain_id FROM domain_definitions").fetchall()}
     assert domains == {"outreach", "sales", "support", "security", "infra", "onboarding"}
-    assert conn.execute("SELECT COUNT(*) FROM stage_definitions").fetchone()[0] == 24
+    # 25 = 24 + support.resolved (CCR-1 terminal stage). Lockstep with the
+    # empirica-workspace canonical seed + its parity drift-guard.
+    assert conn.execute("SELECT COUNT(*) FROM stage_definitions").fetchone()[0] == 25
+
+
+def test_support_resolved_is_terminal():
+    conn = _fresh_db()
+    wdb._apply_engagement_substrate(conn.cursor())
+    conn.commit()
+    row = conn.execute(
+        "SELECT ordinal, is_terminal FROM stage_definitions WHERE stage_id = 'support.resolved'"
+    ).fetchone()
+    assert row is not None, "support.resolved must be seeded"
+    assert row[0] == 50  # ordinal
+    assert row[1] == 1  # is_terminal
 
 
 def test_apply_is_idempotent():
@@ -66,7 +80,7 @@ def test_apply_is_idempotent():
     wdb._apply_engagement_substrate(cur)  # second run must not raise or duplicate
     conn.commit()
     assert conn.execute("SELECT COUNT(*) FROM domain_definitions").fetchone()[0] == 6
-    assert conn.execute("SELECT COUNT(*) FROM stage_definitions").fetchone()[0] == 24
+    assert conn.execute("SELECT COUNT(*) FROM stage_definitions").fetchone()[0] == 25
 
 
 def test_ensure_workspace_schema_creates_substrate():
@@ -126,8 +140,8 @@ def test_drift_guard_definition_tables_match_canonical():
 
 def test_vendored_seed_ids_are_the_documented_canonical_set():
     """Guards the vendored seed constants against accidental edits. The canonical
-    set (6 domains + 24 stage ids) is documented in empirica-workspace
-    WorkspaceDatabase._seed_engagement_domains."""
+    set (6 domains + 25 stage ids, incl. support.resolved) is documented in
+    empirica-workspace WorkspaceDatabase._seed_engagement_domains."""
     assert {d[0] for d in wdb._DEFAULT_ENGAGEMENT_DOMAINS} == {
         "outreach",
         "sales",
@@ -137,8 +151,9 @@ def test_vendored_seed_ids_are_the_documented_canonical_set():
         "onboarding",
     }
     stage_ids = [s[0] for s in wdb._DEFAULT_ENGAGEMENT_STAGES]
-    assert len(stage_ids) == 24
-    assert len(set(stage_ids)) == 24  # no dupes
+    assert len(stage_ids) == 25
+    assert len(set(stage_ids)) == 25  # no dupes
+    assert "support.resolved" in stage_ids
     # every stage namespaced under one of the 6 domains
     domains = {d[0] for d in wdb._DEFAULT_ENGAGEMENT_DOMAINS}
     assert all(sid.split(".", 1)[0] in domains for sid in stage_ids)

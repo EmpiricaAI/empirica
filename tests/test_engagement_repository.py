@@ -144,7 +144,10 @@ def test_list_stages_for_domain_ordered(repo):
         "support.triaged",
         "support.in_progress",
         "support.waiting_customer",
+        "support.resolved",  # CCR-1 terminal stage (ordinal 50)
     ]
+    # the terminal stage carries is_terminal=1
+    assert stages[-1]["is_terminal"] == 1
 
 
 def test_join_practice_domain_idempotent(repo):
