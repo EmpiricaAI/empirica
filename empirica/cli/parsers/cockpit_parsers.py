@@ -26,6 +26,34 @@ def _add_instance(parser):
     )
 
 
+def _add_sentinel_target(parser):
+    """Target selection for sentinel pause/resume/status verbs.
+
+    Beyond a raw runtime --instance, accepts a practice ai_id (resolved to its
+    live runtime instance), --session <claude_session_id>, or --all (fan out
+    across a practice's live instances). No-match / ambiguous resolution fails
+    loud — practitioner-identity phase ①
+    (docs/architecture/instance_isolation/PRACTITIONER_IDENTITY.md §6).
+    """
+    parser.add_argument(
+        "--instance",
+        metavar="ID",
+        help="Target instance_id OR a practice ai_id (resolved to its live runtime instance; "
+        "no-match or ambiguous resolution fails loud)",
+    )
+    parser.add_argument(
+        "--session",
+        metavar="SESSION_ID",
+        help="Target the live instance running this claude_session_id",
+    )
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Fan out across ALL live instances of the resolved practice "
+        "(required when an ai_id maps to >1 live instance)",
+    )
+
+
 def add_cockpit_parsers(subparsers):
     """Register sentinel/loop/listener/instance subcommand groups + top-level status + tui."""
     _add_sentinel_group(subparsers)
@@ -100,15 +128,15 @@ def _add_sentinel_group(subparsers):
 
     pause = sentinel_subs.add_parser("pause", help="Pause Sentinel for an instance")
     pause.add_argument("--reason", help="Optional human-readable reason for the pause")
-    _add_instance(pause)
+    _add_sentinel_target(pause)
     _add_output(pause)
 
     resume = sentinel_subs.add_parser("resume", help="Resume Sentinel for an instance")
-    _add_instance(resume)
+    _add_sentinel_target(resume)
     _add_output(resume)
 
     status = sentinel_subs.add_parser("status", help="Show Sentinel pause state")
-    _add_instance(status)
+    _add_sentinel_target(status)
     _add_output(status)
 
 

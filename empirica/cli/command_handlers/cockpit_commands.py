@@ -77,6 +77,102 @@ def _resolve_instance_id(args, fallback_to_current: bool = True) -> str | None:
     return None
 
 
+class SentinelResolveError(ValueError):
+    """A sentinel target could not be resolved to a live runtime instance, or
+    resolved ambiguously (a practice ai_id mapping to >1 live instance with no
+    --all/--session selector).
+
+    This is the loud-fail invariant for practitioner-identity phase ①
+    (docs/architecture/instance_isolation/PRACTITIONER_IDENTITY.md §6). It
+    replaces the silent pause-miss class: `sentinel pause --instance <ai_id>`
+    used to write sentinel_paused_<ai_id> while the gate — keyed on the runtime
+    instance_id (tmux_N) — never read it, so the pauser saw success but nothing
+    paused. Now a no-match / ambiguous target is an explicit error.
+
+    Inherits ValueError (not SystemExit) so `except Exception` callers catch it
+    cleanly. Same hazard pattern as InstanceIdRequiredError below.
+    """
+
+
+def _resolve_sentinel_targets(args) -> list[str | None]:
+    """Resolve sentinel pause/resume/status target(s) from args.
+
+    Returns the list of instance_ids the verb should act on:
+      - [None]          → no selector: current process / global (legacy default)
+      - [instance_id]   → one resolved live runtime instance
+      - [id1, id2, ...] → --all fan-out across a practice's live instances
+
+    Resolution order:
+      1. No --instance / --session / --all → [get_instance_id()] (may be None →
+         global), preserving the pre-① default.
+      2. --session <claude_session_id>     → the live instance running it.
+      3. --instance <X> where X is a live runtime instance_id → [X] (back-compat
+         passthrough — the common autonomy/cockpit path).
+      4. --instance <X> where X is a practice ai_id:
+           1 live instance  → [that instance_id]   (the ① fix: ai_id → runtime)
+           0 live instances → SentinelResolveError  (the silent-miss class)
+           N>1 live         → SentinelResolveError unless --all (decision-2:
+                              no silent fan-out — require --session/--all)
+
+    Raises SentinelResolveError on no-match or unresolved ambiguity (loud-fail).
+    """
+    requested = getattr(args, "instance", None)
+    session = getattr(args, "session", None)
+    want_all = bool(getattr(args, "all", False))
+
+    if not requested and not session and not want_all:
+        return [get_instance_id()]  # may be None → global pause (unchanged)
+
+    # Snapshot live instances once. Each carries {instance_id, ai_id, session_id}.
+    try:
+        live = aggregate_all(include_dead=False).get("instances", [])
+    except Exception:  # discovery failure must not silently mis-target
+        live = []
+
+    def _fmt(insts: list[dict[str, Any]]) -> str:
+        return ", ".join(f"{i.get('ai_id') or '?'}/{i.get('instance_id') or '?'}" for i in insts) or "(none)"
+
+    # --session wins: resolve to the live instance running that conversation.
+    if session:
+        matches = [i["instance_id"] for i in live if i.get("session_id") == session]
+        if not matches:
+            raise SentinelResolveError(f"no live instance for session '{session}'. Live: {_fmt(live)}")
+        return matches
+
+    # Direct runtime instance_id match → passthrough (back-compat fast path).
+    if requested and any(i.get("instance_id") == requested for i in live):
+        return [requested]
+
+    # --all with no --instance → every live instance (whole-fleet quarantine).
+    if want_all and not requested:
+        ids = [i["instance_id"] for i in live]
+        if not ids:
+            raise SentinelResolveError("no live instances to target with --all")
+        return ids
+
+    # Practice (ai_id) resolution.
+    practice = [i["instance_id"] for i in live if i.get("ai_id") == requested]
+    if not practice:
+        # 0 → loud error (the silent pause-miss class being killed).
+        raise SentinelResolveError(
+            f"no live runtime instance for '{requested}' (not a live instance_id, and no live "
+            f"instance has ai_id '{requested}'). Live: {_fmt(live)}"
+        )
+    if len(practice) == 1:
+        return practice  # the fix: ai_id → its single live runtime instance
+    if want_all:
+        return practice  # deliberate whole-practice fan-out (decision-2)
+    raise SentinelResolveError(
+        f"'{requested}' resolves to {len(practice)} live instances ({practice}). "
+        f"Pass --instance <runtime-id>, --session <claude_session_id>, or --all."
+    )
+
+
+def _emit_sentinel_error(args, message: str) -> int:
+    """Loud-fail emit for an unresolved/ambiguous sentinel target (exit 1)."""
+    return _emit(args, {"ok": False, "error": message}, f"error: {message}")
+
+
 def _emit(args, payload: dict[str, Any], human_summary: str) -> int:
     """Emit JSON or human output based on --output."""
     fmt = getattr(args, "output", "human")
@@ -91,64 +187,110 @@ def _emit(args, payload: dict[str, Any], human_summary: str) -> int:
 
 
 def handle_sentinel_pause_command(args) -> int:
-    instance_id = _resolve_instance_id(args, fallback_to_current=True)
+    try:
+        targets = _resolve_sentinel_targets(args)
+    except SentinelResolveError as e:
+        return _emit_sentinel_error(args, str(e))
     reason = getattr(args, "reason", None)
-    status = pause_sentinel(instance_id, reason=reason)
+    statuses = [pause_sentinel(t, reason=reason) for t in targets]
+    if len(statuses) == 1:
+        status = statuses[0]
+        payload = {
+            "ok": True,
+            "paused": status.paused,
+            "instance_id": status.instance_id,
+            "scope": status.scope,
+            "since": status.since,
+            "reason": status.reason,
+        }
+        target = status.instance_id or "global"
+        summary = f"Sentinel paused for {target}"
+        if status.reason:
+            summary += f" (reason: {status.reason})"
+        return _emit(args, payload, summary)
     payload = {
         "ok": True,
-        "paused": status.paused,
-        "instance_id": status.instance_id,
-        "scope": status.scope,
-        "since": status.since,
-        "reason": status.reason,
+        "paused_count": len(statuses),
+        "instances": [{"instance_id": s.instance_id, "paused": s.paused, "scope": s.scope} for s in statuses],
     }
-    target = status.instance_id or "global"
-    summary = f"Sentinel paused for {target}"
-    if status.reason:
-        summary += f" (reason: {status.reason})"
-    return _emit(args, payload, summary)
+    ids = ", ".join(s.instance_id or "global" for s in statuses)
+    return _emit(args, payload, f"Sentinel paused for {len(statuses)} instances: {ids}")
 
 
 def handle_sentinel_resume_command(args) -> int:
-    instance_id = _resolve_instance_id(args, fallback_to_current=True)
-    status = resume_sentinel(instance_id)
+    try:
+        targets = _resolve_sentinel_targets(args)
+    except SentinelResolveError as e:
+        return _emit_sentinel_error(args, str(e))
+    results = [(t, resume_sentinel(t)) for t in targets]
+    if len(results) == 1:
+        instance_id, status = results[0]
+        payload = {
+            "ok": True,
+            "paused": status.paused,
+            "instance_id": status.instance_id,
+            "scope": status.scope,
+        }
+        target = instance_id or "global"
+        if status.paused:
+            # The instance pause was removed but a global pause still applies.
+            summary = (
+                f"Sentinel resume requested for {target}, but global pause is still in effect (scope={status.scope})"
+            )
+        else:
+            summary = f"Sentinel resumed for {target}"
+        return _emit(args, payload, summary)
     payload = {
         "ok": True,
-        "paused": status.paused,
-        "instance_id": status.instance_id,
-        "scope": status.scope,
+        "resumed_count": len(results),
+        "instances": [{"instance_id": s.instance_id, "paused": s.paused, "scope": s.scope} for _, s in results],
     }
-    target = instance_id or "global"
-    if status.paused:
-        # The instance pause was removed but a global pause still applies.
-        summary = f"Sentinel resume requested for {target}, but global pause is still in effect (scope={status.scope})"
-    else:
-        summary = f"Sentinel resumed for {target}"
-    return _emit(args, payload, summary)
+    ids = ", ".join((iid or "global") for iid, _ in results)
+    return _emit(args, payload, f"Sentinel resume requested for {len(results)} instances: {ids}")
 
 
 def handle_sentinel_status_command_cockpit(args) -> int:
     """`empirica sentinel status` — distinct from existing `sentinel-status`."""
-    instance_id = _resolve_instance_id(args, fallback_to_current=True)
-    status = sentinel_status(instance_id)
+    try:
+        targets = _resolve_sentinel_targets(args)
+    except SentinelResolveError as e:
+        return _emit_sentinel_error(args, str(e))
+    statuses = [sentinel_status(t) for t in targets]
+    if len(statuses) == 1:
+        status = statuses[0]
+        payload = {
+            "ok": True,
+            "paused": status.paused,
+            "instance_id": status.instance_id,
+            "scope": status.scope,
+            "since": status.since,
+            "reason": status.reason,
+        }
+        target = status.instance_id or "global"
+        if status.paused:
+            summary = f"Sentinel PAUSED for {target} (scope={status.scope})"
+            if status.since:
+                summary += f" since {status.since}"
+            if status.reason:
+                summary += f" — {status.reason}"
+        else:
+            summary = f"Sentinel ON for {target}"
+        return _emit(args, payload, summary)
     payload = {
         "ok": True,
-        "paused": status.paused,
-        "instance_id": status.instance_id,
-        "scope": status.scope,
-        "since": status.since,
-        "reason": status.reason,
+        "instances": [
+            {
+                "instance_id": s.instance_id,
+                "paused": s.paused,
+                "scope": s.scope,
+                "since": s.since,
+                "reason": s.reason,
+            }
+            for s in statuses
+        ],
     }
-    target = status.instance_id or "global"
-    if status.paused:
-        summary = f"Sentinel PAUSED for {target} (scope={status.scope})"
-        if status.since:
-            summary += f" since {status.since}"
-        if status.reason:
-            summary += f" — {status.reason}"
-    else:
-        summary = f"Sentinel ON for {target}"
-    return _emit(args, payload, summary)
+    parts = [f"{(s.instance_id or 'global')}={'PAUSED' if s.paused else 'ON'}" for s in statuses]
+    return _emit(args, payload, "Sentinel status — " + ", ".join(parts))
 
 
 # ─── empirica loop ──────────────────────────────────────────────────────────
