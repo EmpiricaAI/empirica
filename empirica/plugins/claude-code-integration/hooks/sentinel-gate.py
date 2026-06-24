@@ -806,15 +806,23 @@ _file_relevance_nudge = ""  # Module-level: set when artifacts reference an Edit
 _last_read_count = 0  # Module-level: how many times current file was read this tx
 
 
-def _find_transaction_file(empirica_dir: Path, suffix: str, session_id: str | None = None) -> Path | None:
+def _find_transaction_file(
+    empirica_dir: Path,
+    suffix: str,
+    session_id: str | None = None,
+    claude_session_id: str | None = None,
+) -> Path | None:
     """Find the active transaction file, with suffix-mismatch fallback.
 
     Primary: exact file matching the current instance suffix.
-    Fallback: when exact file doesn't exist (e.g., hook context where
-    TMUX_PANE is not inherited), scan for any active_transaction_*.json
-    matching the given session_id.
+    Fallback: when exact file doesn't exist (hook context where TMUX_PANE is not
+    inherited, OR the ephemeral tmux_N rotated across compaction), scan for any
+    active_transaction_*.json matching — preferring the DURABLE
+    claude_session_id, then the (rotating) empirica session_id.
 
-    Safe because it's scoped by session_id — no cross-instance talk.
+    Safe because the scan is scoped by a durable/session key — no cross-instance
+    talk. This is the firewall's transaction-resolution path; it must stay in
+    sync with empirica/utils/session_resolver.py:_find_transaction_file.
     See: docs/architecture/instance_isolation/KNOWN_ISSUES.md (11.21)
     """
     # Primary: exact suffix match
@@ -822,19 +830,23 @@ def _find_transaction_file(empirica_dir: Path, suffix: str, session_id: str | No
     if exact.exists():
         return exact
 
-    # Fallback: scan for suffix-mismatched files matching this session
-    if session_id:
-        try:
-            for tx_file in sorted(empirica_dir.glob("active_transaction*.json")):
-                try:
-                    with open(tx_file) as f:
-                        tx_data = json.load(f)
-                    if tx_data.get("session_id") == session_id:
-                        return tx_file
-                except Exception:
-                    continue
-        except Exception:
-            pass
+    # Fallback: scan suffix-mismatched files. Prefer the durable
+    # claude_session_id (survives compaction); fall back to empirica session_id.
+    if not claude_session_id and not session_id:
+        return None
+    try:
+        for tx_file in sorted(empirica_dir.glob("active_transaction*.json")):
+            try:
+                with open(tx_file) as f:
+                    tx_data = json.load(f)
+            except Exception:
+                continue
+            if claude_session_id and tx_data.get("claude_session_id") == claude_session_id:
+                return tx_file
+            if session_id and tx_data.get("session_id") == session_id:
+                return tx_file
+    except Exception:
+        pass
 
     return None
 
@@ -870,7 +882,7 @@ def _locate_transaction_file(
                 with open(aw_file) as f:
                     pp = json.load(f).get("project_path")
                 if pp:
-                    tx = _find_transaction_file(Path(pp) / ".empirica", suffix, empirica_session_id)
+                    tx = _find_transaction_file(Path(pp) / ".empirica", suffix, empirica_session_id, claude_session_id)
                     if tx:
                         return tx
             except Exception:
@@ -879,12 +891,12 @@ def _locate_transaction_file(
     # Try 2: project_resolver canonical path
     pp = get_active_project_path(claude_session_id)
     if pp:
-        tx = _find_transaction_file(Path(pp) / ".empirica", suffix, empirica_session_id)
+        tx = _find_transaction_file(Path(pp) / ".empirica", suffix, empirica_session_id, claude_session_id)
         if tx:
             return tx
 
     # Try 3: global fallback
-    return _find_transaction_file(Path.home() / ".empirica", suffix, empirica_session_id)
+    return _find_transaction_file(Path.home() / ".empirica", suffix, empirica_session_id, claude_session_id)
 
 
 def _is_empirica_mcp_tool(tool_name: str) -> bool:

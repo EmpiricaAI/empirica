@@ -137,6 +137,7 @@ class InstanceResolver:
         preflight_timestamp: float | None = None,
         status: str = "open",
         project_path: str | None = None,
+        claude_session_id: str | None = None,
     ) -> None:
         """Write (create or update) the active transaction file."""
         write_active_transaction(
@@ -145,6 +146,7 @@ class InstanceResolver:
             preflight_timestamp=preflight_timestamp,
             status=status,
             project_path=project_path,
+            claude_session_id=claude_session_id,
         )
 
     @staticmethod
@@ -1037,6 +1039,7 @@ def write_active_transaction(
     preflight_timestamp: float | None = None,
     status: str = "open",
     project_path: str | None = None,
+    claude_session_id: str | None = None,
 ) -> None:
     """Atomically write the active transaction state to JSON file.
 
@@ -1047,12 +1050,20 @@ def write_active_transaction(
     IMPORTANT: Uses instance suffix for multi-instance isolation. Each Claude
     instance writes to its own transaction file (e.g., active_transaction_pts-6.json).
 
+    Dual-key (B3): the file also carries ``claude_session_id`` — the DURABLE
+    practitioner key. The empirica ``session_id`` rotates per compact window, so
+    resolving a transaction by it breaks across compaction; ``claude_session_id``
+    survives. ``_find_transaction_file`` prefers the claude_session_id match.
+    When ``claude_session_id`` is None on a status-update write (e.g. POSTFLIGHT),
+    the existing field is preserved so the durable key isn't dropped mid-cutover.
+
     Args:
         transaction_id: UUID of the epistemic transaction
         session_id: Session that opened this transaction (for PREFLIGHT lookup)
         preflight_timestamp: When PREFLIGHT was submitted
         status: "open" or "closed"
         project_path: Absolute path to the project (git root) this transaction belongs to
+        claude_session_id: Durable practitioner key (survives compaction)
     """
     import os
     import tempfile
@@ -1076,9 +1087,19 @@ def write_active_transaction(
 
     path.parent.mkdir(parents=True, exist_ok=True)
 
+    # Preserve an existing claude_session_id when this write doesn't supply one
+    # (status-update writes like POSTFLIGHT mustn't drop the durable key).
+    if claude_session_id is None and path.exists():
+        try:
+            with open(path) as existing_f:
+                claude_session_id = json.load(existing_f).get("claude_session_id")
+        except Exception:
+            pass
+
     tx_data = {
         "transaction_id": transaction_id,
         "session_id": session_id,
+        "claude_session_id": claude_session_id,  # durable key (B3 dual-key)
         "preflight_timestamp": preflight_timestamp or time.time(),
         "status": status,
         "project_path": project_path,  # Essential for cross-CWD operations
@@ -1112,14 +1133,27 @@ def increment_transaction_tool_count(claude_session_id: str | None = None) -> di
 
     suffix = _get_instance_suffix()
 
-    # Find the transaction file
-    project_path = get_active_project_path(claude_session_id)
-    if project_path:
-        tx_path = Path(project_path) / ".empirica" / f"active_transaction{suffix}.json"
-    else:
-        tx_path = Path.home() / ".empirica" / f"active_transaction{suffix}.json"
+    # Resolve the empirica session_id for the suffix-mismatch fallback scan.
+    session_id = None
+    if claude_session_id:
+        try:
+            aw_file = Path.home() / ".empirica" / f"active_work_{claude_session_id}.json"
+            if aw_file.exists():
+                with open(aw_file) as f:
+                    session_id = json.load(f).get("empirica_session_id")
+        except Exception:
+            pass
 
-    if not tx_path.exists():
+    # Find the transaction file with dual-key resilience (durable
+    # claude_session_id preferred, so the counter survives suffix rotation).
+    project_path = get_active_project_path(claude_session_id)
+    tx_path = None
+    if project_path:
+        tx_path = _find_transaction_file(Path(project_path) / ".empirica", suffix, session_id, claude_session_id)
+    if tx_path is None:
+        tx_path = _find_transaction_file(Path.home() / ".empirica", suffix, session_id, claude_session_id)
+
+    if tx_path is None or not tx_path.exists():
         return None
 
     try:
@@ -1151,28 +1185,39 @@ def increment_transaction_tool_count(claude_session_id: str | None = None) -> di
         return None
 
 
-def _find_transaction_file(empirica_dir: "Path", suffix: str, session_id: str | None = None) -> "Path | None":
+def _find_transaction_file(
+    empirica_dir: "Path",
+    suffix: str,
+    session_id: str | None = None,
+    claude_session_id: str | None = None,
+) -> "Path | None":
     """Find the active transaction file, with suffix-mismatch fallback.
 
     Primary: Look for the exact file matching the current instance suffix.
     Fallback: When the exact file doesn't exist (e.g., hook context where
-    TMUX_PANE is not inherited), scan for any active_transaction_*.json that
-    matches the given session_id.
+    TMUX_PANE is not inherited, OR the ephemeral tmux_N rotated across
+    compaction), scan for any active_transaction_*.json matching — preferring
+    the DURABLE claude_session_id, then the (rotating) empirica session_id.
 
     This handles the environment-mismatch scenario where:
     - CLI writes active_transaction_tmux_5.json (TMUX_PANE available)
     - Hook looks for active_transaction.json (no TMUX_PANE in hook context)
 
-    The fallback is safe because it's scoped by session_id — it won't
-    cross-talk between instances. If session_id is None, only exact
-    suffix match is attempted (no scan).
+    And the compaction scenario (B3) where:
+    - The empirica session_id rotated, so a session_id scan no longer matches,
+      but claude_session_id (the practitioner key) is stable across the rotation.
+
+    The scan is safe because it's scoped by a durable/session key — it won't
+    cross-talk between instances. With neither key, only the exact suffix match
+    is attempted (no scan).
 
     See: docs/architecture/instance_isolation/KNOWN_ISSUES.md (11.21)
 
     Args:
         empirica_dir: The .empirica directory to search in
         suffix: The instance suffix from _get_instance_suffix()
-        session_id: Optional session_id to match against when scanning
+        session_id: Optional empirica session_id to match (rotates on compaction)
+        claude_session_id: Optional durable practitioner key (preferred match)
 
     Returns:
         Path to the transaction file, or None
@@ -1182,25 +1227,34 @@ def _find_transaction_file(empirica_dir: "Path", suffix: str, session_id: str | 
     if exact.exists():
         return exact
 
-    # Fallback: scan for suffix-mismatched files matching this session
-    # Only when we have a session_id to scope the search (prevents cross-talk)
-    if session_id:
-        try:
-            for tx_file in sorted(empirica_dir.glob("active_transaction*.json")):
-                try:
-                    with open(tx_file) as f:
-                        tx_data = json.load(f)
-                    if tx_data.get("session_id") == session_id:
-                        logger.debug(
-                            f"Transaction suffix mismatch resolved: "
-                            f"expected '{suffix}', found '{tx_file.name}' "
-                            f"(session={session_id[:8]})"
-                        )
-                        return tx_file
-                except Exception:
-                    continue
-        except Exception:
-            pass
+    # Fallback: scan for suffix-mismatched files. Prefer the durable
+    # claude_session_id (survives compaction); fall back to the empirica
+    # session_id (may have rotated). Either key scopes the scan to prevent
+    # cross-instance cross-talk.
+    if not claude_session_id and not session_id:
+        return None
+    try:
+        for tx_file in sorted(empirica_dir.glob("active_transaction*.json")):
+            try:
+                with open(tx_file) as f:
+                    tx_data = json.load(f)
+            except Exception:
+                continue
+            if claude_session_id and tx_data.get("claude_session_id") == claude_session_id:
+                logger.debug(
+                    f"Transaction resolved by durable claude_session_id: "
+                    f"expected suffix '{suffix}', found '{tx_file.name}'"
+                )
+                return tx_file
+            if session_id and tx_data.get("session_id") == session_id:
+                logger.debug(
+                    f"Transaction suffix mismatch resolved: "
+                    f"expected '{suffix}', found '{tx_file.name}' "
+                    f"(session={session_id[:8]})"
+                )
+                return tx_file
+    except Exception:
+        pass
 
     return None
 
@@ -1237,7 +1291,7 @@ def read_active_transaction_full(claude_session_id: str | None = None) -> dict |
     project_path = get_active_project_path(claude_session_id)
     if project_path:
         empirica_dir = Path(project_path) / ".empirica"
-        tx_file = _find_transaction_file(empirica_dir, suffix, session_id)
+        tx_file = _find_transaction_file(empirica_dir, suffix, session_id, claude_session_id)
         if tx_file:
             try:
                 with open(tx_file) as f:
@@ -1247,7 +1301,7 @@ def read_active_transaction_full(claude_session_id: str | None = None) -> dict |
 
     # Fallback: Global ~/.empirica/
     global_dir = Path.home() / ".empirica"
-    tx_file = _find_transaction_file(global_dir, suffix, session_id)
+    tx_file = _find_transaction_file(global_dir, suffix, session_id, claude_session_id)
     if tx_file:
         try:
             with open(tx_file) as f:
