@@ -115,6 +115,36 @@ def test_find_no_crosstalk_between_practitioners(tmp_path):
     assert _find_transaction_file(ed, "_tmux_9", None, "cc-MINE") is None
 
 
+# ---- prefer OPEN over stale CLOSED (the B3-slice-1 regression) -----------
+
+
+def test_find_prefers_open_over_closed_same_cc(tmp_path):
+    """The bug: a CC session accumulates one tx file per past (closed) transaction
+    plus the current open one, all sharing claude_session_id. The resolver must
+    NOT return the stale closed file just because it sorts first."""
+    ed = tmp_path / ".empirica"
+    # 'aaa' sorts before 'zzz' — the closed file is encountered first.
+    _write_tx(ed, "_aaa", transaction_id="T-CLOSED", claude_session_id="cc-1", status="closed")
+    open_p = _write_tx(ed, "_zzz", transaction_id="T-OPEN", claude_session_id="cc-1", status="open")
+    assert _find_transaction_file(ed, "_tmux_9", None, "cc-1") == open_p
+
+
+def test_find_returns_closed_when_only_closed(tmp_path):
+    """Read-of-closed is preserved: if the only cc-match is closed (no open
+    transaction), it's still resolvable (read_active_transaction_full needs it)."""
+    ed = tmp_path / ".empirica"
+    closed_p = _write_tx(ed, "_aaa", transaction_id="T-CLOSED", claude_session_id="cc-1", status="closed")
+    assert _find_transaction_file(ed, "_tmux_9", None, "cc-1") == closed_p
+
+
+def test_find_prefers_most_recent_open(tmp_path):
+    """Among open cc-matches, the most recently updated wins."""
+    ed = tmp_path / ".empirica"
+    _write_tx(ed, "_aaa", transaction_id="T-OLD", claude_session_id="cc-1", status="open", updated_at=100.0)
+    new_p = _write_tx(ed, "_bbb", transaction_id="T-NEW", claude_session_id="cc-1", status="open", updated_at=200.0)
+    assert _find_transaction_file(ed, "_tmux_9", None, "cc-1") == new_p
+
+
 # ---- firewall hook copy mirrors the package -----------------------------
 
 
