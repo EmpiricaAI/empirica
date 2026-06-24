@@ -215,6 +215,20 @@ def _cleanup_session_files(claude_session_id: str | None):
     except Exception:
         pass
 
+    # Clear practitioner presence (keyed on the same durable claude_session_id).
+    # Best-effort shell-out to the CLI — the hook is stdlib-only and does not
+    # import the empirica package. Never fail session-end on a presence clear.
+    try:
+        subprocess.run(
+            ["empirica", "practitioner", "clear", "--session", claude_session_id, "--output", "json"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            stdin=subprocess.DEVNULL,
+        )
+    except Exception:
+        pass
+
     # Clean up TTY session file (terminal association is gone)
     try:
         tty_sessions_dir = Path.home() / ".empirica" / "tty_sessions"

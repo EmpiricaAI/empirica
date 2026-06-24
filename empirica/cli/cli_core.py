@@ -479,6 +479,7 @@ _HELP_CATEGORIES = {
         "loop",
         "listener",
         "instance",
+        "practitioner",
         "mailbox",
         "cockpit",
         "daemon-list",
@@ -674,6 +675,7 @@ def main(args=None):
             "listener": handle_listener_group_command,
             "mailbox": handle_mailbox_group_command,
             "instance": handle_instance_group_command,
+            "practitioner": handle_practitioner_group_command,
             "status": handle_cockpit_status_command,
             "tui": handle_tui_command,
             # Chat (single-instance collaborative epistemic workspace)

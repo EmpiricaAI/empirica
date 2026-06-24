@@ -55,13 +55,54 @@ def _add_sentinel_target(parser):
 
 
 def add_cockpit_parsers(subparsers):
-    """Register sentinel/loop/listener/instance subcommand groups + top-level status + tui."""
+    """Register sentinel/loop/listener/instance/practitioner groups + top-level status + tui."""
     _add_sentinel_group(subparsers)
     _add_loop_group(subparsers)
     _add_listener_group(subparsers)
     _add_instance_group(subparsers)
+    _add_practitioner_group(subparsers)
     _add_status_command(subparsers)
     _add_tui_command(subparsers)
+
+
+def _add_practitioner_group(subparsers):
+    """`empirica practitioner <write|clear|list>` — practitioner-presence control.
+
+    Presence is keyed on the durable claude_session_id (--session). write/clear
+    are the lifecycle the session hooks shell out to; list is the resolver
+    surface (a practice's live practitioners).
+    """
+    root = subparsers.add_parser(
+        "practitioner",
+        help="Practitioner presence: write/clear/list (keyed on claude_session_id)",
+    )
+    subs = root.add_subparsers(dest="practitioner_action", metavar="action")
+
+    write = subs.add_parser("write", help="Register/heartbeat this practitioner's presence")
+    write.add_argument("--session", required=True, help="claude_session_id (the durable practitioner key)")
+    write.add_argument("--status", default="active", help="active | idle | paused | blocked (default: active)")
+    write.add_argument("--pending-question", dest="pending_question", help="Blocked-reason (emit-and-park signal)")
+    write.add_argument("--ai-id", dest="ai_id", help="Practice ai_id (default: resolve from project context)")
+    write.add_argument("--location", help="Location/instance_id (default: resolve from current process)")
+    write.add_argument("--empirica-session", dest="empirica_session", help="Empirica session id (default: resolve)")
+    write.add_argument(
+        "--active-transaction", dest="active_transaction", help="Active transaction id (default: resolve)"
+    )
+    write.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
+    write.add_argument("--verbose", action="store_true", help="Verbose output")
+
+    clear = subs.add_parser("clear", help="Clear this practitioner's presence (session-end)")
+    clear.add_argument("--session", required=True, help="claude_session_id")
+    clear.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
+    clear.add_argument("--verbose", action="store_true", help="Verbose output")
+
+    plist = subs.add_parser("list", help="List live practitioners (optionally scoped to a practice)")
+    plist.add_argument("--practice", help="Scope to a practice ai_id")
+    plist.add_argument(
+        "--include-stale", dest="include_stale", action="store_true", help="Include stale (no recent heartbeat)"
+    )
+    plist.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
+    plist.add_argument("--verbose", action="store_true", help="Verbose output")
 
 
 def _add_tui_command(subparsers):

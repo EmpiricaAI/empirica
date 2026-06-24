@@ -183,6 +183,7 @@ from .notify_commands import (
 )
 from .onboard import handle_onboard_command
 from .performance_commands import handle_benchmark_command, handle_performance_command
+from .practitioner_commands import handle_practitioner_group_command
 from .profile_commands import (
     handle_profile_import_command,
     handle_profile_prune_command,
@@ -533,6 +534,8 @@ __all__ = [  # noqa: RUF022
     "handle_engagement_list_command",
     "handle_engagement_show_command",
     "handle_engagement_walk_command",
+    # Practitioner presence CLI
+    "handle_practitioner_group_command",
     # Session-end command
     # 'handle_session_end_command',  # removed - use handoff-create
 ]

@@ -1487,6 +1487,32 @@ def main():
 
     if result.get("session_id"):
         _write_instance_projects(str(project_root), claude_session_id, result["session_id"])
+        # Register practitioner presence, keyed on the durable claude_session_id
+        # (survives compaction; the empirica session_id rotates per compact
+        # window). Best-effort — never fail session-init on a presence write.
+        if claude_session_id:
+            try:
+                subprocess.run(
+                    [
+                        "empirica",
+                        "practitioner",
+                        "write",
+                        "--session",
+                        claude_session_id,
+                        "--ai-id",
+                        ai_id,
+                        "--empirica-session",
+                        result["session_id"],
+                        "--output",
+                        "json",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    stdin=subprocess.DEVNULL,
+                )
+            except Exception:
+                pass
 
     if result.get("error"):
         _emit_session_error(result["error"], ai_id)
