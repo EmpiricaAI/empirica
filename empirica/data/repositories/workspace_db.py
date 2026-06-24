@@ -843,6 +843,28 @@ class WorkspaceDBRepository(BaseRepository):
         members = [dict(row) for row in in_cursor.fetchall()]
         return {"member_of": member_of, "members": members}
 
+    def get_org_parent_map(self) -> dict[str, str]:
+        """Map child_org_id → parent_org_id from active org→org membership edges.
+
+        Org→org parentage is an active ``entity_membership`` where both ends are
+        organizations (the child org is member_of the parent org). The ``role``
+        column is a free-text verb in ``entity-link`` (existing edges use
+        'member', 'context', 'ticket_of'), so parentage keys on the STRUCTURAL
+        org→org edge, not a brittle role string — a role filter would miss real
+        parentage. One row per child (the most recent active edge wins). Single
+        query; the org set (umbrella + brands) is small, so this preserves the
+        list endpoint's single-query intent (the org-parent slice of the
+        deferred v1.1 membership enrichment).
+        """
+        cursor = self._execute(
+            """SELECT entity_id, group_id FROM entity_memberships
+               WHERE entity_type = 'organization' AND group_type = 'organization'
+                 AND left_at IS NULL
+               ORDER BY joined_at ASC"""
+        )
+        # ASC + dict overwrite → the most recent (latest joined_at) edge wins.
+        return {row["entity_id"]: row["group_id"] for row in cursor.fetchall()}
+
     def upsert_entity_membership(
         self,
         entity_type: str,

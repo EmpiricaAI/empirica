@@ -120,19 +120,27 @@ async def list_entities(
 
     out: list[dict] = []
     with WorkspaceDBRepository.open() as repo:
+        # Org→org parentage for the org-tree render (extension). One query for
+        # the whole org set (small: umbrella + brands), not per-row — preserves
+        # the single-query intent that deferred the broader v1.1 enrichment.
+        org_parents = repo.get_org_parent_map()
         for row in repo.list_entities(entity_type=type, status=status, limit=limit):
             et, eid = row["entity_type"], row["entity_id"]
             meta = _parse_metadata(row.get("metadata"))
-            out.append(
-                {
-                    "id": eid,
-                    "type": et,
-                    "name": row.get("display_name"),
-                    "subtitle": _list_subtitle(row, meta),
-                    "status": row.get("status"),
-                    "health": meta.get("health"),
-                    "linked_artifact_count": repo.count_entity_artifacts(et, eid),
-                    "updated_at": row.get("updated_at"),
-                }
-            )
+            entry = {
+                "id": eid,
+                "type": et,
+                "name": row.get("display_name"),
+                "subtitle": _list_subtitle(row, meta),
+                "status": row.get("status"),
+                "health": meta.get("health"),
+                "linked_artifact_count": repo.count_entity_artifacts(et, eid),
+                "updated_at": row.get("updated_at"),
+            }
+            # Org rows carry their parent org (null for umbrella roots). Only
+            # organization rows get the field — the extension tree-builder keys
+            # off it; non-org rows omit it.
+            if et == "organization":
+                entry["parent_org_id"] = org_parents.get(eid)
+            out.append(entry)
     return {"ok": True, "count": len(out), "entities": out}
