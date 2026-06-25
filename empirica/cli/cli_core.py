@@ -556,6 +556,64 @@ def _handle_command_result(result, parsed_args) -> int:
     return 0
 
 
+# Self-heal verbs that must NOT trigger the plugin auto-sync (they'd re-invoke
+# it → infinite loop), plus cheap/help paths.
+_PLUGIN_AUTOSYNC_EXEMPT = frozenset(
+    {"plugin-sync", "setup-claude-code", "plugin-version", "doctor", "diagnose", "help"}
+)
+
+
+def _maybe_autosync_plugin(command: str) -> None:
+    """GAP 1: self-heal a stale *deployed* Claude Code plugin from the CLI.
+
+    The deployed plugin (``~/.claude/plugins/local/empirica``) is a copy; ``pip
+    install -U`` upgrades the package but not the copy, so a box silently runs
+    old hooks. The session-init auto-heal lives *inside* that plugin, so a box
+    whose plugin predates it never self-heals (chicken-and-egg). The CLI is
+    always current after the upgrade, so we check skew here and run
+    ``plugin-sync`` once when it drifts — bootstrapping even ancient boxes.
+
+    Fail-safe (never breaks the user's command), debounced (once / 10 min via a
+    marker), re-entrancy-guarded (exempt verbs above). Opt out with
+    ``EMPIRICA_NO_AUTOSYNC=1``. The rush-guard already whitelists plugin-sync, so
+    the sync won't self-deadlock even with a stale sentinel-gate live mid-heal.
+    """
+    import os
+    import subprocess
+    import time as _time
+    from pathlib import Path
+
+    if command in _PLUGIN_AUTOSYNC_EXEMPT or os.environ.get("EMPIRICA_NO_AUTOSYNC"):
+        return
+    try:
+        marker = Path.home() / ".empirica" / ".plugin_autosync_checked"
+        now = _time.time()
+        if marker.exists() and now - marker.stat().st_mtime < 600:
+            return
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(str(now))  # stamp first so concurrent CLI calls debounce
+
+        plugin_dir = Path.home() / ".claude" / "plugins" / "local" / "empirica"
+        if not plugin_dir.exists():
+            return  # not a Claude Code box — nothing to heal
+        stamp_file = plugin_dir / ".plugin-version"
+        stamp = stamp_file.read_text().strip() if stamp_file.exists() else None
+        try:
+            from empirica import __version__ as cli_ver
+        except Exception:
+            cli_ver = None
+        if cli_ver and stamp != cli_ver:  # None (ancient plugin) also drifts → sync
+            subprocess.run(
+                ["empirica", "plugin-sync"],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                timeout=60,
+                check=False,
+            )
+    except Exception:
+        return  # self-heal must never break the user's command
+
+
 def main(args=None):
     """Main CLI entry point"""
     start_time = time.time()
@@ -582,6 +640,11 @@ def main(args=None):
     if parsed_args.command == "help":
         _handle_help_command(parsed_args)
         sys.exit(0)
+
+    # GAP 1: self-heal a stale deployed plugin from the CLI (always current after
+    # `pip -U`), bootstrapping boxes whose plugin predates the session-init
+    # auto-heal. Fail-safe + debounced + re-entrancy-guarded (see helper).
+    _maybe_autosync_plugin(parsed_args.command)
 
     # Normalize --project-id: resolve names to UUIDs via workspace.db
     if hasattr(parsed_args, "project_id") and parsed_args.project_id:
