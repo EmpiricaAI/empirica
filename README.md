@@ -327,15 +327,16 @@ All read-only, all support `--output json`. Backs cross-project orchestration, C
 
 | Project | Description | Status |
 |---------|-------------|--------|
-| **[Empirica](https://github.com/EmpiricaAI/empirica)** | Core measurement system — epistemic transactions, Sentinel, calibration, 13 vectors | Open source |
-| **[Empirica Iris](https://github.com/Nubaeon/empirica-iris)** | Epistemic browser automation with SVG spatial indexing — Sentinel gating for visual interactions | Open source |
-| **[Docpistemic](https://github.com/Nubaeon/docpistemic)** | Epistemic documentation coverage assessment — know what your docs know | Open source |
-| **[Breadcrumbs](https://github.com/Nubaeon/breadcrumbs)** | Survive context compacts with git notes — dead simple session continuity | Open source |
+| **[Empirica](https://github.com/EmpiricaAI/empirica)** | Core measurement system — epistemic transactions, Sentinel, calibration, 13 vectors | Open source (MIT) |
+| **[Empirica Iris](https://github.com/Nubaeon/empirica-iris)** | Epistemic browser automation with SVG spatial indexing — Sentinel gating for visual interactions | Open source (MIT) |
+| **[Docpistemic](https://github.com/Nubaeon/docpistemic)** | Epistemic documentation coverage assessment — know what your docs know | Open source (MIT) |
+| **[Breadcrumbs](https://github.com/Nubaeon/breadcrumbs)** | Survive context compacts with git notes — dead simple session continuity | Open source (MIT) |
 | **[Ecodex](https://github.com/EmpiricaAI/ecodex)** | Codex-based Rust harness — the epistemic firewall and pattern hunt, native to Rust/cargo (clippy, `cargo check`/`test`/`audit`) | Open source (Apache-2.0) |
 | **[Eat the Broccoli](https://github.com/EmpiricaAI/broccoli)** | Portable quality-and-pattern audit — deterministic tooling plus a learned-pattern hunt for the failure classes that pass every test and still ship broken | Open source (MIT) |
 | **[Empirica Cortex](https://getempirica.com)** | Cross-project intelligence layer — serves verified predictions and accumulated learnings to condition future work | Proprietary |
 | **[Empirica Workspace](https://getempirica.com)** | Entity Knowledge Graph, Epistemic Prompt Engine, CRM, portfolio dashboard | Proprietary |
 | **[Empirica Extension](https://getempirica.com)** | Chrome extension — desktop face of the mesh. ECO Accept/Decline, inbox/outbox triage, publish review, conversation extraction from Claude.ai / ChatGPT / Gemini / Grok | Proprietary |
+| **[Empirica Outreach](https://getempirica.com)** | Voice-aware outreach + publishing — prosody-matched content generation and multi-channel dispatch | Proprietary |
 
 **Building something with Empirica?** [Open an issue](https://github.com/EmpiricaAI/empirica/issues) to get listed.
 
@@ -343,9 +344,11 @@ All read-only, all support `--output json`. Backs cross-project orchestration, C
 
 ## The Empirica Foundation
 
-The **Empirica Foundation** now exists to steward the open ecosystem — the public projects above and the community building around them. Its job is to keep the commons healthy as the ecosystem grows: shared standards, open governance, and a home for the people building it.
+The **Empirica Foundation** stewards the open ecosystem — the public projects above and the community growing around them — keeping the commons healthy as it scales.
 
-**Collaborators get a seat.** If you want to help build the community, open an [issue](https://github.com/EmpiricaAI/empirica/issues) or a PR with your reasons — that's the whole ask. Everyone who wants to help shape where this goes is welcome.
+The open-source projects are free for everyone. What the Foundation adds is a **seat at the table**: contributors who help build the community get to use the rest of the ecosystem too — the otherwise-paid layers (Cortex, Workspace, the Extension) and the collaborative mesh that lets practitioners coordinate as peers. Build the commons, use the whole thing.
+
+**Want in?** Open an [issue](https://github.com/EmpiricaAI/empirica/issues) or a PR with your reasons — that's the whole application. Everyone who wants to help shape where this goes is welcome.
 
 ---
 
