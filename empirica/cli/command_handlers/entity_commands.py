@@ -519,6 +519,94 @@ def _parse_ref(ref: str | None) -> tuple[str | None, str | None]:
     return (t.strip() or None), (i.strip() or None)
 
 
+def handle_entity_delete_command(args):
+    """Handle entity-delete — soft-archive (default) or hard-delete (--hard) an entity.
+
+    Default (soft-archive): sets the entity_registry row's status='archived' and
+    closes its active memberships — reversible and auditable. ``--hard`` does an
+    irreversible dependent-order cascade (entity_artifacts → entity_memberships →
+    engagements sidecar → registry row) and therefore requires ``--confirm``.
+    ``--dry-run`` previews either path without mutating. Pass the entity as
+    'type:id' (or --type + --id).
+    """
+    try:
+        output = getattr(args, "output", "human")
+        et, eid = _parse_entity_arg(args)
+        if not (et and eid):
+            msg = "Entity ref required as 'type:id' (e.g. engagement:e-foo) or --type/--id"
+            print(
+                json.dumps({"ok": False, "error": msg}, indent=2) if output == "json" else f"❌ {msg}",
+                file=sys.stdout if output == "json" else sys.stderr,
+            )
+            sys.exit(1)
+
+        hard = getattr(args, "hard", False)
+        confirm = getattr(args, "confirm", False)
+        dry_run = getattr(args, "dry_run", False)
+
+        with WorkspaceDBRepository.open(ensure_schema=True) as repo:
+            entity = repo.get_entity(et, eid)
+            if not entity:
+                msg = f"No entity found: {et}:{eid}"
+                print(
+                    json.dumps({"ok": False, "error": msg}, indent=2) if output == "json" else f"❌ {msg}",
+                    file=sys.stdout if output == "json" else sys.stderr,
+                )
+                sys.exit(1)
+            et, eid = entity["entity_type"], entity["entity_id"]  # resolve any prefix match
+
+            try:
+                mem = repo.get_entity_memberships(et, eid)
+                mem_count = sum(len(v) for v in mem.values()) if isinstance(mem, dict) else 0
+            except Exception:
+                mem_count = 0
+            try:
+                art_count = len(repo.get_entity_artifacts_by_entity(et, eid))
+            except Exception:
+                art_count = 0
+
+            if hard and not confirm and not dry_run:
+                msg = (
+                    f"--hard is irreversible (would remove {art_count} artifact link(s), "
+                    f"{mem_count} membership(s), the engagements sidecar if present, and the "
+                    "registry row). Re-run with --confirm, or drop --hard for a reversible soft-archive."
+                )
+                print(
+                    json.dumps({"ok": False, "error": msg, "requires": "--confirm"}, indent=2)
+                    if output == "json"
+                    else f"❌ {msg}",
+                    file=sys.stdout if output == "json" else sys.stderr,
+                )
+                sys.exit(1)
+
+            if dry_run:
+                action = "would_hard_delete" if hard else "would_archive"
+                counts: dict[str, int] = {"entity_artifacts": art_count, "entity_memberships": mem_count}
+            elif hard:
+                action = "hard_deleted"
+                counts = repo.delete_entity_hard(et, eid)
+            else:
+                changed = repo.archive_entity(et, eid)
+                action = "archived" if changed else "already_archived"
+                counts = {"memberships_closed": mem_count}
+
+        result = {
+            "ok": True,
+            "action": action,
+            "entity": f"{et}:{eid}",
+            "display_name": entity.get("display_name"),
+            "counts": counts,
+        }
+        if output == "json":
+            print(json.dumps(result, indent=2, default=str))
+        else:
+            print(f"✅ {action}: {et}:{eid}  ({entity.get('display_name', '') or '(no name)'})")
+            for k, v in counts.items():
+                print(f"   {k}: {v}")
+    except Exception as e:
+        handle_cli_error(e, "entity-delete", getattr(args, "verbose", False))
+
+
 def handle_entity_link_command(args):
     """Handle entity-link command — write (or soft-close) a typed membership
     edge between two entities: '<member> is <role> of <group>'.

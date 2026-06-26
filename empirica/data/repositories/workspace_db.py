@@ -971,6 +971,63 @@ class WorkspaceDBRepository(BaseRepository):
         self.commit()
         return cursor.rowcount > 0
 
+    def archive_entity(self, entity_type: str, entity_id: str) -> bool:
+        """Soft-archive an entity: set entity_registry.status='archived' and
+        close all its active memberships (as member or group) via ``left_at``.
+
+        Reversible + auditable — the registry row and its (now-closed) edges
+        stay in the tables. Returns True if the entity was active (status
+        flipped), False if it was missing or already archived. Idempotent.
+        """
+        cursor = self._execute(
+            "UPDATE entity_registry SET status = 'archived', updated_at = ? "
+            "WHERE entity_type = ? AND entity_id = ? AND status != 'archived'",
+            (time.time(), entity_type, entity_id),
+        )
+        changed = cursor.rowcount > 0
+        self._execute(
+            "UPDATE entity_memberships SET left_at = ? "
+            "WHERE ((entity_type = ? AND entity_id = ?) "
+            "OR (group_type = ? AND group_id = ?)) AND left_at IS NULL",
+            (time.time(), entity_type, entity_id, entity_type, entity_id),
+        )
+        self.commit()
+        return changed
+
+    def delete_entity_hard(self, entity_type: str, entity_id: str) -> dict[str, int]:
+        """Hard-delete an entity in dependent order. IRREVERSIBLE.
+
+        Order: entity_artifacts links → entity_memberships edges (member or
+        group) → the engagements sidecar row (engagement type only — same db,
+        same id by the mint convention) → the entity_registry row. Returns a
+        per-table delete count. Other types' CRM sidecars (e.g. clients) are
+        intentionally untouched — their id↔entity_id mapping isn't guaranteed;
+        the canonical entity layer is this verb's scope.
+        """
+        counts: dict[str, int] = {}
+        counts["entity_artifacts"] = self._execute(
+            "DELETE FROM entity_artifacts WHERE entity_type = ? AND entity_id = ?",
+            (entity_type, entity_id),
+        ).rowcount
+        counts["entity_memberships"] = self._execute(
+            "DELETE FROM entity_memberships "
+            "WHERE (entity_type = ? AND entity_id = ?) OR (group_type = ? AND group_id = ?)",
+            (entity_type, entity_id, entity_type, entity_id),
+        ).rowcount
+        if entity_type == "engagement":
+            try:
+                counts["engagements"] = self._execute(
+                    "DELETE FROM engagements WHERE engagement_id = ?", (entity_id,)
+                ).rowcount
+            except Exception:
+                counts["engagements"] = 0  # sidecar table absent in this db
+        counts["entity_registry"] = self._execute(
+            "DELETE FROM entity_registry WHERE entity_type = ? AND entity_id = ?",
+            (entity_type, entity_id),
+        ).rowcount
+        self.commit()
+        return counts
+
     # --- engagement substrate (operational SQL CRUD) ------------------------
     # The engagement is the OPERATIONAL projection — a plain SQL row with no
     # confidence/epistemic fields. Diagnostic findings stay EPISTEMIC and link

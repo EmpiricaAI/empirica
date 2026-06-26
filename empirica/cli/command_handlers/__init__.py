@@ -87,6 +87,7 @@ from .engagement_commands import (
 from .enp_commands import handle_enp_setup_command
 from .entity_commands import (
     handle_entity_create_command,
+    handle_entity_delete_command,
     handle_entity_link_command,
     handle_entity_list_command,
     handle_entity_search_command,
@@ -524,6 +525,7 @@ __all__ = [  # noqa: RUF022
     "handle_workspace_search_command",
     # Entity registry CLI (Practice Model backing)
     "handle_entity_create_command",
+    "handle_entity_delete_command",
     "handle_entity_link_command",
     "handle_entity_list_command",
     "handle_entity_search_command",

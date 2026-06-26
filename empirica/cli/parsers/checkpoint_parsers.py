@@ -621,6 +621,24 @@ def add_checkpoint_parsers(subparsers):
     entity_walk_parser.add_argument("--depth", type=int, default=2, help="Max traversal depth (default: 2)")
     entity_walk_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
 
+    entity_delete_parser = subparsers.add_parser(
+        "entity-delete",
+        help=(
+            "Delete an entity. Default is a reversible soft-archive "
+            "(status='archived' + close memberships); --hard does an irreversible "
+            "dependent-order cascade and requires --confirm. Pass as 'type:id'."
+        ),
+    )
+    entity_delete_parser.add_argument("entity", nargs="?", help='Entity as "type:id" (or use --type + --id)')
+    entity_delete_parser.add_argument("--type", dest="entity_type", help="Entity type (alternative to positional)")
+    entity_delete_parser.add_argument("--id", dest="entity_id", help="Entity id (alternative to positional)")
+    entity_delete_parser.add_argument(
+        "--hard", action="store_true", help="Irreversible dependent-order cascade delete (requires --confirm)"
+    )
+    entity_delete_parser.add_argument("--confirm", action="store_true", help="Confirm an irreversible --hard delete")
+    entity_delete_parser.add_argument("--dry-run", action="store_true", help="Preview the effect without mutating")
+    entity_delete_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
+
     # --- engagement substrate CLI (rides the entities-mint path; operational) ---
     engagement_create_parser = subparsers.add_parser(
         "engagement-create",
