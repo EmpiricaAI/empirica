@@ -17,10 +17,17 @@ from empirica.cli.command_handlers import artifact_log_commands as alc
 
 def _ctx(db):
     return {
-        "db": db, "project_id": "p", "session_id": "s", "ai_id": "test",
-        "goal_id": None, "transaction_id": None,
-        "entity_type": None, "entity_id": None,
-        "visibility": "shared", "via": None, "output_format": "text",
+        "db": db,
+        "project_id": "p",
+        "session_id": "s",
+        "ai_id": "test",
+        "goal_id": None,
+        "transaction_id": None,
+        "entity_type": None,
+        "entity_id": None,
+        "visibility": "shared",
+        "via": None,
+        "output_format": "text",
     }
 
 
@@ -33,8 +40,12 @@ def _stored_confidence(monkeypatch, *, args_confidence, config_data=None):
     monkeypatch.setattr(alc, "_collect_edges_from_args", lambda *a, **k: [])
     monkeypatch.setattr(alc, "_suggest_links_safe", lambda *a, **k: [])
     args = argparse.Namespace(
-        assumption="x", confidence=args_confidence, domain=None,
-        description=None, epistemic_source=None, config=None,
+        assumption="x",
+        confidence=args_confidence,
+        domain=None,
+        description=None,
+        epistemic_source=None,
+        config=None,
     )
     alc.handle_assumption_log_command(args)
     return db.log_assumption.call_args.kwargs["confidence"]
@@ -52,7 +63,5 @@ def test_cli_confidence_zero_preserved(monkeypatch):
 
 def test_stdin_confidence_overrides_args(monkeypatch):
     # AI-first (stdin JSON) mode: config_data wins over the argparse default
-    got = _stored_confidence(
-        monkeypatch, args_confidence=0.5, config_data={"assumption": "x", "confidence": 0.9}
-    )
+    got = _stored_confidence(monkeypatch, args_confidence=0.5, config_data={"assumption": "x", "confidence": 0.9})
     assert got == 0.9
