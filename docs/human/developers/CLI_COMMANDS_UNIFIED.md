@@ -22,9 +22,9 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.12.5
-**Generated:** 2026-06-23 18:30:41 UTC
-**Total commands:** 248 (across 26 categories)
+**Framework version:** 1.12.7
+**Generated:** 2026-06-26 09:51:35 UTC
+**Total commands:** 253 (across 26 categories)
 
 For the most up-to-date detail on any single command, prefer
 `empirica <command> --help` — the generator extracts the same `help`
@@ -67,7 +67,7 @@ require `--session-id` (`project-bootstrap`, `sessions-show`,
 | [goals](#goals) | 16 | `goals-create`, `goals-list`, `goals-search`, … |
 | [logging](#logging) | 23 | `finding-log`, `unknown-log`, `unknown-list`, … |
 | [project](#project) | 18 | `project-init`, `project-update`, `project-create`, … |
-| [workspace](#workspace) | 15 | `workspace-init`, `workspace-map`, `workspace-list`, … |
+| [workspace](#workspace) | 19 | `workspace-init`, `workspace-map`, `workspace-list`, … |
 | [checkpoint](#checkpoint) | 7 | `checkpoint-create`, `checkpoint-load`, `checkpoint-list`, … |
 | [sync](#sync) | 6 | `sync-config`, `sync-push`, `sync-pull`, … |
 | [profile](#profile) | 4 | `profile-sync`, `profile-prune`, `profile-status`, … |
@@ -76,7 +76,7 @@ require `--session-id` (`project-bootstrap`, `sessions-show`,
 | [issue](#issue) | 6 | `issue-list`, `issue-show`, `issue-handoff`, … |
 | [investigation](#investigation) | 5 | `investigate`, `investigate-create-branch`, `investigate-checkpoint-branch`, … |
 | [monitoring](#monitoring) | 10 | `monitor`, `assess-state`, `trajectory-project`, … |
-| [cockpit](#cockpit) | 13 | `status`, `tui`, `sentinel`, … |
+| [cockpit](#cockpit) | 14 | `status`, `tui`, `sentinel`, … |
 | [skills](#skills) | 3 | `skill-suggest`, `skill-fetch`, `skill-extract` |
 | [architecture](#architecture) | 3 | `assess-component`, `assess-compare`, `assess-directory` |
 | [agents](#agents) | 7 | `agent-spawn`, `agent-report`, `agent-aggregate`, … |
@@ -1909,6 +1909,78 @@ Write (or soft-close) a typed membership edge between two entities: '<member> is
 - `--verbose` — optional · flag
   Verbose output
 
+#### `empirica engagement-create`
+
+Create an engagement: mints the engagement entity (the entities-mint path) then writes the operational sidecar row. Idempotent by slug. Optionally link to an organization with --org (role='ticket_of').
+
+**Arguments:**
+
+- `--title` — **required**
+  Engagement title
+- `--id` — optional
+  Explicit engagement_id (defaults to an 'e-<title>' slug)
+- `--domain` — optional
+  Engagement domain (outreach|sales|support|security|infra|onboarding|...)
+- `--stage` — optional
+  Initial stage_id (must belong to --domain)
+- `--engagement-type` — optional · default=`outreach`
+  Engagement type (default: outreach)
+- `--org` — optional
+  Organization entity_id to link as role='ticket_of'
+- `--description` — optional
+  Free-text context
+- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
+  Output format
+- `--verbose` — optional · flag
+  Verbose output
+
+#### `empirica engagement-list`
+
+List engagements, filtered by --domain / --lifecycle / --org.
+
+**Arguments:**
+
+- `--domain` — optional
+  Filter by domain
+- `--lifecycle` — optional
+  Filter by lifecycle_state (open|in_progress|blocked|closed)
+- `--org` — optional
+  Scope to an organization's tickets (role='ticket_of')
+- `--limit` — optional · type=`int` · default=`100`
+  Max rows (default: 100)
+- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
+  Output format
+- `--verbose` — optional · flag
+  Verbose output
+
+#### `empirica engagement-show`
+
+Show one engagement's record + its membership edges.
+
+**Arguments:**
+
+- `engagement_id` — **required**
+  Engagement id (full value or unambiguous prefix)
+- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
+  Output format
+- `--verbose` — optional · flag
+  Verbose output
+
+#### `empirica engagement-walk`
+
+BFS the membership graph from an engagement (default depth 2).
+
+**Arguments:**
+
+- `engagement_id` — **required**
+  Engagement id (full value or unambiguous prefix)
+- `--depth` — optional · type=`int` · default=`2`
+  Max traversal depth (default: 2)
+- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
+  Output format
+- `--verbose` — optional · flag
+  Verbose output
+
 ---
 
 ## checkpoint
@@ -2745,7 +2817,11 @@ Pause Sentinel for an instance
 - `--reason` — optional
   Optional human-readable reason for the pause
 - `--instance` — optional
-  Target instance_id (default: auto-detect from current process)
+  Target instance_id OR a practice ai_id (resolved to its live runtime instance; no-match or ambiguous resolution fails loud)
+- `--session` — optional
+  Target the live instance running this claude_session_id
+- `--all` — optional · flag
+  Fan out across ALL live instances of the resolved practice (required when an ai_id maps to >1 live instance)
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format (default: human)
 
@@ -2757,7 +2833,11 @@ Resume Sentinel for an instance
 **Arguments:**
 
 - `--instance` — optional
-  Target instance_id (default: auto-detect from current process)
+  Target instance_id OR a practice ai_id (resolved to its live runtime instance; no-match or ambiguous resolution fails loud)
+- `--session` — optional
+  Target the live instance running this claude_session_id
+- `--all` — optional · flag
+  Fan out across ALL live instances of the resolved practice (required when an ai_id maps to >1 live instance)
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format (default: human)
 
@@ -2769,7 +2849,11 @@ Show Sentinel pause state
 **Arguments:**
 
 - `--instance` — optional
-  Target instance_id (default: auto-detect from current process)
+  Target instance_id OR a practice ai_id (resolved to its live runtime instance; no-match or ambiguous resolution fails loud)
+- `--session` — optional
+  Target the live instance running this claude_session_id
+- `--all` — optional · flag
+  Fan out across ALL live instances of the resolved practice (required when an ai_id maps to >1 live instance)
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format (default: human)
 
@@ -3372,6 +3456,84 @@ Bulk forget every instance that fails the liveness check
   Show which instances would be removed without removing them
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format (default: human)
+
+
+#### `empirica practitioner`
+
+Practitioner presence: write/clear/list (keyed on claude_session_id)
+
+**Subcommands:**
+
+##### `empirica practitioner write`
+
+Register/heartbeat this practitioner's presence
+
+**Arguments:**
+
+- `--session` — **required**
+  claude_session_id (the durable practitioner key)
+- `--status` — optional · default=`active`
+  active | idle | paused | blocked (default: active)
+- `--pending-question` — optional
+  Blocked-reason (emit-and-park signal)
+- `--ai-id` — optional
+  Practice ai_id (default: resolve from project context)
+- `--location` — optional
+  Location/instance_id (default: resolve from current process)
+- `--empirica-session` — optional
+  Empirica session id (default: resolve)
+- `--active-transaction` — optional
+  Active transaction id (default: resolve)
+- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
+  Output format
+- `--verbose` — optional · flag
+  Verbose output
+
+
+##### `empirica practitioner clear`
+
+Clear this practitioner's presence (session-end)
+
+**Arguments:**
+
+- `--session` — **required**
+  claude_session_id
+- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
+  Output format
+- `--verbose` — optional · flag
+  Verbose output
+
+
+##### `empirica practitioner list`
+
+List live practitioners (optionally scoped to a practice)
+
+**Arguments:**
+
+- `--practice` — optional
+  Scope to a practice ai_id
+- `--include-stale` — optional · flag
+  Include stale (no recent heartbeat)
+- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
+  Output format
+- `--verbose` — optional · flag
+  Verbose output
+
+
+##### `empirica practitioner heartbeat`
+
+Push local presence to cortex's /v1/practitioners/heartbeat
+
+**Arguments:**
+
+- `--session` — optional
+  claude_session_id to emit (default: all local non-stale practitioners)
+- `--include-stale` — optional · flag
+  Include stale records when emitting all
+- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
+  Output format
+- `--verbose` — optional · flag
+  Verbose output
 
 
 #### `empirica mailbox`
