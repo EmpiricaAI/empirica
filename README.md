@@ -2,7 +2,7 @@
 
 > **We Gave AI a Mirror. Now It Measures What It Believes.**
 
-[![Version](https://img.shields.io/badge/version-1.12.6-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.12.6)
+[![Version](https://img.shields.io/badge/version-1.12.7-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.12.7)
 [![PyPI](https://img.shields.io/pypi/v/empirica)](https://pypi.org/project/empirica/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -101,13 +101,13 @@ empirica setup-claude-code
 
 ```bash
 # Security-hardened Alpine image (~276MB, recommended)
-docker pull nubaeon/empirica:1.12.6-alpine
+docker pull nubaeon/empirica:1.12.7-alpine
 
 # Standard image (Debian slim, ~414MB)
-docker pull nubaeon/empirica:1.12.6
+docker pull nubaeon/empirica:1.12.7
 
 # Run
-docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.12.6 /bin/bash
+docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.12.7 /bin/bash
 ```
 </details>
 
@@ -352,14 +352,11 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.12.6
+## What's New in 1.12.7
 
-- **Practitioner presence** — a per-conversation presence substrate keyed on the
-- **Engagement HTTP routes** — `GET/POST/PATCH /api/v1/engagements`: the daemon
-- **`parent_org_id`** on `GET /api/v1/entities` organization rows (org→org
-- **`support.resolved`** terminal engagement stage.
-- **Sentinel transaction resolution** now prefers an OPEN transaction over a stale
-- **Sentinel release-path invariant** — a universal recovery/measurement pre-gate
+- **Vendored `/eat-the-broccoli` skill** — the tiered quality-and-pattern audit
+- **CLI-level plugin auto-sync** — the `empirica` CLI self-heals a stale *deployed*
+- **Sentinel remote-ops pacing-guard deadlock** — the rush-guard now (a) sees
 ---
 
 ## Privacy & Data
@@ -389,6 +386,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 **Author:** David S. L. Van Assche
-**Version:** 1.12.6
+**Version:** 1.12.7
 
 *Turtles all the way down — built with its own epistemic framework, measuring what it knows at every step.*
