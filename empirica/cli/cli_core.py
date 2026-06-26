@@ -603,13 +603,26 @@ def _maybe_autosync_plugin(command: str) -> None:
         except Exception:
             cli_ver = None
         if cli_ver and stamp != cli_ver:  # None (ancient plugin) also drifts → sync
-            subprocess.run(
+            failed_marker = marker.parent / ".plugin_autosync_failed"
+            proc = subprocess.run(
                 ["empirica", "plugin-sync"],
                 stdin=subprocess.DEVNULL,
                 capture_output=True,
                 timeout=60,
                 check=False,
             )
+            if proc.returncode != 0:
+                # Make a failing self-heal legible. Without this the box silently
+                # keeps running stale hooks while the debounce marker reads
+                # "checked" — doctor/diagnose (and a human) surface this breadcrumb.
+                err = (proc.stderr or b"").decode("utf-8", "replace").strip()[-500:]
+                failed_marker.write_text(f"{now}\trc={proc.returncode}\t{err}\n")
+                sys.stderr.write(
+                    f"[empirica] plugin auto-sync failed (rc={proc.returncode}); "
+                    "run 'empirica plugin-sync' or 'empirica doctor' to retry.\n"
+                )
+            else:
+                failed_marker.unlink(missing_ok=True)  # recovered → clear breadcrumb
     except Exception:
         return  # self-heal must never break the user's command
 

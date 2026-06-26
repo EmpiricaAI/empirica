@@ -28,7 +28,12 @@ def harness(tmp_path, monkeypatch):
     monkeypatch.setattr("empirica.__version__", "9.9.9")
     monkeypatch.delenv("EMPIRICA_NO_AUTOSYNC", raising=False)
     calls: list = []
-    monkeypatch.setattr(subprocess, "run", lambda *a, **k: calls.append((a, k)))
+
+    def _run(*a, **k):
+        calls.append((a, k))
+        return subprocess.CompletedProcess(a[0] if a else [], 0, b"", b"")
+
+    monkeypatch.setattr(subprocess, "run", _run)
     return {"home": home, "plugin": plugin, "calls": calls}
 
 
@@ -96,3 +101,26 @@ def test_sync_failure_never_breaks_command(harness, monkeypatch):
     monkeypatch.setattr(subprocess, "run", boom)
     _stamp(harness["plugin"], "1.0.0")
     cli_core._maybe_autosync_plugin("finding-log")  # swallowed; must not raise
+
+
+def test_sync_failure_writes_breadcrumb(harness, monkeypatch):
+    # a non-zero plugin-sync leaves a legible failure breadcrumb — not a silent swallow
+    def _fail(*a, **k):
+        return subprocess.CompletedProcess(a[0] if a else [], 1, b"", b"permission denied")
+
+    monkeypatch.setattr(subprocess, "run", _fail)
+    _stamp(harness["plugin"], "1.0.0")  # drift -> sync runs, fails
+    cli_core._maybe_autosync_plugin("finding-log")
+    failed = harness["home"] / ".empirica" / ".plugin_autosync_failed"
+    assert failed.exists()
+    body = failed.read_text()
+    assert "rc=1" in body and "permission denied" in body
+
+
+def test_sync_success_clears_stale_breadcrumb(harness):
+    # a recovered box clears a prior failure breadcrumb on the next successful sync
+    failed = harness["home"] / ".empirica" / ".plugin_autosync_failed"
+    failed.write_text("stale failure from a previous run")
+    _stamp(harness["plugin"], "1.0.0")  # drift -> harness sync returns rc=0
+    cli_core._maybe_autosync_plugin("finding-log")
+    assert not failed.exists()
