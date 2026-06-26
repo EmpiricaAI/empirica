@@ -1508,7 +1508,10 @@ def handle_assumption_log_command(args):
 
         # Extract assumption-specific fields
         assumption = (config_data or {}).get("assumption") or getattr(args, "assumption", None)
-        confidence = (config_data or {}).get("confidence", 0.5) or getattr(args, "confidence", 0.5)
+        # Use .get's default as the fallback chain (NOT `or`): a truthy default
+        # like 0.5 would make `x or args.confidence` short-circuit and silently
+        # drop the CLI flag. This form also preserves an explicit 0.0.
+        confidence = (config_data or {}).get("confidence", getattr(args, "confidence", 0.5))
         domain = (config_data or {}).get("domain") or getattr(args, "domain", None)
         description = (config_data or {}).get("description") or getattr(args, "description", None)
         epistemic_source = (config_data or {}).get("epistemic_source") or getattr(args, "epistemic_source", None)
