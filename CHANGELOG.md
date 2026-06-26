@@ -5,6 +5,27 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Vendored `/eat-the-broccoli` skill** — the tiered quality-and-pattern audit
+  (deterministic tooling plus a learned-pattern hunt for the failure classes that
+  pass every test and still ship broken) now ships in the Claude Code plugin.
+  Canonical source: [EmpiricaAI/broccoli](https://github.com/EmpiricaAI/broccoli).
+- **CLI-level plugin auto-sync** — the `empirica` CLI self-heals a stale *deployed*
+  Claude Code plugin: when the deployed plugin's version stamp drifts from the
+  installed package, it runs `plugin-sync` once (debounced, fail-safe, opt out with
+  `EMPIRICA_NO_AUTOSYNC`). Bootstraps even boxes whose plugin predates the in-plugin
+  session-init self-heal.
+
+### Fixed
+- **Sentinel remote-ops pacing-guard deadlock** — the rush-guard now (a) sees
+  through benign command wrappers (`timeout` / `env` / `nice` / …) so a wrapped
+  `ssh` is still classified as remote-ops, and (b) counts artifacts up to *now*
+  rather than a window frozen at CHECK time, so logging a finding actually clears
+  the deny as the message promises. `remote-ops` work is exempt from the guard
+  entirely.
+
 ## [1.12.6] — 2026-06-24
 
 A feature + hardening patch: the practitioner-presence identity substrate, the

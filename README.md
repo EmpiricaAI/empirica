@@ -331,11 +331,21 @@ All read-only, all support `--output json`. Backs cross-project orchestration, C
 | **[Empirica Iris](https://github.com/Nubaeon/empirica-iris)** | Epistemic browser automation with SVG spatial indexing — Sentinel gating for visual interactions | Open source |
 | **[Docpistemic](https://github.com/Nubaeon/docpistemic)** | Epistemic documentation coverage assessment — know what your docs know | Open source |
 | **[Breadcrumbs](https://github.com/Nubaeon/breadcrumbs)** | Survive context compacts with git notes — dead simple session continuity | Open source |
+| **[Ecodex](https://github.com/EmpiricaAI/ecodex)** | Codex-based Rust harness — the epistemic firewall and pattern hunt, native to Rust/cargo (clippy, `cargo check`/`test`/`audit`) | Open source (Apache-2.0) |
+| **[Eat the Broccoli](https://github.com/EmpiricaAI/broccoli)** | Portable quality-and-pattern audit — deterministic tooling plus a learned-pattern hunt for the failure classes that pass every test and still ship broken | Open source (MIT) |
 | **[Empirica Cortex](https://getempirica.com)** | Cross-project intelligence layer — serves verified predictions and accumulated learnings to condition future work | Proprietary |
 | **[Empirica Workspace](https://getempirica.com)** | Entity Knowledge Graph, Epistemic Prompt Engine, CRM, portfolio dashboard | Proprietary |
 | **[Empirica Extension](https://getempirica.com)** | Chrome extension — desktop face of the mesh. ECO Accept/Decline, inbox/outbox triage, publish review, conversation extraction from Claude.ai / ChatGPT / Gemini / Grok | Proprietary |
 
 **Building something with Empirica?** [Open an issue](https://github.com/EmpiricaAI/empirica/issues) to get listed.
+
+---
+
+## The Empirica Foundation
+
+The **Empirica Foundation** now exists to steward the open ecosystem — the public projects above and the community building around them. Its job is to keep the commons healthy as the ecosystem grows: shared standards, open governance, and a home for the people building it.
+
+**Collaborators get a seat.** If you want to help build the community, open an [issue](https://github.com/EmpiricaAI/empirica/issues) or a PR with your reasons — that's the whole ask. Everyone who wants to help shape where this goes is welcome.
 
 ---
 
