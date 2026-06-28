@@ -671,14 +671,21 @@ async def list_sources(
     limit: int = Query(50, ge=1, le=500),
     project_id: str | None = Query(None),
     path: str | None = Query(None),
+    entity: str | None = Query(None, description="Scope to an entity's linked artifacts (e.g. 'engagement')"),
+    entity_id: str | None = Query(None, description="The entity id, required when 'entity' is set"),
 ):
+    """List sources. With ``entity=engagement&entity_id=``, scopes to that
+    engagement's linked sources via entity_artifacts (ratified boundary §4)."""
+    allowed = _engagement_artifact_ids(entity, entity_id, "source")
     project = _resolve_project_dict(project_id, path)
     proj_pid = project.get("project_id")
     if not proj_pid:
         return {"sources": [], "project_id": None}
     db = _open_db_for(project)
     try:
-        rows = _list_sources(db, proj_pid, limit)
+        rows = _list_sources(db, proj_pid, 500 if allowed is not None else limit)
+        if allowed is not None:
+            rows = [r for r in rows if r.get("id") in allowed][:limit]
         rows = _attach_related_to(db, rows)
         return {"sources": rows, "project_id": proj_pid}
     finally:
@@ -877,20 +884,63 @@ def _resolve_file_source(
     }
 
 
+def _engagement_artifact_ids(entity: str | None, entity_id: str | None, artifact_type: str) -> set[str] | None:
+    """Resolve the artifact ids linked to an entity, from workspace.db entity_artifacts.
+
+    Returns:
+      - ``None``  → no entity scoping requested; caller keeps project-wide behavior.
+      - ``set()`` → scoping requested but the entity has no linked artifacts of this
+        type; caller returns honest-empty, NOT the full project set.
+      - ``{ids}`` → the allowed artifact ids.
+
+    The ratified CRM/ERM boundary (§4, decision #2) mandates that an engagement's
+    goals/sources resolve via ``entity_artifacts(entity_type='engagement')`` — the
+    work FOR the contact — NOT the practitioner's own project artifacts. Without
+    this scoping the daemon returned every project goal/source for any engagement
+    (the Contact-area data leak: an engagement with 0 linked goals showed all 50).
+
+    Only ``engagement`` scoping is defined today; any other entity with an id is a
+    no-match (honest-empty), never a silent full-set return. workspace.db being
+    absent/unreadable is likewise honest-empty — we never leak the full set.
+    """
+    if not entity or not entity_id:
+        return None
+    if entity != "engagement":
+        return set()
+    try:
+        from empirica.data.repositories.workspace_db import WorkspaceDBRepository
+
+        with WorkspaceDBRepository.open() as repo:
+            links = repo.get_entity_artifacts_by_entity("engagement", entity_id, limit=500)
+        return {ln["artifact_id"] for ln in links if ln.get("artifact_type") == artifact_type and ln.get("artifact_id")}
+    except Exception:
+        return set()
+
+
 @router.get("/goals")
 async def list_goals(
     status: str = Query("active", pattern="^(active|completed|planned|all)$"),
     limit: int = Query(50, ge=1, le=500),
     project_id: str | None = Query(None),
     path: str | None = Query(None),
+    entity: str | None = Query(None, description="Scope to an entity's linked artifacts (e.g. 'engagement')"),
+    entity_id: str | None = Query(None, description="The entity id, required when 'entity' is set"),
 ):
+    """List goals. With ``entity=engagement&entity_id=``, scopes to that
+    engagement's linked goals via entity_artifacts (ratified boundary §4) instead
+    of returning the daemon project's own goals."""
+    allowed = _engagement_artifact_ids(entity, entity_id, "goal")
     project = _resolve_project_dict(project_id, path)
     proj_pid = project.get("project_id")
     if not proj_pid:
         return {"goals": [], "project_id": None}
     db = _open_db_for(project)
     try:
-        rows = _list_goals(db, proj_pid, status, limit)
+        # When entity-scoping, fetch generously then intersect — the engagement's
+        # linked goals may sit beyond the first `limit` of the project list.
+        rows = _list_goals(db, proj_pid, status, 500 if allowed is not None else limit)
+        if allowed is not None:
+            rows = [r for r in rows if r.get("id") in allowed][:limit]
         rows = _attach_related_to(db, rows)
         return {"goals": rows, "project_id": proj_pid}
     finally:
