@@ -412,49 +412,6 @@ def get_global_empirica_home() -> Path:
     return Path.home() / ".empirica"
 
 
-def get_crm_db_path() -> Path:
-    """
-    Get path to global CRM database.
-
-    CRM data (clients, engagements) is cross-project by nature,
-    so it always lives in the global home: ~/.empirica/crm/crm.db
-
-    Priority:
-    1. EMPIRICA_CRM_DB environment variable
-    2. ~/.empirica/crm/crm.db (default)
-
-    Returns:
-        Path to crm.db
-    """
-    # Check environment variable
-    if env_db := os.getenv("EMPIRICA_CRM_DB"):
-        try:
-            db_path = _validate_user_path(env_db, "EMPIRICA_CRM_DB")
-            logger.debug(f"📍 Using EMPIRICA_CRM_DB: {db_path}")
-            return db_path
-        except ValueError as e:
-            logger.warning(f"⚠️  Invalid EMPIRICA_CRM_DB: {e}")
-
-    # Default: global home
-    return get_global_empirica_home() / "crm" / "crm.db"
-
-
-def ensure_crm_structure() -> None:
-    """
-    Ensure CRM directory structure exists in global home.
-    Creates ~/.empirica/crm/ and ~/.empirica/lessons/clients/
-    """
-    global_home = get_global_empirica_home()
-
-    # CRM database directory
-    (global_home / "crm").mkdir(parents=True, exist_ok=True)
-
-    # Client lessons directory
-    (global_home / "lessons" / "clients").mkdir(parents=True, exist_ok=True)
-
-    logger.debug(f"✅ Ensured CRM structure at {global_home}")
-
-
 def ensure_empirica_structure() -> None:
     """
     Ensure .empirica directory structure exists.
@@ -527,11 +484,9 @@ def debug_paths() -> dict:
         "metrics_dir": str(root / "metrics"),
         "messages_dir": str(root / "messages"),
         "global_home": str(get_global_empirica_home()),
-        "crm_db": str(get_crm_db_path()),
         "env_vars": {
             "EMPIRICA_DATA_DIR": os.getenv("EMPIRICA_DATA_DIR"),
             "EMPIRICA_SESSION_DB": os.getenv("EMPIRICA_SESSION_DB"),
-            "EMPIRICA_CRM_DB": os.getenv("EMPIRICA_CRM_DB"),
         },
         "config_loaded": load_empirica_config() is not None,
     }

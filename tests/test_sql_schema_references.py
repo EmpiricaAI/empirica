@@ -60,15 +60,11 @@ EMPIRICA_PKG = REPO_ROOT / "empirica"
 # schema produces guaranteed false positives, not bugs.
 SKIP_DIR_NAMES = {"tests", "build", "dev_scripts", "__pycache__", "migrations"}
 
-# ``crm_schema.py`` is excluded deliberately: it defines + queries the *crm.db*
-# schema — a separate, NLE-scoped database this test does not build. Its queries
-# legitimately reference crm.db tables/columns (e.g. ``engagements.client_id``)
-# that don't exist in the session/workspace schema. These were skipped
-# automatically until workspace.db gained its own (different) ``engagements``
-# table; now that same-named table would mis-validate crm.db queries against it.
-# Validating crm.db queries here is a guaranteed false positive, not a bug —
-# same rationale as the ``migrations`` exclusion above.
-SKIP_FILES = {"empirica/data/crm_schema.py"}
+# No files are skipped today. (The former sole exclusion, ``crm_schema.py`` — an
+# NLE-scoped *crm.db* with same-named tables that mis-validated against
+# workspace.db — was removed when the legacy crm.db was retired per the CRM/ERM
+# boundary, decision #4.)
+SKIP_FILES: set[str] = set()
 
 # Statement leading keywords we do NOT validate (DDL / pragmas / control).
 # These are not the bug class (a bad column in a SELECT/UPDATE/DELETE is), and
