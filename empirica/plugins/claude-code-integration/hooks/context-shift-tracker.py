@@ -291,9 +291,41 @@ def _get_goal_hint(tx_id):
     return ""
 
 
+def _refresh_presence(claude_session_id):
+    """Best-effort per-turn presence refresh: re-stamp last_heartbeat=now so the
+    persistent-service heartbeat emitter keeps forwarding a NON-STALE record to
+    cortex.
+
+    session-init writes presence once at session start; without a per-turn
+    refresh the record goes stale after DEFAULT_STALE_AFTER_S (180s) and a live
+    session stops emitting — the mesh's busy/free/blocked active-state signal
+    goes dark on any session older than 3 minutes. `practitioner write` resolves
+    ai_id / location / empirica-session / active-transaction from the running
+    context, so only --session is needed. Fire-and-forget (detached Popen) so it
+    never adds latency to — or fails — the user turn.
+    """
+    if not claude_session_id:
+        return
+    try:
+        import subprocess
+
+        subprocess.Popen(
+            ["empirica", "practitioner", "write", "--session", claude_session_id, "--output", "json"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        pass
+
+
 def main():
     hook_input = json.loads(sys.stdin.read() or "{}")
     claude_session_id = hook_input.get("session_id")
+
+    # Keep practitioner presence fresh each turn (the mesh active-state signal) —
+    # best-effort, non-blocking. See _refresh_presence.
+    _refresh_presence(claude_session_id)
 
     # Context window monitoring
     output = _build_context_usage_output(claude_session_id)
