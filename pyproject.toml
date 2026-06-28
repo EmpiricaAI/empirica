@@ -323,5 +323,17 @@ reportGeneralTypeIssues = true      # general type safety
 TESTING = true
 
 [tool.empirica.docs-assess]
-ignore_classes = ["Colors"]
+# "Colors" is a cosmetic enum. The Cortex*/Ntfy* credential models are
+# PROPRIETARY integration API surfaces (cortex credential exchange + the ntfy
+# push transport) — exempt from the public-doc coverage metric so that passing
+# it never requires publicly documenting the proprietary integration surface.
+# (David's lane rule: keep the proprietary mesh/integration surface out of the
+# public docs; documenting these to satisfy coverage would defeat that.)
+ignore_classes = [
+    "Colors",
+    "CortexCredentialsRequest",
+    "CortexCredentialsResponse",
+    "NtfyCredentialsRequest",
+    "NtfyCredentialsResponse",
+]
 ignore_paths = ["scripts/"]
