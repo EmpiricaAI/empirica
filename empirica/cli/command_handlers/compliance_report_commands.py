@@ -144,6 +144,28 @@ REGULATORY_MAP: dict[str, dict[str, Any]] = {
             "iso_42001": {"clause": "9.2", "requirement": "Internal audit — calibration verification"},
         },
     },
+    # "Controls on the controls" — governance-layer integrity. Every check above
+    # maps PRODUCT quality to a regulatory article; THIS one audits the audit
+    # layer itself: that every check that runs is regulatory-mapped (an unmapped
+    # check is a silent compliance gap) and that the crosswalk is well-formed. It
+    # is the oversight-of-the-oversight control the EU AI Act QMS article expects.
+    "governance_integrity": {
+        "check": "Governance-layer integrity (controls on the controls)",
+        "frameworks": {
+            "eu_ai_act": {
+                "article": "Art. 17",
+                "requirement": "Quality management system — integrity of the compliance control framework itself",
+            },
+            "eu_ai_act_records": {
+                "article": "Art. 12",
+                "requirement": "Record-keeping — the audit crosswalk is complete and traceable",
+            },
+            "iso_42001": {
+                "clause": "9.2",
+                "requirement": "Internal audit — every control is mapped and the crosswalk is well-formed",
+            },
+        },
+    },
 }
 
 
@@ -468,6 +490,58 @@ def _build_calibration_check(project_root: Path) -> dict[str, Any]:
         "grounded_verifications": count,
         "avg_calibration_score": avg_score,
         "status": "pass" if count > 0 else "no_data",
+    }
+
+
+def _build_governance_integrity_check(prior_results: list[dict[str, Any]]) -> dict[str, Any]:
+    """Controls on the controls — audit the audit layer itself.
+
+    Every other check maps PRODUCT quality to a regulatory article. This one is
+    the oversight-of-the-oversight: it verifies the compliance machinery's own
+    integrity, catching the silent-gap class where a check runs but is invisible
+    to the regulatory crosswalk.
+
+    Two invariants:
+      1. Coverage — every assembled check has a REGULATORY_MAP entry. An unmapped
+         check produces a result with no ``regulatory`` field: it passes/fails
+         with zero audit attribution (the null/empty-masking class).
+      2. Well-formedness — every REGULATORY_MAP entry has a non-empty
+         ``frameworks`` dict, each framework carrying an article/clause locator
+         AND a requirement string.
+
+    Runs over the already-assembled built-in results (project ``extra_checks``
+    carry their own inline mapping and are out of this built-in scope). Fast —
+    pure introspection, no subprocess — so it stays in the always-run tier.
+    """
+    unmapped = sorted(
+        {r.get("check", "") for r in prior_results if r.get("check") and r.get("check") not in REGULATORY_MAP}
+    )
+
+    malformed: list[str] = []
+    for cid, entry in REGULATORY_MAP.items():
+        frameworks = entry.get("frameworks")
+        if not isinstance(frameworks, dict) or not frameworks:
+            malformed.append(f"{cid}: no frameworks")
+            continue
+        for fname, body in frameworks.items():
+            if not isinstance(body, dict):
+                malformed.append(f"{cid}.{fname}: not a mapping")
+                continue
+            if not (body.get("article") or body.get("clause")):
+                malformed.append(f"{cid}.{fname}: missing article/clause")
+            if not body.get("requirement"):
+                malformed.append(f"{cid}.{fname}: missing requirement")
+
+    passed = not unmapped and not malformed
+    return {
+        "check": "governance_integrity",
+        "tool": "introspection",
+        "passed": passed,
+        "status": "pass" if passed else "fail",
+        "checks_audited": len(prior_results),
+        "map_entries": len(REGULATORY_MAP),
+        "unmapped_checks": unmapped,
+        "malformed_entries": malformed,
     }
 
 
@@ -1254,6 +1328,10 @@ def run_compliance_report(
     results.append(_build_epistemic_audit(project_root))
     results.append(_build_calibration_check(project_root))
 
+    # Controls on the controls — audit the audit layer over the assembled built-in
+    # results (before project extra_checks, which carry their own inline mapping).
+    results.append(_build_governance_integrity_check(results))
+
     # Per-project extra checks (.empirica/compliance.yaml extra_checks)
     for check_def in extra_checks:
         results.append(_run_extra_check(check_def, project_root))
@@ -1294,6 +1372,11 @@ def _format_check_detail(name: str, check: dict[str, Any]) -> str:
         "tech_docs": f"  {c.get('coverage_percent', '?')}% coverage ({c.get('documented', '?')}/{c.get('total', '?')})",
         "repo_hygiene": f"  {c.get('checks_passed', '?')}/{c.get('checks_total', '?')} checks",
         "epistemic_audit": f"  {c.get('postflights', '?')} transactions, {c.get('findings', '?')} findings",
+        "governance_integrity": (
+            f"  {c.get('checks_audited', '?')} checks audited, "
+            f"{len(c.get('unmapped_checks') or [])} unmapped, "
+            f"{len(c.get('malformed_entries') or [])} malformed"
+        ),
     }
 
     if name in formatters:
