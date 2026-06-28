@@ -1109,6 +1109,50 @@ def _atomic_write_counters(counters: dict, counters_path: Path) -> None:
             pass
 
 
+def _stamp_blocked_presence(claude_session_id: str | None, tool_input: dict | None) -> None:
+    """Mark this practitioner BLOCKED-on-question the moment AskUserQuestion fires.
+
+    A session blocked waiting for a user answer is alive but goes quiet — no
+    UserPromptSubmit fires until the user replies, so the per-turn presence
+    refresh can't keep it warm. Stamping status=blocked lets the daemon apply the
+    longer blocked-grace TTL and lets autonomy's watch-sweep distinguish
+    'blocked' from 'idle'/'working'. --session-pid (getppid()=CC, this hook's
+    parent) keeps the daemon's liveness anchor set so refresh_live_presence keeps
+    re-stamping it. The next user prompt re-stamps status=active, clearing this.
+    Detached fire-and-forget — never adds latency to, or fails, the gate.
+    """
+    if not claude_session_id:
+        return
+    pending = None
+    try:
+        questions = (tool_input or {}).get("questions") or []
+        if questions and isinstance(questions[0], dict):
+            pending = (questions[0].get("question") or questions[0].get("header") or "")[:200] or None
+    except Exception:
+        pending = None
+    try:
+        import subprocess
+
+        cmd = [
+            "empirica",
+            "practitioner",
+            "write",
+            "--session",
+            claude_session_id,
+            "--status",
+            "blocked",
+            "--session-pid",
+            str(os.getppid()),
+            "--output",
+            "json",
+        ]
+        if pending:
+            cmd += ["--pending-question", pending]
+        subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+
+
 def _try_increment_tool_count(
     claude_session_id: str | None = None, tool_name: str | None = None, tool_input: dict | None = None
 ) -> tuple:
@@ -1162,6 +1206,7 @@ def _try_increment_tool_count(
 
         if tool_name == "AskUserQuestion":
             counters["pending_user_response"] = True
+            _stamp_blocked_presence(claude_session_id, tool_input)
 
         if tool_name:
             _record_workflow_trace(counters, tool_name, tool_input, is_noetic)

@@ -26,6 +26,7 @@ See docs/architecture/instance_isolation/PRACTITIONER_IDENTITY.md §5.
 from __future__ import annotations
 
 import json
+import os
 import time
 from pathlib import Path
 from typing import Any
@@ -37,6 +38,37 @@ _PREFIX = "practitioner_presence_"
 # heartbeat. ~3× the default 60s cadence — past the realtime (30s) / default
 # (60s) bands with margin; the spec's "stale-after-2N → unreachable" rule.
 DEFAULT_STALE_AFTER_S = 180.0
+
+# Status-aware staleness: a session BLOCKED on a user question (or paused) is
+# alive but deliberately quiet — no UserPromptSubmit fires to refresh it, so the
+# per-turn hook can't keep it warm and the active window would mark it dead even
+# though it's just waiting. The daemon's refresh_live_presence() re-stamps any
+# alive-PID session each tick (the PRIMARY keep-alive); this longer window is the
+# FALLBACK grace for records the daemon can't PID-verify (no session_pid, or the
+# gap between PID-death and the next tick). Tunable via the env var.
+_DEFAULT_BLOCKED_STALE_S = 1800.0
+
+
+def _blocked_stale_after() -> float:
+    """Stale window for blocked/paused sessions (env-tunable, default 30min)."""
+    raw = os.environ.get("EMPIRICA_PRESENCE_BLOCKED_STALE_S")
+    if raw:
+        try:
+            v = float(raw)
+            if v > 0:
+                return v
+        except ValueError:
+            pass
+    return _DEFAULT_BLOCKED_STALE_S
+
+
+def _stale_after_for_status(status: str | None) -> float:
+    """Per-status stale threshold. Blocked + paused get the longer grace window;
+    everything else uses the default active cadence-derived window."""
+    if status in ("blocked", "paused"):
+        return _blocked_stale_after()
+    return DEFAULT_STALE_AFTER_S
+
 
 VALID_STATUS = ("active", "idle", "paused", "blocked")
 
@@ -60,16 +92,30 @@ def write_presence(
     active_transaction_id: str | None = None,
     empirica_session_id: str | None = None,
     practitioner_id: str | None = None,
+    session_pid: int | None = None,
 ) -> dict[str, Any]:
     """Upsert the practitioner's presence record (stamps ``last_heartbeat``=now).
 
     Idempotent register + heartbeat in one call. ``status`` must be a valid
     state. The stable key is ``claude_session_id``; ``empirica_session_id`` +
     ``active_transaction_id`` are the churning measurement-cycle attributes.
+
+    ``session_pid`` is the Claude Code parent PID — captured at session-init,
+    where ``os.getppid()`` reliably resolves to it. It is the liveness anchor the
+    daemon's :func:`refresh_live_presence` probes to keep an alive-but-quiet
+    session (e.g. one blocked on a user question) non-stale. Writers that don't
+    re-supply it pass ``None`` — an existing record's ``session_pid`` is then
+    PRESERVED rather than clobbered, so the anchor survives high-churn rewrites
+    (the per-turn refresh, a daemon touch).
     """
     if status not in VALID_STATUS:
         raise ValueError(f"invalid status {status!r} — must be one of {VALID_STATUS}")
     EMPIRICA_DIR.mkdir(parents=True, exist_ok=True)
+    # Preserve the liveness anchor across rewrites that don't re-supply it.
+    if session_pid is None:
+        prior = read_presence(claude_session_id)
+        if prior is not None and isinstance(prior.get("session_pid"), int):
+            session_pid = prior["session_pid"]
     record: dict[str, Any] = {
         "claude_session_id": claude_session_id,
         # nullable seam — becomes user_id × practice_id × harness_class when the
@@ -81,6 +127,7 @@ def write_presence(
         "pending_question": pending_question,
         "active_transaction_id": active_transaction_id,
         "empirica_session_id": empirica_session_id,
+        "session_pid": session_pid,
         "last_heartbeat": time.time(),
     }
     path = presence_path(claude_session_id)
@@ -119,14 +166,19 @@ def list_presence(
     practice_ai_id: str | None = None,
     *,
     include_stale: bool = False,
-    stale_after: float = DEFAULT_STALE_AFTER_S,
+    stale_after: float | None = None,
 ) -> list[dict[str, Any]]:
     """Resolve practitioners → presence records.
 
     With ``practice_ai_id`` set, scopes to that practice's practitioners (the
     "practice → its active practitioner(s)" resolver). Each returned record gets
-    a derived ``stale`` flag (``last_heartbeat`` older than ``stale_after``, or
+    a derived ``stale`` flag (``last_heartbeat`` older than the threshold, or
     missing); stale records are excluded unless ``include_stale``.
+
+    The threshold is STATUS-AWARE by default (``stale_after=None``): blocked /
+    paused sessions get the longer :func:`_blocked_stale_after` grace, everything
+    else the default active window. Pass an explicit ``stale_after`` to force a
+    single flat threshold for all records.
     """
     now = time.time()
     out: list[dict[str, Any]] = []
@@ -137,13 +189,71 @@ def list_presence(
             continue
         if practice_ai_id is not None and rec.get("practice_ai_id") != practice_ai_id:
             continue
+        threshold = stale_after if stale_after is not None else _stale_after_for_status(rec.get("status"))
         last = rec.get("last_heartbeat")
         age = (now - last) if isinstance(last, (int, float)) else None
-        rec["stale"] = age is None or age > stale_after
+        rec["stale"] = age is None or age > threshold
         if rec["stale"] and not include_stale:
             continue
         out.append(rec)
     return out
+
+
+def _pid_alive(pid: int) -> bool:
+    """True if the process is still alive (signal-0 probe)."""
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # exists but owned by another user — still alive
+    except OSError:
+        return False
+    return True
+
+
+def refresh_live_presence(*, now: float | None = None) -> dict[str, int]:
+    """Daemon liveness re-stamp — keep alive-but-quiet sessions non-stale.
+
+    For each presence record carrying a live ``session_pid`` (the Claude Code
+    parent), bump ``last_heartbeat`` to now. This is the FIX for the
+    blocked-while-idle gap: a session blocked on a user question stops firing
+    UserPromptSubmit, so the per-turn refresh can't keep it warm and it would go
+    stale after the active window — even though it's alive and waiting. The
+    persistent service calls this each tick BEFORE listing/forwarding, so an
+    alive session of ANY status (active, idle, blocked, paused) keeps emitting to
+    cortex as long as its process lives.
+
+    Records with no ``session_pid`` (legacy / pre-PID writers) or a dead PID are
+    left untouched — they fall through to the status-aware TTL. Returns counts:
+    ``{"refreshed", "alive", "dead", "no_pid"}``.
+    """
+    now = time.time() if now is None else now
+    counts = {"refreshed": 0, "alive": 0, "dead": 0, "no_pid": 0}
+    for path in _all_presence_files():
+        try:
+            rec = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        pid = rec.get("session_pid")
+        if not isinstance(pid, int):
+            counts["no_pid"] += 1
+            continue
+        if not _pid_alive(pid):
+            counts["dead"] += 1
+            continue
+        counts["alive"] += 1
+        rec["last_heartbeat"] = now
+        tmp = path.with_name(path.name + ".tmp")
+        try:
+            tmp.write_text(json.dumps(rec), encoding="utf-8")
+            tmp.replace(path)  # atomic
+            counts["refreshed"] += 1
+        except OSError:
+            pass
+    return counts
 
 
 def resolve_practitioners(practice_ai_id: str, *, include_stale: bool = False) -> list[dict[str, Any]]:

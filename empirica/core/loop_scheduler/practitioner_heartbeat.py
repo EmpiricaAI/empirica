@@ -235,6 +235,8 @@ class PractitionerHeartbeatEmitter:
         _post_fn: replaces HTTP POST — pass a Mock that records calls.
         _resolve_creds_fn: replaces credentials resolution — return (url, key).
         _list_fn: replaces the local-presence read — return a list of records.
+        _refresh_fn: replaces the liveness re-stamp — pass a no-op in tests so
+            emit_once never touches the real ~/.empirica presence files.
     """
 
     def __init__(
@@ -247,6 +249,7 @@ class PractitionerHeartbeatEmitter:
         _resolve_creds_fn: Callable[[], tuple] = _default_resolve_creds,
         _get_fn: Callable[[str, str, float], dict] = _default_get,
         _list_fn: Callable[[], list] | None = None,
+        _refresh_fn: Callable[[], dict] | None = None,
     ):
         self.machine = machine or socket.gethostname() or "unknown-host"
         self.interval_sec = interval_sec
@@ -255,6 +258,7 @@ class PractitionerHeartbeatEmitter:
         self._resolve_creds_fn = _resolve_creds_fn
         self._get_fn = _get_fn
         self._list_fn = _list_fn or self._default_list
+        self._refresh_fn = _refresh_fn or self._default_refresh
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -264,6 +268,14 @@ class PractitionerHeartbeatEmitter:
         from empirica.core.practitioner_presence import list_presence
 
         return list_presence(include_stale=False)
+
+    @staticmethod
+    def _default_refresh() -> dict:
+        """Re-stamp alive-PID presence so blocked/idle-but-alive sessions stay
+        non-stale (the daemon liveness keep-alive). See refresh_live_presence."""
+        from empirica.core.practitioner_presence import refresh_live_presence
+
+        return refresh_live_presence()
 
     def start(self) -> None:
         """Start the emitter thread. Idempotent — no-op if already running."""
@@ -292,6 +304,14 @@ class PractitionerHeartbeatEmitter:
         Never raises — a per-record failure records -1 and continues.
         """
         results: dict[str, int] = {}
+        # Liveness keep-alive FIRST: re-stamp alive-PID sessions so a session
+        # that's alive but quiet (blocked on a user question, idling) is fresh
+        # when we list/forward below — otherwise it would have gone stale and
+        # been dropped, going dark on the mesh despite being alive.
+        try:
+            self._refresh_fn()
+        except Exception as e:
+            logger.warning("practitioner-heartbeat: refresh failed: %s: %s", type(e).__name__, e)
         try:
             records = self._list_fn()
         except Exception as e:

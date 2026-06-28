@@ -82,6 +82,12 @@ def _add_practitioner_group(subparsers):
     write.add_argument("--session", required=True, help="claude_session_id (the durable practitioner key)")
     write.add_argument("--status", default="active", help="active | idle | paused | blocked (default: active)")
     write.add_argument("--pending-question", dest="pending_question", help="Blocked-reason (emit-and-park signal)")
+    write.add_argument(
+        "--session-pid",
+        dest="session_pid",
+        type=int,
+        help="Claude Code parent PID (os.getppid() at session-init) — the daemon's liveness anchor",
+    )
     write.add_argument("--ai-id", dest="ai_id", help="Practice ai_id (default: resolve from project context)")
     write.add_argument("--location", help="Location/instance_id (default: resolve from current process)")
     write.add_argument("--empirica-session", dest="empirica_session", help="Empirica session id (default: resolve)")

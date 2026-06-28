@@ -169,6 +169,7 @@ def test_emit_once_emits_each_local_practitioner():
         _resolve_creds_fn=CREDS,
         _get_fn=GET_PROJECTS,
         _list_fn=lambda: records,
+        _refresh_fn=lambda: {},  # hermetic — don't touch the real ~/.empirica
     )
     results = emitter.emit_once()
     assert results == {"cc-a": 200, "cc-b": 200}
@@ -182,15 +183,63 @@ def test_emit_once_survives_list_failure():
     def _boom():
         raise RuntimeError("disk gone")
 
-    emitter = PractitionerHeartbeatEmitter(_post_fn=_Recorder(), _resolve_creds_fn=CREDS, _list_fn=_boom)
+    emitter = PractitionerHeartbeatEmitter(
+        _post_fn=_Recorder(), _resolve_creds_fn=CREDS, _list_fn=_boom, _refresh_fn=lambda: {}
+    )
     assert emitter.emit_once() == {}  # never raises — returns empty
 
 
 def test_emit_once_empty_when_no_practitioners():
     rec = _Recorder()
-    emitter = PractitionerHeartbeatEmitter(_post_fn=rec, _resolve_creds_fn=CREDS, _list_fn=lambda: [])
+    emitter = PractitionerHeartbeatEmitter(
+        _post_fn=rec, _resolve_creds_fn=CREDS, _list_fn=lambda: [], _refresh_fn=lambda: {}
+    )
     assert emitter.emit_once() == {}
     assert rec.calls == []
+
+
+def test_emit_once_refreshes_liveness_before_listing():
+    """The daemon re-stamps alive-PID presence BEFORE listing — so an alive but
+    quiet (blocked) session is fresh when forwarded, not dropped as stale."""
+    order = []
+    rec = _Recorder(code=200)
+
+    def _refresh():
+        order.append("refresh")
+        return {"refreshed": 1}
+
+    def _list():
+        order.append("list")
+        return [_record(claude_session_id="cc-a")]
+
+    emitter = PractitionerHeartbeatEmitter(
+        machine="host-1",
+        _post_fn=rec,
+        _resolve_creds_fn=CREDS,
+        _get_fn=GET_PROJECTS,
+        _list_fn=_list,
+        _refresh_fn=_refresh,
+    )
+    emitter.emit_once()
+    assert order == ["refresh", "list"]  # liveness re-stamp precedes the read
+
+
+def test_emit_once_survives_refresh_failure():
+    """A refresh blowup never breaks emission — list/forward still proceed."""
+
+    def _boom_refresh():
+        raise RuntimeError("fs gone")
+
+    rec = _Recorder(code=200)
+    emitter = PractitionerHeartbeatEmitter(
+        machine="host-1",
+        _post_fn=rec,
+        _resolve_creds_fn=CREDS,
+        _get_fn=GET_PROJECTS,
+        _list_fn=lambda: [_record(claude_session_id="cc-a")],
+        _refresh_fn=_boom_refresh,
+    )
+    assert emitter.emit_once() == {"cc-a": 200}  # emission unaffected by refresh failure
 
 
 def test_start_stop_idempotent():
@@ -200,6 +249,7 @@ def test_start_stop_idempotent():
         _post_fn=_Recorder(),
         _resolve_creds_fn=NO_CREDS,
         _list_fn=lambda: [],
+        _refresh_fn=lambda: {},
     )
     emitter.start()
     emitter.start()  # idempotent — no second thread

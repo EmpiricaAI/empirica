@@ -56,6 +56,7 @@ def handle_practitioner_write_command(args) -> int:
                 pending_question=getattr(args, "pending_question", None),
                 active_transaction_id=tx,
                 empirica_session_id=empirica_sid,
+                session_pid=getattr(args, "session_pid", None),
             )
         except ValueError as ve:
             return _emit_user_error(args, str(ve))

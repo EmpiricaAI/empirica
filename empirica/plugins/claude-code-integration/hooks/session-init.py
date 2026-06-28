@@ -1503,6 +1503,12 @@ def main():
                         ai_id,
                         "--empirica-session",
                         result["session_id"],
+                        # The Claude Code parent PID — this hook is spawned by CC,
+                        # so getppid() is CC. It's the daemon's liveness anchor:
+                        # refresh_live_presence() probes it to keep an alive-but-
+                        # quiet session (blocked on a question) non-stale.
+                        "--session-pid",
+                        str(os.getppid()),
                         "--output",
                         "json",
                     ],

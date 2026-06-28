@@ -297,12 +297,20 @@ def _refresh_presence(claude_session_id):
     cortex.
 
     session-init writes presence once at session start; without a per-turn
-    refresh the record goes stale after DEFAULT_STALE_AFTER_S (180s) and a live
+    refresh the record goes stale after the active window (180s) and a live
     session stops emitting — the mesh's busy/free/blocked active-state signal
     goes dark on any session older than 3 minutes. `practitioner write` resolves
     ai_id / location / empirica-session / active-transaction from the running
     context, so only --session is needed. Fire-and-forget (detached Popen) so it
     never adds latency to — or fails — the user turn.
+
+    We also re-supply --session-pid (this hook is spawned by Claude Code, so
+    getppid() is CC): it makes the per-turn refresh self-healing for the daemon's
+    liveness anchor — any session that emits a prompt gets its session_pid set or
+    corrected, even one created before the anchor existed. (write_presence also
+    preserves an existing anchor across rewrites, so this is belt-and-suspenders.)
+    A prompt submission also means the practitioner is active again, so this
+    naturally clears any status=blocked the AskUserQuestion gate stamped.
     """
     if not claude_session_id:
         return
@@ -310,7 +318,17 @@ def _refresh_presence(claude_session_id):
         import subprocess
 
         subprocess.Popen(
-            ["empirica", "practitioner", "write", "--session", claude_session_id, "--output", "json"],
+            [
+                "empirica",
+                "practitioner",
+                "write",
+                "--session",
+                claude_session_id,
+                "--session-pid",
+                str(os.getppid()),
+                "--output",
+                "json",
+            ],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
