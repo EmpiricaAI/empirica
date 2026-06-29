@@ -17,6 +17,7 @@ Defaults:
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 from typing import Any
@@ -223,8 +224,11 @@ def _compute_adaptive_limits(vectors: dict | None, base_limit: int) -> dict[str,
     # Context gap: low context → more situational awareness
     context_gap = max(0.0, 1.0 - context)  # 0.0 at context=1.0, 1.0 at context=0.0
 
+    # Cap adaptive growth at MAX_PER_SECTION: the gap bonuses balloon counts
+    # worst exactly post-compaction (high uncertainty + low know/context), which
+    # is precisely when the injected block should stay lean, not grow.
     def _limit(base_mult: float, gap_bonus: float = 0.0) -> int:
-        return max(1, int(base_limit * base_mult * uncertainty_mult + gap_bonus))
+        return max(1, min(MAX_PER_SECTION, int(base_limit * base_mult * uncertainty_mult + gap_bonus)))
 
     return {
         "lessons": _limit(1.0, know_gap * 2),
@@ -235,7 +239,7 @@ def _compute_adaptive_limits(vectors: dict | None, base_limit: int) -> dict[str,
         "goals": _limit(1.0, context_gap * 2),
         "assumptions": _limit(1.0, know_gap * 2),
         "decisions": _limit(1.0, context_gap),
-        "global_dead_ends": max(1, int(2 * uncertainty_mult)),
+        "global_dead_ends": max(1, min(MAX_PER_SECTION, int(2 * uncertainty_mult))),
         "docs": _limit(1.0),
     }
 
@@ -482,6 +486,176 @@ def _apply_recency_rerank(
         return items[:limit]
 
 
+# --- Context budget (lean-by-default teaser) -------------------------------
+# PREFLIGHT / CHECK / bootstrap inject a *ranked teaser*, not a full dump — the
+# same context is retrievable on demand (investigate, project-search,
+# commit-context). Without this the patterns block balloons: counts scale up on
+# uncertainty/gaps (worst exactly post-compaction), item content is never
+# truncated, and the same artifact recurs across sections (a finding also shows
+# up as an eidetic fact). Three knobs, all env-overridable; set
+# EMPIRICA_PATTERN_BUDGET_OFF=1 for the full untrimmed result (the escape hatch,
+# mirroring cortex's enrich=false on SER projections).
+MAX_ITEM_CHARS = int(os.getenv("EMPIRICA_PATTERN_MAX_ITEM_CHARS", "280"))
+MAX_PER_SECTION = int(os.getenv("EMPIRICA_PATTERN_MAX_PER_SECTION", "5"))
+MAX_TOTAL_CHARS = int(os.getenv("EMPIRICA_PATTERN_MAX_TOTAL_CHARS", "8000"))
+
+# Per-section text fields. First entry is the dedup signature (the field whose
+# value duplicates across sections); all entries are truncated. A section absent
+# here is skipped by dedup but still generically truncated.
+_SECTION_TEXT_FIELDS = {
+    # PREFLIGHT (retrieve_task_patterns)
+    "lessons": ["description", "name"],
+    "dead_ends": ["why_failed", "approach"],
+    "global_dead_ends": ["why_failed", "approach"],
+    "relevant_findings": ["finding"],
+    "eidetic_facts": ["content"],
+    "episodic_narratives": ["narrative"],
+    "related_goals": ["objective"],
+    "unverified_assumptions": ["assumption"],
+    "prior_decisions": ["rationale", "choice"],
+    "related_docs": ["description"],
+    # CHECK (check_against_patterns)
+    "dead_end_matches": ["why_failed", "approach"],
+    "related_findings": ["finding"],
+    "eidetic_context": ["content"],
+    "active_goals": ["objective"],
+}
+
+# Scalar / metadata keys that are never item-lists — skipped by the budget pass.
+_NON_ITEM_KEYS = frozenset({"time_gap", "mistake_risk", "has_warnings", "_context_budget"})
+
+# Sections whose single top item is protected from budget eviction.
+_BUDGET_PROTECTED = frozenset({"lessons", "dead_ends", "relevant_findings"})
+
+
+def _content_sig(text: str) -> str:
+    """Stable signature for cross-section dedup: hash of whitespace-normalized,
+    lowercased text. Exact-duplicate detection only — won't collapse merely
+    similar items."""
+    return hashlib.md5(" ".join(text.lower().split()).encode("utf-8")).hexdigest()
+
+
+def _truncate_text(text: str, max_chars: int) -> str:
+    """Truncate to max_chars at a word boundary, appending an overflow marker."""
+    if not isinstance(text, str) or len(text) <= max_chars:
+        return text
+    head = text[:max_chars].rsplit(" ", 1)[0].rstrip()
+    return f"{head}… (+{len(text) - len(head)} chars)"
+
+
+def _item_sections(result: dict):
+    """Yield (key, list-of-items) for the budgetable sections of a result."""
+    for key, val in result.items():
+        if key not in _NON_ITEM_KEYS and isinstance(val, list):
+            yield key, val
+
+
+def _dedup_sections(result: dict) -> int:
+    """B2: drop items whose primary-field text already appeared in an earlier
+    section (insertion order = priority). Returns count dropped."""
+    seen: set[str] = set()
+    dropped = 0
+    for key, items in _item_sections(result):
+        fields = _SECTION_TEXT_FIELDS.get(key)
+        if not fields:
+            continue
+        primary, kept = fields[0], []
+        for it in items:
+            txt = it.get(primary) if isinstance(it, dict) else None
+            if not isinstance(txt, str) or not txt.strip():
+                kept.append(it)
+                continue
+            sig = _content_sig(txt)
+            if sig in seen:
+                dropped += 1
+                continue
+            seen.add(sig)
+            kept.append(it)
+        result[key] = kept
+    return dropped
+
+
+def _truncate_sections(result: dict, max_chars: int) -> None:
+    """B1: truncate the text fields of every item."""
+    for key, items in _item_sections(result):
+        fields = _SECTION_TEXT_FIELDS.get(key)
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            targets = fields or [k for k, v in it.items() if isinstance(v, str)]
+            for f in targets:
+                if isinstance(it.get(f), str):
+                    it[f] = _truncate_text(it[f], max_chars)
+
+
+def _item_rank(it: dict) -> float:
+    """Ranking key for budget eviction: effective_score > score > similarity."""
+    for k in ("effective_score", "score", "similarity"):
+        v = it.get(k)
+        if isinstance(v, (int, float)):
+            return float(v)
+    return 0.0
+
+
+def _result_chars(result: dict) -> int:
+    return sum(
+        len(v)
+        for _, items in _item_sections(result)
+        for it in items
+        if isinstance(it, dict)
+        for v in it.values()
+        if isinstance(v, str)
+    )
+
+
+def _enforce_total_budget(result: dict, max_total: int) -> int:
+    """B3: drop the lowest-ranked item until under the total-char budget. Keeps
+    the top item of the core triad. Returns count dropped."""
+    dropped = 0
+    while _result_chars(result) > max_total:
+        worst = None  # (rank, key, index)
+        for key, items in _item_sections(result):
+            floor = 1 if key in _BUDGET_PROTECTED else 0
+            if len(items) <= floor:
+                continue
+            for idx, it in enumerate(items):
+                if isinstance(it, dict) and (worst is None or _item_rank(it) < worst[0]):
+                    worst = (_item_rank(it), key, idx)
+        if worst is None:
+            break
+        del result[worst[1]][worst[2]]
+        dropped += 1
+    return dropped
+
+
+def _apply_context_budget(result: dict, apply_budget: bool = True) -> dict:
+    """Lean-by-default post-pass over an assembled patterns/warnings dict:
+    dedup across sections (B2) → truncate long item text (B1) → enforce a total
+    char budget (B3). Records a `_context_budget` note when anything was trimmed
+    so the elision is legible (no silent truncation). Best-effort: any failure
+    returns the full result untouched. Disable via apply_budget=False or
+    EMPIRICA_PATTERN_BUDGET_OFF=1."""
+    if not apply_budget or os.getenv("EMPIRICA_PATTERN_BUDGET_OFF") == "1":
+        return result
+    try:
+        deduped = _dedup_sections(result)
+        _truncate_sections(result, MAX_ITEM_CHARS)
+        elided = _enforce_total_budget(result, MAX_TOTAL_CHARS)
+        if deduped or elided:
+            result["_context_budget"] = {
+                "deduped": deduped,
+                "elided_for_budget": elided,
+                "note": (
+                    "Lean teaser — duplicates removed, long items truncated, "
+                    "lowest-ranked elided to fit budget. Full context via "
+                    "`empirica investigate` / `project-search` / `commit-context`."
+                ),
+            }
+    except Exception as e:  # never let budgeting break retrieval
+        logger.debug(f"_apply_context_budget failed; returning full result: {e}")
+    return result
+
+
 def retrieve_task_patterns(
     project_id: str,
     task_context: str,
@@ -495,6 +669,7 @@ def retrieve_task_patterns(
     include_assumptions: bool = False,
     include_decisions: bool = False,
     vectors: dict | None = None,
+    apply_budget: bool = True,
 ) -> dict[str, Any]:
     """
     PREFLIGHT hook: Retrieve relevant patterns for a task (Noetic RAG).
@@ -614,7 +789,7 @@ def retrieve_task_patterns(
         include_assumptions,
         include_decisions,
     )
-    return result
+    return _apply_context_budget(result, apply_budget)
 
 
 def _enrich_check_warnings(
@@ -706,6 +881,7 @@ def check_against_patterns(
     include_eidetic: bool = False,
     include_goals: bool = False,
     include_assumptions: bool = False,
+    apply_budget: bool = True,
 ) -> dict[str, Any]:
     """
     CHECK hook: Validate current approach against known patterns (Noetic RAG).
@@ -790,7 +966,7 @@ def check_against_patterns(
         or bool(warnings.get("unverified_assumptions"))
     )
 
-    return warnings
+    return _apply_context_budget(warnings, apply_budget)
 
 
 def search_lessons_for_task(
