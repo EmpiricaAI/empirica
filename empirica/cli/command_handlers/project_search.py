@@ -1,6 +1,12 @@
 """
-Project Search Commands - semantic search over docs & memory (Qdrant-backed)
-Path A: command scaffolding; embedding/provider assumed available via env.
+Project Search Commands — semantic search over a project's docs & memory (Qdrant-backed).
+
+Local single-project search by default. With ``--global`` it ALSO pulls the
+``global_learnings`` pool + every other LOCAL project's memory/eidetic/episodic
+collections (semantic top-k, this-machine Qdrant only) — a local cross-project
+fallback, NOT a cross-practice/mesh search. True cross-practice retrieval across
+the tenant's practices is Cortex's ``investigate`` / ``search_knowledge`` (the
+Qdrant + glue layer is Cortex/mesh-support's lane).
 """
 
 from __future__ import annotations

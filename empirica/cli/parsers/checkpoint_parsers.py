@@ -861,7 +861,11 @@ def add_checkpoint_parsers(subparsers):
     project_search_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
     project_search_parser.add_argument("--verbose", action="store_true", help="Show detailed operation info")
     project_search_parser.add_argument(
-        "--global", dest="global_search", action="store_true", help="Include global cross-project learnings in search"
+        "--global",
+        dest="global_search",
+        action="store_true",
+        help="Also search the global-learnings pool + other LOCAL projects (semantic, this machine). "
+        "Cross-practice/mesh search is `cortex investigate`.",
     )
 
     # Project embed (build vectors) command

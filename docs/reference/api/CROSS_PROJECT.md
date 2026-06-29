@@ -39,7 +39,7 @@ Empirica is multi-project by design. Three mechanisms compose:
 | Mechanism | Direction | Use |
 |---|---|---|
 | `--visibility {public,shared,local}` on `*-log` commands | Push (opt-in) | Mark an artifact as shareable when logged |
-| `project-search --global` | Pull | Query the global-learnings pool across projects |
+| `project-search --global` | Pull | Local cross-project recall (global-learnings pool + other local projects, semantic). Cross-practice/mesh retrieval is `cortex investigate`. |
 | `--project-id <name>` on `*-log` commands | Cross-write | Log artifacts to OTHER projects without `project-switch` |
 
 The default workflow: **AIs log liberally with `--visibility shared` when an artifact
@@ -107,18 +107,33 @@ empirica project-search --project-id empirica --task "sentinel bypass" --global
 
 ### How It Works
 
-`--global` queries the `global_learnings` Qdrant collection — high-impact
-artifacts that have been promoted via the visibility flag (or fed in via
-older sync paths).
+`--global` runs two retrieval paths and merges the results:
 
-**Caveat (v1.9.6 state):** the original 1.7.0 design described a "cross-
-project scan" that iterates ALL `project_{id}_{collection}` collections.
-That broader walk is implemented in `search_cross_project` (`empirica.core.qdrant.global_sync`)
-but the `--global` CLI flag currently only hits `global_learnings`. True
-cross-project semantic search across every registered project's full memory/
-eidetic/episodic surface is a logged goal — until it lands, the practical
-guidance is: log liberally with `--visibility shared` so your artifacts
-reach `global_learnings`, and call `--global` proactively to read it back.
+1. **`search_global`** → the `global_learnings` Qdrant collection: high-impact
+   artifacts promoted via `--visibility shared/public` (or older sync paths).
+   The curated cross-project pool.
+2. **`search_cross_project`** (`empirica.core.qdrant.global_sync`) → every
+   **local** project's `memory` / `eidetic` / `episodic` collections, discovered
+   from this machine's Qdrant collection names; semantic top-k per collection,
+   de-duplicated and ranked.
+
+**Scope and limits — be honest about reach:**
+
+- **Local Qdrant only.** Both paths read the Qdrant instance on *this machine*.
+  Projects on other practitioners' machines — the actual mesh — are not visible.
+  `--global` is cross-*project-on-this-box*, **not** cross-*practice-across-the-mesh*.
+- **Semantic only.** Pure cosine top-k; it does not traverse `artifact_edges`
+  (`related_to`). "Related" here means *similar*, not *graph-connected*.
+- **The true cross-practice surface is the mesh.** With Cortex connected,
+  `cortex investigate` / `search_knowledge` retrieve across the tenant's
+  practices server-side — that is the cross-practice retrieval path. Per the
+  ecosystem lane split (Cortex / mesh-support own the Qdrant + glue layer),
+  cross-practice traversal lives there. `project-search --global` is the
+  local-only fallback — and the only cross-project option for Cortex-less installs.
+
+Practical guidance: log liberally with `--visibility shared` so high-value
+artifacts reach `global_learnings`; use `--global` for local cross-project
+recall; reach for `cortex investigate` when you need the whole mesh.
 
 ### API
 
