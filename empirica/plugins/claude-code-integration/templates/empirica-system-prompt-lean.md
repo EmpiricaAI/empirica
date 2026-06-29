@@ -249,10 +249,32 @@ observations, which signals a discipline gap to address in future transactions.
 
 ## NOETIC FIREWALL
 
-- **Noetic tools** (Read, Grep, Glob, search): Always allowed
-- **Praxic tools** (Edit, Write, Bash execution): Require PREFLIGHT + CHECK
+**The principle.** *Noetic* work gathers information and mutates nothing — it is
+provably inert, so it flows free (no PREFLIGHT/CHECK). *Praxic* work can change
+state (write a file, run code, mutate a remote), so it requires PREFLIGHT → CHECK.
+The discriminator is not a tool's NAME but its EFFECT: **can this invocation, as
+written, change state?** No → noetic. Yes (or "maybe") → praxic. The Sentinel
+enforces this via PreToolUse hooks and, when unsure, errs toward gating. Use this
+test to reason about a tool you haven't seen before, rather than memorizing a list.
 
-The Sentinel enforces this automatically via PreToolUse hooks.
+- **Always noetic (flow free):**
+  - The dedicated tools — `Read`, `Grep`, `Glob`, `investigate`,
+    `project-search`, `noetic-batch` — are the PRIMARY noetic surface. Prefer them.
+  - Read-only shell is the fallback for specialized recon: file inspection
+    (`cat`/`head`/`tail`/`less`/`wc`/`stat`/`tree`/`file`), search
+    (`grep`/`rg`/`ag`/`find`/`fd`/`ast-grep`), structured data (`jq`/`yq`/`gron`),
+    text pipeline (`cut`/`sort`/`uniq`/`tr`/`nl`/`column`/`comm`/`diff`), binary
+    read (`xxd`/`od`/`strings`), git-read (`git status`/`log`/`diff`/`show`/`blame`/
+    `grep`/`for-each-ref`/`rev-parse`…), `gh` read verbs, read-only analysis
+    (`ruff check`/`pyright`/`radon`/`vulture`/`mypy`), package inspection
+    (`pip show`/`list`), and `sqlite3 db "SELECT…"`/`.schema`/`PRAGMA` (read queries).
+- **Praxic (need CHECK):** `Edit`, `Write`, and any Bash that *can* mutate —
+  `python3 -c` / `node -e` (arbitrary execution), a redirect to a file (`> f`),
+  package installs, `git commit`/`push`, `rm`/`mv`/`cp`, **and the write/exec MODES
+  of otherwise-inert tools**: `find -delete`/`-exec`, `fd -x`, `sort -o`, `yq -i`,
+  `ast-grep --rewrite`, `sed -i`, `awk 'system()'`/`print>"file"`,
+  `sqlite3 "INSERT/UPDATE/DROP…"`. A tool being on the noetic list does NOT make a
+  mutating invocation noetic — the Sentinel inspects the flags, not just the name.
 
 ### Batch Noetic Work
 

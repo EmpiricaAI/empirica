@@ -30,6 +30,7 @@ from empirica.cli.command_handlers.doctor import (
     check_git_present,
     check_loops_registered,
     check_mcp_config,
+    check_noetic_tools,
     check_ntfy_auth,
     check_ntfy_creds,
     check_ollama_backend,
@@ -73,6 +74,37 @@ def test_check_claude_code_cli_warns_when_missing():
     with patch("empirica.cli.command_handlers.doctor._which", return_value=None):
         result = check_claude_code_cli()
     assert result.status == WARN
+
+
+def test_check_noetic_tools_passes_when_all_present():
+    # Tier-1 tools all on PATH → PASS.
+    with patch("empirica.cli.command_handlers.doctor._which", return_value="/usr/bin/tool"):
+        result = check_noetic_tools()
+    assert result.status == PASS
+    assert len(result.data["present"]) == 5
+
+
+def test_check_noetic_tools_warns_when_some_missing():
+    # Only jq present → WARN (recommended, not required), with an install hint.
+    def _fake_which(cmd):
+        return "/usr/bin/jq" if cmd == "jq" else None
+
+    with patch("empirica.cli.command_handlers.doctor._which", side_effect=_fake_which):
+        result = check_noetic_tools()
+    assert result.status == WARN
+    assert "rg" in result.data["missing"] and "ast-grep" in result.data["missing"]
+    assert "jq" in result.data["present"]
+
+
+def test_check_noetic_tools_fd_fdfind_fallback():
+    # On Debian/Ubuntu fd's binary is `fdfind`; the fallback must count it present.
+    def _fake_which(cmd):
+        return "/usr/bin/fdfind" if cmd == "fdfind" else None
+
+    with patch("empirica.cli.command_handlers.doctor._which", side_effect=_fake_which):
+        result = check_noetic_tools()
+    assert "fd" in result.data["present"]  # resolved via fdfind
+    assert result.data["present"]["fd"] == "/usr/bin/fdfind"
 
 
 # ─── Project state ─────────────────────────────────────────────────────
@@ -392,9 +424,9 @@ def test_run_all_checks_returns_complete_list():
     assert "Outreach project" in names
 
 
-def test_run_all_checks_count_is_23():
-    """Post-prop_ilf6uy4q expansion: 18 base + 5 mesh = 23 total."""
-    assert len(run_all_checks()) == 23
+def test_run_all_checks_count_is_24():
+    """Post-prop_ilf6uy4q expansion: 18 base + 5 mesh = 23, + noetic-tools = 24."""
+    assert len(run_all_checks()) == 24
 
 
 # ─── Tailscale (prop_ilf6uy4q) ─────────────────────────────────────────

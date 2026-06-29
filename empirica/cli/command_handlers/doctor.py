@@ -141,6 +141,42 @@ def check_git_present() -> Check:
     return Check("git on PATH", PASS, path, data={"path": path})
 
 
+def check_noetic_tools() -> Check:
+    """Tier-1 noetic CLI tools that sharpen agentic recon (recommended, not required).
+
+    These are read-only/inert and are on the Sentinel's noetic allowlist, so when
+    present they flow free for a practitioner doing investigation — yq for YAML,
+    fd for fast gitignore-aware find, ast-grep for structural (by-syntax) code
+    search, rg/jq as the search + JSON workhorses. Absence is a WARN, never a
+    failure: empirica works without them.
+    """
+    # (binaries, human description). fd is `fdfind` on Debian/Ubuntu; ast-grep's
+    # short alias `sg` is deliberately NOT probed (it collides with the setgroups
+    # command), so only the full `ast-grep` name counts as present.
+    tools: dict[str, tuple[list[str], str]] = {
+        "rg": (["rg"], "ripgrep — fast, gitignore-aware search"),
+        "fd": (["fd", "fdfind"], "fast, gitignore-aware file find"),
+        "jq": (["jq"], "JSON query"),
+        "yq": (["yq"], "YAML query"),
+        "ast-grep": (["ast-grep"], "structural / AST-aware code search"),
+    }
+    present: dict[str, str | None] = {}
+    for label, spec in tools.items():
+        present[label] = next((p for n in spec[0] if (p := _which(n))), None)
+    missing = [t for t, p in present.items() if not p]
+    found = {t: p for t, p in present.items() if p}
+    if not missing:
+        return Check("Noetic tools (Tier 1)", PASS, "all present: " + ", ".join(tools), data={"present": found})
+    return Check(
+        "Noetic tools (Tier 1)",
+        WARN,
+        f"{len(found)}/{len(tools)} present; missing: {', '.join(missing)}",
+        "Install for sharper agentic recon (rg/fd/jq/yq/ast-grep) — all read-only, "
+        "Sentinel-noetic. e.g. `cargo install ripgrep fd-find ast-grep` or your package manager.",
+        data={"present": found, "missing": missing},
+    )
+
+
 # ─── Project state ─────────────────────────────────────────────────────
 
 
@@ -908,6 +944,7 @@ def run_all_checks(cwd: Path | None = None) -> list[Check]:
         check_empirica_mcp(),
         check_claude_code_cli(),
         check_git_present(),
+        check_noetic_tools(),
         # Project state
         check_empirica_folder(cwd),
         check_project_yaml(cwd),
