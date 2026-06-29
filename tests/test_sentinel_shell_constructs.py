@@ -385,3 +385,93 @@ class TestNewlineChainAndPipeOverAllow:
         # body isn't shredded into bogus segments.
         cmd = "empirica preflight-submit - << 'EOF'\n{\"vectors\": {}}\nEOF"
         assert gate.is_safe_bash_command({"command": cmd}) is True
+
+
+class TestNoeticAllowlistExpansion:
+    """T1: expanded inert-tool allowlist + the per-tool write/exec-flag guards
+    (find/fd/sort/yq/ast-grep/awk membrane-hole closures)."""
+
+    # ── new inert prefixes flow free ────────────────────────────────────
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "yq '.foo' config.yaml",
+            "sort -rn data.txt",
+            "sort",  # bare (stdin) — covered via prefix.rstrip() match
+            "uniq -c",
+            "cut -d, -f2 x.csv",
+            "tr -d ' '",
+            "nl file.py",
+            "column -t",
+            "rev",
+            "tac log.txt",
+            "xxd binary.bin",
+            "od -c x",
+            "strings ./a.out",
+            "fd -e py",
+            "fd pattern src/",
+            "ast-grep -p 'def $F()' --lang py",
+            "bat README.md",
+            "tokei",
+            "scc .",
+            "gron data.json",
+            "git rev-parse HEAD",
+            "git for-each-ref refs/notes/",
+            "git describe --tags",
+            "git shortlog -sn",
+            "git grep TODO",
+            "git config --get user.name",
+            "git config --list",
+            "vulture empirica/",
+            "pip-audit",
+        ],
+    )
+    def test_new_inert_prefixes_allowed(self, gate, cmd):
+        assert gate._matches_safe_prefix(cmd) is True
+        assert gate.is_safe_bash_command({"command": cmd}) is True
+
+    # ── write/exec flags GATED even though the tool name is safe-listed ──
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "find . -delete",
+            "find . -name '*.py' -delete",
+            "find . -exec rm {} +",
+            "find . -fls out.txt",
+            "fd -e tmp -x rm",
+            "fd pattern --exec rm",
+            "sort -o out.txt in.txt",
+            "sort --output=out.txt in.txt",
+            "yq -i '.x=1' f.yaml",
+            "yq --inplace '.x=1' f.yaml",
+            "ast-grep --rewrite 'X' -p 'Y'",
+            "ast-grep -U -p 'Y'",
+            "awk 'BEGIN{system(\"rm -rf x\")}'",
+            "awk '{print $1 > \"out.txt\"}' in",
+            "awk '{print >> \"a\"}'",
+            "gawk 'BEGIN{system(\"id\")}'",
+        ],
+    )
+    def test_write_exec_flags_gated(self, gate, cmd):
+        assert gate._has_dangerous_tool_flags(cmd) is True
+        assert gate._matches_safe_prefix(cmd) is False
+        assert gate.is_safe_bash_command({"command": cmd}) is False
+
+    # ── no false-positives: inert variants of the guarded tools stay safe ─
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "find . -type f -name '*.py'",
+            "find . -maxdepth 2",
+            "fd -e py --hidden",
+            "sort -rn",
+            "awk '$3 > 100'",  # numeric comparison, not a write
+            "awk '{print $1, $2}'",  # print with no file redirect
+            "awk '$1 > \"foo\"'",  # string comparison, no print-to-file
+            "ast-grep -p 'def $F()'",
+            "yq '.version' pyproject.toml",
+        ],
+    )
+    def test_guard_no_false_positive(self, gate, cmd):
+        assert gate._has_dangerous_tool_flags(cmd) is False
+        assert gate._matches_safe_prefix(cmd) is True

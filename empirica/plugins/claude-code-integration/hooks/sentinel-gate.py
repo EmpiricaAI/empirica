@@ -247,6 +247,45 @@ SAFE_BASH_PREFIXES = (
     "mypy ",
     "flake8 ",
     "pylint ",
+    "vulture ",
+    "pip-audit",
+    # Text pipeline (read-only, pure stdout — no native write mode)
+    "cut ",
+    "tr ",
+    "nl ",
+    "fold ",
+    "tac ",
+    "rev ",
+    "paste ",
+    "column ",
+    "sort ",  # sort -o/--output is guarded in _has_dangerous_tool_flags
+    "uniq ",
+    # Structured data (read-only; yq -i is guarded)
+    "yq ",
+    "yq.",
+    "gron ",
+    # Binary / encoding inspection (read-only)
+    "xxd ",
+    "od ",
+    "strings ",
+    # Fast search / navigation (read-only; fd -x and ast-grep --rewrite guarded).
+    # No-ops until installed — harmless to allowlist ahead of the dep landing.
+    "fd ",
+    "fdfind ",
+    "ast-grep ",
+    "bat ",
+    "tokei ",
+    "scc ",
+    # Git read operations (additions)
+    "git rev-parse",
+    "git rev-list",
+    "git for-each-ref",
+    "git describe",
+    "git shortlog",
+    "git grep",
+    "git config --get",
+    "git config --list",
+    "git config -l",
 )
 
 # Dangerous shell operators (command injection prevention)
@@ -1410,8 +1449,64 @@ def is_plan_file(tool_input: dict) -> bool:
     return "/.claude/plans/" in normalized
 
 
+# Per-tool flags that turn a normally-inert, safe-prefixed tool PRAXIC — it
+# runs / deletes / writes / rewrites. The tool NAME is inert (find/fd/sort/yq/
+# ast-grep all read by default), so a bare prefix match would wave these through;
+# this is the membrane-hole class. A prefix match PLUS one of these flags is gated.
+_TOOL_DANGEROUS_FLAGS: dict[str, frozenset[str]] = {
+    # deletes files / runs arbitrary commands / writes files
+    "find": frozenset({"-delete", "-exec", "-execdir", "-ok", "-okdir", "-fprint", "-fprint0", "-fprintf", "-fls"}),
+    # fd -x/-X run a command per result (find -exec equivalent)
+    "fd": frozenset({"-x", "-X", "--exec", "--exec-batch"}),
+    "fdfind": frozenset({"-x", "-X", "--exec", "--exec-batch"}),
+    # sort -o / --output writes to a file
+    "sort": frozenset({"-o", "--output"}),
+    # yq -i edits YAML in place
+    "yq": frozenset({"-i", "--inplace", "--in-place"}),
+    # ast-grep rewrites source in place
+    "ast-grep": frozenset({"-U", "--update-all", "--rewrite"}),
+}
+
+# awk family writes via print/printf > "file" INSIDE its program (the
+# redirect-outside-quotes guard can't see it) and execs via system(...).
+_AWK_WRITE_RE = re.compile(r"(print|printf)[^;\n]*>>?\s*\"")
+_AWK_NAMES = frozenset({"awk", "gawk", "mawk", "nawk"})
+
+
+def _has_dangerous_tool_flags(cmd: str) -> bool:
+    """True if ``cmd`` is a safe-prefixed tool invoked with a mutating/exec flag
+    its prefix would otherwise wave through (the membrane-hole class).
+
+    Closes the holes where the tool NAME is inert but a flag makes it praxic:
+    find -delete/-exec, fd -x, sort -o, yq -i, ast-grep --rewrite, and awk
+    system()/print-to-file. Known residuals (rare, low-severity): ``uniq IN OUT``
+    positional output, and combined short flags like ``-iX`` — both degrade to
+    "needs CHECK" at worst if ever extended, never a silent allow elsewhere.
+    """
+    stripped = cmd.lstrip()
+    head = stripped.split(" ", 1)[0]
+    if head in _AWK_NAMES:
+        return "system(" in stripped or bool(_AWK_WRITE_RE.search(stripped))
+    flags = _TOOL_DANGEROUS_FLAGS.get(head)
+    if flags:
+        for tok in stripped.split()[1:]:
+            if tok in flags:
+                return True
+            if tok.startswith("--") and "=" in tok and tok.split("=", 1)[0] in flags:
+                return True
+    return False
+
+
 def _matches_safe_prefix(cmd: str) -> bool:
-    """Check if a command matches any SAFE_BASH_PREFIXES entry."""
+    """Check if a command matches any SAFE_BASH_PREFIXES entry.
+
+    A prefix match is necessary but NOT sufficient: a normally-inert tool made
+    mutating/exec by a flag (find -delete, awk system(), fd -x, sort -o, yq -i,
+    ast-grep --rewrite) is rejected even when its prefix matches. See
+    _has_dangerous_tool_flags — the centralized chokepoint guard.
+    """
+    if _has_dangerous_tool_flags(cmd):
+        return False
     for prefix in SAFE_BASH_PREFIXES:
         if cmd.startswith(prefix):
             return True
