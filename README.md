@@ -352,11 +352,11 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.12.7
+## What's New in 1.12.8
 
-- **Vendored `/eat-the-broccoli` skill** — the tiered quality-and-pattern audit
-- **CLI-level plugin auto-sync** — the `empirica` CLI self-heals a stale *deployed*
-- **Sentinel remote-ops pacing-guard deadlock** — the rush-guard now (a) sees
+- **Module plugin registration** — `empirica module provision` now registers an
+- **Authenticated `git+https` module packages** — `module fetch` substitutes a
+- **Lean-by-default pattern retrieval** — the pattern block injected into PREFLIGHT
 ---
 
 ## Privacy & Data

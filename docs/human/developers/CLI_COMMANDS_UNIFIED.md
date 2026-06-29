@@ -22,9 +22,9 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.12.7
-**Generated:** 2026-06-26 09:51:35 UTC
-**Total commands:** 253 (across 26 categories)
+**Framework version:** 1.12.8
+**Generated:** 2026-06-29 13:29:15 UTC
+**Total commands:** 254 (across 26 categories)
 
 For the most up-to-date detail on any single command, prefer
 `empirica <command> --help` — the generator extracts the same `help`
@@ -67,7 +67,7 @@ require `--session-id` (`project-bootstrap`, `sessions-show`,
 | [goals](#goals) | 16 | `goals-create`, `goals-list`, `goals-search`, … |
 | [logging](#logging) | 23 | `finding-log`, `unknown-log`, `unknown-list`, … |
 | [project](#project) | 18 | `project-init`, `project-update`, `project-create`, … |
-| [workspace](#workspace) | 19 | `workspace-init`, `workspace-map`, `workspace-list`, … |
+| [workspace](#workspace) | 20 | `workspace-init`, `workspace-map`, `workspace-list`, … |
 | [checkpoint](#checkpoint) | 7 | `checkpoint-create`, `checkpoint-load`, `checkpoint-list`, … |
 | [sync](#sync) | 6 | `sync-config`, `sync-push`, `sync-pull`, … |
 | [profile](#profile) | 4 | `profile-sync`, `profile-prune`, `profile-status`, … |
@@ -1909,6 +1909,27 @@ Write (or soft-close) a typed membership edge between two entities: '<member> is
 - `--verbose` — optional · flag
   Verbose output
 
+#### `empirica entity-delete`
+
+Delete an entity. Default is a reversible soft-archive (status='archived' + close memberships); --hard does an irreversible dependent-order cascade and requires --confirm. Pass as 'type:id'.
+
+**Arguments:**
+
+- `entity` — **required**
+  Entity as "type:id" (or use --type + --id)
+- `--type` — optional
+  Entity type (alternative to positional)
+- `--id` — optional
+  Entity id (alternative to positional)
+- `--hard` — optional · flag
+  Irreversible dependent-order cascade delete (requires --confirm)
+- `--confirm` — optional · flag
+  Confirm an irreversible --hard delete
+- `--dry-run` — optional · flag
+  Preview the effect without mutating
+- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
+  Output format
+
 #### `empirica engagement-create`
 
 Create an engagement: mints the engagement entity (the entities-mint path) then writes the operational sidecar row. Idempotent by slug. Optionally link to an organization with --org (role='ticket_of').
@@ -3476,6 +3497,8 @@ Register/heartbeat this practitioner's presence
   active | idle | paused | blocked (default: active)
 - `--pending-question` — optional
   Blocked-reason (emit-and-park signal)
+- `--session-pid` — optional · type=`int`
+  Claude Code parent PID (os.getppid() at session-init) — the daemon's liveness anchor
 - `--ai-id` — optional
   Practice ai_id (default: resolve from project context)
 - `--location` — optional
