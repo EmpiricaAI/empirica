@@ -92,6 +92,74 @@ def test_placement_idempotent_skip(tmp_path):
     assert receipt["steps"][0]["status"] == "skipped"
 
 
+# ── plugin registration — Model B (installed_plugins.json) ──────────────
+
+
+def test_register_plugin_writes_entry(tmp_path):
+    staging = _staged_tar(tmp_path)
+    m = _manifest(tmp_path, plugin_archive="outreach-0.4.0-plugin.tar.gz")
+    plugins = tmp_path / "plugins"
+    receipt = provision_module(m, dry_run=False, plugin_root=plugins, staging_root=staging)
+    reg_step = next(s for s in receipt["steps"] if s["kind"] == "plugin_register")
+    assert reg_step["status"] == "registered"
+    registry = json.loads((tmp_path / "installed_plugins.json").read_text())
+    entry = registry["plugins"]["outreach@local"][0]
+    assert entry["installPath"] == str(plugins / "outreach")
+    assert entry["version"] == "0.4.0" and entry["isLocal"] is True
+
+
+def test_register_plugin_generates_plugin_json(tmp_path):
+    staging = _staged_tar(tmp_path)
+    m = _manifest(tmp_path, plugin_archive="outreach-0.4.0-plugin.tar.gz")
+    plugins = tmp_path / "plugins"
+    provision_module(m, dry_run=False, plugin_root=plugins, staging_root=staging)
+    pj = plugins / "outreach" / ".claude-plugin" / "plugin.json"
+    assert pj.exists()
+    data = json.loads(pj.read_text())
+    assert data["name"] == "outreach" and data["version"] == "0.4.0"
+
+
+def test_register_plugin_idempotent(tmp_path):
+    staging = _staged_tar(tmp_path)
+    m = _manifest(tmp_path, plugin_archive="outreach-0.4.0-plugin.tar.gz")
+    plugins = tmp_path / "plugins"
+    provision_module(m, dry_run=False, plugin_root=plugins, staging_root=staging)
+    receipt = provision_module(m, dry_run=False, plugin_root=plugins, staging_root=staging)
+    reg_step = next(s for s in receipt["steps"] if s["kind"] == "plugin_register")
+    assert reg_step["status"] == "skipped"
+
+
+def test_register_plugin_dry_run_no_write(tmp_path):
+    staging = _staged_tar(tmp_path)
+    m = _manifest(tmp_path, plugin_archive="outreach-0.4.0-plugin.tar.gz")
+    plugins = tmp_path / "plugins"
+    receipt = provision_module(m, dry_run=True, plugin_root=plugins, staging_root=staging)
+    reg_step = next(s for s in receipt["steps"] if s["kind"] == "plugin_register")
+    assert reg_step["status"] == "would_register"
+    assert not (tmp_path / "installed_plugins.json").exists()
+
+
+def test_no_archive_no_register_step(tmp_path):
+    m = _manifest(tmp_path)  # no plugin_archive → competence layer absent
+    receipt = provision_module(m, dry_run=False, plugin_root=tmp_path / "plugins", staging_root=tmp_path / "s")
+    assert not any(s["kind"] == "plugin_register" for s in receipt["steps"])
+
+
+def test_register_plugin_preserves_existing_entries(tmp_path):
+    registry = tmp_path / "installed_plugins.json"
+    registry.write_text(
+        json.dumps(
+            {"version": 2, "plugins": {"empirica@local": [{"installPath": "/x", "version": "1.0", "isLocal": True}]}}
+        )
+    )
+    staging = _staged_tar(tmp_path)
+    m = _manifest(tmp_path, plugin_archive="outreach-0.4.0-plugin.tar.gz")
+    provision_module(m, dry_run=False, plugin_root=tmp_path / "plugins", staging_root=staging)
+    data = json.loads(registry.read_text())
+    assert "empirica@local" in data["plugins"]  # preserved
+    assert "outreach@local" in data["plugins"]  # added
+
+
 # ── automation registration (loop register, mocked) ─────────────────────
 
 

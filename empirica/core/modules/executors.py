@@ -32,6 +32,7 @@ import sys
 import tarfile
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 from importlib import metadata
 from pathlib import Path
 
@@ -280,6 +281,76 @@ def _place_plugin_artifact(
         return {"kind": "plugin_files", "target": archive, "status": "error", "detail": str(e)[:300]}
 
 
+def _ensure_plugin_manifest(dest: Path, manifest: ModuleManifest) -> bool:
+    """Ensure ``<dest>/.claude-plugin/plugin.json`` exists so Claude Code
+    recognizes the module as a plugin. Generate a minimal one from the module
+    manifest when the archive didn't ship it. Returns True if a file was written."""
+    pj = dest / ".claude-plugin" / "plugin.json"
+    if pj.exists():
+        return False
+    pj.parent.mkdir(parents=True, exist_ok=True)
+    pj.write_text(
+        json.dumps(
+            {"name": manifest.name, "version": manifest.version, "description": f"{manifest.name} — empirica module"},
+            indent=2,
+        )
+    )
+    return True
+
+
+def _register_plugin(manifest: ModuleManifest, plugin_root: Path | None, dry_run: bool) -> dict:
+    """Register the module as a ``<name>@local`` Claude Code plugin (Model B).
+
+    Writes an entry into ``~/.claude/plugins/installed_plugins.json`` so CC
+    discovers the module's ``skills``/``agents`` from its own plugin dir — clean
+    separation from the empirica plugin, clean uninstall. Idempotent: an existing
+    entry for the same installPath is a no-op. ``.claude-plugin/plugin.json`` is
+    generated from the manifest if the archive didn't include one.
+
+    NOTE: ``hooks`` discovery for local plugins additionally needs a
+    ``~/.claude/settings.json`` entry (Claude Code's local-plugin hook
+    auto-discovery is unreliable) — a separate follow-up. Registration covers
+    skills + agents, the common module shape.
+    """
+    root = plugin_root or CLAUDE_PLUGIN_ROOT
+    dest = root / manifest.name
+    key = f"{manifest.name}@local"
+    registry = root.parent / "installed_plugins.json"
+    if dry_run:
+        # The would-place step (above) hasn't extracted yet, so dest may not
+        # exist — report the plan, not not_placed.
+        return {"kind": "plugin_register", "target": key, "status": "would_register", "detail": str(registry)}
+    if not dest.exists():
+        return {"kind": "plugin_register", "target": key, "status": "not_placed", "detail": "no placed plugin dir"}
+    try:
+        data: dict = json.loads(registry.read_text()) if registry.exists() else {"version": 2, "plugins": {}}
+        plugins = data.setdefault("plugins", {})
+        if any(e.get("installPath") == str(dest) for e in plugins.get(key, [])):
+            return {"kind": "plugin_register", "target": key, "status": "skipped", "detail": "already registered"}
+        generated = _ensure_plugin_manifest(dest, manifest)
+        now = datetime.now(timezone.utc).isoformat()
+        plugins[key] = [
+            {
+                "scope": "user",
+                "installPath": str(dest),
+                "version": manifest.version,
+                "installedAt": now,
+                "lastUpdated": now,
+                "isLocal": True,
+            }
+        ]
+        registry.parent.mkdir(parents=True, exist_ok=True)
+        registry.write_text(json.dumps(data, indent=2))
+        return {
+            "kind": "plugin_register",
+            "target": key,
+            "status": "registered",
+            "detail": "registered" + ("; generated plugin.json" if generated else ""),
+        }
+    except (OSError, json.JSONDecodeError) as e:
+        return {"kind": "plugin_register", "target": key, "status": "error", "detail": str(e)[:300]}
+
+
 def _register_automation(auto, dry_run: bool) -> dict:
     """Register one automation via the canonical ``empirica loop register`` (idempotent)."""
     kind = _AUTOMATION_KIND_MAP.get(auto.kind, auto.kind)
@@ -429,6 +500,10 @@ def provision_module(
             cortex_api_key = cortex_api_key or cfg.get("api_key")
 
     steps: list[dict] = [_place_plugin_artifact(manifest, staging_root, plugin_root, dry_run)]
+    if manifest.artifacts.plugin_archive:
+        # Model B: register the placed dir as a <name>@local plugin so CC
+        # discovers its skills/agents (clean separation, not folded into empirica).
+        steps.append(_register_plugin(manifest, plugin_root, dry_run))
     steps += [_register_automation(a, dry_run) for a in manifest.provides.automations]
     steps += _grant_topics(manifest, cortex_url, cortex_api_key, org, tenant, dry_run)
     steps += _check_env(manifest)
