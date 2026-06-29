@@ -92,18 +92,36 @@ def _pkg_installed(spec: str) -> bool:
         return False
 
 
-def _pip_install(spec: str, index_url: str | None) -> tuple[bool, str]:
-    """Install one package via the current interpreter's pip. Returns (ok, detail)."""
-    cmd = [sys.executable, "-m", "pip", "install", spec]
+def _scrub_secret(text: str, secret: str | None) -> str:
+    """Redact a resolved secret from any text that may be surfaced (receipts,
+    error details). A bearer must never leak into output."""
+    return text.replace(secret, "***") if secret and secret in text else text
+
+
+def _pip_install(spec: str, index_url: str | None, bearer: str | None = None) -> tuple[bool, str]:
+    """Install one package via the current interpreter's pip. Returns (ok, detail).
+
+    For a ``git+https://github.com/`` spec with a resolved bearer, the token is
+    injected into the URL passed to pip ONLY — never into the returned detail or
+    the caller's receipt ``target`` — so a proprietary git package authenticates
+    with the same PAT that gates the plugin archive, no ``~/.netrc`` ceremony.
+    Falls back to the bearer-less invocation (and the operator's own git creds)
+    when no bearer is resolved.
+    """
+    install_spec = spec
+    if bearer and spec.startswith("git+https://github.com/"):
+        install_spec = spec.replace("git+https://github.com/", f"git+https://{bearer}@github.com/", 1)
+    cmd = [sys.executable, "-m", "pip", "install", install_spec]
     if index_url:
         cmd += ["--index-url", index_url]
     try:
         subprocess.run(cmd, capture_output=True, text=True, timeout=600, check=True)
         return True, "installed"
     except subprocess.CalledProcessError as e:
-        return False, (e.stderr or e.stdout or "pip failed").strip().splitlines()[-1][:300]
+        detail = (e.stderr or e.stdout or "pip failed").strip().splitlines()[-1][:300]
+        return False, _scrub_secret(detail, bearer)
     except (subprocess.SubprocessError, OSError) as e:
-        return False, str(e)[:300]
+        return False, _scrub_secret(str(e)[:300], bearer)
 
 
 def _fetch_archive(archive: str, dest: Path, registry_base: str | None, bearer: str | None) -> tuple[bool, str]:
@@ -150,6 +168,13 @@ def fetch_module(
     if not dry_run:
         staged.mkdir(parents=True, exist_ok=True)
 
+    # Resolve the secrets_ref bearer ONCE — the same token gates both proprietary
+    # python_packages (git+https) and the plugin_archive download. Only resolve
+    # when writing (dry-run never touches the secrets manager) and a ref exists.
+    bearer, sref_status = (None, "none")
+    if not dry_run and manifest.requires_runtime.secrets_ref:
+        bearer, sref_status = _resolve_secret_ref(manifest.requires_runtime.secrets_ref)
+
     # python_packages → pip (idempotent: skip if already importable)
     for spec in manifest.artifacts.python_packages:
         if _pkg_installed(spec):
@@ -158,7 +183,7 @@ def fetch_module(
         if dry_run:
             steps.append({"kind": "python_package", "target": spec, "status": "would_install", "detail": "pip install"})
             continue
-        ok, detail = _pip_install(spec, index_url)
+        ok, detail = _pip_install(spec, index_url, bearer)
         steps.append(
             {"kind": "python_package", "target": spec, "status": "installed" if ok else "error", "detail": detail}
         )
@@ -176,7 +201,6 @@ def fetch_module(
             status = "unconfigured" if src == "unconfigured" else "would_fetch"
             steps.append({"kind": "plugin_archive", "target": archive, "status": status, "detail": src})
         else:
-            bearer, sref_status = _resolve_secret_ref(manifest.requires_runtime.secrets_ref)
             need_remote = not Path(archive).exists()
             if need_remote and not registry_base:
                 steps.append(

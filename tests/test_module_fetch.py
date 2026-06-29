@@ -9,6 +9,7 @@ install or network — the install path is mocked; archive staging uses temp fil
 from __future__ import annotations
 
 import json
+import subprocess
 from types import SimpleNamespace
 
 import yaml
@@ -131,19 +132,85 @@ def test_remote_archive_unresolved_secret(tmp_path, monkeypatch):
 def test_install_runs_pip(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(executors, "_pkg_installed", lambda spec: False)
-    monkeypatch.setattr(executors, "_pip_install", lambda spec, idx: calls.append((spec, idx)) or (True, "installed"))
+    monkeypatch.setattr(
+        executors,
+        "_pip_install",
+        lambda spec, idx, bearer=None: calls.append((spec, idx, bearer)) or (True, "installed"),
+    )
     m = _manifest(tmp_path, python_packages=["empirica-outreach==0.4.0"])
     receipt = fetch_module(m, dry_run=False, staging_root=tmp_path / "s", index_url="https://idx.example")
     assert receipt["steps"][0]["status"] == "installed"
-    assert calls == [("empirica-outreach==0.4.0", "https://idx.example")]
+    # no secrets_ref → bearer is None
+    assert calls == [("empirica-outreach==0.4.0", "https://idx.example", None)]
 
 
 def test_install_pip_error_surfaces(tmp_path, monkeypatch):
     monkeypatch.setattr(executors, "_pkg_installed", lambda spec: False)
-    monkeypatch.setattr(executors, "_pip_install", lambda spec, idx: (False, "no matching distribution"))
+    monkeypatch.setattr(executors, "_pip_install", lambda spec, idx, bearer=None: (False, "no matching distribution"))
     m = _manifest(tmp_path, python_packages=["nope==1.0"])
     receipt = fetch_module(m, dry_run=False, staging_root=tmp_path / "s")
     assert receipt["ok"] is False and receipt["steps"][0]["status"] == "error"
+
+
+# ── bearer substitution for git+https python_packages (Gap 2) ───────────
+
+
+def test_scrub_secret_redacts():
+    assert executors._scrub_secret("token=ABC123 used", "ABC123") == "token=*** used"
+    assert executors._scrub_secret("no secret here", "ABC123") == "no secret here"
+    assert executors._scrub_secret("anything", None) == "anything"
+
+
+def test_pip_install_injects_bearer_into_git_url(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(executors.subprocess, "run", lambda cmd, **kw: captured.update(cmd=cmd) or SimpleNamespace())
+    ok, detail = executors._pip_install(
+        "git+https://github.com/Nubaeon/empirica-outreach.git@v0.2.0", None, bearer="ghp_TOKEN"
+    )
+    assert ok and detail == "installed"
+    assert "git+https://ghp_TOKEN@github.com/Nubaeon/empirica-outreach.git@v0.2.0" in " ".join(captured["cmd"])
+
+
+def test_pip_install_no_bearer_leaves_git_url_clean(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(executors.subprocess, "run", lambda cmd, **kw: captured.update(cmd=cmd) or SimpleNamespace())
+    executors._pip_install("git+https://github.com/org/repo.git", None)
+    joined = " ".join(captured["cmd"])
+    assert "@github.com" not in joined
+    assert "git+https://github.com/org/repo.git" in joined
+
+
+def test_pip_install_non_github_spec_untouched(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(executors.subprocess, "run", lambda cmd, **kw: captured.update(cmd=cmd) or SimpleNamespace())
+    executors._pip_install("empirica-outreach==0.4.0", None, bearer="ghp_TOKEN")
+    assert "ghp_TOKEN" not in " ".join(captured["cmd"])
+
+
+def test_pip_install_scrubs_bearer_from_error(monkeypatch):
+    def boom(cmd, **kw):
+        raise subprocess.CalledProcessError(1, cmd, output="", stderr="auth failed for ghp_TOKEN@github.com")
+
+    monkeypatch.setattr(executors.subprocess, "run", boom)
+    ok, detail = executors._pip_install("git+https://github.com/org/repo.git", None, bearer="ghp_TOKEN")
+    assert ok is False
+    assert "ghp_TOKEN" not in detail and "***" in detail
+
+
+def test_fetch_threads_resolved_bearer_to_pip(tmp_path, monkeypatch):
+    captured = {}
+    monkeypatch.setattr(executors, "_pkg_installed", lambda spec: False)
+    monkeypatch.setattr(executors, "_resolve_secret_ref", lambda ref: ("ghp_TOKEN", "resolved"))
+    monkeypatch.setattr(
+        executors, "_pip_install", lambda spec, idx, bearer=None: captured.update(bearer=bearer) or (True, "installed")
+    )
+    m = _manifest(
+        tmp_path,
+        python_packages=["git+https://github.com/org/repo.git@v1"],
+        secrets_ref="env:OUTREACH_REGISTRY_BEARER",
+    )
+    fetch_module(m, dry_run=False, staging_root=tmp_path / "s")
+    assert captured["bearer"] == "ghp_TOKEN"
 
 
 # ── CLI handler ─────────────────────────────────────────────────────────
