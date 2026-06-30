@@ -118,9 +118,34 @@ def _all_tmux_panes() -> set[str] | None:
     return {line.strip().lstrip("%") for line in result.stdout.splitlines() if line.strip()}
 
 
-def _process_alive(pid: int) -> bool:
+def _try_create_time(pid: int) -> float | None:
+    """psutil start time (epoch secs) for ``pid``, or None if psutil is
+    unavailable or the process is gone."""
+    try:
+        import psutil
+
+        return psutil.Process(pid).create_time()
+    except Exception:
+        return None
+
+
+def _process_alive(pid: int, expected_create_time: float | None = None) -> bool:
+    """True if ``pid`` is a live process.
+
+    When ``expected_create_time`` is given, additionally require the process's
+    start time to match it (within 1s) — this rejects a *recycled* pid number
+    whose original owner has exited (the cause of cockpit liveness flapping:
+    a bare ``os.kill`` reads whatever impostor now holds the reused number).
+    Falls back to the bare ``os.kill`` probe when psutil is unavailable or no
+    start time was captured, preserving prior behavior.
+    """
     if pid <= 1:
         return False
+    if expected_create_time is not None:
+        actual = _try_create_time(pid)
+        if actual is not None:
+            return abs(actual - expected_create_time) < 1.0
+        # couldn't read start time → fall through to the os.kill probe below
     try:
         os.kill(pid, 0)
         return True
@@ -206,17 +231,30 @@ def scan_live_claude() -> LiveClaudeScan | None:
     return LiveClaudeScan(instance_ids=instance_ids, cwd_counts=cwd_counts)
 
 
-def _read_captured_pids(instance_id: str) -> tuple[int | None, int | None]:
-    """Return (pid, ppid) captured at session-init time, or (None, None)."""
+def _pids_from_data(data: dict) -> tuple[int | None, int | None, float | None]:
+    """Extract (pid, ppid, ppid_create_time) from a state-file dict."""
+    pid = data.get("pid") if isinstance(data.get("pid"), int) else None
+    ppid = data.get("ppid") if isinstance(data.get("ppid"), int) else None
+    ct = data.get("ppid_create_time")
+    ct = float(ct) if isinstance(ct, (int, float)) else None
+    return pid, ppid, ct
+
+
+def _read_captured_pids(instance_id: str) -> tuple[int | None, int | None, float | None]:
+    """Return (pid, ppid, ppid_create_time) captured at session-init, or Nones.
+
+    ``ppid_create_time`` is the Claude parent's start time — used to reject a
+    recycled ppid number (the flapping guard). Absent for instances captured
+    before that field existed → falls back to the bare ``os.kill`` probe.
+    """
     inst_file = EMPIRICA_DIR / "instance_projects" / f"{instance_id}.json"
     if inst_file.exists():
         try:
             with open(inst_file, encoding="utf-8") as f:
                 data = json.load(f)
-            pid = data.get("pid") if isinstance(data.get("pid"), int) else None
-            ppid = data.get("ppid") if isinstance(data.get("ppid"), int) else None
+            pid, ppid, ct = _pids_from_data(data)
             if pid or ppid:
-                return pid, ppid
+                return pid, ppid, ct
             tty_key = data.get("tty_key")
         except (OSError, json.JSONDecodeError):
             tty_key = None
@@ -229,13 +267,11 @@ def _read_captured_pids(instance_id: str) -> tuple[int | None, int | None]:
             try:
                 with open(tty_file, encoding="utf-8") as f:
                     data = json.load(f)
-                pid = data.get("pid") if isinstance(data.get("pid"), int) else None
-                ppid = data.get("ppid") if isinstance(data.get("ppid"), int) else None
-                return pid, ppid
+                return _pids_from_data(data)
             except (OSError, json.JSONDecodeError):
                 pass
 
-    return None, None
+    return None, None, None
 
 
 def is_alive(
@@ -349,10 +385,13 @@ def is_alive(
         )
 
     # Signal 5 — captured PID liveness. Authoritative when present.
-    pid, ppid = _read_captured_pids(instance_id)
+    pid, ppid, ppid_ct = _read_captured_pids(instance_id)
     target_pid = ppid if ppid else pid
     if target_pid:
-        if _process_alive(target_pid):
+        # The create_time guard was captured for the ppid; only apply it when
+        # the ppid is what we're probing (reject a recycled ppid number).
+        expected_ct = ppid_ct if (ppid and target_pid == ppid) else None
+        if _process_alive(target_pid, expected_ct):
             # PID overrides tmux disagreement: claude is running even
             # though it's not the pane foreground (sub-process, wrapper,
             # split window, etc.).

@@ -22,6 +22,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   duplicate stale sessions don't inflate the count, and `instance prune` honors
   the same signals so it won't offer to kill a Claude that's alive under a
   non-tmux multiplexer.
+- **Liveness no longer flaps on a recycled PID** — `is_alive`'s captured-PID
+  check could read a *reused* pid number (after `claude --resume` or a crash,
+  the OS recycles the old pid for an unrelated process) as "alive", then "dead"
+  moments later as that impostor came and went. session-init now records the
+  Claude parent's start time (`ppid_create_time`) alongside the pid, and the
+  liveness check requires the start time to match — a recycled pid no longer
+  passes. Re-stamped every SessionStart (incl. `--resume`) so the captured pid
+  stays current. Falls back to the bare `os.kill` probe when psutil is
+  unavailable or the start time wasn't captured (older instances).
 
 ## [1.12.8] — 2026-06-29
 

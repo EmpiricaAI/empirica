@@ -58,7 +58,7 @@ def test_tmux_pane_gone_is_dead(fake_home, monkeypatch):
 
 def test_non_tmux_with_alive_ppid_is_alive(fake_home, monkeypatch):
     (fake_home / "instance_projects" / "term-pts-7.json").write_text(json.dumps({"pid": 12345, "ppid": 67890}))
-    monkeypatch.setattr(lv, "_process_alive", lambda pid: pid == 67890)
+    monkeypatch.setattr(lv, "_process_alive", lambda pid, ct=None: pid == 67890)
     result = lv.is_alive("term-pts-7")
     assert result.alive is True
     assert result.pid_checked == 67890
@@ -66,7 +66,7 @@ def test_non_tmux_with_alive_ppid_is_alive(fake_home, monkeypatch):
 
 def test_non_tmux_with_dead_ppid_is_dead(fake_home, monkeypatch):
     (fake_home / "instance_projects" / "term-pts-7.json").write_text(json.dumps({"pid": 12345, "ppid": 67890}))
-    monkeypatch.setattr(lv, "_process_alive", lambda _: False)
+    monkeypatch.setattr(lv, "_process_alive", lambda _pid, _ct=None: False)
     result = lv.is_alive("term-pts-7")
     assert result.alive is False
     assert "pid 67890 dead" in result.reason
@@ -109,7 +109,7 @@ def test_tmux_bash_but_captured_pid_alive_is_alive(fake_home, monkeypatch):
     """
     (fake_home / "instance_projects" / "tmux_5.json").write_text(json.dumps({"pid": 12345, "ppid": 67890}))
     monkeypatch.setattr(lv, "_all_tmux_panes", lambda: {"5"})
-    monkeypatch.setattr(lv, "_process_alive", lambda pid: pid == 67890)
+    monkeypatch.setattr(lv, "_process_alive", lambda pid, ct=None: pid == 67890)
 
     # Pane exists, claude is NOT the foreground command, but PID is alive.
     result = lv.is_alive("tmux_5", live_panes=set())
@@ -125,7 +125,7 @@ def test_tmux_bash_and_captured_pid_dead_is_dead(fake_home, monkeypatch):
     """
     (fake_home / "instance_projects" / "tmux_5.json").write_text(json.dumps({"pid": 12345, "ppid": 67890}))
     monkeypatch.setattr(lv, "_all_tmux_panes", lambda: {"5"})
-    monkeypatch.setattr(lv, "_process_alive", lambda _: False)
+    monkeypatch.setattr(lv, "_process_alive", lambda _pid, _ct=None: False)
 
     result = lv.is_alive("tmux_5", live_panes=set())
 
@@ -180,7 +180,7 @@ def test_pid_capture_falls_back_to_tty_sessions(fake_home, monkeypatch):
     """instance_projects has tty_key but no pid; tty_sessions has the pid."""
     (fake_home / "instance_projects" / "term-pts-7.json").write_text(json.dumps({"tty_key": "pts-7"}))
     (fake_home / "tty_sessions" / "pts-7.json").write_text(json.dumps({"pid": 12345, "ppid": 67890}))
-    monkeypatch.setattr(lv, "_process_alive", lambda pid: pid == 67890)
+    monkeypatch.setattr(lv, "_process_alive", lambda pid, ct=None: pid == 67890)
     result = lv.is_alive("term-pts-7")
     assert result.alive is True
     assert result.pid_checked == 67890
@@ -201,7 +201,7 @@ def test_process_env_overrides_stale_captured_pid(fake_home, monkeypatch):
     """The reported incident: `claude --resume` left the captured PID stale,
     but the live proc declares the instance_id. Env match wins over dead PID."""
     (fake_home / "instance_projects" / "empirica-vr.json").write_text(json.dumps({"pid": 111, "ppid": 222}))
-    monkeypatch.setattr(lv, "_process_alive", lambda _: False)  # captured PID dead
+    monkeypatch.setattr(lv, "_process_alive", lambda _pid, _ct=None: False)  # captured PID dead
     result = lv.is_alive("empirica-vr", live_claude_instance_ids={"empirica-vr"})
     assert result.alive is True
     assert result.signal == "process_env"
@@ -251,7 +251,7 @@ def test_process_cwd_overrides_stale_captured_pid(fake_home, monkeypatch, tmp_pa
     proj = tmp_path / "projB"
     proj.mkdir()
     (fake_home / "instance_projects" / "tmux_5.json").write_text(json.dumps({"pid": 111, "ppid": 222}))
-    monkeypatch.setattr(lv, "_process_alive", lambda _: False)  # captured PID dead
+    monkeypatch.setattr(lv, "_process_alive", lambda _pid, _ct=None: False)  # captured PID dead
     monkeypatch.setattr(lv, "_all_tmux_panes", lambda: {"5"})  # pane is bash
     result = lv.is_alive(
         "tmux_5",
@@ -268,7 +268,7 @@ def test_process_cwd_absent_falls_through_to_pid(fake_home, monkeypatch, tmp_pat
     proj = tmp_path / "projC"
     proj.mkdir()
     (fake_home / "instance_projects" / "term-pts-7.json").write_text(json.dumps({"pid": 111, "ppid": 222}))
-    monkeypatch.setattr(lv, "_process_alive", lambda pid: pid == 222)
+    monkeypatch.setattr(lv, "_process_alive", lambda pid, ct=None: pid == 222)
     result = lv.is_alive(
         "term-pts-7",
         project_path=str(proj),
@@ -355,3 +355,94 @@ def test_scan_live_claude_skips_inaccessible_procs(monkeypatch, tmp_path):
     scan = lv.scan_live_claude()
     assert scan.instance_ids == {"good", "bad"}
     assert scan.cwd_counts == {a: 1}
+
+
+# --- create_time reuse guard (flapping fix) --------------------------------
+
+
+class _FakePsutilProc:
+    """Stub for psutil.Process(pid) with a fixed create_time."""
+
+    def __init__(self, _pid, create_time):
+        self._ct = create_time
+
+    def create_time(self):
+        return self._ct
+
+
+def test_process_alive_create_time_match(monkeypatch):
+    import psutil
+
+    monkeypatch.setattr(psutil, "Process", lambda pid: _FakePsutilProc(pid, 1000.0))
+    assert lv._process_alive(4242, expected_create_time=1000.0) is True
+
+
+def test_process_alive_create_time_mismatch_is_dead(monkeypatch):
+    """Recycled pid: process exists but its start time differs → dead (no flap)."""
+    import psutil
+
+    monkeypatch.setattr(psutil, "Process", lambda pid: _FakePsutilProc(pid, 9999.0))
+    assert lv._process_alive(4242, expected_create_time=1000.0) is False
+
+
+def test_process_alive_no_expected_uses_oskill(monkeypatch):
+    """No captured create_time → bare os.kill probe (prior behavior)."""
+    monkeypatch.setattr(lv.os, "kill", lambda pid, sig: None)
+    assert lv._process_alive(4242) is True
+
+    def _boom(pid, sig):
+        raise ProcessLookupError
+
+    monkeypatch.setattr(lv.os, "kill", _boom)
+    assert lv._process_alive(4242) is False
+
+
+def test_process_alive_psutil_error_falls_back_to_oskill(monkeypatch):
+    """If psutil errors despite an expected create_time, fall back to os.kill."""
+    import psutil
+
+    def _raise(pid):
+        raise psutil.AccessDenied()
+
+    monkeypatch.setattr(psutil, "Process", _raise)
+    monkeypatch.setattr(lv.os, "kill", lambda pid, sig: None)
+    assert lv._process_alive(4242, expected_create_time=1000.0) is True
+
+
+def test_read_captured_pids_includes_create_time(fake_home):
+    (fake_home / "instance_projects" / "x.json").write_text(
+        json.dumps({"pid": 1, "ppid": 2, "ppid_create_time": 1234.5})
+    )
+    assert lv._read_captured_pids("x") == (1, 2, 1234.5)
+
+
+def test_read_captured_pids_absent_create_time_is_none(fake_home):
+    (fake_home / "instance_projects" / "x.json").write_text(json.dumps({"pid": 1, "ppid": 2}))
+    _pid, _ppid, ct = lv._read_captured_pids("x")
+    assert ct is None
+
+
+def test_is_alive_reused_ppid_does_not_flap_alive(fake_home, monkeypatch):
+    """End-to-end: a recycled ppid number (live impostor, wrong start time) →
+    dead, not alive. Without the guard os.kill would read it alive (the flap)."""
+    import psutil
+
+    (fake_home / "instance_projects" / "x.json").write_text(
+        json.dumps({"pid": 1, "ppid": 5000, "ppid_create_time": 1000.0})
+    )
+    monkeypatch.setattr(psutil, "Process", lambda pid: _FakePsutilProc(pid, 8888.0))  # impostor
+    result = lv.is_alive("x")
+    assert result.alive is False
+    assert "dead" in result.reason
+
+
+def test_is_alive_matching_ppid_create_time_is_alive(fake_home, monkeypatch):
+    import psutil
+
+    (fake_home / "instance_projects" / "x.json").write_text(
+        json.dumps({"pid": 1, "ppid": 5000, "ppid_create_time": 1000.0})
+    )
+    monkeypatch.setattr(psutil, "Process", lambda pid: _FakePsutilProc(pid, 1000.0))
+    result = lv.is_alive("x")
+    assert result.alive is True
+    assert result.signal == "pid"

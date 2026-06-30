@@ -24,6 +24,25 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "lib"))
 from project_resolver import _find_git_root, find_project_root, get_instance_id, has_valid_db
 
 
+def _proc_create_time(pid: int) -> float | None:
+    """Process start time (epoch seconds) for ``pid``, or None if unavailable.
+
+    Captured alongside pid/ppid so cockpit liveness can guard against PID
+    reuse: after ``claude --resume`` or a crash the OS may recycle the old
+    pid number for an unrelated process, and a bare ``os.kill(pid, 0)`` would
+    read that impostor as "alive" (the source of the liveness flapping). A
+    stored start time lets the liveness check reject a recycled pid that
+    doesn't match. Best-effort — psutil may be absent in a minimal hook env,
+    or the process may already have exited.
+    """
+    try:
+        import psutil
+
+        return psutil.Process(pid).create_time()
+    except Exception:
+        return None
+
+
 def archive_stale_plans() -> list:
     """
     Archive plan files whose goals are complete.
@@ -727,6 +746,10 @@ def _write_instance_projects(project_path: str, claude_session_id: str, empirica
             # pid is this hook process (short-lived, usually dead by query time).
             "pid": os.getpid(),
             "ppid": os.getppid(),
+            # Start time of the Claude parent, so liveness can reject a recycled
+            # ppid number (the flapping guard). Re-stamped every SessionStart
+            # (incl. `--resume`), keeping the captured pid current.
+            "ppid_create_time": _proc_create_time(os.getppid()),
         }
         with open(instance_file, "w") as f:
             json.dump(instance_data, f, indent=2)
@@ -785,6 +808,7 @@ def _write_instance_projects(project_path: str, claude_session_id: str, empirica
             tty_data["timestamp"] = datetime.now().isoformat()
             tty_data["pid"] = os.getpid()
             tty_data["ppid"] = os.getppid()
+            tty_data["ppid_create_time"] = _proc_create_time(os.getppid())
 
             with open(tty_session_file, "w") as f:
                 json.dump(tty_data, f, indent=2)
