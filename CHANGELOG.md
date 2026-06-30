@@ -5,7 +5,9 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.12.9] — 2026-06-30
+
+A cockpit-liveness + local-provisioning hardening release: multi-instance liveness is now multiplexer-agnostic and resume/reuse-safe, `instance prune` reaps superseded ghosts, the empirica-mcp wrapper can no longer drift from core, and `doctor` honestly reports the optional noetic toolchain.
 
 ### Added
 - **`empirica instance rebind <id>`** — re-stamp an instance's captured pid +
