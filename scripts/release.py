@@ -368,6 +368,13 @@ class ReleaseManager:
                 r'^version\s*=\s*"[^"]+"',
                 f'version = "{self.version}"',
             ),
+            # empirica-mcp pins its core dep with == (anti-drift); bump it in
+            # lockstep so the wrapper always requires the matching core version.
+            (
+                self.repo_root / "empirica-mcp" / "pyproject.toml",
+                r'"empirica==[0-9]+\.[0-9]+\.[0-9]+"',
+                f'"empirica=={self.version}"',
+            ),
             (
                 self.repo_root / "scripts" / "install.py",
                 r'EMPIRICA_VERSION\s*=\s*"[^"]+"',

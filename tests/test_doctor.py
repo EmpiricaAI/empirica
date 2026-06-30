@@ -77,11 +77,15 @@ def test_check_claude_code_cli_warns_when_missing():
 
 
 def test_check_noetic_tools_passes_when_all_present():
-    # Tier-1 tools all on PATH → PASS.
+    # All allowlisted noetic tools on PATH → PASS.
     with patch("empirica.cli.command_handlers.doctor._which", return_value="/usr/bin/tool"):
         result = check_noetic_tools()
     assert result.status == PASS
-    assert len(result.data["present"]) == 5
+    # Mirrors the Sentinel optional-noetic allowlist: priority recon set
+    # (rg/fd/jq/yq/ast-grep) + extras (gron/bat/tokei/scc).
+    present = result.data["present"]
+    for tool in ("rg", "fd", "jq", "yq", "ast-grep", "gron", "bat", "tokei", "scc"):
+        assert tool in present, f"{tool} should be surfaced by doctor (it's allowlisted)"
 
 
 def test_check_noetic_tools_warns_when_some_missing():

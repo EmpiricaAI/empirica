@@ -23,8 +23,12 @@ classifiers = [
 ]
 
 dependencies = [
-    "empirica>=1.7.0",  # Main package (1.8.14 co-released)
-    "mcp>=1.25.0",      # MCP SDK (python-multipart CVE-2026-24486 fix in 1.25+)
+    # PINNED to the exact core version (not >=): empirica-mcp is a thin wrapper
+    # over the empirica CLI, so a loose constraint let `pipx upgrade empirica-mcp`
+    # bump the wrapper while leaving core stale — silently serving a 3-version-old
+    # tool set. release.py bumps this pin in lockstep with the version field below.
+    "empirica==1.12.8",  # keep == in lockstep with [project].version
+    "mcp>=1.25.0",       # MCP SDK (python-multipart CVE-2026-24486 fix in 1.25+)
 ]
 
 [project.urls]

@@ -16,6 +16,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   be made visible to the cockpit again on demand.
 
 ### Fixed
+- **empirica-mcp pinned to its core version (drift footgun)** — `empirica-mcp`
+  declared a loose `empirica>=` dep, so `pipx upgrade empirica-mcp` could bump the
+  thin wrapper while leaving the `empirica` core several versions stale — silently
+  serving an old tool set (the real cause of "enhanced noetic tools missing" on a
+  recently-upgraded box). The dep is now pinned `empirica==<matching version>`,
+  and `release.py` bumps the pin in lockstep with the package version, so wrapper
+  and core can never diverge. An integrity test guards the `==` pin.
+- **`empirica doctor` surfaces the full optional noetic toolchain** — the Sentinel
+  allowlists rg/fd/yq/gron/ast-grep/bat/tokei/scc ahead of install, but `doctor`
+  only reported a subset, so practitioners could be told a tool was available when
+  it wasn't. `doctor`'s noetic-tools check now mirrors the allowlist (adds
+  gron/bat/tokei/scc) and reports each as present/missing with an install hint —
+  optional, never a hard failure (no auto-install).
 - **Multiplexer-agnostic cockpit liveness** — `status` / `status --all` and the
   cockpit TUI no longer under-report instances running Claude under a non-tmux
   multiplexer (GNU screen, WezTerm, zellij, cmux), or after `claude --resume` /

@@ -61,6 +61,22 @@ class TestVersionConsistency:
             f"expected {canonical_version!r} (from pyproject.toml)"
         )
 
+    def test_mcp_core_dep_pinned_to_version(self, canonical_version: str) -> None:
+        """empirica-mcp must pin its core dep with == to the current version, not
+        a loose >=. A loose constraint let `pipx upgrade empirica-mcp` bump the
+        wrapper while leaving empirica core stale (the version-drift footgun)."""
+        mcp_pyproject = PROJECT_ROOT / "empirica-mcp" / "pyproject.toml"
+        content = mcp_pyproject.read_text()
+        # Must be an exact pin on the matching version — reject >=, ~=, etc.
+        assert re.search(rf'"empirica=={re.escape(canonical_version)}"', content), (
+            "empirica-mcp/pyproject.toml must pin 'empirica==" + canonical_version + "' "
+            "(exact, matching core) to prevent wrapper/core version drift"
+        )
+        assert not re.search(r'"empirica>=', content), (
+            "empirica-mcp/pyproject.toml has a loose 'empirica>=' constraint — "
+            "use '==' so the wrapper can't drift from core"
+        )
+
     def test_plugin_json_version_matches(self, canonical_version: str) -> None:
         """pyproject.toml version matches plugin.json version."""
         plugin_json = (

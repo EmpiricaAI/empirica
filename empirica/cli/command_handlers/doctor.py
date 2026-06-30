@@ -153,12 +153,20 @@ def check_noetic_tools() -> Check:
     # (binaries, human description). fd is `fdfind` on Debian/Ubuntu; ast-grep's
     # short alias `sg` is deliberately NOT probed (it collides with the setgroups
     # command), so only the full `ast-grep` name counts as present.
+    # Mirrors the Sentinel's optional noetic allowlist (SAFE_BASH_PREFIXES) so
+    # every tool that's allowlisted-ahead-of-install is surfaced here — closing
+    # the "told it's available when it isn't" gap. rg/fd/yq/ast-grep are the
+    # priority recon set; gron/bat/tokei/scc are the lower-tier extras.
     tools: dict[str, tuple[list[str], str]] = {
         "rg": (["rg"], "ripgrep — fast, gitignore-aware search"),
         "fd": (["fd", "fdfind"], "fast, gitignore-aware file find"),
         "jq": (["jq"], "JSON query"),
         "yq": (["yq"], "YAML query"),
         "ast-grep": (["ast-grep"], "structural / AST-aware code search"),
+        "gron": (["gron"], "flatten JSON to greppable paths"),
+        "bat": (["bat", "batcat"], "syntax-highlighted file view"),
+        "tokei": (["tokei"], "fast LOC / code stats"),
+        "scc": (["scc"], "code counter + complexity"),
     }
     present: dict[str, str | None] = {}
     for label, spec in tools.items():
