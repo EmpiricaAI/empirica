@@ -399,6 +399,7 @@ def _register_discovered_to_registry(manifest: dict[str, Any], *, prune: bool = 
     Returns a summary of {added, updated, pruned, total}.
     """
     from empirica.api.registry import (
+        dedupe_registry,
         load_registry,
         prune_stale,
         save_registry,
@@ -438,6 +439,9 @@ def _register_discovered_to_registry(manifest: dict[str, Any], *, prune: bool = 
         _, removed = prune_stale(registry)
         pruned_count = len(removed)
 
+    # Reconcile same-path duplicates before persisting (a re-key/clone can leave a
+    # stale slug-keyed twin) so sync never writes a transient dup.
+    registry, _ = dedupe_registry(registry)
     save_registry(registry)
     return {
         "added": added,
@@ -1062,6 +1066,16 @@ def _register_one_project(
             break
         if status in (404, 405) and path == CORTEX_REGISTER_PATH:
             continue  # try admin path
+        if _is_owner_conflict(status, body):
+            # Foreign project_id (clone/dup). Return early — do NOT run the
+            # defensive user-link below, which would leak the foreign pid.
+            return {
+                "name": project["name"],
+                "outcome": "owner_conflict",
+                "status": status,
+                "reason": _owner_conflict_message(body) or "project_id already registered to a different owner",
+                "hint": _OWNER_CONFLICT_HINT,
+            }
         return {
             "name": project["name"],
             "outcome": "failed",
@@ -1539,6 +1553,7 @@ def handle_project_register_command(args) -> None:
 
         # 4. Upsert registry.yaml
         from empirica.api.registry import (
+            dedupe_registry,
             load_registry,
             save_registry,
             upsert_project,
@@ -1553,6 +1568,8 @@ def handle_project_register_command(args) -> None:
             path=str(project_path),
             repo_url=repo_url,
         )
+        # Reconcile a same-path slug/clone twin before persisting (path-unique).
+        registry, _ = dedupe_registry(registry)
         save_registry(registry)
 
         local_summary = {
@@ -1678,6 +1695,38 @@ def _git_remote_for_path(project_path: Path) -> str | None:
         return None
 
 
+# Actionable guidance when cortex rejects a register because the project_id is
+# owned by someone else — the clone-and-register-with-foreign-yaml case. Cortex
+# closes it server-side (register-time 400); this is the box-side prompt so a
+# human's clone/retry self-corrects instead of just hitting the 400.
+_OWNER_CONFLICT_HINT = (
+    "This project_id belongs to another owner — likely a cloned repo carrying a foreign "
+    ".empirica/project.yaml. Regenerate your own with `empirica project-init --force` "
+    "(mints a fresh project_id), then re-register; or `empirica projects-unregister` the "
+    "existing row if it is genuinely yours."
+)
+
+
+def _owner_conflict_message(body: dict[str, Any] | None) -> str:
+    """Extract cortex's human message from a register-reject body."""
+    if not isinstance(body, dict):
+        return ""
+    return str(body.get("error") or body.get("message") or body.get("detail") or "")
+
+
+def _is_owner_conflict(status: int, body: dict[str, Any] | None) -> bool:
+    """True when cortex rejected register because project_id is owned by another user.
+
+    Cortex's register raises a 400 whose message says the id is "already registered
+    to a different owner" (cortex 31d041b7). Matched leniently on that phrase so a
+    wording tweak doesn't silently downgrade it to a generic failure.
+    """
+    if status != 400:
+        return False
+    msg = _owner_conflict_message(body).lower()
+    return "different owner" in msg or "already registered to a different" in msg
+
+
 def _interpret_cortex_register_response(
     status: int,
     body: dict[str, Any] | None,
@@ -1711,6 +1760,14 @@ def _interpret_cortex_register_response(
             "project_id": returned_id or local_project_id,
             "diverged": diverged,
             "local_project_id": local_project_id if diverged else None,
+        }
+    if _is_owner_conflict(status, body):
+        return {
+            "ok": False,
+            "status": status,
+            "outcome": "owner_conflict",
+            "reason": _owner_conflict_message(body) or "project_id already registered to a different owner",
+            "hint": _OWNER_CONFLICT_HINT,
         }
     return {
         "ok": False,
@@ -1758,7 +1815,11 @@ def _format_project_register_human(result: dict[str, Any]) -> None:
         )
         if cortex.get("reason"):
             print(f"   {cortex['reason']}", file=sys.stderr)
-        print(
-            "\n   Local writes succeeded — re-run 'empirica project register' to retry cortex.",
-            file=sys.stderr,
-        )
+        if cortex.get("outcome") == "owner_conflict":
+            # Re-running won't help an owner-conflict — surface the re-key path instead.
+            print(f"\n   → {cortex.get('hint') or _OWNER_CONFLICT_HINT}", file=sys.stderr)
+        else:
+            print(
+                "\n   Local writes succeeded — re-run 'empirica project register' to retry cortex.",
+                file=sys.stderr,
+            )

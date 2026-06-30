@@ -326,3 +326,45 @@ def test_cortex_500_exits_2_local_persists(tmp_path, capsys):
     cur.execute("SELECT COUNT(*) FROM global_projects WHERE id = ?", (pid,))
     assert cur.fetchone()[0] == 1
     conn.close()
+
+
+def test_cortex_400_owner_conflict_surfaces_rekey_hint(tmp_path, capsys):
+    """A cloned/foreign committed project_id → cortex 400 'different owner' →
+    owner_conflict outcome with an actionable re-key hint, the foreign pid is
+    NOT user-linked, and exit 2 (re-runnable after re-key)."""
+    pid = "88888888-3333-4444-5555-666666666666"
+    project = _seed_project(tmp_path, project_id=pid, name="empirica-cloned")
+    args = _cortex_args(str(project))
+
+    with (
+        patch(
+            "empirica.cli.command_handlers.projects_commands._post_project",
+            return_value=(
+                400,
+                {
+                    "error": "project_id is already registered to a different owner; regenerate the local project_id or unregister the existing row"
+                },
+            ),
+        ),
+        patch("empirica.cli.command_handlers.projects_commands._link_user_to_project") as mock_link,
+    ):
+        exit_code, payload, _out, _err = _run_register(tmp_path, args, capsys)
+
+    assert exit_code == 2
+    assert payload["cortex"]["ok"] is False
+    assert payload["cortex"]["outcome"] == "owner_conflict"
+    assert payload["cortex"]["status"] == 400
+    assert "regenerate" in (payload["cortex"].get("hint") or "").lower()
+    # the foreign pid must NEVER be linked to the caller (the leak vector)
+    mock_link.assert_not_called()
+
+
+def test_is_owner_conflict_matcher():
+    """The 400-owner-conflict matcher keys on cortex's phrase across body fields."""
+    from empirica.cli.command_handlers.projects_commands import _is_owner_conflict
+
+    assert _is_owner_conflict(400, {"error": "already registered to a different owner"}) is True
+    assert _is_owner_conflict(400, {"message": "project_id owned by a different owner"}) is True
+    assert _is_owner_conflict(400, {"detail": "bad request: missing name"}) is False  # other 400s
+    assert _is_owner_conflict(409, {"error": "different owner"}) is False  # only 400
+    assert _is_owner_conflict(400, None) is False
