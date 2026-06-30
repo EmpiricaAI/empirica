@@ -30,6 +30,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   duplicate stale sessions don't inflate the count, and `instance prune` honors
   the same signals so it won't offer to kill a Claude that's alive under a
   non-tmux multiplexer.
+- **Generated hook timeouts raised so context injection survives load** —
+  `setup-claude-code` generated the lightweight per-prompt / per-SessionStart
+  hooks (tool-router, context-shift tracker, monitor-arm, the loop/listener
+  pickups) at 3s/5s. On a many-instance restart-herd box (high load, slow cold
+  Python starts) those hooks timed out and Claude Code silently discarded their
+  stdout — so their context injection never landed. They now generate at a
+  single `LIGHT_HOOK_TIMEOUT` (10s); the heavy hooks (compaction, session-init,
+  postflight) keep their own larger budgets. All remain `allowFailure=True`.
 - **`instance prune` now reaps superseded fallback ghosts** — an old
   tty/pane-name record (`tmux_N` / `term_*`) left behind by a session that
   started without `EMPIRICA_INSTANCE_ID` was kept "alive" by the project-level

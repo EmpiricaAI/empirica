@@ -34,6 +34,15 @@ PLUGIN_VERSION = "1.12.8"
 # from. Drives drift-sync (empirica plugin-sync / session-init auto-heal).
 PLUGIN_VERSION_STAMP = ".plugin-version"
 
+# Timeout (seconds) for the lightweight per-prompt / per-SessionStart hooks
+# (tool-router, context-shift tracker, monitor-arm, the loop/listener pickups).
+# Raised from the old 3s/5s: on a many-instance restart-herd box (high load,
+# slow cold Python starts) those hooks were timing out and Claude Code
+# silently discarded their stdout — i.e. their context injection never landed.
+# All are allowFailure=True, so a generous ceiling only helps; the heavy hooks
+# (compaction, session-init, postflight) keep their own larger explicit timeouts.
+LIGHT_HOOK_TIMEOUT = 10
+
 
 def _resolve_empirica_version() -> str:
     """Return the installed empirica version, or 'unknown' on miss.
@@ -366,7 +375,12 @@ def _register_all_hooks(settings, plugin_dir, python_cmd, output_format):
                 "hooks": [
                     {"type": "command", "command": postcompact_script, "timeout": 30},
                     {"type": "command", "command": ewm_script, "timeout": 10, "allowFailure": True},
-                    {"type": "command", "command": monitor_arm_script, "timeout": 5, "allowFailure": True},
+                    {
+                        "type": "command",
+                        "command": monitor_arm_script,
+                        "timeout": LIGHT_HOOK_TIMEOUT,
+                        "allowFailure": True,
+                    },
                 ],
             },
             {
@@ -374,7 +388,12 @@ def _register_all_hooks(settings, plugin_dir, python_cmd, output_format):
                 "hooks": [
                     {"type": "command", "command": sessioninit_script, "timeout": 30},
                     {"type": "command", "command": ewm_script, "timeout": 10, "allowFailure": True},
-                    {"type": "command", "command": monitor_arm_script, "timeout": 5, "allowFailure": True},
+                    {
+                        "type": "command",
+                        "command": monitor_arm_script,
+                        "timeout": LIGHT_HOOK_TIMEOUT,
+                        "allowFailure": True,
+                    },
                 ],
             },
         ],
@@ -440,7 +459,9 @@ def _register_all_hooks(settings, plugin_dir, python_cmd, output_format):
         [
             {
                 "matcher": ".*",
-                "hooks": [{"type": "command", "command": router_script, "timeout": 3, "allowFailure": True}],
+                "hooks": [
+                    {"type": "command", "command": router_script, "timeout": LIGHT_HOOK_TIMEOUT, "allowFailure": True}
+                ],
             },
         ],
         "UserPromptSubmit hook",
@@ -451,7 +472,12 @@ def _register_all_hooks(settings, plugin_dir, python_cmd, output_format):
     cs_script = f"{python_cmd} {plugin_dir}/hooks/context-shift-tracker.py"
     if not _hook_exists(settings["hooks"].get("UserPromptSubmit", []), "context-shift-tracker.py"):
         settings["hooks"].setdefault("UserPromptSubmit", []).append(
-            {"matcher": ".*", "hooks": [{"type": "command", "command": cs_script, "timeout": 5, "allowFailure": True}]}
+            {
+                "matcher": ".*",
+                "hooks": [
+                    {"type": "command", "command": cs_script, "timeout": LIGHT_HOOK_TIMEOUT, "allowFailure": True}
+                ],
+            }
         )
         if output_format != "json":
             print("   ✓ Context-shift tracker configured")
@@ -464,7 +490,9 @@ def _register_all_hooks(settings, plugin_dir, python_cmd, output_format):
         settings["hooks"].setdefault("UserPromptSubmit", []).append(
             {
                 "matcher": ".*",
-                "hooks": [{"type": "command", "command": install_script, "timeout": 5, "allowFailure": True}],
+                "hooks": [
+                    {"type": "command", "command": install_script, "timeout": LIGHT_HOOK_TIMEOUT, "allowFailure": True}
+                ],
             }
         )
         if output_format != "json":
@@ -480,7 +508,14 @@ def _register_all_hooks(settings, plugin_dir, python_cmd, output_format):
         settings["hooks"].setdefault("UserPromptSubmit", []).append(
             {
                 "matcher": ".*",
-                "hooks": [{"type": "command", "command": uninstall_script, "timeout": 5, "allowFailure": True}],
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": uninstall_script,
+                        "timeout": LIGHT_HOOK_TIMEOUT,
+                        "allowFailure": True,
+                    }
+                ],
             }
         )
         if output_format != "json":
@@ -494,7 +529,14 @@ def _register_all_hooks(settings, plugin_dir, python_cmd, output_format):
         settings["hooks"].setdefault("UserPromptSubmit", []).append(
             {
                 "matcher": ".*",
-                "hooks": [{"type": "command", "command": listener_install_script, "timeout": 5, "allowFailure": True}],
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": listener_install_script,
+                        "timeout": LIGHT_HOOK_TIMEOUT,
+                        "allowFailure": True,
+                    }
+                ],
             }
         )
         if output_format != "json":
@@ -510,7 +552,12 @@ def _register_all_hooks(settings, plugin_dir, python_cmd, output_format):
             {
                 "matcher": ".*",
                 "hooks": [
-                    {"type": "command", "command": listener_uninstall_script, "timeout": 5, "allowFailure": True}
+                    {
+                        "type": "command",
+                        "command": listener_uninstall_script,
+                        "timeout": LIGHT_HOOK_TIMEOUT,
+                        "allowFailure": True,
+                    }
                 ],
             }
         )
@@ -525,7 +572,9 @@ def _register_all_hooks(settings, plugin_dir, python_cmd, output_format):
         [
             {
                 "matcher": "Edit|Write",
-                "hooks": [{"type": "command", "command": entity_script, "timeout": 5, "allowFailure": True}],
+                "hooks": [
+                    {"type": "command", "command": entity_script, "timeout": LIGHT_HOOK_TIMEOUT, "allowFailure": True}
+                ],
             },
         ],
         "PostToolUse (entity extraction) hook",
@@ -555,7 +604,9 @@ def _register_all_hooks(settings, plugin_dir, python_cmd, output_format):
         [
             {
                 "matcher": ".*",
-                "hooks": [{"type": "command", "command": failure_script, "timeout": 5, "allowFailure": True}],
+                "hooks": [
+                    {"type": "command", "command": failure_script, "timeout": LIGHT_HOOK_TIMEOUT, "allowFailure": True}
+                ],
             },
         ],
         "PostToolUseFailure hook",
@@ -570,7 +621,9 @@ def _register_all_hooks(settings, plugin_dir, python_cmd, output_format):
         [
             {
                 "matcher": ".*",
-                "hooks": [{"type": "command", "command": stop_script, "timeout": 5, "allowFailure": True}],
+                "hooks": [
+                    {"type": "command", "command": stop_script, "timeout": LIGHT_HOOK_TIMEOUT, "allowFailure": True}
+                ],
             },
         ],
         "Stop (transaction enforcer) hook",
