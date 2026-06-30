@@ -30,6 +30,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   duplicate stale sessions don't inflate the count, and `instance prune` honors
   the same signals so it won't offer to kill a Claude that's alive under a
   non-tmux multiplexer.
+- **`instance prune` now reaps superseded fallback ghosts** — an old
+  tty/pane-name record (`tmux_N` / `term_*`) left behind by a session that
+  started without `EMPIRICA_INSTANCE_ID` was kept "alive" by the project-level
+  cwd signal (its project still hosts a live canonical instance), so it
+  survived `prune` forever — `status --include-dead` filled with zombies.
+  `discover_dead_instances` now applies the same count-aware dedup the cockpit
+  uses, so a fallback record superseded by a canonical (env-declared) instance
+  for the same project is identified as dead and pruned. Canonical
+  env-matched instances are never reaped. (Prevention was already in place:
+  `get_instance_id` prefers `EMPIRICA_INSTANCE_ID`, so no fallback record is
+  minted while the env var is set.)
 - **Liveness no longer flaps on a recycled PID** — `is_alive`'s captured-PID
   check could read a *reused* pid number (after `claude --resume` or a crash,
   the OS recycles the old pid for an unrelated process) as "alive", then "dead"

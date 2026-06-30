@@ -714,6 +714,14 @@ def discover_dead_instances() -> list[str]:
 
     Used by `empirica instance prune` for bulk cleanup. Skips the current
     instance even if it lacks PID capture (it's running this code).
+
+    Applies the same count-aware dedup as the cockpit, so a superseded
+    *fallback ghost* — an old tty/pane-name record (``tmux_N`` / ``term_*``)
+    whose project still hosts a live claude declared under a canonical
+    ``EMPIRICA_INSTANCE_ID`` — is reaped instead of being kept alive by the
+    project-level cwd signal. Without the dedup such ghosts read alive via
+    ``process_cwd`` and survive prune forever (the cockpit dedups them away,
+    but prune never cleaned them up).
     """
     live_panes = _live_tmux_panes()
     # Same multiplexer-agnostic signals the cockpit uses — so `prune` never
@@ -729,7 +737,7 @@ def discover_dead_instances() -> list[str]:
     except Exception:
         current_id = None
 
-    dead: list[str] = []
+    records: list[dict[str, Any]] = []
     for iid in discover_instances():
         # We need last_activity to evaluate the recent-activity fallback,
         # so a cheap aggregate is unavoidable. _read_transaction_state is
@@ -748,9 +756,23 @@ def discover_dead_instances() -> list[str]:
             live_claude_instance_ids=live_iids,
             live_claude_cwds=live_cwds,
         )
-        if not liveness.alive:
-            dead.append(iid)
-    return dead
+        records.append(
+            {
+                "instance_id": iid,
+                "project_path": project_path,
+                "last_activity_seconds": last_activity,
+                "alive": liveness.alive,
+                "liveness_signal": liveness.signal,
+            }
+        )
+
+    # Reap superseded fallback ghosts: demote cwd-only revivals that exceed the
+    # live-proc count for their project (env-matched canonicals are strong and
+    # never demoted), then anything not-alive is dead.
+    if scan and scan.cwd_counts:
+        _dedup_process_scan_overcount(records, scan.cwd_counts)
+
+    return [r["instance_id"] for r in records if not r["alive"]]
 
 
 __all__ = [

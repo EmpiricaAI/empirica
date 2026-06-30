@@ -8,6 +8,7 @@ shape.
 from __future__ import annotations
 
 import json
+import os
 import time
 from pathlib import Path
 
@@ -370,3 +371,46 @@ def test_dedup_env_match_consumes_slot_and_survives(tmp_path):
     ist._dedup_process_scan_overcount(instances, {proj: 1})
     assert instances[0]["alive"] is True  # env match untouched
     assert instances[1]["alive"] is False  # cwd fallback demoted
+
+
+# ─── discover_dead_instances reaps superseded fallback ghosts ───────────────
+
+
+def test_discover_dead_reaps_superseded_fallback_ghost(env, monkeypatch):
+    """A canonical env-matched instance + an old fallback ghost (tmux_N) for the
+    same project, with one live proc: the ghost is kept 'alive' by the cwd
+    signal but dedup demotes it → it lands in the dead list (prune reaps it).
+    The canonical instance stays alive and is NOT reaped."""
+    home, project = env
+    _bind_instance(home, project, "empirica")  # canonical (env id)
+    _bind_instance(home, project, "tmux_16")  # superseded fallback ghost
+    rp = os.path.realpath(str(project))
+
+    monkeypatch.setattr(
+        ist,
+        "scan_live_claude",
+        lambda: lv.LiveClaudeScan(instance_ids={"empirica"}, cwd_counts={rp: 1}),
+    )
+    monkeypatch.setattr("empirica.utils.session_resolver.get_instance_id", lambda: None)
+
+    dead = ist.discover_dead_instances()
+    assert "tmux_16" in dead  # ghost reaped
+    assert "empirica" not in dead  # canonical (process_env) survives
+
+
+def test_discover_dead_keeps_ghost_when_no_canonical(env, monkeypatch):
+    """If a fallback record is the ONLY instance for a project with a live proc,
+    it legitimately represents that process (within budget) → not reaped."""
+    home, project = env
+    _bind_instance(home, project, "tmux_16")
+    rp = os.path.realpath(str(project))
+
+    monkeypatch.setattr(
+        ist,
+        "scan_live_claude",
+        lambda: lv.LiveClaudeScan(instance_ids=set(), cwd_counts={rp: 1}),
+    )
+    monkeypatch.setattr("empirica.utils.session_resolver.get_instance_id", lambda: None)
+
+    dead = ist.discover_dead_instances()
+    assert "tmux_16" not in dead  # within budget — kept
