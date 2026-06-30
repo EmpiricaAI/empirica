@@ -173,6 +173,13 @@ def _add_instance_group(subparsers):
     )
     _add_output(prune)
 
+    rebind = instance_subs.add_parser(
+        "rebind",
+        help="Re-stamp an instance's captured pid from its live process (fixes stale pid after `claude --resume`)",
+    )
+    rebind.add_argument("instance_id", help="Target instance_id")
+    _add_output(rebind)
+
 
 def _add_sentinel_group(subparsers):
     sentinel_root = subparsers.add_parser(

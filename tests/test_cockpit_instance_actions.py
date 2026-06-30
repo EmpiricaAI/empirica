@@ -254,3 +254,53 @@ def test_wake_send_keys_failure_surfaces_stderr(fake_home, monkeypatch):
 def test_wake_requires_instance_id(fake_home):
     with pytest.raises(ValueError):
         ia.wake_instance("")
+
+
+# ─── rebind ──────────────────────────────────────────────────────────────
+
+
+def _write_inst(fake_home, iid, data):
+    (fake_home / "instance_projects" / f"{iid}.json").write_text(json.dumps(data))
+
+
+def test_rebind_no_record_fails(fake_home):
+    r = ia.rebind_instance("tmux_9")
+    assert r.success is False
+    assert "no instance record" in r.detail
+
+
+def test_rebind_no_live_proc_fails(fake_home, monkeypatch):
+    _write_inst(fake_home, "tmux_5", {"project_path": "/p", "pid": 1, "ppid": 2})
+    monkeypatch.setattr("empirica.core.cockpit.liveness.live_claude_pids_by_instance", lambda: {})
+    r = ia.rebind_instance("tmux_5")
+    assert r.success is False
+    assert "no live claude" in r.detail
+
+
+def test_rebind_psutil_unavailable_fails(fake_home, monkeypatch):
+    _write_inst(fake_home, "tmux_5", {"pid": 1})
+    monkeypatch.setattr("empirica.core.cockpit.liveness.live_claude_pids_by_instance", lambda: None)
+    r = ia.rebind_instance("tmux_5")
+    assert r.success is False
+    assert "psutil" in r.detail
+
+
+def test_rebind_restamps_pid_and_preserves_fields(fake_home, monkeypatch):
+    _write_inst(
+        fake_home,
+        "tmux_5",
+        {"project_path": "/proj", "instance_id": "tmux_5", "pid": 1, "ppid": 2, "ppid_create_time": 111.0},
+    )
+    monkeypatch.setattr(
+        "empirica.core.cockpit.liveness.live_claude_pids_by_instance",
+        lambda: {"tmux_5": (9999, 222.0)},
+    )
+    r = ia.rebind_instance("tmux_5")
+    assert r.success is True
+    assert r.pid == 9999
+    data = json.loads((fake_home / "instance_projects" / "tmux_5.json").read_text())
+    assert data["pid"] == 9999
+    assert data["ppid"] == 9999  # live claude proc IS the durable parent
+    assert data["ppid_create_time"] == 222.0
+    assert data["project_path"] == "/proj"  # other fields preserved
+    assert "rebound_at" in data

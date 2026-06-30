@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`empirica instance rebind <id>`** — re-stamp an instance's captured pid +
+  start time from its live process (matched on `EMPIRICA_INSTANCE_ID`), without
+  running a transaction. Previously the only way to refresh a stale captured pid
+  (after `claude --resume` or a manual restart) was to run a transaction;
+  `prune`/`forget` only delete. `rebind` re-registers, so a resumed instance can
+  be made visible to the cockpit again on demand.
+
 ### Fixed
 - **Multiplexer-agnostic cockpit liveness** — `status` / `status --all` and the
   cockpit TUI no longer under-report instances running Claude under a non-tmux

@@ -446,3 +446,27 @@ def test_is_alive_matching_ppid_create_time_is_alive(fake_home, monkeypatch):
     result = lv.is_alive("x")
     assert result.alive is True
     assert result.signal == "pid"
+
+
+def test_live_claude_pids_by_instance_maps_iid_to_pid(monkeypatch):
+    import psutil
+
+    class _P:
+        def __init__(self, pid, env, ct):
+            self.pid = pid
+            self.info = {"name": "claude", "cmdline": ["claude"]}
+            self._env = env
+            self._ct = ct
+
+        def environ(self):
+            return self._env
+
+        def create_time(self):
+            return self._ct
+
+    procs = [
+        _P(101, {"EMPIRICA_INSTANCE_ID": "empirica-vr"}, 5.0),
+        _P(102, {}, 6.0),  # no env id — skipped
+    ]
+    monkeypatch.setattr(psutil, "process_iter", lambda attrs=None: procs)
+    assert lv.live_claude_pids_by_instance() == {"empirica-vr": (101, 5.0)}

@@ -231,6 +231,41 @@ def scan_live_claude() -> LiveClaudeScan | None:
     return LiveClaudeScan(instance_ids=instance_ids, cwd_counts=cwd_counts)
 
 
+def live_claude_pids_by_instance() -> dict[str, tuple[int, float | None]] | None:
+    """Map each live claude ``EMPIRICA_INSTANCE_ID`` to ``(pid, create_time)``.
+
+    Like :func:`scan_live_claude` but keyed by instance id and carrying the
+    process's own pid + start time — used by ``instance rebind`` to re-stamp a
+    record's captured pid from the actually-running process. Returns ``None``
+    if psutil is unavailable or the scan fails.
+    """
+    try:
+        import psutil
+    except ImportError:
+        return None
+
+    out: dict[str, tuple[int, float | None]] = {}
+    try:
+        for proc in psutil.process_iter(["name", "cmdline"]):
+            try:
+                info = proc.info
+                if not _is_claude_proc(info.get("name"), info.get("cmdline")):
+                    continue
+                iid = proc.environ().get("EMPIRICA_INSTANCE_ID")
+            except (psutil.Error, OSError):
+                continue
+            if not iid:
+                continue
+            try:
+                ct = proc.create_time()
+            except (psutil.Error, OSError):
+                ct = None
+            out[iid] = (proc.pid, ct)
+    except Exception:
+        return None
+    return out
+
+
 def _pids_from_data(data: dict) -> tuple[int | None, int | None, float | None]:
     """Extract (pid, ppid, ppid_create_time) from a state-file dict."""
     pid = data.get("pid") if isinstance(data.get("pid"), int) else None
@@ -437,4 +472,10 @@ def is_alive(
     return LivenessResult(alive=False, reason=reason, tmux_pane=tmux_pane)
 
 
-__all__ = ["LiveClaudeScan", "LivenessResult", "is_alive", "scan_live_claude"]
+__all__ = [
+    "LiveClaudeScan",
+    "LivenessResult",
+    "is_alive",
+    "live_claude_pids_by_instance",
+    "scan_live_claude",
+]
