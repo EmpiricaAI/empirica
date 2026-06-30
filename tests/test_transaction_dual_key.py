@@ -180,3 +180,47 @@ def test_hook_resolver_mirrors_package(tmp_path):
     assert hook._find_transaction_file(ed, "_tmux_1", None, "cc-1") == p
     # No keys → no cross-talk.
     assert hook._find_transaction_file(ed, "_tmux_9", None, None) is None
+
+
+# ---- read_active_transaction_full: self-sources cc when caller passes none ----
+# 1.12.10: CLI verbs (check-submit, postflight) call R.transaction_id() /
+# transaction_read() with no cc. The resolver must self-source the durable key
+# via get_claude_session_id() so the active transaction survives a compaction
+# that rotated the instance suffix — else CHECK stores UNBOUND and the firewall
+# blocks praxic despite an OPEN transaction.
+
+
+def test_read_full_self_sources_cc_after_suffix_rotation(tmp_path, monkeypatch):
+    proj = tmp_path / "proj"
+    ed = proj / ".empirica"
+    _write_tx(ed, "_tmux_1", transaction_id="tx-1", session_id="es-1", claude_session_id="cc-1", status="open")
+    # Compaction rotated the suffix; the tty-anchored cc is still recoverable.
+    monkeypatch.setattr(sr, "_get_instance_suffix", lambda: "_tmux_9")
+    monkeypatch.setattr(sr, "get_claude_session_id", lambda: "cc-1")
+    monkeypatch.setattr(sr, "get_active_project_path", lambda cc=None: str(proj))
+
+    data = sr.read_active_transaction_full()  # no cc passed — the regression path
+    assert data is not None and data["transaction_id"] == "tx-1"
+
+
+def test_read_full_no_cc_recoverable_returns_none(tmp_path, monkeypatch):
+    """No passed cc AND none recoverable + suffix rotated → None, gracefully."""
+    proj = tmp_path / "proj"
+    ed = proj / ".empirica"
+    _write_tx(ed, "_tmux_1", transaction_id="tx-1", claude_session_id="cc-1", status="open")
+    monkeypatch.setattr(sr, "_get_instance_suffix", lambda: "_tmux_9")
+    monkeypatch.setattr(sr, "get_claude_session_id", lambda: None)
+    monkeypatch.setattr(sr, "get_active_project_path", lambda cc=None: str(proj))
+    assert sr.read_active_transaction_full() is None
+
+
+def test_read_full_explicit_cc_not_overridden_by_self_source(tmp_path, monkeypatch):
+    """An explicitly-passed cc is used as-is; self-source only fills None."""
+    proj = tmp_path / "proj"
+    ed = proj / ".empirica"
+    _write_tx(ed, "_tmux_1", transaction_id="tx-mine", claude_session_id="cc-mine", status="open")
+    monkeypatch.setattr(sr, "_get_instance_suffix", lambda: "_tmux_9")
+    monkeypatch.setattr(sr, "get_claude_session_id", lambda: "cc-other")  # must NOT be used
+    monkeypatch.setattr(sr, "get_active_project_path", lambda cc=None: str(proj))
+    data = sr.read_active_transaction_full(claude_session_id="cc-mine")
+    assert data is not None and data["transaction_id"] == "tx-mine"

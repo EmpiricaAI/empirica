@@ -5,6 +5,21 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **CHECK no longer desyncs from its transaction across compaction** — the CLI
+  workflow verbs (`check-submit`, `postflight`) resolved the active transaction
+  with no session key, so the suffix-mismatch fallback never engaged. When a
+  compaction rotated the instance suffix, the open transaction became
+  unresolvable → CHECK was stored *unbound* → the praxic firewall blocked
+  `Write`/`Edit` despite an OPEN transaction (reported on a compacted session).
+  `read_active_transaction_full` now self-sources the durable
+  `claude_session_id` (the tty-anchored, compaction-stable key) when the caller
+  doesn't pass one, so the transaction stays resolvable across suffix/session
+  rotation. Additive — the exact-suffix primary path is unchanged, so the
+  firewall never regresses on the common case.
+
 ## [1.12.9] — 2026-06-30
 
 A cockpit-liveness + local-provisioning hardening release: multi-instance liveness is now multiplexer-agnostic and resume/reuse-safe, `instance prune` reaps superseded ghosts, the empirica-mcp wrapper can no longer drift from core, and `doctor` honestly reports the optional noetic toolchain.

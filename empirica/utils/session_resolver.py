@@ -1281,6 +1281,18 @@ def read_active_transaction_full(claude_session_id: str | None = None) -> dict |
 
     suffix = _get_instance_suffix()
 
+    # Self-source the durable practitioner key when the caller didn't pass one.
+    # CLI verbs (check-submit, postflight, status) call R.transaction_id() /
+    # transaction_read() with no args, leaving claude_session_id=None — which
+    # skips the suffix-mismatch fallback below, so the active transaction is lost
+    # across a compaction that rotated the instance suffix (CHECK then stores
+    # UNBOUND → firewall blocks praxic despite an OPEN transaction). The
+    # tty-anchored session file is stable across compaction (same terminal), so
+    # get_claude_session_id() recovers the key. Exact-suffix primary is unchanged
+    # (it runs first in _find_transaction_file), so the common case never regresses.
+    if claude_session_id is None:
+        claude_session_id = get_claude_session_id()
+
     # Resolve session_id for fallback scanning
     session_id = None
     if claude_session_id:
