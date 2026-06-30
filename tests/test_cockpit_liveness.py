@@ -184,3 +184,174 @@ def test_pid_capture_falls_back_to_tty_sessions(fake_home, monkeypatch):
     result = lv.is_alive("term-pts-7")
     assert result.alive is True
     assert result.pid_checked == 67890
+
+
+# --- Signal 2: exact env-match process scan (primary) ----------------------
+
+
+def test_process_env_match_is_alive(fake_home):
+    """A live claude proc declaring this instance_id in EMPIRICA_INSTANCE_ID →
+    alive. Exact + resume-proof; no tmux pane, no captured PID needed."""
+    result = lv.is_alive("empirica-vr", live_claude_instance_ids={"empirica-vr"})
+    assert result.alive is True
+    assert result.signal == "process_env"
+
+
+def test_process_env_overrides_stale_captured_pid(fake_home, monkeypatch):
+    """The reported incident: `claude --resume` left the captured PID stale,
+    but the live proc declares the instance_id. Env match wins over dead PID."""
+    (fake_home / "instance_projects" / "empirica-vr.json").write_text(json.dumps({"pid": 111, "ppid": 222}))
+    monkeypatch.setattr(lv, "_process_alive", lambda _: False)  # captured PID dead
+    result = lv.is_alive("empirica-vr", live_claude_instance_ids={"empirica-vr"})
+    assert result.alive is True
+    assert result.signal == "process_env"
+
+
+def test_process_env_takes_precedence_over_cwd(fake_home, tmp_path):
+    """When both signals would fire, the exact env match wins (it's checked
+    first and is instance-level, not project-level)."""
+    proj = tmp_path / "projX"
+    proj.mkdir()
+    result = lv.is_alive(
+        "empirica-vr",
+        project_path=str(proj),
+        live_claude_instance_ids={"empirica-vr"},
+        live_claude_cwds={str(proj.resolve())},
+    )
+    assert result.signal == "process_env"
+
+
+def test_process_env_skipped_when_instance_ids_none(fake_home):
+    """Default None param → env signal never consulted (opt-in)."""
+    result = lv.is_alive("empirica-vr")
+    assert result.alive is False
+
+
+# --- Signal 4: cwd-fallback process scan -----------------------------------
+
+
+def test_process_cwd_makes_non_tmux_instance_alive(fake_home, tmp_path):
+    """A live claude process whose cwd matches the instance's project_path →
+    alive (fallback for a live proc with no EMPIRICA_INSTANCE_ID env)."""
+    proj = tmp_path / "projA"
+    proj.mkdir()
+    result = lv.is_alive(
+        "term-pts-7",
+        project_path=str(proj),
+        live_claude_cwds={str(proj.resolve())},
+    )
+    assert result.alive is True
+    assert result.signal == "process_cwd"
+    assert "live claude process" in result.reason
+
+
+def test_process_cwd_overrides_stale_captured_pid(fake_home, monkeypatch, tmp_path):
+    """Captured PID stale (dead), pane is bash, but a live proc exists for the
+    project (no env). The cwd fallback wins — checked BEFORE the PID verdict."""
+    proj = tmp_path / "projB"
+    proj.mkdir()
+    (fake_home / "instance_projects" / "tmux_5.json").write_text(json.dumps({"pid": 111, "ppid": 222}))
+    monkeypatch.setattr(lv, "_process_alive", lambda _: False)  # captured PID dead
+    monkeypatch.setattr(lv, "_all_tmux_panes", lambda: {"5"})  # pane is bash
+    result = lv.is_alive(
+        "tmux_5",
+        live_panes=set(),
+        project_path=str(proj),
+        live_claude_cwds={str(proj.resolve())},
+    )
+    assert result.alive is True
+    assert result.signal == "process_cwd"
+
+
+def test_process_cwd_absent_falls_through_to_pid(fake_home, monkeypatch, tmp_path):
+    """Project not in the live-cwd set → signal skipped, normal precedence."""
+    proj = tmp_path / "projC"
+    proj.mkdir()
+    (fake_home / "instance_projects" / "term-pts-7.json").write_text(json.dumps({"pid": 111, "ppid": 222}))
+    monkeypatch.setattr(lv, "_process_alive", lambda pid: pid == 222)
+    result = lv.is_alive(
+        "term-pts-7",
+        project_path=str(proj),
+        live_claude_cwds={"/some/other/project"},
+    )
+    assert result.alive is True
+    assert result.signal == "pid"
+
+
+def test_process_scan_skipped_when_both_none(fake_home, tmp_path):
+    """Default None params → neither process signal consulted (preserves prior
+    behavior for every existing caller / test)."""
+    proj = tmp_path / "projD"
+    proj.mkdir()
+    result = lv.is_alive("term-pts-7", project_path=str(proj))
+    assert result.alive is False
+
+
+# --- claude-process heuristic + scan ---------------------------------------
+
+
+def test_is_claude_proc_matches_claude_binary():
+    assert lv._is_claude_proc("claude", []) is True
+    assert lv._is_claude_proc("Claude", None) is True
+
+
+def test_is_claude_proc_node_requires_claude_in_cmdline():
+    assert lv._is_claude_proc("node", ["node", "/usr/lib/claude/cli.js"]) is True
+    assert lv._is_claude_proc("node", ["node", "server.js"]) is False
+
+
+def test_is_claude_proc_rejects_other_processes():
+    assert lv._is_claude_proc("bash", ["bash"]) is False
+    assert lv._is_claude_proc("python", ["python", "claude_helper.py"]) is False
+
+
+class _FakeProc:
+    """psutil-like process stub for scan_live_claude tests."""
+
+    def __init__(self, name, cmdline, cwd=None, env=None, cwd_exc=None):
+        self.info = {"name": name, "cmdline": cmdline}
+        self._cwd = cwd
+        self._env = env or {}
+        self._cwd_exc = cwd_exc
+
+    def environ(self):
+        return self._env
+
+    def cwd(self):
+        if self._cwd_exc is not None:
+            raise self._cwd_exc
+        return self._cwd
+
+
+def test_scan_live_claude_collects_env_ids_and_cwd_counts(monkeypatch, tmp_path):
+    """instance_ids come from EMPIRICA_INSTANCE_ID env; cwd_counts group by dir."""
+    import psutil
+
+    a = str((tmp_path / "a").resolve())
+    b = str((tmp_path / "b").resolve())
+    procs = [
+        _FakeProc("claude", ["claude"], cwd=a, env={"EMPIRICA_INSTANCE_ID": "empirica-vr"}),
+        _FakeProc("claude", ["claude"], cwd=a, env={"EMPIRICA_INSTANCE_ID": "empirica-storyboard"}),
+        _FakeProc("node", ["node", "/x/claude/cli.js"], cwd=b, env={}),  # no env id
+        _FakeProc("bash", ["bash"], cwd=a),  # not claude — ignored
+    ]
+    monkeypatch.setattr(psutil, "process_iter", lambda attrs=None: procs)
+    scan = lv.scan_live_claude()
+    assert scan.instance_ids == {"empirica-vr", "empirica-storyboard"}
+    assert scan.cwd_counts == {a: 2, b: 1}
+
+
+def test_scan_live_claude_skips_inaccessible_procs(monkeypatch, tmp_path):
+    """A proc whose cwd() raises is skipped for cwd but not fatal to the sweep;
+    its env id is still collected."""
+    import psutil
+
+    a = str((tmp_path / "a").resolve())
+    procs = [
+        _FakeProc("claude", ["claude"], cwd=a, env={"EMPIRICA_INSTANCE_ID": "good"}),
+        _FakeProc("claude", ["claude"], env={"EMPIRICA_INSTANCE_ID": "bad"}, cwd_exc=psutil.AccessDenied()),
+    ]
+    monkeypatch.setattr(psutil, "process_iter", lambda attrs=None: procs)
+    scan = lv.scan_live_claude()
+    assert scan.instance_ids == {"good", "bad"}
+    assert scan.cwd_counts == {a: 1}

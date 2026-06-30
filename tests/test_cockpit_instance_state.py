@@ -297,3 +297,76 @@ def test_discover_when_tmux_unavailable(env, monkeypatch):
     _bind_instance(home, project, "tmux_5")
     monkeypatch.setattr(ist, "_live_tmux_panes", lambda: None)
     assert ist.discover_instances() == ["tmux_5"]
+
+
+# --- _dedup_process_scan_overcount -----------------------------------------
+
+
+def _scan_inst(project_path, last_activity, signal="process_cwd", alive=True):
+    """Minimal instance dict for dedup tests."""
+    return {
+        "project_path": project_path,
+        "last_activity_seconds": last_activity,
+        "alive": alive,
+        "liveness_signal": signal,
+        "liveness_reason": signal,
+    }
+
+
+def test_dedup_caps_process_scan_at_live_proc_count(tmp_path):
+    """3 stale instance files for a project but only 1 live claude proc →
+    keep the most-recently-active, demote the other 2."""
+    proj = str((tmp_path / "p").resolve())
+    instances = [
+        _scan_inst(proj, 30.0),
+        _scan_inst(proj, 10.0),  # most recent
+        _scan_inst(proj, 20.0),
+    ]
+    ist._dedup_process_scan_overcount(instances, {proj: 1})
+    alive = [i for i in instances if i["alive"]]
+    assert len(alive) == 1
+    assert alive[0]["last_activity_seconds"] == 10.0
+    demoted = [i for i in instances if not i["alive"]]
+    assert all("duplicate stale session" in str(d["liveness_reason"]) for d in demoted)
+
+
+def test_dedup_strong_signal_consumes_budget(tmp_path):
+    """A pid-alive instance consumes the only live-proc slot → the
+    process_cwd sibling for the same project is demoted."""
+    proj = str((tmp_path / "p").resolve())
+    instances = [
+        _scan_inst(proj, 5.0, signal="pid"),
+        _scan_inst(proj, 10.0, signal="process_cwd"),
+    ]
+    ist._dedup_process_scan_overcount(instances, {proj: 1})
+    assert instances[0]["alive"] is True  # pid untouched
+    assert instances[1]["alive"] is False  # process_cwd demoted
+
+
+def test_dedup_keeps_within_budget(tmp_path):
+    """2 live procs, 2 process_scan instances → both kept."""
+    proj = str((tmp_path / "p").resolve())
+    instances = [_scan_inst(proj, 5.0), _scan_inst(proj, 10.0)]
+    ist._dedup_process_scan_overcount(instances, {proj: 2})
+    assert all(i["alive"] for i in instances)
+
+
+def test_dedup_never_demotes_strong_signals(tmp_path):
+    """Even with zero scanned procs reported, tmux/pid verdicts stand."""
+    proj = str((tmp_path / "p").resolve())
+    instances = [_scan_inst(proj, 5.0, signal="tmux"), _scan_inst(proj, 10.0, signal="pid")]
+    ist._dedup_process_scan_overcount(instances, {proj: 0})
+    assert all(i["alive"] for i in instances)
+
+
+def test_dedup_env_match_consumes_slot_and_survives(tmp_path):
+    """An exact env match (process_env) is strong: it consumes the only live
+    slot (never demoted), so the cwd-fallback sibling is demoted."""
+    proj = str((tmp_path / "p").resolve())
+    instances = [
+        _scan_inst(proj, 5.0, signal="process_env"),
+        _scan_inst(proj, 10.0, signal="process_cwd"),
+    ]
+    ist._dedup_process_scan_overcount(instances, {proj: 1})
+    assert instances[0]["alive"] is True  # env match untouched
+    assert instances[1]["alive"] is False  # cwd fallback demoted

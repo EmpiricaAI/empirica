@@ -1,6 +1,11 @@
 """Instance discovery + state aggregation for the cockpit `status` command.
 
-Discovery is via state-file scan only — no tmux, no /proc, no process scanning.
+Discovery (which instances exist) is via state-file scan only — no tmux, no
+/proc. LIVENESS (whether an instance's Claude is still running) is a separate
+concern handled by `liveness.is_alive`, which additionally consults a
+multiplexer-agnostic process scan (`liveness.scan_live_claude`) so non-tmux
+multiplexers and `claude --resume` / env-unset restarts aren't under-reported.
+
 An instance is anything that has left a footprint in ~/.empirica/:
 
   - instance_projects/{instance_id}.json  (canonical: instance → project map)
@@ -23,6 +28,7 @@ Phase model (file-derived, no DB):
 from __future__ import annotations
 
 import json
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -38,7 +44,7 @@ from empirica.core.cockpit.listener_registry import (
     ListenerRegistry,
     is_listener_paused,
 )
-from empirica.core.cockpit.liveness import _live_tmux_panes, is_alive
+from empirica.core.cockpit.liveness import _live_tmux_panes, is_alive, scan_live_claude
 from empirica.core.cockpit.loop_registry import LoopRegistry, is_loop_paused
 from empirica.core.cockpit.notify_dispatcher_view import (
     annotate_loops_with_last_notify,
@@ -431,6 +437,8 @@ def aggregate_instance_state(
     instance_id: str,
     live_panes: set[str] | None = None,
     current_instance_id: str | None = None,
+    live_claude_instance_ids: set[str] | None = None,
+    live_claude_cwds: set[str] | None = None,
 ) -> dict[str, Any]:
     """Read all state for one instance and return a serializable dict.
 
@@ -439,7 +447,10 @@ def aggregate_instance_state(
 
     `live_panes` is an optional pre-computed set of live tmux pane numbers
     (sweep optimization). `current_instance_id` exempts the running cockpit
-    from liveness checks (it's alive by definition).
+    from liveness checks (it's alive by definition). `live_claude_instance_ids`
+    (EMPIRICA_INSTANCE_ID env per live proc) is the exact, resume-proof
+    liveness signal; `live_claude_cwds` is the coarse cwd fallback. Pass None
+    to skip either.
     """
     project_path = _instance_project_path(instance_id)
     label = _instance_label(instance_id, project_path)
@@ -465,6 +476,9 @@ def aggregate_instance_state(
         last_activity_seconds=tx_state["last_activity_seconds"],
         live_panes=live_panes,
         current_instance_id=current_instance_id,
+        project_path=project_path,
+        live_claude_instance_ids=live_claude_instance_ids,
+        live_claude_cwds=live_claude_cwds,
     )
 
     state = _derive_state_symbol(tx_state, instance_mtime, alive=liveness.alive)
@@ -544,6 +558,7 @@ def aggregate_instance_state(
         "last_activity_seconds": tx_state["last_activity_seconds"],
         "alive": liveness.alive,
         "liveness_reason": liveness.reason,
+        "liveness_signal": liveness.signal,
         "sentinel": {
             "paused": sentinel.paused,
             "scope": sentinel.scope,
@@ -566,6 +581,50 @@ def aggregate_instance_state(
     }
 
 
+def _dedup_process_scan_overcount(instances: list[dict[str, Any]], live_cwd_counts: dict[str, int]) -> None:
+    """Demote surplus process_cwd-revived instances in place.
+
+    The cwd FALLBACK liveness signal keys on project cwd, so every stale
+    instance file for a project whose cwd hosts a live claude process flips
+    alive — over-counting when there are more stale files than live procs
+    (the duplicate-session incident). For each project keep at most
+    (live procs − instances already alive via a stronger, process-bearing
+    signal) instances alive via process_cwd, preferring the most-recently
+    active; demote the rest back to dead. Touches process_cwd instances
+    only — never demotes a current/tmux/process_env/pid/recent_activity verdict.
+
+    The exact env match (process_env) is instance-level and counts as strong:
+    it consumes a live-proc slot but is itself never demoted here.
+    """
+    strong = {"current", "tmux", "process_env", "pid"}  # each = a real process
+
+    by_project: dict[str, list[dict[str, Any]]] = {}
+    for inst in instances:
+        if not inst.get("alive"):
+            continue
+        pp = inst.get("project_path")
+        if not pp:
+            continue
+        by_project.setdefault(os.path.realpath(pp), []).append(inst)
+
+    for rp, insts in by_project.items():
+        scanned = [i for i in insts if i.get("liveness_signal") == "process_cwd"]
+        if not scanned:
+            continue
+        strong_count = sum(1 for i in insts if i.get("liveness_signal") in strong)
+        budget = max(0, live_cwd_counts.get(rp, 0) - strong_count)
+        if len(scanned) <= budget:
+            continue
+        # Most-recently-active first (smallest last_activity_seconds); None last.
+        scanned.sort(
+            key=lambda i: i.get("last_activity_seconds") if i.get("last_activity_seconds") is not None else float("inf")
+        )
+        for surplus in scanned[budget:]:
+            surplus["alive"] = False
+            surplus["liveness_signal"] = ""
+            surplus["liveness_reason"] = "duplicate stale session — no distinct live claude process"
+
+
 def aggregate_all(include_dead: bool = False) -> dict[str, Any]:
     """Scan and aggregate every discoverable instance.
 
@@ -576,6 +635,13 @@ def aggregate_all(include_dead: bool = False) -> dict[str, Any]:
     """
     # Pre-compute the live tmux pane set once, share across instances.
     live_panes = _live_tmux_panes()
+
+    # Walk the process table once for live claude sessions. instance_ids
+    # (EMPIRICA_INSTANCE_ID env) is the exact, resume-proof primary signal;
+    # cwd_counts is the coarse fallback + feeds the count-aware dedup.
+    scan = scan_live_claude()
+    live_iids = scan.instance_ids if scan else None
+    live_cwds = set(scan.cwd_counts) if scan else None
 
     # Resolve the current instance lazily — exempts the running cockpit
     # from liveness checks (it's alive by definition, even if PID/PPID
@@ -592,9 +658,18 @@ def aggregate_all(include_dead: bool = False) -> dict[str, Any]:
             i,
             live_panes=live_panes,
             current_instance_id=current_id,
+            live_claude_instance_ids=live_iids,
+            live_claude_cwds=live_cwds,
         )
         for i in discover_instances()
     ]
+
+    # Count-aware dedup: the cwd FALLBACK signal is project-level, so several
+    # stale instance files for one project would all flip alive. Cap the
+    # process_cwd-revived instances per project at the live-proc count. The
+    # exact env-match (process_env) is instance-level and needs no dedup.
+    if scan:
+        _dedup_process_scan_overcount(instances, scan.cwd_counts)
 
     if not include_dead:
         instances = [i for i in instances if i.get("alive")]
@@ -641,6 +716,12 @@ def discover_dead_instances() -> list[str]:
     instance even if it lacks PID capture (it's running this code).
     """
     live_panes = _live_tmux_panes()
+    # Same multiplexer-agnostic signals the cockpit uses — so `prune` never
+    # offers to kill a Claude that's alive under a non-tmux multiplexer or
+    # whose captured PID went stale across a manual restart.
+    scan = scan_live_claude()
+    live_iids = scan.instance_ids if scan else None
+    live_cwds = set(scan.cwd_counts) if scan else None
     try:
         from empirica.utils.session_resolver import get_instance_id
 
@@ -663,6 +744,9 @@ def discover_dead_instances() -> list[str]:
             last_activity_seconds=last_activity,
             live_panes=live_panes,
             current_instance_id=current_id,
+            project_path=project_path,
+            live_claude_instance_ids=live_iids,
+            live_claude_cwds=live_cwds,
         )
         if not liveness.alive:
             dead.append(iid)

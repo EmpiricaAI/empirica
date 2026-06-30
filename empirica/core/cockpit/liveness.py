@@ -31,6 +31,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 
 EMPIRICA_DIR = Path.home() / ".empirica"
 TTY_SESSIONS_DIR = EMPIRICA_DIR / "tty_sessions"
@@ -49,6 +50,10 @@ class LivenessResult:
     reason: str
     pid_checked: int | None = None
     tmux_pane: str | None = None
+    # Which signal produced the verdict — for programmatic consumers
+    # (e.g. aggregate_all's count-aware dedup). One of:
+    # "current" | "tmux" | "process_scan" | "pid" | "recent_activity" | "".
+    signal: str = ""
 
 
 # Commands tmux reports as the foreground process when Claude Code is running.
@@ -123,6 +128,84 @@ def _process_alive(pid: int) -> bool:
         return False
 
 
+def _is_claude_proc(name: str | None, cmdline: list[str] | None) -> bool:
+    """Heuristic: is this process a Claude Code session?
+
+    The CC binary reports as ``claude``; older/dev installs run via ``node``
+    with the claude entrypoint in argv. We require the ``claude`` token in
+    the cmdline for the node case to avoid sweeping in unrelated node apps.
+    """
+    nm = (name or "").lower()
+    if nm == "claude":
+        return True
+    if nm in _CLAUDE_COMMANDS:  # node — confirm it's actually claude
+        return any("claude" in (arg or "").lower() for arg in (cmdline or []))
+    return False
+
+
+class LiveClaudeScan(NamedTuple):
+    """Result of one process-table walk for live Claude sessions.
+
+    ``instance_ids`` — the ``EMPIRICA_INSTANCE_ID`` env of every live claude
+    process that declares one. EXACT and resume-proof: it maps a record to its
+    live process regardless of pid changes (``claude --resume`` mints a new pid
+    the record never learned) or which multiplexer draws the pane. This is the
+    PRIMARY liveness signal.
+
+    ``cwd_counts`` — realpath cwd → live-proc count. A coarser, project-level
+    FALLBACK for the rare live proc that carries no ``EMPIRICA_INSTANCE_ID``
+    (legacy launch). It can't tell which same-project record maps to which proc,
+    so aggregate_all count-caps how many records it may revive.
+    """
+
+    instance_ids: set[str]
+    cwd_counts: dict[str, int]
+
+
+def scan_live_claude() -> LiveClaudeScan | None:
+    """Walk the process table once for live ``claude`` sessions.
+
+    MULTIPLEXER-AGNOSTIC and STATE-INDEPENDENT: sees Claude regardless of
+    tmux/screen/WezTerm/zellij/cmux or whether ``session-init`` captured a PID.
+    Returns ``None`` if psutil is unavailable or the whole walk fails — an
+    inconclusive signal, never a dead verdict. Per-process access failures are
+    skipped, not fatal to the sweep.
+    """
+    try:
+        import psutil
+    except ImportError:
+        return None
+
+    instance_ids: set[str] = set()
+    cwd_counts: dict[str, int] = {}
+    try:
+        for proc in psutil.process_iter(["name", "cmdline"]):
+            try:
+                info = proc.info
+                if not _is_claude_proc(info.get("name"), info.get("cmdline")):
+                    continue
+            except (psutil.Error, OSError):
+                continue
+            # Primary: EMPIRICA_INSTANCE_ID env — exact, resume-proof.
+            try:
+                iid = proc.environ().get("EMPIRICA_INSTANCE_ID")
+            except (psutil.Error, OSError):
+                iid = None
+            if iid:
+                instance_ids.add(iid)
+            # Fallback: cwd — coarse project-level attribution.
+            try:
+                cwd = proc.cwd()
+            except (psutil.Error, OSError):
+                cwd = None
+            if cwd:
+                rp = os.path.realpath(cwd)
+                cwd_counts[rp] = cwd_counts.get(rp, 0) + 1
+    except Exception:
+        return None
+    return LiveClaudeScan(instance_ids=instance_ids, cwd_counts=cwd_counts)
+
+
 def _read_captured_pids(instance_id: str) -> tuple[int | None, int | None]:
     """Return (pid, ppid) captured at session-init time, or (None, None)."""
     inst_file = EMPIRICA_DIR / "instance_projects" / f"{instance_id}.json"
@@ -160,6 +243,10 @@ def is_alive(
     last_activity_seconds: float | None = None,
     live_panes: set[str] | None = None,
     current_instance_id: str | None = None,
+    *,
+    project_path: str | None = None,
+    live_claude_instance_ids: set[str] | None = None,
+    live_claude_cwds: set[str] | None = None,
 ) -> LivenessResult:
     """Determine whether an instance is alive.
 
@@ -167,10 +254,27 @@ def is_alive(
     only when ALL signals report dead do we report dead):
 
       1. Current instance — running this code → ALIVE.
-      2. Tmux pane shows claude foreground → ALIVE (definitive).
-      3. Captured PID alive (``os.kill(pid, 0)``) → ALIVE (definitive).
-      4. Recent activity (< RECENT_ACTIVITY_S) → ALIVE (fallback).
-      5. Otherwise → DEAD.
+      2. A live claude process declares this ``instance_id`` in its
+         ``EMPIRICA_INSTANCE_ID`` env → ALIVE. EXACT and resume-proof;
+         overrides a stale captured PID. Primary signal — consulted when the
+         caller passes ``live_claude_instance_ids`` (a sweep precomputes it
+         once via ``scan_live_claude``).
+      3. Tmux pane shows claude foreground → ALIVE (definitive).
+      4. Live claude process whose cwd == this instance's project_path →
+         ALIVE. Coarser project-level FALLBACK for a live proc with no
+         ``EMPIRICA_INSTANCE_ID`` env. Only consulted when the caller passes
+         ``live_claude_cwds``.
+      5. Captured PID alive (``os.kill(pid, 0)``) → ALIVE (definitive).
+      6. Recent activity (< RECENT_ACTIVITY_S) → ALIVE (fallback).
+      7. Otherwise → DEAD.
+
+    The process-scan signals (2, 4) are the fix for non-tmux multiplexers
+    (screen/wezterm/zellij/cmux) and ``claude --resume`` / env-unset manual
+    restarts: a Claude that is genuinely running but is neither the tmux pane
+    foreground nor has a *live* captured PID is still detectable in the process
+    table. Signal 2 (env) is exact; signal 4 (cwd) is a coarse fallback. Both
+    are ALIVE-positive only — absence is never a dead verdict, so they never
+    override a definitive negative.
 
     The earlier shape short-circuited on tmux: if a pane existed but
     Claude was not the foreground command (e.g. user temporarily at
@@ -189,11 +293,29 @@ def is_alive(
             optimization — pass None to query lazily)
         current_instance_id: if equal to instance_id, treat as alive
             (the running cockpit is alive by definition)
+        project_path: this instance's project directory — matched against
+            ``live_claude_cwds`` for the cwd-fallback process signal
+        live_claude_instance_ids: pre-computed set of EMPIRICA_INSTANCE_IDs
+            declared by live claude processes (the exact, resume-proof primary
+            process signal; pass None to skip it)
+        live_claude_cwds: pre-computed set of realpath cwds hosting a live
+            claude process (the coarse fallback signal; pass None to skip it)
     """
     if current_instance_id and instance_id == current_instance_id:
-        return LivenessResult(alive=True, reason="current instance")
+        return LivenessResult(alive=True, reason="current instance", signal="current")
 
-    # Signal 1 — tmux pane shows claude foreground.
+    # Signal 2 — a live claude process declares this instance_id in its env.
+    # Exact + resume-proof: survives pid changes and is independent of any
+    # multiplexer. Checked first among the process signals because it maps the
+    # record to its live process unambiguously.
+    if live_claude_instance_ids and instance_id in live_claude_instance_ids:
+        return LivenessResult(
+            alive=True,
+            reason="live claude process (EMPIRICA_INSTANCE_ID match)",
+            signal="process_env",
+        )
+
+    # Signal 3 — tmux pane shows claude foreground.
     tmux_pane: str | None = None
     pane_state: str | None = None  # 'claude' | 'bash' | 'absent' | None (untestable)
     m = TMUX_INSTANCE_PATTERN.match(instance_id)
@@ -207,12 +329,26 @@ def is_alive(
                     alive=True,
                     reason=f"tmux pane %{tmux_pane} running claude",
                     tmux_pane=tmux_pane,
+                    signal="tmux",
                 )
             all_panes = _all_tmux_panes() or set()
             pane_state = "bash" if tmux_pane in all_panes else "absent"
         # tmux not queryable → pane_state stays None; fall through to PID
 
-    # Signal 2 — captured PID liveness. Authoritative when present.
+    # Signal 4 — live claude process attributable to this project by cwd.
+    # Coarse FALLBACK for a live proc with no EMPIRICA_INSTANCE_ID env (the
+    # exact env match is Signal 2). Catches Claude under screen/wezterm/zellij/
+    # cmux and stale-PID restarts. ALIVE-positive only. Placed before the
+    # captured-PID check so a genuinely-live process overrides a stale PID.
+    if project_path and live_claude_cwds and os.path.realpath(project_path) in live_claude_cwds:
+        return LivenessResult(
+            alive=True,
+            reason=f"live claude process in {project_path}",
+            tmux_pane=tmux_pane,
+            signal="process_cwd",
+        )
+
+    # Signal 5 — captured PID liveness. Authoritative when present.
     pid, ppid = _read_captured_pids(instance_id)
     target_pid = ppid if ppid else pid
     if target_pid:
@@ -225,6 +361,7 @@ def is_alive(
                 reason=f"pid {target_pid} alive",
                 pid_checked=target_pid,
                 tmux_pane=tmux_pane,
+                signal="pid",
             )
         # PID dead → definitive dead, independent of tmux.
         return LivenessResult(
@@ -234,7 +371,7 @@ def is_alive(
             tmux_pane=tmux_pane,
         )
 
-    # Signal 3 — recent activity. Last-resort fallback when neither
+    # Signal 6 — recent activity. Last-resort fallback when neither
     # tmux nor a captured PID can be consulted (e.g., fresh non-tmux
     # session, or tmux server unreachable). SKIP when tmux gave a
     # definitive negative — a stale instance file getting touched by a
@@ -246,6 +383,7 @@ def is_alive(
             alive=True,
             reason=f"recent activity ({int(last_activity_seconds)}s ago)",
             tmux_pane=tmux_pane,
+            signal="recent_activity",
         )
 
     # All signals exhausted. If tmux gave us a definitive negative,
@@ -260,4 +398,4 @@ def is_alive(
     return LivenessResult(alive=False, reason=reason, tmux_pane=tmux_pane)
 
 
-__all__ = ["LivenessResult", "is_alive"]
+__all__ = ["LiveClaudeScan", "LivenessResult", "is_alive", "scan_live_claude"]

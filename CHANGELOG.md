@@ -5,6 +5,24 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Multiplexer-agnostic cockpit liveness** — `status` / `status --all` and the
+  cockpit TUI no longer under-report instances running Claude under a non-tmux
+  multiplexer (GNU screen, WezTerm, zellij, cmux), or after `claude --resume` /
+  an env-unset manual restart that left a stale captured PID. Liveness now
+  consults a direct process-table scan: the primary signal matches each live
+  `claude` process to its instance by `EMPIRICA_INSTANCE_ID` (exact and
+  resume-proof — it survives PID changes and is independent of any multiplexer),
+  with a coarser working-directory match as a fallback for processes that carry
+  no instance-id env. Both override a stale captured PID and are alive-positive
+  only (never a new dead verdict). A count-aware dedup caps how many same-project
+  instances the cwd fallback can revive at the number of live processes, so
+  duplicate stale sessions don't inflate the count, and `instance prune` honors
+  the same signals so it won't offer to kill a Claude that's alive under a
+  non-tmux multiplexer.
+
 ## [1.12.8] — 2026-06-29
 
 A context-hygiene + module-install patch: the PREFLIGHT/CHECK/bootstrap pattern block is now budgeted lean-by-default, and `module provision` completes the competence layer (skill/agent discovery) for installed modules.
