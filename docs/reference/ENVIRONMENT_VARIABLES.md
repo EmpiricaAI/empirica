@@ -89,6 +89,12 @@ The full context stays retrievable on demand via `empirica investigate` /
 `empirica project-search` / `empirica commit-context` — the injected block is a
 ranked teaser, not the whole store.
 
+`EMPIRICA_PATTERN_MAX_ITEM_CHARS` and `EMPIRICA_PATTERN_BUDGET_OFF` additionally
+govern the **global-learnings** (cross-project) block that `project-bootstrap`
+injects every session — a distinct block from the pattern block above, but
+truncated per-item by the same knobs (and capped at 5 items). `BUDGET_OFF=1`
+restores its full untrimmed text too.
+
 ---
 
 ## Paths & Directories

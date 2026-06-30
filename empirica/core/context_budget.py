@@ -821,6 +821,22 @@ def estimate_tokens(text: str) -> int:
     return max(1, len(text) // 4)
 
 
+def truncate_text(text: str, max_chars: int) -> str:
+    """Truncate ``text`` to ``max_chars`` at a word boundary, appending an
+    overflow marker.
+
+    Non-strings and already-short strings pass through unchanged. This is the
+    single source of truth for display-string truncation at context-injection
+    sites (pattern retrieval, bootstrap global-learnings) — keeping one
+    algorithm avoids the two-sources-of-truth drift that a per-site copy
+    invites.
+    """
+    if not isinstance(text, str) or len(text) <= max_chars:
+        return text
+    head = text[:max_chars].rsplit(" ", 1)[0].rstrip()
+    return f"{head}… (+{len(text) - len(head)} chars)"
+
+
 # --- Threshold Loading ---
 
 
