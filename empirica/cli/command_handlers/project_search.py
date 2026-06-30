@@ -1,12 +1,27 @@
 """
-Project Search Commands — semantic search over a project's docs & memory (Qdrant-backed).
+Project Search — semantic retrieval over a project's docs + epistemic memory (Qdrant).
 
-Local single-project search by default. With ``--global`` it ALSO pulls the
-``global_learnings`` pool + every other LOCAL project's memory/eidetic/episodic
-collections (semantic top-k, this-machine Qdrant only) — a local cross-project
-fallback, NOT a cross-practice/mesh search. True cross-practice retrieval across
-the tenant's practices is Cortex's ``investigate`` / ``search_knowledge`` (the
-Qdrant + glue layer is Cortex/mesh-support's lane).
+WHAT IT DOES
+  - Default: searches THIS project's docs + memory/eidetic/episodic collections.
+  - ``--global``: ALSO pulls the ``global_learnings`` pool + every other LOCAL
+    project's collections on this machine (semantic top-k, de-duplicated, ranked).
+
+WHEN AN AI SHOULD REACH FOR IT  (vs the mesh)
+  It is LOCAL + SEMANTIC-ONLY: this-machine Qdrant, cosine top-k, no
+  ``artifact_edges`` traversal. It does NOT span the mesh — other practitioners'
+  machines, or the tenant's practices retrieved server-side.
+
+  - Cortex CONNECTED: prefer the mesh — ``cortex investigate`` /
+    ``search_knowledge`` — for retrieval that should span practices across the
+    tenant. Use project-search for THIS project's own docs/memory (and
+    ``--global`` for quick local cross-project recall).
+  - Cortex NOT connected (empirica-only install): there is no mesh.
+    project-search (incl. ``--global``) IS the retrieval + cross-project tool —
+    reach for it freely; here it's not the degraded choice, it's the only one.
+
+  Rule of thumb: project-search = always-available LOCAL retrieval; the mesh =
+  cross-PRACTICE retrieval WHEN Cortex is present. Don't assume the mesh exists;
+  do prefer it for cross-practice scope when it does.
 """
 
 from __future__ import annotations
@@ -57,7 +72,10 @@ def _print_search_results_human(task, results, use_global):
 
 
 def handle_project_search_command(args):
-    """Handle project-search command for semantic search over docs and memory."""
+    """Run project-search: this project's docs + memory, plus (``--global``) a
+    LOCAL cross-project pull. See the module docstring for when to use this vs
+    the mesh (``cortex investigate``) — and note the mesh is absent in
+    empirica-only installs, where this is the cross-project tool, not a fallback."""
     try:
         from empirica.cli.utils.project_resolver import resolve_project_id
         from empirica.core.qdrant.vector_store import (
@@ -77,6 +95,10 @@ def handle_project_search_command(args):
         results = search(project_id, task, kind=kind, limit=limit)
 
         if use_global:
+            # --global stays LOCAL: global_learnings pool + other local projects'
+            # collections (this machine, semantic). Cross-PRACTICE/mesh retrieval
+            # is `cortex investigate` when Cortex is connected; this is the
+            # cross-project tool in cortex-less installs. See module docstring.
             results["global"] = search_global(task, limit=limit)
             cross_results = search_cross_project(
                 task,
