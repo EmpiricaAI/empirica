@@ -445,8 +445,16 @@ def test_off_handles_no_state_file_gracefully(tmp_path, monkeypatch, capsys):
     assert "empirica listener unregister" in out["next_step"]["after_stop"]
 
 
-def test_off_handles_placeholder_task_id(tmp_path, monkeypatch, capsys):
-    """on without arm → state file has null task_id → off emits unregister-only."""
+def test_off_recovers_via_description_when_arm_skipped(tmp_path, monkeypatch, capsys):
+    """on without arm → null task_id → off recovers the teardown handle via
+    the Monitor description (TaskList → match → TaskStop).
+
+    This closes the silent gap: a live in-session Monitor whose `arm` step was
+    skipped is neither TaskStop-able by id (none recorded) nor reap-able (not a
+    PID-1 orphan while its session lives). Without the description fallback,
+    `off` would report 'never armed' while the Monitor kept running. `on` now
+    records monitor_description so `off` can always surface a stop handle.
+    """
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
     monkeypatch.setattr("empirica.core.cockpit.listener_registry.EMPIRICA_DIR", tmp_path / ".empirica")
     (tmp_path / ".empirica").mkdir()
@@ -459,7 +467,29 @@ def test_off_handles_placeholder_task_id(tmp_path, monkeypatch, capsys):
     rc = handle_listener_off_command(_make_args(ai_id="myai"))
     assert rc == 0
     out = json.loads(capsys.readouterr().out)
-    # No TaskStop emitted because task_id is null
+    ns = out["next_step"]
+    # Recovery path: no task_id, but the description gives a deterministic handle.
+    assert ns["tool"] == "TaskList"
+    assert ns["match_description"]  # the exact Monitor description to match
+    assert "myai" in ns["match_description"]
+    assert "unregister" in ns["after_stop"]
+
+
+def test_off_unregister_only_for_pre_fix_marker(tmp_path, monkeypatch, capsys):
+    """A pre-fix marker (no monitor_task_id AND no monitor_description) falls
+    back to unregister-only — the old markers that predate the description fix."""
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr("empirica.core.cockpit.listener_registry.EMPIRICA_DIR", tmp_path / ".empirica")
+    (tmp_path / ".empirica").mkdir()
+    # Hand-write a legacy marker with neither handle.
+    marker = tmp_path / ".empirica" / "listener_active_test_instance_myai-inbox.json"
+    marker.write_text(
+        json.dumps({"monitor_task_id": None, "ai_id": "myai", "name": "myai-inbox", "mode": "tail"}),
+        encoding="utf-8",
+    )
+    rc = handle_listener_off_command(_make_args(ai_id="myai"))
+    assert rc == 0
+    out = json.loads(capsys.readouterr().out)
     assert out["next_step"]["tool"] is None
     assert "unregister" in out["next_step"]["after_stop"]
 

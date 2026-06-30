@@ -18,6 +18,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   gate must never block the verb that clears it.
 
 ### Fixed
+- **`empirica listener off` can always recover its teardown handle** — when the
+  optional `empirica listener arm <task_id>` step was skipped (e.g. the
+  SessionStart arming flow armed the Monitor but never recorded its id), the
+  active marker kept `monitor_task_id: null`. A live in-session tail Monitor is
+  then neither `TaskStop`-able by id nor reap-able (it isn't a PID-1 orphan
+  while its session lives), so `off` silently reported "never armed" while the
+  Monitor kept running. `listener on` now records the Monitor's `description`
+  in the marker, and `off` falls back to a `TaskList` → match-description →
+  `TaskStop` recovery next_step. The `arm` fast-path (record the id directly) is
+  unchanged.
 - **`/empirica off` no longer silently misses** — the slash command re-implemented
   instance resolution inline (`TMUX_PANE`/TTY only) and diverged from the
   canonical resolver the gate reads (which also honors

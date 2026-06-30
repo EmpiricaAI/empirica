@@ -1839,21 +1839,13 @@ def handle_listener_on_command(args) -> int:
     except ValueError as e:
         return _emit(args, {"ok": False, "error": str(e)}, f"error: {e}")
 
-    # Write listener_active_*.json placeholder (monitor_task_id filled by `arm`)
+    # The listener_active_*.json placeholder is written AFTER the Monitor
+    # description is computed below, so the marker can carry monitor_description
+    # — the deterministic teardown handle `off` falls back to when the optional
+    # `arm` step (which records monitor_task_id) was skipped.
     active_path = listener_active_path(instance_id, name)
     active_path.parent.mkdir(parents=True, exist_ok=True)
     import time as _time
-
-    placeholder = {
-        "monitor_task_id": None,  # filled by `empirica listener arm <task_id>`
-        "curl_pid": None,
-        "armed_at": _time.time(),
-        "ai_id": ai_id,
-        "name": name,
-        "topic": entry.topic,
-        "mode": "tail" if persistent_active else "standalone",
-    }
-    active_path.write_text(_json.dumps(placeholder, indent=2), encoding="utf-8")
 
     # Pick the Monitor command based on detection above.
     #
@@ -1912,6 +1904,21 @@ def handle_listener_on_command(args) -> int:
             "(matches listener's relaunch-on-clean-exit design intent; "
             "no systemd/launchd needed)"
         )
+
+    placeholder = {
+        "monitor_task_id": None,  # filled by `empirica listener arm <task_id>`
+        "curl_pid": None,
+        "armed_at": _time.time(),
+        "ai_id": ai_id,
+        "name": name,
+        "topic": entry.topic,
+        "mode": "tail" if persistent_active else "standalone",
+        # The exact Monitor description. `off` uses this to recover the
+        # TaskStop handle (TaskList → match description → TaskStop) when the
+        # optional `arm` step was skipped and monitor_task_id is still null.
+        "monitor_description": description,
+    }
+    active_path.write_text(_json.dumps(placeholder, indent=2), encoding="utf-8")
 
     payload = {
         "ok": True,
@@ -2079,6 +2086,7 @@ def handle_listener_off_command(args) -> int:
         with open(active_path, encoding="utf-8") as f:
             data = _json.load(f)
         monitor_task_id = data.get("monitor_task_id")
+        monitor_description = data.get("monitor_description")
     except (OSError, _json.JSONDecodeError) as e:
         return _emit(
             args,
@@ -2097,19 +2105,44 @@ def handle_listener_off_command(args) -> int:
     except OSError:
         state_file_removed = False
 
+    # Teardown handle resolution, in order of precision:
+    #   1. monitor_task_id (recorded by `arm`)        → TaskStop directly
+    #   2. monitor_description (recorded by `on`)      → TaskList → match → TaskStop
+    #   3. neither (pre-fix marker / standalone)       → unregister-only
+    # Case 2 closes the silent gap: a live in-session Monitor whose `arm`
+    # step was skipped is neither TaskStop-able by id nor reap-able (it is
+    # not a PID-1 orphan while its session lives), so without the description
+    # fallback `off` would report "never armed" while the Monitor kept running.
+    if monitor_task_id:
+        next_step = {
+            "tool": "TaskStop",
+            "args": {"task_id": monitor_task_id},
+            "after_stop": f"empirica listener unregister {name}",
+        }
+    elif monitor_description:
+        next_step = {
+            "tool": "TaskList",
+            "match_description": monitor_description,
+            "then": "TaskStop the matching Monitor task, then run "
+            f"`empirica listener unregister {name}`",
+            "after_stop": f"empirica listener unregister {name}",
+        }
+    else:
+        next_step = {
+            "tool": None,
+            "after_stop": f"empirica listener unregister {name}",
+        }
+
     payload = {
         "ok": True,
         "instance_id": instance_id,
         "name": name,
         "monitor_task_id": monitor_task_id,
+        "monitor_description": monitor_description,
         "state_file": str(active_path),
         "state_file_removed": state_file_removed,
         "reaped_orphans": reaped,
-        "next_step": {
-            "tool": "TaskStop" if monitor_task_id else None,
-            "args": {"task_id": monitor_task_id} if monitor_task_id else None,
-            "after_stop": f"empirica listener unregister {name}",
-        },
+        "next_step": next_step,
     }
     reap_note = f" Reaped {len(reaped)} orphan process(es)." if reaped else ""
     if monitor_task_id:
@@ -2117,10 +2150,18 @@ def handle_listener_off_command(args) -> int:
             f'Listener "{name}" — TaskStop({monitor_task_id}), '
             f"then run `empirica listener unregister {name}`.{reap_note}"
         )
+    elif monitor_description:
+        summary = (
+            f'Listener "{name}" was armed but its monitor_task_id was never '
+            f"recorded (`arm` step skipped). Run TaskList, TaskStop the Monitor "
+            f'matching description "{monitor_description}", then '
+            f"`empirica listener unregister {name}`.{reap_note}"
+        )
     else:
         summary = (
-            f'Listener "{name}" has placeholder task_id (never armed). '
-            f"Run `empirica listener unregister {name}` to clean up.{reap_note}"
+            f'Listener "{name}" has no recorded Monitor handle (pre-fix marker). '
+            f"Run `empirica listener unregister {name}` to clean up; if a tail "
+            f"Monitor is still live, TaskList + TaskStop it manually.{reap_note}"
         )
     return _emit(args, payload, summary)
 
