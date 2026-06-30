@@ -2123,8 +2123,7 @@ def handle_listener_off_command(args) -> int:
         next_step = {
             "tool": "TaskList",
             "match_description": monitor_description,
-            "then": "TaskStop the matching Monitor task, then run "
-            f"`empirica listener unregister {name}`",
+            "then": f"TaskStop the matching Monitor task, then run `empirica listener unregister {name}`",
             "after_stop": f"empirica listener unregister {name}",
         }
     else:
