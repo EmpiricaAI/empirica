@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`?parent_org=<org_id>` on `GET /api/v1/entities`** — scope the contact list to
+  one organization (the extension org-detail contacts subset). Backed by
+  `entity_memberships` (active affiliation, `left_at IS NULL`) — the populated,
+  vendored contact→org linkage, consistent with the existing org→engagement
+  `ticket_of` scoping. An unknown org returns `[]` (honest-empty, no leak).
+  Contact rows in the feed now also carry `parent_org_id` (their affiliated org),
+  resolved via the same source so filter and enrichment agree.
+
 ### Changed
 - **Engagement listing is active-by-default** (SER #183 part-2) — the daemon
   feed `GET /api/v1/engagements` and `empirica engagement-list` now exclude

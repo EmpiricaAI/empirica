@@ -107,6 +107,11 @@ def _list_subtitle(row: dict, meta: dict) -> str | None:
 async def list_entities(
     type: str | None = Query(None, description="Filter by entity_type (contact, organization, engagement, ...)"),
     status: str = Query("active", description="Status filter; 'all' returns every status"),
+    parent_org: str | None = Query(
+        None,
+        description="Scope to CONTACTS affiliated with this organization id (active affiliation). "
+        "Implies a contact scope; an unknown org returns []. Backed by entity_memberships.",
+    ),
     limit: int = Query(100, ge=1, le=500),
 ):
     """List entities from the workspace registry (extension entity-list backing).
@@ -124,7 +129,10 @@ async def list_entities(
         # the whole org set (small: umbrella + brands), not per-row — preserves
         # the single-query intent that deferred the broader v1.1 enrichment.
         org_parents = repo.get_org_parent_map()
-        for row in repo.list_entities(entity_type=type, status=status, limit=limit):
+        # Contact→org affiliation map — same source as the parent_org filter
+        # (entity_memberships), so the filter and this enrichment agree.
+        contact_orgs = repo.get_contact_org_map()
+        for row in repo.list_entities(entity_type=type, status=status, parent_org=parent_org, limit=limit):
             et, eid = row["entity_type"], row["entity_id"]
             meta = _parse_metadata(row.get("metadata"))
             entry = {
@@ -137,10 +145,13 @@ async def list_entities(
                 "linked_artifact_count": repo.count_entity_artifacts(et, eid),
                 "updated_at": row.get("updated_at"),
             }
-            # Org rows carry their parent org (null for umbrella roots). Only
-            # organization rows get the field — the extension tree-builder keys
-            # off it; non-org rows omit it.
+            # parent_org_id carries the entity's owning org so the extension
+            # tree/drill can key off it: org rows → parent ORG (umbrella, null for
+            # roots); contact rows → affiliated org. Both resolve via
+            # entity_memberships; other types omit the field.
             if et == "organization":
                 entry["parent_org_id"] = org_parents.get(eid)
+            elif et == "contact":
+                entry["parent_org_id"] = contact_orgs.get(eid)
             out.append(entry)
     return {"ok": True, "count": len(out), "entities": out}

@@ -76,3 +76,73 @@ def test_multiple_orgs(repo):
     _membership(repo, "organization", "brand-b", "organization", "umbrella")
     m = repo.get_org_parent_map()
     assert m == {"brand-a": "umbrella", "brand-b": "umbrella"}
+
+
+# ── get_contact_org_map (contact→org affiliation, the populated linkage) ──────
+
+
+def test_contact_org_map_empty_when_no_edges(repo):
+    assert repo.get_contact_org_map() == {}
+
+
+def test_contact_org_map_maps_active_affiliation(repo):
+    _membership(repo, "contact", "c-carly", "organization", "empirica-foundation", role="admiral")
+    assert repo.get_contact_org_map() == {"c-carly": "empirica-foundation"}
+
+
+def test_contact_org_map_ignores_closed_affiliation(repo):
+    _membership(repo, "contact", "c-x", "organization", "old-org", left_at=time.time())
+    assert repo.get_contact_org_map() == {}
+
+
+def test_contact_org_map_ignores_non_org_groups(repo):
+    # contact→engagement membership is not a contact→org affiliation.
+    _membership(repo, "contact", "c-x", "engagement", "e1", role="member")
+    assert repo.get_contact_org_map() == {}
+
+
+def test_contact_org_map_latest_active_wins(repo):
+    _membership(repo, "contact", "c-x", "organization", "org-old", joined=100.0)
+    _membership(repo, "contact", "c-x", "organization", "org-new", joined=200.0)
+    assert repo.get_contact_org_map()["c-x"] == "org-new"
+
+
+# ── list_entities ?parent_org scoping (contacts in an org, honest-empty) ─────
+
+
+def _contact(repo, eid, name="C"):
+    now = time.time()
+    repo._execute(
+        "INSERT INTO entity_registry (entity_type, entity_id, display_name, source_db, source_table, "
+        "status, created_at, updated_at) VALUES ('contact', ?, ?, 'test', 'test', 'active', ?, ?)",
+        (eid, name, now, now),
+    )
+
+
+def test_parent_org_scopes_contacts_to_org(repo):
+    _contact(repo, "c1")
+    _contact(repo, "c2")
+    _membership(repo, "contact", "c1", "organization", "acme", role="member")
+    # c2 has no affiliation
+    rows = repo.list_entities(parent_org="acme")
+    assert {r["entity_id"] for r in rows} == {"c1"}
+
+
+def test_parent_org_unknown_is_honest_empty(repo):
+    _contact(repo, "c1")
+    _membership(repo, "contact", "c1", "organization", "acme", role="member")
+    # A bogus org must NOT leak the full set — it returns nothing.
+    assert repo.list_entities(parent_org="BOGUS-NOPE") == []
+
+
+def test_parent_org_excludes_closed_affiliation(repo):
+    _contact(repo, "c1")
+    _membership(repo, "contact", "c1", "organization", "acme", role="member", left_at=time.time())
+    assert repo.list_entities(parent_org="acme") == []
+
+
+def test_parent_org_with_non_contact_type_is_empty(repo):
+    _contact(repo, "c1")
+    _membership(repo, "contact", "c1", "organization", "acme", role="member")
+    # parent_org implies a contact scope — pairing it with type=organization is contradictory.
+    assert repo.list_entities(entity_type="organization", parent_org="acme") == []
