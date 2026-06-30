@@ -680,6 +680,7 @@ class WorkspaceDBRepository(BaseRepository):
         self,
         entity_type: str | None = None,
         status: str = "active",
+        parent_org: str | None = None,
         limit: int = 100,
     ) -> list[dict[str, Any]]:
         """List entities from the registry.
@@ -688,20 +689,40 @@ class WorkspaceDBRepository(BaseRepository):
             entity_type: Optional filter by entity_type (project, contact, ...).
                          None = all types.
             status: 'active' (default), 'inactive', 'archived', or 'all'.
+            parent_org: Optional org_id — scope to CONTACTS affiliated with that
+                        organization. Backed by entity_memberships (the populated,
+                        vendored contact→org linkage: group_type='organization',
+                        left_at IS NULL = active affiliation). NOTE: the
+                        workspace `contact_organizations` junction is unpopulated;
+                        entity_memberships is the canonical live source and is
+                        consistent with the org→engagement ticket_of scoping. An
+                        unknown org matches nothing → honest-empty (no leak).
+                        Implies a contact scope; pairing it with a non-contact
+                        entity_type returns []. `is_primary` is not expressible
+                        via entity_memberships, so scope = any active affiliation.
             limit: Max rows to return.
         """
         params: list[Any] = []
         where: list[str] = []
-        if entity_type:
-            where.append("entity_type = ?")
+        join = ""
+        if parent_org is not None:
+            if entity_type not in (None, "contact"):
+                return []  # parent_org is a contact filter; other types can't match
+            join = " JOIN entity_memberships m ON m.entity_type = e.entity_type AND m.entity_id = e.entity_id"
+            where.append("e.entity_type = 'contact'")
+            where.append("m.group_type = 'organization' AND m.group_id = ? AND m.left_at IS NULL")
+            params.append(parent_org)
+        elif entity_type:
+            where.append("e.entity_type = ?")
             params.append(entity_type)
         if status != "all":
-            where.append("status = ?")
+            where.append("e.status = ?")
             params.append(status)
         where_clause = ("WHERE " + " AND ".join(where)) if where else ""
         params.append(limit)
         cursor = self._execute(
-            f"SELECT * FROM entity_registry {where_clause} ORDER BY updated_at DESC, created_at DESC LIMIT ?",
+            f"SELECT e.* FROM entity_registry e{join} {where_clause} "
+            "ORDER BY e.updated_at DESC, e.created_at DESC LIMIT ?",
             tuple(params),
         )
         return [dict(row) for row in cursor.fetchall()]
@@ -911,6 +932,27 @@ class WorkspaceDBRepository(BaseRepository):
                ORDER BY joined_at ASC"""
         )
         # ASC + dict overwrite → the most recent (latest joined_at) edge wins.
+        return {row["entity_id"]: row["group_id"] for row in cursor.fetchall()}
+
+    def get_contact_org_map(self) -> dict[str, str]:
+        """Map contact_id → affiliated org_id from active contact→org edges.
+
+        The populated, canonical contact→org linkage is an active
+        ``entity_membership`` (entity is the contact, group is an organization,
+        ``left_at IS NULL``). Mirrors ``get_org_parent_map`` so the ``parent_org``
+        FILTER (in ``list_entities``) and the per-contact ``parent_org_id``
+        ENRICHMENT resolve via the SAME source — keeping filter and enrichment in
+        agreement (the consistency requirement). A contact in several orgs
+        collapses to the most recent active edge (ASC + dict overwrite); there is
+        no ``is_primary`` on entity_memberships, so this is "any active
+        affiliation, latest wins", not "primary org".
+        """
+        cursor = self._execute(
+            """SELECT entity_id, group_id FROM entity_memberships
+               WHERE entity_type = 'contact' AND group_type = 'organization'
+                 AND left_at IS NULL
+               ORDER BY joined_at ASC"""
+        )
         return {row["entity_id"]: row["group_id"] for row in cursor.fetchall()}
 
     def upsert_entity_membership(
