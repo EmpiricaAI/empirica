@@ -211,12 +211,21 @@ def _execute_grep_rg(
     started: float,
 ) -> GrepResult:
     """ripgrep-backed grep — fast path."""
-    cmd = [rg_path, "--json", "--max-count", str(cap)]
+    # Ask rg for one MORE than the cap so truncation is detectable: the loop
+    # below stops at the (cap+1)th match and flags truncated. With --max-count
+    # cap, rg emits exactly cap and the over-cap signal never arrives → a capped
+    # result is silently reported as complete.
+    cmd = [rg_path, "--json", "--max-count", str(cap + 1)]
     if not op.case_sensitive:
         cmd.append("--ignore-case")
     if op.context > 0:
         cmd += ["--context", str(op.context)]
-    cmd += ["--glob", op.glob, op.pattern, str(grep_root)]
+    # Search "." from inside grep_root rather than passing the absolute root as
+    # the path arg. ripgrep 15+ anchors a multi-component --glob (e.g.
+    # "src/**/*.py") against the FULL path it's handed, so an absolute root never
+    # matches a root-relative glob → 0 files. Running with cwd=grep_root keeps the
+    # glob root-relative across rg versions; paths come back relative to grep_root.
+    cmd += ["--glob", op.glob, op.pattern, "."]
 
     try:
         proc = subprocess.run(
@@ -224,6 +233,7 @@ def _execute_grep_rg(
             capture_output=True,
             text=True,
             timeout=GREP_TIMEOUT_SECONDS,
+            cwd=str(grep_root),
             check=False,
         )
     except subprocess.TimeoutExpired:
@@ -261,7 +271,9 @@ def _execute_grep_rg(
             text = _extract_text(data)
             matches.append(
                 GrepMatch(
-                    file=_relative_or_abs(file_path, grep_root) if file_path else "",
+                    # rg now returns paths relative to grep_root (cwd); absolutize
+                    # against grep_root before normalizing so the contract holds.
+                    file=_relative_or_abs(str(grep_root / file_path), grep_root) if file_path else "",
                     line=line_num,
                     text=text.rstrip("\n"),
                     context_before=list(pending_before) if op.context > 0 else [],
