@@ -432,13 +432,72 @@ def forget_instance(instance_id: str) -> ForgetResult:
     return ForgetResult(instance_id=instance_id, removed=removed, skipped=skipped)
 
 
+@dataclass
+class RebindResult:
+    instance_id: str
+    success: bool
+    pid: int | None
+    detail: str
+
+
+def rebind_instance(instance_id: str) -> RebindResult:
+    """Re-stamp an instance's captured pid/ppid + start time from its live
+    process, matched by ``EMPIRICA_INSTANCE_ID``.
+
+    Lets a resumed or manually-restarted instance refresh its record without
+    running a transaction (the only other refresh path) — and unlike
+    ``forget``/``prune`` it re-registers rather than deletes. No-op failure
+    when there is no record to update or no live claude process declares this
+    instance_id.
+    """
+    if not instance_id:
+        raise ValueError("instance_id required")
+    from empirica.core.cockpit.liveness import live_claude_pids_by_instance
+
+    inst_file = EMPIRICA_DIR / "instance_projects" / f"{_safe_suffix(instance_id)}.json"
+    if not inst_file.exists():
+        return RebindResult(instance_id, False, None, "no instance record found")
+
+    scan = live_claude_pids_by_instance()
+    if scan is None:
+        return RebindResult(instance_id, False, None, "process scan unavailable (psutil missing)")
+    match = scan.get(instance_id)
+    if not match:
+        return RebindResult(instance_id, False, None, "no live claude process declares this instance_id")
+
+    pid, ct = match
+    try:
+        with open(inst_file, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        return RebindResult(instance_id, False, None, f"could not read record: {e}")
+
+    # The live claude process IS the durable parent for the liveness signal:
+    # store it as both pid and ppid (target_pid = ppid) with its start time so
+    # the create_time guard matches.
+    data["pid"] = pid
+    data["ppid"] = pid
+    data["ppid_create_time"] = ct
+    data["rebound_at"] = time.time()
+    try:
+        with open(inst_file, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+        os.chmod(inst_file, 0o600)
+    except OSError as e:
+        return RebindResult(instance_id, False, pid, f"could not write record: {e}")
+
+    return RebindResult(instance_id, True, pid, f"rebound to live pid {pid}")
+
+
 __all__ = [
     "ForgetResult",
     "KillResult",
+    "RebindResult",
     "StopResult",
     "forget_instance",
     "get_label",
     "kill_instance",
+    "rebind_instance",
     "set_label",
     "stop_instance",
 ]

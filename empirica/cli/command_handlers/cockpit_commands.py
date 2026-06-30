@@ -30,6 +30,7 @@ from empirica.core.cockpit import (
     is_loop_paused,
     kill_instance,
     pause_sentinel,
+    rebind_instance,
     render_json,
     render_pretty,
     resume_sentinel,
@@ -1595,18 +1596,42 @@ def handle_instance_prune_command(args) -> int:
     return _emit(args, payload, summary)
 
 
+def handle_instance_rebind_command(args) -> int:
+    """Re-stamp an instance's captured pid from its live process.
+
+    Refreshes a resumed/manually-restarted instance's record (pid + start time)
+    by matching the live claude process on EMPIRICA_INSTANCE_ID — without
+    running a transaction, and re-registering rather than deleting.
+    """
+    instance_id = args.instance_id
+    result = rebind_instance(instance_id)
+    payload = {
+        "ok": result.success,
+        "instance_id": result.instance_id,
+        "pid": result.pid,
+        "detail": result.detail,
+    }
+    summary = (
+        f"Rebound {instance_id}: {result.detail}"
+        if result.success
+        else f"Rebind failed for {instance_id}: {result.detail}"
+    )
+    return _emit(args, payload, summary)
+
+
 _INSTANCE_DISPATCH = {
     "kill": handle_instance_kill_command,
     "forget": handle_instance_forget_command,
     "label": handle_instance_label_command,
     "prune": handle_instance_prune_command,
+    "rebind": handle_instance_rebind_command,
 }
 
 
 def handle_instance_group_command(args) -> int:
     action = getattr(args, "instance_action", None)
     if not action:
-        sys.stdout.write("usage: empirica instance <kill|forget|label> <instance_id> [args...]\n")
+        sys.stdout.write("usage: empirica instance <kill|forget|label|prune|rebind> <instance_id> [args...]\n")
         return 2
     handler = _INSTANCE_DISPATCH.get(action)
     if handler is None:
@@ -2460,6 +2485,7 @@ __all__ = [
     "handle_instance_group_command",
     "handle_instance_kill_command",
     "handle_instance_label_command",
+    "handle_instance_rebind_command",
     "handle_listener_arm_command",
     "handle_listener_fire_command",
     "handle_listener_group_command",
