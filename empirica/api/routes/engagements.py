@@ -41,6 +41,11 @@ async def list_engagements(
     org: str | None = Query(None, description="Filter to engagements ticket_of this organization id"),
     domain: str | None = Query(None, description="Filter by engagement domain (support, sales, ...)"),
     lifecycle: str | None = Query(None, description="Filter by lifecycle_state (open, in_progress, blocked, closed)"),
+    include_closed: bool = Query(
+        False,
+        description="Include terminal (closed) engagements. Default false — the feed is "
+        "active-by-default (SER#183 part-2). Ignored when an explicit `lifecycle` is given.",
+    ),
     limit: int = Query(100, ge=1, le=500),
 ):
     """List engagements as EngagementMin[] for the board daemon feed.
@@ -57,7 +62,13 @@ async def list_engagements(
     out: list[dict] = []
     with WorkspaceDBRepository.open() as repo:
         try:
-            rows = repo.list_engagements(org_id=org, domain=domain, lifecycle_state=lifecycle, limit=limit)
+            rows = repo.list_engagements(
+                org_id=org,
+                domain=domain,
+                lifecycle_state=lifecycle,
+                include_closed=include_closed,
+                limit=limit,
+            )
         except ValueError as e:
             # invalid lifecycle_state — surface as a 422, never a 500.
             raise HTTPException(status_code=422, detail=str(e)) from e

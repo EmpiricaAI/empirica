@@ -93,6 +93,51 @@ def test_list_org_scoped_via_ticket_of_membership(repo):
     assert {e["engagement_id"] for e in scoped} == {"t1"}
 
 
+# ── active-by-default (SER#183 part-2) ────────────────────────────────────────
+
+
+def test_list_defaults_to_active_excludes_closed(repo):
+    """No explicit lifecycle filter → terminal (closed) engagements are excluded."""
+    repo.create_engagement("a1", "active", domain="support")
+    repo.create_engagement("c1", "done", domain="support")
+    repo.update_engagement("c1", lifecycle_state="closed", outcome="won")
+    assert {e["engagement_id"] for e in repo.list_engagements()} == {"a1"}
+
+
+def test_list_include_closed_returns_terminal_too(repo):
+    """include_closed=True restores the full set (the Engagements-area opt-in)."""
+    repo.create_engagement("a1", "active", domain="support")
+    repo.create_engagement("c1", "done", domain="support")
+    repo.update_engagement("c1", lifecycle_state="closed", outcome="won")
+    assert {e["engagement_id"] for e in repo.list_engagements(include_closed=True)} == {"a1", "c1"}
+
+
+def test_list_explicit_closed_overrides_default(repo):
+    """An explicit lifecycle_state always wins — even for a terminal state."""
+    repo.create_engagement("a1", "active", domain="support")
+    repo.create_engagement("c1", "done", domain="support")
+    repo.update_engagement("c1", lifecycle_state="closed", outcome="won")
+    # Explicit closed returns closed despite active-by-default; include_closed is moot.
+    assert {e["engagement_id"] for e in repo.list_engagements(lifecycle_state="closed")} == {"c1"}
+
+
+def test_list_org_scoped_is_active_by_default(repo):
+    """The org→engagement drill excludes closed unless opted in (the X2 'who now' view)."""
+    repo.create_engagement("t1", "active acme ticket", domain="support")
+    repo.create_engagement("t2", "closed acme ticket", domain="support")
+    repo.update_engagement("t2", lifecycle_state="closed", outcome="won")
+    now = time.time()
+    for eid in ("t1", "t2"):
+        repo.conn.execute(
+            "INSERT INTO entity_memberships (entity_type, entity_id, group_type, group_id, role, joined_at, created_at) "
+            "VALUES ('engagement', ?, 'organization', 'acme', 'ticket_of', ?, ?)",
+            (eid, now, now),
+        )
+    repo.conn.commit()
+    assert {e["engagement_id"] for e in repo.list_engagements(org_id="acme")} == {"t1"}
+    assert {e["engagement_id"] for e in repo.list_engagements(org_id="acme", include_closed=True)} == {"t1", "t2"}
+
+
 # ── update + enum enforcement ────────────────────────────────────────────────
 
 

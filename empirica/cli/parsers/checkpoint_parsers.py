@@ -666,13 +666,20 @@ def add_checkpoint_parsers(subparsers):
 
     engagement_list_parser = subparsers.add_parser(
         "engagement-list",
-        help="List engagements, filtered by --domain / --lifecycle / --org.",
+        help="List engagements (active-by-default) filtered by --domain / --lifecycle / --org; "
+        "--include-closed for terminal ones.",
     )
     engagement_list_parser.add_argument("--domain", help="Filter by domain")
     engagement_list_parser.add_argument(
         "--lifecycle", help="Filter by lifecycle_state (open|in_progress|blocked|closed)"
     )
     engagement_list_parser.add_argument("--org", help="Scope to an organization's tickets (role='ticket_of')")
+    engagement_list_parser.add_argument(
+        "--include-closed",
+        action="store_true",
+        help="Include terminal (closed) engagements. Default: active-only "
+        "(open|in_progress|blocked). Ignored when --lifecycle is given.",
+    )
     engagement_list_parser.add_argument("--limit", type=int, default=100, help="Max rows (default: 100)")
     engagement_list_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
     engagement_list_parser.add_argument("--verbose", action="store_true", help="Verbose output")

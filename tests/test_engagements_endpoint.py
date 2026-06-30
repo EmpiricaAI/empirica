@@ -183,6 +183,27 @@ def test_route_invalid_lifecycle_422(client):
     assert r.status_code == 422
 
 
+def test_route_active_by_default_excludes_closed(client):
+    """SER#183 part-2: the feed defaults to active; closed needs an explicit opt-in.
+
+    Seeded e1 is open. Add a closed engagement and assert the three behaviors:
+    default excludes it, ?include_closed=true restores it, ?lifecycle=closed
+    targets it.
+    """
+    cid = client.post("/api/v1/engagements", json={"domain": "support", "title": "old issue"}).json()["engagement_id"]
+    assert client.patch(f"/api/v1/engagements/{cid}", json={"lifecycle_state": "closed"}).status_code == 200
+
+    default_ids = {e["id"] for e in client.get("/api/v1/engagements").json()["engagements"]}
+    assert cid not in default_ids  # closed excluded by default
+    assert "e1" in default_ids  # the open one stays
+
+    full_ids = {e["id"] for e in client.get("/api/v1/engagements?include_closed=true").json()["engagements"]}
+    assert cid in full_ids and "e1" in full_ids  # opt-in restores the full set
+
+    closed_ids = {e["id"] for e in client.get("/api/v1/engagements?lifecycle=closed").json()["engagements"]}
+    assert closed_ids == {cid}  # explicit lifecycle targets the terminal one
+
+
 # ---- POST /api/v1/engagements (C3 create) ----------------------------------
 
 

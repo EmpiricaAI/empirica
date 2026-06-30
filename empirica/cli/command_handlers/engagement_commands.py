@@ -111,6 +111,7 @@ def handle_engagement_list_command(args):
                     domain=getattr(args, "domain", None),
                     lifecycle_state=getattr(args, "lifecycle", None),
                     org_id=getattr(args, "org", None),
+                    include_closed=getattr(args, "include_closed", False),
                     limit=getattr(args, "limit", 100),
                 )
         except ValueError as ve:

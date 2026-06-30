@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Engagement listing is active-by-default** (SER #183 part-2) — the daemon
+  feed `GET /api/v1/engagements` and `empirica engagement-list` now exclude
+  terminal (`closed`) engagements unless you opt in. The org→engagement drill is
+  a "who are we working with now" view; terminal history belongs in the dedicated
+  Engagements area. Opt into the full set with `?include_closed=true` /
+  `--include-closed`, or target a specific state with `?lifecycle=` / `--lifecycle`
+  (an explicit state always wins, so `lifecycle=closed` still returns closed). New
+  `ENGAGEMENT_TERMINAL_STATES` constant makes the terminal set explicit.
+
 ### Added
 - **`empirica off` / `empirica on`** — user-facing Sentinel toggle. `empirica off`
   pauses the noetic firewall for the current instance (off-the-record);

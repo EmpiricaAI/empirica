@@ -244,6 +244,12 @@ _DEFAULT_ENGAGEMENT_STAGES = [
 # (sqlite ALTER can't add CHECK), so lifecycle/outcome validity lives at the repo
 # layer; domain/stage validity is checked against the definition tables.
 ENGAGEMENT_LIFECYCLE_STATES = frozenset({"open", "in_progress", "blocked", "closed"})
+# Terminal states — excluded by default from org/contact engagement scoping
+# (SER#183 part-2: the drill is a "who are we working with now" view; terminal
+# engagements belong in the dedicated Engagements area). Add new terminal states
+# here so the default-active filter picks them up; the complement (open,
+# in_progress, blocked) is "active".
+ENGAGEMENT_TERMINAL_STATES = frozenset({"closed"})
 ENGAGEMENT_OUTCOMES = frozenset({"won", "lost", "resolved", "wont_fix", "defer", "superseded"})
 
 
@@ -1100,6 +1106,7 @@ class WorkspaceDBRepository(BaseRepository):
         domain: str | None = None,
         lifecycle_state: str | None = None,
         org_id: str | None = None,
+        include_closed: bool = False,
         limit: int = 100,
     ) -> list[dict[str, Any]]:
         """List engagements, optionally filtered.
@@ -1107,6 +1114,14 @@ class WorkspaceDBRepository(BaseRepository):
         ``org_id`` scopes to engagements that are members of that organization
         with role='ticket_of' (the canonical org→ticket linkage), joining
         entity_memberships. ``lifecycle_state`` must be a valid state.
+
+        Active-by-default (SER#183 part-2): when no explicit ``lifecycle_state``
+        is given, terminal engagements (``ENGAGEMENT_TERMINAL_STATES``, i.e.
+        closed) are excluded — the org/contact drill is a "who are we working
+        with now" view. Opt into the full set with ``include_closed=True`` or by
+        requesting a specific ``lifecycle_state`` (an explicit state always wins,
+        so ``lifecycle_state='closed'`` still returns closed). The Engagements
+        area surfaces terminal history via these opt-ins.
         """
         if lifecycle_state is not None and lifecycle_state not in ENGAGEMENT_LIFECYCLE_STATES:
             raise ValueError(
@@ -1125,8 +1140,14 @@ class WorkspaceDBRepository(BaseRepository):
             where.append("e.domain = ?")
             params.append(domain)
         if lifecycle_state is not None:
+            # Explicit state wins — including an explicit request for closed.
             where.append("e.lifecycle_state = ?")
             params.append(lifecycle_state)
+        elif not include_closed and ENGAGEMENT_TERMINAL_STATES:
+            # Default-active: exclude terminal states unless opted in.
+            placeholders = ", ".join("?" for _ in ENGAGEMENT_TERMINAL_STATES)
+            where.append(f"e.lifecycle_state NOT IN ({placeholders})")
+            params.extend(sorted(ENGAGEMENT_TERMINAL_STATES))
         where_clause = ("WHERE " + " AND ".join(where)) if where else ""
         params.append(limit)
         cursor = self._execute(
