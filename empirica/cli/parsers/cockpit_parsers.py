@@ -52,11 +52,19 @@ def _add_sentinel_target(parser):
         help="Fan out across ALL live instances of the resolved practice "
         "(required when an ai_id maps to >1 live instance)",
     )
+    parser.add_argument(
+        "--global",
+        dest="global_scope",
+        action="store_true",
+        help="Target the single global pause file (pauses the Sentinel for ALL "
+        "instances, present and future). Broadest scope — overrides --instance/--all.",
+    )
 
 
 def add_cockpit_parsers(subparsers):
     """Register sentinel/loop/listener/instance/practitioner groups + top-level status + tui."""
     _add_sentinel_group(subparsers)
+    _add_offon_aliases(subparsers)
     _add_loop_group(subparsers)
     _add_listener_group(subparsers)
     _add_instance_group(subparsers)
@@ -200,6 +208,35 @@ def _add_sentinel_group(subparsers):
     status = sentinel_subs.add_parser("status", help="Show Sentinel pause state")
     _add_sentinel_target(status)
     _add_output(status)
+
+
+def _add_offon_aliases(subparsers):
+    """Top-level `empirica off` / `empirica on` — the user-facing Sentinel toggle.
+
+    Friendly aliases for `sentinel pause` / `sentinel resume`. Default scope is
+    the current instance (per-instance, resolved via the same get_instance_id()
+    the gate reads — so the pause file the writer creates is exactly the one the
+    gate looks for). `--global` widens to all instances.
+
+    These are dispatched to handle_sentinel_pause_command / _resume_command in
+    cli_core, and recognized as meta-control toggles by sentinel-gate's
+    is_toggle_command so they run even mid-loop / when the gate is otherwise
+    holding (a gate must never block the verb that clears it).
+    """
+    off = subparsers.add_parser(
+        "off",
+        help="Pause the Sentinel for this instance (off-the-record). Add --global to pause all instances.",
+    )
+    off.add_argument("--reason", help="Optional human-readable reason for the pause")
+    _add_sentinel_target(off)
+    _add_output(off)
+
+    on = subparsers.add_parser(
+        "on",
+        help="Resume the Sentinel for this instance (back on-the-record). Add --global for the global pause file.",
+    )
+    _add_sentinel_target(on)
+    _add_output(on)
 
 
 def _add_loop_group(subparsers):

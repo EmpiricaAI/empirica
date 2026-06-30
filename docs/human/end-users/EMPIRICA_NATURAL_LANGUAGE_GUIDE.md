@@ -70,8 +70,13 @@ to guide the conversation:
 ### The `/empirica` Command
 
 Type `/empirica status` at any time to see the full epistemic state, or:
-- `/empirica on` — Enable tracking
-- `/empirica off` — Pause tracking (for exploratory chat)
+- `/empirica on` — Resume tracking (this instance)
+- `/empirica off` — Pause tracking for exploratory chat (this instance)
+
+These default to the current instance, so pausing one terminal/pane doesn't
+silence the others. Add `--global` (`/empirica off --global`) to pause every
+instance at once. The same toggle is available straight from the shell as
+`empirica off` / `empirica on`.
 
 ---
 

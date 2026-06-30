@@ -136,6 +136,8 @@ from .command_handlers.cockpit_commands import (
     handle_listener_group_command,
     handle_loop_group_command,
     handle_sentinel_group_command,
+    handle_sentinel_pause_command,
+    handle_sentinel_resume_command,
     handle_tui_command,
 )
 from .command_handlers.cockpit_commands import (
@@ -476,6 +478,8 @@ _HELP_CATEGORIES = {
     "cockpit": [
         "status",
         "tui",
+        "off",
+        "on",
         "sentinel",
         "loop",
         "listener",
@@ -755,6 +759,10 @@ def main(args=None):
             "practitioner": handle_practitioner_group_command,
             "status": handle_cockpit_status_command,
             "tui": handle_tui_command,
+            # User-facing Sentinel toggle (friendly aliases for sentinel pause/resume).
+            # Per-instance by default; --global widens to all instances.
+            "off": handle_sentinel_pause_command,
+            "on": handle_sentinel_resume_command,
             # Chat (single-instance collaborative epistemic workspace)
             # See empirica/docs/architecture/CHAT.md
             "chat": handle_chat_command,

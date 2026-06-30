@@ -23,8 +23,8 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.12.9
-**Generated:** 2026-06-30 14:11:26 UTC
-**Total commands:** 254 (across 26 categories)
+**Generated:** 2026-06-30 15:38:57 UTC
+**Total commands:** 256 (across 26 categories)
 
 For the most up-to-date detail on any single command, prefer
 `empirica <command> --help` — the generator extracts the same `help`
@@ -76,7 +76,7 @@ require `--session-id` (`project-bootstrap`, `sessions-show`,
 | [issue](#issue) | 6 | `issue-list`, `issue-show`, `issue-handoff`, … |
 | [investigation](#investigation) | 5 | `investigate`, `investigate-create-branch`, `investigate-checkpoint-branch`, … |
 | [monitoring](#monitoring) | 10 | `monitor`, `assess-state`, `trajectory-project`, … |
-| [cockpit](#cockpit) | 14 | `status`, `tui`, `sentinel`, … |
+| [cockpit](#cockpit) | 16 | `status`, `tui`, `off`, … |
 | [skills](#skills) | 3 | `skill-suggest`, `skill-fetch`, `skill-extract` |
 | [architecture](#architecture) | 3 | `assess-component`, `assess-compare`, `assess-directory` |
 | [agents](#agents) | 7 | `agent-spawn`, `agent-report`, `agent-aggregate`, … |
@@ -2823,6 +2823,42 @@ Launch the interactive cockpit (Textual app — clickable controls)
 - `--include-dead` — optional · flag
   Show instances whose Claude process is dead (diagnostic — toggle in-app with D)
 
+#### `empirica off`
+
+Pause the Sentinel for this instance (off-the-record). Add --global to pause all instances.
+
+**Arguments:**
+
+- `--reason` — optional
+  Optional human-readable reason for the pause
+- `--instance` — optional
+  Target instance_id OR a practice ai_id (resolved to its live runtime instance; no-match or ambiguous resolution fails loud)
+- `--session` — optional
+  Target the live instance running this claude_session_id
+- `--all` — optional · flag
+  Fan out across ALL live instances of the resolved practice (required when an ai_id maps to >1 live instance)
+- `--global` — optional · flag
+  Target the single global pause file (pauses the Sentinel for ALL instances, present and future). Broadest scope — overrides --instance/--all.
+- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
+  Output format (default: human)
+
+#### `empirica on`
+
+Resume the Sentinel for this instance (back on-the-record). Add --global for the global pause file.
+
+**Arguments:**
+
+- `--instance` — optional
+  Target instance_id OR a practice ai_id (resolved to its live runtime instance; no-match or ambiguous resolution fails loud)
+- `--session` — optional
+  Target the live instance running this claude_session_id
+- `--all` — optional · flag
+  Fan out across ALL live instances of the resolved practice (required when an ai_id maps to >1 live instance)
+- `--global` — optional · flag
+  Target the single global pause file (pauses the Sentinel for ALL instances, present and future). Broadest scope — overrides --instance/--all.
+- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
+  Output format (default: human)
+
 #### `empirica sentinel`
 
 Sentinel pause/resume/status (per-instance noetic firewall control)
@@ -2843,6 +2879,8 @@ Pause Sentinel for an instance
   Target the live instance running this claude_session_id
 - `--all` — optional · flag
   Fan out across ALL live instances of the resolved practice (required when an ai_id maps to >1 live instance)
+- `--global` — optional · flag
+  Target the single global pause file (pauses the Sentinel for ALL instances, present and future). Broadest scope — overrides --instance/--all.
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format (default: human)
 
@@ -2859,6 +2897,8 @@ Resume Sentinel for an instance
   Target the live instance running this claude_session_id
 - `--all` — optional · flag
   Fan out across ALL live instances of the resolved practice (required when an ai_id maps to >1 live instance)
+- `--global` — optional · flag
+  Target the single global pause file (pauses the Sentinel for ALL instances, present and future). Broadest scope — overrides --instance/--all.
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format (default: human)
 
@@ -2875,6 +2915,8 @@ Show Sentinel pause state
   Target the live instance running this claude_session_id
 - `--all` — optional · flag
   Fan out across ALL live instances of the resolved practice (required when an ai_id maps to >1 live instance)
+- `--global` — optional · flag
+  Target the single global pause file (pauses the Sentinel for ALL instances, present and future). Broadest scope — overrides --instance/--all.
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format (default: human)
 

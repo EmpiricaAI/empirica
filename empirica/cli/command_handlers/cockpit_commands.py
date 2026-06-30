@@ -104,6 +104,8 @@ def _resolve_sentinel_targets(args) -> list[str | None]:
       - [id1, id2, ...] → --all fan-out across a practice's live instances
 
     Resolution order:
+      0. --global → [None] (the single global pause file the gate reads for ALL
+         instances). Broadest scope — wins over any narrower selector.
       1. No --instance / --session / --all → [get_instance_id()] (may be None →
          global), preserving the pre-① default.
       2. --session <claude_session_id>     → the live instance running it.
@@ -120,6 +122,14 @@ def _resolve_sentinel_targets(args) -> list[str | None]:
     requested = getattr(args, "instance", None)
     session = getattr(args, "session", None)
     want_all = bool(getattr(args, "all", False))
+    want_global = bool(getattr(args, "global_scope", False))
+
+    # --global forces the single global pause file (~/.empirica/sentinel_paused),
+    # which the gate reads for EVERY instance. It is the broadest scope, so it
+    # wins over any narrower selector — `empirica off --global` means "pause
+    # everything" regardless of the current instance / --instance / --all.
+    if want_global:
+        return [None]
 
     if not requested and not session and not want_all:
         return [get_instance_id()]  # may be None → global pause (unchanged)

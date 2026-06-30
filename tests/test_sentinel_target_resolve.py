@@ -25,7 +25,14 @@ def _inst(instance_id, ai_id=None, session_id=None):
 
 
 def _args(**kw):
-    base = {"instance": None, "session": None, "all": False, "output": "json", "reason": None}
+    base = {
+        "instance": None,
+        "session": None,
+        "all": False,
+        "global_scope": False,
+        "output": "json",
+        "reason": None,
+    }
     base.update(kw)
     return types.SimpleNamespace(**base)
 
@@ -58,6 +65,23 @@ def test_no_selector_global_when_no_current(monkeypatch, patch_live):
 def test_direct_instance_id_passthrough(patch_live):
     patch_live(_inst("tmux_3", ai_id="empirica"), _inst("tmux_8", ai_id="cortex"))
     assert cc._resolve_sentinel_targets(_args(instance="tmux_3")) == ["tmux_3"]
+
+
+# ── --global scope (empirica off --global) ───────────────────────────────────
+
+
+def test_global_resolves_to_none(monkeypatch):
+    # --global → [None] → the single global pause file the gate reads for ALL
+    # instances. No live-instance lookup needed; current instance is irrelevant.
+    monkeypatch.setattr(cc, "get_instance_id", lambda: "tmux_5")
+    assert cc._resolve_sentinel_targets(_args(global_scope=True)) == [None]
+
+
+def test_global_overrides_narrower_selectors(patch_live):
+    # --global is the broadest scope: it wins even when --instance / --all are set.
+    patch_live(_inst("tmux_3", ai_id="empirica"), _inst("tmux_8", ai_id="empirica"))
+    assert cc._resolve_sentinel_targets(_args(global_scope=True, instance="tmux_3")) == [None]
+    assert cc._resolve_sentinel_targets(_args(global_scope=True, all=True)) == [None]
 
 
 # ── ai_id resolution (the fix) ───────────────────────────────────────────────

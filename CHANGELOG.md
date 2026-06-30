@@ -7,7 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`empirica off` / `empirica on`** — user-facing Sentinel toggle. `empirica off`
+  pauses the noetic firewall for the current instance (off-the-record);
+  `empirica on` resumes it. Both default to **per-instance** scope (resolved via
+  the same `get_instance_id()` the gate reads) and accept `--global` to widen to
+  all instances (`empirica off --global`). Friendly aliases for
+  `empirica sentinel pause` / `resume`, which also gained `--global`. Recognized
+  as meta-control toggles by the Sentinel gate, so they run even mid-loop — a
+  gate must never block the verb that clears it.
+
 ### Fixed
+- **`/empirica off` no longer silently misses** — the slash command re-implemented
+  instance resolution inline (`TMUX_PANE`/TTY only) and diverged from the
+  canonical resolver the gate reads (which also honors
+  `EMPIRICA_INSTANCE_ID`/`CLAUDE_INSTANCE_ID`, `TERM_SESSION_ID`, `WINDOWID`, and
+  a different TTY key shape). Under the cockpit (which sets `EMPIRICA_INSTANCE_ID`)
+  it wrote a pause file under a name the gate never read, so the pause appeared to
+  succeed but nothing paused. The command now delegates to the canonical
+  `empirica off` / `on` / `sentinel status` CLI — one resolver, writer and reader
+  always agree.
 - **CHECK no longer desyncs from its transaction across compaction** — the CLI
   workflow verbs (`check-submit`, `postflight`) resolved the active transaction
   with no session key, so the suffix-mismatch fallback never engaged. When a

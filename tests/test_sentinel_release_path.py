@@ -117,6 +117,71 @@ def test_not_exempt_non_recovery_empirica(sg):
     assert _bash(sg, "empirica session-create --ai-id x") is False
 
 
+# ---- user-facing toggle: empirica off / on (and sentinel pause/resume) ------
+# The Sentinel must never block the verb that pauses/clears it. These run as
+# meta-control even mid-loop, via is_toggle_command self-exemption.
+
+
+@pytest.mark.parametrize(
+    "command,expected",
+    [
+        ("empirica off", "pause"),
+        ("empirica off --global", "pause"),
+        ("empirica off --reason 'exploratory chat'", "pause"),
+        ("empirica on", "unpause"),
+        ("empirica on --global", "unpause"),
+        ("empirica sentinel pause", "pause"),
+        ("empirica sentinel pause --instance tmux_3", "pause"),
+        ("empirica sentinel resume", "unpause"),
+        ("empirica sentinel resume --global", "unpause"),
+        # legacy inline-python form (un-upgraded command files) still recognized
+        ("python3 -c \"open('x/sentinel_paused','w')\"", "pause"),
+        ("rm /home/u/.empirica/sentinel_paused_tmux_3", "unpause"),
+    ],
+)
+def test_toggle_command_recognized(sg, command, expected):
+    assert sg.is_toggle_command(command) == expected
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        # token-exact: must NOT collide with onboarding / status / other verbs
+        "empirica onboarding",
+        "empirica onboarding start",
+        "empirica sentinel status",
+        "empirica offline-export",  # hypothetical: 'off' is a prefix, not the token
+        "empirica status",
+    ],
+)
+def test_toggle_command_no_false_positive(sg, command):
+    assert sg.is_toggle_command(command) is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "empirica off",
+        "empirica off --global",
+        "empirica on",
+        "empirica on --global",
+        "empirica sentinel pause",
+        "empirica sentinel resume",
+    ],
+)
+def test_toggle_verbs_are_exempt_pre_gate(sg, command):
+    # The toggle short-circuits _is_recovery_or_measurement_action (always-open
+    # before every gate), so the pause/resume verb runs even when the gate holds.
+    assert _bash(sg, command) is True
+
+
+def test_onboarding_not_exempt_via_toggle(sg):
+    # onboarding is NOT a toggle — it must not ride the toggle exemption. (It may
+    # or may not be exempt by other rules; here we only assert the toggle path
+    # does not grant it.)
+    assert sg.is_toggle_command("empirica onboarding") is None
+
+
 def test_not_exempt_plain_praxic_bash(sg):
     assert _bash(sg, "rm -rf /tmp/foo") is False
     assert _bash(sg, "git commit -m x") is False

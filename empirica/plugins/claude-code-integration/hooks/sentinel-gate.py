@@ -777,7 +777,31 @@ def is_toggle_command(command: str) -> str | None:
     """
     cmd = command.lstrip()
 
-    # Detect pause file write (python3 -c "..." writing sentinel_paused)
+    # Canonical CLI toggle verbs — the user-facing Sentinel pause/resume surface:
+    #   empirica off [...]             → pause   (per-instance, or --global)
+    #   empirica on  [...]             → unpause
+    #   empirica sentinel pause [...]  → pause
+    #   empirica sentinel resume [...] → unpause
+    # Token-exact (whitespace split) so `empirica onboarding`/`empirica offline-*`
+    # do NOT match `on`/`off`. Meta-control: a gate must never block the verb that
+    # clears it, and the toggle can ONLY pause/unpause the Sentinel (no arbitrary
+    # praxic effect), so this self-exemption is prompt-injection-safe.
+    tokens = cmd.split()
+    if len(tokens) >= 2 and tokens[0] == "empirica":
+        verb = tokens[1]
+        if verb == "off":
+            return "pause"
+        if verb == "on":
+            return "unpause"
+        if verb == "sentinel" and len(tokens) >= 3:
+            sub = tokens[2]
+            if sub == "pause":
+                return "pause"
+            if sub in ("resume", "unpause"):
+                return "unpause"
+
+    # Legacy: the pre-delegation slash command wrote the pause file via inline
+    # python3 -c "...". Kept for back-compat with un-upgraded command files.
     if "sentinel_paused" in cmd and ("write_text" in cmd or "open(" in cmd):
         return "pause"
 
