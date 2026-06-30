@@ -30,8 +30,16 @@ def harness(tmp_path, monkeypatch):
     calls: list = []
 
     def _run(*a, **k):
-        calls.append((a, k))
-        return subprocess.CompletedProcess(a[0] if a else [], 0, b"", b"")
+        # Record ONLY the plugin-sync invocation we're actually testing. The
+        # monkeypatch replaces the module-global subprocess.run, so a background
+        # thread (e.g. an inbox poller shelling out to git) that fires mid-test
+        # would otherwise land in `calls` and inflate the count under
+        # pytest-randomly ordering — a real flake. Filtering by command makes
+        # every count assertion order-independent without changing intent.
+        cmd = a[0] if a else k.get("args")
+        if cmd == ["empirica", "plugin-sync"]:
+            calls.append((a, k))
+        return subprocess.CompletedProcess(cmd or [], 0, b"", b"")
 
     monkeypatch.setattr(subprocess, "run", _run)
     return {"home": home, "plugin": plugin, "calls": calls}
