@@ -276,6 +276,32 @@ test to reason about a tool you haven't seen before, rather than memorizing a li
   `sqlite3 "INSERT/UPDATE/DROP…"`. A tool being on the noetic list does NOT make a
   mutating invocation noetic — the Sentinel inspects the flags, not just the name.
 
+### Noetic Toolchain — prefer the power tools
+
+Beyond the base shell, a sharper read-only recon set is installed for nuanced
+work. **Reach for these over their base equivalents** — they're all
+Sentinel-noetic (flow free, any phase), just faster / more precise:
+
+| Reach for | Instead of | For |
+|-----------|-----------|-----|
+| `rg` (ripgrep) | `grep -r` | fast, gitignore-aware content search |
+| `fd` | `find` | fast, gitignore-aware file find |
+| `ast-grep` | regex greps | **structural** (by-syntax/AST) code search — match code shape, not text |
+| `jq` / `yq` / `gron` | hand-parsing | JSON / YAML query · flatten JSON to greppable paths |
+| `tokei` / `scc` | `wc -l` | LOC + complexity stats |
+| `bat` | `cat` | syntax-highlighted, line-numbered view |
+
+`empirica doctor` reports which are installed — absence is a WARN, not a failure
+(fall back to `grep`/`find`); `noetic-batch` already uses `rg` under the hood. The
+write/exec MODES (`fd -x`, `yq -i`, `ast-grep --rewrite`) are praxic — the Sentinel
+gates those by flag, so the read forms stay free.
+
+**Scope.** This recon set is GLOBAL — every practitioner gets it. *Practice-scoped*
+tools (a practice's domain CLIs / MCP servers — e.g. outreach's publishing stack)
+are declared per-practice via autonomy's onboarding, not here. Keep this section to
+the universal set; if a tool only helps one practice, it belongs in that practice's
+scope, not the lean core.
+
 ### Batch Noetic Work
 
 When you have **≥3** investigation operations to run together,
