@@ -318,16 +318,32 @@ def _query_global_learnings(task_description):
     """Query global learnings for cross-project context from Qdrant.
 
     Returns global_learnings dict or None.
+
+    This injection runs at EVERY bootstrap, so per-item text is truncated to a
+    context budget (``EMPIRICA_PATTERN_MAX_ITEM_CHARS``, default 280) to keep
+    the session-start context lean — the same budget #187 applied to pattern
+    retrieval. Set ``EMPIRICA_PATTERN_BUDGET_OFF=1`` for the full untrimmed
+    text. (The 5-item count cap is already enforced by ``limit=5``.)
     """
     try:
+        import os
+
         from empirica.core.qdrant.vector_store import search_global
 
         global_results = search_global(task_description, limit=5)
-        if global_results:
-            return {"query": task_description, "results": global_results, "count": len(global_results)}
+        if not global_results:
+            return None
+        if os.getenv("EMPIRICA_PATTERN_BUDGET_OFF") != "1":
+            from empirica.core.context_budget import truncate_text
+
+            max_chars = int(os.getenv("EMPIRICA_PATTERN_MAX_ITEM_CHARS", "280"))
+            for item in global_results:
+                if isinstance(item, dict) and isinstance(item.get("text"), str):
+                    item["text"] = truncate_text(item["text"], max_chars)
+        return {"query": task_description, "results": global_results, "count": len(global_results)}
     except Exception as e:
         logger.debug(f"Global learnings query failed (non-fatal): {e}")
-    return None
+        return None
 
 
 def _reinstall_auto_capture_hooks(session_id):

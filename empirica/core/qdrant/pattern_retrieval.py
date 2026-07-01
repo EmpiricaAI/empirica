@@ -536,11 +536,14 @@ def _content_sig(text: str) -> str:
 
 
 def _truncate_text(text: str, max_chars: int) -> str:
-    """Truncate to max_chars at a word boundary, appending an overflow marker."""
-    if not isinstance(text, str) or len(text) <= max_chars:
-        return text
-    head = text[:max_chars].rsplit(" ", 1)[0].rstrip()
-    return f"{head}… (+{len(text) - len(head)} chars)"
+    """Truncate to max_chars at a word boundary, appending an overflow marker.
+
+    Delegates to the shared ``context_budget.truncate_text`` — single source
+    of truth for display-string truncation across context-injection sites.
+    """
+    from empirica.core.context_budget import truncate_text
+
+    return truncate_text(text, max_chars)
 
 
 def _item_sections(result: dict):
