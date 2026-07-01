@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Local machines no longer falsely trip `REMOTE:SSH:UNTRUSTED`** — `SSH_CONNECTION`/
+  `SSH_CLIENT`/`SSH_TTY` are inherited by tmux/screen servers, so a pane whose
+  multiplexer was started over a since-closed SSH login carried those vars
+  forever, making a now-local machine read as an untrusted remote (reported on a
+  local Mac). `detect_environment` now treats SSH env as **stale** when `SSH_TTY`
+  points at a torn-down pty (device gone) and does not classify it as remote.
+  Advisory annotation only — no gating behavior changed. (Non-interactive remote,
+  `SSH_CONNECTION` without `SSH_TTY`, is unchanged.)
+
 ### Added
 - **`?parent_org=<org_id>` on `GET /api/v1/entities`** — scope the contact list to
   one organization (the extension org-detail contacts subset). Backed by

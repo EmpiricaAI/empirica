@@ -189,7 +189,14 @@ def detect_environment() -> dict:
     import socket
 
     hostname = socket.gethostname()
-    is_remote = bool(os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_CLIENT") or os.environ.get("SSH_TTY"))
+    # Stale, multiplexer-inherited SSH_* env on a now-local machine is NOT a live
+    # remote session — a tmux/screen server started over a since-closed SSH login
+    # keeps SSH_* forever, whose SSH_TTY pty is gone. Mirror of the canonical
+    # session_resolver.detect_environment fix (this is the ImportError fallback).
+    _ssh_env = os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_CLIENT") or os.environ.get("SSH_TTY")
+    _ssh_tty = os.environ.get("SSH_TTY")
+    _ssh_stale = bool(_ssh_tty) and not os.path.exists(_ssh_tty)
+    is_remote = bool(_ssh_env) and not _ssh_stale
     is_container = os.path.exists("/.dockerenv") or os.path.exists("/run/.containerenv")
     is_ci = bool(os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS") or os.environ.get("GITLAB_CI"))
 
