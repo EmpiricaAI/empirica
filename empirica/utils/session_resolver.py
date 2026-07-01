@@ -2555,6 +2555,28 @@ def _scan_workspace_for_project(instance_id: str | None) -> Path | None:
     return best_match
 
 
+def _ssh_env_is_stale() -> bool:
+    """True when SSH_* env vars are present but reflect a DEAD session.
+
+    SSH_CONNECTION/SSH_CLIENT/SSH_TTY are inherited by tmux/screen servers, so a
+    pane whose multiplexer server was started over an SSH login that has since
+    logged out carries those vars forever — falsely reading as "remote" on a
+    now-local machine (reported: a local Mac tripping REMOTE:SSH:UNTRUSTED). A
+    LIVE interactive SSH session's SSH_TTY device exists; an inherited/stale one
+    points at a pty that was torn down when the login ended. Device-existence is
+    the discriminator that works in the hook subprocess (which has no controlling
+    tty of its own to compare SSH_TTY against). SSH_CONNECTION/SSH_CLIENT without
+    any SSH_TTY is left as-is (non-interactive remote, e.g. scp/forced command).
+    """
+    ssh_tty = os.environ.get("SSH_TTY")
+    if ssh_tty:
+        try:
+            return not os.path.exists(ssh_tty)
+        except OSError:
+            return True
+    return False
+
+
 def detect_environment() -> dict:
     """Detect execution environment for Sentinel context awareness.
 
@@ -2565,7 +2587,10 @@ def detect_environment() -> dict:
     import socket
 
     hostname = socket.gethostname()
-    is_remote = bool(os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_CLIENT") or os.environ.get("SSH_TTY"))
+    _ssh_env = os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_CLIENT") or os.environ.get("SSH_TTY")
+    # Stale, multiplexer-inherited SSH_* env on a local machine is NOT a remote
+    # session — don't emit REMOTE:UNTRUSTED for it (advisory annotation only).
+    is_remote = bool(_ssh_env) and not _ssh_env_is_stale()
     is_container = os.path.exists("/.dockerenv") or os.path.exists("/run/.containerenv")
     is_ci = bool(os.environ.get("CI") or os.environ.get("GITHUB_ACTIONS") or os.environ.get("GITLAB_CI"))
 
