@@ -106,18 +106,20 @@ A vector is a single dimension of epistemic state, rated 0.0 to 1.0. There are 1
 
 | Vector | Measures | Note |
 |--------|----------|------|
-| **engagement** | How actively you're working the problem — the quality of collaborative intelligence. | Gates CHECK (historically ≥ 0.6 to proceed). |
+| **engagement** | How actively you're working the problem — the quality of collaborative intelligence. | Gates CHECK: engagement below the profile's `engagement_gate` (default 0.6; stricter personas 0.7–0.8) blocks the noetic→praxic transition. |
 | **uncertainty** | What you DON'T know. | Inverted: higher = more uncertain. Historically overestimated. |
 
 #### Calibration weighting (why 4 dimensions)
 
-Dimensions are weighted by `work_type` — not by fixed per-tier percentages, which were deprecated in favor of work_type-scaled calibration:
+For **calibration scoring**, dimensions are weighted by `work_type`:
 
 - **code** → Execution + Foundation (shipping matters most)
 - **research** → Comprehension + Meta (understanding + calibrated uncertainty)
 - **docs** → Comprehension (clarity paramount)
 
-The older 3-tier framing (Foundation / Meta / Phase-dependent) folded Comprehension + Execution into "phase-dependent"; the 4-dimension split (3-5-3-2) makes the understanding→output boundary explicit. Edge cases: `state` → Comprehension (a live perception, not an output); `do` → stays Foundation.
+The older 3-tier framing (Foundation / Meta / Phase-dependent) folded Comprehension + Execution into "phase-dependent"; the 4-dimension split (3-5-3-2) makes the understanding→output boundary explicit.
+
+**Implementation note.** The 4 dimensions above are the *conceptual* grouping. The runtime confidence rollup (`reflex_exporter`, `epistemic_snapshot`) additionally applies fixed dimension weights (Foundation 0.35 / Comprehension 0.25 / Execution 0.25 / engagement 0.15), treats `engagement` as its own **gate** tier, and groups `state` under **Execution** rather than Comprehension. Both placements of `state` are defensible — the taxonomy favors the understanding→output split (a live perception → Comprehension), the runtime favors assessment-order grouping. Documented here so the divergence isn't mistaken for an error.
 
 #### Phase-Aware Completion
 
