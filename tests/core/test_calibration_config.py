@@ -21,6 +21,7 @@ def test_schema_has_weights_and_thresholds():
 def test_default_config_matches_spec_defaults():
     d = cc.default_config()
     assert d["weights"] == {"foundation": 0.35, "comprehension": 0.25, "execution": 0.25, "engagement": 0.15}
+    assert d["thresholds"]["ready_uncertainty"] == 0.35  # THE live CHECK gate default
     assert d["thresholds"]["engagement_gate"] == 0.60
     assert d["thresholds"]["uncertainty_trigger"] == 0.40
 
@@ -147,3 +148,36 @@ def test_store_then_resolve_end_to_end(tmp_path):
     r = cc.resolve(practice_override=cc.read_override(tmp_path))
     assert r["thresholds"]["engagement_gate"] == 0.8
     assert "thresholds.engagement_gate" in r["overridden"]
+
+
+# ── effective_for_session (runtime enforcement entry point) ───────────────────
+
+
+def test_effective_for_session_no_override_is_default(tmp_path, monkeypatch):
+    monkeypatch.setattr(cc.Path, "home", lambda: tmp_path / "home")
+    eff = cc.effective_for_session(tmp_path / "proj")  # neither dir has calibration.yaml
+    assert eff["thresholds"]["ready_uncertainty"] == 0.35  # exact default preserved
+    assert eff["overridden"] == []
+
+
+def test_effective_for_session_practice_wins_over_global(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    practice = tmp_path / "proj"
+    home.mkdir()
+    practice.mkdir()
+    monkeypatch.setattr(cc.Path, "home", lambda: home)
+    cc.apply_patch(home, {"thresholds": {"ready_uncertainty": 0.30}})
+    cc.apply_patch(practice, {"thresholds": {"ready_uncertainty": 0.45}})
+    eff = cc.effective_for_session(practice)
+    assert eff["thresholds"]["ready_uncertainty"] == 0.45  # practice overrides global
+    assert eff["sources"]["thresholds.ready_uncertainty"] == "practice"
+
+
+def test_effective_for_session_none_path_is_global_only(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setattr(cc.Path, "home", lambda: home)
+    cc.apply_patch(home, {"thresholds": {"ready_uncertainty": 0.30}})
+    eff = cc.effective_for_session(None)
+    assert eff["thresholds"]["ready_uncertainty"] == 0.30
+    assert eff["sources"]["thresholds.ready_uncertainty"] == "global"

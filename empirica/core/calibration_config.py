@@ -53,7 +53,13 @@ SCHEMA: tuple[FieldSpec, ...] = (
     FieldSpec("comprehension", "weights", 0.25, 0.0, 1.0, "Comprehension"),
     FieldSpec("execution", "weights", 0.25, 0.0, 1.0, "Execution"),
     FieldSpec("engagement", "weights", 0.15, 0.0, 1.0, "Engagement"),
-    # Sentinel thresholds.
+    # Sentinel thresholds. ready_uncertainty is THE live CHECK gate
+    # (proceed when uncertainty <= this; default 0.35, per the 2026-04-07
+    # meta-uncertainty redesign). engagement_gate feeds the hook's escalate
+    # check; the rest feed personas/reports.
+    FieldSpec(
+        "ready_uncertainty", "thresholds", 0.35, 0.0, 1.0, "CHECK gate: max uncertainty to proceed", is_gate=True
+    ),
     FieldSpec("engagement_gate", "thresholds", 0.60, 0.0, 1.0, "Engagement gate", is_gate=True),
     FieldSpec("uncertainty_trigger", "thresholds", 0.40, 0.0, 1.0, "Uncertainty trigger"),
     FieldSpec("confidence_to_proceed", "thresholds", 0.75, 0.0, 1.0, "Confidence to proceed"),
@@ -307,3 +313,25 @@ def apply_patch(scope_dir: str | Path, patch: dict) -> dict[str, Any]:
     elif p.exists():
         p.unlink()  # nothing left to override → remove the file
     return block
+
+
+# ── runtime resolution (entry point for enforcement wiring) ──────────────────
+
+
+def effective_for_session(project_path: str | Path | None = None) -> dict[str, Any]:
+    """Resolve the effective calibration config for the active practice.
+
+    Layers global (``~/.empirica``) → practice (``<project_path>/.empirica``).
+    ``project_path=None`` resolves global-only. Returns the same shape as
+    ``resolve()``.
+
+    This is the runtime entry point for enforcement sites: the caller passes the
+    current session's project dir (which enforcement sites already resolve for
+    other reasons), so this module stays a leaf and never imports the session
+    resolver. Enforcement sites should read a value only when its key is in the
+    returned ``overridden`` list — absent an override the resolved value equals
+    the base default, so a bad/missing file can never widen a gate.
+    """
+    global_override = read_override(Path.home())
+    practice_override = read_override(project_path) if project_path else {}
+    return resolve(global_override, practice_override)

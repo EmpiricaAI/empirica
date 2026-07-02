@@ -39,7 +39,7 @@ def test_get_returns_schema_presets_and_defaults(client):
     assert body["ok"] is True
     assert body["weights"]["foundation"] == 0.35
     assert body["thresholds"]["engagement_gate"] == 0.60
-    assert len(body["schema"]) == 8
+    assert len(body["schema"]) == 9
     assert "security" in body["presets"]
     assert body["overridden"] == []
 

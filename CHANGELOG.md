@@ -19,6 +19,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   extension's "Sentinel Tuning" tab. This is the settable *source* + read/write
   surface; migrating the scattered runtime gate checks to read the resolver is a
   tracked follow-up. Extension owns the UI slice.
+  A code-verified deep dive established that the live CHECK gate is
+  **uncertainty-only** (`uncertainty ≤ ready_uncertainty_threshold`, default
+  0.35, per the 2026-04-07 meta-uncertainty redesign) — so `engagement_gate`
+  (0.6) does not gate CHECK at runtime. Added a settable **`ready_uncertainty`**
+  field (the real gate) and a runtime **`effective_for_session(project_path)`**
+  resolver (leaf helper, layers global→practice, defaults preserved exactly when
+  no override exists). Wiring these into the three live threshold accessors
+  (CLI `_check_load_dynamic_thresholds`, the hook, the evaluator) — so an
+  override actually shifts the gate — is the next, gating-critical step.
 
 ### Security
 - **nltk removed from the dependency tree** — the `[prose]` evidence extra pulled
