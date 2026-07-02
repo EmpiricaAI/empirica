@@ -1293,6 +1293,19 @@ def handle_goals_list_command(args):
         base_query += status_sql
         params.extend(status_params)
 
+        # Full match count (pre-LIMIT) for "N of M" truncation transparency.
+        total_matching = None
+        try:
+            count_query = (
+                "SELECT COUNT(*) FROM goals g "
+                "LEFT JOIN sessions s ON g.session_id = s.session_id "
+                "WHERE 1=1" + base_query.split("WHERE 1=1", 1)[1]
+            )
+            cursor.execute(count_query, list(params))
+            total_matching = cursor.fetchone()[0]
+        except Exception:
+            total_matching = None
+
         base_query += " ORDER BY g.created_timestamp DESC LIMIT ?"
         params.append(limit)
 
@@ -1337,6 +1350,9 @@ def handle_goals_list_command(args):
         result = {
             "ok": True,
             "goals_count": len(goals),
+            "total_matching": total_matching,
+            "truncated": bool(total_matching is not None and total_matching > len(goals)),
+            "limit": limit,
             "goals": goals,
             "filters": {
                 "project_id": project_id,
@@ -1359,7 +1375,13 @@ def handle_goals_list_command(args):
         else:
             # Human format - print here and return None so CLI core doesn't double-print
             print(f"{'=' * 70}")
-            print(f"🎯 GOALS ({status_desc.upper()}) - {len(goals)} found [{filter_desc}]")
+            if total_matching is not None and total_matching > len(goals):
+                print(
+                    f"🎯 GOALS ({status_desc.upper()}) - showing {len(goals)} of {total_matching} "
+                    f"[{filter_desc}] · raise --limit (now {limit}) to see more"
+                )
+            else:
+                print(f"🎯 GOALS ({status_desc.upper()}) - {len(goals)} found [{filter_desc}]")
             print(f"{'=' * 70}")
             print()
 
