@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **`empirica note` scratchpad notes now resurface until triaged** — `note --list`
+  and the POSTFLIGHT retrospective were scoped to the *current transaction_id*, so
+  a note jotted in one transaction was invisible from the next (and lost across a
+  session_id rotation on compaction). The whole point is "capture now, classify
+  *later*" — and "later" is almost always a different transaction — so
+  cross-transaction follow-ups silently stranded (usage audit: 60–100% of notes
+  left untriaged across practices, because the review moment never showed them).
+  Both surfaces are now scoped by **`project_id`** (durable), so the backlog
+  reliably reappears for triage; falls back to session scope for pre-project
+  notes. The PREFLIGHT partial-credit signal stays transaction-scoped (it asks
+  "did you capture intent during the work you just did?", which is correctly
+  per-transaction).
 - **Local machines no longer falsely trip `REMOTE:SSH:UNTRUSTED`** — `SSH_CONNECTION`/
   `SSH_CLIENT`/`SSH_TTY` are inherited by tmux/screen servers, so a pane whose
   multiplexer was started over a since-closed SSH login carried those vars

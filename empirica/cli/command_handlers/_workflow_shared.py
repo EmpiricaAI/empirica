@@ -628,17 +628,25 @@ def _build_retrospective(session_id: str, transaction_id: str | None) -> dict:
 def _maybe_add_untriaged_notes(cursor, session_id: str, transaction_id, retro: dict) -> None:
     """Surface scratchpad notes-to-self for triage at the retrospective.
 
-    The POSTFLIGHT review moment: untriaged notes from this transaction (or the
-    session, if no transaction) are surfaced so the AI can promote them to
-    artifacts/goals or discard them (then `empirica note --clear`). Scoped,
-    metadata-only, non-fatal. Tolerates the table not existing on older DBs.
+    The POSTFLIGHT review moment: EVERY untriaged note for the PROJECT is
+    surfaced (not just this transaction's) so the "capture now, classify later"
+    backlog reliably resurfaces and gets promoted/cleared. Scoped by project_id
+    (durable across transaction/session rotation — the transaction/session
+    scoping used to strand cross-transaction notes); falls back to session_id
+    when the session has no project. Metadata-only, non-fatal. Tolerates the
+    table not existing on older DBs.
     """
     try:
-        if transaction_id:
+        project_id = None
+        try:
+            prow = cursor.execute("SELECT project_id FROM sessions WHERE session_id = ?", (session_id,)).fetchone()
+            project_id = prow[0] if prow else None
+        except Exception:
+            project_id = None  # sessions table absent (older DB) → session-scope fallback
+        if project_id:
             rows = cursor.execute(
-                "SELECT text, tag FROM notes WHERE session_id = ? AND "
-                "transaction_id = ? AND triaged = 0 ORDER BY created_at",
-                (session_id, transaction_id),
+                "SELECT text, tag FROM notes WHERE project_id = ? AND triaged = 0 ORDER BY created_at",
+                (project_id,),
             ).fetchall()
         else:
             rows = cursor.execute(
@@ -649,7 +657,7 @@ def _maybe_add_untriaged_notes(cursor, session_id: str, transaction_id, retro: d
             return
         retro["untriaged_notes"] = [{"text": r[0], "tag": r[1]} for r in rows]
         retro["untriaged_notes_hint"] = (
-            f"{len(rows)} untriaged note(s)-to-self from this transaction. "
+            f"{len(rows)} untriaged note(s)-to-self for this project. "
             "Promote any worth keeping to a finding/decision/goal, then "
             "`empirica note --clear`."
         )

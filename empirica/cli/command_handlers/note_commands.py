@@ -1,16 +1,22 @@
 """Note command — fast scratchpad / note-to-self.
 
-Low-friction, transaction-scoped jottings captured mid-flow and reviewed at the
-POSTFLIGHT retrospective. The complement to the structured ``*-log`` artifacts:
-capture now, classify later. Pure metadata — NOT shared, NOT embedded in Qdrant,
-NOT written to git notes. The durability win (survives context compaction) is
-why these live in sessions.db rather than in-context.
+Low-friction jottings captured mid-flow and reviewed later. The complement to the
+structured ``*-log`` artifacts: capture now, classify later. Pure metadata — NOT
+shared, NOT embedded in Qdrant, NOT written to git notes. The durability win
+(survives context compaction) is why these live in sessions.db rather than
+in-context.
+
+**Resurface scope is the PROJECT, not the transaction.** ``--list`` and the
+POSTFLIGHT retrospective surface every untriaged note for the project until it is
+triaged — a note left in one transaction must reappear in the next (and after a
+compaction/session rotation), or "classify later" never happens. ``--clear``
+marks the project's untriaged notes triaged.
 
 Usage:
     empirica note "static query should stay static, not f-string"
     empirica note "ask cortex if gap1 overlaps R3" --tag followup
-    empirica note --list      # review untriaged notes (the retrospective moment)
-    empirica note --clear     # mark this transaction's notes triaged
+    empirica note --list      # review the project's untriaged notes (any transaction)
+    empirica note --clear     # mark the project's untriaged notes triaged
 """
 
 from __future__ import annotations
@@ -107,13 +113,21 @@ def handle_note_command(args) -> dict | int | None:
 
 
 def _query_untriaged(conn, ctx):
-    """Untriaged notes for the active transaction (or whole session if none)."""
-    if ctx["transaction_id"]:
+    """Untriaged notes for the current PROJECT — resurface until triaged.
+
+    Scoped by ``project_id``, NOT transaction/session. This is the fix for the
+    stranding bug: the whole point of a note is "capture now, classify LATER",
+    and "later" is almost always a different transaction (and often a different
+    session — the empirica session_id rotates on compaction). Transaction/session
+    scoping meant a note jotted in transaction A was invisible from B, so
+    cross-transaction follow-ups never resurfaced. Project scope makes them
+    durable. Falls back to session_id only when the note/context predates
+    project_id.
+    """
+    if ctx.get("project_id"):
         rows = conn.execute(
-            "SELECT note_id, text, tag, created_at FROM notes "
-            "WHERE session_id = ? AND transaction_id = ? AND triaged = 0 "
-            "ORDER BY created_at",
-            (ctx["session_id"], ctx["transaction_id"]),
+            "SELECT note_id, text, tag, created_at FROM notes WHERE project_id = ? AND triaged = 0 ORDER BY created_at",
+            (ctx["project_id"],),
         ).fetchall()
     else:
         rows = conn.execute(
