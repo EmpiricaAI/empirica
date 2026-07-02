@@ -2,8 +2,8 @@
 
 **The canonical reference for all Empirica concepts.**
 
-Version: 1.1.0
-Last updated: 2026-02-23
+Version: 1.2.0
+Last updated: 2026-07-02
 
 This document is the single source of truth for Empirica's concept space. AI agents consume it natively. Human developers use it as a vocabulary reference — the Rosetta Stone section maps every term to familiar equivalents.
 
@@ -74,45 +74,50 @@ The measurement of what an agent knows, how confident it is, and how that change
 
 ### 2.1 Vectors
 
-A vector is a single dimension of epistemic state, rated 0.0 to 1.0. There are 13 vectors across 4 tiers.
+A vector is a single dimension of epistemic state, rated 0.0 to 1.0. There are 13 vectors across 4 dimensions (shape 3-5-3-2). Dimensions group vectors by what they measure — feasibility, quality of understanding, output produced, and the trustworthiness of the self-assessment itself.
 
-#### Tier 0 — Gate (15% weight)
-
-| Vector | Measures | Threshold |
-|--------|----------|-----------|
-| **engagement** | Quality of collaborative intelligence. Is meaningful work possible? | ≥ 0.6 to proceed |
-
-#### Tier 1 — Foundation (35% weight)
+#### Foundation (3) — feasibility: "can you do this task?"
 
 | Vector | Measures |
 |--------|----------|
 | **know** | Domain understanding. What do I actually know about this? |
-| **do** | Execution capability. Can I perform the required actions? |
-| **context** | Surrounding information. Do I have enough situational awareness? |
+| **do** | Execution capability — the "means" leg of the feasibility triad. Can I perform the required actions (tools, skills, access)? |
+| **context** | Understanding of the surrounding, stable state (project, history, constraints). |
 
-#### Tier 2 — Comprehension (25% weight)
+#### Comprehension (5) — quality of understanding
 
 | Vector | Measures |
 |--------|----------|
-| **clarity** | Requirement understanding. Do I know what's being asked? |
+| **clarity** | Requirement understanding. How clear is the path forward? |
 | **coherence** | Internal consistency. Does my understanding fit together? |
-| **signal** | Pattern detection. Am I detecting relevant information? |
-| **density** | Information richness. How much useful data do I have? |
+| **signal** | Pattern detection. Quality of information (vs noise). |
+| **density** | Information richness. Relevant knowledge per unit of context. |
+| **state** | Live awareness of the current system/project state. A perception, not an output — symmetric with `context` (the stable surrounding state). |
 
-#### Tier 3 — Execution (25% weight)
+#### Execution (3) — outputs produced
 
 | Vector | Measures |
 |--------|----------|
-| **state** | System awareness. Do I understand the current state of things? |
-| **change** | Delta detection. How much has changed since my last assessment? |
-| **completion** | Phase-aware progress. How complete is the current phase? (See: Phase-Aware Completion) |
-| **impact** | Significance. How important is this work? |
+| **change** | Amount of change made in this transaction. |
+| **completion** | Phase-aware progress toward the current phase goal. (See: Phase-Aware Completion) |
+| **impact** | Significance of the work to the project. |
 
-#### Meta
+#### Meta (2) — trustworthiness of the self-assessment
 
 | Vector | Measures | Note |
 |--------|----------|------|
-| **uncertainty** | Doubt magnitude. How unsure am I? | Inverted: higher = more uncertain. Historically overestimated. |
+| **engagement** | How actively you're working the problem — the quality of collaborative intelligence. | Gates CHECK (historically ≥ 0.6 to proceed). |
+| **uncertainty** | What you DON'T know. | Inverted: higher = more uncertain. Historically overestimated. |
+
+#### Calibration weighting (why 4 dimensions)
+
+Dimensions are weighted by `work_type` — not by fixed per-tier percentages, which were deprecated in favor of work_type-scaled calibration:
+
+- **code** → Execution + Foundation (shipping matters most)
+- **research** → Comprehension + Meta (understanding + calibrated uncertainty)
+- **docs** → Comprehension (clarity paramount)
+
+The older 3-tier framing (Foundation / Meta / Phase-dependent) folded Comprehension + Execution into "phase-dependent"; the 4-dimension split (3-5-3-2) makes the understanding→output boundary explicit. Edge cases: `state` → Comprehension (a live perception, not an output); `do` → stays Foundation.
 
 #### Phase-Aware Completion
 
