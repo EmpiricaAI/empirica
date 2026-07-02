@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Calibration config — settable epistemic weights + Sentinel thresholds (per-practice + global).**
+  A new `empirica/core/calibration_config.py` declares the tunable surface (the 4
+  dimension weights + 4 Sentinel thresholds — the same shape personas use as
+  `EpistemicConfig`) and an **overlay resolver** that layers `base → persona
+  preset → global override → practice override` (sparse overrides stored in a
+  dedicated `.empirica/calibration.yaml` per scope, never touching `project.yaml`).
+  New daemon endpoints `GET/PATCH /api/v1/calibration/config?scope=&practice_id=`
+  expose it (validated, range-clamped, reset-to-default via `null`) for the
+  extension's "Sentinel Tuning" tab. This is the settable *source* + read/write
+  surface; migrating the scattered runtime gate checks to read the resolver is a
+  tracked follow-up. Extension owns the UI slice.
+
 ### Security
 - **nltk removed from the dependency tree** — the `[prose]` evidence extra pulled
   `textstat`, which pulled `nltk` (`nltk` was `Required-by` textstat *only*), and
