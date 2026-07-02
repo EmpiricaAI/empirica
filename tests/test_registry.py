@@ -122,6 +122,35 @@ def test_upsert_preserves_explicit_last_seen():
     assert reg["projects"][0]["last_seen"] == "2026-01-01T00:00:00+00:00"
 
 
+_UUID_A = "2273f11d-0000-4000-8000-000000000000"
+
+
+def test_upsert_by_path_rekey_updates_not_appends():
+    """The registry-drift fix: re-syncing a project at the SAME path with a NEW
+    project_id (slug→UUID promotion) must UPDATE the existing entry, not append a
+    fresh-UUID duplicate (which produced the dedup-conflict spam)."""
+    reg = {
+        "version": 1,
+        "projects": [{"project_id": "grants", "slug": "grants", "name": "Grants", "path": "/tmp/grants"}],
+    }
+    upsert_project(reg, project_id=_UUID_A, slug="grants", name="Grants", path="/tmp/grants")
+    assert len(reg["projects"]) == 1  # updated in place — NOT two entries
+    assert reg["projects"][0]["project_id"] == _UUID_A  # canonical UUID took over
+
+
+def test_upsert_by_path_does_not_downgrade_canonical_uuid_to_slug():
+    """Canonical-identity guard: a same-path re-sync must not clobber a UUID
+    entry with a slug (UUID-keyed wins)."""
+    reg = {
+        "version": 1,
+        "projects": [{"project_id": _UUID_A, "slug": "grants", "name": "Grants", "path": "/tmp/grants"}],
+    }
+    upsert_project(reg, project_id="grants", slug="grants", name="Grants Renamed", path="/tmp/grants")
+    assert len(reg["projects"]) == 1
+    assert reg["projects"][0]["project_id"] == _UUID_A  # UUID preserved
+    assert reg["projects"][0]["name"] == "Grants Renamed"  # other fields still updated
+
+
 # ─── find_by_project_id ────────────────────────────────────────────────
 
 

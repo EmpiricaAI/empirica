@@ -1053,19 +1053,46 @@ brew install empirica
             log(f"  {line}")
         return False
 
+    # Governed CVE-waiver list. STRICT by default (any un-waived CVE hard-fails).
+    # A waiver here is a documented, reviewed risk-acceptance for a CVE that is
+    # (a) assessed non-exploitable in Empirica's usage, AND (b) has no available
+    # fix. Each MUST carry a rationale and a `retire_when` condition. The gate
+    # prints active waivers every run so they stay visible, not hidden. Keep this
+    # in sync with `empirica security-audit` (unify: goal — shared waiver source).
+    PIP_AUDIT_WAIVERS: list[dict] = [
+        {
+            "id": "PYSEC-2026-597",  # CVE-2026-12243
+            "package": "nltk",
+            "rationale": (
+                "path-traversal arbitrary-file-READ via attacker-controlled resource names to "
+                "nltk.data.load()/find(). nltk is transitive ONLY via the optional [prose] extra "
+                "(textstat, en_US syllable counts); Empirica calls it with FIXED internal resource "
+                "names on user text and never exposes the resource-name argument to user input, so "
+                "the vuln is unreachable. Not in CISA KEV (empirica security-audit passes)."
+            ),
+            "retire_when": "textstat drops nltk OR nltk ships a fixed release (none exists; all <=3.9.4 affected).",
+        },
+    ]
+
     def run_pip_audit(self) -> bool:
-        """CVE scan — mirrors the CI pip-audit step (hard fail on CVEs)."""
+        """CVE scan — mirrors the CI pip-audit step. STRICT (hard fail on CVEs)
+        except for the governed, documented PIP_AUDIT_WAIVERS."""
         log("\n" + "=" * 60)
         log("🔒 pip-audit (CVE gate)")
         log("=" * 60)
 
+        ignore_args: list[str] = []
+        for w in self.PIP_AUDIT_WAIVERS:
+            ignore_args += ["--ignore-vuln", w["id"]]
+            warning(f"CVE waiver ACTIVE: {w['id']} ({w['package']}) — {w['rationale']} [retire: {w['retire_when']}]")
+
         if self.dry_run:
-            info("Would run: pip-audit --skip-editable")
+            info(f"Would run: pip-audit --skip-editable {' '.join(ignore_args)}")
             return True
 
         try:
             result = subprocess.run(
-                ["pip-audit", "--skip-editable"],
+                ["pip-audit", "--skip-editable", *ignore_args],
                 capture_output=True, text=True, timeout=300,
                 cwd=str(self.repo_root),
             )

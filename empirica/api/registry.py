@@ -220,6 +220,17 @@ def dedupe_registry(
     return deduped, removed
 
 
+def _resolve_path_key(path: Any) -> str | None:
+    """Symlink-following normalized path key (matches prune_stale / the daemon
+    resolver). Returns None for empty/unresolvable paths so they never match."""
+    if not path or not isinstance(path, str):
+        return None
+    try:
+        return str(Path(path).resolve(strict=False))
+    except (OSError, RuntimeError):
+        return None
+
+
 def upsert_project(
     registry: dict[str, Any],
     *,
@@ -232,8 +243,16 @@ def upsert_project(
 ) -> dict[str, Any]:
     """Insert or update a registry entry. Returns the modified registry.
 
-    Matches on project_id. If project_id already present, updates the entry
-    in place. Updates `last_seen` to now() if not provided.
+    Matches on the resolved realpath of ``path`` FIRST, then on ``project_id``.
+    Path-first is the fix for registry.yaml drift: a re-keyed project (same
+    path, NEW project_id — e.g. a slug→canonical-UUID promotion, or a re-clone)
+    must UPDATE its existing entry in place, not append a fresh-UUID duplicate.
+    Appending created two entries at one path; when both are UUID-keyed,
+    ``dedupe_registry`` refuses to auto-resolve → per-request "dedup skipping
+    conflict" spam on every daemon request (surfaced by mesh-support on Philipp's
+    box). Canonical-identity guard: a same-path match never DOWNGRADES an
+    existing canonical UUID to a slug (UUID-keyed wins, per ser_542199e3).
+    Updates ``last_seen`` to now() if not provided.
     """
     entry = {
         "project_id": project_id,
@@ -245,8 +264,13 @@ def upsert_project(
     }
 
     projects = registry.setdefault("projects", [])
+    target_key = _resolve_path_key(path)
     for i, existing in enumerate(projects):
-        if existing.get("project_id") == project_id:
+        same_path = target_key is not None and _resolve_path_key(existing.get("path")) == target_key
+        if same_path or existing.get("project_id") == project_id:
+            # Don't let a same-path re-sync clobber a canonical UUID with a slug.
+            if same_path and _is_canonical_uuid(existing.get("project_id")) and not _is_canonical_uuid(project_id):
+                entry["project_id"] = existing["project_id"]
             projects[i] = entry
             return registry
 
