@@ -671,6 +671,63 @@ curl -X POST http://localhost:8000/api/v1/artifacts/resolve \
 
 ---
 
+## Calibration Config (v1.13+)
+
+The settable epistemic **dimension weights** (Foundation / Comprehension /
+Execution / Engagement — a sum-to-1 group) and **Sentinel thresholds**
+(`engagement_gate`, `uncertainty_trigger`, `confidence_to_proceed`,
+`signal_quality_min`). Backed by an overlay resolver
+(`empirica/core/calibration_config.py`) that layers
+`base → persona preset → global override → practice override`. Overrides are
+sparse and stored per-scope in a dedicated `.empirica/calibration.yaml`.
+
+### GET /api/v1/calibration/config
+
+Query: `practice_id` (optional). Returns the effective (global→practice-layered)
+config for that practice, plus the field schema, preset names, and the raw
+per-scope override blocks.
+
+```jsonc
+{
+  "ok": true,
+  "weights": {"foundation": 0.35, "comprehension": 0.25, "execution": 0.25, "engagement": 0.15},
+  "thresholds": {"engagement_gate": 0.6, "uncertainty_trigger": 0.4, "confidence_to_proceed": 0.75, "signal_quality_min": 0.6},
+  "preset": null,                                  // effective persona preset, or null
+  "sources": {"thresholds.engagement_gate": "default"},  // default | preset:<name> | global | practice
+  "overridden": [],                                // keys set above the default
+  "schema": [{"key": "engagement_gate", "group": "thresholds", "default": 0.6, "min": 0.0, "max": 1.0, "label": "Engagement gate", "is_gate": true}, ...],
+  "presets": ["architecture", "code_review", "performance", "security", "sentinel", "ux"],
+  "overrides": {"global": {...}, "practice": {...}} // raw sparse blocks per scope
+}
+```
+
+### PATCH /api/v1/calibration/config
+
+Query: `scope=global|practice` (default `practice`), `practice_id` (required for
+practice scope). Body is a sparse override — any subset of
+`{"weights": {...}, "thresholds": {...}, "preset": "<name>|null"}`. Values are
+range-clamped; a `null` value **resets** that key to default. Unknown keys /
+presets → `422`; practice scope without a resolvable `practice_id` → `400`/`404`.
+Returns the new effective config (same shape as GET).
+
+```bash
+# Global: raise the engagement gate
+curl -X PATCH "$API/api/v1/calibration/config?scope=global" \
+  -H 'Content-Type: application/json' -d '{"thresholds": {"engagement_gate": 0.7}}'
+
+# Practice: adopt the 'security' preset, then reset one key to default
+curl -X PATCH "$API/api/v1/calibration/config?scope=practice&practice_id=empirica" \
+  -H 'Content-Type: application/json' -d '{"preset": "security"}'
+curl -X PATCH "$API/api/v1/calibration/config?scope=practice&practice_id=empirica" \
+  -H 'Content-Type: application/json' -d '{"thresholds": {"engagement_gate": null}}'
+```
+
+> Scope note: this is the settable *source* + read/write surface. Migrating the
+> runtime gate checks to read the resolver is a tracked follow-up, so writes are
+> persisted and resolvable today but do not yet alter live enforcement.
+
+---
+
 ## Models
 
 ### HealthResponse
