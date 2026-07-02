@@ -61,6 +61,30 @@ def test_handle_auto_init_returns_path_even_when_already_initialized(tmp_path, m
     assert project_path == str(tmp_path)
 
 
+def test_handle_auto_init_never_clobbers_existing_project_yaml(tmp_path, monkeypatch):
+    """Data-loss guard (1.12.10, mesh-support/Philipp repro): an existing
+    project.yaml (canonical id, gitignored → only copy) must be REUSED, never
+    overwritten with defaults + a random project_id. The old code guarded on
+    config.yaml, so project.yaml-present-but-config.yaml-absent regenerated it."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".empirica").mkdir()
+    canonical = "2273f11d-0000-4000-8000-000000000000"
+    (tmp_path / ".empirica" / "project.yaml").write_text(f"project_id: {canonical}\ntype: engagement\n")
+    # config.yaml intentionally ABSENT — the scenario that used to overwrite.
+    args = Namespace(auto_init=True)
+
+    with (
+        patch("empirica.config.path_resolver.get_git_root", return_value=tmp_path),
+        patch("empirica.cli.command_handlers.project_init.handle_project_init_command") as init_mock,
+    ):
+        performed, project_id, _project_path = _handle_auto_init(args, output_format="json", project_id=None)
+
+    init_mock.assert_not_called()  # project-init (the overwriter) never ran
+    assert performed is False
+    assert project_id == canonical  # reused the canonical id, not a fresh random one
+    assert canonical in (tmp_path / ".empirica" / "project.yaml").read_text()  # file untouched
+
+
 def test_handle_auto_init_no_flag_returns_none_path():
     """Without --auto-init, the third element is None."""
     args = Namespace(auto_init=False)

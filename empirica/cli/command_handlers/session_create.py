@@ -305,6 +305,26 @@ def _handle_auto_init(args, output_format, project_id):
     # relying on the resolver chain that doesn't yet know about the new project.
     auto_init_project_path = str(git_root)
 
+    # Data-loss guard (mesh-support/Philipp repro): NEVER clobber an existing
+    # project.yaml. It holds the canonical project_id + type/domain/tenant/
+    # calibration_weights and is gitignored (so it's the only copy). The old
+    # guard checked config.yaml, but project-init OVERWRITES project.yaml — so a
+    # project with project.yaml present but config.yaml absent (or a project_id
+    # not yet in the local registry) got regenerated with defaults + a RANDOM
+    # project_id, blowing away canonical identity. If project.yaml exists, REUSE
+    # its project_id and skip re-init entirely.
+    project_yaml = git_root / ".empirica" / "project.yaml"
+    if project_yaml.exists():
+        try:
+            import yaml as _yaml
+
+            existing = _yaml.safe_load(project_yaml.read_text()) or {}
+            if isinstance(existing, dict) and existing.get("project_id"):
+                project_id = existing["project_id"]
+        except Exception:
+            pass  # unreadable project.yaml → still never overwrite it
+        return auto_init_performed, project_id, auto_init_project_path
+
     empirica_config = git_root / ".empirica" / "config.yaml"
     if not empirica_config.exists():
         if output_format != "json":

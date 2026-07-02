@@ -10,6 +10,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.12.10] — 2026-07-02
 
 ### Fixed
+- **Workspace-DB open no longer hard-crashes on pre-E1 databases** — a
+  `workspace.db` whose `engagements` table predated the E1 sidecar columns
+  (`lifecycle_state`/`stage`/`domain`/`updated_at`) was never migrated:
+  `CREATE TABLE IF NOT EXISTS` no-ops on an existing table, then
+  `CREATE INDEX idx_engagements_lifecycle ON engagements(lifecycle_state)`
+  crashed with `no such column` on **every** workspace-DB open — bricking
+  session-create / project-switch / project-list / SessionStart auto-init.
+  `_apply_engagement_substrate` now runs an additive-migration pass
+  (`PRAGMA table_info` → `ALTER TABLE ADD COLUMN` for any missing sidecar column)
+  before the index block, self-healing old DBs on open. (mesh-support/Philipp
+  repro; surfaced by the 1.12.10 rollout on managed boxes.)
+- **`session-create --auto-init` no longer clobbers an existing `project.yaml`** —
+  the guard checked `config.yaml` but the overwrite target was `project.yaml`, so
+  a project with `project.yaml` present (canonical `project_id` + type/domain/
+  tenant/calibration_weights, gitignored → only copy) but `config.yaml` absent
+  got regenerated with defaults + a **random** `project_id`. Auto-init now
+  reuses an existing `project.yaml`'s `project_id` and never overwrites it.
 - **`projects-sync` upserts by path, not append** — `upsert_project` matched only
   on `project_id`, so re-syncing a project whose id changed (slug→canonical-UUID
   promotion, or a re-clone) at the same path **appended a second `registry.yaml`

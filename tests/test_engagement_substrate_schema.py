@@ -42,6 +42,24 @@ def test_apply_creates_substrate_tables():
     assert _tables(conn) >= _SUBSTRATE_TABLES
 
 
+def test_additive_migration_heals_pre_e1_engagements_table():
+    """Regression (1.12.10 hard-crash, mesh-support/Philipp repro): a workspace.db
+    whose `engagements` table predates the E1 sidecar columns must be
+    ALTER-migrated on open — CREATE TABLE IF NOT EXISTS no-ops on the existing
+    table, so without the additive pass the idx_engagements_lifecycle index below
+    crashes with `no such column: lifecycle_state`."""
+    conn = _fresh_db()
+    # Pre-E1 engagements table: no lifecycle_state/stage/domain/updated_at.
+    conn.execute("CREATE TABLE engagements (engagement_id TEXT PRIMARY KEY, title TEXT, status TEXT)")
+    conn.commit()
+    wdb._apply_engagement_substrate(conn.cursor())  # must NOT raise
+    conn.commit()
+    assert {"lifecycle_state", "stage", "domain", "updated_at", "outcome"} <= _cols(conn, "engagements")
+    # The index that used to crash now exists.
+    idx = {r[1] for r in conn.execute("PRAGMA index_list(engagements)").fetchall()}
+    assert "idx_engagements_lifecycle" in idx
+
+
 def test_engagements_has_e1_cols_and_no_contacts_fk():
     conn = _fresh_db()
     wdb._apply_engagement_substrate(conn.cursor())
