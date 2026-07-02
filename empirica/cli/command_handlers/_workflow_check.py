@@ -512,6 +512,20 @@ def _check_load_dynamic_thresholds(session_id):
     except Exception:
         pass
 
+    # Calibration-config override (practice → global): explicit per-practice/global
+    # tuning becomes the BASE gate; Brier still tightens on top. Fail-safe — a
+    # missing/bad calibration.yaml leaves the default 0.35 untouched.
+    try:
+        from empirica.core.calibration_config import override_thresholds
+
+        _cal = override_thresholds(R.project_path())
+        if "ready_uncertainty" in _cal:
+            ready_uncertainty_threshold = _cal["ready_uncertainty"]
+            profile_base_thresholds = dict(profile_base_thresholds or {})
+            profile_base_thresholds["ready_uncertainty_threshold"] = ready_uncertainty_threshold
+    except Exception:
+        pass
+
     # Dynamic thresholds from calibration history
     try:
         from empirica.core.post_test.dynamic_thresholds import compute_dynamic_thresholds

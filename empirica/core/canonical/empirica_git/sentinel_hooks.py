@@ -566,8 +566,17 @@ def default_epistemic_evaluator(checkpoint_data: dict[str, Any]) -> SentinelDeci
     # Load thresholds: dynamic (Brier-inflated) first, MCO/static fallback
     _, max_uncertainty = _load_evaluator_thresholds()
 
-    # Escalate if engagement too low
-    if engagement < 0.5:
+    # Escalate if engagement too low. Threshold settable via the calibration
+    # engagement_gate (practice → global); default 0.5, fail-safe.
+    _escalate_gate = 0.5
+    try:
+        from empirica.core.calibration_config import override_thresholds
+        from empirica.utils.session_resolver import InstanceResolver as R
+
+        _escalate_gate = override_thresholds(R.project_path()).get("engagement_gate", 0.5)
+    except Exception:
+        _escalate_gate = 0.5
+    if engagement < _escalate_gate:
         return SentinelDecision.ESCALATE
 
     # Gate uses META UNCERTAINTY ONLY (2026-04-07).
@@ -609,6 +618,20 @@ def _load_evaluator_thresholds() -> tuple:
         thresholds = _load_readiness_thresholds()
         return thresholds["min_know"], thresholds["max_uncertainty"]
 
+    # Calibration override (practice → global) sets the BASE uncertainty gate;
+    # Brier still tightens on top. Fail-safe — no override leaves defaults intact.
+    _cal_unc = None
+    try:
+        from empirica.core.calibration_config import override_thresholds
+        from empirica.utils.session_resolver import InstanceResolver as R
+
+        _cal_unc = override_thresholds(R.project_path()).get("ready_uncertainty")
+    except Exception:
+        _cal_unc = None
+    _cal_base = (
+        {"ready_know_threshold": 0.70, "ready_uncertainty_threshold": _cal_unc} if _cal_unc is not None else None
+    )
+
     # Try Brier-inflated dynamic thresholds (same as CHECK uses)
     try:
         from empirica.core.post_test.dynamic_thresholds import compute_dynamic_thresholds
@@ -616,7 +639,7 @@ def _load_evaluator_thresholds() -> tuple:
 
         db = SessionDatabase()
         try:
-            dt_result = compute_dynamic_thresholds(ai_id="claude-code", db=db)
+            dt_result = compute_dynamic_thresholds(ai_id="claude-code", db=db, base_thresholds=_cal_base)
             if dt_result.get("source") == "dynamic":
                 # Use noetic thresholds — the evaluator gates the
                 # investigation→action boundary, same as CHECK.
@@ -633,9 +656,9 @@ def _load_evaluator_thresholds() -> tuple:
     except Exception:
         pass  # Fall back to MCO/static
 
-    # Fallback: MCO config / static defaults
+    # Fallback: MCO config / static defaults (calibration override wins if set)
     thresholds = _load_readiness_thresholds()
-    return thresholds["min_know"], thresholds["max_uncertainty"]
+    return thresholds["min_know"], (_cal_unc if _cal_unc is not None else thresholds["max_uncertainty"])
 
 
 # Alias for backwards compatibility

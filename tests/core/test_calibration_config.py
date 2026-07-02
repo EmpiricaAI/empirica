@@ -181,3 +181,39 @@ def test_effective_for_session_none_path_is_global_only(tmp_path, monkeypatch):
     eff = cc.effective_for_session(None)
     assert eff["thresholds"]["ready_uncertainty"] == 0.30
     assert eff["sources"]["thresholds.ready_uncertainty"] == "global"
+
+
+# ── override_thresholds (fail-safe enforcement helper) ────────────────────────
+
+
+def test_override_thresholds_empty_when_no_override(tmp_path, monkeypatch):
+    monkeypatch.setattr(cc.Path, "home", lambda: tmp_path / "home")
+    assert cc.override_thresholds(tmp_path / "proj") == {}
+
+
+def test_override_thresholds_returns_only_overridden_threshold_keys(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    practice = tmp_path / "proj"
+    home.mkdir()
+    practice.mkdir()
+    monkeypatch.setattr(cc.Path, "home", lambda: home)
+    cc.apply_patch(practice, {"thresholds": {"ready_uncertainty": 0.45, "engagement_gate": 0.7}})
+    assert cc.override_thresholds(practice) == {"ready_uncertainty": 0.45, "engagement_gate": 0.7}
+
+
+def test_override_thresholds_ignores_weight_overrides(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    practice = tmp_path / "proj"
+    home.mkdir()
+    practice.mkdir()
+    monkeypatch.setattr(cc.Path, "home", lambda: home)
+    cc.apply_patch(practice, {"weights": {"engagement": 0.2}, "thresholds": {"ready_uncertainty": 0.4}})
+    assert cc.override_thresholds(practice) == {"ready_uncertainty": 0.4}  # weights excluded
+
+
+def test_override_thresholds_failsafe_never_raises(monkeypatch):
+    def _boom(*_a, **_k):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(cc, "effective_for_session", _boom)
+    assert cc.override_thresholds("/whatever") == {}

@@ -482,20 +482,36 @@ def _get_dynamic_thresholds(db) -> tuple:
     Falls back to static constants if dynamic computation fails or has insufficient data.
     Only the noetic phase thresholds are used for the sentinel gate (investigation → action).
     """
+    # Calibration override (practice → global) sets the BASE uncertainty gate;
+    # Brier still tightens on top. Fail-safe — no override leaves the static
+    # UNCERTAINTY_THRESHOLD untouched.
+    _cal_unc = None
+    try:
+        from empirica.core.calibration_config import override_thresholds
+        from empirica.utils.session_resolver import InstanceResolver as R
+
+        _cal_unc = override_thresholds(R.project_path()).get("ready_uncertainty")
+    except Exception:
+        _cal_unc = None
+    _cal_base = (
+        {"ready_know_threshold": KNOW_THRESHOLD, "ready_uncertainty_threshold": _cal_unc}
+        if _cal_unc is not None
+        else None
+    )
     try:
         from empirica.core.post_test.dynamic_thresholds import compute_dynamic_thresholds
         from empirica.utils.session_resolver import InstanceResolver as R
 
         # Brier thresholds are per-practice — resolve the canonical ai_id so a
         # multi-practice machine doesn't read 'claude-code' calibration for all.
-        dt_result = compute_dynamic_thresholds(ai_id=R.ai_id() or "claude-code", db=db)
+        dt_result = compute_dynamic_thresholds(ai_id=R.ai_id() or "claude-code", db=db, base_thresholds=_cal_base)
         if dt_result.get("source") == "dynamic":
             noetic = dt_result.get("noetic", {})
             if noetic.get("brier_score") is not None:
                 return (noetic["ready_know_threshold"], noetic["ready_uncertainty_threshold"])
     except Exception:
         pass
-    return (KNOW_THRESHOLD, UNCERTAINTY_THRESHOLD)
+    return (KNOW_THRESHOLD, _cal_unc if _cal_unc is not None else UNCERTAINTY_THRESHOLD)
 
 
 def _get_domain_scaled_thresholds(

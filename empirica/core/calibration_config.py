@@ -16,9 +16,11 @@ comments/canonical fields we must not rewrite.
 The extension's "Sentinel Tuning" tab reads/writes this via the daemon
 (``GET/PATCH /api/v1/calibration/config``).
 
-Scope note: this layer is the single *settable source* + read/write surface. It
-does not yet change runtime enforcement — migrating the scattered gate checks to
-read ``resolve()`` is a tracked follow-up.
+Runtime enforcement: the live CHECK gate (uncertainty-only, per the 2026-04-07
+redesign) and the Sentinel hook's engagement escalate read
+``override_thresholds()`` — a practice/global ``ready_uncertainty`` or
+``engagement_gate`` override shifts the gate live, fail-safe (a bad/missing file
+never widens it) with the Brier overconfidence-floor still tightening on top.
 """
 
 from __future__ import annotations
@@ -335,3 +337,29 @@ def effective_for_session(project_path: str | Path | None = None) -> dict[str, A
     global_override = read_override(Path.home())
     practice_override = read_override(project_path) if project_path else {}
     return resolve(global_override, practice_override)
+
+
+def override_thresholds(project_path: str | Path | None = None) -> dict[str, float]:
+    """Return ONLY the threshold keys explicitly overridden (practice → global)
+    for the active practice, as ``{key: value}``.
+
+    Empty dict on no-override OR any error — **fail-safe by construction**, so a
+    missing or malformed ``calibration.yaml`` can never change a default. This is
+    the entry point for enforcement sites: they call it and honor only the keys
+    present, leaving their hardcoded default in place for everything else. The
+    returned value is the settable *base* — enforcement layers (Brier, env) still
+    apply on top.
+    """
+    try:
+        cfg = effective_for_session(project_path)
+        out: dict[str, float] = {}
+        for dotted in cfg.get("overridden", []):
+            if not dotted.startswith("thresholds."):
+                continue
+            key = dotted.split(".", 1)[1]
+            val = cfg["thresholds"].get(key)
+            if isinstance(val, (int, float)):
+                out[key] = float(val)
+        return out
+    except Exception:
+        return {}

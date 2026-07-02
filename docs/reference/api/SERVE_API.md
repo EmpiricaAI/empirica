@@ -722,9 +722,11 @@ curl -X PATCH "$API/api/v1/calibration/config?scope=practice&practice_id=empiric
   -H 'Content-Type: application/json' -d '{"thresholds": {"engagement_gate": null}}'
 ```
 
-> Scope note: this is the settable *source* + read/write surface. Migrating the
-> runtime gate checks to read the resolver is a tracked follow-up, so writes are
-> persisted and resolvable today but do not yet alter live enforcement.
+> Live enforcement: a `ready_uncertainty` override shifts the CHECK gate and an
+> `engagement_gate` override shifts the hook's escalate threshold — both read the
+> resolver at enforcement time (fail-safe; the Brier overconfidence-floor still
+> tightens on top). `engagement_gate` no longer gates CHECK directly (the live
+> gate is uncertainty-only) — it governs the escalate-to-human threshold.
 
 ---
 

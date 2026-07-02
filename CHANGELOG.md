@@ -23,11 +23,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   **uncertainty-only** (`uncertainty ≤ ready_uncertainty_threshold`, default
   0.35, per the 2026-04-07 meta-uncertainty redesign) — so `engagement_gate`
   (0.6) does not gate CHECK at runtime. Added a settable **`ready_uncertainty`**
-  field (the real gate) and a runtime **`effective_for_session(project_path)`**
-  resolver (leaf helper, layers global→practice, defaults preserved exactly when
-  no override exists). Wiring these into the three live threshold accessors
-  (CLI `_check_load_dynamic_thresholds`, the hook, the evaluator) — so an
-  override actually shifts the gate — is the next, gating-critical step.
+  field (the real gate) and a runtime **`effective_for_session(project_path)`** /
+  **`override_thresholds(project_path)`** resolver (leaf helpers, layer
+  global→practice, defaults preserved exactly when no override exists). These are
+  **wired into the three live threshold accessors** (CLI
+  `_check_load_dynamic_thresholds`, the Sentinel hook `_get_dynamic_thresholds`,
+  the evaluator `_load_evaluator_thresholds`): a `ready_uncertainty` override
+  shifts the live CHECK gate and an `engagement_gate` override shifts the hook's
+  escalate-to-human threshold — **fail-safe** (a bad/missing `calibration.yaml`
+  can never widen a gate) with the **Brier overconfidence-floor still tightening
+  on top**. The comparison expressions are left textually intact (the override is
+  injected upstream as the base). The extension's "Sentinel Tuning" sliders now
+  alter live behavior.
 
 ### Security
 - **nltk removed from the dependency tree** — the `[prose]` evidence extra pulled
