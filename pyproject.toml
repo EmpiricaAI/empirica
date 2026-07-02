@@ -104,7 +104,8 @@ mcp = [
 
 # Prose evidence grounding (non-code users)
 prose = [
-    "textstat>=0.7",
+    "pyphen>=0.14",     # syllable backend for the in-house readability module
+                        # (replaced textstat, which pulled nltk → PYSEC-2026-597; pyphen is nltk-free)
     "proselint>=0.14",
 ]
 

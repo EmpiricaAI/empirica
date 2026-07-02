@@ -1059,20 +1059,13 @@ brew install empirica
     # fix. Each MUST carry a rationale and a `retire_when` condition. The gate
     # prints active waivers every run so they stay visible, not hidden. Keep this
     # in sync with `empirica security-audit` (unify: goal — shared waiver source).
-    PIP_AUDIT_WAIVERS: list[dict] = [
-        {
-            "id": "PYSEC-2026-597",  # CVE-2026-12243
-            "package": "nltk",
-            "rationale": (
-                "path-traversal arbitrary-file-READ via attacker-controlled resource names to "
-                "nltk.data.load()/find(). nltk is transitive ONLY via the optional [prose] extra "
-                "(textstat, en_US syllable counts); Empirica calls it with FIXED internal resource "
-                "names on user text and never exposes the resource-name argument to user input, so "
-                "the vuln is unreachable. Not in CISA KEV (empirica security-audit passes)."
-            ),
-            "retire_when": "textstat drops nltk OR nltk ships a fixed release (none exists; all <=3.9.4 affected).",
-        },
-    ]
+    #
+    # Currently EMPTY. The sole prior waiver — PYSEC-2026-597 (nltk, pulled
+    # transitively by textstat via the [prose] extra) — was RETIRED by dropping
+    # textstat for the in-house `readability` module (pyphen syllables). nltk is
+    # no longer in the tree, so the CVE is gone rather than waived. The mechanism
+    # stays wired for the next non-exploitable, no-fix CVE that may arise.
+    PIP_AUDIT_WAIVERS: list[dict] = []
 
     def run_pip_audit(self) -> bool:
         """CVE scan — mirrors the CI pip-audit step. STRICT (hard fail on CVEs)

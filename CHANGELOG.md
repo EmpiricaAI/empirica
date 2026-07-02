@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **nltk removed from the dependency tree** — the `[prose]` evidence extra pulled
+  `textstat`, which pulled `nltk` (`nltk` was `Required-by` textstat *only*), and
+  nltk carried PYSEC-2026-597 / CVE-2026-12243 (path-traversal arbitrary-file
+  **read** via attacker-controlled resource names to `nltk.data.load()`/`find()`,
+  7.5 High, **no fix** on any release ≤3.9.4). textstat's five readability calls
+  (Flesch Reading Ease, Flesch-Kincaid, Gunning Fog, word + sentence counts) are
+  now computed in-house by a new `empirica.core.post_test.readability` module
+  using the public-domain formulas, with `pyphen` (textstat's own nltk-free
+  syllable backend, so the numbers stay close) and a vowel-group heuristic
+  fallback. `[prose]` now installs `pyphen + proselint` instead of
+  `textstat + proselint`; nltk is gone from the tree, so the governed
+  PYSEC-2026-597 release-gate waiver is **retired** rather than carried. The
+  prose-quality evidence metrics `textstat_readability`/`textstat_density` are
+  renamed `readability`/`readability_density`.
+
 ## [1.12.10] — 2026-07-02
 
 ### Fixed

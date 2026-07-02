@@ -5,7 +5,7 @@ Non-code grounded calibration evidence for research, strategy, and outreach
 workflows. The prose equivalent of ruff/radon/pyright for users who don't code.
 
 Evidence sources:
-- textstat: readability indices (Flesch-Kincaid, Gunning Fog, SMOG) -> clarity, density
+- readability: in-house Flesch/FK/Gunning-Fog indices (pyphen syllables, nltk-free) -> clarity, density
 - proselint: prose lint violations (jargon, hedging, cliches) -> coherence, signal
 - vale: configurable style guide checking -> clarity, coherence (optional)
 - Document metrics: word count, source count, artifact density -> do, change, state
@@ -97,8 +97,8 @@ class ProseEvidenceCollector:
         if len(combined_text.split()) < 50:
             return items  # Too short for meaningful analysis
 
-        # --- textstat: readability -> clarity, density ---
-        items.extend(self._run_textstat(combined_text, len(texts)))
+        # --- readability -> clarity, density ---
+        items.extend(self._run_readability(combined_text, len(texts)))
 
         # --- proselint: prose lint -> coherence, signal ---
         items.extend(self._run_proselint(combined_text))
@@ -108,17 +108,18 @@ class ProseEvidenceCollector:
 
         return items
 
-    def _run_textstat(self, text: str, text_count: int) -> list[EvidenceItem]:
-        """Run textstat readability analysis."""
+    def _run_readability(self, text: str, text_count: int) -> list[EvidenceItem]:
+        """Run in-house readability analysis (nltk-free; pyphen syllables)."""
         items = []
         try:
-            import textstat  # pyright: ignore[reportMissingImports]
+            from . import readability
 
-            fk_grade = textstat.flesch_kincaid_grade(text)  # pyright: ignore[reportAttributeAccessIssue]
-            fog_index = textstat.gunning_fog(text)  # pyright: ignore[reportAttributeAccessIssue]
-            fre_score = textstat.flesch_reading_ease(text)  # pyright: ignore[reportAttributeAccessIssue]
-            word_count = textstat.lexicon_count(text, removepunct=True)  # pyright: ignore[reportAttributeAccessIssue]
-            sentence_count = textstat.sentence_count(text)  # pyright: ignore[reportAttributeAccessIssue]
+            stats = readability.analyze(text)
+            fre_score = stats["flesch_reading_ease"]
+            fk_grade = stats["flesch_kincaid_grade"]
+            fog_index = stats["gunning_fog"]
+            word_count = stats["word_count"]
+            sentence_count = stats["sentence_count"]
 
             # Flesch Reading Ease: 60-70 = standard, 30-50 = college, <30 = academic
             # For professional/research writing, 30-60 is good.
@@ -133,7 +134,7 @@ class ProseEvidenceCollector:
             items.append(
                 EvidenceItem(
                     source="prose_quality",
-                    metric_name="textstat_readability",
+                    metric_name="readability",
                     value=clarity_score,
                     raw_value={
                         "flesch_reading_ease": round(fre_score, 1),
@@ -162,7 +163,7 @@ class ProseEvidenceCollector:
             items.append(
                 EvidenceItem(
                     source="prose_quality",
-                    metric_name="textstat_density",
+                    metric_name="readability_density",
                     value=density_score,
                     raw_value={
                         "avg_sentence_length": round(avg_sentence_len, 1),
@@ -173,10 +174,8 @@ class ProseEvidenceCollector:
                 )
             )
 
-        except ImportError:
-            logger.debug("textstat not installed, skipping readability analysis")
         except Exception as e:
-            logger.debug(f"textstat analysis failed: {e}")
+            logger.debug(f"readability analysis failed: {e}")
 
         return items
 
