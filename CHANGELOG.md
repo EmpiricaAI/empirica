@@ -10,6 +10,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.12.10] — 2026-07-02
 
 ### Fixed
+- **`projects-sync` upserts by path, not append** — `upsert_project` matched only
+  on `project_id`, so re-syncing a project whose id changed (slug→canonical-UUID
+  promotion, or a re-clone) at the same path **appended a second `registry.yaml`
+  entry** instead of updating the existing one. Two UUID-keyed entries at one
+  path is a state `dedupe_registry` refuses to auto-resolve → per-request "dedup
+  skipping conflict" log spam on every daemon request (surfaced by mesh-support
+  on a managed box that accumulated 6 duplicate practices). `upsert_project` now
+  matches on the resolved realpath first (then `project_id`) and updates in
+  place, with a canonical-identity guard so a same-path re-sync never downgrades
+  a UUID to a slug.
 - **`empirica note` scratchpad notes now resurface until triaged** — `note --list`
   and the POSTFLIGHT retrospective were scoped to the *current transaction_id*, so
   a note jotted in one transaction was invisible from the next (and lost across a
