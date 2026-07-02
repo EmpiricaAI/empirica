@@ -344,6 +344,26 @@ def _apply_engagement_substrate(cursor: sqlite3.Cursor) -> None:
         )
         """
     )
+    # Additive migration (self-heal on open). CREATE TABLE IF NOT EXISTS is a
+    # no-op when an OLD engagements table exists — one created before the E1
+    # sidecar columns (lifecycle_state/stage/domain/updated_at, commit 3af4815) —
+    # so those columns are never added, and the idx_engagements_lifecycle index
+    # below then HARD-CRASHES with `no such column: lifecycle_state` on every
+    # workspace-DB open (session-create / project-switch / auto-init all fail).
+    # PRAGMA the actual columns and ALTER-ADD any missing sidecar column BEFORE
+    # the index block. sqlite ALTER ADD COLUMN can't carry a CHECK; the enums are
+    # enforced at the API layer, matching the CREATE above.
+    _existing_engagement_cols = {row[1] for row in cursor.execute("PRAGMA table_info(engagements)").fetchall()}
+    for _col, _ddl in (
+        ("lifecycle_state", "lifecycle_state TEXT DEFAULT 'open'"),
+        ("stage", "stage TEXT"),
+        ("domain", "domain TEXT"),
+        ("updated_at", "updated_at REAL"),
+        ("outcome", "outcome TEXT"),
+        ("engagement_type", "engagement_type TEXT DEFAULT 'outreach'"),
+    ):
+        if _col not in _existing_engagement_cols:
+            cursor.execute(f"ALTER TABLE engagements ADD COLUMN {_ddl}")
     for idx in (
         "CREATE INDEX IF NOT EXISTS idx_stage_def_domain ON stage_definitions(domain, ordinal)",
         "CREATE INDEX IF NOT EXISTS idx_practice_domains_practice ON practice_domains(practice_id)",
