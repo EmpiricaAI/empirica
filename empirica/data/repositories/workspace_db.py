@@ -1569,14 +1569,14 @@ class WorkspaceDBRepository(BaseRepository):
             "goal_count": goal_count,
             "linked_artifact_count": linked_artifact_count,
             "org_display": org_display,
-            "severity": meta.get("severity"),
-            "assignee_id": meta.get("assignee_id"),
-            "assignee_display": meta.get("assignee_display"),
-            # ticket: the routing/blocker block (kind, text, feedback_required_from,
-            # decision_owner, unblock_channel, fork) passed through from the registry
-            # metadata for the board's engagement detail. Render-only v1 — None when
-            # absent; promote to a spine column only if it needs to be queryable.
-            "ticket": meta.get("ticket"),
+            # The WHOLE entity_registry.metadata bag — severity / assignee /
+            # tickets[] / identifier / tenant / machine_state / … — NOT a per-key
+            # allowlist, so every key workspace writes reaches the extension with
+            # zero per-key core changes. (The old allowlist regressed on the
+            # ticket→tickets[] migration: it projected the dropped singular
+            # `ticket` as null.) `org_display` is synthesized from the ticket_of
+            # edge (not stored in metadata) and layered on at the route.
+            "metadata": meta,
         }
 
     def update_engagement(

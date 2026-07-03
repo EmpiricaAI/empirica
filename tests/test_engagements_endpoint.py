@@ -67,8 +67,7 @@ def test_projection_zero_when_bare(repo):
     assert p["goal_count"] == 0
     assert p["linked_artifact_count"] == 0
     assert p["org_display"] is None
-    assert p["severity"] is None
-    assert p["assignee_id"] is None
+    assert p["metadata"] == {}  # no registry row → empty metadata bag
 
 
 def test_projection_counts(repo):
@@ -112,14 +111,14 @@ def test_projection_severity_assignee_passthrough(repo):
         metadata={"severity": "high", "assignee_id": "u-7", "assignee_display": "Sam"},
     )
     p = repo.get_engagement_projection("e1")
-    assert p["severity"] == "high"
-    assert p["assignee_id"] == "u-7"
-    assert p["assignee_display"] == "Sam"
+    assert p["metadata"]["severity"] == "high"
+    assert p["metadata"]["assignee_id"] == "u-7"
+    assert p["metadata"]["assignee_display"] == "Sam"
 
 
 def test_projection_ticket_passthrough(repo):
-    """The routing/blocker `ticket` block projects through from registry metadata
-    (render-only v1 for the board's engagement detail)."""
+    """The routing/blocker `ticket` block projects through inside the metadata bag
+    (render-only for the board's engagement detail)."""
     ticket = {
         "kind": "blocker",
         "feedback_required_from": "client",
@@ -129,13 +128,24 @@ def test_projection_ticket_passthrough(repo):
     }
     repo.create_engagement("e1", "Ticket", domain="support", stage="support.new")
     _registry(repo, "engagement", "e1", "Ticket", metadata={"ticket": ticket})
-    assert repo.get_engagement_projection("e1")["ticket"] == ticket
+    assert repo.get_engagement_projection("e1")["metadata"]["ticket"] == ticket
 
 
-def test_projection_ticket_none_when_absent(repo):
+def test_projection_passes_whole_metadata_bag(repo):
+    """The projection passes the WHOLE registry metadata bag — not a per-key
+    allowlist — so new keys (identifier / tenant / tickets[] / machine_state)
+    reach the caller with zero core change (the ticket→tickets[] migration is
+    what the old allowlist regressed on)."""
     repo.create_engagement("e1", "Ticket", domain="support", stage="support.new")
-    _registry(repo, "engagement", "e1", "Ticket", metadata={"severity": "high"})
-    assert repo.get_engagement_projection("e1")["ticket"] is None
+    meta = {
+        "severity": "high",
+        "identifier": "nle-onboarding-05",
+        "tenant": "nle",
+        "tickets": [{"kind": "blocker", "decision_owner": "Georg"}],
+        "machine_state": "green",
+    }
+    _registry(repo, "engagement", "e1", "Ticket", metadata=meta)
+    assert repo.get_engagement_projection("e1")["metadata"] == meta  # every key passes through
 
 
 def test_projection_tolerates_garbage_metadata(repo):
@@ -146,9 +156,8 @@ def test_projection_tolerates_garbage_metadata(repo):
            VALUES ('engagement', 'e1', 'Ticket', 'test', 'test', ?, '{not json')""",
         (time.time(),),
     )
-    # must not raise — severity/assignee just resolve to None
-    p = repo.get_engagement_projection("e1")
-    assert p["severity"] is None
+    # must not raise — garbage metadata resolves to an empty bag
+    assert repo.get_engagement_projection("e1")["metadata"] == {}
 
 
 # ── route smoke (TestClient + temp workspace.db) ─────────────────────────────
@@ -266,8 +275,8 @@ def test_create_sets_ticket_of_and_metadata(client):
     assert e["metadata"]["org_display"] == "Acme Corp"  # ticket_of resolved
     assert e["metadata"]["severity"] == "critical"
     assert e["metadata"]["assignee_display"] == "Sam"
-    # org_display must NOT be stored in the raw metadata bag (read-synthesized only)
-    assert e["metadata"]["assignee_id"] is None
+    # assignee_id was not set → simply absent from the passed-through bag
+    assert e["metadata"].get("assignee_id") is None
 
 
 def test_create_invalid_domain_422(client):

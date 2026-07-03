@@ -172,6 +172,11 @@ async def list_entities(
                 # reporting_to_name resolves the reports_to edge → manager's name.
                 entry["tier"] = meta.get("tier")
                 entry["reporting_to_name"] = contact_reports_to.get(eid)
+                # Pass the WHOLE registry metadata bag through too (parallel to the
+                # engagement projection) so every key workspace writes reaches the
+                # extension — no per-key allowlist. The curated flat fields above
+                # stay for existing bindings; new keys ride under `metadata`.
+                entry["metadata"] = meta
             out.append(entry)
     return {"ok": True, "count": len(out), "entities": out}
 

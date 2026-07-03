@@ -97,15 +97,12 @@ async def list_engagements(
                     "member_count": proj["member_count"],
                     "goal_count": proj["goal_count"],
                     "linked_artifact_count": proj["linked_artifact_count"],
-                    "metadata": {
-                        "org_display": proj["org_display"],
-                        "severity": proj["severity"],
-                        "assignee_id": proj["assignee_id"],
-                        "assignee_display": proj["assignee_display"],
-                        # routing/blocker block for the board's engagement detail
-                        # (kind, feedback_required_from, decision_owner, unblock_channel, fork)
-                        "ticket": proj["ticket"],
-                    },
+                    # Pass the WHOLE entity_registry.metadata bag through (severity,
+                    # assignee, tickets[], identifier, tenant, machine_state, …) — no
+                    # per-key allowlist — with the synthesized org_display layered on
+                    # top (derived from the ticket_of edge, not stored in metadata;
+                    # wins on any key collision).
+                    "metadata": {**proj["metadata"], "org_display": proj["org_display"]},
                 }
             )
     return {"ok": True, "count": len(out), "engagements": out}
