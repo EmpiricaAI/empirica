@@ -86,6 +86,37 @@ def test_contact_org_details_excludes_closed_edges(repo):
     assert "c-closed" not in repo.get_contact_org_details_map()
 
 
+# ── reports_to (manager name) ─────────────────────────────────────────────────
+
+
+def test_reports_to_map_resolves_active_manager_name():
+    """get_contact_reports_to_map: contact_id → manager display_name via active
+    reports_to edges. Closed edges + non-reports_to roles excluded; a manager
+    with no registry row is omitted (JOIN, not LEFT JOIN)."""
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.executescript(
+        """
+        CREATE TABLE entity_registry (entity_type TEXT, entity_id TEXT, display_name TEXT);
+        CREATE TABLE entity_memberships (
+            entity_type TEXT, entity_id TEXT, group_type TEXT, group_id TEXT,
+            role TEXT, joined_at TEXT, left_at TEXT
+        );
+        INSERT INTO entity_registry VALUES
+            ('contact','c-report','Frederike Lehmann'),
+            ('contact','c-boss','Georg Fechter');
+        INSERT INTO entity_memberships VALUES
+            ('contact','c-report','contact','c-boss','reports_to','2026-01-01',NULL),
+            ('contact','c-closed','contact','c-boss','reports_to','2026-01-01','2026-03-01'),
+            ('contact','c-report','organization','o-x','member','2026-01-01',NULL),
+            ('contact','c-noreg','contact','c-ghost','reports_to','2026-01-01',NULL);
+        """
+    )
+    m = WorkspaceDBRepository(conn).get_contact_reports_to_map()
+    # active reports_to only; org 'member' edge, closed edge, unregistered manager all excluded
+    assert m == {"c-report": "Georg Fechter"}
+
+
 # ── engagement tasks ──────────────────────────────────────────────────────────
 
 

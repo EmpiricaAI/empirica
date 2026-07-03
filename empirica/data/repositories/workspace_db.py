@@ -998,6 +998,27 @@ class WorkspaceDBRepository(BaseRepository):
             for row in cursor.fetchall()
         }
 
+    def get_contact_reports_to_map(self) -> dict[str, str]:
+        """Map contact_id → their manager's display_name via active ``reports_to``
+        edges.
+
+        Same entity_memberships source as ``get_contact_org_details_map`` but
+        filtered to ``role = 'reports_to'`` (a contact→contact edge: member is the
+        report, group is the manager), joined to entity_registry for the manager's
+        ``display_name``. Latest active edge wins (ASC + dict overwrite). Managers
+        with no registry row (or edges with no manager name) are omitted.
+        """
+        cursor = self._execute(
+            """SELECT m.entity_id, r.display_name AS manager_name
+               FROM entity_memberships m
+               JOIN entity_registry r
+                 ON r.entity_id = m.group_id AND r.entity_type = 'contact'
+               WHERE m.entity_type = 'contact' AND m.group_type = 'contact'
+                 AND m.role = 'reports_to' AND m.left_at IS NULL
+               ORDER BY m.joined_at ASC"""
+        )
+        return {row["entity_id"]: row["manager_name"] for row in cursor.fetchall() if row["manager_name"]}
+
     def _table_exists(self, name: str) -> bool:
         """True iff a table named ``name`` exists in the connected DB.
 

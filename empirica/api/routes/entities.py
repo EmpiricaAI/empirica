@@ -134,6 +134,8 @@ async def list_entities(
         # enrichment agree.
         contact_org_details = repo.get_contact_org_details_map()
         contact_details = repo.get_contact_detail_map()
+        # Manager (reports_to edge) → the extension Profile's "Reports-to" row.
+        contact_reports_to = repo.get_contact_reports_to_map()
         for row in repo.list_entities(entity_type=type, status=status, parent_org=parent_org, limit=limit):
             et, eid = row["entity_type"], row["entity_id"]
             meta = _parse_metadata(row.get("metadata"))
@@ -166,5 +168,9 @@ async def list_entities(
                 entry["notes"] = cd.get("notes")
                 entry["contact_type"] = cd.get("contact_type")
                 entry["lifecycle_stage"] = cd.get("lifecycle_stage")
+                # tier lives in the registry metadata (already parsed into meta);
+                # reporting_to_name resolves the reports_to edge → manager's name.
+                entry["tier"] = meta.get("tier")
+                entry["reporting_to_name"] = contact_reports_to.get(eid)
             out.append(entry)
     return {"ok": True, "count": len(out), "entities": out}
