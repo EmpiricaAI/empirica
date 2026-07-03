@@ -186,7 +186,10 @@ def test_interval_automation_passes_interval(tmp_path, monkeypatch):
     )
     m = _manifest(tmp_path, automations=[{"name": "poller", "kind": "interval", "interval": "5m"}])
     provision_module(m, dry_run=False, plugin_root=tmp_path / "p", staging_root=tmp_path / "s")
-    assert "--interval" in calls[0] and "5m" in calls[0]
+    # Assert the interval-registration call is AMONG the captured calls — provision
+    # makes several subprocess calls (a git-notes message-store `for-each-ref` can
+    # interleave), so it is not deterministically calls[0] under pytest-randomly.
+    assert any("--interval" in c and "5m" in c for c in calls), f"no interval-registration call in {calls}"
 
 
 def test_dry_run_registers_nothing(tmp_path, monkeypatch):
