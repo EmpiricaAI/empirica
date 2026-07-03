@@ -117,6 +117,27 @@ def test_projection_severity_assignee_passthrough(repo):
     assert p["assignee_display"] == "Sam"
 
 
+def test_projection_ticket_passthrough(repo):
+    """The routing/blocker `ticket` block projects through from registry metadata
+    (render-only v1 for the board's engagement detail)."""
+    ticket = {
+        "kind": "blocker",
+        "feedback_required_from": "client",
+        "decision_owner": "Georg Fechter",
+        "unblock_channel": "nle-leadership",
+        "fork": "fork 2",
+    }
+    repo.create_engagement("e1", "Ticket", domain="support", stage="support.new")
+    _registry(repo, "engagement", "e1", "Ticket", metadata={"ticket": ticket})
+    assert repo.get_engagement_projection("e1")["ticket"] == ticket
+
+
+def test_projection_ticket_none_when_absent(repo):
+    repo.create_engagement("e1", "Ticket", domain="support", stage="support.new")
+    _registry(repo, "engagement", "e1", "Ticket", metadata={"severity": "high"})
+    assert repo.get_engagement_projection("e1")["ticket"] is None
+
+
 def test_projection_tolerates_garbage_metadata(repo):
     repo.create_engagement("e1", "Ticket", domain="support", stage="support.new")
     repo._execute(
