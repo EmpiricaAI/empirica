@@ -102,6 +102,9 @@ async def list_engagements(
                         "severity": proj["severity"],
                         "assignee_id": proj["assignee_id"],
                         "assignee_display": proj["assignee_display"],
+                        # routing/blocker block for the board's engagement detail
+                        # (kind, feedback_required_from, decision_owner, unblock_channel, fork)
+                        "ticket": proj["ticket"],
                     },
                 }
             )

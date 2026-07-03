@@ -1406,6 +1406,11 @@ class WorkspaceDBRepository(BaseRepository):
             "severity": meta.get("severity"),
             "assignee_id": meta.get("assignee_id"),
             "assignee_display": meta.get("assignee_display"),
+            # ticket: the routing/blocker block (kind, text, feedback_required_from,
+            # decision_owner, unblock_channel, fork) passed through from the registry
+            # metadata for the board's engagement detail. Render-only v1 — None when
+            # absent; promote to a spine column only if it needs to be queryable.
+            "ticket": meta.get("ticket"),
         }
 
     def update_engagement(
