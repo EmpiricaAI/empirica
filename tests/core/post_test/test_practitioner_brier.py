@@ -78,3 +78,29 @@ def test_divergence_insufficient_data():
     d = compute_practitioner_divergence("sess-thin", "empirica", db)["combined"]
     assert d["status"] == "insufficient_data"
     assert d["practitioner_n"] == 1
+
+
+def test_brier_variance_matches_sample_variance():
+    # Per-sample Brier components (self−grounded)²: 0.0, 0.16, 0.04 — hand-check
+    # the ddof=1 sample variance the profile exposes for the true-SE fold (B7).
+    rows = [
+        ("sess-x", "empirica", "combined", 0.9, 0.9, 0),  # (0.9-0.9)² = 0.0
+        ("sess-x", "empirica", "combined", 0.5, 0.9, 1),  # (0.5-0.9)² = 0.16
+        ("sess-x", "empirica", "combined", 0.7, 0.9, 2),  # (0.7-0.9)² = 0.04
+    ]
+    prof = get_practitioner_brier_profile("sess-x", "empirica", _db_with_trajectory(rows))["combined"]
+    comps = [0.0, 0.16, 0.04]
+    mean = sum(comps) / len(comps)
+    expected_var = sum((c - mean) ** 2 for c in comps) / (len(comps) - 1)  # ddof=1
+    assert abs(prof["brier_variance"] - round(expected_var, 6)) < 1e-6
+    # SE = sqrt(brier_variance / n) is well-defined and non-negative.
+    assert (prof["brier_variance"] / prof["n_predictions"]) ** 0.5 >= 0.0
+
+
+def test_divergence_exposes_both_variances():
+    db = _db_with_trajectory(_rows())
+    d = compute_practitioner_divergence("sess-A", "empirica", db)["combined"]
+    # both sides' variance ride alongside the means + n's so the consumer can
+    # form a per-side SE for the asymmetric shrink.
+    assert d["practitioner_brier_variance"] >= 0.0
+    assert d["practice_brier_variance"] >= 0.0
