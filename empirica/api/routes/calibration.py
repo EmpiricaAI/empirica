@@ -9,24 +9,28 @@ the field schema, preset names, and the raw per-scope override blocks so the UI
 can show what's set where. PATCH validates a sparse body ({weights?, thresholds?,
 preset?}; a null value resets a key) and writes it to the requested scope's
 ``.empirica/calibration.yaml``.
+
+This is a **FastAPI router** mounted in ``serve_app.py`` — the app ``empirica
+serve`` actually runs — mirroring entities.py / engagements.py (APIRouter
+prefix=/api/v1, ``verify_mint_bearer`` dep). It previously lived as a Flask
+blueprint in the separate ``api/app.py``, which the daemon does NOT run, so
+``GET /api/v1/calibration/config`` 404'd on the running daemon (the extension's
+Sentinel Config tab showed "config API pending").
 """
 
+from __future__ import annotations
+
 import logging
-import os
 from pathlib import Path
+from typing import Any
 
-from flask import Blueprint, jsonify, request
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
+from empirica.api.entity_mint_auth import verify_mint_bearer
 from empirica.core import calibration_config as cc
 
-bp = Blueprint("calibration", __name__)
+router = APIRouter(prefix="/api/v1", tags=["calibration"], dependencies=[Depends(verify_mint_bearer)])
 logger = logging.getLogger(__name__)
-
-_DEBUG_MODE = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
-
-
-def _safe_error(error: Exception) -> str:
-    return str(error) if _DEBUG_MODE else "An internal error occurred"
 
 
 def _global_dir() -> Path:
@@ -53,11 +57,11 @@ def _resolve_practice_dir(practice_id: str) -> Path | None:
     return None
 
 
-def _effective(practice_id: str | None) -> dict:
+def _effective(practice_id: str | None) -> dict[str, Any]:
     """Resolve the effective config: global override always applies; practice
     override layers on top when the practice_id resolves."""
     global_ov = cc.read_override(_global_dir())
-    practice_ov: dict = {}
+    practice_ov: dict[str, Any] = {}
     if practice_id:
         d = _resolve_practice_dir(practice_id)
         if d is not None:
@@ -69,45 +73,43 @@ def _effective(practice_id: str | None) -> dict:
     return resolved
 
 
-@bp.route("/calibration/config", methods=["GET"])
-def get_config():
+@router.get("/calibration/config")
+async def get_config(practice_id: str | None = Query(None)):
     """Effective calibration config for a practice (or global-only if no id)."""
     try:
-        practice_id = request.args.get("practice_id")
-        return jsonify({"ok": True, **_effective(practice_id)})
+        return {"ok": True, **_effective(practice_id)}
     except Exception as e:
         logger.error(f"calibration GET failed: {e}", exc_info=True)
-        return jsonify({"ok": False, "error": _safe_error(e)}), 500
+        raise HTTPException(status_code=500, detail="calibration read failed") from e
 
 
-@bp.route("/calibration/config", methods=["PATCH"])
-def patch_config():
+@router.patch("/calibration/config")
+async def patch_config(
+    body: dict[str, Any] | None = Body(default=None),
+    scope: str = Query("practice"),
+    practice_id: str | None = Query(None),
+):
     """Write a sparse override to a scope's .empirica/calibration.yaml."""
+    if scope == "global":
+        scope_dir: Path | None = _global_dir()
+    elif scope == "practice":
+        if not practice_id:
+            raise HTTPException(status_code=400, detail="practice scope requires practice_id")
+        scope_dir = _resolve_practice_dir(practice_id)
+        if scope_dir is None:
+            raise HTTPException(status_code=404, detail=f"unknown practice_id: {practice_id}")
+    else:
+        raise HTTPException(status_code=400, detail=f"invalid scope: {scope!r} (global|practice)")
+
+    # FastAPI already coerces/validates the body to a dict (422 otherwise); a
+    # missing body is tolerated as an empty patch.
+    clean, errors = cc.validate_patch(body or {})
+    if errors:
+        raise HTTPException(status_code=422, detail={"error": "validation failed", "details": errors})
+
     try:
-        scope = request.args.get("scope", "practice")
-        practice_id = request.args.get("practice_id")
-
-        if scope == "global":
-            scope_dir: Path | None = _global_dir()
-        elif scope == "practice":
-            if not practice_id:
-                return jsonify({"ok": False, "error": "practice scope requires practice_id"}), 400
-            scope_dir = _resolve_practice_dir(practice_id)
-            if scope_dir is None:
-                return jsonify({"ok": False, "error": f"unknown practice_id: {practice_id}"}), 404
-        else:
-            return jsonify({"ok": False, "error": f"invalid scope: {scope!r} (global|practice)"}), 400
-
-        body = request.get_json(silent=True) or {}
-        if not isinstance(body, dict):
-            return jsonify({"ok": False, "error": "body must be a JSON object"}), 400
-
-        clean, errors = cc.validate_patch(body)
-        if errors:
-            return jsonify({"ok": False, "error": "validation failed", "details": errors}), 422
-
         cc.apply_patch(scope_dir, clean)
-        return jsonify({"ok": True, "scope": scope, **_effective(practice_id if scope == "practice" else None)})
     except Exception as e:
         logger.error(f"calibration PATCH failed: {e}", exc_info=True)
-        return jsonify({"ok": False, "error": _safe_error(e)}), 500
+        raise HTTPException(status_code=500, detail="calibration write failed") from e
+    return {"ok": True, "scope": scope, **_effective(practice_id if scope == "practice" else None)}

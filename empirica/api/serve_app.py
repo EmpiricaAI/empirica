@@ -229,6 +229,13 @@ def create_serve_app() -> FastAPI:
 
     app.include_router(engagements_router)
 
+    # Calibration config (settable epistemic weights + Sentinel thresholds) — the
+    # extension's "Sentinel Tuning" tab. FastAPI router (previously a Flask
+    # blueprint in api/app.py, which the daemon doesn't run → 404).
+    from empirica.api.routes.calibration import router as calibration_router
+
+    app.include_router(calibration_router)
+
     @app.get("/api/v1/health", response_model=HealthResponse)
     async def health():  # pyright: ignore[reportUnusedFunction]
         """Health check — reports integrations, active project info, and
