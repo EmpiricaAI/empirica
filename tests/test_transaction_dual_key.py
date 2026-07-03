@@ -145,6 +145,40 @@ def test_find_prefers_most_recent_open(tmp_path):
     assert _find_transaction_file(ed, "_tmux_9", None, "cc-1") == new_p
 
 
+def test_find_exact_closed_does_not_mask_open_elsewhere(tmp_path):
+    """The spurious-close bug: a STALE CLOSED file sits at the CURRENT exact
+    suffix, while the live OPEN transaction (same durable cc) is under a rotated
+    suffix. The primary exact-match must NOT short-circuit on the closed file —
+    otherwise the firewall reads status=closed and denies praxic with 'Epistemic
+    loop closed' despite a valid open transaction (re-PREFLIGHT was the only fix)."""
+    ed = tmp_path / ".empirica"
+    # Stale closed file AT the current exact suffix (_tmux_9).
+    _write_tx(
+        ed, "_tmux_9", transaction_id="T-STALE-CLOSED", claude_session_id="cc-1", status="closed", updated_at=100.0
+    )
+    # Live open transaction under a rotated suffix, same durable cc.
+    open_p = _write_tx(
+        ed, "_tmux_1", transaction_id="T-OPEN", claude_session_id="cc-1", status="open", updated_at=200.0
+    )
+    assert _find_transaction_file(ed, "_tmux_9", None, "cc-1") == open_p
+
+
+def test_find_exact_closed_alone_still_resolves(tmp_path):
+    """No regression to the closed-read path: when the CLOSED exact-suffix file
+    is the only cc-match (nothing open), it must still resolve — the firewall
+    needs it to say 'loop closed, re-PREFLIGHT'."""
+    ed = tmp_path / ".empirica"
+    closed_p = _write_tx(ed, "_tmux_9", transaction_id="T-CLOSED", claude_session_id="cc-1", status="closed")
+    assert _find_transaction_file(ed, "_tmux_9", None, "cc-1") == closed_p
+
+
+def test_find_exact_open_fast_path_unchanged(tmp_path):
+    """The common case: an OPEN exact-suffix file still fast-returns immediately."""
+    ed = tmp_path / ".empirica"
+    open_p = _write_tx(ed, "_tmux_9", transaction_id="T-OPEN", claude_session_id="cc-1", status="open")
+    assert _find_transaction_file(ed, "_tmux_9", None, "cc-1") == open_p
+
+
 # ---- firewall hook copy mirrors the package -----------------------------
 
 
