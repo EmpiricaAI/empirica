@@ -12,6 +12,7 @@ Usage:
 
 import argparse
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -1082,8 +1083,16 @@ brew install empirica
     PIP_AUDIT_WAIVERS: list[dict] = _load_shared_cve_waivers()
 
     def run_pip_audit(self) -> bool:
-        """CVE scan — mirrors the CI pip-audit step. STRICT (hard fail on CVEs)
-        except for the governed, documented PIP_AUDIT_WAIVERS."""
+        """CVE scan — SCOPED to empirica-managed packages, matching
+        ``empirica security-audit`` (finishes #219's gate unification).
+
+        Blocks the release on a CVE in empirica's own dependency surface
+        (empirica + its transitive Requires); a CVE in a sibling/user package
+        that merely shares the dev venv (empirica-outreach, …) is reported
+        informationally, NOT gated — those deps aren't empirica's to ship.
+        STRICT within scope except for the governed, documented
+        PIP_AUDIT_WAIVERS. Falls back to whole-venv strict when the scope helper
+        isn't importable or the output can't be parsed (stricter, never looser)."""
         log("\n" + "=" * 60)
         log("🔒 pip-audit (CVE gate)")
         log("=" * 60)
@@ -1094,12 +1103,12 @@ brew install empirica
             warning(f"CVE waiver ACTIVE: {w['id']} ({w['package']}) — {w['rationale']} [retire: {w['retire_when']}]")
 
         if self.dry_run:
-            info(f"Would run: pip-audit --skip-editable {' '.join(ignore_args)}")
+            info(f"Would run: pip-audit --skip-editable --format json {' '.join(ignore_args)} (scoped to empirica-managed)")
             return True
 
         try:
             result = subprocess.run(
-                ["pip-audit", "--skip-editable", *ignore_args],
+                ["pip-audit", "--skip-editable", "--format", "json", *ignore_args],
                 capture_output=True, text=True, timeout=300,
                 cwd=str(self.repo_root),
             )
@@ -1107,13 +1116,55 @@ brew install empirica
             warning("pip-audit not installed — skipping CVE gate (install via `pip install pip-audit`)")
             return True  # informational on missing tool; CI is the source of truth
 
-        if result.returncode == 0:
+        # Parse JSON findings; if unparseable, fall back to the raw returncode (strict).
+        try:
+            deps = json.loads(result.stdout or "{}").get("dependencies", [])
+        except (ValueError, TypeError):
+            if result.returncode == 0:
+                success("pip-audit clean (no CVEs)")
+                return True
+            log(f"\n{RED}pip-audit FAILED (unparseable output — strict):{RESET}")
+            for line in (result.stdout + result.stderr).strip().splitlines()[-30:]:
+                log(f"  {line}")
+            return False
+
+        findings = [(d.get("name", ""), v.get("id", "")) for d in deps for v in (d.get("vulns") or [])]
+        if not findings:
             success("pip-audit clean (no CVEs)")
             return True
-        log(f"\n{RED}pip-audit FAILED:{RESET}")
-        for line in (result.stdout + result.stderr).strip().splitlines()[-30:]:
-            log(f"  {line}")
-        return False
+
+        # Scope: block only on empirica's managed surface. Fall back to strict-on-all
+        # when the scope helper can't be imported (fail-safe, never looser).
+        try:
+            from empirica.core.security.scope import get_empirica_managed_packages, is_empirica_managed
+
+            managed = get_empirica_managed_packages()
+        except Exception:
+            managed = set()
+
+        if not managed:
+            log(f"\n{RED}pip-audit FAILED (scope unavailable — strict on all {len(findings)} finding(s)):{RESET}")
+            for name, vid in findings:
+                log(f"  {name}: {vid}")
+            return False
+
+        blocking = [(n, v) for n, v in findings if is_empirica_managed(n, managed)]
+        informational = [(n, v) for n, v in findings if not is_empirica_managed(n, managed)]
+
+        if informational:
+            warning(f"{len(informational)} CVE(s) in sibling/user packages sharing the venv — informational, not gated:")
+            for name, vid in informational:
+                info(f"  {name}: {vid} (not empirica-managed)")
+
+        if blocking:
+            log(f"\n{RED}pip-audit FAILED — {len(blocking)} CVE(s) in empirica-managed packages:{RESET}")
+            for name, vid in blocking:
+                log(f"  {name}: {vid}")
+            return False
+
+        extra = f"; {len(informational)} sibling/user CVE(s) ignored" if informational else ""
+        success(f"pip-audit clean (no CVEs in empirica-managed surface{extra})")
+        return True
 
     def run_tests(self) -> bool:
         """Run test suite as a release gate. Returns True if tests pass."""
