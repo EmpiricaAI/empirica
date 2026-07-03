@@ -5,7 +5,7 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.12.12] — 2026-07-03
 
 ### Added
 - **Engagement `planned` (pre-active) lifecycle state + `?lifecycle=all`
@@ -21,6 +21,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `planned` out unless it's requested explicitly. Enum + filter live app-side in
   `WorkspaceDBRepository` (`ENGAGEMENT_PREACTIVE_STATES` /
   `ENGAGEMENT_DEFAULT_EXCLUDED_STATES`); invalid states surface as a 422, never a 500.
+
+### Fixed
+- **Presence torn-write data corruption.** `write_presence` and the daemon's
+  `refresh_live_presence` published presence records through a *shared*
+  per-target temp file, so concurrent listener writers could `O_TRUNC` the same
+  temp and leave a torn record on disk; the strict JSON reader then skipped it,
+  **permanently hiding a live practitioner** from the fleet/presence views (it
+  couldn't even be re-stamped). Each writer now owns a unique temp file, the
+  readers tolerate a torn tail (recovering the leading valid record so
+  already-torn files resurface on next read), and abandoned temps are swept.
+- **Sentinel no longer spuriously reports "Epistemic loop closed" mid-transaction.**
+  After an instance-suffix rotation (e.g. across compaction), a stale *closed*
+  transaction file at the current suffix could mask a live *open* transaction,
+  denying praxic actions after a valid CHECK (only a re-PREFLIGHT cleared it).
+  The resolver now prefers a key-matched *open* transaction over a stale closed
+  exact-suffix file (fix applied to both the package resolver and the firewall's
+  mirrored copy).
+- **cortex-mailbox skills are harness-portable.** The mailbox poll/send skills
+  documented flat `mcp__cortex__*` tool names (correct for Claude Code) that fail
+  under namespace-aggregating harnesses (which expose one namespace tool +
+  operation param); a "Harness portability" note now spells out invoking the same
+  operations either way.
 
 ## [1.12.11] — 2026-07-03
 
