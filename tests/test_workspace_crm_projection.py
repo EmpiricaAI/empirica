@@ -157,3 +157,30 @@ def test_crm_projections_degrade_when_optional_tables_absent():
     assert repo.get_engagement_tasks("eng-1") == []
     # entity_memberships IS present → the org-details map still works (returns {}).
     assert repo.get_contact_org_details_map() == {}
+
+
+# ── scoped artifacts (canonical-model Gap B) ──────────────────────────────────
+
+
+def test_get_artifacts_for_entity_direct():
+    """get_artifacts_for_entity: the DIRECT entity_artifacts scoped to an entity,
+    each carrying artifact_type + artifact_source. entity_type disambiguates;
+    unknown entity → [] (honest-empty, not error — the endpoint 200s not 404s)."""
+    from empirica.data.repositories.workspace_db import _ensure_workspace_schema
+
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    _ensure_workspace_schema(conn)
+    repo = WorkspaceDBRepository(conn)
+    repo.add_entity_artifact("src-1", "source", "/p/.empirica", "engagement", "eng-x")
+    repo.add_entity_artifact("find-1", "finding", "/p/.empirica", "engagement", "eng-x")
+    repo.add_entity_artifact("src-2", "source", "/other/.empirica", "contact", "c-y")
+
+    out = repo.get_artifacts_for_entity("eng-x")
+    assert len(out) == 2
+    assert {a["artifact_type"] for a in out} == {"source", "finding"}
+    assert all(a.get("artifact_source") == "/p/.empirica" for a in out)  # §5 field present
+    # entity_type disambiguates; the contact's artifact is not returned for the engagement id
+    assert repo.get_artifacts_for_entity("eng-x", entity_type="contact") == []
+    # unknown entity → empty, never a raise (backs the endpoint's 200-not-404)
+    assert repo.get_artifacts_for_entity("no-such-entity") == []

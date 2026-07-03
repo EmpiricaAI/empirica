@@ -682,6 +682,40 @@ class WorkspaceDBRepository(BaseRepository):
         )
         return [dict(row) for row in cursor.fetchall()]
 
+    def get_artifacts_for_entity(
+        self,
+        entity_id: str,
+        *,
+        entity_type: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Scoped artifacts for an entity (canonical-model Gap B) — the DIRECT
+        entity_artifacts pointers WHERE entity_id=?, newest first. Each row carries
+        ``artifact_type`` + ``artifact_source`` (the §5 fields the extension needs
+        to resolve + render the artifact). ``entity_type`` is optional: entity_ids
+        are prefix-unique (eng-/c-/o-) so the id alone usually suffices — pass it to
+        disambiguate. Empty list when the entity has none.
+
+        Membership-transitive scoping (an entity's members' artifacts) is a
+        deferred v2 — its exact relation/direction lives in canonical-model §5,
+        which this method intentionally does not guess at.
+        """
+        where = ["entity_id = ?"]
+        params: list[Any] = [entity_id]
+        if entity_type:
+            where.append("entity_type = ?")
+            params.append(entity_type)
+        params.append(limit)
+        cursor = self._execute(
+            f"""SELECT artifact_type, artifact_id, artifact_source, relationship,
+                       relevance, engagement_id, discovered_via, created_at, created_by_ai
+                FROM entity_artifacts
+                WHERE {" AND ".join(where)}
+                ORDER BY created_at DESC LIMIT ?""",
+            tuple(params),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
     def count_entity_artifacts(self, entity_type: str, entity_id: str) -> int:
         """Count artifact links for an entity (list projection linked_artifact_count).
 

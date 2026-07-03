@@ -174,3 +174,27 @@ async def list_entities(
                 entry["reporting_to_name"] = contact_reports_to.get(eid)
             out.append(entry)
     return {"ok": True, "count": len(out), "entities": out}
+
+
+@router.get("/entities/{entity_id}/artifacts", dependencies=[Depends(verify_mint_bearer)])
+async def list_entity_artifacts(
+    entity_id: str,
+    type: str | None = Query(
+        None, description="Optional entity_type to disambiguate (contact, organization, engagement, ...)"
+    ),
+    limit: int = Query(100, ge=1, le=500),
+):
+    """Scoped artifacts for a single entity (canonical-model Gap B).
+
+    Returns the entity's DIRECT ``entity_artifacts`` pointers, newest first, each
+    carrying ``artifact_type`` + ``artifact_source`` (§5 — so the caller can
+    resolve + render the artifact). Unknown / empty entity → ``artifacts: []``
+    (honest-empty; the board renders 0 rather than the old 404). Membership-
+    transitive scoping (an entity's members' artifacts) is a deferred v2 pending
+    the §5 relation/direction.
+    """
+    from empirica.data.repositories.workspace_db import WorkspaceDBRepository
+
+    with WorkspaceDBRepository.open() as repo:
+        artifacts = repo.get_artifacts_for_entity(entity_id, entity_type=type, limit=limit)
+    return {"ok": True, "entity_id": entity_id, "count": len(artifacts), "artifacts": artifacts}
