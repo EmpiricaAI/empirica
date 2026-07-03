@@ -71,13 +71,16 @@ def create_app() -> Flask:
 
     # Register blueprints
     from .auth import APIKeyMiddleware
-    from .routes import calibration, comparison, deltas, heatmaps, project, sessions, verification
+    from .routes import comparison, deltas, heatmaps, project, sessions, verification
 
     # Apply API key authentication middleware
     app.wsgi_app = APIKeyMiddleware(app.wsgi_app, prefix="/api/v1")  # type: ignore[method-assign]
 
     app.register_blueprint(sessions.bp, url_prefix="/api/v1")
-    app.register_blueprint(calibration.bp, url_prefix="/api/v1")
+    # NOTE: calibration is deliberately NOT registered here — it moved to a
+    # FastAPI router in serve_app.py (the app `empirica serve` actually runs).
+    # Registering it on this Flask app left it unserved by the daemon (404 on
+    # GET /api/v1/calibration/config — the extension's "Sentinel Config" tab).
     app.register_blueprint(deltas.bp, url_prefix="/api/v1")
     app.register_blueprint(verification.bp, url_prefix="/api/v1")
     app.register_blueprint(heatmaps.bp, url_prefix="/api/v1")
