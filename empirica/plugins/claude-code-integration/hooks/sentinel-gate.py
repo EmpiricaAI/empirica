@@ -1010,10 +1010,24 @@ def _find_transaction_file(
     sync with empirica/utils/session_resolver.py:_find_transaction_file.
     See: docs/architecture/instance_isolation/KNOWN_ISSUES.md (11.21)
     """
-    # Primary: exact suffix match
+    # Primary: exact suffix match. An OPEN exact file wins immediately, and the
+    # keyless case returns it as-is. But a CLOSED exact file must NOT short-circuit
+    # when we hold a key: a stale closed transaction at the current suffix would
+    # otherwise mask a newer key-matched OPEN transaction under a rotated suffix,
+    # making this firewall deny praxic with "Epistemic loop closed" after a valid
+    # CHECK. When closed + keyed, fall through to the ranked scan below. Kept in
+    # sync with empirica/utils/session_resolver.py:_find_transaction_file.
     exact = empirica_dir / f"active_transaction{suffix}.json"
     if exact.exists():
-        return exact
+        if not (claude_session_id or session_id):
+            return exact
+        try:
+            with open(exact) as exact_f:
+                if json.load(exact_f).get("status") == "open":
+                    return exact
+        except Exception:
+            return exact  # unreadable → treat as authoritative, don't scan
+        # exact is CLOSED and a key is available → fall through to the scan.
 
     # Fallback: scan suffix-mismatched files. Rank candidates and return the best
     # rather than the first sorted match — claude_session_id is stable across the
