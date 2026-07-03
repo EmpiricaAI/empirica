@@ -7,12 +7,14 @@ dev's live ~/.empirica/sessions.db is empty.
 
 from __future__ import annotations
 
+import logging
 import time
 import uuid
 
 import pytest
 
 from empirica.utils.session_resolver import (
+    get_instance_id,
     get_latest_session_id,
     is_session_alias,
     resolve_session_id,
@@ -262,6 +264,45 @@ class TestGetActiveProjectPath:
 
         result = get_active_project_path()
         assert result == str(cwd_project)
+
+
+class TestGetInstanceIdOverrideWarning:
+    """get_instance_id() Priority-1 override warning behavior under tmux.
+
+    An explicit EMPIRICA_INSTANCE_ID overrides TMUX_PANE. Intentional, stable
+    shapes — a cockpit slot (`[a-z][a-z0-9_-]*`) OR a UUID (incl. UUIDv7) — log
+    at debug; other shapes warn that they break per-pane isolation. Regression
+    guard for the codex/ecodex UUIDv7 practitioner_id false-positive: a UUIDv7
+    starts with a digit, so the old leading-lowercase-letter guard mis-warned
+    and advised unsetting the id (which would sever the practitioner→calibration
+    mapping). The override always RESOLVES correctly; only the warning misfired.
+    """
+
+    def _warnings(self, caplog):
+        return [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+    def test_uuidv7_override_resolves_without_warning(self, monkeypatch, caplog):
+        uuidv7 = "019f23cf-2b49-7f21-96bf-b7280bbafbc4"  # starts with a digit
+        monkeypatch.setenv("TMUX_PANE", "%11")
+        monkeypatch.setenv("EMPIRICA_INSTANCE_ID", uuidv7)
+        with caplog.at_level(logging.DEBUG, logger="empirica.utils.session_resolver"):
+            assert get_instance_id() == uuidv7
+        assert self._warnings(caplog) == []
+
+    def test_cockpit_slot_override_does_not_warn(self, monkeypatch, caplog):
+        monkeypatch.setenv("TMUX_PANE", "%11")
+        monkeypatch.setenv("EMPIRICA_INSTANCE_ID", "cockpit-slot-3")
+        with caplog.at_level(logging.DEBUG, logger="empirica.utils.session_resolver"):
+            assert get_instance_id() == "cockpit-slot-3"
+        assert self._warnings(caplog) == []
+
+    def test_non_slot_override_still_warns(self, monkeypatch, caplog):
+        # A globally-set id with special chars genuinely breaks per-pane isolation.
+        monkeypatch.setenv("TMUX_PANE", "%11")
+        monkeypatch.setenv("EMPIRICA_INSTANCE_ID", "GLOBAL:%bad")
+        with caplog.at_level(logging.DEBUG, logger="empirica.utils.session_resolver"):
+            assert get_instance_id() == "GLOBAL:%bad"
+        assert len(self._warnings(caplog)) == 1
 
 
 if __name__ == "__main__":

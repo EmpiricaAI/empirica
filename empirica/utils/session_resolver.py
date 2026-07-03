@@ -857,18 +857,25 @@ def get_instance_id() -> str | None:
     if explicit_id:
         tmux_pane = os.environ.get("TMUX_PANE")
         if tmux_pane:
-            # Slot-shaped IDs (lowercase alphanumeric + dashes, no special chars)
-            # are the cockpit-blessed override pattern — stable per pane across
-            # restart. Log at debug, not warning, since this is intentional.
-            # Other shapes (e.g. set globally in .bashrc, contains %, ':', etc.)
-            # still get the warning because they break per-pane isolation.
+            # Slot-shaped OR UUID-shaped IDs are both intentional, stable
+            # override patterns → log at debug, not warning.
+            #   - cockpit slot: `[a-z][a-z0-9_-]*` (lowercase alnum + dashes)
+            #   - UUID (incl. UUIDv7): 8-4-4-4-12 hex. A codex/ecodex fork wires
+            #     its thread_id (a UUIDv7, which STARTS WITH A DIGIT) into
+            #     EMPIRICA_INSTANCE_ID so it becomes the practitioner_id keying
+            #     per-practitioner calibration. That's deliberate, not a mistake.
+            # Other shapes (set globally in .bashrc, contains %, ':', etc.) still
+            # warn — they genuinely break per-pane isolation. The old guard only
+            # accepted cockpit slots, so a UUIDv7 fell through to a misleading
+            # "unset EMPIRICA_INSTANCE_ID" warning that, if followed, would sever
+            # the ecodex practitioner_id → calibration mapping.
             import re as _re
 
-            looks_like_cockpit_slot = bool(_re.fullmatch(r"[a-z][a-z0-9_-]*", explicit_id))
-            if looks_like_cockpit_slot:
+            looks_intentional = bool(_re.fullmatch(r"[a-z][a-z0-9_-]*", explicit_id)) or _is_uuid_format(explicit_id)
+            if looks_intentional:
                 logger.debug(
                     f"EMPIRICA_INSTANCE_ID='{explicit_id}' overrides TMUX_PANE='{tmux_pane}' "
-                    f"(cockpit-style slot override — intentional)"
+                    f"(cockpit-slot or UUID override — intentional)"
                 )
             else:
                 logger.warning(
