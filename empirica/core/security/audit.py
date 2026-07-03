@@ -23,6 +23,7 @@ from typing import Any
 
 from .kev_feed import KEVFeed
 from .scope import get_empirica_managed_packages
+from .waivers import is_waived
 
 logger = logging.getLogger(__name__)
 
@@ -102,8 +103,11 @@ def run_security_audit(
 
     return {
         "check": "security_audit",
-        # passed gates only on empirica-scoped KEV matches
-        "passed": summary["empirica"]["now"] == 0,
+        # STRICT: an empirica-scoped finding blocks the gate if it is KEV (never
+        # silently waivable — actively exploited) OR is not in the governed
+        # waiver source. Waived non-KEV empirica CVEs pass; user-scoped CVEs are
+        # informational (not gated). Shares the waiver list with release.py.
+        "passed": not any(f["scope"] == "empirica" and (f.get("kev") or not f.get("waived")) for f in findings),
         "scanned": audit_meta,
         "kev_metadata": kev_meta,
         "scope_metadata": {
@@ -193,6 +197,7 @@ def _classify_findings(
                     "kev": kev_match is not None,
                     "kev_entry": _summarize_kev_entry(kev_match) if kev_match else None,
                     "rotate_priority": _priority_for(kev_match, vuln),
+                    "waived": is_waived([vuln_id, *aliases, *cve_ids]),
                 }
             )
     # Sort: empirica scope first, then by priority within each scope
@@ -247,6 +252,7 @@ _PRIORITY_BUCKETS = ("now", "month", "monitor", "safe")
 def _empty_scope_summary() -> dict[str, int]:
     bucket: dict[str, int] = dict.fromkeys(_PRIORITY_BUCKETS, 0)
     bucket["total"] = 0
+    bucket["waived"] = 0
     return bucket
 
 
@@ -272,4 +278,6 @@ def _summarize(findings: list[dict[str, Any]]) -> dict[str, Any]:
         if priority in _PRIORITY_BUCKETS:
             bucket[priority] += 1
             bucket["total"] += 1
+        if f.get("waived"):
+            bucket["waived"] += 1
     return summary
