@@ -186,6 +186,41 @@ def test_get_artifacts_for_entity_direct():
     assert repo.get_artifacts_for_entity("no-such-entity") == []
 
 
+def test_get_scoped_artifacts_transitive_fan_down():
+    """§5b: scoped artifacts = direct ∪ one-hop members' direct, fan DOWN.
+    engagement→contacts via engagement_contacts (left_at IS NULL); dedupe by
+    (type,id) with direct winning; transitive rows tagged via <member>; contact
+    is a leaf."""
+    from empirica.data.repositories.workspace_db import _ensure_workspace_schema
+
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    _ensure_workspace_schema(conn)
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS engagement_contacts (
+               engagement_id TEXT, contact_id TEXT, role TEXT, joined_at REAL, left_at REAL,
+               contribution_notes TEXT, PRIMARY KEY (engagement_id, contact_id))"""
+    )
+    repo = WorkspaceDBRepository(conn)
+    repo.add_entity_artifact("src-eng", "source", "/p", "engagement", "eng-1")  # direct on engagement
+    conn.execute("INSERT INTO engagement_contacts VALUES ('eng-1','c-a','participant',1,NULL,NULL)")
+    conn.execute("INSERT INTO engagement_contacts VALUES ('eng-1','c-left','participant',1,2,NULL)")  # left
+    repo.add_entity_artifact("src-a", "source", "/p", "contact", "c-a")  # active member's artifact
+    repo.add_entity_artifact("src-left", "finding", "/p", "contact", "c-left")  # left member's artifact
+    conn.commit()
+
+    scoped = repo.get_scoped_artifacts("eng-1", "engagement")
+    tagged = {a["artifact_id"]: a["via"] for a in scoped}
+    assert tagged["src-eng"] is None  # direct
+    assert tagged["src-a"] == "c-a"  # transitive, via the active member
+    assert "src-left" not in tagged  # left contact (left_at set) excluded
+
+    # contact is a leaf — no transitive fan-down
+    assert all(a["via"] is None for a in repo.get_scoped_artifacts("c-a", "contact"))
+    # unknown type → leaf (direct only), never raises
+    assert repo.get_scoped_artifacts("nope", None) == []
+
+
 # ── practitioner entity (B4 foundation) ───────────────────────────────────────
 
 
