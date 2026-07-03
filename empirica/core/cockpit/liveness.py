@@ -60,6 +60,14 @@ class LivenessResult:
 # 'claude' is the bin name; 'node' covers older installations / dev launches.
 _CLAUDE_COMMANDS = frozenset({"claude", "node"})
 
+# Claude Code ≥2.1.x retitles its process (comm) to its bare version string —
+# tmux pane_current_command and psutil name() both report e.g. "2.1.199" while
+# argv[0] stays "claude". Without matching this, every name-based liveness
+# signal goes blind on modern CC: _live_tmux_panes() returns ∅ and
+# scan_live_claude() finds zero instances, so the cockpit declares live
+# sessions dead.
+_VERSION_TITLE = re.compile(r"^\d+\.\d+\.\d+$")
+
 
 def _live_tmux_panes() -> set[str] | None:
     """Return set of pane numbers (e.g. {'1', '2', '3'}) where Claude Code is running.
@@ -92,7 +100,9 @@ def _live_tmux_panes() -> set[str] | None:
         if len(parts) != 2:
             continue
         pane_id, cmd = parts
-        if cmd in _CLAUDE_COMMANDS:
+        # A bare semver foreground command is CC ≥2.1's retitled process; tmux
+        # gives us no argv to confirm, but nothing else titles itself that way.
+        if cmd in _CLAUDE_COMMANDS or _VERSION_TITLE.fullmatch(cmd):
             panes.add(pane_id.lstrip("%"))
     return panes
 
@@ -163,6 +173,9 @@ def _is_claude_proc(name: str | None, cmdline: list[str] | None) -> bool:
     nm = (name or "").lower()
     if nm == "claude":
         return True
+    if _VERSION_TITLE.fullmatch(nm):  # CC ≥2.1 retitles to its version string —
+        # argv[0] stays "claude", so confirm via cmdline like the node case.
+        return any("claude" in (arg or "").lower() for arg in (cmdline or []))
     if nm in _CLAUDE_COMMANDS:  # node — confirm it's actually claude
         return any("claude" in (arg or "").lower() for arg in (cmdline or []))
     return False
