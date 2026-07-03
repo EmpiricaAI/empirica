@@ -975,6 +975,74 @@ class WorkspaceDBRepository(BaseRepository):
         )
         return {row["entity_id"]: row["group_id"] for row in cursor.fetchall()}
 
+    def get_contact_org_details_map(self) -> dict[str, dict[str, Any]]:
+        """Map contact_id → {org_id, org_name, role} from active contact→org edges.
+
+        Extends ``get_contact_org_map`` with the org's ``display_name`` (joined
+        from entity_registry) and the free-text membership ``role``, so the
+        contact projection can surface parent_org_name + role in one query.
+        Latest active edge wins (ASC + dict overwrite).
+        """
+        cursor = self._execute(
+            """SELECT m.entity_id, m.group_id, m.role,
+                      r.display_name AS org_name
+               FROM entity_memberships m
+               LEFT JOIN entity_registry r
+                 ON r.entity_id = m.group_id AND r.entity_type = 'organization'
+               WHERE m.entity_type = 'contact' AND m.group_type = 'organization'
+                 AND m.left_at IS NULL
+               ORDER BY m.joined_at ASC"""
+        )
+        return {
+            row["entity_id"]: {"org_id": row["group_id"], "org_name": row["org_name"], "role": row["role"]}
+            for row in cursor.fetchall()
+        }
+
+    def get_contact_detail_map(self) -> dict[str, dict[str, Any]]:
+        """Map contact_id → the richer CRM projection fields from the ``contacts``
+        table (email/phone/title/tags/notes/contact_type/lifecycle_stage). One
+        query; ``tags`` is JSON-parsed to a list (honest-empty on malformed).
+        """
+        import json
+
+        cursor = self._execute(
+            """SELECT contact_id, email_primary, phone_primary, organization_title,
+                      tags, notes, contact_type, lifecycle_stage
+               FROM contacts"""
+        )
+        out: dict[str, dict[str, Any]] = {}
+        for row in cursor.fetchall():
+            tags = row["tags"]
+            if isinstance(tags, str):
+                try:
+                    tags = json.loads(tags)
+                except (ValueError, TypeError):
+                    tags = []
+            out[row["contact_id"]] = {
+                "email": row["email_primary"],
+                "phone": row["phone_primary"],
+                "title": row["organization_title"],
+                "tags": tags if isinstance(tags, list) else [],
+                "notes": row["notes"],
+                "contact_type": row["contact_type"],
+                "lifecycle_stage": row["lifecycle_stage"],
+            }
+        return out
+
+    def get_engagement_tasks(self, engagement_id: str) -> list[dict[str, Any]]:
+        """List an engagement's tasks from workspace ``engagement_tasks`` (task_id,
+        title, status, assigned_to, due_at, completed_at, blocked_by, …), oldest
+        first. Empty list when the engagement has none.
+        """
+        cursor = self._execute(
+            """SELECT task_id, engagement_id, title, description, status,
+                      assigned_to, due_at, completed_at, blocked_by, created_at
+               FROM engagement_tasks WHERE engagement_id = ?
+               ORDER BY created_at ASC""",
+            (engagement_id,),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
     def upsert_entity_membership(
         self,
         entity_type: str,

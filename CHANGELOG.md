@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Daemon CRM projection — richer contacts + engagement tasks.** `GET /api/v1/entities?type=contact`
+  now projects the full CRM detail per contact — `email`/`phone`/`title`
+  (`contacts.email_primary`/`phone_primary`/`organization_title`), `tags`
+  (JSON-parsed), `notes`, `contact_type`, `lifecycle_stage`, plus `role` and
+  `parent_org_name` resolved from the contact→org `entity_membership` (role is a
+  free-text verb; org name joins `entity_registry.display_name`). New
+  `GET /api/v1/engagements/{id}/tasks` surfaces the workspace `engagement_tasks`
+  (task_id/title/status/assigned_to/due_at/…, oldest first, honest-empty).
+  Three new `WorkspaceDBRepository` maps (`get_contact_org_details_map`,
+  `get_contact_detail_map`, `get_engagement_tasks`); all field sources verified
+  against the live workspace.db.
 - **Calibration config — settable epistemic weights + Sentinel thresholds (per-practice + global).**
   A new `empirica/core/calibration_config.py` declares the tunable surface (the 4
   dimension weights + 4 Sentinel thresholds — the same shape personas use as

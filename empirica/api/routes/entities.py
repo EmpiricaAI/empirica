@@ -129,9 +129,11 @@ async def list_entities(
         # the whole org set (small: umbrella + brands), not per-row — preserves
         # the single-query intent that deferred the broader v1.1 enrichment.
         org_parents = repo.get_org_parent_map()
-        # Contact→org affiliation map — same source as the parent_org filter
-        # (entity_memberships), so the filter and this enrichment agree.
-        contact_orgs = repo.get_contact_org_map()
+        # Contact→org affiliation (id + name + role) + richer CRM detail fields.
+        # Same entity_memberships source as the parent_org filter, so filter and
+        # enrichment agree.
+        contact_org_details = repo.get_contact_org_details_map()
+        contact_details = repo.get_contact_detail_map()
         for row in repo.list_entities(entity_type=type, status=status, parent_org=parent_org, limit=limit):
             et, eid = row["entity_type"], row["entity_id"]
             meta = _parse_metadata(row.get("metadata"))
@@ -152,6 +154,17 @@ async def list_entities(
             if et == "organization":
                 entry["parent_org_id"] = org_parents.get(eid)
             elif et == "contact":
-                entry["parent_org_id"] = contact_orgs.get(eid)
+                cod = contact_org_details.get(eid) or {}
+                cd = contact_details.get(eid) or {}
+                entry["parent_org_id"] = cod.get("org_id")
+                entry["parent_org_name"] = cod.get("org_name")
+                entry["role"] = cod.get("role")
+                entry["email"] = cd.get("email")
+                entry["phone"] = cd.get("phone")
+                entry["title"] = cd.get("title")
+                entry["tags"] = cd.get("tags")
+                entry["notes"] = cd.get("notes")
+                entry["contact_type"] = cd.get("contact_type")
+                entry["lifecycle_stage"] = cd.get("lifecycle_stage")
             out.append(entry)
     return {"ok": True, "count": len(out), "entities": out}
