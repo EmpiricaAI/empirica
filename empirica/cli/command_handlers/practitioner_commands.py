@@ -65,6 +65,18 @@ def handle_practitioner_write_command(args) -> int:
             )
         except ValueError as ve:
             return _emit_user_error(args, str(ve))
+        # B4: mirror the DURABLE half into the ERM — the practitioner entity +
+        # occupies→practice edge. Best-effort (never fail the live presence write
+        # on it); skipped when the practice ai_id is unknown. Idempotent upsert, so
+        # the per-turn write is self-healing.
+        if ai_id and ai_id != "unknown":
+            try:
+                from empirica.data.repositories.workspace_db import WorkspaceDBRepository
+
+                with WorkspaceDBRepository.open() as repo:
+                    repo.upsert_practitioner_entity(cc, ai_id)
+            except Exception:
+                pass
         if getattr(args, "output", "human") == "json":
             print(json.dumps({"ok": True, "presence": rec}, indent=2, default=str))
         else:

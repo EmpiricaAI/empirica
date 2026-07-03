@@ -1158,6 +1158,71 @@ class WorkspaceDBRepository(BaseRepository):
         )
         self.commit()
 
+    def upsert_practitioner_entity(
+        self,
+        claude_session_id: str,
+        practice_ai_id: str,
+        *,
+        display_name: str | None = None,
+        summary: str | None = None,
+        trajectory_pointer: str | None = None,
+    ) -> None:
+        """Persist a practitioner as a first-class ERM entity (B4 foundation).
+
+        A *practitioner* is a Claude conversation occupying a *practice*; its
+        DURABLE identity is the ``claude_session_id`` (survives compaction,
+        respawnable). This upserts the durable half into ``entity_registry``
+        (entity_type='practitioner', entity_id=claude_session_id) + the
+        ``occupies → practice`` membership edge (the practice keyed by its
+        canonical ``ai_id``). Idempotent.
+
+        The LIVE half — status / location / active transaction — is NOT stored
+        here: it stays in the presence file (ephemeral, high-churn) and is
+        synthesized on read. ``summary`` / ``trajectory_pointer`` are the durable
+        per-practitioner attrs (conversation tl;dr; a pointer to its trajectory
+        points), nullable at the foundation — B5 surfaces the reliability view.
+        """
+        meta: dict[str, Any] = {"practice_ai_id": practice_ai_id}
+        if summary is not None:
+            meta["summary"] = summary
+        if trajectory_pointer is not None:
+            meta["trajectory_pointer"] = trajectory_pointer
+        self.upsert_entity(
+            "practitioner",
+            claude_session_id,
+            display_name=display_name or f"{practice_ai_id} · {claude_session_id[:8]}",
+            source_db="workspace",
+            source_table="practitioner_presence",
+            metadata=json.dumps(meta),
+        )
+        self.upsert_entity_membership("practitioner", claude_session_id, "practice", practice_ai_id, role="occupies")
+
+    def list_practitioner_entities(self, practice_ai_id: str | None = None) -> list[dict[str, Any]]:
+        """The durable practitioner entities — "which practitioners, in which
+        practice" (B4 foundation query).
+
+        Returns the entity_registry practitioner rows, optionally scoped to a
+        practice via the active ``occupies`` edge. This is the DURABLE record — a
+        practitioner persists after its session ends (respawnable); merge with the
+        presence store for live status/location.
+        """
+        if practice_ai_id is None:
+            cursor = self._execute(
+                "SELECT * FROM entity_registry WHERE entity_type = 'practitioner' ORDER BY updated_at DESC"
+            )
+        else:
+            cursor = self._execute(
+                """SELECT r.* FROM entity_registry r
+                   JOIN entity_memberships m
+                     ON m.entity_type = 'practitioner' AND m.entity_id = r.entity_id
+                   WHERE r.entity_type = 'practitioner'
+                     AND m.group_type = 'practice' AND m.group_id = ?
+                     AND m.role = 'occupies' AND m.left_at IS NULL
+                   ORDER BY r.updated_at DESC""",
+                (practice_ai_id,),
+            )
+        return [dict(row) for row in cursor.fetchall()]
+
     def close_entity_membership(
         self,
         entity_type: str,

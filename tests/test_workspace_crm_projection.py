@@ -184,3 +184,34 @@ def test_get_artifacts_for_entity_direct():
     assert repo.get_artifacts_for_entity("eng-x", entity_type="contact") == []
     # unknown entity → empty, never a raise (backs the endpoint's 200-not-404)
     assert repo.get_artifacts_for_entity("no-such-entity") == []
+
+
+# ── practitioner entity (B4 foundation) ───────────────────────────────────────
+
+
+def test_practitioner_entity_upsert_and_list_by_practice():
+    """upsert_practitioner_entity persists the durable practitioner entity +
+    occupies→practice edge (idempotent); list_practitioner_entities answers
+    'which practitioners, in which practice'."""
+    import json as _j
+
+    from empirica.data.repositories.workspace_db import _ensure_workspace_schema
+
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    _ensure_workspace_schema(conn)
+    repo = WorkspaceDBRepository(conn)
+
+    repo.upsert_practitioner_entity("cc-111", "empirica", summary="working on B4")
+    repo.upsert_practitioner_entity("cc-222", "empirica-cortex")
+    repo.upsert_practitioner_entity("cc-111", "empirica", summary="still B4")  # idempotent re-upsert
+
+    all_p = repo.list_practitioner_entities()
+    assert {p["entity_id"] for p in all_p} == {"cc-111", "cc-222"}  # no dupe on re-upsert
+    meta = _j.loads(next(p for p in all_p if p["entity_id"] == "cc-111")["metadata"])
+    assert meta["practice_ai_id"] == "empirica" and meta["summary"] == "still B4"
+
+    # scoped by practice via the active occupies edge
+    assert {p["entity_id"] for p in repo.list_practitioner_entities("empirica")} == {"cc-111"}
+    assert {p["entity_id"] for p in repo.list_practitioner_entities("empirica-cortex")} == {"cc-222"}
+    assert repo.list_practitioner_entities("no-such-practice") == []
