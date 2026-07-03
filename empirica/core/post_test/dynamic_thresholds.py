@@ -442,6 +442,17 @@ def get_brier_profile(
             predictions = [(row[0], row[1]) for row in rows]
             decomp = compute_brier_decomposition(predictions)
 
+            # Per-sample Brier components (the same (p−o)² the score averages) —
+            # expose their SAMPLE variance (ddof=1) so a consumer can form the
+            # true SE = sqrt(brier_variance / n) rather than the conservative
+            # bound SE ≤ 1/(2·√n) that assumes max dispersion (var=0.25 for a
+            # [0,1] component). Raw dispersion stat, not a weighting — the
+            # shrinkage fold stays autonomy's lane (PRACTITIONER_DELIBERATION_MODEL
+            # §3, B7). n ≥ 3 here (guarded above), so the ddof=1 denominator ≥ 2.
+            components = [(p - o) ** 2 for p, o in predictions]
+            mean_component = sum(components) / len(components)
+            brier_variance = sum((c - mean_component) ** 2 for c in components) / (len(components) - 1)
+
             # Compute recent vs historical for trend
             recent = predictions[: len(predictions) // 2] if len(predictions) >= 6 else predictions
             historical = predictions[len(predictions) // 2 :] if len(predictions) >= 6 else []
@@ -458,6 +469,7 @@ def get_brier_profile(
 
             profile[phase] = {
                 "brier_score": decomp.brier_score,
+                "brier_variance": round(brier_variance, 6),
                 "reliability": decomp.reliability,
                 "resolution": decomp.resolution,
                 "uncertainty": decomp.uncertainty,
@@ -503,7 +515,13 @@ def compute_practitioner_divergence(
     track and the practice aggregate::
 
         {phase: {brier_delta, reliability_delta, practitioner_brier,
-                 practice_brier, practitioner_n, practice_n}}
+                 practice_brier, practitioner_n, practice_n,
+                 practitioner_brier_variance, practice_brier_variance}}
+
+    The per-side ``brier_variance`` (sample variance, ddof=1, of the per-sample
+    Brier components) lets a consumer form the true standard error
+    ``SE = sqrt(brier_variance / n)`` — used by the asymmetric shrink instead of
+    the conservative max-dispersion bound ``SE ≤ 1/(2·√n)``.
 
     ``brier_delta`` = practitioner − practice (NEGATIVE = better-calibrated than
     the practice; POSITIVE = worse). A phase with too few grounded points on
@@ -536,6 +554,11 @@ def compute_practitioner_divergence(
             "practice_brier": a["brier_score"],
             "practitioner_n": p["n_predictions"],
             "practice_n": a["n_predictions"],
+            # Per-side Brier variance (B5) → the consumer forms the true SE
+            # = sqrt(brier_variance / n) for the asymmetric shrink, instead of
+            # the max-dispersion bound. Weighting stays autonomy's lane (B7).
+            "practitioner_brier_variance": p.get("brier_variance"),
+            "practice_brier_variance": a.get("brier_variance"),
         }
     return out
 
