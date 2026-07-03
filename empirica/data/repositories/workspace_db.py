@@ -243,13 +243,15 @@ _DEFAULT_ENGAGEMENT_STAGES = [
 # Engagement enums — enforced app-side. The engagement is an OPERATIONAL row
 # (sqlite ALTER can't add CHECK), so lifecycle/outcome validity lives at the repo
 # layer; domain/stage validity is checked against the definition tables.
-ENGAGEMENT_LIFECYCLE_STATES = frozenset({"open", "in_progress", "blocked", "closed"})
-# Terminal states — excluded by default from org/contact engagement scoping
-# (SER#183 part-2: the drill is a "who are we working with now" view; terminal
-# engagements belong in the dedicated Engagements area). Add new terminal states
-# here so the default-active filter picks them up; the complement (open,
-# in_progress, blocked) is "active".
+ENGAGEMENT_LIFECYCLE_STATES = frozenset({"planned", "open", "in_progress", "blocked", "closed"})
+# States off the default-active feed, for two distinct reasons (SER#183 part-2:
+# the org/contact drill is a "who are we working with now" view). PRE-ACTIVE:
+# planned — queued but not started. TERMINAL: closed — done. The active feed is
+# the complement, {open, in_progress, blocked}; the full set (incl. planned +
+# closed) is reached via an explicit lifecycle_state or the ``all`` sentinel.
+ENGAGEMENT_PREACTIVE_STATES = frozenset({"planned"})
 ENGAGEMENT_TERMINAL_STATES = frozenset({"closed"})
+ENGAGEMENT_DEFAULT_EXCLUDED_STATES = ENGAGEMENT_PREACTIVE_STATES | ENGAGEMENT_TERMINAL_STATES
 ENGAGEMENT_OUTCOMES = frozenset({"won", "lost", "resolved", "wont_fix", "defer", "superseded"})
 
 
@@ -1550,16 +1552,23 @@ class WorkspaceDBRepository(BaseRepository):
         ``lifecycle_state`` must be a valid state.
 
         Active-by-default (SER#183 part-2): when no explicit ``lifecycle_state``
-        is given, terminal engagements (``ENGAGEMENT_TERMINAL_STATES``, i.e.
-        closed) are excluded — the org/contact drill is a "who are we working
-        with now" view. Opt into the full set with ``include_closed=True`` or by
-        requesting a specific ``lifecycle_state`` (an explicit state always wins,
-        so ``lifecycle_state='closed'`` still returns closed). The Engagements
-        area surfaces terminal history via these opt-ins.
+        is given, the feed is the active set {open, in_progress, blocked} —
+        pre-active (``planned``) and terminal (``closed``) are excluded, since
+        the org/contact drill is a "who are we working with now" view. Opt back
+        in by requesting a specific ``lifecycle_state`` (an explicit state always
+        wins — ``'planned'`` / ``'closed'`` return those), by
+        ``lifecycle_state='all'`` (the Engagements-area fetch-everything), or —
+        legacy sugar — ``include_closed=True`` (adds closed back; planned still
+        needs an explicit request).
         """
-        if lifecycle_state is not None and lifecycle_state not in ENGAGEMENT_LIFECYCLE_STATES:
+        # ``all`` is the explicit fetch-everything sentinel (Engagements area) —
+        # not a stored state, so it bypasses both membership validation and the
+        # default-active exclusion below.
+        fetch_all = lifecycle_state == "all"
+        if lifecycle_state is not None and not fetch_all and lifecycle_state not in ENGAGEMENT_LIFECYCLE_STATES:
             raise ValueError(
-                f"invalid lifecycle_state '{lifecycle_state}' — must be one of {sorted(ENGAGEMENT_LIFECYCLE_STATES)}"
+                f"invalid lifecycle_state '{lifecycle_state}' — must be one of "
+                f"{sorted(ENGAGEMENT_LIFECYCLE_STATES)} or 'all'"
             )
         params: list[Any] = []
         where: list[str] = []
@@ -1584,15 +1593,22 @@ class WorkspaceDBRepository(BaseRepository):
         if domain is not None:
             where.append("e.domain = ?")
             params.append(domain)
-        if lifecycle_state is not None:
-            # Explicit state wins — including an explicit request for closed.
+        if fetch_all:
+            pass  # ``all`` — no lifecycle filter; the Engagements-area full set.
+        elif lifecycle_state is not None:
+            # Explicit state wins — including an explicit request for planned/closed.
             where.append("e.lifecycle_state = ?")
             params.append(lifecycle_state)
-        elif not include_closed and ENGAGEMENT_TERMINAL_STATES:
-            # Default-active: exclude terminal states unless opted in.
-            placeholders = ", ".join("?" for _ in ENGAGEMENT_TERMINAL_STATES)
-            where.append(f"e.lifecycle_state NOT IN ({placeholders})")
-            params.extend(sorted(ENGAGEMENT_TERMINAL_STATES))
+        else:
+            # Default-active feed: exclude pre-active + terminal. ``include_closed``
+            # is legacy sugar that opts the TERMINAL (closed) states back in;
+            # pre-active (planned) stays out of a plain feed request either way
+            # (use ?lifecycle=planned / all to see it).
+            excluded = ENGAGEMENT_PREACTIVE_STATES if include_closed else ENGAGEMENT_DEFAULT_EXCLUDED_STATES
+            if excluded:
+                placeholders = ", ".join("?" for _ in excluded)
+                where.append(f"e.lifecycle_state NOT IN ({placeholders})")
+                params.extend(sorted(excluded))
         where_clause = ("WHERE " + " AND ".join(where)) if where else ""
         params.append(limit)
         cursor = self._execute(

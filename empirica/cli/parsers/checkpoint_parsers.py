@@ -671,14 +671,16 @@ def add_checkpoint_parsers(subparsers):
     )
     engagement_list_parser.add_argument("--domain", help="Filter by domain")
     engagement_list_parser.add_argument(
-        "--lifecycle", help="Filter by lifecycle_state (open|in_progress|blocked|closed)"
+        "--lifecycle",
+        help="Filter by lifecycle_state (planned|open|in_progress|blocked|closed), or 'all' for the full set",
     )
     engagement_list_parser.add_argument("--org", help="Scope to an organization's tickets (role='ticket_of')")
     engagement_list_parser.add_argument(
         "--include-closed",
         action="store_true",
-        help="Include terminal (closed) engagements. Default: active-only "
-        "(open|in_progress|blocked). Ignored when --lifecycle is given.",
+        help="Legacy sugar — add terminal (closed) engagements back. Default: active-only "
+        "(open|in_progress|blocked); pre-active 'planned' stays out unless requested or --lifecycle all. "
+        "Ignored when --lifecycle is given.",
     )
     engagement_list_parser.add_argument("--limit", type=int, default=100, help="Max rows (default: 100)")
     engagement_list_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")

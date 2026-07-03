@@ -45,11 +45,17 @@ async def list_engagements(
         "(engagement_contacts edge). Composes with `org` (AND) when both are given.",
     ),
     domain: str | None = Query(None, description="Filter by engagement domain (support, sales, ...)"),
-    lifecycle: str | None = Query(None, description="Filter by lifecycle_state (open, in_progress, blocked, closed)"),
+    lifecycle: str | None = Query(
+        None,
+        description="Filter by lifecycle_state (planned, open, in_progress, blocked, closed), "
+        "or `all` for the full set (Engagements-area fetch-everything).",
+    ),
     include_closed: bool = Query(
         False,
-        description="Include terminal (closed) engagements. Default false — the feed is "
-        "active-by-default (SER#183 part-2). Ignored when an explicit `lifecycle` is given.",
+        description="Legacy sugar — adds terminal (closed) engagements back to the feed. Default "
+        "false — the feed is active-by-default {open, in_progress, blocked} (SER#183 part-2); "
+        "pre-active `planned` stays out unless requested explicitly or via `lifecycle=all`. "
+        "Ignored when an explicit `lifecycle` is given.",
     ),
     limit: int = Query(100, ge=1, le=500),
 ):
@@ -119,7 +125,9 @@ class EngagementCreateRequest(BaseModel):
     domain: str = Field(description="Engagement domain — one of the 6 (support, sales, …)")
     title: str | None = Field(default=None, description="Ticket title; synthesized if omitted (NOT NULL in schema)")
     stage: str | None = Field(default=None, description="Full stage_id; validated against the domain")
-    lifecycle_state: str | None = Field(default=None, description="open|in_progress|blocked|closed (default open)")
+    lifecycle_state: str | None = Field(
+        default=None, description="planned|open|in_progress|blocked|closed (default open)"
+    )
     engagement_type: str = Field(default="support")
     description: str | None = None
     org: str | None = Field(default=None, description="Organization id — sets the ticket_of edge atomically")

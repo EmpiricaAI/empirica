@@ -116,6 +116,7 @@ def handle_engagement_list_command(args):
                 )
         except ValueError as ve:
             _emit_user_error(output, str(ve))
+            return  # invalid --lifecycle → error already surfaced; don't fall through to unbound rows
         if output == "json":
             print(json.dumps({"ok": True, "count": len(rows), "engagements": rows}, indent=2, default=str))
             return

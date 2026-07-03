@@ -243,6 +243,29 @@ def test_route_active_by_default_excludes_closed(client):
     assert closed_ids == {cid}  # explicit lifecycle targets the terminal one
 
 
+def test_route_planned_excluded_and_all_fetches_everything(client):
+    """Pre-active 'planned' is off the default feed; ?lifecycle=all fetches it back.
+
+    include_closed is terminal-only sugar — planned stays out of it; only an
+    explicit ?lifecycle=planned / ?lifecycle=all surfaces a pre-active row.
+    """
+    pid = client.post("/api/v1/engagements", json={"domain": "support", "title": "queued work"}).json()["engagement_id"]
+    assert client.patch(f"/api/v1/engagements/{pid}", json={"lifecycle_state": "planned"}).status_code == 200
+
+    default_ids = {e["id"] for e in client.get("/api/v1/engagements").json()["engagements"]}
+    assert pid not in default_ids and "e1" in default_ids  # planned excluded by default
+
+    # include_closed is terminal-only — it does NOT restore planned.
+    sugar_ids = {e["id"] for e in client.get("/api/v1/engagements?include_closed=true").json()["engagements"]}
+    assert pid not in sugar_ids
+
+    all_ids = {e["id"] for e in client.get("/api/v1/engagements?lifecycle=all").json()["engagements"]}
+    assert pid in all_ids and "e1" in all_ids  # fetch-everything includes planned
+
+    planned_ids = {e["id"] for e in client.get("/api/v1/engagements?lifecycle=planned").json()["engagements"]}
+    assert planned_ids == {pid}  # explicit planned targets it
+
+
 # ---- POST /api/v1/engagements (C3 create) ----------------------------------
 
 

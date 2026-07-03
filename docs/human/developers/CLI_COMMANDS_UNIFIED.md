@@ -23,7 +23,7 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.12.11
-**Generated:** 2026-07-03 07:27:44 UTC
+**Generated:** 2026-07-03 13:14:08 UTC
 **Total commands:** 256 (across 26 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -1964,11 +1964,11 @@ List engagements (active-by-default) filtered by --domain / --lifecycle / --org;
 - `--domain` — optional
   Filter by domain
 - `--lifecycle` — optional
-  Filter by lifecycle_state (open|in_progress|blocked|closed)
+  Filter by lifecycle_state (planned|open|in_progress|blocked|closed), or 'all' for the full set
 - `--org` — optional
   Scope to an organization's tickets (role='ticket_of')
 - `--include-closed` — optional · flag
-  Include terminal (closed) engagements. Default: active-only (open|in_progress|blocked). Ignored when --lifecycle is given.
+  Legacy sugar — add terminal (closed) engagements back. Default: active-only (open|in_progress|blocked); pre-active 'planned' stays out unless requested or --lifecycle all. Ignored when --lifecycle is given.
 - `--limit` — optional · type=`int` · default=`100`
   Max rows (default: 100)
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`

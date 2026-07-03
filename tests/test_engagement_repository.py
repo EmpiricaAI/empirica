@@ -13,8 +13,10 @@ import time
 import pytest
 
 from empirica.data.repositories.workspace_db import (
+    ENGAGEMENT_DEFAULT_EXCLUDED_STATES,
     ENGAGEMENT_LIFECYCLE_STATES,
     ENGAGEMENT_OUTCOMES,
+    ENGAGEMENT_PREACTIVE_STATES,
     WorkspaceDBRepository,
     _ensure_workspace_schema,
 )
@@ -32,8 +34,11 @@ def repo() -> WorkspaceDBRepository:
 
 
 def test_enum_sets():
-    assert {"open", "in_progress", "blocked", "closed"} == ENGAGEMENT_LIFECYCLE_STATES
+    assert {"planned", "open", "in_progress", "blocked", "closed"} == ENGAGEMENT_LIFECYCLE_STATES
     assert {"won", "lost", "resolved", "wont_fix", "defer", "superseded"} == ENGAGEMENT_OUTCOMES
+    # planned (pre-active) + closed (terminal) are the two states off the active feed.
+    assert {"planned"} == ENGAGEMENT_PREACTIVE_STATES
+    assert {"planned", "closed"} == ENGAGEMENT_DEFAULT_EXCLUDED_STATES
 
 
 # ── create / get ─────────────────────────────────────────────────────────────
@@ -136,6 +141,52 @@ def test_list_org_scoped_is_active_by_default(repo):
     repo.conn.commit()
     assert {e["engagement_id"] for e in repo.list_engagements(org_id="acme")} == {"t1"}
     assert {e["engagement_id"] for e in repo.list_engagements(org_id="acme", include_closed=True)} == {"t1", "t2"}
+
+
+# ── planned (pre-active) + ?lifecycle=all fetch-everything ─────────────────────
+
+
+def test_list_excludes_planned_by_default(repo):
+    """Pre-active 'planned' is off the active feed (brackets it from the front)."""
+    repo.create_engagement("a1", "active", domain="support")
+    repo.create_engagement("p1", "queued", domain="support")
+    repo.update_engagement("p1", lifecycle_state="planned")
+    assert {e["engagement_id"] for e in repo.list_engagements()} == {"a1"}
+
+
+def test_list_include_closed_still_excludes_planned(repo):
+    """include_closed is terminal-only sugar — pre-active 'planned' stays out."""
+    repo.create_engagement("a1", "active", domain="support")
+    repo.create_engagement("p1", "queued", domain="support")
+    repo.create_engagement("c1", "done", domain="support")
+    repo.update_engagement("p1", lifecycle_state="planned")
+    repo.update_engagement("c1", lifecycle_state="closed", outcome="won")
+    assert {e["engagement_id"] for e in repo.list_engagements(include_closed=True)} == {"a1", "c1"}
+
+
+def test_list_explicit_planned_returns_planned(repo):
+    """An explicit lifecycle_state='planned' wins over the default exclusion."""
+    repo.create_engagement("a1", "active", domain="support")
+    repo.create_engagement("p1", "queued", domain="support")
+    repo.update_engagement("p1", lifecycle_state="planned")
+    assert {e["engagement_id"] for e in repo.list_engagements(lifecycle_state="planned")} == {"p1"}
+
+
+def test_list_all_returns_everything(repo):
+    """lifecycle_state='all' — the Engagements-area fetch-everything (planned + closed included)."""
+    repo.create_engagement("a1", "active", domain="support")
+    repo.create_engagement("p1", "queued", domain="support")
+    repo.create_engagement("c1", "done", domain="support")
+    repo.update_engagement("p1", lifecycle_state="planned")
+    repo.update_engagement("c1", lifecycle_state="closed", outcome="won")
+    assert {e["engagement_id"] for e in repo.list_engagements(lifecycle_state="all")} == {"a1", "p1", "c1"}
+
+
+def test_update_accepts_planned(repo):
+    """'planned' is a valid lifecycle_state for a transition into pre-active."""
+    repo.create_engagement("e1", "x", domain="support")
+    updated = repo.update_engagement("e1", lifecycle_state="planned")
+    assert updated["lifecycle_state"] == "planned"
 
 
 # ── contact scoping (engagement_contacts edge) ────────────────────────────────

@@ -5,6 +5,23 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Engagement `planned` (pre-active) lifecycle state + `?lifecycle=all`
+  fetch-everything.** Engagements gain a `planned` state ahead of `open`, for
+  queued-but-not-started work. The active-by-default feed
+  (`GET /api/v1/engagements`, the `engagement-list` CLI, and the org/contact
+  drill) now excludes **both** pre-active (`planned`) and terminal (`closed`) —
+  the "who are we working with now" view is the complement
+  `{open, in_progress, blocked}`. Reach the full set with an explicit
+  `?lifecycle=<state>` (`planned` / `closed` each individually targetable) or
+  the new `?lifecycle=all` sentinel (`--lifecycle all` on the CLI). `include_closed`
+  remains as legacy sugar — it adds `closed` back to the feed but leaves
+  `planned` out unless it's requested explicitly. Enum + filter live app-side in
+  `WorkspaceDBRepository` (`ENGAGEMENT_PREACTIVE_STATES` /
+  `ENGAGEMENT_DEFAULT_EXCLUDED_STATES`); invalid states surface as a 422, never a 500.
+
 ## [1.12.11] — 2026-07-03
 
 ### Added
