@@ -399,11 +399,18 @@ def get_brier_profile(
     ai_id: str,
     db,
     lookback: int = 50,
+    session_id: str | None = None,
 ) -> dict:
     """Get Brier score profile for an AI across phases.
 
     Useful for calibration-report and epistemic profiles.
     Returns decomposition per phase with trend information.
+
+    ``session_id`` scopes to a single PRACTITIONER (claude session) rather than
+    the practice aggregate (B5): every trajectory point already carries
+    ``session_id``, so passing it filters the same decomposition to one
+    practitioner's own calibration track. Default ``None`` = the practice
+    aggregate (``WHERE ai_id = ?``), unchanged for existing callers.
     """
     try:
         cursor = db.conn.cursor()
@@ -411,13 +418,16 @@ def get_brier_profile(
 
         for phase in ["noetic", "praxic", "combined"]:
             phase_filter = "AND phase = ?" if phase != "combined" else ""
-            params = [ai_id] + ([phase] if phase != "combined" else []) + [lookback]
+            session_filter = "AND session_id = ?" if session_id else ""
+            params = (
+                [ai_id] + ([phase] if phase != "combined" else []) + ([session_id] if session_id else []) + [lookback]
+            )
 
             cursor.execute(
                 f"""
                 SELECT self_assessed, grounded
                 FROM calibration_trajectory
-                WHERE ai_id = ? {phase_filter} AND grounded IS NOT NULL
+                WHERE ai_id = ? {phase_filter} {session_filter} AND grounded IS NOT NULL
                 ORDER BY timestamp DESC
                 LIMIT ?
             """,
@@ -460,6 +470,74 @@ def get_brier_profile(
     except Exception as e:
         logger.debug(f"Brier profile computation failed: {e}")
         return {}
+
+
+def get_practitioner_brier_profile(
+    session_id: str,
+    ai_id: str,
+    db,
+    lookback: int = 50,
+) -> dict:
+    """Per-PRACTITIONER Brier profile (EPIC B / B5) — the session-keyed
+    reliability track that's already latent in ``calibration_trajectory``.
+
+    Same phase decomposition as :func:`get_brier_profile`, scoped to one
+    practitioner (claude session) via the ``session_id`` every trajectory point
+    already carries — so a practitioner's OWN calibration surfaces rather than
+    being rolled up to the practice aggregate. This is the RAW surface; the
+    credibility-weighted fold (Bühlmann shrinkage on thin ``n``) is autonomy's
+    lane, applied at arbitration time (PRACTITIONER_DELIBERATION_MODEL §3).
+    """
+    return get_brier_profile(ai_id, db, lookback=lookback, session_id=session_id)
+
+
+def compute_practitioner_divergence(
+    session_id: str,
+    ai_id: str,
+    db,
+    lookback: int = 50,
+) -> dict:
+    """Per-phase practitioner-vs-practice reliability divergence (EPIC B / B5).
+
+    Returns, per phase, the RAW divergence between a practitioner's own Brier
+    track and the practice aggregate::
+
+        {phase: {brier_delta, reliability_delta, practitioner_brier,
+                 practice_brier, practitioner_n, practice_n}}
+
+    ``brier_delta`` = practitioner − practice (NEGATIVE = better-calibrated than
+    the practice; POSITIVE = worse). A phase with too few grounded points on
+    either side returns ``{"status": "insufficient_data", ...}``.
+
+    This is the raw signal only. The credibility-weighted fold — shrink a
+    thin-``n`` practitioner's divergence toward the practice prior (Bühlmann
+    ``w = n/(n+k)``, hard floor at ``n < n_min``, asymmetric on
+    better-than-practice claims) — is autonomy's lane, applied when the
+    divergence feeds arbitration (PRACTITIONER_DELIBERATION_MODEL §3/§6). The
+    seam is deliberate: empirica-core surfaces, autonomy weights.
+    """
+    practitioner = get_practitioner_brier_profile(session_id, ai_id, db, lookback=lookback)
+    practice = get_brier_profile(ai_id, db, lookback=lookback)
+    out: dict = {}
+    for phase in ("noetic", "praxic", "combined"):
+        p = practitioner.get(phase, {})
+        a = practice.get(phase, {})
+        if "brier_score" not in p or "brier_score" not in a:
+            out[phase] = {
+                "status": "insufficient_data",
+                "practitioner_n": p.get("n_predictions", p.get("n", 0)),
+                "practice_n": a.get("n_predictions", a.get("n", 0)),
+            }
+            continue
+        out[phase] = {
+            "brier_delta": round(p["brier_score"] - a["brier_score"], 4),
+            "reliability_delta": round(p["reliability"] - a["reliability"], 4),
+            "practitioner_brier": p["brier_score"],
+            "practice_brier": a["brier_score"],
+            "practitioner_n": p["n_predictions"],
+            "practice_n": a["n_predictions"],
+        }
+    return out
 
 
 def _find_brier_section(lines: list[str]) -> tuple[int, int]:
