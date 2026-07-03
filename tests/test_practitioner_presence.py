@@ -228,3 +228,59 @@ def test_pid_alive_probe(fake_home):
     proc = subprocess.Popen(["true"])
     proc.wait()
     assert pp._pid_alive(proc.pid) is False
+
+
+# ---- torn-write data-corruption fix (shared-tmp race) --------------------------
+
+
+def test_torn_tail_tolerated_by_readers(fake_home):
+    """A torn write (leading valid record + leftover tail from a longer prior
+    write) must NOT hide a live practice — raw_decode recovers the record."""
+    rec = {
+        "claude_session_id": "cc-torn",
+        "practice_ai_id": "empirica",
+        "status": "active",
+        "session_pid": 1,
+        "last_heartbeat": time.time(),
+    }
+    p = pp.presence_path("cc-torn")
+    # Complete record + garbage tail (what a shorter write over a longer one leaves).
+    p.write_text(json.dumps(rec) + '{"leftover": "tail from a longer previous write')
+
+    assert pp.read_presence("cc-torn")["claude_session_id"] == "cc-torn"
+    listed = pp.list_presence("empirica", include_stale=True)
+    assert any(r["claude_session_id"] == "cc-torn" for r in listed)
+
+
+def test_load_presence_none_on_pure_garbage(fake_home):
+    p = pp.presence_path("cc-junk")
+    p.write_text("not json at all")
+    assert pp._load_presence(p) is None
+
+
+def test_write_uses_unique_tmp_no_shared_collision(fake_home):
+    """Each writer owns a unique `<name>.<pid>.<ns>.tmp`; the old shared
+    `<name>.tmp` is never created, so concurrent writers can't O_TRUNC each
+    other. The atomic replace leaves no tmp behind and a complete record."""
+    pp.write_presence("cc-u", practice_ai_id="empirica")
+    path = pp.presence_path("cc-u")
+    assert not path.with_name(path.name + ".tmp").exists()  # no shared tmp
+    assert not list(pp.EMPIRICA_DIR.glob(f"{pp._PREFIX}*.tmp"))  # no tmp leaked at all
+    assert pp.read_presence("cc-u")["claude_session_id"] == "cc-u"
+    # a second write to the same path succeeds cleanly (last writer wins)
+    pp.write_presence("cc-u", practice_ai_id="empirica", status="idle")
+    assert pp.read_presence("cc-u")["status"] == "idle"
+
+
+def test_sweep_stale_tmps_removes_only_abandoned(fake_home):
+    import os
+
+    pp.EMPIRICA_DIR.mkdir(parents=True, exist_ok=True)
+    old = pp.EMPIRICA_DIR / f"{pp._PREFIX}cc-old.json.999.111.tmp"
+    fresh = pp.EMPIRICA_DIR / f"{pp._PREFIX}cc-new.json.999.222.tmp"
+    old.write_text("{}")
+    fresh.write_text("{}")
+    stamp = time.time() - 120
+    os.utime(old, (stamp, stamp))  # abandoned 2 min ago
+    assert pp._sweep_stale_tmps(older_than=60.0) == 1
+    assert not old.exists() and fresh.exists()

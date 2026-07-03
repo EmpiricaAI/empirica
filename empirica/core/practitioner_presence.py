@@ -82,6 +82,71 @@ def presence_path(claude_session_id: str) -> Path:
     return EMPIRICA_DIR / f"{_PREFIX}{_safe(claude_session_id)}.json"
 
 
+def _atomic_write_presence(path: Path, record: dict[str, Any]) -> None:
+    """Atomically publish a presence record via a UNIQUE per-writer tmp.
+
+    Many listener services sweep the SAME presence dir via
+    :func:`refresh_live_presence`, so a shared ``<name>.tmp`` was O_TRUNCed by
+    several writers at once — a shorter write landing over a longer one left a
+    torn tail, and the strict readers then skipped the file, hiding a live
+    practice PERMANENTLY (it also couldn't be re-stamped). Each writer now owns
+    its tmp (``<name>.<pid>.<ns>.tmp``); the atomic replace publishes a whole
+    record (last writer wins, always valid JSON). The tmp is cleaned up on
+    failure so a crashed write can't leak it.
+    """
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
+    try:
+        tmp.write_text(json.dumps(record), encoding="utf-8")
+        tmp.replace(path)  # atomic
+    except BaseException:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
+
+
+def _load_presence(path: Path) -> dict[str, Any] | None:
+    """Read a presence record, tolerant of a torn tail (defense in depth).
+
+    A stray concurrent writer under the old shared-tmp bug — or a torn file still
+    on disk from before this fix — leaves invalid JSON that strict ``json.loads``
+    rejects, silently hiding a live practice. ``raw_decode`` recovers the leading
+    valid object so a garbage tail can't. Returns None only when the file is
+    unreadable or its leading bytes aren't a JSON object.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    try:
+        obj: Any = json.loads(text)
+    except json.JSONDecodeError:
+        try:
+            obj, _ = json.JSONDecoder().raw_decode(text)
+        except (json.JSONDecodeError, ValueError):
+            return None
+    return obj if isinstance(obj, dict) else None
+
+
+def _sweep_stale_tmps(older_than: float = 60.0) -> int:
+    """Unlink abandoned per-writer tmps (crashed mid-write). Conservative: only
+    tmps older than ``older_than`` seconds — a live writer's tmp exists for <1s,
+    so this never races an in-flight write. Returns the count removed."""
+    if not EMPIRICA_DIR.exists():
+        return 0
+    cutoff = time.time() - older_than
+    removed = 0
+    for tmp in EMPIRICA_DIR.glob(f"{_PREFIX}*.tmp"):
+        try:
+            if tmp.stat().st_mtime < cutoff:
+                tmp.unlink()
+                removed += 1
+        except OSError:
+            continue
+    return removed
+
+
 def write_presence(
     claude_session_id: str,
     *,
@@ -130,10 +195,7 @@ def write_presence(
         "session_pid": session_pid,
         "last_heartbeat": time.time(),
     }
-    path = presence_path(claude_session_id)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(record), encoding="utf-8")
-    tmp.replace(path)  # atomic
+    _atomic_write_presence(presence_path(claude_session_id), record)
     return record
 
 
@@ -141,10 +203,7 @@ def read_presence(claude_session_id: str) -> dict[str, Any] | None:
     path = presence_path(claude_session_id)
     if not path.exists():
         return None
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
+    return _load_presence(path)
 
 
 def clear_presence(claude_session_id: str) -> bool:
@@ -183,9 +242,8 @@ def list_presence(
     now = time.time()
     out: list[dict[str, Any]] = []
     for path in _all_presence_files():
-        try:
-            rec = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+        rec = _load_presence(path)
+        if rec is None:
             continue
         if practice_ai_id is not None and rec.get("practice_ai_id") != practice_ai_id:
             continue
@@ -231,11 +289,11 @@ def refresh_live_presence(*, now: float | None = None) -> dict[str, int]:
     ``{"refreshed", "alive", "dead", "no_pid"}``.
     """
     now = time.time() if now is None else now
+    _sweep_stale_tmps()  # hygiene: clear per-writer tmps abandoned by crashed writers
     counts = {"refreshed": 0, "alive": 0, "dead": 0, "no_pid": 0}
     for path in _all_presence_files():
-        try:
-            rec = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+        rec = _load_presence(path)
+        if rec is None:
             continue
         pid = rec.get("session_pid")
         if not isinstance(pid, int):
@@ -246,10 +304,8 @@ def refresh_live_presence(*, now: float | None = None) -> dict[str, int]:
             continue
         counts["alive"] += 1
         rec["last_heartbeat"] = now
-        tmp = path.with_name(path.name + ".tmp")
         try:
-            tmp.write_text(json.dumps(rec), encoding="utf-8")
-            tmp.replace(path)  # atomic
+            _atomic_write_presence(path, rec)
             counts["refreshed"] += 1
         except OSError:
             pass
