@@ -272,10 +272,18 @@ class CockpitApp(App):
                     cells.append(f"{glyph}{name}")
             emit_24h = nd.get("emit_count_24h", 0)
             fb_24h = nd.get("fell_back_count_24h", 0)
-            stats = f"24h:{emit_24h}"
+            # 'emit:' not a bare '24h:' — the unlabeled form read as "mesh
+            # activity in 24h = 0" while wakes were flowing (the mesh pulse
+            # is the separate wakes chip below).
+            stats = f"emit:{emit_24h}"
             if fb_24h:
                 stats += f" fb:{fb_24h}"
             dispatch_part = f" · {' '.join(cells)} {stats}"
+
+        # Mesh pulse — wake events delivered in the last 24h (loop_fires.log).
+        # THE number a fleet operator wants at a glance: 0 here really does
+        # mean "no mesh activity", unlike the dispatcher's emit count.
+        wake_part = f" · wakes:{s.get('wake_count_24h', 0)}"
 
         # Auto-accept chip — always visible so the bypass state is never
         # ambiguous (was prev hidden when OFF, which made "is bypass on?"
@@ -291,7 +299,7 @@ class CockpitApp(App):
         else:
             auto_part = ""
 
-        text = f"empirica · {s.get('instances', 0)} inst{notif_part}{auto_part}{dispatch_part} · {ts}"
+        text = f"empirica · {s.get('instances', 0)} inst{notif_part}{auto_part}{wake_part}{dispatch_part} · {ts}"
         self.query_one("#summary", Static).update(text)
 
     def _render_table(self) -> None:

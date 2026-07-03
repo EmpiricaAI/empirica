@@ -30,7 +30,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -759,8 +759,49 @@ def aggregate_all(include_dead: bool = False) -> dict[str, Any]:
             "open_notifications": notifications_total(),
             "notify_dispatcher": build_notify_dispatcher_block(),
             "auto_accept": auto_accept,
+            "wake_count_24h": wake_count_24h(),
         },
     }
+
+
+def wake_count_24h(log_path: Path | None = None, window_hours: float = 24.0) -> int:
+    """Count mesh wake events delivered in the last N hours.
+
+    Reads ``~/.empirica/loop_fires.log`` — the append-only delivery log the
+    persistent listeners write one JSON line per wake event to. This is the
+    fleet's actual mesh pulse, distinct from the notify DISPATCHER's
+    ``emit_count_24h`` (rows in notify-dispatcher.jsonl — a subsystem that can
+    be entirely unused, so its zero rendered as a bare ``24h:0`` in the header
+    read as "mesh dead" while wakes were in fact flowing).
+
+    Only the tail of the log is scanned (the file is append-only and grows
+    unbounded; 1 MiB of tail is orders of magnitude more than a day of
+    events). Telemetry never breaks the cockpit — any failure returns 0.
+    """
+    path = log_path if log_path is not None else EMPIRICA_DIR / "loop_fires.log"
+    tail_bytes = 1024 * 1024
+    try:
+        cutoff = datetime.now(tz=timezone.utc) - timedelta(hours=window_hours)
+        count = 0
+        with open(path, "rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            size = fh.tell()
+            fh.seek(max(0, size - tail_bytes))
+            data = fh.read().decode("utf-8", errors="replace")
+        lines = data.splitlines()
+        # When we started mid-file, the first line is likely partial — drop it.
+        if size > tail_bytes and lines:
+            lines = lines[1:]
+        for line in lines:
+            try:
+                ts = json.loads(line).get("ts")
+                if ts and datetime.fromisoformat(ts) >= cutoff:
+                    count += 1
+            except (ValueError, TypeError):
+                continue
+        return count
+    except Exception:
+        return 0
 
 
 def discover_dead_instances() -> list[str]:

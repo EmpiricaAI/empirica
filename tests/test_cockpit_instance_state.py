@@ -468,3 +468,28 @@ def test_discover_dead_keeps_ghost_when_no_canonical(env, monkeypatch):
 
     dead = ist.discover_dead_instances()
     assert "tmux_16" not in dead  # within budget — kept
+
+
+# ─── wake_count_24h — mesh pulse from loop_fires.log ─────────────────────────
+
+
+def test_wake_count_24h_counts_only_window(tmp_path):
+    """Rows inside the 24h window count; older rows and junk lines don't."""
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(tz=timezone.utc)
+    log = tmp_path / "loop_fires.log"
+    rows = [
+        json.dumps({"ts": (now - timedelta(hours=1)).isoformat(), "instance_id": "a"}),
+        json.dumps({"ts": (now - timedelta(hours=23)).isoformat(), "instance_id": "b"}),
+        json.dumps({"ts": (now - timedelta(hours=25)).isoformat(), "instance_id": "c"}),  # outside
+        "not json at all",
+        json.dumps({"no_ts": True}),
+    ]
+    log.write_text("\n".join(rows) + "\n", encoding="utf-8")
+    assert ist.wake_count_24h(log_path=log) == 2
+
+
+def test_wake_count_24h_missing_log_is_zero(tmp_path):
+    """No loop_fires.log (fresh install) → 0, never an exception."""
+    assert ist.wake_count_24h(log_path=tmp_path / "nope.log") == 0
