@@ -97,3 +97,32 @@ def test_get_engagement_tasks_scoped_and_ordered(repo):
 
 def test_get_engagement_tasks_empty_for_unknown(repo):
     assert repo.get_engagement_tasks("nope") == []
+
+
+# ── resilience: optional tables absent (older/minimal workspace DBs) ───────────
+
+
+def test_crm_projections_degrade_when_optional_tables_absent():
+    """A workspace DB predating the ``contacts`` / ``engagement_tasks`` tables
+    (or a fixture that only seeds the entity tables) must NOT raise
+    ``OperationalError: no such table`` — the CRM projections degrade to empty.
+    This is what a GET /api/v1/entities against such a DB relies on to 200
+    instead of 500 (regression guard for the daemon-crm contact projection).
+    """
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    # Only the entity tables — deliberately NO `contacts`, NO `engagement_tasks`.
+    conn.executescript(
+        """
+        CREATE TABLE entity_registry (entity_type TEXT, entity_id TEXT, display_name TEXT);
+        CREATE TABLE entity_memberships (
+            entity_type TEXT, entity_id TEXT, group_type TEXT, group_id TEXT,
+            role TEXT, joined_at TEXT, left_at TEXT
+        );
+        """
+    )
+    repo = WorkspaceDBRepository(conn)
+    assert repo.get_contact_detail_map() == {}
+    assert repo.get_engagement_tasks("eng-1") == []
+    # entity_memberships IS present → the org-details map still works (returns {}).
+    assert repo.get_contact_org_details_map() == {}

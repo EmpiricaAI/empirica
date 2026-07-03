@@ -998,12 +998,28 @@ class WorkspaceDBRepository(BaseRepository):
             for row in cursor.fetchall()
         }
 
+    def _table_exists(self, name: str) -> bool:
+        """True iff a table named ``name`` exists in the connected DB.
+
+        Lets the CRM projection queries degrade to empty on older/minimal
+        workspace DBs — a schema predating the ``contacts`` / ``engagement_tasks``
+        tables (or a test fixture that only seeds the entity tables) returns []/{}
+        instead of raising ``OperationalError: no such table``.
+        """
+        cursor = self._execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1",
+            (name,),
+        )
+        return cursor.fetchone() is not None
+
     def get_contact_detail_map(self) -> dict[str, dict[str, Any]]:
         """Map contact_id → the richer CRM projection fields from the ``contacts``
         table (email/phone/title/tags/notes/contact_type/lifecycle_stage). One
         query; ``tags`` is JSON-parsed to a list (honest-empty on malformed).
+        Returns ``{}`` when the ``contacts`` table is absent.
         """
-        import json
+        if not self._table_exists("contacts"):
+            return {}
 
         cursor = self._execute(
             """SELECT contact_id, email_primary, phone_primary, organization_title,
@@ -1032,8 +1048,12 @@ class WorkspaceDBRepository(BaseRepository):
     def get_engagement_tasks(self, engagement_id: str) -> list[dict[str, Any]]:
         """List an engagement's tasks from workspace ``engagement_tasks`` (task_id,
         title, status, assigned_to, due_at, completed_at, blocked_by, …), oldest
-        first. Empty list when the engagement has none.
+        first. Empty list when the engagement has none, or when the
+        ``engagement_tasks`` table is absent (older/minimal workspace DBs).
         """
+        if not self._table_exists("engagement_tasks"):
+            return []
+
         cursor = self._execute(
             """SELECT task_id, engagement_id, title, description, status,
                       assigned_to, due_at, completed_at, blocked_by, created_at
