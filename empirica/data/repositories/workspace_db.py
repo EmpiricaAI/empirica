@@ -1290,6 +1290,99 @@ class WorkspaceDBRepository(BaseRepository):
             )
         return [dict(row) for row in cursor.fetchall()]
 
+    def record_deliberation_read(
+        self,
+        claude_session_id: str,
+        engagement_id: str,
+        *,
+        read_summary: str | None = None,
+        role: str = "contributes_to",
+    ) -> None:
+        """Record a practitioner's attributed read on an engagement (B6).
+
+        A *deliberation* is the set of practitioner reads on one engagement
+        (PRACTITIONER_DELIBERATION_MODEL §4). Each read is a ``contributes_to``
+        edge (practitioner → engagement) in ``entity_memberships`` — exactly
+        parallel to B4's ``occupies`` (practitioner → practice), so it inherits
+        the same idempotency + soft-close semantics: re-recording the same
+        practitioner's read on the same engagement UPDATES the summary (latest
+        position wins) rather than duplicating, and the edge is soft-closed
+        (``left_at``) not deleted, keeping the deliberation history auditable.
+
+        ``read_summary`` is the practitioner's contribution/position, stored in
+        the edge ``notes``. The read's RELIABILITY vector is NOT stored here — it
+        is computed at query/arbitration time from the practitioner's
+        session-keyed calibration track (B5 ``compute_practitioner_divergence``),
+        which lives in the project DB, not the workspace ERM. Core records WHO
+        contributed WHAT; the reliability-weighting is layered on where both DBs
+        are reachable (autonomy's arbitration lane, B7).
+        """
+        self.upsert_entity_membership(
+            "practitioner",
+            claude_session_id,
+            "engagement",
+            engagement_id,
+            role=role,
+            notes=read_summary,
+        )
+
+    def get_deliberation(self, engagement_id: str) -> list[dict[str, Any]]:
+        """The deliberation record for an engagement — its attributed
+        practitioner reads (B6).
+
+        Returns one row per live ``contributes_to`` edge on the engagement, each
+        a read attributed to its contributing practitioner: the
+        ``practitioner_session_id``, the ``practice_ai_id`` + conversation
+        ``summary`` from the practitioner's durable registry row (B4), the
+        ``read_summary`` (position), and ``joined_at``. Ordered oldest-first
+        (deliberation chronology).
+
+        LEFT JOIN to the registry — an attributed read is real even if the
+        practitioner's durable entity hasn't been persisted yet; attribution
+        fields are ``None`` in that case (honest-empty) rather than silently
+        dropping the read.
+
+        This is the RAW record. The per-read reliability vector (B5) and the
+        arbitrated direction (B7) are layered on by the consumer — core surfaces
+        the reads, autonomy weights + arbitrates.
+        """
+        cursor = self._execute(
+            """SELECT m.entity_id AS practitioner_session_id,
+                      m.role, m.notes AS read_summary, m.joined_at,
+                      r.display_name, r.metadata
+               FROM entity_memberships m
+               LEFT JOIN entity_registry r
+                 ON r.entity_type = 'practitioner' AND r.entity_id = m.entity_id
+               WHERE m.entity_type = 'practitioner'
+                 AND m.group_type = 'engagement' AND m.group_id = ?
+                 AND m.role = 'contributes_to' AND m.left_at IS NULL
+               ORDER BY m.joined_at""",
+            (engagement_id,),
+        )
+        out: list[dict[str, Any]] = []
+        for row in cursor.fetchall():
+            d = dict(row)
+            meta: dict[str, Any] = {}
+            raw = d.get("metadata")
+            if raw:
+                try:
+                    parsed = json.loads(raw)
+                    if isinstance(parsed, dict):
+                        meta = parsed
+                except (ValueError, TypeError):
+                    meta = {}
+            out.append(
+                {
+                    "practitioner_session_id": d["practitioner_session_id"],
+                    "practice_ai_id": meta.get("practice_ai_id"),
+                    "summary": meta.get("summary"),
+                    "read_summary": d["read_summary"],
+                    "joined_at": d["joined_at"],
+                    "display_name": d["display_name"],
+                }
+            )
+        return out
+
     def close_entity_membership(
         self,
         entity_type: str,

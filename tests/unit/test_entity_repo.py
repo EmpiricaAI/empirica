@@ -282,3 +282,74 @@ class TestCloseEntityMembership:
         repo.upsert_entity_membership("engagement", "e-1", "organization", "o-1", role="ticket_of")
         active = repo.get_entity_memberships("engagement", "e-1")["member_of"]
         assert len(active) == 1 and active[0]["left_at"] is None
+
+
+class TestDeliberationRecord:
+    """B6 — deliberation record: contributes_to edge (practitioner ↔ engagement)
+    + attributed reads. Parallel to B4's occupies edge, so it inherits
+    idempotency + soft-close from entity_memberships."""
+
+    def test_empty_engagement_has_no_reads(self, tmp_workspace_repo):
+        assert tmp_workspace_repo.get_deliberation("eng-1") == []
+
+    def test_record_and_read_attributed(self, tmp_workspace_repo):
+        repo = tmp_workspace_repo
+        # Two practitioners occupying a practice, each contributing a read.
+        repo.upsert_practitioner_entity("sess-A", "empirica", summary="A's tl;dr")
+        repo.upsert_practitioner_entity("sess-B", "empirica", summary="B's tl;dr")
+        repo.record_deliberation_read("sess-A", "eng-1", read_summary="lean ship")
+        repo.record_deliberation_read("sess-B", "eng-1", read_summary="hold, risk")
+
+        reads = repo.get_deliberation("eng-1")
+        assert len(reads) == 2
+        by_sess = {r["practitioner_session_id"]: r for r in reads}
+        assert by_sess["sess-A"]["read_summary"] == "lean ship"
+        # attribution is enriched from the practitioner's durable registry row (B4)
+        assert by_sess["sess-A"]["practice_ai_id"] == "empirica"
+        assert by_sess["sess-A"]["summary"] == "A's tl;dr"
+        assert by_sess["sess-B"]["read_summary"] == "hold, risk"
+
+    def test_read_scoped_to_engagement(self, tmp_workspace_repo):
+        repo = tmp_workspace_repo
+        repo.upsert_practitioner_entity("sess-A", "empirica")
+        repo.record_deliberation_read("sess-A", "eng-1", read_summary="on eng-1")
+        repo.record_deliberation_read("sess-A", "eng-2", read_summary="on eng-2")
+        assert len(repo.get_deliberation("eng-1")) == 1
+        assert repo.get_deliberation("eng-1")[0]["read_summary"] == "on eng-1"
+        assert repo.get_deliberation("eng-2")[0]["read_summary"] == "on eng-2"
+
+    def test_re_record_updates_position_not_duplicates(self, tmp_workspace_repo):
+        repo = tmp_workspace_repo
+        repo.upsert_practitioner_entity("sess-A", "empirica")
+        repo.record_deliberation_read("sess-A", "eng-1", read_summary="first position")
+        repo.record_deliberation_read("sess-A", "eng-1", read_summary="revised position")
+        reads = repo.get_deliberation("eng-1")
+        assert len(reads) == 1  # latest position wins, no duplicate edge
+        assert reads[0]["read_summary"] == "revised position"
+
+    def test_read_surfaces_without_registry_row(self, tmp_workspace_repo):
+        # An attributed read is real even if the practitioner entity wasn't
+        # persisted; attribution fields are None (LEFT JOIN, honest-empty).
+        repo = tmp_workspace_repo
+        repo.record_deliberation_read("sess-ghost", "eng-1", read_summary="unattributed read")
+        reads = repo.get_deliberation("eng-1")
+        assert len(reads) == 1
+        assert reads[0]["practitioner_session_id"] == "sess-ghost"
+        assert reads[0]["read_summary"] == "unattributed read"
+        assert reads[0]["practice_ai_id"] is None
+        assert reads[0]["summary"] is None
+
+    def test_closed_read_excluded_but_auditable(self, tmp_workspace_repo):
+        repo = tmp_workspace_repo
+        repo.upsert_practitioner_entity("sess-A", "empirica")
+        repo.record_deliberation_read("sess-A", "eng-1", read_summary="withdrawn")
+        # Practitioner withdraws from the deliberation → soft-close the edge.
+        assert repo.close_entity_membership("practitioner", "sess-A", "engagement", "eng-1") is True
+        assert repo.get_deliberation("eng-1") == []
+        # ...but the row persists (auditable history), consistent with B4 semantics.
+        cur = repo._execute(
+            "SELECT left_at FROM entity_memberships "
+            "WHERE entity_type='practitioner' AND entity_id='sess-A' AND group_type='engagement'"
+        )
+        rows = cur.fetchall()
+        assert len(rows) == 1 and rows[0]["left_at"] is not None
