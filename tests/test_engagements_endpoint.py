@@ -178,6 +178,15 @@ def test_route_domain_filter(client):
     assert client.get("/api/v1/engagements?domain=sales").json()["count"] == 0
 
 
+def test_route_contact_filter_wires_and_degrades(client):
+    # ?contact= binds as a query param; the temp workspace.db has no
+    # engagement_contacts table (core-only), so the filter is honest-empty
+    # (200, count 0) rather than a `no such table` 500.
+    r = client.get("/api/v1/engagements?contact=c-nobody")
+    assert r.status_code == 200
+    assert r.json()["count"] == 0
+
+
 def test_route_invalid_lifecycle_422(client):
     r = client.get("/api/v1/engagements?lifecycle=not_a_state")
     assert r.status_code == 422

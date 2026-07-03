@@ -1277,6 +1277,7 @@ class WorkspaceDBRepository(BaseRepository):
         domain: str | None = None,
         lifecycle_state: str | None = None,
         org_id: str | None = None,
+        contact_id: str | None = None,
         include_closed: bool = False,
         limit: int = 100,
     ) -> list[dict[str, Any]]:
@@ -1284,7 +1285,10 @@ class WorkspaceDBRepository(BaseRepository):
 
         ``org_id`` scopes to engagements that are members of that organization
         with role='ticket_of' (the canonical org→ticket linkage), joining
-        entity_memberships. ``lifecycle_state`` must be a valid state.
+        entity_memberships. ``contact_id`` scopes to engagements the contact is
+        an active participant in (``engagement_contacts`` edge, ``left_at IS
+        NULL``); the two org/contact filters compose (AND) when both are given.
+        ``lifecycle_state`` must be a valid state.
 
         Active-by-default (SER#183 part-2): when no explicit ``lifecycle_state``
         is given, terminal engagements (``ENGAGEMENT_TERMINAL_STATES``, i.e.
@@ -1307,6 +1311,17 @@ class WorkspaceDBRepository(BaseRepository):
                 "m.group_type = 'organization' AND m.group_id = ? AND m.role = 'ticket_of' AND m.left_at IS NULL"
             )
             params.append(org_id)
+        if contact_id is not None:
+            # engagement_contacts is workspace-managed and NOT vendored into the
+            # core substrate — absent on a core-only install. No linkage table →
+            # no contact-scoped engagements (honest-empty), never a 500.
+            if not self._table_exists("engagement_contacts"):
+                return []
+            # Active participation edge — engagement_contacts.PK(engagement_id,
+            # contact_id) guarantees ≤1 match per engagement, so no row dupes.
+            join += " JOIN engagement_contacts ec ON ec.engagement_id = e.engagement_id"
+            where.append("ec.contact_id = ? AND ec.left_at IS NULL")
+            params.append(contact_id)
         if domain is not None:
             where.append("e.domain = ?")
             params.append(domain)

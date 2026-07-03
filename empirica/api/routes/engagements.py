@@ -39,6 +39,11 @@ def _require_severity(severity: str | None) -> None:
 @router.get("/engagements", dependencies=[Depends(verify_mint_bearer)])
 async def list_engagements(
     org: str | None = Query(None, description="Filter to engagements ticket_of this organization id"),
+    contact: str | None = Query(
+        None,
+        description="Filter to engagements this contact id actively participates in "
+        "(engagement_contacts edge). Composes with `org` (AND) when both are given.",
+    ),
     domain: str | None = Query(None, description="Filter by engagement domain (support, sales, ...)"),
     lifecycle: str | None = Query(None, description="Filter by lifecycle_state (open, in_progress, blocked, closed)"),
     include_closed: bool = Query(
@@ -64,6 +69,7 @@ async def list_engagements(
         try:
             rows = repo.list_engagements(
                 org_id=org,
+                contact_id=contact,
                 domain=domain,
                 lifecycle_state=lifecycle,
                 include_closed=include_closed,
