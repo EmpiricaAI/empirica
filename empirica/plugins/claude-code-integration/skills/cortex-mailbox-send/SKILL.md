@@ -1,7 +1,7 @@
 ---
 name: cortex-mailbox-send
 description: "Use when sending a message to a PEER AI in the mesh — discussion, FYI, question, request to do work, or completion-ack for a request a peer made of YOU. Pairs with /cortex-mailbox-poll (the receive side). Covers: when-to-send vs when-to-just-log-locally, choosing between collab flavor (auto-accept, conversational) vs ECO-gated flavor (typed action request that waits for a human decision), addressing peers by ai_id, completing inbound proposals so the source AI gets the ack, and recovery if a previous send mis-targeted. NOT for cortex_bus_* (system instance work queue, different concern) or cortex_collab_post (collab-doc events, web workflow only)."
-version: 1.1.0
+version: 1.2.0
 ---
 
 # Sending in the AI Mesh
@@ -33,6 +33,27 @@ It's not a fourth send-tool — you create SERs via `cortex_propose` with
 sustained multi-practitioner work. When a thread accumulates ≥3 rounds across
 the same practitioners, or when work has named participants with role tiers,
 SER is the right primitive. See **Flavor 3** below for full operational depth.
+
+---
+
+## Harness portability — flat tool names are the Claude Code form
+
+Every `mcp__cortex__cortex_*` name in this skill (`cortex_collab`,
+`cortex_propose`, `cortex_publish`, …) is the **Claude Code** calling
+convention, where each MCP tool is exposed as its own flat tool.
+**Namespace-aggregating harnesses** (codex / ecodex, the OpenAI
+Responses-API) instead collapse a whole MCP server's toolset into ONE
+namespace tool — `mcp__cortex` — driven by an operation + params interface.
+There you invoke the cortex **operation** *through* that namespace tool
+(operation=`cortex_collab`, params=`{…}`); a flat `mcp__cortex__cortex_collab`
+call parses to a non-namespaced tool name, matches nothing, and returns
+`unsupported call`.
+
+**Rule of thumb:** read every `mcp__cortex__<op>` below as **"the cortex
+operation `<op>`"** and call it however your harness surfaces cortex tools —
+a flat tool in Claude Code, the `mcp__cortex` namespace tool + `operation`
+param in codex/ecodex. The operations and their params are identical across
+harnesses; only the invocation shape differs.
 
 ---
 

@@ -1,7 +1,7 @@
 ---
 name: cortex-mailbox-poll
 description: "Use when wiring the canonical cortex inbox+outbox polling loop into Claude Code's /loop. This is the orchestration spine — every empirica claude polls Cortex on a fast adaptive cadence (30s base, 5m max) for proposals addressed to itself + status changes on its own outgoing proposals. Self-throttles when an empirica transaction is open (the AI is already busy; no need to interrupt). The canonical loop catalog (empirica/core/cockpit/canonical_loops.py) auto-installs this when the TUI cockpit toggles L on an instance that has no loops registered. This skill is the body the AI runs each fire."
-version: 1.0.0
+version: 1.1.0
 ---
 
 # Cortex mailbox-poll cron loop wiring
@@ -13,6 +13,26 @@ status changes route in seconds, not on the next user prompt.
 This skill is a thin wrapper over `/loop-cron` — same self-scheduling
 template, with `cortex_inbox_poll` + `cortex_outbox_poll` MCP calls
 plugged in as the body.
+
+---
+
+## Harness portability — flat tool names are the Claude Code form
+
+Every `mcp__cortex__cortex_*` name in this skill is the **Claude Code**
+calling convention, where each MCP tool is exposed as its own flat tool.
+**Namespace-aggregating harnesses** (codex / ecodex, the OpenAI
+Responses-API) instead collapse a whole MCP server's toolset into ONE
+namespace tool — `mcp__cortex` — driven by an operation + params interface.
+There you invoke the cortex **operation** *through* that namespace tool
+(operation=`cortex_inbox_poll`, params=`{…}`); a flat
+`mcp__cortex__cortex_inbox_poll` call parses to a non-namespaced tool name,
+matches nothing, and returns `unsupported call`.
+
+**Rule of thumb:** read every `mcp__cortex__<op>` below as **"the cortex
+operation `<op>`"** and call it however your harness surfaces cortex tools —
+a flat tool in Claude Code, the `mcp__cortex` namespace tool + `operation`
+param in codex/ecodex. The operations and their params are identical across
+harnesses; only the invocation shape differs.
 
 ---
 
