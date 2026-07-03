@@ -184,17 +184,29 @@ async def list_entity_artifacts(
     ),
     limit: int = Query(100, ge=1, le=500),
 ):
-    """Scoped artifacts for a single entity (canonical-model Gap B).
+    """Scoped artifacts for a single entity (canonical-model Gap B, §5b).
 
-    Returns the entity's DIRECT ``entity_artifacts`` pointers, newest first, each
-    carrying ``artifact_type`` + ``artifact_source`` (§5 — so the caller can
-    resolve + render the artifact). Unknown / empty entity → ``artifacts: []``
-    (honest-empty; the board renders 0 rather than the old 404). Membership-
-    transitive scoping (an entity's members' artifacts) is a deferred v2 pending
-    the §5 relation/direction.
+    Returns the entity's DIRECT ``entity_artifacts`` UNION its one-hop MEMBERS'
+    direct artifacts (container→members, fan DOWN, one hop) — each row carrying
+    ``artifact_type`` + ``artifact_source`` and a ``via`` field (``None`` for
+    direct; the member entity_id for transitive). Deduped by
+    (artifact_type, artifact_id), direct winning. The member junction differs by
+    the entity's type: engagement→contacts via engagement_contacts,
+    organization→contacts+engagements via entity_memberships, contact=leaf.
+
+    ``type`` is resolved from the registry when omitted (needed to pick the
+    junction). Unknown / empty entity → ``artifacts: []`` (honest-empty; the
+    board renders 0 rather than the old 404).
     """
     from empirica.data.repositories.workspace_db import WorkspaceDBRepository
 
     with WorkspaceDBRepository.open() as repo:
-        artifacts = repo.get_artifacts_for_entity(entity_id, entity_type=type, limit=limit)
-    return {"ok": True, "entity_id": entity_id, "count": len(artifacts), "artifacts": artifacts}
+        entity_type = type or repo.get_entity_type(entity_id)
+        artifacts = repo.get_scoped_artifacts(entity_id, entity_type, limit=limit)
+    return {
+        "ok": True,
+        "entity_id": entity_id,
+        "entity_type": entity_type,
+        "count": len(artifacts),
+        "artifacts": artifacts,
+    }

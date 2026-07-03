@@ -716,6 +716,73 @@ class WorkspaceDBRepository(BaseRepository):
         )
         return [dict(row) for row in cursor.fetchall()]
 
+    def get_entity_type(self, entity_id: str) -> str | None:
+        """Resolve an entity's type from the registry (first match); None if absent.
+        Used to pick the §5b membership-transitive junction for scoped artifacts."""
+        row = self._execute(
+            "SELECT entity_type FROM entity_registry WHERE entity_id = ? LIMIT 1", (entity_id,)
+        ).fetchone()
+        return row["entity_type"] if row else None
+
+    def get_scoped_artifacts(
+        self,
+        entity_id: str,
+        entity_type: str | None,
+        *,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Scoped artifacts for an entity (Gap B, §5b) = its DIRECT entity_artifacts
+        UNION its one-hop MEMBERS' direct artifacts — container→members, fan DOWN
+        only, exactly one hop.
+
+        The member junction differs by the container's type (§5b):
+          - ``engagement`` → its contacts, via ``engagement_contacts`` (left_at IS NULL)
+          - ``organization`` → its contacts + engagements, via ``entity_memberships``
+            (group_type='organization', left_at IS NULL)
+          - ``contact`` / other / unknown → leaf: direct only, no transitive
+
+        Deduped by (artifact_type, artifact_id), DIRECT winning; each transitive row
+        carries ``via`` = the member entity_id it came from (``None`` for direct).
+        Deeper walks (a member's other containers) belong to the workspace
+        graph-walker, not this endpoint.
+        """
+        out: list[dict[str, Any]] = []
+        seen: set[tuple[Any, Any]] = set()
+
+        def _add(rows: list[dict[str, Any]], via: str | None) -> None:
+            for a in rows:
+                key = (a.get("artifact_type"), a.get("artifact_id"))
+                if key in seen:
+                    continue
+                seen.add(key)
+                row = dict(a)
+                row["via"] = via
+                out.append(row)
+
+        # Direct first — wins on dedupe.
+        _add(self.get_artifacts_for_entity(entity_id, entity_type=entity_type, limit=limit), None)
+
+        # One-hop members (fan DOWN by the container's type).
+        members: list[tuple[str, str]] = []
+        if entity_type == "engagement" and self._table_exists("engagement_contacts"):
+            cur = self._execute(
+                "SELECT contact_id FROM engagement_contacts WHERE engagement_id = ? AND left_at IS NULL",
+                (entity_id,),
+            )
+            members = [("contact", r["contact_id"]) for r in cur.fetchall()]
+        elif entity_type == "organization":
+            cur = self._execute(
+                "SELECT entity_type, entity_id FROM entity_memberships "
+                "WHERE group_type = 'organization' AND group_id = ? AND left_at IS NULL",
+                (entity_id,),
+            )
+            members = [(r["entity_type"], r["entity_id"]) for r in cur.fetchall()]
+
+        for m_type, m_id in members:
+            _add(self.get_artifacts_for_entity(m_id, entity_type=m_type, limit=limit), m_id)
+
+        return out
+
     def count_entity_artifacts(self, entity_type: str, entity_id: str) -> int:
         """Count artifact links for an entity (list projection linked_artifact_count).
 
