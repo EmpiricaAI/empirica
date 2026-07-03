@@ -373,6 +373,60 @@ def test_dedup_env_match_consumes_slot_and_survives(tmp_path):
     assert instances[1]["alive"] is False  # cwd fallback demoted
 
 
+# ─── pass 2: pane-footprint dedup (tmux_N doubles of canonical records) ──────
+
+
+def test_dedup_pane_footprint_covered_by_canonical(tmp_path, monkeypatch):
+    """One session, two footprints: canonical ai_id (process_env) + bare pane
+    record (tmux), one live proc → the pane duplicate is demoted, canonical
+    stays. This is the doubled-fleet case (34 rows for 20 sessions)."""
+    monkeypatch.setattr(ist, "tmux_pane_cwds", lambda: {})
+    proj = str((tmp_path / "p").resolve())
+    canonical = _scan_inst(proj, 5.0, signal="process_env")
+    pane = dict(_scan_inst(proj, 10.0, signal="tmux"), instance_id="tmux_7")
+    instances = [canonical, pane]
+    ist._dedup_process_scan_overcount(instances, {proj: 1})
+    assert canonical["alive"] is True
+    assert pane["alive"] is False
+    assert "canonical" in pane["liveness_reason"]
+
+
+def test_dedup_pane_only_session_survives(tmp_path, monkeypatch):
+    """A session whose ONLY identity is its pane record (launched without
+    EMPIRICA_INSTANCE_ID) keeps its row: no canonical sibling, one live proc."""
+    monkeypatch.setattr(ist, "tmux_pane_cwds", lambda: {})
+    proj = str((tmp_path / "p").resolve())
+    pane = dict(_scan_inst(proj, 5.0, signal="tmux"), instance_id="tmux_30")
+    instances = [pane]
+    ist._dedup_process_scan_overcount(instances, {proj: 1})
+    assert pane["alive"] is True
+
+
+def test_dedup_pane_record_stands_when_scan_blind(tmp_path, monkeypatch):
+    """Scan reports zero procs for the project (blind / cwd mismatch) → never
+    demote a tmux verdict on absent evidence, even with a canonical sibling."""
+    monkeypatch.setattr(ist, "tmux_pane_cwds", lambda: {})
+    proj = str((tmp_path / "p").resolve())
+    canonical = _scan_inst(proj, 5.0, signal="process_env")
+    pane = dict(_scan_inst(proj, 10.0, signal="tmux"), instance_id="tmux_7")
+    instances = [canonical, pane]
+    ist._dedup_process_scan_overcount(instances, {proj: 0})
+    assert pane["alive"] is True
+
+
+def test_dedup_unbound_pane_grouped_via_pane_cwd(tmp_path, monkeypatch):
+    """A bare tmux_N record with NO project binding is grouped through its
+    pane's cwd and demoted when a canonical record covers the same project."""
+    proj = str((tmp_path / "p").resolve())
+    monkeypatch.setattr(ist, "tmux_pane_cwds", lambda: {"7": proj})
+    canonical = _scan_inst(proj, 5.0, signal="process_env")
+    pane = dict(_scan_inst(None, 10.0, signal="tmux"), instance_id="tmux_7")
+    instances = [canonical, pane]
+    ist._dedup_process_scan_overcount(instances, {proj: 1})
+    assert canonical["alive"] is True
+    assert pane["alive"] is False
+
+
 # ─── discover_dead_instances reaps superseded fallback ghosts ───────────────
 
 

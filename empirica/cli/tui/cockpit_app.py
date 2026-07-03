@@ -89,7 +89,11 @@ class CockpitApp(App):
     Screen { layout: vertical; }
 
     #summary  { padding: 0 1; height: 1; color: $text-muted; }
-    #inst-table { height: auto; min-height: 7; max-height: 12; }
+    /* Size to the fleet: grow with the instance list so the whole fleet is
+       visible without scrolling; 60vh caps pathological growth on small
+       terminals so goals/notifications keep their space. (Was a hard
+       max-height: 12, which forced a scrollbar on any fleet > ~10.) */
+    #inst-table { height: auto; min-height: 7; max-height: 60vh; }
 
     #action-bar {
         height: 3;

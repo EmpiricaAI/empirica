@@ -44,7 +44,13 @@ from empirica.core.cockpit.listener_registry import (
     ListenerRegistry,
     is_listener_paused,
 )
-from empirica.core.cockpit.liveness import _live_tmux_panes, is_alive, scan_live_claude
+from empirica.core.cockpit.liveness import (
+    TMUX_INSTANCE_PATTERN,
+    _live_tmux_panes,
+    is_alive,
+    scan_live_claude,
+    tmux_pane_cwds,
+)
 from empirica.core.cockpit.loop_registry import LoopRegistry, is_loop_paused
 from empirica.core.cockpit.notify_dispatcher_view import (
     annotate_loops_with_last_notify,
@@ -623,6 +629,54 @@ def _dedup_process_scan_overcount(instances: list[dict[str, Any]], live_cwd_coun
             surplus["alive"] = False
             surplus["liveness_signal"] = ""
             surplus["liveness_reason"] = "duplicate stale session — no distinct live claude process"
+
+    # PASS 2 — pane-footprint dedup. One session commonly leaves TWO instance
+    # footprints: its canonical ai_id (from EMPIRICA_INSTANCE_ID) and a bare
+    # pane-name record (tmux_N) from hooks that ran before the env id existed.
+    # Both are now alive via strong signals (process_env + tmux), so the fleet
+    # renders doubled — half the rows unlabeled tmux_N. Group by project
+    # (record's own binding, else the pane's cwd) and cap 'tmux'-signal records
+    # at (live procs in that project − canonical records): a pane record only
+    # survives when it is the session's ONLY identity (e.g. a session launched
+    # without EMPIRICA_INSTANCE_ID). Records with an explicit project binding
+    # outrank bare ones; ties break on recency.
+    canonical = {"current", "process_env", "pid"}
+    pane_cwds = tmux_pane_cwds() or {}
+    by_project = {}
+    for inst in instances:
+        if not inst.get("alive"):
+            continue
+        pp = inst.get("project_path")
+        if not pp:
+            m = TMUX_INSTANCE_PATTERN.match(str(inst.get("instance_id") or ""))
+            if m:
+                pp = pane_cwds.get(m.group(1))
+        if pp:
+            by_project.setdefault(os.path.realpath(pp), []).append(inst)
+    for rp, insts in by_project.items():
+        pane_recs = [i for i in insts if i.get("liveness_signal") == "tmux"]
+        if not pane_recs:
+            continue
+        live_count = live_cwd_counts.get(rp, 0)
+        if live_count == 0:
+            # The process scan saw NO claude proc in this project — blind or
+            # contradictory data (e.g. proc cwd ≠ pane cwd). Never demote a
+            # tmux verdict on absent evidence; leave the records standing.
+            continue
+        canonical_count = sum(1 for i in insts if i.get("liveness_signal") in canonical)
+        budget = max(0, live_count - canonical_count)
+        if len(pane_recs) <= budget:
+            continue
+        pane_recs.sort(
+            key=lambda i: (
+                i.get("project_path") is None,  # bound identity first
+                i.get("last_activity_seconds") if i.get("last_activity_seconds") is not None else float("inf"),
+            )
+        )
+        for surplus in pane_recs[budget:]:
+            surplus["alive"] = False
+            surplus["liveness_signal"] = ""
+            surplus["liveness_reason"] = "pane footprint of a session already shown under its canonical ai_id"
 
 
 def aggregate_all(include_dead: bool = False) -> dict[str, Any]:

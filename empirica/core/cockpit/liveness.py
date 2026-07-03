@@ -107,6 +107,38 @@ def _live_tmux_panes() -> set[str] | None:
     return panes
 
 
+def tmux_pane_cwds() -> dict[str, str] | None:
+    """Map pane number → realpath of the pane's current working directory.
+
+    Used by the pane-footprint dedup: a bare ``tmux_N`` record carries no
+    project binding of its own, but its pane's cwd identifies which project
+    the session lives in — letting the dedup group it with the canonical
+    (``EMPIRICA_INSTANCE_ID``) record for the same project. Returns ``None``
+    when tmux can't be queried (signal inconclusive, skip the dedup).
+    """
+    if shutil.which("tmux") is None:
+        return None
+    try:
+        result = subprocess.run(
+            ["tmux", "list-panes", "-a", "-F", "#{pane_id} #{pane_current_path}"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    if result.returncode != 0:
+        return {}
+    cwds: dict[str, str] = {}
+    for line in result.stdout.splitlines():
+        parts = line.strip().split(maxsplit=1)
+        if len(parts) != 2:
+            continue
+        pane_id, path = parts
+        cwds[pane_id.lstrip("%")] = os.path.realpath(path)
+    return cwds
+
+
 def _all_tmux_panes() -> set[str] | None:
     """Return set of ALL pane numbers regardless of command. Used for
     distinguishing 'pane gone' (terminal closed) from 'pane exists but
