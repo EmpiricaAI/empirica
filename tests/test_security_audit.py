@@ -175,23 +175,27 @@ def test_passed_false_when_empirica_kev_match(fake_pip_audit):
     assert report["passed"] is False
 
 
-def test_passed_true_when_only_user_kev_match(fake_pip_audit):
-    """If the KEV match is on a user-scoped package, empirica still passes."""
-    kev = _StubKEVFeed({"CVE-2024-44444"})  # only minorpkg's CVE
+def test_user_kev_does_not_gate_but_empirica_cve_does(fake_pip_audit):
+    """User-scoped KEV never contributes to the empirica verdict; but a non-KEV
+    empirica CVE now DOES fail the strict gate (was: only empirica-KEV failed)."""
+    kev = _StubKEVFeed({"CVE-2024-44444"})  # only minorpkg's CVE (user scope)
     report = _audit(kev, managed={"vulnpkg"})  # minorpkg is user
-    # minorpkg gets rotate=now (KEV) but it's user scope
     findings_by_pkg = {f["package"]: f for f in report["findings"]}
     assert findings_by_pkg["minorpkg"]["rotate_priority"] == "now"
     assert findings_by_pkg["minorpkg"]["scope"] == "user"
-    assert report["summary"]["empirica"]["now"] == 0
+    assert report["summary"]["empirica"]["now"] == 0  # user KEV doesn't add here
     assert report["summary"]["user"]["now"] == 1
-    assert report["passed"] is True  # gate is empirica-only
+    # STRICT: vulnpkg (empirica, critical CVE, non-KEV, un-waived) blocks the gate.
+    assert report["passed"] is False
 
 
-def test_passed_true_when_no_kev_matches(fake_pip_audit):
+def test_strict_fails_on_empirica_cve_without_kev(fake_pip_audit):
+    """STRICT gate: an un-waived empirica-scoped CVE fails even with no KEV match
+    (was: passed unless there was an empirica-KEV match)."""
     kev = _StubKEVFeed(set())
-    report = _audit(kev)
-    assert report["passed"] is True
+    report = _audit(kev)  # default managed includes vulnpkg (critical CVE)
+    assert report["passed"] is False
+    assert report["summary"]["empirica"]["month"] == 1
 
 
 def test_findings_sorted_empirica_first(fake_pip_audit):

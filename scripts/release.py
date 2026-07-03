@@ -20,6 +20,20 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+
+def _load_shared_cve_waivers() -> list[dict]:
+    """The single governed CVE-waiver source, shared with ``empirica
+    security-audit`` (``empirica.core.security.waivers.CVE_WAIVERS``) so the two
+    gates can't drift. Falls back to ``[]`` if empirica isn't importable at
+    release time — which only makes this gate STRICTER, never looser."""
+    try:
+        from empirica.core.security.waivers import CVE_WAIVERS
+
+        return CVE_WAIVERS
+    except Exception:
+        return []
+
+
 # ANSI colors
 GREEN = "\033[92m"
 YELLOW = "\033[93m"
@@ -1060,12 +1074,12 @@ brew install empirica
     # prints active waivers every run so they stay visible, not hidden. Keep this
     # in sync with `empirica security-audit` (unify: goal — shared waiver source).
     #
-    # Currently EMPTY. The sole prior waiver — PYSEC-2026-597 (nltk, pulled
-    # transitively by textstat via the [prose] extra) — was RETIRED by dropping
-    # textstat for the in-house `readability` module (pyphen syllables). nltk is
-    # no longer in the tree, so the CVE is gone rather than waived. The mechanism
-    # stays wired for the next non-exploitable, no-fix CVE that may arise.
-    PIP_AUDIT_WAIVERS: list[dict] = []
+    # Sourced from the SHARED governed waiver list
+    # (empirica.core.security.waivers.CVE_WAIVERS) so this release gate and
+    # `empirica security-audit` can't drift. Currently EMPTY — the sole prior
+    # waiver (PYSEC-2026-597, nltk via textstat) was retired in #212 by dropping
+    # textstat; nltk is gone from the tree, so the CVE is gone, not waived.
+    PIP_AUDIT_WAIVERS: list[dict] = _load_shared_cve_waivers()
 
     def run_pip_audit(self) -> bool:
         """CVE scan — mirrors the CI pip-audit step. STRICT (hard fail on CVEs)

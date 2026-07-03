@@ -37,6 +37,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   alter live behavior.
 
 ### Security
+- **`empirica security-audit` is now STRICT and shares one governed waiver source
+  with the release gate.** Previously the audit `passed` gate failed only on
+  empirica-scoped findings that matched the CISA KEV catalog (actively-exploited);
+  an empirica-managed package with a plain critical CVE and no KEV match still
+  passed. The gate now fails on **any** empirica-scoped CVE that is not in the
+  governed waiver list — matching the release gate's strictness. A single
+  `empirica.core.security.waivers.CVE_WAIVERS` list is the sole waiver source both
+  `empirica security-audit` and `scripts/release.py` read, so the two gates can no
+  longer drift (release-time `PIP_AUDIT_WAIVERS` is now sourced from it, falling
+  back to empty — stricter, never looser — if empirica isn't importable). KEV
+  matches are **never** silently waivable (a waiver can't suppress an
+  actively-exploited finding). User-scoped CVEs remain informational (reported,
+  not gated). The waiver list is currently empty — the sole prior waiver was
+  retired when nltk left the tree (below). Each finding now carries a `waived`
+  flag and the per-scope summary a `waived` count.
 - **nltk removed from the dependency tree** — the `[prose]` evidence extra pulled
   `textstat`, which pulled `nltk` (`nltk` was `Required-by` textstat *only*), and
   nltk carried PYSEC-2026-597 / CVE-2026-12243 (path-traversal arbitrary-file
