@@ -791,8 +791,8 @@ The `EngagementMin` feed for the X2 board.
 | `org` | — | Engagements `ticket_of` this organization id |
 | `contact` | — | Engagements this contact actively participates in (`engagement_contacts`); composes (AND) with `org` |
 | `domain` | — | By engagement domain (`support`, `sales`, …) |
-| `lifecycle` | — | By `lifecycle_state` (`open`/`in_progress`/`blocked`/`closed`) |
-| `include_closed` | `false` | Include terminal engagements (active-by-default; ignored when explicit `lifecycle` given) |
+| `lifecycle` | — | By `lifecycle_state` (`planned`/`open`/`in_progress`/`blocked`/`closed`), or `all` for the full set |
+| `include_closed` | `false` | Legacy sugar — adds terminal (`closed`) back. The feed is active-by-default `{open, in_progress, blocked}`; pre-active `planned` + terminal `closed` are excluded unless requested explicitly or via `lifecycle=all`. Ignored when explicit `lifecycle` given |
 | `limit` | `100` | 1–500 |
 
 Per row: `id`, `title`, `engagement_type`, `domain`, `stage`, `lifecycle_state`, `status`, `outcome`, `started_at`, `ended_at`, `updated_at`; counts `member_count`/`goal_count`/`linked_artifact_count`; and `metadata` = the whole registry bag + synthesized `org_display` (severity, assignee, `tickets[]`, identifier, tenant, machine_state, … all pass through).

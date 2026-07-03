@@ -896,6 +896,31 @@ verification CWD fix — 1.9.6). Tests in
 `tests/test_postflight_pipeline_restructure.py` (19 cases) and
 `tests/test_project_resolver_raise.py` (8 cases).
 
+### 11.31 Stale Closed Exact-Suffix File Masks a Live Open Transaction (2026-07-03)
+
+**Symptom:** After a valid CHECK, a praxic edit is denied mid-transaction with
+"Epistemic loop closed (POSTFLIGHT completed)" — even though the transaction is
+open. Only a re-PREFLIGHT (which writes `open` to the current exact-suffix path)
+clears it.
+
+**Root cause:** `_find_transaction_file`'s primary exact-suffix match returned
+the file regardless of `status`. The ranked fallback scan below it (which prefers
+`(cc_match, is_open, updated_at)` — see 11.21's dual-key work) only ran when the
+exact file was *absent*. So when the instance suffix rotates (compaction /
+TMUX_PANE reuse) and a stale CLOSED `active_transaction_<suffix>.json` sits at the
+current suffix, the firewall read that closed marker and denied praxic — the live
+OPEN transaction (durable `claude_session_id`) under the old suffix was masked.
+
+**Fix:** fast-return the exact file only when it's OPEN or when no key is
+available; a CLOSED exact file with a key present falls through to the ranked scan
+(which prefers a key-matched OPEN, still returns the closed file when it's the
+only match, and returns None for a foreign file per the no-crosstalk rule).
+Applied to BOTH copies — `session_resolver.py` and the `sentinel-gate.py` mirror
+(`test_hook_resolver_mirrors_package` guards parity).
+
+**Commit:** PR #238. Tests in `tests/test_transaction_dual_key.py`
+(`test_find_exact_closed_does_not_mask_open_elsewhere` + 2 companions).
+
 ---
 
 ## By Design (Not Bugs)
