@@ -131,7 +131,11 @@ def write_presence(
         "last_heartbeat": time.time(),
     }
     path = presence_path(claude_session_id)
-    tmp = path.with_name(path.name + ".tmp")
+    # Unique tmp per writer: a shared X.json.tmp lets concurrent writers (the 14
+    # listener services' refresh ticks + per-turn hooks) tear each other's writes
+    # before the atomic replace — leaving trailing garbage ('...211}21}') that the
+    # strict readers then silently skip. pid+monotonic-ns keeps each write private.
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
     tmp.write_text(json.dumps(record), encoding="utf-8")
     tmp.replace(path)  # atomic
     return record
@@ -246,7 +250,9 @@ def refresh_live_presence(*, now: float | None = None) -> dict[str, int]:
             continue
         counts["alive"] += 1
         rec["last_heartbeat"] = now
-        tmp = path.with_name(path.name + ".tmp")
+        # Unique tmp per writer — same rationale as write_presence: the shared
+        # X.json.tmp path is a torn-write race under concurrent refresh ticks.
+        tmp = path.with_name(f"{path.name}.{os.getpid()}.{time.time_ns()}.tmp")
         try:
             tmp.write_text(json.dumps(rec), encoding="utf-8")
             tmp.replace(path)  # atomic
