@@ -225,3 +225,18 @@ async def patch_engagement(engagement_id: str, req: EngagementPatchRequest):
         if patch:
             repo.update_entity_metadata("engagement", engagement_id, patch)
     return {"ok": True, "engagement_id": engagement_id, "engagement": updated}
+
+
+@router.get("/engagements/{engagement_id}/tasks", dependencies=[Depends(verify_mint_bearer)])
+async def list_engagement_tasks(engagement_id: str):
+    """List an engagement's tasks (workspace ``engagement_tasks``) for the board.
+
+    Per row: task_id, title, description, status, assigned_to, due_at,
+    completed_at, blocked_by, created_at (oldest first). Unknown/empty engagement
+    → ``tasks: []`` (honest-empty; the board renders 0 rather than erroring).
+    """
+    from empirica.data.repositories.workspace_db import WorkspaceDBRepository
+
+    with WorkspaceDBRepository.open() as repo:
+        tasks = repo.get_engagement_tasks(engagement_id)
+    return {"ok": True, "engagement_id": engagement_id, "count": len(tasks), "tasks": tasks}
