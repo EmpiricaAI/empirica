@@ -284,3 +284,46 @@ def test_sweep_stale_tmps_removes_only_abandoned(fake_home):
     os.utime(old, (stamp, stamp))  # abandoned 2 min ago
     assert pp._sweep_stale_tmps(older_than=60.0) == 1
     assert not old.exists() and fresh.exists()
+
+
+# ---- pid-liveness visibility override (invisible-idle-fleet fix) ---------------
+
+
+def _make_stale(claude_session_id: str):
+    """Backdate a presence file's heartbeat well past the default stale window."""
+    p = pp.presence_path(claude_session_id)
+    d = json.loads(p.read_text())
+    d["last_heartbeat"] = time.time() - (pp.DEFAULT_STALE_AFTER_S + 60)
+    p.write_text(json.dumps(d))
+
+
+def test_stale_heartbeat_but_live_pid_stays_visible(fake_home):
+    """An idle-at-prompt session (stale heartbeat) whose process is alive must
+    still show — the daemon-refresh cadence must not be the only thing keeping it
+    visible. kill -0 on session_pid is authoritative."""
+    import os
+
+    pp.write_presence("cc-live", practice_ai_id="empirica", session_pid=os.getpid())
+    _make_stale("cc-live")
+    rows = pp.list_presence("empirica")  # default excludes stale
+    assert len(rows) == 1
+    assert rows[0]["claude_session_id"] == "cc-live"
+    assert rows[0]["stale"] is False and rows[0]["pid_alive"] is True
+
+
+def test_stale_heartbeat_dead_pid_excluded(fake_home):
+    import subprocess
+
+    proc = subprocess.Popen(["true"])
+    proc.wait()  # pid now dead
+    pp.write_presence("cc-dead", practice_ai_id="empirica", session_pid=proc.pid)
+    _make_stale("cc-dead")
+    assert pp.list_presence("empirica") == []  # stale + dead → excluded
+    everyone = pp.list_presence("empirica", include_stale=True)
+    assert len(everyone) == 1 and everyone[0]["stale"] is True and everyone[0]["pid_alive"] is False
+
+
+def test_stale_heartbeat_no_pid_excluded(fake_home):
+    pp.write_presence("cc-nopid", practice_ai_id="empirica")  # no session_pid
+    _make_stale("cc-nopid")
+    assert pp.list_presence("empirica") == []  # legacy/no-pid record ages out normally

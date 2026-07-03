@@ -251,6 +251,19 @@ def list_presence(
         last = rec.get("last_heartbeat")
         age = (now - last) if isinstance(last, (int, float)) else None
         rec["stale"] = age is None or age > threshold
+        # pid-liveness override: an alive process is PRESENT even with a stale
+        # heartbeat. Idle-at-prompt panes fire no UserPromptSubmit, so
+        # heartbeat-recency alone under-shows the live fleet — the daemon's
+        # refresh_live_presence re-stamp helps, but readers must not depend on
+        # its cadence. A `kill -0`-alive session_pid is authoritative liveness,
+        # so it keeps the record visible regardless of the heartbeat age. Local
+        # pids only (presence files are per-box), consistent with the daemon's
+        # own `_pid_alive` usage. `pid_alive` is surfaced so callers can tell a
+        # heartbeat-fresh record from one kept alive purely by its process.
+        pid = rec.get("session_pid")
+        rec["pid_alive"] = isinstance(pid, int) and _pid_alive(pid)
+        if rec["stale"] and rec["pid_alive"]:
+            rec["stale"] = False
         if rec["stale"] and not include_stale:
             continue
         out.append(rec)
