@@ -14,6 +14,7 @@ import uuid
 import pytest
 
 from empirica.utils.session_resolver import (
+    detect_current_location,
     get_instance_id,
     get_latest_session_id,
     is_session_alias,
@@ -303,6 +304,39 @@ class TestGetInstanceIdOverrideWarning:
         with caplog.at_level(logging.DEBUG, logger="empirica.utils.session_resolver"):
             assert get_instance_id() == "GLOBAL:%bad"
         assert len(self._warnings(caplog)) == 1
+
+
+class TestDetectCurrentLocation:
+    """detect_current_location resolves the ephemeral PHYSICAL location
+    (tmux pane / TTY / …) — a controller SEPARATE from durable identity (B3).
+
+    Unlike get_instance_id it ignores the EMPIRICA_INSTANCE_ID override, which
+    carries a durable practitioner IDENTITY (e.g. an ecodex thread_id), not a
+    physical location. So a practitioner whose identity is wired into that env
+    var still records its real tmux/TTY as its presence location.
+    """
+
+    def test_ignores_identity_override_resolves_physical(self, monkeypatch):
+        # ecodex-style: EMPIRICA_INSTANCE_ID = a durable thread_id identity.
+        monkeypatch.setenv("EMPIRICA_INSTANCE_ID", "019f23cf-2b49-7f21-96bf-b7280bbafbc4")
+        monkeypatch.setenv("TMUX_PANE", "%11")
+        # identity resolver honors the override; location resolver returns physical tmux
+        assert get_instance_id() == "019f23cf-2b49-7f21-96bf-b7280bbafbc4"
+        assert detect_current_location() == "tmux_11"
+
+    def test_agrees_with_instance_id_without_override(self, monkeypatch):
+        monkeypatch.delenv("EMPIRICA_INSTANCE_ID", raising=False)
+        monkeypatch.delenv("CLAUDE_INSTANCE_ID", raising=False)
+        monkeypatch.setenv("TMUX_PANE", "%7")
+        # no identity override → the two resolvers agree (both = physical tmux)
+        assert detect_current_location() == "tmux_7" == get_instance_id()
+
+    def test_none_when_no_physical_location(self, monkeypatch):
+        for var in ("EMPIRICA_INSTANCE_ID", "CLAUDE_INSTANCE_ID", "TMUX_PANE", "TERM_SESSION_ID", "WINDOWID"):
+            monkeypatch.delenv(var, raising=False)
+        # No terminal at all (non-terminal harness) → honest None, not a leaked identity.
+        monkeypatch.setattr("empirica.utils.session_resolver.get_tty_key", lambda: None)
+        assert detect_current_location() is None
 
 
 if __name__ == "__main__":

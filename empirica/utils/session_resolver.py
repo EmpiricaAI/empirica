@@ -885,40 +885,66 @@ def get_instance_id() -> str | None:
         logger.debug(f"Using explicit instance_id: {explicit_id}")
         return explicit_id
 
-    # Priority 2: tmux pane (most common for multi-instance work)
-    # IMPORTANT: Use tmux_{N} format (not tmux:%N) to match file naming convention
-    # Files are named: instance_projects/tmux_4.json, active_transaction_tmux_4.json
+    # Priorities 2-6: physical location (tmux / Terminal / X11 / TTY / none).
+    # Shared with detect_current_location() so the two never drift — the only
+    # difference is that get_instance_id honors the Priority-1 identity override
+    # above, whereas detect_current_location resolves the LOCATION alone.
+    return _resolve_physical_location()
+
+
+def _resolve_physical_location() -> str | None:
+    """Resolve the EPHEMERAL physical location of the current process — the
+    terminal/pane it runs in — independent of any practitioner IDENTITY override.
+
+    Priority: tmux pane → macOS Terminal session → X11 window → TTY device →
+    None. This is the location half of instance resolution; the identity half
+    (the ``EMPIRICA_INSTANCE_ID`` / ``CLAUDE_INSTANCE_ID`` override) is handled
+    by :func:`get_instance_id`'s Priority 1. Kept as one shared helper so the
+    two callers can't drift.
+    """
+    import os
+
+    # tmux pane — tmux_{N} format (not tmux:%N) to match the file naming
+    # convention (instance_projects/tmux_4.json, active_transaction_tmux_4.json).
     tmux_pane = os.environ.get("TMUX_PANE")
     if tmux_pane:
-        instance_id = f"tmux_{tmux_pane.lstrip('%')}"
-        logger.debug(f"Using tmux pane as instance_id: {instance_id}")
-        return instance_id
-
-    # Priority 3: macOS Terminal.app session
+        return f"tmux_{tmux_pane.lstrip('%')}"
+    # macOS Terminal.app session (truncate — the full id is very long).
     term_session = os.environ.get("TERM_SESSION_ID")
     if term_session:
-        # Truncate to reasonable length (full ID is very long)
-        instance_id = f"term:{term_session[:16]}"
-        logger.debug(f"Using Terminal.app session as instance_id: {instance_id}")
-        return instance_id
-
-    # Priority 4: X11 window ID
+        return f"term:{term_session[:16]}"
+    # X11 window id.
     window_id = os.environ.get("WINDOWID")
     if window_id:
-        instance_id = f"x11:{window_id}"
-        logger.debug(f"Using X11 window ID as instance_id: {instance_id}")
-        return instance_id
-
-    # Priority 5: TTY device (persists across CLI invocations in same terminal)
+        return f"x11:{window_id}"
+    # TTY device (persists across CLI invocations in the same terminal).
     tty_key = get_tty_key()
     if tty_key:
-        instance_id = f"term_{tty_key}"
-        logger.debug(f"Using TTY as instance_id: {instance_id}")
-        return instance_id
-
-    # Priority 6: No isolation (legacy behavior)
-    logger.debug("No instance_id available - using legacy behavior")
+        return f"term_{tty_key}"
     return None
+
+
+def detect_current_location() -> str | None:
+    """The practitioner's CURRENT physical location (tmux pane / TTY / …),
+    re-resolved LIVE — a controller SEPARATE from durable identity.
+
+    A practitioner's identity is its ``claude_session_id`` (durable — it survives
+    compaction AND pane moves); its LOCATION is ephemeral and can change
+    mid-session (moved tmux pane, new TTY). Presence tracking wants the live
+    location, so callers re-resolve this on each per-turn presence write rather
+    than caching it once at session-init.
+
+    Unlike :func:`get_instance_id`, this deliberately IGNORES the
+    ``EMPIRICA_INSTANCE_ID`` override: that env var carries a durable
+    practitioner IDENTITY (e.g. a codex/ecodex thread_id wired in to key
+    per-practitioner calibration), NOT a physical location. Using it as a
+    location would pin a moved practitioner to a stale 'location' that is really
+    its identity — the exact identity/location conflation this split resolves.
+    Returns ``None`` when no physical location is detectable (e.g. a
+    non-terminal harness) — honest, rather than leaking the identity into the
+    location field.
+    """
+    return _resolve_physical_location()
 
 
 def _get_instance_suffix() -> str:

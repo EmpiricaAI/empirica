@@ -39,11 +39,16 @@ def handle_practitioner_write_command(args) -> int:
     try:
         from empirica.core.practitioner_presence import write_presence
         from empirica.utils.session_resolver import InstanceResolver as R
-        from empirica.utils.session_resolver import get_instance_id
+        from empirica.utils.session_resolver import detect_current_location
 
         cc = args.session
         ai_id = getattr(args, "ai_id", None) or R.ai_id() or "unknown"
-        location = getattr(args, "location", None) or get_instance_id()
+        # LOCATION, not identity: the physical terminal/pane, re-resolved live each
+        # per-turn write (context-shift-tracker). Uses detect_current_location (not
+        # get_instance_id) so a practitioner whose EMPIRICA_INSTANCE_ID carries a
+        # durable identity — e.g. an ecodex thread_id — records its real tmux/TTY
+        # location, not its identity. The durable key stays claude_session_id (cc).
+        location = getattr(args, "location", None) or detect_current_location()
         empirica_sid = getattr(args, "empirica_session", None) or R.session_id(claude_session_id=cc)
         tx = getattr(args, "active_transaction", None) or R.transaction_id(claude_session_id=cc)
         status = getattr(args, "status", "active")
