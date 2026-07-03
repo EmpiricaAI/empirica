@@ -138,6 +138,68 @@ def test_list_org_scoped_is_active_by_default(repo):
     assert {e["engagement_id"] for e in repo.list_engagements(org_id="acme", include_closed=True)} == {"t1", "t2"}
 
 
+# ── contact scoping (engagement_contacts edge) ────────────────────────────────
+
+
+def _seed_engagement_contacts(repo, edges):
+    """engagement_contacts is workspace-managed (not core-vendored) — create it +
+    seed edges. Each edge: (engagement_id, contact_id, left_at)."""
+    repo.conn.execute(
+        """CREATE TABLE IF NOT EXISTS engagement_contacts (
+               engagement_id TEXT NOT NULL, contact_id TEXT NOT NULL,
+               role TEXT DEFAULT 'participant', joined_at REAL NOT NULL, left_at REAL,
+               contribution_notes TEXT, PRIMARY KEY (engagement_id, contact_id))"""
+    )
+    now = time.time()
+    for eid, cid, left_at in edges:
+        repo.conn.execute(
+            "INSERT INTO engagement_contacts (engagement_id, contact_id, joined_at, left_at) VALUES (?, ?, ?, ?)",
+            (eid, cid, now, left_at),
+        )
+    repo.conn.commit()
+
+
+def test_list_contact_scoped_via_engagement_contacts(repo):
+    repo.create_engagement("t1", "carly ticket", domain="support")
+    repo.create_engagement("t2", "carly ticket 2", domain="support")
+    repo.create_engagement("t3", "unrelated", domain="support")
+    _seed_engagement_contacts(
+        repo,
+        [("t1", "c-carly", None), ("t2", "c-carly", None), ("t3", "c-other", None)],
+    )
+    assert {e["engagement_id"] for e in repo.list_engagements(contact_id="c-carly")} == {"t1", "t2"}
+
+
+def test_list_contact_scope_excludes_left_edges(repo):
+    repo.create_engagement("t1", "active edge", domain="support")
+    repo.create_engagement("t2", "left edge", domain="support")
+    _seed_engagement_contacts(repo, [("t1", "c-carly", None), ("t2", "c-carly", time.time())])
+    assert {e["engagement_id"] for e in repo.list_engagements(contact_id="c-carly")} == {"t1"}
+
+
+def test_list_contact_and_org_compose(repo):
+    repo.create_engagement("t1", "acme + carly", domain="support")
+    repo.create_engagement("t2", "acme only", domain="support")
+    now = time.time()
+    for eid in ("t1", "t2"):
+        repo.conn.execute(
+            "INSERT INTO entity_memberships (entity_type, entity_id, group_type, group_id, role, joined_at, created_at) "
+            "VALUES ('engagement', ?, 'organization', 'acme', 'ticket_of', ?, ?)",
+            (eid, now, now),
+        )
+    repo.conn.commit()
+    _seed_engagement_contacts(repo, [("t1", "c-carly", None)])
+    # org AND contact both apply → only t1 (acme ticket carly participates in)
+    assert {e["engagement_id"] for e in repo.list_engagements(org_id="acme", contact_id="c-carly")} == {"t1"}
+
+
+def test_list_contact_scope_empty_when_linkage_table_absent(repo):
+    """Core-only DB (no engagement_contacts table) → contact filter honest-empty,
+    never a `no such table` 500."""
+    repo.create_engagement("t1", "some ticket", domain="support")
+    assert repo.list_engagements(contact_id="c-carly") == []
+
+
 # ── update + enum enforcement ────────────────────────────────────────────────
 
 
