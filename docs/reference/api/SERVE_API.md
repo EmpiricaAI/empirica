@@ -730,6 +730,93 @@ curl -X PATCH "$API/api/v1/calibration/config?scope=practice&practice_id=empiric
 
 ---
 
+## ERM / CRM Surface (Entities + Engagements) (v1.12+)
+
+The daemon serves the workspace **entity registry** (`entity_registry` +
+`entity_memberships` + `entity_artifacts` in `~/.empirica/workspace/workspace.db`)
+so the extension's CRM / X2-board can render contacts, organizations, engagements,
+and their linked artifacts — no filesystem or sqlite access needed. All routes are
+FastAPI (`entities.py` / `engagements.py`), share the `verify_mint_bearer` guard
+(inactive on a loopback daemon), and are prefixed `/api/v1`.
+
+**Metadata pass-through:** entity and engagement projections pass the **whole**
+`entity_registry.metadata` bag through (not a per-key allowlist), so every key a
+producing practice writes reaches the extension with zero per-key core changes.
+Synthesized/derived fields (`org_display`) layer on top.
+
+### GET /api/v1/entities
+
+The entity-list projection backing the extension's entity browser.
+
+| Query | Default | Description |
+|-------|---------|-------------|
+| `type` | (all) | Filter by `entity_type` (`contact`, `organization`, `engagement`, `practitioner`, …) |
+| `status` | `active` | Status filter; `all` returns every status |
+| `parent_org` | — | Scope to **contacts** affiliated with this organization id (active `entity_memberships` edge); unknown org → `[]` |
+| `limit` | `100` | 1–500 |
+
+Per row: `id`, `type`, `name`, `subtitle` (org→`metadata.domain`, contact→`company_name`/`role`, engagement→`status`), `status`, `health` (`metadata.health`), `linked_artifact_count`, `updated_at`. Type-specific:
+- **organization** → `parent_org_id` (umbrella org, null for roots).
+- **contact** → `parent_org_id`/`parent_org_name`/`role` (affiliation edge), `email`, `phone`, `title`, `tags`, `notes`, `contact_type`, `lifecycle_stage` (from the `contacts` table), `tier` (`metadata.tier`), `reporting_to_name` (resolved `reports_to` edge → manager display name), and `metadata` (the whole registry bag).
+
+```bash
+curl 'http://localhost:8000/api/v1/entities?type=contact'
+curl 'http://localhost:8000/api/v1/entities?parent_org=o-nle'   # contacts of an org
+```
+
+### GET /api/v1/entities/{id}/artifacts
+
+Scoped artifacts for one entity (canonical-model **Gap B**): the entity's DIRECT
+`entity_artifacts` **∪** its one-hop MEMBERS' direct artifacts (container→members,
+fan **down**, one hop). Deduped by `(artifact_type, artifact_id)` with direct
+winning; each row carries `via` (`null` for direct; the member entity_id for
+transitive). Unknown/empty entity → `{artifacts: [], count: 0}` (200, not 404).
+
+Member junction by type: **engagement**→its contacts via `engagement_contacts`; **organization**→its contacts+engagements via `entity_memberships`; **contact**→leaf (no transitive). `?type=` disambiguates; resolved from the registry when omitted.
+
+```bash
+curl 'http://localhost:8000/api/v1/entities/eng-…/artifacts'
+```
+```json
+{"ok": true, "entity_id": "eng-…", "entity_type": "engagement", "count": 6,
+ "artifacts": [{"artifact_type": "source", "artifact_id": "…", "artifact_source": "…", "via": null}, …]}
+```
+
+### GET /api/v1/engagements
+
+The `EngagementMin` feed for the X2 board.
+
+| Query | Default | Description |
+|-------|---------|-------------|
+| `org` | — | Engagements `ticket_of` this organization id |
+| `contact` | — | Engagements this contact actively participates in (`engagement_contacts`); composes (AND) with `org` |
+| `domain` | — | By engagement domain (`support`, `sales`, …) |
+| `lifecycle` | — | By `lifecycle_state` (`open`/`in_progress`/`blocked`/`closed`) |
+| `include_closed` | `false` | Include terminal engagements (active-by-default; ignored when explicit `lifecycle` given) |
+| `limit` | `100` | 1–500 |
+
+Per row: `id`, `title`, `engagement_type`, `domain`, `stage`, `lifecycle_state`, `status`, `outcome`, `started_at`, `ended_at`, `updated_at`; counts `member_count`/`goal_count`/`linked_artifact_count`; and `metadata` = the whole registry bag + synthesized `org_display` (severity, assignee, `tickets[]`, identifier, tenant, machine_state, … all pass through).
+
+### POST /api/v1/engagements
+
+Create a ticket: the `engagements` sidecar row + the `entity_registry` row (writable metadata bag) + the `ticket_of` org edge, atomically. `title` is synthesized when omitted. Body: `{domain, title?, stage?, lifecycle_state?, engagement_type?, description?, org?, severity?, assignee_display?, assignee_id?}`. Unknown domain/stage/lifecycle → `422`.
+
+### PATCH /api/v1/engagements/{id}
+
+Triage: transition `lifecycle_state`/`stage`/`outcome`/`title`/`description` + merge the metadata bag (`severity`/`assignee_*`). `404` if absent; `422` on invalid transition.
+
+### GET /api/v1/engagements/{id}/tasks
+
+An engagement's tasks from `engagement_tasks` (`task_id`, `title`, `description`, `status`, `assigned_to`, `due_at`, `completed_at`, `blocked_by`, `created_at`), oldest first. Unknown/empty engagement → `{tasks: [], count: 0}` (honest-empty).
+
+```bash
+curl 'http://localhost:8000/api/v1/engagements?org=o-nle'
+curl 'http://localhost:8000/api/v1/engagements?contact=c-carly-…'
+curl 'http://localhost:8000/api/v1/engagements/eng-…/tasks'
+```
+
+---
+
 ## Models
 
 ### HealthResponse
