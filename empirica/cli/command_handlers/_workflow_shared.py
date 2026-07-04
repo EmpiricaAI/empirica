@@ -26,6 +26,7 @@ __all__ = [
     "_build_noetic_guidance",
     "_build_retrospective",
     "_build_voice_guidance",
+    "_build_weave_guidance",
     "_check_bootstrap_status",
     "_extract_all_vectors",
     "_extract_numeric_value",
@@ -267,6 +268,40 @@ def _build_noetic_guidance(work_type: str | None) -> dict | None:
         "skip_if": (
             "Fewer than 3 investigation operations. Use Read/Grep/Glob/investigate "
             "directly — they're already noetic and don't need batching."
+        ),
+    }
+
+
+def _build_weave_guidance() -> dict:
+    """Surface the log-artifacts weave schema at the CHECK gate.
+
+    Gated Artifact-Graph map, work-stream 2 (schema-injection). At CHECK→proceed
+    the AI is entering the praxic phase and will weave its artifacts into a
+    connected sub-graph; giving it the node-type + relation vocabulary here — the
+    exact shape AIs fumble (recurring "unknown relation" errors) — makes weaving
+    cheap enough that the eventual hard gate doesn't hurt. Structural
+    artifact→goal edges are written automatically (work-stream 3); this is for
+    the SEMANTIC edges the AI must assert. Best-effort; returns {} on failure.
+    """
+    try:
+        from .graph_commands import NODE_REQUIRED_FIELDS, VALID_RELATIONS
+    except Exception:
+        return {}
+    return {
+        "tool": "empirica log-artifacts -   (or mcp__empirica__log_artifacts)",
+        "node_types": sorted(NODE_REQUIRED_FIELDS.keys()),
+        "relations": sorted(VALID_RELATIONS),
+        "node_required_fields": dict(NODE_REQUIRED_FIELDS),
+        "shape": {
+            "nodes": [{"ref": "<local id e.g. f1>", "type": "<node_type>", "data": {"<required field>": "..."}}],
+            "edges": [{"from": "<ref|uuid>", "to": "<ref|uuid>", "relation": "<relation>"}],
+        },
+        "hint": (
+            "Weave, don't just log: connect this transaction's artifacts into a "
+            "sub-graph in ONE log-artifacts call. Structural artifact→goal edges "
+            "are written for you — assert only the SEMANTIC edges "
+            "(evidence / grounded_by / caused_by / resolves / invalidates). Use "
+            "ONLY the relations listed above; unknown relations are rejected."
         ),
     }
 

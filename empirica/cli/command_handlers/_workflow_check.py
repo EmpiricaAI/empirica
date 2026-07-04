@@ -14,6 +14,7 @@ from ..cli_utils import handle_cli_error, parse_json_safely
 from ._workflow_shared import (
     _auto_bootstrap,
     _build_retrospective,
+    _build_weave_guidance,
     _check_bootstrap_status,
     _get_db_for_session,
     _invoke_sentinel_hook,
@@ -1210,9 +1211,13 @@ def handle_check_submit_command(args):
             # Stage 14: Pattern retrieval + codebase context
             _check_enrich_context(result, bootstrap_result, bootstrap_status, vectors, reasoning)
 
-            # Stage 15: Praxic reminders (only when proceeding)
+            # Stage 15: Praxic reminders + weave guidance (only when proceeding)
             if decision == "proceed":
                 result["praxic_reminders"] = _check_build_praxic_reminders(session_id, check_transaction_id)
+                # Gated Artifact-Graph map, work-stream 2 (schema-injection): give
+                # the log-artifacts node/relation vocabulary at the gate so weaving
+                # is cheap (no more guessing the shape / unknown-relation errors).
+                result["weave_guidance"] = _build_weave_guidance()
 
             # AUTO-POSTFLIGHT REMOVED (2026-03-02):
             # CHECK is a noetic->praxic gate, not a completion event.
