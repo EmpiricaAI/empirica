@@ -563,6 +563,66 @@ def _retro_count_edges(cursor, session_id: str, transaction_id: str | None) -> i
     return total
 
 
+_ARTIFACT_GRAPH_GATE_MODES = ("off", "nudge", "soft", "hard")
+
+
+def _weave_gate_block(total_artifacts: int, edges_count: int) -> dict | None:
+    """Artifact-graph gate verdict — the report-only foundation (map work-stream 1).
+
+    Reads the gate mode from ``EMPIRICA_ARTIFACT_GRAPH_GATE`` (off|nudge|soft|hard,
+    default ``nudge``) and reports a connectivity verdict from the transaction's
+    (now-accurate) edge count vs artifact count. **REPORT-ONLY at every mode in
+    this build** (`enforced: False`) — the soft/hard *blocking* behavior is a
+    deliberate follow-up that needs the aggressiveness tuned. Returns None when
+    the gate is ``off`` or there are no artifacts. project.yaml will be the
+    per-practice home for the mode once enforcement lands.
+    """
+    mode = os.environ.get("EMPIRICA_ARTIFACT_GRAPH_GATE", "nudge").strip().lower()
+    if mode not in _ARTIFACT_GRAPH_GATE_MODES:
+        mode = "nudge"
+    if mode == "off" or total_artifacts < 1:
+        return None
+    connected = min(edges_count, total_artifacts)
+    if connected >= total_artifacts:
+        verdict = "connected"
+    elif connected > 0:
+        verdict = "partial"
+    else:
+        verdict = "disconnected"
+    return {
+        "mode": mode,
+        "verdict": verdict,
+        "connected_artifacts": connected,
+        "total_artifacts": total_artifacts,
+        "enforced": False,  # report-only build; soft/hard blocking is a follow-up
+        "note": (
+            f"artifact-graph gate [{mode}, report-only]: {connected}/{total_artifacts} "
+            "artifacts connected. Structural goal-edges are automatic; weave semantic "
+            "edges (log-artifacts) to raise connectivity. Soft/hard blocking not yet active."
+        ),
+    }
+
+
+def _maybe_add_weave_gate(cursor, session_id, transaction_id, retro: dict, total_artifacts: int) -> None:
+    """Attach the report-only artifact-graph gate verdict to the retrospective.
+
+    Kept out of ``_build_retrospective`` to hold that function's complexity down
+    (mirrors ``_maybe_add_untriaged_notes``). Reuses the already-computed edge
+    count when present, else counts once. Best-effort; no-op on any failure.
+    """
+    if total_artifacts < 1:
+        return
+    try:
+        edges = retro.get("edges_with_artifacts")
+        if edges is None:
+            edges = _retro_count_edges(cursor, session_id, transaction_id)
+        gate = _weave_gate_block(total_artifacts, edges)
+        if gate:
+            retro["weave_gate"] = gate
+    except Exception:
+        pass
+
+
 def _build_retrospective(session_id: str, transaction_id: str | None) -> dict:
     """Build retrospective feedback: artifact breadth, commit discipline, completion hints.
 
@@ -619,6 +679,9 @@ def _build_retrospective(session_id: str, transaction_id: str | None) -> dict:
                     )
             except Exception:
                 pass
+
+        # Artifact-graph gate verdict (report-only foundation, map work-stream 1).
+        _maybe_add_weave_gate(cursor, session_id, transaction_id, retro, total_artifacts)
 
         try:
             _gr = _sp.run(["git", "status", "--porcelain"], capture_output=True, text=True, timeout=5)
