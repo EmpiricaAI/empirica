@@ -124,6 +124,26 @@ def test_enable_uses_default_empirica_bin_when_unspecified(fake_systemd_env):
     assert "ExecStart=empirica loop tick inst loop" in paths.service.read_text()
 
 
+def test_enable_refuses_placeholder_instance(fake_systemd_env):
+    """No ghost empirica-loop-<placeholder>-* units — a placeholder instance id
+    is refused before any unit is written."""
+    with patch.object(subprocess, "run", lambda *a, **kw: _fake_run(returncode=0)):
+        sched = SystemdLoopScheduler()
+        with pytest.raises(ValueError, match="placeholder instance"):
+            sched.enable("project", "message-cleanup", "30s")
+
+
+def test_enable_cron_writes_oncalendar_not_interval(fake_systemd_env):
+    """A daily cron installs an OnCalendar timer, never a 30s-ish interval timer."""
+    with patch.object(subprocess, "run", lambda *a, **kw: _fake_run(returncode=0)):
+        sched = SystemdLoopScheduler()
+        paths = sched.enable("empirica", "message-cleanup", "17 3 * * *")
+    timer = paths.timer.read_text()
+    assert "OnCalendar=*-*-* 03:17:00" in timer
+    assert "Persistent=true" in timer
+    assert "OnUnitActiveSec" not in timer
+
+
 # ── disable() ───────────────────────────────────────────────────────────
 
 

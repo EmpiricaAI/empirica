@@ -113,6 +113,50 @@ def parse_interval_seconds(interval: str | int) -> int:
     return secs
 
 
+# Placeholder / unresolved instance ids — a loop unit must NEVER be installed
+# under one; it produces ghost com.empirica.loop.<placeholder>.* units that map
+# to no real practitioner and can never be reconciled. Callers must resolve the
+# real ai_id before enable(). Shared by both schedulers (systemd imports these).
+PLACEHOLDER_INSTANCE_IDS = frozenset({"project", "unknown", "none", ""})
+
+
+def is_placeholder_instance(instance_id: str | None) -> bool:
+    """True if `instance_id` is unset or a known unresolved placeholder."""
+    return instance_id is None or str(instance_id).strip().lower() in PLACEHOLDER_INSTANCE_IDS
+
+
+def looks_like_cron(spec: str | int) -> bool:
+    """True if `spec` is a 5-field cron expression (vs an interval like '30s')."""
+    return isinstance(spec, str) and len(spec.split()) == 5
+
+
+_CRON_FIELD_KEYS = ("Minute", "Hour", "Day", "Month", "Weekday")
+
+
+def cron_to_launchd_calendar(cron: str) -> dict[str, int]:
+    """Parse a 5-field cron (``M H D Mo W``) into a launchd StartCalendarInterval
+    dict. Only fixed integers + ``*`` (wildcard → omitted) are supported; ranges,
+    steps and lists raise ValueError — a daily cron must never silently degrade
+    to a 30-second timer, so we refuse what we can't map exactly. launchd's
+    ``Weekday`` is 0-7 (0/7 = Sunday), matching cron, so it passes through."""
+    fields = cron.split()
+    if len(fields) != 5:
+        raise ValueError(f"expected a 5-field cron expression, got {cron!r}")
+    out: dict[str, int] = {}
+    for key, field in zip(_CRON_FIELD_KEYS, fields):
+        if field == "*":
+            continue
+        if not field.isdigit():
+            raise ValueError(
+                f"cron field {key}={field!r} unsupported (only fixed integers or '*' — "
+                f"ranges/steps/lists can't map to a launchd calendar entry)"
+            )
+        out[key] = int(field)
+    if not out:
+        raise ValueError(f"cron {cron!r} is all-wildcard; use an interval loop, not a calendar schedule")
+    return out
+
+
 def _launchctl(*args: str, check: bool = False) -> subprocess.CompletedProcess:
     return subprocess.run(
         ["launchctl", *args],
@@ -175,10 +219,21 @@ class LaunchdLoopScheduler:
 
     def enable(self, instance_id: str, name: str, interval: str | int) -> LoopUnitFiles:
         """Write the agent plist + launchctl load -w it (persistent until
-        explicit unload). Returns the on-disk path."""
+        explicit unload). Returns the on-disk path.
+
+        Refuses a placeholder/unresolved ``instance_id`` (no ghost
+        ``com.empirica.loop.<placeholder>.*`` units). A cron-shaped ``interval``
+        (5 fields) installs a ``StartCalendarInterval`` — a daily cron must never
+        become a 30-second ``StartInterval`` timer; anything else is an interval
+        timer in seconds.
+        """
+        if is_placeholder_instance(instance_id):
+            raise ValueError(
+                f"refusing to install a loop under placeholder instance id {instance_id!r} — "
+                "resolve the real ai_id first (guards ghost com.empirica.loop.<placeholder>.* units)"
+            )
         paths = self.unit_paths(instance_id, name)
         label = _label(instance_id, name)
-        seconds = parse_interval_seconds(interval)
 
         plist_dict = {
             "Label": label,
@@ -189,7 +244,6 @@ class LaunchdLoopScheduler:
                 instance_id,
                 name,
             ],
-            "StartInterval": seconds,
             "RunAtLoad": False,
             # Agent stdout/stderr → /tmp for debugging (macOS launchd
             # convention). S108 noqa: launchd agents expect /tmp paths
@@ -199,13 +253,20 @@ class LaunchdLoopScheduler:
             # Don't restart on exit — `tick` is a one-shot, completion is success.
             "KeepAlive": False,
         }
+        if looks_like_cron(interval):
+            plist_dict["StartCalendarInterval"] = cron_to_launchd_calendar(str(interval))
+            sched_desc = f"cron {interval!r}"
+        else:
+            seconds = parse_interval_seconds(interval)
+            plist_dict["StartInterval"] = seconds
+            sched_desc = f"every {seconds}s"
         with open(paths.plist, "wb") as f:
             plistlib.dump(plist_dict, f)
 
         # `launchctl load -w <path>` loads the agent and marks it enabled
         # in the user database so it persists across logout/login.
         _launchctl("load", "-w", str(paths.plist), check=True)
-        logger.info(f"launchd loop enabled: {label} (every {seconds}s)")
+        logger.info(f"launchd loop enabled: {label} ({sched_desc})")
         return paths
 
     def disable(self, instance_id: str, name: str) -> bool:

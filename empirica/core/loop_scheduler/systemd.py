@@ -41,7 +41,36 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+# Shared placeholder-instance + cron-detection helpers live in launchd (the
+# other backend); import them so both schedulers reject the same ghost inputs
+# from a single source of truth. launchd does not import systemd → no cycle.
+from empirica.core.loop_scheduler.launchd import is_placeholder_instance, looks_like_cron
+
 logger = logging.getLogger(__name__)
+
+
+def cron_to_systemd_oncalendar(cron: str) -> str:
+    """Map a simple 5-field cron (``M H D Mo W``) to a systemd OnCalendar string.
+
+    Supports a fixed minute + hour with wildcard day/month/weekday — the
+    canonical daily-at-a-time loops (e.g. ``17 3 * * *`` → ``*-*-* 03:17:00``).
+    Ranges/steps/lists, non-integer minute/hour, and non-wildcard
+    day/month/weekday raise ValueError rather than mis-schedule — a daily cron
+    must never silently become a 30-second timer.
+    """
+    fields = cron.split()
+    if len(fields) != 5:
+        raise ValueError(f"expected a 5-field cron expression, got {cron!r}")
+    minute, hour, dom, month, dow = fields
+    for label, value in (("minute", minute), ("hour", hour)):
+        if not value.isdigit():
+            raise ValueError(f"cron {label}={value!r} must be a fixed integer for a calendar schedule (got {cron!r})")
+    if not (dom == "*" and month == "*" and dow == "*"):
+        raise ValueError(
+            f"cron {cron!r}: only fixed minute+hour with wildcard day/month/weekday is supported "
+            "for the systemd OnCalendar mapping"
+        )
+    return f"*-*-* {int(hour):02d}:{int(minute):02d}:00"
 
 
 # Sanitize instance_id / loop name for unit-file naming. systemd accepts
@@ -162,6 +191,22 @@ Unit={unit_name}.service
 WantedBy=timers.target
 """
 
+_CRON_TIMER_TEMPLATE = """\
+[Unit]
+Description=Empirica canonical loop timer — {name} (instance: {instance_id})
+
+[Timer]
+# Calendar schedule (cron {cron}). Persistent=true so a fire missed while the
+# machine was asleep runs once on wake, rather than being silently skipped.
+OnCalendar={oncalendar}
+Persistent=true
+AccuracySec=1s
+Unit={unit_name}.service
+
+[Install]
+WantedBy=timers.target
+"""
+
 
 # ── Scheduler ────────────────────────────────────────────────────────────
 
@@ -216,6 +261,11 @@ class SystemdLoopScheduler:
         Raises:
             subprocess.CalledProcessError on systemctl failures.
         """
+        if is_placeholder_instance(instance_id):
+            raise ValueError(
+                f"refusing to install a loop under placeholder instance id {instance_id!r} — "
+                "resolve the real ai_id first (guards ghost empirica-loop-<placeholder>-* units)"
+            )
         paths = self.unit_paths(instance_id, name)
         unit_name = _unit_name(instance_id, name)
 
@@ -227,19 +277,31 @@ class SystemdLoopScheduler:
             ),
             encoding="utf-8",
         )
-        paths.timer.write_text(
-            _TIMER_TEMPLATE.format(
+        # cron-shaped interval → OnCalendar timer (a daily cron must never become
+        # a repeating OnUnitActiveSec interval); otherwise the interval timer.
+        if looks_like_cron(interval):
+            oncalendar = cron_to_systemd_oncalendar(str(interval))
+            timer_unit = _CRON_TIMER_TEMPLATE.format(
+                name=name,
+                instance_id=instance_id,
+                cron=interval,
+                oncalendar=oncalendar,
+                unit_name=unit_name,
+            )
+            sched_desc = f"cron {interval!r} → OnCalendar {oncalendar}"
+        else:
+            timer_unit = _TIMER_TEMPLATE.format(
                 name=name,
                 instance_id=instance_id,
                 interval=interval,
                 unit_name=unit_name,
-            ),
-            encoding="utf-8",
-        )
+            )
+            sched_desc = f"every {interval}"
+        paths.timer.write_text(timer_unit, encoding="utf-8")
 
         _systemctl("daemon-reload", check=True)
         _systemctl("enable", "--now", f"{unit_name}.timer", check=True)
-        logger.info(f"systemd loop enabled: {unit_name}.timer (every {interval})")
+        logger.info(f"systemd loop enabled: {unit_name}.timer ({sched_desc})")
         return paths
 
     def disable(self, instance_id: str, name: str) -> bool:

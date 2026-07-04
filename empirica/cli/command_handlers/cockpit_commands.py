@@ -966,8 +966,32 @@ def handle_loop_tick_command(args) -> int:
     """systemd-user service ExecStart target. Appends one JSON event to the
     fires log; the Monitor bridge tails this and relays into the running
     Claude session. Must succeed even on systems without systemd (the log
-    write is the contract; the timer mechanism is separate)."""
+    write is the contract; the timer mechanism is separate).
+
+    Ghost-fire guard: a stale/ghost unit — an old
+    ``com.empirica.loop.<placeholder>.*`` or a loop whose registry entry was
+    removed without its timer — must not keep appending wake events. Refuse a
+    placeholder instance id or a loop not in the instance's registry (clean
+    skip, exit 0 — the scheduler unit itself should be removed, but a ghost
+    tick must not pollute the fires log meanwhile)."""
     from empirica.core.loop_scheduler import SystemdLoopScheduler
+    from empirica.core.loop_scheduler.launchd import is_placeholder_instance
+
+    if is_placeholder_instance(args.instance_id):
+        return _emit(
+            args,
+            {"ok": True, "skipped": "placeholder_instance", "instance_id": args.instance_id, "name": args.name},
+            f"tick skipped: placeholder instance {args.instance_id!r} (ghost unit — remove it)",
+        )
+    try:
+        if LoopRegistry(args.instance_id).get(args.name) is None:
+            return _emit(
+                args,
+                {"ok": True, "skipped": "not_registered", "instance_id": args.instance_id, "name": args.name},
+                f"tick skipped: {args.instance_id}/{args.name} not in registry (ghost unit — remove it)",
+            )
+    except Exception:
+        pass  # registry read is best-effort — never block a legit tick on a read hiccup
 
     try:
         path = SystemdLoopScheduler.tick(args.instance_id, args.name)
