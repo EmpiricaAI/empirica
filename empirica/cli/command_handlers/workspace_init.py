@@ -839,6 +839,74 @@ def _get_existing_project_id_from_local_db(repo_path: Path) -> str | None:
         return None
 
 
+def _adopt_existing_project_id(  # pyright: ignore[reportUnusedFunction]  # used by session_create._handle_auto_init
+    git_root: Path,
+) -> tuple[str | None, str | None]:
+    """Find a pre-existing canonical project_id for this path, to ADOPT not mint.
+
+    Data-integrity fix (recurring, mesh prop_xa6djztv5rfbnhvkcts63q6vba):
+    ``session-create --auto-init`` used to mint a fresh id whenever
+    ``project.yaml`` was absent — even when the path already had a canonical id
+    in the local sessions.db, the daemon registry, or workspace.db. The fresh
+    mint then flowed into ``_register_in_workspace_db``, which "corrected" the
+    canonical ``global_projects`` row TOWARD the mint (an inverted correction
+    that stranded the live session + open transaction + N artifacts under a
+    phantom id). Adopt the existing id instead; mint only when all sources are
+    empty (genuinely new project).
+
+    Resolution order — most authoritative first, and **offline-only** (auto-init
+    is a hot path that must not block on the network; the cortex roster is a
+    deferred network-guarded source):
+
+      1. local sessions.db — the client-UUID-wins source of truth for identity
+      2. registry.yaml     — the daemon's served set (match by filesystem path)
+      3. workspace.db      — global_projects (match by trajectory_path); this is
+                             where the repro's canonical id demonstrably lived
+
+    Returns ``(project_id, source_label)`` or ``(None, None)``. A source that
+    *raises* (locked/corrupt DB) logs a warning and falls through — the
+    fall-through to mint must never be silent (it would re-introduce the bug).
+    """
+    # 1. Local sessions.db — source of truth for project identity.
+    local_id = _get_existing_project_id_from_local_db(git_root)
+    if local_id:
+        return local_id, "local sessions.db"
+
+    # 2. registry.yaml — the daemon's served set, matched by filesystem path.
+    try:
+        from empirica.api.registry import load_registry
+
+        target = str(git_root)
+        for entry in load_registry().get("projects", []):
+            if entry.get("path") == target and entry.get("project_id"):
+                return entry["project_id"], "registry.yaml"
+    except Exception as e:
+        logger.warning(f"auto-init adopt: registry.yaml lookup failed (falling through): {e}")
+
+    # 3. workspace.db global_projects — keyed by trajectory_path.
+    try:
+        import sqlite3
+
+        workspace_db = Path.home() / ".empirica" / "workspace" / "workspace.db"
+        if workspace_db.exists():
+            conn = sqlite3.connect(str(workspace_db))
+            try:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT id FROM global_projects WHERE trajectory_path = ? LIMIT 1",
+                    (str(git_root / ".empirica"),),
+                )
+                row = cursor.fetchone()
+                if row and row[0]:
+                    return row[0], "workspace.db"
+            finally:
+                conn.close()
+    except Exception as e:
+        logger.warning(f"auto-init adopt: workspace.db lookup failed (falling through): {e}")
+
+    return None, None
+
+
 def _generate_project_config(repo_path: Path, project_id: str, repo_info: dict):
     """Generate .empirica-project/PROJECT_CONFIG.yaml"""
     config_dir = repo_path / ".empirica-project"

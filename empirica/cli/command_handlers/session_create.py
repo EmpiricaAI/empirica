@@ -330,6 +330,18 @@ def _handle_auto_init(args, output_format, project_id):
         if output_format != "json":
             print("🔧 Auto-initializing Empirica in this repository...")
 
+        # Adopt-before-mint (data-integrity fix, mesh prop_xa6djztv5rfbnhvkcts63q6vba):
+        # if this path already has a canonical project_id in any authoritative
+        # local source (sessions.db → registry.yaml → workspace.db), ADOPT it so
+        # project-init links to it instead of minting a fresh id that would then
+        # "correct" the canonical workspace row AWAY toward the mint. adopted_id
+        # is None for a genuinely-new project → project-init mints as before.
+        from empirica.cli.command_handlers.workspace_init import _adopt_existing_project_id
+
+        adopted_id, adopted_source = _adopt_existing_project_id(git_root)
+        if adopted_id and output_format != "json":
+            print(f"   🔗 Adopting existing project_id {adopted_id[:8]}… (from {adopted_source})")
+
         try:
             from types import SimpleNamespace
 
@@ -343,6 +355,7 @@ def _handle_auto_init(args, output_format, project_id):
                 enable_beads=False,
                 create_semantic_index=False,
                 force=False,
+                project_id=adopted_id,  # None → mint (new); set → adopt canonical
             )
 
             result = handle_project_init_command(init_args)
