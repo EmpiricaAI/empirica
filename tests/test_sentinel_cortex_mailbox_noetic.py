@@ -14,14 +14,7 @@ import importlib.util
 import sys
 from pathlib import Path
 
-_HOOK = (
-    Path(__file__).parent.parent
-    / "empirica"
-    / "plugins"
-    / "claude-code-integration"
-    / "hooks"
-    / "sentinel-gate.py"
-)
+_HOOK = Path(__file__).parent.parent / "empirica" / "plugins" / "claude-code-integration" / "hooks" / "sentinel-gate.py"
 _spec = importlib.util.spec_from_file_location("sentinel_gate_mod", _HOOK)
 assert _spec is not None and _spec.loader is not None
 sg = importlib.util.module_from_spec(_spec)

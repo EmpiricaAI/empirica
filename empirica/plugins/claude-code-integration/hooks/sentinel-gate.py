@@ -120,15 +120,11 @@ def _normalize_aggregated_cortex_tool(tool_name: str, tool_input) -> str:
     resolvable op is returned unchanged (so it stays unclassified → gated).
     """
     if tool_name in ("mcp__cortex", "mcp__cortex__") and isinstance(tool_input, dict):
-        op = (
-            tool_input.get("op")
-            or tool_input.get("operation")
-            or tool_input.get("name")
-            or tool_input.get("tool")
-        )
+        op = tool_input.get("op") or tool_input.get("operation") or tool_input.get("name") or tool_input.get("tool")
         if op:
             return f"mcp__cortex__{op}"
     return tool_name
+
 
 # Empirica MCP tools — ALL are epistemic workflow, always allowed.
 # The empirica-mcp server wraps CLI commands — same trust as Tier 2.
