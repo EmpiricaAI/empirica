@@ -96,7 +96,39 @@ NOETIC_MCP_CORTEX = {
     "mcp__cortex__cortex_bus_poll",  # Bus polling
     "mcp__cortex__cortex_bus_dispatch",  # Bus dispatch
     "mcp__cortex__cortex_bus_complete",  # Bus completion
+    # Mailbox READS + ack — cortex-confirmed noetic (thread prop_iefo2tdx). The
+    # mailbox-poll family was overlooked when the bus-poll family above was added.
+    "mcp__cortex__cortex_inbox_poll",  # Read mailbox (pure read)
+    "mcp__cortex__cortex_outbox_poll",  # Read own emissions' state (pure read)
+    "mcp__cortex__cortex_get_proposal",  # Fetch proposal by id (pure read)
+    "mcp__cortex__cortex_archive_proposal",  # Archiver-scoped soft-flip (hide-from-my-view; ergonomically noetic)
+    "mcp__cortex__cortex_complete_proposal",  # Ack: closing bracket of a wake→act→ack loop, authorized by the accepted proposal (noetic by policy)
 }
+
+
+def _normalize_aggregated_cortex_tool(tool_name: str, tool_input) -> str:
+    """Resolve a bare `mcp__cortex` namespace to its full `mcp__cortex__<op>`.
+
+    Namespace-aggregating harnesses (e.g. codex/ecodex) may present the bare
+    server namespace as ``tool_name`` with the operation carried in
+    ``tool_input`` (``op`` / ``operation`` / ``name`` / ``tool``), rather than
+    the full ``mcp__cortex__<op>`` that standard MCP PreToolUse hooks receive.
+    Normalizing here — once, at the entry — lets every downstream noetic/praxic
+    classification (NOETIC_MCP_CORTEX membership etc.) work either way.
+
+    Fail-safe: only resolves to a concrete op; a bare namespace with no
+    resolvable op is returned unchanged (so it stays unclassified → gated).
+    """
+    if tool_name in ("mcp__cortex", "mcp__cortex__") and isinstance(tool_input, dict):
+        op = (
+            tool_input.get("op")
+            or tool_input.get("operation")
+            or tool_input.get("name")
+            or tool_input.get("tool")
+        )
+        if op:
+            return f"mcp__cortex__{op}"
+    return tool_name
 
 # Empirica MCP tools — ALL are epistemic workflow, always allowed.
 # The empirica-mcp server wraps CLI commands — same trust as Tier 2.
@@ -3818,6 +3850,12 @@ def main():
 
     tool_name = hook_input.get("tool_name", "unknown")
     tool_input = hook_input.get("tool_input", {})
+
+    # Option 2 — namespace-aggregation defense (codex/ecodex): normalize a bare
+    # `mcp__cortex` namespace (op carried in tool_input) to the full
+    # `mcp__cortex__<op>` at this single entry point, so every downstream
+    # classification works regardless of how the harness dispatches.
+    tool_name = _normalize_aggregated_cortex_tool(tool_name, tool_input)
 
     _track_tool_usage(hook_input, tool_name, tool_input)
     _set_file_relevance_nudge(tool_name, tool_input, hook_input.get("session_id"))
