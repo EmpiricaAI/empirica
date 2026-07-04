@@ -1079,6 +1079,46 @@ def _bootstrap_for_existing_session(session_id: str, project_root: Path) -> bool
         return False
 
 
+def _write_practitioner_presence(claude_session_id: str, ai_id: str, empirica_session_id: str) -> None:
+    """Best-effort presence write/refresh, keyed on the durable claude_session_id.
+
+    Stamps ``session_pid`` = ``os.getppid()`` (the Claude Code parent — this hook
+    is spawned by CC). That pid is the daemon's liveness anchor: both
+    ``refresh_live_presence`` and ``list_presence``'s pid-liveness override
+    (``kill -0``) key off it to keep an alive-but-quiet session visible. Called on
+    BOTH new-session init AND resume — on ``claude --resume`` the OS gives the
+    session a fresh CC parent, so re-stamping keeps the pid current (a stale pid
+    would make the resumed session read as dead and vanish from the fleet).
+    Never fails session-init on a presence write.
+    """
+    if not claude_session_id:
+        return
+    try:
+        subprocess.run(
+            [
+                "empirica",
+                "practitioner",
+                "write",
+                "--session",
+                claude_session_id,
+                "--ai-id",
+                ai_id,
+                "--empirica-session",
+                empirica_session_id,
+                "--session-pid",
+                str(os.getppid()),
+                "--output",
+                "json",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            stdin=subprocess.DEVNULL,
+        )
+    except Exception:
+        pass
+
+
 def _handle_resume_path(claude_session_id: str, project_root: Path, ai_id: str) -> bool:
     """Handle resume path: detect existing session, update anchors, exit if found.
 
@@ -1092,6 +1132,12 @@ def _handle_resume_path(claude_session_id: str, project_root: Path, ai_id: str) 
     session_id = existing["session_id"]
     _write_instance_projects(str(project_root), claude_session_id, session_id)
     bootstrap_ok = _bootstrap_for_existing_session(session_id, project_root)
+
+    # Re-stamp presence with the RESUMED session's fresh CC-parent pid. A resume
+    # runs under a new process, so the pid captured at first launch is now dead;
+    # without this re-stamp the pid-liveness readers (part 1) kill -0 a dead pid
+    # and mark the resumed session gone, vanishing it from the fleet view.
+    _write_practitioner_presence(claude_session_id, ai_id, session_id)
 
     output = {
         "ok": True,
@@ -1513,36 +1559,8 @@ def main():
         _write_instance_projects(str(project_root), claude_session_id, result["session_id"])
         # Register practitioner presence, keyed on the durable claude_session_id
         # (survives compaction; the empirica session_id rotates per compact
-        # window). Best-effort — never fail session-init on a presence write.
-        if claude_session_id:
-            try:
-                subprocess.run(
-                    [
-                        "empirica",
-                        "practitioner",
-                        "write",
-                        "--session",
-                        claude_session_id,
-                        "--ai-id",
-                        ai_id,
-                        "--empirica-session",
-                        result["session_id"],
-                        # The Claude Code parent PID — this hook is spawned by CC,
-                        # so getppid() is CC. It's the daemon's liveness anchor:
-                        # refresh_live_presence() probes it to keep an alive-but-
-                        # quiet session (blocked on a question) non-stale.
-                        "--session-pid",
-                        str(os.getppid()),
-                        "--output",
-                        "json",
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                    stdin=subprocess.DEVNULL,
-                )
-            except Exception:
-                pass
+        # window). Same call re-stamps the pid on resume — see the helper.
+        _write_practitioner_presence(claude_session_id, ai_id, result["session_id"])
 
     if result.get("error"):
         _emit_session_error(result["error"], ai_id)
