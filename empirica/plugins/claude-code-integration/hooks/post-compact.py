@@ -228,23 +228,43 @@ def _load_calibration_from_breadcrumbs_yaml() -> str:
 
 
 def _resolve_project_and_setup(claude_session_id: str) -> tuple:
-    """Resolve project root, set CWD, and compute instance_id.
+    """Resolve practice root, set CWD, and compute instance_id.
 
-    Exits with error if project root cannot be resolved.
-    Returns (project_root, instance_id).
+    Practice (project/ai_id) resolves from the practitioner cache
+    (active_work/instance_projects) and — when the harness declares CWD is the
+    verified practice via ``EMPIRICA_CWD_RELIABLE=true`` — from the filesystem
+    (CWD/git-root) too. This makes session-boundary resolution vendor-agnostic (a
+    fresh practitioner with an empty cache still resolves, e.g. codex/ecodex)
+    without re-opening the cross-project-bleed bug (KNOWN_ISSUES 11.10): in a
+    multiplexer where CWD is the empirica *launch* dir rather than the user's
+    project, the flag is unset, so the CWD/git fallback stays off and we never
+    grab the wrong practice.
+
+    If nothing resolves, exits 0 — a session-boundary hook with no resolvable
+    practice is a no-op, not a failure (matches pre-compact.py). Returns
+    (project_root, instance_id) on success.
     """
-    project_root = find_project_root(claude_session_id, check_compact_handoff=True)
+    # Harness-declared CWD reliability (Karson's #91 contract). session-init sets
+    # EMPIRICA_CWD_RELIABLE=true after chdir'ing to the verified practice; vendor
+    # harnesses (ecodex/codex) set it likewise. Absent it, CWD is untrusted (could
+    # be the launch dir) → filesystem fallback stays off.
+    cwd_reliable = os.environ.get("EMPIRICA_CWD_RELIABLE", "").lower() == "true"
+    project_root = find_project_root(
+        claude_session_id,
+        check_compact_handoff=True,
+        allow_cwd_fallback=cwd_reliable,
+        allow_git_root=cwd_reliable,
+    )
     if project_root is None:
+        # Graceful no-op (not exit 1): a boundary hook that can't resolve a
+        # practice has nothing to do — surface a stderr diagnostic and skip.
         print(
-            json.dumps(
-                {
-                    "error": "Could not resolve project root. No active_work file, instance_projects, or EMPIRICA_WORKSPACE_ROOT found.",
-                    "claude_session_id": claude_session_id,
-                    "tmux_pane": os.environ.get("TMUX_PANE"),
-                }
-            )
+            f"post-compact: no resolvable empirica practice "
+            f"(session={claude_session_id}, cwd_reliable={cwd_reliable}) — skipping",
+            file=sys.stderr,
         )
-        sys.exit(1)
+        print(json.dumps({}))
+        sys.exit(0)
     os.chdir(project_root)
     instance_id = get_instance_id()
     sys.path.insert(0, str(Path.home() / "empirical-ai" / "empirica"))
