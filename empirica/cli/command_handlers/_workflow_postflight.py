@@ -1420,6 +1420,41 @@ def _cortex_extract_transaction_graph(session_id):
         return {}
 
 
+def _write_auto_structural_edges(session_id, transaction_id) -> int:
+    """Auto-edge (Gated Artifact-Graph map, work-stream 3): persist each
+    artifact's structural edge to its goal in the canonical ``artifact_edges``
+    table, so the local graph is connected with ZERO AI effort.
+
+    The cortex-sync path already *computes* these ``attached_to`` (artifact→goal)
+    edges but only ships them to cortex — they never land in the local table the
+    walker / connectivity checks / retrospective read. This persists them
+    locally. Idempotent via the PK ``(from_id, to_id, relation)``; best-effort
+    (a pre-041 DB with no ``artifact_edges`` degrades to a no-op). Returns the
+    number of edges ensured.
+    """
+    if not transaction_id:
+        return 0
+    _sdb = _get_db_for_session(session_id)
+    _nodes, _seen, goal_edges = _cortex_graph_artifact_nodes(_sdb, transaction_id)
+    if not goal_edges:
+        return 0
+    ensured = 0
+    for _e in goal_edges:
+        try:
+            _sdb.conn.execute(
+                "INSERT OR IGNORE INTO artifact_edges (from_id, to_id, relation) VALUES (?, ?, ?)",
+                (_e["from"], _e["to"], _e["relation"]),
+            )
+            ensured += 1
+        except Exception:
+            continue
+    try:
+        _sdb.conn.commit()
+    except Exception:
+        pass
+    return ensured
+
+
 def _cortex_read_calibration_summary(project_path: str | None = None) -> dict:
     """Read calibration summary from .breadcrumbs.yaml. Returns dict.
 
@@ -1807,6 +1842,18 @@ def handle_postflight_submit_command(args):
                     "trajectory_issues": trajectory_issues,
                     "checkpoint_id": checkpoint_id,
                 },
+            )
+
+            # Stage 5b: Auto-edges — persist each artifact's structural goal-edge
+            # to artifact_edges so the local graph is connected with zero AI
+            # effort (Gated Artifact-Graph map, work-stream 3). Runs BEFORE the
+            # grounded verification below so the edges are counted this tx.
+            _soft_run(
+                "auto_structural_edges",
+                warnings,
+                _write_auto_structural_edges,
+                session_id,
+                tx_info["transaction_id"],
             )
 
             # Stage 6: Beliefs + Grounded verification + Storage pipeline
