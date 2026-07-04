@@ -75,11 +75,14 @@ PRE ─▶ [ capture: note ] ─▶ ⟦weave-gate⟧ ─▶ CHECK ─▶ [ captu
 
 ## 5. Net-new work (the gaps — each a work-stream)
 
-1. **Gate promotion (Sentinel setting + ramp).** Flip the existing note-aware
-   soft-gate + connectivity checks from report/nudge → Sentinel gate. Ship as a
-   **setting** with a ramp: `off → nudge (today) → soft (warn, still pass) →
-   hard`. Default nudge; flip to hard once (2) is proven. Per-practice
-   configurable.
+1. **Gate promotion — scalar control surface (built: report-only).** The gate is
+   driven by **three orthogonal 0.0–1.0 scalar dimensions**, not a discrete
+   `off/nudge/soft/hard` mode. The extension's Sentinel config owns them as
+   **sliders**; the human sets them, the AI inherits them (see §5a). This build
+   ships the scalars + verdict computation **report-only** (`enforced: False` at
+   every setting); the actual soft/hard *blocking* keyed on `strictness` is the
+   remaining half of this work-stream. Per-practice configurable via env
+   transport (`EMPIRICA_ARTIFACT_GRAPH_STRICTNESS` / `_FLOOR` / `_PATIENCE`).
 2. **Schema-injection at the gate — the make-or-break.** CHECK and POSTFLIGHT
    responses inject the `log-artifacts` schema (node-type enum + relation
    vocabulary from `graph_commands.py`) **plus the transaction's linkable ids**
@@ -97,8 +100,44 @@ PRE ─▶ [ capture: note ] ─▶ ⟦weave-gate⟧ ─▶ CHECK ─▶ [ captu
    artifacts — **not** on absent notes (a single throwaway note must not satisfy
    it). Applied to the *next* transaction, and it **decays on compliance**
    (weave once → back to freedom). Earned-autonomy in both directions, matching
-   the Sentinel's adaptive thresholds.
+   the Sentinel's adaptive thresholds. The **`patience` scalar** (§5a) sets the
+   consecutive-miss tolerance before escalation — high patience forgives more
+   before it bites.
 5. **`ungrounded_bypass` (the `--yolo` bypass).** See §6.
+
+### 5a. The gate's control surface — three scalar dimensions (built)
+
+A discrete `off/nudge/soft/hard` mode is the wrong shape: it forces the human to
+pick a bucket when the real settings are continuous and *orthogonal*. The gate is
+instead three independent 0.0–1.0 sliders — the AI shaping how its own discipline
+gets enforced, via the extension's Sentinel config, which inherits how the human
+sets it:
+
+| Dimension | Slider question | Drives | Default |
+|---|---|---|---|
+| **strictness** | *How loud when connectivity is low?* | Response band: `silent` (<0.05) → `report` (<0.40) → `warn` (<0.70) → `enforce` (≥0.70) | `0.25` (report) |
+| **connectivity_floor** | *What fraction of artifacts must be woven?* | `satisfied = connected_ratio ≥ floor` | `0.50` |
+| **patience** | *How forgiving of consecutive misses?* | Adaptive-escalation window (work-stream 4) | `0.80` |
+
+Defaults keep a fresh install **report-only + forgiving** — the gate never blocks
+until a human dials `strictness` up. `strictness` *is* the axis the old ramp
+expressed, but as a continuum: old `off` = 0.0 (silent), `nudge` ≈ 0.25 (report),
+`soft` ≈ 0.5 (warn), `hard` ≈ 0.9 (enforce). What a single mode couldn't express
+is the split between **floor** (how much to weave) and **strictness** (how hard to
+push): a practice can now demand high connectivity but only warn, or tolerate low
+connectivity yet hard-block on it.
+
+Single source of truth: `_GATE_SCALARS` in `_workflow_shared.py` (default + env
+name per dimension, deliberately not duplicated across call sites — the
+engagement_gate's 12-site duplicated-default drift is the anti-pattern this
+avoids). Bad slider values clamp to `[0,1]` / fall back to default, so a bad
+config never breaks the retrospective. `_resolve_gate_scalars()` reads them;
+`_gate_response_for()` owns the strictness→band ladder (the *only* place that
+mapping lives); `_weave_gate_block()` returns `{scalars, response, verdict,
+connected_ratio, satisfied, enforced, note}`.
+
+`ungrounded_bypass` (§6) stays a **separate boolean**, not a fourth scalar — it's
+a categorical human capability-toggle, not a continuous dimension.
 
 ## 6. The bypass — `--yolo` (human-only)
 
@@ -145,8 +184,11 @@ by feeling the difference. Constraints that keep it honest, not theatrical:
 
 ## 9. Open questions
 
-- Default gate strictness per `work_type`? (e.g. `release` = nudge; `research` =
-  hard.)
+- Default scalar values per `work_type`? Now that strictness/floor/patience are
+  continuous (§5a), the question is which *triple* each work_type seeds (e.g.
+  `release` = low strictness + low floor; `research` = high floor, moderate
+  strictness) — and whether work_type sets defaults the human slider then
+  overrides, or the slider is absolute.
 - Reconcile the promotion-trigger with the existing "0 artifacts + 0 notes =
   strongest" soft-gate logic in `_workflow_preflight.py` — is the trigger a
   refinement of that function or a sibling signal?

@@ -563,43 +563,123 @@ def _retro_count_edges(cursor, session_id: str, transaction_id: str | None) -> i
     return total
 
 
-_ARTIFACT_GRAPH_GATE_MODES = ("off", "nudge", "soft", "hard")
+# --- Artifact-graph gate: three orthogonal scalar dimensions -----------------
+# The extension's Sentinel config owns these as SLIDERS; the env vars are the
+# transport into the CLI. This dict is the SINGLE source of truth for both the
+# default values and the env-var names — deliberately not split across call
+# sites (the engagement_gate's 12-site duplicated-default mess is the anti-
+# pattern this avoids). Defaults keep a fresh install report-only + forgiving:
+# the gate never blocks until a human dials strictness up.
+_GATE_SCALARS = {
+    # key                  (default, env var)
+    "strictness": (0.25, "EMPIRICA_ARTIFACT_GRAPH_STRICTNESS"),
+    "connectivity_floor": (0.50, "EMPIRICA_ARTIFACT_GRAPH_FLOOR"),
+    "patience": (0.80, "EMPIRICA_ARTIFACT_GRAPH_PATIENCE"),
+}
+
+
+def _resolve_gate_scalars() -> dict:
+    """Resolve the gate's three scalar dimensions from env (Sentinel sliders).
+
+    - **strictness** — response intensity (drives ``_gate_response_for``).
+    - **connectivity_floor** — fraction of artifacts that must carry ≥1 edge to
+      count as satisfied.
+    - **patience** — adaptive forgiveness (consecutive-miss escalation; consumed
+      by the follow-up adaptive-enforcement work-stream, surfaced here so the
+      extension can render it).
+
+    Each is clamped to ``[0.0, 1.0]``; an absent or unparseable env value falls
+    back to its default. Never raises — a bad slider value must not break the
+    retrospective.
+    """
+    out: dict = {}
+    for key, (default, env) in _GATE_SCALARS.items():
+        raw = os.environ.get(env)
+        if raw is None:
+            out[key] = default
+            continue
+        try:
+            out[key] = max(0.0, min(1.0, float(raw)))
+        except (TypeError, ValueError):
+            out[key] = default
+    return out
+
+
+def _gate_response_for(strictness: float) -> str:
+    """Map the strictness scalar to a response band (the ONLY place this lives).
+
+    A single monotonic ladder — quieter below, louder above:
+
+    - ``silent`` (<0.05) — gate computes nothing, returns None (fully dialed down).
+    - ``report`` (<0.40) — verdict attached, no pressure (default band).
+    - ``warn``   (<0.70) — verdict + explicit "should weave more" language.
+    - ``enforce`` (≥0.70) — verdict + would-block signal. Blocking itself is a
+      follow-up work-stream; this build still returns ``enforced: False``.
+    """
+    if strictness < 0.05:
+        return "silent"
+    if strictness < 0.40:
+        return "report"
+    if strictness < 0.70:
+        return "warn"
+    return "enforce"
 
 
 def _weave_gate_block(total_artifacts: int, edges_count: int) -> dict | None:
-    """Artifact-graph gate verdict — the report-only foundation (map work-stream 1).
+    """Artifact-graph gate verdict — scalar-driven (map work-stream 1 foundation).
 
-    Reads the gate mode from ``EMPIRICA_ARTIFACT_GRAPH_GATE`` (off|nudge|soft|hard,
-    default ``nudge``) and reports a connectivity verdict from the transaction's
-    (now-accurate) edge count vs artifact count. **REPORT-ONLY at every mode in
-    this build** (`enforced: False`) — the soft/hard *blocking* behavior is a
-    deliberate follow-up that needs the aggressiveness tuned. Returns None when
-    the gate is ``off`` or there are no artifacts. project.yaml will be the
-    per-practice home for the mode once enforcement lands.
+    Reports a connectivity verdict from the transaction's (now-accurate) edge
+    count vs artifact count, shaped by the three scalar dimensions resolved from
+    the extension's Sentinel sliders (``_resolve_gate_scalars``). ``satisfied``
+    is measured against ``connectivity_floor``; the loudness of the ``note`` is
+    scaled by the ``strictness``-derived response band.
+
+    **REPORT-ONLY in this build** — ``enforced`` is always ``False``, even at the
+    ``enforce`` band. The actual soft/hard *blocking* is a deliberate follow-up
+    keyed on ``strictness`` (and ``patience`` for the adaptive escalation).
+    Returns None when strictness dials the gate fully ``silent`` (<0.05) or there
+    are no artifacts.
     """
-    mode = os.environ.get("EMPIRICA_ARTIFACT_GRAPH_GATE", "nudge").strip().lower()
-    if mode not in _ARTIFACT_GRAPH_GATE_MODES:
-        mode = "nudge"
-    if mode == "off" or total_artifacts < 1:
+    scalars = _resolve_gate_scalars()
+    response = _gate_response_for(scalars["strictness"])
+    if response == "silent" or total_artifacts < 1:
         return None
     connected = min(edges_count, total_artifacts)
+    connected_ratio = connected / total_artifacts if total_artifacts else 0.0
+    satisfied = connected_ratio >= scalars["connectivity_floor"]
     if connected >= total_artifacts:
         verdict = "connected"
     elif connected > 0:
         verdict = "partial"
     else:
         verdict = "disconnected"
+    pct = round(connected_ratio * 100)
+    floor_pct = round(scalars["connectivity_floor"] * 100)
+    if satisfied:
+        note = (
+            f"artifact-graph gate [{response}, report-only]: "
+            f"{connected}/{total_artifacts} artifacts connected ({pct}%) — "
+            f"meets the {floor_pct}% floor."
+        )
+    else:
+        lead = "SHOULD weave more" if response in ("warn", "enforce") else "consider weaving"
+        note = (
+            f"artifact-graph gate [{response}, report-only]: "
+            f"{connected}/{total_artifacts} artifacts connected ({pct}%), below the "
+            f"{floor_pct}% floor — {lead}. Structural goal-edges are automatic; add "
+            "semantic edges (log-artifacts nodes+edges, or --related-to / --edge on "
+            "any *-log) to raise connectivity. Blocking not yet active."
+        )
     return {
-        "mode": mode,
+        "scalars": scalars,
+        "response": response,
         "verdict": verdict,
+        "connected_ratio": round(connected_ratio, 3),
         "connected_artifacts": connected,
         "total_artifacts": total_artifacts,
-        "enforced": False,  # report-only build; soft/hard blocking is a follow-up
-        "note": (
-            f"artifact-graph gate [{mode}, report-only]: {connected}/{total_artifacts} "
-            "artifacts connected. Structural goal-edges are automatic; weave semantic "
-            "edges (log-artifacts) to raise connectivity. Soft/hard blocking not yet active."
-        ),
+        "satisfied": satisfied,
+        "enforced": False,  # report-only build; blocking keyed on strictness is a follow-up
+        "note": note,
     }
 
 
