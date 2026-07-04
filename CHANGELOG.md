@@ -5,6 +5,33 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.13] — 2026-07-04
+
+### Removed
+- **Legacy Flask dashboard API.** `empirica serve` runs the FastAPI serve
+  daemon; the older Flask app was never mounted by it — its routes returned 404
+  in the running daemon. The one route still needed (calibration) was already
+  ported to a FastAPI router. Removed the unserved Flask app + its route
+  modules, and dropped `flask` / `flask-cors` / `werkzeug` from the `[api]`
+  extra (a CVE-tracked trio that existed solely for the dead code).
+
+### Fixed
+- **Presence: a live practitioner no longer disappears behind a stale
+  heartbeat.** The fleet/presence view now overrides a stale heartbeat with a
+  process-liveness check, so a still-running session stays visible even if its
+  last heartbeat aged out. A resumed session (`--resume`) additionally re-stamps
+  its process id, which had been left dead from the original launch.
+- **Loops: ghost canonical-loop units guarded.** Loop enablement now refuses a
+  placeholder instance id and maps cron expressions to native launchd/systemd
+  calendar schedules, so a mis-parameterized auto-register can no longer seed
+  self-regenerating ghost loop units.
+- **Hooks: vendor-agnostic practice resolution at the post-compact boundary.**
+  The post-compact session hook resolves the practice from the filesystem
+  (CWD/git-root) when the harness declares CWD is the verified practice
+  (`EMPIRICA_CWD_RELIABLE=true`), and exits cleanly (no-op) instead of reporting
+  a hook failure when no practice resolves — so a fresh session on a
+  vendor-agnostic harness no longer shows a spurious "SessionStart hook failed."
+
 ## [1.12.12] — 2026-07-03
 
 ### Added
