@@ -396,16 +396,6 @@ Retrieves focused project documentation answers using Qdrant semantic search wit
 
 ---
 
-## API Authentication
-
-### `class APIKeyMiddleware`
-
-**Module:** `empirica.api.auth`
-
-WSGI middleware for API key authentication. Wraps a WSGI application and validates API keys from request headers before allowing access.
-
----
-
 ## Documentation Assessment
 
 ### `class EpistemicDocsAgent`

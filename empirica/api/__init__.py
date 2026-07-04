@@ -1,20 +1,22 @@
 """
-Empirica Dashboard API
+Empirica serve-daemon HTTP API.
 
-REST API for querying epistemic state, learning deltas, and git-epistemic correlations.
-Foundation for Forgejo plugin and standalone dashboards.
+REST API for querying epistemic state, learning deltas, and git-epistemic
+correlations. Served by `empirica serve`, which mounts the FastAPI app in
+`empirica.api.serve_app` (routers: artifacts, credentials, entities,
+engagements, calibration). New daemon routes are FastAPI routers added
+there — never Flask blueprints.
 
-NOTE: `create_app` lives in `empirica.api.app` and depends on flask. flask
-is a SOFT dependency (not declared in pyproject) — needed only for the
-`empirica serve` daemon. This package-level __init__ deliberately does NOT
-eagerly import flask-using modules so that sibling utility modules like
-`empirica.api.registry` (which has no flask requirement) can be imported
-on flaskless installs. Import `from empirica.api.app import create_app`
-explicitly when the daemon is needed.
+NOTE: this package-level __init__ deliberately stays import-light so sibling
+utility modules like `empirica.api.registry` can be imported on installs
+without the `[api]` extra (fastapi/uvicorn). Do NOT add eager imports of
+serve_app or other extra-dependent modules here.
 
-Surfaced by mesh-support prop_flzmft22lz: `projects-discover --register`
-crashed `No module named flask` on installs without flask because
-`_register_discovered_to_registry` did `from empirica.api.registry import
-...` which ran this __init__ which used to do `from .app import
-create_app` eagerly → flask required just to write the local registry.
+History: an earlier Flask app (`empirica.api.app` + its blueprint routes)
+predated the FastAPI serve daemon and was never served by it — removed as
+dead code. The one route that was still needed (calibration) was ported to
+a FastAPI router in serve_app first (#230). Guard against regression:
+mesh-support prop_flzmft22lz was a `projects-discover --register` crash
+(`No module named flask`) caused by this __init__ eagerly importing the
+Flask app — the light-import rule above is what prevents it recurring.
 """
