@@ -526,35 +526,39 @@ def _retro_count_sources(cursor, session_id: str, transaction_id: str | None) ->
 
 
 def _retro_count_edges(cursor, session_id: str, transaction_id: str | None) -> int:
-    """Count artifacts in this transaction that have at least one declared edge.
+    """Count artifacts in this transaction that have ≥1 edge in the canonical
+    ``artifact_edges`` table (migration 041) — i.e. appear as an edge's ``from_id``.
 
-    Edges live in <type>_data.edges (or just data.edges for assumptions/decisions).
-    Counts rows whose data column has json_array_length(edges) > 0.
+    Reads ``artifact_edges``, the source BOTH ``log-artifacts`` and the POSTFLIGHT
+    auto-edge writer persist to — NOT the legacy inline ``<type>_data.edges`` JSON,
+    which neither actually writes, so it chronically reported a false ``0`` even
+    when edges existed. Best-effort: a pre-041 DB with no ``artifact_edges``
+    degrades to 0 (each table query raises and is skipped).
     """
-    by_table = [
-        ("project_findings", "finding_data"),
-        ("project_unknowns", "unknown_data"),
-        ("project_dead_ends", "dead_end_data"),
-        ("mistakes_made", "mistake_data"),
-        ("assumptions", "data"),
-        ("decisions", "data"),
-    ]
+    by_table = (
+        "project_findings",
+        "project_unknowns",
+        "project_dead_ends",
+        "mistakes_made",
+        "assumptions",
+        "decisions",
+    )
     total = 0
-    for table, data_col in by_table:
+    for table in by_table:
         try:
             sql = (
-                f"SELECT COUNT(*) FROM {table} "
-                f"WHERE session_id = ? "
-                f"AND COALESCE(json_array_length(json_extract({data_col}, '$.edges')), 0) > 0"
+                f"SELECT COUNT(*) FROM {table} t "
+                "WHERE t.session_id = ? "
+                "AND EXISTS (SELECT 1 FROM artifact_edges e WHERE e.from_id = t.id)"
             )
             params: tuple = (session_id,)
             if transaction_id:
-                sql += " AND transaction_id = ?"
+                sql += " AND t.transaction_id = ?"
                 params = (session_id, transaction_id)
             cursor.execute(sql, params)
             total += cursor.fetchone()[0]
         except Exception:
-            # Column may not exist on older rows / table; ignore silently.
+            # Table/column absent (old DB) or pre-041 (no artifact_edges); skip.
             pass
     return total
 
