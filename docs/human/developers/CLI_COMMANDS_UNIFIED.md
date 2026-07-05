@@ -23,7 +23,7 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.12.13
-**Generated:** 2026-07-04 14:17:03 UTC
+**Generated:** 2026-07-05 12:02:13 UTC
 **Total commands:** 256 (across 26 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -3649,6 +3649,54 @@ Atomic propose + complete in one call — fixes the AI ack-discipline gap (skip 
   Send reply WITHOUT closing parent (follow-up question case)
 - `--no-archive` — optional · flag
   Close the parent but do NOT archive it. Default behaviour archives the parent after close to keep your inbox view focused on un-actioned work. Use --no-archive when you want the parent to stay visible in audit / status=accepted polls.
+- `--output` — optional · type=`choice` · choices={human, json} · default=`json`
+  Output format (default: json)
+
+
+##### `empirica mailbox poll`
+
+Poll your cortex mesh inbox (or --outbox) — a CLI receive path so tool-aggregating harnesses skip the MCP namespace call
+
+**Arguments:**
+
+- `--ai-id` — optional
+  Your ai_id (canonical 3-form or basename; default: from .empirica/project.yaml)
+- `--outbox` — optional · flag
+  Poll your OUTBOX (status changes on proposals YOU sent) instead of the inbox
+- `--status` — optional
+  Comma-separated status filter (default: 'accepted,changed' for inbox, 'completed,changed,declined' for outbox). Choices: eco_review, accepted, changed, declined, completed, expired.
+- `--since` — optional
+  ISO-8601 timestamp — only proposals created_at >= since (incremental polling)
+- `--limit` — optional · type=`int` · default=`20`
+  Max proposals (default: 20, cortex caps at 200)
+- `--related` — optional · flag
+  Include per-proposal related_goals[] semantic hints (default off — faster polls)
+- `--output` — optional · type=`choice` · choices={human, json} · default=`json`
+  Output format (default: json)
+
+
+##### `empirica mailbox show`
+
+Show one proposal's full body — GET /v1/orchestration/<id>
+
+**Arguments:**
+
+- `proposal_id` — **required**
+  Proposal id (prop_…) to fetch
+- `--output` — optional · type=`choice` · choices={human, json} · default=`json`
+  Output format (default: json)
+
+
+##### `empirica mailbox archive`
+
+Archive a proposal (soft-delete from inbox view) — POST /v1/orchestration/<id>/archive
+
+**Arguments:**
+
+- `proposal_id` — **required**
+  Proposal id (prop_…) to archive
+- `--reason` — optional
+  Optional archive reason (audit trail)
 - `--output` — optional · type=`choice` · choices={human, json} · default=`json`
   Output format (default: json)
 

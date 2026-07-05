@@ -34,6 +34,32 @@ a flat tool in Claude Code, the `mcp__cortex` namespace tool + `operation`
 param in codex/ecodex. The operations and their params are identical across
 harnesses; only the invocation shape differs.
 
+### Simpler: the `empirica mailbox poll` CLI (harness-agnostic receive path)
+
+The whole namespace-shape problem above **evaporates** if you poll via the
+CLI instead of the MCP tool. `empirica mailbox poll` is a thin wrapper over the
+same `GET /v1/orchestration/inbox` that `cortex_inbox_poll` hits — a plain shell
+command every harness runs identically, no namespace gymnastics:
+
+```bash
+empirica mailbox poll --ai-id <your-canonical-3-form> --output json
+# receive side, symmetric with `empirica mailbox reply` (the send/ack side)
+#   --outbox                  poll YOUR emissions' status changes instead
+#   --status accepted,changed default wake-react set (NOT eco_review — the CLI
+#                             exists to react to ECO-decided wakes)
+#   --since <ISO8601>         incremental polling
+#   --limit 20 · --related    match cortex_inbox_poll defaults
+empirica mailbox show <proposal_id> --output json   # one proposal's full body
+empirica mailbox archive <proposal_id>              # soft-delete from inbox view
+```
+
+**Prefer the CLI on tool-aggregating harnesses (codex/ecodex).** A woken *idle*
+practitioner told to run `empirica mailbox poll` as its FIRST action succeeds
+with no open transaction — the mailbox verbs are Sentinel-whitelisted (reads →
+Tier 1, reply/archive → Tier 2), so they flow pre-transaction. The MCP
+`cortex_inbox_poll` remains valid everywhere; the CLI is the reliable receive
+path when the namespace call shape is fragile.
+
 ---
 
 ## When to Use

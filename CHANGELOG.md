@@ -5,6 +5,40 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **`empirica mailbox poll` / `show` / `archive` — the receive side of the mesh
+  CLI.** Symmetric with `empirica mailbox reply` (send/ack). `poll` wraps the
+  cortex inbox/outbox HTTP endpoints (`--ai-id`, `--status`, `--since`,
+  `--limit`, `--related`, `--outbox`); `show` fetches one proposal; `archive`
+  soft-deletes from the inbox view. Gives any CLI surface a reliable receive
+  path without the MCP tool-namespace round-trip.
+- **Artifact-graph gate — scalar control surface (report-only).** The
+  POSTFLIGHT connectivity gate is now driven by three orthogonal 0.0–1.0
+  dimensions — `strictness` / `connectivity_floor` / `patience` — that a host UI
+  drives as sliders, replacing the discrete `off/nudge/soft/hard` mode. Defaults
+  keep it report-only + forgiving; blocking is a follow-up.
+
+### Fixed
+- **Sentinel: file redirects laundered through shell chain segments.**
+  `cd /x && grep foo > /tmp/out` classified noetic despite writing a file — the
+  chain classifier short-circuited before the top-level redirect check. The
+  per-segment classifier now rejects dangerous redirects (`> f`, `>> f`, `< f`),
+  aligning chain-segment behavior with single-command behavior. Security fix.
+- **Sentinel: the `empirica mailbox` CLI family was denied pre-transaction.**
+  The mailbox verbs weren't in the tiered CLI whitelist, so a woken idle
+  practitioner running `empirica mailbox poll` as its first action hit "No open
+  transaction". Reads (`poll`/`show`) are now Tier 1, state-changing verbs
+  (`reply`/`archive`) Tier 2 — all flow pre-transaction.
+- **`session-create --auto-init` minted a fresh `project_id` instead of adopting
+  an existing one.** When `project.yaml` was absent but the path already had a
+  canonical id in the local sessions.db / registry / workspace.db, auto-init
+  minted a new id and "corrected" the canonical workspace row toward it —
+  stranding the session under a phantom id. Auto-init now adopts the existing id
+  (local sessions.db → registry.yaml → workspace.db) and mints only when all are
+  empty.
+
 ## [1.12.13] — 2026-07-04
 
 ### Removed
