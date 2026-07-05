@@ -528,13 +528,23 @@ def _retro_count_sources(cursor, session_id: str, transaction_id: str | None) ->
 
 def _retro_count_edges(cursor, session_id: str, transaction_id: str | None) -> int:
     """Count artifacts in this transaction that have ≥1 edge in the canonical
-    ``artifact_edges`` table (migration 041) — i.e. appear as an edge's ``from_id``.
+    ``artifact_edges`` table (migration 041) — i.e. participate as EITHER endpoint
+    (``from_id`` OR ``to_id``) of at least one edge.
 
     Reads ``artifact_edges``, the source BOTH ``log-artifacts`` and the POSTFLIGHT
     auto-edge writer persist to — NOT the legacy inline ``<type>_data.edges`` JSON,
     which neither actually writes, so it chronically reported a false ``0`` even
     when edges existed. Best-effort: a pre-041 DB with no ``artifact_edges``
     degrades to 0 (each table query raises and is skipped).
+
+    Connectivity is DEGREE-based (any incident edge), not out-degree only. An
+    earlier form counted ``from_id`` alone, which under-counted the idiomatic
+    hub/star weave — one decision ``grounded_by`` N findings makes only the
+    decision a ``from_id``; the N findings are ``to_id``-only and were wrongly
+    read as unconnected. That over-blocked well-woven transactions at enforce
+    strictness and made the count depend on which way the human happened to
+    orient an edge. A finding woven INTO a decision's reasoning is connected
+    regardless of arrow direction.
     """
     by_table = (
         "project_findings",
@@ -550,7 +560,8 @@ def _retro_count_edges(cursor, session_id: str, transaction_id: str | None) -> i
             sql = (
                 f"SELECT COUNT(*) FROM {table} t "
                 "WHERE t.session_id = ? "
-                "AND EXISTS (SELECT 1 FROM artifact_edges e WHERE e.from_id = t.id)"
+                "AND EXISTS (SELECT 1 FROM artifact_edges e "
+                "WHERE e.from_id = t.id OR e.to_id = t.id)"
             )
             params: tuple = (session_id,)
             if transaction_id:
