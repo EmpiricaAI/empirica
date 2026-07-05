@@ -94,7 +94,8 @@ DELETE_ARTIFACTS_SCHEMA = {
             "relation": "<optional — omit to delete ALL relations between from and to>",
         },
     ],
-    "prune_dangling": "<optional bool — delete every edge whose from_id or to_id matches no existing artifact>",
+    "prune_dangling": "<optional bool — act on every edge whose from_id or to_id matches no existing artifact>",
+    "repair": "<optional bool (default true) — with prune_dangling, REWIRE a dangling endpoint that resolves to a real artifact (e.g. a short prefix) instead of deleting it; only truly-unrecoverable edges are pruned. false = pure prune (delete all dangling)>",
     "reason": "<optional human-readable reason — logged as decision>",
 }
 
@@ -1000,24 +1001,120 @@ def _delete_single_artifact(
     }
 
 
-def _process_edge_deletions(db, data: dict, dry_run: bool) -> tuple[int, list[dict], list[str]]:
-    """Delete specific edges and/or prune dangling edges. Returns (removed, items, errors).
+def _resolve_dangling_endpoints(db, frm, to, frm_ok, to_ok, resolver):
+    """Resolve a dangling edge's missing endpoints. Returns (new_frm, new_to, recoverable).
+
+    ``recoverable`` is True only when a resolver is available AND every missing
+    endpoint resolved to a real artifact id. An endpoint already present (``*_ok``)
+    is kept as-is.
+    """
+    new_frm, new_to, recoverable = frm, to, bool(resolver)
+    if resolver:
+        if not frm_ok:
+            r, _ = resolver(db, frm)
+            new_frm = r if r else frm
+            recoverable = recoverable and bool(r)
+        if not to_ok:
+            r, _ = resolver(db, to)
+            new_to = r if r else to
+            recoverable = recoverable and bool(r)
+    return new_frm, new_to, recoverable
+
+
+def _sweep_dangling_edges(db, cursor, repair: bool, dry_run: bool) -> tuple[int, int, list[dict], list[str]]:
+    """Repair-before-prune sweep of ``artifact_edges``. Returns (removed, repaired, items, errors).
+
+    Reuses the inline path's resolver (#269) via lazy import — both cross-module
+    imports are lazy, so there's no circular import at load, and it keeps ONE
+    prefix resolver rather than a second, drift-prone copy.
+    """
+    removed = repaired = 0
+    items: list[dict] = []
+    errors: list[str] = []
+    resolver = None
+    if repair:
+        try:
+            from empirica.cli.command_handlers.artifact_log_commands import _resolve_edge_target as resolver
+        except Exception:
+            resolver = None
+    try:
+        cursor.execute("SELECT DISTINCT from_id, to_id, relation FROM artifact_edges")
+        for frm, to, rel in cursor.fetchall():
+            frm_ok, to_ok = _artifact_exists(db, frm), _artifact_exists(db, to)
+            if frm_ok and to_ok:
+                continue
+            missing = ([f"from={frm}"] if not frm_ok else []) + ([f"to={to}"] if not to_ok else [])
+            new_frm, new_to, recoverable = _resolve_dangling_endpoints(db, frm, to, frm_ok, to_ok, resolver)
+
+            if recoverable and (new_frm != frm or new_to != to):
+                if dry_run:
+                    items.append(
+                        {
+                            "action": "would_repair_dangling",
+                            "from": frm,
+                            "to": to,
+                            "relation": rel,
+                            "rewire_to": {"from": new_frm, "to": new_to},
+                        }
+                    )
+                else:
+                    cursor.execute(
+                        "DELETE FROM artifact_edges WHERE from_id = ? AND to_id = ? AND relation = ?", (frm, to, rel)
+                    )
+                    cursor.execute(
+                        "INSERT OR IGNORE INTO artifact_edges (from_id, to_id, relation) VALUES (?, ?, ?)",
+                        (new_frm, new_to, rel),
+                    )
+                    repaired += 1
+                    items.append(
+                        {
+                            "action": "repaired_dangling",
+                            "from": frm,
+                            "to": to,
+                            "relation": rel,
+                            "rewired_to": {"from": new_frm, "to": new_to},
+                        }
+                    )
+                continue
+
+            if dry_run:
+                items.append(
+                    {"action": "would_prune_dangling", "from": frm, "to": to, "relation": rel, "missing": missing}
+                )
+            else:
+                cursor.execute(
+                    "DELETE FROM artifact_edges WHERE from_id = ? AND to_id = ? AND relation = ?", (frm, to, rel)
+                )
+                removed += cursor.rowcount
+                items.append({"action": "pruned_dangling", "from": frm, "to": to, "relation": rel, "missing": missing})
+    except Exception as e:
+        errors.append(f"prune_dangling failed: {e}")
+    return removed, repaired, items, errors
+
+
+def _process_edge_deletions(db, data: dict, dry_run: bool) -> tuple[int, int, list[dict], list[str]]:
+    """Delete specific edges and/or prune/repair dangling edges.
+
+    Returns ``(removed, repaired, items, errors)``.
 
     - ``data["edges"]`` — ``[{from, to, relation?}]``. A specific edge delete;
       omit ``relation`` to remove ALL relations between ``from`` and ``to``.
-    - ``data["prune_dangling"]`` — when truthy, remove every ``artifact_edges``
-      row whose ``from_id`` OR ``to_id`` matches no existing artifact (reuses
-      ``_artifact_exists``). This is the purge path for dangling rows written
-      before #268 hardened the writers.
+    - ``data["prune_dangling"]`` — when truthy, act on every ``artifact_edges``
+      row whose ``from_id`` OR ``to_id`` matches no existing artifact. Default is
+      REPAIR-BEFORE-PRUNE: a dangling endpoint that resolves to a real artifact
+      (e.g. a short prefix) is REWIRED to the full id; only the truly
+      unrecoverable is deleted. Pass ``data["repair"] = false`` to force pure
+      prune (delete every dangling row — the raw #270 behavior).
 
-    ``dry_run`` reports would-delete rows without mutating (delete-artifacts is
+    ``dry_run`` reports would-* rows without mutating (delete-artifacts is
     dry-run by default). The caller commits.
     """
     removed = 0
+    repaired = 0
     items: list[dict] = []
     errors: list[str] = []
     if not db.conn:
-        return 0, items, ["No database connection"]
+        return 0, 0, items, ["No database connection"]
     cursor = db.conn.cursor()
 
     # 1. Specific edge deletions.
@@ -1047,32 +1144,15 @@ def _process_edge_deletions(db, data: dict, dry_run: bool) -> tuple[int, list[di
         except Exception as e:
             errors.append(f"edge delete failed {frm}->{to}: {e}")
 
-    # 2. Dangling sweep.
+    # 2. Dangling sweep — repair-before-prune (safe default).
     if data.get("prune_dangling"):
-        try:
-            cursor.execute("SELECT DISTINCT from_id, to_id, relation FROM artifact_edges")
-            for frm, to, rel in cursor.fetchall():
-                frm_ok, to_ok = _artifact_exists(db, frm), _artifact_exists(db, to)
-                if frm_ok and to_ok:
-                    continue
-                missing = ([f"from={frm}"] if not frm_ok else []) + ([f"to={to}"] if not to_ok else [])
-                if dry_run:
-                    items.append(
-                        {"action": "would_prune_dangling", "from": frm, "to": to, "relation": rel, "missing": missing}
-                    )
-                else:
-                    cursor.execute(
-                        "DELETE FROM artifact_edges WHERE from_id = ? AND to_id = ? AND relation = ?",
-                        (frm, to, rel),
-                    )
-                    removed += cursor.rowcount
-                    items.append(
-                        {"action": "pruned_dangling", "from": frm, "to": to, "relation": rel, "missing": missing}
-                    )
-        except Exception as e:
-            errors.append(f"prune_dangling failed: {e}")
+        d_removed, d_repaired, d_items, d_errors = _sweep_dangling_edges(db, cursor, data.get("repair", True), dry_run)
+        removed += d_removed
+        repaired += d_repaired
+        items.extend(d_items)
+        errors.extend(d_errors)
 
-    return removed, items, errors
+    return removed, repaired, items, errors
 
 
 def handle_delete_artifacts_command(args):  # noqa: C901 — batch dispatcher fan-out
@@ -1135,8 +1215,8 @@ def handle_delete_artifacts_command(args):  # noqa: C901 — batch dispatcher fa
                 deleted_items.append(result_item)
                 deleted_count += 1
 
-        # Edge deletions: specific edges + dangling prune (same cursor/transaction).
-        edge_removed, edge_items, edge_errors = _process_edge_deletions(db, data, dry_run)
+        # Edge deletions: specific edges + dangling repair/prune (same cursor/transaction).
+        edge_removed, edge_repaired, edge_items, edge_errors = _process_edge_deletions(db, data, dry_run)
         deleted_items.extend(edge_items)
         delete_errors.extend(edge_errors)
 
@@ -1144,7 +1224,7 @@ def handle_delete_artifacts_command(args):  # noqa: C901 — batch dispatcher fa
             db.conn.commit()
 
             # Log the deletion as a decision (audit trail)
-            if deleted_count > 0 or edge_removed > 0:
+            if deleted_count > 0 or edge_removed > 0 or edge_repaired > 0:
                 try:
                     from empirica.utils.session_resolver import InstanceResolver as R
 
@@ -1159,7 +1239,7 @@ def handle_delete_artifacts_command(args):  # noqa: C901 — batch dispatcher fa
                                 str(__import__("uuid").uuid4()),
                                 project_id,
                                 sid,
-                                f"Deleted {deleted_count} artifact(s) + {edge_removed} edge(s)",
+                                f"Deleted {deleted_count} artifact(s) + {edge_removed} edge(s) + repaired {edge_repaired}",
                                 reason,
                                 "committal",
                             ),
@@ -1174,6 +1254,7 @@ def handle_delete_artifacts_command(args):  # noqa: C901 — batch dispatcher fa
             "ok": True,
             "deleted": deleted_count,
             "edges_removed": edge_removed,
+            "edges_repaired": edge_repaired,
             "dry_run": dry_run,
             "items": deleted_items,
             "errors": delete_errors,
