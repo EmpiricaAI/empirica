@@ -579,8 +579,37 @@ _GATE_SCALARS = {
 }
 
 
+def _read_project_gate_scalars() -> dict:
+    """Per-practice ``artifact_graph`` gate-scalar block from .empirica/project.yaml.
+
+    The map's per-practice home for the gate config: a practice flips enforcement
+    on by setting ``artifact_graph: {strictness: 0.75, ...}`` in its project.yaml.
+    That file is gitignored + per-instance, so this is a LOCAL per-practice knob —
+    one practice enforcing does not touch the others. Returns {} on any error.
+    """
+    try:
+        from pathlib import Path
+
+        import yaml
+
+        pp = R.project_path()
+        if not pp:
+            return {}
+        pj = Path(pp) / ".empirica" / "project.yaml"
+        if not pj.exists():
+            return {}
+        data = yaml.safe_load(pj.read_text(encoding="utf-8")) or {}
+        block = data.get("artifact_graph")
+        return block if isinstance(block, dict) else {}
+    except Exception:
+        return {}
+
+
 def _resolve_gate_scalars() -> dict:
-    """Resolve the gate's three scalar dimensions from env (Sentinel sliders).
+    """Resolve the gate's three scalar dimensions.
+
+    Precedence: env var (session override) > .empirica/project.yaml
+    ``artifact_graph`` block (per-practice durable config) > single-source default.
 
     - **strictness** — response intensity (drives ``_gate_response_for``).
     - **connectivity_floor** — fraction of artifacts that must carry ≥1 edge to
@@ -593,9 +622,12 @@ def _resolve_gate_scalars() -> dict:
     back to its default. Never raises — a bad slider value must not break the
     retrospective.
     """
+    project_cfg = _read_project_gate_scalars()
     out: dict = {}
     for key, (default, env) in _GATE_SCALARS.items():
         raw = os.environ.get(env)
+        if raw is None and key in project_cfg:
+            raw = project_cfg[key]  # per-practice project.yaml source (env still wins)
         if raw is None:
             out[key] = default
             continue
