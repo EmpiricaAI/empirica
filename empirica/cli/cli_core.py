@@ -392,6 +392,7 @@ _HELP_CATEGORIES = {
         "sources-reconcile",
         "sources-check",
         "source-archive",
+        "source-update",
         "act-log",
         "investigate-log",
         "log-artifacts",
@@ -900,6 +901,7 @@ def main(args=None):
             "sources-reconcile": handle_sources_reconcile_command,
             "sources-check": handle_sources_check_command,
             "source-archive": handle_source_archive_command,
+            "source-update": handle_source_update_command,
             "epp-activate": handle_epp_activate_command,
             # Training data export
             "training-export": handle_training_export_command,

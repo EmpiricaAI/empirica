@@ -1423,6 +1423,22 @@ def add_checkpoint_parsers(subparsers):
     source_archive_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
     source_archive_parser.add_argument("--verbose", action="store_true", help="Verbose output")
 
+    # Source update (the ACT half of the lifecycle — re-fetch + recompute identity)
+    source_update_parser = subparsers.add_parser(
+        "source-update",
+        help=(
+            "Re-fetch a source and recompute its content identity "
+            "(content_hash / size / mime). The ACT half of the source "
+            "lifecycle: run it after sources-check flags a source stale or "
+            "broken. Prefers a local canonical_path, else the http(s) "
+            "source_url. A failed re-fetch updates nothing — an existing "
+            "content_hash is never wiped by an unreachable source."
+        ),
+    )
+    source_update_parser.add_argument("--source-id", required=True, help="Source UUID (or unique prefix) to re-fetch")
+    source_update_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
+    source_update_parser.add_argument("--verbose", action="store_true", help="Verbose output")
+
     # Sources reconcile (unified source identity — adopt catalogue uuids)
     sources_reconcile_parser = subparsers.add_parser(
         "sources-reconcile",
