@@ -390,6 +390,7 @@ _HELP_CATEGORIES = {
         "source-list",
         "sources-map",
         "sources-reconcile",
+        "sources-check",
         "source-archive",
         "act-log",
         "investigate-log",
@@ -632,6 +633,33 @@ def _maybe_autosync_plugin(command: str) -> None:
         return  # self-heal must never break the user's command
 
 
+def _life_support_handlers() -> dict:
+    """The minimal dispatch that must survive a feature-verb registration failure.
+
+    If the full command table (built in ``main``) raises ``NameError`` because a
+    feature verb's handler failed to import, the loop-opening verbs must still
+    resolve — otherwise the praxic firewall fail-closes on a broken
+    ``preflight-submit`` into an *unrecoverable* deadlock: you can't preflight to
+    fix the thing that broke preflight (incident prop_m2orjtozsvco5ansfqdxi2g5fu).
+
+    Resolved defensively from module globals so a genuinely-missing handler is
+    simply absent here, never a second crash. These verbs open transactions,
+    switch context, and provide the recovery escape (doctor/diagnose/sentinel).
+    """
+    g = globals()
+    wanted = {
+        "preflight-submit": "handle_preflight_submit_command",
+        "check-submit": "handle_check_submit_command",
+        "postflight-submit": "handle_postflight_submit_command",
+        "session-create": "handle_session_create_command",
+        "project-bootstrap": "handle_project_bootstrap_command",
+        "doctor": "handle_doctor_command",
+        "diagnose": "handle_diagnose_command",
+        "sentinel": "handle_sentinel_group_command",
+    }
+    return {verb: g[name] for verb, name in wanted.items() if callable(g.get(name))}
+
+
 def main(args=None):
     """Main CLI entry point"""
     start_time = time.time()
@@ -687,7 +715,12 @@ def main(args=None):
         except Exception as e:
             print(f"[VERBOSE] Database: (unavailable: {e})", file=sys.stderr)
 
-    # Command handler mapping
+    # Command handler mapping. Pre-seed with the life-support set FIRST: if the
+    # full table below raises NameError (a feature verb's handler failed to
+    # import), the failed dict-literal assignment leaves THIS value in place, so
+    # the loop-opening verbs never share fate with a feature verb (prop_m2orjtoz).
+    command_handlers = _life_support_handlers()
+    _dispatch_reached = False  # distinguishes a table-build NameError from one raised inside a handler
     try:
         command_handlers = {
             # Session commands
@@ -865,6 +898,7 @@ def main(args=None):
             "source-list": handle_source_list_command,
             "sources-map": handle_sources_map_command,
             "sources-reconcile": handle_sources_reconcile_command,
+            "sources-check": handle_sources_check_command,
             "source-archive": handle_source_archive_command,
             "epp-activate": handle_epp_activate_command,
             # Training data export
@@ -1044,6 +1078,7 @@ def main(args=None):
 
         if parsed_args.command in command_handlers:
             handler = command_handlers[parsed_args.command]
+            _dispatch_reached = True  # past table build — a NameError now is the handler's, not registration
             result = handler(parsed_args)
 
             # Handle result output and exit code
@@ -1059,6 +1094,32 @@ def main(args=None):
             print(f"❌ Unknown command: {parsed_args.command}")
             sys.exit(1)
 
+    except NameError as _reg_err:
+        # A feature verb's handler failed to import while BUILDING the dispatch
+        # table (not while running a handler — that's gated by _dispatch_reached).
+        # Do NOT let it brick the loop: dispatch from the pre-seeded life-support
+        # set so preflight/check/postflight + recovery verbs still work and the
+        # firewall never fail-closes into a deadlock (incident prop_m2orjtoz).
+        if _dispatch_reached:
+            handle_cli_error(_reg_err, getattr(parsed_args, "command", None))
+            sys.exit(1)
+        import logging as _logging
+
+        _logging.getLogger(__name__).error(
+            "empirica CLI: a command handler failed to register (%s); feature verbs "
+            "degraded, life-support verbs remain available. Reinstall/repair the package.",
+            _reg_err,
+        )
+        cmd = getattr(parsed_args, "command", None)
+        if cmd in command_handlers:  # life-support set (pre-seeded above)
+            sys.exit(_handle_command_result(command_handlers[cmd](parsed_args), parsed_args))
+        print(
+            f"⚠ empirica: '{cmd}' is unavailable due to a command-registration error "
+            f"({_reg_err}); core verbs (preflight/check/postflight/session-create/"
+            f"doctor/diagnose/sentinel) still work. Reinstall/repair the package.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     except Exception as e:
         handle_cli_error(e, parsed_args.command)
         sys.exit(1)

@@ -249,6 +249,7 @@ from .skill_commands import (
     handle_skill_fetch_command,
     handle_skill_suggest_command,
 )
+from .sources_check_commands import handle_sources_check_command
 from .sources_reconcile_commands import handle_sources_reconcile_command
 from .sync_commands import (
     handle_rebuild_command,
@@ -490,6 +491,7 @@ __all__ = [  # noqa: RUF022
     "handle_source_archive_command",
     "handle_source_list_command",
     "handle_sources_map_command",
+    "handle_sources_check_command",
     "handle_sources_reconcile_command",
     # Sync commands (git notes synchronization)
     "handle_sync_config_command",
