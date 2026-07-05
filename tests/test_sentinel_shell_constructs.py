@@ -475,3 +475,61 @@ class TestNoeticAllowlistExpansion:
     def test_guard_no_false_positive(self, gate, cmd):
         assert gate._has_dangerous_tool_flags(cmd) is False
         assert gate._matches_safe_prefix(cmd) is True
+
+
+class TestNoeticCompoundAndBootstrap:
+    """Regression lock for ecodex's noetic-whitelist gap report (prop_3ucy5y7f).
+
+    ecodex reported two shapes CHECK-gated on a stale-vendored sentinel-gate.py:
+      (1) `cd <dir> && <noetic>` (grep / `empirica noetic-batch`) — allegedly
+          gated because the whitelist "prefix-matches so a leading cd defeats it";
+      (2) `empirica project-bootstrap` — allegedly treated praxic.
+
+    Both are ALREADY noetic in current develop: `_classify_chain` segment-classifies
+    &&/;/|| chains (a leading `cd` no longer defeats it — every segment is checked),
+    and project-bootstrap is Tier-1. These tests lock that contract so the reported
+    shapes can't silently regress, and stand as executable proof the fix is in-tree
+    (the report was a stale vendored copy — re-vendor resolves it).
+    """
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "cd /home/u/proj && grep -rn pattern src/",
+            "cd /home/u/proj && rg pattern",
+            "cd /home/u/proj && empirica noetic-batch -",
+            "cd /home/u/proj && empirica project-search --task 'foo'",
+            "cd /home/u/proj && empirica project-bootstrap",
+            "cd /home/u/proj && empirica goals-list",
+        ],
+    )
+    def test_cd_then_noetic_is_safe(self, gate, cmd):
+        # A leading `cd` must NOT defeat the whitelist — the chain is
+        # segment-classified, so each segment (cd + the noetic op) is checked.
+        assert gate.is_safe_bash_command({"command": cmd}) is True
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "empirica project-bootstrap",
+            "empirica project-bootstrap --output json",
+            "empirica project-bootstrap --session-id abc123",
+            "empirica noetic-batch -",
+        ],
+    )
+    def test_bootstrap_and_noetic_batch_are_tier1(self, gate, cmd):
+        assert gate.is_safe_empirica_command(cmd) is True
+        assert gate.is_safe_bash_command({"command": cmd}) is True
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "cd /home/u/proj && rm -rf /",
+            "cd /home/u/proj && grep x file > /tmp/out",
+            "cd /home/u/proj && python3 -c 'import os; os.remove(\"x\")'",
+        ],
+    )
+    def test_leading_cd_does_not_smuggle_praxic(self, gate, cmd):
+        # The security invariant behind the fix: segment-classification means a
+        # safe leading `cd` can't launder an unsafe tail past the gate.
+        assert gate.is_safe_bash_command({"command": cmd}) is False

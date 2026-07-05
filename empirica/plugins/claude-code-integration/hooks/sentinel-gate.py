@@ -1795,6 +1795,16 @@ def _is_segment_safe(segment: str) -> bool:
     if not clean:
         return True
 
+    # 0. A dangerous file redirect (`> f`, `>> f`, `< f`) is a praxic side effect
+    # even when the command word is a safe prefix — `grep x > out` WRITES a file.
+    # A single command is caught by is_safe_bash_command's top-level redirect
+    # check, but a CHAIN segment reaches here via _classify_chain BEFORE that
+    # check runs — so without this, `cd /x && grep foo > /tmp/out` launders a
+    # redirect past the gate. (Safe redirects like `2>/dev/null` were already
+    # stripped from `clean` above, so anything left is a real one.)
+    if _has_dangerous_redirects(clean):
+        return False
+
     # 1. Validate every embedded $() and backtick substitution. The inner
     # command must independently be safe — we treat substitutions as
     # opaque-but-validated; their text doesn't hide unsafe commands.
