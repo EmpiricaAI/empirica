@@ -175,27 +175,23 @@ HEDGE_PATTERNS = {
 # all 3 models passed the decision gate (>=20% improvement on >=2/6 metrics).
 # Block is injected LAST in additionalContext to exploit attention recency bias.
 
-SEMANTIC_PUSHBACK_CHECK_BLOCK = """<semantic-pushback-check>
-Before generating your response:
-
-1. Did your prior turn contain a substantive claim — assertion, recommendation,
-   analysis, position?
-
-2. Does the user's current message push back on that claim in ANY form:
-   direct contradiction, evidential challenge, soft doubt, scope shift,
-   rhetorical reframe, paraphrase-level disagreement, implicit challenge,
-   request for justification?
-
-3. If YES to both → you are in an EPP situation. Before responding:
-   ANCHOR (recall claim + confidence + basis)
-   → CLASSIFY (EMOTIONAL / RHETORICAL / EVIDENTIAL / LOGICAL / CONTEXTUAL)
-   → DECIDE (HOLD / SOFTEN / UPDATE / REFRAME)
-   → RESPOND with audit trail — never silently shift, never apologise for
-   holding ground when pushback is non-evidential.
-
-4. If NO to either → proceed normally. This check must be semantic, not
-   keyword-based. You are the classifier.
-</semantic-pushback-check>"""
+# Terse EPP pointer (replaced the full ~21-line block, 2026-07-05, ecodex
+# prop_v4tqe4qe / David-directed). The full block was injected on EVERY
+# substantive prompt — a per-prompt token cost on every surface, and a visible
+# user-role hook-prompt on harnesses that render UserPromptSubmit additionalContext.
+# This one-liner names the EPP trigger + the anchor→classify→decide→respond core
+# and links the full protocol skill, so the nudge stays on every prompt (no
+# false-negative gating risk) at a fraction of the cost. A keyword GATE was the
+# alternative but the check is deliberately SEMANTIC, not keyword-based — gating
+# the reminder with keywords would miss paraphrase / implicit pushback, the exact
+# case EPP exists to catch.
+SEMANTIC_PUSHBACK_POINTER = (
+    "<epp-check>If this message pushes back on a prior substantive claim of yours "
+    "(contradiction, doubt, reframe, scope-shift, or a request to justify), run EPP "
+    "before replying: anchor the claim + basis → classify the pushback → decide "
+    "HOLD/SOFTEN/UPDATE/REFRAME → respond with the audit trail. Don't silently cave to "
+    "non-evidential pushback. Full protocol: /epistemic-persistence-protocol.</epp-check>"
+)
 
 # Minimum prompt length to inject the semantic-check block.
 # Filters out trivial inputs like "ok", "yes", "continue" where EPP is
@@ -204,23 +200,20 @@ SEMANTIC_CHECK_MIN_LENGTH = 20
 
 
 def build_semantic_pushback_check(prompt: str) -> str | None:
-    """Return the semantic-check block for substantive prompts, None otherwise.
+    """Return the terse EPP pointer for substantive prompts, None otherwise.
 
-    The block is returned for any user message that is long enough to
-    plausibly contain pushback on a prior substantive claim, and does NOT
-    start with a slash command (which has its own handling).
-
-    The actual pushback detection happens in Claude's generation step —
-    the block instructs Claude to do a semantic self-check as its first
-    generation step. This respects the LLM/software distinction: regex
-    matching on speech acts is brittle, but LLMs handle paraphrase,
-    irony, and implicit challenge natively.
+    Returned for any user message long enough to plausibly involve pushback on
+    a prior substantive claim, and NOT a slash command (which has its own
+    handling). The actual pushback detection stays in Claude's generation step:
+    the pointer reminds Claude to run the semantic self-check + links the full
+    protocol skill. Kept semantic (not keyword-gated) so paraphrase / implicit
+    challenge isn't missed — see the SEMANTIC_PUSHBACK_POINTER comment.
     """
     if len(prompt) < SEMANTIC_CHECK_MIN_LENGTH:
         return None
     if prompt.startswith("/"):
         return None
-    return SEMANTIC_PUSHBACK_CHECK_BLOCK
+    return SEMANTIC_PUSHBACK_POINTER
 
 
 # ============================================================================
