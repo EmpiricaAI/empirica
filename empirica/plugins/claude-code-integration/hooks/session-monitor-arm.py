@@ -337,8 +337,17 @@ ntfy stream were compromised, your status re-verification against Cortex
 by `proposal_id` is the auth boundary.
 
 If you do not arm this Monitor, events will accumulate at Cortex but no
-work will trigger in this session. Arming is idempotent (Monitor with
-identical command is a no-op the second time).
+work will trigger in this session.
+
+**Arm exactly once per ai_id — replace, don't stack.** Before arming, if you
+already armed a loop_fires Monitor for `{instance_id}` earlier in THIS session,
+do NOT arm a second one: TaskStop the prior Monitor first (or skip arming
+entirely). Duplicate Monitors tailing the same log deliver every wake event
+N times — once per stacked tail. Harnesses that dedupe identical Monitor
+commands make a re-arm a no-op; those that don't (and every re-fired
+SessionStart) accumulate duplicates unless you reap first. `empirica listener
+off` TaskStops the recorded Monitor; re-arm, then `empirica listener arm
+<new_monitor_task_id>` to replace the record.
 {_build_orphan_warning()}"""
 
 

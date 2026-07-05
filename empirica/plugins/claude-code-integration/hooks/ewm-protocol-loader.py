@@ -331,6 +331,109 @@ def format_unknown_user_prompt(protocol: dict) -> str:
     return "\n".join(parts)
 
 
+def _resolve_ai_id_for_poll() -> str | None:
+    """This practice's ai_id from .empirica/project.yaml (git root or cwd).
+
+    Prefer the basename ``ai_id`` — the mailbox-poll CLI resolves it to the
+    canonical 3-form internally; fall back to ``canonical_seat``. Returns None
+    when there's no project.yaml or no id, so the caller skips the inbox lead.
+    """
+    if not HAS_YAML:
+        return None
+    import yaml
+
+    candidates = [Path.cwd() / ".empirica" / "project.yaml"]
+    try:
+        import subprocess
+
+        r = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if r.returncode == 0:
+            candidates.insert(0, Path(r.stdout.strip()) / ".empirica" / "project.yaml")
+    except Exception:
+        pass
+    for p in candidates:
+        try:
+            if not p.exists():
+                continue
+            data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+            ai_id = data.get("ai_id") or data.get("canonical_seat")
+            if ai_id:
+                return str(ai_id)
+        except Exception:
+            continue
+    return None
+
+
+def _build_pending_inbox_lead() -> str:
+    """Render a 'handle these FIRST' lead block of pending mesh inbox messages.
+
+    The SessionStart greet-prime (the EWM block below) dominates injected wake
+    context so hard that models greet + cite the user's goals instead of
+    reacting to a pending mesh message — even when the wake CONTENT was inlined
+    (verified across GLM-5.2 / Kimi-K2.6 / MiniMax-M2.7). Leading with the inbox
+    — prepended BEFORE the EWM block — puts the pending messages first in the
+    session's context so they aren't buried under the greeting.
+
+    Best-effort: a bounded 6s poll (well inside the hook's 10s allowFailure
+    budget, shared with find_protocol's git call). Fails open to "" on missing
+    CLI / timeout / bad JSON / empty inbox / any error — never delays or breaks
+    SessionStart.
+    """
+    ai_id = _resolve_ai_id_for_poll()
+    if not ai_id:
+        return ""
+    try:
+        import subprocess
+
+        r = subprocess.run(
+            ["empirica", "mailbox", "poll", "--ai-id", ai_id, "--status", "accepted", "--output", "json"],
+            capture_output=True,
+            text=True,
+            timeout=6,
+            check=False,
+        )
+        if r.returncode != 0 or not r.stdout.strip():
+            return ""
+        proposals = (json.loads(r.stdout) or {}).get("proposals") or []
+    except Exception:
+        return ""
+    if not proposals:
+        return ""
+
+    total = len(proposals)
+    shown = proposals[:8]
+    lines = [f"## 📬 Pending mesh messages ({total}) — handle these FIRST", ""]
+    for p in shown:
+        pid = str(p.get("id") or "")[:26]
+        src = p.get("source_claude") or "?"
+        status = p.get("status") or "?"
+        ptype = p.get("type") or "?"
+        title = (p.get("title") or "").strip()
+        summary = " ".join((p.get("summary") or "").split())
+        if len(summary) > 300:
+            summary = summary[:300] + "…"
+        lines.append(f"- **[{pid}]** from `{src}` ({status}, {ptype}) — {title}")
+        if summary:
+            lines.append(f"  {summary}")
+    if total > len(shown):
+        lines.append("")
+        lines.append(
+            f"…and {total - len(shown)} more — run `empirica mailbox poll --status accepted` for the full list."
+        )
+    lines.append("")
+    lines.append(
+        "React per the mailbox protocol (`empirica mailbox show <id>`, "
+        "`empirica mailbox reply`) before orienting or asking what to work on."
+    )
+    lines.append("")
+    return "\n".join(lines)
+
+
 def main():
     try:
         json.loads(sys.stdin.read())
@@ -384,8 +487,15 @@ def main():
     # Identify user
     current_user = get_current_user()
 
-    # Build context injection
-    context_parts = ["## EWM Protocol Active", ""]
+    # Build context injection. LEAD with the pending mesh inbox (prop_pu4xrog):
+    # the greet-prime below otherwise dominates so hard the model never checks
+    # the inbox, so pending peer messages get ignored even when inlined. The
+    # inbox block is best-effort and prepends only when non-empty.
+    context_parts: list[str] = []
+    inbox_lead = _build_pending_inbox_lead()
+    if inbox_lead:
+        context_parts.append(inbox_lead)
+    context_parts.extend(["## EWM Protocol Active", ""])
     context_parts.append(f"*Protocol: `{protocol_path}`*")
 
     # Surface security warnings if any
