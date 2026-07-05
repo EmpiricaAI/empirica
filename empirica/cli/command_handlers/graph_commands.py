@@ -177,9 +177,14 @@ def _validate_graph(graph: dict) -> list[str]:
     nodes = graph.get("nodes", [])
     edges = graph.get("edges", [])
 
-    if not nodes:
-        errors.append("No nodes provided")
+    if not nodes and not edges:
+        errors.append("No nodes or edges provided")
         return errors
+    # nodes MAY be empty for an edges-only payload (the edge-repair path:
+    # wiring/re-wiring edges between artifacts that already exist). With no
+    # fresh refs, every endpoint must be a UUID — enforced by the edge loop
+    # below (refs is empty, so a non-UUID endpoint fails "not found in nodes")
+    # — and endpoint EXISTENCE is validated at wire time by _wire_edges.
 
     refs = set()
     for i, node in enumerate(nodes):
@@ -329,21 +334,66 @@ def _create_node(db, node: dict, context: dict) -> str | None:
     return None
 
 
-def _wire_edges(db, edges: list[dict], ref_map: dict[str, str]) -> int:
-    """Wire edges between created artifacts. Returns count of edges wired."""
+def _artifact_exists(db, artifact_id: str) -> bool:
+    """True iff ``artifact_id`` is a known artifact (any type) or goal id.
+
+    Checks every table in ``_ARTIFACT_TABLES`` (findings / unknowns / dead_ends /
+    mistakes / assumptions / decisions / goals — all keyed by ``id``). Used to
+    reject an edge pointing at a non-existent UUID before it lands as a dangling
+    row. Best-effort: a missing table degrades to "not found" for that table.
+    """
+    if not db.conn or not artifact_id:
+        return False
+    cursor = db.conn.cursor()
+    for table, id_col, _data_col in _ARTIFACT_TABLES.values():
+        try:
+            cursor.execute(f"SELECT 1 FROM {table} WHERE {id_col} = ? LIMIT 1", (artifact_id,))
+            if cursor.fetchone():
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _wire_edges(db, edges: list[dict], ref_map: dict[str, str]) -> tuple[int, list[str]]:
+    """Wire edges between artifacts. Returns ``(count_wired, warnings)``.
+
+    Each endpoint must be a freshly-created ref (present in ``ref_map``) OR an
+    id that already exists in the DB. A UUID-shaped id matching no artifact is a
+    DANGLING edge: it is skipped with a loud warning — never stored, never
+    counted. ``_is_uuid`` (the structural validator) only checks the id's SHAPE,
+    so a padded/guessed UUID would otherwise pass and land a dangling row that
+    silently corrupts weave-gate connectivity and the commit-context walker
+    ("accepted must mean applied-or-loudly-failed" applies to graph writes too).
+    """
     wired = 0
-    for edge in edges:
+    warnings: list[str] = []
+    created_ids = set(ref_map.values())
+    for i, edge in enumerate(edges):
         from_id = ref_map.get(edge["from"], edge["from"])
         to_id = ref_map.get(edge["to"], edge["to"])
         relation = edge["relation"]
+
+        missing = []
+        if from_id not in created_ids and not _artifact_exists(db, from_id):
+            missing.append(f"from={from_id}")
+        if to_id not in created_ids and not _artifact_exists(db, to_id):
+            missing.append(f"to={to_id}")
+        if missing:
+            warnings.append(
+                f"edge {i} ({edge['from']}->{edge['to']} {relation}): "
+                f"{', '.join(missing)} matches no existing artifact — skipped (not wired)"
+            )
+            continue
 
         try:
             _store_edge(db, from_id, to_id, relation, edge.get("metadata"))
             wired += 1
         except Exception as e:
             logger.debug(f"Failed to wire edge {edge}: {e}")
+            warnings.append(f"edge {i}: store failed — {e}")
 
-    return wired
+    return wired, warnings
 
 
 def _store_edge(db, from_id: str, to_id: str, relation: str, metadata: dict | None = None):
@@ -593,7 +643,7 @@ def log_artifacts_graph(
                 created_errors.append(f"Failed to create {node['type']} '{node['ref']}'")
 
         edges = graph.get("edges", [])
-        edges_wired = _wire_edges(db, edges, ref_map) if edges else 0
+        edges_wired, edge_warnings = _wire_edges(db, edges, ref_map) if edges else (0, [])
 
         # Git notes (non-fatal)
         try:
@@ -622,6 +672,10 @@ def log_artifacts_graph(
             "edges_wired": edges_wired,
             "errors": created_errors,
         }
+        if edge_warnings:
+            # Dangling / unstoreable edges were skipped — surface them loudly so
+            # "edges_wired" can't read as silent success when it wasn't.
+            result["edge_warnings"] = edge_warnings
         warnings = graph.get("_alias_warnings")
         if warnings:
             result["alias_warnings"] = warnings
