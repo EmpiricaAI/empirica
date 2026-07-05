@@ -1451,6 +1451,26 @@ def add_checkpoint_parsers(subparsers):
     sources_reconcile_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
     sources_reconcile_parser.add_argument("--verbose", action="store_true", help="Verbose output")
 
+    # sources-check — link-rot detection (artifact-hygiene WS1)
+    sources_check_parser = subparsers.add_parser(
+        "sources-check",
+        help=(
+            "Probe the http(s) URLs in this project's epistemic sources and "
+            "surface link-rot (dead / auth-walled / errored). SURFACE-ONLY — "
+            "reports rot, never deletes (retire a dead source via "
+            "delete-artifacts or source-archive). Exit 1 if any URL is dead. "
+            "The smallest mechanical slice of artifact-hygiene "
+            "(docs/architecture/ARTIFACT_HYGIENE.md)."
+        ),
+    )
+    sources_check_parser.add_argument(
+        "--project-id", help="Project UUID (auto-derived from active session when omitted)"
+    )
+    sources_check_parser.add_argument(
+        "--timeout", type=float, default=6.0, help="Per-URL probe timeout in seconds (default: 6.0)"
+    )
+    sources_check_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
+
     # Graph artifact commands — batch logging and resolution
     log_artifacts_parser = subparsers.add_parser(
         "log-artifacts",
