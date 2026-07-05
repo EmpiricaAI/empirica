@@ -281,10 +281,223 @@ def handle_mailbox_reply_command(  # noqa: C901 — CLI handler with 7 validatio
     return 0
 
 
+def _default_fetch_mailbox(
+    cortex_url: str,
+    api_key: str,
+    ai_id: str,
+    *,
+    outbox: bool,
+    statuses: tuple[str, ...],
+    since: str | None,
+    limit: int | None,
+    related: bool,
+    timeout: float = 10.0,
+) -> list[dict]:
+    """Wrap content_poll's canonical-resolving inbox/outbox fetchers.
+
+    Reuses the exact GET + `ai_id` → canonical-3-form resolution the listener
+    uses (bare basename returns 0 proposals — the silent break that once left
+    every listener deaf), so the CLI can't drift from the listener's contract.
+    """
+    from empirica.core.loop_scheduler.content_poll import (
+        fetch_cortex_inbox,
+        fetch_cortex_outbox,
+    )
+
+    fetch = fetch_cortex_outbox if outbox else fetch_cortex_inbox
+    return fetch(
+        cortex_url,
+        api_key,
+        ai_id,
+        statuses=statuses,
+        since=since,
+        limit=limit,
+        related=related,
+        timeout=timeout,
+    )
+
+
+def _poll_human_line(p: dict) -> str:
+    """One compact line per proposal for `--output human`."""
+    pid = str(p.get("id", ""))[:24]
+    status = p.get("status", "?")
+    title = str(p.get("title", ""))[:68]
+    src = p.get("source_claude", "?")
+    return f"  {pid}… [{status}] {title}  <from {src}>"
+
+
+def handle_mailbox_poll_command(
+    args,
+    *,
+    _resolve_cortex_creds: Callable[[], tuple] = _default_resolve_cortex_creds,
+    _resolve_ai_id: Callable[[], str | None] = _default_resolve_ai_id,
+    _fetch_mailbox: Callable[..., list[dict]] = _default_fetch_mailbox,
+) -> int:
+    """`empirica mailbox poll` — the receive side, symmetric with `reply`.
+
+    Wraps `GET /v1/orchestration/{inbox,outbox}` so ANY CLI surface gets a
+    reliable receive path (no MCP namespace gymnastics — the blocker for
+    tool-aggregating harnesses like codex/ecodex). Implements prop_jdldx2pz,
+    shape endorsed by cortex prop_bbtqnc.
+
+    Default `--status accepted,changed` (the wake-react actionable set) — this
+    DIVERGES from the `cortex_inbox_poll` MCP default of `eco_review` by design:
+    the CLI's purpose is reacting to ECO-decided wakes, not reviewing pending.
+    """
+    cortex_url, api_key = _resolve_cortex_creds()
+    if not cortex_url or not api_key:
+        sys.stderr.write(
+            "mailbox poll: Cortex creds missing — configure cortex.url + "
+            "cortex.api_key in ~/.empirica/credentials.yaml or set "
+            "CORTEX_REMOTE_URL + CORTEX_API_KEY env vars.\n"
+        )
+        return 1
+
+    ai_id = getattr(args, "ai_id", None) or _resolve_ai_id()
+    if not ai_id:
+        sys.stderr.write("mailbox poll: ai_id unresolved — set --ai-id or add ai_id to .empirica/project.yaml.\n")
+        return 1
+
+    outbox = bool(getattr(args, "outbox", False))
+    status_arg = getattr(args, "status", None)
+    if status_arg:
+        statuses = tuple(s.strip() for s in status_arg.split(",") if s.strip())
+    else:
+        # inbox → what you act on; outbox → status changes on your emissions.
+        statuses = ("completed", "changed", "declined") if outbox else ("accepted", "changed")
+    since = getattr(args, "since", None)
+    limit = getattr(args, "limit", None)
+    related = bool(getattr(args, "related", False))
+
+    try:
+        proposals = _fetch_mailbox(
+            cortex_url,
+            api_key,
+            ai_id,
+            outbox=outbox,
+            statuses=statuses,
+            since=since,
+            limit=limit,
+            related=related,
+        )
+    except Exception as e:  # network / auth / parse — surface, don't crash
+        sys.stderr.write(f"mailbox poll: fetch failed: {type(e).__name__}: {e}\n")
+        return 1
+
+    direction = "outbox" if outbox else "inbox"
+    result = {
+        "ok": True,
+        "ai_id": ai_id,
+        "direction": direction,
+        "statuses": list(statuses),
+        "count": len(proposals),
+        "proposals": proposals,
+    }
+
+    fmt = getattr(args, "output", "json")
+    if fmt == "human":
+        if not proposals:
+            sys.stdout.write(f"{direction}: no proposals (status={','.join(statuses)})\n")
+        else:
+            sys.stdout.write(f"{direction}: {len(proposals)} proposal(s)\n")
+            for p in proposals:
+                sys.stdout.write(_poll_human_line(p) + "\n")
+    else:
+        sys.stdout.write(json.dumps(result, indent=2) + "\n")
+    return 0
+
+
+def handle_mailbox_show_command(
+    args,
+    *,
+    _resolve_cortex_creds: Callable[[], tuple] = _default_resolve_cortex_creds,
+    _fetch_parent: Callable[[str, str, str], dict | None] = _default_fetch_parent,
+) -> int:
+    """`empirica mailbox show <proposal_id>` — GET /v1/orchestration/{id}.
+
+    Companion to poll: full body of one proposal. Reuses `_default_fetch_parent`
+    (the same GET `reply` uses for smart defaults).
+    """
+    proposal_id = getattr(args, "proposal_id", None)
+    if not proposal_id:
+        sys.stderr.write("mailbox show: <proposal_id> is required\n")
+        return 1
+
+    cortex_url, api_key = _resolve_cortex_creds()
+    if not cortex_url or not api_key:
+        sys.stderr.write(
+            "mailbox show: Cortex creds missing — configure cortex.url + "
+            "cortex.api_key in ~/.empirica/credentials.yaml.\n"
+        )
+        return 1
+
+    proposal = _fetch_parent(cortex_url, api_key, proposal_id)
+    if proposal is None:
+        sys.stderr.write(
+            f"mailbox show: {proposal_id} not found or inaccessible. Check the id and your Cortex tenant scope.\n"
+        )
+        return 1
+
+    fmt = getattr(args, "output", "json")
+    if fmt == "human":
+        sys.stdout.write(f"{proposal.get('id', '?')} [{proposal.get('status', '?')}]\n")
+        sys.stdout.write(f"  {proposal.get('title', '')}\n")
+        sys.stdout.write(f"  from {proposal.get('source_claude', '?')} → {proposal.get('target_claudes', [])}\n\n")
+        sys.stdout.write(f"{proposal.get('summary', '')}\n")
+    else:
+        sys.stdout.write(json.dumps({"ok": True, "proposal": proposal}, indent=2) + "\n")
+    return 0
+
+
+def handle_mailbox_archive_command(
+    args,
+    *,
+    _resolve_cortex_creds: Callable[[], tuple] = _default_resolve_cortex_creds,
+    _http_post: Callable[[str, dict, str, float], tuple] = _default_http_post,
+) -> int:
+    """`empirica mailbox archive <proposal_id>` — POST /v1/orchestration/{id}/archive.
+
+    Soft-delete from the inbox view (same primitive `reply` auto-invokes on close).
+    """
+    proposal_id = getattr(args, "proposal_id", None)
+    if not proposal_id:
+        sys.stderr.write("mailbox archive: <proposal_id> is required\n")
+        return 1
+
+    cortex_url, api_key = _resolve_cortex_creds()
+    if not cortex_url or not api_key:
+        sys.stderr.write(
+            "mailbox archive: Cortex creds missing — configure cortex.url + "
+            "cortex.api_key in ~/.empirica/credentials.yaml.\n"
+        )
+        return 1
+
+    archive_url = f"{cortex_url.rstrip('/')}/v1/orchestration/{proposal_id}/archive"
+    reason = getattr(args, "reason", None) or "archived via empirica mailbox archive"
+    status, resp = _http_post(archive_url, {"api_key": api_key, "reason": reason}, api_key, 10.0)
+    ok = isinstance(resp, dict) and 200 <= status < 300 and resp.get("error") is None and resp.get("ok") is not False
+    if not ok:
+        sys.stderr.write(f"mailbox archive: failed (status={status}): {resp}\n")
+        return 1
+
+    fmt = getattr(args, "output", "json")
+    if fmt == "human":
+        sys.stdout.write(f"archived {proposal_id[:24]}…\n")
+    else:
+        sys.stdout.write(json.dumps({"ok": True, "proposal_id": proposal_id, "archived": True}, indent=2) + "\n")
+    return 0
+
+
 def handle_mailbox_group_command(args) -> int:
     """Dispatch `empirica mailbox <action>`."""
     action = getattr(args, "mailbox_action", None)
     if action == "reply":
         return handle_mailbox_reply_command(args)
-    sys.stderr.write("Usage: empirica mailbox <reply>\n")
+    if action == "poll":
+        return handle_mailbox_poll_command(args)
+    if action == "show":
+        return handle_mailbox_show_command(args)
+    if action == "archive":
+        return handle_mailbox_archive_command(args)
+    sys.stderr.write("Usage: empirica mailbox <reply|poll|show|archive>\n")
     return 1

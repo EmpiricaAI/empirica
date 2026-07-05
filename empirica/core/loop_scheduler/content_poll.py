@@ -237,6 +237,9 @@ def _fetch_orch(
     statuses: tuple[str, ...],
     *,
     timeout: float = 10.0,
+    since: str | None = None,
+    limit: int | None = None,
+    related: bool = False,
 ) -> list[dict]:
     """Shared GET for /v1/orchestration/{inbox,outbox} with the same shape.
 
@@ -244,15 +247,23 @@ def _fetch_orch(
     via cortex roster before the GET. Cortex's orchestration endpoints
     require the canonical form as of 2026-06-03; the bare basename
     returns 0 proposals (silent break that left every listener deaf).
+
+    Optional `since` (ISO-8601 incremental cursor), `limit` (server caps at
+    200), and `related` (semantic-hint compute — default off for fast polls)
+    are passthroughs for the `empirica mailbox poll` CLI (prop_jdldx2pz); the
+    listener callers omit them and get the historical behavior unchanged.
     """
     canonical = _resolve_canonical_ai_id(cortex_url, api_key, ai_id)
-    params = urllib.parse.urlencode(
-        {
-            "ai_id": canonical,
-            "status": ",".join(statuses),
-            "related": "false",  # skip per-proposal Qdrant scroll for faster polls
-        }
-    )
+    query: dict[str, str] = {
+        "ai_id": canonical,
+        "status": ",".join(statuses),
+        "related": "true" if related else "false",  # off → skip per-proposal Qdrant scroll
+    }
+    if since:
+        query["since"] = since
+    if limit is not None:
+        query["limit"] = str(limit)
+    params = urllib.parse.urlencode(query)
     url = f"{cortex_url.rstrip('/')}{path}?{params}"
     req = urllib.request.Request(
         url,
@@ -271,10 +282,29 @@ def fetch_cortex_inbox(
     api_key: str,
     ai_id: str,
     *,
+    statuses: tuple[str, ...] = EMISSION_STATUSES_INBOX,
+    since: str | None = None,
+    limit: int | None = None,
+    related: bool = False,
     timeout: float = 10.0,
 ) -> list[dict]:
-    """GET /v1/orchestration/inbox — proposals where target_claudes contains ai_id."""
-    return _fetch_orch(cortex_url, api_key, ai_id, "/v1/orchestration/inbox", EMISSION_STATUSES_INBOX, timeout=timeout)
+    """GET /v1/orchestration/inbox — proposals where target_claudes contains ai_id.
+
+    `statuses`/`since`/`limit`/`related` are passthroughs for the CLI; the
+    listener calls it positionally with just (cortex_url, api_key, ai_id) and
+    gets the default emission-status filter unchanged.
+    """
+    return _fetch_orch(
+        cortex_url,
+        api_key,
+        ai_id,
+        "/v1/orchestration/inbox",
+        statuses,
+        timeout=timeout,
+        since=since,
+        limit=limit,
+        related=related,
+    )
 
 
 def fetch_cortex_outbox(
@@ -282,6 +312,10 @@ def fetch_cortex_outbox(
     api_key: str,
     ai_id: str,
     *,
+    statuses: tuple[str, ...] = EMISSION_STATUSES_OUTBOX,
+    since: str | None = None,
+    limit: int | None = None,
+    related: bool = False,
     timeout: float = 10.0,
 ) -> list[dict]:
     """GET /v1/orchestration/outbox — proposals where source_claude == ai_id.
@@ -291,7 +325,15 @@ def fetch_cortex_outbox(
     'ECO rejected' (declined). No ECO gate needed — ECO already decided when
     the proposal left."""
     return _fetch_orch(
-        cortex_url, api_key, ai_id, "/v1/orchestration/outbox", EMISSION_STATUSES_OUTBOX, timeout=timeout
+        cortex_url,
+        api_key,
+        ai_id,
+        "/v1/orchestration/outbox",
+        statuses,
+        timeout=timeout,
+        since=since,
+        limit=limit,
+        related=related,
     )
 
 

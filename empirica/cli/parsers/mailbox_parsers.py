@@ -99,4 +99,78 @@ def add_mailbox_parsers(subparsers):
         help="Output format (default: json)",
     )
 
+    # ── poll: the receive side, symmetric with reply ──
+    poll = mailbox_subs.add_parser(
+        "poll",
+        help="Poll your cortex mesh inbox (or --outbox) — a CLI receive path "
+        "so tool-aggregating harnesses skip the MCP namespace call",
+    )
+    poll.add_argument(
+        "--ai-id",
+        dest="ai_id",
+        help="Your ai_id (canonical 3-form or basename; default: from .empirica/project.yaml)",
+    )
+    poll.add_argument(
+        "--outbox",
+        action="store_true",
+        help="Poll your OUTBOX (status changes on proposals YOU sent) instead of the inbox",
+    )
+    poll.add_argument(
+        "--status",
+        help="Comma-separated status filter (default: 'accepted,changed' for "
+        "inbox, 'completed,changed,declined' for outbox). Choices: "
+        "eco_review, accepted, changed, declined, completed, expired.",
+    )
+    poll.add_argument(
+        "--since",
+        help="ISO-8601 timestamp — only proposals created_at >= since (incremental polling)",
+    )
+    poll.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        help="Max proposals (default: 20, cortex caps at 200)",
+    )
+    poll.add_argument(
+        "--related",
+        action="store_true",
+        help="Include per-proposal related_goals[] semantic hints (default off — faster polls)",
+    )
+    poll.add_argument(
+        "--output",
+        choices=["human", "json"],
+        default="json",
+        help="Output format (default: json)",
+    )
+
+    # ── show: full body of one proposal ──
+    show = mailbox_subs.add_parser(
+        "show",
+        help="Show one proposal's full body — GET /v1/orchestration/<id>",
+    )
+    show.add_argument("proposal_id", help="Proposal id (prop_…) to fetch")
+    show.add_argument(
+        "--output",
+        choices=["human", "json"],
+        default="json",
+        help="Output format (default: json)",
+    )
+
+    # ── archive: soft-delete from inbox view ──
+    archive = mailbox_subs.add_parser(
+        "archive",
+        help="Archive a proposal (soft-delete from inbox view) — POST /v1/orchestration/<id>/archive",
+    )
+    archive.add_argument("proposal_id", help="Proposal id (prop_…) to archive")
+    archive.add_argument(
+        "--reason",
+        help="Optional archive reason (audit trail)",
+    )
+    archive.add_argument(
+        "--output",
+        choices=["human", "json"],
+        default="json",
+        help="Output format (default: json)",
+    )
+
     return mailbox_root
