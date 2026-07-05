@@ -197,6 +197,46 @@ def _emit(args, payload: dict[str, Any], human_summary: str) -> int:
 # ─── empirica sentinel ──────────────────────────────────────────────────────
 
 
+def _emit_sentinel_state_event(event: str, status, *, _emit_fn=None) -> None:
+    """Best-effort: report a Sentinel gating-state change to cortex's system-event
+    surface (immune-system Req 1; autonomy ruling prop_72y3dqeb).
+
+    A silent pause that disarms gating is the most observable-worthy event in the
+    system — the fleet once ran ungated ~50min undetected. REPORTS flow UP here
+    (any practice, about itself, on /v1/system/event which it's entitled to);
+    guardians re-emit DIRECTIVES on the source-gated guardian_action channel after
+    judgment. ``emit_path=cli_verb`` marks this as verb-emitted so consumers can
+    tell it apart from the raw-file-touch blind spot the guardian's filesystem
+    watch covers.
+
+    NEVER raises, NEVER blocks — an emit failure must not affect gating.
+    """
+    try:
+        import time as _time
+
+        from empirica.cli.command_handlers.system_event import emit_system_event
+        from empirica.utils.session_resolver import InstanceResolver
+
+        emit = _emit_fn or emit_system_event
+        try:
+            practice = InstanceResolver.ai_id()  # best-available; canonical when resolvable
+        except Exception:
+            practice = None
+        envelope = {
+            "event": event,  # sentinel_pause | sentinel_resume
+            "scope": getattr(status, "scope", None),
+            "practice_ai_id": practice,
+            "instance_id": getattr(status, "instance_id", None),
+            "actor": "cli",
+            "created_at": _time.time(),
+            "reason": getattr(status, "reason", None),
+            "emit_path": "cli_verb",
+        }
+        emit(envelope)
+    except Exception as e:
+        logging.getLogger(__name__).debug("sentinel state-event emit failed (non-fatal): %s", e)
+
+
 def handle_sentinel_pause_command(args) -> int:
     try:
         targets = _resolve_sentinel_targets(args)
@@ -204,6 +244,8 @@ def handle_sentinel_pause_command(args) -> int:
         return _emit_sentinel_error(args, str(e))
     reason = getattr(args, "reason", None)
     statuses = [pause_sentinel(t, reason=reason) for t in targets]
+    for _st in statuses:
+        _emit_sentinel_state_event("sentinel_pause", _st)
     if len(statuses) == 1:
         status = statuses[0]
         payload = {
@@ -234,6 +276,8 @@ def handle_sentinel_resume_command(args) -> int:
     except SentinelResolveError as e:
         return _emit_sentinel_error(args, str(e))
     results = [(t, resume_sentinel(t)) for t in targets]
+    for _, _st in results:
+        _emit_sentinel_state_event("sentinel_resume", _st)
     if len(results) == 1:
         instance_id, status = results[0]
         payload = {
