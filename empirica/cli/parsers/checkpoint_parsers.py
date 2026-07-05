@@ -1469,6 +1469,17 @@ def add_checkpoint_parsers(subparsers):
     sources_check_parser.add_argument(
         "--timeout", type=float, default=6.0, help="Per-URL probe timeout in seconds (default: 6.0)"
     )
+    sources_check_parser.add_argument(
+        "--staleness-days",
+        type=int,
+        default=None,
+        dest="staleness_days",
+        help=(
+            "Only re-probe sources older than N days (fresh ones presumed live); "
+            "0 probes everything. Default: the practice's hygiene_policy "
+            "source_staleness_days (30)."
+        ),
+    )
     sources_check_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
 
     # Graph artifact commands — batch logging and resolution
