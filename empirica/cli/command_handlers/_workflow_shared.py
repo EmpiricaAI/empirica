@@ -39,6 +39,7 @@ __all__ = [
     "_retro_count_edges",
     "_retro_count_sources",
     "_soft_run",
+    "_weave_enforcement_block",
 ]
 
 # Investigation-heavy work_types where noetic_batch is most useful.
@@ -634,11 +635,13 @@ def _weave_gate_block(total_artifacts: int, edges_count: int) -> dict | None:
     is measured against ``connectivity_floor``; the loudness of the ``note`` is
     scaled by the ``strictness``-derived response band.
 
-    **REPORT-ONLY in this build** — ``enforced`` is always ``False``, even at the
-    ``enforce`` band. The actual soft/hard *blocking* is a deliberate follow-up
-    keyed on ``strictness`` (and ``patience`` for the adaptive escalation).
-    Returns None when strictness dials the gate fully ``silent`` (<0.05) or there
-    are no artifacts.
+    **Enforcement is strictness-driven.** ``enforced`` is True ONLY at the
+    ``enforce`` band (strictness ≥ 0.70) AND below the connectivity floor — at
+    every lower band it stays ``False`` (report-only), so the default (strictness
+    0.25) never blocks. A practice opts into enforcement by dialing strictness up;
+    the consumer (the CHECK gate) blocks the noetic→praxic transition when
+    ``enforced``. Returns None when strictness dials the gate fully ``silent``
+    (<0.05) or there are no artifacts.
     """
     scalars = _resolve_gate_scalars()
     response = _gate_response_for(scalars["strictness"])
@@ -647,6 +650,9 @@ def _weave_gate_block(total_artifacts: int, edges_count: int) -> dict | None:
     connected = min(edges_count, total_artifacts)
     connected_ratio = connected / total_artifacts if total_artifacts else 0.0
     satisfied = connected_ratio >= scalars["connectivity_floor"]
+    # The block signal: only the enforce band, only below the floor. Everything
+    # else is report-only — the whole point of the ramp (#253 scalar surface).
+    enforced = response == "enforce" and not satisfied
     if connected >= total_artifacts:
         verdict = "connected"
     elif connected > 0:
@@ -655,20 +661,26 @@ def _weave_gate_block(total_artifacts: int, edges_count: int) -> dict | None:
         verdict = "disconnected"
     pct = round(connected_ratio * 100)
     floor_pct = round(scalars["connectivity_floor"] * 100)
+    mode = "ENFORCED — blocks" if enforced else f"{response}, report-only"
     if satisfied:
         note = (
-            f"artifact-graph gate [{response}, report-only]: "
+            f"artifact-graph gate [{mode}]: "
             f"{connected}/{total_artifacts} artifacts connected ({pct}%) — "
             f"meets the {floor_pct}% floor."
         )
     else:
-        lead = "SHOULD weave more" if response in ("warn", "enforce") else "consider weaving"
+        lead = (
+            "MUST weave more (transition blocked)"
+            if enforced
+            else ("SHOULD weave more" if response == "warn" else "consider weaving")
+        )
+        tail = "" if enforced else " Blocking activates only at strictness ≥ 0.70."
         note = (
-            f"artifact-graph gate [{response}, report-only]: "
+            f"artifact-graph gate [{mode}]: "
             f"{connected}/{total_artifacts} artifacts connected ({pct}%), below the "
             f"{floor_pct}% floor — {lead}. Structural goal-edges are automatic; add "
             "semantic edges (log-artifacts nodes+edges, or --related-to / --edge on "
-            "any *-log) to raise connectivity. Blocking not yet active."
+            f"any *-log) to raise connectivity.{tail}"
         )
     return {
         "scalars": scalars,
@@ -678,9 +690,29 @@ def _weave_gate_block(total_artifacts: int, edges_count: int) -> dict | None:
         "connected_artifacts": connected,
         "total_artifacts": total_artifacts,
         "satisfied": satisfied,
-        "enforced": False,  # report-only build; blocking keyed on strictness is a follow-up
+        "enforced": enforced,  # strictness-driven: True only at enforce band + below floor
         "note": note,
     }
+
+
+def _weave_enforcement_block(session_id: str, transaction_id: str | None) -> dict | None:
+    """Compute the artifact-graph weave-gate for THIS transaction, for the CHECK
+    gate's enforce-half (map work-stream 1). Reuses the same artifact/edge
+    counters the POSTFLIGHT retrospective uses. Returns the gate block (carrying
+    the ``enforced`` flag) or None. Best-effort — any measurement error returns
+    None, so a counting failure never blocks CHECK.
+    """
+    try:
+        db = _get_db_for_session(session_id)
+        cursor = db.conn.cursor()
+        counts = _retro_count_artifacts(cursor, session_id, transaction_id)
+        total_artifacts = sum(counts.values()) if isinstance(counts, dict) else int(counts)
+        if total_artifacts < 1:
+            return None
+        edges = _retro_count_edges(cursor, session_id, transaction_id)
+        return _weave_gate_block(total_artifacts, edges)
+    except Exception:
+        return None
 
 
 def _maybe_add_weave_gate(cursor, session_id, transaction_id, retro: dict, total_artifacts: int) -> None:

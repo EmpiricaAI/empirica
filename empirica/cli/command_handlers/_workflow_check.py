@@ -674,6 +674,40 @@ def _check_gate_decision(vectors, ready_uncertainty_threshold, diminishing_retur
     return decision, computed_decision, autopilot_mode, decision_binding
 
 
+def _check_apply_weave_enforce(result, decision, session_id, transaction_id):
+    """Artifact-graph weave-gate enforce-half (map work-stream 1).
+
+    Attaches the weave-gate verdict to the CHECK result (report) and, when the
+    gate is ENFORCED — strictness in the ``enforce`` band (≥0.70) AND the
+    transaction's artifacts below the connectivity floor — overrides a
+    ``proceed`` to ``investigate``, blocking the noetic→praxic transition until
+    the artifacts are woven.
+
+    DORMANT BY DEFAULT: the report-only strictness (0.25) never sets
+    ``enforced``, so this is a pure no-op until a practice dials strictness up.
+    Best-effort and fail-open — a measurement error never blocks CHECK (mirrors
+    the P1 lesson: gating machinery must not brick the loop it gates).
+    """
+    try:
+        from ._workflow_shared import _weave_enforcement_block
+
+        block = _weave_enforcement_block(session_id, transaction_id)
+        if not block:
+            return decision
+        result["weave_gate"] = block
+        if block.get("enforced") and decision == "proceed":
+            decision = "investigate"
+            result["decision"] = decision
+            result["weave_enforce"] = {
+                "blocked": True,
+                "reason": block.get("note", "weave more artifacts before proceeding to praxic"),
+            }
+            logger.info("CHECK weave-enforce override: proceed → investigate (artifact-graph gate enforced)")
+    except Exception as e:
+        logger.debug(f"weave-enforce check skipped (non-fatal): {e}")
+    return decision
+
+
 def _check_store_and_publish(session_id, round_num, vectors, decision, reasoning, cycle):
     """Store CHECK checkpoint (3-layer) and publish bus event.
 
@@ -1207,6 +1241,11 @@ def handle_check_submit_command(args):
 
             # Stage 13: Blindspot scan (may override decision)
             decision = _check_run_blindspot_scan(result, decision, session_id, bootstrap_result, bootstrap_status)
+
+            # Stage 13.5: Artifact-graph weave-enforce (may override decision).
+            # Dormant by default (report-only strictness) — only blocks when a
+            # practice dials strictness into the enforce band. Map work-stream 1.
+            decision = _check_apply_weave_enforce(result, decision, session_id, check_transaction_id)
 
             # Stage 14: Pattern retrieval + codebase context
             _check_enrich_context(result, bootstrap_result, bootstrap_status, vectors, reasoning)

@@ -101,9 +101,29 @@ def test_no_artifacts_returns_none(monkeypatch):
     assert _weave_gate_block(0, 0) is None
 
 
-def test_never_enforces_even_at_enforce_band(monkeypatch):
+def test_enforces_at_enforce_band_below_floor(monkeypatch):
     _clear(monkeypatch)
     monkeypatch.setenv("EMPIRICA_ARTIFACT_GRAPH_STRICTNESS", "0.9")
-    g = _weave_gate_block(2, 0)
+    g = _weave_gate_block(2, 0)  # 0% connected, below the 50% floor
     assert g["response"] == "enforce"
-    assert g["enforced"] is False  # report-only build — blocking is a follow-up
+    assert g["enforced"] is True  # enforce band + below floor → blocks
+
+
+def test_report_and_warn_bands_never_enforce(monkeypatch):
+    _clear(monkeypatch)
+    # default (report, 0.25) below floor → dormant
+    assert _weave_gate_block(2, 0)["enforced"] is False
+    # warn band (0.5) below floor → still report-only, no block
+    monkeypatch.setenv("EMPIRICA_ARTIFACT_GRAPH_STRICTNESS", "0.5")
+    g = _weave_gate_block(2, 0)
+    assert g["response"] == "warn"
+    assert g["enforced"] is False
+
+
+def test_enforce_band_satisfied_does_not_enforce(monkeypatch):
+    _clear(monkeypatch)
+    monkeypatch.setenv("EMPIRICA_ARTIFACT_GRAPH_STRICTNESS", "0.9")
+    g = _weave_gate_block(2, 2)  # fully connected → satisfied → no block even at enforce
+    assert g["response"] == "enforce"
+    assert g["satisfied"] is True
+    assert g["enforced"] is False
