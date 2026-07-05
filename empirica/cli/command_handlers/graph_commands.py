@@ -87,6 +87,14 @@ DELETE_ARTIFACTS_SCHEMA = {
             "id": "<UUID of the artifact to delete>",
         },
     ],
+    "edges": [
+        {
+            "from": "<from artifact UUID>",
+            "to": "<to artifact UUID>",
+            "relation": "<optional — omit to delete ALL relations between from and to>",
+        },
+    ],
+    "prune_dangling": "<optional bool — delete every edge whose from_id or to_id matches no existing artifact>",
     "reason": "<optional human-readable reason — logged as decision>",
 }
 
@@ -887,8 +895,8 @@ def _read_deletion_input(args) -> dict | None:
         return None
 
     items = data.get("deletions", data.get("items", []))
-    if not items:
-        print(json.dumps({"ok": False, "error": "No deletions specified"}))
+    if not items and not data.get("edges") and not data.get("prune_dangling"):
+        print(json.dumps({"ok": False, "error": "No deletions, edges, or prune_dangling specified"}))
         return None
 
     return data
@@ -992,6 +1000,81 @@ def _delete_single_artifact(
     }
 
 
+def _process_edge_deletions(db, data: dict, dry_run: bool) -> tuple[int, list[dict], list[str]]:
+    """Delete specific edges and/or prune dangling edges. Returns (removed, items, errors).
+
+    - ``data["edges"]`` — ``[{from, to, relation?}]``. A specific edge delete;
+      omit ``relation`` to remove ALL relations between ``from`` and ``to``.
+    - ``data["prune_dangling"]`` — when truthy, remove every ``artifact_edges``
+      row whose ``from_id`` OR ``to_id`` matches no existing artifact (reuses
+      ``_artifact_exists``). This is the purge path for dangling rows written
+      before #268 hardened the writers.
+
+    ``dry_run`` reports would-delete rows without mutating (delete-artifacts is
+    dry-run by default). The caller commits.
+    """
+    removed = 0
+    items: list[dict] = []
+    errors: list[str] = []
+    if not db.conn:
+        return 0, items, ["No database connection"]
+    cursor = db.conn.cursor()
+
+    # 1. Specific edge deletions.
+    for spec in data.get("edges") or []:
+        frm, to, rel = spec.get("from"), spec.get("to"), spec.get("relation")
+        if not frm or not to:
+            errors.append(f"edge spec missing 'from' or 'to': {spec}")
+            continue
+        where, params = "from_id = ? AND to_id = ?", [frm, to]
+        if rel:
+            where += " AND relation = ?"
+            params.append(rel)
+        try:
+            cursor.execute(f"SELECT COUNT(*) FROM artifact_edges WHERE {where}", params)
+            match = cursor.fetchone()[0]
+            if match == 0:
+                errors.append(f"no edge matches {frm}->{to}" + (f" ({rel})" if rel else ""))
+                continue
+            if dry_run:
+                items.append({"action": "would_delete_edge", "from": frm, "to": to, "relation": rel, "count": match})
+            else:
+                cursor.execute(f"DELETE FROM artifact_edges WHERE {where}", params)
+                removed += cursor.rowcount
+                items.append(
+                    {"action": "deleted_edge", "from": frm, "to": to, "relation": rel, "count": cursor.rowcount}
+                )
+        except Exception as e:
+            errors.append(f"edge delete failed {frm}->{to}: {e}")
+
+    # 2. Dangling sweep.
+    if data.get("prune_dangling"):
+        try:
+            cursor.execute("SELECT DISTINCT from_id, to_id, relation FROM artifact_edges")
+            for frm, to, rel in cursor.fetchall():
+                frm_ok, to_ok = _artifact_exists(db, frm), _artifact_exists(db, to)
+                if frm_ok and to_ok:
+                    continue
+                missing = ([f"from={frm}"] if not frm_ok else []) + ([f"to={to}"] if not to_ok else [])
+                if dry_run:
+                    items.append(
+                        {"action": "would_prune_dangling", "from": frm, "to": to, "relation": rel, "missing": missing}
+                    )
+                else:
+                    cursor.execute(
+                        "DELETE FROM artifact_edges WHERE from_id = ? AND to_id = ? AND relation = ?",
+                        (frm, to, rel),
+                    )
+                    removed += cursor.rowcount
+                    items.append(
+                        {"action": "pruned_dangling", "from": frm, "to": to, "relation": rel, "missing": missing}
+                    )
+        except Exception as e:
+            errors.append(f"prune_dangling failed: {e}")
+
+    return removed, items, errors
+
+
 def handle_delete_artifacts_command(args):  # noqa: C901 — batch dispatcher fan-out
     """Handle delete-artifacts command: batch deletion of stale/non-pertinent artifacts."""
     if getattr(args, "schema", False):
@@ -1052,11 +1135,16 @@ def handle_delete_artifacts_command(args):  # noqa: C901 — batch dispatcher fa
                 deleted_items.append(result_item)
                 deleted_count += 1
 
+        # Edge deletions: specific edges + dangling prune (same cursor/transaction).
+        edge_removed, edge_items, edge_errors = _process_edge_deletions(db, data, dry_run)
+        deleted_items.extend(edge_items)
+        delete_errors.extend(edge_errors)
+
         if not dry_run:
             db.conn.commit()
 
             # Log the deletion as a decision (audit trail)
-            if deleted_count > 0:
+            if deleted_count > 0 or edge_removed > 0:
                 try:
                     from empirica.utils.session_resolver import InstanceResolver as R
 
@@ -1071,7 +1159,7 @@ def handle_delete_artifacts_command(args):  # noqa: C901 — batch dispatcher fa
                                 str(__import__("uuid").uuid4()),
                                 project_id,
                                 sid,
-                                f"Deleted {deleted_count} artifact(s)",
+                                f"Deleted {deleted_count} artifact(s) + {edge_removed} edge(s)",
                                 reason,
                                 "committal",
                             ),
@@ -1085,6 +1173,7 @@ def handle_delete_artifacts_command(args):  # noqa: C901 — batch dispatcher fa
         result = {
             "ok": True,
             "deleted": deleted_count,
+            "edges_removed": edge_removed,
             "dry_run": dry_run,
             "items": deleted_items,
             "errors": delete_errors,
