@@ -246,6 +246,55 @@ def _is_real_event(ntfy_message: dict[str, Any]) -> bool:
     return ntfy_message.get("event") == "message"
 
 
+# Non-proposal wake shapes relayed directly from the push body. These have NO
+# proposal-store row, so the proposal-only catch-up (content_poll) can never
+# reconstruct them — the doorbell body is the only possible LIVE delivery.
+# Extensible allowlist: each shape added here also needs a durable store the
+# catch-up can reconcile from on a dropped doorbell (ser_escalation → /v1/sers).
+_NON_PROPOSAL_WAKE_SHAPES = frozenset({"ser_escalation"})
+
+
+def _relay_non_proposal_wake(msg: dict, instance_id: str, loop_name: str, canonical, output_stream, err_stream) -> bool:
+    """Relay an allowlisted non-proposal wake shape from the ntfy push body.
+
+    Returns True if a fires line was written. Recipient gating is already done by
+    the ntfy tag-filter subscription (``?tags=<canonical>``); we additionally
+    honor an explicit ``target_claudes`` in the body when present. The AI's
+    documented reaction protocol re-pulls the durable state (the SER projection)
+    before acting, so relaying the doorbell body is a wake TRIGGER, not authority
+    — the ECO-gated-autonomy property is preserved.
+    """
+    import datetime as _dt
+
+    try:
+        raw = msg.get("message")
+        body = json.loads(raw) if isinstance(raw, str) and raw.lstrip().startswith("{") else None
+    except (json.JSONDecodeError, TypeError):
+        body = None
+    if not isinstance(body, dict) or body.get("event") not in _NON_PROPOSAL_WAKE_SHAPES:
+        return False
+    targets = body.get("target_claudes")
+    if isinstance(targets, list) and canonical and canonical not in targets:
+        return False  # defense-in-depth: body names targets and we're not one
+    shape = body["event"]
+    line = json.dumps(
+        {
+            "ts": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+            "instance_id": instance_id,
+            "loop": loop_name,
+            "event_type": shape,
+            **{k: v for k, v in body.items() if k != "event"},
+        }
+    )
+    try:
+        output_stream.write(line + "\n")
+        output_stream.flush()
+    except Exception:
+        return False
+    err_stream.write(f"listener: relayed non-proposal wake '{shape}' from push body\n")
+    return True
+
+
 def _listener_health_path(instance_id: str) -> Path:
     return Path.home() / ".empirica" / f"listener_health_{instance_id}.json"
 
@@ -737,6 +786,10 @@ def run_listener(  # noqa: C901 — held-connection loop; clarity beats decompos
                     err_stream.write(
                         f"listener: ntfy event arrived (id={msg.get('id', '?')[:12]}) → running catch-up\n"
                     )
+                    # Relay allowlisted non-proposal wake shapes (ser_escalation)
+                    # from the push body FIRST — they have no proposal-store row,
+                    # so the proposal-only catch-up below can't reconstruct them.
+                    _relay_non_proposal_wake(msg, instance_id, loop_name, tag_filter, output_stream, err_stream)
                     _emit_catchup_events(instance_id, loop_name, output_stream)
                     # Catch-up can take a few seconds; refresh activity stamp
                     # so the watchdog doesn't fire on a slow-but-healthy poll.
