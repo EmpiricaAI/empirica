@@ -525,8 +525,16 @@ class TestNoeticCompoundAndBootstrap:
         "cmd",
         [
             "cd /home/u/proj && rm -rf /",
-            "cd /home/u/proj && grep x file > /tmp/out",
+            "cd /home/u/proj && grep x file > /tmp/out",  # redirect (#256)
             "cd /home/u/proj && python3 -c 'import os; os.remove(\"x\")'",
+            # Write-FLAG holes on otherwise-inert tools — a leading `cd` must not
+            # launder these through a chain segment either (broccoli sweep guard:
+            # locks the _matches_safe_prefix → _has_dangerous_tool_flags path at
+            # the chain-segment integration level, not just the unit level).
+            "cd /home/u/proj && find . -delete",
+            "cd /home/u/proj && sed -i 's/a/b/' f",
+            "cd /home/u/proj && yq -i '.x=1' f",
+            "cd /home/u/proj && sort -o out in",
         ],
     )
     def test_leading_cd_does_not_smuggle_praxic(self, gate, cmd):
