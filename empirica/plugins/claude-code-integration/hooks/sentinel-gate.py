@@ -716,6 +716,13 @@ EMPIRICA_TIER1_PREFIXES = (
     "empirica status",  # Multi-instance status overview
     "empirica tui",  # Interactive cockpit (Textual app — destructive ops are modal-confirmed)
     "empirica notify ",  # Notification primitive — loops/hooks call this in any phase
+    # Mailbox RECEIVE side (pure reads) — MUST be Tier 1 so a mesh-woken IDLE
+    # practitioner can run `empirica mailbox poll` as its FIRST action (no open
+    # transaction). Without this, the wake→poll→react last mile the mailbox CLI
+    # (#255) exists to close is denied "No open transaction". Cortex classified
+    # mailbox reads as noetic (prop_iefo2tdx); the poll/show verbs only GET.
+    "empirica mailbox poll",  # Read cortex inbox/outbox (pure read)
+    "empirica mailbox show",  # Read one proposal body (pure read)
 )
 
 # Tier 2: State-changing commands - allowed (these ARE the epistemic workflow)
@@ -735,6 +742,12 @@ EMPIRICA_TIER2_PREFIXES = (
     "empirica log-artifacts",
     "empirica resolve-artifacts",
     "empirica delete-artifacts",  # Batch artifact operations
+    # Mailbox SEND/hygiene side — state-changing but part of the mesh workflow
+    # (ack + inbox hygiene), so they flow pre-transaction like the *-log verbs.
+    # `reply` is the atomic propose+complete ack (mesh ack is noetic per
+    # prop_iefo2tdx); `archive` soft-deletes from the inbox view.
+    "empirica mailbox reply",  # Atomic propose + complete (mesh ack)
+    "empirica mailbox archive",  # Soft-delete a proposal from inbox view
     "empirica goals-create",
     "empirica goal-create",
     "empirica gc",  # Goal create + aliases
