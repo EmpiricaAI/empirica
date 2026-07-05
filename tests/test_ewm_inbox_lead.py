@@ -33,9 +33,7 @@ def _fake_run(stdout: str = "", returncode: int = 0):
 
 
 def _poll_json(proposals):
-    return json.dumps(
-        {"ok": True, "ai_id": "empirica", "count": len(proposals), "proposals": proposals}
-    )
+    return json.dumps({"ok": True, "ai_id": "empirica", "count": len(proposals), "proposals": proposals})
 
 
 def _prop(i):
