@@ -128,6 +128,73 @@ class ProposalEvent:
         )
 
 
+# SER coordination states an escalation can still fire for (closed is terminal).
+ACTIVE_SER_STATES = frozenset({"open", "in_progress", "blocked"})
+
+
+@dataclass
+class EscalationEvent:
+    """A recovered-on-catch-up SER escalation. Part B of the two-path
+    ser_escalation hardening (autonomy prop_tr4dbwcf / prop_4wo5huw5).
+
+    Non-proposal wakes have no proposal-store row, so a DROPPED ser_escalation
+    doorbell (part A's live relay missed it — network blip, listener restart)
+    is only recoverable by re-pulling the durable SER projection here. Carries
+    ``via='catchup_reconcile'`` so receivers + audits can tell a recovered
+    escalation from part A's live push relay.
+    """
+
+    instance_id: str
+    loop_name: str
+    ser_id: str
+    coordination_state: str
+    last_transition_at: str
+    via: str = "catchup_reconcile"
+
+    def to_log_line(self) -> str:
+        """JSON line for ~/.empirica/loop_fires.log — mirrors the ser_escalation
+        wake shape the /cortex-mailbox-poll reaction protocol consumes."""
+        return json.dumps(
+            {
+                "ts": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+                "instance_id": self.instance_id,
+                "loop": self.loop_name,
+                "event_type": "ser_escalation",
+                "escalation": True,
+                "source_claude": "system:ser-escalation",
+                "ser_id": self.ser_id,
+                "coordination_state": self.coordination_state,
+                "last_transition_at": self.last_transition_at,
+                "via": self.via,
+            }
+        )
+
+
+def _normalize_ts(value) -> float | None:
+    """Normalize a SER timestamp to a comparable epoch float, or None.
+
+    Gotcha 1 (autonomy, from live use): ``last_transition_at`` / ``last_ack_at``
+    arrive as epoch NUMBERS on some records, ISO STRINGS on others, and null
+    when never-set. Compare only after normalizing all three shapes.
+    """
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return None
+        try:
+            return _dt.datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            try:
+                return float(s)  # numeric-as-string
+            except ValueError:
+                return None
+    return None
+
+
 def _state_path(instance_id: str, loop_name: str) -> Path:
     """`~/.empirica/loop_state/<inst>_<loop>.json` — per-loop seen state."""
     safe_inst = "".join(c if c.isalnum() or c in "-_" else "-" for c in instance_id)
@@ -425,6 +492,89 @@ def build_event(
     )
 
 
+def _fetch_sers(cortex_url: str, api_key: str, canonical: str, *, timeout: float = 10.0) -> list[dict] | None:
+    """ONE un-narrowed GET /v1/sers?ai_id=<canonical> — all participation records
+    (autonomy prop_4wo5huw5, live-verified). Returns the SER projection list, or
+    None on any fetch failure (caller treats None as no-op, not empty). Filtering
+    to active states + the required-tier predicate is done client-side.
+    """
+    params = urllib.parse.urlencode({"ai_id": canonical})
+    url = f"{cortex_url.rstrip('/')}/v1/sers?{params}"
+    req = urllib.request.Request(url, method="GET", headers={"Authorization": f"Bearer {api_key}"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read().decode("utf-8")
+            body = json.loads(raw) if raw else {}
+    except (urllib.error.URLError, urllib.error.HTTPError, OSError, TimeoutError, json.JSONDecodeError) as e:
+        logger.warning("content_poll /v1/sers fetch failed for %s: %s", canonical, e)
+        return None
+    sers = body.get("sers", body) if isinstance(body, dict) else body
+    return sers if isinstance(sers, list) else []
+
+
+def reconcile_ser_escalations(
+    instance_id: str,
+    loop_name: str,
+    cortex_url: str,
+    api_key: str,
+    canonical: str,
+    cursor: dict,
+    *,
+    fetch_fn=_fetch_sers,
+) -> tuple[list[EscalationEvent], dict]:
+    """Recover dropped ser_escalation doorbells from the durable SER projection.
+
+    For each ACTIVE SER where THIS instance is a REQUIRED-tier participant and
+    the SER transitioned since our last ack, emit a catch-up ser_escalation —
+    unless we already emitted for that exact ``(ser_id, last_transition_at)``.
+    Returns ``(events, updated_cursor)``. Autonomy's 4 gotchas from live use:
+      1. timestamps are mixed epoch/ISO/null → ``_normalize_ts``;
+      2. participant match is EXACT canonical practice_id (no basename fallback);
+      3. de-dup cursor keyed ``(ser_id, last_transition_at)`` — a re-ack self-
+         clears the predicate (``last_ack_at`` advances), a new transition
+         legitimately re-fires;
+      4. ``via='catchup_reconcile'`` marks these vs part A's live push relay.
+    """
+    cursor = dict(cursor) if isinstance(cursor, dict) else {}
+    events: list[EscalationEvent] = []
+    if not canonical:
+        return events, cursor
+    sers = fetch_fn(cortex_url, api_key, canonical)
+    if not sers:  # None (unreachable) or empty → no-op, preserve cursor
+        return events, cursor
+    for ser in sers:
+        if not isinstance(ser, dict) or ser.get("coordination_state") not in ACTIVE_SER_STATES:
+            continue
+        ser_id = ser.get("ser_id")
+        if not ser_id:
+            continue
+        me = next(
+            (p for p in (ser.get("participants") or []) if isinstance(p, dict) and p.get("practice_id") == canonical),
+            None,
+        )
+        if me is None or me.get("role") != "required":
+            continue
+        transition = _normalize_ts(ser.get("last_transition_at"))
+        if transition is None:
+            continue
+        my_ack = _normalize_ts(me.get("last_ack_at"))
+        if my_ack is not None and transition <= my_ack:
+            continue  # already acked past this transition
+        if cursor.get(ser_id) == transition:
+            continue  # already emitted for this exact transition
+        events.append(
+            EscalationEvent(
+                instance_id=instance_id,
+                loop_name=loop_name,
+                ser_id=ser_id,
+                coordination_state=str(ser.get("coordination_state", "")),
+                last_transition_at=str(ser.get("last_transition_at", "")),
+            )
+        )
+        cursor[ser_id] = transition
+    return events, cursor
+
+
 def poll_and_diff(
     instance_id: str,
     loop_name: str,
@@ -435,7 +585,7 @@ def poll_and_diff(
     inbox_fetch_fn=fetch_cortex_inbox,
     outbox_fetch_fn=fetch_cortex_outbox,
     raise_on_unreachable: bool = False,
-) -> list[ProposalEvent]:
+) -> list[ProposalEvent | EscalationEvent]:
     """Poll both inbox + outbox, diff against last-seen, return wake events.
 
     Two security/event classes (David's wake-event taxonomy, 2026-05-15):
@@ -523,11 +673,25 @@ def poll_and_diff(
     inbox_diffs = diff_proposals(inbox, last_seen_statuses, valid_statuses=EMISSION_STATUSES_INBOX)
     outbox_diffs = diff_proposals(outbox, last_seen_statuses, valid_statuses=EMISSION_STATUSES_OUTBOX)
 
-    events: list[ProposalEvent] = []
+    events: list[ProposalEvent | EscalationEvent] = []
     for p, kind in inbox_diffs:
         events.append(build_event(p, kind, instance_id, loop_name, direction="inbox"))
     for p, kind in outbox_diffs:
         events.append(build_event(p, kind, instance_id, loop_name, direction="outbox"))
+
+    # Part B: recover dropped ser_escalation doorbells from the durable SER
+    # projection — the proposal-only diff above can't reconstruct a non-proposal
+    # wake (no store row). Fail-soft: a SER-API hiccup must never break the
+    # proposal catch-up path.
+    ser_cursor = state.get("ser_escalations", {})
+    try:
+        canonical = _resolve_canonical_ai_id(cortex_url, api_key, instance_id)
+        ser_events, ser_cursor = reconcile_ser_escalations(
+            instance_id, loop_name, cortex_url, api_key, canonical, ser_cursor
+        )
+        events.extend(ser_events)
+    except Exception as e:
+        logger.warning("content_poll SER reconcile failed for instance=%s: %s", instance_id, e)
 
     # Update state — single proposals map covers both directions (UUIDs unique).
     #
@@ -562,6 +726,7 @@ def poll_and_diff(
         {
             "last_poll_ts": _dt.datetime.now(_dt.timezone.utc).isoformat(),
             "proposals": merged_proposals_map,
+            "ser_escalations": ser_cursor if isinstance(ser_cursor, dict) else {},
             "bootstrap_completed": True,
         },
     )

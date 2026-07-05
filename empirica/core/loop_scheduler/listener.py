@@ -284,6 +284,7 @@ def _relay_non_proposal_wake(msg: dict, instance_id: str, loop_name: str, canoni
             "loop": loop_name,
             "event_type": shape,
             **{k: v for k, v in body.items() if k != "event"},
+            "via": "push_relay",  # symmetric with catch-up's via='catchup_reconcile' (audit discriminator)
         }
     )
     try:
