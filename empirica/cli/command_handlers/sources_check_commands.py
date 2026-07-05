@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import ssl
 import sys
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
@@ -102,12 +103,50 @@ def _is_probeable(url) -> bool:
     return isinstance(url, str) and url.startswith(("http://", "https://"))
 
 
+def _parse_discovered_at(value) -> float | None:
+    """Best-effort parse of a source's discovered_at into a unix timestamp."""
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        s = value.strip()
+        try:
+            return float(s)  # already a unix-ts string
+        except ValueError:
+            pass
+        try:
+            from datetime import datetime
+
+            return datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
+        except (ValueError, OSError):
+            return None
+    return None
+
+
+def _should_probe(discovered_at, staleness_days: int, now: float) -> bool:
+    """True if a source is due for a re-probe.
+
+    ``staleness_days <= 0`` probes everything. Otherwise a source is probed once
+    it's older than the threshold; fresh sources (just added, presumed live) are
+    skipped to keep the sweep cheap. An unparseable/absent ``discovered_at``
+    probes anyway — never skip on missing data.
+    """
+    if staleness_days <= 0:
+        return True
+    ts = _parse_discovered_at(discovered_at)
+    if ts is None:
+        return True
+    return (now - ts) >= staleness_days * 86400
+
+
 def _format_human(result: dict) -> str:
     lines = [
         f"🔗 sources-check — {result['checked']} URL(s) probed "
         f"({result['live']} live, {len(result['dead'])} dead, "
         f"{len(result['gated'])} gated, {len(result['errored'])} errored; "
-        f"{result['skipped_no_url']} non-URL sources skipped)",
+        f"{result['skipped_no_url']} non-URL + {result.get('skipped_fresh', 0)} "
+        f"fresh(<{result.get('staleness_days', 0)}d) skipped)",
     ]
     for tag, rows in (("DEAD", result["dead"]), ("GATED", result["gated"]), ("ERROR", result["errored"])):
         for r in rows:
@@ -147,8 +186,20 @@ def handle_sources_check_command(
         sys.stderr.write(f"sources-check: failed to list sources: {type(e).__name__}: {e}\n")
         return 1
 
-    probeable = [s for s in sources if _is_probeable(s.get("url") or s.get("source_url"))]
-    skipped = len(sources) - len(probeable)
+    has_url = [s for s in sources if _is_probeable(s.get("url") or s.get("source_url"))]
+    skipped = len(sources) - len(has_url)
+
+    # Per-practice staleness (hygiene_policy WS2): only re-probe sources older
+    # than the threshold — fresh ones are presumed live. --staleness-days
+    # overrides the policy; 0 probes everything.
+    staleness_days = getattr(args, "staleness_days", None)
+    if staleness_days is None:
+        from empirica.config.hygiene_policy import resolve_hygiene_policy
+
+        staleness_days = int(resolve_hygiene_policy().get("source_staleness_days", 30))
+    now = time.time()
+    probeable = [s for s in has_url if _should_probe(s.get("discovered_at"), staleness_days, now)]
+    fresh_skipped = len(has_url) - len(probeable)
 
     live = 0
     dead: list[dict] = []
@@ -176,6 +227,8 @@ def handle_sources_check_command(
         "gated": gated,
         "errored": errored,
         "skipped_no_url": skipped,
+        "skipped_fresh": fresh_skipped,
+        "staleness_days": staleness_days,
     }
 
     if output_format == "json":

@@ -8,6 +8,7 @@ sources don't fail the run.
 from __future__ import annotations
 
 import json
+import time
 import types
 
 from empirica.cli.command_handlers.sources_check_commands import (
@@ -18,7 +19,8 @@ from empirica.cli.command_handlers.sources_check_commands import (
 
 
 def _args(**overrides):
-    defaults = {"project_id": "proj-1", "timeout": 6.0, "output": "json"}
+    # staleness_days=0 → probe all regardless of discovered_at (deterministic).
+    defaults = {"project_id": "proj-1", "timeout": 6.0, "output": "json", "staleness_days": 0}
     defaults.update(overrides)
     return types.SimpleNamespace(**defaults)
 
@@ -144,3 +146,36 @@ def test_human_output(capsys):
     out = capsys.readouterr().out
     assert "sources-check" in out
     assert "DEAD" in out and "Gone Doc" in out
+
+
+# ── staleness filter (WS2) ──────────────────────────────────────────────
+
+
+def test_should_probe():
+    from empirica.cli.command_handlers.sources_check_commands import _should_probe
+
+    now = 1_000_000.0
+    day = 86400
+    assert _should_probe(now - 40 * day, 30, now) is True  # older than threshold → probe
+    assert _should_probe(now - 5 * day, 30, now) is False  # fresh → skip
+    assert _should_probe(None, 30, now) is True  # unknown age → probe (never skip on missing)
+    assert _should_probe(now - 5 * day, 0, now) is True  # 0 → probe everything
+
+
+def test_staleness_skips_fresh_sources(capsys):
+    now = time.time()
+    day = 86400
+    srcs = _sources(
+        {"id": "old", "url": "https://old.com", "title": "old", "discovered_at": now - 60 * day},
+        {"id": "fresh", "url": "https://fresh.com", "title": "fresh", "discovered_at": now - 2 * day},
+    )
+    rc = handle_sources_check_command(
+        _args(staleness_days=30),  # skip anything newer than 30d
+        _list_sources=lambda pid: srcs,
+        _probe=lambda url, t: ("live", "200"),
+    )
+    assert rc == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["checked"] == 1  # only the 60d-old one
+    assert out["skipped_fresh"] == 1
+    assert out["staleness_days"] == 30
