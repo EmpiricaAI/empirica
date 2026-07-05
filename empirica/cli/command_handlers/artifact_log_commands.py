@@ -172,16 +172,75 @@ def _collect_edges_from_args(args, evidence_relation: str | None = None) -> list
     return edges
 
 
+def _resolve_edge_target(db, to_id: str) -> tuple[str | None, str | None]:
+    """Resolve an edge ``to`` endpoint to a full artifact id, or explain why not.
+
+    Returns ``(resolved_id, None)`` on success; ``(None, reason)`` when the
+    endpoint matches no existing artifact (dangling) or a prefix is ambiguous.
+
+    - **Exact** id match against any artifact table (or ``goals``) → use as-is.
+    - Otherwise, if ``to_id`` is a hex-ish prefix (≥6 chars), **unique-prefix
+      resolve** to the full id — prefixes are the natural paste form, so a short
+      id becomes usable rather than a literal dangling row. Ambiguous (>1 match)
+      → refuse rather than guess.
+
+    This closes the inline ``--related-to`` / ``--edge`` path's endpoint gap: it
+    used to store the raw ``to`` (a prefix or a non-existent UUID) verbatim, the
+    same silent-success class #268 fixed on the graph-batch path. Best-effort:
+    a query error on one table is skipped.
+    """
+    if not db.conn or not to_id:
+        return None, "empty endpoint"
+    cursor = db.conn.cursor()
+    lookups = [(t[1], t[2]) for t in _ARTIFACT_EDGE_TARGETS.values()]  # (table, id_col)
+    lookups.append(("goals", "id"))
+
+    # 1. Exact match — the common case (AIs paste full UUIDs).
+    for table, id_col in lookups:
+        try:
+            cursor.execute(f"SELECT 1 FROM {table} WHERE {id_col} = ? LIMIT 1", (to_id,))
+            if cursor.fetchone():
+                return to_id, None
+        except Exception:
+            continue
+
+    # 2. Unique-prefix resolution — only for hex-ish ids, so junk can't match.
+    import re as _re
+
+    if len(to_id) >= 6 and _re.fullmatch(r"[0-9a-fA-F-]{6,}", to_id):
+        matches: list[str] = []
+        for table, id_col in lookups:
+            try:
+                cursor.execute(f"SELECT {id_col} FROM {table} WHERE {id_col} LIKE ?", (to_id + "%",))
+                matches.extend(r[0] for r in cursor.fetchall())
+                if len(matches) > 1:
+                    break
+            except Exception:
+                continue
+        if len(matches) == 1:
+            return matches[0], None
+        if len(matches) > 1:
+            return None, f"ambiguous prefix '{to_id}' ({len(matches)}+ artifacts match)"
+
+    return None, f"no artifact matches '{to_id}'"
+
+
 def _persist_edges(artifact_type: str, artifact_id: str, edges: list[dict]) -> int:
     """Persist edges to SQLite data column AND patch git note JSON. Non-fatal.
 
     Returns count successfully wired. Order: SQLite first (graph_commands._store_edge),
     then git-note patch via read-modify-write. Idempotent — re-running with the same
     edges is a no-op since they're keyed by (artifact_id, to_id, relation) in JSON.
+
+    Each ``to`` endpoint is resolved via ``_resolve_edge_target`` first: a prefix
+    is resolved to its full UUID, and a dangling / ambiguous endpoint is SKIPPED
+    (logged, not counted, and not written to either SQLite or the git note) —
+    "accepted must mean applied-or-loudly-failed", the inline-flag twin of #268.
     """
     if not edges or artifact_type not in _ARTIFACT_EDGE_TARGETS:
         return 0
     wired = 0
+    wired_edges: list[dict] = []  # only successfully-resolved edges reach the git note
     # 1. SQLite
     try:
         from empirica.cli.command_handlers.graph_commands import _store_edge
@@ -190,9 +249,14 @@ def _persist_edges(artifact_type: str, artifact_id: str, edges: list[dict]) -> i
         db = SessionDatabase()
         try:
             for edge in edges:
+                resolved, reason = _resolve_edge_target(db, edge["to"])
+                if resolved is None:
+                    logger.warning(f"inline edge skipped {artifact_id}->{edge['to']} ({edge['relation']}): {reason}")
+                    continue
                 try:
-                    _store_edge(db, artifact_id, edge["to"], edge["relation"])
+                    _store_edge(db, artifact_id, resolved, edge["relation"])
                     wired += 1
+                    wired_edges.append({"to": resolved, "relation": edge["relation"]})
                 except Exception as e:
                     logger.warning(f"SQLite edge persist failed: {e}")
         finally:
@@ -200,11 +264,12 @@ def _persist_edges(artifact_type: str, artifact_id: str, edges: list[dict]) -> i
     except Exception as e:
         logger.warning(f"_persist_edges SQLite phase failed: {e}")
         return 0
-    # 2. Git note: read existing, merge edges into <type>_data, rewrite via `git notes add -f -m`.
-    try:
-        _patch_git_note_with_edges(artifact_type, artifact_id, edges)
-    except Exception as e:
-        logger.warning(f"_persist_edges git-note phase failed: {e}")
+    # 2. Git note: read existing, merge the WIRED edges into <type>_data, rewrite.
+    if wired_edges:
+        try:
+            _patch_git_note_with_edges(artifact_type, artifact_id, wired_edges)
+        except Exception as e:
+            logger.warning(f"_persist_edges git-note phase failed: {e}")
     return wired
 
 
