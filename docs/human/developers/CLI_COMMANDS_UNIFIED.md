@@ -22,9 +22,9 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.12.14
-**Generated:** 2026-07-05 23:13:09 UTC
-**Total commands:** 258 (across 26 categories)
+**Framework version:** 1.12.15
+**Generated:** 2026-07-06 15:22:08 UTC
+**Total commands:** 261 (across 26 categories)
 
 For the most up-to-date detail on any single command, prefer
 `empirica <command> --help` — the generator extracts the same `help`
@@ -65,7 +65,7 @@ require `--session-id` (`project-bootstrap`, `sessions-show`,
 | [session](#session) | 8 | `session-create`, `sessions-list`, `sessions-show`, … |
 | [workflow](#workflow) | 4 | `preflight-submit`, `check`, `check-submit`, … |
 | [goals](#goals) | 16 | `goals-create`, `goals-list`, `goals-search`, … |
-| [logging](#logging) | 25 | `finding-log`, `unknown-log`, `unknown-list`, … |
+| [logging](#logging) | 28 | `finding-log`, `unknown-log`, `unknown-list`, … |
 | [project](#project) | 18 | `project-init`, `project-update`, `project-create`, … |
 | [workspace](#workspace) | 20 | `workspace-init`, `workspace-map`, `workspace-list`, … |
 | [checkpoint](#checkpoint) | 7 | `checkpoint-create`, `checkpoint-load`, `checkpoint-list`, … |
@@ -1135,6 +1135,41 @@ Re-fetch a source and recompute its content identity (content_hash / size / mime
   Output format
 - `--verbose` — optional · flag
   Verbose output
+
+#### `empirica enforcement-report`
+
+Artifact-graph enforce telemetry: block-rate and self-resolve-rate from weave_enforce_events. self-resolve-rate is the health metric for enforce-by-default — high means the gate nudges and the system recovers on its own; low means it may be over-blocking.
+
+**Arguments:**
+
+- `--session-id` — optional
+  Scope to one session (default: all recorded verdicts)
+- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
+  Output format
+
+#### `empirica blindspot-scan`
+
+Dry-run blindspot detection: predicted unknown-unknowns for a session — stated goals/tasks with no covering artifact and no acknowledging unknown (the intent-gap signal). Reports only; wired to nobody yet.
+
+**Arguments:**
+
+- `--session-id` — optional
+  Session to scan (default: current session)
+- `--include-planned` — optional · flag
+  Include dormant 'planned' goals (backlog view); default scans active goals only
+- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
+  Output format
+
+#### `empirica blindspot-report`
+
+Blindspot telemetry: surfaced / acknowledged / dismissed / regretted rates from blindspot_events. acknowledge-rate = the nudge is useful; regret-rate = dismissed ones that later became mistakes/dead-ends.
+
+**Arguments:**
+
+- `--session-id` — optional
+  Scope to one session (default: all events)
+- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
+  Output format
 
 #### `empirica act-log`
 
