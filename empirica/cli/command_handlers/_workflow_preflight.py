@@ -766,6 +766,7 @@ def _preflight_retrieve_patterns(db, session_id, project_id, task_context, reaso
             logger.debug(
                 f"Retrieved patterns ({gap_note}): {len(patterns.get('lessons', []))} lessons, "
                 f"{len(patterns.get('dead_ends', []))} dead_ends, "
+                f"{len(patterns.get('prior_mistakes', []))} mistakes, "
                 f"{len(patterns.get('relevant_findings', []))} findings, "
                 f"{len(patterns.get('eidetic_facts', []))} eidetic, "
                 f"{len(patterns.get('episodic_narratives', []))} episodic, "
