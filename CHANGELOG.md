@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Enforce-event persistence — `weave_enforce_events` (migration 052).** The
+  artifact-graph gate's weave verdict at CHECK (connectivity vs floor, response
+  band, whether it blocked and whether it overrode the decision) was computed
+  transiently and never stored. It's now recorded one row per CHECK, **fail-open**
+  (a persistence error never affects the CHECK decision — the path is fleet-critical
+  since enforce-by-default shipped). This is the durable source for the
+  forthcoming enforcement telemetry (block-rate / self-resolve-rate) and the
+  adaptive-enforcement (`patience`) consecutive-miss history — the instrumentation
+  for observing the ECO/novelty frontier as it recedes.
+
 ### Changed
 - **Artifact-graph gate is now enforce-by-default, ecosystem-wide.** The
   `_GATE_SCALARS` defaults flip from report-only (strictness 0.25 / floor 0.50)

@@ -674,6 +674,47 @@ def _check_gate_decision(vectors, ready_uncertainty_threshold, diminishing_retur
     return decision, computed_decision, autopilot_mode, decision_binding
 
 
+def _persist_weave_event(session_id, transaction_id, block, decision_in, decision_out):
+    """Record the weave-enforce verdict to ``weave_enforce_events`` (migration 052).
+
+    Durable telemetry: one row per CHECK that produced a weave verdict — the
+    source for enforcement-report block-rate / self-resolve-rate and the
+    consecutive-miss history adaptive ``patience`` consumes. FAIL-OPEN: a
+    persistence error must never affect the CHECK decision (the CHECK path is
+    fleet-critical since enforce-by-default shipped), so every error is swallowed.
+    A missing table (un-migrated DB) simply drops the row.
+    """
+    try:
+        import time
+
+        from ._workflow_shared import _get_db_for_session
+
+        scalars = block.get("scalars") or {}
+        db = _get_db_for_session(session_id)
+        db.conn.execute(
+            """INSERT INTO weave_enforce_events
+               (session_id, transaction_id, created_timestamp, connectivity_ratio,
+                connectivity_floor, strictness, response_band, enforced,
+                decision_in, decision_out)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                session_id,
+                transaction_id,
+                time.time(),
+                block.get("connected_ratio"),
+                scalars.get("connectivity_floor"),
+                scalars.get("strictness"),
+                block.get("response"),
+                1 if block.get("enforced") else 0,
+                decision_in,
+                decision_out,
+            ),
+        )
+        db.conn.commit()
+    except Exception as e:
+        logger.debug(f"weave-event persist skipped (non-fatal): {e}")
+
+
 def _check_apply_weave_enforce(result, decision, session_id, transaction_id):
     """Artifact-graph weave-gate enforce-half (map work-stream 1).
 
@@ -683,8 +724,10 @@ def _check_apply_weave_enforce(result, decision, session_id, transaction_id):
     ``proceed`` to ``investigate``, blocking the noetic→praxic transition until
     the artifacts are woven.
 
-    DORMANT BY DEFAULT: the report-only strictness (0.25) never sets
-    ``enforced``, so this is a pure no-op until a practice dials strictness up.
+    ENFORCE BY DEFAULT (since #276): the ecosystem default strictness (0.75)
+    lands in the enforce band, so a below-floor transaction blocks unless a
+    practice dials strictness down. Every verdict is persisted to
+    ``weave_enforce_events`` (fail-open) for telemetry + adaptive patience.
     Best-effort and fail-open — a measurement error never blocks CHECK (mirrors
     the P1 lesson: gating machinery must not brick the loop it gates).
     """
@@ -694,6 +737,7 @@ def _check_apply_weave_enforce(result, decision, session_id, transaction_id):
         block = _weave_enforcement_block(session_id, transaction_id)
         if not block:
             return decision
+        decision_in = decision
         result["weave_gate"] = block
         if block.get("enforced") and decision == "proceed":
             decision = "investigate"
@@ -703,6 +747,7 @@ def _check_apply_weave_enforce(result, decision, session_id, transaction_id):
                 "reason": block.get("note", "weave more artifacts before proceeding to praxic"),
             }
             logger.info("CHECK weave-enforce override: proceed → investigate (artifact-graph gate enforced)")
+        _persist_weave_event(session_id, transaction_id, block, decision_in, decision)
     except Exception as e:
         logger.debug(f"weave-enforce check skipped (non-fatal): {e}")
     return decision

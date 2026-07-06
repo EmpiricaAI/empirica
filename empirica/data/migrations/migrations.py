@@ -1471,6 +1471,11 @@ ALL_MIGRATIONS: list[tuple[str, str, Callable]] = [
         "Add nullable engagement_id column to goals — scopes a goal to an engagement (the artifact → goal → engagement linkage of the engagement substrate). Cross-db by-id reference (goals in sessions.db, engagements in workspace.db); no FK, enforced at the API layer.",
         lambda cursor: migration_051_goals_engagement_id(cursor),
     ),
+    (
+        "052_weave_enforce_events",
+        "Create weave_enforce_events — durable telemetry for the artifact-graph gate. The weave-enforce verdict at CHECK (connectivity vs floor, band, block/override) was computed transiently and never persisted; this table is the durable record one row per CHECK, written fail-open. Feeds enforcement-report telemetry and the adaptive-enforcement (patience) consecutive-miss history.",
+        lambda cursor: migration_052_weave_enforce_events(cursor),
+    ),
 ]
 
 
@@ -2025,6 +2030,42 @@ def migration_051_goals_engagement_id(cursor: sqlite3.Cursor):
     add_column_if_missing(cursor, "goals", "engagement_id", "TEXT")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_goals_engagement_id ON goals(engagement_id)")
     logger.info("✅ Migration 051 complete: engagement_id column added to goals")
+
+
+def migration_052_weave_enforce_events(cursor: sqlite3.Cursor):
+    """Create `weave_enforce_events` — durable telemetry for the artifact-graph gate.
+
+    The weave-enforce verdict at CHECK (connectivity vs the floor, response band,
+    whether it blocked and whether it overrode the decision) was computed
+    transiently in `_check_apply_weave_enforce` and returned to the caller, but
+    never persisted — so there was no durable source for enforce block-rate /
+    self-resolve-rate telemetry, nor the consecutive-miss history that adaptive
+    `patience` needs. This table is that record: one row per CHECK that produced a
+    weave verdict.
+
+    Written fail-open — a persistence failure must never affect the CHECK decision
+    (the CHECK path is fleet-critical since enforce-by-default shipped). Both the
+    enforcement-report telemetry and the adaptive-enforcement work-stream read it.
+    Idempotent via CREATE TABLE IF NOT EXISTS.
+    """
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS weave_enforce_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT,
+            transaction_id TEXT,
+            created_timestamp REAL NOT NULL,
+            connectivity_ratio REAL,
+            connectivity_floor REAL,
+            strictness REAL,
+            response_band TEXT,
+            enforced INTEGER NOT NULL DEFAULT 0,
+            decision_in TEXT,
+            decision_out TEXT
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_weave_events_txn ON weave_enforce_events(transaction_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_weave_events_session ON weave_enforce_events(session_id)")
+    logger.info("✅ Migration 052 complete: weave_enforce_events table created")
 
 
 def migration_044_source_lifecycle(cursor: sqlite3.Cursor):
