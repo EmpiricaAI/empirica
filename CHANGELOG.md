@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Logged mistakes now surface at PREFLIGHT + CHECK (they never did).** An audit
+  found the attention-nudge mechanism ran at half-mast: `mistake-log` embedded
+  mistakes for semantic search, but the retrieval (`retrieve_task_patterns` /
+  `check_against_patterns`) had no mistakes path at all — dead-ends surfaced,
+  mistakes were the orphan, so "log a mistake so it reminds you next time" was
+  structurally broken. Mistakes are now retrieved as a first-class anti-pattern
+  (base result `prior_mistakes` at PREFLIGHT, `mistake_matches` at CHECK), parsed
+  from the same embedded text and treated exactly like dead-ends
+  (know-gap-scaled adaptive limit, budget-protected from eviction). A logged
+  mistake now nudges attention on a semantically similar task.
+
 ### Added
 - **`empirica enforcement-report` — artifact-graph enforce telemetry.** Reads
   `weave_enforce_events` and reports block-rate and — the health metric —

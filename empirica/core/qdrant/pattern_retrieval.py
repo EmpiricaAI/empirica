@@ -199,6 +199,7 @@ def _compute_adaptive_limits(vectors: dict | None, base_limit: int) -> dict[str,
             [
                 "lessons",
                 "dead_ends",
+                "mistakes",
                 "findings",
                 "eidetic",
                 "episodic",
@@ -233,6 +234,7 @@ def _compute_adaptive_limits(vectors: dict | None, base_limit: int) -> dict[str,
     return {
         "lessons": _limit(1.0, know_gap * 2),
         "dead_ends": _limit(1.0, know_gap * 2),
+        "mistakes": _limit(1.0, know_gap * 2),
         "findings": _limit(1.0),
         "eidetic": _limit(1.0, know_gap),
         "episodic": _limit(1.0, context_gap * 2),
@@ -507,6 +509,7 @@ _SECTION_TEXT_FIELDS = {
     "lessons": ["description", "name"],
     "dead_ends": ["why_failed", "approach"],
     "global_dead_ends": ["why_failed", "approach"],
+    "prior_mistakes": ["mistake", "prevention"],
     "relevant_findings": ["finding"],
     "eidetic_facts": ["content"],
     "episodic_narratives": ["narrative"],
@@ -516,6 +519,7 @@ _SECTION_TEXT_FIELDS = {
     "related_docs": ["description"],
     # CHECK (check_against_patterns)
     "dead_end_matches": ["why_failed", "approach"],
+    "mistake_matches": ["mistake", "prevention"],
     "related_findings": ["finding"],
     "eidetic_context": ["content"],
     "active_goals": ["objective"],
@@ -525,7 +529,7 @@ _SECTION_TEXT_FIELDS = {
 _NON_ITEM_KEYS = frozenset({"time_gap", "mistake_risk", "has_warnings", "_context_budget"})
 
 # Sections whose single top item is protected from budget eviction.
-_BUDGET_PROTECTED = frozenset({"lessons", "dead_ends", "relevant_findings"})
+_BUDGET_PROTECTED = frozenset({"lessons", "dead_ends", "prior_mistakes", "relevant_findings"})
 
 
 def _content_sig(text: str) -> str:
@@ -707,7 +711,13 @@ def retrieve_task_patterns(
     time_gap_info = compute_time_gap_info(last_session_timestamp)
 
     if not get_qdrant_url():
-        return {"lessons": [], "dead_ends": [], "relevant_findings": [], "time_gap": time_gap_info}
+        return {
+            "lessons": [],
+            "dead_ends": [],
+            "prior_mistakes": [],
+            "relevant_findings": [],
+            "time_gap": time_gap_info,
+        }
 
     # Adaptive limits: scale retrieval depth by vector state
     limits = _compute_adaptive_limits(vectors, limit)
@@ -746,6 +756,22 @@ def retrieve_task_patterns(
         for d in dead_ends_raw
     ]
 
+    # Search for prior mistakes (errors to not repeat). Sibling anti-pattern to
+    # dead_ends — embedded as "{mistake} Prevention: {prevention}" (type=mistake),
+    # parsed back out the same way. Always retrieved (not opt-in): a logged mistake
+    # must nudge attention on a similar task, else mistake-log is a write-only sink.
+    mistakes_raw = _search_memory_by_type(
+        project_id, f"Mistake or pitfall doing: {task_context}", "mistake", limits["mistakes"], threshold
+    )
+    prior_mistakes = [
+        {
+            "mistake": m.get("text", "").split(" Prevention:")[0] if m.get("text") else "",
+            "prevention": m.get("text", "").split("Prevention: ")[1] if "Prevention:" in m.get("text", "") else "",
+            "score": m.get("score", 0.0),
+        }
+        for m in mistakes_raw
+    ]
+
     # Search for relevant findings (high-impact facts). Over-fetch, then re-rank
     # by recency at read-time so stale findings sink below fresh relevant ones.
     findings_raw = _search_memory_by_type(
@@ -774,6 +800,7 @@ def retrieve_task_patterns(
     result = {
         "lessons": lessons,
         "dead_ends": dead_ends,
+        "prior_mistakes": prior_mistakes,
         "relevant_findings": relevant_findings,
         "time_gap": time_gap_info,
     }
@@ -905,9 +932,9 @@ def check_against_patterns(
         include_assumptions: Include unverified assumptions as risk signal
     """
     if not get_qdrant_url():
-        return {"dead_end_matches": [], "mistake_risk": None, "has_warnings": False}
+        return {"dead_end_matches": [], "mistake_matches": [], "mistake_risk": None, "has_warnings": False}
 
-    warnings = {"dead_end_matches": [], "mistake_risk": None, "has_warnings": False}
+    warnings = {"dead_end_matches": [], "mistake_matches": [], "mistake_risk": None, "has_warnings": False}
 
     # Check if current approach matches known dead ends
     if current_approach:
@@ -922,6 +949,20 @@ def check_against_patterns(
                 "similarity": d.get("score", 0.0),
             }
             for d in dead_ends
+        ]
+
+        # Check if the current approach matches known MISTAKES (sibling anti-pattern
+        # to dead_ends — surfaced here at the point of action, not just PREFLIGHT).
+        mistakes = _search_memory_by_type(
+            project_id, f"Mistake or pitfall: {current_approach}", "mistake", limit, threshold
+        )
+        warnings["mistake_matches"] = [
+            {
+                "mistake": m.get("text", "").split(" Prevention:")[0] if m.get("text") else "",
+                "prevention": m.get("text", "").split("Prevention: ")[1] if "Prevention:" in m.get("text", "") else "",
+                "similarity": m.get("score", 0.0),
+            }
+            for m in mistakes
         ]
 
     # Check vector patterns for mistake risk
@@ -965,6 +1006,7 @@ def check_against_patterns(
     # Set has_warnings flag
     warnings["has_warnings"] = (
         bool(warnings["dead_end_matches"])
+        or bool(warnings["mistake_matches"])
         or bool(warnings["mistake_risk"])
         or bool(warnings.get("unverified_assumptions"))
     )
