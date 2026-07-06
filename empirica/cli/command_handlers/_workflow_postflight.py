@@ -1420,6 +1420,19 @@ def _cortex_extract_transaction_graph(session_id):
         return {}
 
 
+def _postflight_resolve_blindspots(session_id) -> int:
+    """Stage 5c helper: advance surfaced blindspots to acknowledged/dismissed.
+
+    Best-effort — the blindspot machinery must never affect POSTFLIGHT. Returns
+    the number of blindspot_events rows transitioned.
+    """
+    from empirica.core.blindspots import resolve_blindspot_outcomes
+
+    from ._workflow_shared import _get_db_for_session
+
+    return resolve_blindspot_outcomes(_get_db_for_session(session_id), session_id)
+
+
 def _write_auto_structural_edges(session_id, transaction_id) -> int:
     """Auto-edge (Gated Artifact-Graph map, work-stream 3): persist each
     artifact's structural edge to its goal in the canonical ``artifact_edges``
@@ -1855,6 +1868,11 @@ def handle_postflight_submit_command(args):
                 session_id,
                 tx_info["transaction_id"],
             )
+
+            # Stage 5c: Blindspot outcomes — advance surfaced blindspots to
+            # acknowledged/dismissed based on whether their flagged task got
+            # engaged this session (the POSTFLIGHT learning half). Fail-open.
+            _soft_run("blindspot_outcomes", warnings, _postflight_resolve_blindspots, session_id)
 
             # Stage 6: Beliefs + Grounded verification + Storage pipeline
             _soft_run(

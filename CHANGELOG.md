@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Blindspot detection — POSTFLIGHT outcome/regret loop (T4).** Closes the loop:
+  a surfaced blindspot is advanced at POSTFLIGHT to `acknowledged` (its flagged
+  task got engaged — a finding, unknown, dead_end, or completion) or `dismissed`
+  (the goal closed with the task still bare — you proceeded past the nudge); it
+  stays `surfaced` while work is in-flight (no premature dismiss). That makes
+  `blindspot-report`'s acknowledge/dismiss rates real — the dials that tune how
+  loud the detector earns the right to be. `regretted` (the training label — a
+  dismissed blindspot that later became a mistake/dead-end) gets its mechanism
+  (`mark_blindspot_regretted`); wiring its automatic trigger from the mistake log
+  is the next micro-step. Fail-open POSTFLIGHT stage — never affects the close.
 - **Blindspot detection — CHECK advisory nudge (T3).** The intent-gap detector now
   surfaces at CHECK: `result['intent_gaps']` lists predicted blindspots (active-goal
   tasks with no coverage and no acknowledging unknown) as an **advisory — never a

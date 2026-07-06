@@ -21,6 +21,7 @@ See ``docs`` / the blindspot goal for the full transaction plan.
 from __future__ import annotations
 
 from .intent_gap import detect_intent_gaps
+from .outcomes import mark_blindspot_regretted, resolve_blindspot_outcomes
 from .persist import (
     aggregate_blindspot_events,
     persist_blindspot_candidates,
@@ -30,6 +31,8 @@ from .persist import (
 __all__ = [
     "aggregate_blindspot_events",
     "detect_intent_gaps",
+    "mark_blindspot_regretted",
     "persist_blindspot_candidates",
     "read_blindspot_events",
+    "resolve_blindspot_outcomes",
 ]
