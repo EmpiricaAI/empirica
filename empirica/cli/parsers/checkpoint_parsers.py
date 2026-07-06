@@ -1481,6 +1481,18 @@ def add_checkpoint_parsers(subparsers):
     blindspot_report_parser.add_argument("--session-id", help="Scope to one session (default: all events)")
     blindspot_report_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
 
+    # Sources sanctify (corpus hygiene — classify dead/duplicate/zombie/valid)
+    sources_sanctify_parser = subparsers.add_parser(
+        "sources-sanctify",
+        help=(
+            "Classify the active source corpus and recommend hygiene actions: "
+            "dead (canonical_path missing), duplicate (shared content_hash), "
+            "zombie (no sourced_from reference), valid. Report-only (deletions "
+            "go through review); retire flagged sources via source-archive."
+        ),
+    )
+    sources_sanctify_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
+
     # Sources reconcile (unified source identity — adopt catalogue uuids)
     sources_reconcile_parser = subparsers.add_parser(
         "sources-reconcile",

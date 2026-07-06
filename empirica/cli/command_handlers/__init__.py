@@ -253,6 +253,7 @@ from .skill_commands import (
 )
 from .sources_check_commands import handle_sources_check_command
 from .sources_reconcile_commands import handle_sources_reconcile_command
+from .sources_sanctify_commands import handle_sources_sanctify_command
 from .sources_update_commands import handle_source_update_command
 from .sync_commands import (
     handle_rebuild_command,
@@ -500,6 +501,7 @@ __all__ = [  # noqa: RUF022
     "handle_blindspot_scan_command",
     "handle_blindspot_report_command",
     "handle_sources_reconcile_command",
+    "handle_sources_sanctify_command",
     # Sync commands (git notes synchronization)
     "handle_sync_config_command",
     "handle_sync_pull_command",
