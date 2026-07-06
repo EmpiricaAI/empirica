@@ -10,6 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.12.15] — 2026-07-06
 
 ### Added
+- **Blindspot detection — regret auto-trigger.** Closes the loop's training
+  signal: a `dismissed` blindspot flips to `regretted` at POSTFLIGHT when a
+  mistake or dead-end lands on the same goal *after* the dismissal (we warned, it
+  was ignored, the gap bit). `created_timestamp > resolved_timestamp` enforces the
+  causal order; cross-transaction by construction. Fail-open. `blindspot-report`'s
+  regret-rate is now live — the money signal.
 - **Blindspot detection — POSTFLIGHT outcome/regret loop (T4).** Closes the loop:
   a surfaced blindspot is advanced at POSTFLIGHT to `acknowledged` (its flagged
   task got engaged — a finding, unknown, dead_end, or completion) or `dismissed`
