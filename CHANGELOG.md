@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **SessionStart inbox-lead truncated proposal IDs, breaking `mailbox reply`.**
+  The pending-mesh-messages block sliced the proposal id to 26 chars (`[:26]`),
+  but real ids are `prop_` + 26 = 31 chars — so the surfaced id lost its last 5
+  and failed the `mailbox show <id>` / `reply --parent-id <id>` commands the block
+  itself instructs you to run. Now shows the full id. Regression test added with a
+  real-length id (prior fixtures used short ids that never hit the cut). (#267 follow-up.)
 - **Logged mistakes now surface at PREFLIGHT + CHECK (they never did).** An audit
   found the attention-nudge mechanism ran at half-mast: `mistake-log` embedded
   mistakes for semantic search, but the retrieval (`retrieve_task_patterns` /

@@ -62,6 +62,21 @@ def test_renders_pending_messages(monkeypatch):
     assert "empirica mailbox reply" in out
 
 
+def test_full_length_proposal_id_is_not_truncated(monkeypatch):
+    # Regression (#267): real ids are "prop_" + 26 chars (31 total). A [:26] slice
+    # dropped the last 5, so the surfaced id failed the `mailbox show/reply` commands
+    # the block tells you to run. Prior fixtures used short ids (prop_01) and missed it.
+    mod = _load_hook()
+    monkeypatch.setattr(mod, "_resolve_ai_id_for_poll", lambda: "empirica")
+    full_id = "prop_6g73eoci7ngz3kcvd7aw6ktdqu"  # 31 chars
+    assert len(full_id) == 31
+    p = _prop(1)
+    p["id"] = full_id
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: _fake_run(_poll_json([p])))
+    out = mod._build_pending_inbox_lead()
+    assert full_id in out  # complete id, copyable into `mailbox reply --parent-id`
+
+
 def test_caps_at_eight_with_overflow_pointer(monkeypatch):
     mod = _load_hook()
     monkeypatch.setattr(mod, "_resolve_ai_id_for_poll", lambda: "empirica")
