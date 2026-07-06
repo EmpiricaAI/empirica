@@ -22,9 +22,13 @@ from __future__ import annotations
 # Terminal states — no intent-gap possible (the work is done or abandoned).
 _TERMINAL_GOAL_STATUS = frozenset({"completed", "complete", "done", "abandoned", "cancelled", "stale"})
 _TERMINAL_TASK_STATUS = frozenset({"completed", "complete", "done", "cancelled", "abandoned"})
+# Dormant — logged but not started. A planned goal's untouched subtasks are backlog,
+# not a blindspot in the work you're doing now. Excluded from the nudge by default
+# (inspection finding: firing on stale backlog trains dismissal). See ``active_only``.
+_DORMANT_GOAL_STATUS = frozenset({"planned"})
 
 
-def detect_intent_gaps(goal_tree: list[dict] | None) -> list[dict]:
+def detect_intent_gaps(goal_tree: list[dict] | None, active_only: bool = True) -> list[dict]:
     """Return intent-gap blindspot candidates from a session's goal tree.
 
     ``goal_tree`` — the output of ``GoalDataRepository.get_goal_tree(session_id)``:
@@ -35,10 +39,17 @@ def detect_intent_gaps(goal_tree: list[dict] | None) -> list[dict]:
     whose findings, unknowns, and dead_ends are all empty — stated intent with no
     coverage, no acknowledgment, and no attempt. Conservative by design: any of the
     three lists being non-empty masks the subtask out.
+
+    ``active_only`` (default True) additionally skips **dormant ``planned`` goals** —
+    a not-yet-started goal's subtasks are backlog, not a blindspot in active work.
+    Pass ``active_only=False`` for a full backlog view (the ``--include-planned`` scan flag).
     """
     candidates: list[dict] = []
     for goal in goal_tree or []:
-        if (goal.get("status") or "").strip().lower() in _TERMINAL_GOAL_STATUS:
+        status = (goal.get("status") or "").strip().lower()
+        if status in _TERMINAL_GOAL_STATUS:
+            continue
+        if active_only and status in _DORMANT_GOAL_STATUS:
             continue
         objective = goal.get("objective") or ""
         for st in goal.get("subtasks") or []:

@@ -44,6 +44,21 @@ def test_unknown_masks_it_acknowledged():
     assert detect_intent_gaps([_goal(subtasks=[_sub(unknowns=["what about Z?"])])]) == []
 
 
+def test_planned_goal_excluded_by_default():
+    # dormant 'planned' goal's untouched subtask is backlog, not an active blindspot
+    assert detect_intent_gaps([_goal(status="planned", subtasks=[_sub()])]) == []
+
+
+def test_planned_goal_included_when_active_only_false():
+    gaps = detect_intent_gaps([_goal(status="planned", subtasks=[_sub()])], active_only=False)
+    assert len(gaps) == 1  # backlog view surfaces it
+
+
+def test_in_progress_blocked_active_goals_are_in_scope():
+    for st in ("in_progress", "blocked", "active"):
+        assert len(detect_intent_gaps([_goal(status=st, subtasks=[_sub()])])) == 1, st
+
+
 def test_dead_end_masks_it_attempted():
     assert detect_intent_gaps([_goal(subtasks=[_sub(dead_ends=["tried A, failed"])])]) == []
 

@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Blindspot detection — persistence + telemetry + active-goal scoping (T2).**
+  `blindspot_events` (migration 053) is the durable, **fail-open** substrate for
+  blindspot outcomes (surfaced / acknowledged / dismissed / regretted); a new
+  `empirica blindspot-report` renders the telemetry (acknowledge-rate = the nudge
+  is useful; regret-rate = dismissed ones that later became mistakes/dead-ends).
+  Instrument-before-surface, the enforce-telemetry playbook. `detect_intent_gaps`
+  now scopes to **active goals by default** (excludes dormant `planned` backlog —
+  a dry-run inspection showed planned-goal subtasks are task-hygiene, not
+  unknown-unknowns); `blindspot-scan --include-planned` gives the full backlog
+  view. Verified: active-scope narrowed a live session from 9 candidates to the 2
+  genuinely-forward-looking ones.
 - **Blindspot detection — scaffold + intent-gap signal (`empirica blindspot-scan`,
   dry-run).** First step toward inferring unknown-unknowns from the artifact corpus.
   A blindspot is *absent + unacknowledged + inferred* — and the least-noisy signal

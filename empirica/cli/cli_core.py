@@ -395,6 +395,7 @@ _HELP_CATEGORIES = {
         "source-update",
         "enforcement-report",
         "blindspot-scan",
+        "blindspot-report",
         "act-log",
         "investigate-log",
         "log-artifacts",
@@ -906,6 +907,7 @@ def main(args=None):
             "source-update": handle_source_update_command,
             "enforcement-report": handle_enforcement_report_command,
             "blindspot-scan": handle_blindspot_scan_command,
+            "blindspot-report": handle_blindspot_report_command,
             "epp-activate": handle_epp_activate_command,
             # Training data export
             "training-export": handle_training_export_command,

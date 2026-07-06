@@ -1476,6 +1476,11 @@ ALL_MIGRATIONS: list[tuple[str, str, Callable]] = [
         "Create weave_enforce_events — durable telemetry for the artifact-graph gate. The weave-enforce verdict at CHECK (connectivity vs floor, band, block/override) was computed transiently and never persisted; this table is the durable record one row per CHECK, written fail-open. Feeds enforcement-report telemetry and the adaptive-enforcement (patience) consecutive-miss history.",
         lambda cursor: migration_052_weave_enforce_events(cursor),
     ),
+    (
+        "053_blindspot_events",
+        "Create blindspot_events — durable substrate for blindspot detection: surfaced candidates + outcome (surfaced/acknowledged/dismissed/regretted). Written fail-open. Feeds blindspot-report telemetry and the POSTFLIGHT regret loop (a dismissed blindspot that later became a mistake/dead-end). Instrument-before-surface.",
+        lambda cursor: migration_053_blindspot_events(cursor),
+    ),
 ]
 
 
@@ -2066,6 +2071,43 @@ def migration_052_weave_enforce_events(cursor: sqlite3.Cursor):
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_weave_events_txn ON weave_enforce_events(transaction_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_weave_events_session ON weave_enforce_events(session_id)")
     logger.info("✅ Migration 052 complete: weave_enforce_events table created")
+
+
+def migration_053_blindspot_events(cursor: sqlite3.Cursor):
+    """Create `blindspot_events` — durable substrate for blindspot detection.
+
+    One row per surfaced blindspot candidate, plus its outcome over time. This is
+    the instrument-before-surface substrate: the ``blindspot-report`` telemetry
+    (surfaced / acknowledged / dismissed / regretted) and the POSTFLIGHT regret
+    loop (a dismissed blindspot that later became a mistake or dead-end) both read
+    it. Written fail-open — a persistence failure must never affect CHECK/POSTFLIGHT.
+
+    - ``kind``        — signal type (``intent_gap``; later ``co_occurrence`` / ``fossil``)
+    - ``surfaced_at`` — where it was raised (``scan`` / ``check`` / ``postflight``)
+    - ``outcome``     — ``surfaced`` → ``acknowledged`` (logged an unknown) / ``dismissed``
+                        / ``regretted`` (dismissed then became a mistake/dead-end)
+
+    Idempotent via CREATE TABLE IF NOT EXISTS.
+    """
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS blindspot_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT,
+            transaction_id TEXT,
+            created_timestamp REAL NOT NULL,
+            kind TEXT,
+            goal_id TEXT,
+            subtask_id TEXT,
+            intent TEXT,
+            surfaced_at TEXT,
+            outcome TEXT NOT NULL DEFAULT 'surfaced',
+            resolved_timestamp REAL
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_blindspot_events_txn ON blindspot_events(transaction_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_blindspot_events_session ON blindspot_events(session_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_blindspot_events_subtask ON blindspot_events(subtask_id)")
+    logger.info("✅ Migration 053 complete: blindspot_events table created")
 
 
 def migration_044_source_lifecycle(cursor: sqlite3.Cursor):

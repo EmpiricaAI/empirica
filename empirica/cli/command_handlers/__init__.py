@@ -25,7 +25,7 @@ from .artifact_log_commands import (
     handle_unknown_resolve_command,
 )
 from .artifacts_commands import handle_artifacts_generate_command
-from .blindspot_commands import handle_blindspot_scan_command
+from .blindspot_commands import handle_blindspot_report_command, handle_blindspot_scan_command
 from .checkpoint_commands import (
     handle_checkpoint_create_command,
     handle_checkpoint_diff_command,
@@ -498,6 +498,7 @@ __all__ = [  # noqa: RUF022
     "handle_source_update_command",
     "handle_enforcement_report_command",
     "handle_blindspot_scan_command",
+    "handle_blindspot_report_command",
     "handle_sources_reconcile_command",
     # Sync commands (git notes synchronization)
     "handle_sync_config_command",

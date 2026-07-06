@@ -1462,7 +1462,24 @@ def add_checkpoint_parsers(subparsers):
         ),
     )
     blindspot_scan_parser.add_argument("--session-id", help="Session to scan (default: current session)")
+    blindspot_scan_parser.add_argument(
+        "--include-planned",
+        action="store_true",
+        help="Include dormant 'planned' goals (backlog view); default scans active goals only",
+    )
     blindspot_scan_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
+
+    # Blindspot report (telemetry — surfaced/acknowledged/dismissed/regretted)
+    blindspot_report_parser = subparsers.add_parser(
+        "blindspot-report",
+        help=(
+            "Blindspot telemetry: surfaced / acknowledged / dismissed / regretted rates "
+            "from blindspot_events. acknowledge-rate = the nudge is useful; regret-rate = "
+            "dismissed ones that later became mistakes/dead-ends."
+        ),
+    )
+    blindspot_report_parser.add_argument("--session-id", help="Scope to one session (default: all events)")
+    blindspot_report_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
 
     # Sources reconcile (unified source identity — adopt catalogue uuids)
     sources_reconcile_parser = subparsers.add_parser(
