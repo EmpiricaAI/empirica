@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Blindspot detection — scaffold + intent-gap signal (`empirica blindspot-scan`,
+  dry-run).** First step toward inferring unknown-unknowns from the artifact corpus.
+  A blindspot is *absent + unacknowledged + inferred* — and the least-noisy signal
+  is against **stated intent**: an open goal/task with no covering finding, no
+  acknowledging `unknown`, and no attempt (the per-task finding/unknown/dead_end
+  lists are the mask). New `empirica/core/blindspots/` module with a pure,
+  unit-tested `detect_intent_gaps()`. `blindspot-scan` reports candidates for a
+  session (human/JSON) — **dry-run only**: wired to nobody (no CHECK nudge, no
+  persistence) until later transactions. Explicitly **not** keyword/ontology based.
+
 ### Fixed
 - **SessionStart inbox-lead truncated proposal IDs, breaking `mailbox reply`.**
   The pending-mesh-messages block sliced the proposal id to 26 chars (`[:26]`),
