@@ -1449,12 +1449,8 @@ def add_checkpoint_parsers(subparsers):
             "recovers on its own; low means it may be over-blocking."
         ),
     )
-    enforcement_report_parser.add_argument(
-        "--session-id", help="Scope to one session (default: all recorded verdicts)"
-    )
-    enforcement_report_parser.add_argument(
-        "--output", choices=["human", "json"], default="human", help="Output format"
-    )
+    enforcement_report_parser.add_argument("--session-id", help="Scope to one session (default: all recorded verdicts)")
+    enforcement_report_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
 
     # Sources reconcile (unified source identity — adopt catalogue uuids)
     sources_reconcile_parser = subparsers.add_parser(
