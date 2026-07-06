@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`empirica enforcement-report` — artifact-graph enforce telemetry.** Reads
+  `weave_enforce_events` and reports block-rate and — the health metric —
+  **self-resolve-rate**: of the transactions the gate blocked, how many recovered
+  on their own (wove an edge → re-CHECK proceeded) vs stalled. High self-resolve =
+  the gate nudges and the system recovers autonomously (working as designed); low =
+  it's over-blocking (a low rate prints a floor-tuning hint). The empirical answer
+  to "how well is enforce-by-default going," and the first read of the ECO/novelty
+  frontier. Human + JSON; optional `--session-id` scope.
 - **Enforce-event persistence — `weave_enforce_events` (migration 052).** The
   artifact-graph gate's weave verdict at CHECK (connectivity vs floor, response
   band, whether it blocked and whether it overrode the decision) was computed

@@ -78,6 +78,7 @@ from .doctor import handle_doctor_command
 from .ecosystem_commands import (
     handle_ecosystem_check_command,
 )
+from .enforcement_report_commands import handle_enforcement_report_command
 from .engagement_commands import (
     handle_engagement_create_command,
     handle_engagement_list_command,
@@ -494,6 +495,7 @@ __all__ = [  # noqa: RUF022
     "handle_sources_map_command",
     "handle_sources_check_command",
     "handle_source_update_command",
+    "handle_enforcement_report_command",
     "handle_sources_reconcile_command",
     # Sync commands (git notes synchronization)
     "handle_sync_config_command",

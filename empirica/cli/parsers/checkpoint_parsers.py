@@ -1439,6 +1439,19 @@ def add_checkpoint_parsers(subparsers):
     source_update_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
     source_update_parser.add_argument("--verbose", action="store_true", help="Verbose output")
 
+    # Enforcement report (artifact-graph enforce telemetry — block/self-resolve rate)
+    enforcement_report_parser = subparsers.add_parser(
+        "enforcement-report",
+        help=(
+            "Artifact-graph enforce telemetry: block-rate and self-resolve-rate "
+            "from weave_enforce_events. self-resolve-rate is the health metric for "
+            "enforce-by-default — high means the gate nudges and the system "
+            "recovers on its own; low means it may be over-blocking."
+        ),
+    )
+    enforcement_report_parser.add_argument("--session-id", help="Scope to one session (default: all recorded verdicts)")
+    enforcement_report_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
+
     # Sources reconcile (unified source identity — adopt catalogue uuids)
     sources_reconcile_parser = subparsers.add_parser(
         "sources-reconcile",

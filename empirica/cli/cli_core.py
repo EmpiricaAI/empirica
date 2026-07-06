@@ -393,6 +393,7 @@ _HELP_CATEGORIES = {
         "sources-check",
         "source-archive",
         "source-update",
+        "enforcement-report",
         "act-log",
         "investigate-log",
         "log-artifacts",
@@ -902,6 +903,7 @@ def main(args=None):
             "sources-check": handle_sources_check_command,
             "source-archive": handle_source_archive_command,
             "source-update": handle_source_update_command,
+            "enforcement-report": handle_enforcement_report_command,
             "epp-activate": handle_epp_activate_command,
             # Training data export
             "training-export": handle_training_export_command,
