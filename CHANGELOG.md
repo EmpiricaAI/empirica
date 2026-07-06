@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Blindspot detection — CHECK advisory nudge (T3).** The intent-gap detector now
+  surfaces at CHECK: `result['intent_gaps']` lists predicted blindspots (active-goal
+  tasks with no coverage and no acknowledging unknown) as an **advisory — never a
+  block**. Unlike weave-enforce (which gates on a measured fact), a blindspot is a
+  prediction, so it nudges but never flips `proceed→investigate`. Each fresh
+  candidate persists to `blindspot_events` (deduped across repeated CHECKs) so the
+  telemetry + regret loop accrue from the first nudge. Fail-open — a measurement
+  error yields no advisory and never affects CHECK.
 - **Blindspot detection — persistence + telemetry + active-goal scoping (T2).**
   `blindspot_events` (migration 053) is the durable, **fail-open** substrate for
   blindspot outcomes (surfaced / acknowledged / dismissed / regretted); a new

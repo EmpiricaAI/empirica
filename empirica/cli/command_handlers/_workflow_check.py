@@ -753,6 +753,50 @@ def _check_apply_weave_enforce(result, decision, session_id, transaction_id):
     return decision
 
 
+def _check_surface_blindspots(result, session_id, transaction_id):
+    """Advisory: surface active-goal intent-gap blindspots in the CHECK response.
+
+    ADVISORY ONLY — never touches ``decision``. Unlike weave-enforce (which gates
+    on a *measured fact*), a blindspot is a *prediction*; you never block real work
+    on a guess. Attaches ``result['intent_gaps']`` (distinct from the external
+    predictor's ``result['blindspots']``) and persists each NEW candidate to
+    ``blindspot_events`` (surfaced_at='check') for telemetry + the regret loop —
+    deduped against already-surfaced-unresolved rows so repeated CHECKs don't
+    duplicate. Fail-open: any error yields no advisory and never affects CHECK.
+    """
+    try:
+        from empirica.core.blindspots import (
+            detect_intent_gaps,
+            persist_blindspot_candidates,
+            read_blindspot_events,
+        )
+
+        from ._workflow_shared import _get_db_for_session
+
+        db = _get_db_for_session(session_id)
+        gaps = detect_intent_gaps(db.goals.get_goal_tree(session_id), active_only=True)
+        if not gaps:
+            return
+        result["intent_gaps"] = {
+            "predicted": gaps[:5],
+            "note": (
+                "Predicted blindspots — stated tasks with no coverage and no acknowledging "
+                "unknown. ADVISORY (not a block): log an `unknown` to acknowledge one, "
+                "cover it with a finding, or dismiss it."
+            ),
+        }
+        already = {
+            r.get("subtask_id")
+            for r in read_blindspot_events(db, session_id)
+            if (r.get("outcome") or "surfaced") == "surfaced"
+        }
+        fresh = [g for g in gaps if g.get("subtask_id") not in already]
+        if fresh:
+            persist_blindspot_candidates(db, session_id, transaction_id, fresh, "check")
+    except Exception as e:
+        logger.debug(f"blindspot surface skipped (non-fatal): {e}")
+
+
 def _check_store_and_publish(session_id, round_num, vectors, decision, reasoning, cycle):
     """Store CHECK checkpoint (3-layer) and publish bus event.
 
@@ -1291,6 +1335,11 @@ def handle_check_submit_command(args):
             # Dormant by default (report-only strictness) — only blocks when a
             # practice dials strictness into the enforce band. Map work-stream 1.
             decision = _check_apply_weave_enforce(result, decision, session_id, check_transaction_id)
+
+            # Stage 13.6: Blindspot advisory — surface active-goal intent-gaps.
+            # ADVISORY ONLY (never overrides decision — a blindspot is a prediction,
+            # not a measured fact). Persists to blindspot_events for telemetry.
+            _check_surface_blindspots(result, session_id, check_transaction_id)
 
             # Stage 14: Pattern retrieval + codebase context
             _check_enrich_context(result, bootstrap_result, bootstrap_status, vectors, reasoning)
