@@ -1452,6 +1452,18 @@ def add_checkpoint_parsers(subparsers):
     enforcement_report_parser.add_argument("--session-id", help="Scope to one session (default: all recorded verdicts)")
     enforcement_report_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
 
+    # Blindspot scan (dry-run unknown-unknown detection — intent-gap signal)
+    blindspot_scan_parser = subparsers.add_parser(
+        "blindspot-scan",
+        help=(
+            "Dry-run blindspot detection: predicted unknown-unknowns for a session — "
+            "stated goals/tasks with no covering artifact and no acknowledging unknown "
+            "(the intent-gap signal). Reports only; wired to nobody yet."
+        ),
+    )
+    blindspot_scan_parser.add_argument("--session-id", help="Session to scan (default: current session)")
+    blindspot_scan_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
+
     # Sources reconcile (unified source identity — adopt catalogue uuids)
     sources_reconcile_parser = subparsers.add_parser(
         "sources-reconcile",

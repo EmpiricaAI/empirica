@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Blindspot detection — scaffold + intent-gap signal (`empirica blindspot-scan`,
+  dry-run).** First step toward inferring unknown-unknowns from the artifact corpus.
+  A blindspot is *absent + unacknowledged + inferred* — and the least-noisy signal
+  is against **stated intent**: an open goal/task with no covering finding, no
+  acknowledging `unknown`, and no attempt (the per-task finding/unknown/dead_end
+  lists are the mask). New `empirica/core/blindspots/` module with a pure,
+  unit-tested `detect_intent_gaps()`. `blindspot-scan` reports candidates for a
+  session (human/JSON) — **dry-run only**: wired to nobody (no CHECK nudge, no
+  persistence) until later transactions. Explicitly **not** keyword/ontology based.
+
 ### Fixed
 - **Logged mistakes now surface at PREFLIGHT + CHECK (they never did).** An audit
   found the attention-nudge mechanism ran at half-mast: `mistake-log` embedded
