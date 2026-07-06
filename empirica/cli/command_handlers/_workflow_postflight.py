@@ -1426,11 +1426,16 @@ def _postflight_resolve_blindspots(session_id) -> int:
     Best-effort — the blindspot machinery must never affect POSTFLIGHT. Returns
     the number of blindspot_events rows transitioned.
     """
-    from empirica.core.blindspots import resolve_blindspot_outcomes
+    from empirica.core.blindspots import apply_blindspot_regret, resolve_blindspot_outcomes
 
     from ._workflow_shared import _get_db_for_session
 
-    return resolve_blindspot_outcomes(_get_db_for_session(session_id), session_id)
+    db = _get_db_for_session(session_id)
+    resolved = resolve_blindspot_outcomes(db, session_id)
+    # Then the regret pass: dismissed blindspots whose gap later bit (a mistake /
+    # dead-end on the same goal after the dismissal) become the training label.
+    regretted = apply_blindspot_regret(db, session_id)
+    return resolved + regretted
 
 
 def _write_auto_structural_edges(session_id, transaction_id) -> int:

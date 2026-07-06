@@ -7,8 +7,9 @@ with the task still bare — you proceeded past the nudge). That makes
 loud the detector earns the right to be.
 
 ``regretted`` — the training label (a *dismissed* blindspot that later became a
-mistake/dead-end) — gets its mechanism here (``mark_blindspot_regretted``); wiring
-the automatic trigger from the mistake/dead-end log is the documented next step.
+mistake/dead-end) — is applied automatically by ``apply_blindspot_regret`` at
+POSTFLIGHT (goal-level correlation, causally ordered); ``mark_blindspot_regretted``
+is the direct-subtask primitive it and callers use.
 
 All fail-open — the blindspot machinery must never affect POSTFLIGHT.
 """
@@ -91,5 +92,56 @@ def mark_blindspot_regretted(db, session_id: str, subtask_id: str) -> int:
         )
         db.conn.commit()
         return cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+    except Exception:
+        return 0
+
+
+def apply_blindspot_regret(db, session_id: str) -> int:
+    """Auto-flip dismissed blindspots to ``regretted`` — the training label.
+
+    For each ``dismissed`` blindspot, if a mistake (``mistakes_made``) or dead-end
+    (``session_dead_ends``) with the same ``goal_id`` was logged *after* the
+    blindspot was dismissed (``resolved_timestamp``), the warned-about gap bit:
+    flip it to ``regretted``. The ``created_timestamp > resolved_timestamp`` guard
+    enforces the causal order (the mistake came after the dismissal). Cross-
+    transaction by construction — both the dismissal and the mistake persist.
+
+    Fail-open: returns rows flipped, or 0 on any error (including absent tables on
+    a partial DB). Runs at POSTFLIGHT after ``resolve_blindspot_outcomes``.
+    """
+    try:
+        dismissed = db.conn.execute(
+            "SELECT goal_id, subtask_id, resolved_timestamp FROM blindspot_events "
+            "WHERE session_id = ? AND outcome = 'dismissed'",
+            (session_id,),
+        ).fetchall()
+        if not dismissed:
+            return 0
+
+        flipped = 0
+        now = time.time()
+        for goal_id, subtask_id, resolved_ts in dismissed:
+            since = resolved_ts or 0
+            mistake_hit = db.conn.execute(
+                "SELECT 1 FROM mistakes_made WHERE session_id = ? AND goal_id = ? AND created_timestamp > ? LIMIT 1",
+                (session_id, goal_id, since),
+            ).fetchone()
+            dead_end_hit = None
+            if not mistake_hit:
+                dead_end_hit = db.conn.execute(
+                    "SELECT 1 FROM session_dead_ends WHERE session_id = ? "
+                    "AND (goal_id = ? OR subtask_id = ?) AND created_timestamp > ? LIMIT 1",
+                    (session_id, goal_id, subtask_id, since),
+                ).fetchone()
+            if mistake_hit or dead_end_hit:
+                db.conn.execute(
+                    "UPDATE blindspot_events SET outcome = 'regretted', resolved_timestamp = ? "
+                    "WHERE session_id = ? AND goal_id = ? AND subtask_id = ? AND outcome = 'dismissed'",
+                    (now, session_id, goal_id, subtask_id),
+                )
+                flipped += 1
+        if flipped:
+            db.conn.commit()
+        return flipped
     except Exception:
         return 0
