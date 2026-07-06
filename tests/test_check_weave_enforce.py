@@ -1,10 +1,10 @@
 """Artifact-graph weave-enforce at the CHECK gate (map work-stream 1 enforce-half).
 
-The gate can now BLOCK the noetic→praxic transition — but ONLY when a practice
-dials strictness into the enforce band (≥0.70) and the transaction's artifacts
-are below the connectivity floor. By default (report-only strictness) it's a pure
-no-op. And it's fail-open: a measurement error never blocks CHECK (the P1 lesson —
-gating machinery must not brick the loop it gates).
+The gate BLOCKS the noetic→praxic transition when strictness is in the enforce
+band (≥0.70) and the transaction's artifacts are below the connectivity floor.
+Enforce is now the ecosystem default (strictness 0.75); a practice dials DOWN to
+make it a no-op. And it's fail-open: a measurement error never blocks CHECK (the
+P1 lesson — gating machinery must not brick the loop it gates).
 """
 
 from __future__ import annotations

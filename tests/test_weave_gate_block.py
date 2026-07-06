@@ -2,9 +2,10 @@
 
 Gated Artifact-Graph map, work-stream 1 foundation (goal 43471346). Three
 orthogonal 0.0–1.0 dimensions — strictness / connectivity_floor / patience —
-resolved from env (the extension's Sentinel sliders). REPORT-ONLY in this
-build: `enforced` is always False even at the `enforce` response band; the
-soft/hard *blocking* is a deliberate follow-up keyed on strictness.
+resolved from env (the extension's Sentinel sliders) / project.yaml / default.
+ENFORCE-BY-DEFAULT (ecosystem-wide, from 1.12.15): the default strictness 0.75
+lands in the `enforce` band, so `enforced` is True below the floor; a practice
+opts DOWN to report-only by dialing strictness < 0.70.
 """
 
 from __future__ import annotations
@@ -27,11 +28,13 @@ def _clear(monkeypatch):
         monkeypatch.delenv(e, raising=False)
 
 
-def test_default_scalars_are_report_only_and_forgiving(monkeypatch):
+def test_default_scalars_are_enforce_and_forgiving(monkeypatch):
     _clear(monkeypatch)
+    # Ecosystem-wide enforce-by-default: strictness in the enforce band (>=0.70),
+    # floor kept forgiving (0.34) so weaving one edge per few artifacts satisfies.
     assert _resolve_gate_scalars() == {
-        "strictness": 0.25,
-        "connectivity_floor": 0.50,
+        "strictness": 0.75,
+        "connectivity_floor": 0.34,
         "patience": 0.80,
     }
 
@@ -50,7 +53,7 @@ def test_scalars_env_driven_and_clamped(monkeypatch):
 def test_bad_env_value_falls_back_to_default(monkeypatch):
     _clear(monkeypatch)
     monkeypatch.setenv("EMPIRICA_ARTIFACT_GRAPH_STRICTNESS", "not-a-number")
-    assert _resolve_gate_scalars()["strictness"] == 0.25
+    assert _resolve_gate_scalars()["strictness"] == 0.75
 
 
 def test_response_bands_ladder():
@@ -68,18 +71,18 @@ def test_connected_verdict_at_default(monkeypatch):
     _clear(monkeypatch)
     g = _weave_gate_block(total_artifacts=3, edges_count=3)
     assert g is not None
-    assert g["response"] == "report"
+    assert g["response"] == "enforce"  # default strictness 0.75 → enforce band
     assert g["verdict"] == "connected"
     assert g["connected_ratio"] == 1.0
     assert g["satisfied"] is True
-    assert g["enforced"] is False
+    assert g["enforced"] is False  # satisfied → no block even in enforce band
 
 
 def test_partial_and_disconnected(monkeypatch):
     _clear(monkeypatch)
     partial = _weave_gate_block(4, 1)
     assert partial["verdict"] == "partial"
-    assert partial["satisfied"] is False  # 0.25 ratio < 0.50 floor
+    assert partial["satisfied"] is False  # 0.25 ratio < 0.34 floor
     assert _weave_gate_block(3, 0)["verdict"] == "disconnected"
 
 
@@ -104,14 +107,15 @@ def test_no_artifacts_returns_none(monkeypatch):
 def test_enforces_at_enforce_band_below_floor(monkeypatch):
     _clear(monkeypatch)
     monkeypatch.setenv("EMPIRICA_ARTIFACT_GRAPH_STRICTNESS", "0.9")
-    g = _weave_gate_block(2, 0)  # 0% connected, below the 50% floor
+    g = _weave_gate_block(2, 0)  # 0% connected, below the 34% floor
     assert g["response"] == "enforce"
     assert g["enforced"] is True  # enforce band + below floor → blocks
 
 
 def test_report_and_warn_bands_never_enforce(monkeypatch):
     _clear(monkeypatch)
-    # default (report, 0.25) below floor → dormant
+    # report band (0.25, an opt-down) below floor → dormant, never blocks
+    monkeypatch.setenv("EMPIRICA_ARTIFACT_GRAPH_STRICTNESS", "0.25")
     assert _weave_gate_block(2, 0)["enforced"] is False
     # warn band (0.5) below floor → still report-only, no block
     monkeypatch.setenv("EMPIRICA_ARTIFACT_GRAPH_STRICTNESS", "0.5")

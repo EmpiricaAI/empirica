@@ -580,12 +580,22 @@ def _retro_count_edges(cursor, session_id: str, transaction_id: str | None) -> i
 # transport into the CLI. This dict is the SINGLE source of truth for both the
 # default values and the env-var names — deliberately not split across call
 # sites (the engagement_gate's 12-site duplicated-default mess is the anti-
-# pattern this avoids). Defaults keep a fresh install report-only + forgiving:
-# the gate never blocks until a human dials strictness up.
+# pattern this avoids).
+#
+# ENFORCE-BY-DEFAULT (ecosystem-wide, from 1.12.15). The model is inverted from
+# the earlier opt-IN default: enforcement of artifact-graph connectivity is the
+# baseline discipline every practice inherits, and a practice opts DOWN rather
+# than up. This is the grounding keystone for ECO-gated autonomous work —
+# physically-enforced weave discipline, not honor-system. The 0.75 / 0.34 pair
+# is the config empirica dogfooded (it soft-blocks CHECK below the floor, always
+# recoverable by weaving one edge). To opt a practice/session down:
+#   - session:  export EMPIRICA_ARTIFACT_GRAPH_STRICTNESS=0.25   (report-only)
+#   - practice: .empirica/project.yaml  ->  artifact_graph: {strictness: 0.25}
+# Precedence (env > project.yaml > default) is unchanged; only the default moved.
 _GATE_SCALARS = {
     # key                  (default, env var)
-    "strictness": (0.25, "EMPIRICA_ARTIFACT_GRAPH_STRICTNESS"),
-    "connectivity_floor": (0.50, "EMPIRICA_ARTIFACT_GRAPH_FLOOR"),
+    "strictness": (0.75, "EMPIRICA_ARTIFACT_GRAPH_STRICTNESS"),
+    "connectivity_floor": (0.34, "EMPIRICA_ARTIFACT_GRAPH_FLOOR"),
     "patience": (0.80, "EMPIRICA_ARTIFACT_GRAPH_PATIENCE"),
 }
 
@@ -657,8 +667,9 @@ def _gate_response_for(strictness: float) -> str:
     - ``silent`` (<0.05) — gate computes nothing, returns None (fully dialed down).
     - ``report`` (<0.40) — verdict attached, no pressure (default band).
     - ``warn``   (<0.70) — verdict + explicit "should weave more" language.
-    - ``enforce`` (≥0.70) — verdict + would-block signal. Blocking itself is a
-      follow-up work-stream; this build still returns ``enforced: False``.
+    - ``enforce`` (≥0.70) — verdict + block signal; the CHECK gate flips
+      proceed→investigate below the floor (recoverable by weaving). This is the
+      ecosystem default band (strictness 0.75).
     """
     if strictness < 0.05:
         return "silent"
@@ -680,11 +691,12 @@ def _weave_gate_block(total_artifacts: int, edges_count: int) -> dict | None:
 
     **Enforcement is strictness-driven.** ``enforced`` is True ONLY at the
     ``enforce`` band (strictness ≥ 0.70) AND below the connectivity floor — at
-    every lower band it stays ``False`` (report-only), so the default (strictness
-    0.25) never blocks. A practice opts into enforcement by dialing strictness up;
-    the consumer (the CHECK gate) blocks the noetic→praxic transition when
-    ``enforced``. Returns None when strictness dials the gate fully ``silent``
-    (<0.05) or there are no artifacts.
+    every lower band it stays ``False`` (report-only). The ecosystem default
+    (strictness 0.75, floor 0.34) lands in the enforce band, so enforcement is
+    the baseline; a practice opts DOWN by dialing strictness below 0.70 (env var
+    or project.yaml). The consumer (the CHECK gate) blocks the noetic→praxic
+    transition when ``enforced``. Returns None when strictness dials the gate
+    fully ``silent`` (<0.05) or there are no artifacts.
     """
     scalars = _resolve_gate_scalars()
     response = _gate_response_for(scalars["strictness"])

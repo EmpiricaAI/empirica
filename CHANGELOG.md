@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Artifact-graph gate is now enforce-by-default, ecosystem-wide.** The
+  `_GATE_SCALARS` defaults flip from report-only (strictness 0.25 / floor 0.50)
+  to enforce (strictness **0.75** / floor **0.34**) — the pair empirica dogfooded.
+  The model inverts from opt-IN-enforce to enforce-by-default + opt-DOWN: below
+  34% artifact-graph connectivity the CHECK gate soft-blocks the noetic→praxic
+  transition (flips `proceed`→`investigate`, always recoverable by weaving one
+  edge — `--related-to` / `--edge` / `log-artifacts` edges). This makes grounded
+  weave-discipline the physically-enforced baseline for ECO-gated autonomous
+  work rather than an honor-system nudge. Escape hatches unchanged and
+  precedence-preserved (env > project.yaml > default): a session opts down with
+  `EMPIRICA_ARTIFACT_GRAPH_STRICTNESS=0.25`, a practice with an `artifact_graph`
+  block in `.empirica/project.yaml`. Enforcement is fail-open (a measurement
+  error never blocks) and only ever soft-blocks at CHECK — POSTFLIGHT stays
+  report-only.
+
 ## [1.12.14] — 2026-07-06
 
 ### Added
