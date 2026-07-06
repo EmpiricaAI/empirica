@@ -10,7 +10,7 @@ FROM python:3.11-alpine3.23
 
 LABEL maintainer="Empirica Team"
 LABEL description="Epistemic self-assessment framework for AI agents"
-LABEL version="1.12.14"
+LABEL version="1.12.15"
 LABEL security.hardened="true"
 
 # Set working directory
@@ -28,15 +28,15 @@ RUN apk add --no-cache \
     && rm -rf /var/cache/apk/*
 
 # Copy package files
-COPY dist/empirica-1.12.14-py3-none-any.whl /tmp/
+COPY dist/empirica-1.12.15-py3-none-any.whl /tmp/
 
 # Upgrade pip, setuptools, and wheel
 # CVE-2025-47273 (setuptools), CVE-2024-6345 (setuptools), CVE-2026-24049 (wheel <0.46.2)
 RUN pip install --no-cache-dir --upgrade pip setuptools "wheel>=0.46.2"
 
 # Install Empirica with no cache
-RUN pip install --no-cache-dir --no-compile /tmp/empirica-1.12.14-py3-none-any.whl \
-    && rm /tmp/empirica-1.12.14-py3-none-any.whl \
+RUN pip install --no-cache-dir --no-compile /tmp/empirica-1.12.15-py3-none-any.whl \
+    && rm /tmp/empirica-1.12.15-py3-none-any.whl \
     && pip cache purge 2>/dev/null || true
 
 # Create directory for user data

@@ -1189,7 +1189,9 @@ brew install empirica
             ["python3", "-m", "pytest", "tests/", "-x", "-q", "--tb=short",
              "--ignore=tests/integration", "--ignore=tests/manual_test_goals.py",
              "-p", "no:cacheprovider", "-p", "no:randomly"],
-            capture_output=True, text=True, timeout=600,
+            # Headroom over the real suite runtime (~720s at 1.12.15 and growing);
+            # 600s false-timed-out the 1.12.14 release gate. Bump as the suite grows.
+            capture_output=True, text=True, timeout=1200,
             cwd=str(self.repo_root),
         )
 

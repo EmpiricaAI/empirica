@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.12.15] — 2026-07-06
+
 ### Added
 - **Blindspot detection — POSTFLIGHT outcome/regret loop (T4).** Closes the loop:
   a surfaced blindspot is advanced at POSTFLIGHT to `acknowledged` (its flagged
