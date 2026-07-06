@@ -409,7 +409,10 @@ def _build_pending_inbox_lead() -> str:
     shown = proposals[:8]
     lines = [f"## 📬 Pending mesh messages ({total}) — handle these FIRST", ""]
     for p in shown:
-        pid = str(p.get("id") or "")[:26]
+        # Full id, NOT truncated: it's copied verbatim into `mailbox show <id>` /
+        # `reply --parent-id <id>`. Real ids are "prop_" + 26 chars (31); a [:26]
+        # slice dropped the last 5 and broke those commands (#267 regression).
+        pid = str(p.get("id") or "")
         src = p.get("source_claude") or "?"
         status = p.get("status") or "?"
         ptype = p.get("type") or "?"
