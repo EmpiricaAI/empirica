@@ -90,6 +90,13 @@ numbers need adjusting.
 | Verification outputs | **Grounded evidence** | test results, artifact ratios, git metrics, goal completion |
 | Measurement cycle | **Epistemic transaction** | PREFLIGHT -> work -> POSTFLIGHT -> post-test |
 
+> **Verb mapping for the two non-`*-log` noetic types:** *blindspots* aren't
+> logged — they're **detected** (`blindspot-scan`; a blindspot is an
+> unknown-unknown by definition, so if you can write it down it's really an
+> `unknown`). *lessons* are **authored** via `lesson-create` (a structured
+> distillation), not a `lesson-log` verb. The other four (findings, unknowns,
+> dead-ends, mistakes) each have a matching `<type>-log` verb.
+
 ---
 
 ## 13 EPISTEMIC VECTORS (0.0-1.0)
@@ -432,11 +439,12 @@ Infer epistemic actions from conversation naturally:
 | Single-step task described | `goals-create --objective "<title>" --description "<context-rich markdown body: why, success criteria, links>"`. Write `--description` as **markdown** (extension renders it as prettified markdown — use headings, lists, code fences, links). Skip `--description` only for truly trivial titles. |
 | Multi-step task described | `goals-create` first, then `goals-add-task` per step — each task is one tracked unit of AI work |
 | Task completed (commit/test/result) | `goals-complete-task --task-id <ID> --evidence "..."` (commit SHA, test result, link) |
-| Discovery made | `finding-log` |
-| Uncertainty | `unknown-log` |
-| Approach failed | `deadend-log` |
-| Error made | `mistake-log` |
-| Choice point | `decision-log` |
+| Discovery made | `finding-log --finding "..." [--impact 0-1]` |
+| Uncertainty | `unknown-log --unknown "..."` |
+| Unverified belief you're acting on | `assumption-log --assumption "..." --confidence <0-1> --domain <area>` — the pre-blindspot surface: bank what you're taking for granted so it stays falsifiable later |
+| Approach failed | `deadend-log --approach "..." --why-failed "..."` |
+| Error made | `mistake-log --mistake "..." --why-wrong "..." --prevention "..."` — `--prevention` is the load-bearing field (what future-you needs to not repeat it), not optional |
+| Choice point | `decision-log --choice "..." --rationale "..." --reversibility <exploratory\|committal\|forced>` |
 | Something to check on later, but not worth a full artifact yet (a doubt, a follow-up, "this smells off", "ask peer X") | `empirica note "..."` (optionally `--tag followup\|doubt\|idea`) — a fast scratchpad note-to-self. Pure metadata, not shared, survives compaction; surfaces at POSTFLIGHT for triage (`note --list`, then promote to an artifact/goal or `note --clear`). Capture now, classify later. |
 | External material cited (URL, doc, paper, transcript) | `source-add` then link via `sourced_from` in `log-artifacts` |
 | Logging ≥3 related artifacts in one breath, or any artifact with edges to others | `log-artifacts -` (one batch with `nodes` + `edges` JSON) instead of N individual `*-log` calls |
