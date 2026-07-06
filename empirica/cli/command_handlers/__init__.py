@@ -253,6 +253,7 @@ from .skill_commands import (
 )
 from .sources_check_commands import handle_sources_check_command
 from .sources_reconcile_commands import handle_sources_reconcile_command
+from .sources_review_commands import handle_source_review_command
 from .sources_sanctify_commands import handle_sources_sanctify_command
 from .sources_update_commands import handle_source_update_command
 from .sync_commands import (
@@ -497,6 +498,7 @@ __all__ = [  # noqa: RUF022
     "handle_sources_map_command",
     "handle_sources_check_command",
     "handle_source_update_command",
+    "handle_source_review_command",
     "handle_enforcement_report_command",
     "handle_blindspot_scan_command",
     "handle_blindspot_report_command",

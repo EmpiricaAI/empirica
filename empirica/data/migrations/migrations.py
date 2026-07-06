@@ -1481,6 +1481,11 @@ ALL_MIGRATIONS: list[tuple[str, str, Callable]] = [
         "Create blindspot_events — durable substrate for blindspot detection: surfaced candidates + outcome (surfaced/acknowledged/dismissed/regretted). Written fail-open. Feeds blindspot-report telemetry and the POSTFLIGHT regret loop (a dismissed blindspot that later became a mistake/dead-end). Instrument-before-surface.",
         lambda cursor: migration_053_blindspot_events(cursor),
     ),
+    (
+        "054_source_review_state",
+        "Add review-state columns (last_reviewed_at, review_verdict) to epistemic_sources — the REVIEW half of the source-lifecycle triad (CHECK=sources-check, UPDATE=source-update). source-review appends a 'reviewed' event to lifecycle_audit_log AND stamps the latest verdict here so review state is queryable (surface unreviewed / stale-review sources) without parsing the JSON audit log. Additive + idempotent via add_column_if_missing.",
+        lambda cursor: migration_054_source_review_state(cursor),
+    ),
 ]
 
 
@@ -2018,6 +2023,27 @@ def migration_050_source_content_identity(cursor: sqlite3.Cursor):
     add_column_if_missing(cursor, "epistemic_sources", "mime_type", "TEXT", "NULL")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_epistemic_sources_content_hash ON epistemic_sources(content_hash)")
     logger.info("✅ Migration 050 complete: content-identity columns added to epistemic_sources")
+
+
+def migration_054_source_review_state(cursor: sqlite3.Cursor):
+    """Add review-state columns to epistemic_sources (source-lifecycle REVIEW half).
+
+    ``source-review`` renders a human/AI verdict on a logged source — the
+    judgment half that complements ``sources-check`` (automated detection).
+    The full history lives as ``reviewed`` events in ``lifecycle_audit_log``
+    (migration 044); these two columns stamp the LATEST verdict so review
+    state is queryable without parsing the JSON audit log:
+
+      - last_reviewed_at (REAL): epoch seconds of the most recent review.
+        NULL = never reviewed (lets sanctify/check surface unreviewed sources).
+      - review_verdict (TEXT): the latest verdict —
+        valid | stale | superseded | irrelevant. NULL until first review.
+
+    Both nullable, additive, idempotent via add_column_if_missing.
+    """
+    add_column_if_missing(cursor, "epistemic_sources", "last_reviewed_at", "REAL", "NULL")
+    add_column_if_missing(cursor, "epistemic_sources", "review_verdict", "TEXT", "NULL")
+    logger.info("✅ Migration 054 complete: review-state columns added to epistemic_sources")
 
 
 def migration_051_goals_engagement_id(cursor: sqlite3.Cursor):

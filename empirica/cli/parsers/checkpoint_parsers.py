@@ -1439,6 +1439,31 @@ def add_checkpoint_parsers(subparsers):
     source_update_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
     source_update_parser.add_argument("--verbose", action="store_true", help="Verbose output")
 
+    # Source review (source-lifecycle REVIEW half — human/AI verdict on a source)
+    source_review_parser = subparsers.add_parser(
+        "source-review",
+        help=(
+            "Record a human/AI review verdict on a source — the REVIEW half of "
+            "the source lifecycle (CHECK detects, UPDATE re-fetches, REVIEW judges). "
+            "Stamps last_reviewed_at + review_verdict and appends a 'reviewed' event "
+            "to the lifecycle audit log. The verdict routes to the next action: "
+            "stale→source-update, superseded/irrelevant→source-archive."
+        ),
+    )
+    source_review_parser.add_argument("--source-id", required=True, help="Source UUID (or unique prefix) to review")
+    source_review_parser.add_argument(
+        "--verdict",
+        required=True,
+        choices=["valid", "stale", "superseded", "irrelevant"],
+        help="valid (keep) | stale (→source-update) | superseded/irrelevant (→source-archive)",
+    )
+    source_review_parser.add_argument("--note", help="Optional free-text review note")
+    source_review_parser.add_argument(
+        "--reviewer", help="Who reviewed (ai_id or human name); recorded in the audit event"
+    )
+    source_review_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
+    source_review_parser.add_argument("--verbose", action="store_true", help="Verbose output")
+
     # Enforcement report (artifact-graph enforce telemetry — block/self-resolve rate)
     enforcement_report_parser = subparsers.add_parser(
         "enforcement-report",
