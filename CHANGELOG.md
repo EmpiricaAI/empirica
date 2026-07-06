@@ -10,6 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.12.15] — 2026-07-06
 
 ### Added
+- **`empirica sources-sanctify` — source-corpus hygiene pass.** Classifies each
+  active source **dead** (canonical_path missing), **duplicate** (shared
+  `content_hash`), **zombie** (no `sourced_from` reference — nothing cites it), or
+  **valid**, and recommends a lifecycle action. Report-only (deletions are a
+  judgment that go through review — ARTIFACT_HYGIENE); retire flagged sources via
+  `source-archive`. The two new detectors (zombie, duplicate) sit on top of the
+  existing dead/stale probing. This is the prerequisite for sources joining the
+  PREFLIGHT retrieval surface — a corpus can't nudge attention until it's trusted.
 - **Blindspot detection — regret auto-trigger.** Closes the loop's training
   signal: a `dismissed` blindspot flips to `regretted` at POSTFLIGHT when a
   mistake or dead-end lands on the same goal *after* the dismissal (we warned, it
