@@ -78,6 +78,7 @@ from .doctor import handle_doctor_command
 from .ecosystem_commands import (
     handle_ecosystem_check_command,
 )
+from .enforcement_report_commands import handle_enforcement_report_command
 from .engagement_commands import (
     handle_engagement_create_command,
     handle_engagement_list_command,
@@ -250,7 +251,6 @@ from .skill_commands import (
     handle_skill_suggest_command,
 )
 from .sources_check_commands import handle_sources_check_command
-from .enforcement_report_commands import handle_enforcement_report_command
 from .sources_reconcile_commands import handle_sources_reconcile_command
 from .sources_update_commands import handle_source_update_command
 from .sync_commands import (
