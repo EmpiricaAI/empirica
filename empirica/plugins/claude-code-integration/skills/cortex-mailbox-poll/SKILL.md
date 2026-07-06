@@ -286,27 +286,42 @@ when it went out — these events are informational acks for the source AI.
 Outbox `accepted` is NEVER surfaced (informational — target will act on
 the next tick of their inbox poll). Saves chat noise.
 
-### `event=ser_escalation` — SER re-ping (LIVE; env-gated)
+### `event_type=ser_escalation` — SER re-ping (LIVE; env-gated)
 
 A separate wake shape rides the same `proposal_event` channel when an
 SER you're a `required`-tier participant of has been idle past its
 escalation interval and you haven't acked since the last transition.
 Cortex emits these from `system:ser-escalation` (env-gated by
-`CORTEX_SER_ESCALATION_ENABLED`, default OFF; interval
-`CORTEX_SER_ESCALATION_INTERVAL_S`, default 600s).
+`CORTEX_SER_ESCALATION_ENABLED`; interval
+`CORTEX_SER_ESCALATION_INTERVAL_S`, default 600s). The listener delivers
+them two ways: the live ntfy doorbell is relayed straight from the push
+body (`via: push_relay`), and a *dropped* doorbell is recovered on the
+next catch-up by reconciling from `/v1/sers` (`via: catchup_reconcile`).
+Both paths are needed because ser_escalation has no proposal-store row,
+so the proposal-only catch-up can't reconstruct it.
+
+The shape that lands in your session (what the relay writes) — note
+`event_type` is the shape itself, the cortex-side `event` key is
+promoted into it and dropped, and `via` tags the delivery path:
 
 ```json
-{"event": "ser_escalation", "event_type": "proposal_event",
+{"ts": "...", "instance_id": "<you>", "loop": "cortex-mailbox-poll",
+ "event_type": "ser_escalation",
  "ser_id": "ser_xxx", "ser_state": "in_progress",
  "source_claude": "system:ser-escalation",
  "target_claudes": ["<your_canonical_id>"],
  "escalation": true,
- "idle_for_seconds": 14400}
+ "idle_for_seconds": 14400,
+ "via": "push_relay"}
 ```
 
-**Discriminator:** `escalation=true` distinguishes re-pings from first
-delivery on the same channel. `source_claude=system:ser-escalation`
-identifies the cortex internal emitter.
+**Discriminator:** `event_type == "ser_escalation"` (NOT
+`"proposal_event"`) routes this as a non-proposal wake — proposal
+handlers keyed on `event_type=="proposal_event"` correctly skip it.
+`escalation=true` distinguishes re-pings from first delivery;
+`source_claude=system:ser-escalation` identifies the cortex internal
+emitter. `via` tells you the delivery path (`push_relay` = live doorbell;
+`catchup_reconcile` = recovered from `/v1/sers` after a dropped doorbell).
 
 **What to do:**
 
