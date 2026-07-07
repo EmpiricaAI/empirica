@@ -1082,12 +1082,14 @@ def _bootstrap_for_existing_session(session_id: str, project_root: Path) -> bool
 def _write_practitioner_presence(claude_session_id: str, ai_id: str, empirica_session_id: str) -> None:
     """Best-effort presence write/refresh, keyed on the durable claude_session_id.
 
-    Stamps ``session_pid`` = ``os.getppid()`` (the Claude Code parent — this hook
-    is spawned by CC). That pid is the daemon's liveness anchor: both
+    Stamps ``session_pid`` = ``os.getppid()`` (the harness parent — this hook is
+    spawned by the harness, Claude Code or otherwise; ``getppid`` is already
+    harness-agnostic). That pid is the daemon's liveness anchor: both
     ``refresh_live_presence`` and ``list_presence``'s pid-liveness override
     (``kill -0``) key off it to keep an alive-but-quiet session visible. Called on
-    BOTH new-session init AND resume — on ``claude --resume`` the OS gives the
-    session a fresh CC parent, so re-stamping keeps the pid current (a stale pid
+    BOTH new-session init AND resume — on a harness resume (e.g. ``claude
+    --resume``) the OS gives the session a fresh parent, so re-stamping keeps the
+    pid current (a stale pid
     would make the resumed session read as dead and vanish from the fleet).
     Never fails session-init on a presence write.
     """
@@ -1475,6 +1477,20 @@ EOF
 """
 
 
+def _harness() -> str:
+    """Which harness is hosting this hook.
+
+    Defaults to ``'claude-code'`` — the original behavior. Non-CC harnesses
+    (e.g. codex, which injects ``EMPIRICA_HARNESS=codex`` from its plugin
+    launcher) set this env var so the hooks skip Claude-Code-specific side
+    effects — like ``_auto_sync_plugin``, which heals a plugin path only CC
+    loads. Keeping the identity in one env signal (rather than N single-purpose
+    opt-outs) is what lets a non-CC harness stop forking hook bodies per
+    re-vendor: it sets EMPIRICA_HARNESS once and the guards below read it.
+    """
+    return (os.environ.get("EMPIRICA_HARNESS") or "claude-code").strip() or "claude-code"
+
+
 def _auto_sync_plugin():
     """Best-effort: heal a stale installed CC plugin so hook fixes from a pip
     upgrade reach this session. Shells out to `empirica plugin-sync` (a no-op
@@ -1485,7 +1501,18 @@ def _auto_sync_plugin():
     ~/.claude/plugins/local/empirica/ until a manual setup-claude-code --force,
     so running CC sessions keep loading the stale gate. Never blocks session
     start — short timeout, all failures swallowed.
+
+    Skipped off Claude Code (``EMPIRICA_HARNESS != 'claude-code'``): plugin-sync
+    heals ``~/.claude/plugins/local/empirica/``, a path other harnesses never
+    load, so it would be pure wasted work each session start. Also honors the
+    explicit ``EMPIRICA_NO_AUTOSYNC`` opt-out (parity with the CLI-level
+    auto-sync in ``cli_core._maybe_autosync_plugin``) so a CC user who doesn't
+    want silent plugin self-heal can turn it off without forking the hook.
     """
+    if _harness() != "claude-code":
+        return
+    if os.environ.get("EMPIRICA_NO_AUTOSYNC"):
+        return
     try:
         subprocess.run(
             ["empirica", "plugin-sync", "--quiet"],
