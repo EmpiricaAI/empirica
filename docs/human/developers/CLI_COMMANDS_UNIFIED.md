@@ -22,9 +22,9 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.12.15
-**Generated:** 2026-07-06 15:22:08 UTC
-**Total commands:** 261 (across 26 categories)
+**Framework version:** 1.12.16
+**Generated:** 2026-07-07 16:45:34 UTC
+**Total commands:** 263 (across 26 categories)
 
 For the most up-to-date detail on any single command, prefer
 `empirica <command> --help` — the generator extracts the same `help`
@@ -65,7 +65,7 @@ require `--session-id` (`project-bootstrap`, `sessions-show`,
 | [session](#session) | 8 | `session-create`, `sessions-list`, `sessions-show`, … |
 | [workflow](#workflow) | 4 | `preflight-submit`, `check`, `check-submit`, … |
 | [goals](#goals) | 16 | `goals-create`, `goals-list`, `goals-search`, … |
-| [logging](#logging) | 28 | `finding-log`, `unknown-log`, `unknown-list`, … |
+| [logging](#logging) | 30 | `finding-log`, `unknown-log`, `unknown-list`, … |
 | [project](#project) | 18 | `project-init`, `project-update`, `project-create`, … |
 | [workspace](#workspace) | 20 | `workspace-init`, `workspace-map`, `workspace-list`, … |
 | [checkpoint](#checkpoint) | 7 | `checkpoint-create`, `checkpoint-load`, `checkpoint-list`, … |
@@ -1091,6 +1091,15 @@ Match local sources against the central catalogue by content identity and adopt 
 - `--verbose` — optional · flag
   Verbose output
 
+#### `empirica sources-sanctify`
+
+Classify the active source corpus and recommend hygiene actions: dead (canonical_path missing), duplicate (shared content_hash), zombie (no sourced_from reference), valid. Report-only (deletions go through review); retire flagged sources via source-archive.
+
+**Arguments:**
+
+- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
+  Output format
+
 #### `empirica sources-check`
 
 Probe the http(s) URLs in this project's epistemic sources and surface link-rot (dead / auth-walled / errored). SURFACE-ONLY — reports rot, never deletes (retire a dead source via delete-artifacts or source-archive). Exit 1 if any URL is dead. The smallest mechanical slice of artifact-hygiene (docs/architecture/ARTIFACT_HYGIENE.md).
@@ -1131,6 +1140,25 @@ Re-fetch a source and recompute its content identity (content_hash / size / mime
 
 - `--source-id` — **required**
   Source UUID (or unique prefix) to re-fetch
+- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
+  Output format
+- `--verbose` — optional · flag
+  Verbose output
+
+#### `empirica source-review`
+
+Record a human/AI review verdict on a source — the REVIEW half of the source lifecycle (CHECK detects, UPDATE re-fetches, REVIEW judges). Stamps last_reviewed_at + review_verdict and appends a 'reviewed' event to the lifecycle audit log. The verdict routes to the next action: stale→source-update, superseded/irrelevant→source-archive.
+
+**Arguments:**
+
+- `--source-id` — **required**
+  Source UUID (or unique prefix) to review
+- `--verdict` — **required** · type=`choice` · choices={valid, stale, superseded, irrelevant}
+  valid (keep) | stale (→source-update) | superseded/irrelevant (→source-archive)
+- `--note` — optional
+  Optional free-text review note
+- `--reviewer` — optional
+  Who reviewed (ai_id or human name); recorded in the audit event
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
 - `--verbose` — optional · flag
@@ -5032,14 +5060,14 @@ Log EPP (Epistemic Persistence Protocol) activation — self-reported telemetry
 
 #### `empirica forgejo-publish`
 
-Provision a managed Forgejo remote for a project (operator / self-hosting power-user tool, not an end-user default): POST cortex's forgejo-publish endpoint, write the deploy key 0600, add the 'forgejo' git remote, and push the cortex-supplied refspecs. This is the PUSH mode for projects with no existing remote — distinct from the managed pull-mirror path. Leaves 'origin' (repo_url) untouched.
+Provision a managed Forgejo remote for a project (operator / self-hosting power-user tool, not an end-user default): POST cortex's forgejo-publish endpoint, write the access token 0600, add the 'forgejo' git remote, and push the cortex-supplied refspecs. This is the PUSH mode for projects with no existing remote — distinct from the managed pull-mirror path. Leaves 'origin' (repo_url) untouched.
 
 **Arguments:**
 
 - `path` — **required** · default=`.`
   Project root path (default: current directory)
 - `--rotate` — optional · flag
-  Mint a fresh deploy key (revokes the prior) — also the way to re-push an already-published project.
+  Mint a fresh access token (revokes the prior) — also the way to re-push an already-published project.
 - `--description` — optional
   Optional Forgejo repo description.
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
