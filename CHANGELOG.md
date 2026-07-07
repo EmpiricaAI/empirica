@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.12.16] — 2026-07-07
+
 ### Added
 - **`empirica source-review` — the REVIEW half of the source-lifecycle triad
   (CHECK → UPDATE → REVIEW).** Records a review verdict + `last_reviewed_at` on a
