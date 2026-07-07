@@ -7,16 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.12.15] — 2026-07-06
-
 ### Added
+- **`empirica source-review` — the REVIEW half of the source-lifecycle triad
+  (CHECK → UPDATE → REVIEW).** Records a review verdict + `last_reviewed_at` on a
+  source (migration adds both columns to `epistemic_sources`), so a corpus can be
+  judged current/stale, not just present. Completes the triad alongside
+  `sources-check` (detects drift) and `source-update` (re-fetches).
 - **`empirica sources-sanctify` — source-corpus hygiene pass.** Classifies each
   active source **dead** (canonical_path missing), **duplicate** (shared
   `content_hash`), **zombie** (no `sourced_from` reference — nothing cites it), or
   **valid**, and recommends a lifecycle action. Report-only (deletions are a
   judgment that go through review — ARTIFACT_HYGIENE); retire flagged sources via
   `source-archive`. The two new detectors (zombie, duplicate) sit on top of the
-  existing dead/stale probing. This is the prerequisite for sources joining the
+  existing dead probing. This is the prerequisite for sources joining the
   PREFLIGHT retrieval surface — a corpus can't nudge attention until it's trusted.
 - **Blindspot detection — regret auto-trigger.** Closes the loop's training
   signal: a `dismissed` blindspot flips to `regretted` at POSTFLIGHT when a
@@ -24,6 +27,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   was ignored, the gap bit). `created_timestamp > resolved_timestamp` enforces the
   causal order; cross-transaction by construction. Fail-open. `blindspot-report`'s
   regret-rate is now live — the money signal.
+
+### Fixed
+- **`forgejo-publish`: path-scoped credential store + honest re-publish output.**
+  Sets `credential.useHttpPath=true` (repo-local) so each project's per-project
+  Forgejo token gets its own `~/.git-credentials` entry instead of colliding under
+  a shared host-keyed store — a fleet-wide fix for multi-repo mirroring. An
+  already-published re-run now warns "nothing pushed" and points at `--rotate`
+  instead of printing a false "✅ provisioned".
+- **session-init: harness-aware plugin auto-sync (`EMPIRICA_HARNESS`).** The
+  SessionStart hook's `plugin-sync` self-heal now no-ops off Claude Code (default
+  `claude-code` preserves current behavior; a non-CC harness sets `EMPIRICA_HARNESS`
+  once) and honors the existing `EMPIRICA_NO_AUTOSYNC` opt-out — so a non-CC harness
+  stops re-healing a plugin path it never loads, and a CC user can turn off silent
+  self-heal without forking the hook.
+
+### Changed
+- **Lean system prompt: taxonomy + load-bearing-flag sync.** The distributed
+  system-prompt template + AI-facing skills now reflect the current `*-log` flag
+  surface (`--prevention`, `--reversibility {exploratory,committal,forced}`, etc.),
+  and a CI conformance guard fails if the prompt or a skill references an `empirica`
+  verb that doesn't exist — anti-drift for the AI-facing injection surface.
+
+## [1.12.15] — 2026-07-06
+
+### Added
 - **Blindspot detection — POSTFLIGHT outcome/regret loop (T4).** Closes the loop:
   a surfaced blindspot is advanced at POSTFLIGHT to `acknowledged` (its flagged
   task got engaged — a finding, unknown, dead_end, or completion) or `dismissed`

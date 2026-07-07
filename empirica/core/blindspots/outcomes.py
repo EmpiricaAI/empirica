@@ -81,8 +81,9 @@ def mark_blindspot_regretted(db, session_id: str, subtask_id: str) -> int:
 
     Called when a mistake or dead-end lands on a subtask that had a dismissed
     blindspot (we warned, it was ignored, and the gap bit). Fail-open; returns
-    rows updated. The automatic trigger from the mistake/dead-end log is the
-    documented follow-up — this is the mechanism it will call.
+    rows updated. The automatic trigger (``apply_blindspot_regret``, run at
+    POSTFLIGHT) shipped alongside this; that path runs its own scoped UPDATE,
+    so this remains the direct/manual entry point.
     """
     try:
         cur = db.conn.execute(

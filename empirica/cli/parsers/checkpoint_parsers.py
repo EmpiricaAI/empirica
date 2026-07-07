@@ -502,7 +502,7 @@ def add_checkpoint_parsers(subparsers):
         help=(
             "Provision a managed Forgejo remote for a project (operator / "
             "self-hosting power-user tool, not an end-user default): POST "
-            "cortex's forgejo-publish endpoint, write the deploy key 0600, add "
+            "cortex's forgejo-publish endpoint, write the access token 0600, add "
             "the 'forgejo' git remote, and push the cortex-supplied refspecs. "
             "This is the PUSH mode for projects with no existing remote — "
             "distinct from the managed pull-mirror path. Leaves 'origin' "
@@ -515,7 +515,7 @@ def add_checkpoint_parsers(subparsers):
     forgejo_publish_parser.add_argument(
         "--rotate",
         action="store_true",
-        help="Mint a fresh deploy key (revokes the prior) — also the way to re-push an already-published project.",
+        help="Mint a fresh access token (revokes the prior) — also the way to re-push an already-published project.",
     )
     forgejo_publish_parser.add_argument("--description", help="Optional Forgejo repo description.")
     forgejo_publish_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")

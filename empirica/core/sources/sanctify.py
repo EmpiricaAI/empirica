@@ -23,8 +23,8 @@ _RECOMMENDATION = {
     "zombie": "review — no artifact references it (sourced_from); retire if truly unused",
     "valid": "keep",
 }
-# The subset --execute may auto-apply (safe, reversible archival). Zombie stays
-# manual: an unreferenced source may still be legitimately citable.
+# The subset a future auto-apply mode could safely archive (safe, reversible).
+# Zombie stays manual: an unreferenced source may still be legitimately citable.
 AUTO_SAFE = frozenset({"dead", "duplicate"})
 
 
@@ -42,7 +42,7 @@ def classify_sources(
     - ``missing_paths`` — canonical_paths that don't exist on disk
 
     Precedence: dead → duplicate → zombie → valid. Returns one classification per
-    source with its recommended action and whether ``--execute`` may auto-apply it.
+    source with its recommended action and whether it's auto-safe to archive.
     """
     out: list[dict] = []
     for s in sources:
