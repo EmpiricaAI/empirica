@@ -109,6 +109,22 @@ def test_set_forgejo_remote_updates_when_present(tmp_path):
     assert ("remote", "add", "forgejo", _FORGEJO_URL) not in calls
 
 
+def test_set_forgejo_remote_path_scopes_credential_store(tmp_path):
+    """Bug #2 fix: must set credential.useHttpPath=true (repo-local) so each
+    forgejo repo's per-project token gets its own ~/.git-credentials entry
+    instead of colliding under a shared host-keyed store."""
+    calls = []
+
+    def fake_git(path, *args, **kw):
+        calls.append(args)
+        return _proc(stdout="origin\n")
+
+    with patch.object(fc, "_git", fake_git):
+        fc._set_forgejo_remote(tmp_path, _FORGEJO_URL)
+
+    assert ("config", "--local", "credential.useHttpPath", "true") in calls
+
+
 # ── handle_forgejo_publish_command ──────────────────────────────────────
 
 
@@ -225,6 +241,29 @@ def test_publish_already_published_no_key_is_ok_with_note(tmp_path, monkeypatch)
         args = SimpleNamespace(path=str(root), output="json", rotate=False, description=None)
         code = fc.handle_forgejo_publish_command(args)
     assert code == 0  # idempotent re-call is not an error
+
+
+def test_publish_already_published_human_output_warns_not_success(tmp_path, monkeypatch, capsys):
+    """Bug #1 fix: an already-published re-call (no token → no push) must NOT
+    print a bare '✅ Forgejo provisioned' — that's the false-success. It warns
+    that nothing was pushed and points at --rotate."""
+    root = _make_project(tmp_path)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    with (
+        patch.object(fc, "_resolve_cortex_config", lambda: ("https://cortex.example", "ctx_k")),
+        patch.object(
+            fc,
+            "_forgejo_publish_post",
+            lambda *a, **k: (200, {"forgejo_repo_url": _FORGEJO_URL, "already_published": True}),
+        ),
+    ):
+        args = SimpleNamespace(path=str(root), output="human", rotate=False, description=None)
+        code = fc.handle_forgejo_publish_command(args)
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "✅ Forgejo provisioned" not in out  # no false success
+    assert "⚠️" in out and "nothing pushed" in out
+    assert "--rotate" in out
 
 
 def test_publish_cortex_error_returns_nonzero(tmp_path, monkeypatch):

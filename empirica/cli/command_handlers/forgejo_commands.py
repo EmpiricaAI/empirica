@@ -144,6 +144,14 @@ def _set_forgejo_remote(project_path: Path, url: str) -> None:
         _git(project_path, "remote", "set-url", FORGEJO_REMOTE_NAME, url)
     else:
         _git(project_path, "remote", "add", FORGEJO_REMOTE_NAME, url)
+    # Path-scope git's credential store for THIS repo. `credential.helper=store`
+    # with useHttpPath unset keys ~/.git-credentials by host only — so a second
+    # forgejo repo's per-project token overwrites/collides with the first's under
+    # the same host (git.getempirica.com), and a later `git push forgejo` then
+    # authenticates with the wrong/stale token. Setting useHttpPath=true keys the
+    # stored credential by full path, giving each repo its own entry. Repo-local
+    # (--local) so the user's global git config is never touched.
+    _git(project_path, "config", "--local", "credential.useHttpPath", "true")
 
 
 NOTES_PUSH_BATCH = 250  # refs per RPC — pushing thousands of note refs in one
@@ -191,11 +199,19 @@ def handle_forgejo_publish_command(args) -> int:
             print(json.dumps(payload, indent=2))
         else:
             if payload.get("ok"):
-                print(f"✅ Forgejo provisioned: {payload.get('forgejo_repo_url')}")
-                for ref, ok in (payload.get("push_results") or {}).items():
-                    print(f"   {'✓' if ok else '✗'} {ref}")
-                if payload.get("token_path"):
-                    print(f"   token: {payload['token_path']} (0600)")
+                # Already-published re-call returns no token → nothing was
+                # pushed. Don't print a clean "✅ provisioned" (the false-success
+                # bug): the repo exists but this run pushed nothing, and the push
+                # path is still unauthenticated until `--rotate` mints a token.
+                if payload.get("note") and not payload.get("push_results"):
+                    print(f"⚠️  Forgejo already provisioned — nothing pushed: {payload.get('forgejo_repo_url')}")
+                    print(f"   {payload['note']}")
+                else:
+                    print(f"✅ Forgejo provisioned: {payload.get('forgejo_repo_url')}")
+                    for ref, ok in (payload.get("push_results") or {}).items():
+                        print(f"   {'✓' if ok else '✗'} {ref}")
+                    if payload.get("token_path"):
+                        print(f"   token: {payload['token_path']} (0600)")
             else:
                 print(f"❌ forgejo-publish: {payload.get('error') or payload.get('reason')}")
         return code
