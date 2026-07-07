@@ -109,3 +109,91 @@ def test_no_phantom_verbs_in_prompt_or_skills():
         "add to _NON_VERB_ALLOWLIST if genuinely not a verb):\n"
         + "\n".join(f"  - `empirica {v}`  in {sorted(files)}" for v, files in sorted(phantoms.items()))
     )
+
+
+# --- T2.1 (cortex co-design) -------------------------------------------------
+
+# Help-text signal words that mark a flag as load-bearing. If a flag's --help
+# says this, the flag matters enough that an AI should be told about it.
+_LOAD_BEARING_MARKERS = (
+    "load-bearing",
+    "load bearing",
+    "future-you",
+    "essential",
+    "required for calibration",
+)
+
+
+_PARSERS_DIR = _REPO_ROOT / "empirica" / "cli" / "parsers"
+_FLAG_RE = re.compile(r"--[a-z][a-z0-9-]+")
+
+
+def _load_bearing_flags() -> dict[str, str]:
+    """Flags a parser source-line marks load-bearing → the parser file it's in.
+
+    NOTE — this is SOURCE-based, unlike the runtime introspection used for the
+    hard phantom check. The "load-bearing" designation lives in *comments /
+    prose next to* ``add_argument`` (e.g. "The --prevention flag is the
+    load-bearing field for future-you"), NOT in the flag's runtime ``help=``
+    string — so live introspection can't see it. Source-grep is acceptable here
+    because this feeds a SOFT advisory report, not a hard assertion; brittleness
+    degrades a punch-list, it can't break CI or mis-fail a real command."""
+    out: dict[str, str] = {}
+    if not _PARSERS_DIR.exists():
+        return out
+    for py in _PARSERS_DIR.rglob("*.py"):
+        for line in py.read_text(encoding="utf-8", errors="ignore").splitlines():
+            low = line.lower()
+            if any(m in low for m in _LOAD_BEARING_MARKERS):
+                for flag in _FLAG_RE.findall(line):
+                    out.setdefault(flag, py.name)
+    return out
+
+
+def _ai_surface_text() -> str:
+    """All AI-facing prompt + skill text concatenated (for membership checks)."""
+    chunks: list[str] = []
+    for root in _AI_SURFACES:
+        if not root.exists():
+            continue
+        for md in root.rglob("*.md"):
+            chunks.append(md.read_text(encoding="utf-8", errors="ignore"))
+    return "\n".join(chunks)
+
+
+def test_load_bearing_flags_documented():
+    """SOFT report: flags whose --help declares them load-bearing SHOULD be
+    mentioned somewhere in the prompt/skills. Report-only by default (emits a
+    warning + the punch-list) so CI shows the count without failing; set
+    ``PYTEST_STRICT_DOC_SYNC=1`` to make it a hard fail for pre-release runs.
+
+    The failure mode this guards is epistemic-completeness (an AI never told
+    about `--prevention`/`--why-failed` logs the mistake/dead-end without the
+    load-bearing field), not execution — hence soft, not the phantom hard-fail."""
+    import os
+    import warnings
+
+    surface = _ai_surface_text()
+    undocumented = {flag: verb for flag, verb in _load_bearing_flags().items() if flag not in surface}
+    if not undocumented:
+        return
+    msg = "Load-bearing flags not mentioned in prompt/skills: " + ", ".join(
+        f"{flag} (on {verb})" for flag, verb in sorted(undocumented.items())
+    )
+    if os.environ.get("PYTEST_STRICT_DOC_SYNC") == "1":
+        raise AssertionError(msg)
+    warnings.warn(msg, stacklevel=2)
+
+
+def test_group_verbs_resolve_and_nested_refs_are_not_phantoms():
+    """Cortex's edge case: verbs with nested subparsers (e.g. `empirica loop
+    register`, `empirica mailbox poll`) must resolve. The extractor tokenizes
+    on the FIRST token after `empirica`, so a nested ref maps to the top-level
+    group verb — which is in the introspected set, so it's never a phantom."""
+    implemented = _implemented_verbs()
+    for group in ("loop", "mailbox", "sentinel"):
+        assert group in implemented, f"group verb {group!r} missing from introspected set"
+    # A nested-subcommand reference extracts the top-level verb, not the sub.
+    m = _CMD_IN_CODE.match("empirica loop register")
+    assert m is not None and m.group(1) == "loop"
+    assert m.group(1) in implemented
