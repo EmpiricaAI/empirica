@@ -108,7 +108,6 @@ from .forgejo_commands import handle_forgejo_publish_command
 from .git_commands import handle_history_command, handle_save_command
 from .goal_commands import (
     handle_goals_activate_command,
-    handle_goals_reopen_command,
     handle_goals_add_dependency_command,
     handle_goals_add_task_command,
     handle_goals_claim_command,
@@ -124,6 +123,7 @@ from .goal_commands import (
     handle_goals_prune_command,
     handle_goals_ready_command,
     handle_goals_refresh_command,
+    handle_goals_reopen_command,
     handle_goals_resume_command,
     handle_goals_search_command,
     handle_sessions_resume_command,
