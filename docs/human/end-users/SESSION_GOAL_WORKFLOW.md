@@ -79,13 +79,14 @@ need to target a different session (handoff / discovery flows).
 
 ## Goal Lifecycle
 
-Goals move through three states:
+Goals move through these states:
 
 | State | Meaning | When |
 |---|---|---|
 | `planned` | Logged, not started | Use for backlog / collaborative planning |
 | `in_progress` | Active | Default on `goals-create` |
-| `completed` | Done | After `goals-complete` |
+| `completed` | Done | After `goals-complete` (reversible — see `goals-reopen`) |
+| `archived` | Retired completed | After `goals-archive` — hidden from `goals-list` unless `--include-archived` |
 
 ### Planned goals — collaborative planning
 
@@ -105,6 +106,29 @@ empirica goals-activate --goal-id <ID>
 Planned goals are excluded from active metrics — they don't pollute
 in-progress counts. Use this when decomposing a large piece of work
 before starting any transaction.
+
+### Reversible close + archive — goal hygiene
+
+Completion is **not** a one-way door, and old completed goals don't have to
+clutter the list forever:
+
+```bash
+# Undo an accidental or premature completion — completed → in_progress
+empirica goals-reopen --goal-id <ID> --reason "scope wasn't actually done"
+
+# Archive completed goals older than N days (dry-run by default)
+empirica goals-archive --older-than 30          # preview what would archive
+empirica goals-archive --older-than 30 --apply  # archive them
+empirica goals-archive --goal-id <ID> --apply   # archive one, regardless of age
+
+# Archived goals are hidden — surface them for a forensic look
+empirica goals-list --status completed --include-archived
+```
+
+`goals-reopen` makes a mis-close recoverable (it also un-archives). `goals-archive`
+keeps a long-running project's completed view signal-dense — archived goals drop
+out of `goals-list` unless you pass `--include-archived`. The active goals-list is
+unaffected (only completed goals get archived).
 
 ---
 

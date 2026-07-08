@@ -23,8 +23,8 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.12.16
-**Generated:** 2026-07-07 16:45:34 UTC
-**Total commands:** 263 (across 26 categories)
+**Generated:** 2026-07-08 11:31:09 UTC
+**Total commands:** 265 (across 26 categories)
 
 For the most up-to-date detail on any single command, prefer
 `empirica <command> --help` — the generator extracts the same `help`
@@ -394,6 +394,8 @@ List goals in the current project. Default: active (in_progress). Use --status {
   Filter by lifecycle status. Takes precedence over --completed. "drift" surfaces rows where status text disagrees with is_completed (canonical).
 - `--limit` — optional · type=`int` · default=`20`
   Max results (default: 20)
+- `--include-archived` — optional · flag
+  Include archived completed goals (hidden by default; archive via goals-archive)
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
 - `--verbose` — optional · flag
@@ -1074,12 +1076,14 @@ Show the cross-mesh source map for the current project. Locally owned sources (f
 
 #### `empirica sources-reconcile`
 
-Match local sources against the central catalogue by content identity and adopt the catalogue uuid (PK-swap + cascade of edges, supersession pointers, finding source_refs). Also lazy-backfills content_hash/size/canonical_path on file-backed rows that predate migration 050. Dry-run by default; pass --apply to perform the swaps. Run `empirica rebuild` after an applied reconcile to re-point Qdrant entries.
+Match local sources against the central catalogue by content identity and adopt the catalogue uuid. Default adopt is NON-DESTRUCTIVE: the local row keeps its PK and stores the catalogue uuid as an alias (the daemon resolves id OR cortex_uuid). Pass --converge for the destructive one-uuid PK-swap + cascade (edges, supersession pointers, finding source_refs), then run `empirica rebuild` to re-point Qdrant. Also lazy-backfills content_hash/size/canonical_path on file-backed rows predating migration 050. Dry-run by default; pass --apply to mutate.
 
 **Arguments:**
 
 - `--apply` — optional · flag
-  Perform the confirmed swaps (default: dry-run report)
+  Perform the confirmed adopts (default: dry-run report)
+- `--converge` — optional · flag
+  With --apply: PK-swap local ids to the catalogue uuid (destructive one-uuid convergence + edge cascade). Default is a non-destructive alias adopt. Run `empirica rebuild` after --converge to re-point Qdrant.
 - `--project-id` — optional
   Project UUID (auto-derived from active session when omitted)
 - `--cortex-url` — optional
@@ -5097,6 +5101,21 @@ Flip a planned goal to in_progress and link it to the active transaction. Use wh
 - `--output` — optional · type=`choice` · choices={human, json} · default=`json`
   Output format
 
+#### `empirica goals-archive`  _(aliases: `goal-archive`)_
+
+Archive completed goals older than N days so the completed list doesn't grow unbounded (mirrors source-archive). Archived goals drop out of goals-list unless --include-archived; goals-reopen un-archives. Dry-run by default; pass --apply to archive.
+
+**Arguments:**
+
+- `--older-than` — optional · type=`int` · default=`30`
+  Age threshold in days on completion time (default: 30)
+- `--goal-id` — optional
+  Archive one completed goal by id/prefix (ignores --older-than)
+- `--apply` — optional · flag
+  Actually archive (default: dry-run report)
+- `--output` — optional · type=`choice` · choices={human, json} · default=`json`
+  Output format
+
 #### `empirica goals-prune`
 
 Bulk close stale, duplicate, or planned-never-activated goals (dry-run by default)
@@ -5119,6 +5138,19 @@ Bulk close stale, duplicate, or planned-never-activated goals (dry-run by defaul
   Output format
 - `--verbose` — optional · flag
   Show detailed output
+
+#### `empirica goals-reopen`  _(aliases: `goal-reopen`)_
+
+Reopen a COMPLETED goal — flip it back to in_progress and re-link it to the active transaction. The inverse of goals-complete: undo an accidental or premature completion so it re-enters the active list.
+
+**Arguments:**
+
+- `--goal-id` — **required**
+  Goal UUID to reopen (prefix match)
+- `--reason` — optional
+  Optional note recorded in the goal's reopen history
+- `--output` — optional · type=`choice` · choices={human, json} · default=`json`
+  Output format
 
 #### `empirica lesson-embed`
 
