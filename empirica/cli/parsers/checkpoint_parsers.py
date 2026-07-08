@@ -1546,6 +1546,16 @@ def add_checkpoint_parsers(subparsers):
         ),
     )
     sources_reconcile_parser.add_argument(
+        "--push-bodies",
+        action="store_true",
+        help=(
+            "With --apply: also upload the BODY of each small adopted source "
+            "(<= EMPIRICA_SMALL_BODY_THRESHOLD, default 1MB) to cortex via "
+            "POST /v1/sources/{id}/body, so a remote peer can fetch it — "
+            "sync-when-small (P2). Best-effort + idempotent (cortex dedupes on body_hash)."
+        ),
+    )
+    sources_reconcile_parser.add_argument(
         "--project-id", help="Project UUID (auto-derived from active session when omitted)"
     )
     sources_reconcile_parser.add_argument(

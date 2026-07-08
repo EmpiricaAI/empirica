@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Unified Source Identity P2 — sync-when-small body upload (`sources-reconcile --push-bodies`).**
+  A source cortex knows only by catalogue pointer used to be un-fetchable by a peer
+  with no local copy. Now `sources-reconcile --apply --push-bodies` uploads the
+  **body** of each small adopted source (≤ 1MB default, override via
+  `EMPIRICA_SMALL_BODY_THRESHOLD`) to cortex's `POST /v1/sources/{cortex_uuid}/body`,
+  so cortex's `GET /content` serves the bytes to a remote peer (the reciprocal of
+  the local daemon's content endpoint). Best-effort + idempotent (cortex dedupes on
+  `body_hash`), tenant-gated (no-op without cortex creds), opt-in (default reconcile
+  behaviour unchanged). Contract pinned + shipped with cortex + extension. Create-time
+  upload is deferred to P3 (needs on-create catalogue register).
 - **`empirica goals-reopen` — reverse a completed goal (reversible close).**
   `goals-complete` was effectively irreversible via the CLI (`goals-activate` is
   planned-only), so an accidental or premature completion could only be undone by

@@ -37,14 +37,65 @@ Dry-run by default; ``--apply`` adopts (alias), ``--apply --converge`` swaps.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import sys
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 CATALOGUE_LOOKUP_PATH = "/v1/sources/catalogue"
 RECONCILE_PATH = "/v1/sources/reconcile"
+
+# P2 sync-when-small: only bodies at/below this size are pushed to cortex.
+# Threshold is empirica-owned tenant policy (cortex hard-caps at 100MB);
+# override per-tenant via the EMPIRICA_SMALL_BODY_THRESHOLD env var.
+_SMALL_BODY_THRESHOLD = int(os.environ.get("EMPIRICA_SMALL_BODY_THRESHOLD", 1024 * 1024))  # 1 MiB
+
+
+def _push_source_body_to_cortex(cortex_url, api_key, cortex_uuid: str, content: bytes, mime_type: str | None) -> dict:
+    """Best-effort POST /v1/sources/{id}/body — upload a small source body so a
+    remote peer can fetch it (P2 sync-when-small). Idempotent cortex-side
+    (dedupe on body_hash); server verifies its own SHA-256. Never raises."""
+    req = urllib.request.Request(
+        f"{cortex_url}/v1/sources/{cortex_uuid}/body",
+        data=content,
+        method="POST",
+        headers={
+            "Content-Type": mime_type or "application/octet-stream",
+            "Authorization": f"Bearer {api_key}",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30.0) as resp:
+            return {"pushed": True, "status": resp.status, "size_bytes": len(content)}
+    except urllib.error.HTTPError as e:
+        return {"pushed": False, "status": e.code, "error": f"HTTP {e.code}"}
+    except (urllib.error.URLError, OSError, TimeoutError) as e:
+        return {"pushed": False, "error": f"{type(e).__name__}: {e}"}
+
+
+def _maybe_push_small_body(cortex_url, api_key, cortex_uuid: str, row: dict | None) -> dict | None:
+    """Upload a source's body to cortex IF it is small (<= threshold) and has
+    readable local content. Returns a per-source status dict, or None when
+    skipped (too large / no size / no local path / unreadable). Best-effort."""
+    if not row or not cortex_url or not api_key:
+        return None
+    size = row.get("size_bytes")
+    path = row.get("canonical_path")
+    if size is None or size > _SMALL_BODY_THRESHOLD or not path:
+        return None
+    try:
+        p = Path(str(path).replace("file://", ""))
+        if not p.is_file():
+            return None
+        content = p.read_bytes()
+    except OSError:
+        return None
+    result = _push_source_body_to_cortex(cortex_url, api_key, cortex_uuid, content, row.get("mime_type"))
+    result["cortex_uuid"] = cortex_uuid
+    return result
 
 
 def handle_sources_reconcile_command(args) -> int:
@@ -56,6 +107,7 @@ def handle_sources_reconcile_command(args) -> int:
     output = getattr(args, "output", "human")
     apply = bool(getattr(args, "apply", False))
     converge = bool(getattr(args, "converge", False))
+    push_bodies = bool(getattr(args, "push_bodies", False))
 
     project_id = getattr(args, "project_id", None)
     if not project_id:
@@ -97,6 +149,8 @@ def handle_sources_reconcile_command(args) -> int:
 
         swapped: list[dict] = []
         aliased: list[dict] = []
+        bodies_pushed: list[dict] = []
+        by_id = {r["id"]: r for r in rows}
         if apply and confirmed:
             for pair in confirmed:
                 if converge:
@@ -105,6 +159,13 @@ def handle_sources_reconcile_command(args) -> int:
                 else:
                     # Default: non-destructive alias adopt (daemon resolves id OR cortex_uuid).
                     aliased.append(_set_cortex_uuid_alias(db, project_id, pair["local_uuid"], pair["cortex_uuid"]))
+                # P2 sync-when-small: push the body for small sources so remote peers can fetch it.
+                if push_bodies:
+                    pushed = _maybe_push_small_body(
+                        cortex_url, api_key, pair["cortex_uuid"], by_id.get(pair["local_uuid"])
+                    )
+                    if pushed is not None:
+                        bodies_pushed.append(pushed)
 
         payload = {
             "ok": True,
@@ -121,6 +182,7 @@ def handle_sources_reconcile_command(args) -> int:
             "rejected": rejected,
             "swapped": swapped,
             "aliased": aliased,
+            "bodies_pushed": bodies_pushed,
         }
         _emit(output, payload, _render_human(payload))
         return 0
