@@ -117,6 +117,27 @@ empirica goals-create --objective "Future: refactor X" --status planned
 empirica goals-create --objective "Implement X"
 ```
 
+**Reversible close + archive (goal hygiene):**
+
+```bash
+# Undo an accidental or premature completion — flip completed → in_progress
+empirica goals-reopen --goal-id <ID> --reason "scope wasn't actually done"
+
+# Archive old completed goals so the completed list stays signal-dense
+empirica goals-archive --older-than 30          # dry-run preview
+empirica goals-archive --older-than 30 --apply  # actually archive
+
+# Archived goals are hidden by default — surface them when needed
+empirica goals-list --status completed --include-archived
+```
+
+`goals-complete` is **reversible**: `goals-reopen` flips a completed goal back to
+`in_progress` (and un-archives it), so a mis-close is recoverable — you don't have
+to be perfect at the completion boundary. `goals-archive` retires stale completed
+goals (older than N days, dry-run by default) so a long-running project's
+`goals-list` doesn't drown in ancient closed work; archived goals drop out of the
+completed view unless `--include-archived`.
+
 **Cross-project goals:** add `--project-id <name-or-uuid>` to log against
 a different project's epistemic state without switching session context.
 
