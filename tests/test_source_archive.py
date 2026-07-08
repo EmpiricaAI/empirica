@@ -225,16 +225,17 @@ def test_archive_removes_memory_embed(project_db: Path, capsys):
         MockDB.return_value.conn = sqlite3.connect(
             str(project_db / ".empirica" / "sessions" / "sessions.db"),
         )
-        with patch(
-            "empirica.cli.command_handlers.artifact_log_commands._hard_delete_source_chunks",
-            return_value=0,
-        ), patch(
-            "empirica.cli.command_handlers.artifact_log_commands._hard_delete_source_memory_embed",
-            return_value=1,
-        ) as mock_mem:
-            rc = handle_source_archive_command(
-                _make_args(source_id=sid, reason="user_deleted")
-            )
+        with (
+            patch(
+                "empirica.cli.command_handlers.artifact_log_commands._hard_delete_source_chunks",
+                return_value=0,
+            ),
+            patch(
+                "empirica.cli.command_handlers.artifact_log_commands._hard_delete_source_memory_embed",
+                return_value=1,
+            ) as mock_mem,
+        ):
+            rc = handle_source_archive_command(_make_args(source_id=sid, reason="user_deleted"))
 
     assert rc == 0
     payload = json.loads(capsys.readouterr().out)
