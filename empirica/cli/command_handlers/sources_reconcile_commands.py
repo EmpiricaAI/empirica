@@ -20,14 +20,18 @@ Four phases:
      ``/v1/sources/reconcile`` (pinned contract). The catalogue validates
      hash + tenancy; rejections come back typed (cortex_uuid_not_found →
      re-register as fresh; hash_mismatch → divergent fork, no swap).
-  4. **Swap** (``--apply`` only) — per confirmed pair, one SQLite
-     transaction: epistemic_sources PK, artifact_edges from_id/to_id,
-     archive_target_id supersession pointers, project_findings.source_refs
-     JSON arrays. Workspace-DB entity_artifacts rows are swapped
-     best-effort (separate database). Qdrant points are NOT re-pointed
-     here — ``empirica rebuild`` regenerates them from SQLite.
+  4. **Adopt** (``--apply``) — per confirmed pair. The DEFAULT is a
+     non-destructive ALIAS: the local row keeps its PK and stores the
+     catalogue uuid in ``cortex_uuid`` (the daemon resolves ``id OR
+     cortex_uuid``, so both address the same source — no cascade, no
+     Qdrant change, offline-safe). ``--converge`` instead PK-SWAPS in one
+     SQLite transaction — epistemic_sources PK, artifact_edges
+     from_id/to_id, archive_target_id supersession pointers,
+     project_findings.source_refs JSON arrays, plus best-effort
+     workspace-DB entity_artifacts. Qdrant points are NOT re-pointed on
+     swap — ``empirica rebuild`` regenerates them from SQLite.
 
-Dry-run by default; ``--apply`` performs the swaps.
+Dry-run by default; ``--apply`` adopts (alias), ``--apply --converge`` swaps.
 """
 
 from __future__ import annotations
@@ -51,6 +55,7 @@ def handle_sources_reconcile_command(args) -> int:
 
     output = getattr(args, "output", "human")
     apply = bool(getattr(args, "apply", False))
+    converge = bool(getattr(args, "converge", False))
 
     project_id = getattr(args, "project_id", None)
     if not project_id:
@@ -91,20 +96,20 @@ def handle_sources_reconcile_command(args) -> int:
             confirm_status = "skipped_no_matches"
 
         swapped: list[dict] = []
+        aliased: list[dict] = []
         if apply and confirmed:
             for pair in confirmed:
-                swapped.append(
-                    _swap_source_id(
-                        db,
-                        project_id,
-                        pair["local_uuid"],
-                        pair["cortex_uuid"],
-                    )
-                )
+                if converge:
+                    # Opt-in: destructive one-uuid PK-swap + cascade.
+                    swapped.append(_swap_source_id(db, project_id, pair["local_uuid"], pair["cortex_uuid"]))
+                else:
+                    # Default: non-destructive alias adopt (daemon resolves id OR cortex_uuid).
+                    aliased.append(_set_cortex_uuid_alias(db, project_id, pair["local_uuid"], pair["cortex_uuid"]))
 
         payload = {
             "ok": True,
             "dry_run": not apply,
+            "mode": "converge" if converge else "alias",
             "project_id": project_id,
             "local_sources": len(rows),
             "backfilled_identity": backfilled,
@@ -115,6 +120,7 @@ def handle_sources_reconcile_command(args) -> int:
             "confirmed": confirmed,
             "rejected": rejected,
             "swapped": swapped,
+            "aliased": aliased,
         }
         _emit(output, payload, _render_human(payload))
         return 0
@@ -302,6 +308,33 @@ def _confirm_matches(
         return [], [], f"unavailable_http_{e.code}"
     except (urllib.error.URLError, OSError, json.JSONDecodeError) as e:
         return [], [], f"unavailable: {e}"
+
+
+def _set_cortex_uuid_alias(db, project_id: str, local_uuid: str, cortex_uuid: str) -> dict:
+    """Non-destructive adopt (Unified Source Identity, Option A): record the
+    catalogue uuid as an ALIAS on the local row WITHOUT rewriting its PK.
+
+    The daemon resolves ``id OR cortex_uuid``, so both address the same source —
+    no edge cascade, no Qdrant re-key, offline-safe. Use ``--converge`` for the
+    destructive one-uuid PK-swap (``_swap_source_id``) when full convergence is
+    wanted. Returns a status dict mirroring ``_swap_source_id``'s shape.
+    """
+    result = {"local_uuid": local_uuid, "cortex_uuid": cortex_uuid, "aliased": False}
+    cursor = db.conn.cursor()
+    try:
+        cursor.execute(
+            "UPDATE epistemic_sources SET cortex_uuid = ? WHERE id = ? AND project_id = ?",
+            (cortex_uuid, local_uuid, project_id),
+        )
+        db.conn.commit()
+        if cursor.rowcount == 0:
+            result["error"] = "local row not found"
+        else:
+            result["aliased"] = True
+    except Exception as e:
+        db.conn.rollback()
+        result["error"] = str(e)
+    return result
 
 
 def _swap_source_id(

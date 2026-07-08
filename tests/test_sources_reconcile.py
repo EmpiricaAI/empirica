@@ -52,7 +52,8 @@ def _schema(conn: sqlite3.Connection) -> None:
             content_hash TEXT,
             size_bytes INTEGER,
             canonical_path TEXT,
-            mime_type TEXT
+            mime_type TEXT,
+            cortex_uuid TEXT
         );
         CREATE TABLE artifact_edges (
             from_id TEXT NOT NULL,
@@ -321,6 +322,7 @@ def test_swap_missing_row_reports_error_without_partial_writes(db):
 def _make_args(**overrides):
     defaults = {
         "apply": False,
+        "converge": False,
         "project_id": PROJECT,
         "cortex_url": "https://c.test",
         "api_key": "k",
@@ -371,7 +373,8 @@ def test_dry_run_confirms_but_never_swaps(db, capsys):
     assert cur.fetchone() is not None  # untouched
 
 
-def test_apply_swaps_confirmed_and_passes_rejected_through(db, capsys):
+def test_converge_swaps_confirmed_and_passes_rejected_through(db, capsys):
+    """--apply --converge does the destructive PK-swap (opt-in one-uuid)."""
     l1, c1 = str(uuid.uuid4()), str(uuid.uuid4())
     l2, c2 = str(uuid.uuid4()), str(uuid.uuid4())
     _insert_source(db, l1, content_hash="sha256:aa")
@@ -380,7 +383,7 @@ def test_apply_swaps_confirmed_and_passes_rejected_through(db, capsys):
 
     out = _run(
         db,
-        _make_args(apply=True),
+        _make_args(apply=True, converge=True),
         capsys,
         catalogue={
             "sources": [
@@ -394,8 +397,34 @@ def test_apply_swaps_confirmed_and_passes_rejected_through(db, capsys):
         },
     )
     assert out["dry_run"] is False
+    assert out["mode"] == "converge"
     assert out["swapped"][0]["swapped"] is True
+    assert out["aliased"] == []
     assert out["rejected"][0]["reason"] == "hash_mismatch"
     cur = db.conn.execute("SELECT id FROM epistemic_sources WHERE id IN (?,?)", (c1, l2))
     ids = {r[0] for r in cur.fetchall()}
     assert ids == {c1, l2}  # l1 swapped to c1; rejected l2 untouched
+
+
+def test_apply_default_aliases_non_destructively(db, capsys):
+    """Default --apply (no --converge) records the catalogue uuid as an ALIAS:
+    the local PK is unchanged and cortex_uuid is set, so the daemon can resolve
+    either id. No edge cascade, no Qdrant re-key (Unified Source Identity, A)."""
+    l1, c1 = str(uuid.uuid4()), str(uuid.uuid4())
+    _insert_source(db, l1, content_hash="sha256:aa")
+    db.close = lambda: None
+
+    out = _run(
+        db,
+        _make_args(apply=True),  # no converge → alias mode
+        capsys,
+        catalogue={"sources": [{"id": c1, "content_hash": "sha256:aa"}]},
+        confirm={"confirmed": [{"local_uuid": l1, "cortex_uuid": c1}], "rejected": []},
+    )
+    assert out["dry_run"] is False
+    assert out["mode"] == "alias"
+    assert out["swapped"] == []
+    assert out["aliased"][0]["aliased"] is True
+    row = db.conn.execute("SELECT id, cortex_uuid FROM epistemic_sources WHERE id = ?", (l1,)).fetchone()
+    assert row[0] == l1  # local PK preserved (non-destructive)
+    assert row[1] == c1  # cortex_uuid alias recorded
