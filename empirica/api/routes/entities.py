@@ -181,6 +181,62 @@ async def list_entities(
     return {"ok": True, "count": len(out), "entities": out}
 
 
+def _enrich_source_artifacts(artifacts: list[dict]) -> None:
+    """Enrich source-type edge rows IN PLACE with their content — title,
+    description, source_type, path — resolved from the source's home ``.empirica``
+    DB. Turns opaque ``{artifact_id, artifact_source}`` pointers into renderable
+    knowledge for the entity knowledge pane (workspace prop_tu3o343).
+
+    ``artifact_source`` is the ABSOLUTE ``.empirica`` dir path (written as
+    ``str(Path(project_path)/'.empirica')``), so the source rows live in
+    ``<artifact_source>/sessions/sessions.db``. Sources from another project (e.g.
+    mesh-support-sourced edges) resolve the same way — just a different DB path.
+
+    Read-only + best-effort: a missing/unreadable sibling DB (or one without an
+    ``epistemic_sources`` table) leaves that row as a bare pointer rather than
+    failing the whole response. Grouped by DB so each is opened once.
+    """
+    import sqlite3
+    from collections import defaultdict
+    from pathlib import Path
+
+    by_db: dict[str, list[dict]] = defaultdict(list)
+    for a in artifacts:
+        if a.get("artifact_type") == "source" and a.get("artifact_source") and a.get("artifact_id"):
+            by_db[a["artifact_source"]].append(a)
+
+    for empirica_dir, rows in by_db.items():
+        db_path = Path(empirica_dir) / "sessions" / "sessions.db"
+        if not db_path.is_file():
+            continue
+        ids = [r["artifact_id"] for r in rows]
+        content: dict[str, dict] = {}
+        try:
+            conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+            try:
+                placeholders = ",".join("?" for _ in ids)
+                cur = conn.execute(
+                    "SELECT id, title, source_url, canonical_path, description, source_type "
+                    f"FROM epistemic_sources WHERE id IN ({placeholders})",
+                    ids,
+                )
+                for r in cur.fetchall():
+                    content[r[0]] = {
+                        "title": r[1],
+                        "path": r[3] or r[2],  # canonical_path, else source_url
+                        "description": r[4],
+                        "source_type": r[5],
+                    }
+            finally:
+                conn.close()
+        except sqlite3.Error:
+            continue
+        for row in rows:
+            hit = content.get(row["artifact_id"])
+            if hit:
+                row.update(hit)
+
+
 @router.get("/entities/{entity_id}/artifacts", dependencies=[Depends(verify_mint_bearer)])
 async def list_entity_artifacts(
     entity_id: str,
@@ -208,6 +264,9 @@ async def list_entity_artifacts(
     with WorkspaceDBRepository.open() as repo:
         entity_type = type or repo.get_entity_type(entity_id)
         artifacts = repo.get_scoped_artifacts(entity_id, entity_type, limit=limit)
+    # Join each source-type edge to its content so the knowledge pane renders
+    # titles/descriptions, not opaque UUIDs (prop_tu3o343). Best-effort.
+    _enrich_source_artifacts(artifacts)
     return {
         "ok": True,
         "entity_id": entity_id,

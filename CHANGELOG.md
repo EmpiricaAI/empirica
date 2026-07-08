@@ -49,6 +49,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Extension needs zero change (it already requests by the cortex uuid).
 
 ### Fixed
+- **`GET /entities/{id}/artifacts` returns source content, not just pointers.**
+  The entity knowledge pane got opaque `{artifact_id, artifact_source}` edges — a
+  UUID + a dir path, not renderable knowledge. Each source-type edge is now
+  enriched with `{title, description, source_type, path}` resolved from the
+  source's home `.empirica` DB (`<artifact_source>/sessions/sessions.db`); sources
+  from another project resolve cross-DB the same way (grouped, one open per DB).
+  Read-only + best-effort — a missing/unreadable sibling DB leaves a bare pointer
+  rather than failing the response. Unblocks the extension knowledge pane
+  (workspace `prop_tu3o343`).
 - **`source-archive`: clear the source's semantic-search embed too.** Archiving a
   source hard-deleted its content chunks (`_docs_collection`) but left its metadata
   embed in `_memory_collection`, so an archived (soft-deleted) source stayed
