@@ -216,6 +216,35 @@ def test_archive_user_deleted_round_trip(project_db: Path, capsys):
     assert row[3] is not None  # epoch set
 
 
+def test_archive_removes_memory_embed(project_db: Path, capsys):
+    """source-archive must clear the source's metadata embed from the memory
+    collection (else the archived source stays discoverable via sources-map)."""
+    sid = _seed_source(project_db)
+
+    with patch("empirica.data.session_database.SessionDatabase") as MockDB:
+        MockDB.return_value.conn = sqlite3.connect(
+            str(project_db / ".empirica" / "sessions" / "sessions.db"),
+        )
+        with patch(
+            "empirica.cli.command_handlers.artifact_log_commands._hard_delete_source_chunks",
+            return_value=0,
+        ), patch(
+            "empirica.cli.command_handlers.artifact_log_commands._hard_delete_source_memory_embed",
+            return_value=1,
+        ) as mock_mem:
+            rc = handle_source_archive_command(
+                _make_args(source_id=sid, reason="user_deleted")
+            )
+
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    # the memory-embed cleanup was invoked with the resolved source id ...
+    mock_mem.assert_called_once()
+    assert mock_mem.call_args.args[1] == sid
+    # ... and its result is surfaced in the payload
+    assert payload["memory_embed_deleted"] == 1
+
+
 def test_archive_superseded_with_target(project_db: Path, capsys):
     src = _seed_source(project_db, title="Old version")
     replacement = _seed_source(project_db, title="New version")

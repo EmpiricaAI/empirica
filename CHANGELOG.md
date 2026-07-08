@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`source-archive`: clear the source's semantic-search embed too.** Archiving a
+  source hard-deleted its content chunks (`_docs_collection`) but left its metadata
+  embed in `_memory_collection`, so an archived (soft-deleted) source stayed
+  discoverable via `sources-map` / cross-project semantic search. Archive now also
+  removes the `item_type='source'` point (filtered by `artifact_id` + `type`), so
+  the "remove" step propagates to *every* Qdrant surface, not just the docs
+  collection. Surfaced by a source-lifecycle boundary-hygiene audit — the
+  companion `source-update` "stale embed" suspicion was a false alarm (source
+  embeds are metadata-only; update never changes title/description/url). Archive
+  result JSON gains `memory_embed_deleted`.
+
 ## [1.12.16] — 2026-07-07
 
 ### Added

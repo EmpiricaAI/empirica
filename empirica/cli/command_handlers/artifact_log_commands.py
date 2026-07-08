@@ -2306,6 +2306,45 @@ def _hard_delete_source_chunks(project_id: str, source_id: str) -> int:
         return 0
 
 
+def _hard_delete_source_memory_embed(project_id: str, source_id: str) -> int:
+    """Best-effort delete of the source's metadata embed from the memory collection.
+
+    A source is embedded at add-time into ``_memory_collection`` as an
+    ``item_type='source'`` point (payload ``artifact_id=source_id``, ``type='source'``)
+    so it is discoverable via ``sources-map`` / cross-project semantic search. On
+    archive that embed must go too — otherwise the archived source stays
+    discoverable even though it is soft-deleted. This is DISTINCT from
+    ``_hard_delete_source_chunks``, which clears content chunks in
+    ``_docs_collection`` (a different collection that CLI-added sources don't
+    populate). Returns points deleted (0 if Qdrant unavailable or none found).
+    """
+    try:
+        from empirica.core.qdrant.collections import _memory_collection
+        from empirica.core.qdrant.connection import _get_qdrant_client
+    except ImportError:
+        return 0
+    client = _get_qdrant_client()
+    if client is None:
+        return 0
+    try:
+        from qdrant_client.models import FieldCondition, Filter, MatchValue
+
+        coll = _memory_collection(project_id)
+        if not client.collection_exists(coll):
+            return 0
+        flt = Filter(
+            must=[
+                FieldCondition(key="artifact_id", match=MatchValue(value=source_id)),
+                FieldCondition(key="type", match=MatchValue(value="source")),
+            ]
+        )
+        result = client.delete(collection_name=coll, points_selector=flt)
+        return getattr(result, "deleted", 0) or 0
+    except Exception as e:
+        logger.debug(f"_hard_delete_source_memory_embed: qdrant delete failed: {e}")
+        return 0
+
+
 def _push_source_archive_to_cortex(full_id: str, reason: str, target_id: str | None) -> dict | None:
     """Best-effort `DELETE /v1/sources/{id}` to Cortex (Phase 1.5).
 
@@ -2463,6 +2502,9 @@ def handle_source_archive_command(args):
 
         # Hard-delete chunks (best-effort; non-fatal)
         chunks_deleted = _hard_delete_source_chunks(project_id, full_id)
+        # Remove the source's metadata embed from the memory collection too —
+        # otherwise the archived source stays discoverable via sources-map / search.
+        memory_deleted = _hard_delete_source_memory_embed(project_id, full_id)
 
         # Optional Cortex sync (Phase 1.5) — no-op when env vars unset
         cortex_status = _push_source_archive_to_cortex(full_id, reason, target_id)
@@ -2476,6 +2518,7 @@ def handle_source_archive_command(args):
             "archive_target_id": target_id,
             "archived_at": now,
             "chunks_deleted": chunks_deleted,
+            "memory_embed_deleted": memory_deleted,
             "audit_log": existing_log,
             "message": "Source archived (soft-delete; edges + citing artifacts preserved)",
         }
