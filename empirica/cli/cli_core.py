@@ -943,6 +943,8 @@ def main(args=None):
             "goal-activate": handle_goals_activate_command,
             "goals-reopen": handle_goals_reopen_command,
             "goal-reopen": handle_goals_reopen_command,
+            "goals-archive": handle_goals_archive_command,
+            "goal-archive": handle_goals_archive_command,
             "goals-refresh": handle_goals_refresh_command,
             # Vision commands
             "vision": handle_vision_analyze,

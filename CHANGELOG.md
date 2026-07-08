@@ -16,7 +16,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`is_completed`, `completed_timestamp`), and re-links it to the current
   transaction. Matches on `status='completed'` OR `is_completed=1` (the latter is
   the source of truth); records a `reopen_history` entry in `goal_data`. Part 1 of
-  the goal-lifecycle directive (reversibility) — archive-closed-after-X follows.
+  the goal-lifecycle directive (reversibility).
+- **`empirica goals-archive` + `goals-list --include-archived` — archive-closed-after-X hygiene.**
+  Part 2 of the goal-lifecycle directive. `goals-archive [--older-than N] [--apply]`
+  archives completed goals whose completion is older than N days (default 30) so the
+  completed view doesn't grow unbounded — dry-run by default, `--goal-id` archives a
+  single completed goal regardless of age. Mirrors the source-archive lifecycle
+  (migration 056 adds `archived`/`archived_at` to `goals`). Archived goals are hidden
+  from `goals-list` unless `--include-archived`; `goals-reopen` un-archives. The
+  active `goals-list` is unaffected (archived goals are completed).
 - **Unified Source Identity P1 — one source, two addresses (dual-resolution).**
   A source that only cortex knows by its catalogue uuid — but whose file exists
   locally under a *different* local uuid — used to 404 on the daemon (`GET

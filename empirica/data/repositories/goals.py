@@ -544,7 +544,10 @@ class GoalDataRepository(BaseRepository):
         goal_data.setdefault("reopen_history", []).append(entry)
 
         params: list = [json.dumps(goal_data)]
-        sql = "UPDATE goals SET status = 'in_progress', is_completed = 0, completed_timestamp = NULL, goal_data = ?"
+        sql = (
+            "UPDATE goals SET status = 'in_progress', is_completed = 0, "
+            "completed_timestamp = NULL, archived = 0, archived_at = NULL, goal_data = ?"
+        )
         if transaction_id:
             sql += ", transaction_id = ?"
             params.append(transaction_id)
@@ -554,6 +557,52 @@ class GoalDataRepository(BaseRepository):
         self._execute(sql, tuple(params))
         self.commit()
         return True
+
+    def archive_stale_completed(
+        self, older_than_days: int = 30, apply: bool = False, goal_id: str | None = None
+    ) -> list[dict]:
+        """Archive completed goals whose completion is older than N days (hygiene).
+
+        Mirrors the source-archive lifecycle: archived goals are hidden from the
+        completed list by default (``goals-list --include-archived`` surfaces them)
+        so the completed view doesn't grow unbounded. Reversible via ``goals-reopen``.
+        Dry-run by default (apply=False) — returns the affected goals either way.
+
+        Args:
+            older_than_days: age threshold on completed_timestamp (default 30)
+            apply: actually archive when True; dry-run report only when False
+            goal_id: archive a single completed goal by id/prefix (ignores the age
+                threshold); when None, archive all completed goals older than N days
+
+        Returns:
+            List of {id, objective, completed_timestamp} that were (or would be) archived
+        """
+        if goal_id:
+            cursor = self._execute(
+                "SELECT id, objective, completed_timestamp FROM goals "
+                "WHERE id LIKE ? AND (status = 'completed' OR is_completed = 1) "
+                "AND COALESCE(archived, 0) = 0",
+                (f"{goal_id}%",),
+            )
+        else:
+            cutoff = time.time() - older_than_days * 86400
+            cursor = self._execute(
+                "SELECT id, objective, completed_timestamp FROM goals "
+                "WHERE (status = 'completed' OR is_completed = 1) "
+                "AND COALESCE(archived, 0) = 0 "
+                "AND completed_timestamp IS NOT NULL AND completed_timestamp < ?",
+                (cutoff,),
+            )
+        rows = [{"id": r[0], "objective": r[1], "completed_timestamp": r[2]} for r in cursor.fetchall()]
+        if apply and rows:
+            now = time.time()
+            for r in rows:
+                self._execute(
+                    "UPDATE goals SET archived = 1, archived_at = ? WHERE id = ?",
+                    (now, r["id"]),
+                )
+            self.commit()
+        return rows
 
     def refresh_goal(self, goal_id: str) -> bool:
         """No-op — stale status removed. Goals stay in_progress across compaction.

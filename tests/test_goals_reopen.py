@@ -36,7 +36,9 @@ def _conn() -> sqlite3.Connection:
             status TEXT DEFAULT 'in_progress',
             beads_issue_id TEXT,
             project_id TEXT,
-            transaction_id TEXT
+            transaction_id TEXT,
+            archived BOOLEAN DEFAULT 0,
+            archived_at REAL
         )
         """
     )

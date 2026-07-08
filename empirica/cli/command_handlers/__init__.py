@@ -110,6 +110,7 @@ from .goal_commands import (
     handle_goals_activate_command,
     handle_goals_add_dependency_command,
     handle_goals_add_task_command,
+    handle_goals_archive_command,
     handle_goals_claim_command,
     handle_goals_complete_command,
     handle_goals_complete_task_command,
@@ -358,6 +359,7 @@ __all__ = [  # noqa: RUF022
     "handle_forgejo_publish_command",
     "handle_goals_activate_command",  # Activate planned goal → in_progress
     "handle_goals_reopen_command",  # Reopen completed goal → in_progress (reversible close)
+    "handle_goals_archive_command",  # Archive completed goals older than N days (hygiene)
     "handle_goals_add_dependency_command",
     "handle_goals_add_task_command",
     "handle_goals_claim_command",  # Phase 3a - Git bridge

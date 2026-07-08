@@ -1293,6 +1293,12 @@ def handle_goals_list_command(args):
         base_query += status_sql
         params.extend(status_params)
 
+        # Hide archived goals by default (archive-after-X hygiene); --include-archived
+        # surfaces them. Placed BEFORE the count_query so the "N of M" total also
+        # excludes archived. COALESCE handles pre-migration-056 NULLs.
+        if not getattr(args, "include_archived", False):
+            base_query += " AND COALESCE(g.archived, 0) = 0"
+
         # Full match count (pre-LIMIT) for "N of M" truncation transparency.
         total_matching = None
         try:
@@ -1941,6 +1947,52 @@ def handle_goals_reopen_command(args):
         from empirica.cli.cli_utils import handle_cli_error
 
         handle_cli_error(e, "Reopen goal", getattr(args, "verbose", False))
+
+
+def handle_goals_archive_command(args):
+    """Handle goals-archive command — archive completed goals older than N days.
+
+    Goal-lifecycle hygiene (mirrors source-archive): archived goals drop out of
+    the completed list unless `goals-list --include-archived`. Dry-run by default;
+    pass --apply to actually archive. goals-reopen un-archives.
+    """
+    try:
+        from empirica.data.repositories.goals import GoalDataRepository
+        from empirica.data.session_database import SessionDatabase
+
+        older_than = getattr(args, "older_than", 30)
+        apply = bool(getattr(args, "apply", False))
+        goal_id = getattr(args, "goal_id", None)
+        output_format = getattr(args, "output", "json")
+
+        db = SessionDatabase()
+        repo = GoalDataRepository(db.conn)
+        affected = repo.archive_stale_completed(older_than_days=older_than, apply=apply, goal_id=goal_id)
+        db.close()
+
+        result = {
+            "ok": True,
+            "dry_run": not apply,
+            "older_than_days": older_than,
+            "count": len(affected),
+            "archived": affected if apply else [],
+            "would_archive": [] if apply else affected,
+        }
+        if output_format == "json":
+            print(json.dumps(result))
+        else:
+            verb = "Archived" if apply else "Would archive"
+            icon = "✅" if apply else "📋"
+            print(f"{icon} {verb} {len(affected)} completed goal(s) older than {older_than}d")
+            for g in affected[:15]:
+                print(f"   • {g['id'][:8]} — {(g['objective'] or '')[:60]}")
+            if not apply and affected:
+                print("   (dry-run — pass --apply to archive)")
+
+    except Exception as e:
+        from empirica.cli.cli_utils import handle_cli_error
+
+        handle_cli_error(e, "Archive goals", getattr(args, "verbose", False))
 
 
 def handle_goals_refresh_command(args):

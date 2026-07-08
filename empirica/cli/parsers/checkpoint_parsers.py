@@ -1904,6 +1904,11 @@ Example:
         help='Filter by lifecycle status. Takes precedence over --completed. "drift" surfaces rows where status text disagrees with is_completed (canonical).',
     )
     goals_list_parser.add_argument("--limit", type=int, default=20, help="Max results (default: 20)")
+    goals_list_parser.add_argument(
+        "--include-archived",
+        action="store_true",
+        help="Include archived completed goals (hidden by default; archive via goals-archive)",
+    )
     goals_list_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
     goals_list_parser.add_argument("--verbose", action="store_true", help="Show detailed operation info")
 
@@ -2138,6 +2143,30 @@ written to git notes (breadcrumbs ref) for audit trail.
     goals_reopen_parser.add_argument("--goal-id", required=True, help="Goal UUID to reopen (prefix match)")
     goals_reopen_parser.add_argument("--reason", help="Optional note recorded in the goal's reopen history")
     goals_reopen_parser.add_argument("--output", choices=["human", "json"], default="json", help="Output format")
+
+    # Goals archive command (archive completed goals older than N days — hygiene)
+    goals_archive_parser = subparsers.add_parser(
+        "goals-archive",
+        aliases=["goal-archive"],
+        help=(
+            "Archive completed goals older than N days so the completed list "
+            "doesn't grow unbounded (mirrors source-archive). Archived goals drop "
+            "out of goals-list unless --include-archived; goals-reopen un-archives. "
+            "Dry-run by default; pass --apply to archive."
+        ),
+    )
+    goals_archive_parser.add_argument(
+        "--older-than",
+        type=int,
+        default=30,
+        dest="older_than",
+        help="Age threshold in days on completion time (default: 30)",
+    )
+    goals_archive_parser.add_argument(
+        "--goal-id", help="Archive one completed goal by id/prefix (ignores --older-than)"
+    )
+    goals_archive_parser.add_argument("--apply", action="store_true", help="Actually archive (default: dry-run report)")
+    goals_archive_parser.add_argument("--output", choices=["human", "json"], default="json", help="Output format")
 
     # Goals refresh command (mark stale goal as in_progress after regaining context)
     goals_refresh_parser = subparsers.add_parser(

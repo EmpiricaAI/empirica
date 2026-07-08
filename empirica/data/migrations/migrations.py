@@ -1491,6 +1491,11 @@ ALL_MIGRATIONS: list[tuple[str, str, Callable]] = [
         "Add cortex_uuid alias column to epistemic_sources — Unified Source Identity P1 (Option A, dual-resolution). A local source keeps its own PK and stores the catalogue uuid as an alias; the daemon resolves `id OR cortex_uuid` so a client holding only the cortex uuid still resolves the local source (kills the two-id-space 404). sources-reconcile populates the alias non-destructively by default; the destructive PK-swap stays opt-in via --converge. Indexed. Additive + idempotent via add_column_if_missing.",
         lambda cursor: migration_055_source_cortex_uuid(cursor),
     ),
+    (
+        "056_goals_archived",
+        "Add archived/archived_at columns to goals — goal-lifecycle archive-after-X (mirrors source-archive). A completed goal older than N days can be archived (hidden from the completed list unless --include-archived) so the completed view doesn't grow unbounded; goals-reopen un-archives. Indexed. Additive + idempotent via add_column_if_missing.",
+        lambda cursor: migration_056_goals_archived(cursor),
+    ),
 ]
 
 
@@ -2068,6 +2073,22 @@ def migration_055_source_cortex_uuid(cursor: sqlite3.Cursor):
     add_column_if_missing(cursor, "epistemic_sources", "cortex_uuid", "TEXT", "NULL")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_epistemic_sources_cortex_uuid ON epistemic_sources(cortex_uuid)")
     logger.info("✅ Migration 055 complete: cortex_uuid alias column added to epistemic_sources")
+
+
+def migration_056_goals_archived(cursor: sqlite3.Cursor):
+    """Add archived/archived_at columns to goals — goal-lifecycle archive-after-X.
+
+    Mirrors the source-archive lifecycle (epistemic_sources.archived/archived_at):
+    a COMPLETED goal older than N days can be ARCHIVED (hidden from the completed
+    list by default, surfaced with ``goals-list --include-archived``) so the
+    completed view doesn't grow unbounded. Archival is reversible — ``goals-reopen``
+    un-archives. Nullable, additive, idempotent via add_column_if_missing; indexed
+    for the goals-list ``WHERE COALESCE(archived,0)=0`` filter.
+    """
+    add_column_if_missing(cursor, "goals", "archived", "BOOLEAN", "0")
+    add_column_if_missing(cursor, "goals", "archived_at", "REAL", "NULL")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_goals_archived ON goals(archived)")
+    logger.info("✅ Migration 056 complete: archived/archived_at columns added to goals")
 
 
 def migration_051_goals_engagement_id(cursor: sqlite3.Cursor):
