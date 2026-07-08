@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`empirica goals-reopen` — reverse a completed goal (reversible close).**
+  `goals-complete` was effectively irreversible via the CLI (`goals-activate` is
+  planned-only), so an accidental or premature completion could only be undone by
+  hand-editing the DB. `goals-reopen --goal-id <id> [--reason ...]` flips a
+  completed goal back to `in_progress`, clears the completed flags
+  (`is_completed`, `completed_timestamp`), and re-links it to the current
+  transaction. Matches on `status='completed'` OR `is_completed=1` (the latter is
+  the source of truth); records a `reopen_history` entry in `goal_data`. Part 1 of
+  the goal-lifecycle directive (reversibility) — archive-closed-after-X follows.
 - **Unified Source Identity P1 — one source, two addresses (dual-resolution).**
   A source that only cortex knows by its catalogue uuid — but whose file exists
   locally under a *different* local uuid — used to 404 on the daemon (`GET

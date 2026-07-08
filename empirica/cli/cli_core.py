@@ -941,6 +941,8 @@ def main(args=None):
             "goals-get-stale": handle_goals_get_stale_command,
             "goals-activate": handle_goals_activate_command,
             "goal-activate": handle_goals_activate_command,
+            "goals-reopen": handle_goals_reopen_command,
+            "goal-reopen": handle_goals_reopen_command,
             "goals-refresh": handle_goals_refresh_command,
             # Vision commands
             "vision": handle_vision_analyze,

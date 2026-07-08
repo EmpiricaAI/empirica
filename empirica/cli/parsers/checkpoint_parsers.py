@@ -2125,6 +2125,20 @@ written to git notes (breadcrumbs ref) for audit trail.
     goals_activate_parser.add_argument("--goal-id", required=True, help="Goal UUID to activate (prefix match)")
     goals_activate_parser.add_argument("--output", choices=["human", "json"], default="json", help="Output format")
 
+    # Goals reopen command (reverse a completed goal back to in_progress)
+    goals_reopen_parser = subparsers.add_parser(
+        "goals-reopen",
+        aliases=["goal-reopen"],
+        help=(
+            "Reopen a COMPLETED goal — flip it back to in_progress and re-link "
+            "it to the active transaction. The inverse of goals-complete: undo "
+            "an accidental or premature completion so it re-enters the active list."
+        ),
+    )
+    goals_reopen_parser.add_argument("--goal-id", required=True, help="Goal UUID to reopen (prefix match)")
+    goals_reopen_parser.add_argument("--reason", help="Optional note recorded in the goal's reopen history")
+    goals_reopen_parser.add_argument("--output", choices=["human", "json"], default="json", help="Output format")
+
     # Goals refresh command (mark stale goal as in_progress after regaining context)
     goals_refresh_parser = subparsers.add_parser(
         "goals-refresh",

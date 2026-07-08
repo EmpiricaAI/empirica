@@ -515,6 +515,46 @@ class GoalDataRepository(BaseRepository):
         self.commit()
         return True
 
+    def reopen_goal(self, goal_id: str, reason: str | None = None, transaction_id: str | None = None) -> bool:
+        """Reopen a COMPLETED goal — flip status back to in_progress and clear
+        the completed flags. Makes ``goals-complete`` reversible via the CLI
+        (an accidental or premature completion can be undone).
+
+        Args:
+            goal_id: Goal UUID (prefix match supported)
+            reason: Optional note appended to goal_data.reopen_history
+            transaction_id: Current transaction UUID to re-link the goal to
+
+        Returns:
+            True if reopened, False if goal not found or not completed
+        """
+        cursor = self._execute(
+            "SELECT id, goal_data FROM goals WHERE id LIKE ? AND (status = 'completed' OR is_completed = 1)",
+            (f"{goal_id}%",),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return False
+
+        full_id = row[0]
+        goal_data = json.loads(row[1]) if row[1] else {}
+        entry: dict = {"at": time.time()}
+        if reason:
+            entry["reason"] = reason
+        goal_data.setdefault("reopen_history", []).append(entry)
+
+        params: list = [json.dumps(goal_data)]
+        sql = "UPDATE goals SET status = 'in_progress', is_completed = 0, completed_timestamp = NULL, goal_data = ?"
+        if transaction_id:
+            sql += ", transaction_id = ?"
+            params.append(transaction_id)
+        params.append(full_id)
+        sql += " WHERE id = ?"
+
+        self._execute(sql, tuple(params))
+        self.commit()
+        return True
+
     def refresh_goal(self, goal_id: str) -> bool:
         """No-op — stale status removed. Goals stay in_progress across compaction.
 

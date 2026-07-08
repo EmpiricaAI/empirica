@@ -1890,6 +1890,59 @@ def handle_goals_activate_command(args):
         handle_cli_error(e, "Activate goal", getattr(args, "verbose", False))
 
 
+def handle_goals_reopen_command(args):
+    """Handle goals-reopen command — transition a COMPLETED goal back to in_progress.
+
+    Makes goals-complete reversible: undo an accidental or premature completion,
+    re-linking the goal to the current transaction. The inverse of goals-complete.
+    """
+    try:
+        from empirica.data.repositories.goals import GoalDataRepository
+        from empirica.data.session_database import SessionDatabase
+
+        goal_id = args.goal_id
+        reason = getattr(args, "reason", None)
+        output_format = getattr(args, "output", "json")
+
+        transaction_id = None
+        try:
+            transaction_id = R.transaction_id()
+        except Exception:
+            pass
+
+        db = SessionDatabase()
+        repo = GoalDataRepository(db.conn)
+        reopened = repo.reopen_goal(goal_id, reason=reason, transaction_id=transaction_id)
+        db.close()
+
+        if reopened:
+            result = {
+                "ok": True,
+                "goal_id": goal_id,
+                "status": "in_progress",
+                "reason": reason,
+                "transaction_id": transaction_id,
+                "message": f"Goal {goal_id[:8]} reopened — back to in_progress",
+            }
+            if output_format == "json":
+                print(json.dumps(result))
+            else:
+                print(f"✅ Reopened goal: {goal_id[:8]} — now in_progress")
+                if reason:
+                    print(f"   Reason: {reason}")
+                if transaction_id:
+                    print(f"   Linked to transaction: {transaction_id[:8]}")
+        else:
+            result = {"ok": False, "error": f"Goal {goal_id} not found or not in 'completed' status"}
+            print(json.dumps(result))
+            sys.exit(1)
+
+    except Exception as e:
+        from empirica.cli.cli_utils import handle_cli_error
+
+        handle_cli_error(e, "Reopen goal", getattr(args, "verbose", False))
+
+
 def handle_goals_refresh_command(args):
     """Handle goals-refresh command - Mark a stale goal as in_progress
 
