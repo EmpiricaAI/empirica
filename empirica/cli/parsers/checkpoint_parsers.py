@@ -1523,16 +1523,27 @@ def add_checkpoint_parsers(subparsers):
         "sources-reconcile",
         help=(
             "Match local sources against the central catalogue by content "
-            "identity and adopt the catalogue uuid (PK-swap + cascade of "
-            "edges, supersession pointers, finding source_refs). Also "
-            "lazy-backfills content_hash/size/canonical_path on file-backed "
-            "rows that predate migration 050. Dry-run by default; pass "
-            "--apply to perform the swaps. Run `empirica rebuild` after an "
-            "applied reconcile to re-point Qdrant entries."
+            "identity and adopt the catalogue uuid. Default adopt is "
+            "NON-DESTRUCTIVE: the local row keeps its PK and stores the "
+            "catalogue uuid as an alias (the daemon resolves id OR cortex_uuid). "
+            "Pass --converge for the destructive one-uuid PK-swap + cascade "
+            "(edges, supersession pointers, finding source_refs), then run "
+            "`empirica rebuild` to re-point Qdrant. Also lazy-backfills "
+            "content_hash/size/canonical_path on file-backed rows predating "
+            "migration 050. Dry-run by default; pass --apply to mutate."
         ),
     )
     sources_reconcile_parser.add_argument(
-        "--apply", action="store_true", help="Perform the confirmed swaps (default: dry-run report)"
+        "--apply", action="store_true", help="Perform the confirmed adopts (default: dry-run report)"
+    )
+    sources_reconcile_parser.add_argument(
+        "--converge",
+        action="store_true",
+        help=(
+            "With --apply: PK-swap local ids to the catalogue uuid (destructive "
+            "one-uuid convergence + edge cascade). Default is a non-destructive "
+            "alias adopt. Run `empirica rebuild` after --converge to re-point Qdrant."
+        ),
     )
     sources_reconcile_parser.add_argument(
         "--project-id", help="Project UUID (auto-derived from active session when omitted)"

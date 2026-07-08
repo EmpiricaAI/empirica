@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Unified Source Identity P1 — one source, two addresses (dual-resolution).**
+  A source that only cortex knows by its catalogue uuid — but whose file exists
+  locally under a *different* local uuid — used to 404 on the daemon (`GET
+  /api/v1/sources/{id}/content`): the daemon and cortex kept separate id-spaces.
+  Now a local row can carry the catalogue uuid as an **alias** (`cortex_uuid`,
+  migration 055) and the daemon resolves **`id OR cortex_uuid`**, so a client
+  holding only the cortex uuid still reaches the local source. `sources-reconcile`
+  populates the alias **non-destructively by default**; the pre-existing
+  destructive PK-swap (rewrite the local id to the catalogue uuid + cascade
+  edges) is now opt-in via **`--converge`**. Offline-safe (no cortex call at
+  request time), no Qdrant re-key. Contract pinned with cortex + extension.
+  Extension needs zero change (it already requests by the cortex uuid).
+
 ### Fixed
 - **`source-archive`: clear the source's semantic-search embed too.** Archiving a
   source hard-deleted its content chunks (`_docs_collection`) but left its metadata

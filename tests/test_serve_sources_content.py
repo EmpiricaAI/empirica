@@ -301,3 +301,45 @@ def test_oversized_file_returns_truncation_marker(tmp_path, reset_daemon_cache, 
     assert body["content"] is None
     assert body["size_bytes"] == 200
     assert "exceeds" in body["hint"]
+
+
+# ── Cortex-uuid alias resolution (Unified Source Identity, Option A) ──
+
+
+def test_source_resolves_by_cortex_uuid_alias(tmp_path, reset_daemon_cache):
+    """A source requested by its CATALOGUE uuid (not its local PK) still
+    resolves — the two-id-space 404 fix (migration 055, dual-resolution).
+    Extension always requests by the cortex uuid, which is the only id its
+    projection gives it."""
+    pid = str(uuid.uuid4())
+    proj = _make_project_with_db(tmp_path, pid)
+    # Simulate a migration-055 DB: add the alias column.
+    db_path = proj / ".empirica" / "sessions" / "sessions.db"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("ALTER TABLE epistemic_sources ADD COLUMN cortex_uuid TEXT")
+    conn.commit()
+    conn.close()
+
+    (proj / "spec.md").write_text("# Spec\n\nHello.\n", encoding="utf-8")
+    local_id = _insert_source(proj, pid, "spec.md", title="Spec doc")
+
+    # Adopt the catalogue uuid as an alias (what `sources-reconcile` does by default).
+    cortex_uuid = str(uuid.uuid4())
+    conn = sqlite3.connect(str(db_path))
+    conn.execute(
+        "UPDATE epistemic_sources SET cortex_uuid = ? WHERE id = ?",
+        (cortex_uuid, local_id),
+    )
+    conn.commit()
+    conn.close()
+
+    # Request by the CORTEX uuid → resolves the local file (was a 404 before P1).
+    code, body = _get_content(proj, cortex_uuid)
+    assert code == 200
+    assert body["kind"] == "file"
+    assert "Hello." in body["content"]
+
+    # The local id still resolves too — both address the same source.
+    code2, body2 = _get_content(proj, local_id)
+    assert code2 == 200
+    assert body2["kind"] == "file"

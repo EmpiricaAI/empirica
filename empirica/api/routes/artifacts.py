@@ -754,13 +754,29 @@ async def get_source_content(
 
 
 def _fetch_source_row(db, project_id: str, source_id: str) -> dict | None:
-    """Read one ``epistemic_sources`` row by id, scoped to project."""
+    """Read one ``epistemic_sources`` row, scoped to project.
+
+    Resolves EITHER the local PK ``id`` OR the ``cortex_uuid`` alias (Unified
+    Source Identity, Option A) so a client that only holds the catalogue uuid
+    still reaches the local source. Falls back to id-only on a DB that predates
+    the ``cortex_uuid`` column (migration 055) — ``_open_db_for`` is read-only
+    and runs no migrations, so an older daemon DB may lack the column.
+    """
+    import sqlite3
+
     cursor = db.conn.cursor()
-    cursor.execute(
-        "SELECT id, title, source_url, source_type, description "
-        "FROM epistemic_sources WHERE project_id = ? AND id = ? LIMIT 1",
-        (project_id, source_id),
-    )
+    try:
+        cursor.execute(
+            "SELECT id, title, source_url, source_type, description "
+            "FROM epistemic_sources WHERE project_id = ? AND (id = ? OR cortex_uuid = ?) LIMIT 1",
+            (project_id, source_id, source_id),
+        )
+    except sqlite3.OperationalError:
+        cursor.execute(
+            "SELECT id, title, source_url, source_type, description "
+            "FROM epistemic_sources WHERE project_id = ? AND id = ? LIMIT 1",
+            (project_id, source_id),
+        )
     r = cursor.fetchone()
     if not r:
         return None

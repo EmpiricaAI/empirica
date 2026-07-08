@@ -1486,6 +1486,11 @@ ALL_MIGRATIONS: list[tuple[str, str, Callable]] = [
         "Add review-state columns (last_reviewed_at, review_verdict) to epistemic_sources — the REVIEW half of the source-lifecycle triad (CHECK=sources-check, UPDATE=source-update). source-review appends a 'reviewed' event to lifecycle_audit_log AND stamps the latest verdict here so review state is queryable (surface unreviewed / stale-review sources) without parsing the JSON audit log. Additive + idempotent via add_column_if_missing.",
         lambda cursor: migration_054_source_review_state(cursor),
     ),
+    (
+        "055_source_cortex_uuid",
+        "Add cortex_uuid alias column to epistemic_sources — Unified Source Identity P1 (Option A, dual-resolution). A local source keeps its own PK and stores the catalogue uuid as an alias; the daemon resolves `id OR cortex_uuid` so a client holding only the cortex uuid still resolves the local source (kills the two-id-space 404). sources-reconcile populates the alias non-destructively by default; the destructive PK-swap stays opt-in via --converge. Indexed. Additive + idempotent via add_column_if_missing.",
+        lambda cursor: migration_055_source_cortex_uuid(cursor),
+    ),
 ]
 
 
@@ -2044,6 +2049,25 @@ def migration_054_source_review_state(cursor: sqlite3.Cursor):
     add_column_if_missing(cursor, "epistemic_sources", "last_reviewed_at", "REAL", "NULL")
     add_column_if_missing(cursor, "epistemic_sources", "review_verdict", "TEXT", "NULL")
     logger.info("✅ Migration 054 complete: review-state columns added to epistemic_sources")
+
+
+def migration_055_source_cortex_uuid(cursor: sqlite3.Cursor):
+    """Add `cortex_uuid` alias column to epistemic_sources — Unified Source Identity P1 (Option A).
+
+    A local source keeps its OWN uuid as the primary key and stores the
+    catalogue's uuid as an ALIAS. The daemon resolves ``id OR cortex_uuid``
+    (api/routes/artifacts.py::_fetch_source_row), so a client that only holds
+    the catalogue uuid still reaches the local source — killing the
+    two-id-space 404 WITHOUT the destructive PK-swap (which stays opt-in via
+    ``sources-reconcile --converge``). ``sources-reconcile`` populates the
+    alias non-destructively by default.
+
+    Nullable, additive, idempotent via add_column_if_missing. Indexed for the
+    daemon's ``WHERE cortex_uuid = ?`` lookup.
+    """
+    add_column_if_missing(cursor, "epistemic_sources", "cortex_uuid", "TEXT", "NULL")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_epistemic_sources_cortex_uuid ON epistemic_sources(cortex_uuid)")
+    logger.info("✅ Migration 055 complete: cortex_uuid alias column added to epistemic_sources")
 
 
 def migration_051_goals_engagement_id(cursor: sqlite3.Cursor):
