@@ -129,6 +129,10 @@ async def list_entities(
         # the whole org set (small: umbrella + brands), not per-row — preserves
         # the single-query intent that deferred the broader v1.1 enrichment.
         org_parents = repo.get_org_parent_map()
+        # Org detail (industry/description/domain/org_type/tags) from the
+        # workspace organizations table — the org-side peer to the contact
+        # detail map below, closing the projection asymmetry (prop_2yfn3ok).
+        org_details = repo.get_org_detail_map()
         # Contact→org affiliation (id + name + role) + richer CRM detail fields.
         # Same entity_memberships source as the parent_org filter, so filter and
         # enrichment agree.
@@ -155,6 +159,15 @@ async def list_entities(
             # entity_memberships; other types omit the field.
             if et == "organization":
                 entry["parent_org_id"] = org_parents.get(eid)
+                # Surface the organizations-table detail (mirrors how the contact
+                # branch surfaces contact detail) so extension/practices see
+                # industry/description/domain/org_type/tags, not just name/status.
+                od = org_details.get(eid) or {}
+                entry["industry"] = od.get("industry")
+                entry["description"] = od.get("description")
+                entry["domain"] = od.get("domain")
+                entry["org_type"] = od.get("org_type")
+                entry["tags"] = od.get("tags")
             elif et == "contact":
                 cod = contact_org_details.get(eid) or {}
                 cd = contact_details.get(eid) or {}

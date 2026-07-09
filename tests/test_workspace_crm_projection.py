@@ -46,6 +46,14 @@ def repo() -> WorkspaceDBRepository:
             ('t1','eng-1','Provision seat','d','open','carly',NULL,NULL,NULL,'2026-01-01'),
             ('t2','eng-1','Verify','d','done','carly',NULL,'2026-02-01',NULL,'2026-01-02'),
             ('t3','eng-2','Other','d','open','x',NULL,NULL,NULL,'2026-01-01');
+
+        CREATE TABLE organizations (
+            org_id TEXT PRIMARY KEY, name TEXT, domain TEXT, industry TEXT,
+            org_type TEXT, description TEXT, tags TEXT, status TEXT
+        );
+        INSERT INTO organizations VALUES
+            ('o-nle','NLE','nle.com','Live Entertainment','client','Live events co','["priority"]','active'),
+            ('o-bad','BadOrg',NULL,NULL,NULL,NULL,'not-json','active');
         """
     )
     return WorkspaceDBRepository(conn)
@@ -67,6 +75,22 @@ def test_contact_detail_map_projects_crm_fields(repo):
 
 def test_contact_detail_map_malformed_tags_is_empty_list(repo):
     assert repo.get_contact_detail_map()["c-bad"]["tags"] == []
+
+
+# ── org detail map (prop_2yfn3ok — closes the org/contact projection asymmetry) ─
+
+
+def test_org_detail_map_projects_fields(repo):
+    o = repo.get_org_detail_map()["o-nle"]
+    assert o["industry"] == "Live Entertainment"
+    assert o["org_type"] == "client"
+    assert o["domain"] == "nle.com"
+    assert o["description"] == "Live events co"
+    assert o["tags"] == ["priority"]  # JSON-parsed to a list
+
+
+def test_org_detail_map_malformed_tags_is_empty_list(repo):
+    assert repo.get_org_detail_map()["o-bad"]["tags"] == []
 
 
 # ── contact→org details (name + role) ─────────────────────────────────────────
@@ -155,6 +179,8 @@ def test_crm_projections_degrade_when_optional_tables_absent():
     repo = WorkspaceDBRepository(conn)
     assert repo.get_contact_detail_map() == {}
     assert repo.get_engagement_tasks("eng-1") == []
+    # organizations table absent → org detail map degrades to {} (same _table_exists guard).
+    assert repo.get_org_detail_map() == {}
     # entity_memberships IS present → the org-details map still works (returns {}).
     assert repo.get_contact_org_details_map() == {}
 
