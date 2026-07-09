@@ -1169,6 +1169,42 @@ class WorkspaceDBRepository(BaseRepository):
             }
         return out
 
+    def get_org_detail_map(self) -> dict[str, dict[str, Any]]:
+        """Map org_id → the org detail projection fields from the ``organizations``
+        table (industry/description/domain/org_type/tags). One query; ``tags`` is
+        JSON-parsed to a list (honest-empty on malformed). Returns ``{}`` when the
+        ``organizations`` table is absent.
+
+        The org-side peer to ``get_contact_detail_map`` — closes the projection
+        asymmetry where the contact list surfaced rich detail but the org list did
+        not (workspace prop_2yfn3ok). ``organizations`` is a workspace-owned detail
+        table (not vendored into core), so the ``_table_exists`` guard lets a
+        minimal workspace DB / test fixture degrade to {} rather than raise.
+        """
+        if not self._table_exists("organizations"):
+            return {}
+
+        cursor = self._execute(
+            """SELECT org_id, industry, description, domain, org_type, tags
+               FROM organizations"""
+        )
+        out: dict[str, dict[str, Any]] = {}
+        for row in cursor.fetchall():
+            tags = row["tags"]
+            if isinstance(tags, str):
+                try:
+                    tags = json.loads(tags)
+                except (ValueError, TypeError):
+                    tags = []
+            out[row["org_id"]] = {
+                "industry": row["industry"],
+                "description": row["description"],
+                "domain": row["domain"],
+                "org_type": row["org_type"],
+                "tags": tags if isinstance(tags, list) else [],
+            }
+        return out
+
     def get_engagement_tasks(self, engagement_id: str) -> list[dict[str, Any]]:
         """List an engagement's tasks from workspace ``engagement_tasks`` (task_id,
         title, status, assigned_to, due_at, completed_at, blocked_by, …), oldest

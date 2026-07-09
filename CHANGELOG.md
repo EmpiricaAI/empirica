@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Daemon org-entity projection surfaces org detail (industry/description/domain/org_type/tags).**
+  `GET /api/v1/entities?type=organization` projected only `id/name/status`, while the
+  **contact** projection already surfaced rich detail — an asymmetry that left
+  workspace-populated org profiles (industry, description, domain, org_type, tags)
+  invisible to extension/practices. A new `WorkspaceDBRepository.get_org_detail_map()`
+  (the org-side peer to `get_contact_detail_map` — `_table_exists`-guarded, `tags`
+  JSON-parsed to a list) is joined into the `organization` branch of `list_entities`.
+  Additive, no schema change (the fields live in workspace's `organizations` detail
+  table). Needs a daemon restart to go live (deploy-staleness).
 - **Unified Source Identity P2 — sync-when-small body upload (`sources-reconcile --push-bodies`).**
   A source cortex knows only by catalogue pointer used to be un-fetchable by a peer
   with no local copy. Now `sources-reconcile --apply --push-bodies` uploads the
