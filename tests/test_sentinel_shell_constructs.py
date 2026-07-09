@@ -53,6 +53,55 @@ def gate():
     return _load_sentinel_gate()
 
 
+# ─── read-only sqlite3 classification (flag-robust) ─────────────────────────
+
+
+class TestSqliteClassifier:
+    """is_safe_sqlite_command must classify read-only sqlite3 as noetic even
+    when display flags precede the db path (the old regex assumed the db path
+    was the first arg, so `sqlite3 -header db "SELECT…"` got false-gated)."""
+
+    DB = "/home/x/.empirica/workspace/workspace.db"
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            'sqlite3 {db} "SELECT * FROM t"',
+            'sqlite3 {db} ".schema organizations"',
+            'sqlite3 {db} "PRAGMA table_info(t)"',
+            'sqlite3 {db} "WITH x AS (SELECT 1 AS n) SELECT n FROM x"',  # CTE read
+            'sqlite3 -header {db} "SELECT a, b FROM t"',  # bare flag before path
+            'sqlite3 -json {db} "SELECT 1"',
+            'sqlite3 -line -readonly {db} "SELECT 1"',  # multiple bare flags
+            "sqlite3 -separator ' | ' {db} \"SELECT a, b FROM t\"",  # value-flag
+            'sqlite3 -header {db} "SELECT 1" 2>/dev/null',  # trailing redirect ignored
+        ],
+    )
+    def test_reads_are_noetic(self, gate, cmd):
+        assert gate.is_safe_sqlite_command(cmd.format(db=self.DB)) is True
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            'sqlite3 {db} "INSERT INTO t VALUES (1)"',
+            'sqlite3 {db} "UPDATE t SET a=1"',
+            'sqlite3 {db} "DELETE FROM t"',
+            'sqlite3 {db} "DROP TABLE t"',
+            'sqlite3 -header {db} "DELETE FROM t"',  # flag + write still blocked
+            'sqlite3 {db} "WITH x AS (SELECT 1) DELETE FROM t"',  # writable CTE
+            'sqlite3 {db} ".output /tmp/x"',  # file-writing meta
+            "sqlite3 {db}",  # interactive REPL — no query
+        ],
+    )
+    def test_writes_and_interactive_are_praxic(self, gate, cmd):
+        assert gate.is_safe_sqlite_command(cmd.format(db=self.DB)) is False
+
+    def test_end_to_end_via_is_safe_bash(self, gate):
+        # The dispatch path callers actually hit.
+        assert gate.is_safe_bash_command({"command": f'sqlite3 -header {self.DB} "SELECT 1"'}) is True
+        assert gate.is_safe_bash_command({"command": f'sqlite3 {self.DB} "DROP TABLE t"'}) is False
+
+
 # ─── command-substitution extractor ────────────────────────────────────────
 
 

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Sentinel: flag-robust read-only `sqlite3` classification.** `is_safe_sqlite_command`
+  assumed the db path was the first arg after `sqlite3`, so any flag before it
+  (`-header`, `-separator ' | '`, `-json`, `-line`) broke the regex match and fell
+  through to *gated-as-praxic* — false positives that forced reroutes on pure read-only
+  DB inspection. Rewritten with `shlex` tokenization: skip leading flags (incl
+  value-taking `-separator`/`-cmd`/`-init`), take the query as the arg after the db path
+  (so a trailing `2>/dev/null` no longer fools it), allow `WITH` (CTE reads), and keep a
+  write-keyword backstop that also catches writable CTEs. Writes, file-writing meta
+  (`.output`/`.import`/…), and interactive REPL stay praxic.
+
 ### Added
 - **Daemon org-entity projection surfaces org detail (industry/description/domain/org_type/tags).**
   `GET /api/v1/entities?type=organization` projected only `id/name/status`, while the

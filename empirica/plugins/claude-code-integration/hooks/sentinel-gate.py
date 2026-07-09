@@ -2028,18 +2028,70 @@ def is_safe_sqlite_command(command: str) -> bool:
     - sqlite3 db "INSERT/UPDATE/DELETE/DROP/CREATE/ALTER ..."
     """
     import re
+    import shlex
 
-    # Extract the SQL/command part (everything after db path in quotes)
-    # Pattern: sqlite3 <db_path> "<query>" or sqlite3 <db_path> '<query>'
-    # Also handles: sqlite3 <db_path> ".tables" (dot commands)
-    match = re.search(r'sqlite3\s+\S+\s+["\'](.+?)["\']', command)
-    if not match:
-        # No quoted query found - could be interactive mode, block it
+    # Tokenize the way the shell would, so flags BEFORE the db path
+    # (-header, -separator ' | ', -json, -line, -box, -readonly …) don't fool
+    # us. The old regex assumed the db path was the first arg after `sqlite3`,
+    # so `sqlite3 -header db "SELECT…"` failed to match and got gated as praxic
+    # — a false positive on pure reads. shlex handles quotes; on malformed
+    # input (unbalanced quotes) we fall back to the conservative deny.
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return False
+    if not tokens or tokens[0] != "sqlite3":
         return False
 
-    query = match.group(1).strip().upper()
+    # Walk the flags. Value-taking flags consume the next token too.
+    value_flags = {"-separator", "-nullvalue", "-newline", "-cmd", "-init", "-mode", "-column"}
+    positionals: list[str] = []
+    args = tokens[1:]
+    i = 0
+    while i < len(args):
+        tok = args[i]
+        if tok in value_flags:
+            i += 2  # skip the flag AND its value
+            continue
+        if tok.startswith("-"):
+            i += 1  # bare flag (-header/-json/-line/-box/-csv/-readonly/…)
+            continue
+        positionals.append(tok)
+        i += 1
 
-    # Safe meta commands (dot commands)
+    # Shape is `sqlite3 [flags] <db_path> <query> [redirects…]`. The query is
+    # the arg RIGHT AFTER the db path (positionals[1]) — taking the last
+    # positional would be fooled by a trailing `2>/dev/null`. No query means an
+    # interactive REPL (which can write) → block.
+    if len(positionals) < 2:
+        return False
+    query = positionals[1].strip().upper()
+
+    # Write-keyword backstop (defense in depth): any DML/DDL anywhere in the
+    # query — including inside a writable CTE (`WITH … DELETE`) — → praxic.
+    write_kw = (
+        "INSERT",
+        "UPDATE",
+        "DELETE",
+        "DROP",
+        "CREATE",
+        "ALTER",
+        "REPLACE",
+        "ATTACH",
+        "DETACH",
+        "VACUUM",
+        "REINDEX",
+        "TRUNCATE",
+    )
+    if any(re.search(r"\b" + kw + r"\b", query) for kw in write_kw):
+        return False
+
+    # File-writing / shell-escaping meta commands → praxic.
+    unsafe_meta = (".OUTPUT", ".ONCE", ".IMPORT", ".BACKUP", ".CLONE", ".RESTORE", ".SHELL", ".SYSTEM", ".EXCEL")
+    if any(query.startswith(m) for m in unsafe_meta):
+        return False
+
+    # Safe display-only meta (dot) commands.
     safe_meta = (
         ".SCHEMA",
         ".TABLES",
@@ -2051,13 +2103,14 @@ def is_safe_sqlite_command(command: str) -> bool:
         ".WIDTH",
         ".HELP",
         ".DATABASES",
+        ".FULLSCHEMA",
     )
-    for meta in safe_meta:
-        if query.startswith(meta):
-            return True
+    if any(query.startswith(meta) for meta in safe_meta):
+        return True
 
-    # Safe SQL operations (read-only)
-    safe_sql = ("SELECT", "PRAGMA", "EXPLAIN", "ANALYZE")
+    # Safe read-only SQL (WITH = CTE reads; the write backstop above already
+    # rejected writable CTEs).
+    safe_sql = ("SELECT", "WITH", "PRAGMA", "EXPLAIN", "ANALYZE")
     return any(query.startswith(sql) for sql in safe_sql)
 
 
