@@ -310,6 +310,68 @@ def _enrich_memory_types(result, project_id, task_context, limits, include_eidet
         logger.debug(f"Global dead-ends retrieval failed: {e}")
 
 
+def _apply_goal_reconciliation(raw_goals, live_map):
+    """Reconcile retrieved goals against authoritative live status (retrieval hygiene).
+
+    ``live_map`` maps ``goal_id -> (status, is_completed)`` from the local SQLite.
+    Drops goals completed in SQLite (a stale Qdrant payload still reading
+    ``in_progress``), corrects stale status on open goals, and keeps goals absent
+    from the map (cross-project or subtask) unchanged. Pure function — unit-testable.
+    """
+    out = []
+    for g in raw_goals:
+        gid = g.get("goal_id")
+        if gid and gid in live_map:
+            status, is_completed = live_map[gid]
+            if is_completed or status == "completed":
+                continue  # drop: completed in SQLite, stale-in_progress in Qdrant
+            if status and status != g.get("status"):
+                g = {**g, "status": status}  # correct stale status in place
+        out.append(g)
+    return out
+
+
+def _reconcile_goals_against_sqlite(raw_goals):
+    """Look up live goal status from the local project SQLite and reconcile.
+
+    Best-effort: on ANY failure returns ``raw_goals`` unchanged — this runs in the
+    PREFLIGHT/CHECK hot-path and must never break retrieval. Cross-project goals
+    (``goal_id`` absent from the local ``goals`` table) are kept as-is; correcting
+    their status would need the owning project's DB (deferred to v2).
+    """
+    if not raw_goals:
+        return raw_goals
+    try:
+        ids = [g.get("goal_id") for g in raw_goals if g.get("goal_id")]
+        if not ids:
+            return raw_goals
+        import sqlite3
+        from pathlib import Path
+
+        from empirica.data.session_database import _resolve_canonical_project_root
+
+        root = _resolve_canonical_project_root()
+        if not root:
+            return raw_goals
+        db_path = Path(root) / ".empirica" / "sessions" / "sessions.db"
+        if not db_path.is_file():
+            return raw_goals
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        try:
+            placeholders = ",".join("?" for _ in ids)
+            cur = conn.execute(
+                f"SELECT id, status, COALESCE(is_completed, 0) FROM goals WHERE id IN ({placeholders})",
+                ids,
+            )
+            live_map = {row[0]: (row[1], bool(row[2])) for row in cur.fetchall()}
+        finally:
+            conn.close()
+        return _apply_goal_reconciliation(raw_goals, live_map)
+    except Exception as e:
+        logger.debug(f"goal reconciliation skipped (keeping raw): {e}")
+        return raw_goals
+
+
 def _enrich_knowledge_graph(
     result,
     project_id,
@@ -327,6 +389,7 @@ def _enrich_knowledge_graph(
             from .vector_store import search_goals
 
             raw = search_goals(project_id, task_context, include_subtasks=True, limit=limits["goals"])
+            raw = _reconcile_goals_against_sqlite(raw)  # retrieval hygiene: drop completed, correct stale
             if raw:
                 result["related_goals"] = [
                     {
@@ -868,6 +931,7 @@ def _enrich_check_warnings(
             raw = search_goals(
                 project_id, current_approach or "current work", status="in_progress", include_subtasks=True, limit=limit
             )
+            raw = _reconcile_goals_against_sqlite(raw)  # retrieval hygiene: drop completed, correct stale
             if raw:
                 warnings["active_goals"] = [
                     {

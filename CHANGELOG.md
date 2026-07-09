@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **Retrieval hygiene: PREFLIGHT/CHECK goal teaser reconciled against live SQLite.**
+  The Qdrant-backed goals teaser served `status` straight from the point payload
+  (embedded at index time), so a goal completed/reopened in SQLite kept surfacing as
+  `in_progress` until its point was re-embedded — retrieval drifting from reality
+  (retrieval-as-pollution). Retrieved goals are now reconciled against the
+  authoritative local `goals` table before display: **completed goals are dropped,
+  stale status is corrected, and cross-project goals (absent locally) are kept
+  unchanged**. Best-effort + fail-open (returns the raw list on any error — the
+  hot-path never breaks). Wired at both build points (preflight `related_goals` +
+  check `active_goals`). Cross-project *status* correction is deferred (needs the
+  owning project's DB).
 - **Sentinel: flag-robust read-only `sqlite3` classification.** `is_safe_sqlite_command`
   assumed the db path was the first arg after `sqlite3`, so any flag before it
   (`-header`, `-separator ' | '`, `-json`, `-line`) broke the regex match and fell
