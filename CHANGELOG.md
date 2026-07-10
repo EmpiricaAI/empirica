@@ -30,6 +30,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`.output`/`.import`/…), and interactive REPL stay praxic.
 
 ### Added
+- **User-configurable artifact-injection cap (`artifact_injection.max_per_category` / `max_total`).**
+  The PREFLIGHT/CHECK teaser's per-category injection volume is now tunable + observable.
+  Set `.empirica/config.yaml` → `artifact_injection: {max_per_category: N, max_total: M}`
+  (or env `EMPIRICA_MAX_ARTIFACTS_PER_CATEGORY` / `EMPIRICA_MAX_ARTIFACTS_TOTAL`; env wins,
+  precedence env > config.yaml > default) to cap how many items per category — and combined —
+  get injected. Lists are score-ranked so the dropped tail is lowest-ranked; the drop counts
+  surface in `_context_budget.capped_per_category` / `capped_total` for observability.
+  **Default is uncapped — behaviour unchanged.** Applied in `_apply_context_budget` (before the
+  char-budget elision), so practices with heavy artifact graphs can right-size injection. POSTFLIGHT
+  + post-compact bootstrap injection have separate budget builders (deferred follow-up).
 - **Daemon org-entity projection surfaces org detail (industry/description/domain/org_type/tags).**
   `GET /api/v1/entities?type=organization` projected only `id/name/status`, while the
   **contact** projection already surfaced rich detail — an asymmetry that left

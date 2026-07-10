@@ -698,6 +698,99 @@ def _enforce_total_budget(result: dict, max_total: int) -> int:
     return dropped
 
 
+# Per-category list keys eligible for the user-configurable injection cap.
+_INJECTION_CATEGORY_KEYS = (
+    "lessons",
+    "dead_ends",
+    "mistakes",
+    "prior_mistakes",
+    "relevant_findings",
+    "related_findings",
+    "eidetic_facts",
+    "eidetic_context",
+    "episodic_narratives",
+    "related_goals",
+    "active_goals",
+    "unverified_assumptions",
+    "prior_decisions",
+    "related_docs",
+    "global_dead_ends",
+)
+
+
+def _resolve_injection_caps() -> dict:
+    """Resolve the user-configurable artifact-injection caps.
+
+    Precedence: env var > ``.empirica/config.yaml`` ``artifact_injection`` block >
+    default (``None`` = uncapped, preserving prior behaviour). Keys:
+
+    - ``max_per_category`` (env ``EMPIRICA_MAX_ARTIFACTS_PER_CATEGORY``) — bounds
+      each category list.
+    - ``max_total`` (env ``EMPIRICA_MAX_ARTIFACTS_TOTAL``) — bounds the combined set.
+
+    Never raises — a bad value is ignored (falls back to uncapped for that key).
+    """
+    caps: dict = {"max_per_category": None, "max_total": None}
+    cfg: dict = {}
+    try:
+        from empirica.config.path_resolver import load_empirica_config
+
+        block = (load_empirica_config() or {}).get("artifact_injection")
+        if isinstance(block, dict):
+            cfg = block
+    except Exception:
+        cfg = {}
+    for key, env in (
+        ("max_per_category", "EMPIRICA_MAX_ARTIFACTS_PER_CATEGORY"),
+        ("max_total", "EMPIRICA_MAX_ARTIFACTS_TOTAL"),
+    ):
+        raw = os.getenv(env)
+        if raw is None:
+            raw = cfg.get(key)
+        if raw is None:
+            continue
+        try:
+            val = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if val > 0:
+            caps[key] = val
+    return caps
+
+
+def _apply_injection_caps(result: dict, caps: dict | None = None) -> tuple[int, int]:
+    """Truncate per-category injection lists to ``max_per_category`` and the combined
+    set to ``max_total``. Lists are already score-ranked (highest first), so the
+    dropped tail is the lowest-ranked. Mutates ``result`` in place; returns
+    ``(capped_per_category, capped_total)`` drop counts. No-op when both caps are
+    ``None`` (default) — preserves prior behaviour exactly.
+    """
+    if caps is None:
+        caps = _resolve_injection_caps()
+    mpc = caps.get("max_per_category")
+    mt = caps.get("max_total")
+    capped_pc = 0
+    capped_total = 0
+    if mpc:
+        for key in _INJECTION_CATEGORY_KEYS:
+            items = result.get(key)
+            if isinstance(items, list) and len(items) > mpc:
+                capped_pc += len(items) - mpc
+                result[key] = items[:mpc]
+    if mt:
+        lists = {k: result[k] for k in _INJECTION_CATEGORY_KEYS if isinstance(result.get(k), list)}
+        current = sum(len(v) for v in lists.values())
+        while current > mt:
+            # drop the lowest-ranked (tail) item of the currently-largest category
+            biggest = max(lists, key=lambda k: len(lists[k]))
+            if not lists[biggest]:
+                break
+            lists[biggest].pop()
+            capped_total += 1
+            current -= 1
+    return capped_pc, capped_total
+
+
 def _apply_context_budget(result: dict, apply_budget: bool = True) -> dict:
     """Lean-by-default post-pass over an assembled patterns/warnings dict:
     dedup across sections (B2) → truncate long item text (B1) → enforce a total
@@ -708,11 +801,12 @@ def _apply_context_budget(result: dict, apply_budget: bool = True) -> dict:
     if not apply_budget or os.getenv("EMPIRICA_PATTERN_BUDGET_OFF") == "1":
         return result
     try:
+        capped_pc, capped_total = _apply_injection_caps(result)  # user cap first (config/env)
         deduped = _dedup_sections(result)
         _truncate_sections(result, MAX_ITEM_CHARS)
         elided = _enforce_total_budget(result, MAX_TOTAL_CHARS)
-        if deduped or elided:
-            result["_context_budget"] = {
+        if deduped or elided or capped_pc or capped_total:
+            budget = {
                 "deduped": deduped,
                 "elided_for_budget": elided,
                 "note": (
@@ -721,6 +815,11 @@ def _apply_context_budget(result: dict, apply_budget: bool = True) -> dict:
                     "`empirica investigate` / `project-search` / `commit-context`."
                 ),
             }
+            if capped_pc or capped_total:
+                # Observability for the user-configurable injection cap (mesh-support ask).
+                budget["capped_per_category"] = capped_pc
+                budget["capped_total"] = capped_total
+            result["_context_budget"] = budget
     except Exception as e:  # never let budgeting break retrieval
         logger.debug(f"_apply_context_budget failed; returning full result: {e}")
     return result
