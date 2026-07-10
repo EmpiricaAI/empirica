@@ -276,3 +276,72 @@ def test_practitioner_entity_upsert_and_list_by_practice():
     assert {p["entity_id"] for p in repo.list_practitioner_entities("empirica")} == {"cc-111"}
     assert {p["entity_id"] for p in repo.list_practitioner_entities("empirica-cortex")} == {"cc-222"}
     assert repo.list_practitioner_entities("no-such-practice") == []
+
+
+# ── /entities org_id alias (kills the silent-drop scoping footgun) ─────────────
+
+
+class _AliasSpyRepo:
+    """Minimal fake for list_entities' repo surface. Records the parent_org it
+    receives so we can assert org_id coalesces into the single scoping path.
+    Returns [] so the per-row enrichment/count loop is skipped."""
+
+    def __init__(self):
+        self.seen_parent_org = "UNSET"
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_a):
+        return False
+
+    def get_org_parent_map(self):
+        return {}
+
+    def get_org_detail_map(self):
+        return {}
+
+    def get_contact_org_details_map(self):
+        return {}
+
+    def get_contact_detail_map(self):
+        return {}
+
+    def get_contact_reports_to_map(self):
+        return {}
+
+    def list_entities(self, *, parent_org=None, **_kw):
+        # _kw absorbs entity_type/status/limit — only parent_org is under test here.
+        self.seen_parent_org = parent_org
+        return []
+
+
+async def _call_list_entities(**kw):
+    """Invoke the route fn with a spy repo; return the parent_org it forwarded."""
+    from unittest.mock import patch
+
+    from empirica.api.routes import entities as ent
+
+    spy = _AliasSpyRepo()
+    with patch(
+        "empirica.data.repositories.workspace_db.WorkspaceDBRepository.open",
+        return_value=spy,
+    ):
+        await ent.list_entities(type="contact", status="active", **kw)
+    return spy.seen_parent_org
+
+
+async def test_org_id_aliases_parent_org():
+    # ?org_id= alone forwards as parent_org (the exact silent-drop param extension hit).
+    assert await _call_list_entities(parent_org=None, org_id="o-nle") == "o-nle"
+
+
+async def test_parent_org_still_works_and_wins_over_org_id():
+    # Backward-compatible: ?parent_org= alone unchanged, and it wins when both given.
+    assert await _call_list_entities(parent_org="o-canon", org_id=None) == "o-canon"
+    assert await _call_list_entities(parent_org="o-canon", org_id="o-alias") == "o-canon"
+
+
+async def test_neither_param_is_unscoped():
+    # No scoping param → parent_org stays None (project/registry-wide, prior behavior).
+    assert await _call_list_entities(parent_org=None, org_id=None) is None
