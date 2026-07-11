@@ -385,6 +385,23 @@ def _render_overview_hints(color: bool) -> list[str]:
     return out
 
 
+def _injection_cell(budget: dict | None) -> str | None:
+    """Compact injection measure-view for the status detail view (prop_3por4fwg),
+    or None when there's no budget. 'injected' is the volume ('do I need a cap?');
+    'dropped' is what a cap removed ('is it biting?')."""
+    if not budget:
+        return None
+    injected = budget.get("injected_total", 0)
+    cap_total = budget.get("cap_total")
+    cap_pc = budget.get("cap_per_category")
+    dropped = (budget.get("capped_per_category", 0) or 0) + (budget.get("capped_total", 0) or 0)
+    cap_str = str(cap_total) if cap_total else (f"{cap_pc}/cat" if cap_pc else "uncapped")
+    line = f"{injected} injected · cap {cap_str}"
+    if dropped:
+        line += f" · {dropped} dropped"
+    return line
+
+
 def _render_single(
     inst: dict[str, Any],
     summary: dict[str, Any],
@@ -410,6 +427,11 @@ def _render_single(
         state_phase_tx_parts.append(f"transaction {_short_id(transaction.get('id'))} ({age})")
     lines.append("  ·  ".join(state_phase_tx_parts))
     lines.append("")
+
+    inj = _injection_cell(inst.get("injection_budget"))
+    if inj:
+        lines.append(_c(f"Injection  {inj}", _DIM, color))
+        lines.append("")
 
     lines.append(f"Sentinel  {_sentinel_cell(inst['sentinel'], color)}")
     sent_since = inst["sentinel"].get("since")

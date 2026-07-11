@@ -125,6 +125,34 @@ def test_aggregate_phase_praxic(env):
     assert state["phase"] == "praxic"
 
 
+def test_aggregate_surfaces_injection_budget(env):
+    # The persisted injection measure-view (#310) threads through to the state
+    # dict so the status render can surface it (prop_3por4fwg / B3).
+    home, project = env
+    _bind_instance(home, project, "tmux_5")
+    suffix = "_tmux_5"
+    budget = {"injected_total": 29, "cap_total": None, "capped_per_category": 0, "capped_total": 0}
+    tx = {
+        "transaction_id": "tx-1",
+        "session_id": "s-1",
+        "preflight_timestamp": time.time() - 30,
+        "status": "open",
+        "project_path": str(project),
+        "updated_at": time.time(),
+        "injection_budget": budget,
+    }
+    (project / ".empirica" / f"active_transaction{suffix}.json").write_text(json.dumps(tx))
+    state = ist.aggregate_instance_state("tmux_5")
+    assert state["injection_budget"] == budget
+
+
+def test_aggregate_injection_budget_none_when_absent(env):
+    home, project = env
+    _bind_instance(home, project, "tmux_5")
+    _write_transaction(project, "tmux_5", status="open")  # no injection_budget field
+    assert ist.aggregate_instance_state("tmux_5")["injection_budget"] is None
+
+
 def test_aggregate_phase_closed(env):
     home, project = env
     _bind_instance(home, project, "tmux_5")

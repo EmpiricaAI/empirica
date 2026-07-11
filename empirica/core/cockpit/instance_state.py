@@ -217,6 +217,7 @@ def _read_transaction_state(project_path: str, instance_id: str) -> dict[str, An
         "work_type": None,
         "domain": None,
         "criticality": None,
+        "injection_budget": None,
     }
 
     if not tx_file.exists():
@@ -233,6 +234,8 @@ def _read_transaction_state(project_path: str, instance_id: str) -> dict[str, An
     result["work_type"] = tx.get("work_type")
     result["domain"] = tx.get("domain")
     result["criticality"] = tx.get("criticality")
+    # Injection measure-view persisted at PREFLIGHT (#310) — surfaced in the render.
+    result["injection_budget"] = tx.get("injection_budget")
 
     preflight_ts = tx.get("preflight_timestamp")
     now = datetime.now(tz=timezone.utc).timestamp()
@@ -554,6 +557,7 @@ def aggregate_instance_state(
         "phase": phase,
         "asking": asking,
         "transaction": transaction,
+        "injection_budget": tx_state.get("injection_budget"),
         "last_activity": tx_state["last_activity_iso"],
         "last_activity_seconds": tx_state["last_activity_seconds"],
         "alive": liveness.alive,
