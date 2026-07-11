@@ -791,6 +791,31 @@ def _apply_injection_caps(result: dict, caps: dict | None = None) -> tuple[int, 
     return capped_pc, capped_total
 
 
+def _injection_measure_view(result: dict, caps: dict, capped_pc: int, capped_total: int) -> dict:
+    """The canonical 6-field injection measure-view (mirrors cortex's served block
+    so `empirica status`, the practitioner response, and the extension panel render
+    ONE consistent shape):
+
+    - ``injected_per_category`` / ``injected_total`` — what actually landed (post
+      cap + dedup + budget). The VOLUME. Answers "do I need a cap?"
+    - ``cap_per_category`` / ``cap_total`` — the configured ceiling (``None`` = uncapped).
+    - ``capped_per_category`` / ``capped_total`` — what the cap dropped. Answers
+      "is the cap biting?"
+
+    Volume is surfaced even when uncapped (capped_* all 0 in the default) — that's
+    the "measure before you tune" the injection-cap work is for.
+    """
+    injected_pc = {k: len(result[k]) for k in _INJECTION_CATEGORY_KEYS if isinstance(result.get(k), list) and result[k]}
+    return {
+        "injected_per_category": injected_pc,
+        "injected_total": sum(injected_pc.values()),
+        "cap_per_category": caps.get("max_per_category"),
+        "cap_total": caps.get("max_total"),
+        "capped_per_category": capped_pc,
+        "capped_total": capped_total,
+    }
+
+
 def _apply_context_budget(result: dict, apply_budget: bool = True) -> dict:
     """Lean-by-default post-pass over an assembled patterns/warnings dict:
     dedup across sections (B2) → truncate long item text (B1) → enforce a total
@@ -801,24 +826,29 @@ def _apply_context_budget(result: dict, apply_budget: bool = True) -> dict:
     if not apply_budget or os.getenv("EMPIRICA_PATTERN_BUDGET_OFF") == "1":
         return result
     try:
-        capped_pc, capped_total = _apply_injection_caps(result)  # user cap first (config/env)
+        caps = _resolve_injection_caps()
+        capped_pc, capped_total = _apply_injection_caps(result, caps)  # user cap first (config/env)
         deduped = _dedup_sections(result)
         _truncate_sections(result, MAX_ITEM_CHARS)
         elided = _enforce_total_budget(result, MAX_TOTAL_CHARS)
-        if deduped or elided or capped_pc or capped_total:
-            budget = {
-                "deduped": deduped,
-                "elided_for_budget": elided,
-                "note": (
-                    "Lean teaser — duplicates removed, long items truncated, "
-                    "lowest-ranked elided to fit budget. Full context via "
-                    "`empirica investigate` / `project-search` / `commit-context`."
-                ),
-            }
-            if capped_pc or capped_total:
-                # Observability for the user-configurable injection cap (mesh-support ask).
-                budget["capped_per_category"] = capped_pc
-                budget["capped_total"] = capped_total
+        budget: dict = {}
+        # Injection measure-view: surfaced whenever there's injected volume OR a cap
+        # is configured — the "measure before you tune" signal (extension prop_3por4fwg,
+        # mirrors cortex's served 6-field block). Volume shows even uncapped, so a
+        # drops-only line no longer reads blank in the default.
+        measure = _injection_measure_view(result, caps, capped_pc, capped_total)
+        if measure["injected_total"] or measure["cap_per_category"] or measure["cap_total"]:
+            budget.update(measure)
+        # Trim note: only when dedup/elision actually happened (not for the measure alone).
+        if deduped or elided:
+            budget["deduped"] = deduped
+            budget["elided_for_budget"] = elided
+            budget["note"] = (
+                "Lean teaser — duplicates removed, long items truncated, "
+                "lowest-ranked elided to fit budget. Full context via "
+                "`empirica investigate` / `project-search` / `commit-context`."
+            )
+        if budget:
             result["_context_budget"] = budget
     except Exception as e:  # never let budgeting break retrieval
         logger.debug(f"_apply_context_budget failed; returning full result: {e}")

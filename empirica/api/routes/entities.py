@@ -141,6 +141,14 @@ async def list_entities(
         description="Scope to CONTACTS affiliated with this organization id (active affiliation). "
         "Implies a contact scope; an unknown org returns []. Backed by entity_memberships.",
     ),
+    org_id: str | None = Query(
+        None,
+        description="Alias for parent_org (org-membership scoping). Additive/backward-compatible: "
+        "if both are given, parent_org wins. Kills the silent-drop footgun where a caller passing "
+        "?org_id= (an unknown param) got the full unscoped set. The canonical cross-route scoping "
+        "contract is being ratified in the ERM/CRM SER (workspace-owned spine); this is the one "
+        "unambiguous alias landed ahead of it.",
+    ),
     q: str | None = Query(
         None,
         description="Semantic query — ranks entity-row vector points (ERM §6.2) instead of the SQL "
@@ -163,6 +171,10 @@ async def list_entities(
         return {"ok": True, "count": len(ranked), "entities": ranked, "ranked": True}
 
     from empirica.data.repositories.workspace_db import WorkspaceDBRepository
+
+    # org_id is an additive alias for parent_org (org-membership scoping). parent_org
+    # wins when both are supplied; either one feeds the single repo scoping path below.
+    parent_org = parent_org or org_id
 
     out: list[dict] = []
     with WorkspaceDBRepository.open() as repo:
