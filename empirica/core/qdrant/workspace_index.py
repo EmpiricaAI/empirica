@@ -127,9 +127,168 @@ def embed_to_workspace_index(
         return False
 
 
-def _format_point(point, score: float) -> dict:
-    """Extract payload fields from a Qdrant point into a result dict."""
+# ── ERM §6.2 — entity-row points (point_kind="entity") ────────────────────────
+#
+# An entity_registry ROW (contact / org / engagement) embedded as its OWN
+# searchable point, coexisting with artifact pointers in the same collection under
+# the shared entity-filter contract (decision V-1). Legacy artifact points simply
+# lack `point_kind`, so `must_not(point_kind=="entity")` retains them with no
+# migration.
+
+# entity_type → the *_ids field the row self-tags into (mirrors the artifact
+# field_map, so an entity row lands in the SAME filter bucket as its artifacts).
+_ENTITY_TYPE_FIELD = {
+    "contact": "contact_ids",
+    "client": "contact_ids",
+    "org": "org_ids",
+    "organization": "org_ids",
+    "engagement": "engagement_ids",
+}
+
+# Alias → canonical entity_type stored/matched on entity points (org → organization).
+_CANONICAL_ENTITY_TYPE = {
+    "contact": "contact",
+    "client": "contact",
+    "org": "organization",
+    "organization": "organization",
+    "engagement": "engagement",
+}
+
+
+def _canon_entity_type(entity_type: str | None) -> str:
+    """Canonicalize an entity_type (org → organization); unknown passes through."""
+    et = (entity_type or "").lower()
+    return _CANONICAL_ENTITY_TYPE.get(et, et)
+
+
+def _compose_entity_text(
+    entity_type: str,
+    display_name: str,
+    description: str = "",
+    metadata: dict | None = None,
+    domain: str | None = None,
+    stage: str | None = None,
+) -> str:
+    """Compose the searchable vector text for an entity row, per §4 (ordered
+    most→least identifying). Empty parts are dropped; parts joined by ' · '."""
+    md = metadata or {}
+    et = _canon_entity_type(entity_type)
+    parts: list[str] = [display_name or ""]
+    if et == "contact":
+        parts += [md.get("company"), md.get("role") or md.get("title"), description]
+    elif et == "organization":
+        parts += [description, md.get("industry") or md.get("sector")]
+    elif et == "engagement":
+        parts += [domain, stage, md.get("outcome"), md.get("symptom"), md.get("resolution"), description]
+    else:
+        parts += [description, *(str(v) for v in md.values() if v)]
+    return " · ".join(p for p in parts if p)
+
+
+def _entity_self_refs(entity_type: str, entity_id: str) -> dict[str, list[str]]:
+    """The self-referential entity tag: the row's own id in its type's *_ids field
+    (empty for the other two), so unified retrieval finds row + artifacts together."""
+    refs: dict[str, list[str]] = {"contact_ids": [], "org_ids": [], "engagement_ids": []}
+    field = _ENTITY_TYPE_FIELD.get((entity_type or "").lower())
+    if field and entity_id:
+        refs[field] = [entity_id]
+    return refs
+
+
+def _entity_point_id(entity_type: str, entity_id: str) -> int:
+    """Stable, distinct-namespace point id for an entity row (re-embed = upsert)."""
+    return int(hashlib.md5(f"wsidx_entity:{entity_type}:{entity_id}".encode()).hexdigest()[:15], 16)
+
+
+def embed_entity_to_workspace_index(
+    entity_type: str,
+    entity_id: str,
+    display_name: str,
+    description: str = "",
+    status: str = "active",
+    metadata: dict | None = None,
+    domain: str | None = None,
+    stage: str | None = None,
+    emoji_state: str | None = None,
+    project_id: str = "workspace",
+    timestamp: float | None = None,
+) -> bool:
+    """Embed an entity_registry ROW as its own searchable point (point_kind='entity').
+
+    Idempotent — the stable point id means any re-embed on update upserts the same
+    point. Returns True on success, False if Qdrant unavailable or embedding failed
+    (never raises — mirrors the artifact writer's best-effort contract).
+    """
+    if not _check_qdrant_available():
+        return False
+
+    try:
+        _, Distance, VectorParams, PointStruct = _get_qdrant_imports()
+        client = _get_qdrant_client()
+        if client is None:
+            return False
+
+        _ensure_collection(client, Distance, VectorParams)
+
+        text = _compose_entity_text(entity_type, display_name, description, metadata, domain, stage)
+        vector = _get_embedding_safe(text)
+        if vector is None:
+            return False
+
+        refs = _entity_self_refs(entity_type, entity_id)
+        payload = {
+            "point_kind": "entity",
+            "entity_type": _canon_entity_type(entity_type),
+            "entity_id": entity_id,
+            "display_name": display_name or "",
+            "text": text[:300],
+            "status": status or "active",
+            "project_id": project_id,
+            "contact_ids": refs["contact_ids"],
+            "org_ids": refs["org_ids"],
+            "engagement_ids": refs["engagement_ids"],
+            "domain_tags": [domain] if domain else [],
+            "emoji_state": emoji_state or "",
+            "timestamp": timestamp or time.time(),
+        }
+
+        point = PointStruct(id=_entity_point_id(entity_type, entity_id), vector=vector, payload=payload)
+        client.upsert(collection_name=_workspace_index_collection(), points=[point])
+        return True
+    except Exception as e:
+        logger.warning(f"Failed to embed entity to workspace_index: {e}")
+        return False
+
+
+def _format_entity_point(point, score: float) -> dict:
+    """Project an entity-row point's payload (point_kind='entity') for callers."""
     p = point.payload or {}
+    return {
+        "score": score,
+        "point_kind": "entity",
+        "entity_type": p.get("entity_type", ""),
+        "entity_id": p.get("entity_id", ""),
+        "display_name": p.get("display_name", ""),
+        "status": p.get("status", ""),
+        "text": p.get("text", ""),
+        "project_id": p.get("project_id", ""),
+        "contact_ids": p.get("contact_ids", []),
+        "org_ids": p.get("org_ids", []),
+        "engagement_ids": p.get("engagement_ids", []),
+        "domain_tags": p.get("domain_tags", []),
+        "emoji_state": p.get("emoji_state", ""),
+        "timestamp": p.get("timestamp", 0),
+    }
+
+
+def _format_point(point, score: float) -> dict:
+    """Extract payload fields from a Qdrant point into a result dict.
+
+    Routes entity-row points (point_kind='entity') to their own projection; every
+    other point is a legacy artifact pointer (the field is absent)."""
+    p = point.payload or {}
+    if p.get("point_kind") == "entity":
+        return _format_entity_point(point, score)
     return {
         "score": score,
         "artifact_id": p.get("artifact_id", ""),
@@ -145,6 +304,52 @@ def _format_point(point, score: float) -> dict:
     }
 
 
+def _build_search_filter(entity_type, entity_id, entity_filter, project_id, point_kind, status):
+    """Assemble the Qdrant must/must_not filter for a workspace_index search.
+
+    Extracted from ``search_workspace_index`` to keep it under the complexity limit
+    and to make the §3 point_kind / status / entity-type branch logic unit-testable.
+    Returns a ``Filter`` or ``None`` when no conditions apply.
+    """
+    from qdrant_client.models import FieldCondition, Filter, MatchAny, MatchValue
+
+    conditions, must_not = [], []
+
+    # point_kind discriminator (§3): entity → must; artifact → must_not(entity) so
+    # legacy points (field absent) pass; None → both kinds.
+    if point_kind == "entity":
+        conditions.append(FieldCondition(key="point_kind", match=MatchValue(value="entity")))
+    elif point_kind == "artifact":
+        must_not.append(FieldCondition(key="point_kind", match=MatchValue(value="entity")))
+
+    # Entity type/id shorthand → *_ids filter (works for both kinds via self-ref).
+    if entity_type and entity_id:
+        field = _ENTITY_TYPE_FIELD.get(entity_type.lower())
+        if field:
+            conditions.append(FieldCondition(key=field, match=MatchAny(any=[entity_id])))
+    elif point_kind == "entity" and entity_type:
+        # entity-type-only filter: entity rows carry their own canonical entity_type.
+        conditions.append(FieldCondition(key="entity_type", match=MatchValue(value=_canon_entity_type(entity_type))))
+
+    # Status filter — entity points only (artifact points lack the field, so a status
+    # must would wrongly exclude them). None includes archived.
+    if point_kind == "entity" and status is not None:
+        conditions.append(FieldCondition(key="status", match=MatchValue(value=status)))
+
+    # Explicit entity_filter dict
+    if entity_filter:
+        for key in ("contact_ids", "org_ids", "engagement_ids"):
+            ids = entity_filter.get(key, [])
+            if ids:
+                conditions.append(FieldCondition(key=key, match=MatchAny(any=ids)))
+
+    # Project scope
+    if project_id:
+        conditions.append(FieldCondition(key="project_id", match=MatchValue(value=project_id)))
+
+    return Filter(must=conditions or None, must_not=must_not or None) if (conditions or must_not) else None
+
+
 def search_workspace_index(
     query_text: str | None = None,
     entity_type: str | None = None,
@@ -152,19 +357,28 @@ def search_workspace_index(
     entity_filter: dict[str, list[str]] | None = None,
     project_id: str | None = None,
     limit: int = 20,
+    point_kind: str | None = None,
+    status: str | None = "active",
 ) -> list[dict]:
     """Search workspace_index with semantic query and/or entity filters.
 
     Args:
         query_text: Semantic search query (required if no entity filter)
-        entity_type: Shorthand filter — "contact", "org", "engagement"
+        entity_type: Shorthand filter — "contact", "org", "engagement". When
+            ``point_kind='entity'`` and no ``entity_id``, filters entity ROWS by type.
         entity_id: Used with entity_type for simple filtering
         entity_filter: Dict of {"contact_ids": [...], "org_ids": [...], ...}
         project_id: Optional project scope filter
         limit: Maximum results
+        point_kind: ``"entity"`` → entity rows only; ``"artifact"`` → artifact
+            pointers only (legacy points, field absent, via must_not); ``None`` →
+            both, unified (§3).
+        status: entity-point status filter (``active``|``inactive``|``archived``),
+            applied ONLY when ``point_kind='entity'`` — artifact points lack the
+            field. Pass ``None`` to include archived.
 
     Returns:
-        List of matching artifact pointers with scores and metadata
+        List of matching points (artifact pointers and/or entity rows) with scores.
     """
     if not _check_qdrant_available():
         return []
@@ -178,36 +392,7 @@ def search_workspace_index(
         if not client.collection_exists(coll):
             return []
 
-        # Build Qdrant filter
-        from qdrant_client.models import FieldCondition, Filter, MatchAny, MatchValue
-
-        conditions = []
-
-        # Entity type/id shorthand → filter
-        if entity_type and entity_id:
-            field_map = {
-                "contact": "contact_ids",
-                "client": "contact_ids",
-                "org": "org_ids",
-                "organization": "org_ids",
-                "engagement": "engagement_ids",
-            }
-            field = field_map.get(entity_type.lower())
-            if field:
-                conditions.append(FieldCondition(key=field, match=MatchAny(any=[entity_id])))
-
-        # Explicit entity_filter dict
-        if entity_filter:
-            for key in ("contact_ids", "org_ids", "engagement_ids"):
-                ids = entity_filter.get(key, [])
-                if ids:
-                    conditions.append(FieldCondition(key=key, match=MatchAny(any=ids)))
-
-        # Project scope
-        if project_id:
-            conditions.append(FieldCondition(key="project_id", match=MatchValue(value=project_id)))
-
-        query_filter = Filter(must=conditions) if conditions else None
+        query_filter = _build_search_filter(entity_type, entity_id, entity_filter, project_id, point_kind, status)
 
         # Semantic search if query_text provided
         if query_text:
