@@ -49,6 +49,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   write-keyword backstop that also catches writable CTEs. Writes, file-writing meta
   (`.output`/`.import`/…), and interactive REPL stay praxic.
 
+### Changed
+- **Post-compact injection trimmed to the dynamic payload (attention-budget hygiene).**
+  The post-compact re-grounding prompt was wrapping the dynamic data (pre-compact
+  vectors, last task, decay-ranked epistemic focus, memory) in ~30–40 lines that
+  duplicated the system prompts + `/epistemic-transaction` skill — which are
+  re-loaded every turn anyway: the "compaction is routine + lossless" framing, the
+  full `preflight-submit`/`check-submit` bash templates, the per-vector glossary,
+  and numbered command walkthroughs. Re-injecting prompt-layer content just burns
+  attention budget. All three re-grounding prompts (new-session, CHECK-gate,
+  transaction-continue) now carry **only** the dynamic data + a one-line action cue
+  (the lossless framing is compressed to one line, not deleted — measuring whether
+  even that's needed). ~55% fewer wrapper lines, zero data lost. A regression guard
+  (`test_post_compact_injection_lean`) keeps the surface from re-bloating.
+
 ### Added
 - **ERM §6.2 — entities as first-class searchable vector points.** `entity_registry`
   rows (contact/organization/engagement) are now embedded as their own

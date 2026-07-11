@@ -1054,98 +1054,31 @@ def _generate_new_session_prompt(
         memory_text = _format_memory_context(session_bootstrap.get("memory_context"))
 
         return f"""
-## POST-COMPACT: SESSION CREATED, PREFLIGHT REQUIRED
+## POST-COMPACT — new session `{new_session_id}`, PREFLIGHT required
 
-Your context was just compacted — a routine, lossless event under empirica
-discipline: goals, artifacts, breadcrumbs, and git notes all persist, and the
-bootstrap context below re-grounds you. Pick up at full quality — what
-mattered was logged and is loaded below; the log is the durable copy, and
-anything else is a `project-search` / `investigate` away. The previous
-session ({old_session_id[:8]}...) was **COMPLETE** (had POSTFLIGHT).
+Compaction is routine + lossless — the durable layer carries what matters; the data below re-grounds you (prev session {old_session_id[:8]}... was COMPLETE).
 
-**✅ Session created:** `{new_session_id}`
-**✅ Project context loaded via bootstrap**
-
-**Pre-compact vectors (historical — that session closed):** know={pre_know}, uncertainty={pre_unc}
+**Pre-compact (historical):** know={pre_know} · uncertainty={pre_unc}
 {last_task_section}{temporal_trail}
 {epistemic_focus}{calibration_section}
 
-### Memory Context (Auto-Retrieved):
+### Memory
 {memory_text}
 
-### REQUIRED: Run PREFLIGHT (Baseline)
-
-The session is ready. Now assess your ACTUAL epistemic state after loading this context:
-
-```bash
-empirica preflight-submit - << 'EOF'
-{{
-  "session_id": "{new_session_id}",
-  "task_context": "<what you're working on>",
-  "vectors": {{
-    "know": <0.0-1.0: What do you ACTUALLY know now after loading context?>,
-    "uncertainty": <0.0-1.0: How uncertain are you?>,
-    "context": <0.0-1.0: How well do you understand current state?>,
-    "engagement": <0.0-1.0: How engaged are you with the task?>
-  }},
-  "reasoning": "Post-compact with loaded context: <explain current epistemic state>"
-}}
-EOF
-```
-
-**Key principle:** Your PREFLIGHT should reflect knowledge AFTER reading the bootstrap context above.
-This makes the PREFLIGHT→POSTFLIGHT delta meaningful.
+→ Run PREFLIGHT for `{new_session_id}`, calibrated to your state *after* this context.
 """
 
-    # Fallback: Hook couldn't create session, AI needs to do full sequence
+    # Fallback: hook couldn't create the session, AI runs the sequence itself.
     return f"""
-## POST-COMPACT: NEW SESSION REQUIRED
+## POST-COMPACT — new session required, then PREFLIGHT
 
-Your context was just compacted — routine and lossless under empirica
-discipline (goals, artifacts, breadcrumbs, git notes persist; the steps below
-re-ground you). The previous session ({old_session_id[:8]}...) was **COMPLETE**
-(had POSTFLIGHT), so you need a NEW session with fresh PREFLIGHT baseline.
+Compaction is routine + lossless — the durable layer carries what matters; the data below re-grounds you (prev session {old_session_id[:8]}... was COMPLETE, so a fresh session + PREFLIGHT baseline is needed).
 
-**Pre-compact vectors (historical — that session closed):** know={pre_know}, uncertainty={pre_unc}
+**Pre-compact (historical):** know={pre_know} · uncertainty={pre_unc}
 {last_task_section}{temporal_trail}
 {epistemic_focus}{calibration_section}
 
-### Step 1: Create New Session
-
-```bash
-empirica session-create --ai-id {ai_id} --output json
-```
-
-### Step 2: Load Project Context (REQUIRED BEFORE PREFLIGHT)
-
-```bash
-empirica project-bootstrap --session-id <NEW_SESSION_ID> --output json
-```
-
-### Step 3: Run PREFLIGHT (Baseline)
-
-**IMPORTANT:** Only run PREFLIGHT AFTER loading context in Step 2.
-PREFLIGHT should measure your knowledge AFTER bootstrap, not before.
-
-```bash
-empirica preflight-submit - << 'EOF'
-{{
-  "session_id": "<NEW_SESSION_ID>",
-  "task_context": "<what you're working on>",
-  "vectors": {{
-    "know": <0.0-1.0: What do you ACTUALLY know now?>,
-    "uncertainty": <0.0-1.0: How uncertain are you?>,
-    "context": <0.0-1.0: How well do you understand current state?>,
-    "engagement": <0.0-1.0: How engaged are you with the task?>
-  }},
-  "reasoning": "Post-compact fresh session: <explain current epistemic state>"
-}}
-EOF
-```
-
-**Key principle:** Assess your state AFTER loading context in Step 2 — the
-durable layer carries forward what matters, so calibrate against what the
-bootstrap actually gave you, not against what the summary omitted.
+→ `session-create --ai-id {ai_id}` → `project-bootstrap --session-id <new>` → PREFLIGHT, calibrated to your state *after* bootstrap.
 """
 
 
@@ -1286,22 +1219,16 @@ def _generate_transaction_continue_prompt(pre_vectors: dict, dynamic_context: di
     calibration_section = f"\n{calibration}\n" if calibration else ""
     temporal_trail = _temporal_trail_section(dynamic_context.get("project_path"))
 
-    return f"""## TRANSACTION CONTINUES
+    return f"""## TRANSACTION CONTINUES — compaction was a non-event
 
-Your context was compacted but your **transaction is still open** — for an
-open transaction, compaction is a non-event. No new PREFLIGHT or CHECK
-needed — just continue where you left off, at full quality. The measurement
-window is still open; the work simply resumes.
+Your **transaction is still open**, so the measurement window carries across — no new PREFLIGHT/CHECK; just resume.
 
-**⚡ ACTIVE TRANSACTION:**
-   Transaction: {tx_id}... | Session: {tx_session}... | Project: {tx_project}
-   Pre-compact vectors: know={pre_know}, uncertainty={pre_unc}
+**⚡ ACTIVE:** tx {tx_id}... · session {tx_session}... · {tx_project} · pre-compact know={pre_know} unc={pre_unc}
 {last_task_section}{temporal_trail}
 ## EPISTEMIC FOCUS
-
 {epistemic_focus}
 {calibration_section}
-**Continue your work.** When done with the current task, close with POSTFLIGHT.
+→ Continue; close with POSTFLIGHT when the task's done.
 """
 
 
@@ -1376,57 +1303,13 @@ def _generate_check_prompt(pre_vectors: dict, pre_reasoning: str, dynamic_contex
     temporal_trail = _temporal_trail_section(dynamic_context.get("project_path"))
 
     prompt = f"""
-## POST-COMPACT CHECK GATE
+## POST-COMPACT — CHECK to resume (session incomplete)
 
-Your context was just compacted — routine and lossless under empirica
-discipline: goals, artifacts, breadcrumbs, and git notes persist, and the
-re-grounding steps below restore working context. Pick up at full quality.
-Your previous vectors (know={pre_know}, uncertainty={pre_unc}) reflect
-pre-compact context — re-ground first (load context below, search if you
-need more), then CHECK with fresh values.
+Compaction is routine + lossless — the durable layer carries what matters; the data below re-grounds you. Your pre-compact vectors (know={pre_know} · unc={pre_unc}) are stale — re-ground, then CHECK with fresh, honestly-lower values.
 {tx_context}{last_task_section}{temporal_trail}
 {epistemic_focus}{calibration_section}
 
-### Step 1: Load Context (Recommended)
-
-Before CHECK, recover context via bootstrap and/or semantic search:
-
-```bash
-# Load project context (depth scales with uncertainty)
-empirica project-bootstrap --session-id {session_id} --project-id {project_folder} --output json
-
-# Semantic search for specific topics (if Qdrant running)
-empirica project-search --project-id {project_folder} --task "<your current task>" --output json
-```
-
-### Step 2: Run CHECK Gate
-
-After loading context, validate readiness to proceed:
-
-```bash
-empirica check-submit - << 'EOF'
-{{
-  "session_id": "{session_id}",
-  "action_description": "<what you intend to do next>",
-  "vectors": {{
-    "know": <0.0-1.0: What do you ACTUALLY know now?>,
-    "uncertainty": <0.0-1.0: How uncertain are you?>,
-    "context": <0.0-1.0: How well do you understand current state?>,
-    "scope": <0.0-1.0: How broad is the intended action?>
-  }},
-  "reasoning": "Post-compact assessment: <explain current epistemic state>"
-}}
-EOF
-```
-
-### Step 3: Follow CHECK Decision
-
-CHECK returns one of:
-- **"proceed"** → You have sufficient confidence. Continue with work.
-- **"investigate"** → Confidence too low. Load more context, read files, then CHECK again.
-
-**Key principle:** Be HONEST about reduced knowledge. Post-compact know should typically be
-LOWER than pre-compact. Do NOT proceed until CHECK returns "proceed".
+→ Re-ground if needed (`project-bootstrap --session-id {session_id}` / `project-search`), then CHECK (proceed = continue; investigate = load more first).
 """
     return prompt
 
