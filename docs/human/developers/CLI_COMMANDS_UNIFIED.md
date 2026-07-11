@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.12.16
-**Generated:** 2026-07-11 09:51:33 UTC
+**Framework version:** 1.12.17
+**Generated:** 2026-07-11 13:11:25 UTC
 **Total commands:** 266 (across 26 categories)
 
 For the most up-to-date detail on any single command, prefer
