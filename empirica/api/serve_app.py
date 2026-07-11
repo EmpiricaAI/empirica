@@ -147,6 +147,10 @@ class ProfileStatusResponse(BaseModel):
     artifact_counts: dict = Field(default_factory=dict)
     total_artifacts: int = 0
     last_sync: str | None = None
+    # 6-field injection measure-view of the active transaction (injected_*/cap_*/
+    # capped_*), persisted at PREFLIGHT. The extension's served source for the
+    # injection-observability panel (prop_o4g6sag). None when unavailable.
+    injection_budget: dict | None = None
 
 
 class SyncResponse(BaseModel):
@@ -669,6 +673,45 @@ def _store_artifacts(artifacts: list[ArtifactPayload]) -> dict:
     }
 
 
+def _read_active_injection_budget() -> dict | None:
+    """The injection measure-view (6-field block) of the served project's active
+    transaction — the extension panel's served source (prop_o4g6sag).
+
+    Persisted at PREFLIGHT into ``.empirica/active_transaction{suffix}.json``.
+    Prefers an OPEN transaction's budget, falling back to the most-recently-updated
+    one. None when unavailable; never raises (the daemon must stay up).
+    """
+    try:
+        import json as _json
+        from pathlib import Path
+
+        from empirica.api.daemon_project import get_cached_daemon_project
+
+        root = (get_cached_daemon_project() or {}).get("project_path")
+        if not root:
+            return None
+        candidates = sorted(
+            (Path(root) / ".empirica").glob("active_transaction*.json"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        # Prefer an OPEN transaction's budget; else the most-recent any-status.
+        for open_only in (True, False):
+            for p in candidates:
+                try:
+                    d = _json.loads(p.read_text())
+                except Exception:
+                    continue
+                if open_only and d.get("status") != "open":
+                    continue
+                budget = d.get("injection_budget")
+                if isinstance(budget, dict):
+                    return budget
+    except Exception:
+        return None
+    return None
+
+
 def _run_profile_status() -> dict:
     """Get profile status — artifact counts from database."""
     from empirica.data.session_database import SessionDatabase
@@ -696,6 +739,7 @@ def _run_profile_status() -> dict:
     return {
         "artifact_counts": counts,
         "total_artifacts": total,
+        "injection_budget": _read_active_injection_budget(),
     }
 
 

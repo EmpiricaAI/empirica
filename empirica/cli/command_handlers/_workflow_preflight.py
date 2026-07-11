@@ -713,7 +713,15 @@ def _preflight_get_last_session_ts(db, project_id, session_id):
 
 
 def _preflight_persist_pattern_count(patterns, resolved_project_path):
-    """Persist pattern count in the transaction file for context evidence. Non-fatal."""
+    """Persist pattern count + injection measure-view in the transaction file.
+
+    The pattern count is context evidence. The ``injection_budget`` (the 6-field
+    measure-view carried on ``patterns["_context_budget"]``) is persisted so the
+    daemon (GET /profile/status) and ``empirica status`` can surface it — it's the
+    extension panel's only served source (prop_o4g6sag). Absent when nothing was
+    injected AND no cap is configured. Non-fatal; active_transaction is
+    workflow-owned (single-writer), so this field survives the sentinel's reads.
+    """
     if not (patterns and resolved_project_path):
         return
     try:
@@ -727,6 +735,9 @@ def _preflight_persist_pattern_count(patterns, resolved_project_path):
             with open(tx_file) as f:
                 tx_d = _pjson.load(f)
             tx_d["preflight_pattern_count"] = pattern_count
+            budget = patterns.get("_context_budget")
+            if isinstance(budget, dict):
+                tx_d["injection_budget"] = budget
             with open(tx_file, "w") as f:
                 _pjson.dump(tx_d, f, indent=2)
     except Exception:

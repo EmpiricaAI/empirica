@@ -148,3 +148,65 @@ def test_adaptive_limits_capped_at_max_per_section():
 def test_adaptive_limits_none_vectors_uses_base():
     limits = pr._compute_adaptive_limits(None, 3)
     assert all(v == 3 for v in limits.values())
+
+
+# --- injection measure-view (6-field, 'measure before you tune') -----------
+
+
+def _isolate_caps(monkeypatch):
+    """Neutralize any repo-local config.yaml + env caps so the default is uncapped."""
+    import empirica.config.path_resolver as prcfg
+
+    monkeypatch.setattr(prcfg, "load_empirica_config", lambda: {})
+    monkeypatch.delenv("EMPIRICA_MAX_ARTIFACTS_PER_CATEGORY", raising=False)
+    monkeypatch.delenv("EMPIRICA_MAX_ARTIFACTS_TOTAL", raising=False)
+
+
+def test_measure_view_surfaces_volume_when_uncapped(monkeypatch):
+    # The core of the volume amendment: even uncapped (the default everywhere),
+    # _context_budget carries the injected volume so status/panel aren't blank.
+    _isolate_caps(monkeypatch)
+    result = {"relevant_findings": [{"finding": f"f{i}"} for i in range(3)]}
+    b = pr._apply_context_budget(result)["_context_budget"]
+    assert b["injected_per_category"] == {"relevant_findings": 3}
+    assert b["injected_total"] == 3
+    assert b["cap_per_category"] is None and b["cap_total"] is None
+    assert b["capped_per_category"] == 0 and b["capped_total"] == 0
+    # nothing trimmed → no dedup/elision note keys
+    assert "note" not in b and "deduped" not in b
+
+
+def test_measure_view_absent_when_no_volume_and_uncapped(monkeypatch):
+    _isolate_caps(monkeypatch)
+    result = {"time_gap": {"gap_category": "x"}}  # no injectable category items
+    assert "_context_budget" not in pr._apply_context_budget(result)
+
+
+def test_measure_view_present_when_cap_configured_even_without_volume(monkeypatch):
+    # 'OR a cap is configured' branch — the operator set a ceiling; surface it.
+    _isolate_caps(monkeypatch)
+    monkeypatch.setenv("EMPIRICA_MAX_ARTIFACTS_TOTAL", "10")
+    b = pr._apply_context_budget({"time_gap": {"x": 1}})["_context_budget"]
+    assert b["cap_total"] == 10 and b["injected_total"] == 0
+
+
+def test_measure_view_reflects_cap_and_drops(monkeypatch):
+    _isolate_caps(monkeypatch)
+    monkeypatch.setenv("EMPIRICA_MAX_ARTIFACTS_PER_CATEGORY", "2")
+    result = {"relevant_findings": [{"finding": f"f{i}"} for i in range(5)]}
+    b = pr._apply_context_budget(result)["_context_budget"]
+    assert b["cap_per_category"] == 2
+    assert b["capped_per_category"] == 3  # 5 -> 2, three dropped
+    assert b["injected_total"] == 2
+
+
+def test_measure_view_coexists_with_trim_note(monkeypatch):
+    # When both trimming AND volume happen, the block carries measure + note.
+    _isolate_caps(monkeypatch)
+    result = {
+        "relevant_findings": [{"finding": "dup", "score": 0.9}],
+        "eidetic_facts": [{"content": "dup", "score": 0.8}],
+    }
+    b = pr._apply_context_budget(result)["_context_budget"]
+    assert b["deduped"] == 1 and "investigate" in b["note"]
+    assert b["injected_total"] == 1  # one survivor after dedup
