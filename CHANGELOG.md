@@ -7,7 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.12.17] — 2026-07-11
+
 ### Fixed
+- **Push listener no longer crashes on a `loop_state` write race (silent
+  mesh-connectivity loss).** `content_poll.save_state` used a *deterministic*
+  `<name>.tmp` path, so two concurrent writers on the same per-loop state file
+  (overlapping listener threads/processes) raced: one's `os.replace` unlinked the
+  other's tmp, and the loser raised an unhandled `FileNotFoundError` that took
+  down the entire `empirica loop listen` push listener — dropping mesh
+  connectivity until someone re-armed. Now each write uses a **unique**
+  `tempfile.mkstemp` tmp (matching `loop_registry`'s writer, eliminating the
+  shared-tmp contention) and the persist is wrapped best-effort so a state-write
+  hiccup can never crash the listener. Reported live by extension.
+- **Daemon `/entities` accepts `org_id` as an additive alias for `parent_org`.**
+  Extension's probe reported the CRM GET routes "ignore scoping params" — the
+  real cause was a param-name mismatch + FastAPI silently dropping unknown query
+  params (a fail-open footgun, not a within-contract leak: each route already
+  scopes, and `/goals` has honest-empty anti-leak discipline). `GET /api/v1/entities`
+  now accepts `org_id` (additive, `parent_org` wins if both given), killing the
+  exact silent-drop case. The full cross-route scoping contract is a workspace-owned
+  ERM decision (routes scope by different relationships), tracked in the ERM SER.
 - **Retrieval hygiene: PREFLIGHT/CHECK goal teaser reconciled against live SQLite.**
   The Qdrant-backed goals teaser served `status` straight from the point payload
   (embedded at index time), so a goal completed/reopened in SQLite kept surfacing as
@@ -30,6 +50,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`.output`/`.import`/…), and interactive REPL stay praxic.
 
 ### Added
+- **ERM §6.2 — entities as first-class searchable vector points.** `entity_registry`
+  rows (contact/organization/engagement) are now embedded as their own
+  `point_kind="entity"` points in the `workspace_index` collection, alongside the
+  existing artifact pointers under one shared entity-filter contract — enabling
+  **semantic entity retrieval**, zero-artifact-entity visibility, and unified
+  "row + its artifacts" search (via a self-referential entity tag). Surfaces:
+  `entity-search --semantic` (CLI), `GET /api/v1/entities?q=` (daemon, ranked
+  alternative → `ranked=true` + `score`, decision V-4), write hooks on
+  entity-create / mint / engagement-create (best-effort, never fails a mint), and
+  a one-shot `entity-reindex` backfill. Implements the workspace-owned §6.2 spec.
+- **Injection observability — the 6-field measure-view, served + rendered.** The
+  PREFLIGHT/CHECK teaser's `_context_budget` now carries the canonical
+  `injected_per_category`/`injected_total`/`cap_*`/`capped_*` block whenever there's
+  injected volume or a configured cap — so the "measure before you tune" signal
+  shows *even uncapped* (not just when a cap fires). Persisted per-transaction and
+  exposed on `GET /api/v1/profile/status` (`injection_budget`) as the extension
+  panel's served source, and rendered in `empirica status`
+  (`Injection  N injected · cap M · K dropped`). Mirrors cortex's served block for
+  cross-surface consistency.
 - **User-configurable artifact-injection cap (`artifact_injection.max_per_category` / `max_total`).**
   The PREFLIGHT/CHECK teaser's per-category injection volume is now tunable + observable.
   Set `.empirica/config.yaml` → `artifact_injection: {max_per_category: N, max_total: M}`

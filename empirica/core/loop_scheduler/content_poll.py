@@ -54,6 +54,8 @@ from __future__ import annotations
 import datetime as _dt
 import json
 import logging
+import os
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -216,12 +218,33 @@ def load_state(state_path: Path) -> dict:
 
 
 def save_state(state_path: Path, state: dict) -> None:
-    """Atomic write — write to temp + rename, so a half-written file never
-    poisons the next poll."""
-    state_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = state_path.with_suffix(state_path.suffix + ".tmp")
-    tmp.write_text(json.dumps(state, indent=2), encoding="utf-8")
-    tmp.replace(state_path)
+    """Atomic write — write to a UNIQUE temp file + rename, so a half-written
+    file never poisons the next poll.
+
+    The tmp name MUST be unique per writer (via ``tempfile.mkstemp``, mirroring
+    ``loop_registry``'s writer): a deterministic ``<name>.tmp`` let two briefly
+    overlapping listeners on the same state file race — one's ``os.replace``
+    would unlink the other's tmp, and the loser raised an unhandled
+    ``FileNotFoundError`` that took down the whole push listener (silent
+    mesh-connectivity loss). Best-effort: state persistence is a cache, so ANY
+    failure here is logged and swallowed — a persist hiccup must never crash the
+    listener.
+    """
+    try:
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(prefix=state_path.name + ".", suffix=".tmp", dir=str(state_path.parent))
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(state, f, indent=2)
+            os.replace(tmp, state_path)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+    except Exception as e:
+        logger.warning(f"content_poll save_state failed (non-fatal) at {state_path}: {e}")
 
 
 # Per-listener resolved canonical id cache.

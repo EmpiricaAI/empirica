@@ -128,6 +128,49 @@ def test_save_state_atomic_write(tmp_path):
     save_state(state_path, {"x": 1})
     assert state_path.exists()
     assert not (tmp_path / "state.json.tmp").exists()
+    assert list(tmp_path.glob("*.tmp")) == []  # no mkstemp tmp lingers either
+
+
+def test_save_state_nonfatal_on_replace_error(tmp_path, monkeypatch):
+    """A rename hiccup (the FileNotFoundError race that crashed the listener) must
+    be swallowed — a state-persist failure can NEVER crash the caller. The tmp is
+    cleaned up despite the failure."""
+    import empirica.core.loop_scheduler.content_poll as cp
+
+    def _boom(*_a, **_k):
+        raise FileNotFoundError(2, "No such file or directory")
+
+    monkeypatch.setattr(cp.os, "replace", _boom)
+    save_state(tmp_path / "state.json", {"a": 1})  # must NOT raise
+    assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_save_state_concurrent_writers_no_crash(tmp_path):
+    """The escalated thread-race: many writers persisting the SAME state file
+    concurrently must not raise. A deterministic shared ``<name>.tmp`` let one
+    writer's ``os.replace`` unlink another's tmp → ``FileNotFoundError`` → the push
+    listener crashed. Unique ``mkstemp`` tmps eliminate the contention."""
+    import threading
+
+    state_path = tmp_path / "state.json"
+    errors: list[Exception] = []
+
+    def worker(n: int) -> None:
+        try:
+            for _ in range(20):
+                save_state(state_path, {"writer": n})
+        except Exception as e:  # capture to fail the test loudly
+            errors.append(e)
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert errors == []  # no writer raised (the crash the fix prevents)
+    assert load_state(state_path)  # a valid final state landed
+    assert list(tmp_path.glob("*.tmp")) == []  # no leaked tmp files
 
 
 # ── build_event ──────────────────────────────────────────────────────────

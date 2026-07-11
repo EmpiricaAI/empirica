@@ -23,8 +23,8 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.12.16
-**Generated:** 2026-07-08 11:31:09 UTC
-**Total commands:** 265 (across 26 categories)
+**Generated:** 2026-07-11 09:51:33 UTC
+**Total commands:** 266 (across 26 categories)
 
 For the most up-to-date detail on any single command, prefer
 `empirica <command> --help` — the generator extracts the same `help`
@@ -67,7 +67,7 @@ require `--session-id` (`project-bootstrap`, `sessions-show`,
 | [goals](#goals) | 16 | `goals-create`, `goals-list`, `goals-search`, … |
 | [logging](#logging) | 30 | `finding-log`, `unknown-log`, `unknown-list`, … |
 | [project](#project) | 18 | `project-init`, `project-update`, `project-create`, … |
-| [workspace](#workspace) | 20 | `workspace-init`, `workspace-map`, `workspace-list`, … |
+| [workspace](#workspace) | 21 | `workspace-init`, `workspace-map`, `workspace-list`, … |
 | [checkpoint](#checkpoint) | 7 | `checkpoint-create`, `checkpoint-load`, `checkpoint-list`, … |
 | [sync](#sync) | 6 | `sync-config`, `sync-push`, `sync-pull`, … |
 | [profile](#profile) | 4 | `profile-sync`, `profile-prune`, `profile-status`, … |
@@ -1084,6 +1084,8 @@ Match local sources against the central catalogue by content identity and adopt 
   Perform the confirmed adopts (default: dry-run report)
 - `--converge` — optional · flag
   With --apply: PK-swap local ids to the catalogue uuid (destructive one-uuid convergence + edge cascade). Default is a non-destructive alias adopt. Run `empirica rebuild` after --converge to re-point Qdrant.
+- `--push-bodies` — optional · flag
+  With --apply: also upload the BODY of each small adopted source (<= EMPIRICA_SMALL_BODY_THRESHOLD, default 1MB) to cortex via POST /v1/sources/{id}/body, so a remote peer can fetch it — sync-when-small (P2). Best-effort + idempotent (cortex dedupes on body_hash).
 - `--project-id` — optional
   Project UUID (auto-derived from active session when omitted)
 - `--cortex-url` — optional
@@ -1976,6 +1978,8 @@ Text-search entities by display_name + description (case-insensitive LIKE). For 
   Search query (e.g. "MastersOfDirt")
 - `--type` — optional
   Optional entity_type filter
+- `--semantic` — optional · flag
+  Semantic vector search over entity-row points (§6.2) instead of SQL LIKE
 - `--status` — optional · type=`choice` · choices={active, inactive, archived, all} · default=`active`
   Filter by status (default: active)
 - `--limit` — optional · type=`int` · default=`50`
@@ -2022,6 +2026,19 @@ Delete an entity. Default is a reversible soft-archive (status='archived' + clos
   Confirm an irreversible --hard delete
 - `--dry-run` — optional · flag
   Preview the effect without mutating
+- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
+  Output format
+
+#### `empirica entity-reindex`
+
+Backfill: embed every entity_registry row as a searchable workspace_index point (ERM §6.2 point_kind='entity'). Idempotent (stable ids → upsert). Run once after upgrading, or to reindex.
+
+**Arguments:**
+
+- `--type` — optional
+  Optional entity_type filter (contact, organization, engagement)
+- `--dry-run` — optional · flag
+  Count rows without embedding
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
 

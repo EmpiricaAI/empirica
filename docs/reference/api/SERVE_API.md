@@ -753,15 +753,20 @@ The entity-list projection backing the extension's entity browser.
 | `type` | (all) | Filter by `entity_type` (`contact`, `organization`, `engagement`, `practitioner`, …) |
 | `status` | `active` | Status filter; `all` returns every status |
 | `parent_org` | — | Scope to **contacts** affiliated with this organization id (active `entity_memberships` edge); unknown org → `[]` |
+| `org_id` | — | Additive alias for `parent_org` (`parent_org` wins if both given). Kills the silent-drop footgun where an unknown `?org_id=` returned the full unscoped set. |
+| `q` | — | **Semantic** query — ranks entity-row vector points (ERM §6.2) instead of the SQL list. A ranked *alternative*, not a hybrid merge (decision V-4). |
 | `limit` | `100` | 1–500 |
 
 Per row: `id`, `type`, `name`, `subtitle` (org→`metadata.domain`, contact→`company_name`/`role`, engagement→`status`), `status`, `health` (`metadata.health`), `linked_artifact_count`, `updated_at`. Type-specific:
 - **organization** → `parent_org_id` (umbrella org, null for roots).
 - **contact** → `parent_org_id`/`parent_org_name`/`role` (affiliation edge), `email`, `phone`, `title`, `tags`, `notes`, `contact_type`, `lifecycle_stage` (from the `contacts` table), `tier` (`metadata.tier`), `reporting_to_name` (resolved `reports_to` edge → manager display name), and `metadata` (the whole registry bag).
 
+**With `?q=`** the response is the semantically-ranked entity set (`{"ok", "count", "entities", "ranked": true}`); each row carries the identity fields `id`/`type`/`name`/`status` plus a `score`. Full projection (subtitle/health/linked_artifact_count) is hydratable via a plain `GET /entities` or `GET /entities/{id}`. Requires the entity vector index to be populated — run `empirica entity-reindex` once after upgrade (embeds every registry row; hooks keep it current thereafter).
+
 ```bash
 curl 'http://localhost:8000/api/v1/entities?type=contact'
-curl 'http://localhost:8000/api/v1/entities?parent_org=o-nle'   # contacts of an org
+curl 'http://localhost:8000/api/v1/entities?parent_org=o-nle'   # contacts of an org (org_id= is an alias)
+curl 'http://localhost:8000/api/v1/entities?q=onboarding+for+a+foundation+customer&type=engagement'  # semantic (ranked)
 ```
 
 ### GET /api/v1/entities/{id}/artifacts
@@ -887,6 +892,7 @@ Response from the profile status endpoint.
 | `artifact_counts` | `dict` | No | `{}` | Map of artifact type label to count (keys: `findings`, `unknowns`, `dead_ends`, `mistakes`, `goals`) |
 | `total_artifacts` | `int` | No | `0` | Sum of all artifact counts |
 | `last_sync` | `str` or `null` | No | `null` | ISO 8601 timestamp of the last profile sync, or `null` if never synced |
+| `injection_budget` | `dict` or `null` | No | `null` | The active transaction's 6-field injection measure-view (`injected_per_category`, `injected_total`, `cap_per_category`, `cap_total`, `capped_per_category`, `capped_total`), persisted at PREFLIGHT. The extension's served source for the injection-observability panel; `null` when no active transaction / nothing injected. |
 
 ---
 
