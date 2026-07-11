@@ -103,6 +103,35 @@ def _list_subtitle(row: dict, meta: dict) -> str | None:
     return None
 
 
+def _semantic_entity_search(q: str, entity_type: str | None, status: str, limit: int) -> list[dict]:
+    """ERM §6.2 / decision V-4: rank entity-row vector points by semantic
+    similarity to ``q``. Ranked ALTERNATIVE to the SQL list (not a hybrid merge).
+
+    Returns the Gap-1 identity fields (``id``/``type``/``name``/``status``) plus a
+    ``score``; full projection (subtitle/health/linked_artifact_count) is
+    hydratable via ``GET /entities`` or ``/entities/{id}``. Never raises —
+    Qdrant-unavailable yields ``[]`` (honest-empty)."""
+    from empirica.core.qdrant.workspace_index import search_workspace_index
+
+    hits = search_workspace_index(
+        query_text=q,
+        entity_type=entity_type,
+        point_kind="entity",
+        status=None if status == "all" else status,
+        limit=limit,
+    )
+    return [
+        {
+            "id": h.get("entity_id"),
+            "type": h.get("entity_type"),
+            "name": h.get("display_name"),
+            "status": h.get("status"),
+            "score": h.get("score"),
+        }
+        for h in hits
+    ]
+
+
 @router.get("/entities", dependencies=[Depends(verify_mint_bearer)])
 async def list_entities(
     type: str | None = Query(None, description="Filter by entity_type (contact, organization, engagement, ...)"),
@@ -120,6 +149,11 @@ async def list_entities(
         "contract is being ratified in the ERM/CRM SER (workspace-owned spine); this is the one "
         "unambiguous alias landed ahead of it.",
     ),
+    q: str | None = Query(
+        None,
+        description="Semantic query — ranks entity-row vector points (ERM §6.2) instead of the SQL "
+        "list; returns id/type/name/status + score (V-4 ranked alternative, not a hybrid merge).",
+    ),
     limit: int = Query(100, ge=1, le=500),
 ):
     """List entities from the workspace registry (extension entity-list backing).
@@ -128,7 +162,14 @@ async def list_entities(
     always present; ``subtitle``/``status``/``health``/``linked_artifact_count``/
     ``updated_at`` are projection-bound. ``health`` reads ``metadata.health``
     (decision A — promoted to a spine column later only if queried on).
+
+    With ``?q=`` the response is the semantically-ranked entity set (``ranked=true``)
+    instead of the SQL list.
     """
+    if q:
+        ranked = _semantic_entity_search(q, type, status, limit)
+        return {"ok": True, "count": len(ranked), "entities": ranked, "ranked": True}
+
     from empirica.data.repositories.workspace_db import WorkspaceDBRepository
 
     # org_id is an additive alias for parent_org (org-membership scoping). parent_org

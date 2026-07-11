@@ -327,7 +327,10 @@ async def _call_list_entities(**kw):
         "empirica.data.repositories.workspace_db.WorkspaceDBRepository.open",
         return_value=spy,
     ):
-        await ent.list_entities(type="contact", status="active", **kw)
+        # q=None explicitly: calling the route fn directly leaves FastAPI defaults
+        # as Query(...) objects (truthy), which would wrongly trip the ?q= semantic
+        # branch. An HTTP call without ?q= resolves q to None — mirror that here.
+        await ent.list_entities(type="contact", status="active", q=None, **kw)
     return spy.seen_parent_org
 
 

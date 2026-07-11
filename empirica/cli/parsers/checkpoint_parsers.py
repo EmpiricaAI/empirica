@@ -714,6 +714,11 @@ def add_checkpoint_parsers(subparsers):
     entity_search_parser.add_argument("query", help='Search query (e.g. "MastersOfDirt")')
     entity_search_parser.add_argument("--type", help="Optional entity_type filter")
     entity_search_parser.add_argument(
+        "--semantic",
+        action="store_true",
+        help="Semantic vector search over entity-row points (§6.2) instead of SQL LIKE",
+    )
+    entity_search_parser.add_argument(
         "--status",
         choices=["active", "inactive", "archived", "all"],
         default="active",

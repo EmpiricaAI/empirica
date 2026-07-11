@@ -577,35 +577,52 @@ def handle_entity_walk_command(args):
 
 
 def handle_entity_search_command(args):
-    """Handle entity-search command."""
+    """Handle entity-search command — SQL LIKE by default, or semantic (§6.2
+    entity-row vector points) with --semantic."""
     try:
         query = args.query
         entity_type = getattr(args, "type", None)
         status = getattr(args, "status", "active")
         limit = getattr(args, "limit", 50)
         output = getattr(args, "output", "human")
-        with WorkspaceDBRepository.open() as repo:
-            results = repo.search_entities(query=query, entity_type=entity_type, status=status, limit=limit)
+        semantic = getattr(args, "semantic", False)
+
+        if semantic:
+            # Route to the §6.2 entity-row vector points. status=all → include archived.
+            from empirica.core.qdrant.workspace_index import search_workspace_index
+
+            results = search_workspace_index(
+                query_text=query,
+                entity_type=entity_type,
+                point_kind="entity",
+                status=None if status == "all" else status,
+                limit=limit,
+            )
+        else:
+            with WorkspaceDBRepository.open() as repo:
+                results = repo.search_entities(query=query, entity_type=entity_type, status=status, limit=limit)
+
         if output == "json":
             print(
                 json.dumps(
-                    {
-                        "ok": True,
-                        "query": query,
-                        "count": len(results),
-                        "entities": results,
-                    },
+                    {"ok": True, "query": query, "semantic": semantic, "count": len(results), "entities": results},
                     indent=2,
                     default=str,
                 )
             )
             return
         if not results:
-            print(f"No entities match '{query}' (type={entity_type or 'any'}, status={status})")
+            hint = " (run entity-reindex if the vector index is empty)" if semantic else ""
+            print(f"No entities match '{query}' (type={entity_type or 'any'}, status={status}){hint}")
             return
-        print(f"# {len(results)} match{'es' if len(results) != 1 else ''} for '{query}'")
+        print(
+            f"# {len(results)} {'semantic ' if semantic else ''}match{'es' if len(results) != 1 else ''} for '{query}'"
+        )
         for e in results:
-            print(_format_entity_line(e))
+            line = _format_entity_line(e)
+            if semantic and e.get("score") is not None:
+                line += f"   [{e['score']:.2f}]"
+            print(line)
     except Exception as e:
         handle_cli_error(e, "entity-search", getattr(args, "verbose", False))
 
