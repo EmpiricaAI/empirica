@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Inline source citation: `finding-log --cite "<title>" [--cite-url <url>] [--cite-type <type>]`.**
+  Creates the source AND links it (`sourced_from` edge) in one call — killing the
+  two-step `source-add` → `--source <id>` dance that kept sources under-logged
+  (60-for-9000). `breadcrumbs.create_source` writes a minimal source row (title/url/
+  type/visibility; file-identity columns stay NULL — that's the `source-add --path`
+  path's job), and the fresh id links like any `--source`. Combined with the
+  `sourced_from` edge fix (previous release), a cited finding is now a first-class,
+  connected, one-command act.
+
 ### Fixed
 - **`finding-log --source` now writes a canonical `sourced_from` graph edge, not
   only the `source_refs` column.** Citing a source historically serialized the ids

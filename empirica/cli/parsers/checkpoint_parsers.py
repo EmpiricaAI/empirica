@@ -978,6 +978,19 @@ def add_checkpoint_parsers(subparsers):
         dest="source_ids",
         help="Source ID (from source-add). Repeatable for multiple sources.",
     )
+    finding_log_parser.add_argument(
+        "--cite",
+        dest="cite_title",
+        help="Inline source: create + link a source in one call (kills the source-add→--source two-step). "
+        "Value is the source title; pair with --cite-url / --cite-type.",
+    )
+    finding_log_parser.add_argument("--cite-url", dest="cite_url", help="URL/path for the --cite inline source.")
+    finding_log_parser.add_argument(
+        "--cite-type",
+        dest="cite_type",
+        default="reference",
+        help="Source type for --cite (reference, doc, paper, url, design, …). Default: reference.",
+    )
     _add_entity_flags(finding_log_parser)
     _add_edge_flags(finding_log_parser)
     finding_log_parser.add_argument(

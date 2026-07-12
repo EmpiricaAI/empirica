@@ -262,6 +262,57 @@ class BreadcrumbRepository(BaseRepository):
             except Exception as e:
                 logger.debug(f"_attach_sources skipped ({artifact_id}→{sid}): {e}")
 
+    def create_source(
+        self,
+        project_id: str,
+        session_id: str | None,
+        title: str,
+        url: str | None = None,
+        source_type: str = "reference",
+        description: str | None = None,
+        confidence: float = 0.7,
+        visibility: str | None = None,
+        transaction_id: str | None = None,
+    ) -> str:
+        """Create a minimal epistemic source row and return its id — the creation
+        half behind inline citing (`*-log --cite`).
+
+        The full `source-add` path also computes file content-identity (hash/size/
+        mime) for `--path` sources; a quick citation carries only title + optional
+        url + type, so those file columns stay NULL. This exists so an artifact can
+        create + link its source in ONE call (the two-step `source-add` → `--source`
+        is the friction that kept sources under-logged). Best-effort commit.
+        """
+        source_id = str(uuid.uuid4())
+        metadata = {"source_url": url, "transaction_id": transaction_id, "inline_cite": True}
+        self._execute(
+            """
+            INSERT INTO epistemic_sources (
+                id, project_id, session_id, source_type, source_url,
+                title, description, confidence, epistemic_layer,
+                discovered_by_ai, discovered_at, source_metadata,
+                entity_type, entity_id, visibility
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'noetic', 'claude-code', ?, ?, 'project', ?, ?)
+            """,
+            (
+                source_id,
+                project_id,
+                session_id,
+                source_type,
+                url,
+                title,
+                description,
+                confidence,
+                time.time(),
+                json.dumps(metadata),
+                project_id,
+                normalize_visibility(visibility),
+            ),
+        )
+        self.commit()
+        logger.info(f"📎 Source created (inline cite): {title[:50]}")
+        return source_id
+
     def _attach_to_goal(self, artifact_id: str, goal_id: str | None) -> None:
         """Materialize the structural `attached_to` edge (artifact → its goal) in
         artifact_edges AT LOG TIME, not only at POSTFLIGHT.
