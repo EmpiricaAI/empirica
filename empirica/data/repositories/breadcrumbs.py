@@ -231,11 +231,36 @@ class BreadcrumbRepository(BaseRepository):
             ),
         )
         self._attach_to_goal(finding_id, goal_id)
+        self._attach_sources(finding_id, source_ids)
 
         self.commit()
         logger.info(f"📝 Finding logged: {finding[:50]}...")
 
         return finding_id
+
+    def _attach_sources(self, artifact_id: str, source_ids: list[str] | None) -> None:
+        """Write `sourced_from` edges (artifact → source) for each linked source.
+
+        `--source` historically only serialized the ids into the `source_refs`
+        COLUMN — invisible to the artifact graph (weave-gate, connectivity,
+        traversal) and to `sources-map`. So a practice could cite 60 sources and
+        still show 0 `sourced_from` edges. Writing the canonical edge here makes a
+        citation a real, first-class graph link (the column stays as the ordered
+        list). Idempotent via INSERT OR IGNORE; best-effort — never fails a log.
+        """
+        if not source_ids:
+            return
+        for sid in source_ids:
+            sid = str(sid).strip() if sid else ""
+            if not sid:
+                continue
+            try:
+                self._execute(
+                    "INSERT OR IGNORE INTO artifact_edges (from_id, to_id, relation) VALUES (?, ?, 'sourced_from')",
+                    (artifact_id, sid),
+                )
+            except Exception as e:
+                logger.debug(f"_attach_sources skipped ({artifact_id}→{sid}): {e}")
 
     def _attach_to_goal(self, artifact_id: str, goal_id: str | None) -> None:
         """Materialize the structural `attached_to` edge (artifact → its goal) in
