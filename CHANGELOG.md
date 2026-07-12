@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.12.18] — 2026-07-12
+
 ### Added
 - **`finding-resolve` — the resolve/prune verb findings never had (#307).**
   Findings were the only artifact type with no way to close them: unknowns,
@@ -32,6 +34,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   filter (the sibling unknowns query already had one), schema-guarded for DBs
   predating migration 057. Both paths are best-effort — any failure returns the
   raw set, never breaking the retrieval hot-path.
+- **`/epistemic-gardening` skill — the graph-hygiene pass.** Operationalizes
+  `ARTIFACT_HYGIENE.md` (which framed itself as "an orchestration + policy problem,
+  not build-from-scratch"). A PRAXIC pass that de-weeds a practice's epistemic
+  graph so retrieval surfaces what's live, not what's rotted: the resolve ▸ archive
+  ▸ delete preference order, a six-phase workflow (PREFLIGHT → survey → CHECK →
+  triage+act via batch verbs → verify retrieval → POSTFLIGHT), a per-artifact-type
+  playbook, and the cross-practice mesh-propagation pattern (collab the pass,
+  propose peers run it, SER for a fleet-wide sweep — never prune a peer's graph for
+  them). Now expressible end-to-end because `finding-resolve` closed the last gap
+  in the resolve-verb surface and read-time reconciliation makes resolution
+  actually land in retrieval.
 
 ### Fixed
 - **Sentinel no longer over-gates read-only pipe chains — receiver trust
