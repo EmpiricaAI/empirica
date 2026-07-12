@@ -230,11 +230,85 @@ class BreadcrumbRepository(BaseRepository):
                 source_tag,
             ),
         )
+        self._attach_to_goal(finding_id, goal_id)
 
         self.commit()
         logger.info(f"📝 Finding logged: {finding[:50]}...")
 
         return finding_id
+
+    def _attach_to_goal(self, artifact_id: str, goal_id: str | None) -> None:
+        """Materialize the structural `attached_to` edge (artifact → its goal) in
+        artifact_edges AT LOG TIME, not only at POSTFLIGHT.
+
+        The weave-gate enforces graph connectivity at CHECK, but the goal
+        attachment was historically written only during the POSTFLIGHT/cortex-sync
+        pass — so an artifact logged under an active goal read as unconnected at
+        CHECK and the gate false-blocked the disciplined goal-per-transaction flow.
+        Writing it here makes goal-attachment live in the graph immediately, so the
+        gate counts it (real edge, no virtual crediting). Idempotent via INSERT OR
+        IGNORE; best-effort — a connectivity bookkeeping write must never fail a log.
+        """
+        if not goal_id:
+            return
+        try:
+            self._execute(
+                "INSERT OR IGNORE INTO artifact_edges (from_id, to_id, relation) VALUES (?, ?, 'attached_to')",
+                (artifact_id, goal_id),
+            )
+        except Exception as e:
+            logger.debug(f"_attach_to_goal skipped ({artifact_id}→{goal_id}): {e}")
+
+    # Artifact tables whose rows carry session_id + transaction_id and participate
+    # in the weave-gate connectivity count (mirrors _retro_count_edges' by_table).
+    _GOAL_ATTACH_TABLES = (
+        "project_findings",
+        "project_unknowns",
+        "project_dead_ends",
+        "mistakes_made",
+        "assumptions",
+        "decisions",
+    )
+
+    def backfill_goal_attachment(self, goal_id: str, session_id: str, transaction_id: str | None) -> int:
+        """Backward counterpart to `_attach_to_goal`: when a goal is created MID-
+        transaction, attach this transaction's already-logged artifacts that don't
+        yet carry any `attached_to` edge.
+
+        Log-time forward-attach only fires when the goal exists BEFORE the artifact
+        is logged. The other order — log findings, then create the goal for them —
+        left those artifacts orphaned (and false-blocked the weave-gate). This wires
+        them to the new goal so both orders connect. Only artifacts with NO existing
+        `attached_to` edge are touched, so an artifact already bound to another goal
+        is left alone. Idempotent + best-effort; returns the count attached.
+        """
+        if not transaction_id:
+            return 0
+        attached = 0
+        for table in self._GOAL_ATTACH_TABLES:
+            try:
+                rows = self._execute(
+                    f"SELECT id FROM {table} t "
+                    "WHERE t.session_id = ? AND t.transaction_id = ? "
+                    "AND NOT EXISTS (SELECT 1 FROM artifact_edges e "
+                    "WHERE (e.from_id = t.id OR e.to_id = t.id) AND e.relation = 'attached_to')",
+                    (session_id, transaction_id),
+                ).fetchall()
+            except Exception:
+                continue  # table absent / no such column on an older DB — skip
+            for r in rows:
+                aid = r["id"] if hasattr(r, "keys") else r[0]
+                try:
+                    self._execute(
+                        "INSERT OR IGNORE INTO artifact_edges (from_id, to_id, relation) VALUES (?, ?, 'attached_to')",
+                        (aid, goal_id),
+                    )
+                    attached += 1
+                except Exception as e:
+                    logger.debug(f"backfill_goal_attachment skipped ({aid}→{goal_id}): {e}")
+        if attached:
+            self.commit()
+        return attached
 
     def log_unknown(
         self,
@@ -331,6 +405,7 @@ class BreadcrumbRepository(BaseRepository):
             ),
         )
 
+        self._attach_to_goal(unknown_id, goal_id)
         self.commit()
         logger.info(f"❓ Unknown logged: {unknown[:50]}...")
 
@@ -495,6 +570,7 @@ class BreadcrumbRepository(BaseRepository):
             ),
         )
 
+        self._attach_to_goal(dead_end_id, goal_id)
         self.commit()
         logger.info(f"💀 Dead end logged: {approach[:50]}...")
 
@@ -880,6 +956,7 @@ class BreadcrumbRepository(BaseRepository):
             ),
         )
 
+        self._attach_to_goal(mistake_id, goal_id)
         self.commit()
         logger.info(f"📝 Mistake logged: {mistake[:50]}...")
 
@@ -1009,6 +1086,7 @@ class BreadcrumbRepository(BaseRepository):
             ),
         )
 
+        self._attach_to_goal(assumption_id, goal_id)
         self.commit()
         return assumption_id
 
@@ -1077,6 +1155,7 @@ class BreadcrumbRepository(BaseRepository):
             ),
         )
 
+        self._attach_to_goal(decision_id, goal_id)
         self.commit()
         return decision_id
 

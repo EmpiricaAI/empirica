@@ -7,7 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.12.19] — 2026-07-12
+### Fixed
+- **Weave-gate no longer false-blocks the disciplined goal-per-transaction flow.**
+  The gate enforces graph connectivity at CHECK, but the structural `attached_to`
+  (artifact→goal) edge was written only at POSTFLIGHT — so an artifact logged under
+  an active goal read as *unconnected* at CHECK and the gate blocked, forcing a
+  hand-wired edge just to proceed (then POSTFLIGHT wrote the goal-edge anyway). Every
+  `log_*` method now materializes the goal-attachment edge **at log time** (idempotent
+  `INSERT OR IGNORE`, best-effort — a connectivity write never fails a log). Goal
+  attachment is now live in the graph immediately, so the gate counts it as the real
+  edge it is; POSTFLIGHT's write becomes a redundant backstop. The note's promise that
+  "structural goal-edges are automatic" is finally true at CHECK, not just after it.
+  The reverse order is covered too: `goals-create` now **backward-wires** — it attaches
+  this transaction's already-logged orphan artifacts (logged before the goal existed) to
+  the new goal, so both `goal→log` and `log→goal` orders connect (`attached_orphans` in
+  the result reports how many). Only artifacts with no existing `attached_to` edge are
+  touched, so one already bound to another goal is left alone.
+- **Relation-vocabulary drift closed.** The single-verb path (`*-log --related-to` /
+  `--edge ID`) writes `related` edges freely and the DB holds 81 of them, but the
+  `log-artifacts` batch validator rejected `related` — an edge one path writes and the
+  other refuses. `related` (the generic low-friction anchor) is now admitted to
+  `VALID_RELATIONS`; semantic relations stay preferred where the relationship is known.
 
 ### Changed
 - **Batch artifact verbs are now the documented default for multi-artifact work.**

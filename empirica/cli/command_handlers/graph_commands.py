@@ -24,7 +24,12 @@ NODE_REQUIRED_FIELDS = {
     "source": ["title"],
 }
 
-# Valid edge relation types
+# Valid edge relation types. The first block are semantic (carry a specific
+# meaning); `related` is the generic low-friction anchor written by the
+# single-verb path (`*-log --related-to` / `--edge ID` default) and present in the
+# DB — it was never admitted here, so the batch verb rejected an edge the single
+# verb writes freely (a two-vocabulary drift). Admitted so both paths agree; the
+# semantic relations remain preferred where the relationship is known.
 VALID_RELATIONS = {
     "evidence",
     "raised_by",
@@ -35,6 +40,7 @@ VALID_RELATIONS = {
     "caused_by",
     "prevents",
     "attached_to",
+    "related",
 }
 
 # Creation order — dependencies resolved top-down.

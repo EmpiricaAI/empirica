@@ -699,10 +699,30 @@ def handle_goals_create_command(args):
         beads_issue_id = None
 
         if success:
+            # Backward-wire: attach THIS transaction's already-logged artifacts (the
+            # log-then-create-goal order) to the new goal, so both orders connect and
+            # the weave-gate stops false-blocking. Forward-attach (log under an existing
+            # goal) is handled at log time in breadcrumbs. Best-effort — never fails create.
+            attached_orphans = 0
+            try:
+                from empirica.data.session_database import SessionDatabase
+                from empirica.utils.session_resolver import InstanceResolver as _R
+
+                _txid = _R.transaction_id()
+                if _txid:
+                    # Local DB holds the transaction's artifacts; the attached_to edge
+                    # (local artifact → goal_id) is written locally regardless of where
+                    # the goal itself lives, which is what the weave-gate counts.
+                    _bf_db = SessionDatabase()
+                    attached_orphans = _bf_db.breadcrumbs.backfill_goal_attachment(goal.id, session_id, _txid)
+                    _bf_db.close()
+            except Exception:
+                pass
             result = {
                 "ok": True,
                 "goal_id": goal.id,
                 "session_id": session_id,
+                "attached_orphans": attached_orphans,
                 "message": "Goal created successfully",
                 "objective": objective,
                 "description": description,
