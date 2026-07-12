@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **`finding-log --source` now writes a canonical `sourced_from` graph edge, not
+  only the `source_refs` column.** Citing a source historically serialized the ids
+  into the `source_refs` column — invisible to the artifact graph (weave-gate,
+  connectivity, traversal) and to `sources-map`. So a practice could cite dozens of
+  sources and still show **0** `sourced_from` edges (empirica's own graph did exactly
+  that: 60 sources, 0 edges). `_attach_sources` now writes the `sourced_from` edge at
+  log time (idempotent, best-effort) so a citation is a first-class graph link; the
+  column stays as the ordered list for backward compatibility.
 - **Weave-gate no longer false-blocks the disciplined goal-per-transaction flow.**
   The gate enforces graph connectivity at CHECK, but the structural `attached_to`
   (artifact→goal) edge was written only at POSTFLIGHT — so an artifact logged under
