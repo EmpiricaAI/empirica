@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Batch artifact verbs are now the documented default for multi-artifact work.**
+  The collaborative-mode guidance shifts from a "≥3 related artifacts" threshold to
+  batch-first: default to `log-artifacts` / `resolve-artifacts` / `delete-artifacts`
+  for any 2+ artifacts or graph-connected cluster; single `*-log`/`*-resolve` verbs
+  are for genuinely-single artifacts. The `/epistemic-gardening` skill gains the
+  three-register distinction — **surgical** (per-artifact judgment, the human-facing
+  default), **batch-by-graph** (an AI resolving a connected cluster in one call), and
+  **mass-policy** (filter-and-bulk, a deliberate backlog tool used only with explicit
+  human sign-off on the policy, never routine).
+
 ### Security
 - **Sentinel gate no longer bypassed by command substitution inside double
   quotes.** `$(...)` and backticks execute even *inside* double quotes (only

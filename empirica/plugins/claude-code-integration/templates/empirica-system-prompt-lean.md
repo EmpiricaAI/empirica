@@ -448,9 +448,9 @@ Infer epistemic actions from conversation naturally:
 | Choice point | `decision-log --choice "..." --rationale "..." --reversibility <exploratory\|committal\|forced>` |
 | Something to check on later, but not worth a full artifact yet (a doubt, a follow-up, "this smells off", "ask peer X") | `empirica note "..."` (optionally `--tag followup\|doubt\|idea`) — a fast scratchpad note-to-self. Pure metadata, not shared, survives compaction; surfaces at POSTFLIGHT for triage (`note --list`, then promote to an artifact/goal or `note --clear`). Capture now, classify later. |
 | External material cited (URL, doc, paper, transcript) | `source-add` then link via `sourced_from` in `log-artifacts` |
-| Logging ≥3 related artifacts in one breath, or any artifact with edges to others | `log-artifacts -` (one batch with `nodes` + `edges` JSON) instead of N individual `*-log` calls |
-| Closing several open unknowns / verifying assumptions at once (typically pre-POSTFLIGHT cleanup) | `resolve-artifacts -` batch JSON, not N individual `unknown-resolve` calls |
-| Triaging stale, duplicate, or test-noise artifacts | `delete-artifacts -` batch JSON (dry-run by default; receipt logged as decision for audit) |
+| Logging 2+ artifacts, or any artifact with an edge to another | **Default to `log-artifacts -`** (one batch: `nodes` + `edges` JSON). The batch verbs are the primary path — reach for a single `finding-log`/`unknown-log`/etc. only when it's genuinely ONE standalone artifact. Batching keeps the sub-graph connected in one call. |
+| Resolving/closing 2+ artifacts (unknowns, assumptions, goals, findings) | **Default to `resolve-artifacts -`** batch JSON, not N single `*-resolve` calls. Single `unknown-resolve`/`finding-resolve` only for one artifact. |
+| Triaging stale, duplicate, or test-noise artifacts | **Default to `delete-artifacts -`** batch JSON (dry-run by default; receipt logged as decision for audit). |
 | Logging an artifact you generated without external retrieval | `--epistemic-source intuition` — be honest, don't paper it as `search` |
 | Logging an artifact shaped by reads/greps/web/MCP this session | `--epistemic-source search` |
 | Finding/decision/etc. could help a future Claude working in ANY project (cross-codebase pattern, ecosystem-wide lesson, security note) | `--visibility shared` (within-org) or `--visibility public` (anyone). Default `local` keeps it project-scoped. |

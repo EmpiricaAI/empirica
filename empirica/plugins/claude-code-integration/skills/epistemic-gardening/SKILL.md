@@ -26,6 +26,30 @@ pass that tells the graph what's dead.
 > (Qdrant reconcile + the breadcrumbs `EPISTEMIC FOCUS` filter). **Resolution finally
 > lands.** That's what makes a hygiene pass worth running.
 
+## Surgical by default; batch by graph; mass-policy only with sign-off
+
+Three registers — don't confuse them:
+
+- **Surgical (the default for human-facing gardening).** Resolution is per-artifact
+  *judgment* — "is THIS finding stale / superseded / still load-bearing?". A human (or an
+  AI acting on a human's behalf) gardens one artifact, or one small cluster, at a time,
+  reading each. This is the routine, careful register. Reach for the single verbs
+  (`finding-resolve`, `unknown-resolve`) here when it's genuinely one artifact.
+- **Batch-by-graph (how an AI handles a connected cluster in regular work).** When several
+  artifacts are related through the knowledge graph — a finding and the two unknowns it
+  answered, a dead-end and the decision that replaced it — resolve them together in one
+  `resolve-artifacts -` call rather than N single verbs. The batch verbs
+  (`log-artifacts` / `resolve-artifacts` / `delete-artifacts`) are the *default* for
+  multi-artifact work; singles are the exception. This is efficiency, still grounded in
+  per-cluster judgment.
+- **Mass-policy (a deliberate backlog tool, NOT routine).** A filter-and-bulk-resolve
+  (e.g. "resolve all >4mo low-impact findings as stale, protect the keepers") clears an
+  accumulated backlog fast, but it trades per-artifact judgment for a *policy*. It is
+  irreducibly probabilistic — you accept a small, reversible error rate. **Use it only
+  deliberately, with explicit human sign-off on the policy** (which age gate, which
+  keepers protected), not as the everyday hygiene move. The everyday move is surgical +
+  batch-by-graph.
+
 ---
 
 ## When to run
