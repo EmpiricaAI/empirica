@@ -203,6 +203,7 @@ def upsert_memory(project_id: str, items: list[dict], qdrant_url: str | None = N
                 pass
 
             payload = {
+                "artifact_id": it.get("id"),
                 "type": it.get("type", "unknown"),
                 "text": text[:500] if text else None,
                 "text_full": text if len(text) <= 500 else None,

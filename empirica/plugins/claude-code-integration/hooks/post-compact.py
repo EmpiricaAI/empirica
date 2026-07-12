@@ -834,12 +834,20 @@ def _load_dynamic_context(session_id: str, ai_id: str, pre_snapshot: dict) -> di
                 context["pending_subtasks"].append(subtask)
             goal["subtasks"] = subtasks
 
-        # 2. Recent findings (broader retrieval — epistemic_summarizer handles ranking)
+        # 2. Recent findings (broader retrieval — epistemic_summarizer handles ranking).
+        #    Drop resolved/superseded findings (#307) so they don't re-inject into
+        #    EPISTEMIC FOCUS — mirrors the unknowns is_resolved filter below. The
+        #    is_resolved column is absent on very old DBs pre-migration_057, so guard
+        #    the WHERE with a schema check to stay backward-compatible.
+        _findings_has_resolved = any(
+            r[1] == "is_resolved" for r in cursor.execute("PRAGMA table_info(project_findings)").fetchall()
+        )
+        _resolved_clause = " AND (is_resolved IS NULL OR is_resolved = 0)" if _findings_has_resolved else ""
         cursor.execute(
-            """
+            f"""
             SELECT finding, impact, created_timestamp
             FROM project_findings
-            WHERE project_id = ?
+            WHERE project_id = ?{_resolved_clause}
             ORDER BY created_timestamp DESC LIMIT 10
         """,
             (project_id,),

@@ -372,6 +372,70 @@ def _reconcile_goals_against_sqlite(raw_goals):
         return raw_goals
 
 
+def _reconcile_findings_against_sqlite(raw_findings):
+    """Drop findings resolved/superseded in the local SQLite (#307 retrieval hygiene).
+
+    Qdrant's ``is_resolved`` payload is frozen at embed time, so a finding resolved
+    AFTER it was embedded still reads unresolved in the vector store and keeps
+    resurfacing in PREFLIGHT/CHECK relevant_findings. Read-time reconcile against the
+    authoritative SQLite is the fix (same pattern as goal reconciliation).
+
+    Matches by ``artifact_id`` (present on findings embedded after #307) with a
+    text-prefix fallback for older embeds that predate the id-in-payload change —
+    the Qdrant ``text`` field is truncated to 500 chars, so we compare on that prefix.
+
+    Best-effort: on ANY failure returns ``raw_findings`` unchanged — this runs in the
+    PREFLIGHT/CHECK hot-path and must never break retrieval.
+    """
+    if not raw_findings:
+        return raw_findings
+    try:
+        import sqlite3
+        from pathlib import Path
+
+        from empirica.data.session_database import _resolve_canonical_project_root
+
+        root = _resolve_canonical_project_root()
+        if not root:
+            return raw_findings
+        db_path = Path(root) / ".empirica" / "sessions" / "sessions.db"
+        if not db_path.is_file():
+            return raw_findings
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        try:
+            # Column may be absent on DBs predating migration_057 — bail to raw if so.
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(project_findings)").fetchall()}
+            if "is_resolved" not in cols:
+                return raw_findings
+            cur = conn.execute("SELECT id, finding FROM project_findings WHERE is_resolved = 1")
+            resolved_ids: set[str] = set()
+            resolved_text_prefixes: set[str] = set()
+            for row in cur.fetchall():
+                if row[0]:
+                    resolved_ids.add(row[0])
+                if row[1]:
+                    resolved_text_prefixes.add(row[1][:500])
+        finally:
+            conn.close()
+        if not resolved_ids and not resolved_text_prefixes:
+            return raw_findings
+
+        out = []
+        for f in raw_findings:
+            aid = f.get("artifact_id")
+            if aid and aid in resolved_ids:
+                continue  # drop: resolved by id
+            if not aid:
+                text = f.get("text_full") or f.get("text") or ""
+                if text and text[:500] in resolved_text_prefixes:
+                    continue  # drop: resolved by text-prefix (pre-#307 embed)
+            out.append(f)
+        return out
+    except Exception as e:
+        logger.debug(f"finding reconciliation skipped (keeping raw): {e}")
+        return raw_findings
+
+
 def _enrich_knowledge_graph(
     result,
     project_id,
@@ -969,6 +1033,7 @@ def retrieve_task_patterns(
     findings_raw = _search_memory_by_type(
         project_id, task_context, "finding", limits["findings"] * _RECENCY_OVERFETCH, threshold
     )
+    findings_raw = _reconcile_findings_against_sqlite(findings_raw)  # #307: drop resolved/superseded
     findings_ranked = _apply_recency_rerank(
         findings_raw, limits["findings"], modulator_key="impact", ts_key="timestamp"
     )
