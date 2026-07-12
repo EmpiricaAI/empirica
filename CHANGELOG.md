@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Sentinel classifier parity + workflow-verb completeness** (four over-gating
+  gaps surfaced by the first `/epistemic-gardening` pass — all the same "read-only
+  op trusted in one syntactic position but not another" class as the pipe-parity
+  fix). (1) **Help/version queries** now classify noetic regardless of verb — a
+  non-tiered verb like `goals-archive --help` no longer gates just because the
+  verb mutates when actually run (quote-aware via shlex, so a `--help` inside a
+  quoted argument can't wave a mutating command through). (2) **`_is_segment_safe`
+  reached parity with the single-command path** — a read-only `sqlite3` query or
+  `python3 -c` inspection as a *chain segment* (`echo x && sqlite3 db "SELECT …"`,
+  newline-chained surveys) is now noetic, not just when standalone or piped;
+  extracted the shared `_is_readonly_command_form` so both paths classify
+  identically. (3) The **single-command path** now excuses inert shell shapes
+  (bare `VAR=value`, `[ test ]`, `exit N`) like the chain-segment path already
+  did. (4) **`finding-resolve`, `goals-archive`, `goals-reopen`, `goals-activate`
+  added to the TIER2 workflow whitelist** — epistemic-hygiene verbs whose siblings
+  (`unknown-resolve`, `goals-complete`, `goals-prune`) were already there, so
+  gardening no longer needs a CHECK to resolve a finding or archive a goal. All
+  mutating forms (sqlite writes, `rm` in a chain, mutating python) stay gated.
+
 ## [1.12.18] — 2026-07-12
 
 ### Added

@@ -768,6 +768,7 @@ EMPIRICA_TIER2_PREFIXES = (
     "empirica create-handoff",
     "empirica resume-goal",
     "empirica unknown-resolve",
+    "empirica finding-resolve",  # Resolve/supersede a finding (#307) — analog of unknown-resolve
     "empirica issue-handoff",
     "empirica project-init",
     "empirica project-embed",
@@ -792,6 +793,9 @@ EMPIRICA_TIER2_PREFIXES = (
     "empirica goals-mark-stale",
     "empirica goals-refresh",  # Goal staleness management
     "empirica goals-prune",  # Bulk close stale/duplicate/planned goals (dry-run default)
+    "empirica goals-archive",  # Archive completed goals (dry-run default; --apply mutates) — goal-lifecycle hygiene
+    "empirica goals-reopen",  # Un-archive / reopen a goal — the inverse of archive/complete
+    "empirica goals-activate",  # planned → in_progress — goal-lifecycle workflow
     "empirica profile-sync",
     "empirica profile-prune",  # Profile management - state-changing
     "empirica release",  # Release pipeline — mechanical, no PREFLIGHT needed
@@ -815,6 +819,22 @@ def is_safe_empirica_command(command: str) -> bool:
     cmd = command.lstrip()
     if not cmd.startswith("empirica "):
         return False
+
+    # Help / version queries are inert regardless of verb — they print usage and
+    # never execute the verb's action. A non-tiered (or future) verb like
+    # `goals-archive --help` should NOT gate just because the verb mutates when
+    # actually run. Tokenized quote-aware via shlex so a literal `--help` INSIDE a
+    # quoted argument (e.g. `goals-archive --apply --reason "see --help"`) is part
+    # of a larger token and does NOT false-match — that would wave a mutating
+    # command through. On malformed quoting, skip this shortcut and fall through.
+    import shlex as _shlex
+
+    try:
+        _toks = _shlex.split(cmd)
+    except ValueError:
+        _toks = []
+    if {"--help", "-h", "--version"} & set(_toks):
+        return True
 
     # Tier 1: Read-only - always safe
     for prefix in EMPIRICA_TIER1_PREFIXES:
@@ -1853,16 +1873,35 @@ def _is_segment_safe(segment: str) -> bool:
         return is_safe_pipe_chain(stripped)
     if is_safe_empirica_command(stripped):
         return True
-    _rcmd = _remote_prefix(stripped)
-    if _rcmd is not None:
-        return is_safe_remote_command(_rcmd)
-    if _matches_safe_prefix(stripped):
+    # 5. Read-only single-command forms (remote read / sqlite read / python -c /
+    # safe-prefixed tool) — shared with is_safe_bash_command's single-command path
+    # so a segment classifies identically whether it stands alone or sits in a
+    # chain (the parity that stops `echo x && sqlite3 db "SELECT …"` false-gating).
+    if _is_readonly_command_form(stripped):
         return True
 
-    # 5. Inert shell shapes (control-flow keywords, tests, assignments,
+    # 6. Inert shell shapes (control-flow keywords, tests, assignments,
     # exit/return). All embedded commands have already been validated
     # in step 1; this only excuses the structural shell text.
     return _is_inert_shape(stripped)
+
+
+def _is_readonly_command_form(cmd: str) -> bool:
+    """Read-only single-command forms shared by the standalone and chain-segment
+    classifiers, so a command is judged identically regardless of syntactic
+    position: a remote read (ssh/scp/rsync), a sqlite read, a `python3 -c`
+    inspection, or a safe-prefixed tool (`_matches_safe_prefix`, which applies the
+    mutation-flag guard). The pipe-segment path mirrors this via `_matches_safe_prefix`.
+    Callers layer their own extras (empirica tiers, inert shapes) around this core."""
+    rcmd = _remote_prefix(cmd)
+    if rcmd is not None:
+        _maybe_nudge_remote_ops(rcmd)
+        return is_safe_remote_command(rcmd)
+    if cmd.startswith("sqlite3 ") and is_safe_sqlite_command(cmd):
+        return True
+    if cmd.startswith(("python3 -c ", "python -c ")) and is_safe_python_command(cmd):
+        return True
+    return _matches_safe_prefix(cmd)
 
 
 def _is_command_text_safe(cmd: str) -> bool:
@@ -2002,17 +2041,11 @@ def is_safe_bash_command(tool_input: dict) -> bool:
 
     cmd = command.lstrip()
 
-    # Special cases: remote, sqlite, python
-    _rcmd = _remote_prefix(cmd)
-    if _rcmd is not None:
-        _maybe_nudge_remote_ops(_rcmd)
-        return is_safe_remote_command(_rcmd)
-    if cmd.startswith("sqlite3 ") and is_safe_sqlite_command(cmd):
-        return True
-    if cmd.startswith(("python3 -c ", "python -c ")) and is_safe_python_command(cmd):
-        return True
-
-    return _matches_safe_prefix(cmd)
+    # Read-only single-command forms (remote / sqlite / python -c / safe-prefix),
+    # shared with _is_segment_safe so standalone and in-chain classify identically.
+    # Plus inert shell shapes (bare `VAR=value`, `[ test ]`, `exit N`) — parity
+    # with the chain-segment path, which already excuses those.
+    return _is_readonly_command_form(cmd) or _is_inert_shape(cmd)
 
 
 def is_safe_sqlite_command(command: str) -> bool:

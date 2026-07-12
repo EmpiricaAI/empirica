@@ -644,3 +644,86 @@ class TestPipeTargetParity:
         # already-vetted data, but never as a pipe SOURCE (arbitrary exec).
         assert gate.is_safe_pipe_chain("cat f.json | python3 -c 'import sys; print(len(sys.stdin.read()))'") is True
         assert gate.is_safe_pipe_chain("python3 -c 'print(1)' | cat") is False
+
+
+# ─── classifier parity + tier completeness (gardening-pass follow-ups) ───────
+
+
+class TestClassifierParity:
+    """Four over-gating gaps surfaced by the first epistemic-gardening pass, all
+    the same 'read-only op trusted in one syntactic position but not another'
+    class as the pipe-parity fix (#319):
+
+      1. Help/version queries gate on non-tiered verbs (verb, not --help, decided).
+      2. _is_segment_safe omitted sqlite + python -c (chain segments false-gated).
+      3. Single-command path omitted inert shapes (bare `VAR=value` gated).
+      4. finding-resolve / goals-archive / goals-reopen / goals-activate missing
+         from the TIER2 workflow whitelist.
+    """
+
+    # 1. Help / version — inert regardless of verb, quote-aware.
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "empirica goals-archive --help",
+            "empirica finding-resolve --help",
+            "empirica entity-delete X --help",  # non-tiered mutating verb + --help
+            "empirica sync-push --version",
+        ],
+    )
+    def test_help_version_queries_are_noetic(self, gate, cmd):
+        assert gate.is_safe_empirica_command(cmd) is True
+        assert gate.is_safe_bash_command({"command": cmd}) is True
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            'empirica entity-delete X --reason "run --help first"',  # --help INSIDE a quoted arg
+            'empirica sync-push --force --note "--version bump"',  # --version inside a quote
+        ],
+    )
+    def test_help_flag_in_quoted_arg_does_not_leak(self, gate, cmd):
+        # A mutating, non-tiered verb must still gate — the help/version token is
+        # inside a quoted argument, so shlex keeps it in a larger token (no match).
+        assert gate.is_safe_empirica_command(cmd) is False
+
+    # 2. sqlite + python -c as CHAIN SEGMENTS (no pipe).
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            'echo hi && sqlite3 db.db "SELECT 1"',
+            'sqlite3 db.db "SELECT 1"; sqlite3 db.db "SELECT date(x,\'unixepoch\') FROM t"',
+            "echo a && python3 -c 'print(1)'",
+        ],
+    )
+    def test_readonly_sqlite_python_in_chain_segments_noetic(self, gate, cmd):
+        assert gate.is_safe_bash_command({"command": cmd}) is True
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            'echo x && sqlite3 db.db "DELETE FROM t"',  # sqlite write in chain
+            'echo x && sqlite3 db.db "DROP TABLE t"',
+            "echo x && python3 -c 'import os; os.remove(\"f\")'",  # mutating python in chain
+        ],
+    )
+    def test_mutating_sqlite_python_in_chain_still_gated(self, gate, cmd):
+        assert gate.is_safe_bash_command({"command": cmd}) is False
+
+    # 3. Inert shapes standalone (parity with chain-segment path).
+    @pytest.mark.parametrize("cmd", ["DB=.empirica/x.db", "[ -f foo ]", "exit 0"])
+    def test_inert_shapes_standalone_noetic(self, gate, cmd):
+        assert gate.is_safe_bash_command({"command": cmd}) is True
+
+    def test_assignment_then_mutation_still_gated(self, gate):
+        assert gate.is_safe_bash_command({"command": "DB=x && rm file"}) is False
+
+    # 4. TIER2 workflow-verb completeness.
+    @pytest.mark.parametrize(
+        "verb",
+        ["finding-resolve", "goals-archive", "goals-reopen", "goals-activate"],
+    )
+    def test_lifecycle_verbs_are_tiered(self, gate, verb):
+        # These are epistemic-workflow verbs (siblings unknown-resolve / goals-complete
+        # / goals-prune are all TIER2) — they flow without a CHECK like the rest.
+        assert gate.is_safe_empirica_command(f"empirica {verb} --older-than 30") is True
