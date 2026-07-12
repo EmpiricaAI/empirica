@@ -66,6 +66,39 @@ at a coherent break, not while the question is open.
 
 ---
 
+## Weave as you log — the other half of a healthy graph
+
+Pruning removes what's dead; **weaving connects what's live**. A graph's value is the
+connections — a finding linked to its source and the decision it grounds is knowledge; the
+same finding as an orphan row is just a log line. The default failure mode is a flat log:
+logging is one command, connecting felt like several, so the connections never got made
+(empirica's own graph ran ~95% orphaned, 0 `sourced_from` edges, before this was fixed).
+
+Most of the connecting is now **automatic** — the friction is gone, so there's no excuse to
+log flat:
+
+- **Goal attachment is automatic (both orders).** Log an artifact under an active goal and
+  it auto-attaches; create the goal *after* logging and `goals-create` backward-wires the
+  transaction's orphans. So the rule is simply: **every transaction has a goal** (big goals
+  get `goals-add-task` per unit of work) — and your artifacts weave into it for free. The
+  weave-gate is satisfied by working disciplined, not by hand-wiring edges.
+- **Sources auto-connect.** `finding-log --source <id>` now writes a real `sourced_from`
+  edge, not just a column. So *cite as you log* — the friction that kept sources at
+  60-for-9000 is the two-step `source-add` → `--source`; do it anyway when an artifact came
+  from an external origin (doc, URL, paper, transcript), and the graph link is written for you.
+- **Semantic edges are the one manual move worth making.** When artifacts relate by meaning
+  — a finding is `evidence` for a decision, a mistake was `caused_by` an assumption — assert
+  it with `log-artifacts` (nodes + edges in one call, the batch-first default) or
+  `--edge ID:RELATION` / `--related-to ID` on any `*-log`. This is where the graph earns its
+  keep; it's cheap once the artifacts exist, and `empirica note` is the place to park a
+  "should connect X to Y" thought until you do.
+
+Weaving and pruning are the two hands of tending: connect live knowledge in, resolve dead
+knowledge out. A practice that does both surfaces a dense, current graph; one that does
+neither drowns in a flat, stale log.
+
+---
+
 ## The core discipline: resolve ▸ archive ▸ delete (in that preference order)
 
 The single most important call in gardening is **which lever** an artifact gets. Default
