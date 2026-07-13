@@ -22,9 +22,9 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.12.19
-**Generated:** 2026-07-12 14:18:41 UTC
-**Total commands:** 267 (across 26 categories)
+**Framework version:** 1.12.20
+**Generated:** 2026-07-13 13:46:15 UTC
+**Total commands:** 269 (across 26 categories)
 
 For the most up-to-date detail on any single command, prefer
 `empirica <command> --help` — the generator extracts the same `help`
@@ -65,9 +65,9 @@ require `--session-id` (`project-bootstrap`, `sessions-show`,
 | [session](#session) | 8 | `session-create`, `sessions-list`, `sessions-show`, … |
 | [workflow](#workflow) | 4 | `preflight-submit`, `check`, `check-submit`, … |
 | [goals](#goals) | 16 | `goals-create`, `goals-list`, `goals-search`, … |
-| [logging](#logging) | 31 | `finding-log`, `finding-resolve`, `unknown-log`, … |
+| [logging](#logging) | 32 | `finding-log`, `finding-resolve`, `unknown-log`, … |
 | [project](#project) | 18 | `project-init`, `project-update`, `project-create`, … |
-| [workspace](#workspace) | 21 | `workspace-init`, `workspace-map`, `workspace-list`, … |
+| [workspace](#workspace) | 22 | `workspace-init`, `workspace-map`, `workspace-list`, … |
 | [checkpoint](#checkpoint) | 7 | `checkpoint-create`, `checkpoint-load`, `checkpoint-list`, … |
 | [sync](#sync) | 6 | `sync-config`, `sync-push`, `sync-pull`, … |
 | [profile](#profile) | 4 | `profile-sync`, `profile-prune`, `profile-status`, … |
@@ -661,6 +661,12 @@ Log a discovery — something concrete you NOW know that wasn't obvious before. 
   Scope: session (ephemeral), project (persistent), or both (dual-log). Auto-inferred if omitted.
 - `--source` — optional
   Source ID (from source-add). Repeatable for multiple sources.
+- `--cite` — optional
+  Inline source: create + link a source in one call (kills the source-add→--source two-step). Value is the source title; pair with --cite-url / --cite-type.
+- `--cite-url` — optional
+  URL/path for the --cite inline source.
+- `--cite-type` — optional · default=`reference`
+  Source type for --cite (reference, doc, paper, url, design, …). Default: reference.
 - `--entity-type` — optional · type=`choice` · choices={project, organization, contact, engagement}
   Entity type this artifact relates to (default: project)
 - `--entity-id` — optional
@@ -1026,8 +1032,14 @@ Register external material as a citable source. Use for any evidence outside the
   Source type (document, meeting, email, calendar, code, web, design, api)
 - `--path` — optional
   File path (for local documents)
+- `--media` — optional
+  Local media/binary file (image, etc.) to register AND upload to cortex as a blob, so peers can fetch it cross-tenant via `source-get`. Implies --path. Pair with --visibility shared for cross-tenant reads (producer half of media-bearing sources).
 - `--url` — optional
   URL (for web sources)
+- `--cortex-url` — optional
+  Cortex URL override (default: credentials.yaml)
+- `--api-key` — optional
+  Cortex API key override (default: credentials.yaml)
 - `--noetic` — optional · flag
   Source used — evidence that informed knowledge (source IN)
 - `--praxic` — optional · flag
@@ -1046,6 +1058,25 @@ Register external material as a citable source. Use for any evidence outside the
   Entity UUID (organization, contact, or engagement ID)
 - `--via` — optional
   Discovery channel (cli, email, linkedin, calendar, agent, web)
+- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
+  Output format
+- `--verbose` — optional · flag
+  Verbose output
+
+#### `empirica source-get`
+
+Download a media-bearing source's retained bytes from cortex to a local file. Fetches via the source uuid, verifies the SHA-256 content hash, and writes to --out. Cross-tenant fetch is permitted when the source's visibility (shared/public) allows the caller; cortex writes a per-fetch access-log entry. The consumer half of media-bearing sources — pairs with `source-add --media`.
+
+**Arguments:**
+
+- `--id` — **required**
+  Source UUID to fetch
+- `--out` — **required**
+  Local path to write the fetched bytes to
+- `--cortex-url` — optional
+  Cortex URL override (default: credentials.yaml)
+- `--api-key` — optional
+  Cortex API key override (default: credentials.yaml)
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
 - `--verbose` — optional · flag
@@ -2128,6 +2159,31 @@ BFS the membership graph from an engagement (default depth 2).
   Engagement id (full value or unambiguous prefix)
 - `--depth` — optional · type=`int` · default=`2`
   Max traversal depth (default: 2)
+- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
+  Output format
+- `--verbose` — optional · flag
+  Verbose output
+
+#### `empirica engagement-update`
+
+Update mutable fields (title/description/stage/domain/lifecycle-state/outcome) on an existing engagement. No field flags = no-op read.
+
+**Arguments:**
+
+- `engagement_id` — **required**
+  Engagement id (full value or unambiguous prefix)
+- `--title` — optional
+  New title
+- `--description` — optional
+  New free-text description
+- `--domain` — optional
+  New domain (must have a definition row)
+- `--stage` — optional
+  New stage_id (must belong to --domain, or the engagement's current domain)
+- `--lifecycle-state` — optional · type=`choice` · choices={planned, open, in_progress, blocked, closed}
+  New lifecycle_state
+- `--outcome` — optional · type=`choice` · choices={won, lost, resolved, wont_fix, defer, superseded}
+  Terminal outcome (typically set alongside --lifecycle-state closed)
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
 - `--verbose` — optional · flag
@@ -5585,6 +5641,10 @@ Atomic single-project register: read .empirica/project.yaml at PATH, dual-write 
   Override cortex API key (default: ~/.empirica/credentials.yaml)
 - `--timeout` — optional · type=`float` · default=`10.0`
   Cortex POST timeout in seconds (default: 10)
+- `--reconcile` — optional · flag
+  If the local project_id has diverged from cortex's canonical id, rekey EVERY local store (sessions/artifacts DBs, workspace.db, registry.yaml, project.yaml) to the cortex id. Without this, a divergence is only warned about. Run 'empirica rebuild --qdrant' afterwards to re-point Qdrant collections.
+- `--force` — optional · flag
+  Bypass the open-transaction guard on --reconcile (only if you know no live session depends on the old id).
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
 
