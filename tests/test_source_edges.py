@@ -59,3 +59,30 @@ def test_source_edges_idempotent(db):
 def test_blank_source_ids_skipped(db):
     fid = db.log_finding(PROJECT_ID, SESSION_ID, "cited", source_ids=["", "  ", "src-real"])
     assert _sourced_edges(db, fid) == ["src-real"]
+
+
+# ─── inline source creation (--cite) ─────────────────────────────────────────
+
+
+def test_create_source_minimal(db):
+    sid = db.breadcrumbs.create_source(PROJECT_ID, SESSION_ID, "RFC 7519", url="https://x/rfc", source_type="paper")
+    row = db.conn.execute(
+        "SELECT title, source_url, source_type FROM epistemic_sources WHERE id = ?", (sid,)
+    ).fetchone()
+    assert tuple(row) == ("RFC 7519", "https://x/rfc", "paper")
+
+
+def test_create_source_then_attach_is_a_full_citation(db):
+    # The inline-cite flow: create the source, then link it — the finding ends up
+    # with a sourced_from edge to a real source row, in one logical step.
+    sid = db.breadcrumbs.create_source(PROJECT_ID, SESSION_ID, "cited paper")
+    fid = db.log_finding(PROJECT_ID, SESSION_ID, "a finding", source_ids=[sid])
+    assert _sourced_edges(db, fid) == [sid]
+    title = db.conn.execute("SELECT title FROM epistemic_sources WHERE id = ?", (sid,)).fetchone()[0]
+    assert title == "cited paper"
+
+
+def test_create_source_defaults_type_reference(db):
+    sid = db.breadcrumbs.create_source(PROJECT_ID, SESSION_ID, "untyped")
+    t = db.conn.execute("SELECT source_type FROM epistemic_sources WHERE id = ?", (sid,)).fetchone()[0]
+    assert t == "reference"

@@ -960,7 +960,24 @@ def handle_finding_log_command(args):
             print_project_context(quiet=True)
 
         # Extract source IDs (from --source flags or config)
-        source_ids = (config_data or {}).get("source_ids") or getattr(args, "source_ids", None)
+        source_ids = list((config_data or {}).get("source_ids") or getattr(args, "source_ids", None) or [])
+        # Inline citation: --cite creates the source AND links it in one call (no
+        # separate source-add step). Prepend the fresh id so it links like any --source.
+        cite_title = (config_data or {}).get("cite_title") or getattr(args, "cite_title", None)
+        if cite_title:
+            try:
+                new_sid = db.breadcrumbs.create_source(
+                    project_id=ctx["project_id"],
+                    session_id=ctx["session_id"],
+                    title=cite_title,
+                    url=(config_data or {}).get("cite_url") or getattr(args, "cite_url", None),
+                    source_type=(config_data or {}).get("cite_type") or getattr(args, "cite_type", None) or "reference",
+                    visibility=ctx["visibility"],
+                    transaction_id=ctx["transaction_id"],
+                )
+                source_ids.insert(0, new_sid)
+            except Exception as e:
+                logger.debug(f"inline --cite create_source failed (non-fatal): {e}")
         # Source-aware Sentinel substrate: optional intuition|search|mixed tag
         epistemic_source = (config_data or {}).get("epistemic_source") or getattr(args, "epistemic_source", None)
 
