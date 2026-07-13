@@ -1691,6 +1691,15 @@ def add_checkpoint_parsers(subparsers):
     sources_reconcile_parser.add_argument(
         "--api-key", help="Cortex API key (default: credentials.yaml / CORTEX_API_KEY env)"
     )
+    sources_reconcile_parser.add_argument(
+        "--register-shared",
+        action="store_true",
+        help=(
+            "One-time convergence: push existing local-only shared/public sources up to "
+            "cortex's catalogue (POST /v1/sources/register) so they materialize on the shared "
+            "surface. Skips already-registered rows. Runs standalone (ignores the reconcile flow)."
+        ),
+    )
     sources_reconcile_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
     sources_reconcile_parser.add_argument("--verbose", action="store_true", help="Verbose output")
 
