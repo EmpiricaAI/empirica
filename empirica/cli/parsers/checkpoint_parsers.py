@@ -1408,6 +1408,26 @@ def add_checkpoint_parsers(subparsers):
     source_list_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
     source_list_parser.add_argument("--verbose", action="store_true", help="Show detailed info")
 
+    # Source get command — download a media-bearing source's retained bytes
+    # (consumer half of cross-tenant media transfer, SER ser_a92b3a05).
+    source_get_parser = subparsers.add_parser(
+        "source-get",
+        help=(
+            "Download a media-bearing source's retained bytes from cortex to a "
+            "local file. Fetches via the source uuid, verifies the SHA-256 "
+            "content hash, and writes to --out. Cross-tenant fetch is permitted "
+            "when the source's visibility (shared/public) allows the caller; "
+            "cortex writes a per-fetch access-log entry. The consumer half of "
+            "media-bearing sources — pairs with `source-add --media`."
+        ),
+    )
+    source_get_parser.add_argument("--id", required=True, help="Source UUID to fetch")
+    source_get_parser.add_argument("--out", required=True, help="Local path to write the fetched bytes to")
+    source_get_parser.add_argument("--cortex-url", help="Cortex URL override (default: credentials.yaml)")
+    source_get_parser.add_argument("--api-key", help="Cortex API key override (default: credentials.yaml)")
+    source_get_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
+    source_get_parser.add_argument("--verbose", action="store_true", help="Verbose output")
+
     # Source map command — cross-mesh discoverability view (goal 74d35435)
     sources_map_parser = subparsers.add_parser(
         "sources-map",

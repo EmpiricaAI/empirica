@@ -2212,6 +2212,146 @@ def handle_source_add_command(args):
         return None
 
 
+def _normalize_hash(h: str | None) -> str | None:
+    """Strip an optional `algo:` prefix and lowercase, so a cortex-returned
+    `content_hash` compares equal regardless of whether it carries the
+    `sha256:` prefix empirica's _compute_content_identity uses."""
+    if not h:
+        return None
+    h = h.strip().lower()
+    if ":" in h:
+        h = h.split(":", 1)[1]
+    return h
+
+
+def _fetch_source_raw(cortex_url: str, api_key: str, source_id: str, timeout: float = 30.0):
+    """GET /v1/sources/{id}/raw — the consumer side of media-bearing sources.
+
+    Returns (status_code, body) where body is the parsed JSON dict on 2xx
+    (shape: {ok, source_id, content_hash, body_hash, mime, size_bytes,
+    encoding:'base64', content, retained_at}) or the parsed error dict on an
+    HTTP error. Returns (None, {'error': ...}) on a network/transport failure.
+    """
+    import urllib.error
+    import urllib.request
+
+    req = urllib.request.Request(
+        f"{cortex_url}/v1/sources/{source_id}/raw",
+        method="GET",
+        headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read().decode("utf-8")
+            return resp.status, (json.loads(raw) if raw else {})
+    except urllib.error.HTTPError as e:
+        try:
+            body = json.loads(e.read().decode("utf-8"))
+        except Exception:
+            body = {"error": f"HTTP {e.code}"}
+        return e.code, body
+    except (urllib.error.URLError, OSError, TimeoutError, json.JSONDecodeError) as e:
+        return None, {"error": f"{type(e).__name__}: {e}"}
+
+
+def handle_source_get_command(args):
+    """Handle source-get — download a media-bearing source's retained bytes.
+
+    The consumer half of cross-tenant media transfer (SER ser_a92b3a05): fetch
+    a source's blob from cortex via GET /v1/sources/{id}/raw, verify the
+    SHA-256 content hash, and write the bytes to --out. Cross-tenant fetch is
+    permitted by cortex's visibility×tenant/org gate (source visibility must
+    allow the caller); a per-fetch access-log entry is written cortex-side.
+
+    Producer counterpart: `source-add --media` (pending a cortex source-
+    registration endpoint — POST /body requires the source to pre-exist in the
+    catalogue).
+    """
+    import base64
+    import hashlib
+    from pathlib import Path
+
+    from empirica.cli.command_handlers.projects_commands import _resolve_cortex_config
+
+    try:
+        source_id = args.id
+        out_path = args.out
+        output_format = getattr(args, "output", "human")
+
+        cortex_url, api_key = _resolve_cortex_config(args)
+        if not (cortex_url and api_key):
+            msg = {
+                "ok": False,
+                "error": "Cortex not configured",
+                "hint": "Set cortex.url + cortex.api_key in ~/.empirica/credentials.yaml (or pass --cortex-url/--api-key)",
+            }
+            print(json.dumps(msg) if output_format == "json" else f"❌ {msg['error']} — {msg['hint']}")
+            return 1
+
+        status, body = _fetch_source_raw(cortex_url, api_key, source_id)
+        if status != 200 or not isinstance(body, dict) or "content" not in body:
+            err = (body or {}).get("error", f"HTTP {status}")
+            hint = ""
+            if err == "not_retained":
+                hint = " — source exists but has no retained body (producer must POST /body)"
+            elif err == "source_not_found":
+                hint = " — no such source, or your tenant/visibility doesn't permit access"
+            payload = {"ok": False, "error": err, "source_id": source_id, "status": status}
+            print(json.dumps(payload) if output_format == "json" else f"❌ source-get failed: {err}{hint}")
+            return 1
+
+        # Decode + verify before writing — a hash mismatch means corruption or
+        # a wrong-source response; never write unverified bytes to --out.
+        content = base64.b64decode(body["content"])
+        expected = _normalize_hash(body.get("content_hash"))
+        actual = hashlib.sha256(content).hexdigest()
+        if expected and expected != actual:
+            payload = {
+                "ok": False,
+                "error": "hash_mismatch",
+                "source_id": source_id,
+                "expected": expected,
+                "actual": actual,
+            }
+            print(
+                json.dumps(payload)
+                if output_format == "json"
+                else f"❌ hash mismatch — expected {expected[:16]}…, got {actual[:16]}… (not written)"
+            )
+            return 1
+
+        out = Path(out_path).expanduser()
+        if not out.is_absolute():
+            out = Path.cwd() / out
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(content)
+
+        if output_format == "json":
+            print(
+                json.dumps(
+                    {
+                        "ok": True,
+                        "source_id": source_id,
+                        "out": str(out),
+                        "size_bytes": len(content),
+                        "mime": body.get("mime"),
+                        "content_hash": body.get("content_hash"),
+                        "hash_verified": bool(expected),
+                    },
+                    indent=2,
+                )
+            )
+        else:
+            verified = "✓ hash verified" if expected else "⚠ no hash to verify against"
+            print(f"📥 Source fetched → {out}")
+            print(f"   {len(content)} bytes · {body.get('mime') or 'application/octet-stream'} · {verified}")
+        return 0
+
+    except Exception as e:
+        handle_cli_error(e, "Source get", getattr(args, "verbose", False))
+        return None
+
+
 def _query_epistemic_sources(db, project_id, source_type_filter, direction_filter, include_archived=False):
     """Query epistemic_sources and legacy refdocs, returning combined list.
 
