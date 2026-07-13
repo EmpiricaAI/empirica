@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.12.20
-**Generated:** 2026-07-13 13:46:15 UTC
+**Framework version:** 1.12.21
+**Generated:** 2026-07-13 18:01:10 UTC
 **Total commands:** 269 (across 26 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -1140,6 +1140,8 @@ Match local sources against the central catalogue by content identity and adopt 
   Cortex base URL (default: credentials.yaml / CORTEX_URL env)
 - `--api-key` — optional
   Cortex API key (default: credentials.yaml / CORTEX_API_KEY env)
+- `--register-shared` — optional · flag
+  One-time convergence: push existing local-only shared/public sources up to cortex's catalogue (POST /v1/sources/register) so they materialize on the shared surface. Skips already-registered rows. Runs standalone (ignores the reconcile flow).
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
 - `--verbose` — optional · flag
