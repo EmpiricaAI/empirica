@@ -133,10 +133,14 @@ def _run_register_shared_backfill(args, project_id, output) -> int:
             )
             if res.get("registered"):
                 db.conn.execute("UPDATE epistemic_sources SET cortex_uuid = ? WHERE id = ?", (r["id"], r["id"]))
+                # Commit per-source: the backfill is a long network loop that can
+                # be interrupted/reaped; a single end-of-loop commit would lose
+                # ALL progress on interruption. Per-source persist makes it
+                # resumable (re-run skips cortex_uuid IS NOT NULL rows).
+                db.conn.commit()
                 registered += 1
             else:
                 failed.append({"id": str(r["id"])[:8], "error": res.get("error")})
-        db.conn.commit()
         _emit(output, {"ok": True, "candidates": len(rows), "registered": registered, "failed": failed})
         return 0 if not failed else 2
     finally:
