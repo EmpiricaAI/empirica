@@ -1465,6 +1465,27 @@ def _reconcile_identity_if_diverged(args, project_path, local_id, cortex_outcome
         return None
     info: dict[str, Any] = {"local_id": local_id, "cortex_id": cortex_id, "reconciled": False}
     if getattr(args, "reconcile", False):
+        # Guard: reconcile rekeys the live session's OWN rows (sessions.db) while
+        # the running process still holds the old project_id in memory — running
+        # it mid-transaction strands the session against its own rekeyed data.
+        # Refuse when a transaction is open unless --force.
+        if not getattr(args, "force", False):
+            try:
+                from empirica.utils.session_resolver import InstanceResolver as _R
+
+                tx = _R.transaction_read()
+            except Exception:
+                tx = None
+            if tx and tx.get("status") == "open":
+                info["blocked"] = "open_transaction"
+                if output_format != "json":
+                    print(
+                        "   ⛔ --reconcile blocked: an open transaction is active. Reconcile "
+                        "rekeys the live session's own rows — POSTFLIGHT/close the session first, "
+                        "or re-run with --force."
+                    )
+                return info
+
         from empirica.core.identity_migration import reconcile_project_identity
 
         rep = reconcile_project_identity(project_path, local_id, cortex_id)

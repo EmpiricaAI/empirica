@@ -86,8 +86,35 @@ def test_workspace_rekey_noop_on_missing_db(tmp_path):
     assert _rekey_workspace_db(OLD, NEW, tmp_path / "nope.db") == {}
 
 
-def _args(reconcile):
-    return types.SimpleNamespace(reconcile=reconcile)
+def _args(reconcile, force=False):
+    return types.SimpleNamespace(reconcile=reconcile, force=force)
+
+
+def test_reconcile_blocked_by_open_transaction(monkeypatch):
+    # Mid-session reconcile is refused (would rekey the live session's own rows).
+    import empirica.utils.session_resolver as sr
+
+    monkeypatch.setattr(sr.InstanceResolver, "transaction_read", staticmethod(lambda: {"status": "open"}))
+    out = _reconcile_identity_if_diverged(_args(True), "/p", OLD, {"project_id": NEW, "outcome": "registered"}, "json")
+    assert out["reconciled"] is False
+    assert out["blocked"] == "open_transaction"
+
+
+def test_reconcile_force_bypasses_open_transaction(tmp_path, monkeypatch):
+    import empirica.core.identity_migration as im
+    import empirica.utils.session_resolver as sr
+
+    monkeypatch.setattr(sr.InstanceResolver, "transaction_read", staticmethod(lambda: {"status": "open"}))
+    monkeypatch.setattr(im, "_rekey_workspace_db", lambda *a, **k: {})
+    monkeypatch.setattr(im, "_rekey_registry_yaml", lambda *a, **k: False)
+    proj = tmp_path / "proj"
+    (proj / ".empirica").mkdir(parents=True)
+    (proj / ".empirica" / "project.yaml").write_text(yaml.safe_dump({"project_id": OLD}), encoding="utf-8")
+    out = _reconcile_identity_if_diverged(
+        _args(True, force=True), proj, OLD, {"project_id": NEW, "outcome": "registered"}, "json"
+    )
+    assert out.get("blocked") is None
+    assert out["reconciled"] is True
 
 
 def test_divergence_detection_aligned_returns_none():

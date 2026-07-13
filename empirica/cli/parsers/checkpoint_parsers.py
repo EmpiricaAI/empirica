@@ -505,6 +505,11 @@ def add_checkpoint_parsers(subparsers):
             "afterwards to re-point Qdrant collections."
         ),
     )
+    project_register_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Bypass the open-transaction guard on --reconcile (only if you know no live session depends on the old id).",
+    )
     project_register_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
 
     # Forgejo provisioning (operator / self-hosting power-user PUSH mode)
