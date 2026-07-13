@@ -712,7 +712,9 @@ def add_checkpoint_parsers(subparsers):
     engagement_update_parser.add_argument("--title", help="New title")
     engagement_update_parser.add_argument("--description", help="New free-text description")
     engagement_update_parser.add_argument("--domain", help="New domain (must have a definition row)")
-    engagement_update_parser.add_argument("--stage", help="New stage_id (must belong to --domain, or the engagement's current domain)")
+    engagement_update_parser.add_argument(
+        "--stage", help="New stage_id (must belong to --domain, or the engagement's current domain)"
+    )
     engagement_update_parser.add_argument(
         "--lifecycle-state",
         dest="lifecycle_state",
@@ -1001,6 +1003,19 @@ def add_checkpoint_parsers(subparsers):
         action="append",
         dest="source_ids",
         help="Source ID (from source-add). Repeatable for multiple sources.",
+    )
+    finding_log_parser.add_argument(
+        "--cite",
+        dest="cite_title",
+        help="Inline source: create + link a source in one call (kills the source-add→--source two-step). "
+        "Value is the source title; pair with --cite-url / --cite-type.",
+    )
+    finding_log_parser.add_argument("--cite-url", dest="cite_url", help="URL/path for the --cite inline source.")
+    finding_log_parser.add_argument(
+        "--cite-type",
+        dest="cite_type",
+        default="reference",
+        help="Source type for --cite (reference, doc, paper, url, design, …). Default: reference.",
     )
     _add_entity_flags(finding_log_parser)
     _add_edge_flags(finding_log_parser)
