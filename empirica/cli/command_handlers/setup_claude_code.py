@@ -306,6 +306,45 @@ def _force_clean_hooks(settings, output_format):
             print("   --force: removed legacy empirica-integration@local from enabledPlugins")
 
 
+# MCP servers whose tools are pre-authorized in the Claude Code permissions
+# allow-list, so a mesh-active practice doesn't hit a per-tool "Do you want to
+# proceed?" prompt on every cortex_*/empirica_* MCP call. The real gates stay
+# intact — the Sentinel gates empirica praxic, cortex ECO gates propose — so
+# the CC prompt is pure redundant friction for these two trusted servers.
+# Wildcard form (`mcp__cortex__*`) allows every tool from the server; it's
+# equivalent to the bare `mcp__cortex` prefix per Claude Code's permission
+# matcher.
+MESH_MCP_ALLOW = ("mcp__cortex__*", "mcp__empirica__*")
+
+
+def _configure_permissions(settings, output_format):
+    """Pre-authorize the mesh MCP servers (cortex, empirica) in settings.json.
+
+    Without this, every cortex_*/empirica_* MCP call in a mesh-active practice
+    triggers Claude Code's per-tool permission prompt (the friction David hit
+    in empirica-web where cortex_collab + cortex_propose both prompted). The
+    real authorization gates are elsewhere — the Sentinel gates empirica praxic
+    tools, cortex ECO gates propose — so the CC prompt is redundant for these
+    two servers.
+
+    Idempotent, and preserves any allow entries the user accumulated via
+    'Yes and don't ask again'. Leaves deny/ask untouched.
+    """
+    perms = settings.setdefault("permissions", {})
+    if not isinstance(perms, dict):
+        return  # malformed existing value — don't clobber the user's config
+    allow = perms.setdefault("allow", [])
+    if not isinstance(allow, list):
+        return
+    added = [entry for entry in MESH_MCP_ALLOW if entry not in allow]
+    allow.extend(added)
+    if output_format != "json":
+        if added:
+            print(f"   ✓ Mesh MCP servers pre-authorized: {', '.join(added)}")
+        else:
+            print("   Mesh MCP servers already pre-authorized")
+
+
 def _configure_statusline(settings, plugin_dir, python_cmd, output_format):
     """Configure StatusLine command in settings.
 
@@ -653,6 +692,7 @@ def _configure_settings(settings, settings_file, plugin_dir, python_cmd, force, 
         _force_clean_hooks(settings, output_format)
 
     _configure_statusline(settings, plugin_dir, python_cmd, output_format)
+    _configure_permissions(settings, output_format)
     _register_all_hooks(settings, plugin_dir, python_cmd, output_format)
 
     # Write settings.json
