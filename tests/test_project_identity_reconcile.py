@@ -11,6 +11,7 @@ from __future__ import annotations
 import sqlite3
 import types
 
+import pytest
 import yaml
 
 from empirica.cli.command_handlers.projects_commands import _reconcile_identity_if_diverged
@@ -21,6 +22,17 @@ from empirica.core.identity_migration import (
 
 OLD = "258aa934-a34b-4773-b1bb-96f429de6761"
 NEW = "dc6298e2-6262-44e6-a468-45cf63ef040e"
+
+
+@pytest.fixture(autouse=True)
+def _byslug_returns_none(monkeypatch):
+    """Default: by-slug can't resolve (no cortex) → _cortex_canonical_project_id
+    falls back to the register response. Keeps the existing divergence tests
+    network-free and preserving their register-response semantics. Individual
+    tests override this to exercise the by-slug-preferred path."""
+    import empirica.core.identity_migration as im
+
+    monkeypatch.setattr(im, "_make_cortex_slug_resolver", lambda *a, **k: lambda slug, tenant: None)
 
 
 def _make_local_db(path):
@@ -115,6 +127,27 @@ def test_reconcile_force_bypasses_open_transaction(tmp_path, monkeypatch):
     )
     assert out.get("blocked") is None
     assert out["reconciled"] is True
+
+
+def test_reconcile_prefers_by_slug_over_register_response(monkeypatch):
+    # Web's bug: cortex's register endpoint returns the LOCAL id (258aa934,
+    # "already_registered", diverged:false) so the old code declined to rekey —
+    # but roster/blob-upload/by-slug use dc6298e2. The fix must target by-slug,
+    # NOT the register response. Here register agrees with local (no divergence
+    # by register), but by-slug says NEW → divergence must still surface.
+    import empirica.core.identity_migration as im
+
+    monkeypatch.setattr(im, "_make_cortex_slug_resolver", lambda *a, **k: lambda slug, tenant: NEW)
+    out = _reconcile_identity_if_diverged(_args(False), "/p", OLD, {"project_id": OLD, "outcome": "skipped"}, "json")
+    assert out is not None  # register said no-divergence, by-slug caught it
+    assert out["cortex_id"] == NEW  # targets the by-slug canonical, not the register id
+
+
+def test_by_slug_falls_back_to_register_when_unresolvable():
+    # by-slug returns None (autouse fixture) → fall back to the register response.
+    from empirica.cli.command_handlers.projects_commands import _cortex_canonical_project_id
+
+    assert _cortex_canonical_project_id("/p", {"project_id": NEW}) == NEW
 
 
 def test_divergence_detection_aligned_returns_none():

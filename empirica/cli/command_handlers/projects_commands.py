@@ -1449,18 +1449,54 @@ def _project_register_error(message: str, hint: str, output_format: str) -> int:
     return 1
 
 
+def _cortex_canonical_project_id(project_path, cortex_outcome):
+    """Cortex's AUTHORITATIVE canonical project id for this project.
+
+    Prefer ``GET /v1/projects/by-slug`` (the id roster / practice-context /
+    blob-upload all validate against). Fall back to the register-POST response
+    only when by-slug can't resolve.
+
+    Why not the register response directly: the register endpoint can report a
+    stale ``already_registered`` id that DISAGREES with tenants.db / roster —
+    web hit exactly this (register said 258aa934 / diverged:false, while
+    roster + blob-upload only know dc6298e2). Trusting the register flag made
+    --reconcile decline to rekey while the media upload kept failing. by-slug is
+    the surface that matters, so it's the truth the reconcile must target.
+    """
+    try:
+        from pathlib import Path
+
+        import yaml
+
+        from empirica.core.identity_migration import _make_cortex_slug_resolver
+
+        cfg = {}
+        pj = Path(project_path) / ".empirica" / "project.yaml"
+        if pj.exists():
+            cfg = yaml.safe_load(pj.read_text(encoding="utf-8")) or {}
+        slug = cfg.get("slug") or cfg.get("name") or Path(project_path).name
+        canonical = _make_cortex_slug_resolver()(slug, None)
+        if canonical:
+            return canonical
+    except Exception:
+        pass
+    return cortex_outcome.get("project_id")
+
+
 def _reconcile_identity_if_diverged(args, project_path, local_id, cortex_outcome, output_format):
     """After register, detect local ≠ cortex-canonical project UUID.
 
-    Cortex is authority (David's directive): the register response carries
-    cortex's canonical id. If it differs from the local id, the identity has
-    diverged (the root cause of web's media blocker — first op to pass a raw
-    project_id cross-boundary surfaces it). Warn ALWAYS (closes the silent gap);
-    with --reconcile, rekey every local store to the cortex id.
+    Cortex is authority (David's directive): the canonical id comes from
+    ``GET /v1/projects/by-slug`` (roster/practice-context), NOT the register
+    response — the register endpoint can report a stale id that disagrees with
+    the surface blob-upload validates against (web's 258aa934 vs dc6298e2). If
+    the canonical differs from the local id, the identity has diverged (the root
+    cause of web's media blocker). Warn ALWAYS (closes the silent gap); with
+    --reconcile, rekey every local store to the canonical id.
 
     Returns a divergence dict for the result payload, or None when aligned.
     """
-    cortex_id = cortex_outcome.get("project_id")
+    cortex_id = _cortex_canonical_project_id(project_path, cortex_outcome)
     if not cortex_id or cortex_id == local_id or cortex_outcome.get("outcome") == "owner_conflict":
         return None
     info: dict[str, Any] = {"local_id": local_id, "cortex_id": cortex_id, "reconciled": False}
