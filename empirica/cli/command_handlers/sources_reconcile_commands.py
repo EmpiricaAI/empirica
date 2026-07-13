@@ -98,6 +98,55 @@ def _maybe_push_small_body(cortex_url, api_key, cortex_uuid: str, row: dict | No
     return result
 
 
+def _run_register_shared_backfill(args, project_id, output) -> int:
+    """One-time convergence: push existing local-only shared/public sources up to
+    cortex's catalogue (POST /v1/sources/register) + stamp cortex_uuid.
+
+    For sources logged before `source-add` started auto-registering shared
+    sources — materializes them on the shared surface the extension + sources-map
+    read. Skips already-registered (cortex_uuid IS NOT NULL) rows.
+    """
+    from empirica.cli.command_handlers.artifact_log_commands import _register_source_in_cortex
+    from empirica.cli.command_handlers.projects_commands import _resolve_cortex_config
+    from empirica.data.session_database import SessionDatabase
+
+    cortex_url, api_key = _resolve_cortex_config(args)
+    if not (cortex_url and api_key):
+        _emit(output, {"ok": False, "error": "cortex not configured (set cortex.url + cortex.api_key)"})
+        return 1
+
+    db = SessionDatabase()
+    try:
+        cols = ("id", "title", "source_type", "visibility", "content_hash", "size_bytes", "canonical_path", "mime_type")
+        rows = db.conn.execute(
+            f"SELECT {', '.join(cols)} FROM epistemic_sources "
+            "WHERE project_id = ? AND COALESCE(archived, 0) = 0 "
+            "AND visibility IN ('shared', 'public') AND cortex_uuid IS NULL",
+            (project_id,),
+        ).fetchall()
+        registered, failed = 0, []
+        for raw in rows:
+            r = dict(raw) if hasattr(raw, "keys") else dict(zip(cols, raw, strict=False))
+            identity = {k: r.get(k) for k in ("content_hash", "size_bytes", "canonical_path", "mime_type")}
+            res = _register_source_in_cortex(
+                cortex_url, api_key, r["id"], project_id, r["title"], r["source_type"], r["visibility"], identity
+            )
+            if res.get("registered"):
+                db.conn.execute("UPDATE epistemic_sources SET cortex_uuid = ? WHERE id = ?", (r["id"], r["id"]))
+                # Commit per-source: the backfill is a long network loop that can
+                # be interrupted/reaped; a single end-of-loop commit would lose
+                # ALL progress on interruption. Per-source persist makes it
+                # resumable (re-run skips cortex_uuid IS NOT NULL rows).
+                db.conn.commit()
+                registered += 1
+            else:
+                failed.append({"id": str(r["id"])[:8], "error": res.get("error")})
+        _emit(output, {"ok": True, "candidates": len(rows), "registered": registered, "failed": failed})
+        return 0 if not failed else 2
+    finally:
+        db.close()
+
+
 def handle_sources_reconcile_command(args) -> int:
     from empirica.cli.command_handlers.projects_commands import (
         _resolve_cortex_config,
@@ -122,6 +171,9 @@ def handle_sources_reconcile_command(args) -> int:
             },
         )
         return 1
+
+    if getattr(args, "register_shared", False):
+        return _run_register_shared_backfill(args, project_id, output)
 
     db = SessionDatabase()
     try:

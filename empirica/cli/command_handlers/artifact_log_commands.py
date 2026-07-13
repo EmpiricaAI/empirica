@@ -2201,6 +2201,13 @@ def handle_source_add_command(args):
         # cortex_uuid). Best-effort: a push failure leaves the local source
         # intact and reports the error — it never fails the whole add.
         media_push = _upload_media_source(args, media_path, source_id, identity, title, project_id, visibility)
+        # Convergence (Option B): a shared/public NON-media source registers in
+        # cortex's catalogue so it reaches the one surface the extension +
+        # sources-map read (not stranded in local epistemic_sources). --media
+        # already registers via the /body upsert, so skip it there.
+        _register_shared_source_if_applicable(
+            args, source_id, project_id, title, source_type, visibility, identity, media_path
+        )
         # --media exists to upload the blob — if that fails, the command failed,
         # even though the local source row was created. Surface it loudly
         # (ok:false + non-zero exit) rather than a silent ok:true footnote.
@@ -2278,12 +2285,28 @@ def _fetch_source_raw(cortex_url: str, api_key: str, source_id: str, timeout: fl
     req = urllib.request.Request(
         f"{cortex_url}/v1/sources/{source_id}/raw",
         method="GET",
-        headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+        headers={"Authorization": f"Bearer {api_key}"},
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            raw = resp.read().decode("utf-8")
-            return resp.status, (json.loads(raw) if raw else {})
+            data = resp.read()
+            ctype = (resp.headers.get("Content-Type") or "").lower()
+            # The REST /raw endpoint serves the RAW BODY BYTES + an X-Body-Hash
+            # header (verified: image/png, 762KB). Only when it hands back an
+            # explicit JSON envelope do we parse the base64 {content,...} shape
+            # (the MCP-tool serving path). Branch on Content-Type so we never
+            # UTF-8/JSON-decode raw bytes (that crashed on the PNG magic 0x89).
+            if "application/json" in ctype:
+                try:
+                    return resp.status, (json.loads(data.decode("utf-8")) if data else {})
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    pass  # mislabeled — fall through to raw handling
+            return resp.status, {
+                "raw_bytes": data,
+                "mime": resp.headers.get("Content-Type"),
+                "body_hash": resp.headers.get("X-Body-Hash") or resp.headers.get("x-body-hash"),
+                "size_bytes": len(data),
+            }
     except urllib.error.HTTPError as e:
         try:
             body = json.loads(e.read().decode("utf-8"))
@@ -2354,6 +2377,106 @@ def _upsert_media_to_cortex(
         return {"pushed": False, "status": e.code, "error": err}
     except (urllib.error.URLError, OSError, TimeoutError) as e:
         return {"pushed": False, "error": f"{type(e).__name__}: {e}"}
+
+
+def _register_shared_source_if_applicable(
+    args, source_id, project_id, title, source_type, visibility, identity, media_path
+):
+    """Register a shared/public non-media source in cortex + stamp cortex_uuid.
+
+    Best-effort, never raises. No-op for local sources (stay local), for --media
+    sources (the /body upsert already registered them), and when cortex isn't
+    configured. On success, stamps cortex_uuid=source_id so the row is marked
+    cortex-registered (daemon resolves id OR cortex_uuid).
+    """
+    if media_path or visibility not in ("shared", "public"):
+        return None
+    from empirica.cli.command_handlers.projects_commands import _resolve_cortex_config
+
+    cortex_url, api_key = _resolve_cortex_config(args)
+    if not (cortex_url and api_key):
+        return None
+    try:
+        result = _register_source_in_cortex(
+            cortex_url, api_key, source_id, project_id, title, source_type, visibility, identity
+        )
+        if result.get("registered"):
+            from empirica.data.session_database import SessionDatabase
+
+            db = SessionDatabase()
+            db.conn.execute("UPDATE epistemic_sources SET cortex_uuid = ? WHERE id = ?", (source_id, source_id))
+            db.conn.commit()
+            db.close()
+        return result
+    except Exception as e:
+        return {"registered": False, "error": f"{type(e).__name__}: {e}"}
+
+
+def _register_source_in_cortex(
+    cortex_url,
+    api_key,
+    source_id,
+    project_id,
+    title,
+    source_type,
+    visibility,
+    identity,
+    timeout: float = 30.0,
+):
+    """POST /v1/sources/register — mint a shared source in cortex's catalogue.
+
+    The convergence path (SER ser_ad6397b7 Option B): a CLI source with
+    visibility=shared/public should reach the SAME cortex catalogue the
+    extension reads/writes, so it's discoverable everywhere — not stranded in
+    local epistemic_sources. Metadata-only mint (no body); --media uses the
+    /body upsert path instead. Cortex adopts our posted uuid.
+
+    Returns a status dict (never raises). On success: {registered:True, uuid,
+    adopted_status}. On failure: {registered:False, error}.
+    """
+    import urllib.error
+    import urllib.request
+
+    payload = {
+        "posted_uuid": source_id,
+        "project_id": project_id,
+        "title": title,
+        "source_type": source_type,
+        "visibility": visibility,
+    }
+    for k, col in (
+        ("content_hash", "content_hash"),
+        ("size_bytes", "size_bytes"),
+        ("canonical_path", "canonical_path"),
+        ("mime_type", "mime_type"),
+    ):
+        v = (identity or {}).get(col)
+        if v is not None:
+            payload[k] = v
+    req = urllib.request.Request(
+        f"{cortex_url}/v1/sources/register",
+        data=json.dumps(payload).encode("utf-8"),
+        method="POST",
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            body = json.loads(resp.read().decode("utf-8") or "{}")
+            src = body.get("source") or {}
+            return {
+                "registered": True,
+                "status": resp.status,
+                "uuid": src.get("id") or source_id,
+                "adopted_status": body.get("adopted_status"),
+            }
+    except urllib.error.HTTPError as e:
+        try:
+            err = json.loads(e.read().decode("utf-8")).get("error", f"HTTP {e.code}")
+        except Exception:
+            err = f"HTTP {e.code}"
+        return {"registered": False, "status": e.code, "error": err}
+    except (urllib.error.URLError, OSError, TimeoutError) as e:
+        return {"registered": False, "error": f"{type(e).__name__}: {e}"}
 
 
 def _media_upload_failed(media_path, media_push) -> bool:
@@ -2460,7 +2583,10 @@ def handle_source_get_command(args):
             return 1
 
         status, body = _fetch_source_raw(cortex_url, api_key, source_id)
-        if status != 200 or not isinstance(body, dict) or "content" not in body:
+        # Accept either shape: raw-bytes response (REST /raw — the common path)
+        # or a base64 JSON envelope (MCP-tool serving path).
+        has_payload = isinstance(body, dict) and ("raw_bytes" in body or "content" in body)
+        if status != 200 or not has_payload:
             err = (body or {}).get("error", f"HTTP {status}")
             hint = ""
             if err == "not_retained":
@@ -2478,7 +2604,7 @@ def handle_source_get_command(args):
         # text-extracted source it hashes the flattened text, so verifying raw
         # bytes against it would spuriously fail. Fall back to content_hash
         # when body_hash is absent (older serve paths).
-        content = base64.b64decode(body["content"])
+        content = body["raw_bytes"] if "raw_bytes" in body else base64.b64decode(body["content"])
         expected = _normalize_hash(body.get("body_hash") or body.get("content_hash"))
         actual = hashlib.sha256(content).hexdigest()
         if expected and expected != actual:

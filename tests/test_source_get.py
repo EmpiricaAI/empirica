@@ -74,6 +74,23 @@ def test_happy_path_writes_and_verifies(tmp_path, monkeypatch, capsys):
     assert (tmp_path / "out.png").read_bytes() == PAYLOAD
 
 
+def test_raw_bytes_response_writes_and_verifies(tmp_path, monkeypatch):
+    # The REST /raw endpoint serves RAW BYTES + X-Body-Hash (not a base64
+    # envelope). _fetch_source_raw surfaces that as {raw_bytes, body_hash, mime};
+    # the handler must write the bytes directly + verify, never base64-decode.
+    _mock_fetch(monkeypatch, 200, {"raw_bytes": PAYLOAD, "body_hash": GOOD_HASH, "mime": "image/png"})
+    rc = handle_source_get_command(_args(tmp_path))
+    assert rc == 0
+    assert (tmp_path / "out.png").read_bytes() == PAYLOAD
+
+
+def test_raw_bytes_hash_mismatch_does_not_write(tmp_path, monkeypatch):
+    _mock_fetch(monkeypatch, 200, {"raw_bytes": PAYLOAD, "body_hash": "sha256:" + "0" * 64, "mime": "image/png"})
+    rc = handle_source_get_command(_args(tmp_path))
+    assert rc == 1
+    assert not (tmp_path / "out.png").exists()
+
+
 def test_bare_hash_also_verifies(tmp_path, monkeypatch):
     # cortex may return a bare hex hash (no algo prefix) — must still verify.
     _mock_fetch(
