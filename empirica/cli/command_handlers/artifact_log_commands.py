@@ -2278,12 +2278,28 @@ def _fetch_source_raw(cortex_url: str, api_key: str, source_id: str, timeout: fl
     req = urllib.request.Request(
         f"{cortex_url}/v1/sources/{source_id}/raw",
         method="GET",
-        headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+        headers={"Authorization": f"Bearer {api_key}"},
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            raw = resp.read().decode("utf-8")
-            return resp.status, (json.loads(raw) if raw else {})
+            data = resp.read()
+            ctype = (resp.headers.get("Content-Type") or "").lower()
+            # The REST /raw endpoint serves the RAW BODY BYTES + an X-Body-Hash
+            # header (verified: image/png, 762KB). Only when it hands back an
+            # explicit JSON envelope do we parse the base64 {content,...} shape
+            # (the MCP-tool serving path). Branch on Content-Type so we never
+            # UTF-8/JSON-decode raw bytes (that crashed on the PNG magic 0x89).
+            if "application/json" in ctype:
+                try:
+                    return resp.status, (json.loads(data.decode("utf-8")) if data else {})
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    pass  # mislabeled — fall through to raw handling
+            return resp.status, {
+                "raw_bytes": data,
+                "mime": resp.headers.get("Content-Type"),
+                "body_hash": resp.headers.get("X-Body-Hash") or resp.headers.get("x-body-hash"),
+                "size_bytes": len(data),
+            }
     except urllib.error.HTTPError as e:
         try:
             body = json.loads(e.read().decode("utf-8"))
@@ -2460,7 +2476,10 @@ def handle_source_get_command(args):
             return 1
 
         status, body = _fetch_source_raw(cortex_url, api_key, source_id)
-        if status != 200 or not isinstance(body, dict) or "content" not in body:
+        # Accept either shape: raw-bytes response (REST /raw — the common path)
+        # or a base64 JSON envelope (MCP-tool serving path).
+        has_payload = isinstance(body, dict) and ("raw_bytes" in body or "content" in body)
+        if status != 200 or not has_payload:
             err = (body or {}).get("error", f"HTTP {status}")
             hint = ""
             if err == "not_retained":
@@ -2478,7 +2497,7 @@ def handle_source_get_command(args):
         # text-extracted source it hashes the flattened text, so verifying raw
         # bytes against it would spuriously fail. Fall back to content_hash
         # when body_hash is absent (older serve paths).
-        content = base64.b64decode(body["content"])
+        content = body["raw_bytes"] if "raw_bytes" in body else base64.b64decode(body["content"])
         expected = _normalize_hash(body.get("body_hash") or body.get("content_hash"))
         actual = hashlib.sha256(content).hexdigest()
         if expected and expected != actual:
