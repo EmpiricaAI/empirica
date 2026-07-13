@@ -2184,12 +2184,16 @@ def handle_source_add_command(args):
         # cortex_uuid). Best-effort: a push failure leaves the local source
         # intact and reports the error — it never fails the whole add.
         media_push = _upload_media_source(args, media_path, source_id, identity, title, project_id, visibility)
+        # --media exists to upload the blob — if that fails, the command failed,
+        # even though the local source row was created. Surface it loudly
+        # (ok:false + non-zero exit) rather than a silent ok:true footnote.
+        media_failed = _media_upload_failed(media_path, media_push)
 
         if output_format == "json":
             print(
                 json.dumps(
                     {
-                        "ok": True,
+                        "ok": not media_failed,
                         "source_id": source_id,
                         "project_id": project_id,
                         "session_id": session_id,
@@ -2200,7 +2204,12 @@ def handle_source_add_command(args):
                         "git_stored": git_stored,
                         "embedded": embedded,
                         "media_push": media_push,
-                        "message": f"Source added ({direction})",
+                        "error": (media_push or {}).get("error") if media_failed else None,
+                        "message": (
+                            f"Source row created but media upload FAILED: {(media_push or {}).get('error')}"
+                            if media_failed
+                            else f"Source added ({direction})"
+                        ),
                     },
                     indent=2,
                 )
@@ -2219,7 +2228,7 @@ def handle_source_add_command(args):
                 print(f"   URL: {source_url}")
             _print_media_push_status(media_push, visibility)
 
-        return 0
+        return 1 if media_failed else 0
 
     except Exception as e:
         handle_cli_error(e, "Source add", getattr(args, "verbose", False))
@@ -2328,6 +2337,16 @@ def _upsert_media_to_cortex(
         return {"pushed": False, "status": e.code, "error": err}
     except (urllib.error.URLError, OSError, TimeoutError) as e:
         return {"pushed": False, "error": f"{type(e).__name__}: {e}"}
+
+
+def _media_upload_failed(media_path, media_push) -> bool:
+    """True when --media was requested but the blob upload did not succeed.
+
+    Used to make the failure LOUD (ok:false + non-zero exit) instead of a
+    silent ok:true — the whole point of --media is the upload, so a source
+    row without its blob is a failed command, not a success with a footnote.
+    """
+    return bool(media_path) and media_push is not None and not media_push.get("pushed")
 
 
 def _print_media_push_status(media_push, visibility):

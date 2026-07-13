@@ -14,7 +14,10 @@ import json
 import urllib.error
 import urllib.request
 
-from empirica.cli.command_handlers.artifact_log_commands import _upsert_media_to_cortex
+from empirica.cli.command_handlers.artifact_log_commands import (
+    _media_upload_failed,
+    _upsert_media_to_cortex,
+)
 
 
 class _FakeResp:
@@ -103,3 +106,14 @@ def test_default_mime_when_none(monkeypatch):
     cap = _capture(monkeypatch)
     _upsert_media_to_cortex("https://cortex.example", "ctx_key", "src-5", b"x", None, "t", "p", "shared")
     assert cap["headers"]["content-type"] == "application/octet-stream"
+
+
+def test_media_upload_failed_flag():
+    # --media requested + push failed → loud failure (ok:false + exit 1).
+    assert _media_upload_failed("/img.png", {"pushed": False, "error": "cortex not configured"}) is True
+    assert _media_upload_failed("/img.png", {"pushed": False}) is True
+    # --media requested + push succeeded → not failed.
+    assert _media_upload_failed("/img.png", {"pushed": True, "stored": True}) is False
+    # no --media → never a media failure (None push, or no media_path).
+    assert _media_upload_failed(None, None) is False
+    assert _media_upload_failed("", None) is False
