@@ -19,7 +19,6 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional
 
 
 def _load_shared_cve_waivers() -> list[dict]:
@@ -71,12 +70,24 @@ def info(msg: str):
 
 
 class ReleaseManager:
-    def __init__(self, dry_run: bool = False, old_version: Optional[str] = None):
+    def __init__(
+        self,
+        dry_run: bool = False,
+        old_version: str | None = None,
+        skip_tests: bool = False,
+    ):
         self.dry_run = dry_run
         self.repo_root = Path(__file__).parent.parent
-        self.version: Optional[str] = None
-        self.old_version: Optional[str] = old_version
-        self.tarball_sha256: Optional[str] = None
+        self.version: str | None = None
+        self.old_version: str | None = old_version
+        self.tarball_sha256: str | None = None
+        # When True, --prepare skips the full pytest re-run (the ~12min gate)
+        # and relies on develop CI's green run for the full suite. The fast
+        # gates (import/ruff/pyright/pip-audit) still run.
+        self.skip_tests = skip_tests
+        # develop HEAD sha captured before the merge→main, so the trust-CI
+        # check can match the release commit against develop's CI run.
+        self.develop_head: str | None = None
 
     def read_version(self) -> str:
         """Read version from pyproject.toml"""
@@ -146,9 +157,9 @@ class ReleaseManager:
 
     def update_homebrew_tap(self):
         """Copy updated formula to the Homebrew tap repo and push"""
-        log("\n" + "="*60)
+        log("\n" + "=" * 60)
         log("🍺 Updating Homebrew tap")
-        log("="*60)
+        log("=" * 60)
 
         local_formula = self.repo_root / "packaging/homebrew/empirica.rb"
         if not local_formula.exists():
@@ -158,8 +169,8 @@ class ReleaseManager:
 
         # Look for tap repo in common locations
         tap_candidates = [
-            self.repo_root.parent / "homebrew-tap",          # sibling dir
-            Path.home() / "empirical-ai" / "homebrew-tap",   # home dir
+            self.repo_root.parent / "homebrew-tap",  # sibling dir
+            Path.home() / "empirical-ai" / "homebrew-tap",  # home dir
         ]
 
         info(f"Searching for tap repo (looking for {len(tap_candidates)} candidate paths)")
@@ -188,10 +199,9 @@ class ReleaseManager:
 
             # Commit and push
             self.run_command(["git", "add", "empirica.rb"], cwd=str(tap_repo))
-            self.run_command([
-                "git", "commit", "-m",
-                f"Update empirica to {self.version}"
-            ], cwd=str(tap_repo), check=False)
+            self.run_command(
+                ["git", "commit", "-m", f"Update empirica to {self.version}"], cwd=str(tap_repo), check=False
+            )
             self.run_command(["git", "push"], cwd=str(tap_repo))
             success(f"Homebrew tap updated and pushed: {tap_repo}")
         else:
@@ -208,25 +218,21 @@ class ReleaseManager:
         content = dockerfile_path.read_text()
 
         # Update version label
-        content = re.sub(
-            r'LABEL version="[^"]+"',
-            f'LABEL version="{self.version}"',
-            content
-        )
+        content = re.sub(r'LABEL version="[^"]+"', f'LABEL version="{self.version}"', content)
 
         # Update wheel filename in COPY
         content = re.sub(
-            r'COPY dist/empirica-[^-]+-py3-none-any\.whl',
-            f'COPY dist/empirica-{self.version}-py3-none-any.whl',
-            content
+            r"COPY dist/empirica-[^-]+-py3-none-any\.whl",
+            f"COPY dist/empirica-{self.version}-py3-none-any.whl",
+            content,
         )
 
         # Update wheel filename in RUN pip install
         content = re.sub(
-            r'/tmp/empirica-[^-]+-py3-none-any\.whl',
-            f'/tmp/empirica-{self.version}-py3-none-any.whl',
+            r"/tmp/empirica-[^-]+-py3-none-any\.whl",
+            f"/tmp/empirica-{self.version}-py3-none-any.whl",
             content,
-            count=2  # Both COPY and RUN lines
+            count=2,  # Both COPY and RUN lines
         )
 
         if not self.dry_run:
@@ -245,11 +251,7 @@ class ReleaseManager:
         content = nuspec_path.read_text()
 
         # Update version
-        content = re.sub(
-            r'<version>[^<]+</version>',
-            f'<version>{self.version}</version>',
-            content
-        )
+        content = re.sub(r"<version>[^<]+</version>", f"<version>{self.version}</version>", content)
 
         if not self.dry_run:
             nuspec_path.write_text(content)
@@ -325,7 +327,9 @@ class ReleaseManager:
 
         api_key = os.environ.get("CHOCOLATEY_API_KEY")
         if not api_key:
-            warning("CHOCOLATEY_API_KEY not set — built .nupkg but skipping push (set the env var or run 'choco apikey set')")
+            warning(
+                "CHOCOLATEY_API_KEY not set — built .nupkg but skipping push (set the env var or run 'choco apikey set')"
+            )
             return
 
         if self.dry_run:
@@ -347,22 +351,19 @@ class ReleaseManager:
         try:
             with open(nupkg, "rb") as f:
                 response = requests.put(
-                    push_url, headers=headers, data=f, timeout=300,
+                    push_url,
+                    headers=headers,
+                    data=f,
+                    timeout=300,
                 )
         except requests.RequestException as e:
             error(f"Chocolatey REST push failed: {e}")
             return
 
         if response.status_code in (200, 201, 202):
-            success(
-                f"Pushed to chocolatey.org: empirica {self.version} "
-                f"(REST {response.status_code})"
-            )
+            success(f"Pushed to chocolatey.org: empirica {self.version} (REST {response.status_code})")
         else:
-            error(
-                f"Chocolatey REST push returned {response.status_code}: "
-                f"{response.text[:500]}"
-            )
+            error(f"Chocolatey REST push returned {response.status_code}: {response.text[:500]}")
 
     def update_version_strings(self):
         """Update version strings in all source files not covered by other methods.
@@ -413,28 +414,28 @@ class ReleaseManager:
             # Installed plugin VERSION file (drift detection at session start)
             (
                 Path.home() / ".claude" / "plugins" / "local" / "empirica" / "VERSION",
-                r'^[0-9]+\.[0-9]+\.[0-9]+',
+                r"^[0-9]+\.[0-9]+\.[0-9]+",
                 self.version,
             ),
             # __init__.py docstring version
             (
                 self.repo_root / "empirica" / "__init__.py",
-                r'^Version:\s*[0-9]+\.[0-9]+\.[0-9]+',
-                f'Version: {self.version}',
+                r"^Version:\s*[0-9]+\.[0-9]+\.[0-9]+",
+                f"Version: {self.version}",
             ),
             # README.md version badge and footer
             (
                 self.repo_root / "README.md",
-                r'badge/version-[0-9]+\.[0-9]+\.[0-9]+-blue\)\]\(https://github\.com/EmpiricaAI/empirica/releases/tag/v[0-9]+\.[0-9]+\.[0-9]+\)',
-                f'badge/version-{self.version}-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v{self.version})',
+                r"badge/version-[0-9]+\.[0-9]+\.[0-9]+-blue\)\]\(https://github\.com/EmpiricaAI/empirica/releases/tag/v[0-9]+\.[0-9]+\.[0-9]+\)",
+                f"badge/version-{self.version}-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v{self.version})",
             ),
             # README.md docker tag references (standalone — added 1.8.16 to plug the
             # gap that left "nubaeon/empirica:1.8.14" lying around after the 1.8.15
             # release_check sweep)
             (
                 self.repo_root / "README.md",
-                r'nubaeon/empirica:[0-9]+\.[0-9]+\.[0-9]+(-alpine)?',
-                lambda m: f'nubaeon/empirica:{self.version}{m.group(1) or ""}',
+                r"nubaeon/empirica:[0-9]+\.[0-9]+\.[0-9]+(-alpine)?",
+                lambda m: f"nubaeon/empirica:{self.version}{m.group(1) or ''}",
             ),
             # README.md author footer: `**Version:** 1.8.X` (bold-markdown form
             # — earlier `^Version:` regex only matched the bare __init__.py
@@ -442,30 +443,30 @@ class ReleaseManager:
             # the footer stuck on the older version.
             (
                 self.repo_root / "README.md",
-                r'\*\*Version:\*\*\s+[0-9]+\.[0-9]+\.[0-9]+',
-                f'**Version:** {self.version}',
+                r"\*\*Version:\*\*\s+[0-9]+\.[0-9]+\.[0-9]+",
+                f"**Version:** {self.version}",
             ),
             # docs/human/end-users/02_INSTALLATION.md — pip pin + docker tags
             (
                 self.repo_root / "docs" / "human" / "end-users" / "02_INSTALLATION.md",
-                r'pip install empirica==[0-9]+\.[0-9]+\.[0-9]+',
-                f'pip install empirica=={self.version}',
+                r"pip install empirica==[0-9]+\.[0-9]+\.[0-9]+",
+                f"pip install empirica=={self.version}",
             ),
             (
                 self.repo_root / "docs" / "human" / "end-users" / "02_INSTALLATION.md",
-                r'nubaeon/empirica:[0-9]+\.[0-9]+\.[0-9]+(-alpine)?',
-                lambda m: f'nubaeon/empirica:{self.version}{m.group(1) or ""}',
+                r"nubaeon/empirica:[0-9]+\.[0-9]+\.[0-9]+(-alpine)?",
+                lambda m: f"nubaeon/empirica:{self.version}{m.group(1) or ''}",
             ),
             # MCP server reference + system-prompt CLAUDE.md "Syncs with" label
             (
                 self.repo_root / "docs" / "human" / "developers" / "MCP_SERVER_REFERENCE.md",
-                r'\*\*Version:\*\*\s+[0-9]+\.[0-9]+\.[0-9]+',
-                f'**Version:** {self.version}',
+                r"\*\*Version:\*\*\s+[0-9]+\.[0-9]+\.[0-9]+",
+                f"**Version:** {self.version}",
             ),
             (
                 self.repo_root / "docs" / "human" / "developers" / "system-prompts" / "CLAUDE.md",
-                r'\*\*Syncs with:\*\*\s+Empirica\s+v[0-9]+\.[0-9]+\.[0-9]+',
-                f'**Syncs with:** Empirica v{self.version}',
+                r"\*\*Syncs with:\*\*\s+Empirica\s+v[0-9]+\.[0-9]+\.[0-9]+",
+                f"**Syncs with:** Empirica v{self.version}",
             ),
             # Chocolatey install script version
             (
@@ -476,8 +477,8 @@ class ReleaseManager:
             # Canonical Core prompt version header
             (
                 self.repo_root / "docs" / "human" / "developers" / "system-prompts" / "CANONICAL_CORE.md",
-                r'Canonical Core v[0-9]+\.[0-9]+\.[0-9]+',
-                f'Canonical Core v{self.version}',
+                r"Canonical Core v[0-9]+\.[0-9]+\.[0-9]+",
+                f"Canonical Core v{self.version}",
             ),
             # PROJECT_CONFIG version
             (
@@ -490,14 +491,14 @@ class ReleaseManager:
             # were historical refs that should NOT be rewritten)
             (
                 self.repo_root / "docs" / "README.md",
-                r'\*\*Version:\*\*\s+[0-9]+\.[0-9]+\.[0-9]+',
-                f'**Version:** {self.version}',
+                r"\*\*Version:\*\*\s+[0-9]+\.[0-9]+\.[0-9]+",
+                f"**Version:** {self.version}",
             ),
             # docs/human/developers/EXTENDING_EMPIRICA.md "**Version:**" header
             (
                 self.repo_root / "docs" / "human" / "developers" / "EXTENDING_EMPIRICA.md",
-                r'\*\*Version:\*\*\s+[0-9]+\.[0-9]+\.[0-9]+',
-                f'**Version:** {self.version}',
+                r"\*\*Version:\*\*\s+[0-9]+\.[0-9]+\.[0-9]+",
+                f"**Version:** {self.version}",
             ),
         ]
 
@@ -507,13 +508,13 @@ class ReleaseManager:
             content = alpine_path.read_text()
             content = re.sub(r'LABEL version="[^"]+"', f'LABEL version="{self.version}"', content)
             content = re.sub(
-                r'COPY dist/empirica-[^-]+-py3-none-any\.whl',
-                f'COPY dist/empirica-{self.version}-py3-none-any.whl',
+                r"COPY dist/empirica-[^-]+-py3-none-any\.whl",
+                f"COPY dist/empirica-{self.version}-py3-none-any.whl",
                 content,
             )
             content = re.sub(
-                r'/tmp/empirica-[^-]+-py3-none-any\.whl',
-                f'/tmp/empirica-{self.version}-py3-none-any.whl',
+                r"/tmp/empirica-[^-]+-py3-none-any\.whl",
+                f"/tmp/empirica-{self.version}-py3-none-any.whl",
                 content,
                 count=2,
             )
@@ -579,9 +580,9 @@ class ReleaseManager:
         --help`. Non-fatal: a generator error is logged as a warning,
         release continues.
         """
-        log("\n" + "="*60)
+        log("\n" + "=" * 60)
         log("📚 Regenerating CLI_COMMANDS_UNIFIED.md")
-        log("="*60)
+        log("=" * 60)
 
         generator = self.repo_root / "scripts" / "generate_cli_docs.py"
         if not generator.exists():
@@ -596,7 +597,10 @@ class ReleaseManager:
             result = subprocess.run(
                 ["python", str(generator)],
                 cwd=str(self.repo_root),
-                capture_output=True, text=True, timeout=60, check=False,
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=False,
             )
             if result.returncode != 0:
                 warning(f"CLI docs regen exited {result.returncode}: {result.stderr.strip()[:200]}")
@@ -612,9 +616,9 @@ class ReleaseManager:
         the What's New section in README.md. This ensures the README
         always reflects the current release content, not just the version number.
         """
-        log("\n" + "="*60)
+        log("\n" + "=" * 60)
         log("📝 Syncing README What's New from CHANGELOG")
-        log("="*60)
+        log("=" * 60)
 
         changelog_path = self.repo_root / "CHANGELOG.md"
         readme_path = self.repo_root / "README.md"
@@ -625,7 +629,7 @@ class ReleaseManager:
 
         # Extract latest CHANGELOG entry (between first ## and second ##)
         changelog = changelog_path.read_text()
-        entries = re.split(r'^## ', changelog, flags=re.MULTILINE)
+        entries = re.split(r"^## ", changelog, flags=re.MULTILINE)
         if len(entries) < 2:
             warning("Could not parse CHANGELOG entries")
             return
@@ -633,7 +637,7 @@ class ReleaseManager:
         # entries[0] is the header, entries[1] is the latest release
         latest_entry = entries[1].strip()
         # Extract just the Added/Changed/Fixed bullets (skip the header line and ### Highlights)
-        lines = latest_entry.split('\n')
+        lines = latest_entry.split("\n")
         # Skip the version/date header line
         content_lines = lines[1:]
 
@@ -642,7 +646,7 @@ class ReleaseManager:
         whats_new_items = []
         for line in content_lines:
             line = line.strip()
-            if line.startswith('- **') and len(whats_new_items) < 10:
+            if line.startswith("- **") and len(whats_new_items) < 10:
                 whats_new_items.append(line)
 
         if not whats_new_items:
@@ -651,7 +655,7 @@ class ReleaseManager:
 
         # Build the new What's New section
         new_whats_new = f"## What's New in {self.version}\n\n"
-        new_whats_new += '\n'.join(whats_new_items[:8])  # Top 8 items
+        new_whats_new += "\n".join(whats_new_items[:8])  # Top 8 items
 
         # Replace in README. Match the FIRST What's New section by capturing
         # everything from the header up to (but not including) the next ## or
@@ -675,7 +679,7 @@ class ReleaseManager:
         else:
             warning("Could not find What's New section pattern in README")
 
-    def run_command(self, cmd: list[str], check: bool = True, cwd: Optional[str] = None) -> subprocess.CompletedProcess:
+    def run_command(self, cmd: list[str], check: bool = True, cwd: str | None = None) -> subprocess.CompletedProcess:
         """Run a shell command"""
         cmd_str = " ".join(cmd)
         cwd_info = f" (in {cwd})" if cwd else ""
@@ -694,9 +698,9 @@ class ReleaseManager:
 
     def build_package(self):
         """Build Python package"""
-        log("\n" + "="*60)
+        log("\n" + "=" * 60)
         log("📦 Building Python package")
-        log("="*60)
+        log("=" * 60)
 
         # Clean old builds
         for path in ["dist", "build", "empirica.egg-info"]:
@@ -710,15 +714,14 @@ class ReleaseManager:
                     info(f"Removed {path}")
 
         # Build
-        self.run_command(["python3", "-m", "build", "--wheel", "--sdist"],
-                         cwd=str(self.repo_root))
+        self.run_command(["python3", "-m", "build", "--wheel", "--sdist"], cwd=str(self.repo_root))
         success("Package built successfully")
 
     def build_mcp_package(self):
         """Build empirica-mcp package"""
-        log("\n" + "="*60)
+        log("\n" + "=" * 60)
         log("📦 Building empirica-mcp package")
-        log("="*60)
+        log("=" * 60)
 
         mcp_dir = self.repo_root / "empirica-mcp"
         if not mcp_dir.exists():
@@ -737,17 +740,14 @@ class ReleaseManager:
                     info(f"Removed empirica-mcp/{path}")
 
         # Build
-        self.run_command(
-            ["python3", "-m", "build", "--wheel", "--sdist"],
-            cwd=str(mcp_dir)
-        )
+        self.run_command(["python3", "-m", "build", "--wheel", "--sdist"], cwd=str(mcp_dir))
         success("empirica-mcp package built successfully")
 
     def publish_to_pypi(self):
         """Publish to PyPI"""
-        log("\n" + "="*60)
+        log("\n" + "=" * 60)
         log("📤 Publishing to PyPI")
-        log("="*60)
+        log("=" * 60)
 
         if self.dry_run:
             info("Would publish to PyPI using twine")
@@ -758,9 +758,9 @@ class ReleaseManager:
 
     def publish_mcp_to_pypi(self):
         """Publish empirica-mcp to PyPI"""
-        log("\n" + "="*60)
+        log("\n" + "=" * 60)
         log("📤 Publishing empirica-mcp to PyPI")
-        log("="*60)
+        log("=" * 60)
 
         mcp_dir = self.repo_root / "empirica-mcp"
         if not (mcp_dir / "dist").exists():
@@ -771,17 +771,14 @@ class ReleaseManager:
             info("Would publish empirica-mcp to PyPI using twine")
             return
 
-        self.run_command([
-            "python3", "-m", "twine", "upload",
-            str(mcp_dir / "dist" / f"empirica_mcp-{self.version}*")
-        ])
+        self.run_command(["python3", "-m", "twine", "upload", str(mcp_dir / "dist" / f"empirica_mcp-{self.version}*")])
         success(f"Published empirica-mcp to PyPI: https://pypi.org/project/empirica-mcp/{self.version}/")
 
     def create_git_tag(self):
         """Create and push git tag"""
-        log("\n" + "="*60)
+        log("\n" + "=" * 60)
         log("🏷️  Creating Git tag")
-        log("="*60)
+        log("=" * 60)
 
         tag = f"v{self.version}"
 
@@ -790,38 +787,46 @@ class ReleaseManager:
         # Drift here is silent: missed files stay on the old version in the
         # release commit and need a follow-up bump. Keep this list in sync
         # with the version_files list in update_version_strings.
-        self.run_command(["git", "add",
-            "pyproject.toml",
-            "packaging/", "Dockerfile", "Dockerfile.alpine",
-            "README.md",
-            "empirica/__init__.py",
-            "empirica-mcp/pyproject.toml",
-            "empirica/plugins/claude-code-integration/.claude-plugin/plugin.json",
-            "empirica/plugins/claude-code-integration/install.sh",
-            "empirica/cli/command_handlers/setup_claude_code.py",
-            ".empirica-project/PROJECT_CONFIG.yaml",
-            # docs/ current-version pointers (regex-bumped by update_version_strings)
-            "docs/README.md",
-            "docs/human/developers/EXTENDING_EMPIRICA.md",
-            "docs/human/developers/MCP_SERVER_REFERENCE.md",
-            "docs/human/end-users/02_INSTALLATION.md",
-            # Regenerated by regenerate_cli_docs() during --prepare. Without it
-            # here, the committed CLI reference (README links to it) drifts stale
-            # every release and leaves an uncommitted edit in the tree.
-            "docs/human/developers/CLI_COMMANDS_UNIFIED.md",
-        ])
-        self.run_command([
-            "git", "commit", "-m",
-            f"chore: automated release {self.version}\n\n"
-            f"- Updated all distribution channels\n"
-            f"- SHA256: {self.tarball_sha256}"
-        ], check=False)  # May have no changes
+        self.run_command(
+            [
+                "git",
+                "add",
+                "pyproject.toml",
+                "packaging/",
+                "Dockerfile",
+                "Dockerfile.alpine",
+                "README.md",
+                "empirica/__init__.py",
+                "empirica-mcp/pyproject.toml",
+                "empirica/plugins/claude-code-integration/.claude-plugin/plugin.json",
+                "empirica/plugins/claude-code-integration/install.sh",
+                "empirica/cli/command_handlers/setup_claude_code.py",
+                ".empirica-project/PROJECT_CONFIG.yaml",
+                # docs/ current-version pointers (regex-bumped by update_version_strings)
+                "docs/README.md",
+                "docs/human/developers/EXTENDING_EMPIRICA.md",
+                "docs/human/developers/MCP_SERVER_REFERENCE.md",
+                "docs/human/end-users/02_INSTALLATION.md",
+                # Regenerated by regenerate_cli_docs() during --prepare. Without it
+                # here, the committed CLI reference (README links to it) drifts stale
+                # every release and leaves an uncommitted edit in the tree.
+                "docs/human/developers/CLI_COMMANDS_UNIFIED.md",
+            ]
+        )
+        self.run_command(
+            [
+                "git",
+                "commit",
+                "-m",
+                f"chore: automated release {self.version}\n\n"
+                f"- Updated all distribution channels\n"
+                f"- SHA256: {self.tarball_sha256}",
+            ],
+            check=False,
+        )  # May have no changes
 
         # Create tag
-        self.run_command([
-            "git", "tag", "-a", tag,
-            "-m", f"Release {self.version}"
-        ])
+        self.run_command(["git", "tag", "-a", tag, "-m", f"Release {self.version}"])
 
         # Push
         self.run_command(["git", "push", "origin", "main", "--tags"])
@@ -829,15 +834,12 @@ class ReleaseManager:
 
     def build_and_push_docker(self):
         """Build and push Docker images (Debian + Alpine)"""
-        log("\n" + "="*60)
+        log("\n" + "=" * 60)
         log("🐳 Building and pushing Docker images")
-        log("="*60)
+        log("=" * 60)
 
         # Debian image
-        debian_tags = [
-            f"nubaeon/empirica:{self.version}",
-            "nubaeon/empirica:latest"
-        ]
+        debian_tags = [f"nubaeon/empirica:{self.version}", "nubaeon/empirica:latest"]
 
         build_cmd = ["docker", "build", "."]
         for tag in debian_tags:
@@ -872,9 +874,9 @@ class ReleaseManager:
 
     def create_github_release(self):
         """Create GitHub release"""
-        log("\n" + "="*60)
+        log("\n" + "=" * 60)
         log("📝 Creating GitHub release")
-        log("="*60)
+        log("=" * 60)
 
         tag = f"v{self.version}"
         wheel = f"dist/empirica-{self.version}-py3-none-any.whl"
@@ -921,12 +923,20 @@ brew install empirica
         # upload assets. Without this, the script sys.exit's mid-publish and
         # downstream steps (homebrew tap, chocolatey) silently skip.
         # (1.9.6 missed homebrew via exactly this race; 2026-05-17.)
-        create_result = self.run_command([
-            "gh", "release", "create", tag,
-            *assets,
-            "--title", f"v{self.version}",
-            "--notes", notes,
-        ], check=False)
+        create_result = self.run_command(
+            [
+                "gh",
+                "release",
+                "create",
+                tag,
+                *assets,
+                "--title",
+                f"v{self.version}",
+                "--notes",
+                notes,
+            ],
+            check=False,
+        )
 
         if create_result.returncode == 0:
             success(f"Created GitHub release: {tag}")
@@ -934,7 +944,8 @@ brew install empirica
 
         # Check whether the release exists (CI race) vs a real failure
         view_result = self.run_command(
-            ["gh", "release", "view", tag], check=False,
+            ["gh", "release", "view", tag],
+            check=False,
         )
         if view_result.returncode == 0:
             warning(f"Release {tag} already exists (likely CI race) — uploading assets with --clobber")
@@ -980,14 +991,13 @@ brew install empirica
         This avoids homebrew SHA256 conflicts from releasing on develop
         and merging to main afterward.
         """
-        log("\n" + "="*60)
+        log("\n" + "=" * 60)
         log("🔀 Preparing main branch for release")
-        log("="*60)
+        log("=" * 60)
 
         # Check current branch
         result = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            capture_output=True, text=True, cwd=self.repo_root
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True, cwd=self.repo_root
         )
         current_branch = result.stdout.strip()
 
@@ -999,7 +1009,7 @@ brew install empirica
             error(f"Release must be run from 'develop' or 'main', currently on '{current_branch}'")
 
         # Merge develop → main
-        info(f"Merging develop → main...")
+        info("Merging develop → main...")
         self.run_command(["git", "checkout", "main"])
         self.run_command(["git", "pull", "origin", "main"], check=False)
         self.run_command(["git", "merge", "develop", "-m", f"Merge develop — Empirica {self.version} release"])
@@ -1008,8 +1018,7 @@ brew install empirica
     def back_to_develop(self):
         """Switch back to develop after release and merge any release commits."""
         result = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            capture_output=True, text=True, cwd=self.repo_root
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True, cwd=self.repo_root
         )
         if result.stdout.strip() == "main":
             info("Switching back to develop...")
@@ -1034,7 +1043,9 @@ brew install empirica
 
         result = subprocess.run(
             ["ruff", "check", "empirica/", "empirica-mcp/", "tests/"],
-            capture_output=True, text=True, timeout=120,
+            capture_output=True,
+            text=True,
+            timeout=120,
             cwd=str(self.repo_root),
         )
         if result.returncode == 0:
@@ -1057,7 +1068,9 @@ brew install empirica
 
         result = subprocess.run(
             ["pyright", "empirica/", "empirica-mcp/"],
-            capture_output=True, text=True, timeout=300,
+            capture_output=True,
+            text=True,
+            timeout=300,
             cwd=str(self.repo_root),
         )
         if result.returncode == 0:
@@ -1103,13 +1116,17 @@ brew install empirica
             warning(f"CVE waiver ACTIVE: {w['id']} ({w['package']}) — {w['rationale']} [retire: {w['retire_when']}]")
 
         if self.dry_run:
-            info(f"Would run: pip-audit --skip-editable --format json {' '.join(ignore_args)} (scoped to empirica-managed)")
+            info(
+                f"Would run: pip-audit --skip-editable --format json {' '.join(ignore_args)} (scoped to empirica-managed)"
+            )
             return True
 
         try:
             result = subprocess.run(
                 ["pip-audit", "--skip-editable", "--format", "json", *ignore_args],
-                capture_output=True, text=True, timeout=300,
+                capture_output=True,
+                text=True,
+                timeout=300,
                 cwd=str(self.repo_root),
             )
         except FileNotFoundError:
@@ -1152,7 +1169,9 @@ brew install empirica
         informational = [(n, v) for n, v in findings if not is_empirica_managed(n, managed)]
 
         if informational:
-            warning(f"{len(informational)} CVE(s) in sibling/user packages sharing the venv — informational, not gated:")
+            warning(
+                f"{len(informational)} CVE(s) in sibling/user packages sharing the venv — informational, not gated:"
+            )
             for name, vid in informational:
                 info(f"  {name}: {vid} (not empirica-managed)")
 
@@ -1186,12 +1205,26 @@ brew install empirica
         # ordering as the watchdog that surfaces that isolation debt — fixing it
         # there is a separate, tracked effort.
         result = subprocess.run(
-            ["python3", "-m", "pytest", "tests/", "-x", "-q", "--tb=short",
-             "--ignore=tests/integration", "--ignore=tests/manual_test_goals.py",
-             "-p", "no:cacheprovider", "-p", "no:randomly"],
+            [
+                "python3",
+                "-m",
+                "pytest",
+                "tests/",
+                "-x",
+                "-q",
+                "--tb=short",
+                "--ignore=tests/integration",
+                "--ignore=tests/manual_test_goals.py",
+                "-p",
+                "no:cacheprovider",
+                "-p",
+                "no:randomly",
+            ],
             # Headroom over the real suite runtime (~720s at 1.12.15 and growing);
             # 600s false-timed-out the 1.12.14 release gate. Bump as the suite grows.
-            capture_output=True, text=True, timeout=1200,
+            capture_output=True,
+            text=True,
+            timeout=1200,
             cwd=str(self.repo_root),
         )
 
@@ -1217,7 +1250,10 @@ brew install empirica
         log("=" * 60)
 
         checks = [
-            ("session-create", "from empirica.cli.command_handlers.session_create import handle_session_create_command"),
+            (
+                "session-create",
+                "from empirica.cli.command_handlers.session_create import handle_session_create_command",
+            ),
             ("cli-core", "from empirica.cli.cli_core import main"),
             ("session-database", "from empirica.data.session_database import SessionDatabase"),
             ("path-resolver", "from empirica.config.path_resolver import get_session_db_path"),
@@ -1230,7 +1266,9 @@ brew install empirica
                 continue
             result = subprocess.run(
                 ["python3", "-c", import_stmt],
-                capture_output=True, text=True, timeout=10,
+                capture_output=True,
+                text=True,
+                timeout=10,
                 cwd=str(self.repo_root),
             )
             if result.returncode == 0:
@@ -1254,7 +1292,9 @@ brew install empirica
         try:
             result = subprocess.run(
                 ["empirica", "issue-list", "--status", "new", "--severity", "high", "--output", "json"],
-                capture_output=True, text=True, timeout=15,
+                capture_output=True,
+                text=True,
+                timeout=15,
                 cwd=str(self.repo_root),
             )
             if result.returncode != 0:
@@ -1262,6 +1302,7 @@ brew install empirica
                 return True
 
             import json
+
             data = json.loads(result.stdout)
             issues = data.get("issues", [])
             if not issues:
@@ -1282,6 +1323,53 @@ brew install empirica
             warning(f"Auto-issue check failed: {e}. Skipping gate.")
             return True
 
+    def _develop_ci_green(self) -> bool:
+        """True iff develop's latest CI run is a completed success for the
+        release commit (self.develop_head).
+
+        The full pytest suite is the release gate — but re-running it in
+        --prepare duplicates the run develop CI already did on the exact same
+        commit (nothing changes between the develop bump and the main merge).
+        When that CI is green we can trust it and skip the ~12min re-run (the
+        fast gates still run). Best-effort: any gh/parse failure returns False
+        so we fall back to running the full suite (safe default).
+        """
+        if not self.develop_head:
+            return False
+        try:
+            res = subprocess.run(
+                [
+                    "gh",
+                    "run",
+                    "list",
+                    "--branch",
+                    "develop",
+                    "--limit",
+                    "1",
+                    "--json",
+                    "headSha,status,conclusion,workflowName",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                cwd=str(self.repo_root),
+            )
+            if res.returncode != 0 or not res.stdout.strip():
+                return False
+            import json as _json
+
+            runs = _json.loads(res.stdout)
+            if not runs:
+                return False
+            r = runs[0]
+            return (
+                r.get("status") == "completed"
+                and r.get("conclusion") == "success"
+                and str(r.get("headSha", "")).startswith(self.develop_head[:12])
+            )
+        except Exception:
+            return False
+
     def run_prepare(self):
         """Prepare release: merge to main, build, test. Does NOT publish.
 
@@ -1298,6 +1386,17 @@ brew install empirica
 
         try:
             self.version = self.read_version()
+
+            # Capture develop HEAD BEFORE the merge, so the trust-CI check can
+            # match this release commit against develop's CI run.
+            head = subprocess.run(
+                ["git", "rev-parse", "develop"],
+                capture_output=True,
+                text=True,
+                cwd=str(self.repo_root),
+            )
+            if head.returncode == 0:
+                self.develop_head = head.stdout.strip()
 
             # Merge develop → main
             if not self.dry_run:
@@ -1335,27 +1434,39 @@ brew install empirica
                 warning("Lint failed. Fix issues before running --publish.")
                 warning("You are on the 'main' branch with built artifacts.")
                 warning("To abort: git checkout develop && git reset --hard origin/main")
-                info(f"\nOnce fixed, run: python scripts/release.py --publish")
+                info("\nOnce fixed, run: python scripts/release.py --publish")
                 sys.exit(1)
 
             # Gate: pyright (types) — mirrors CI's pyright step.
             if not self.run_pyright():
                 warning("Type-check failed. Fix issues before running --publish.")
-                info(f"\nOnce fixed, run: python scripts/release.py --publish")
+                info("\nOnce fixed, run: python scripts/release.py --publish")
                 sys.exit(1)
 
             # Gate: pip-audit (CVE scan) — mirrors CI's pip-audit step.
             if not self.run_pip_audit():
                 warning("CVE scan failed. Fix vulnerabilities before running --publish.")
-                info(f"\nOnce fixed, run: python scripts/release.py --publish")
+                info("\nOnce fixed, run: python scripts/release.py --publish")
                 sys.exit(1)
 
-            # Gate: test suite
-            if not self.run_tests():
+            # Gate: test suite. The full pytest suite is the same run develop CI
+            # already did on this exact commit — so trust a green develop CI and
+            # skip the ~12min re-run (fast gates above still ran). This keeps the
+            # release un-reap-prone on environments that can't sustain a long run.
+            # Falls through to the full re-run when CI isn't green/unknown.
+            if self.skip_tests:
+                info("⏭  Skipping the full pytest re-run (--skip-tests) — relying on develop CI for the full suite.")
+            elif self._develop_ci_green():
+                success(
+                    f"develop CI is green for this commit ({self.develop_head[:8]}) — skipping the redundant full-suite re-run."
+                )
+                info("   (Fast gates import/ruff/pyright/pip-audit ran above; the full suite is CI-verified.)")
+            elif not self.run_tests():
                 warning("Tests failed. Fix issues before running --publish.")
                 warning("You are on the 'main' branch with built artifacts.")
                 warning("To abort: git checkout develop && git reset --hard origin/main")
-                info(f"\nOnce fixed, run: python scripts/release.py --publish")
+                info("\nOnce fixed, run: python scripts/release.py --publish")
+                info("(Or, if develop CI is already green: python scripts/release.py --prepare --skip-tests)")
                 sys.exit(1)
 
             # Gate: no unresolved high-severity auto-captured issues
@@ -1363,7 +1474,7 @@ brew install empirica
                 warning("Unresolved high-severity issues found. Fix or resolve before publishing.")
                 warning("Use: empirica issue-list --status new --severity high")
                 warning("Resolve with: empirica issue-resolve --session-id <SID> --issue-id <ID> --resolution '...'")
-                info(f"\nOnce resolved, run: python scripts/release.py --publish")
+                info("\nOnce resolved, run: python scripts/release.py --publish")
                 sys.exit(1)
 
             log("\n╔════════════════════════════════════════════════════════════╗")
@@ -1373,8 +1484,8 @@ brew install empirica
             success(f"v{self.version} built and tested on main branch")
             info(f"Artifacts: dist/empirica-{self.version}*.tar.gz, *.whl")
             info(f"SHA256: {self.tarball_sha256}")
-            info(f"\nNext: review changes, then run:")
-            info(f"  python scripts/release.py --publish")
+            info("\nNext: review changes, then run:")
+            info("  python scripts/release.py --publish")
 
         except Exception as e:
             error(f"Prepare failed: {e}")
@@ -1394,7 +1505,9 @@ brew install empirica
             # Verify we're on main with built artifacts
             result = subprocess.run(
                 ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-                capture_output=True, text=True, cwd=self.repo_root,
+                capture_output=True,
+                text=True,
+                cwd=self.repo_root,
             )
             current_branch = result.stdout.strip()
             if current_branch != "main" and not self.dry_run:
@@ -1429,8 +1542,8 @@ brew install empirica
             info(f"Docker: docker pull nubaeon/empirica:{self.version}")
             info(f"Docker: docker pull nubaeon/empirica:{self.version}-alpine")
             info(f"GitHub: https://github.com/EmpiricaAI/empirica/releases/tag/v{self.version}")
-            info(f"Homebrew: brew upgrade empirica")
-            info(f"Chocolatey: choco upgrade empirica")
+            info("Homebrew: brew upgrade empirica")
+            info("Chocolatey: choco upgrade empirica")
 
         except Exception as e:
             error(f"Publish failed: {e}")
@@ -1504,8 +1617,8 @@ brew install empirica
             info(f"Docker: docker pull nubaeon/empirica:{self.version}")
             info(f"Docker: docker pull nubaeon/empirica:{self.version}-alpine")
             info(f"GitHub: https://github.com/EmpiricaAI/empirica/releases/tag/v{self.version}")
-            info(f"Homebrew: brew upgrade empirica")
-            info(f"Chocolatey: choco upgrade empirica")
+            info("Homebrew: brew upgrade empirica")
+            info("Chocolatey: choco upgrade empirica")
 
         except Exception as e:
             error(f"Release failed: {e}")
@@ -1525,36 +1638,42 @@ Legacy (one-shot, less safe):
 """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Preview changes without executing"
-    )
-    parser.add_argument(
-        "--old-version",
-        help="Previous version for broad sweep replacement (e.g. 1.5.6)"
-    )
+    parser.add_argument("--dry-run", action="store_true", help="Preview changes without executing")
+    parser.add_argument("--old-version", help="Previous version for broad sweep replacement (e.g. 1.5.6)")
     parser.add_argument(
         "--version-only",
         action="store_true",
-        help="Update version strings only (no build/publish). Requires --old-version."
+        help="Update version strings only (no build/publish). Requires --old-version.",
     )
     parser.add_argument(
         "--prepare",
         action="store_true",
-        help="Merge to main, build, and test — but do NOT publish. Review before --publish."
+        help="Merge to main, build, and test — but do NOT publish. Review before --publish.",
     )
     parser.add_argument(
-        "--publish",
+        "--publish", action="store_true", help="Publish a prepared release (requires --prepare to have been run first)."
+    )
+    parser.add_argument(
+        "--skip-tests",
         action="store_true",
-        help="Publish a prepared release (requires --prepare to have been run first)."
+        help=(
+            "In --prepare, skip the full pytest re-run and rely on develop CI's green "
+            "run for the full suite. The fast gates (import/ruff/pyright/pip-audit) still "
+            "run. --prepare ALSO auto-skips the full re-run when develop CI is already "
+            "green for the release commit; this flag forces the skip even if CI status "
+            "can't be read."
+        ),
     )
     args = parser.parse_args()
 
     if args.prepare and args.publish:
         parser.error("Use --prepare and --publish separately, not together.")
 
-    manager = ReleaseManager(dry_run=args.dry_run, old_version=args.old_version)
+    manager = ReleaseManager(
+        dry_run=args.dry_run,
+        old_version=args.old_version,
+        skip_tests=args.skip_tests,
+    )
     if args.version_only:
         manager.run_version_update()
     elif args.prepare:
