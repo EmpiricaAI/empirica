@@ -126,6 +126,25 @@ def test_missing_content_hash_still_writes(tmp_path, monkeypatch):
     assert (tmp_path / "out.png").read_bytes() == PAYLOAD
 
 
+def test_body_hash_takes_precedence(tmp_path, monkeypatch):
+    # body_hash is the raw-bytes sha256; content_hash may hash extracted text.
+    # When both present, verify against body_hash — a wrong content_hash must
+    # not fail a byte-correct fetch.
+    _mock_fetch(
+        monkeypatch,
+        200,
+        {
+            "content": base64.b64encode(PAYLOAD).decode(),
+            "body_hash": GOOD_HASH,
+            "content_hash": "sha256:" + "f" * 64,  # deliberately wrong (text hash)
+            "mime": "image/png",
+        },
+    )
+    rc = handle_source_get_command(_args(tmp_path))
+    assert rc == 0
+    assert (tmp_path / "out.png").read_bytes() == PAYLOAD
+
+
 def test_normalize_hash():
     assert _normalize_hash("sha256:ABC") == "abc"
     assert _normalize_hash("ABC") == "abc"

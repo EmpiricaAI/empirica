@@ -1356,7 +1356,18 @@ def add_checkpoint_parsers(subparsers):
         help="Source type (document, meeting, email, calendar, code, web, design, api)",
     )
     source_add_parser.add_argument("--path", help="File path (for local documents)")
+    source_add_parser.add_argument(
+        "--media",
+        help=(
+            "Local media/binary file (image, etc.) to register AND upload to "
+            "cortex as a blob, so peers can fetch it cross-tenant via "
+            "`source-get`. Implies --path. Pair with --visibility shared for "
+            "cross-tenant reads (producer half of media-bearing sources)."
+        ),
+    )
     source_add_parser.add_argument("--url", help="URL (for web sources)")
+    source_add_parser.add_argument("--cortex-url", help="Cortex URL override (default: credentials.yaml)")
+    source_add_parser.add_argument("--api-key", help="Cortex API key override (default: credentials.yaml)")
     direction_group = source_add_parser.add_mutually_exclusive_group(required=True)
     direction_group.add_argument(
         "--noetic", action="store_true", help="Source used — evidence that informed knowledge (source IN)"

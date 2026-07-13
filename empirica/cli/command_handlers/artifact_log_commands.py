@@ -2034,7 +2034,11 @@ def handle_source_add_command(args):
         title = args.title
         description = getattr(args, "description", None)
         source_type = getattr(args, "source_type", "document")
-        doc_path = getattr(args, "path", None)
+        # --media is --path plus a cortex blob push (producer half of
+        # media-bearing sources). When given, it IS the doc_path (content
+        # identity is computed from it), and media_push below uploads the bytes.
+        media_path = getattr(args, "media", None)
+        doc_path = media_path or getattr(args, "path", None)
         source_url = getattr(args, "url", None)
         confidence = getattr(args, "confidence", 0.7)
         direction = "noetic" if getattr(args, "noetic", False) else "praxic"
@@ -2173,6 +2177,14 @@ def handle_source_add_command(args):
             direction,
         )
 
+        # Producer half of media-bearing sources: when --media is given, push
+        # the blob to cortex (upsert-on-body) so peers can source-get it. The
+        # source_id IS adopted as the catalogue uuid, so we stamp cortex_uuid
+        # locally to mark the row cortex-registered (daemon resolves id OR
+        # cortex_uuid). Best-effort: a push failure leaves the local source
+        # intact and reports the error — it never fails the whole add.
+        media_push = _upload_media_source(args, media_path, source_id, identity, title, project_id, visibility)
+
         if output_format == "json":
             print(
                 json.dumps(
@@ -2187,6 +2199,7 @@ def handle_source_add_command(args):
                         "visibility": visibility,
                         "git_stored": git_stored,
                         "embedded": embedded,
+                        "media_push": media_push,
                         "message": f"Source added ({direction})",
                     },
                     indent=2,
@@ -2204,6 +2217,7 @@ def handle_source_add_command(args):
                 print(f"   Path: {doc_path}")
             if source_url:
                 print(f"   URL: {source_url}")
+            _print_media_push_status(media_push, visibility)
 
         return 0
 
@@ -2254,6 +2268,127 @@ def _fetch_source_raw(cortex_url: str, api_key: str, source_id: str, timeout: fl
         return None, {"error": f"{type(e).__name__}: {e}"}
 
 
+def _upsert_media_to_cortex(
+    cortex_url: str,
+    api_key: str,
+    source_id: str,
+    content: bytes,
+    mime: str | None,
+    title: str,
+    project_id: str | None,
+    visibility: str,
+    timeout: float = 60.0,
+):
+    """POST /v1/sources/{id}/body — the producer side of media-bearing sources.
+
+    Cortex upserts-on-missing (commit d76ae9c9): a single atomic call registers
+    the source in the catalogue (adopting our local uuid as the catalogue uuid)
+    AND retains the blob. Image MIMEs auto-retain. The X-Source-Visibility
+    header is load-bearing for cross-tenant reads — it MUST be shared/public or
+    cortex's get_raw visibility gate rejects the peer fetch.
+
+    Returns a status dict (never raises). On success: {'pushed': True, ...cortex
+    response fields}. On failure: {'pushed': False, 'error': ...}.
+    """
+    import urllib.error
+    import urllib.request
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": mime or "application/octet-stream",
+        "X-Source-Visibility": visibility,
+    }
+    # HTTP headers are latin-1; a unicode title would raise at send time. Only
+    # forward an ASCII-safe title — otherwise let cortex default to media-<hash>.
+    if title and title.isascii():
+        headers["X-Source-Title"] = title
+    if project_id:
+        headers["X-Project-Id"] = project_id
+
+    req = urllib.request.Request(
+        f"{cortex_url}/v1/sources/{source_id}/body",
+        data=content,
+        method="POST",
+        headers=headers,
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read().decode("utf-8")
+            body = json.loads(raw) if raw else {}
+            result = {"pushed": True, "status": resp.status}
+            if isinstance(body, dict):
+                result.update(body)
+            return result
+    except urllib.error.HTTPError as e:
+        try:
+            body = json.loads(e.read().decode("utf-8"))
+            err = body.get("error", f"HTTP {e.code}")
+        except Exception:
+            err = f"HTTP {e.code}"
+        return {"pushed": False, "status": e.code, "error": err}
+    except (urllib.error.URLError, OSError, TimeoutError) as e:
+        return {"pushed": False, "error": f"{type(e).__name__}: {e}"}
+
+
+def _print_media_push_status(media_push, visibility):
+    """Human-readable one-liner for a --media upload result (no-op if None)."""
+    if media_push is None:
+        return
+    if media_push.get("pushed"):
+        size = media_push.get("size_bytes", "?")
+        print(f"   📤 Media uploaded to cortex ({size} bytes, visibility={visibility})")
+        if visibility == "local":
+            print("   ⚠ visibility=local — peers in other tenants can't source-get it; use --visibility shared")
+    else:
+        print(f"   ⚠ Media upload failed: {media_push.get('error', 'unknown')}")
+
+
+def _upload_media_source(args, media_path, source_id, identity, title, project_id, visibility):
+    """Push a --media source's blob to cortex + stamp cortex_uuid locally.
+
+    Returns None when no --media was given. Otherwise best-effort: returns a
+    status dict, never raises. A failure here leaves the local source row intact
+    (it's already committed) and surfaces the error — the media upload is an
+    enrichment, not a precondition for the source. On success, stamps
+    cortex_uuid = source_id (cortex adopts our uuid as the catalogue uuid via
+    upsert-on-body), so the daemon resolves id OR cortex_uuid.
+    """
+    if not media_path:
+        return None
+
+    import os
+
+    from empirica.data.session_database import SessionDatabase
+
+    canonical = identity.get("canonical_path")
+    if not (canonical and os.path.isfile(canonical)):
+        return {"pushed": False, "error": f"media file unreadable: {media_path}"}
+
+    from empirica.cli.command_handlers.projects_commands import _resolve_cortex_config
+
+    cortex_url, api_key = _resolve_cortex_config(args)
+    if not (cortex_url and api_key):
+        return {"pushed": False, "error": "cortex not configured (media blob not uploaded)"}
+
+    try:
+        with open(canonical, "rb") as fh:
+            content = fh.read()
+        result = _upsert_media_to_cortex(
+            cortex_url, api_key, source_id, content, identity.get("mime_type"), title, project_id, visibility
+        )
+        if result.get("pushed"):
+            mdb = SessionDatabase()
+            mdb.conn.execute(
+                "UPDATE epistemic_sources SET cortex_uuid = ? WHERE id = ?",
+                (source_id, source_id),
+            )
+            mdb.conn.commit()
+            mdb.close()
+        return result
+    except Exception as e:
+        return {"pushed": False, "error": f"{type(e).__name__}: {e}"}
+
+
 def handle_source_get_command(args):
     """Handle source-get — download a media-bearing source's retained bytes.
 
@@ -2302,8 +2437,13 @@ def handle_source_get_command(args):
 
         # Decode + verify before writing — a hash mismatch means corruption or
         # a wrong-source response; never write unverified bytes to --out.
+        # Prefer body_hash: it is always sha256 of the RAW bytes. content_hash
+        # only equals the raw-bytes hash on the media-upsert path — for a
+        # text-extracted source it hashes the flattened text, so verifying raw
+        # bytes against it would spuriously fail. Fall back to content_hash
+        # when body_hash is absent (older serve paths).
         content = base64.b64decode(body["content"])
-        expected = _normalize_hash(body.get("content_hash"))
+        expected = _normalize_hash(body.get("body_hash") or body.get("content_hash"))
         actual = hashlib.sha256(content).hexdigest()
         if expected and expected != actual:
             payload = {
