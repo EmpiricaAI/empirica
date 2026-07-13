@@ -83,9 +83,7 @@ def test_http_error_surfaces(monkeypatch):
         raise urllib.error.HTTPError(req.full_url, 409, "Conflict", {}, io.BytesIO(b'{"error":"hash_mismatch"}'))
 
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
-    res = _upsert_media_to_cortex(
-        "https://cortex.example", "ctx_key", "src-3", b"x", "image/png", "t", "p", "shared"
-    )
+    res = _upsert_media_to_cortex("https://cortex.example", "ctx_key", "src-3", b"x", "image/png", "t", "p", "shared")
     assert res["pushed"] is False
     assert res["error"] == "hash_mismatch"
     assert res["status"] == 409
@@ -96,9 +94,7 @@ def test_network_error_surfaces(monkeypatch):
         raise urllib.error.URLError("connection refused")
 
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
-    res = _upsert_media_to_cortex(
-        "https://cortex.example", "ctx_key", "src-4", b"x", "image/png", "t", "p", "shared"
-    )
+    res = _upsert_media_to_cortex("https://cortex.example", "ctx_key", "src-4", b"x", "image/png", "t", "p", "shared")
     assert res["pushed"] is False
     assert "URLError" in res["error"]
 
