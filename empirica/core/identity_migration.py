@@ -187,6 +187,99 @@ def rekey_project_local_dbs(project_root: str | Path, old_id: str, new_id: str) 
     return out
 
 
+def _rekey_workspace_db(old_id: str, new_id: str, workspace_db: str | Path | None = None) -> dict[str, int]:
+    """Re-key a project UUID in the user-level workspace.db: ``global_projects.id``
+    and ``entity_registry.entity_id`` (project rows). Part of the completeness
+    guard — the workspace stores are where the documented stranding bug
+    (prop_xa6djztv5) left data behind when only some stores were corrected."""
+    ws = Path(workspace_db) if workspace_db else Path.home() / ".empirica" / "workspace" / "workspace.db"
+    out: dict[str, int] = {}
+    if old_id == new_id or not ws.exists():
+        return out
+    conn = sqlite3.connect(str(ws))
+    try:
+        tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if "global_projects" in tables:
+            cur = conn.execute("UPDATE global_projects SET id = ? WHERE id = ?", (new_id, old_id))
+            if cur.rowcount:
+                out["global_projects"] = cur.rowcount
+        if "entity_registry" in tables:
+            cur = conn.execute(
+                "UPDATE entity_registry SET entity_id = ? WHERE entity_type = 'project' AND entity_id = ?",
+                (new_id, old_id),
+            )
+            if cur.rowcount:
+                out["entity_registry"] = cur.rowcount
+        conn.commit()
+    finally:
+        conn.close()
+    return out
+
+
+def _rekey_registry_yaml(old_id: str, new_id: str) -> bool:
+    """Re-key a project UUID in ``~/.empirica/registry.yaml`` (the daemon's served
+    set). Returns True iff a row was rewritten."""
+    if old_id == new_id:
+        return False
+    try:
+        from empirica.api.registry import load_registry, save_registry
+    except Exception:
+        return False
+    reg = load_registry()
+    changed = False
+    for p in reg.get("projects", []):
+        if p.get("project_id") == old_id:
+            p["project_id"] = new_id
+            changed = True
+    if changed:
+        save_registry(reg)
+    return changed
+
+
+def reconcile_project_identity(
+    project_root: str | Path,
+    old_id: str,
+    new_id: str,
+    *,
+    workspace_db: str | Path | None = None,
+) -> dict:
+    """Converge a project's local identity to ``new_id`` (the cortex-canonical
+    UUID) across EVERY id-of-record store, in one pass.
+
+    Cortex-is-authority reconcile (David's directive). The completeness is the
+    load-bearing part: the documented stranding bug (prop_xa6djztv5) was an
+    *incomplete* correction — one store moved while live sessions/artifacts
+    stayed under the old id elsewhere. This rekeys them together:
+
+      - local ``.empirica/*.db`` (sessions.db = local source of truth, artifacts…)
+      - workspace.db ``global_projects.id`` + ``entity_registry.entity_id``
+      - ``~/.empirica/registry.yaml``
+      - ``.empirica/project.yaml``
+
+    Qdrant collections are keyed by project_id but can't be renamed in place —
+    the caller must run ``empirica rebuild --qdrant`` after (flagged in the
+    return via ``qdrant_rebuild_needed``).
+
+    Idempotent + a no-op when ``old_id == new_id``.
+    """
+    if old_id == new_id:
+        return {"reconciled": False, "reason": "already_aligned", "old_id": old_id, "new_id": new_id}
+    local_dbs = rekey_project_local_dbs(project_root, old_id, new_id)
+    workspace = _rekey_workspace_db(old_id, new_id, workspace_db)
+    registry = _rekey_registry_yaml(old_id, new_id)
+    yaml_written = _write_yaml_project_id(project_root, new_id)
+    return {
+        "reconciled": True,
+        "old_id": old_id,
+        "new_id": new_id,
+        "local_dbs": local_dbs,
+        "workspace_db": workspace,
+        "registry_yaml": registry,
+        "project_yaml": yaml_written,
+        "qdrant_rebuild_needed": True,
+    }
+
+
 def migrate_project_to_uuid(
     project_root: str | Path,
     *,

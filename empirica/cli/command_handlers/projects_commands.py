@@ -1449,6 +1449,39 @@ def _project_register_error(message: str, hint: str, output_format: str) -> int:
     return 1
 
 
+def _reconcile_identity_if_diverged(args, project_path, local_id, cortex_outcome, output_format):
+    """After register, detect local ≠ cortex-canonical project UUID.
+
+    Cortex is authority (David's directive): the register response carries
+    cortex's canonical id. If it differs from the local id, the identity has
+    diverged (the root cause of web's media blocker — first op to pass a raw
+    project_id cross-boundary surfaces it). Warn ALWAYS (closes the silent gap);
+    with --reconcile, rekey every local store to the cortex id.
+
+    Returns a divergence dict for the result payload, or None when aligned.
+    """
+    cortex_id = cortex_outcome.get("project_id")
+    if not cortex_id or cortex_id == local_id or cortex_outcome.get("outcome") == "owner_conflict":
+        return None
+    info: dict[str, Any] = {"local_id": local_id, "cortex_id": cortex_id, "reconciled": False}
+    if getattr(args, "reconcile", False):
+        from empirica.core.identity_migration import reconcile_project_identity
+
+        rep = reconcile_project_identity(project_path, local_id, cortex_id)
+        info["reconciled"] = bool(rep.get("reconciled"))
+        info["report"] = rep
+        if output_format != "json":
+            print(
+                f"   🔧 Identity reconciled: local {local_id[:8]}… → cortex {cortex_id[:8]}… (all local stores rekeyed)"
+            )
+            print("   ⚠ Run 'empirica rebuild --qdrant' to re-point Qdrant collections to the new id.")
+    else:
+        if output_format != "json":
+            print(f"   ⚠ IDENTITY DIVERGENCE: local {local_id[:8]}… ≠ cortex-canonical {cortex_id[:8]}…")
+            print("   → Run 'empirica project-register --reconcile' to converge local stores to the cortex id.")
+    return info
+
+
 def handle_project_register_command(args) -> None:
     """V1.5 single-project register — atomic discover-one + register-one.
 
@@ -1592,12 +1625,18 @@ def handle_project_register_command(args) -> None:
             timeout=timeout,
         )
 
+        # 5b. Identity reconcile — converge local stores to the cortex-canonical
+        # UUID when they've diverged (airtight local↔cortex identity).
+        divergence = _reconcile_identity_if_diverged(args, project_path, project_id, cortex_outcome, output_format)
+
         # 6. Report + exit
         result = {
             "ok": True,
             "local": local_summary,
             "cortex": cortex_outcome,
         }
+        if divergence:
+            result["identity_divergence"] = divergence
 
         cortex_failed = not no_cortex and not cortex_outcome.get("skipped") and not cortex_outcome.get("ok")
 
