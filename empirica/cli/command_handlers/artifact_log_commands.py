@@ -1399,19 +1399,24 @@ def handle_unknown_list_command(args):
         project_id = getattr(args, "project_id", None)
         show_resolved = getattr(args, "resolved", False)
         show_all = getattr(args, "show_all", False)
+        all_projects = getattr(args, "all_projects", False)  # cross-project (gardening)
         subject = getattr(args, "subject", None)
         limit = getattr(args, "limit", 30)
+        if all_projects and limit == 30:
+            limit = 2000  # cross-project sweep shouldn't silently truncate (explicit --limit wins)
         output_format = getattr(args, "output", "human")
 
         db = SessionDatabase()
         cursor = db.conn.cursor()
 
-        project_id = _resolve_project_id_from_context(cursor, session_id, project_id)
+        # --all-projects deliberately bypasses the active-project scope so the whole
+        # unknown graph is visible (stranded/divergent project_ids included).
+        project_id = None if all_projects else _resolve_project_id_from_context(cursor, session_id, project_id)
 
         # Build query
         query = """
             SELECT id, unknown, is_resolved, resolved_by, impact, subject,
-                   created_timestamp, resolved_timestamp, goal_id
+                   created_timestamp, resolved_timestamp, goal_id, project_id
             FROM project_unknowns
             WHERE 1=1
         """
@@ -1448,6 +1453,7 @@ def handle_unknown_list_command(args):
                 "created_at": row[6],
                 "resolved_at": row[7],
                 "goal_id": row[8],
+                "project_id": row[9],
             }
             for row in rows
         ]
@@ -1459,7 +1465,7 @@ def handle_unknown_list_command(args):
             filters_applied.append(f"project={project_id[:8]}...")
         if subject:
             filters_applied.append(f"subject={subject}")
-        filter_desc = ", ".join(filters_applied) if filters_applied else "all"
+        filter_desc = "ALL project_ids (cross-project)" if all_projects else (", ".join(filters_applied) or "all")
         status_desc = "all" if show_all else ("resolved" if show_resolved else "open")
 
         result = {

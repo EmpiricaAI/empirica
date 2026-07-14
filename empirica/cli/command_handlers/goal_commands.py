@@ -1276,18 +1276,28 @@ def handle_goals_list_command(args):
         output_format = getattr(args, "output", "human")
         limit = getattr(args, "limit", 20) if hasattr(args, "limit") else 20
 
+        # --all: cross-project view (gardening). Bypasses the active-project scope so
+        # the whole goal graph is visible — the active-project filter otherwise hides
+        # goals stranded under other/divergent project_ids. Raise the default cap so a
+        # cross-project sweep isn't silently truncated at 20 (explicit --limit wins).
+        all_projects = getattr(args, "all_projects", False)
+        if all_projects and limit == 20:
+            limit = 2000
+
         db = SessionDatabase()
         cursor = db.conn.cursor()
 
-        # GOALS ARE PROJECT-SCOPED: Auto-derive project_id from context if not provided
-        project_id = _handle_goals_list_command_helper(cursor, project_id, session_id)
+        # GOALS ARE PROJECT-SCOPED: auto-derive project_id from context — unless --all,
+        # which deliberately shows every project's goals.
+        project_id = None if all_projects else _handle_goals_list_command_helper(cursor, project_id, session_id)
 
         # Build query based on filters
         base_query = """
             SELECT g.id, g.objective, g.status, g.is_completed,
                    g.created_timestamp, g.session_id, s.ai_id,
                    (SELECT COUNT(*) FROM subtasks WHERE goal_id = g.id) as total_subtasks,
-                   (SELECT COUNT(*) FROM subtasks WHERE goal_id = g.id AND status = 'completed') as completed_subtasks
+                   (SELECT COUNT(*) FROM subtasks WHERE goal_id = g.id AND status = 'completed') as completed_subtasks,
+                   g.project_id
             FROM goals g
             LEFT JOIN sessions s ON g.session_id = s.session_id
             WHERE 1=1
@@ -1359,6 +1369,7 @@ def handle_goals_list_command(args):
                     "ai_id": row[6],
                     "progress": f"{completed}/{total}",
                     "progress_pct": progress_pct,
+                    "project_id": row[9],
                 }
             )
 
@@ -1370,7 +1381,7 @@ def handle_goals_list_command(args):
             filters_applied.append(f"project={project_id[:8]}...")
         if ai_id:
             filters_applied.append(f"ai={ai_id}")
-        filter_desc = ", ".join(filters_applied) if filters_applied else "all"
+        filter_desc = "ALL project_ids (cross-project)" if all_projects else (", ".join(filters_applied) or "all")
         status_desc = "completed" if show_completed else "active"
 
         result = {
@@ -1398,35 +1409,40 @@ def handle_goals_list_command(args):
         if output_format == "json":
             # Return result - CLI core will print as JSON
             return result
-        else:
-            # Human format - print here and return None so CLI core doesn't double-print
-            print(f"{'=' * 70}")
-            if total_matching is not None and total_matching > len(goals):
-                print(
-                    f"🎯 GOALS ({status_desc.upper()}) - showing {len(goals)} of {total_matching} "
-                    f"[{filter_desc}] · raise --limit (now {limit}) to see more"
-                )
-            else:
-                print(f"🎯 GOALS ({status_desc.upper()}) - {len(goals)} found [{filter_desc}]")
-            print(f"{'=' * 70}")
-            print()
-
-            if not goals:
-                print("   (No goals found)")
-            else:
-                for i, g in enumerate(goals, 1):
-                    status_emoji = "✅" if g["is_completed"] else ("🔄" if g["progress"] != "0/0" else "⏳")
-                    print(f"{status_emoji} {i}. {g['objective'][:65]}")
-                    ai_info = f" | AI: {g['ai_id']}" if g["ai_id"] else ""
-                    print(
-                        f"   ID: {g['goal_id'][:8]}... | Progress: {g['progress']} ({g['progress_pct']:.0f}%){ai_info}"
-                    )
-                    print()
-
-            return None  # Prevents CLI core from printing dict items
+        # Human format - print here and return None so CLI core doesn't double-print
+        _print_goals_list_human(goals, status_desc, filter_desc, total_matching, limit, all_projects)
+        return None
 
     except Exception as e:
         handle_cli_error(e, "List goals", getattr(args, "verbose", False))
+
+
+def _print_goals_list_human(goals, status_desc, filter_desc, total_matching, limit, all_projects):
+    """Render goals-list human output. Extracted to keep the handler under the
+    complexity gate; `all_projects` adds a per-goal project column (gardening)."""
+    print(f"{'=' * 70}")
+    if total_matching is not None and total_matching > len(goals):
+        print(
+            f"🎯 GOALS ({status_desc.upper()}) - showing {len(goals)} of {total_matching} "
+            f"[{filter_desc}] · raise --limit (now {limit}) to see more"
+        )
+    else:
+        print(f"🎯 GOALS ({status_desc.upper()}) - {len(goals)} found [{filter_desc}]")
+    print(f"{'=' * 70}")
+    print()
+
+    if not goals:
+        print("   (No goals found)")
+        return
+    for i, g in enumerate(goals, 1):
+        status_emoji = "✅" if g["is_completed"] else ("🔄" if g["progress"] != "0/0" else "⏳")
+        print(f"{status_emoji} {i}. {g['objective'][:65]}")
+        ai_info = f" | AI: {g['ai_id']}" if g["ai_id"] else ""
+        proj_info = f" | proj: {(g['project_id'] or '(null)')[:8]}" if all_projects else ""
+        print(
+            f"   ID: {g['goal_id'][:8]}... | Progress: {g['progress']} ({g['progress_pct']:.0f}%){ai_info}{proj_info}"
+        )
+        print()
 
 
 def handle_goals_get_tasks_command(args):

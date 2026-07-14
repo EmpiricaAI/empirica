@@ -1194,6 +1194,12 @@ def add_checkpoint_parsers(subparsers):
     unknown_list_parser.add_argument("--session-id", required=False, help="Session UUID (to derive project)")
     unknown_list_parser.add_argument("--resolved", action="store_true", help="Show resolved unknowns instead of open")
     unknown_list_parser.add_argument("--all", action="store_true", dest="show_all", help="Show both open and resolved")
+    unknown_list_parser.add_argument(
+        "--all-projects",
+        action="store_true",
+        help="Cross-project view (gardening): list unknowns across ALL project_ids, not just the "
+        "active project. Adds a project column. Surfaces unknowns stranded under divergent project_ids.",
+    )
     unknown_list_parser.add_argument("--subject", help="Filter by subject/workstream")
     unknown_list_parser.add_argument("--limit", type=int, default=30, help="Max unknowns to show (default: 30)")
     unknown_list_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
@@ -2029,6 +2035,13 @@ Example:
     goals_list_parser.add_argument("--session-id", help="Derive project_id from session (convenience)")
     goals_list_parser.add_argument("--transaction-id", help="Filter by transaction ID (measurement scope)")
     goals_list_parser.add_argument("--project-id", help="Filter by project ID (structural scope)")
+    goals_list_parser.add_argument(
+        "--all-projects",
+        action="store_true",
+        help="Cross-project view (gardening): list goals across ALL project_ids, not just the "
+        "active project. Adds a project column and raises the default limit. Surfaces goals "
+        "stranded under other/divergent project_ids that the normal active-project scope hides.",
+    )
     goals_list_parser.add_argument("--scope-breadth-min", type=float, help="Filter by minimum breadth (0.0-1.0)")
     goals_list_parser.add_argument("--scope-breadth-max", type=float, help="Filter by maximum breadth (0.0-1.0)")
     goals_list_parser.add_argument("--scope-duration-min", type=float, help="Filter by minimum duration (0.0-1.0)")
