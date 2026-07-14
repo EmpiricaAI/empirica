@@ -136,6 +136,40 @@ def _preset_layer(name: str | None) -> dict[str, dict[str, float]] | None:
     return layer
 
 
+# ── calibration-stance presets (the orthogonal axis to domain personas) ──────
+# STANCE = how strictly the practice gates (owns the two is_gate thresholds:
+# ready_uncertainty + engagement_gate). PERSONA (BUILTIN_TEMPLATES) = what the
+# practice focuses on (owns weights + the soft thresholds). The key partitions
+# don't overlap, so the two axes compose cleanly (extension prop_aablfzw5).
+# ready_uncertainty is the live CHECK gate: LOWER = stricter (proceed only at
+# lower uncertainty). 'balanced' == SCHEMA defaults (the neutral baseline).
+STANCE_PRESETS: dict[str, dict[str, dict[str, float]]] = {
+    "rigorous": {"thresholds": {"ready_uncertainty": 0.25, "engagement_gate": 0.80}},
+    "balanced": {"thresholds": {"ready_uncertainty": 0.35, "engagement_gate": 0.60}},
+    "exploratory": {"thresholds": {"ready_uncertainty": 0.45, "engagement_gate": 0.50}},
+}
+
+
+def stance_names() -> set[str]:
+    """Names of the built-in calibration-stance presets."""
+    return set(STANCE_PRESETS)
+
+
+def _stance_layer(name: str | None) -> dict[str, dict[str, float]] | None:
+    """Return {thresholds: {...}} for a stance preset, or None if unknown."""
+    if not name:
+        return None
+    tpl = STANCE_PRESETS.get(name)
+    if not isinstance(tpl, dict):
+        return None
+    layer: dict[str, dict[str, float]] = {"weights": {}, "thresholds": {}}
+    for group in ("weights", "thresholds"):
+        block = tpl.get(group)
+        if isinstance(block, dict):
+            layer[group] = {str(k): float(v) for k, v in block.items()}
+    return layer
+
+
 def _clamp(spec: FieldSpec, value: Any) -> float | None:
     """Coerce+clamp a value to the spec's range, or None if not a number."""
     try:
@@ -189,22 +223,32 @@ def resolve(
 
         {
           "weights": {...}, "thresholds": {...},
-          "preset": <effective preset name or None>,
-          "sources": {"<group>.<key>": "default|preset:<name>|global|practice"},
+          "preset": <effective persona preset name or None>,
+          "stance": <effective calibration-stance preset name or None>,
+          "sources": {"<group>.<key>": "default|preset:<name>|stance:<name>|global|practice"},
           "overridden": ["<group>.<key>", ...],   # keys set above the default
         }
     """
     resolved = default_config()
     source_map: dict[tuple[str, str], str] = {(f.group, f.key): "default" for f in SCHEMA}
     effective_preset: str | None = None
+    effective_stance: str | None = None
 
     for scope_label, override in (("global", global_override), ("practice", practice_override)):
         override = override or {}
+        # Two orthogonal preset axes, then the scope's per-key sparse override
+        # (which always wins). Persona owns weights + soft thresholds; stance
+        # owns the gate thresholds — non-overlapping, so axis order is immaterial.
         preset_name = override.get("preset")
         preset = _preset_layer(preset_name)
         if preset:
             effective_preset = preset_name
             _apply_overlay(resolved, source_map, preset, f"preset:{preset_name}")
+        stance_name = override.get("stance")
+        stance = _stance_layer(stance_name)
+        if stance:
+            effective_stance = stance_name
+            _apply_overlay(resolved, source_map, stance, f"stance:{stance_name}")
         sparse = {g: (override.get(g) or {}) for g in GROUPS}
         _apply_overlay(resolved, source_map, sparse, scope_label)
 
@@ -217,6 +261,7 @@ def resolve(
         "weights": resolved["weights"],
         "thresholds": resolved["thresholds"],
         "preset": effective_preset,
+        "stance": effective_stance,
         "sources": sources,
         "overridden": overridden,
     }
@@ -256,6 +301,13 @@ def validate_patch(patch: dict) -> tuple[dict, list[str]]:
         else:
             errors.append(f"unknown preset: {name!r}")
 
+    if "stance" in patch:
+        name = patch["stance"]
+        if name is None or (isinstance(name, str) and name in stance_names()):
+            clean["stance"] = name
+        else:
+            errors.append(f"unknown stance: {name!r}")
+
     for group in GROUPS:
         block = patch.get(group)
         if block is None:
@@ -292,6 +344,12 @@ def apply_patch(scope_dir: str | Path, patch: dict) -> dict[str, Any]:
             block.pop("preset", None)
         else:
             block["preset"] = patch["preset"]
+
+    if "stance" in patch:
+        if patch["stance"] is None:
+            block.pop("stance", None)
+        else:
+            block["stance"] = patch["stance"]
 
     for group in GROUPS:
         if group not in patch:

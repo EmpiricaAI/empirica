@@ -44,8 +44,12 @@ def test_get_returns_schema_presets_and_defaults(client):
     assert body["weights"]["foundation"] == 0.35
     assert body["thresholds"]["engagement_gate"] == 0.60
     assert len(body["schema"]) == 9
-    assert "security" in body["presets"]
+    # Typed presets: two orthogonal axes (stance = gates, persona = weights).
+    assert "security" in body["presets"]["persona"]
+    assert "rigorous" in body["presets"]["stance"]
     assert body["overridden"] == []
+    assert body["stance"] is None  # no stance override by default
+    assert body["active_transaction"] is False  # global scope → no open tx
 
 
 def test_patch_global_persists_and_reflects(client):
@@ -97,3 +101,72 @@ def test_patch_reset_key_restores_default(client):
     body = client.get("/api/v1/calibration/config").json()
     assert body["thresholds"]["engagement_gate"] == 0.60  # back to default
     assert body["overridden"] == []
+
+
+# ── stance presets (orthogonal calibration-stance axis) ──────────────────────
+
+
+def test_stance_preset_moves_the_gate_meters(client):
+    """A stance PATCH moves the two gate thresholds (and only those)."""
+    resp = client.patch("/api/v1/calibration/config?scope=global", json={"stance": "rigorous"})
+    assert resp.status_code == 200
+    body = client.get("/api/v1/calibration/config").json()
+    assert body["stance"] == "rigorous"
+    assert body["thresholds"]["ready_uncertainty"] == 0.25  # stricter gate
+    assert body["thresholds"]["engagement_gate"] == 0.80
+    assert body["sources"]["thresholds.ready_uncertainty"] == "stance:rigorous"
+
+
+def test_stance_and_persona_compose_orthogonally(client):
+    """Persona owns weights; stance owns gates — they don't clobber each other."""
+    client.patch("/api/v1/calibration/config?scope=global", json={"preset": "security", "stance": "exploratory"})
+    body = client.get("/api/v1/calibration/config").json()
+    assert body["preset"] == "security"
+    assert body["stance"] == "exploratory"
+    # weights from persona
+    assert body["sources"]["weights.foundation"] == "preset:security"
+    # gate from stance
+    assert body["thresholds"]["ready_uncertainty"] == 0.45
+    assert body["sources"]["thresholds.ready_uncertainty"] == "stance:exploratory"
+
+
+def test_unknown_stance_is_422(client):
+    resp = client.patch("/api/v1/calibration/config?scope=global", json={"stance": "bogus"})
+    assert resp.status_code == 422
+
+
+def test_stance_reset_restores_default_gate(client):
+    client.patch("/api/v1/calibration/config?scope=global", json={"stance": "rigorous"})
+    client.patch("/api/v1/calibration/config?scope=global", json={"stance": None})
+    body = client.get("/api/v1/calibration/config").json()
+    assert body["stance"] is None
+    assert body["thresholds"]["ready_uncertainty"] == 0.35  # base default
+
+
+# ── active_transaction flag (defer-to-boundary surfacing) ────────────────────
+
+
+def test_active_transaction_true_when_open_tx(client, tmp_path):
+    """The flag reflects an OPEN active_transaction*.json in the practice dir."""
+    import json
+
+    emp = tmp_path / "practice-A" / ".empirica"
+    emp.mkdir(parents=True)
+    (emp / "active_transaction_tmux0.json").write_text(json.dumps({"status": "open"}))
+    body = client.get("/api/v1/calibration/config?practice_id=practice-A").json()
+    assert body["active_transaction"] is True
+
+
+def test_active_transaction_false_when_closed(client, tmp_path):
+    import json
+
+    emp = tmp_path / "practice-A" / ".empirica"
+    emp.mkdir(parents=True)
+    (emp / "active_transaction_tmux0.json").write_text(json.dumps({"status": "closed"}))
+    body = client.get("/api/v1/calibration/config?practice_id=practice-A").json()
+    assert body["active_transaction"] is False
+
+
+def test_active_transaction_false_for_global_scope(client):
+    body = client.get("/api/v1/calibration/config").json()
+    assert body["active_transaction"] is False

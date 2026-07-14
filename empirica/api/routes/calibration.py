@@ -57,19 +57,56 @@ def _resolve_practice_dir(practice_id: str) -> Path | None:
     return None
 
 
+def _practice_has_open_transaction(practice_dir: Path | None) -> bool:
+    """True when the practice has an OPEN transaction.
+
+    A tuning override applied mid-transaction would shift the calibration signal
+    under work already in flight, so the pane surfaces this to defer the change
+    to the next transaction boundary (David's defer-to-boundary model, extension
+    prop_kmnihczcx). Reads the workflow-owned ``active_transaction{suffix}.json``
+    files at ``<practice>/.empirica/`` (same source the serve daemon + Sentinel
+    firewall read). Best-effort; never raises — a read failure reports "no open
+    transaction" (fail-open to the pane's default behavior)."""
+    if practice_dir is None:
+        return False
+    try:
+        import json as _json
+
+        emp = Path(practice_dir) / ".empirica"
+        for p in emp.glob("active_transaction*.json"):
+            try:
+                d = _json.loads(p.read_text())
+            except Exception:
+                continue
+            if isinstance(d, dict) and d.get("status") == "open":
+                return True
+    except Exception:
+        return False
+    return False
+
+
 def _effective(practice_id: str | None) -> dict[str, Any]:
     """Resolve the effective config: global override always applies; practice
     override layers on top when the practice_id resolves."""
     global_ov = cc.read_override(_global_dir())
     practice_ov: dict[str, Any] = {}
+    practice_dir: Path | None = None
     if practice_id:
-        d = _resolve_practice_dir(practice_id)
-        if d is not None:
-            practice_ov = cc.read_override(d)
+        practice_dir = _resolve_practice_dir(practice_id)
+        if practice_dir is not None:
+            practice_ov = cc.read_override(practice_dir)
     resolved = cc.resolve(global_ov, practice_ov)
     resolved["schema"] = cc.schema_json()
-    resolved["presets"] = sorted(cc.preset_names())
+    # Two orthogonal preset axes (extension prop_aablfzw5): STANCE (how strictly
+    # the practice gates — moves the gate meters) + PERSONA (domain focus — moves
+    # the weight meters). resolve() already returns the effective `preset`
+    # (persona) + `stance` names.
+    resolved["presets"] = {"stance": sorted(cc.stance_names()), "persona": sorted(cc.preset_names())}
     resolved["overrides"] = {"global": global_ov, "practice": practice_ov}
+    # active_transaction: true → the pane shows "applies at next boundary" and
+    # (once A3 lands) a PATCH queues instead of applying live. Global scope has
+    # no single practice, so it's always false there.
+    resolved["active_transaction"] = _practice_has_open_transaction(practice_dir)
     return resolved
 
 
