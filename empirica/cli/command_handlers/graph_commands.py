@@ -85,6 +85,17 @@ RESOLVE_ARTIFACTS_SCHEMA = {
             "superseded_by": "<optional finding UUID that replaced this one — finding type only>",
         },
     ],
+    "filter": {
+        "_doc": "OPTIONAL bulk-by-filter mode (instead of per-id `resolutions`). "
+        "Enumerates OPEN artifacts matching the filter and resolves them — the "
+        "gardening path, so no per-id enumeration / direct-SQL is needed. DRY-RUN by default.",
+        "type": "finding | unknown",
+        "project_id": "<optional — scope to one project_id (default: any in the active DB)>",
+        "older_than": "<optional ISO date e.g. 2026-05-01 — only artifacts created before it>",
+        "matching": "<optional SQL LIKE pattern on the artifact text, e.g. 'test %'>",
+    },
+    "resolution": "<resolution text, filter mode>",
+    "apply": "<optional bool, default false — false = DRY-RUN (report matched + sample, no mutation); true = resolve>",
 }
 
 DELETE_ARTIFACTS_SCHEMA = {
@@ -727,6 +738,80 @@ def handle_log_artifacts_command(args):
         return 1
 
 
+# B1: filterable bulk resolve — enumerate OPEN artifacts by (type, project_id,
+# older_than, matching) so a gardening pass resolves in one call instead of the
+# direct-SQL workaround. SQLite-only, matching the per-id resolve path; the
+# notes-durability question is separate (tracked as its own goal).
+_FILTER_TYPES = {
+    "finding": ("project_findings", "finding"),
+    "unknown": ("project_unknowns", "unknown"),
+}
+
+
+def _resolve_by_filter(db, filt: dict, resolution: str, apply: bool) -> dict:
+    """Enumerate OPEN artifacts matching ``filt`` and (optionally) resolve them.
+
+    Dry-run by default (``apply=False``): returns matched count + a 10-row sample
+    without mutating — mirrors goals-prune's apply/dry_run safety. ``apply=True``
+    resolves via the same ``is_resolved`` flag the per-id path uses.
+    """
+    import time
+    from datetime import datetime
+
+    atype = filt.get("type")
+    if atype not in _FILTER_TYPES:
+        return {"ok": False, "error": f"filter.type must be one of {sorted(_FILTER_TYPES)}"}
+    table, textcol = _FILTER_TYPES[atype]
+
+    where = ["(is_resolved IS NOT 1)"]
+    params: list = []
+    if filt.get("project_id"):
+        where.append("project_id = ?")
+        params.append(filt["project_id"])
+    if filt.get("older_than"):
+        try:
+            cutoff = datetime.fromisoformat(str(filt["older_than"])).timestamp()
+        except ValueError:
+            return {"ok": False, "error": f"filter.older_than must be an ISO date, got {filt['older_than']!r}"}
+        where.append("created_timestamp < ?")
+        params.append(cutoff)
+    if filt.get("matching"):
+        where.append(f"{textcol} LIKE ?")
+        params.append(str(filt["matching"]))
+    clause = " AND ".join(where)
+
+    cur = db.conn.cursor()
+    cur.execute(
+        f"SELECT id, substr({textcol}, 1, 80) FROM {table} WHERE {clause} ORDER BY created_timestamp LIMIT 5000",
+        params,
+    )
+    rows = cur.fetchall()
+    sample = [{"id": r[0], "text": r[1]} for r in rows[:10]]
+
+    if not apply:
+        return {
+            "ok": True,
+            "dry_run": True,
+            "matched": len(rows),
+            "sample": sample,
+            "hint": 'dry-run — add "apply": true to resolve these',
+        }
+
+    now = time.time()
+    if atype == "finding":
+        cur.execute(
+            f"UPDATE {table} SET is_resolved = 1, resolution = ?, resolved_timestamp = ? WHERE {clause}",
+            [resolution, now, *params],
+        )
+    else:  # unknown
+        cur.execute(
+            f"UPDATE {table} SET is_resolved = 1, resolved_by = ?, resolved_timestamp = ? WHERE {clause}",
+            [resolution, now, *params],
+        )
+    db.conn.commit()
+    return {"ok": True, "dry_run": False, "resolved": cur.rowcount, "sample": sample}
+
+
 def handle_resolve_artifacts_command(args):  # noqa: C901 — batch dispatcher fan-out
     """Handle resolve-artifacts command: batch resolution of open artifacts."""
     if getattr(args, "schema", False):
@@ -754,6 +839,21 @@ def handle_resolve_artifacts_command(args):  # noqa: C901 — batch dispatcher f
         if not db.conn:
             print(json.dumps({"ok": False, "error": "No database connection"}))
             return 1
+
+        # B1: filter-based bulk resolve (instead of per-id `resolutions`).
+        # Enumerates OPEN artifacts matching the filter and resolves them;
+        # dry-run by default. Replaces the direct-SQL a garden falls back to.
+        filt = resolutions.get("filter")
+        if filt:
+            fres = _resolve_by_filter(
+                db,
+                filt,
+                resolutions.get("resolution", resolutions.get("resolved_by", "bulk resolve by filter")),
+                bool(resolutions.get("apply", False)),
+            )
+            db.close()
+            print(json.dumps(fres, indent=2))
+            return 0 if fres.get("ok") else 1
 
         resolved_count = 0
         resolution_errors: list[str] = []
