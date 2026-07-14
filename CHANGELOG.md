@@ -45,6 +45,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   signal under work already in flight. `GET` surfaces `active_transaction` and any
   `pending` (queued) override.
 
+### Changed
+- **Engagement taxonomy → canonical-4.** The vendored engagement substrate seed
+  moves to the canonical four business functions — `outreach`, `communication`,
+  `support`, `financial` — for parity with the empirica-workspace canonical seed.
+  `sales` folds into `outreach`; `security`/`infra`/`onboarding` are re-homed as
+  stages under `support` (13 stages total). Affects fresh-install seeds only.
+
+### Security
+- **Dependency CVE bumps:** `httplib2>=0.32.0` (CVE-2026-59939, unbounded
+  decompression; transitive via google-api-python-client) and `setuptools>=83.0.0`
+  (CVE-2026-59890). `pip-audit` clean.
+
 ## [1.12.21] — 2026-07-13
 
 ### Fixed
