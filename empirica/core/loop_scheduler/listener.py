@@ -45,7 +45,6 @@ Failure modes handled:
 from __future__ import annotations
 
 import base64
-import importlib.metadata
 import json
 import logging
 import os
@@ -102,13 +101,8 @@ class ListenerUpgraded(Exception):
 def _check_version_drift() -> tuple[str, str] | None:
     """Return (in_process_version, installed_version) on drift, None otherwise.
 
-    `empirica.__version__` is frozen at import time. `importlib.metadata.version`
-    re-reads the dist-info every call — pip overwrites that file on upgrade.
-    A mismatch means a pip upgrade happened under the running listener and
-    the in-memory code is stale.
-
-    Returns None on any error (missing dist-info, import failure) — drift
-    check is best-effort, must never crash the listener.
+    The pure compare lives in ``empirica.core.version_drift`` (shared with the
+    serve daemon). This wrapper layers the listener's self-heal policy on top.
 
     Opt-out via EMPIRICA_LISTENER_NO_DRIFT_EXIT: the upgrade-exit assumes a
     supervisor (systemd Restart=always / launchd KeepAlive) will relaunch
@@ -118,15 +112,9 @@ def _check_version_drift() -> tuple[str, str] | None:
     """
     if os.environ.get("EMPIRICA_LISTENER_NO_DRIFT_EXIT"):
         return None
-    try:
-        from empirica import __version__ as in_process
+    from empirica.core.version_drift import version_drift
 
-        installed = importlib.metadata.version("empirica")
-        if in_process != installed:
-            return (in_process, installed)
-    except Exception:
-        return None
-    return None
+    return version_drift()
 
 
 def _install_signal_handlers() -> None:

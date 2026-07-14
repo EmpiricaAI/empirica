@@ -17,6 +17,8 @@ API contract matches empirica-extension/src/api/empirica-client.ts:
 import json
 import logging
 import os
+import signal
+import threading
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException
@@ -58,6 +60,13 @@ class HealthResponse(BaseModel):
     # Registry of locally-known projects (v1.9.6+). Empty list when
     # ~/.empirica/registry.yaml is absent — single-project mode.
     known_projects: list[dict] = Field(default_factory=list)
+
+    # Version-drift self-heal (v1.12.22+). None when the in-process code matches
+    # the installed dist-info; otherwise {"in_process": "x", "installed": "y"} —
+    # a pip/editable upgrade landed under the running daemon and it's serving
+    # stale code. Surfaced here (always safe) so an operator / ecosystem-update /
+    # the extension can prompt a restart even when the daemon is unsupervised.
+    version_drift: dict | None = None
 
 
 class ArtifactPayload(BaseModel):
@@ -186,6 +195,87 @@ class ListenersResponse(BaseModel):
     listeners: list[ListenerRow] = Field(default_factory=list)
 
 
+# ── Version-drift self-heal ──────────────────────────────────────────
+# The serve daemon runs a blocking uvicorn loop; after a pip/editable upgrade
+# it serves stale code until restarted. Unlike the listener (which assumes a
+# supervisor and self-exits by default), serve is OFTEN standalone — a blind
+# self-exit would kill an unsupervised daemon permanently. So the policy is
+# inverted: always SURFACE drift on /health (safe), and only self-exit when a
+# relauncher is present. The pure compare is shared via core.version_drift.
+
+
+def _serve_drift_exit_enabled() -> bool:
+    """Whether serve should self-exit on drift (so a supervisor relaunches).
+
+    OFF by default — serve is often standalone and a self-exit would kill it
+    permanently. Enabled when a relauncher is present:
+      - EMPIRICA_SERVE_DRIFT_EXIT truthy — explicit opt-in, or
+      - INVOCATION_ID set — systemd runs units with it (launchd users set the
+        env var explicitly).
+    """
+    return bool(os.environ.get("EMPIRICA_SERVE_DRIFT_EXIT") or os.environ.get("INVOCATION_ID"))
+
+
+def _drift_watch_loop(interval_sec: float, stop: threading.Event) -> None:
+    """Background watch: on version drift, surface it (log) and — only when
+    supervised — gracefully self-exit (SIGTERM, so uvicorn drains in-flight
+    requests) for the supervisor to relaunch against new code.
+
+    Exits the loop after the first drift observed: /health re-checks live on
+    every request, so there's no value in re-warning every interval, and an
+    unsupervised daemon must keep serving (drift surfaced, restart is manual).
+    """
+    from empirica.core.version_drift import version_drift
+
+    while not stop.wait(interval_sec):
+        drift = version_drift()
+        if drift is None:
+            continue
+        in_proc, installed = drift
+        if _serve_drift_exit_enabled():
+            logger.warning(
+                "serve: version drift — in-process v%s, installed v%s; self-exiting for supervisor relaunch.",
+                in_proc,
+                installed,
+            )
+            os.kill(os.getpid(), signal.SIGTERM)
+        else:
+            logger.warning(
+                "serve: version drift — in-process v%s, installed v%s; unsupervised, surfaced on /health "
+                "(restart the daemon to pick up the new code).",
+                in_proc,
+                installed,
+            )
+        return
+
+
+def _make_serve_lifespan():
+    """Build the ASGI lifespan that runs the drift watcher for the app's life.
+
+    Interval from EMPIRICA_SERVE_DRIFT_CHECK_SEC (default 60s); <=0 disables the
+    watcher (the /health surfacing still works — it checks live per request)."""
+    from contextlib import asynccontextmanager
+
+    interval = float(os.environ.get("EMPIRICA_SERVE_DRIFT_CHECK_SEC", "60"))
+    stop = threading.Event()
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        if interval > 0:
+            threading.Thread(
+                target=_drift_watch_loop,
+                args=(interval, stop),
+                daemon=True,
+                name="empirica-serve-drift",
+            ).start()
+        try:
+            yield
+        finally:
+            stop.set()
+
+    return lifespan
+
+
 # ── FastAPI App ──────────────────────────────────────────────────────
 
 
@@ -196,6 +286,7 @@ def create_serve_app() -> FastAPI:
         title="Empirica Serve",
         description="Local daemon for Chrome extension integration",
         version="0.1.0",
+        lifespan=_make_serve_lifespan(),
     )
 
     # CORS: Allow chrome-extension:// and localhost origins.
@@ -246,8 +337,10 @@ def create_serve_app() -> FastAPI:
         the locally-known project registry (v1.9.6+)."""
         from empirica.api.daemon_project import get_cached_daemon_project
         from empirica.api.registry import list_known_projects
+        from empirica.core.version_drift import version_drift
 
         project = get_cached_daemon_project() or {}
+        drift = version_drift()
         return HealthResponse(
             ollama=_check_ollama(),
             qdrant=_check_qdrant(),
@@ -257,6 +350,7 @@ def create_serve_app() -> FastAPI:
             project_slug=project.get("project_slug"),
             repo_url=project.get("repo_url"),
             known_projects=list_known_projects(),
+            version_drift=({"in_process": drift[0], "installed": drift[1]} if drift else None),
         )
 
     @app.post("/api/v1/artifacts/import", response_model=ArtifactImportResponse)

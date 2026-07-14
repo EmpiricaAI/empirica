@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`empirica serve` self-heals on version drift.** After a pip/editable upgrade
+  the daemon kept serving stale code until manually restarted. It now detects the
+  drift (in-process `__version__` vs installed dist-info) and (1) **always surfaces
+  it on `GET /health`** as a `version_drift` field, so an operator, the extension, or
+  ecosystem-update can prompt a restart; and (2) **self-exits gracefully only when
+  supervised** (systemd `INVOCATION_ID`, or `EMPIRICA_SERVE_DRIFT_EXIT=1`) so the
+  supervisor relaunches against the new code. Serve is often standalone, so a blind
+  self-exit would kill an unsupervised daemon — the surface-always / exit-when-
+  supervised split is deliberate. The version compare is now shared with the mesh
+  listener via `core.version_drift`. Watch interval: `EMPIRICA_SERVE_DRIFT_CHECK_SEC`
+  (default 60s; `0` disables the watcher, `/health` still reports live).
+
 ## [1.12.21] — 2026-07-13
 
 ### Fixed

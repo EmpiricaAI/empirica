@@ -516,44 +516,40 @@ def test_tee_failure_does_not_break_stdout_stream(monkeypatch, tmp_path):
 
 
 def test_check_version_drift_returns_none_when_match(monkeypatch):
-    """No drift when in-process __version__ matches dist-info version."""
+    """No drift when in-process __version__ matches dist-info version.
+
+    The pure compare moved to empirica.core.version_drift (shared with serve);
+    importlib.metadata is a module singleton, so patching it here reaches the
+    compare regardless of which module imports it."""
+    import importlib.metadata
+
     import empirica
 
     monkeypatch.setattr(empirica, "__version__", "9.9.9")
-    monkeypatch.setattr(
-        listener_mod.importlib.metadata,
-        "version",
-        lambda _: "9.9.9",
-    )
+    monkeypatch.setattr(importlib.metadata, "version", lambda _: "9.9.9")
     assert listener_mod._check_version_drift() is None
 
 
 def test_check_version_drift_returns_tuple_on_mismatch(monkeypatch):
     """Drift returns (in_process, installed) when pip upgraded under us."""
+    import importlib.metadata
+
     import empirica
 
     monkeypatch.setattr(empirica, "__version__", "1.9.10")
-    monkeypatch.setattr(
-        listener_mod.importlib.metadata,
-        "version",
-        lambda _: "1.9.11",
-    )
+    monkeypatch.setattr(importlib.metadata, "version", lambda _: "1.9.11")
     result = listener_mod._check_version_drift()
     assert result == ("1.9.10", "1.9.11")
 
 
 def test_check_version_drift_returns_none_on_metadata_error(monkeypatch):
     """Best-effort: metadata lookup failure must not crash the listener."""
-
-    def boom(_):
-        raise importlib_metadata_error()
-
     import importlib.metadata as md
 
-    def importlib_metadata_error():
-        return md.PackageNotFoundError("empirica")
+    def boom(_):
+        raise md.PackageNotFoundError("empirica")
 
-    monkeypatch.setattr(listener_mod.importlib.metadata, "version", boom)
+    monkeypatch.setattr(md, "version", boom)
     assert listener_mod._check_version_drift() is None
 
 
@@ -574,14 +570,12 @@ def test_listener_exits_cleanly_on_version_drift(monkeypatch):
         },
     )
     # Simulate pip upgrade landed: dist-info says newer than in-process
+    import importlib.metadata
+
     import empirica
 
     monkeypatch.setattr(empirica, "__version__", "1.9.10")
-    monkeypatch.setattr(
-        listener_mod.importlib.metadata,
-        "version",
-        lambda _: "1.9.11",
-    )
+    monkeypatch.setattr(importlib.metadata, "version", lambda _: "1.9.11")
 
     def fake_factory(url, headers):
         return _FakeProc([])  # immediate EOF triggers drift check
