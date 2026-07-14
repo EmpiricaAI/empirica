@@ -387,8 +387,17 @@ def rebuild_qdrant_from_db() -> dict:
             results["failed"] += 1
             continue
 
-        # Step 2: Re-embed from DB
-        embed_result = _embed_project_from_db(project_id, db_path, project_root)
+        # Step 2: Re-embed from DB — per-project guard (mirrors the Step 1 guard
+        # above) so one bad/old-schema project DB can't crash the whole rebuild.
+        # _embed_project_from_db opens SessionDatabase (which runs migrations)
+        # before its own try block, so an old project DB missing a column (e.g.
+        # 'ai_id') would otherwise raise uncaught and abort every remaining project.
+        try:
+            embed_result = _embed_project_from_db(project_id, db_path, project_root)
+        except Exception as e:
+            results["projects"][project_name] = {"error": f"Embed failed: {e}"}
+            results["failed"] += 1
+            continue
 
         results["projects"][project_name] = {
             "collections": recreate_result,
