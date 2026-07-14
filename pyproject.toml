@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=45", "wheel"]
+requires = ["setuptools>=83.0.0", "wheel"]  # Security: CVE-2026-59890 (83.0.0 floor)
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -62,6 +62,8 @@ dependencies = [
     # Install via `pip install empirica[tui]` to enable. Headless / CI / agent
     # consumers don't need it; `empirica status --json --all` works without.
     "google-generativeai>=0.5",  # REQUIRED: For Gemini 3 / Pro access
+    "httplib2>=0.32.0",          # Security: CVE-2026-59939 unbounded decompression (transitive via google-api-python-client/google-auth-httplib2)
+    "setuptools>=83.0.0",        # Security: CVE-2026-59890 (build+runtime tool; pinned so the resolved/audited env is on the fixed line)
     "typer>=0.9",                # REQUIRED: If your CLI uses Typer (highly likely)
     "psutil>=5.9",               # REQUIRED: empirica scan (process/network inventory)
 ]
