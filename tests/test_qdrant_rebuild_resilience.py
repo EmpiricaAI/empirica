@@ -19,9 +19,7 @@ def _fake_projects(tmp_path):
         sessions = tmp_path / f"p{i}" / ".empirica" / "sessions"
         sessions.mkdir(parents=True)
         (sessions / "sessions.db").write_text("")  # existence check only
-        projs.append(
-            {"id": f"pid{i}", "name": f"proj{i}", "trajectory_path": str(sessions.parent)}
-        )
+        projs.append({"id": f"pid{i}", "name": f"proj{i}", "trajectory_path": str(sessions.parent)})
     return projs
 
 
