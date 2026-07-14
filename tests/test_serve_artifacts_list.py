@@ -139,7 +139,10 @@ def _make_project_with_db(tmp_path: Path, project_id: str) -> Path:
             confidence REAL DEFAULT 0.5,
             epistemic_layer TEXT,
             discovered_by_ai TEXT,
-            discovered_at TIMESTAMP NOT NULL
+            discovered_at TIMESTAMP NOT NULL,
+            archived BOOLEAN DEFAULT 0,
+            cortex_uuid TEXT,
+            visibility TEXT
         );
         CREATE TABLE goals (
             id TEXT PRIMARY KEY,
@@ -606,6 +609,66 @@ def test_sources_returns_sources_with_url(tmp_path, monkeypatch, reset_daemon_ca
     assert len(sources) == 1
     assert sources[0]["title"] == "RFC 7519"
     assert sources[0]["url"] == "https://example.com/spec"
+
+
+def _insert_source(db_path: Path, project_id: str, title: str, **kwargs) -> str:
+    sid = str(uuid.uuid4())
+    conn = sqlite3.connect(str(db_path))
+    conn.execute(
+        "INSERT INTO epistemic_sources (id, project_id, source_type, source_url, title, "
+        "description, confidence, discovered_at, archived, cortex_uuid, visibility) "
+        "VALUES (?, ?, 'doc', 'https://x/y', ?, 'd', 0.9, datetime('now'), ?, ?, ?)",
+        (
+            sid,
+            project_id,
+            title,
+            1 if kwargs.get("archived") else 0,
+            kwargs.get("cortex_uuid"),
+            kwargs.get("visibility", "shared"),
+        ),
+    )
+    conn.commit()
+    conn.close()
+    return sid
+
+
+def test_sources_hides_archived_by_default(tmp_path, monkeypatch, reset_daemon_cache):
+    """Regression: archived sources leaked into GET /api/v1/sources because
+    _list_sources had no archived filter — extension kept showing archived rows
+    after a DELETE-archive. Archived must be hidden unless explicitly requested."""
+    pid = str(uuid.uuid4())
+    proj = _make_project_with_db(tmp_path, pid)
+    db_path = proj / ".empirica" / "sessions" / "sessions.db"
+
+    active = _insert_source(db_path, pid, "active source", archived=False)
+    _insert_source(db_path, pid, "archived source", archived=True)
+
+    with patch("empirica.utils.session_resolver.InstanceResolver.project_path", return_value=str(proj)):
+        monkeypatch.chdir(proj)
+        client = TestClient(create_serve_app())
+        default = client.get("/api/v1/sources").json()["sources"]
+        with_arch = client.get("/api/v1/sources?include_archived=true").json()["sources"]
+
+    assert {s["id"] for s in default} == {active}, "archived source must be hidden by default"
+    assert len(with_arch) == 2, "include_archived=true surfaces both"
+
+
+def test_sources_projects_bridge_keys(tmp_path, monkeypatch, reset_daemon_cache):
+    """cortex_uuid + visibility are projected so a consumer can reconcile a local
+    source against its cortex-cloud twin via the bridge key."""
+    pid = str(uuid.uuid4())
+    proj = _make_project_with_db(tmp_path, pid)
+    db_path = proj / ".empirica" / "sessions" / "sessions.db"
+
+    _insert_source(db_path, pid, "linked", cortex_uuid="ctx-abc", visibility="shared")
+
+    with patch("empirica.utils.session_resolver.InstanceResolver.project_path", return_value=str(proj)):
+        monkeypatch.chdir(proj)
+        client = TestClient(create_serve_app())
+        src = client.get("/api/v1/sources").json()["sources"][0]
+
+    assert src["cortex_uuid"] == "ctx-abc"
+    assert src["visibility"] == "shared"
 
 
 # ── Decisions / dead-ends / mistakes — smoke ──────────────────────────

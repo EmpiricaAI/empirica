@@ -471,18 +471,35 @@ def _list_decisions(db, project_id: str, limit: int) -> list[dict[str, Any]]:
     ]
 
 
-def _list_sources(db, project_id: str, limit: int) -> list[dict[str, Any]]:
+def _list_sources(db, project_id: str, limit: int, include_archived: bool = False) -> list[dict[str, Any]]:
     cursor = db.conn.cursor()
+    # Optional columns are schema-resilient (same pattern as _list_goals, David
+    # 2026-05-17): archived (hide by default), cortex_uuid + visibility (bridge keys
+    # to the cortex-cloud source population) were added by later migrations, so old
+    # project DBs may lack them.
+    has_archived = _table_has_column(db, "epistemic_sources", "archived")
+    has_cuuid = _table_has_column(db, "epistemic_sources", "cortex_uuid")
+    has_vis = _table_has_column(db, "epistemic_sources", "visibility")
+    extra_cols = ""
+    if has_cuuid:
+        extra_cols += ", cortex_uuid"
+    if has_vis:
+        extra_cols += ", visibility"
+    # Archived filter: previously absent, so a DELETE-archived source kept surfacing
+    # (indistinguishable from active) — the "archived sources still surface in
+    # extension" bug. Hidden by default; opt-in via include_archived.
+    archived_clause = "AND (archived IS NOT 1) " if (has_archived and not include_archived) else ""
     cursor.execute(
-        "SELECT id, title, source_url, source_type, description, confidence, "
-        "epistemic_layer, session_id, discovered_by_ai, discovered_at "
-        "FROM epistemic_sources WHERE project_id = ? "
-        "ORDER BY discovered_at DESC LIMIT ?",
+        f"SELECT id, title, source_url, source_type, description, confidence, "
+        f"epistemic_layer, session_id, discovered_by_ai, discovered_at{extra_cols} "
+        f"FROM epistemic_sources WHERE project_id = ? {archived_clause}"
+        f"ORDER BY discovered_at DESC LIMIT ?",
         (project_id, limit),
     )
     rows = cursor.fetchall()
-    return [
-        {
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        d: dict[str, Any] = {
             "id": r[0],
             "type": "source",
             "title": r[1],
@@ -495,8 +512,15 @@ def _list_sources(db, project_id: str, limit: int) -> list[dict[str, Any]]:
             "discovered_by_ai": r[8],
             "created_at": _to_iso(r[9]),
         }
-        for r in rows
-    ]
+        idx = 10
+        if has_cuuid:
+            d["cortex_uuid"] = r[idx]
+            idx += 1
+        if has_vis:
+            d["visibility"] = r[idx]
+            idx += 1
+        out.append(d)
+    return out
 
 
 def _list_goals(db, project_id: str, status: str, limit: int) -> list[dict[str, Any]]:
@@ -673,9 +697,11 @@ async def list_sources(
     path: str | None = Query(None),
     entity: str | None = Query(None, description="Scope to an entity's linked artifacts (e.g. 'engagement')"),
     entity_id: str | None = Query(None, description="The entity id, required when 'entity' is set"),
+    include_archived: bool = Query(False, description="Include archived sources (hidden by default)"),
 ):
     """List sources. With ``entity=engagement&entity_id=``, scopes to that
-    engagement's linked sources via entity_artifacts (ratified boundary §4)."""
+    engagement's linked sources via entity_artifacts (ratified boundary §4).
+    Archived sources are hidden unless ``include_archived=true``."""
     allowed = _engagement_artifact_ids(entity, entity_id, "source")
     project = _resolve_project_dict(project_id, path)
     proj_pid = project.get("project_id")
@@ -683,7 +709,7 @@ async def list_sources(
         return {"sources": [], "project_id": None}
     db = _open_db_for(project)
     try:
-        rows = _list_sources(db, proj_pid, 500 if allowed is not None else limit)
+        rows = _list_sources(db, proj_pid, 500 if allowed is not None else limit, include_archived=include_archived)
         if allowed is not None:
             rows = [r for r in rows if r.get("id") in allowed][:limit]
         rows = _attach_related_to(db, rows)
