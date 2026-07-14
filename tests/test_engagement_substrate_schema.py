@@ -1,7 +1,7 @@
 """Behavior + drift-guard tests for the vendored engagement substrate.
 
 empirica core vendors the engagement-substrate schema (3 definition tables + a
-minimal engagements table + 6-domain/24-stage seeds) so a fresh install without
+minimal engagements table + canonical-4 domain/13-stage seeds) so a fresh install without
 empirica-workspace still gets the tables the engagement CLI + daemon read. The
 canonical source of truth is empirica-workspace; the drift-guard tests assert
 the vendored copy stays in parity, and the behavior tests assert both ensure
@@ -68,15 +68,18 @@ def test_engagements_has_e1_cols_and_no_contacts_fk():
     assert conn.execute("PRAGMA foreign_key_list(engagements)").fetchall() == []
 
 
-def test_seeds_six_domains_twentyfive_stages():
+def test_seeds_canonical_four_domains_thirteen_stages():
     conn = _fresh_db()
     wdb._apply_engagement_substrate(conn.cursor())
     conn.commit()
     domains = {r[0] for r in conn.execute("SELECT domain_id FROM domain_definitions").fetchall()}
-    assert domains == {"outreach", "sales", "support", "security", "infra", "onboarding"}
-    # 25 = 24 + support.resolved (CCR-1 terminal stage). Lockstep with the
-    # empirica-workspace canonical seed + its parity drift-guard.
-    assert conn.execute("SELECT COUNT(*) FROM stage_definitions").fetchone()[0] == 25
+    # Canonical-4 (David 2026-07-13): the most-generic business functions.
+    # sales folded into outreach; security/infra/onboarding re-homed as stages
+    # under support. Lockstep with the empirica-workspace canonical seed.
+    assert domains == {"outreach", "communication", "support", "financial"}
+    # 13 = 5 outreach + 5 support (incl support.resolved terminal) + 3
+    # onboarding-under-support stages.
+    assert conn.execute("SELECT COUNT(*) FROM stage_definitions").fetchone()[0] == 13
 
 
 def test_support_resolved_is_terminal():
@@ -97,8 +100,8 @@ def test_apply_is_idempotent():
     wdb._apply_engagement_substrate(cur)
     wdb._apply_engagement_substrate(cur)  # second run must not raise or duplicate
     conn.commit()
-    assert conn.execute("SELECT COUNT(*) FROM domain_definitions").fetchone()[0] == 6
-    assert conn.execute("SELECT COUNT(*) FROM stage_definitions").fetchone()[0] == 25
+    assert conn.execute("SELECT COUNT(*) FROM domain_definitions").fetchone()[0] == 4
+    assert conn.execute("SELECT COUNT(*) FROM stage_definitions").fetchone()[0] == 13
 
 
 def test_ensure_workspace_schema_creates_substrate():
@@ -157,21 +160,20 @@ def test_drift_guard_definition_tables_match_canonical():
 
 
 def test_vendored_seed_ids_are_the_documented_canonical_set():
-    """Guards the vendored seed constants against accidental edits. The canonical
-    set (6 domains + 25 stage ids, incl. support.resolved) is documented in
+    """Guards the vendored seed constants against accidental edits. The canonical-4
+    set (4 domains + 13 stage ids, incl. support.resolved) is documented in
     empirica-workspace WorkspaceDatabase._seed_engagement_domains."""
     assert {d[0] for d in wdb._DEFAULT_ENGAGEMENT_DOMAINS} == {
         "outreach",
-        "sales",
+        "communication",
         "support",
-        "security",
-        "infra",
-        "onboarding",
+        "financial",
     }
     stage_ids = [s[0] for s in wdb._DEFAULT_ENGAGEMENT_STAGES]
-    assert len(stage_ids) == 25
-    assert len(set(stage_ids)) == 25  # no dupes
+    assert len(stage_ids) == 13
+    assert len(set(stage_ids)) == 13  # no dupes
     assert "support.resolved" in stage_ids
-    # every stage namespaced under one of the 6 domains
+    # every stage namespaced under one of the canonical-4 domains (all under
+    # outreach/support; communication + financial carry no stages yet)
     domains = {d[0] for d in wdb._DEFAULT_ENGAGEMENT_DOMAINS}
     assert all(sid.split(".", 1)[0] in domains for sid in stage_ids)

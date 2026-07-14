@@ -68,9 +68,9 @@ def test_create_invalid_domain_errors(capsys):
 
 
 def test_create_is_idempotent(capsys):
-    a = _args(title="Dup", id="e-dup", domain="sales")
+    a = _args(title="Dup", id="e-dup", domain="outreach")
     _run(handle_engagement_create_command, a, capsys)
-    code, payload = _run(handle_engagement_create_command, _args(title="Dup", id="e-dup", domain="sales"), capsys)
+    code, payload = _run(handle_engagement_create_command, _args(title="Dup", id="e-dup", domain="outreach"), capsys)
     assert code == 0
     assert payload["sidecar_created"] is False  # second run is a no-op create
 

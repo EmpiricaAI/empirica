@@ -59,7 +59,7 @@ def test_create_validates_domain_and_stage(repo):
     with pytest.raises(ValueError, match="unknown engagement stage"):
         repo.create_engagement("e3", "x", domain="support", stage="support.nope")
     with pytest.raises(ValueError, match="belongs to domain"):
-        repo.create_engagement("e4", "x", domain="support", stage="sales.lead")
+        repo.create_engagement("e4", "x", domain="support", stage="outreach.lead")
 
 
 def test_get_missing_returns_none(repo):
@@ -285,26 +285,31 @@ def test_update_no_fields_is_noop_read(repo):
 
 
 def test_list_domains_seeded(repo):
+    # Canonical-4 (David 2026-07-13): sales→outreach, security/infra/onboarding
+    # re-homed as stages under support.
     assert {d["domain_id"] for d in repo.list_domains()} == {
         "outreach",
-        "sales",
+        "communication",
         "support",
-        "security",
-        "infra",
-        "onboarding",
+        "financial",
     }
 
 
 def test_list_stages_for_domain_ordered(repo):
     stages = repo.list_stages("support")
+    # Canonical-4: support absorbs the onboarding sub-funnel (ordinals 15/25/45),
+    # interleaved with the ticket funnel by ordinal.
     assert [s["stage_id"] for s in stages] == [
-        "support.new",
-        "support.triaged",
-        "support.in_progress",
-        "support.waiting_customer",
-        "support.resolved",  # CCR-1 terminal stage (ordinal 50)
+        "support.new",  # 10
+        "support.onboarding_kickoff",  # 15
+        "support.triaged",  # 20
+        "support.onboarding_provisioning",  # 25
+        "support.in_progress",  # 30
+        "support.waiting_customer",  # 40
+        "support.onboarding_live",  # 45 (terminal)
+        "support.resolved",  # 50 (terminal)
     ]
-    # the terminal stage carries is_terminal=1
+    # the last stage (support.resolved, ordinal 50) is terminal
     assert stages[-1]["is_terminal"] == 1
 
 

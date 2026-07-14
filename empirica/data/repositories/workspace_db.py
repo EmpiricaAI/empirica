@@ -201,43 +201,39 @@ def _ensure_workspace_schema(conn: sqlite3.Connection) -> None:
 # Parity is asserted by tests/test_engagement_substrate_schema.py (drift-guard).
 
 _DEFAULT_ENGAGEMENT_DOMAINS = [
-    ("outreach", "Outreach", "Platform publishing, audience cultivation, content engagement"),
-    ("sales", "Sales", "Commercial pipeline, qualification to close"),
-    ("support", "Support", "Customer-reported issues, ticket triage and resolution"),
-    ("security", "Security", "Vulnerability reports, incident response, mitigation"),
-    ("infra", "Infra", "Infrastructure work, capacity, observability"),
-    ("onboarding", "Onboarding", "Customer kickoff to provisioning to live"),
+    # Canonical-4 (David 2026-07-13): the most-generic business functions.
+    # sales/security/infra/onboarding are TYPES/stages UNDER these, not domains.
+    # Mirrors empirica-workspace canonical seed (parity drift-guard).
+    (
+        "outreach",
+        "Outreach",
+        "Outbound prospecting, audience cultivation, sales pipeline (sales is a type under outreach)",
+    ),
+    ("communication", "Communication", "Communications, PR, messaging (content is a type under comms/outreach)"),
+    ("support", "Support", "After-sales service, ticket triage; onboarding/security/infra are types under support"),
+    ("financial", "Financial", "Billing, payments, finance operations"),
 ]
 
 _DEFAULT_ENGAGEMENT_STAGES = [
+    # outreach funnel (covers the sales pipeline: lead -> qualified -> proposing -> negotiating)
     ("outreach.lead", "outreach", "Lead", 10),
     ("outreach.qualified", "outreach", "Qualified", 20),
     ("outreach.engaged", "outreach", "Engaged", 30),
     ("outreach.proposing", "outreach", "Proposing", 40),
     ("outreach.negotiating", "outreach", "Negotiating", 50),
-    ("sales.lead", "sales", "Lead", 10),
-    ("sales.qualified", "sales", "Qualified", 20),
-    ("sales.proposal", "sales", "Proposal", 30),
-    ("sales.negotiation", "sales", "Negotiation", 40),
-    ("sales.closed", "sales", "Closed", 50),
+    # support ticket funnel
     ("support.new", "support", "New", 10),
     ("support.triaged", "support", "Triaged", 20),
     ("support.in_progress", "support", "In progress", 30),
     ("support.waiting_customer", "support", "Waiting customer", 40),
-    # Terminal stage (5-tuple: trailing is_terminal=1). The X2 board's 'resolved'
-    # column shows terminal cards with their outcome badge. Lockstep with
+    # Terminal stage (5-tuple: trailing is_terminal=1). Lockstep with
     # empirica-workspace canonical seed (parity drift-guard).
     ("support.resolved", "support", "Resolved", 50, 1),
-    ("security.reported", "security", "Reported", 10),
-    ("security.triaged", "security", "Triaged", 20),
-    ("security.mitigating", "security", "Mitigating", 30),
-    ("security.verified", "security", "Verified", 40),
-    ("infra.planned", "infra", "Planned", 10),
-    ("infra.in_progress", "infra", "In progress", 20),
-    ("infra.deployed", "infra", "Deployed", 30),
-    ("onboarding.kickoff", "onboarding", "Kickoff", 10),
-    ("onboarding.provisioning", "onboarding", "Provisioning", 20),
-    ("onboarding.live", "onboarding", "Live", 30),
+    # onboarding re-homed from its own domain -> stages under support
+    # (David 2026-07-13: onboarding is after-sales service = support; prime org-scoped case)
+    ("support.onboarding_kickoff", "support", "Onboarding kickoff", 15),
+    ("support.onboarding_provisioning", "support", "Onboarding provisioning", 25),
+    ("support.onboarding_live", "support", "Onboarding live", 45, 1),  # terminal: provisioning complete
 ]
 
 # Engagement enums — enforced app-side. The engagement is an OPERATIONAL row

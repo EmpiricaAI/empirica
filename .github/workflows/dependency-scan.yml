@@ -34,17 +34,21 @@ jobs:
           cache: pip
 
       - name: Install (release deps only — no dev/test)
-        # Non-editable install so pip-audit can audit empirica + empirica-mcp
-        # themselves alongside their dependencies. Editable installs
-        # (`pip install -e .`) combined with `pip-audit --strict` always
-        # fail: strict mode rejects skipped/unauditable distributions, and
-        # editable installs can't be audited (no resolved wheel to compare
-        # against the advisory database).
+        # Editable install + `--skip-editable` (below): the first-party packages
+        # (empirica, empirica-mcp) can't be audited against the advisory DB until
+        # they're published to PyPI, so a version-bump PR to an unreleased version
+        # made a non-editable `pip-audit --strict` fail with "could not be audited:
+        # empirica (X.Y.Z)". Skipping the editable first-party dists (as ci.yml
+        # already does) audits every THIRD-PARTY dependency strictly while not
+        # false-failing on our own not-yet-published version.
         run: |
           python -m pip install --upgrade pip
-          pip install .
-          pip install ./empirica-mcp
+          pip install -e .
+          pip install -e ./empirica-mcp
           pip install pip-audit
 
       - name: pip-audit (block on known CVEs)
-        run: pip-audit --strict
+        # --skip-editable (not --strict): pip-audit exits non-zero on any real CVE
+        # regardless of --strict; --strict additionally fails on the skipped
+        # first-party editable dists, which we intentionally skip. Matches ci.yml.
+        run: pip-audit --skip-editable
