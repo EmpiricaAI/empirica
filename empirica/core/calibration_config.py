@@ -25,11 +25,14 @@ never widens it) with the Brier overconfidence-floor still tightening on top.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -332,24 +335,16 @@ def validate_patch(patch: dict) -> tuple[dict, list[str]]:
     return clean, errors
 
 
-def apply_patch(scope_dir: str | Path, patch: dict) -> dict[str, Any]:
-    """Merge a validated sparse patch into a scope's override file (creating it
-    if absent). A ``None`` value removes that key (reset-to-default). Returns the
-    resulting override block. Callers should ``validate_patch`` first."""
-    p = override_path(scope_dir)
-    block = read_override(scope_dir)
-
-    if "preset" in patch:
-        if patch["preset"] is None:
-            block.pop("preset", None)
-        else:
-            block["preset"] = patch["preset"]
-
-    if "stance" in patch:
-        if patch["stance"] is None:
-            block.pop("stance", None)
-        else:
-            block["stance"] = patch["stance"]
+def _merge_patch(block: dict[str, Any], patch: dict) -> dict[str, Any]:
+    """Merge a validated sparse patch into an override block in place. A ``None``
+    value removes that key (reset-to-default). Handles the two preset axes
+    (preset/stance) + the weights/thresholds groups. Returns the block."""
+    for axis in ("preset", "stance"):
+        if axis in patch:
+            if patch[axis] is None:
+                block.pop(axis, None)
+            else:
+                block[axis] = patch[axis]
 
     for group in GROUPS:
         if group not in patch:
@@ -366,13 +361,80 @@ def apply_patch(scope_dir: str | Path, patch: dict) -> dict[str, Any]:
             block[group] = gblock
         else:
             block.pop(group, None)
-
-    p.parent.mkdir(parents=True, exist_ok=True)
-    if block:
-        p.write_text(yaml.safe_dump(block, default_flow_style=False, sort_keys=False), encoding="utf-8")
-    elif p.exists():
-        p.unlink()  # nothing left to override → remove the file
     return block
+
+
+def _write_block(path: Path, block: dict[str, Any]) -> None:
+    """Persist an override block to path (removing the file when empty)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if block:
+        path.write_text(yaml.safe_dump(block, default_flow_style=False, sort_keys=False), encoding="utf-8")
+    elif path.exists():
+        path.unlink()  # nothing left to override → remove the file
+
+
+def apply_patch(scope_dir: str | Path, patch: dict) -> dict[str, Any]:
+    """Merge a validated sparse patch into a scope's LIVE override file (creating
+    it if absent). A ``None`` value removes that key (reset-to-default). Returns
+    the resulting override block. Callers should ``validate_patch`` first."""
+    block = _merge_patch(read_override(scope_dir), patch)
+    _write_block(override_path(scope_dir), block)
+    return block
+
+
+# ── defer-to-boundary: queue a tuning override during an open transaction ─────
+# Tuning weights/thresholds mid-transaction would shift the calibration signal
+# under work already in flight. David's model (extension prop_kmnihczcx): a PATCH
+# during an open transaction is ALWAYS accepted, but QUEUED to a pending store and
+# promoted to the live override at the practice's next PREFLIGHT (transaction-
+# atomic config) — never mid-work.
+
+_PENDING_FILENAME = "calibration.pending.yaml"
+
+
+def pending_override_path(scope_dir: str | Path) -> Path:
+    """The queued-override file inside a scope's .empirica dir."""
+    return Path(scope_dir) / ".empirica" / _PENDING_FILENAME
+
+
+def read_pending(scope_dir: str | Path) -> dict[str, Any]:
+    """Read a scope's queued override ({} if absent/unreadable)."""
+    p = pending_override_path(scope_dir)
+    if not p.exists():
+        return {}
+    try:
+        data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def queue_pending(scope_dir: str | Path, patch: dict) -> dict[str, Any]:
+    """Accumulate a validated sparse patch into the PENDING store (applied at the
+    next PREFLIGHT, not live). Same merge semantics as apply_patch — multiple
+    PATCHes before the boundary accumulate. Callers should ``validate_patch``."""
+    block = _merge_patch(read_pending(scope_dir), patch)
+    _write_block(pending_override_path(scope_dir), block)
+    return block
+
+
+def promote_pending(scope_dir: str | Path) -> dict[str, Any]:
+    """Promote any queued override into the LIVE override, then clear pending.
+    Called at PREFLIGHT (the transaction boundary). Returns the promoted patch
+    ({} if nothing was queued). Best-effort clear; never raises on the unlink."""
+    pending = read_pending(scope_dir)
+    if not pending:
+        return {}
+    apply_patch(scope_dir, pending)
+    try:
+        p = pending_override_path(scope_dir)
+        if p.exists():
+            p.unlink()
+    except Exception as e:
+        # Non-fatal: the override already applied to live; a stale pending file
+        # just re-promotes (idempotently) at the next PREFLIGHT.
+        logger.debug("calibration: pending clear failed (will re-promote): %s", e)
+    return pending
 
 
 # ── runtime resolution (entry point for enforcement wiring) ──────────────────

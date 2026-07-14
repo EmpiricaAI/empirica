@@ -217,6 +217,20 @@ def _preflight_enrich_transaction_file(resolved_project_path, parsed):
         logger.warning(f"Transaction enrichment failed: {e}")
 
 
+def _preflight_promote_pending_calibration(resolved_project_path):
+    """Apply a calibration override that was queued (deferred-to-boundary) while a
+    prior transaction was open. Called at PREFLIGHT — the transaction boundary.
+    Best-effort: never blocks PREFLIGHT (a bad/missing pending file is a no-op)."""
+    try:
+        from empirica.core import calibration_config as cc
+
+        promoted = cc.promote_pending(resolved_project_path)
+        if promoted:
+            logger.info("PREFLIGHT: promoted deferred calibration override %s", promoted)
+    except Exception as e:
+        logger.debug("calibration pending-promote skipped: %s", e)
+
+
 def _preflight_write_transaction_file(session_id, transaction_id, parsed):
     """Persist active transaction file and enrich with work parameters.
 
@@ -232,6 +246,12 @@ def _preflight_write_transaction_file(session_id, transaction_id, parsed):
     if not resolved_project_path:
         logger.warning("Cannot determine project_path for transaction file - no context found")
         return None
+
+    # Defer-to-boundary: promote any calibration override queued while a PRIOR
+    # transaction was open (the extension's Sentinel-tuning pane queues rather
+    # than applying mid-work). This PREFLIGHT is that boundary — apply it now so
+    # the new transaction runs under the promoted config. Best-effort.
+    _preflight_promote_pending_calibration(resolved_project_path)
 
     R.transaction_write(
         transaction_id=transaction_id,

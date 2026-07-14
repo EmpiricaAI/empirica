@@ -170,3 +170,67 @@ def test_active_transaction_false_when_closed(client, tmp_path):
 def test_active_transaction_false_for_global_scope(client):
     body = client.get("/api/v1/calibration/config").json()
     assert body["active_transaction"] is False
+
+
+# ── defer-to-boundary (queue during open transaction, promote at PREFLIGHT) ───
+
+
+def test_patch_defers_during_open_transaction(client, tmp_path):
+    """A practice PATCH with an open transaction is queued, not applied live."""
+    import json
+
+    from empirica.core import calibration_config as cc
+
+    emp = tmp_path / "practice-A" / ".empirica"
+    emp.mkdir(parents=True)
+    (emp / "active_transaction_tmux0.json").write_text(json.dumps({"status": "open"}))
+
+    resp = client.patch(
+        "/api/v1/calibration/config?scope=practice&practice_id=practice-A",
+        json={"stance": "rigorous"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["deferred"] is True
+    assert body["active_transaction"] is True
+    # NOT applied live yet — effective stance still None, queued in pending.
+    assert body["stance"] is None
+    assert body["pending"].get("stance") == "rigorous"
+    assert cc.read_override(tmp_path / "practice-A") == {}  # live untouched
+
+    # Promote at the boundary → live now carries it, pending cleared.
+    promoted = cc.promote_pending(tmp_path / "practice-A")
+    assert promoted.get("stance") == "rigorous"
+    assert cc.read_override(tmp_path / "practice-A").get("stance") == "rigorous"
+    assert cc.read_pending(tmp_path / "practice-A") == {}
+
+
+def test_patch_applies_live_when_no_open_transaction(client, tmp_path):
+    """Without an open transaction, a practice PATCH applies immediately."""
+    from empirica.core import calibration_config as cc
+
+    resp = client.patch(
+        "/api/v1/calibration/config?scope=practice&practice_id=practice-A",
+        json={"stance": "exploratory"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["deferred"] is False
+    assert body["stance"] == "exploratory"  # live
+    assert cc.read_override(tmp_path / "practice-A").get("stance") == "exploratory"
+
+
+def test_queued_patches_accumulate_then_promote_together(tmp_path):
+    """Multiple PATCHes before the boundary accumulate; one promote applies all."""
+    from empirica.core import calibration_config as cc
+
+    d = tmp_path / "prac"
+    (d / ".empirica").mkdir(parents=True)
+    cc.queue_pending(d, {"stance": "rigorous"})
+    cc.queue_pending(d, {"preset": "security"})
+    pending = cc.read_pending(d)
+    assert pending.get("stance") == "rigorous" and pending.get("preset") == "security"
+    cc.promote_pending(d)
+    live = cc.read_override(d)
+    assert live.get("stance") == "rigorous" and live.get("preset") == "security"
+    assert cc.read_pending(d) == {}
