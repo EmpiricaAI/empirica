@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`artifacts-generate --format okf` — export the epistemic graph as an Open
+  Knowledge Format bundle.** OKF (Google Cloud, 2026) is a portable, vendor-neutral
+  markdown format: a directory of concept files with YAML frontmatter, linked by
+  markdown links. `--format okf` projects each empirica artifact (finding, decision,
+  unknown, dead-end, mistake, assumption, goal) into one OKF concept file with the
+  required `type` field plus `title`/`description`/`tags`/`timestamp`, and an
+  `index.md`. Empirica's calibration layer — impact, confidence, provenance — rides
+  as `empirica_*` frontmatter **extension keys** (OKF permits arbitrary keys), so
+  OKF-aware consumers get the calibrated graph and plain OKF consumers still get a
+  valid bundle. This is the "knowledge out" interop surface: the graph other agents
+  and tools can consume without an Empirica account. `--format audit` (the browsable
+  per-type trail) remains the default.
 - **`empirica serve` self-heals on version drift.** After a pip/editable upgrade
   the daemon kept serving stale code until manually restarted. It now detects the
   drift (in-process `__version__` vs installed dist-info) and (1) **always surfaces
