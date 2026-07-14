@@ -2449,7 +2449,15 @@ written to git notes (breadcrumbs ref) for audit trail.
     rebuild_parser.add_argument(
         "--from-notes", action="store_true", default=True, help="Rebuild from git notes (default)"
     )
-    rebuild_parser.add_argument("--qdrant", action="store_true", help="Also rebuild Qdrant embeddings")
+    rebuild_parser.add_argument(
+        "--qdrant", action="store_true", help="Rebuild SQLite from notes FIRST, then also rebuild Qdrant"
+    )
+    rebuild_parser.add_argument(
+        "--qdrant-only",
+        action="store_true",
+        help="Re-embed Qdrant from CURRENT SQLite only, SKIPPING the notes->SQLite rebuild "
+        "(safe resync after direct-SQL/bulk changes not yet persisted to git notes)",
+    )
     rebuild_parser.add_argument("--output", choices=["human", "json"], default="json", help="Output format")
     rebuild_parser.add_argument("--verbose", action="store_true", help="Show detailed operation info")
 

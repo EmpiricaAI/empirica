@@ -941,6 +941,32 @@ def handle_rebuild_command(args):
         output_format = getattr(args, "output", "json")
         from_notes = getattr(args, "from_notes", True)
         qdrant = getattr(args, "qdrant", False)
+        qdrant_only = getattr(args, "qdrant_only", False)
+
+        # --qdrant-only: re-embed Qdrant from CURRENT SQLite WITHOUT the notes-import
+        # step. The default path (_rebuild_from_notes) reconstructs SQLite from git notes
+        # FIRST, which reverts any direct-SQL/bulk change not yet persisted to notes
+        # (e.g. an epistemic-garden bulk resolve). This flag is the safe resync path after
+        # such changes: it touches Qdrant only, never SQLite.
+        if qdrant_only:
+            from empirica.core.qdrant.vector_store import rebuild_qdrant_from_db
+
+            qdrant_result = rebuild_qdrant_from_db()
+            ok = bool(qdrant_result.get("ok"))
+            result = {
+                "ok": ok,
+                "qdrant": qdrant_result,
+                "message": "Rebuilt Qdrant from current SQLite (notes-import skipped)",
+            }
+            if output_format == "json":
+                print(json.dumps(result, indent=2, default=str))
+            else:
+                print(
+                    "✅ Rebuilt Qdrant from current SQLite (notes-import skipped)"
+                    if ok
+                    else f"❌ Qdrant rebuild failed: {qdrant_result.get('error', 'unknown')}"
+                )
+            return 0 if ok else 1
 
         if not from_notes:
             result = {"ok": False, "error": "Only --from-notes rebuild is currently supported"}
