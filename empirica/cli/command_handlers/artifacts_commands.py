@@ -1187,6 +1187,7 @@ def handle_artifacts_generate_command(args):
         verbose = getattr(args, "verbose", False)
         output_format = getattr(args, "output", "text")
         output_dir = getattr(args, "output_dir", None)
+        bundle_format = getattr(args, "format", "audit")
 
         result = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True)
         if result.returncode != 0:
@@ -1194,6 +1195,24 @@ def handle_artifacts_generate_command(args):
             return 1
 
         workspace_root = result.stdout.strip()
+
+        # OKF format: portable Open Knowledge Format bundle (one concept per
+        # artifact) instead of the browsable per-type audit trail.
+        if bundle_format == "okf":
+            from empirica.core.okf_export import generate_okf_bundle
+
+            okf = generate_okf_bundle(
+                workspace_root=workspace_root,
+                output_dir=output_dir,
+                verbose=(verbose or output_format != "json"),
+            )
+            if output_format == "json":
+                print(json.dumps(okf, indent=2))
+            else:
+                print(f"\n✅ OKF bundle: {okf['concept_count']} concepts in {okf['output_dir']}/")
+                for t, n in sorted(okf.get("by_type", {}).items()):
+                    print(f"   {t}: {n}")
+            return 0
 
         result = generate_artifacts(
             workspace_root=workspace_root,

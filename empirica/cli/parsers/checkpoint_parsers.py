@@ -2444,6 +2444,15 @@ written to git notes (breadcrumbs ref) for audit trail.
     artifacts_parser = subparsers.add_parser(
         "artifacts-generate", help="Generate browsable .empirica/ markdown files from git notes"
     )
-    artifacts_parser.add_argument("--output-dir", help="Output directory (default: .empirica/)")
+    artifacts_parser.add_argument(
+        "--output-dir", help="Output directory (default: .empirica/, or .empirica/okf/ for OKF)"
+    )
     artifacts_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
+    artifacts_parser.add_argument(
+        "--format",
+        choices=["audit", "okf"],
+        default="audit",
+        help="Bundle format: 'audit' = browsable per-type markdown (default); "
+        "'okf' = Open Knowledge Format bundle (one concept per artifact, portable/AI-friendly)",
+    )
     artifacts_parser.add_argument("--verbose", action="store_true", help="Show detailed operation info")
