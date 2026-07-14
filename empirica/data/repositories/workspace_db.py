@@ -922,6 +922,39 @@ class WorkspaceDBRepository(BaseRepository):
         )
         self.commit()
 
+    def upsert_organization_detail(
+        self,
+        org_id: str,
+        name: str,
+        domain: str | None = None,
+        industry: str | None = None,
+        org_type: str | None = None,
+        description: str | None = None,
+        tags: str | None = None,
+    ) -> None:
+        """Insert or update an organizations-table detail row alongside the
+        entity_registry entry. Idempotent — ON CONFLICT(org_id) DO UPDATE.
+        The ``tags`` field is a raw JSON array string (None = skip). Called
+        from ``mint_entity`` when entity_type == ``organization`` to close the
+        registry-without-detail orphan gap (SER ser_5aeddc9d).
+        """
+        now = time.time()
+        self._execute(
+            """INSERT INTO organizations
+               (org_id, name, domain, industry, org_type, description, tags, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(org_id) DO UPDATE SET
+                   name = excluded.name,
+                   domain = excluded.domain,
+                   industry = excluded.industry,
+                   org_type = excluded.org_type,
+                   description = excluded.description,
+                   tags = excluded.tags,
+                   updated_at = excluded.updated_at""",
+            (org_id, name, domain, industry, org_type, description, tags, now, now),
+        )
+        self.commit()
+
     def update_entity_metadata(self, entity_type: str, entity_id: str, patch: dict[str, Any]) -> bool:
         """Merge ``patch`` into an entity's metadata JSON (read-merge-write).
 

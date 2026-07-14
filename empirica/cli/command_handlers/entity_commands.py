@@ -365,6 +365,21 @@ def mint_entity(
         # engagement-create (written to the sidecar after this mint); the stable
         # point id makes that a clean idempotent enrichment.
         _embed_entity_row(entity_type, eid, name, description, metadata)
+        # Write the organizations-table detail row alongside the registry entry
+        # to close the registry-without-detail orphan gap (SER ser_5aeddc9d).
+        # Org-specific fields (domain/industry/org_type) are extracted from
+        # extra_metadata — fleet members pass --metadata '{...}' on the CLI.
+        if entity_type == "organization":
+            meta = extra_metadata or {}
+            repo.upsert_organization_detail(
+                org_id=eid,
+                name=name,
+                domain=meta.get("domain"),
+                industry=meta.get("industry"),
+                org_type=meta.get("org_type", "prospect"),
+                description=description,
+                tags=json.dumps(meta["tags"]) if isinstance(meta.get("tags"), list) else None,
+            )
         return {"ok": True, "entity_id": eid, "created": created, "matched_by": None if created else "id"}
 
     if repo is not None:
