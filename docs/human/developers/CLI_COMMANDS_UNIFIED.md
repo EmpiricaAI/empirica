@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.12.22
-**Generated:** 2026-07-14 13:00:08 UTC
+**Framework version:** 1.12.23
+**Generated:** 2026-07-15 17:40:40 UTC
 **Total commands:** 269 (across 26 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -376,6 +376,8 @@ List goals in the current project. Default: active (in_progress). Use --status {
   Filter by transaction ID (measurement scope)
 - `--project-id` — optional
   Filter by project ID (structural scope)
+- `--all-projects` — optional · flag
+  Cross-project view (gardening): list goals across ALL project_ids, not just the active project. Adds a project column and raises the default limit. Surfaces goals stranded under other/divergent project_ids that the normal active-project scope hides.
 - `--scope-breadth-min` — optional · type=`float`
   Filter by minimum breadth (0.0-1.0)
 - `--scope-breadth-max` — optional · type=`float`
@@ -764,6 +766,8 @@ List open project unknowns (default) or resolved ones with --resolved. Useful at
   Show resolved unknowns instead of open
 - `--all` — optional · flag
   Show both open and resolved
+- `--all-projects` — optional · flag
+  Cross-project view (gardening): list unknowns across ALL project_ids, not just the active project. Adds a project column. Surfaces unknowns stranded under divergent project_ids.
 - `--subject` — optional
   Filter by subject/workstream
 - `--limit` — optional · type=`int` · default=`30`
@@ -2395,7 +2399,9 @@ Reconstruct SQLite from git notes
 - `--from-notes` — optional · flag · default=`True`
   Rebuild from git notes (default)
 - `--qdrant` — optional · flag
-  Also rebuild Qdrant embeddings
+  Rebuild SQLite from notes FIRST, then also rebuild Qdrant
+- `--qdrant-only` — optional · flag
+  Re-embed Qdrant from CURRENT SQLite only, SKIPPING the notes->SQLite rebuild (safe resync after direct-SQL/bulk changes not yet persisted to git notes)
 - `--output` — optional · type=`choice` · choices={human, json} · default=`json`
   Output format
 - `--verbose` — optional · flag
