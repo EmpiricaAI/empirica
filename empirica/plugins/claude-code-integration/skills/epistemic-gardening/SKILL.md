@@ -1,7 +1,7 @@
 ---
 name: epistemic-gardening
 description: "Use when the user says '/epistemic-gardening', 'garden the graph', 'de-weed', 'prune artifacts', 'epistemic hygiene', 'clean up findings/goals/sources', 'graph hygiene pass', or 'pre-release cleanup'. A PRAXIC pass that de-weeds a practice's epistemic graph — resolve stale/superseded findings, close answered unknowns, verify or drop assumptions, archive done goals and stale sources, prune dangling edges — so retrieval surfaces what's live, not what's rotted. Includes the mesh-wide propagation pattern for getting every practice to garden."
-version: 1.0.0
+version: 1.1.0
 ---
 
 # Epistemic Gardening 🌱
@@ -149,8 +149,29 @@ edges. Success: bootstrap/EPISTEMIC FOCUS surfaces only live artifacts."
 
 ### Phase 1 — Survey (noetic: what's in the graph)
 
-Read the current state before touching anything. `log-artifacts -` with an empty payload
-is not how you read — use these:
+**First, see the WHOLE graph — the list verbs lie by omission.** `goals-list` /
+`unknown-list` scope to the *active* project's top-N, so artifacts stranded under other or
+**divergent `project_id`s are invisible**. A practice's graph scatters across many
+`project_id`s over time (wrong-project logging, identity divergence) — one real pass found
+artifacts spread across **12 ids** while the default view showed a fraction. You cannot
+garden what you cannot see, so start with the full view and diagnose the scatter:
+
+```bash
+empirica goals-list --all-projects       # every project_id, not the active top-N
+empirica unknown-list --all-projects
+# Diagnose the scatter (noetic — plain SELECT):
+sqlite3 .empirica/sessions/sessions.db \
+  "SELECT project_id, COUNT(*) FROM project_findings WHERE is_resolved IS NOT 1 GROUP BY project_id ORDER BY 2 DESC"
+```
+
+**Structural-first beats N triage passes.** If artifacts are scattered, *consolidate
+identity first* — reattach your-own divergent-dups to the live `project_id`; resolve
+genuinely-other-practice orphans (their home practice holds the canonical copy) — THEN
+triage the now-single-project graph. Fixing the scatter once is cheaper than gardening
+each stray id separately.
+
+Then read the current state before touching anything. `log-artifacts -` with an empty
+payload is not how you read — use these:
 
 ```bash
 empirica goals-list                              # open/planned/in_progress + stale candidates
@@ -205,6 +226,23 @@ empirica resolve-artifacts - << 'EOF'
 EOF
 ```
 
+**Bulk-by-filter (the *mass-policy* mechanism — dry-run by default).** When clearing a
+backlog by policy rather than per-id, `resolve-artifacts` takes a `filter` block:
+enumerate OPEN findings/unknowns by `older_than` / `matching` / `project_id` and resolve
+them in one call. **Dry-run first** (`apply:false` — reports matched count + a sample),
+read it, THEN `apply:true`. This is the safe mechanism — **never hand-write SQL** (not
+durable, not the pattern to teach). Findings are retrieval *substrate*: filter to clear
+*noise* (test-noise, cross-project orphans), and preserve high-impact durable keepers —
+`null` impact is **not** a noise signal.
+```bash
+# DRY-RUN — what would resolve?
+echo '{"filter":{"type":"finding","matching":"test %"},"resolution":"test-noise","apply":false}' \
+  | empirica resolve-artifacts -
+# then re-run with "apply": true to commit
+```
+Per the register split above, filter-mode is *mass-policy* — deliberate, with sign-off on
+the policy (which gate, which keepers) — not the everyday move.
+
 **Goals** — close, archive, or mark stale:
 ```bash
 empirica goals-complete --goal-id <id> --reason "<evidence>"
@@ -243,8 +281,11 @@ empirica goals-list                                        # closed/archived gon
 
 If a resolved finding still surfaces, its Qdrant payload predates #307 — the read-time
 reconcile drops it by `artifact_id` or text-prefix, so it should vanish from
-PREFLIGHT/CHECK regardless; a `rebuild` refreshes the embedded payload if you want the
-vector store itself clean.
+PREFLIGHT/CHECK regardless. To refresh the embedded payload itself, run **`rebuild
+--qdrant-only`** — it re-embeds Qdrant from the *current* SQLite. **Do NOT run `rebuild
+--qdrant`**: it force-imports git notes into SQLite *first* and reverts any direct/bulk
+change not yet persisted to notes (e.g. a filter-mode resolve) before embedding the
+reverted state — the footgun. `--qdrant-only` never touches SQLite.
 
 ### Phase 5 — POSTFLIGHT (close the window)
 
@@ -311,6 +352,10 @@ overreach.
 | N single `*-resolve` calls when they're related | Use `resolve-artifacts -` — one batch, connected, auditable. |
 | Deleting straight to `--apply` without reading the dry-run | The receipt is there to catch a mis-scoped prune before it's irreversible. |
 | Reaching into a peer practice's DB to prune | Practice-owned judgment. Propose the pass; don't execute it on their graph. |
+| Gardening only the active-project view | The list verbs undercount (active top-N). Run `--all-projects` first — you'll miss cross-project scatter otherwise. |
+| Hand-writing SQL to bulk-resolve | Not durable, not the mechanism to teach. Use `resolve-artifacts` with a `filter` block (dry-run default). |
+| Bulk-age-resolving findings | Findings are retrieval substrate. Prune *noise*, preserve high-impact durable keepers; `null` impact is not a noise signal. |
+| Acting on a stale "our state is bad" self-assessment | Git-date it first. An old "1/62 linked" finding was actually 45/63 after intervening work — check ground truth before a big prune. |
 
 ---
 
