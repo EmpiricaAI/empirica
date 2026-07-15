@@ -864,7 +864,11 @@ def _rebuild_insert_breadcrumbs(db, findings, unknowns, dead_ends, mistakes, val
     for key, items, handler in handlers:
         for item in items:
             try:
-                handler(db, item, valid_goal_ids)
+                new_id = handler(db, item, valid_goal_ids)
+                # B2: a from-notes rebuild re-creates artifacts OPEN (log_* make
+                # fresh rows). Re-apply the resolution the note carries so
+                # resolved/superseded state survives rebuild + multi-device sync.
+                _rebuild_apply_resolution(db, key, new_id, item)
                 rebuilt[key] += 1
             except Exception as e:
                 logger.debug(f"{key} rebuild skip: {e}")
@@ -872,6 +876,33 @@ def _rebuild_insert_breadcrumbs(db, findings, unknowns, dead_ends, mistakes, val
                     db.adapter.conn.rollback()
                 except Exception:
                     pass
+
+
+def _rebuild_apply_resolution(db, key, new_id, item) -> None:
+    """B2: after a from-notes rebuild re-creates a finding/unknown as OPEN,
+    re-apply the resolution its git note carries. Direct SQL (not the
+    note-writing resolve) since the note IS the source here. Best-effort."""
+    if not new_id or key not in ("findings", "unknowns"):
+        return
+    import time as _t
+
+    try:
+        cur = db.adapter.conn.cursor()
+        if key == "findings" and item.get("is_resolved"):
+            cur.execute(
+                "UPDATE project_findings SET is_resolved = 1, resolution = ?, "
+                "superseded_by = ?, resolved_timestamp = ? WHERE id = ?",
+                (item.get("resolution") or "resolved", item.get("superseded_by"), _t.time(), new_id),
+            )
+            db.adapter.conn.commit()
+        elif key == "unknowns" and item.get("resolved"):
+            cur.execute(
+                "UPDATE project_unknowns SET is_resolved = 1, resolved_by = ?, resolved_timestamp = ? WHERE id = ?",
+                (item.get("resolved_by") or "resolved", _t.time(), new_id),
+            )
+            db.adapter.conn.commit()
+    except Exception as e:
+        logger.debug(f"rebuild resolution re-apply skip ({key} {new_id}): {e}")
 
 
 def _rebuild_from_notes() -> dict[str, Any]:

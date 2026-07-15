@@ -83,6 +83,9 @@ class GitFindingStore:
         subtask_id: str | None = None,
         subject: str | None = None,
         finding_data: dict[str, Any] | None = None,
+        is_resolved: bool = False,
+        resolution: str | None = None,
+        superseded_by: str | None = None,
     ) -> bool:
         """
         Store finding in git notes
@@ -124,6 +127,10 @@ class GitFindingStore:
                 "subtask_id": subtask_id,
                 "subject": subject,
                 "finding_data": finding_data or {"finding": finding, "impact": impact},
+                "is_resolved": is_resolved,
+                "resolution": resolution,
+                "superseded_by": superseded_by,
+                "resolved_at": datetime.now(timezone.utc).isoformat() if is_resolved else None,
             }
 
             # Serialize
@@ -201,6 +208,30 @@ class GitFindingStore:
         except Exception as e:
             logger.warning(f"Failed to load finding from git: {e}")
             return None
+
+    def resolve_finding(self, finding_id: str, resolution: str, superseded_by: str | None = None) -> bool:
+        """Mark a finding resolved/superseded in git notes (mirrors
+        GitUnknownStore.resolve_unknown) — re-writes the finding's note with
+        is_resolved so a from-notes rebuild / multi-device sync preserves the
+        resolution instead of resurrecting the finding as open."""
+        finding_data = self.load_finding(finding_id)
+        if not finding_data:
+            return False
+        return self.store_finding(
+            finding_id=finding_id,
+            project_id=finding_data["project_id"],
+            session_id=finding_data["session_id"],
+            ai_id=finding_data["ai_id"],
+            finding=finding_data["finding"],
+            impact=finding_data.get("impact"),
+            goal_id=finding_data.get("goal_id"),
+            subtask_id=finding_data.get("subtask_id"),
+            subject=finding_data.get("subject"),
+            finding_data=finding_data.get("finding_data"),
+            is_resolved=True,
+            resolution=resolution,
+            superseded_by=superseded_by,
+        )
 
     def discover_findings(
         self,
