@@ -520,6 +520,7 @@ class BreadcrumbRepository(BaseRepository):
             )
 
         self.commit()
+        self._persist_resolution_to_git_notes("unknown", unknown_id, resolved_by)
         logger.info(f"✅ Unknown resolved: {unknown_id[:8]}...")
 
     def resolve_finding(self, finding_id: str, resolution: str, superseded_by: str | None = None) -> bool:
@@ -546,10 +547,43 @@ class BreadcrumbRepository(BaseRepository):
         )
         self.commit()
         updated = bool(getattr(cur, "rowcount", 0))
+        if updated:
+            self._persist_resolution_to_git_notes("finding", finding_id, resolution, superseded_by)
         logger.info(
             f"{'✅' if updated else '⚠️'} Finding resolve {finding_id[:8]}...: {'updated' if updated else 'no match'}"
         )
         return updated
+
+    def _persist_resolution_to_git_notes(
+        self, kind: str, id_arg: str, reason: str, superseded_by: str | None = None
+    ) -> None:
+        """B2: mirror a SQLite resolution into git notes (the canonical store) so a
+        from-notes rebuild / multi-device sync preserves it instead of resurrecting
+        the artifact as open. Best-effort + non-fatal (git may be unavailable, e.g.
+        in tests). Notes are keyed by FULL id, so resolve any partial-id match to
+        full ids first, then re-write each artifact's note via its store."""
+        try:
+            table = "project_findings" if kind == "finding" else "project_unknowns"
+            where = "id LIKE ?" if len(id_arg) < 36 else "id = ?"
+            match = f"{id_arg}%" if len(id_arg) < 36 else id_arg
+            cur = self._execute(f"SELECT id FROM {table} WHERE {where}", (match,))
+            ids = [r[0] for r in cur.fetchall()]
+            if not ids:
+                return
+            if kind == "finding":
+                from empirica.core.canonical.empirica_git.finding_store import GitFindingStore
+
+                store = GitFindingStore()
+                for fid in ids:
+                    store.resolve_finding(fid, reason, superseded_by=superseded_by)
+            else:
+                from empirica.core.canonical.empirica_git.unknown_store import GitUnknownStore
+
+                ustore = GitUnknownStore()
+                for uid in ids:
+                    ustore.resolve_unknown(uid, reason)
+        except Exception as e:
+            logger.debug(f"git-notes resolution persist skipped ({kind} {id_arg[:8]}): {e}")
 
     def log_dead_end(
         self,

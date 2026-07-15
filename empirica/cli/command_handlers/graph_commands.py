@@ -809,7 +809,32 @@ def _resolve_by_filter(db, filt: dict, resolution: str, apply: bool) -> dict:
             [resolution, now, *params],
         )
     db.conn.commit()
+    # B2: persist resolution to git notes (canonical store) so a bulk garden
+    # resolve survives a from-notes rebuild / multi-device sync. Full ids come
+    # from the SELECT above. Best-effort + non-fatal (git may be unavailable).
+    _persist_filter_resolution_to_notes(atype, [r[0] for r in rows], resolution)
     return {"ok": True, "dry_run": False, "resolved": cur.rowcount, "sample": sample}
+
+
+def _persist_filter_resolution_to_notes(atype: str, ids: list, resolution: str) -> None:
+    """B2: mirror a filter-mode bulk resolve into git notes, one note per id."""
+    if not ids:
+        return
+    try:
+        if atype == "finding":
+            from empirica.core.canonical.empirica_git.finding_store import GitFindingStore
+
+            store = GitFindingStore()
+            for fid in ids:
+                store.resolve_finding(fid, resolution)
+        else:
+            from empirica.core.canonical.empirica_git.unknown_store import GitUnknownStore
+
+            ustore = GitUnknownStore()
+            for uid in ids:
+                ustore.resolve_unknown(uid, resolution)
+    except Exception as e:
+        logger.debug(f"git-notes bulk-resolution persist skipped ({atype}, {len(ids)} ids): {e}")
 
 
 def handle_resolve_artifacts_command(args):  # noqa: C901 — batch dispatcher fan-out
