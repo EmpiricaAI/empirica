@@ -95,8 +95,20 @@ def _maybe_auto_install_canonical_loops(instance_id: str, project_root: Path) ->
         from empirica.core.cockpit.canonical_loops import CANONICAL_LOOPS
         from empirica.core.cockpit.loop_install_request import write_pending
 
+        # Gate 5: on a wake-on-event harness (an armed listener bridges events
+        # into the session via the loop_fires Monitor), event-drivable canonical
+        # loops — those the catalog runs via systemd + the wake bridge
+        # (scheduler_kind='systemd-user') — are pure redundancy as a CronCreate
+        # poll. Skip them here; genuine housekeeping crons (message-cleanup) still
+        # install. (extension prop_syrvccyu6: this poller was surfaced every
+        # session on 30+ wake-on-event seats.)
+        listener_armed = any(empirica_home.glob(f"listener_active_{instance_id}_*.json"))
+
         installed = 0
         for entry in CANONICAL_LOOPS:
+            scheduler_kind = entry.get("scheduler_kind")
+            if listener_armed and scheduler_kind == "systemd-user":
+                continue  # gate 5: event-drivable + listener already armed → redundant
             try:
                 write_pending(
                     instance_id=instance_id,
@@ -107,6 +119,7 @@ def _maybe_auto_install_canonical_loops(instance_id: str, project_root: Path) ->
                     max_interval=entry.get("max_interval"),
                     requested_by="user-prompt-submit",
                     body_skill=entry.get("body_skill"),
+                    scheduler_kind=scheduler_kind,  # DEFECT 1: was dropped → wrongly defaulted to cron-create
                 )
                 installed += 1
             except Exception:
