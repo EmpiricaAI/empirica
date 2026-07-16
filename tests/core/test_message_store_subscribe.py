@@ -186,32 +186,41 @@ class TestSubscribe:
             daemon=True,
         )
         subscriber.start()
+        try:
+            # Give subscriber time to start
+            time.sleep(0.3)
 
-        # Give subscriber time to start
-        time.sleep(0.3)
+            store.send_message(
+                from_ai_id="bob",
+                to_ai_id="alice",
+                channel="test",
+                subject="first",
+                body="x",
+            )
+            time.sleep(0.3)
+            store.send_message(
+                from_ai_id="bob",
+                to_ai_id="alice",
+                channel="test",
+                subject="second",
+                body="x",
+            )
 
-        store.send_message(
-            from_ai_id="bob",
-            to_ai_id="alice",
-            channel="test",
-            subject="first",
-            body="x",
-        )
-        time.sleep(0.3)
-        store.send_message(
-            from_ai_id="bob",
-            to_ai_id="alice",
-            channel="test",
-            subject="second",
-            body="x",
-        )
+            # Wait for callbacks
+            subscriber.join(timeout=3.0)
 
-        # Wait for callbacks
-        subscriber.join(timeout=3.0)
-
-        assert len(received) >= 1
-        subjects = [m.get("subject") for m in received]
-        assert "first" in subjects or "second" in subjects
+            assert len(received) >= 1
+            subjects = [m.get("subject") for m in received]
+            assert "first" in subjects or "second" in subjects
+        finally:
+            # ALWAYS tear the daemon poller down. `stop` is only set inside the
+            # callback once ≥2 messages arrive; if timing delivers fewer, it
+            # would never be set and this daemon thread would leak — polling
+            # `git for-each-ref refs/notes/empirica/messages/test/` forever and
+            # landing a stray subprocess.run call inside a *later* test's mock
+            # (the order-dependent CI flake this guards against).
+            stop.set()
+            subscriber.join(timeout=2.0)
 
     def test_stop_event_halts_subscription(self, store):
         received = []
@@ -259,24 +268,30 @@ class TestSubscribe:
             daemon=True,
         )
         subscriber.start()
+        try:
+            # Give subscriber ample time to complete its first poll cycle
+            time.sleep(0.5)
 
-        # Give subscriber ample time to complete its first poll cycle
-        time.sleep(0.5)
+            # Now send the message so it arrives after the subscriber's first poll
+            store.send_message(
+                from_ai_id="bob",
+                to_ai_id="alice",
+                channel="test",
+                subject="first",
+                body="x",
+            )
 
-        # Now send the message so it arrives after the subscriber's first poll
-        store.send_message(
-            from_ai_id="bob",
-            to_ai_id="alice",
-            channel="test",
-            subject="first",
-            body="x",
-        )
+            subscriber.join(timeout=5.0)
 
-        subscriber.join(timeout=5.0)
+            # Callback should have fired
+            assert len(received) == 1
 
-        # Callback should have fired
-        assert len(received) == 1
-
-        # After mark_read, inbox with status='unread' should be empty
-        unread = store.get_inbox(ai_id="alice", channel="test", status="unread")
-        assert len(unread) == 0
+            # After mark_read, inbox with status='unread' should be empty
+            unread = store.get_inbox(ai_id="alice", channel="test", status="unread")
+            assert len(unread) == 0
+        finally:
+            # Always stop the daemon poller (see test_receives_new_messages) —
+            # if the callback never fires, `stop` stays unset and the thread
+            # leaks a background `for-each-ref …/messages/test/` poll.
+            stop.set()
+            subscriber.join(timeout=2.0)
