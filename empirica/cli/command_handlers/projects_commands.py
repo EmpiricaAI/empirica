@@ -1105,49 +1105,6 @@ def _register_one_project(
     return register_result
 
 
-def _format_register_summary(
-    results: list[dict[str, Any]],
-    output_format: str,
-    *,
-    dry_run: bool,
-    cortex_url: str | None,
-) -> str:
-    counts = {"registered": 0, "skipped": 0, "failed": 0}
-    for r in results:
-        counts[r["outcome"]] = counts.get(r["outcome"], 0) + 1
-
-    if output_format == "json":
-        return (
-            json.dumps(
-                {
-                    "ok": counts["failed"] == 0,
-                    "dry_run": dry_run,
-                    "cortex_url": cortex_url,
-                    "summary": counts,
-                    "results": results,
-                },
-                indent=2,
-            )
-            + "\n"
-        )
-
-    lines: list[str] = []
-    if dry_run:
-        lines.append(f"DRY-RUN: would register {len(results)} projects on Cortex")
-    else:
-        lines.append(
-            f"Registered {counts['registered']}, skipped {counts['skipped']} (already exist), failed {counts['failed']}"
-        )
-    if counts["failed"]:
-        lines.append("")
-        lines.append("Failures:")
-        for r in results:
-            if r["outcome"] == "failed":
-                lines.append(f"  {r['name']}: {r.get('reason', '?')} (status={r.get('status')})")
-    lines.append("")
-    return "\n".join(lines)
-
-
 def _load_projects_for_register(manifest_arg: str | None, from_discovered: bool) -> list[dict[str, Any]] | None:
     """Source projects for bulk-register.
 
