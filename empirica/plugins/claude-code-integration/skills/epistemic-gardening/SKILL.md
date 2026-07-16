@@ -310,6 +310,13 @@ gardens — the shared/global retrieval surfaces (`project-search --global`, `so
 --global`, the `global_learnings` collection) are only as clean as the messiest
 contributor. Propagating the discipline is part of the pass.
 
+> **A lesson is the propagation unit.** When a pass (or any work) surfaces a reusable
+> pattern or anti-pattern — something a *peer* could apply, not just a fact about this
+> practice — author it with `lesson-create` and propagate at `--visibility shared/public`
+> + collab. That's the load-bearing line between artifact types: a finding *describes*
+> local state; a **lesson transfers a pattern across the practice boundary**. It isn't a
+> lesson until a peer (local or remote) can pick it up and act on it.
+
 **1. Register this skill's discipline as a shared reference** so peers pull it rather than
 re-derive it:
 ```bash

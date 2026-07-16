@@ -94,8 +94,12 @@ numbers need adjusting.
 > logged — they're **detected** (`blindspot-scan`; a blindspot is an
 > unknown-unknown by definition, so if you can write it down it's really an
 > `unknown`). *lessons* are **authored** via `lesson-create` (a structured
-> distillation), not a `lesson-log` verb. The other four (findings, unknowns,
-> dead-ends, mistakes) each have a matching `<type>-log` verb.
+> distillation), not a `lesson-log` verb — a lesson is the **transferable
+> cross-practice pattern/anti-pattern** a peer (local or remote) can pick up,
+> distinct from a *local* finding/decision; propagate it at
+> `--visibility shared/public` + mesh collab (findings *describe*, lessons
+> *transfer*). The other four (findings, unknowns, dead-ends, mistakes) each
+> have a matching `<type>-log` verb.
 
 ---
 
