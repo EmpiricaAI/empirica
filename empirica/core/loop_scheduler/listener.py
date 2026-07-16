@@ -298,10 +298,6 @@ def _listener_health_path(instance_id: str) -> Path:
 # channels (coordinated w/ cortex Phase 1.5) — consume that + drop this constant
 # once both empirica-cli and cortex-cli listeners read the shared list.
 _RETIRED_BARE_TOPIC = "orchestration-events"
-# Topic resolution misses are usually transient ("every reconnect is a dice
-# roll") — retry a few times before falling back to cache / refusing.
-_TOPIC_RESOLVE_ATTEMPTS = 3
-_TOPIC_RESOLVE_BACKOFF_SEC = 2.0
 
 
 def _last_good_topic_path(instance_id: str) -> Path:
@@ -598,8 +594,10 @@ def run_listener(  # noqa: C901 — held-connection loop; clarity beats decompos
     # non-admin users → every poll 403s. Resolve the canonical org-prefixed
     # topic from cortex's notification-channels registry instead. On a
     # resolution miss the listener must NEVER fall back to the bare topic
-    # (that is the fleet-wedging 403 storm, autonomy prop_6v3v4iob) — it
-    # retries briefly, then uses the last-resolved-good cache, then refuses.
+    # (that is the fleet-wedging 403 storm, autonomy prop_6v3v4iob) — it uses
+    # the last-resolved-good cache, then refuses. Transient misses (the ~30-60s
+    # cortex deploy window) are covered by the supervisor's restart cadence,
+    # which re-runs resolution — a per-process retry can't span that anyway.
     base_topic = ntfy["topic"]
     if _os.getenv("ORCHESTRATION_NTFY_TOPIC"):
         # Explicit override wins even if it is the retired bare topic — the
@@ -613,14 +611,7 @@ def run_listener(  # noqa: C901 — held-connection loop; clarity beats decompos
                 fetch_notification_channels,
             )
 
-            # Transient cortex misses are the common case — retry with backoff
-            # before giving up (force=True re-fetches past the in-memory cache).
-            for _attempt in range(_TOPIC_RESOLVE_ATTEMPTS):
-                resolved = _resolve_base_topic(fetch_notification_channels(force=_attempt > 0))
-                if resolved:
-                    break
-                if _attempt < _TOPIC_RESOLVE_ATTEMPTS - 1:
-                    _sleep(_TOPIC_RESOLVE_BACKOFF_SEC * (_attempt + 1))
+            resolved = _resolve_base_topic(fetch_notification_channels())
         except Exception as e:
             err_stream.write(f"listener: per-org topic resolve errored: {e}\n")
 
