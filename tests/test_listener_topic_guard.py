@@ -149,3 +149,38 @@ def test_env_override_bypasses_resolution(monkeypatch, tmp_path):
     )
     assert rc == 0
     assert "custom-debug-topic" in err.getvalue()
+
+
+# ── retired_channels (cortex-authoritative retired-topic list) ──────────────
+
+
+def test_retired_topic_names_extracts_names():
+    from empirica.core.cockpit.notification_channels import retired_topic_names
+
+    body = {
+        "retired_channels": [
+            {"name": "orchestration-events", "retired_at": "x", "migration_hint": "y"},
+            {"name": "old-eco-topic"},
+            {"retired_at": "z"},  # no name → skipped
+        ]
+    }
+    assert retired_topic_names(body) == {"orchestration-events", "old-eco-topic"}
+    assert retired_topic_names(None) == set()  # cortex unreachable
+    assert retired_topic_names({}) == set()  # older cortex, field absent
+
+
+def test_cached_topic_rejected_when_since_retired(monkeypatch, tmp_path):
+    """Cache invalidation: a previously-good topic that cortex has since retired
+    is rejected via retired_channels — the listener refuses rather than 403."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    _persist_last_good_topic("cortex", _GOOD)  # was good
+    _mock_ntfy(monkeypatch)  # ntfy default = bare retired topic
+    # cortex reachable, nothing resolvable, and retired_channels now lists the
+    # previously-cached topic
+    _mock_channels(monkeypatch, {"channels": [], "retired_channels": [{"name": _GOOD}]})
+    err = io.StringIO()
+    rc = run_listener(
+        "cortex", output_stream=io.StringIO(), err_stream=err, _sleep=lambda *a: None, _initial_catchup=False
+    )
+    assert rc == 2  # cache rejected (retired) + bare default retired → refuse
+    assert "REFUSING" in err.getvalue()
