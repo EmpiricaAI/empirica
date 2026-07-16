@@ -339,6 +339,6 @@ The CLI nudges you on both — POSTFLIGHT retrospectives surface "narrow breadth
 
 - **Writing-side workflow:** [SESSION_GOAL_WORKFLOW.md](SESSION_GOAL_WORKFLOW.md)
 - **Per-project basics:** [PROJECT_MANAGEMENT_FOR_USERS.md](PROJECT_MANAGEMENT_FOR_USERS.md)
-- **Multi-project lifecycle:** [PROJECT_LIFECYCLE.md](PROJECT_LIFECYCLE.md)
+- **Multi-project lifecycle:** [REGISTER_AND_MANAGE_PROJECTS.md](REGISTER_AND_MANAGE_PROJECTS.md)
 - **CLI reference:** [04_QUICKSTART_CLI.md](04_QUICKSTART_CLI.md)
 - **Architecture (artifact graph + commit-context):** `docs/architecture/GRAPH_TEMPORAL_LAYER.md`

@@ -16,7 +16,7 @@ Investigation tools support the **NOETIC phase** - exploring, hypothesizing, and
 - Structured logging of investigation results
 - Noetic artifact capture (findings, unknowns, dead-ends)
 
-> **Verified at 1.11.0.** All `investigate*` and artifact-log verbs documented below remain present. Sister surfaces shipped since this doc was first written: `noetic-batch` (`empirica noetic-batch -`) bundles ≥3 reads/greps/globs/investigates into one merged result (see the system prompt's noetic-batch section); the artifact graph + typed edges + `commit-context` walker are covered in the user-facing discovery-side walkthrough at [LOGGING_AND_FINDING.md](../../human/end-users/LOGGING_AND_FINDING.md). For semantic search across artifacts use `project-search --task "..."` (local) or `project-search --task "..." --global` (cross-project).
+> **Verified at 1.11.0.** The `investigate*` and artifact-log verbs documented below remain present (`investigate-log` has since been removed). Sister surfaces shipped since this doc was first written: `noetic-batch` (`empirica noetic-batch -`) bundles ≥3 reads/greps/globs/investigates into one merged result (see the system prompt's noetic-batch section); the artifact graph + typed edges + `commit-context` walker are covered in the user-facing discovery-side walkthrough at [LOGGING_AND_FINDING.md](../../human/end-users/LOGGING_AND_FINDING.md). For semantic search across artifacts use `project-search --task "..."` (local) or `project-search --task "..." --global` (cross-project).
 
 ---
 
@@ -161,52 +161,6 @@ empirica investigate-multi \
     "critical_unknowns": ["Token revocation strategy?"],
     "overall_confidence": 0.78
   }
-}
-```
-
----
-
-### `investigate-log`
-
-Log structured findings from investigation (bulk).
-
-```bash
-empirica investigate-log \
-  --session-id <ID> \
-  --findings '[{"finding": "JWT uses RS256", "impact": 0.8}, {"finding": "No rate limiting", "impact": 0.9}]' \
-  --evidence '{"files": ["src/auth/jwt.py"], "lines": [45, 67]}'
-```
-
-**Parameters:**
-
-| Parameter | Required | Default | Description |
-|-----------|----------|---------|-------------|
-| `--session-id` | No | auto | Session ID (auto-derived from active transaction) |
-| `--findings` | Yes | - | JSON array of findings discovered |
-| `--evidence` | No | - | JSON object with evidence (file paths, line numbers) |
-| `--output` | No | `text` | Output format: `json` or `text` |
-| `--verbose` | No | `false` | Verbose output |
-
-**Findings Schema:**
-```json
-[
-  {
-    "finding": "Description of what was discovered",
-    "impact": 0.8,  // 0.0-1.0 impact score
-    "tags": ["security", "authentication"],
-    "evidence": "src/auth/jwt.py:45"
-  }
-]
-```
-
-**Output (JSON):**
-```json
-{
-  "ok": true,
-  "session_id": "abc123...",
-  "logged_count": 2,
-  "finding_ids": ["f1-uuid", "f2-uuid"],
-  "evidence_attached": true
 }
 ```
 
@@ -410,32 +364,6 @@ empirica pattern-check \
 
 ---
 
-## Agent Spawning
-
-Spawn specialized investigation agents for parallel exploration.
-
-```bash
-empirica agent-spawn \
-  --session-id <ID> \
-  --task "Research authentication patterns" \
-  --persona security-analyst
-```
-
-**Available Personas:**
-
-| Persona | Focus |
-|---------|-------|
-| `researcher` | Deep investigation, literature review |
-| `critic` | Challenge assumptions, find weaknesses |
-| `synthesizer` | Combine findings, identify patterns |
-| `security-analyst` | Security-focused investigation |
-| `performance-analyst` | Performance-focused investigation |
-| `architect` | Architecture and design patterns |
-
-See [Agents Orchestration](agents_orchestration.md) for full agent API.
-
----
-
 ## Python API
 
 ```python
@@ -530,7 +458,6 @@ Investigation tools feed into the epistemic transaction workflow:
 - [NOETIC_PRAXIC_FRAMEWORK.md](../../architecture/NOETIC_PRAXIC_FRAMEWORK.md) - Thinking phases
 - [HANDOFF_SYSTEM.md](../../architecture/HANDOFF_SYSTEM.md) - Investigation handoffs
 - [Knowledge Management](knowledge_management.md) - Breadcrumb repository
-- [Agents Orchestration](agents_orchestration.md) - Parallel investigation agents
 
 ---
 

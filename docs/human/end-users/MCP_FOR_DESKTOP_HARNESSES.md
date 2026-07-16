@@ -62,6 +62,23 @@ logged from Claude Desktop is visible to a Claude Code session in the
 same project (and vice versa) — they share the SQLite + Qdrant +
 git-notes substrate.
 
+### CLI vs MCP — when to use which
+
+If your harness has shell access (some terminal-based AIs like Aider
+do), you can call the `empirica` CLI directly instead of going through
+MCP:
+
+| Use CLI | Use MCP |
+|---|---|
+| Terminal-based AI (Claude Code, Aider) | GUI clients (Claude Desktop) |
+| Scripts / CI | IDEs without shell access |
+| Performance-sensitive paths (~50ms) | Same-conversation tool routing |
+| Direct stdin JSON workflows | Auto-namespaced tool discovery |
+
+MCP adds ~100–300ms latency per call vs direct CLI execution. For
+Claude Code, the CLI path is canonical — the plugin's hooks call
+`empirica` directly without going through MCP.
+
 ## Installation
 
 ### Standalone install (any harness)
@@ -84,6 +101,8 @@ across all harnesses point at this canonical path.
 pipx install empirica
 # or
 pip install 'empirica[mcp]'
+# or via Homebrew
+brew install empiricaai/tap/empirica
 ```
 
 The combined install gives you the `empirica` CLI for interactive use
@@ -180,6 +199,27 @@ Anything that speaks the standard MCP stdio protocol can talk to
 empirica-mcp. The config shape is uniform: `command =
 empirica-mcp`, optional `env`, optional `args`. Empirica passes
 through whatever the harness sends.
+
+### Per-project credentials override
+
+Add `"env": {"EMPIRICA_CREDENTIALS_PATH": "/path/to/credentials.yaml"}`
+to any of the configs above to point at a non-default credentials file.
+For workspace-specific configs (VSCode `.vscode/settings.json`,
+JetBrains workspace configs), reference the workspace folder so
+different repos use different cortex tenants / API keys:
+
+```json
+{
+  "mcpServers": {
+    "empirica": {
+      "command": "empirica-mcp",
+      "env": {
+        "EMPIRICA_CREDENTIALS_PATH": "${workspaceFolder}/.empirica/credentials.yaml"
+      }
+    }
+  }
+}
+```
 
 ## What you get — 70 MCP tools (65 standalone, 5 cortex-orchestrated)
 
@@ -328,6 +368,8 @@ empirica listener install-request   # AI-task analog
 | Symptom | Fix |
 |---|---|
 | Harness can't find `empirica-mcp` | `pipx install empirica-mcp`; verify `which empirica-mcp` returns `~/.local/bin/empirica-mcp`. Restart harness after install. |
+| MCP returns errors but the CLI works | The MCP wrapper resolves `empirica` from PATH at call time. The harness process (Claude Desktop, etc.) may launch with a restricted PATH — make sure the same PATH that finds `empirica` is visible to it. |
+| Auth errors | The MCP server reads cortex credentials from `~/.empirica/credentials.yaml` (same as the CLI). Point at a different file via `EMPIRICA_CREDENTIALS_PATH` in the client's `env` block. |
 | Tools missing from picker | Restart the harness — MCP tool discovery happens at connection time. |
 | Empirica CLI errors "no project bound" | Run `empirica project-init` inside a git repo first, then bootstrap. |
 | Tool calls hang | Timeout default is 30s (`EMPIRICA_MCP_TIMEOUT`), or 120s for CASCADE commands. Check `~/.empirica/credentials.yaml` for cortex creds if calling mesh primitives. |
@@ -336,10 +378,11 @@ empirica listener install-request   # AI-task analog
 
 ## See also
 
-- `docs/human/end-users/MCP_INSTALLATION.md` — end-user MCP install
-  walkthrough
+- `docs/human/developers/CLI_COMMANDS_UNIFIED.md` — CLI reference
+- `docs/human/developers/MCP_SERVER_REFERENCE.md` — MCP server reference
 - `docs/architecture/EVENT_LISTENER.md` — listener architecture
 - `~/.claude/empirica-org-prompt.md` (org-specific) — canonical
   addressing convention + doubled-empirica gotcha
 - `empirica-mcp/README.md` — package README + tool surface summary
 - `empirica mcp-list-tools` — live registry inspection
+- MCP spec: https://modelcontextprotocol.io/

@@ -357,7 +357,7 @@ PREFLIGHT via `predicted_check_outcomes`, the compliance response includes a
 truth — test passing/failing IS the outcome. The AI's prediction accuracy is
 the calibration signal.
 
-**CLI commands:** `domain-list`, `domain-show`, `domain-resolve`, `domain-validate`
+**CLI commands:** `domain-validate`
 
 ---
 

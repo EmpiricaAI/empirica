@@ -4,58 +4,6 @@
 
 ---
 
-## Epistemic Agents
-
-**Module:** `empirica.core.agents`
-
-### EpistemicAgentConfig
-
-Configuration for spawning epistemic sub-agents.
-
-```python
-@dataclass
-class EpistemicAgentConfig:
-    session_id: str
-    task: str
-    persona: str                    # Persona to use (e.g., "security_researcher")
-    cascade_style: str = "exploratory"  # "exploratory" | "focused" | "verification"
-    max_loops: int = 5              # Maximum investigation loops
-    inherit_context: bool = True    # Inherit parent session context
-    merge_strategy: str = "union"   # How to merge findings back
-```
-
-### EpistemicAgentResult
-
-Result from an epistemic agent's investigation.
-
-```python
-@dataclass
-class EpistemicAgentResult:
-    branch_id: str                  # Agent's investigation branch ID
-    findings: List[str]             # Discovered findings
-    unknowns: List[str]             # Remaining unknowns
-    vectors: Dict[str, float]       # Final epistemic vectors
-    loops_executed: int
-    completion_status: str          # "complete" | "partial" | "blocked"
-```
-
-**Usage:**
-```python
-from empirica.core.agents.epistemic_agent import spawn_epistemic_agent
-
-config = EpistemicAgentConfig(
-    session_id="parent-session",
-    task="Investigate authentication vulnerabilities",
-    persona="security_researcher",
-    max_loops=3
-)
-
-result = spawn_epistemic_agent(config)
-print(f"Agent found {len(result.findings)} findings")
-```
-
----
-
 ## Checkpoint Signer
 
 **Module:** `empirica.core.checkpoint_signer`
@@ -220,7 +168,6 @@ if not result.valid:
 
 ## Source Files
 
-- `empirica/core/agents/epistemic_agent.py` - Agent spawning
 - `empirica/core/checkpoint_signer.py` - Cryptographic signing
 - `empirica/core/findings_deprecation.py` - Finding lifecycle
 - `empirica/core/git_ops/signed_operations.py` - Signed git ops

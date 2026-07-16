@@ -14,7 +14,7 @@ The workspace system provides a **global registry** that tracks all Empirica pro
 - Cross-project pattern discovery
 - Project switching and instance binding
 - Trajectory health monitoring
-- Entity walks across the Practice Model — `empirica entity-list`, `entity-show`, `entity-walk`, `entity-search` (shipped in 1.10; see [PROJECT_LIFECYCLE.md](../../human/end-users/PROJECT_LIFECYCLE.md) and [LOGGING_AND_FINDING.md § Entity Discovery](../../human/end-users/LOGGING_AND_FINDING.md#finding-3--entity-discovery) for usage)
+- Entity walks across the Practice Model — `empirica entity-list`, `entity-show`, `entity-walk`, `entity-search` (shipped in 1.10; see [REGISTER_AND_MANAGE_PROJECTS.md](../../human/end-users/REGISTER_AND_MANAGE_PROJECTS.md) and [LOGGING_AND_FINDING.md § Entity Discovery](../../human/end-users/LOGGING_AND_FINDING.md#finding-3--entity-discovery) for usage)
 
 > **Verified at 1.11.0.** The `workspace-init`, `workspace-list`, `workspace-overview`, `workspace-map`, `project-list`, `project-switch`, `ecosystem-check` verbs documented below remain present. The 1.10 additions — the `entity-*` family + `entity_registry` / `entity_memberships` tables — are covered in the user-facing docs linked above rather than duplicated here; this doc focuses on the workspace-level CLI surface.
 

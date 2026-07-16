@@ -6,16 +6,17 @@ The Canonical storage layer provides the foundational persistence mechanisms for
 
 ## Philosophy
 
-Four-layer storage architecture with a Claude Code bridge:
-1. **SQLite** (HOT) - Primary structured data (fast queries)
-2. **Git Notes** (WARM) - Distributed, version-controlled (portability)
-3. **JSON Logs** (AUDIT) - Human-readable audit trail (debugging)
-4. **Qdrant** (SEARCH) - Vector database for semantic retrieval
-5. **MEMORY.md** (BRIDGE) - Epistemically-curated hot cache for Claude Code
+This document is the **class-level API reference** for the canonical storage
+layer. Empirica persists epistemic state across a four-layer model — **SQLite**
+(HOT, structured) · **Git Notes** (WARM, distributed) · **JSON Logs** (AUDIT,
+human-readable) · **Qdrant** (SEARCH, semantic) — plus a **MEMORY.md** Claude
+Code hot-cache bridge. Every epistemic operation writes to the appropriate
+layers based on data type.
 
-Every epistemic operation writes to appropriate layers based on data type.
-The MEMORY.md bridge auto-curates top artifacts from Qdrant/SQLite into
-Claude Code's native `~/.claude/projects/{key}/memory/MEMORY.md` at session end.
+For the full data-flow picture — layer comparison, token-compression levels,
+verification-table schemas, crypto signing, and the complete storage
+walkthrough — see
+[STORAGE_ARCHITECTURE_COMPLETE.md](./STORAGE_ARCHITECTURE_COMPLETE.md).
 
 **Related docs:**
 - [STORAGE_ARCHITECTURE_COMPLETE.md](./STORAGE_ARCHITECTURE_COMPLETE.md) - Visual guide with diagrams and data flow
@@ -336,13 +337,12 @@ embeddings = provider.embed_batch([
 
 ### Supported Providers
 
-| Provider | Environment Variables | Model |
-|----------|----------------------|-------|
-| Jina AI | `JINA_API_KEY` | `jina-embeddings-v3` |
-| Voyage AI | `VOYAGE_API_KEY` | `voyage-3` |
-| Ollama | `OLLAMA_BASE_URL` | `qwen3-embedding` |
-| OpenAI | `OPENAI_API_KEY` | `text-embedding-3-small` |
-| Local | (none) | `sentence-transformers` |
+The provider → model → dimensions matrix (Jina, Voyage, Ollama, OpenAI, and the
+local hash-based fallback) is in
+[STORAGE_ARCHITECTURE_COMPLETE.md § Layer 4](./STORAGE_ARCHITECTURE_COMPLETE.md#layer-4-qdrant-vector-database-semantic-search)
+and the [Qdrant API Reference](../reference/api/qdrant.md). Configure via
+`EMPIRICA_EMBEDDING_PROVIDER` / `EMPIRICA_EMBEDDING_MODEL` plus the provider's
+API-key env var (see the `EmbeddingProvider.from_env()` example above).
 
 ### Collections
 
@@ -357,26 +357,15 @@ embeddings = provider.embed_batch([
 
 ## Claude Code Bridge (MEMORY.md Hot Cache)
 
-At session end, the `session-end-postflight` hook curates top epistemic artifacts
-into Claude Code's MEMORY.md:
+At session end, the `session-end-postflight` hook curates the top epistemic
+artifacts (max 12, project-scoped, ranked by
+`impact × type_confidence × recency_decay`) into Claude Code's
+`~/.claude/projects/{key}/memory/MEMORY.md`, preserving manual content between
+`<!-- empirica-auto-start -->` / `<!-- empirica-auto-end -->` delimiters.
+Multiple Claude instances on one project share this file (swarm learning).
 
-```
-Qdrant + SQLite → epistemic_summarizer → MEMORY.md
-                   (ranked by impact × type_confidence × recency_decay)
-```
-
-- **Max 12 items** auto-curated per session end
-- **Project-scoped**: queries filter by `project_id` resolved from `session_id`
-- **Preserves manual content**: auto-generated section delimited by `<!-- empirica-auto-start -->` / `<!-- empirica-auto-end -->`
-- **Swarm learning**: multiple Claude instances on the same project share one MEMORY.md, creating emergent knowledge sharing
-
-**Ranking formula:**
-```
-weight = impact × type_confidence × recency_decay
-
-type_confidence: finding(0.9) > dead_end(0.85) > mistake(0.85) > goal(0.75) > unknown(0.6)
-recency_decay:   exp(-0.029 × age_hours)  # 24-hour half-life
-```
+The full data-flow diagram and the ranking-formula breakdown live in
+[STORAGE_ARCHITECTURE_COMPLETE.md § Layer 5](./STORAGE_ARCHITECTURE_COMPLETE.md#layer-5-claude-code-bridge-memorymd-hot-cache).
 
 **Source:** `plugins/claude-code-integration/hooks/session-end-postflight.py`
 

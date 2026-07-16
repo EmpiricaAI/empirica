@@ -321,21 +321,6 @@ The system learns from mistakes:
 This means the AI gets better over time within a project. Mistakes have prevention
 strategies. Failed approaches are remembered. Patterns are recognized across sessions.
 
-### Multi-Agent Coordination
-
-For complex problems, the AI can spawn specialist subagents:
-
-**You:** "This bug could be in the auth layer, the database, or the API. Can you investigate all three?"
-
-The AI spawns parallel investigation agents — each explores one angle. Results are
-consolidated, findings logged, and the noetic phase completes faster. Subagent work
-counts toward the parent transaction's tool budget.
-
-**Key patterns:**
-- **Parallel investigation** — multiple agents explore different angles simultaneously
-- **Sequential handoff** — one agent's findings feed into the next agent's starting context
-- **Specialist delegation** — domain-specific agents with focused expertise
-
 ### Context Recovery Across Compactions
 
 When Claude Code compresses context (compaction), Empirica recovers automatically:

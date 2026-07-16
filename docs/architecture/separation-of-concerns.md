@@ -207,54 +207,9 @@ PREFLIGHT → [noetic/praxic as needed] → CHECK → [noetic/praxic as needed] 
 - ✅ `project_{id}_docs` - Working (via project-embed)
 - ✅ `project_{id}_epistemics` - Working (POSTFLIGHT deltas)
 - ✅ `global_learnings` - Collection initialized (2026-01-02)
-- ✅ `personas` - Collection initialized, 8 pre-defined personas embedded (2026-01-02)
 
 **Note:** Current embeddings use local hash-based provider (limited semantic matching).
 For full semantic capability: `export EMPIRICA_EMBEDDINGS_PROVIDER=openai`
-
-**Persona Flow (Planned but not wired):**
-```
-investigation_branches (SQLite)
-         │
-         │ Sentinel picks winners (is_winner=TRUE)
-         ▼
-extract_persona_from_loop_tracker()     ← emerged_personas.py
-         │
-         ├─► .empirica/personas/*.yaml  ← EmergedPersonaStore (file-based)
-         │
-         └─► Qdrant personas collection ← persona_registry.py (NOT WIRED)
-                    │
-                    │ Future task similarity search
-                    ▼
-           Sentinel suggests priors based on similar past successes
-```
-
----
-
-## Epistemic Subagent Spawning
-
-When spawning epistemic subagents for parallel investigation:
-
-```bash
-# Spawn investigation agent
-empirica agent-spawn --session-id <ID> \
-  --task "Investigate authentication patterns" \
-  --persona researcher \
-  --cascade-style exploratory
-
-# Agent reports back
-empirica agent-report --agent-id <AGENT_ID> \
-  --findings '["JWT used", "No refresh token"]' \
-  --unknowns '["Token storage location"]'
-
-# Aggregate results
-empirica agent-aggregate --session-id <ID>
-```
-
-**Where this belongs:**
-- Skill: Full command reference and examples
-- System prompt: Brief mention that subagents exist
-- MCO: Persona and cascade style definitions
 
 ---
 

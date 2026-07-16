@@ -21,6 +21,35 @@ The core mechanic:
 
 **Core principle:** evidence-based assessment, not pattern matching.
 
+### The problem it solves
+
+AI agents are often **confidently wrong**:
+
+```
+You: "Can you implement OAuth2 authentication?"
+AI:  "Sure! I know OAuth2 well." [Actually doesn't]
+AI:  [Implements something that compiles but is wrong]
+You: [Wastes hours debugging]
+```
+
+Root cause: AI can't reliably distinguish "I know this" from "I think I
+can figure this out." Empirica makes agents **epistemically honest** —
+they declare what they actually know vs what they're guessing about,
+then act on it:
+
+```
+You: "Can you implement OAuth2 authentication?"
+AI:  "know=0.45, uncertainty=0.70 — let me investigate the spec first."
+AI:  [Reads docs, searches the codebase, logs findings]
+AI:  "know=0.85, uncertainty=0.20 — ready to proceed."
+AI:  [Implements correctly]
+```
+
+The system then **grounds** those self-assessments against deterministic
+observations (tests passing, commits landed, code complexity changed)
+and surfaces the divergence as a discipline signal. Good calibration →
+the AI earns autonomy.
+
 ---
 
 ## Quick Start (3 Steps)
@@ -131,7 +160,7 @@ pip install empirica-mcp
 ```
 
 Best for Claude Desktop, Cursor, Windsurf — IDEs that don't shell out
-directly. See [MCP_INSTALLATION.md](MCP_INSTALLATION.md).
+directly. See [MCP_FOR_DESKTOP_HARNESSES.md](MCP_FOR_DESKTOP_HARNESSES.md).
 
 ### 3. Python API (for embedding)
 
@@ -189,7 +218,6 @@ For more: [03_TROUBLESHOOTING.md](03_TROUBLESHOOTING.md).
 - **[02_INSTALLATION.md](02_INSTALLATION.md)** — install options
 - **[04_QUICKSTART_CLI.md](04_QUICKSTART_CLI.md)** — CLI patterns
 - **[05_EPISTEMIC_VECTORS_EXPLAINED.md](05_EPISTEMIC_VECTORS_EXPLAINED.md)** — the 13 vectors
-- **[EMPIRICA_EXPLAINED_SIMPLE.md](EMPIRICA_EXPLAINED_SIMPLE.md)** — plain-English overview
 
 ### For Teams
 

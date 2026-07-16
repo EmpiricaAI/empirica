@@ -102,6 +102,99 @@ empirica project-update --project-description "..."   # edit committed project.y
 
 ---
 
+## Lifecycle gaps & edge cases
+
+These are the rough edges of the multi-project + Cortex lifecycle. Most users
+never hit them; keep them in your back pocket for when a project moves, a tenant
+changes, or cross-project search looks duplicated.
+
+### Unregistering from Cortex (known gap)
+
+**There is no Cortex-side unregister CLI today.** `projects-sync --prune` only
+cleans the **local** registry — it drops entries whose path no longer exists, or
+whose path exists but no longer contains a `.empirica/` directory. The Cortex
+projects table is NOT touched. So if you've registered a project to Cortex and
+later want it gone (scope was too broad, project moved tenants, project deleted),
+the Cortex row stays.
+
+**Why this matters:** for most users, this is fine — a stale Cortex project entry
+is invisible noise rather than a hot bug. It does mean:
+- The Cortex projects list grows-only
+- Cross-project search may surface archived/abandoned projects
+- Users who scoped too broadly on first run can't take it back
+
+**Current workarounds:**
+- Filter at query time (`project-search --project-id <only-the-one-you-want>`)
+- Cortex maintainers can manually archive on request
+
+**Tracked for build:** the design is scoped (soft archive vs hard delete with
+`--purge`, cascade semantics for artifacts under archived projects, authorization
+model). When the cortex unregister endpoint lands, empirica will gain a
+`projects-unregister` CLI mirroring the existing flag shape:
+
+```bash
+# (NOT YET BUILT — design only)
+empirica projects-unregister <name-or-id>
+empirica projects-unregister <name-or-id> --purge          # hard delete + cascade
+empirica projects-unregister --from-discovered --exclude '<keep>'   # bulk
+```
+
+Until then, the local lifecycle is fully usable; the Cortex-side hole is in the
+cleanup path only.
+
+### The name ↔ UUID Identity Gap
+
+Cortex tracks projects by **two parallel identifier shapes** depending on the
+originating client:
+
+| Client shape | Cortex collection key | Where it came from |
+|---|---|---|
+| **CLI clients** (`empirica project-init` from a terminal) | `project_<name>_*` (the project's `name` field from `project.yaml`) | Default for everyone running empirica locally |
+| **Desktop / `.mcpb` clients** (Claude Desktop, etc.) | `project_<uuid>_*` (the tenant's `project_ids[0]`) | When Claude Desktop or similar provisions you via MCP bundle |
+
+If a user has been registering through both surfaces, the **same logical project
+can appear as two physical Qdrant collections** — one name-keyed, one UUID-keyed.
+Cross-project search treats them as separate.
+
+**Resolution path:** the **canonical-UUID tenant-DB cutover** unified this for
+David's tenant — bind every project's `name` to its UUID in `tenants.db`, so the
+two collection keys always resolve to the same logical project at query time.
+
+**Who's still affected:** users provisioned before the cutover (MOD CLI users in
+particular) may still see bifurcation — same logical project, two collections,
+two Qdrant entries. Symptoms:
+- `project-search --global` returns suspiciously duplicated hits
+- The extension's project picker shows two entries with similar-but-different names/IDs
+- Migrations between Cortex tenants reveal stale collection keys
+
+**If you suspect bifurcation:**
+1. Compare `empirica projects-list` (local registry) to whatever Cortex returns
+2. Note which projects have both name- and UUID-keyed entries
+3. Open a Cortex maintainer ticket — for now this needs cortex-side intervention to resolve cleanly
+
+**The fix forward:** every fresh registration after the cutover gets the unified
+mapping automatically. Pre-cutover entries are the long tail. The
+`projects-unregister --purge` work above will give users a cleaner self-service
+path once it ships.
+
+### Tenant migrations
+
+If you're moving a project between Cortex tenants (rare — typically a David ↔
+Philipp-shaped scenario):
+
+1. Re-register on the new tenant: `empirica projects-sync --include '<your-project>'`
+   with the **new** tenant's `CORTEX_API_KEY`
+2. New entry appears on the new tenant; the **old tenant's entry stays** (no
+   cross-tenant move primitive yet)
+3. Old tenant entry becomes unreachable for you once your credentials switch —
+   same effect as the Cortex-side unregister gap above
+
+Until the unregister flow ships, tenant migration leaves a stale entry on the
+source tenant. Usually fine in practice — the entry is invisible to the user who
+moved, just adds row count to the source tenant.
+
+---
+
 ## Addressing a project / practice on the mesh
 
 Peers and proposals address a practice by its **canonical 3-form**:

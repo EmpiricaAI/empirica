@@ -9,9 +9,8 @@
 1. **[01_START_HERE.md](01_START_HERE.md)** — Entry point + 3-step quick start
 2. **[02_INSTALLATION.md](02_INSTALLATION.md)** — All install options + verification
 3. **[FIRST_TIME_SETUP.md](FIRST_TIME_SETUP.md)** — Modern setup flow (`project-init` + `setup-claude-code`)
-4. **[EMPIRICA_EXPLAINED_SIMPLE.md](EMPIRICA_EXPLAINED_SIMPLE.md)** — Plain-English overview of the measurement model
-5. **[04_QUICKSTART_CLI.md](04_QUICKSTART_CLI.md)** — Day-to-day CLI patterns
-6. **[05_EPISTEMIC_VECTORS_EXPLAINED.md](05_EPISTEMIC_VECTORS_EXPLAINED.md)** — The 13 vectors
+4. **[04_QUICKSTART_CLI.md](04_QUICKSTART_CLI.md)** — Day-to-day CLI patterns
+5. **[05_EPISTEMIC_VECTORS_EXPLAINED.md](05_EPISTEMIC_VECTORS_EXPLAINED.md)** — The 13 vectors
 
 ---
 
@@ -30,7 +29,6 @@
 | File | Purpose |
 |------|---------|
 | `05_EPISTEMIC_VECTORS_EXPLAINED.md` | The 13 vectors — Foundation / Meta / Phase-dependent |
-| `EMPIRICA_EXPLAINED_SIMPLE.md` | Plain-English overview of the measurement model |
 | `EMPIRICA_NATURAL_LANGUAGE_GUIDE.md` | How to guide an AI in natural language through the CASCADE workflow |
 | `ECOSYSTEM_OVERVIEW.md` | Where data lives (per-project / user-tenant / workspace) |
 
@@ -39,7 +37,7 @@
 |------|---------|
 | `SESSION_GOAL_WORKFLOW.md` | Sessions, transactions, goals, tasks |
 | `PROJECT_MANAGEMENT_FOR_USERS.md` | Project model + auto-detection + workspace |
-| `MCP_INSTALLATION.md` | MCP server setup for GUI clients |
+| `MCP_FOR_DESKTOP_HARNESSES.md` | MCP server setup for GUI clients + non-Claude-Code harnesses |
 
 ### Mesh & Coordination
 | File | Purpose |
@@ -50,8 +48,7 @@
 ### Integrations
 | File | Purpose |
 |------|---------|
-| `BEADS_QUICKSTART.md` | Optional BEADS issue tracker integration |
-| `BEADS_GOALS_READY_GUIDE.md` | `goals-ready` — BEADS-unblocked + epistemically fit work |
+| `BEADS_QUICKSTART.md` | Optional BEADS issue tracker integration + `goals-ready` (BEADS-unblocked + epistemically fit work) |
 
 ---
 

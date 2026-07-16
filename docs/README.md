@@ -49,8 +49,7 @@ docs/
 
 | Guide | Purpose |
 |-------|---------|
-| [Getting Started](human/end-users/01_START_HERE.md) | First-time setup |
-| [Empirica Explained Simply](human/end-users/EMPIRICA_EXPLAINED_SIMPLE.md) | Conceptual overview |
+| [Getting Started](human/end-users/01_START_HERE.md) | First-time setup + plain-English overview |
 | [Epistemic Vectors](human/end-users/05_EPISTEMIC_VECTORS_EXPLAINED.md) | Understanding the 13 vectors |
 | [Claude Code Setup](human/developers/CLAUDE_CODE_SETUP.md) | Developer integration |
 

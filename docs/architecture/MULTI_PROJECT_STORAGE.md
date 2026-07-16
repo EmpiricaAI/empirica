@@ -80,7 +80,6 @@ Empirica uses a **project-local primary** architecture:
     │   ├─ config.yaml          │  │   ├─ config.yaml          │  │   ├─ config.yaml          │
     │   ├─ lessons/             │  │   ├─ lessons/             │  │   ├─ lessons/             │
     │   │  └─ *.yaml            │  │   │  └─ *.yaml            │  │   │  └─ *.yaml            │
-    │   ├─ personas/            │  │   ├─ personas/            │  │   ├─ personas/            │
     │   └─ hooks/               │  │   └─ hooks/               │  │   └─ hooks/               │
     │                           │  │                           │  │                           │
     └───────────────────────────┘  └───────────────────────────┘  └───────────────────────────┘
@@ -320,7 +319,6 @@ Qdrant runs as separate service for semantic memory.
 | Project lessons | `<repo>/.empirica/lessons/*.yaml` | - |
 | Git checkpoints | `<repo>/.git/refs/notes/empirica/` | - |
 | Config | `<repo>/.empirica/config.yaml` | `~/.empirica/config.yaml` |
-| Personas | `<repo>/.empirica/personas/` | `~/.empirica/personas/` |
 | Credentials | - | `~/.empirica/credentials.yaml` (always global) |
 | MEMORY.md hot cache | - | `~/.claude/projects/{key}/memory/MEMORY.md` (per-project) |
 

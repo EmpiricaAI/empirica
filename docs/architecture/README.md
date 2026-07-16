@@ -97,7 +97,6 @@ Read these when you're actually working in the area. Grouped by concern.
 | [`SERVICES_SCANNER.md`](SERVICES_SCANNER.md) | Phase 1 deterministic inventory of running AI services. |
 | [`SUPPORTING_COMPONENTS.md`](SUPPORTING_COMPONENTS.md) | Index of secondary surfaces (helpers, utilities). |
 | [`NOETIC_BATCH_SPEC.md`](NOETIC_BATCH_SPEC.md) | `noetic-batch` primitive — when to use it, when NOT to. |
-| [`EPISTEMIC_AGENT_ARCHITECTURE.md`](EPISTEMIC_AGENT_ARCHITECTURE.md) | Turtle-stack pattern — same epistemic rules at every meta-layer. |
 
 ---
 
@@ -109,7 +108,6 @@ These predate current shipping state, propose things that didn't ship as written
 |---|---|
 | [`claude-code-symbiosis.md`](claude-code-symbiosis.md) | Conceptual essay on the Empirica + Claude Code symbiosis. Predates the practice model. |
 | [`noetic-rag-architecture.md`](noetic-rag-architecture.md) | Early Noetic-as-RAG framing. Superseded by the current `noetic-batch` + `docs-explain` separation. |
-| [`PROPOSAL_AI_SERVICE_SCANNER.md`](PROPOSAL_AI_SERVICE_SCANNER.md) | Proposal that drove `SERVICES_SCANNER.md`; the shipped version is the canonical reference now. |
 | [`SENTINEL_CONSTITUTION.md`](SENTINEL_CONSTITUTION.md) | Aspirational framing for the Sentinel — the shipped behavior is in `SENTINEL_ARCHITECTURE.md`. |
 
 *(Candidates for `docs/architecture/_archive/` — pending a future cleanup pass.)*

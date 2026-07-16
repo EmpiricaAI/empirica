@@ -74,6 +74,10 @@ that extend it:
 Base empirica (this package) is the measurement + storage core. The
 extensions layer different surfaces on top.
 
+> For the core↔cortex layer-split in depth — what each layer adds, and
+> exactly what runs without cortex — see
+> [MESH_CONCEPTS.md § Two layers](MESH_CONCEPTS.md#two-layers--what-you-get-where).
+
 ---
 
 ## How the Layers Connect
@@ -114,18 +118,11 @@ extensions layer different surfaces on top.
 
 ## Sessions vs Transactions
 
-A key distinction:
-
-| Concept | What It Is | Bounded By |
-|---|---|---|
-| **Session** | A continuous AI working window | Compaction / explicit close |
-| **Transaction** | An epistemic measurement cycle | PREFLIGHT → POSTFLIGHT |
-| **Goal** | A tracked unit of work | `goals-complete` |
-
-Sessions can contain many transactions. Transactions can outlive a
-session (POSTFLIGHT after a compaction). Goals can span many
-transactions and many sessions. Every artifact carries a
-`transaction_id` linking it back to the measurement window.
+Sessions, transactions, and goals are distinct nesting scopes: a session
+holds many transactions, a transaction can outlive a session (POSTFLIGHT
+after a compaction), and a goal can span many of both. Every artifact
+carries a `transaction_id` back to its measurement window. Full table:
+[PROJECT_MANAGEMENT_FOR_USERS.md § Sessions vs Transactions](PROJECT_MANAGEMENT_FOR_USERS.md#sessions-vs-transactions).
 
 ---
 
@@ -190,7 +187,7 @@ outcomes. This means:
 - **First time:** [FIRST_TIME_SETUP.md](FIRST_TIME_SETUP.md)
 - **CLI basics:** [04_QUICKSTART_CLI.md](04_QUICKSTART_CLI.md)
 - **Project model:** [PROJECT_MANAGEMENT_FOR_USERS.md](PROJECT_MANAGEMENT_FOR_USERS.md)
-- **Multi-project lifecycle:** [PROJECT_LIFECYCLE.md](PROJECT_LIFECYCLE.md)
+- **Multi-project lifecycle:** [REGISTER_AND_MANAGE_PROJECTS.md](REGISTER_AND_MANAGE_PROJECTS.md)
 - **Logging + finding walkthrough:** [LOGGING_AND_FINDING.md](LOGGING_AND_FINDING.md)
 - **Optional mesh layer setup:** [MESH_SETUP.md](MESH_SETUP.md)
 - **Cross-project search:** [../../reference/api/CROSS_PROJECT.md](../../reference/api/CROSS_PROJECT.md)

@@ -242,8 +242,8 @@ empirica project-init  # start over
 1. **CLI basics:** [04_QUICKSTART_CLI.md](04_QUICKSTART_CLI.md)
 2. **Logging + finding walkthrough:** [LOGGING_AND_FINDING.md](LOGGING_AND_FINDING.md)
 3. **Understand the 13 vectors:** [05_EPISTEMIC_VECTORS_EXPLAINED.md](05_EPISTEMIC_VECTORS_EXPLAINED.md)
-4. **Plain-English overview:** [EMPIRICA_EXPLAINED_SIMPLE.md](EMPIRICA_EXPLAINED_SIMPLE.md)
-5. **Multi-project users — lifecycle:** [PROJECT_LIFECYCLE.md](PROJECT_LIFECYCLE.md)
+4. **Plain-English overview:** [01_START_HERE.md](01_START_HERE.md)
+5. **Multi-project users — lifecycle:** [REGISTER_AND_MANAGE_PROJECTS.md](REGISTER_AND_MANAGE_PROJECTS.md)
 6. **Want the optional mesh layer (cross-AI coordination)?** [MESH_SETUP.md](MESH_SETUP.md)
 7. **Troubleshooting:** [03_TROUBLESHOOTING.md](03_TROUBLESHOOTING.md)
 

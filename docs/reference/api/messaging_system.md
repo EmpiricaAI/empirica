@@ -411,4 +411,3 @@ Expired messages are automatically cleaned up but can be included with `--includ
 
 - [HANDOFF_SYSTEM.md](../../architecture/HANDOFF_SYSTEM.md) — AI handoff coordination
 - [MULTI_SESSION_LEARNING.md](../../human/developers/MULTI_SESSION_LEARNING.md) — Multi-agent collaboration
-- [agents_orchestration.md](./agents_orchestration.md) — Parallel agent spawning

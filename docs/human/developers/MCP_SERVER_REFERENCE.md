@@ -212,5 +212,5 @@ All tools include `--output json` automatically.
 The following were removed in the MCP server rewrite:
 
 - **Epistemic middleware** (`EpistemicMiddleware`, `VectorRouter`, `EpistemicStateMachine`) — replaced by Sentinel hooks
-- **58 tools** — agent-*, persona-*, vision-*, identity-*, memory-prime/scope/value/report, session-rollup, multi-AI coordination tools. These remain available via the CLI directly.
+- **58 tools** — vision-*, identity-*, memory-prime/scope/value/report, session-rollup, multi-AI coordination tools. These remain available via the CLI directly.
 - **`EMPIRICA_EPISTEMIC_MODE`** env var — no longer has any effect

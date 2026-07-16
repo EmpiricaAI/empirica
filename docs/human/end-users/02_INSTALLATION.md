@@ -355,7 +355,7 @@ python -m empirica.vision.slide_processor --help
 # Install the standalone MCP server package
 pip install empirica-mcp
 
-# See: MCP_INSTALLATION.md for client configuration
+# See: MCP_FOR_DESKTOP_HARNESSES.md for client configuration
 ```
 
 ---
@@ -379,7 +379,7 @@ rm -rf .empirica/
 ## Next Steps
 
 - **Get started:** [01_START_HERE.md](01_START_HERE.md)
-- **Learn the concepts:** [EMPIRICA_EXPLAINED_SIMPLE.md](EMPIRICA_EXPLAINED_SIMPLE.md)
+- **Learn the concepts:** [01_START_HERE.md](01_START_HERE.md)
 - **See all commands:** [CLI Commands Unified](../developers/CLI_COMMANDS_UNIFIED.md)
 
 ---
