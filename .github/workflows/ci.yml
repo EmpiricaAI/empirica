@@ -48,6 +48,12 @@ jobs:
       - name: pyright
         run: pyright empirica/ empirica-mcp/
 
+      - name: prompt↔parser drift
+        # Fails if a skill / prompt template references `empirica <verb>` for a
+        # verb the CLI no longer has (the #348 prune failure mode). In-repo
+        # corpus only; private ~/.claude prompts are a local --include-private run.
+        run: python scripts/check_prompt_parser_drift.py
+
   # ── Tests ───────────────────────────────────────────────────────────
   # Matrix on 3.11 (min for empirica-mcp) + 3.13 (current). empirica
   # itself still declares 3.10 in classifiers, but empirica-mcp requires
