@@ -45,28 +45,6 @@ def add_lesson_parsers(subparsers):
     )
     lesson_recommend.add_argument("--output", choices=["human", "json"], default="json", help="Output format")
 
-    # lesson-path: Get learning path to reach a target lesson
-    lesson_path = subparsers.add_parser("lesson-path", help="Get learning path to reach a target lesson")
-    lesson_path.add_argument("--target", required=True, help="Target lesson ID (required)")
-    lesson_path.add_argument("--completed", help="Comma-separated list of already completed lesson IDs")
-    lesson_path.add_argument("--output", choices=["human", "json"], default="json", help="Output format")
-
-    # lesson-replay-start: Start tracking a lesson replay
-    lesson_replay_start = subparsers.add_parser("lesson-replay-start", help="Start tracking a lesson replay")
-    lesson_replay_start.add_argument("--lesson-id", required=True, help="Lesson ID (required)")
-    lesson_replay_start.add_argument("--session-id", required=True, help="Session ID (required)")
-    lesson_replay_start.add_argument("--ai-id", help="AI agent ID")
-    lesson_replay_start.add_argument("--output", choices=["human", "json"], default="json", help="Output format")
-
-    # lesson-replay-end: End a lesson replay
-    lesson_replay_end = subparsers.add_parser("lesson-replay-end", help="End a lesson replay and record results")
-    lesson_replay_end.add_argument("--replay-id", required=True, help="Replay ID (required)")
-    lesson_replay_end.add_argument("--success", action="store_true", help="Mark replay as successful")
-    lesson_replay_end.add_argument("--failed", action="store_true", help="Mark replay as failed")
-    lesson_replay_end.add_argument("--steps-completed", type=int, default=0, help="Number of steps completed")
-    lesson_replay_end.add_argument("--error", help="Error message if failed")
-    lesson_replay_end.add_argument("--output", choices=["human", "json"], default="json", help="Output format")
-
     # lesson-stats: Show lesson storage statistics
     lesson_stats = subparsers.add_parser("lesson-stats", help="Show lesson storage statistics")
     lesson_stats.add_argument("--output", choices=["human", "json"], default="json", help="Output format")

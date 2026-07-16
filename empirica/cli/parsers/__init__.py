@@ -42,8 +42,6 @@ def format_help_text(text, required=False, default=None):
     return result.replace("%", "%%")
 
 
-from .action_parsers import add_action_parsers
-from .agent_parsers import add_agent_parsers
 from .architecture_parsers import add_architecture_parsers
 from .bus_parsers import add_bus_parsers
 from .cascade_parsers import add_cascade_parsers
@@ -69,7 +67,6 @@ from .monitor_parsers import add_monitor_parsers
 from .notify_parsers import add_notify_parsers
 from .onboarding_parsers import add_onboarding_parsers
 from .performance_parsers import add_performance_parsers
-from .persona_parsers import add_persona_parsers
 from .profile_parsers import add_profile_parsers
 from .projects_parsers import add_projects_parsers
 from .query_parsers import add_query_parsers
@@ -87,8 +84,6 @@ from .vision_parsers import add_vision_parsers
 from .voice_parsers import add_voice_parsers
 
 __all__ = [
-    "add_action_parsers",
-    "add_agent_parsers",
     "add_architecture_parsers",
     "add_bus_parsers",
     "add_cascade_parsers",
@@ -114,7 +109,6 @@ __all__ = [
     "add_notify_parsers",
     "add_onboarding_parsers",
     "add_performance_parsers",
-    "add_persona_parsers",
     "add_profile_parsers",
     "add_projects_parsers",
     "add_query_parsers",

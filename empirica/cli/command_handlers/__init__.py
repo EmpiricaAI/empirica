@@ -5,7 +5,6 @@ Organizes CLI command handlers by semantic function for maintainability.
 """
 
 # Import all command handlers
-from .action_commands import handle_act_log_command, handle_investigate_log_command
 
 # mistake commands consolidated into artifact_log_commands.py
 from .artifact_log_commands import (
@@ -16,7 +15,6 @@ from .artifact_log_commands import (
     handle_finding_log_command,
     handle_finding_resolve_command,
     handle_mistake_log_command,
-    handle_mistake_query_command,
     handle_source_add_command,
     handle_source_archive_command,
     handle_source_get_command,
@@ -27,7 +25,7 @@ from .artifact_log_commands import (
     handle_unknown_resolve_command,
 )
 from .artifacts_commands import handle_artifacts_generate_command
-from .blindspot_commands import handle_blindspot_report_command, handle_blindspot_scan_command
+from .blindspot_commands import handle_blindspot_scan_command
 from .checkpoint_commands import (
     handle_checkpoint_create_command,
     handle_checkpoint_diff_command,
@@ -81,7 +79,6 @@ from .doctor import handle_doctor_command
 from .ecosystem_commands import (
     handle_ecosystem_check_command,
 )
-from .enforcement_report_commands import handle_enforcement_report_command
 from .engagement_commands import (
     handle_engagement_create_command,
     handle_engagement_list_command,
@@ -109,7 +106,6 @@ from .epp_commands import (
     handle_epp_activate_command,
 )
 from .forgejo_commands import handle_forgejo_publish_command
-from .git_commands import handle_history_command, handle_save_command
 from .goal_commands import (
     handle_goals_activate_command,
     handle_goals_add_dependency_command,
@@ -158,10 +154,7 @@ from .lesson_commands import (
     handle_lesson_embed_command,
     handle_lesson_list_command,
     handle_lesson_load_command,
-    handle_lesson_path_command,
     handle_lesson_recommend_command,
-    handle_lesson_replay_end_command,
-    handle_lesson_replay_start_command,
     handle_lesson_search_command,
     handle_lesson_stats_command,
 )
@@ -179,7 +172,6 @@ from .monitor_commands import (
     handle_monitor_reset_command,
     handle_system_status_command,
     handle_trajectory_project_command,
-    handle_workflow_patterns_command,
 )
 from .noetic_batch_commands import handle_noetic_batch_command
 from .note_commands import handle_note_command
@@ -220,7 +212,6 @@ from .projects_commands import (
     handle_daemon_grants_list_command,
     handle_daemon_list_command,
     handle_project_register_command,
-    handle_projects_bulk_register_command,
     handle_projects_discover_command,
     handle_projects_list_command,
     handle_projects_sync_command,
@@ -259,8 +250,6 @@ from .skill_commands import (
 )
 from .sources_check_commands import handle_sources_check_command
 from .sources_reconcile_commands import handle_sources_reconcile_command
-from .sources_review_commands import handle_source_review_command
-from .sources_sanctify_commands import handle_sources_sanctify_command
 from .sources_update_commands import handle_source_update_command
 from .sync_commands import (
     handle_rebuild_command,
@@ -304,7 +293,6 @@ from .workspace_search import handle_workspace_search_command
 # Export all handlers — deliberately grouped by domain (comments separate
 # semantic clusters), so strict alphabetical sort would lose the structure.
 __all__ = [  # noqa: RUF022
-    "handle_act_log_command",
     "handle_analyze_command",
     # Artifact generation
     "handle_artifacts_generate_command",
@@ -386,7 +374,6 @@ __all__ = [  # noqa: RUF022
     # Handoff Reports commands (Phase 1.6)
     "handle_handoff_create_command",
     "handle_handoff_query_command",
-    "handle_history_command",
     # NEW: Identity Management Commands (Phase 2 - EEP-1)
     "handle_identity_create_command",
     "handle_identity_export_command",
@@ -397,7 +384,6 @@ __all__ = [  # noqa: RUF022
     "handle_investigate_command",
     "handle_investigate_create_branch_command",
     # Action commands (INVESTIGATE and ACT phase tracking)
-    "handle_investigate_log_command",
     "handle_investigate_merge_branches_command",
     "handle_investigate_multi_command",
     # Lesson commands (Epistemic Procedural Knowledge)
@@ -405,10 +391,7 @@ __all__ = [  # noqa: RUF022
     "handle_lesson_embed_command",
     "handle_lesson_list_command",
     "handle_lesson_load_command",
-    "handle_lesson_path_command",
     "handle_lesson_recommend_command",
-    "handle_lesson_replay_end_command",
-    "handle_lesson_replay_start_command",
     "handle_lesson_search_command",
     "handle_lesson_stats_command",
     "handle_log_artifacts_command",
@@ -421,7 +404,6 @@ __all__ = [  # noqa: RUF022
     "handle_memory_compact_command",
     # Mistake Logging commands (Learning from Failures)
     "handle_mistake_log_command",
-    "handle_mistake_query_command",
     # Monitor commands
     "handle_monitor_command",
     "handle_monitor_cost_command",
@@ -460,7 +442,6 @@ __all__ = [  # noqa: RUF022
     "handle_daemon_grant_command",
     "handle_daemon_grants_list_command",
     "handle_daemon_list_command",
-    "handle_projects_bulk_register_command",
     "handle_projects_discover_command",
     "handle_projects_list_command",
     "handle_projects_sync_command",
@@ -468,7 +449,6 @@ __all__ = [  # noqa: RUF022
     "handle_rebuild_command",
     "handle_release_command",
     "handle_resolve_artifacts_command",
-    "handle_save_command",
     # Scanner — Phase 1 (PROPOSAL_AI_SERVICE_SCANNER.md)
     "handle_scan_command",
     "handle_scan_diff_command",
@@ -508,12 +488,8 @@ __all__ = [  # noqa: RUF022
     "handle_sources_map_command",
     "handle_sources_check_command",
     "handle_source_update_command",
-    "handle_source_review_command",
-    "handle_enforcement_report_command",
     "handle_blindspot_scan_command",
-    "handle_blindspot_report_command",
     "handle_sources_reconcile_command",
-    "handle_sources_sanctify_command",
     # Sync commands (git notes synchronization)
     "handle_sync_config_command",
     "handle_sync_pull_command",
@@ -538,7 +514,6 @@ __all__ = [  # noqa: RUF022
     "handle_voice_group_command",
     "handle_voice_list_command",
     "handle_voice_show_command",
-    "handle_workflow_patterns_command",
     "handle_workspace_backfill_entities_command",
     "handle_workspace_init_command",
     "handle_workspace_list_command",

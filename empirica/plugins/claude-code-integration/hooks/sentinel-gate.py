@@ -776,16 +776,12 @@ EMPIRICA_TIER2_PREFIXES = (
     "empirica load-git-checkpoint",
     "empirica memory-compact",
     "empirica resume-previous-session",
-    "empirica agent-spawn",
     "empirica investigate",
     "empirica source-add",
     "empirica assumption-log",
     "empirica decision-log",  # Noetic artifacts - assumptions/decisions
     "empirica lesson-create",
     "empirica lesson-load",
-    "empirica lesson-path",
-    "empirica lesson-replay-start",
-    "empirica lesson-replay-end",
     "empirica lesson-embed",  # Lesson lifecycle commands
     "empirica sentinel-orchestrate",
     "empirica sentinel-load-profile",  # Sentinel management

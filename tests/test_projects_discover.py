@@ -301,7 +301,6 @@ def test_write_manifest_creates_parent_dirs(tmp_path):
 from types import SimpleNamespace  # noqa: E402
 
 from empirica.cli.command_handlers.projects_commands import (  # noqa: E402
-    _format_register_summary,
     _register_one_project,
     _resolve_cortex_config,
 )
@@ -448,39 +447,6 @@ def test_register_one_project_network_error_returns_failed():
     assert result["outcome"] == "failed"
     assert "network" in result["reason"]
     assert "URLError" in result["reason"]
-
-
-def test_format_register_summary_human_includes_failure_details():
-    results = [
-        {"name": "a", "outcome": "registered", "status": 201},
-        {"name": "b", "outcome": "skipped", "status": 409, "reason": "already_exists"},
-        {"name": "c", "outcome": "failed", "status": 500, "reason": "http 500"},
-    ]
-    out = _format_register_summary(results, "human", dry_run=False, cortex_url="https://x")
-    assert "Registered 1" in out
-    assert "skipped 1" in out
-    assert "failed 1" in out
-    assert "c: http 500" in out
-
-
-def test_format_register_summary_dry_run_message():
-    results = [{"name": "a", "outcome": "registered", "status": 0, "reason": "dry-run"}]
-    out = _format_register_summary(results, "human", dry_run=True, cortex_url=None)
-    assert "DRY-RUN" in out
-    assert "would register 1" in out
-
-
-def test_format_register_summary_json_shape():
-    results = [
-        {"name": "a", "outcome": "registered", "status": 201},
-        {"name": "b", "outcome": "failed", "status": 500, "reason": "http 500"},
-    ]
-    out = _format_register_summary(results, "json", dry_run=False, cortex_url="https://x")
-    parsed = yaml.safe_load(out)  # JSON is valid YAML
-    assert parsed["ok"] is False  # failures present
-    assert parsed["summary"]["registered"] == 1
-    assert parsed["summary"]["failed"] == 1
-    assert parsed["cortex_url"] == "https://x"
 
 
 # ---------------------------------------------------------------------------

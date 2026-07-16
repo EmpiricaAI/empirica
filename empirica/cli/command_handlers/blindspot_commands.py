@@ -61,39 +61,3 @@ def handle_blindspot_scan_command(args) -> None:
     print("━" * 60)
     print("Dry-run only — surface an `unknown` to acknowledge one, or dismiss it.")
     print("━" * 60)
-
-
-def handle_blindspot_report_command(args) -> None:
-    """Blindspot telemetry — surfaced / acknowledged / dismissed / regretted."""
-    from empirica.core.blindspots import aggregate_blindspot_events, read_blindspot_events
-    from empirica.data.session_database import SessionDatabase
-
-    session_id = getattr(args, "session_id", None)
-    db = SessionDatabase()
-    try:
-        rows = read_blindspot_events(db, session_id)
-    finally:
-        db.close()
-    summary = aggregate_blindspot_events(rows)
-
-    if getattr(args, "output", "human") == "json":
-        print(json.dumps(summary, indent=2))
-        return
-
-    print("\n🔦 Blindspot Report — outcomes")
-    print("━" * 60)
-    if summary["total"] == 0:
-        print("  (no blindspot events recorded yet — instrument is armed, nothing surfaced)")
-        print("━" * 60)
-        return
-    print(f"Surfaced:          {summary['total']}")
-    for outcome, n in sorted(summary["by_outcome"].items()):
-        print(f"  {outcome:<16} {n}")
-    ack, reg = summary["acknowledge_rate"], summary["regret_rate"]
-    if ack is not None:
-        print(f"Acknowledge rate:  {ack * 100:.0f}%  (surfaced → practitioner logged an unknown / acted)")
-    if reg is not None:
-        print(f"Regret rate:       {reg * 100:.0f}%  (dismissed → later became a mistake/dead-end)")
-    if summary["by_kind"]:
-        print("By signal:         " + ", ".join(f"{k}={v}" for k, v in sorted(summary["by_kind"].items())))
-    print("━" * 60)

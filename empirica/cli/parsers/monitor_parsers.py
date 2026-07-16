@@ -65,18 +65,6 @@ def add_monitor_parsers(subparsers):
     trajectory_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
     trajectory_parser.add_argument("--verbose", action="store_true", help="Show detailed reasoning for each path")
 
-    # Workflow patterns command - detect repeated tool sequences
-    patterns_parser = subparsers.add_parser(
-        "workflow-patterns", help="Detect repeated workflow patterns across transactions (tool sequence mining)"
-    )
-    patterns_parser.add_argument(
-        "--limit", type=int, default=50, help="Number of recent transactions to analyze (default: 50)"
-    )
-    patterns_parser.add_argument(
-        "--min-frequency", type=int, default=2, help="Minimum transaction count for a pattern (default: 2)"
-    )
-    patterns_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
-
     # System status command - unified /proc-style kernel overview
     # NOTE: 'status' alias removed — new top-level 'empirica status' command is the cockpit overview.
     # Use 'empirica system-status' for the kernel-style diagnostic.

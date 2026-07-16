@@ -248,23 +248,6 @@ def add_checkpoint_parsers(subparsers):
     mistake_log_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
     mistake_log_parser.add_argument("--verbose", action="store_true", help="Show detailed operation info")
 
-    # Mistake query command
-    mistake_query_parser = subparsers.add_parser(
-        "mistake-query",
-        help=(
-            "Look up logged mistakes — useful before tackling work that "
-            "echoes a pattern you've gotten wrong before. Filter by "
-            "--session-id (this session's only) or --goal-id (mistakes "
-            "against a specific goal). For semantic search across mistake "
-            'narratives, use `project-search --task "..."` instead.'
-        ),
-    )
-    mistake_query_parser.add_argument("--session-id", help="Filter by session UUID")
-    mistake_query_parser.add_argument("--goal-id", help="Filter by goal UUID")
-    mistake_query_parser.add_argument("--limit", type=int, default=10, help="Number of results (default: 10)")
-    mistake_query_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
-    mistake_query_parser.add_argument("--verbose", action="store_true", help="Show detailed operation info")
-
     # Project Tracking Commands (Multi-repo/multi-session)
 
     # Project init command (NEW: initialize Empirica in a new repo)
@@ -890,17 +873,6 @@ def add_checkpoint_parsers(subparsers):
     workspace_search_parser.add_argument("--project-id", help="Restrict to specific project")
     workspace_search_parser.add_argument("--limit", type=int, default=20, help="Maximum results")
     workspace_search_parser.add_argument("--output", choices=["json", "human"], default="json", help="Output format")
-
-    # Git abstraction: save command — git add + commit with auto-message
-    save_parser = subparsers.add_parser("save", help="Save current work (git add + commit with auto-generated message)")
-    save_parser.add_argument("--message", "-m", help="Custom commit message")
-    save_parser.add_argument("--output", choices=["json", "default"], default="json", help="Output format")
-
-    # Git abstraction: history command — epistemic timeline from git log + notes
-    history_parser = subparsers.add_parser("history", help="Show epistemic timeline from git log + notes")
-    history_parser.add_argument("--entity", help="Filter by entity: TYPE/ID")
-    history_parser.add_argument("--limit", type=int, default=20, help="Maximum entries")
-    history_parser.add_argument("--output", choices=["json", "human"], default="human", help="Output format")
 
     # Project semantic search command (Qdrant-backed)
     project_search_parser = subparsers.add_parser(
@@ -1572,44 +1544,6 @@ def add_checkpoint_parsers(subparsers):
     source_update_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
     source_update_parser.add_argument("--verbose", action="store_true", help="Verbose output")
 
-    # Source review (source-lifecycle REVIEW half — human/AI verdict on a source)
-    source_review_parser = subparsers.add_parser(
-        "source-review",
-        help=(
-            "Record a human/AI review verdict on a source — the REVIEW half of "
-            "the source lifecycle (CHECK detects, UPDATE re-fetches, REVIEW judges). "
-            "Stamps last_reviewed_at + review_verdict and appends a 'reviewed' event "
-            "to the lifecycle audit log. The verdict routes to the next action: "
-            "stale→source-update, superseded/irrelevant→source-archive."
-        ),
-    )
-    source_review_parser.add_argument("--source-id", required=True, help="Source UUID (or unique prefix) to review")
-    source_review_parser.add_argument(
-        "--verdict",
-        required=True,
-        choices=["valid", "stale", "superseded", "irrelevant"],
-        help="valid (keep) | stale (→source-update) | superseded/irrelevant (→source-archive)",
-    )
-    source_review_parser.add_argument("--note", help="Optional free-text review note")
-    source_review_parser.add_argument(
-        "--reviewer", help="Who reviewed (ai_id or human name); recorded in the audit event"
-    )
-    source_review_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
-    source_review_parser.add_argument("--verbose", action="store_true", help="Verbose output")
-
-    # Enforcement report (artifact-graph enforce telemetry — block/self-resolve rate)
-    enforcement_report_parser = subparsers.add_parser(
-        "enforcement-report",
-        help=(
-            "Artifact-graph enforce telemetry: block-rate and self-resolve-rate "
-            "from weave_enforce_events. self-resolve-rate is the health metric for "
-            "enforce-by-default — high means the gate nudges and the system "
-            "recovers on its own; low means it may be over-blocking."
-        ),
-    )
-    enforcement_report_parser.add_argument("--session-id", help="Scope to one session (default: all recorded verdicts)")
-    enforcement_report_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
-
     # Blindspot scan (dry-run unknown-unknown detection — intent-gap signal)
     blindspot_scan_parser = subparsers.add_parser(
         "blindspot-scan",
@@ -1626,30 +1560,6 @@ def add_checkpoint_parsers(subparsers):
         help="Include dormant 'planned' goals (backlog view); default scans active goals only",
     )
     blindspot_scan_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
-
-    # Blindspot report (telemetry — surfaced/acknowledged/dismissed/regretted)
-    blindspot_report_parser = subparsers.add_parser(
-        "blindspot-report",
-        help=(
-            "Blindspot telemetry: surfaced / acknowledged / dismissed / regretted rates "
-            "from blindspot_events. acknowledge-rate = the nudge is useful; regret-rate = "
-            "dismissed ones that later became mistakes/dead-ends."
-        ),
-    )
-    blindspot_report_parser.add_argument("--session-id", help="Scope to one session (default: all events)")
-    blindspot_report_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
-
-    # Sources sanctify (corpus hygiene — classify dead/duplicate/zombie/valid)
-    sources_sanctify_parser = subparsers.add_parser(
-        "sources-sanctify",
-        help=(
-            "Classify the active source corpus and recommend hygiene actions: "
-            "dead (canonical_path missing), duplicate (shared content_hash), "
-            "zombie (no sourced_from reference), valid. Report-only (deletions "
-            "go through review); retire flagged sources via source-archive."
-        ),
-    )
-    sources_sanctify_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
 
     # Sources reconcile (unified source identity — adopt catalogue uuids)
     sources_reconcile_parser = subparsers.add_parser(

@@ -304,12 +304,6 @@ TOOL_REGISTRY: dict[str, dict] = {
         "required": [],
         "desc": "List epistemic sources for the project (filter by type/direction).",
     },
-    "mistake_query": {
-        "cli": "mistake-query",
-        "params": {"session_id": "--session-id", "goal_id": "--goal-id", "limit": "--limit"},
-        "required": [],
-        "desc": "Query logged mistakes (lessons to avoid repeating).",
-    },
     "epistemics_list": {
         "cli": "epistemics-list",
         "params": {"session_id": "--session-id"},
@@ -592,13 +586,6 @@ TOOL_REGISTRY: dict[str, dict] = {
         "params": {"session_id": "--session-id", "issue_id": "--issue-id", "resolution": "--resolution"},
         "required": ["session_id", "issue_id", "resolution"],
         "desc": "Resolve an auto-captured issue",
-    },
-    # --- Workflow Patterns ---
-    "workflow_patterns": {
-        "cli": "workflow-patterns",
-        "params": {"limit": "--limit", "min_frequency": "--min-frequency"},
-        "required": [],
-        "desc": "Detect repeated workflow patterns across transactions (tool sequence mining)",
     },
     # --- Investigation ---
     "investigate": {
