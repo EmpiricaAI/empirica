@@ -1948,9 +1948,10 @@ Example:
     goals_list_parser.add_argument(
         "--all-projects",
         action="store_true",
-        help="Cross-project view (gardening): list goals across ALL project_ids, not just the "
-        "active project. Adds a project column and raises the default limit. Surfaces goals "
-        "stranded under other/divergent project_ids that the normal active-project scope hides.",
+        help="See the COMPLETE backlog (default caps at 20). Cross-project view (gardening): "
+        "list goals across ALL project_ids, not just the active project. Adds a project column "
+        "and raises the limit to 2000. Surfaces goals stranded under other/divergent project_ids "
+        "that the normal active-project scope hides. (`--all` works as a prefix abbreviation.)",
     )
     goals_list_parser.add_argument("--scope-breadth-min", type=float, help="Filter by minimum breadth (0.0-1.0)")
     goals_list_parser.add_argument("--scope-breadth-max", type=float, help="Filter by maximum breadth (0.0-1.0)")
