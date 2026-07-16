@@ -230,6 +230,21 @@ def _resolve_base_topic(body: dict | None) -> str | None:
     return None
 
 
+def retired_topic_names(body: dict | None) -> set[str]:
+    """Names of topics cortex has retired (the `retired_channels` field on
+    /v1/users/me/notification-channels). A listener must never subscribe to any
+    of these — they've lost their ntfy ACL and 403 on every poll. Cortex is the
+    authority, so this supersedes per-client hardcoded retired-topic lists.
+
+    Returns an empty set when the field is absent (older cortex) or `body` is
+    None (cortex unreachable); callers keep a hardcoded fallback for that
+    offline window.
+    """
+    if not body:
+        return set()
+    return {c["name"] for c in body.get("retired_channels") or [] if isinstance(c, dict) and c.get("name")}
+
+
 def _derive_org_prefix(topics: list[str]) -> str | None:
     """Org prefix (incl. trailing '-') from a set of per-org topic names.
 

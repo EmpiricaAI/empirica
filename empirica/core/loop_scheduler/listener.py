@@ -290,13 +290,13 @@ def _listener_health_path(instance_id: str) -> Path:
 
 # The bare `orchestration-events` ntfy topic was retired (T16/T17 per-tenant
 # cutover): it has no ACL grant for non-admin users, so subscribing to it 403s
-# on every poll. Valid topics are org-prefixed (e.g. `empirica-orchestration-
-# events`). The listener must NEVER fall back to this on a resolution miss
-# (autonomy prop_6v3v4iob: 12-13/15 fleet seats wedged, multiple times/day).
-# This hardcoded name is the bootstrapping-window recognition; the durable
-# contract is cortex's `retired_channels` field on /v1/users/me/notification-
-# channels (coordinated w/ cortex Phase 1.5) — consume that + drop this constant
-# once both empirica-cli and cortex-cli listeners read the shared list.
+# on every poll (autonomy prop_6v3v4iob: 12-13/15 fleet seats wedged, multiple
+# times/day). Cortex is the authority on retired topics via the `retired_channels`
+# field on /v1/users/me/notification-channels, which the listener consumes live.
+# This hardcoded name is the OFFLINE FALLBACK: when cortex is unreachable the
+# field is unavailable too, so we still recognise the one known-bad topic. It
+# can't be dropped entirely for that reason — but cortex-added retirements need
+# no code change here (they arrive via retired_channels).
 _RETIRED_BARE_TOPIC = "orchestration-events"
 
 
@@ -600,39 +600,48 @@ def run_listener(  # noqa: C901 — held-connection loop; clarity beats decompos
     # which re-runs resolution — a per-process retry can't span that anyway.
     base_topic = ntfy["topic"]
     if _os.getenv("ORCHESTRATION_NTFY_TOPIC"):
-        # Explicit override wins even if it is the retired bare topic — the
-        # operator asked for it (debug / custom deployments).
+        # Explicit override wins even if it is a retired topic — the operator
+        # asked for it (debug / custom deployments).
         pass
     else:
         resolved = None
+        # Topics cortex has retired (they 403 on every poll). Cortex is the
+        # authority via the `retired_channels` field; _RETIRED_BARE_TOPIC is the
+        # offline fallback for when cortex is unreachable and the field is
+        # unavailable (which is exactly the refuse path below).
+        retired = {_RETIRED_BARE_TOPIC}
         try:
             from empirica.core.cockpit.notification_channels import (
                 _resolve_base_topic,
                 fetch_notification_channels,
+                retired_topic_names,
             )
 
-            resolved = _resolve_base_topic(fetch_notification_channels())
+            body = fetch_notification_channels()
+            resolved = _resolve_base_topic(body)
+            retired |= retired_topic_names(body)
         except Exception as e:
             err_stream.write(f"listener: per-org topic resolve errored: {e}\n")
 
-        if resolved:
+        if resolved and resolved not in retired:
             base_topic = resolved
             _persist_last_good_topic(instance_id, resolved)
         else:
-            # Resolution missed. Prefer the last-resolved-good cache so a
-            # cortex-unreachable start still subscribes to a valid topic.
+            # Resolution missed (or resolved to a since-retired topic). Prefer
+            # the last-resolved-good cache — but reject it if cortex has since
+            # retired that topic (cache invalidation via retired_channels).
             cached = _read_last_good_topic(instance_id)
-            if cached:
+            if cached and cached not in retired:
                 base_topic = cached
                 err_stream.write(f"listener: per-org topic unresolved; using last-resolved-good {cached!r}\n")
-            elif base_topic == _RETIRED_BARE_TOPIC:
-                # No cache and the only candidate is the known-403 bare topic.
+            elif base_topic in retired:
+                # No usable cache and the only candidate is a retired topic.
                 # Refuse to subscribe (a 403 storm is worse than an exit) and
                 # return non-zero so the supervisor retries when cortex is back.
                 err_stream.write(
-                    "listener: per-org topic unresolved and no last-good cache; "
-                    f"REFUSING to subscribe to the retired bare {_RETIRED_BARE_TOPIC!r} "
-                    "topic (no ACL → 403 storm). Exiting for supervisor retry; set "
+                    "listener: per-org topic unresolved and no usable last-good cache; "
+                    f"REFUSING to subscribe to retired topic {base_topic!r} "
+                    "(no ACL → 403 storm). Exiting for supervisor retry; set "
                     "ORCHESTRATION_NTFY_TOPIC to override.\n"
                 )
                 _emit_fail_heartbeat(instance_id, loop_name, reason="topic_unresolved_403_guard")
