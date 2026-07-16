@@ -1424,7 +1424,7 @@ def _print_goals_list_human(goals, status_desc, filter_desc, total_matching, lim
     if total_matching is not None and total_matching > len(goals):
         print(
             f"🎯 GOALS ({status_desc.upper()}) - showing {len(goals)} of {total_matching} "
-            f"[{filter_desc}] · raise --limit (now {limit}) to see more"
+            f"[{filter_desc}] · CAPPED at {limit} — use --all-projects (or raise --limit) for the full backlog"
         )
     else:
         print(f"🎯 GOALS ({status_desc.upper()}) - {len(goals)} found [{filter_desc}]")

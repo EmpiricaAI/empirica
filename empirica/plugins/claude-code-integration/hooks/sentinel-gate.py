@@ -686,6 +686,9 @@ EMPIRICA_TIER1_PREFIXES = (
     "empirica compact-analysis",  # Compact event analysis - read-only
     "empirica commit-context",  # Per-commit artifact aggregator - read-only
     "empirica practice-context",  # Roster lookup (Ambassador addressbook) - read-only
+    "empirica mesh status",  # Mesh roster/state display - read-only (prefix excludes mesh on/off/restart)
+    "empirica mesh diagnose",  # Mesh diagnostic - read-only
+    "empirica status",  # Cockpit instance overview - read-only
     "empirica lesson-list",
     "empirica lesson-search",
     "empirica lesson-recommend",
