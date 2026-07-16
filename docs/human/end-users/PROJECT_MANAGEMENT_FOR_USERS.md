@@ -70,12 +70,10 @@ empirica daemon-list
 # Walk the filesystem for projects with .empirica/project.yaml
 empirica projects-discover
 
-# Bulk-register discovered projects on Cortex (optional — only if you
-# want cross-project search via the cortex serving layer; requires
-# CORTEX_API_KEY). Empirica stays fully usable per-project without this.
-empirica projects-bulk-register
-
-# OR the single-verb pipeline (discover + register in one) — also optional:
+# Register discovered projects on Cortex via the single-verb pipeline
+# (discover + register in one) — optional, only if you want cross-project
+# search via the cortex serving layer; requires CORTEX_API_KEY. Empirica
+# stays fully usable per-project without this.
 empirica projects-sync
 ```
 
@@ -205,7 +203,7 @@ re-bootstrap.
 ## See Also
 
 - **First time:** [FIRST_TIME_SETUP.md](FIRST_TIME_SETUP.md)
-- **Multi-project lifecycle (discover / register / sync / prune / unregister):** [PROJECT_LIFECYCLE.md](PROJECT_LIFECYCLE.md)
+- **Multi-project lifecycle (discover / register / sync / prune / unregister):** [REGISTER_AND_MANAGE_PROJECTS.md](REGISTER_AND_MANAGE_PROJECTS.md)
 - **CLI basics:** [04_QUICKSTART_CLI.md](04_QUICKSTART_CLI.md)
 - **Workflow:** [SESSION_GOAL_WORKFLOW.md](SESSION_GOAL_WORKFLOW.md)
 - **Cross-project queries:** `docs/reference/api/CROSS_PROJECT.md`

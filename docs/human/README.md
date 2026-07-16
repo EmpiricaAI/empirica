@@ -8,8 +8,7 @@
 
 | You are | Start here | What you'll learn |
 |---|---|---|
-| **New to Empirica** | [end-users/01_START_HERE.md](end-users/01_START_HERE.md) | Install + first transaction in 5 minutes |
-| **Want a plain-English overview** | [end-users/EMPIRICA_EXPLAINED_SIMPLE.md](end-users/EMPIRICA_EXPLAINED_SIMPLE.md) | What Empirica measures and why |
+| **New to Empirica** | [end-users/01_START_HERE.md](end-users/01_START_HERE.md) | Install + first transaction in 5 minutes, plus a plain-English overview of what Empirica measures and why |
 | **Developer integrating AI** | [developers/CLAUDE_CODE_SETUP.md](developers/CLAUDE_CODE_SETUP.md) | Hooks, system prompts, MCP server |
 | **Building on Empirica** | [developers/EXTENDING_EMPIRICA.md](developers/EXTENDING_EMPIRICA.md) | Foundation layer + extension patterns |
 
@@ -41,8 +40,7 @@ Technical guides for AI integration + building on Empirica.
 
 | Guide | Audience | Purpose |
 |---|---|---|
-| [Getting Started](end-users/01_START_HERE.md) | Everyone | First-time setup |
-| [Empirica Explained Simply](end-users/EMPIRICA_EXPLAINED_SIMPLE.md) | Everyone | Plain-English overview |
+| [Getting Started](end-users/01_START_HERE.md) | Everyone | First-time setup + plain-English overview |
 | [13 Epistemic Vectors](end-users/05_EPISTEMIC_VECTORS_EXPLAINED.md) | Everyone | The measurement model |
 | [Claude Code Setup](developers/CLAUDE_CODE_SETUP.md) | Developers | Plugin + hooks + statusline |
 | [CLI Reference](developers/CLI_COMMANDS_UNIFIED.md) | Developers | All commands (see currency disclaimer) |

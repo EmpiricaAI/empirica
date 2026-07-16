@@ -73,8 +73,7 @@ source-of-truth paths.
 
 | Guide | Purpose |
 |---|---|
-| [BEADS_INTEGRATION_DESIGN.md](BEADS_INTEGRATION_DESIGN.md) | Architecture for BEADS pairing |
-| [BEADS_GIT_BRIDGE.md](BEADS_GIT_BRIDGE.md) | goals-claim / goals-complete + branch mapping |
+| [BEADS_INTEGRATION_DESIGN.md](BEADS_INTEGRATION_DESIGN.md) | Architecture for BEADS pairing + the goals-claim / goals-complete git bridge (branch mapping) |
 
 ---
 

@@ -340,7 +340,7 @@ empirica goals-get-tasks --goal-id <GOAL_ID>
 # Complete with evidence (commit SHA, test result, file path)
 empirica goals-complete-task --task-id <ID> --evidence "commit abc123"
 ```
-Note: the flag is `--task-id`, not `--task-id`.
+Note: the flag is `--task-id`, not `--goal-id`.
 
 ---
 
@@ -356,10 +356,10 @@ Error: No goals found
 **Solution:**
 ```bash
 # Check git notes
-git notes --ref=empirica/goals list
+git notes --ref=empirica_goals list
 
 # Fetch from remote
-git fetch origin refs/notes/empirica/goals:refs/notes/empirica/goals
+git fetch origin refs/notes/empirica_goals:refs/notes/empirica_goals
 
 # Try discovery again
 empirica goals-discover

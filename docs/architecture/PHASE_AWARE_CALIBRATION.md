@@ -302,7 +302,7 @@ this is correct Bayesian behavior, not a bug.
 - Compliance loop runs domain checklist at POSTFLIGHT
 - Per-domain threshold computation via `_get_domain_scaled_thresholds()`
 - Dashboard: `empirica calibration-report --by-domain --by-phase` (existing)
-- CLI: `empirica domain-list`, `domain-show`, `domain-resolve`, `domain-validate`
+- CLI: `empirica domain-validate`
 
 ---
 

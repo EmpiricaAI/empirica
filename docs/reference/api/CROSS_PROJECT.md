@@ -2,7 +2,7 @@
 
 ## Configuring Cortex creds (CLI)
 
-Empirica's CLI talks to Cortex for `projects-bulk-register`,
+Empirica's CLI talks to Cortex for
 `source-archive` sync, and POSTFLIGHT artifact push. Three resolution
 sources (highest precedence first):
 

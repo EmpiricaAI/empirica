@@ -344,15 +344,6 @@ sentinel = Sentinel.from_goal(goal_id="abc123", session_id="sess456")
 
 Useful when a goal already defines its scope — avoids manually specifying `scope_breadth`/`scope_duration`.
 
-##### `wire_agent_infrastructure()`
-Connects the Sentinel to Empirica's existing `agent-spawn`/`agent-aggregate` CLI infrastructure.
-
-```python
-sentinel.wire_agent_infrastructure()
-# Registers spawn_fn (via spawn_epistemic_agent) and aggregate_fn (via aggregate_branches)
-# Called automatically by auto_orchestrate() if not already wired
-```
-
 ##### Compliance Gate Decision Priority
 
 When `check_compliance()` evaluates triggered gates, it applies a strict priority ordering:

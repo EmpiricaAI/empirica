@@ -39,10 +39,10 @@ The full-stack walkthrough for users who want cross-AI coordination: provisionin
 
 → [docs/human/end-users/MESH_SETUP.md](../human/end-users/MESH_SETUP.md)
 
-### `PROJECT_LIFECYCLE.md` — multi-project narrative
-The companion to `PROJECT_MANAGEMENT_FOR_USERS.md`. Covers the full discover → register → sync → prune → unregister story for users with N projects scattered across their filesystem: `projects-sync` as the single-verb master path, selective `--include`/`--exclude` regex filters, `--dry-run` patterns, the `--prune` flow, the **known cortex-side-unregister gap** (with current workarounds + queued design), and the **name↔UUID identity gap** for users provisioned through both CLI and Desktop clients.
+### `REGISTER_AND_MANAGE_PROJECTS.md` — register + multi-project lifecycle
+The companion to `PROJECT_MANAGEMENT_FOR_USERS.md`. Covers the full register → sync → prune → unregister story for users with N projects scattered across their filesystem: `projects-sync` as the single-verb master path, selective `--include`/`--exclude` regex filters, `--dry-run` patterns, the `--prune` flow, the **known cortex-side-unregister gap** (with current workarounds + queued design), and the **name↔UUID identity gap** for users provisioned through both CLI and Desktop clients.
 
-→ [docs/human/end-users/PROJECT_LIFECYCLE.md](../human/end-users/PROJECT_LIFECYCLE.md)
+→ [docs/human/end-users/REGISTER_AND_MANAGE_PROJECTS.md](../human/end-users/REGISTER_AND_MANAGE_PROJECTS.md)
 
 ### `LOGGING_AND_FINDING.md` — discovery-side walkthrough
 A concrete OAuth2 worked example that threads the entire lifecycle (PREFLIGHT + goal + tasks + 5 artifact types + CHECK + completion + POSTFLIGHT) but spends the majority of its real estate on the **finding side**: semantic search (local + `--global`), the artifact graph + typed edges, entity discovery (`entity-list` / `entity-walk` / `entity-search`), the commit-context walker (single SHA, ranges, `--session`, `--only-with-artifacts`), and how to thread it all together a day or week later.
@@ -169,7 +169,7 @@ restored push-path delivery fleet-wide. Short aliases (`cortex`,
 - [ ] `empirica diagnose` — green = ready
 - [ ] If you run a persistent listener, restart it (see Quick Upgrade above)
 - [ ] **Mesh users who emitted v0 beads in the 1.10.5 window**: nothing to migrate — those rows stay readable, no further bead emissions happen, SER replaces the concept at the cortex layer (see [Bead v0 → SER](#bead-v0--shared-epistemic-record-ser--coordination-concept-relocated-1105-ship--111-retire))
-- [ ] **Multi-project users**: skim [`PROJECT_LIFECYCLE.md`](../human/end-users/PROJECT_LIFECYCLE.md) — covers the new `projects-sync` master verb and the selective `--include`/`--exclude` filters
+- [ ] **Multi-project users**: skim [`REGISTER_AND_MANAGE_PROJECTS.md`](../human/end-users/REGISTER_AND_MANAGE_PROJECTS.md) — covers the new `projects-sync` master verb and the selective `--include`/`--exclude` filters
 - [ ] **Mesh users**: skim [`MESH_SETUP.md`](../human/end-users/MESH_SETUP.md) — covers the post-1.10.6 listener arming pattern + the Contract 2 wake-noise simplification. New to the conceptual story: read [`MESH_CONCEPTS.md`](../human/end-users/MESH_CONCEPTS.md) first
 - [ ] **New to the discovery side**: walk through [`LOGGING_AND_FINDING.md`](../human/end-users/LOGGING_AND_FINDING.md) — the OAuth2 worked example threads search + entity-walk + commit-context together
 
@@ -180,5 +180,5 @@ restored push-path delivery fleet-wide. Short aliases (`cortex`,
 - [CHANGELOG.md](../../CHANGELOG.md) — full release notes for 1.10.5 + 1.10.6 + 1.11.0
 - [UPGRADE_TO_1.10.md](./UPGRADE_TO_1.10.md) — prior minor upgrade guide (covers the `subtask` → `task` rename)
 - [`MESH_SETUP.md`](../human/end-users/MESH_SETUP.md) — full optional-mesh setup
-- [`PROJECT_LIFECYCLE.md`](../human/end-users/PROJECT_LIFECYCLE.md) — multi-project narrative
+- [`REGISTER_AND_MANAGE_PROJECTS.md`](../human/end-users/REGISTER_AND_MANAGE_PROJECTS.md) — register + multi-project lifecycle
 - [`LOGGING_AND_FINDING.md`](../human/end-users/LOGGING_AND_FINDING.md) — discovery-side walkthrough

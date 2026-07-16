@@ -207,9 +207,9 @@ Empirica commands use a two-tier system instead of a blanket whitelist (prevents
 - Goals: `goals-create`, `goals-complete`, `goals-add-task`, `goals-complete-task`, `goals-add-dependency`, `goals-resume`, `goals-claim`, `goals-mark-stale`, `goals-refresh`
 - Session: `session-create`
 - Project: `project-init`, `project-embed`
-- Lessons: `lesson-create`, `lesson-load`, `lesson-path`, `lesson-replay-start`, `lesson-replay-end`, `lesson-embed`
+- Lessons: `lesson-create`, `lesson-load`, `lesson-embed`
 - Profile: `profile-sync`, `profile-prune`
-- Other: `unknown-resolve`, `agent-spawn`, `investigate`, `artifacts-generate`, `sentinel-orchestrate`, `sentinel-load-profile`
+- Other: `unknown-resolve`, `investigate`, `artifacts-generate`, `sentinel-orchestrate`, `sentinel-load-profile`
 
 ---
 

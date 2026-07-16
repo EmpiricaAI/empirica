@@ -68,11 +68,6 @@
 - **Global registry** - Project tracking in workspace.db
 - **Instance bindings** - AI instance → project mappings
 
-### [Agents Orchestration](agents_orchestration.md)
-- **agent-spawn/parallel** - Parallel investigation agents
-- **Budget allocation** - Shannon information gain distribution
-- **agent-aggregate/rollup** - Finding consolidation
-
 ### [Messaging System](messaging_system.md)
 - **message-send/inbox/read** - Asynchronous AI-to-AI communication
 - **Channels** - Direct, broadcast, crosscheck messaging
@@ -120,5 +115,5 @@ For new users, start with:
 
 ---
 
-**Total Modules:** 18 categories
+**Total Modules:** 17 categories
 **API Stability:** Production ready

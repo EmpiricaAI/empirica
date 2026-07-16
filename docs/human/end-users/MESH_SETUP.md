@@ -66,7 +66,7 @@ Four layers. Each one is optional on top of the one below it. You can stop at an
 Before starting on the mesh setup, you should have:
 
 1. **Empirica core working.** Run through [FIRST_TIME_SETUP.md](FIRST_TIME_SETUP.md) and [02_INSTALLATION.md](02_INSTALLATION.md). Verify with `empirica diagnose` — green is required before adding mesh.
-2. **A project initialised** — `empirica project-init` in at least one repo. If you have many projects, see [PROJECT_LIFECYCLE.md](PROJECT_LIFECYCLE.md) for the multi-project workflow.
+2. **A project initialised** — `empirica project-init` in at least one repo. If you have many projects, see [REGISTER_AND_MANAGE_PROJECTS.md](REGISTER_AND_MANAGE_PROJECTS.md) for the multi-project workflow.
 3. **Optional but recommended:** a working `git` setup so artifacts can ride `refs/notes/empirica_*`.
 
 If any of those are off, fix that first. Mesh setup on a broken core just compounds the diagnosis.
@@ -190,7 +190,7 @@ empirica projects-sync --include 'empirica-(cortex|outreach|extension)' --dry-ru
 empirica projects-sync --exclude 'archive|backup|playground'
 ```
 
-See [PROJECT_LIFECYCLE.md](PROJECT_LIFECYCLE.md) for the full lifecycle covering selective registration, pruning, the unregister gap, and the name↔UUID identity gap.
+See [REGISTER_AND_MANAGE_PROJECTS.md](REGISTER_AND_MANAGE_PROJECTS.md) for the full lifecycle covering selective registration, pruning, the unregister gap, and the name↔UUID identity gap.
 
 After registering, your projects appear in the extension's project picker and in cross-project search (`empirica project-search --global`).
 
@@ -328,7 +328,7 @@ empirica mailbox inbox --ai-id <your-ai-id> --status eco_review
 
 **Phone never receives the ECO notification** — verify the extension's QR enrolment, check the phone has notifications enabled for ntfy, and verify `~/.empirica/credentials.yaml`'s ntfy block matches what the extension is configured for.
 
-**Cross-project search returns inconsistent results** — possible name↔UUID bifurcation; see [PROJECT_LIFECYCLE.md § Name↔UUID Identity Gap](PROJECT_LIFECYCLE.md#the-name--uuid-identity-gap).
+**Cross-project search returns inconsistent results** — possible name↔UUID bifurcation; see [REGISTER_AND_MANAGE_PROJECTS.md § Name↔UUID Identity Gap](REGISTER_AND_MANAGE_PROJECTS.md#the-name--uuid-identity-gap).
 
 **Wake events fire but AI doesn't react** — the AI's mailbox-poll skill might not be loaded. For Claude Code, the SessionStart hook normally arms it; for other clients, ensure the equivalent reaction protocol is in place.
 
@@ -369,7 +369,7 @@ A reminder, because users sometimes assume the mesh is required:
 
 - **Core install:** [FIRST_TIME_SETUP.md](FIRST_TIME_SETUP.md)
 - **Per-project basics:** [PROJECT_MANAGEMENT_FOR_USERS.md](PROJECT_MANAGEMENT_FOR_USERS.md)
-- **Multi-project lifecycle:** [PROJECT_LIFECYCLE.md](PROJECT_LIFECYCLE.md)
+- **Multi-project lifecycle:** [REGISTER_AND_MANAGE_PROJECTS.md](REGISTER_AND_MANAGE_PROJECTS.md)
 - **Logging + finding walkthrough:** [LOGGING_AND_FINDING.md](LOGGING_AND_FINDING.md)
 - **Workflow rhythm:** [SESSION_GOAL_WORKFLOW.md](SESSION_GOAL_WORKFLOW.md)
 - **Ecosystem overview:** [ECOSYSTEM_OVERVIEW.md](ECOSYSTEM_OVERVIEW.md)

@@ -173,37 +173,6 @@ for point in response.points:  # Not hits
     print(point.payload, point.score)
 ```
 
-### 6. **`personas`** - Epistemic Agent Profiles
-```python
-{
-  "id": "persona_uuid",
-  "vector": [13-dim epistemic state],  # Or 1536-dim task embedding
-  "payload": {
-    "persona_id": "security-expert-001",
-    "name": "Security Expert",
-    "agent_type": "epistemic_agent" | "predefined",
-    "focus_domains": ["security", "oauth"],
-    "reputation_score": 0.75,
-    "initial_vectors": {...},  # Starting epistemic state
-    "delta_pattern": {...},    # How vectors evolved (for emerged)
-    "provenance": {
-      "source_session_id": "...",
-      "source_branch_id": "...",
-      "is_emerged": true | false
-    }
-  }
-}
-```
-
-**Purpose:** Semantic matching of personas to tasks
-**Population:**
-- Pre-defined: From `.empirica/personas/*.json` via `embed_predefined_personas()`
-- Emerged: From winning branches via `extract_persona_from_loop_tracker()`
-
-**Status:** ⚠️ Collection not initialized. See [separation-of-concerns.md](./separation-of-concerns.md) for planned flow.
-
----
-
 ## Data Flow: SQLite → Qdrant
 
 ### 1. Findings/Unknowns/Mistakes (Logged in Real-Time)

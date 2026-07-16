@@ -302,4 +302,4 @@ divergence later.
 - **CLI basics:** [04_QUICKSTART_CLI.md](04_QUICKSTART_CLI.md)
 - **Workflow:** [SESSION_GOAL_WORKFLOW.md](SESSION_GOAL_WORKFLOW.md)
 - **Sentinel architecture:** [../../architecture/SENTINEL_ARCHITECTURE.md](../../architecture/SENTINEL_ARCHITECTURE.md)
-- **Plain-English overview:** [EMPIRICA_EXPLAINED_SIMPLE.md](EMPIRICA_EXPLAINED_SIMPLE.md)
+- **Plain-English overview:** [01_START_HERE.md](01_START_HERE.md)

@@ -134,31 +134,6 @@ empirica lesson-recommend --know 0.5 --uncertainty 0.7 --output json
 
 ---
 
-### `lesson-path`
-
-Get topological prerequisite path to a target lesson.
-
-```bash
-empirica lesson-path --target 9d2533b08863f644 --output json
-```
-
-**Output:**
-```json
-{
-  "ok": true,
-  "target": "9d2533b08863f644",
-  "path_length": 2,
-  "path": [
-    {"id": "8f89dc21e5160e5a", "name": "NotebookLM: Navigate to Studio Tab"},
-    {"id": "9d2533b08863f644", "name": "NotebookLM: Generate Slide Deck"}
-  ]
-}
-```
-
-**Knowledge Graph:** Uses `requires` edges in `knowledge_graph` table to compute topological sort.
-
----
-
 ### `lesson-embed`
 
 Embed all lessons into Qdrant for semantic search.
@@ -174,53 +149,6 @@ empirica lesson-embed --output json
   "embedded_count": 8,
   "failed_count": 0,
   "collection": "empirica_lessons"
-}
-```
-
----
-
-### `lesson-replay-start`
-
-Start tracking a lesson replay session.
-
-```bash
-empirica lesson-replay-start \
-  --lesson-id 8f89dc21e5160e5a \
-  --session-id <SESSION_UUID> \
-  --output json
-```
-
-**Output:**
-```json
-{
-  "ok": true,
-  "replay_id": "uuid",
-  "lesson_name": "NotebookLM: Navigate to Studio Tab",
-  "total_steps": 3
-}
-```
-
----
-
-### `lesson-replay-end`
-
-Complete a lesson replay and record outcome.
-
-```bash
-empirica lesson-replay-end \
-  --replay-id <REPLAY_UUID> \
-  --success true \
-  --steps-completed 3 \
-  --output json
-```
-
-**Output:**
-```json
-{
-  "ok": true,
-  "replay_id": "uuid",
-  "success": true,
-  "updated_stats": {"replay_count": 5, "success_rate": 0.80}
 }
 ```
 

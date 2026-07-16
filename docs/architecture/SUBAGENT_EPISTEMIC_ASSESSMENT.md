@@ -173,7 +173,7 @@ Archetypes are broad categories, not unique personas per spawn:
 | `auditor` | know:0.5, uncertainty:0.4, clarity:0.8 | "Check if the tests cover..." |
 | `analyst` | know:0.5, uncertainty:0.5, density:0.8 | "Analyze the performance of..." |
 
-Stored in the existing persona registry (Qdrant `personas` collection).
+Stored in the `subagent_sessions` table.
 
 ### Calibration Tracking
 
@@ -408,17 +408,17 @@ infrastructure — turtles all the way down.
 |-----------|---------------|
 | `subagent-start.py` hook | Prompt decomposition + imprint injection |
 | `subagent-stop.py` hook | Result capture + postflight recording |
-| Persona registry (Qdrant) | Store archetype profiles + calibration |
+| `subagent_sessions` table | Store archetype profiles + calibration |
 | Calibration collection | Per-archetype Brier scores |
 | Finding-log | Parent assessment = reference belief state |
 | Sentinel | Can apply earned autonomy thresholds |
 
 ### New Storage
 
-Extends persona registry with subagent-specific fields:
+Extends the `subagent_sessions` table with archetype-specific fields:
 
 ```python
-# In personas collection
+# subagent_sessions archetype record
 {
     "persona_id": "archetype:researcher",
     "name": "Research Agent",
@@ -447,12 +447,12 @@ Extends persona registry with subagent-specific fields:
 
 ### Phase 2: Archetype Matching
 - Define base archetypes (researcher, explorer, implementer, auditor, analyst)
-- Store in persona registry
+- Store in the `subagent_sessions` table
 - Match spawned agents to nearest archetype
 - Start accumulating per-archetype Brier scores
 
 ### Phase 3: Active Imprinting
-- Add imprint schema to `agent-spawn` / subagent prompt
+- Add imprint schema to the subagent prompt
 - Build prompt injection in `subagent-start.py`
 - Allow parent to specify scope constraints
 - Track whether tighter imprints improve calibration
