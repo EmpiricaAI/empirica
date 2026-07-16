@@ -288,6 +288,45 @@ def _listener_health_path(instance_id: str) -> Path:
     return Path.home() / ".empirica" / f"listener_health_{instance_id}.json"
 
 
+# The bare `orchestration-events` ntfy topic was retired (T16/T17 per-tenant
+# cutover): it has no ACL grant for non-admin users, so subscribing to it 403s
+# on every poll. Valid topics are org-prefixed (e.g. `empirica-orchestration-
+# events`). The listener must NEVER fall back to this on a resolution miss
+# (autonomy prop_6v3v4iob: 12-13/15 fleet seats wedged, multiple times/day).
+# This hardcoded name is the bootstrapping-window recognition; the durable
+# contract is cortex's `retired_channels` field on /v1/users/me/notification-
+# channels (coordinated w/ cortex Phase 1.5) — consume that + drop this constant
+# once both empirica-cli and cortex-cli listeners read the shared list.
+_RETIRED_BARE_TOPIC = "orchestration-events"
+
+
+def _last_good_topic_path(instance_id: str) -> Path:
+    return Path.home() / ".empirica" / f"listener_topic_{instance_id}"
+
+
+def _read_last_good_topic(instance_id: str) -> str | None:
+    """Last successfully-resolved org-prefixed topic, or None. Never returns
+    the retired bare topic (a stale/hand-edited file can't reintroduce it)."""
+    try:
+        topic = _last_good_topic_path(instance_id).read_text().strip()
+    except OSError:
+        return None
+    return topic if topic and topic != _RETIRED_BARE_TOPIC else None
+
+
+def _persist_last_good_topic(instance_id: str, topic: str) -> None:
+    """Cache a good resolution so a later cortex-unreachable start still has a
+    valid topic. Best-effort; never raises. Refuses to cache the bare topic."""
+    if not topic or topic == _RETIRED_BARE_TOPIC:
+        return
+    try:
+        path = _last_good_topic_path(instance_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(topic)
+    except OSError:
+        pass
+
+
 def _emit_fail_heartbeat(instance_id: str, loop_name: str, *, reason: str) -> None:
     """Surface a listener-poll failure so it shows up in `empirica status`
     + cockpit instead of silently degrading (the 10-day-deaf failure mode).
@@ -550,17 +589,22 @@ def run_listener(  # noqa: C901 — held-connection loop; clarity beats decompos
                 f"pushes will be silently dropped\n"
             )
             tag_filter = instance_id
-    # Per-tenant wake topic. The legacy bare `orchestration-events` topic
-    # (credentials_loader default) has no ntfy ACL grant for non-admin
-    # users → every poll 403s. Resolve the canonical topic name from
-    # cortex's notification-channels registry instead — post-T16/T17 this
-    # is tenant-scoped per caller (cortex returns whatever topic THIS
-    # tenant should subscribe to). An explicit ORCHESTRATION_NTFY_TOPIC
-    # override still wins (debug / custom deployments); resolution
-    # failure falls back to the configured topic with a loud log rather
-    # than silently.
+    # Per-tenant wake topic. The credentials_loader default is the retired
+    # bare `orchestration-events` topic, which has no ntfy ACL grant for
+    # non-admin users → every poll 403s. Resolve the canonical org-prefixed
+    # topic from cortex's notification-channels registry instead. On a
+    # resolution miss the listener must NEVER fall back to the bare topic
+    # (that is the fleet-wedging 403 storm, autonomy prop_6v3v4iob) — it uses
+    # the last-resolved-good cache, then refuses. Transient misses (the ~30-60s
+    # cortex deploy window) are covered by the supervisor's restart cadence,
+    # which re-runs resolution — a per-process retry can't span that anyway.
     base_topic = ntfy["topic"]
-    if not _os.getenv("ORCHESTRATION_NTFY_TOPIC"):
+    if _os.getenv("ORCHESTRATION_NTFY_TOPIC"):
+        # Explicit override wins even if it is the retired bare topic — the
+        # operator asked for it (debug / custom deployments).
+        pass
+    else:
+        resolved = None
         try:
             from empirica.core.cockpit.notification_channels import (
                 _resolve_base_topic,
@@ -568,15 +612,34 @@ def run_listener(  # noqa: C901 — held-connection loop; clarity beats decompos
             )
 
             resolved = _resolve_base_topic(fetch_notification_channels())
-            if resolved:
-                base_topic = resolved
-            else:
-                err_stream.write(
-                    "listener: per-org topic unresolved (cortex unreachable "
-                    f"or no prefixed channels); using {base_topic!r}\n"
-                )
         except Exception as e:
-            err_stream.write(f"listener: per-org topic resolve failed, using {base_topic!r}: {e}\n")
+            err_stream.write(f"listener: per-org topic resolve errored: {e}\n")
+
+        if resolved:
+            base_topic = resolved
+            _persist_last_good_topic(instance_id, resolved)
+        else:
+            # Resolution missed. Prefer the last-resolved-good cache so a
+            # cortex-unreachable start still subscribes to a valid topic.
+            cached = _read_last_good_topic(instance_id)
+            if cached:
+                base_topic = cached
+                err_stream.write(f"listener: per-org topic unresolved; using last-resolved-good {cached!r}\n")
+            elif base_topic == _RETIRED_BARE_TOPIC:
+                # No cache and the only candidate is the known-403 bare topic.
+                # Refuse to subscribe (a 403 storm is worse than an exit) and
+                # return non-zero so the supervisor retries when cortex is back.
+                err_stream.write(
+                    "listener: per-org topic unresolved and no last-good cache; "
+                    f"REFUSING to subscribe to the retired bare {_RETIRED_BARE_TOPIC!r} "
+                    "topic (no ACL → 403 storm). Exiting for supervisor retry; set "
+                    "ORCHESTRATION_NTFY_TOPIC to override.\n"
+                )
+                _emit_fail_heartbeat(instance_id, loop_name, reason="topic_unresolved_403_guard")
+                return 2
+            else:
+                # Configured default is a custom (non-retired) topic — honour it.
+                err_stream.write(f"listener: per-org topic unresolved; using configured {base_topic!r}\n")
     url = _build_subscribe_url(ntfy["url"], base_topic, tag_filter=tag_filter)
     headers = _ntfy_auth_header(
         ntfy.get("user"),
