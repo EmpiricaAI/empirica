@@ -21,9 +21,6 @@ import time
 from .cli_utils import handle_cli_error
 from .command_handlers import *  # noqa: F403 — re-exports all command handlers by design
 from .command_handlers.domain_commands import (
-    handle_domain_list_command,
-    handle_domain_resolve_command,
-    handle_domain_show_command,
     handle_domain_validate_command,
 )
 from .command_handlers.edit_verification_command import handle_edit_with_confidence_command
@@ -92,7 +89,7 @@ class GroupedHelpFormatter(argparse.RawDescriptionHelpFormatter):
                     "    project-search             Search knowledge (Qdrant)\n",
                     "\n  Monitoring:\n",
                     "    calibration-report         Calibration accuracy\n",
-                    "    workflow-patterns           Detect repeated workflows\n",
+                    "    compliance-report          Release-readiness checks\n",
                     "    profile-status              Artifact counts + drift\n",
                     "\n" + "=" * 60 + "\n",
                     "\n180+ commands in 26 categories. To explore:\n",
@@ -115,15 +112,6 @@ from empirica.cli.command_handlers.bus_commands import (
     handle_bus_subscribe_command,
 )
 
-from .command_handlers.agent_commands import (
-    handle_agent_aggregate_command,
-    handle_agent_discover_command,
-    handle_agent_export_command,
-    handle_agent_import_command,
-    handle_agent_parallel_command,
-    handle_agent_report_command,
-    handle_agent_spawn_command,
-)
 from .command_handlers.architecture_commands import (
     handle_assess_compare_command,
     handle_assess_component_command,
@@ -173,12 +161,6 @@ from .command_handlers.message_commands import (
     handle_message_thread_command,
 )
 from .command_handlers.module_commands import handle_module_group_command
-from .command_handlers.persona_commands import (
-    handle_persona_find_command,
-    handle_persona_list_command,
-    handle_persona_promote_command,
-    handle_persona_show_command,
-)
 from .command_handlers.practice_context_commands import handle_practice_context_command
 from .command_handlers.query_commands import handle_query_command
 from .command_handlers.release_commands import handle_release_command, handle_release_ready_command
@@ -199,8 +181,6 @@ from .command_handlers.trajectory_commands import (
     handle_trajectory_stats as handle_trajectory_stats_command,
 )
 from .parsers import (
-    add_action_parsers,
-    add_agent_parsers,
     add_architecture_parsers,
     add_bus_parsers,
     add_cascade_parsers,
@@ -226,7 +206,6 @@ from .parsers import (
     add_notify_parsers,
     add_onboarding_parsers,
     add_performance_parsers,
-    add_persona_parsers,
     add_profile_parsers,
     add_projects_parsers,
     add_query_parsers,
@@ -298,7 +277,6 @@ def create_argument_parser():
     add_domain_parsers(subparsers)
     add_resolve_parser(subparsers)
     add_monitor_parsers(subparsers)
-    add_action_parsers(subparsers)
     add_checkpoint_parsers(subparsers)
     add_user_interface_parsers(subparsers)
     add_vision_parsers(subparsers)
@@ -307,9 +285,7 @@ def create_argument_parser():
     add_issue_capture_parsers(subparsers)
     add_architecture_parsers(subparsers)
     add_query_parsers(subparsers)
-    add_agent_parsers(subparsers)
     add_sentinel_parsers(subparsers)
-    add_persona_parsers(subparsers)
     add_release_parsers(subparsers)
     add_lesson_parsers(subparsers)
     add_onboarding_parsers(subparsers)
@@ -385,23 +361,16 @@ _HELP_CATEGORIES = {
         "assumption-log",
         "decision-log",
         "mistake-log",
-        "mistake-query",
         "note",
         "source-add",
         "source-get",
         "source-list",
         "sources-map",
         "sources-reconcile",
-        "sources-sanctify",
         "sources-check",
         "source-archive",
         "source-update",
-        "source-review",
-        "enforcement-report",
         "blindspot-scan",
-        "blindspot-report",
-        "act-log",
-        "investigate-log",
         "log-artifacts",
         "resolve-artifacts",
         "delete-artifacts",
@@ -426,7 +395,6 @@ _HELP_CATEGORIES = {
         "projects-sync",
         "projects-discover",
         "projects-list",
-        "projects-bulk-register",
         "projects-unregister",
     ],
     "workspace": [
@@ -437,8 +405,6 @@ _HELP_CATEGORIES = {
         "workspace-search",
         "engagement-focus",
         "ecosystem-check",
-        "save",
-        "history",
         "entity-create",
         "entity-list",
         "entity-show",
@@ -479,7 +445,6 @@ _HELP_CATEGORIES = {
         "assess-state",
         "trajectory-project",
         "efficiency-report",
-        "workflow-patterns",
         "calibration-report",
         "grounding-export",
         "commit-context",
@@ -506,32 +471,19 @@ _HELP_CATEGORIES = {
     ],
     "skills": ["skill-suggest", "skill-fetch", "skill-extract"],
     "architecture": ["assess-component", "assess-compare", "assess-directory"],
-    "agents": [
-        "agent-spawn",
-        "agent-report",
-        "agent-aggregate",
-        "agent-parallel",
-        "agent-export",
-        "agent-import",
-        "agent-discover",
-    ],
     "sentinel": ["sentinel-orchestrate", "sentinel-load-profile", "sentinel-status", "sentinel-check"],
-    "personas": ["persona-list", "persona-show", "persona-promote", "persona-find"],
     "lessons": [
         "lesson-create",
         "lesson-load",
         "lesson-list",
         "lesson-search",
         "lesson-recommend",
-        "lesson-path",
-        "lesson-replay-start",
-        "lesson-replay-end",
         "lesson-stats",
     ],
     "mcp": ["mcp-list-tools"],
     "memory": ["memory-prime", "memory-scope", "memory-value", "pattern-check", "session-rollup", "memory-report"],
     "vision": ["vision"],
-    "domains": ["domain-list", "domain-show", "domain-resolve", "domain-validate"],
+    "domains": ["domain-validate"],
     "setup": ["onboard", "setup-claude-code", "plugin-sync", "enp-setup", "diagnose", "doctor", "release", "serve"],
 }
 
@@ -749,13 +701,10 @@ def main(args=None):
             "postflight-submit": handle_postflight_submit_command,
             # Investigation commands
             "investigate": handle_investigate_command,
-            "investigate-log": handle_investigate_log_command,
             "investigate-create-branch": handle_investigate_create_branch_command,
             "investigate-checkpoint-branch": handle_investigate_checkpoint_branch_command,
             "investigate-merge-branches": handle_investigate_merge_branches_command,
             "investigate-multi": handle_investigate_multi_command,
-            # Action commands
-            "act-log": handle_act_log_command,
             # Performance commands
             "performance": handle_performance_command,
             # Skill commands
@@ -770,10 +719,10 @@ def main(args=None):
             "qdrant-status": handle_qdrant_status_command,
             # Config commands
             "config": handle_config_command,
-            # Domain registry commands (A1 — Sentinel reframe)
-            "domain-list": handle_domain_list_command,
-            "domain-show": handle_domain_show_command,
-            "domain-resolve": handle_domain_resolve_command,
+            # Domain registry commands (A1 — Sentinel reframe). Inspection verbs
+            # (list/show/resolve) pruned in the CLI-surface cut; the registry
+            # itself stays load-bearing (calibration tuple resolution). validate
+            # kept as the YAML guard-rail for that config.
             "domain-validate": handle_domain_validate_command,
             # Unified resolve command
             "resolve": handle_resolve_command,
@@ -783,7 +732,6 @@ def main(args=None):
             "assess-state": handle_assess_state_command,
             "mco-load": handle_mco_load_command,
             "trajectory-project": handle_trajectory_project_command,
-            "workflow-patterns": handle_workflow_patterns_command,
             "compact-analysis": handle_compact_analysis,
             "commit-context": handle_commit_context_command,
             "calibration-report": handle_calibration_report_command,
@@ -844,7 +792,6 @@ def main(args=None):
             "handoff-query": handle_handoff_query_command,
             # Mistake logging
             "mistake-log": handle_mistake_log_command,
-            "mistake-query": handle_mistake_query_command,
             # Project commands
             "project-init": handle_project_init_command,
             "project-update": handle_project_update_command,
@@ -874,8 +821,6 @@ def main(args=None):
             "engagement-walk": handle_engagement_walk_command,
             "engagement-update": handle_engagement_update_command,
             "engagement-focus": handle_engagement_focus_command,
-            "save": handle_save_command,
-            "history": handle_history_command,
             "project-search": handle_project_search_command,
             "project-embed": handle_project_embed_command,
             "code-embed": handle_code_embed_command,
@@ -886,7 +831,6 @@ def main(args=None):
             # Alias: argparse `aliases=` only covers parsing/--help; args.command
             # carries the invoked alias string, so dispatch needs its own entry.
             "project-sync": handle_projects_sync_command,
-            "projects-bulk-register": handle_projects_bulk_register_command,
             "projects-unregister": handle_projects_unregister_command,
             "project-register": handle_project_register_command,
             "forgejo-publish": handle_forgejo_publish_command,
@@ -911,15 +855,11 @@ def main(args=None):
             "source-get": handle_source_get_command,
             "source-list": handle_source_list_command,
             "sources-map": handle_sources_map_command,
-            "sources-sanctify": handle_sources_sanctify_command,
             "sources-reconcile": handle_sources_reconcile_command,
             "sources-check": handle_sources_check_command,
             "source-archive": handle_source_archive_command,
             "source-update": handle_source_update_command,
-            "source-review": handle_source_review_command,
-            "enforcement-report": handle_enforcement_report_command,
             "blindspot-scan": handle_blindspot_scan_command,
-            "blindspot-report": handle_blindspot_report_command,
             "epp-activate": handle_epp_activate_command,
             # Training data export
             "training-export": handle_training_export_command,
@@ -974,24 +914,11 @@ def main(args=None):
             "assess-directory": handle_assess_directory_command,
             # Unified query command
             "query": handle_query_command,
-            # Agent commands
-            "agent-spawn": handle_agent_spawn_command,
-            "agent-report": handle_agent_report_command,
-            "agent-aggregate": handle_agent_aggregate_command,
-            "agent-parallel": handle_agent_parallel_command,
-            "agent-export": handle_agent_export_command,
-            "agent-import": handle_agent_import_command,
-            "agent-discover": handle_agent_discover_command,
             # Sentinel orchestration commands
             "sentinel-orchestrate": handle_sentinel_orchestrate_command,
             "sentinel-load-profile": handle_sentinel_load_profile_command,
             "sentinel-status": handle_sentinel_status_command,
             "sentinel-check": handle_sentinel_check_command,
-            # Persona commands
-            "persona-list": handle_persona_list_command,
-            "persona-show": handle_persona_show_command,
-            "persona-promote": handle_persona_promote_command,
-            "persona-find": handle_persona_find_command,
             # Release commands
             "release-ready": handle_release_ready_command,
             "docs-assess": handle_docs_assess,
@@ -1007,9 +934,6 @@ def main(args=None):
             "lesson-list": handle_lesson_list_command,
             "lesson-search": handle_lesson_search_command,
             "lesson-recommend": handle_lesson_recommend_command,
-            "lesson-path": handle_lesson_path_command,
-            "lesson-replay-start": handle_lesson_replay_start_command,
-            "lesson-replay-end": handle_lesson_replay_end_command,
             "lesson-stats": handle_lesson_stats_command,
             "lesson-embed": handle_lesson_embed_command,
             # Onboarding commands

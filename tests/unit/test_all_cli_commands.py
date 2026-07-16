@@ -196,11 +196,6 @@ class TestInvestigationCommands:
         result = subprocess.run(["empirica", "investigate", "--help"], capture_output=True)
         assert result.returncode == 0
 
-    def test_investigate_log_help(self):
-        """Investigate-log command has working --help"""
-        result = subprocess.run(["empirica", "investigate-log", "--help"], capture_output=True)
-        assert result.returncode == 0
-
     def test_goal_analysis_help(self):
         """Goal-analysis command has working --help"""
         result = subprocess.run(["empirica", "goal-analysis", "--help"], capture_output=True)
@@ -227,15 +222,6 @@ class TestMonitoringCommands:
     def test_monitor_execution(self):
         """Monitor runs without args (shows monitoring dashboard)"""
         result = subprocess.run(["empirica", "monitor"], capture_output=True, timeout=5)
-        assert result.returncode == 0
-
-
-class TestActionsCommands:
-    """Test Actions commands (1 command)"""
-
-    def test_act_log_help(self):
-        """Act-log command has working --help"""
-        result = subprocess.run(["empirica", "act-log", "--help"], capture_output=True)
         assert result.returncode == 0
 
 

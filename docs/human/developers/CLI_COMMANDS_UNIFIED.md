@@ -23,8 +23,8 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.12.23
-**Generated:** 2026-07-15 17:40:40 UTC
-**Total commands:** 269 (across 26 categories)
+**Generated:** 2026-07-16 11:29:53 UTC
+**Total commands:** 241 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
 `empirica <command> --help` — the generator extracts the same `help`
@@ -65,9 +65,9 @@ require `--session-id` (`project-bootstrap`, `sessions-show`,
 | [session](#session) | 8 | `session-create`, `sessions-list`, `sessions-show`, … |
 | [workflow](#workflow) | 4 | `preflight-submit`, `check`, `check-submit`, … |
 | [goals](#goals) | 16 | `goals-create`, `goals-list`, `goals-search`, … |
-| [logging](#logging) | 32 | `finding-log`, `finding-resolve`, `unknown-log`, … |
-| [project](#project) | 18 | `project-init`, `project-update`, `project-create`, … |
-| [workspace](#workspace) | 22 | `workspace-init`, `workspace-map`, `workspace-list`, … |
+| [logging](#logging) | 25 | `finding-log`, `finding-resolve`, `unknown-log`, … |
+| [project](#project) | 17 | `project-init`, `project-update`, `project-create`, … |
+| [workspace](#workspace) | 20 | `workspace-init`, `workspace-map`, `workspace-list`, … |
 | [checkpoint](#checkpoint) | 7 | `checkpoint-create`, `checkpoint-load`, `checkpoint-list`, … |
 | [sync](#sync) | 6 | `sync-config`, `sync-push`, `sync-pull`, … |
 | [profile](#profile) | 4 | `profile-sync`, `profile-prune`, `profile-status`, … |
@@ -75,18 +75,16 @@ require `--session-id` (`project-bootstrap`, `sessions-show`,
 | [handoff](#handoff) | 2 | `handoff-create`, `handoff-query` |
 | [issue](#issue) | 6 | `issue-list`, `issue-show`, `issue-handoff`, … |
 | [investigation](#investigation) | 5 | `investigate`, `investigate-create-branch`, `investigate-checkpoint-branch`, … |
-| [monitoring](#monitoring) | 10 | `monitor`, `assess-state`, `trajectory-project`, … |
+| [monitoring](#monitoring) | 9 | `monitor`, `assess-state`, `trajectory-project`, … |
 | [cockpit](#cockpit) | 16 | `status`, `tui`, `off`, … |
 | [skills](#skills) | 3 | `skill-suggest`, `skill-fetch`, `skill-extract` |
 | [architecture](#architecture) | 3 | `assess-component`, `assess-compare`, `assess-directory` |
-| [agents](#agents) | 7 | `agent-spawn`, `agent-report`, `agent-aggregate`, … |
 | [sentinel](#sentinel) | 4 | `sentinel-orchestrate`, `sentinel-load-profile`, `sentinel-status`, … |
-| [personas](#personas) | 4 | `persona-list`, `persona-show`, `persona-promote`, … |
-| [lessons](#lessons) | 9 | `lesson-create`, `lesson-load`, `lesson-list`, … |
+| [lessons](#lessons) | 6 | `lesson-create`, `lesson-load`, `lesson-list`, … |
 | [mcp](#mcp) | 1 | `mcp-list-tools` |
 | [memory](#memory) | 6 | `memory-prime`, `memory-scope`, `memory-value`, … |
 | [vision](#vision) | 1 | `vision` |
-| [domains](#domains) | 4 | `domain-list`, `domain-show`, `domain-resolve`, … |
+| [domains](#domains) | 1 | `domain-validate` |
 | [setup](#setup) | 8 | `onboard`, `setup-claude-code`, `plugin-sync`, … |
 
 ---
@@ -982,23 +980,6 @@ Log an error YOU made + how to prevent it. Use when you introduced a bug, mis-ap
 - `--verbose` — optional · flag
   Show detailed operation info
 
-#### `empirica mistake-query`
-
-Look up logged mistakes — useful before tackling work that echoes a pattern you've gotten wrong before. Filter by --session-id (this session's only) or --goal-id (mistakes against a specific goal). For semantic search across mistake narratives, use `project-search --task "..."` instead.
-
-**Arguments:**
-
-- `--session-id` — optional
-  Filter by session UUID
-- `--goal-id` — optional
-  Filter by goal UUID
-- `--limit` — optional · type=`int` · default=`10`
-  Number of results (default: 10)
-- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
-  Output format
-- `--verbose` — optional · flag
-  Show detailed operation info
-
 #### `empirica note`
 
 Jot a quick note-to-self while in flow — a scratchpad for things to check on after the current work. Faster + lower-friction than a full finding/decision: pure metadata, NOT shared, NOT embedded. Notes are transaction-scoped and surface at POSTFLIGHT for triage (promote to an artifact/goal, or discard). They survive context compaction. Use --list to review, --clear to mark triaged.
@@ -1151,15 +1132,6 @@ Match local sources against the central catalogue by content identity and adopt 
 - `--verbose` — optional · flag
   Verbose output
 
-#### `empirica sources-sanctify`
-
-Classify the active source corpus and recommend hygiene actions: dead (canonical_path missing), duplicate (shared content_hash), zombie (no sourced_from reference), valid. Report-only (deletions go through review); retire flagged sources via source-archive.
-
-**Arguments:**
-
-- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
-  Output format
-
 #### `empirica sources-check`
 
 Probe the http(s) URLs in this project's epistemic sources and surface link-rot (dead / auth-walled / errored). SURFACE-ONLY — reports rot, never deletes (retire a dead source via delete-artifacts or source-archive). Exit 1 if any URL is dead. The smallest mechanical slice of artifact-hygiene (docs/architecture/ARTIFACT_HYGIENE.md).
@@ -1205,36 +1177,6 @@ Re-fetch a source and recompute its content identity (content_hash / size / mime
 - `--verbose` — optional · flag
   Verbose output
 
-#### `empirica source-review`
-
-Record a human/AI review verdict on a source — the REVIEW half of the source lifecycle (CHECK detects, UPDATE re-fetches, REVIEW judges). Stamps last_reviewed_at + review_verdict and appends a 'reviewed' event to the lifecycle audit log. The verdict routes to the next action: stale→source-update, superseded/irrelevant→source-archive.
-
-**Arguments:**
-
-- `--source-id` — **required**
-  Source UUID (or unique prefix) to review
-- `--verdict` — **required** · type=`choice` · choices={valid, stale, superseded, irrelevant}
-  valid (keep) | stale (→source-update) | superseded/irrelevant (→source-archive)
-- `--note` — optional
-  Optional free-text review note
-- `--reviewer` — optional
-  Who reviewed (ai_id or human name); recorded in the audit event
-- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
-  Output format
-- `--verbose` — optional · flag
-  Verbose output
-
-#### `empirica enforcement-report`
-
-Artifact-graph enforce telemetry: block-rate and self-resolve-rate from weave_enforce_events. self-resolve-rate is the health metric for enforce-by-default — high means the gate nudges and the system recovers on its own; low means it may be over-blocking.
-
-**Arguments:**
-
-- `--session-id` — optional
-  Scope to one session (default: all recorded verdicts)
-- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
-  Output format
-
 #### `empirica blindspot-scan`
 
 Dry-run blindspot detection: predicted unknown-unknowns for a session — stated goals/tasks with no covering artifact and no acknowledging unknown (the intent-gap signal). Reports only; wired to nobody yet.
@@ -1247,53 +1189,6 @@ Dry-run blindspot detection: predicted unknown-unknowns for a session — stated
   Include dormant 'planned' goals (backlog view); default scans active goals only
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
-
-#### `empirica blindspot-report`
-
-Blindspot telemetry: surfaced / acknowledged / dismissed / regretted rates from blindspot_events. acknowledge-rate = the nudge is useful; regret-rate = dismissed ones that later became mistakes/dead-ends.
-
-**Arguments:**
-
-- `--session-id` — optional
-  Scope to one session (default: all events)
-- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
-  Output format
-
-#### `empirica act-log`
-
-Log a batch of praxic actions (file edits, commands run, commits made) with their artifacts. Use to record a coherent unit of execution work in one call rather than several. For tracking individual artifact creations, prefer per-type *-log commands; for tracking task completion, prefer goals-complete-task with --evidence.
-
-**Arguments:**
-
-- `--session-id` — optional
-  Session UUID. Auto-derived from active transaction if omitted.
-- `--actions` — **required**
-  JSON array describing actions taken. Example: '["Edited src/x.py", "Added test_y", "Ran ruff check"]'.
-- `--artifacts` — optional
-  JSON array of files modified/created/deleted. Example: '["src/x.py", "tests/test_y.py"]'. Augments git for actions that don't produce a commit yet.
-- `--goal-id` — optional
-  Goal UUID this action sequence advanced. Ties act-log to a tracked work unit.
-- `--output` — optional · type=`choice` · choices={json, text} · default=`text`
-  Output format. Use `json` when scripting; `text` for terminal.
-- `--verbose` — optional · flag
-  Echo extra diagnostic info to stderr.
-
-#### `empirica investigate-log`
-
-Log a batch of findings produced by an investigation phase. Use when you have multiple related discoveries to record at once (e.g. after reading several files, running a series of greps). For single discoveries, prefer finding-log directly.
-
-**Arguments:**
-
-- `--session-id` — optional
-  Session UUID. Auto-derived from active transaction if omitted.
-- `--findings` — **required**
-  JSON array of finding strings or {finding, impact} objects. Example: '["X uses Y", "Z deprecated since v3"]' or '[{"finding":"X uses Y","impact":0.7}]'.
-- `--evidence` — optional
-  JSON object linking findings to supporting evidence — file paths, line numbers, commit SHAs, URLs. Example: '{"files":["src/x.py:42"], "commits":["abc123"]}'.
-- `--output` — optional · type=`choice` · choices={json, text} · default=`text`
-  Output format. Use `json` when scripting; `text` for terminal.
-- `--verbose` — optional · flag
-  Echo extra diagnostic info to stderr.
 
 #### `empirica log-artifacts`
 
@@ -1755,33 +1650,6 @@ List discovered local Empirica projects.
 - `--refresh` — optional · flag
   Force a fresh discover scan even if cache exists.
 
-#### `empirica projects-bulk-register`
-
-[CORTEX] Register all discovered projects on the Cortex backend.
-
-**Arguments:**
-
-- `--from` — optional
-  Manifest YAML to read (default: ~/.empirica/discovered_projects.yaml). Falls back to running projects-discover live if absent.
-- `--include` — optional
-  Regex matched against project name OR path. Repeatable — multi --include is OR (project kept if ANY pattern matches). If no --include is given, all projects pass the include stage.
-- `--exclude` — optional
-  Regex matched against project name OR path. Repeatable — multi --exclude is OR (project dropped if ANY pattern matches). Applied after --include.
-- `--dry-run` — optional · flag
-  Show what would be registered without making HTTP calls.
-- `--force-metadata-update` — optional · flag
-  Set `force_metadata_update: true` in each request body. Cortex's safe-update logic then backfills UUID-shaped placeholder names + empty repo_urls on already-existing rows. Useful when Cortex has stale metadata that should be refreshed from the local registry. (v1.9.6+)
-- `--from-discovered` — optional · flag
-  Source projects from the raw scanner output (~/.empirica/discovered_projects.yaml) instead of the curated daemon registry (~/.empirica/registry.yaml, the default). Use when you want to register EVERY project you have on disk, not just the curated set the daemon serves. (v1.9.6+)
-- `--cortex-url` — optional
-  Override Cortex base URL (default: $CORTEX_REMOTE_URL).
-- `--api-key` — optional
-  Override Cortex API key (default: $CORTEX_API_KEY).
-- `--timeout` — optional · type=`float` · default=`10.0`
-  Per-request timeout in seconds (default: 10).
-- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
-  Output format for the summary (default: human).
-
 #### `empirica projects-unregister`
 
 Unregister a project from Cortex (soft archive by default; --purge to hard-delete).
@@ -1921,30 +1789,6 @@ Analyze ecosystem dependencies, impact, and health from ecosystem.yaml
   Output format
 - `--verbose` — optional · flag
   Show detailed operation info
-
-#### `empirica save`
-
-Save current work (git add + commit with auto-generated message)
-
-**Arguments:**
-
-- `--message` / `-m` — optional
-  Custom commit message
-- `--output` — optional · type=`choice` · choices={json, default} · default=`json`
-  Output format
-
-#### `empirica history`
-
-Show epistemic timeline from git log + notes
-
-**Arguments:**
-
-- `--entity` — optional
-  Filter by entity: TYPE/ID
-- `--limit` — optional · type=`int` · default=`20`
-  Maximum entries
-- `--output` — optional · type=`choice` · choices={json, human} · default=`human`
-  Output format
 
 #### `empirica entity-create`
 
@@ -2872,19 +2716,6 @@ Show token efficiency report
 
 - `--session-id` — **required**
   Session ID
-- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
-  Output format
-
-#### `empirica workflow-patterns`
-
-Detect repeated workflow patterns across transactions (tool sequence mining)
-
-**Arguments:**
-
-- `--limit` — optional · type=`int` · default=`50`
-  Number of recent transactions to analyze (default: 50)
-- `--min-frequency` — optional · type=`int` · default=`2`
-  Minimum transaction count for a pattern (default: 2)
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
 
@@ -4172,112 +4003,6 @@ Assess all Python modules in a directory
 
 ---
 
-## agents
-
-#### `empirica agent-spawn`
-
-Spawn epistemic agent (returns prompt with branch tracking)
-
-**Arguments:**
-
-- `--session-id` — **required**
-  Parent session ID
-- `--task` — **required**
-  Task for the agent
-- `--persona` — optional · default=`general`
-  Persona ID to use
-- `--turtle` — optional · flag
-  Auto-select best emerged persona for task (overrides --persona)
-- `--context` — optional
-  Additional context from parent
-- `--output` — optional · type=`choice` · choices={text, json} · default=`text`
-
-#### `empirica agent-report`
-
-Report agent postflight results
-
-**Arguments:**
-
-- `--branch-id` — **required**
-  Branch ID from agent-spawn
-- `--postflight` — optional
-  Postflight JSON or "-" for stdin
-- `--output` — optional · type=`choice` · choices={text, json} · default=`text`
-
-#### `empirica agent-aggregate`
-
-Aggregate results from multiple agents
-
-**Arguments:**
-
-- `--session-id` — **required**
-  Session ID
-- `--round` — optional · type=`int` · default=`1`
-  Investigation round
-- `--output` — optional · type=`choice` · choices={text, json} · default=`text`
-
-#### `empirica agent-parallel`
-
-Plan and orchestrate parallel epistemic agents with attention budget
-
-**Arguments:**
-
-- `--session-id` — **required**
-  Parent session ID
-- `--task` — **required**
-  Investigation task
-- `--budget` — optional · type=`int` · default=`20`
-  Total findings budget (default: 20)
-- `--max-agents` — optional · type=`int` · default=`5`
-  Maximum parallel agents (default: 5)
-- `--strategy` — optional · type=`choice` · choices={information_gain, uniform, priority} · default=`information_gain`
-  Budget allocation strategy
-- `--domains` — optional · type=`list`
-  Override investigation domains (auto-detected if not specified)
-- `--output` — optional · type=`choice` · choices={text, json} · default=`text`
-
-#### `empirica agent-export`
-
-Export epistemic agent as shareable JSON package
-
-**Arguments:**
-
-- `--branch-id` — **required**
-  Branch ID to export
-- `--output-file` — optional
-  Output file path (prints to stdout if not specified)
-- `--register` — optional · flag
-  Register to sharing network (Qdrant)
-- `--output` — optional · type=`choice` · choices={text, json} · default=`json`
-
-#### `empirica agent-import`
-
-Import epistemic agent from JSON package
-
-**Arguments:**
-
-- `--session-id` — **required**
-  Session to import into
-- `--input-file` — **required**
-  Agent JSON file to import
-- `--output` — optional · type=`choice` · choices={text, json} · default=`text`
-
-#### `empirica agent-discover`
-
-Discover epistemic agents in sharing network
-
-**Arguments:**
-
-- `--domain` — optional
-  Search by domain expertise (e.g., security, multi-persona)
-- `--min-reputation` — optional · type=`float`
-  Minimum reputation score (0.0-1.0)
-- `--limit` — optional · type=`int` · default=`10`
-  Maximum results
-- `--output` — optional · type=`choice` · choices={text, json} · default=`text`
-
----
-
 ## sentinel
 
 #### `empirica sentinel-orchestrate`
@@ -4353,56 +4078,6 @@ Run compliance check against domain gates
   List of unknowns for compliance check (optional)
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format (optional, default: human)
-
----
-
-## personas
-
-#### `empirica persona-list`
-
-List all emerged personas
-
-**Arguments:**
-
-- `--domain` — optional
-  Filter by domain (e.g., security, performance)
-- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
-  Output format
-
-#### `empirica persona-show`
-
-Show details of a specific emerged persona
-
-**Arguments:**
-
-- `--persona-id` — **required**
-  Persona ID to show
-- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
-  Output format
-
-#### `empirica persona-promote`
-
-Promote emerged persona to MCO personas.yaml for global reuse
-
-**Arguments:**
-
-- `--persona-id` — **required**
-  Persona ID to promote
-- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
-  Output format
-
-#### `empirica persona-find`
-
-Find emerged personas similar to a task description
-
-**Arguments:**
-
-- `--task` — **required**
-  Task description to match against
-- `--limit` — optional · type=`int` · default=`5`
-  Maximum results (default: 5)
-- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
-  Output format
 
 ---
 
@@ -4484,53 +4159,6 @@ Get lesson recommendations based on epistemic state
   Current uncertainty vector (0-1)
 - `--threshold` — optional · type=`float` · default=`0.6`
   Threshold for "acceptable" (default: 0.6)
-- `--output` — optional · type=`choice` · choices={human, json} · default=`json`
-  Output format
-
-#### `empirica lesson-path`
-
-Get learning path to reach a target lesson
-
-**Arguments:**
-
-- `--target` — **required**
-  Target lesson ID (required)
-- `--completed` — optional
-  Comma-separated list of already completed lesson IDs
-- `--output` — optional · type=`choice` · choices={human, json} · default=`json`
-  Output format
-
-#### `empirica lesson-replay-start`
-
-Start tracking a lesson replay
-
-**Arguments:**
-
-- `--lesson-id` — **required**
-  Lesson ID (required)
-- `--session-id` — **required**
-  Session ID (required)
-- `--ai-id` — optional
-  AI agent ID
-- `--output` — optional · type=`choice` · choices={human, json} · default=`json`
-  Output format
-
-#### `empirica lesson-replay-end`
-
-End a lesson replay and record results
-
-**Arguments:**
-
-- `--replay-id` — **required**
-  Replay ID (required)
-- `--success` — optional · flag
-  Mark replay as successful
-- `--failed` — optional · flag
-  Mark replay as failed
-- `--steps-completed` — optional · type=`int`
-  Number of steps completed
-- `--error` — optional
-  Error message if failed
 - `--output` — optional · type=`choice` · choices={human, json} · default=`json`
   Output format
 
@@ -4702,38 +4330,6 @@ Process visual information
 ---
 
 ## domains
-
-#### `empirica domain-list`
-
-List all loaded domains
-
-**Arguments:**
-
-- `--output` — optional · type=`choice` · choices={text, json} · default=`text`
-
-#### `empirica domain-show`
-
-Show a domain's checklist details
-
-**Arguments:**
-
-- `domain` — **required**
-  Domain name (e.g., cybersec, default, remote-ops)
-- `--output` — optional · type=`choice` · choices={text, json} · default=`text`
-
-#### `empirica domain-resolve`
-
-Resolve a (work_type, domain, criticality) tuple
-
-**Arguments:**
-
-- `work_type` — **required**
-  Work type (code, infra, docs, remote-ops, ...)
-- `--domain` — optional · default=`default`
-  Domain name (default: default)
-- `--criticality` — optional · default=`medium`
-  Criticality level (low|medium|high|critical)
-- `--output` — optional · type=`choice` · choices={text, json} · default=`text`
 
 #### `empirica domain-validate`
 
