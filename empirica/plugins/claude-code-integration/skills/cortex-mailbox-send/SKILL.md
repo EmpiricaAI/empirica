@@ -288,6 +288,34 @@ protocol routes off type — wrong type = wrong handler.
 When in doubt: `TACTICAL`. Better an extra Accept tap than a surprise
 auto-act.
 
+### Idempotency — make it safe to run twice (W1a)
+
+An actionable proposal should be **safe to apply more than once** — so a
+re-issue, or a reply that narrates already-done work, can't double-apply.
+Attach a stable **`payload.idempotency_key`** (it identifies the *action*, not
+the emission); cortex's applied-keys ledger no-ops on a seen key and returns
+the original receipt (`status='idempotent_replay'`, `replay_caught: true`).
+
+Compute it — don't hand-roll the hash:
+
+```python
+from empirica.core.mesh_content import idempotency_key
+
+action = {"path": "src/router.py", "symbol": "resolve_topic", "intent": "reject-retired"}
+payload = {
+    **action,
+    "idempotency_key": idempotency_key(
+        "code_change_request", "empirica.david.empirica-cortex", action
+    ),
+}
+```
+
+If an action is genuinely un-dedupable one-shot, **don't fabricate a key** —
+set `payload.idempotent = False` (honesty flag, same spirit as
+`--epistemic-source`); cortex skips the ledger and treats it lease-only.
+Optional `payload.idempotency_ttl_s` narrows the dedup window below the default
+(thread lifetime). Full spec: `docs/architecture/IDEMPOTENT_BY_DESIGN.md`.
+
 ---
 
 ## Flavor 3 — Sustained coordination via Shared Epistemic Record (SER)

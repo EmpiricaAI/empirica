@@ -27,6 +27,7 @@ is contract + helpers, not data.
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import dataclass, field
 
 from empirica.data.visibility import (
@@ -44,6 +45,7 @@ __all__ = [
     "RenderResult",
     "canonical_address",
     "compute_sha256",
+    "idempotency_key",
     "normalize_visibility",
     "parse_canonical_address",
     "truncate_to_cap",
@@ -162,6 +164,76 @@ class RenderResult:
 def compute_sha256(data: bytes) -> str:
     """Hex sha256 of the bytes. Used for cortex-side content dedup."""
     return hashlib.sha256(data).hexdigest()
+
+
+# ── Idempotency key (W1a — idempotent-by-design) ──────────────────────
+
+# Param keys that never define an action's *identity* — dropped before
+# hashing so two proposals of the same action collide regardless of
+# incidental differences (phrasing, emission time, per-emission ids).
+# Top-level only, by design: the semantic params that identify an action
+# live at the top level; nested structures are hashed as-is (sorted).
+_VOLATILE_PARAM_KEYS: frozenset[str] = frozenset(
+    {
+        "timestamp",
+        "ts",
+        "created_at",
+        "updated_at",
+        "nonce",
+        "proposal_id",
+        "parent_id",
+        "thread_root_id",
+        "summary",
+        "title",
+        "idempotency_key",
+        "idempotency_ttl_s",
+        "idempotent",
+    }
+)
+
+
+def idempotency_key(action_type: str, target: str, params: dict | None = None) -> str:
+    """Stable idempotency key for a ``cortex_propose`` action (W1a).
+
+    Identifies the ACTION, not the emission: two proposals requesting the
+    same underlying action (same type, same target, same semantic params)
+    produce the same key — so a re-issue, or a reply that narrates
+    already-done work, collapses to a no-op at the executor's applied-keys
+    ledger. See ``docs/architecture/IDEMPOTENT_BY_DESIGN.md``.
+
+    Attach the result as ``payload.idempotency_key`` on the proposal. If an
+    action is genuinely un-dedupable one-shot, do NOT fabricate a key —
+    declare ``payload.idempotent = False`` instead (honesty flag).
+
+    Args:
+        action_type: the proposal type (e.g. ``"code_change_request"``).
+        target: the target practice's canonical id
+            (e.g. ``"empirica.david.empirica-cortex"``).
+        params: the action's semantically-significant parameters. Volatile
+            keys (``_VOLATILE_PARAM_KEYS`` — timestamps, nonces,
+            per-emission ids, free-text prose) are dropped; the rest are
+            canonicalized (sorted keys, tight separators) so key order and
+            incidental fields don't change the result. Values must be
+            JSON-serialisable; non-serialisable values fall back to ``str``.
+
+    Returns:
+        A hex sha256 digest.
+
+    Raises:
+        ValueError: if ``action_type`` or ``target`` is empty.
+    """
+    if not action_type:
+        raise ValueError("action_type required")
+    if not target:
+        raise ValueError("target required")
+    semantic = {k: v for k, v in (params or {}).items() if k not in _VOLATILE_PARAM_KEYS}
+    canonical = json.dumps(
+        {"action_type": action_type, "target": target, "params": semantic},
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    return compute_sha256(canonical.encode("utf-8"))
 
 
 def truncate_to_cap(

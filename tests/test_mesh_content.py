@@ -39,6 +39,7 @@ from empirica.core.mesh_content import (
     RenderResult,
     canonical_address,
     compute_sha256,
+    idempotency_key,
     parse_canonical_address,
     truncate_to_cap,
 )
@@ -318,3 +319,53 @@ def test_render_minimal_source():
     assert "Just a title" in payload
     assert "Visibility:** local" in payload  # default
     assert "src_abc" in payload
+
+
+# ── idempotency_key (W1a) ─────────────────────────────────────────────
+
+
+def test_idempotency_key_deterministic():
+    """Same action → same key (the whole point)."""
+    a = idempotency_key("code_change_request", "empirica.david.empirica-cortex", {"path": "x.py", "symbol": "f"})
+    b = idempotency_key("code_change_request", "empirica.david.empirica-cortex", {"path": "x.py", "symbol": "f"})
+    assert a == b
+    assert len(a) == 64 and all(c in "0123456789abcdef" for c in a)  # hex sha256
+
+
+def test_idempotency_key_param_order_independent():
+    """Key order in params must not change the key (canonicalization)."""
+    a = idempotency_key("t", "target", {"path": "x.py", "symbol": "f"})
+    b = idempotency_key("t", "target", {"symbol": "f", "path": "x.py"})
+    assert a == b
+
+
+def test_idempotency_key_drops_volatile_fields():
+    """Incidental fields (timestamp, nonce, proposal_id, summary) don't change identity."""
+    base = idempotency_key("t", "target", {"path": "x.py"})
+    noisy = idempotency_key(
+        "t",
+        "target",
+        {"path": "x.py", "timestamp": 12345, "nonce": "abc", "proposal_id": "prop_z", "summary": "re-phrased"},
+    )
+    assert base == noisy
+
+
+def test_idempotency_key_differs_on_real_change():
+    """Different type / target / semantic params → different keys."""
+    base = idempotency_key("code_change_request", "empirica.david.empirica-cortex", {"symbol": "f"})
+    assert base != idempotency_key("architecture_decision", "empirica.david.empirica-cortex", {"symbol": "f"})
+    assert base != idempotency_key("code_change_request", "empirica.david.empirica-workspace", {"symbol": "f"})
+    assert base != idempotency_key("code_change_request", "empirica.david.empirica-cortex", {"symbol": "g"})
+
+
+def test_idempotency_key_none_params():
+    """None params is valid and distinct from a populated action."""
+    k = idempotency_key("investigation_request", "empirica.david.empirica-cortex")
+    assert len(k) == 64
+    assert k != idempotency_key("investigation_request", "empirica.david.empirica-cortex", {"query": "x"})
+
+
+@pytest.mark.parametrize("bad", [("", "target"), ("t", "")])
+def test_idempotency_key_rejects_empty(bad):
+    with pytest.raises(ValueError):
+        idempotency_key(bad[0], bad[1], {"a": 1})
