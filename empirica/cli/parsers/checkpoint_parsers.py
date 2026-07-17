@@ -784,6 +784,12 @@ def add_checkpoint_parsers(subparsers):
     entity_link_parser.add_argument(
         "--close", action="store_true", help="Soft-close the edge (stamp left_at) instead of writing it"
     )
+    entity_link_parser.add_argument(
+        "--primary", action="store_true",
+        help="Mark this edge as the member's primary membership for group_type, clearing is_primary on "
+             "its other active same-group_type memberships (e.g. disambiguate which org is primary for "
+             "a contact with multiple active org memberships). Does not close the other memberships.",
+    )
     entity_link_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
     entity_link_parser.add_argument("--verbose", action="store_true", help="Verbose output")
 

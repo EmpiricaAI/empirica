@@ -186,6 +186,16 @@ def _ensure_workspace_schema(conn: sqlite3.Connection) -> None:
     )
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_entity_memberships_active ON entity_memberships(left_at)")
 
+    # is_primary: disambiguates which membership is canonical when an entity
+    # has multiple active memberships of the same group_type (e.g. a contact
+    # who seat-holds at two sibling orgs). NULL (default) = undisambiguated —
+    # readers fall back to "latest joined_at wins" (get_contact_org_map).
+    # Additive ALTER (no migration runner) — CREATE TABLE above won't have it
+    # on an existing DB.
+    existing_membership_cols = {row[1] for row in cursor.execute("PRAGMA table_info(entity_memberships)").fetchall()}
+    if "is_primary" not in existing_membership_cols:
+        cursor.execute("ALTER TABLE entity_memberships ADD COLUMN is_primary INTEGER")
+
     # Engagement substrate — vendored so a fresh install without
     # empirica-workspace still gets the tables the engagement CLI + daemon read.
     _apply_engagement_substrate(cursor)
@@ -1096,17 +1106,28 @@ class WorkspaceDBRepository(BaseRepository):
         FILTER (in ``list_entities``) and the per-contact ``parent_org_id``
         ENRICHMENT resolve via the SAME source — keeping filter and enrichment in
         agreement (the consistency requirement). A contact in several orgs
-        collapses to the most recent active edge (ASC + dict overwrite); there is
-        no ``is_primary`` on entity_memberships, so this is "any active
-        affiliation, latest wins", not "primary org".
+        prefers the ``is_primary=1`` edge if one is set (``set_primary_membership``);
+        otherwise collapses to the most recent active edge (ASC + dict overwrite,
+        "any active affiliation, latest wins").
         """
         cursor = self._execute(
-            """SELECT entity_id, group_id FROM entity_memberships
+            """SELECT entity_id, group_id, is_primary FROM entity_memberships
                WHERE entity_type = 'contact' AND group_type = 'organization'
                  AND left_at IS NULL
                ORDER BY joined_at ASC"""
         )
-        return {row["entity_id"]: row["group_id"] for row in cursor.fetchall()}
+        out: dict[str, str] = {}
+        primaries: set[str] = set()
+        for row in cursor.fetchall():
+            eid = row["entity_id"]
+            if eid in primaries:
+                continue  # a primary already won this contact; later non-primary rows don't override
+            if row["is_primary"]:
+                out[eid] = row["group_id"]
+                primaries.add(eid)
+            else:
+                out[eid] = row["group_id"]
+        return out
 
     def get_contact_org_details_map(self) -> dict[str, dict[str, Any]]:
         """Map contact_id → {org_id, org_name, role} from active contact→org edges.
@@ -1261,17 +1282,27 @@ class WorkspaceDBRepository(BaseRepository):
         group_id: str,
         role: str | None = None,
         notes: str | None = None,
+        is_primary: bool | None = None,
     ) -> None:
         """Insert (or re-activate) a typed membership edge between two entities.
 
         The write peer to ``get_entity_memberships`` — mirrors
         ``upsert_entity``: idempotent on the membership PK
         (entity_type, entity_id, group_type, group_id). Re-writing the same
-        edge updates ``role``/``notes`` and clears ``left_at`` (re-activating a
-        soft-closed edge) rather than duplicating; the original ``joined_at`` /
-        ``created_at`` are preserved on conflict. Used by the ERM graduation
-        path, e.g. ``engagement`` member_of ``organization`` with
+        edge clears ``left_at`` (re-activating a soft-closed edge) rather than
+        duplicating; the original ``joined_at`` / ``created_at`` are preserved
+        on conflict. ``role``/``notes``/``is_primary`` update ONLY when passed
+        non-None — passing None (the default) preserves the existing value
+        instead of clearing it, so a caller that only wants to flip
+        ``is_primary`` doesn't have to re-specify the role. Used by the ERM
+        graduation path, e.g. ``engagement`` member_of ``organization`` with
         ``role='ticket_of'``.
+
+        ``is_primary=True`` does NOT clear other active memberships' flags —
+        callers wanting "exactly one primary" must clear the prior primary
+        themselves (e.g. via ``set_primary_membership``, the enforced path).
+        This method stays a dumb upsert; the invariant enforcement lives one
+        layer up.
 
         Edges are never deleted — closing a membership is a soft-close via
         ``close_entity_membership`` (sets ``left_at``), so the history stays
@@ -1282,16 +1313,50 @@ class WorkspaceDBRepository(BaseRepository):
             """
             INSERT INTO entity_memberships
                 (entity_type, entity_id, group_type, group_id,
-                 role, joined_at, left_at, created_at, notes)
-            VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)
+                 role, joined_at, left_at, created_at, notes, is_primary)
+            VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
             ON CONFLICT(entity_type, entity_id, group_type, group_id) DO UPDATE SET
-                role = excluded.role,
+                role = COALESCE(excluded.role, entity_memberships.role),
                 left_at = NULL,
-                notes = excluded.notes
+                notes = COALESCE(excluded.notes, entity_memberships.notes),
+                is_primary = COALESCE(excluded.is_primary, entity_memberships.is_primary)
             """,
-            (entity_type, entity_id, group_type, group_id, role, now, now, notes),
+            (entity_type, entity_id, group_type, group_id, role, now, now, notes,
+             (1 if is_primary else 0) if is_primary is not None else None),
         )
         self.commit()
+
+    def set_primary_membership(
+        self, entity_type: str, entity_id: str, group_type: str, group_id: str
+    ) -> bool:
+        """Mark one membership as primary, clearing is_primary on the entity's
+        other active memberships of the SAME group_type. Enforces "at most one
+        primary per (entity, group_type)" — the invariant goal 2 asked for,
+        expressed as a disambiguation flag rather than a hard one-membership
+        constraint (multiple active memberships remain valid; only the primary
+        designation is exclusive). Returns False if the target edge doesn't
+        exist or isn't active.
+        """
+        cur = self._execute(
+            """SELECT 1 FROM entity_memberships
+               WHERE entity_type = ? AND entity_id = ? AND group_type = ? AND group_id = ?
+                 AND left_at IS NULL""",
+            (entity_type, entity_id, group_type, group_id),
+        )
+        if cur.fetchone() is None:
+            return False
+        self._execute(
+            """UPDATE entity_memberships SET is_primary = 0
+               WHERE entity_type = ? AND entity_id = ? AND group_type = ? AND left_at IS NULL""",
+            (entity_type, entity_id, group_type),
+        )
+        self._execute(
+            """UPDATE entity_memberships SET is_primary = 1
+               WHERE entity_type = ? AND entity_id = ? AND group_type = ? AND group_id = ?""",
+            (entity_type, entity_id, group_type, group_id),
+        )
+        self.commit()
+        return True
 
     def upsert_practitioner_entity(
         self,

@@ -760,6 +760,7 @@ def handle_entity_link_command(args):
         role = getattr(args, "role", None)
         notes = getattr(args, "notes", None)
         closing = getattr(args, "close", False)
+        primary = getattr(args, "primary", False)
 
         with WorkspaceDBRepository.open(ensure_schema=True) as repo:
             if closing:
@@ -775,6 +776,9 @@ def handle_entity_link_command(args):
                     notes=notes,
                 )
                 action = "linked"
+                if primary:
+                    repo.set_primary_membership(m_type, m_id, g_type, g_id)
+                    action = "linked_primary"
 
         result = {
             "ok": True,
@@ -785,9 +789,10 @@ def handle_entity_link_command(args):
         }
         if output == "json":
             print(json.dumps(result, indent=2, default=str))
-        elif action == "linked":
+        elif action in ("linked", "linked_primary"):
             rel = f" ({role})" if role else ""
-            print(f"🔗 {m_type}:{m_id} → {g_type}:{g_id}{rel}")
+            star = " ⭐ primary" if action == "linked_primary" else ""
+            print(f"🔗 {m_type}:{m_id} → {g_type}:{g_id}{rel}{star}")
         elif action == "closed":
             print(f"🔻 Closed edge {m_type}:{m_id} → {g_type}:{g_id}")
         else:
