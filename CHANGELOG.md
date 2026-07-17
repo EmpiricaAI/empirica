@@ -5,6 +5,31 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.25] — 2026-07-17
+
+### Added
+- **`goals-create --engagement-id`** — stamps the existing `goals.engagement_id`
+  column (migration_051): the core half of the goal↔engagement linkage. Goals
+  are core's table, so this by-id reference is core's lane; the engagements
+  schema and the `entity_artifacts` junction the daemon reads (ratified boundary
+  §4) stay workspace's — workspace projects the ref to the junction as the
+  companion write. Additive / nullable (unset ⇒ NULL).
+
+### Fixed
+- **Loop-install no longer re-offers event-drivable loops as CronCreate pollers
+  on wake-on-event seats.** Gate 5 skips `systemd-user` canonical loops (e.g.
+  `cortex-mailbox-poll`) when a listener is already armed, and `scheduler_kind`
+  is now passed through to `write_pending` (it was silently defaulting to
+  `cron-create`). Stops the redundant-poller reappearance every session.
+- **entity-create self-heal restored for org-detail rows** — the CI-safe version,
+  with an `organizations`-table-exists guard so it can't crash core's test env.
+
+### Changed
+- **`MESH_CONCEPTS.md` gains the "sync engine — the DAW frame" capstone** — the
+  mesh as Ableton Live / Serato for epistemically-aware AIs, syncing across
+  practices, harnesses, substrates, model types, tenants, and orgs, with
+  calibration as the shared beatgrid.
+
 ## [1.12.24] — 2026-07-17
 
 The CLI-consolidation release: a substantial surface prune, a new anti-drift CI
