@@ -1321,14 +1321,21 @@ class WorkspaceDBRepository(BaseRepository):
                 notes = COALESCE(excluded.notes, entity_memberships.notes),
                 is_primary = COALESCE(excluded.is_primary, entity_memberships.is_primary)
             """,
-            (entity_type, entity_id, group_type, group_id, role, now, now, notes,
-             (1 if is_primary else 0) if is_primary is not None else None),
+            (
+                entity_type,
+                entity_id,
+                group_type,
+                group_id,
+                role,
+                now,
+                now,
+                notes,
+                (1 if is_primary else 0) if is_primary is not None else None,
+            ),
         )
         self.commit()
 
-    def set_primary_membership(
-        self, entity_type: str, entity_id: str, group_type: str, group_id: str
-    ) -> bool:
+    def set_primary_membership(self, entity_type: str, entity_id: str, group_type: str, group_id: str) -> bool:
         """Mark one membership as primary, clearing is_primary on the entity's
         other active memberships of the SAME group_type. Enforces "at most one
         primary per (entity, group_type)" — the invariant goal 2 asked for,
