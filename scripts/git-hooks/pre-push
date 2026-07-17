@@ -1,0 +1,40 @@
+#!/bin/sh
+# empirica pre-push — CI-parity ruff gate, composed with the beads hook.
+#
+# WHY: CI's "Lint + type-check" job runs BOTH `ruff check` AND
+# `ruff format --check`. `ruff check` passing locally does NOT mean
+# `ruff format --check` passes — a hand-written/edited file can be lint-clean
+# yet unformatted, turning develop red on push. That miss has recurred
+# repeatedly (#204, #248, #342, 2026-07-17). This hook runs the exact ruff
+# gate locally so local == CI mechanically, instead of relying on memory.
+#
+# pyright is intentionally NOT run here (slow; type misses are rarer and CI
+# catches them). Run the full trio with `make check` before a release.
+#
+# Install with `make install-hooks` (preserves any existing beads pre-push as
+# pre-push.beads and delegates to it below).
+
+set -e
+REPO_ROOT=$(git rev-parse --show-toplevel)
+cd "$REPO_ROOT"
+
+if command -v ruff >/dev/null 2>&1; then
+    echo "pre-push: CI-parity ruff gate (ruff check + format --check)…" >&2
+    if ! make format-check lint >&2; then
+        echo "" >&2
+        echo "❌ pre-push: ruff gate failed — push aborted." >&2
+        echo "   Fix:  make check-fix   (formats + auto-fixes lint), then re-commit." >&2
+        exit 1
+    fi
+    echo "✓ pre-push: ruff clean (format + lint)." >&2
+else
+    echo "pre-push: ruff not found — skipping lint gate (pip install ruff)." >&2
+fi
+
+# Delegate to the beads pre-push (preserved by the installer) so JSONL-sync
+# gating still runs. If it isn't installed, this is a no-op.
+BEADS_HOOK="$(git rev-parse --git-path hooks/pre-push.beads)"
+if [ -x "$BEADS_HOOK" ]; then
+    exec "$BEADS_HOOK" "$@"
+fi
+exit 0

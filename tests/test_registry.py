@@ -14,6 +14,7 @@ from empirica.api.registry import (
     prune_stale,
     save_registry,
     upsert_project,
+    warn_name_collisions,
 )
 from empirica.api.registry import (
     dedupe_registry as _dedupe_registry,
@@ -414,3 +415,70 @@ def test_load_with_auto_dedupe_false_returns_raw(tmp_path: Path):
     save_registry(registry, p)
     reg = load_registry(p, auto_dedupe=False)
     assert len(reg["projects"]) == 2  # raw, no dedup
+
+
+# ─── name-collision warn guard (backup/clone shadow detection) ──────────
+
+
+def test_warn_name_collisions_flags_same_name_diff_path():
+    """Same display name at two different paths = a backup/clone shadow.
+
+    Regression guard for the 2026-07-17 registry-ghost: an
+    empirica_back_2_4_26 backup entry and the live empirica repo both
+    registered as "Empirica", shadowing the live project on lookup.
+    """
+    registry = {
+        "version": 1,
+        "projects": [
+            _entry(project_id="empirica", slug="Empirica", path="/home/x/empirica_back"),
+            _entry(project_id="748a81a2-0000-4000-8000-000000000000", slug="Empirica", path="/home/x/empirica"),
+        ],
+    }
+    collisions = warn_name_collisions(registry)
+    assert len(collisions) == 1
+    assert collisions[0]["name"] == "Empirica"
+    assert collisions[0]["paths"] == ["/home/x/empirica", "/home/x/empirica_back"]
+
+
+def test_warn_name_collisions_ignores_same_path():
+    """Same name AND same path is a dedupe target, not a shadow — no warning."""
+    registry = {
+        "version": 1,
+        "projects": [
+            _entry(project_id="slug-id", slug="Empirica", path="/home/x/empirica"),
+            _entry(project_id="uuid-id", slug="Empirica", path="/home/x/empirica"),
+        ],
+    }
+    assert warn_name_collisions(registry) == []
+
+
+def test_warn_name_collisions_ignores_distinct_names():
+    """Distinct names at distinct paths are just distinct projects."""
+    registry = {
+        "version": 1,
+        "projects": [
+            _entry(project_id="a", slug="Alpha", path="/home/x/alpha"),
+            _entry(project_id="b", slug="Beta", path="/home/x/beta"),
+        ],
+    }
+    assert warn_name_collisions(registry) == []
+
+
+def test_load_registry_warns_but_keeps_both_shadow_entries(tmp_path: Path, caplog):
+    """load_registry surfaces the collision (warn) without removing either
+    entry — dedupe only collapses same-path, shadows are surfaced not fixed."""
+    import logging
+
+    registry = {
+        "version": 1,
+        "projects": [
+            _entry(project_id="empirica", slug="Empirica", path="/home/x/empirica_back"),
+            _entry(project_id="748a81a2-0000-4000-8000-000000000000", slug="Empirica", path="/home/x/empirica"),
+        ],
+    }
+    p = tmp_path / "registry.yaml"
+    save_registry(registry, p)
+    with caplog.at_level(logging.WARNING):
+        reg = load_registry(p)
+    assert len(reg["projects"]) == 2  # both kept — surfaced, not removed
+    assert any("share name 'Empirica'" in r.message for r in caplog.records)
