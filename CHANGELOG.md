@@ -5,7 +5,54 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.12.24] — 2026-07-17
+
+The CLI-consolidation release: a substantial surface prune, a new anti-drift CI
+gate, doc alignment, mesh-listener hardening, and a security floor bump.
+
+### Removed
+- **CLI surface prune: 28 dead / unwired / subsumed verbs removed (210 → 182).**
+  The agent-orchestration suite (`agent-spawn` / `agent-report` / `agent-aggregate`
+  and kin — superseded by provider-native multi-agent), the persona / lesson-replay /
+  domain-inspection subsystems (built but never wired), and a set of subsumed one-off
+  verbs. Direct clients are notified on ecosystem update (#348).
+
+### Added
+- **CI: parser↔prompt drift check.** `scripts/check_prompt_parser_drift.py`
+  introspects the live CLI verb set and scans the AI-facing prompt corpus (skills,
+  templates, and `project_skills/*.yaml`) for `empirica <verb>` references, failing
+  CI when a prompt names a verb the parser no longer has — the command-not-found trap
+  a verb prune can otherwise leave behind (#352).
+
+### Changed
+- **Docs aligned to the post-prune reality (−2.6K lines):** removed references to the
+  pruned subsystems, de-duplicated overlapping guides, regenerated
+  `CLI_COMMANDS_UNIFIED.md` (#349).
+- **The *lesson* vocabulary sharpened** to a transferable cross-practice
+  pattern/anti-pattern — distinct from a finding/decision (local state): "findings
+  describe, lessons transfer." Propagated across the system prompt, skills, and
+  `TAXONOMY.md` (#353).
+- **Read-only mesh lookups classified as noetic** by the Sentinel — `empirica mesh
+  status`, `mesh diagnose`, and `status` no longer gate as praxic. The `goals-list`
+  footer now surfaces the result cap and points to `--all-projects` (#354).
+
+### Fixed
+- **Mesh listener never falls back to the retired `orchestration-events` ntfy topic**
+  (which has no ACL and 403-storms). The last-good topic is cached to
+  `~/.empirica/listener_topic_<ai_id>`, and cortex's `retired_channels` field is
+  consumed as the authoritative retired-topic list (#350, #351).
+- **Test isolation: a leaked subscriber daemon** in the message-store tests (its
+  stop-event was only set inside a callback) could poll `git for-each-ref …/messages/`
+  into a *later* test's subprocess mock — an order-dependent CI flake. Fixed with
+  unconditional teardown.
+- Removed a dangling `empirica agent-spawn` reference (a pruned verb) from a loaded
+  skill fixture, and closed the drift-check's own blind spot (positional-arg and
+  two-word-subcommand invocation shapes, plus the `project_skills/*.yaml` corpus).
+
+### Security
+- **`mcp` dependency floor bumped to `>=1.28.1`** — resolves CVE-2026-52869 and
+  CVE-2026-52870 (fixed in 1.27.2) and CVE-2026-59950 (fixed in 1.28.1). Applied to
+  both the root `mcp` extra and the empirica-mcp SDK pin.
 
 ## [1.12.22] — 2026-07-14
 
