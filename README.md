@@ -39,7 +39,7 @@ AI coding agents today have no self-awareness about what they know:
 | **Calibrates against reality** | Three-vector model: self-assessed, observed (from deterministic checks), and AI-reasoned grounded state with rationale. Domain compliance loops iterate until all checks pass |
 | **Tracks your codebase** | Temporal entity model auto-extracts functions, classes, and imports from every file edit — the AI knows what's alive and what's stale |
 | **Works through natural language** | You describe tasks normally. The AI operates the measurement system automatically |
-| **Optional: coordinates with peer AIs** | Cross-Claude mesh via Cortex (opt-in) — peer AIs propose work, ECO accepts/declines, completion handshakes carry commit SHAs. A persistent listener wakes idle sessions on inbox events. **Empirica core works standalone without this** — see [Cross-AI Mesh](#cross-ai-mesh) below for the ecosystem layer |
+| **Optional: coordinates with peer AIs** | Cross-Claude mesh via Cortex (opt-in) — peer AIs propose work, ECO accepts/declines, completion handshakes carry commit SHAs. A persistent listener wakes idle sessions on inbox events. **Empirica core works standalone without this** — see [Cross-AI Mesh](#cross-ai-mesh-optional-ecosystem-layer) below for the ecosystem layer |
 
 ---
 
