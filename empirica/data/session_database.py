@@ -1401,6 +1401,7 @@ class SessionDatabase:
         project_type: str | None = None,
         project_tags: list[str] | None = None,
         parent_project_id: str | None = None,
+        project_id: str | None = None,
     ) -> str:
         """Create a new project (delegates to ProjectRepository)
 
@@ -1422,6 +1423,7 @@ class SessionDatabase:
             project_type=project_type,
             project_tags=project_tags,
             parent_project_id=parent_project_id,
+            project_id=project_id,
         )
 
     def get_project(self, project_id: str) -> dict | None:

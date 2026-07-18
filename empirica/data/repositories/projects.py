@@ -46,6 +46,7 @@ class ProjectRepository(BaseRepository):
         project_type: str | None = None,
         project_tags: list[str] | None = None,
         parent_project_id: str | None = None,
+        project_id: str | None = None,
     ) -> str:
         """
         Create a new project for multi-repo/multi-session tracking.
@@ -61,7 +62,10 @@ class ProjectRepository(BaseRepository):
         Returns:
             project_id: UUID string
         """
-        project_id = str(uuid.uuid4())
+        # Honor an explicit id (repair / --project-id link) so the row lands under the
+        # caller's canonical id instead of a fresh one (the "shadow UUID" bug); default
+        # to a new UUID for normal creation.
+        project_id = project_id or str(uuid.uuid4())
 
         # Validate project_type
         if project_type and project_type not in self.PROJECT_TYPES:
