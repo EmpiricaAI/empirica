@@ -20,6 +20,7 @@ from .persist import (
     emit_prevention_exposure,
     read_prevention_events,
 )
+from .report import prevention_report
 
 __all__ = [
     "DEFAULT_WINDOW_S",
@@ -27,6 +28,7 @@ __all__ = [
     "apply_prevention_detection",
     "emit_fabrication_exposure",
     "emit_prevention_exposure",
+    "prevention_report",
     "read_prevention_events",
     "recurrence_verdict",
 ]
