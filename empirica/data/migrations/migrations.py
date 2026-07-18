@@ -1501,6 +1501,11 @@ ALL_MIGRATIONS: list[tuple[str, str, Callable]] = [
         "Add resolution state (is_resolved, resolution, resolved_timestamp, superseded_by) to project_findings — the finding-resolve/prune primitive (#307). Findings were the only artifact type with no resolve verb, so stale/superseded findings could only passively decay and kept resurfacing high in PREFLIGHT/CHECK. A resolved finding is kept for history but dropped from live retrieval (read-time SQLite reconcile), mirroring project_unknowns.is_resolved. superseded_by links a superseded finding → its replacement. Additive + idempotent via add_column_if_missing.",
         lambda cursor: migration_057_finding_resolution(cursor),
     ),
+    (
+        "058_prevention_events",
+        "Create prevention_events — the positive-polarity mirror of blindspot_events (prevention-currency Leg A, PREVENTION_MEASUREMENT_SPEC.md). One row per exposure of an anti-pattern prior on a subject; advanced at POSTFLIGHT to prevented (acknowledged + no same-subject failure in window W) or failed (a measured miss). Provenance: author_practice != beneficiary_practice = beneficiary-independence (anti-collusion); shadow flags an EXP-SHADOW control non-exposure. Written fail-open. Idempotent via CREATE TABLE IF NOT EXISTS.",
+        lambda cursor: migration_058_prevention_events(cursor),
+    ),
 ]
 
 
@@ -2117,6 +2122,46 @@ def migration_057_finding_resolution(cursor: sqlite3.Cursor):
     add_column_if_missing(cursor, "project_findings", "superseded_by", "TEXT", "NULL")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_project_findings_resolved ON project_findings(is_resolved)")
     logger.info("✅ Migration 057 complete: resolution state added to project_findings")
+
+
+def migration_058_prevention_events(cursor: sqlite3.Cursor):
+    """Create ``prevention_events`` — the positive-polarity mirror of blindspot_events.
+
+    Per ``docs/architecture/PREVENTION_MEASUREMENT_SPEC.md`` (Leg A). One row per
+    exposure of an anti-pattern prior on a subject, advanced at POSTFLIGHT to
+    ``prevented`` (acknowledged + no same-subject failure in window W) or ``failed``
+    (a measured miss — kept, it is the exposed-arm failure the causal ATE needs).
+
+    Provenance for attribution: ``author_practice != beneficiary_practice`` is the
+    beneficiary-independence (anti-collusion) signal; ``shadow`` flags an EXP-SHADOW
+    control-arm non-exposure. Written fail-open. Idempotent via CREATE TABLE IF NOT
+    EXISTS.
+    """
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS prevention_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT,
+            transaction_id TEXT,
+            created_timestamp REAL NOT NULL,
+            pattern_key TEXT,
+            subject_key TEXT,
+            goal_id TEXT,
+            subtask_id TEXT,
+            author_practice TEXT,
+            beneficiary_practice TEXT,
+            exposed_at REAL,
+            acknowledged INTEGER NOT NULL DEFAULT 0,
+            shadow INTEGER NOT NULL DEFAULT 0,
+            outcome TEXT NOT NULL DEFAULT 'exposed',
+            outcome_at REAL,
+            window_s INTEGER,
+            provenance_ref TEXT
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_prevention_events_session ON prevention_events(session_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_prevention_events_subject ON prevention_events(subject_key)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_prevention_events_pattern ON prevention_events(pattern_key)")
+    logger.info("✅ Migration 058 complete: prevention_events table created")
 
 
 def migration_051_goals_engagement_id(cursor: sqlite3.Cursor):

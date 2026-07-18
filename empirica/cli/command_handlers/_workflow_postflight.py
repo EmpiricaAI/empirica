@@ -1438,6 +1438,22 @@ def _postflight_resolve_blindspots(session_id) -> int:
     return resolved + regretted
 
 
+def _postflight_prevention_detection(session_id) -> int:
+    """Stage 5c helper: advance ``exposed`` prevention_events (the positive mirror).
+
+    An exposed anti-pattern prior that was acknowledged and did NOT lead to a
+    same-subject failure within the observation window becomes ``prevented``; one
+    that did becomes ``failed`` (a measured miss). Best-effort — the prevention
+    machinery must never affect POSTFLIGHT. Returns rows advanced.
+    """
+    from empirica.core.prevention import apply_prevention_detection
+
+    from ._workflow_shared import _get_db_for_session
+
+    db = _get_db_for_session(session_id)
+    return apply_prevention_detection(db, session_id)
+
+
 def _write_auto_structural_edges(session_id, transaction_id) -> int:
     """Auto-edge (Gated Artifact-Graph map, work-stream 3): persist each
     artifact's structural edge to its goal in the canonical ``artifact_edges``
@@ -1878,6 +1894,11 @@ def handle_postflight_submit_command(args):
             # acknowledged/dismissed based on whether their flagged task got
             # engaged this session (the POSTFLIGHT learning half). Fail-open.
             _soft_run("blindspot_outcomes", warnings, _postflight_resolve_blindspots, session_id)
+
+            # Stage 5c (positive polarity): Prevention detection — advance exposed
+            # anti-pattern priors to prevented/failed (the measured inverse of the
+            # regret loop). Fail-open. See PREVENTION_MEASUREMENT_SPEC.md.
+            _soft_run("prevention_detection", warnings, _postflight_prevention_detection, session_id)
 
             # Stage 6: Beliefs + Grounded verification + Storage pipeline
             _soft_run(
