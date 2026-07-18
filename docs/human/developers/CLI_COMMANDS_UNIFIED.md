@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.12.25
-**Generated:** 2026-07-17 12:01:13 UTC
+**Framework version:** 1.12.26
+**Generated:** 2026-07-18 15:58:13 UTC
 **Total commands:** 241 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -1903,6 +1903,8 @@ Write (or soft-close) a typed membership edge between two entities: '<member> is
   Optional free-text note on the edge
 - `--close` — optional · flag
   Soft-close the edge (stamp left_at) instead of writing it
+- `--primary` — optional · flag
+  Mark this edge as the member's primary membership for group_type, clearing is_primary on its other active same-group_type memberships (e.g. disambiguate which org is primary for a contact with multiple active org memberships). Does not close the other memberships.
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
 - `--verbose` — optional · flag

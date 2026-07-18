@@ -352,7 +352,7 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.12.25
+## What's New in 1.12.26
 
 - **`goals-create --engagement-id`** — stamps the existing `goals.engagement_id`
 - **Loop-install no longer re-offers event-drivable loops as CronCreate pollers
