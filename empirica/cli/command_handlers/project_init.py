@@ -310,6 +310,20 @@ def _derive_ai_id(git_root) -> str:
     return InstanceResolver.ai_id(project_path=str(git_root)) or "claude-code"
 
 
+def _merge_preserving_existing(template: dict, existing: dict) -> dict:
+    """Merge a freshly-built project.yaml ``template`` with an ``existing`` one so
+    hand-set / provisioning-written keys survive a ``--force`` repair re-init.
+
+    Existing values WIN; the template only fills in keys the existing config lacks.
+    This is what stops ``project-init --force`` from silently clobbering curated
+    identity fields (org_id, tenant_slug, canonical_seat, mesh_id_prefix, remotes,
+    rich description). An empty ``existing`` (fresh init) returns the template as-is.
+    """
+    if not existing:
+        return template
+    return {**template, **existing}
+
+
 def _build_project_config(config_input, git_root, git_url):
     """Build the project.yaml config dict from collected inputs."""
     from datetime import datetime
@@ -475,8 +489,25 @@ def handle_project_init_command(args):
             config_input = _collect_project_config_from_args(args, git_root)
 
         git_url = _get_git_remote_url()
-        project_config = _build_project_config(config_input, git_root, git_url)
         project_config_path = git_root / ".empirica" / "project.yaml"
+
+        # Preserve hand-set / provisioning-written fields on --force re-init (a repair,
+        # not a fresh init). _build_project_config produces a generic scaffold; blindly
+        # writing it silently clobbers curated identity fields (org_id, tenant_slug,
+        # canonical_seat, mesh_id_prefix, remotes, rich description). Merge so existing
+        # values WIN and the template only fills genuinely-missing keys. Fresh inits have
+        # no existing project.yaml, so this is a no-op there.
+        existing_config = {}
+        if project_config_path.exists():
+            try:
+                with open(project_config_path) as f:
+                    existing_config = yaml.safe_load(f) or {}
+            except Exception:
+                existing_config = {}
+
+        project_config = _merge_preserving_existing(
+            _build_project_config(config_input, git_root, git_url), existing_config
+        )
 
         with open(project_config_path, "w") as f:
             yaml.dump(project_config, f, default_flow_style=False, sort_keys=False)
