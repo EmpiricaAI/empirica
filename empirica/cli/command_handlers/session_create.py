@@ -506,12 +506,21 @@ def _resolve_from_context_files():
                     if pid:
                         return pid
 
-    # Priority 0c: canonical active_work.json
-    canonical_path = os.path.join(os.path.expanduser("~"), ".empirica", "active_work.json")
-    if os.path.exists(canonical_path):
-        with open(canonical_path) as f:
-            active_work = _json.load(f)
-            return _get_project_id_from_context(active_work)
+    # Priority 0c: generic active_work.json — HEADLESS MODE ONLY.
+    # This mirrors the canonical invariant enforced by
+    # session_resolver.get_active_project_path (see its "HEADLESS MODE ONLY"
+    # block): in an interactive session there IS a terminal identity, so
+    # instance_projects (0a) + active_work_{uuid} (0b) own resolution and a
+    # generic global fallback must NOT win. Reading it unconditionally here was
+    # a divergent second copy of the resolution logic and let a stale
+    # cross-project active_work.json contaminate the session's project_id
+    # (split-brain persistence — Franci/NLE, verified 2026-07-18).
+    if R.is_headless():
+        canonical_path = os.path.join(os.path.expanduser("~"), ".empirica", "active_work.json")
+        if os.path.exists(canonical_path):
+            with open(canonical_path) as f:
+                active_work = _json.load(f)
+                return _get_project_id_from_context(active_work)
 
     return None
 

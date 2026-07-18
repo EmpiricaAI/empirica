@@ -103,13 +103,22 @@ def archive_stale_plans() -> list:
     return archived
 
 
-def _create_empirica_session(ai_id: str, env: dict) -> tuple:
+def _create_empirica_session(ai_id: str, env: dict, project_id: str | None = None) -> tuple:
     """Run session-create CLI command and return (session_id, error).
+
+    When ``project_id`` is a validated canonical UUID it is passed explicitly as
+    ``--project-id`` so session-create does NOT re-resolve the project from its
+    context-file chain (which can pick a stale global active_work.json and bind
+    the session to the wrong project — split-brain persistence). Omitted when
+    None, preserving the resolver fallback for unregistered projects.
 
     Returns (session_id, None) on success, (None, error_msg) on failure.
     """
+    cmd = ["empirica", "session-create", "--ai-id", ai_id, "--output", "json"]
+    if project_id:
+        cmd += ["--project-id", project_id]
     create_cmd = subprocess.run(
-        ["empirica", "session-create", "--ai-id", ai_id, "--output", "json"],
+        cmd,
         capture_output=True,
         text=True,
         timeout=15,
@@ -297,6 +306,79 @@ _PROJECT_ID_UUID_RE = re.compile(
 )
 
 
+def _lookup_project_id_by_trajectory(project_root: str | Path | None) -> str | None:
+    """Resolve the canonical project UUID from workspace.db global_projects by
+    trajectory_path, tolerating BOTH stored forms: ``<root>`` and
+    ``<root>/.empirica``.
+
+    workspace.db is populated by paths that disagree on the form: project-init /
+    workspace_init store ``<root>/.empirica`` while projects-discover
+    (project_commands) stores the bare ``<root>``. Read paths elsewhere already
+    normalize both; the session-init healers historically did a single
+    exact-match on ``<root>/.empirica`` and silently missed rows stored as
+    ``<root>`` — defeating the ghost-project_id heal (split-brain persistence,
+    Franci/NLE, verified 2026-07-18). Query both forms.
+
+    Returns the UUID string, or None when the path is not registered.
+    """
+    if not project_root:
+        return None
+    try:
+        import sqlite3
+
+        ws_db = Path.home() / ".empirica" / "workspace" / "workspace.db"
+        if not ws_db.exists():
+            return None
+        root = Path(project_root)
+        candidates = (str(root / ".empirica"), str(root))
+        conn = sqlite3.connect(str(ws_db))
+        try:
+            cursor = conn.execute(
+                "SELECT id FROM global_projects WHERE trajectory_path IN (?, ?)",
+                candidates,
+            )
+            row = cursor.fetchone()
+        finally:
+            conn.close()
+        return row[0] if row else None
+    except Exception as e:
+        print(f"session-init: trajectory lookup skipped ({type(e).__name__}: {e})", file=sys.stderr)
+        return None
+
+
+def _resolve_canonical_project_id_for_root(project_root: str | Path | None) -> str | None:
+    """Best-effort canonical project UUID for an already-validated project_root.
+
+    Used to pin the session's project_id EXPLICITLY at creation (session-create
+    ``--project-id``) instead of letting session-create re-resolve it — the
+    re-resolution path could pick a stale global active_work.json and bind the
+    session to the wrong project while the UI showed the right one (split-brain).
+
+    Precedence:
+      1. .empirica/project.yaml project_id when UUID-shaped (canonical declared
+         identity; project-init heals it to a UUID).
+      2. workspace.db global_projects trajectory_path (both forms).
+
+    Returns None when neither yields a UUID — the caller then omits
+    ``--project-id`` and session-create falls back to its (now headless-gated)
+    resolver chain.
+    """
+    if not project_root:
+        return None
+    try:
+        import yaml
+
+        project_yaml = Path(project_root) / ".empirica" / "project.yaml"
+        if project_yaml.exists():
+            cfg = yaml.safe_load(project_yaml.read_text()) or {}
+            pid = (cfg.get("project_id") or "").strip()
+            if _PROJECT_ID_UUID_RE.match(pid):
+                return pid
+    except Exception:
+        pass
+    return _lookup_project_id_by_trajectory(project_root)
+
+
 def _resolve_ai_id_for_session(project_root: str | Path | None) -> str:
     """Resolve the canonical ai_id at session-init time.
 
@@ -438,25 +520,10 @@ def _heal_project_yaml_project_id_at_init(project_root: str | None) -> None:
         if _PROJECT_ID_UUID_RE.match(current):
             return  # already UUID-shaped — nothing to do
 
-        # Look up canonical UUID via workspace.db trajectory_path
-        import sqlite3
-
-        ws_db = Path.home() / ".empirica" / "workspace" / "workspace.db"
-        if not ws_db.exists():
-            return
-        trajectory = str(Path(project_root) / ".empirica")
-        conn = sqlite3.connect(str(ws_db))
-        try:
-            cursor = conn.execute(
-                "SELECT id FROM global_projects WHERE trajectory_path = ?",
-                (trajectory,),
-            )
-            row = cursor.fetchone()
-        finally:
-            conn.close()
-        if not row:
+        # Look up canonical UUID via workspace.db trajectory_path (both forms).
+        canonical_uuid = _lookup_project_id_by_trajectory(project_root)
+        if not canonical_uuid:
             return  # not registered — leave alone, never guess
-        canonical_uuid = row[0]
         if canonical_uuid == current:
             return  # already matches (defensive — UUID regex should've caught)
 
@@ -471,7 +538,7 @@ def _heal_project_yaml_project_id_at_init(project_root: str | None) -> None:
         print(f"session-init: project.yaml heal skipped ({type(e).__name__}: {e})", file=sys.stderr)
 
 
-def _heal_session_project_id_at_init(session_id: str, project_root: str | None) -> None:
+def _heal_session_project_id_at_init(session_id: str, project_root: str | None) -> str | None:
     """Validate-and-heal session.project_id at session-init boundary.
 
     Mirrors post-compact._auto_heal_session's stage 2 — catches the
@@ -480,26 +547,19 @@ def _heal_session_project_id_at_init(session_id: str, project_root: str | None) 
     folder_name match, tmux pane reuse). Cwd is reliable here because
     session-init already os.chdir'd to project_root before this runs.
 
+    Returns the heal status ("healed" | "ok" | "missing"), or None when no
+    authoritative check could run (no session/root, or unregistered path). A
+    "healed" result means the session was bound to the WRONG project at creation
+    — the caller elevates that to a loud split-brain signal.
+
     Non-fatal — logs to stderr on issue, never blocks session boot.
     """
     if not session_id or not project_root:
-        return
+        return None
     try:
-        import sqlite3
-
-        ws_db = Path.home() / ".empirica" / "workspace" / "workspace.db"
-        if not ws_db.exists():
-            return
-        trajectory = str(Path(project_root) / ".empirica")
-        conn = sqlite3.connect(str(ws_db))
-        try:
-            cursor = conn.execute("SELECT id FROM global_projects WHERE trajectory_path = ?", (trajectory,))
-            row = cursor.fetchone()
-        finally:
-            conn.close()
-        if not row:
-            return  # path not registered — leave alone, never guess
-        expected_project_id = row[0]
+        expected_project_id = _lookup_project_id_by_trajectory(project_root)
+        if not expected_project_id:
+            return None  # path not registered — leave alone, never guess
 
         from empirica.data.session_database import SessionDatabase
 
@@ -509,14 +569,15 @@ def _heal_session_project_id_at_init(session_id: str, project_root: str | None) 
                 session_id=session_id,
                 expected_project_id=expected_project_id,
             )
-            if status == "healed":
-                print(
-                    f"session-init: healed session {session_id[:8]} project_id "
-                    f"-> {expected_project_id[:8]} (ghost-project_id pattern)",
-                    file=sys.stderr,
-                )
         finally:
             db.close()
+        if status == "healed":
+            print(
+                f"session-init: healed session {session_id[:8]} project_id "
+                f"-> {expected_project_id[:8]} (ghost-project_id pattern)",
+                file=sys.stderr,
+            )
+        return status
     except Exception as e:
         print(f"session-init: project_id heal skipped ({type(e).__name__}: {e})", file=sys.stderr)
 
@@ -601,6 +662,12 @@ def _heal_mesh_metadata_at_init(project_root: str | None) -> None:
 def create_session_and_bootstrap(ai_id: str, project_id: str | None = None) -> dict:
     """Create session + run bootstrap in sequence.
 
+    ``project_id`` (the canonical UUID for the already-validated cwd project_root)
+    is passed through to session-create as ``--project-id`` so the session is
+    PINNED to the right project at creation instead of being re-resolved from a
+    context-file chain that can pick a stale global active_work.json (split-brain
+    persistence — Franci/NLE). None → session-create falls back to its resolver.
+
     Returns dict with session_id, bootstrap_output, error.
     Orchestrates: session creation, bootstrap, and optional Cortex sync.
     """
@@ -610,9 +677,10 @@ def create_session_and_bootstrap(ai_id: str, project_id: str | None = None) -> d
         # Set EMPIRICA_CWD_RELIABLE=true because session-init already os.chdir'd
         # to the resolved project_root.
         env = {**os.environ, "EMPIRICA_CWD_RELIABLE": "true"}
+        project_root = os.environ.get("PWD") or os.getcwd()
 
-        # Step 1: Create session
-        session_id, error = _create_empirica_session(ai_id, env)
+        # Step 1: Create session — pinned to the validated project_id when known.
+        session_id, error = _create_empirica_session(ai_id, env, project_id)
         if error:
             result["error"] = error
             return result
@@ -620,21 +688,34 @@ def create_session_and_bootstrap(ai_id: str, project_id: str | None = None) -> d
 
         # Step 1b: Heal session.project_id if session-create's resolution
         # bound to a stale project (ghost-project_id pattern). Idempotent.
-        _heal_session_project_id_at_init(session_id, os.environ.get("PWD") or os.getcwd())
+        # A "healed" status means the session was created with the WRONG
+        # project_id — the split-brain we now pin against. With Step-1 pinning
+        # this should be "ok"/None in the normal path; a residual "healed" is a
+        # fail-LOUD signal that resolver inputs are still contaminating creation.
+        heal_status = _heal_session_project_id_at_init(session_id, project_root)
+        if heal_status == "healed":
+            print(
+                f"session-init: ⚠ SPLIT-BRAIN CORRECTED — session {session_id[:8]} was "
+                f"bound to the wrong project at creation and healed to the cwd's canonical "
+                f"id. Persistence would otherwise have landed in the wrong project. "
+                f"Investigate resolver inputs (stale ~/.empirica/active_work.json?).",
+                file=sys.stderr,
+            )
+            result["split_brain_corrected"] = True
 
         # Step 1c: Heal .empirica/project.yaml project_id if it's a slug-shape
         # legacy value (pre-UUID project-init era). Idempotent.
-        _heal_project_yaml_project_id_at_init(os.environ.get("PWD") or os.getcwd())
+        _heal_project_yaml_project_id_at_init(project_root)
 
         # Step 1d: Heal .empirica/project.yaml ai_id if it's a stripped-prefix
         # legacy value (pre-strict-canonical era, 1.11.x). Idempotent.
-        _heal_project_yaml_ai_id_at_init(os.environ.get("PWD") or os.getcwd())
+        _heal_project_yaml_ai_id_at_init(project_root)
 
         # Step 1e: Backfill mesh tenant metadata (canonical_seat etc.) for
         # ai_id-only project.yamls so cortex_session_init can seat a
         # multi-practice api_key. Idempotent + cortex-read-only (no seat is
         # passed here — that's the cortex-gated Phase 2).
-        _heal_mesh_metadata_at_init(os.environ.get("PWD") or os.getcwd())
+        _heal_mesh_metadata_at_init(project_root)
 
         # Step 2: Run bootstrap
         bootstrap_data, project_context = _run_bootstrap(session_id, env)
@@ -1579,8 +1660,13 @@ def main():
     if not is_resume:
         _handle_orphan_adoption(claude_session_id, project_root)
 
-    # Create session and bootstrap
-    result = create_session_and_bootstrap(ai_id)
+    # Create session and bootstrap — pin the session to the cwd-validated
+    # project UUID so session-create does NOT re-resolve it from a context-file
+    # chain that could pick a stale global active_work.json (split-brain
+    # persistence, Franci/NLE, verified 2026-07-18). project_root here is
+    # already cwd-first (see _try_cwd_adoption / _prefer_cwd_on_startup above).
+    canonical_project_id = _resolve_canonical_project_id_for_root(project_root)
+    result = create_session_and_bootstrap(ai_id, project_id=canonical_project_id)
 
     if result.get("session_id"):
         _write_instance_projects(str(project_root), claude_session_id, result["session_id"])
