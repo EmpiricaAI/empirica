@@ -91,6 +91,8 @@ def load_registry(path: Path | None = None, *, auto_dedupe: bool = True) -> dict
                 # the daemon read path.
                 logger.warning(f"registry: dedup persist failed (non-fatal): {e}")
 
+    # Surface same-name / different-path shadows (dedupe only collapses same-path).
+    warn_name_collisions(registry)
     return registry
 
 
@@ -128,6 +130,42 @@ def find_by_project_id(registry: dict[str, Any], project_id: str) -> dict[str, A
         if entry.get("project_id") == project_id:
             return entry
     return None
+
+
+def warn_name_collisions(registry: dict[str, Any]) -> list[dict[str, Any]]:
+    """Warn when entries share a display ``name`` but resolve to DIFFERENT paths.
+
+    A same-name / different-path pair is almost always a backup-or-clone shadow:
+    a stale ``foo_backup/`` dir and the live ``foo/`` both registered as "Foo",
+    one slug-keyed and one UUID-keyed. ``dedupe_registry`` only collapses
+    SAME-path duplicates, so this class slips through — and whichever entry a
+    lookup key happens to match can silently shadow the live project (the
+    2026-07-17 registry-ghost incident: an ``empirica_back_2_4_26`` backup entry
+    shadowed the live empirica repo, serving 9 stale sources instead of 40).
+
+    Surfacing, not fixing: two genuinely distinct projects *could* legitimately
+    share a display name, so this warns rather than removes. Returns the
+    collision groups (``[{"name", "paths", "entries"}, ...]``) for callers/tests;
+    logs one warning per group.
+    """
+    by_name: dict[str, list[dict[str, Any]]] = {}
+    for entry in registry.get("projects", []):
+        name = entry.get("name")
+        if name and isinstance(name, str):
+            by_name.setdefault(name, []).append(entry)
+
+    collisions: list[dict[str, Any]] = []
+    for name, group in by_name.items():
+        paths = sorted({e["path"] for e in group if e.get("path")})
+        if len(paths) > 1:
+            collisions.append({"name": name, "paths": paths, "entries": group})
+            logger.warning(
+                f"registry: {len(group)} entries share name {name!r} but resolve to "
+                f"{len(paths)} different paths {paths} — likely a backup/clone shadow "
+                f"(one can silently shadow the other on project_id lookup). Review "
+                f"~/.empirica/registry.yaml and remove the stale entry."
+            )
+    return collisions
 
 
 # Loose UUID matcher — accepts canonical 8-4-4-4-12 hex form. Anything else

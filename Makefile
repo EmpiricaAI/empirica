@@ -38,7 +38,7 @@ test-integrity: ## Run integrity tests (framework principles validation)
 
 .PHONY: test-cov
 test-cov: ## Run tests with coverage report
-	pytest tests/ --cov=empirica --cov=mcp_local --cov-report=html --cov-report=term-missing
+	pytest tests/ --cov=empirica --cov=empirica-mcp --cov-report=html --cov-report=term-missing
 
 .PHONY: test-fast
 test-fast: ## Run tests excluding slow tests
@@ -51,29 +51,33 @@ test-watch: ## Run tests in watch mode (requires pytest-watch)
 # Code Quality
 .PHONY: format
 format: ## Format code with ruff
-	ruff format empirica/ mcp_local/ tests/
+	ruff format empirica/ empirica-mcp/ tests/
 
 .PHONY: format-check
 format-check: ## Check code formatting without modifying
-	ruff format --check empirica/ mcp_local/ tests/
+	ruff format --check empirica/ empirica-mcp/ tests/
 
 .PHONY: lint
 lint: ## Lint code with ruff
-	ruff check empirica/ mcp_local/ tests/
+	ruff check empirica/ empirica-mcp/ tests/
 
 .PHONY: lint-fix
 lint-fix: ## Lint and auto-fix issues
-	ruff check --fix empirica/ mcp_local/ tests/
+	ruff check --fix empirica/ empirica-mcp/ tests/
 
 .PHONY: typecheck
 typecheck: ## Run type checking with pyright
-	pyright empirica/ mcp_local/
+	pyright empirica/ empirica-mcp/
 
 .PHONY: check
 check: format-check lint typecheck ## Run all code quality checks
 
 .PHONY: check-fix
 check-fix: format lint-fix typecheck ## Format, fix linting issues, and typecheck
+
+.PHONY: install-hooks
+install-hooks: ## Install the CI-parity pre-push ruff gate (composes with beads)
+	@bash scripts/git-hooks/install.sh
 
 # Release Validation
 .PHONY: validate
@@ -134,7 +138,7 @@ stats: ## Show project statistics
 	@echo "=== Empirica Project Statistics ==="
 	@echo ""
 	@echo "Lines of Code:"
-	@find empirica mcp_local -name "*.py" | xargs wc -l | tail -1
+	@find empirica empirica-mcp -name "*.py" | xargs wc -l | tail -1
 	@echo ""
 	@echo "Test Files:"
 	@find tests -name "test_*.py" | wc -l

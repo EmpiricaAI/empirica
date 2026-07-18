@@ -273,7 +273,19 @@ def _resolve_canonical_ai_id(
     On any failure → returns the basename unchanged. The listener's
     existing fetch failure path will then surface 0-result warnings, so
     the failure is loud rather than silent.
+
+    Idempotent: an input that is ALREADY a canonical form (contains a ``.`` —
+    e.g. ``empirica.david.epistemic-dj``) is passed through unchanged, never
+    round-tripped through the roster. Re-resolving a canonical fails for a
+    freshly-registered practice whose roster row hasn't synced yet, and the
+    failure fallback would hand back a bare/mismatched id → cortex returns 0
+    proposals (the onboarding-breaking empty-inbox bug: a new practice's first
+    ``mailbox poll`` looked empty even though proposals were landing correctly
+    server-side).
     """
+    if "." in basename:
+        return basename
+
     cache_key = (cortex_url, api_key, basename)
     cached = _CANONICAL_AI_ID_CACHE.get(cache_key)
     if cached is not None:
