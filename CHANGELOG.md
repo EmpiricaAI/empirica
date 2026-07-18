@@ -5,6 +5,55 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.27] — 2026-07-18
+
+### Fixed
+- **Split-brain project persistence (P0).** A session could *display* the correct
+  project while *persisting* its session row + artifacts to a stale one — silently
+  contaminating findings, goals, and calibration across projects (verified
+  diagnosis, Franci/NLE). Four fixes: (1) session-init now pins the session with an
+  explicit `--project-id` resolved from the cwd-validated `project_root` instead of
+  letting session-create re-resolve it; (2)
+  `session_create._resolve_from_context_files` gates the generic
+  `~/.empirica/active_work.json` read on `is_headless()`, matching
+  `session_resolver`'s canonical "HEADLESS MODE ONLY" invariant — a divergent copy
+  had let a stale global fallback outrank cwd in interactive sessions; (3) both
+  session-init healers tolerate BOTH `<root>` and `<root>/.empirica`
+  `trajectory_path` forms (the exact-match miss had defeated the ghost-project_id
+  heal); (4) a residual wrong binding is surfaced loudly (`split_brain_corrected`)
+  rather than silently healed. +12 regression tests. (#357)
+
+## [1.12.26] — 2026-07-18
+
+### Fixed
+- **`mailbox poll --ai-id <canonical>` no longer returns an empty inbox.**
+  `content_poll._resolve_canonical_ai_id` round-tripped an already-canonical ai_id
+  through the roster (which can't match a canonical / not-yet-synced practice) and
+  fell back to a mismatched id → cortex returned 0. Now idempotent: a dotted
+  (canonical) ai_id passes through untouched.
+- **`project-init --force` merges `project.yaml` instead of clobbering it** —
+  hand-set identity fields (org_id, tenant_slug, canonical_seat, rich description)
+  survive a re-init.
+- **`project-init` no longer mints a shadow UUID** — `create_project` threads an
+  explicit/reused `project_id` so the sessions.db row materializes under the id
+  `project.yaml` claims.
+
+### Added
+- **Prevention-measurement substrate** — pre-registered causal-measurement spec
+  (S1) + `prevention_events` emission with POSTFLIGHT detection (S2) + recurrence
+  oracle (S3) + fabrication-incidence as a 2nd outcome family (S4) + a read-only
+  per-family measurement report surface (S5).
+- **Registry name-collision shadow guard** — warns when two registry entries share
+  a name but differ in path (backup/clone shadow), plus a CI-parity pre-push hook
+  (ruff check + format) composable with beads.
+- **Mesh `idempotency_key()` helper** + propose-discipline guidance for
+  `cortex_propose` (idempotent-by-design convention).
+- **`entity_memberships.is_primary`** disambiguation flag (ERM).
+
+### Changed
+- **`empirica --help` surfaces the Knowledge Sources command family.**
+- README / cross-ai-mesh doc-anchor repairs.
+
 ## [1.12.25] — 2026-07-17
 
 ### Added

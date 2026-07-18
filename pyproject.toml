@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "empirica"
-version = "1.12.26"
+version = "1.12.27"
 description = "Measurement and calibration layer for AI — track what it knows, gate what it does"
 readme = "README.md"
 requires-python = ">=3.10"
