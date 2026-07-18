@@ -30,9 +30,15 @@ def apply_prevention_detection(db, session_id: str, *, now: float | None = None)
     """
     try:
         now = now if now is not None else time.time()
+        # Only the 'prevention' family is resolved here: its failure signal is a
+        # mistake / dead-end. The 'fabrication' family has a different failure
+        # signal (a detected fabrication) and MUST NOT be resolved by this pass,
+        # or a fabrication exposure would get a FALSE 'prevented' verdict from the
+        # mere absence of a mistake. Those rows await a distinct oracle (spec §6 Q4).
         exposed = db.conn.execute(
             "SELECT id, goal_id, subtask_id, exposed_at, acknowledged, window_s "
-            "FROM prevention_events WHERE session_id = ? AND outcome = 'exposed'",
+            "FROM prevention_events WHERE session_id = ? AND outcome = 'exposed' "
+            "AND (outcome_family = 'prevention' OR outcome_family IS NULL)",
             (session_id,),
         ).fetchall()
         if not exposed:

@@ -16,6 +16,7 @@ from .oracle import recurrence_verdict
 from .persist import (
     DEFAULT_WINDOW_S,
     aggregate_prevention_events,
+    emit_fabrication_exposure,
     emit_prevention_exposure,
     read_prevention_events,
 )
@@ -24,6 +25,7 @@ __all__ = [
     "DEFAULT_WINDOW_S",
     "aggregate_prevention_events",
     "apply_prevention_detection",
+    "emit_fabrication_exposure",
     "emit_prevention_exposure",
     "read_prevention_events",
     "recurrence_verdict",

@@ -1506,6 +1506,11 @@ ALL_MIGRATIONS: list[tuple[str, str, Callable]] = [
         "Create prevention_events — the positive-polarity mirror of blindspot_events (prevention-currency Leg A, PREVENTION_MEASUREMENT_SPEC.md). One row per exposure of an anti-pattern prior on a subject; advanced at POSTFLIGHT to prevented (acknowledged + no same-subject failure in window W) or failed (a measured miss). Provenance: author_practice != beneficiary_practice = beneficiary-independence (anti-collusion); shadow flags an EXP-SHADOW control non-exposure. Written fail-open. Idempotent via CREATE TABLE IF NOT EXISTS.",
         lambda cursor: migration_058_prevention_events(cursor),
     ),
+    (
+        "059_prevention_outcome_family",
+        "Add outcome_family to prevention_events — the 2nd outcome family (fabrication-detection-floor). prevention + fabrication-incidence share the event machinery but have different failure signals, so family is explicit: the POSTFLIGHT detector resolves only outcome_family='prevention' rows (mistake/dead-end signal), leaving fabrication rows for a distinct grounding/verification oracle (deferred — spec §6 Q4). Additive + idempotent via add_column_if_missing.",
+        lambda cursor: migration_059_prevention_outcome_family(cursor),
+    ),
 ]
 
 
@@ -2162,6 +2167,24 @@ def migration_058_prevention_events(cursor: sqlite3.Cursor):
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_prevention_events_subject ON prevention_events(subject_key)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_prevention_events_pattern ON prevention_events(pattern_key)")
     logger.info("✅ Migration 058 complete: prevention_events table created")
+
+
+def migration_059_prevention_outcome_family(cursor: sqlite3.Cursor):
+    """Add ``outcome_family`` to prevention_events — the 2nd outcome family (fabrication).
+
+    Per ``PREVENTION_MEASUREMENT_SPEC.md`` §1 (fabrication-detection-floor):
+    prevention and fabrication-incidence ride the SAME event machinery but have
+    DIFFERENT failure signals, so the family must be an explicit column. The
+    POSTFLIGHT prevention detector resolves only ``outcome_family='prevention'``
+    rows (whose failure signal is a mistake / dead-end), leaving ``fabrication``
+    rows for a distinct grounding/verification oracle (deferred — spec §6 Q4).
+
+    Additive + idempotent via add_column_if_missing; default ``'prevention'`` so
+    existing S2 rows keep their meaning.
+    """
+    add_column_if_missing(cursor, "prevention_events", "outcome_family", "TEXT", "'prevention'")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_prevention_events_family ON prevention_events(outcome_family)")
+    logger.info("✅ Migration 059 complete: outcome_family added to prevention_events")
 
 
 def migration_051_goals_engagement_id(cursor: sqlite3.Cursor):

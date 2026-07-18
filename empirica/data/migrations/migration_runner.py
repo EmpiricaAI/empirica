@@ -110,6 +110,8 @@ def column_exists(cursor: sqlite3.Cursor, table: str, column: str) -> bool:
         # Composable epistemic patterns (migration 037)
         "lessons",
         "lesson_steps",
+        # Prevention-currency measurement (migration 058/059)
+        "prevention_events",
     }
 
     if table not in VALID_TABLES:
@@ -169,6 +171,8 @@ def add_column_if_missing(cursor: sqlite3.Cursor, table: str, column: str, colum
         # Composable epistemic patterns (migration 037)
         "lessons",
         "lesson_steps",
+        # Prevention-currency measurement (migration 058/059)
+        "prevention_events",
     }
     VALID_COLUMN_TYPES = {"TEXT", "INTEGER", "REAL", "BLOB", "NULL", "TIMESTAMP", "BOOLEAN", "JSON"}
 

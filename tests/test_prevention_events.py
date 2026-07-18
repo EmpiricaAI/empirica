@@ -15,15 +15,20 @@ import types
 from empirica.core.prevention import (
     aggregate_prevention_events,
     apply_prevention_detection,
+    emit_fabrication_exposure,
     emit_prevention_exposure,
     read_prevention_events,
 )
-from empirica.data.migrations.migrations import migration_058_prevention_events
+from empirica.data.migrations.migrations import (
+    migration_058_prevention_events,
+    migration_059_prevention_outcome_family,
+)
 
 
 def _db():
     conn = sqlite3.connect(":memory:")
     migration_058_prevention_events(conn.cursor())
+    migration_059_prevention_outcome_family(conn.cursor())
     # minimal failure tables the detection pass joins against (causal order)
     conn.execute(
         "CREATE TABLE mistakes_made (id INTEGER PRIMARY KEY, session_id TEXT, goal_id TEXT, created_timestamp REAL)"
@@ -129,3 +134,40 @@ def test_aggregate_prevention_rate_and_beneficiary_independence():
     assert agg["prevention_rate"] == round(2 / 3, 3)  # 2 prevented of 3 resolved
     assert agg["beneficiary_independent"] == 1  # only the A→B prevention counts
     assert agg["beneficiary_independent_rate"] == 0.5  # 1 of 2 preventions cross-practice
+
+
+# ─── fabrication-incidence: the 2nd outcome family (fabrication-detection-floor) ──
+
+
+def test_default_outcome_family_is_prevention():
+    db = _db()
+    _emit(db)
+    assert read_prevention_events(db, "sess")[0]["outcome_family"] == "prevention"
+
+
+def test_fabrication_exposure_sets_family():
+    db = _db()
+    assert emit_fabrication_exposure(db, "sess", "tx", pattern_key="fab:P", subject_key="claim1") == 1
+    assert read_prevention_events(db, "sess")[0]["outcome_family"] == "fabrication"
+
+
+def test_detection_skips_fabrication_family():
+    """A fabrication exposure must NOT get a false 'prevented' from the mistake signal."""
+    db = _db()
+    emit_fabrication_exposure(
+        db, "sess", "tx", pattern_key="fab:P", subject_key="c1", acknowledged=True, window_s=100, exposed_at=1000.0
+    )
+    # window elapsed + no mistake — a PREVENTION-family row would flip to prevented here.
+    assert apply_prevention_detection(db, "sess", now=2000.0) == 0
+    assert read_prevention_events(db, "sess")[0]["outcome"] == "exposed"
+
+
+def test_aggregate_splits_by_family():
+    rows = [
+        {"outcome": "prevented", "outcome_family": "prevention", "author_practice": "A", "beneficiary_practice": "B"},
+        {"outcome": "exposed", "outcome_family": "fabrication", "author_practice": "A", "beneficiary_practice": "B"},
+    ]
+    prev = aggregate_prevention_events(rows, family="prevention")
+    fab = aggregate_prevention_events(rows, family="fabrication")
+    assert prev["total"] == 1 and prev["by_outcome"].get("prevented") == 1
+    assert fab["total"] == 1 and fab["by_outcome"].get("exposed") == 1

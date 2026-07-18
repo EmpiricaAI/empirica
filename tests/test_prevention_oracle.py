@@ -14,12 +14,14 @@ from empirica.core.prevention import recurrence_verdict
 from empirica.data.migrations.migrations import (
     migration_053_blindspot_events,
     migration_058_prevention_events,
+    migration_059_prevention_outcome_family,
 )
 
 
 def _db():
     conn = sqlite3.connect(":memory:")
     migration_058_prevention_events(conn.cursor())
+    migration_059_prevention_outcome_family(conn.cursor())
     migration_053_blindspot_events(conn.cursor())
     conn.execute(
         "CREATE TABLE mistakes_made (id INTEGER PRIMARY KEY, session_id TEXT, goal_id TEXT, created_timestamp REAL)"

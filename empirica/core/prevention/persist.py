@@ -35,6 +35,7 @@ _EVENT_COLS = (
     "outcome_at",
     "window_s",
     "provenance_ref",
+    "outcome_family",
 )
 
 
@@ -51,6 +52,7 @@ def emit_prevention_exposure(
     beneficiary_practice=None,
     acknowledged=False,
     shadow=False,
+    outcome_family="prevention",
     window_s=DEFAULT_WINDOW_S,
     provenance_ref=None,
     exposed_at=None,
@@ -72,8 +74,8 @@ def emit_prevention_exposure(
             "INSERT INTO prevention_events "
             "(session_id, transaction_id, created_timestamp, pattern_key, subject_key, "
             "goal_id, subtask_id, author_practice, beneficiary_practice, exposed_at, "
-            "acknowledged, shadow, outcome, window_s, provenance_ref) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "acknowledged, shadow, outcome, outcome_family, window_s, provenance_ref) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 session_id,
                 transaction_id,
@@ -88,6 +90,7 @@ def emit_prevention_exposure(
                 1 if acknowledged else 0,
                 1 if shadow else 0,
                 "exposed",
+                outcome_family,
                 window_s,
                 provenance_ref,
             ),
@@ -96,6 +99,26 @@ def emit_prevention_exposure(
         return 1
     except Exception:
         return 0
+
+
+def emit_fabrication_exposure(db, session_id, transaction_id, *, pattern_key, subject_key, **kwargs) -> int:
+    """Emit a fabrication-class exposure (``outcome_family='fabrication'``).
+
+    The 2nd outcome family (David's fabrication-detection-floor) — same emission
+    surface as :func:`emit_prevention_exposure`. NOTE: fabrication rows are
+    deliberately NOT resolved by the POSTFLIGHT prevention detector — its
+    mistake/dead-end signal is the wrong one for a fabrication. They await a
+    distinct grounding/verification oracle (deferred, spec §6 Q4). Fail-open.
+    """
+    return emit_prevention_exposure(
+        db,
+        session_id,
+        transaction_id,
+        pattern_key=pattern_key,
+        subject_key=subject_key,
+        outcome_family="fabrication",
+        **kwargs,
+    )
 
 
 def read_prevention_events(db, session_id: str | None = None) -> list[dict]:
@@ -112,9 +135,12 @@ def read_prevention_events(db, session_id: str | None = None) -> list[dict]:
         return []
 
 
-def aggregate_prevention_events(rows: list[dict]) -> dict:
+def aggregate_prevention_events(rows: list[dict], family: str | None = None) -> dict:
     """Aggregate into telemetry: totals, by-outcome, prevention rate, beneficiary-independent split.
 
+    - **family** — when given, only rows of that ``outcome_family`` are aggregated
+      (rows with no family default to ``'prevention'``). Lets callers split the
+      prevention family from the fabrication-incidence family cleanly.
     - **prevention_rate** — of *resolved* events (prevented + failed), how many
       prevented. This is a raw rate, NOT the causal ATE (that is research's, and
       needs the shadow/control arm) — it is the exposed-arm numerator only.
@@ -122,6 +148,8 @@ def aggregate_prevention_events(rows: list[dict]) -> dict:
       beneficiary_practice: the anti-collusion signal the currency is backed by.
       Endogenous (within-practice) preventions are discounted downstream.
     """
+    if family is not None:
+        rows = [r for r in (rows or []) if (r.get("outcome_family") or "prevention") == family]
     by_outcome: dict[str, int] = {}
     prevented_bi = 0
     prevented_total = 0
