@@ -1,14 +1,17 @@
-"""CCR-2 (prop_kgrbsvrnfvab): org→org parentage for GET /api/v1/entities.
+"""org→org parentage for GET /api/v1/entities.
 
-get_org_parent_map() resolves each org's parent org from active org→org
-membership edges, so the extension org-tree can render live parents. Parentage
-keys on the STRUCTURAL org→org edge (both ends organization, active) — NOT a
-role string, because role is a free-text verb in entity-link (verified: existing
-edges use 'member' / 'context' / 'ticket_of', no 'member_of' convention).
+**David 2026-07-19 correction:** organizations are flat and unique. A
+brand/umbrella relationship (a child org belonging to a parent company) is
+METADATA (``entity_registry.metadata.parent_org`` on the child org), NOT a
+structural org→org ``entity_memberships`` edge. ``get_org_parent_map()`` reads
+that metadata. This supersedes the earlier org→org membership-edge design, which
+conflated a descriptive relationship with the one-org-per-contact membership
+graph — org→org membership edges are no longer read as parentage.
 """
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import time
 
@@ -36,46 +39,48 @@ def _membership(repo, etype, eid, gtype, gid, role="member_of", joined=None, lef
     )
 
 
-def test_empty_when_no_org_edges(repo):
+def _org(repo, eid, parent=None):
+    """Insert an active organization row, optionally with ``metadata.parent_org``."""
+    now = time.time()
+    meta = json.dumps({"parent_org": parent}) if parent else None
+    repo._execute(
+        "INSERT INTO entity_registry (entity_type, entity_id, display_name, source_db, source_table, "
+        "status, metadata, created_at, updated_at) "
+        "VALUES ('organization', ?, ?, 'test', 'test', 'active', ?, ?, ?)",
+        (eid, eid, meta, now, now),
+    )
+
+
+def test_empty_when_no_orgs(repo):
     assert repo.get_org_parent_map() == {}
 
 
-def test_maps_active_org_to_parent(repo):
-    _membership(repo, "organization", "brand-a", "organization", "umbrella")
+def test_maps_org_to_parent_from_metadata(repo):
+    _org(repo, "umbrella")
+    _org(repo, "brand-a", parent="umbrella")
     assert repo.get_org_parent_map() == {"brand-a": "umbrella"}
 
 
-def test_ignores_non_org_edges(repo):
-    # contact→engagement and engagement→org are not org→org parentage.
-    _membership(repo, "contact", "c1", "engagement", "e1", role="member")
-    _membership(repo, "engagement", "e1", "organization", "umbrella", role="ticket_of")
-    assert repo.get_org_parent_map() == {}
-
-
-def test_ignores_closed_edges(repo):
-    # A soft-closed edge (left_at set) must not resolve as a live parent.
-    _membership(repo, "organization", "brand-a", "organization", "old-parent", left_at=time.time())
-    assert repo.get_org_parent_map() == {}
-
-
-def test_structural_not_role_filtered(repo):
-    # role is a free-text verb — parentage resolves regardless of the role value.
-    _membership(repo, "organization", "brand-a", "organization", "umbrella", role="subsidiary")
+def test_org_without_parent_metadata_is_absent(repo):
+    _org(repo, "umbrella")
+    _org(repo, "brand-a", parent="umbrella")
+    _org(repo, "independent")  # no parent_org → absent from the map
     assert repo.get_org_parent_map() == {"brand-a": "umbrella"}
 
 
-def test_most_recent_edge_wins(repo):
-    # If an org somehow has two active parent edges, the latest joined_at wins.
-    _membership(repo, "organization", "brand-a", "organization", "old", joined=100.0)
-    _membership(repo, "organization", "brand-a", "organization", "new", joined=200.0)
-    assert repo.get_org_parent_map()["brand-a"] == "new"
-
-
-def test_multiple_orgs(repo):
+def test_membership_edges_are_not_parentage(repo):
+    # Post-2026-07-19 correction: an org→org membership edge is NOT read as
+    # parentage — that structural relationship was removed; parent_org is
+    # metadata only. Regression guard for the swept ERM change.
     _membership(repo, "organization", "brand-a", "organization", "umbrella")
-    _membership(repo, "organization", "brand-b", "organization", "umbrella")
-    m = repo.get_org_parent_map()
-    assert m == {"brand-a": "umbrella", "brand-b": "umbrella"}
+    assert repo.get_org_parent_map() == {}
+
+
+def test_multiple_orgs_from_metadata(repo):
+    _org(repo, "umbrella")
+    _org(repo, "brand-a", parent="umbrella")
+    _org(repo, "brand-b", parent="umbrella")
+    assert repo.get_org_parent_map() == {"brand-a": "umbrella", "brand-b": "umbrella"}
 
 
 # ── get_contact_org_map (contact→org affiliation, the populated linkage) ──────
