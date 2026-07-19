@@ -5,6 +5,35 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.29] — 2026-07-19
+
+Corrective patch: greens the trunk (1.12.28 shipped with a stale test that reddened
+main) and folds in release-tooling + mesh-loop hardening.
+
+### Fixed
+- **`test_org_parent_map` aligned to the metadata-based `parent_org` model.** The
+  1.12.28 ERM change made `get_org_parent_map()` read
+  `entity_registry.metadata.parent_org` instead of org→org membership edges, but
+  the test still asserted the removed behavior — leaving `main` red. Tests
+  rewritten to the current model (+ a guard that membership edges are not
+  parentage).
+- **`cortex-mailbox-poll` is opt-in only — never auto-queued.** Wake-on-event (the
+  persistent listener) is the canonical mesh trigger; the 30s poller is redundant
+  on wake-on-event seats and is only for harnesses that can't do wake-on-event,
+  where the user opts in via `empirica loop register`. Fixes an ai_id/session-id
+  key mismatch that re-offered it every session (#360) and codifies the opt-in
+  rule (#361). `message-cleanup` housekeeping still auto-installs.
+
+### Changed
+- **`release.py --version-only --commit`** stages an explicit version/packaging
+  allowlist + CHANGELOG and commits the bump — removing the manual `git add -A`
+  that could sweep a concurrent session's uncommitted work into a release commit.
+  `create_git_tag` now shares the same allowlist (single source of truth). (#359)
+
+### Docs
+- Corrected `CROSS_PROJECT.md` visibility default (default is `shared`, not `local`;
+  `local` is a no-egress tier) and `CONTRIBUTING.md` release step (`--commit`).
+
 ## [1.12.28] — 2026-07-19
 
 ### Changed
