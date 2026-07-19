@@ -255,6 +255,8 @@ The browser-side ECO surface (Accept/Decline, inbox triage, publish review) live
 
 ## Mesh + Shared Epistemic Record (1.11.0)
 
+> **Requires [Empirica Cortex](https://getempirica.com) (proprietary).** Everything in this section — mesh proposals, the persistent listener, the Shared Epistemic Record, and the `empirica mesh` command cluster — is a Cortex-served layer. It is **not** available in empirica core on its own; without Cortex, empirica is a single-AI measurement layer.
+
 The cross-AI coordination layer. Practitioners in different practices coordinate not via text-only chat but via **epistemic envelopes** that carry calibrated state, source-tagged provenance, noetic/praxic intent, and workflow position.
 
 - **Practitioner / practice** framing — practices are calibrated epistemic specializations that persist; practitioners (the LLMs) are fungible. See [MESH_CONCEPTS.md](docs/human/end-users/MESH_CONCEPTS.md).
@@ -270,7 +272,7 @@ The cross-AI coordination layer. Practitioners in different practices coordinate
 - **Listener self-heal** — in-process watchdog terminates stale curl streams (TCP-zombie detection at 120s by default); HTTP 429 detection applies long backoff with catch-up poll continuing during the window.
 - **Mesh Routing Protocol v0** locked four-way with cortex + extension + mesh-support. L1/L2/L3 trust model, server-stamped layer annotation, participant-scoped thread reads.
 
-The full mesh requires cortex + extension; **empirica core works standalone** for single-tenant multi-practitioner coordination via local git-notes messaging + goals + workspace.
+**Without Cortex, empirica is a single-AI measurement layer** — the proposals, listener, SER, and `empirica mesh` cluster above are all Cortex-dependent. Core does ship a minimal local `empirica message-*` git-notes primitive for passing notes between your own sessions, but that is note-passing, not the coordinating mesh. Everything that makes empirica valuable on its own — measurement, calibration, artifacts, goals, project-search, sentinel gating — works fully standalone.
 
 ---
 
@@ -354,7 +356,7 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ## What's New in 1.12.27
 
-- **Split-brain project persistence (P0).** A session could *display* the correct
+- **Split-brain project persistence (P0).** A session could *display* the correct project while *persisting* its findings, goals, and calibration to a stale one — silent cross-project contamination. Session creation now pins the project id from the validated working directory, the resolver's headless-only `active_work.json` fallback is enforced consistently, and the project-id self-heal tolerates both `trajectory_path` forms. ([#357](https://github.com/EmpiricaAI/empirica/pull/357))
 ---
 
 ## Privacy & Data

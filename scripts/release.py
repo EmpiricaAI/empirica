@@ -636,18 +636,37 @@ class ReleaseManager:
 
         # entries[0] is the header, entries[1] is the latest release
         latest_entry = entries[1].strip()
-        # Extract just the Added/Changed/Fixed bullets (skip the header line and ### Highlights)
-        lines = latest_entry.split("\n")
         # Skip the version/date header line
-        content_lines = lines[1:]
+        content_lines = latest_entry.split("\n")[1:]
 
-        # Build a condensed What's New from the CHANGELOG
-        # Extract key items from ### Added, ### Changed, ### Fixed sections
-        whats_new_items = []
-        for line in content_lines:
-            line = line.strip()
-            if line.startswith("- **") and len(whats_new_items) < 10:
-                whats_new_items.append(line)
+        # Extract the titled bullets (- **…), JOINING each bullet's wrapped
+        # continuation lines. CHANGELOG bullets span multiple physical lines; the
+        # old logic kept only lines starting with "- **" and silently dropped the
+        # continuations, truncating every multi-line bullet at its first physical
+        # line (this caused the 1.12.27 "What's New" split-brain truncation —
+        # "A session could display the correct" with the rest lost).
+        whats_new_items: list[str] = []
+        current: str | None = None
+        for _raw in content_lines:
+            line = _raw.strip()
+            if line.startswith("### "):
+                # section header (Added / Fixed / Changed) — closes any open bullet
+                if current:
+                    whats_new_items.append(current)
+                    current = None
+                continue
+            if line.startswith("- **"):
+                if current:
+                    whats_new_items.append(current)
+                current = line
+            elif current is not None:
+                if line:
+                    current += " " + line  # wrapped continuation / nested sub-bullet
+                else:
+                    whats_new_items.append(current)  # blank line ends the bullet
+                    current = None
+        if current:
+            whats_new_items.append(current)
 
         if not whats_new_items:
             warning("No bullet items found in latest CHANGELOG entry")
