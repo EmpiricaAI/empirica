@@ -159,18 +159,66 @@ def _run_bootstrap(session_id: str, env: dict) -> tuple:
         return {"raw": bootstrap_cmd.stdout[:500]}, None
 
 
+def _local_artifact_ids(finding_ids, unknown_ids) -> set:
+    """Return the subset of the given artifact ids whose visibility='local'.
+
+    ``local`` is a no-egress tier: its content must never be sent to cortex.
+    Reads the project-local sessions.db (cwd is the project root at
+    session-init) to classify the breadcrumb ids, which don't carry visibility.
+
+    Fail-CLOSED: if visibility can't be determined (no db, query error), treat
+    ALL provided ids as local and withhold them — a leaked local artifact is
+    worse than a skipped (redundant, POSTFLIGHT also syncs) session-init push.
+    """
+    fids = [i for i in (finding_ids or []) if i]
+    uids = [i for i in (unknown_ids or []) if i]
+    if not fids and not uids:
+        return set()
+    try:
+        from empirica.data.session_database import SessionDatabase
+
+        db = SessionDatabase()
+        local: set = set()
+        try:
+            for _tbl, _ids in (("project_findings", fids), ("project_unknowns", uids)):
+                if not _ids:
+                    continue
+                _ph = ",".join("?" * len(_ids))
+                _rows = db.conn.execute(
+                    f"SELECT id FROM {_tbl} WHERE id IN ({_ph}) AND visibility = 'local'",
+                    tuple(_ids),
+                ).fetchall()
+                local.update(r[0] for r in _rows)
+        finally:
+            db.close()
+        return local
+    except Exception:
+        return set(fids) | set(uids)  # fail-closed — withhold rather than leak
+
+
 def _build_cortex_sync_delta(bootstrap_data) -> dict:
-    """Extract sync delta from bootstrap breadcrumbs for Cortex remote sync."""
+    """Extract sync delta from bootstrap breadcrumbs for Cortex remote sync.
+
+    Excludes visibility=local artifacts — 'local' is a no-egress tier: its
+    content never leaves the machine. Default 'shared' + 'public' still sync.
+    """
     delta = {}
     if not isinstance(bootstrap_data, dict):
         return delta
     breadcrumbs = bootstrap_data.get("breadcrumbs", {})
     if breadcrumbs:
+        _findings = breadcrumbs.get("findings", [])[:10]
+        _unknowns = breadcrumbs.get("unknowns", [])[:5]
+        _local = _local_artifact_ids(
+            [f.get("id") for f in _findings],
+            [u.get("id") for u in _unknowns],
+        )
         delta["findings"] = [
             {"finding": f.get("finding", ""), "impact": f.get("impact", 0.5)}
-            for f in breadcrumbs.get("findings", [])[:10]
+            for f in _findings
+            if f.get("id") not in _local
         ]
-        delta["unknowns"] = [{"unknown": u.get("unknown", "")} for u in breadcrumbs.get("unknowns", [])[:5]]
+        delta["unknowns"] = [{"unknown": u.get("unknown", "")} for u in _unknowns if u.get("id") not in _local]
     return delta
 
 

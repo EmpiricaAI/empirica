@@ -1264,8 +1264,13 @@ def _cortex_extract_transaction_delta(session_id):
             ("decisions", "choice", "decisions", ", rationale"),
         ]
         for _tbl, _key, _delta_key, extra_col in tables:
+            # visibility=local is a no-egress tier — never sync its content to
+            # cortex. COALESCE so the default 'shared' (and legacy NULL) still
+            # sync; only the explicitly-local minority is withheld.
             _rows = _sdb.conn.execute(
-                f"SELECT id, {_key}{extra_col} FROM {_tbl} WHERE transaction_id = ? LIMIT 20", (_tx_id,)
+                f"SELECT id, {_key}{extra_col} FROM {_tbl} "
+                f"WHERE transaction_id = ? AND COALESCE(visibility, 'shared') != 'local' LIMIT 20",
+                (_tx_id,),
             ).fetchall()
             if _rows:
                 _tx_delta[_delta_key] = _cortex_format_rows(_rows, _tbl, _key)
@@ -1319,9 +1324,12 @@ def _cortex_graph_artifact_nodes(sdb, tx_id):
     for _tbl, _ntype, _cols in _CORTEX_GRAPH_SPECS:
         _col_sql = ", ".join(c for c, _ in _cols)
         try:
+            # visibility=local is a no-egress tier — excluded from the cortex
+            # graph sync (COALESCE keeps default 'shared' + legacy NULL flowing).
             _rows = sdb.conn.execute(
                 f"SELECT id, goal_id, {_col_sql} FROM {_tbl} "
-                f"WHERE transaction_id = ? LIMIT {_CORTEX_GRAPH_PER_TYPE_CAP}",
+                f"WHERE transaction_id = ? AND COALESCE(visibility, 'shared') != 'local' "
+                f"LIMIT {_CORTEX_GRAPH_PER_TYPE_CAP}",
                 (tx_id,),
             ).fetchall()
         except Exception:
