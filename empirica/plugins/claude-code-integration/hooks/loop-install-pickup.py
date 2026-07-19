@@ -95,20 +95,37 @@ def _maybe_auto_install_canonical_loops(instance_id: str, project_root: Path) ->
         from empirica.core.cockpit.canonical_loops import CANONICAL_LOOPS
         from empirica.core.cockpit.loop_install_request import write_pending
 
-        # Gate 5: on a wake-on-event harness (an armed listener bridges events
-        # into the session via the loop_fires Monitor), event-drivable canonical
-        # loops — those the catalog runs via systemd + the wake bridge
-        # (scheduler_kind='systemd-user') — are pure redundancy as a CronCreate
-        # poll. Skip them here; genuine housekeeping crons (message-cleanup) still
-        # install. (extension prop_syrvccyu6: this poller was surfaced every
-        # session on 30+ wake-on-event seats.)
-        listener_armed = any(empirica_home.glob(f"listener_active_{instance_id}_*.json"))
+        # Gate 5: on a wake-on-event harness (a persistent listener bridges
+        # inbox/outbox events into the session via push), catalog loops flagged
+        # `redundant_when_listener_armed` (the cortex-mailbox-poll poller) are
+        # pure redundancy — skip auto-queuing them when a listener is armed.
+        # Genuine housekeeping crons (message-cleanup) are not flagged and still
+        # install.
+        #
+        # CRITICAL: the ``listener_active_*`` markers are keyed by AI_ID, NOT the
+        # session ``instance_id``. The old check globbed
+        # ``listener_active_{instance_id}_*`` (a session/thread UUID) which never
+        # matched the ai_id-keyed marker → listener_armed was always False → the
+        # poller was re-offered every session on wake-on-events seats
+        # (cortex prop_osuft3rn; extension prop_syrvccyu6). Resolve ai_id from
+        # project.yaml (basename fallback) and glob by that.
+        ai_id = ""
+        try:
+            import yaml
+
+            _cfg = yaml.safe_load((project_root / ".empirica" / "project.yaml").read_text()) or {}
+            ai_id = (_cfg.get("ai_id") or "").strip()
+        except Exception:
+            ai_id = ""
+        if not ai_id:
+            ai_id = project_root.name
+        listener_armed = bool(ai_id) and any(empirica_home.glob(f"listener_active_{ai_id}_*.json"))
 
         installed = 0
         for entry in CANONICAL_LOOPS:
             scheduler_kind = entry.get("scheduler_kind")
-            if listener_armed and scheduler_kind == "systemd-user":
-                continue  # gate 5: event-drivable + listener already armed → redundant
+            if listener_armed and entry.get("redundant_when_listener_armed"):
+                continue  # gate 5: redundant with the armed push listener
             try:
                 write_pending(
                     instance_id=instance_id,

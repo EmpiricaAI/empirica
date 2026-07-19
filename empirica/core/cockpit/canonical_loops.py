@@ -83,6 +83,14 @@ CANONICAL_LOOPS: list[dict[str, Any]] = [
         # the Monitor armed at SessionStart (session-monitor-arm.py).
         # Must match VALID_SCHEDULER_KIND in loop_registry.py.
         "scheduler_kind": "systemd-user",
+        # This poll is PURE REDUNDANCY when a persistent listener is armed for
+        # this ai_id — the listener already bridges the same inbox/outbox events
+        # via push (faster than 30s polling). The loop-install pickup hook uses
+        # this flag to skip auto-queuing it on wake-on-events seats (David: "that
+        # loop should never be installed, it's only for non-wake-on-events
+        # environments"). Genuine housekeeping crons (message-cleanup) do NOT set
+        # this — they install regardless of the listener.
+        "redundant_when_listener_armed": True,
     },
     {
         # Housekeeping: prune expired git-notes mesh messages once a day.
