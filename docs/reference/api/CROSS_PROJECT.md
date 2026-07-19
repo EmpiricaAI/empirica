@@ -51,8 +51,9 @@ session-start / topic-start to find what other Claudes have learned.**
 Every `*-log` command accepts `--visibility {public,shared,local}`:
 
 ```bash
-# Local: project-scoped only (default)
-empirica finding-log --finding "..." --impact 0.6
+# Local: machine-only — never syncs to Cortex (no-egress tier).
+# NOTE: the DEFAULT is 'shared' (which syncs), NOT local — pass --visibility local explicitly.
+empirica finding-log --finding "..." --impact 0.6 --visibility local
 
 # Shared: visible across projects in the same org/Cortex tenancy
 empirica finding-log --finding "Cross-codebase pattern: ..." --impact 0.7 \
