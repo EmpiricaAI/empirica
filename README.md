@@ -354,9 +354,10 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.12.27
+## What's New in 1.12.28
 
-- **Split-brain project persistence (P0).** A session could *display* the correct project while *persisting* its findings, goals, and calibration to a stale one — silent cross-project contamination. Session creation now pins the project id from the validated working directory, the resolver's headless-only `active_work.json` fallback is enforced consistently, and the project-id self-heal tolerates both `trajectory_path` forms. ([#357](https://github.com/EmpiricaAI/empirica/pull/357))
+- **`visibility=local` is now a true no-egress tier.** Artifacts tagged `visibility=local` are excluded from every cortex sync path (POSTFLIGHT delta + graph extractors, session-init breadcrumb delta) — their content never leaves the machine, even with a Cortex account connected. Default `shared` and `public` still sync. Makes `local` mean on-device, not just not-cross-shared. ([#358](https://github.com/EmpiricaAI/empirica/pull/358))
+- **README "What's New" no longer truncates multi-line CHANGELOG bullets.** `release.py sync_readme_whats_new` kept only lines starting with `- **` and dropped wrapped continuation lines, cutting each bullet at its first physical line (the 1.12.27 split-brain entry rendered as "…display the correct" with the rest lost). It now joins continuations. Also tightened the README mesh framing to state plainly that the cross-AI mesh requires Cortex.
 ---
 
 ## Privacy & Data

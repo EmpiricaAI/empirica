@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.12.27
-**Generated:** 2026-07-18 19:35:11 UTC
+**Framework version:** 1.12.28
+**Generated:** 2026-07-19 10:54:16 UTC
 **Total commands:** 241 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -1814,6 +1814,8 @@ Idempotent mint of a contact, engagement, or organization into the workspace ent
   Company/organization name (contact — folded into the slug)
 - `--description` — optional
   Free-text context for the entity
+- `--contact-id` — optional
+  Contact id to link the engagement to (entity_memberships member_of edge)
 - `--metadata` — optional
   Extra metadata as a JSON object string
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
@@ -1904,7 +1906,9 @@ Write (or soft-close) a typed membership edge between two entities: '<member> is
 - `--close` — optional · flag
   Soft-close the edge (stamp left_at) instead of writing it
 - `--primary` — optional · flag
-  Mark this edge as the member's primary membership for group_type, clearing is_primary on its other active same-group_type memberships (e.g. disambiguate which org is primary for a contact with multiple active org memberships). Does not close the other memberships.
+  Mark this edge as the member's primary membership for group_type, clearing is_primary on its other active same-group_type memberships. Not applicable to contact->organization edges (those allow at most one active membership by construction — use --move instead).
+- `--move` — optional · flag
+  For contact->organization edges only: a contact belongs to exactly one org, so linking to a new org while one is already active is rejected UNLESS --move is passed, which soft-closes the prior org edge first (the contact moves to the new org). Use for real org changes, not to record a second affiliation — record that as metadata instead.
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
 - `--verbose` — optional · flag
@@ -2040,6 +2044,20 @@ Update mutable fields (title/description/stage/domain/lifecycle-state/outcome) o
   Terminal outcome (typically set alongside --lifecycle-state closed)
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
+- `--next-action` — optional
+  Next action description (e.g. 'Schedule follow-up call')
+- `--next-action-due` — optional · type=`float`
+  Due date as unix timestamp (float) for --next-action
+- `--last-contact-at` — optional · type=`float`
+  Last contact timestamp (unix epoch float)
+- `--priority` — optional · type=`choice` · choices={low, medium, high, critical}
+  Engagement priority level
+- `--contact-method` — optional
+  Preferred contact method (e.g. email, phone)
+- `--warmth` — optional · type=`choice` · choices={cold, warm, hot}
+  Relationship warmth
+- `--engagement-scope` — optional · type=`choice` · choices={tenant, org}
+  Engagement scope (tenant=default, org=shared/replicated)
 - `--verbose` — optional · flag
   Verbose output
 
