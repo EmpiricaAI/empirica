@@ -811,8 +811,16 @@ def add_checkpoint_parsers(subparsers):
         "--primary",
         action="store_true",
         help="Mark this edge as the member's primary membership for group_type, clearing is_primary on "
-        "its other active same-group_type memberships (e.g. disambiguate which org is primary for "
-        "a contact with multiple active org memberships). Does not close the other memberships.",
+        "its other active same-group_type memberships. Not applicable to contact->organization edges "
+        "(those allow at most one active membership by construction — use --move instead).",
+    )
+    entity_link_parser.add_argument(
+        "--move",
+        action="store_true",
+        help="For contact->organization edges only: a contact belongs to exactly one org, so linking to "
+        "a new org while one is already active is rejected UNLESS --move is passed, which soft-closes "
+        "the prior org edge first (the contact moves to the new org). Use for real org changes, not to "
+        "record a second affiliation — record that as metadata instead.",
     )
     entity_link_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
     entity_link_parser.add_argument("--verbose", action="store_true", help="Verbose output")

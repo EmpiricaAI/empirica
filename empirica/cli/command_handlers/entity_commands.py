@@ -761,21 +761,31 @@ def handle_entity_link_command(args):
         notes = getattr(args, "notes", None)
         closing = getattr(args, "close", False)
         primary = getattr(args, "primary", False)
+        move = getattr(args, "move", False)
 
         with WorkspaceDBRepository.open(ensure_schema=True) as repo:
             if closing:
                 changed = repo.close_entity_membership(m_type, m_id, g_type, g_id)
                 action = "closed" if changed else "no_active_edge"
             else:
-                repo.upsert_entity_membership(
-                    entity_type=m_type,
-                    entity_id=m_id,
-                    group_type=g_type,
-                    group_id=g_id,
-                    role=role,
-                    notes=notes,
-                )
-                action = "linked"
+                try:
+                    repo.upsert_entity_membership(
+                        entity_type=m_type,
+                        entity_id=m_id,
+                        group_type=g_type,
+                        group_id=g_id,
+                        role=role,
+                        notes=notes,
+                        move=move,
+                    )
+                except ValueError as ve:
+                    err_result = {"ok": False, "error": "multiple_org_membership", "message": str(ve)}
+                    print(
+                        json.dumps(err_result, indent=2) if output == "json" else f"❌ {ve}",
+                        file=sys.stderr if output != "json" else sys.stdout,
+                    )
+                    sys.exit(1)
+                action = "linked" if not move else "moved"
                 if primary:
                     repo.set_primary_membership(m_type, m_id, g_type, g_id)
                     action = "linked_primary"

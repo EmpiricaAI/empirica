@@ -1076,26 +1076,32 @@ class WorkspaceDBRepository(BaseRepository):
         return {"member_of": member_of, "members": members}
 
     def get_org_parent_map(self) -> dict[str, str]:
-        """Map child_org_id → parent_org_id from active org→org membership edges.
+        """Map child_org_id → parent_org_id from org metadata.
 
-        Org→org parentage is an active ``entity_membership`` where both ends are
-        organizations (the child org is member_of the parent org). The ``role``
-        column is a free-text verb in ``entity-link`` (existing edges use
-        'member', 'context', 'ticket_of'), so parentage keys on the STRUCTURAL
-        org→org edge, not a brittle role string — a role filter would miss real
-        parentage. One row per child (the most recent active edge wins). Single
-        query; the org set (umbrella + brands) is small, so this preserves the
-        list endpoint's single-query intent (the org-parent slice of the
-        deferred v1.1 membership enrichment).
+        **David 2026-07-19 correction:** orgs are flat and unique — a
+        brand/umbrella relationship (e.g. a sub-brand of a parent company) is
+        metadata (``entity_registry.metadata.parent_org``), NOT a structural
+        ``entity_memberships`` org→org edge. The prior implementation read an
+        org→org membership edge, which let orgs "belong to" other orgs the
+        same way contacts belong to orgs — that's the wrong shape; it
+        conflated a descriptive relationship with the one-org-per-contact
+        membership graph. Reads ``entity_registry.metadata`` for all active
+        organizations and pulls ``parent_org`` where present.
         """
         cursor = self._execute(
-            """SELECT entity_id, group_id FROM entity_memberships
-               WHERE entity_type = 'organization' AND group_type = 'organization'
-                 AND left_at IS NULL
-               ORDER BY joined_at ASC"""
+            """SELECT entity_id, metadata FROM entity_registry
+               WHERE entity_type = 'organization' AND status = 'active' AND metadata IS NOT NULL"""
         )
-        # ASC + dict overwrite → the most recent (latest joined_at) edge wins.
-        return {row["entity_id"]: row["group_id"] for row in cursor.fetchall()}
+        out: dict[str, str] = {}
+        for row in cursor.fetchall():
+            try:
+                meta = json.loads(row["metadata"])
+            except (ValueError, TypeError):
+                continue
+            parent = meta.get("parent_org") if isinstance(meta, dict) else None
+            if parent:
+                out[row["entity_id"]] = parent
+        return out
 
     def get_contact_org_map(self) -> dict[str, str]:
         """Map contact_id → affiliated org_id from active contact→org edges.
@@ -1283,6 +1289,7 @@ class WorkspaceDBRepository(BaseRepository):
         role: str | None = None,
         notes: str | None = None,
         is_primary: bool | None = None,
+        move: bool = False,
     ) -> None:
         """Insert (or re-activate) a typed membership edge between two entities.
 
@@ -1298,6 +1305,20 @@ class WorkspaceDBRepository(BaseRepository):
         graduation path, e.g. ``engagement`` member_of ``organization`` with
         ``role='ticket_of'``.
 
+        **One-org-per-contact invariant (David 2026-07-19):** organizations
+        are flat and unique — a contact belongs to exactly ONE org. Multi-org
+        affiliation (e.g. a brand-vs-umbrella relationship) is metadata, not a
+        second membership row. Writing ``entity_type='contact'``,
+        ``group_type='organization'`` when the contact already has a DIFFERENT
+        active org membership raises ``ValueError`` unless ``move=True``, in
+        which case the prior org edge is soft-closed first (the contact
+        "moves" to the new org — the correct shape for a job change, not a
+        dual affiliation). This reverses the earlier framing where multi-org
+        membership was treated as valid-needing-disambiguation
+        (``is_primary``/``set_primary_membership``) — those remain usable for
+        other ``group_type``s but no longer apply to contact→organization,
+        which now has at most one active row by construction.
+
         ``is_primary=True`` does NOT clear other active memberships' flags —
         callers wanting "exactly one primary" must clear the prior primary
         themselves (e.g. via ``set_primary_membership``, the enforced path).
@@ -1308,6 +1329,28 @@ class WorkspaceDBRepository(BaseRepository):
         ``close_entity_membership`` (sets ``left_at``), so the history stays
         auditable.
         """
+        if entity_type == "contact" and group_type == "organization":
+            cur = self._execute(
+                """SELECT group_id FROM entity_memberships
+                   WHERE entity_type = 'contact' AND entity_id = ? AND group_type = 'organization'
+                     AND left_at IS NULL AND group_id != ?""",
+                (entity_id, group_id),
+            )
+            other = cur.fetchone()
+            if other is not None:
+                if not move:
+                    raise ValueError(
+                        f"contact {entity_id!r} already has an active org membership "
+                        f"({other['group_id']!r}) — a contact belongs to exactly one org. "
+                        f"Pass move=True to move them to {group_id!r} (closes the prior edge), "
+                        f"or record the other affiliation as metadata instead of a membership."
+                    )
+                self._execute(
+                    """UPDATE entity_memberships SET left_at = ?
+                       WHERE entity_type = 'contact' AND entity_id = ? AND group_type = 'organization'
+                         AND left_at IS NULL AND group_id != ?""",
+                    (time.time(), entity_id, group_id),
+                )
         now = time.time()
         self._execute(
             """
