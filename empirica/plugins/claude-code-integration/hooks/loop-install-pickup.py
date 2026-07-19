@@ -95,37 +95,20 @@ def _maybe_auto_install_canonical_loops(instance_id: str, project_root: Path) ->
         from empirica.core.cockpit.canonical_loops import CANONICAL_LOOPS
         from empirica.core.cockpit.loop_install_request import write_pending
 
-        # Gate 5: on a wake-on-event harness (a persistent listener bridges
-        # inbox/outbox events into the session via push), catalog loops flagged
-        # `redundant_when_listener_armed` (the cortex-mailbox-poll poller) are
-        # pure redundancy — skip auto-queuing them when a listener is armed.
-        # Genuine housekeeping crons (message-cleanup) are not flagged and still
-        # install.
-        #
-        # CRITICAL: the ``listener_active_*`` markers are keyed by AI_ID, NOT the
-        # session ``instance_id``. The old check globbed
-        # ``listener_active_{instance_id}_*`` (a session/thread UUID) which never
-        # matched the ai_id-keyed marker → listener_armed was always False → the
-        # poller was re-offered every session on wake-on-events seats
-        # (cortex prop_osuft3rn; extension prop_syrvccyu6). Resolve ai_id from
-        # project.yaml (basename fallback) and glob by that.
-        ai_id = ""
-        try:
-            import yaml
-
-            _cfg = yaml.safe_load((project_root / ".empirica" / "project.yaml").read_text()) or {}
-            ai_id = (_cfg.get("ai_id") or "").strip()
-        except Exception:
-            ai_id = ""
-        if not ai_id:
-            ai_id = project_root.name
-        listener_armed = bool(ai_id) and any(empirica_home.glob(f"listener_active_{ai_id}_*.json"))
-
+        # Gate 5: cortex-mailbox-poll is OPT-IN ONLY. Wake-on-event (the
+        # persistent listener) is the canonical mesh trigger; the 30s poller is
+        # redundant on any wake-on-event seat and only wanted on harnesses that
+        # CANNOT do wake-on-event (cron-only VMs, isolated cloud) — where the user
+        # opts in explicitly via `empirica loop register`. So NEVER auto-queue a
+        # loop flagged `opt_in_only`. Genuine housekeeping crons (message-cleanup)
+        # are not flagged and still auto-install. (David 2026-07-19: "wake on
+        # event should be the only mesh trigger unless the user opts in"; cortex
+        # prop_osuft3rn, extension prop_syrvccyu6.)
         installed = 0
         for entry in CANONICAL_LOOPS:
             scheduler_kind = entry.get("scheduler_kind")
-            if listener_armed and entry.get("redundant_when_listener_armed"):
-                continue  # gate 5: redundant with the armed push listener
+            if entry.get("opt_in_only"):
+                continue  # opt-in only — the user registers it themselves
             try:
                 write_pending(
                     instance_id=instance_id,

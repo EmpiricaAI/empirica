@@ -83,14 +83,16 @@ CANONICAL_LOOPS: list[dict[str, Any]] = [
         # the Monitor armed at SessionStart (session-monitor-arm.py).
         # Must match VALID_SCHEDULER_KIND in loop_registry.py.
         "scheduler_kind": "systemd-user",
-        # This poll is PURE REDUNDANCY when a persistent listener is armed for
-        # this ai_id — the listener already bridges the same inbox/outbox events
-        # via push (faster than 30s polling). The loop-install pickup hook uses
-        # this flag to skip auto-queuing it on wake-on-events seats (David: "that
-        # loop should never be installed, it's only for non-wake-on-events
-        # environments"). Genuine housekeeping crons (message-cleanup) do NOT set
-        # this — they install regardless of the listener.
-        "redundant_when_listener_armed": True,
+        # OPT-IN ONLY. Wake-on-event (the persistent listener) is the canonical
+        # mesh trigger; this 30s poll is redundant on any wake-on-event seat and
+        # is only wanted on harnesses that CANNOT do wake-on-event (cron-only VMs,
+        # isolated cloud). So the loop-install pickup hook NEVER auto-queues it —
+        # the user opts in with `empirica loop register` where they actually need
+        # it. (David 2026-07-19: "wake on event should be the only mesh trigger
+        # mechanism unless the user opts in and needs it for other harnesses that
+        # cannot do wake on event".) Genuine housekeeping crons (message-cleanup)
+        # do NOT set this — they auto-install regardless.
+        "opt_in_only": True,
     },
     {
         # Housekeeping: prune expired git-notes mesh messages once a day.
