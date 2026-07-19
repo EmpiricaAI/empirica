@@ -354,10 +354,11 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.12.28
+## What's New in 1.12.29
 
-- **`visibility=local` is now a true no-egress tier.** Artifacts tagged `visibility=local` are excluded from every cortex sync path (POSTFLIGHT delta + graph extractors, session-init breadcrumb delta) — their content never leaves the machine, even with a Cortex account connected. Default `shared` and `public` still sync. Makes `local` mean on-device, not just not-cross-shared. ([#358](https://github.com/EmpiricaAI/empirica/pull/358))
-- **README "What's New" no longer truncates multi-line CHANGELOG bullets.** `release.py sync_readme_whats_new` kept only lines starting with `- **` and dropped wrapped continuation lines, cutting each bullet at its first physical line (the 1.12.27 split-brain entry rendered as "…display the correct" with the rest lost). It now joins continuations. Also tightened the README mesh framing to state plainly that the cross-AI mesh requires Cortex.
+- **`test_org_parent_map` aligned to the metadata-based `parent_org` model.** The 1.12.28 ERM change made `get_org_parent_map()` read `entity_registry.metadata.parent_org` instead of org→org membership edges, but the test still asserted the removed behavior — leaving `main` red. Tests rewritten to the current model (+ a guard that membership edges are not parentage).
+- **`cortex-mailbox-poll` is opt-in only — never auto-queued.** Wake-on-event (the persistent listener) is the canonical mesh trigger; the 30s poller is redundant on wake-on-event seats and is only for harnesses that can't do wake-on-event, where the user opts in via `empirica loop register`. Fixes an ai_id/session-id key mismatch that re-offered it every session (#360) and codifies the opt-in rule (#361). `message-cleanup` housekeeping still auto-installs.
+- **`release.py --version-only --commit`** stages an explicit version/packaging allowlist + CHANGELOG and commits the bump — removing the manual `git add -A` that could sweep a concurrent session's uncommitted work into a release commit. `create_git_tag` now shares the same allowlist (single source of truth). (#359)
 ---
 
 ## Privacy & Data
