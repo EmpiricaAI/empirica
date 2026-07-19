@@ -101,7 +101,10 @@ Maintainers only. The `scripts/release.py` flow handles version sweep, build, te
 # 2. Update CHANGELOG.md (move [Unreleased] → [vX.Y.Z])
 # 3. Update README.md "What's New in vX.Y.Z" section
 # 4. Sweep version strings across the repo
-python scripts/release.py --version-only --old-version <prev>
+python scripts/release.py --version-only --old-version <prev> --commit
+#   --commit stages the version/packaging allowlist + CHANGELOG and commits the
+#   bump (never `git add -A` — so a concurrent session's uncommitted work can't
+#   ride the release commit).
 
 # 5. Prepare: merge develop→main, build, smoke test, run pytest
 python scripts/release.py --prepare
