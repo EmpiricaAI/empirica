@@ -587,6 +587,9 @@ def add_checkpoint_parsers(subparsers):
     entity_create_parser.add_argument("--role", help="Role/title at their organization (contact)")
     entity_create_parser.add_argument("--company", help="Company/organization name (contact — folded into the slug)")
     entity_create_parser.add_argument("--description", help="Free-text context for the entity")
+    entity_create_parser.add_argument(
+        "--contact-id", help="Contact id to link the engagement to (entity_memberships member_of edge)"
+    )
     entity_create_parser.add_argument("--metadata", help="Extra metadata as a JSON object string")
     entity_create_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
     entity_create_parser.add_argument("--verbose", action="store_true", help="Verbose output")
@@ -726,6 +729,26 @@ def add_checkpoint_parsers(subparsers):
         help="Terminal outcome (typically set alongside --lifecycle-state closed)",
     )
     engagement_update_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
+    engagement_update_parser.add_argument(
+        "--next-action", help="Next action description (e.g. 'Schedule follow-up call')"
+    )
+    engagement_update_parser.add_argument(
+        "--next-action-due", type=float, help="Due date as unix timestamp (float) for --next-action"
+    )
+    engagement_update_parser.add_argument(
+        "--last-contact-at", type=float, help="Last contact timestamp (unix epoch float)"
+    )
+    engagement_update_parser.add_argument(
+        "--priority", choices=["low", "medium", "high", "critical"], help="Engagement priority level"
+    )
+    engagement_update_parser.add_argument("--contact-method", help="Preferred contact method (e.g. email, phone)")
+    engagement_update_parser.add_argument("--warmth", choices=["cold", "warm", "hot"], help="Relationship warmth")
+    engagement_update_parser.add_argument(
+        "--engagement-scope",
+        dest="engagement_scope",
+        choices=["tenant", "org"],
+        help="Engagement scope (tenant=default, org=shared/replicated)",
+    )
     engagement_update_parser.add_argument("--verbose", action="store_true", help="Verbose output")
 
     entity_search_parser = subparsers.add_parser(

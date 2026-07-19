@@ -1836,6 +1836,13 @@ class WorkspaceDBRepository(BaseRepository):
         domain: str | None = None,
         lifecycle_state: str | None = None,
         outcome: str | None = None,
+        next_action: str | None = None,
+        next_action_due: float | None = None,
+        last_contact_at: float | None = None,
+        priority: str | None = None,
+        contact_method: str | None = None,
+        warmth: str | None = None,
+        engagement_scope: str | None = None,
     ) -> dict[str, Any] | None:
         """Update mutable engagement fields. Enforces the lifecycle + outcome
         enums and validates domain/stage against the definition tables. Returns
@@ -1861,6 +1868,13 @@ class WorkspaceDBRepository(BaseRepository):
             ("domain", domain),
             ("lifecycle_state", lifecycle_state),
             ("outcome", outcome),
+            ("next_action", next_action),
+            ("next_action_due", next_action_due),
+            ("last_contact_at", last_contact_at),
+            ("priority", priority),
+            ("contact_method", contact_method),
+            ("warmth", warmth),
+            ("engagement_scope", engagement_scope),
         ):
             if val is not None:
                 sets.append(f"{col} = ?")

@@ -80,6 +80,9 @@ def handle_engagement_create_command(args):
                     _emit_user_error(output, str(ve))
             if org:
                 repo.upsert_entity_membership("engagement", eid, "organization", org, role="ticket_of")
+            contact_id = getattr(args, "contact_id", None)
+            if contact_id:
+                repo.upsert_entity_membership("engagement", eid, "contact", contact_id, role="participant")
         # §6.2: re-embed with domain+stage now that the sidecar carries them (the
         # bare point mint_entity created is upserted in place — stable id, idempotent).
         _embed_entity_row(
@@ -229,6 +232,13 @@ def handle_engagement_update_command(args):
                     domain=getattr(args, "domain", None),
                     lifecycle_state=getattr(args, "lifecycle_state", None),
                     outcome=getattr(args, "outcome", None),
+                    next_action=getattr(args, "next_action", None),
+                    next_action_due=getattr(args, "next_action_due", None),
+                    last_contact_at=getattr(args, "last_contact_at", None),
+                    priority=getattr(args, "priority", None),
+                    contact_method=getattr(args, "contact_method", None),
+                    warmth=getattr(args, "warmth", None),
+                    engagement_scope=getattr(args, "engagement_scope", None),
                 )
             except ValueError as ve:
                 _emit_user_error(output, str(ve))
