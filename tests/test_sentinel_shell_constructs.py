@@ -795,3 +795,43 @@ class TestQuotedAssignment:
 
     def test_quoted_assignment_then_mutation_still_gates(self, gate):
         assert gate.is_safe_bash_command({"command": 'PAT="a b c" && rm file'}) is False
+
+
+class TestTailscaleReadOnly:
+    """`tailscale status` (and other read-only tailscale inspection verbs) are
+    pure network-status reads — same class as `git status` / `ps` — and must
+    classify noetic. Mutating subcommands (up/set/down/switch/login/logout) are
+    SEPARATE verbs that never match the read-only prefixes, so they stay
+    praxic-gated. Regression for mesh-support prop_4ucsu42r (David caught live)."""
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "tailscale status",
+            "tailscale status --json",
+            "tailscale netcheck",
+            "tailscale ip -4",
+            "tailscale version",
+            "tailscale whois 100.101.102.103",
+        ],
+    )
+    def test_read_only_tailscale_is_noetic(self, gate, cmd):
+        assert gate.is_safe_bash_command({"command": cmd}) is True
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "tailscale up",
+            "tailscale down",
+            "tailscale set --exit-node=foo",
+            "tailscale switch other-tailnet",
+            "tailscale login",
+            "tailscale logout",
+        ],
+    )
+    def test_mutating_tailscale_stays_praxic(self, gate, cmd):
+        assert gate.is_safe_bash_command({"command": cmd}) is False
+
+    def test_read_only_then_mutation_still_gates(self, gate):
+        # A read-only prefix must not launder a chained mutation.
+        assert gate.is_safe_bash_command({"command": "tailscale status && tailscale up"}) is False
