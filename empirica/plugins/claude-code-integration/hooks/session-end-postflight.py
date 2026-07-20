@@ -468,12 +468,19 @@ def _auto_embed_project(session_id: str):
         if not project_id:
             return
 
-        # Run project-embed with timeout — this is incremental and fast
-        subprocess.run(
+        # Fire-and-forget: detach the embed so session end never blocks on it.
+        # project-embed is incremental (O(new) — see _rehydrate_eidetic), so on
+        # steady state it finishes fast; but the local embedder can still take
+        # >30s on a cold/large run, and harnesses that cap SessionEnd hooks
+        # (e.g. codex at 3s) would otherwise kill it mid-run every session so it
+        # NEVER completes. start_new_session detaches it from the hook's process
+        # group so it survives the hook exiting and runs to completion in the bg.
+        subprocess.Popen(
             ["empirica", "project-embed", "--project-id", project_id, "--output", "json"],
-            capture_output=True,
-            text=True,
-            timeout=30,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
         )
     except Exception:
         pass  # Best-effort — never fail session end for embedding
