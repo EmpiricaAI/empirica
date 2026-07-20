@@ -310,6 +310,38 @@ def _query_memory_artifacts(db, project_id):
     return findings, unknowns, mistakes, dead_ends, lessons, snapshots
 
 
+def _filter_unembedded(client, coll, valid):
+    """Given ``valid`` = [(finding, text, content_hash), ...], key each to its
+    deterministic Qdrant point_id and drop the ones already embedded with an
+    identical content_hash. Returns [(finding, text, content_hash, point_id), ...]
+    still needing an embed — turning a repeat call from O(all) into O(new/changed).
+
+    A missing collection (first run) or any retrieve error means "embed all".
+    """
+    import hashlib
+
+    keyed = []
+    for f, finding_text, content_hash in valid:
+        fact_id = f.get("id", content_hash)
+        point_id = int(hashlib.md5(fact_id.encode()).hexdigest()[:15], 16)
+        keyed.append((f, finding_text, content_hash, point_id))
+
+    unchanged = set()
+    try:
+        existing = client.retrieve(
+            collection_name=coll,
+            ids=[pid for (_, _, _, pid) in keyed],
+            with_payload=["content_hash"],
+            with_vectors=False,
+        )
+        stored = {pt.id: (pt.payload or {}).get("content_hash") for pt in existing}
+        unchanged = {pid for (_, _, ch, pid) in keyed if stored.get(pid) == ch}
+    except Exception as retrieve_err:
+        logger.debug(f"Eidetic incremental check unavailable ({retrieve_err}); embedding all")
+
+    return [(f, t, ch, pid) for (f, t, ch, pid) in keyed if pid not in unchanged]
+
+
 def _rehydrate_eidetic(project_id, findings, embed_eidetic_fn, check_fn):
     """Rehydrate eidetic collection from findings. Returns count embedded.
 
@@ -350,8 +382,13 @@ def _rehydrate_eidetic(project_id, findings, embed_eidetic_fn, check_fn):
             raise RuntimeError("Qdrant client unavailable")
         coll = _eidetic_collection(project_id)
 
+        # Incremental skip: embed only new/changed findings (O(new)), not all.
+        todo = _filter_unembedded(client, coll, valid)
+        if not todo:
+            return 0  # everything already embedded with current content
+
         embed_batch_size = int(os.environ.get("EMPIRICA_EMBED_BATCH_SIZE", "50"))
-        texts = [t for (_, t, _) in valid]
+        texts = [t for (_, t, _, _) in todo]
         vectors: list = []
         create_if_missing = True
         for i in range(0, len(texts), embed_batch_size):
@@ -366,13 +403,11 @@ def _rehydrate_eidetic(project_id, findings, embed_eidetic_fn, check_fn):
 
         points = []
         now = time.time()
-        for (f, finding_text, content_hash), vector in zip(valid, vectors):
+        for (f, finding_text, content_hash, point_id), vector in zip(todo, vectors):
             if vector is None:
                 continue
             impact = f.get("impact")
             base_confidence = float(impact) if impact else 0.6
-            fact_id = f.get("id", content_hash)
-            point_id = int(hashlib.md5(fact_id.encode()).hexdigest()[:15], 16)
             payload = {
                 "type": "fact",
                 "content": finding_text[:500] if finding_text else None,
@@ -400,6 +435,13 @@ def _rehydrate_eidetic(project_id, findings, embed_eidetic_fn, check_fn):
         logger.debug(f"Eidetic batch path unavailable ({e}); falling back to per-finding embed")
 
     # Fallback: sequential per-finding via the injected embed_eidetic_fn.
+    return _rehydrate_eidetic_sequential(project_id, valid, embed_eidetic_fn)
+
+
+def _rehydrate_eidetic_sequential(project_id, valid, embed_eidetic_fn):
+    """Per-finding fallback embed via the injected ``embed_eidetic_fn``, used
+    when the batched Qdrant path is unavailable. Returns count embedded."""
+    count = 0
     for f, finding_text, content_hash in valid:
         impact = f.get("impact")
         base_confidence = float(impact) if impact else 0.6
@@ -416,10 +458,10 @@ def _rehydrate_eidetic(project_id, findings, embed_eidetic_fn, check_fn):
                 tags=[f.get("subject")] if f.get("subject") else None,
             )
             if success:
-                eidetic_count += 1
+                count += 1
         except Exception as e:
             logger.debug(f"Eidetic embed failed for finding {f.get('id', 'unknown')}: {e}")
-    return eidetic_count
+    return count
 
 
 def handle_project_embed_command(args):
