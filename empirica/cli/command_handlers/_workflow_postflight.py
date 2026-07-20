@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import pickle
 import sys
 import time
 from pathlib import Path
@@ -472,12 +473,22 @@ def _spawn_detached_storage_pipeline(
         "postflight_confidence": postflight_confidence,
         "checkpoint_id": checkpoint_id,
     }
+    # pickle, not json: grounded_verification is an EvidenceBundle object (+
+    # other rich values) that json can't serialize — json.dump would fail on
+    # every real POSTFLIGHT and silently fall back to inline (no detach). It's
+    # our own 0600 temp file, consumed once by our own worker: no untrusted input.
+    path = None
     try:
-        fd, path = tempfile.mkstemp(prefix="empirica_pf_storage_", suffix=".json")
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(payload, f)
+        fd, path = tempfile.mkstemp(prefix="empirica_pf_storage_", suffix=".pkl")
+        with os.fdopen(fd, "wb") as f:
+            pickle.dump(payload, f)
     except Exception:
-        _inline()  # can't stage payload → run inline
+        if path:
+            try:
+                os.unlink(path)
+            except Exception:
+                pass
+        _inline()  # can't stage payload → run inline (never drop the work)
         return
 
     try:

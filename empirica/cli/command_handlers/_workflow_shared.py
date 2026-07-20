@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sys
+import time
 
 from empirica.config.path_resolver import resolve_session_db_path
 from empirica.core.canonical.empirica_git.sentinel_hooks import SentinelHooks
@@ -1005,6 +1007,15 @@ def _soft_run(stage_name: str, warnings: list, fn, *args, **kwargs):
     to stop, and we should let it propagate through the whole call stack.
     """
     try:
+        if os.environ.get("EMPIRICA_POSTFLIGHT_TIMING"):
+            _t0 = time.perf_counter()
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                print(
+                    f"[postflight-timing] phase:{stage_name}: {(time.perf_counter() - _t0) * 1000:.0f}ms",
+                    file=sys.stderr,
+                )
         return fn(*args, **kwargs)
     except SystemExit as e:
         # Library code that called sys.exit(N) — treat as a soft failure

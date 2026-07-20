@@ -14,15 +14,18 @@ already closed the loop; retrieval is future-tense), so the AI gets its response
 
 from __future__ import annotations
 
-import json
 import os
+import pickle
 import sys
 
 
 def main(payload_path: str) -> None:
+    # pickle, not json: the payload carries an EvidenceBundle object (see
+    # _spawn_detached_storage_pipeline). Same-user 0600 temp file written by our
+    # own process — no untrusted input.
     try:
-        with open(payload_path, encoding="utf-8") as f:
-            payload = json.load(f)
+        with open(payload_path, "rb") as f:
+            payload = pickle.load(f)  # noqa: S301 — our own 0600 temp file, no untrusted input
     except Exception:
         return  # unreadable payload → nothing to do
     finally:
