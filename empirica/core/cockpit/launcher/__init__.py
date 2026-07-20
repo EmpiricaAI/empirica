@@ -52,6 +52,7 @@ from empirica.core.cockpit.launcher.tmux import (
     alacritty_available,
     cockpit_kill,
     cockpit_session_exists,
+    ghostty_available,
     launch_cockpit,
     launch_groups,
 )
@@ -77,6 +78,7 @@ __all__ = [
     "cockpit_session_exists",
     "cockpit_status",
     "detect_abnormal_exit",
+    "ghostty_available",
     "launch_cockpit",
     "launch_groups",
     "load_config",
