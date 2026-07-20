@@ -10,6 +10,8 @@ N practitioners, remote hosts, and full env-capture registration).
 
 from __future__ import annotations
 
+import os
+
 
 def add_provision_practice_parsers(subparsers):
     """Register the ``provision-practice`` verb on the top-level subparsers."""
@@ -48,8 +50,11 @@ Falls back to erroring with a clear message if neither is available.
     )
     p.add_argument(
         "--forgejo-host",
-        default="ssh://git@65.21.107.206:2222",
-        help="Forgejo SSH host:port for the backup remote (default: David's Hetzner forgejo)",
+        metavar="SSH_URL",
+        default=os.environ.get("EMPIRICA_FORGEJO_HOST"),
+        help="Forgejo SSH remote for the backup, e.g. ssh://git@host:port. "
+        "Falls back to the EMPIRICA_FORGEJO_HOST env var; required when "
+        "--forgejo-owner is set (no built-in default).",
     )
     p.add_argument(
         "--no-cortex",

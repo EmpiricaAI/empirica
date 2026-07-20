@@ -366,6 +366,7 @@ def test_ghostty_available_check():
 def test_handle_groups_launch_no_ghostty(tmp_cockpit_dir, capsys, monkeypatch):
     """Mirrors test_handle_groups_launch_no_alacritty for the ghostty
     surface — must check ghostty_available(), not alacritty_available()."""
+    from empirica.cli.command_handlers import cockpit_launcher_commands as cmds
     from empirica.cli.command_handlers.cockpit_launcher_commands import _handle_groups_launch
     from empirica.core.cockpit.launcher import (
         GroupSpec,
@@ -373,7 +374,6 @@ def test_handle_groups_launch_no_ghostty(tmp_cockpit_dir, capsys, monkeypatch):
         PaneSpec,
         ProjectSpec,
     )
-    from empirica.cli.command_handlers import cockpit_launcher_commands as cmds
 
     monkeypatch.setattr(cmds, "ghostty_available", lambda: False)
 

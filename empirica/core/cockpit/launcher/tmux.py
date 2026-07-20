@@ -251,7 +251,9 @@ class GroupsLaunchResult:
     session_name: str = ""
     terminal_pid: int | None = None  # PID of the ONE spawned terminal, or None if spawn failed/skipped
     terminal_skipped: bool = False  # True when an existing client was found and we skipped spawning a duplicate
-    error: str | None = None  # top-level error (e.g. tmux missing, terminal spawn failed); per-window errors live on each result
+    error: str | None = (
+        None  # top-level error (e.g. tmux missing, terminal spawn failed); per-window errors live on each result
+    )
 
     def all_ok(self) -> bool:
         return self.error is None and all(g.error is None for g in self.groups)
@@ -406,9 +408,7 @@ def _create_group_window(
             _set_pane_title(sresult.stdout.strip(), _pane_title(pane))
 
     # Even out pane sizes so a 2-pane horizontal split is 50/50.
-    _tmux(
-        "select-layout", "-t", window_target, "even-horizontal" if group.split == "horizontal" else "even-vertical"
-    )
+    _tmux("select-layout", "-t", window_target, "even-horizontal" if group.split == "horizontal" else "even-vertical")
 
     return True, panes_created, None
 

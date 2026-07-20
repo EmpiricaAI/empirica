@@ -84,9 +84,7 @@ def _wire_forgejo(proj_dir: Path, name: str, owner: str, host: str, dry_run: boo
     mesh-support's provision_one() step 7 (manual SSH-keyed remote, not
     the cortex-managed token-minting flow behind ``forgejo-publish``)."""
     remote_url = f"{host}/{owner}/{name}.git"
-    check = subprocess.run(
-        ["git", "remote", "get-url", "forgejo"], cwd=proj_dir, capture_output=True, text=True
-    )
+    check = subprocess.run(["git", "remote", "get-url", "forgejo"], cwd=proj_dir, capture_output=True, text=True)
     if check.returncode != 0:
         ok, err = _run(["git", "remote", "add", "forgejo", remote_url], proj_dir, dry_run)
         if not ok:
@@ -161,7 +159,9 @@ def handle_provision_practice_command(args) -> int:
     if dry_run and not project_yaml.exists():
         steps.append({"step": "patch-project-yaml", "changed": True, "note": "dry-run, file not yet created"})
     else:
-        changed = _patch_project_yaml(project_yaml, ai_id=name, tenant=tenant, org=org, substrate=substrate, dry_run=dry_run)
+        changed = _patch_project_yaml(
+            project_yaml, ai_id=name, tenant=tenant, org=org, substrate=substrate, dry_run=dry_run
+        )
         steps.append({"step": "patch-project-yaml", "changed": changed})
 
     register_cmd = ["empirica", "project-register", ".", "--output", "json"]
@@ -172,9 +172,19 @@ def handle_provision_practice_command(args) -> int:
 
     forgejo_owner = getattr(args, "forgejo_owner", None)
     if forgejo_owner:
-        forgejo_host = getattr(args, "forgejo_host", None) or "ssh://git@65.21.107.206:2222"
-        ok, err = _wire_forgejo(proj_dir, name, forgejo_owner, forgejo_host, dry_run)
-        steps.append({"step": "forgejo-backup-wired", "changed": ok, "error": err})
+        forgejo_host = getattr(args, "forgejo_host", None)
+        if not forgejo_host:
+            steps.append(
+                {
+                    "step": "forgejo-backup-wired",
+                    "changed": False,
+                    "error": "--forgejo-owner set but no host: pass --forgejo-host "
+                    "ssh://git@HOST:PORT or set EMPIRICA_FORGEJO_HOST",
+                }
+            )
+        else:
+            ok, err = _wire_forgejo(proj_dir, name, forgejo_owner, forgejo_host, dry_run)
+            steps.append({"step": "forgejo-backup-wired", "changed": ok, "error": err})
 
     any_error = any(s.get("error") for s in steps)
     payload = {
