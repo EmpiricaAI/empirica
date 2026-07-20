@@ -259,6 +259,15 @@ SAFE_BASH_PREFIXES = (
     "dig ",
     "nslookup ",
     "host ",
+    # Tailscale read-only inspection (status/diagnostic verbs only).
+    # Mutating subcommands (up/set/down/switch/login/logout) are SEPARATE
+    # verbs — they never match these prefixes, so they stay praxic-gated.
+    # `tailscale status` also covers `tailscale status --json`.
+    "tailscale status",
+    "tailscale netcheck",
+    "tailscale ip",
+    "tailscale version",
+    "tailscale whois",
     # Remote inspection (read-only SSH)
     "ssh ",
     # Documentation
