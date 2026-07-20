@@ -29,7 +29,9 @@ docstring for the full dual-track calibration philosophy.
 
 import json
 import logging
+import os
 import subprocess
+import sys
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -509,9 +511,21 @@ class PostTestCollector:
 
         collectors = universal + profile_collectors
 
+        # Opt-in per-collector timing (EMPIRICA_POSTFLIGHT_TIMING=1) — surfaces
+        # which evidence source dominates grounded-verification latency.
+        _timing = os.environ.get("EMPIRICA_POSTFLIGHT_TIMING")
+
         for source_name, collector_fn in collectors:
             try:
-                items = collector_fn()
+                if _timing:
+                    _t0 = time.perf_counter()
+                    items = collector_fn()
+                    print(
+                        f"[postflight-timing] collect:{source_name}: {(time.perf_counter() - _t0) * 1000:.0f}ms",
+                        file=sys.stderr,
+                    )
+                else:
+                    items = collector_fn()
                 if items:
                     bundle.items.extend(items)
                     bundle.sources_available.append(source_name)
