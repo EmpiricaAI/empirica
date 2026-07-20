@@ -37,8 +37,8 @@ Falls back to erroring with a clear message if neither is available.
     p.add_argument(
         "--base-path",
         metavar="PATH",
-        default="~/empirical-ai",
-        help="Parent directory the new practice is created under (default: ~/empirical-ai)",
+        default="~/empirica",
+        help="Parent directory the new practice is created under (default: ~/empirica)",
     )
     p.add_argument("--tenant", help="Tenant slug (default: inferred from cwd's project.yaml)")
     p.add_argument("--org", help="Org slug (default: inferred from cwd's project.yaml)")

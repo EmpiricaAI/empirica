@@ -54,3 +54,12 @@ def test_forgejo_flag_overrides_env(monkeypatch):
         ["provision-practice", "foo", "--forgejo-owner", "bar", "--forgejo-host", "ssh://git@flag.test:22"]
     )
     assert ns.forgejo_host == "ssh://git@flag.test:22"
+
+
+def test_base_path_default_is_generic():
+    """--base-path must default to a product-namespaced dir, not a
+    repo-org-specific layout (`~/empirical-ai` was David's convention)."""
+    ns = _build_parser().parse_args(["provision-practice", "foo"])
+    assert ns.base_path == "~/empirica"
+    for src in (_PARSER_SRC, _HANDLER_SRC):
+        assert "empirical-ai" not in src.read_text(), f"repo-org layout path resurfaced in {src.name}"

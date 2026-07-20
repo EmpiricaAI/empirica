@@ -117,7 +117,7 @@ def handle_provision_practice_command(args) -> int:
         print(json.dumps({"ok": False, "error": msg}) if output == "json" else f"❌ {msg}", file=sys.stderr)
         return 1
 
-    base_path = Path(getattr(args, "base_path", None) or "~/empirical-ai").expanduser()
+    base_path = Path(getattr(args, "base_path", None) or "~/empirica").expanduser()
     proj_dir = base_path / name
 
     cwd = Path.cwd()
