@@ -7,10 +7,12 @@ running with the configured ``session_name``.
 Two layout modes:
 
 - ``launch_cockpit`` (legacy): one tmux session, N windows, single attach.
-- ``launch_groups``: N tmux sessions (one per group), one alacritty
-  window per session, panes per group. Each alacritty gets a unique
-  ``WM_CLASS=empirica-<group>`` for KDE/wmctrl-friendly window
-  switching (Meta+1..N once pinned).
+- ``launch_groups``: N tmux sessions (one per group), one terminal
+  window per session (alacritty or ghostty — see ``config.surface``),
+  panes per group. Each window gets a unique WM_CLASS/app-id for
+  KDE/wmctrl-friendly window switching (Meta+1..N once pinned):
+  ``empirica-<group>`` for alacritty, ``com.empirica.cockpit.<group>``
+  for ghostty (GTK app-ids must be reverse-domain-name).
 """
 
 from __future__ import annotations
@@ -223,28 +225,35 @@ def cockpit_kill(session_name: str = "cockpit") -> tuple[bool, str | None]:
     return True, None
 
 
-# ─── Groups mode (one alacritty window per group, panes per group) ─────
+# ─── Groups mode (one terminal window per MONITOR/config, one tmux window
+#     per group within it, panes per group) ─────────────────────────────
 
 
 @dataclass
 class GroupLaunchResult:
-    """Per-group bring-up result."""
+    """Per-group (= per-window) bring-up result. Terminal spawn is
+    tracked once at the ``GroupsLaunchResult`` level, not per group —
+    one terminal hosts every group's window."""
 
     group_name: str
     tmux_session: str
-    created: bool  # True = new tmux session created; False = adopted existing
-    panes_created: int  # 1 (initial) + N splits = total pane count actually in session
-    alacritty_pid: int | None  # PID of the spawned alacritty, or None if spawn failed/skipped
-    alacritty_skipped: bool = False  # True when an existing client was found and we skipped spawning a duplicate
+    created: bool  # True = new tmux window created; False = adopted existing
+    panes_created: int  # 1 (initial) + N splits = total pane count actually in the window
     error: str | None = None
 
 
 @dataclass
 class GroupsLaunchResult:
-    """Aggregate result for ``launch_groups``."""
+    """Aggregate result for ``launch_groups``. One terminal per config
+    (= per monitor), hosting every group as a window in one session."""
 
     groups: list[GroupLaunchResult] = field(default_factory=list)
-    error: str | None = None  # top-level error (e.g. tmux missing); per-group errors live on each result
+    session_name: str = ""
+    terminal_pid: int | None = None  # PID of the ONE spawned terminal, or None if spawn failed/skipped
+    terminal_skipped: bool = False  # True when an existing client was found and we skipped spawning a duplicate
+    error: str | None = (
+        None  # top-level error (e.g. tmux missing, terminal spawn failed); per-window errors live on each result
+    )
 
     def all_ok(self) -> bool:
         return self.error is None and all(g.error is None for g in self.groups)
@@ -255,9 +264,9 @@ def alacritty_available() -> bool:
     return shutil.which("alacritty") is not None
 
 
-def _group_session_name(group_name: str) -> str:
-    """Tmux session name for a group. Prefixed to namespace from ad-hoc sessions."""
-    return f"empirica-{group_name}"
+def ghostty_available() -> bool:
+    """True iff ``ghostty`` is on PATH."""
+    return shutil.which("ghostty") is not None
 
 
 def _session_has_attached_client(session_name: str) -> bool:
@@ -293,45 +302,69 @@ def _resolve_pane(pane: PaneSpec, config: LauncherConfig) -> tuple[str | None, s
     return None, pane.inline_command or "bash"
 
 
-def _create_group_session(group: GroupSpec, config: LauncherConfig) -> tuple[bool, int, str | None]:
-    """Create a tmux session for a group with all its panes.
+def _pane_title(pane: PaneSpec) -> str:
+    """Display title for a pane — project name for project panes, the
+    configured ``label`` (or a generic fallback) for inline-command
+    panes. Set via ``select-pane -T`` and shown by ``pane-border-status``
+    so each pane is identifiable (and clickable-to-focus, via tmux's
+    built-in mouse handling) without opening it first."""
+    if pane.project_ref:
+        return pane.project_ref
+    return pane.label or "shell"
+
+
+def _set_pane_title(pane_id: str, title: str) -> None:
+    """Best-effort — a failed title-set shouldn't fail the whole launch."""
+    if pane_id:
+        _tmux("select-pane", "-t", pane_id, "-T", title)
+
+
+def _create_group_window(
+    group: GroupSpec, config: LauncherConfig, session_name: str, is_first_group: bool
+) -> tuple[bool, int, str | None]:
+    """Create ONE WINDOW (named after the group) inside the shared
+    per-monitor session, with all the group's panes split into it.
+
+    One terminal per *monitor* (= per config), not per group — every
+    group becomes a clickable window within that single session
+    (native tmux status-line window-switching), not a separate
+    terminal process. This is what actually delivers "titled clickable
+    windows/panes in one cockpit per monitor" rather than N terminal
+    windows per monitor.
 
     Returns ``(created, panes_created, error)``. Idempotent — if the
-    session already exists, augments to the configured pane count by
+    window already exists, augments to the configured pane count by
     splitting in the missing panes (preserving any live processes in
     existing panes). This is the abnormal-exit / re-launch path.
 
-    Window targeting uses just the session name (no ``:N`` index) so
-    we work correctly whether the user has tmux ``base-index 0`` (default)
-    or ``base-index 1`` (very common in user configs).
+    Window target is ``session:group-name`` (by name, not index) so
+    this works regardless of ``base-index`` 0 vs 1.
     """
-    session_name = _group_session_name(group.name)
+    window_target = f"{session_name}:{group.name}"
     split_flag = "-h" if group.split == "horizontal" else "-v"
 
-    if cockpit_session_exists(session_name):
-        # Adopt path: count existing panes in the active window.
-        # Use just the session name — tmux defaults to its active window,
-        # which is base-index-agnostic.
-        result = _tmux("list-panes", "-t", session_name, "-F", "#{pane_id}")
+    window_exists = _tmux("list-panes", "-t", window_target, "-F", "#{pane_id}").returncode == 0
+
+    if window_exists:
+        # Adopt path: count existing panes in this specific window.
+        result = _tmux("list-panes", "-t", window_target, "-F", "#{pane_id}")
         existing = len([line for line in result.stdout.splitlines() if line.strip()])
-        # Augment: if the session has fewer panes than the config wants,
-        # split in the missing ones (running fresh commands per the config).
-        # Live panes are untouched. This handles re-launch after partial failure.
         configured = len(group.panes)
         if existing < configured:
             for pane in group.panes[existing:]:
                 cwd, cmd = _resolve_pane(pane, config)
-                split_args = ["split-window", "-t", session_name, split_flag]
+                split_args = ["split-window", "-t", window_target, split_flag, "-P", "-F", "#{pane_id}"]
                 if cwd:
                     split_args += ["-c", cwd]
                 split_args.append(cmd)
                 sresult = _tmux(*split_args)
                 if sresult.returncode == 0:
                     existing += 1
+                    _set_pane_title(sresult.stdout.strip(), _pane_title(pane))
             _tmux(
                 "select-layout",
                 "-t",
-                session_name,
+                window_target,
                 "even-horizontal" if group.split == "horizontal" else "even-vertical",
             )
         return False, existing, None
@@ -339,32 +372,43 @@ def _create_group_session(group: GroupSpec, config: LauncherConfig) -> tuple[boo
     if not group.panes:
         return False, 0, f"group {group.name!r} has no panes"
 
-    # Fresh path: create session with first pane, then split in the rest.
     first = group.panes[0]
     cwd, cmd = _resolve_pane(first, config)
-    args = ["new-session", "-d", "-s", session_name, "-n", group.name]
-    if cwd:
-        args += ["-c", cwd]
-    args.append(cmd)
-    result = _tmux(*args)
-    if result.returncode != 0:
-        return False, 0, f"tmux new-session failed: {result.stderr.strip() or result.stdout.strip()}"
+
+    if is_first_group:
+        # First group bootstraps the session itself.
+        args = ["new-session", "-d", "-s", session_name, "-n", group.name, "-P", "-F", "#{pane_id}"]
+        if cwd:
+            args += ["-c", cwd]
+        args.append(cmd)
+        result = _tmux(*args)
+        if result.returncode != 0:
+            return False, 0, f"tmux new-session failed: {result.stderr.strip() or result.stdout.strip()}"
+    else:
+        args = ["new-window", "-t", session_name, "-n", group.name, "-P", "-F", "#{pane_id}"]
+        if cwd:
+            args += ["-c", cwd]
+        args.append(cmd)
+        result = _tmux(*args)
+        if result.returncode != 0:
+            return False, 0, f"tmux new-window failed: {result.stderr.strip() or result.stdout.strip()}"
 
     panes_created = 1
+    _set_pane_title(result.stdout.strip(), _pane_title(first))
 
     for pane in group.panes[1:]:
         cwd, cmd = _resolve_pane(pane, config)
-        # Target by session name only — base-index-agnostic.
-        split_args = ["split-window", "-t", session_name, split_flag]
+        split_args = ["split-window", "-t", window_target, split_flag, "-P", "-F", "#{pane_id}"]
         if cwd:
             split_args += ["-c", cwd]
         split_args.append(cmd)
         sresult = _tmux(*split_args)
         if sresult.returncode == 0:
             panes_created += 1
+            _set_pane_title(sresult.stdout.strip(), _pane_title(pane))
 
     # Even out pane sizes so a 2-pane horizontal split is 50/50.
-    _tmux("select-layout", "-t", session_name, "even-horizontal" if group.split == "horizontal" else "even-vertical")
+    _tmux("select-layout", "-t", window_target, "even-horizontal" if group.split == "horizontal" else "even-vertical")
 
     return True, panes_created, None
 
@@ -413,15 +457,61 @@ def _spawn_alacritty(group_name: str, session_name: str, extra_args: list[str]) 
         return None, f"alacritty spawn failed: {exc}"
 
 
-def launch_groups(config: LauncherConfig) -> GroupsLaunchResult:
-    """Bring up the canonical groups layout: one alacritty per group,
-    each running its own tmux session with the configured panes.
+def _spawn_ghostty(group_name: str, session_name: str, extra_args: list[str]) -> tuple[int | None, str | None]:
+    """Fork a ghostty window attaching to the given tmux session.
 
-    Idempotent per-group — if a group's tmux session already exists,
-    re-spawns alacritty for it without touching the running panes.
-    This is the abnormal-exit recovery path: after a hibernate-detach,
-    re-running ``empirica cockpit launch`` re-wraps the surviving tmux
-    sessions in fresh alacritty windows without losing claude state.
+    Same shape as ``_spawn_alacritty`` — see that docstring. Ghostty's
+    ``--class`` must be a reverse-domain-name (GTK app-id rules), so we
+    can't reuse the bare ``empirica-<group>`` value alacritty accepts;
+    ``com.empirica.cockpit.<group>`` satisfies GTK while keeping the
+    per-group uniqueness KDE's Meta+1..N switching needs.
+    """
+    if not ghostty_available():
+        return None, "ghostty binary not found on PATH"
+
+    app_id = f"com.empirica.cockpit.{group_name}"
+    title = f"Empirica · {group_name}"
+
+    cmd = [
+        "ghostty",
+        f"--class={app_id}",
+        f"--title={title}",
+        *extra_args,
+        "-e",
+        "tmux",
+        "attach-session",
+        "-t",
+        session_name,
+    ]
+
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+            close_fds=True,
+            env=os.environ.copy(),
+        )
+        return proc.pid, None
+    except OSError as exc:
+        return None, f"ghostty spawn failed: {exc}"
+
+
+def launch_groups(config: LauncherConfig) -> GroupsLaunchResult:
+    """Bring up the canonical groups layout: ONE terminal window (per
+    ``config.surface`` — alacritty or ghostty) for the whole config,
+    hosting ``config.session_name`` with one tmux window per group
+    (native status-line click-to-switch) and each group's panes split
+    inside its window.
+
+    Idempotent — if the session already exists, augments any windows
+    missing panes without touching live processes, and skips spawning a
+    duplicate terminal if one is already attached. This is the
+    abnormal-exit recovery path: after a hibernate-detach, re-running
+    ``empirica cockpit launch`` re-wraps the surviving tmux session in a
+    fresh terminal window without losing claude state.
     """
     if not tmux_available():
         return GroupsLaunchResult(error="tmux binary not found on PATH")
@@ -429,57 +519,41 @@ def launch_groups(config: LauncherConfig) -> GroupsLaunchResult:
     if not config.groups:
         return GroupsLaunchResult(error="config has no groups — nothing to launch")
 
+    session_name = config.session_name
     write_session_start()
 
     results: list[GroupLaunchResult] = []
-    for group in config.groups:
-        session_name = _group_session_name(group.name)
-        created, pane_count, err = _create_group_session(group, config)
-        if err:
-            results.append(
-                GroupLaunchResult(
-                    group_name=group.name,
-                    tmux_session=session_name,
-                    created=False,
-                    panes_created=0,
-                    alacritty_pid=None,
-                    error=err,
-                )
-            )
-            continue
-
-        # Dedup: if the session already has a client attached (= an
-        # alacritty window from a prior launch is still alive), don't
-        # spawn a duplicate. Re-launching becomes idempotent at the
-        # window level, not just the session level.
-        if _session_has_attached_client(session_name):
-            results.append(
-                GroupLaunchResult(
-                    group_name=group.name,
-                    tmux_session=session_name,
-                    created=created,
-                    panes_created=pane_count,
-                    alacritty_pid=None,
-                    alacritty_skipped=True,
-                )
-            )
-            continue
-
-        pid, alacritty_err = _spawn_alacritty(
-            group_name=group.name,
-            session_name=session_name,
-            extra_args=config.alacritty_args,
-        )
+    session_existed_before = cockpit_session_exists(session_name)
+    for i, group in enumerate(config.groups):
+        is_first_group = not session_existed_before and i == 0
+        created, pane_count, err = _create_group_window(group, config, session_name, is_first_group)
         results.append(
             GroupLaunchResult(
                 group_name=group.name,
-                tmux_session=session_name,
+                tmux_session=f"{session_name}:{group.name}",
                 created=created,
                 panes_created=pane_count,
-                alacritty_pid=pid,
-                error=alacritty_err,
+                error=err,
             )
         )
 
+    if any(g.error for g in results):
+        return GroupsLaunchResult(groups=results, session_name=session_name, error=None)
+
+    # Dedup: if the session already has a client attached (= a terminal
+    # window from a prior launch is still alive), don't spawn a
+    # duplicate. Re-launching becomes idempotent at the window level,
+    # not just the session level.
+    if _session_has_attached_client(session_name):
+        write_lock()
+        return GroupsLaunchResult(groups=results, session_name=session_name, terminal_skipped=True)
+
+    spawn_fn = _spawn_ghostty if config.surface == "ghostty" else _spawn_alacritty
+    pid, spawn_err = spawn_fn(
+        group_name=session_name,
+        session_name=session_name,
+        extra_args=config.alacritty_args,
+    )
+
     write_lock()
-    return GroupsLaunchResult(groups=results)
+    return GroupsLaunchResult(groups=results, session_name=session_name, terminal_pid=pid, error=spawn_err)

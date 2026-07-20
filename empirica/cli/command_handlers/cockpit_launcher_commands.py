@@ -23,6 +23,7 @@ from empirica.core.cockpit.launcher import (
     cockpit_session_exists,
     cockpit_status,
     detect_abnormal_exit,
+    ghostty_available,
     launch_cockpit,
     launch_groups,
     load_config,
@@ -97,8 +98,9 @@ def handle_cockpit_launch_command(args) -> int:
         config.surface = surface_override
 
     # Groups mode short-circuits the legacy single-session path: spawn one
-    # alacritty per group, each with its own tmux session and panes.
-    if config.is_groups_mode() and config.surface == "alacritty":
+    # terminal window (alacritty or ghostty) per group, each with its own
+    # tmux session and panes.
+    if config.is_groups_mode() and config.surface in ("alacritty", "ghostty"):
         return _handle_groups_launch(config, output, quiet)
 
     # 2. Abnormal-exit detection
@@ -167,17 +169,33 @@ def _check_and_print_abnormal(config, quiet: bool, output: str) -> dict | None:
     return None
 
 
-def _handle_groups_launch(config, output: str, quiet: bool) -> int:
-    """Groups mode: one alacritty window per group, panes per group.
+def _wm_class_for(surface: str, session_name: str) -> str:
+    """Per-surface window-class/app-id value for the ONE terminal
+    spawned per config — must match what the corresponding
+    ``_spawn_*`` function in launcher/tmux.py actually passes, since
+    this is display-only (status/JSON output), not the source of
+    truth. Ghostty requires reverse-domain-name (GTK app-id rules);
+    alacritty accepts a bare string."""
+    if surface == "ghostty":
+        return f"com.empirica.cockpit.{session_name}"
+    return f"empirica-{session_name}"
 
-    Each group's alacritty gets a unique ``WM_CLASS=empirica-<name>`` so
-    KDE/wmctrl can target it (Meta+1..N once pinned to taskbar).
-    Idempotent per-group — re-running after a hibernate-detach re-wraps
-    surviving tmux sessions in fresh alacritty windows.
+
+def _handle_groups_launch(config, output: str, quiet: bool) -> int:
+    """Groups mode: ONE terminal window (alacritty or ghostty) per
+    config/monitor, hosting every group as a tmux window in a single
+    shared session — native status-line click-to-switch between them.
+
+    The terminal gets a WM_CLASS/app-id so KDE/wmctrl can target it
+    (Meta+1..N once pinned to taskbar). Idempotent — re-running after a
+    hibernate-detach re-wraps the surviving tmux session in a fresh
+    terminal window without spawning a duplicate.
     """
-    if not alacritty_available():
+    surface = config.surface
+    available = ghostty_available() if surface == "ghostty" else alacritty_available()
+    if not available:
         msg = (
-            "alacritty not found on PATH. Install it (apt install alacritty), "
+            f"{surface} not found on PATH. Install it, "
             "or set surface: tmux in cockpit/config.yaml for the legacy single-attach mode."
         )
         if output == "json":
@@ -196,16 +214,17 @@ def _handle_groups_launch(config, output: str, quiet: bool) -> int:
 
     payload = {
         "ok": result.all_ok(),
-        "surface": "alacritty",
-        "groups": [
+        "surface": surface,
+        "session_name": result.session_name,
+        "terminal_pid": result.terminal_pid,
+        "terminal_skipped": result.terminal_skipped,
+        "wm_class": _wm_class_for(surface, result.session_name),
+        "windows": [
             {
                 "name": g.group_name,
-                "tmux_session": g.tmux_session,
+                "tmux_target": g.tmux_session,
                 "created": g.created,
                 "panes": g.panes_created,
-                "alacritty_pid": g.alacritty_pid,
-                "alacritty_skipped": g.alacritty_skipped,
-                "wm_class": f"empirica-{g.group_name}",
                 "error": g.error,
             }
             for g in result.groups
@@ -217,27 +236,26 @@ def _handle_groups_launch(config, output: str, quiet: bool) -> int:
         return 0 if result.all_ok() else 1
 
     # Human-readable summary doubles as a keybinding cheatsheet.
-    print(f"✅ cockpit (alacritty surface) — {len(result.groups)} group(s)")
+    if result.terminal_skipped:
+        window_state = "window already attached, skipped spawn"
+    elif result.terminal_pid:
+        window_state = f"{surface} pid {result.terminal_pid}"
+    else:
+        window_state = f"{surface} pid n/a"
+    print(f"✅ cockpit ({surface} surface) — session {result.session_name} ({window_state})")
     for i, g in enumerate(result.groups, 1):
         verb = "created" if g.created else "adopted existing"
         marker = "✗" if g.error else "·"
-        if g.alacritty_skipped:
-            window_state = "window already attached, skipped spawn"
-        elif g.alacritty_pid:
-            window_state = f"alacritty pid {g.alacritty_pid}"
-        else:
-            window_state = "alacritty pid n/a"
-        line = f"  {marker} {i}. empirica-{g.group_name:12s} ({verb}, {g.panes_created} panes, {window_state})"
+        line = f"  {marker} {i}. {g.group_name:12s} ({verb}, {g.panes_created} panes)"
         if g.error:
             line += f"  ⚠ {g.error}"
         print(line)
     if not quiet:
         print()
-        print("  Pin each window to the KDE taskbar (right-click → Pin), then")
-        print("  Meta+1..N jumps directly to that group.")
+        print("  Click a window name in the top status-line to switch between groups.")
         print()
         print("  Detach all: empirica cockpit detach   (writes clean-shutdown marker)")
-        print("  Refresh:    empirica cockpit launch   (re-wraps surviving sessions)")
+        print("  Refresh:    empirica cockpit launch   (re-wraps the surviving session)")
     return 0 if result.all_ok() else 1
 
 

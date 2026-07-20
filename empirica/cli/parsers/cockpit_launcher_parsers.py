@@ -57,11 +57,12 @@ when the previous session ended without writing a clean-shutdown marker
     )
     launch.add_argument(
         "--surface",
-        choices=["tmux", "alacritty"],
+        choices=["tmux", "alacritty", "ghostty"],
         help="Override the surface from config. tmux = legacy "
-        "single-attach. alacritty = one alacritty window per "
-        "group with WM_CLASS for KDE Meta+1..N switching "
-        '(requires "groups:" in config).',
+        "single-attach. alacritty/ghostty = one window per "
+        "group with WM_CLASS/app-id for KDE Meta+1..N switching "
+        '(requires "groups:" in config). ghostty additionally '
+        "supports native drag-and-drop file paste.",
     )
     launch.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
 
