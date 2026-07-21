@@ -480,3 +480,79 @@ def test_live_claude_pids_by_instance_maps_iid_to_pid(monkeypatch):
     ]
     monkeypatch.setattr(psutil, "process_iter", lambda attrs=None: procs)
     assert lv.live_claude_pids_by_instance() == {"empirica-vr": (101, 5.0)}
+
+
+# ── CC 2.1.x tmux-pane mangle (Philipp): pane_current_command='2.1.212' ──────
+
+
+def test_version_name_regex_matches_mangled_cc():
+    assert lv._VERSION_NAME_RE.match("2.1.212")
+    assert lv._VERSION_NAME_RE.match("10.0")
+    assert not lv._VERSION_NAME_RE.match("claude")
+    assert not lv._VERSION_NAME_RE.match("zsh")
+    assert not lv._VERSION_NAME_RE.match("python3.11")  # name, not a bare version
+
+
+def test_live_tmux_panes_detects_mangled_cc_pane(monkeypatch):
+    # %0 = mangled CC (version-string name) → tree-walk confirms claude
+    # %1 = zsh → not claude, not a version name → skipped (no tree-walk)
+    # %2 = claude → fast path
+    tmux_out = "%0 111 2.1.212\n%1 222 zsh\n%2 333 claude\n"
+
+    class _R:
+        returncode = 0
+        stdout = tmux_out
+
+    monkeypatch.setattr(lv.shutil, "which", lambda _x: "/usr/bin/tmux")
+    monkeypatch.setattr(lv.subprocess, "run", lambda *a, **k: _R())
+    # only pane_pid 111 (the mangled CC pane) hosts claude in its tree
+    monkeypatch.setattr(lv, "_pane_hosts_claude", lambda pid: pid == 111)
+
+    assert lv._live_tmux_panes() == {"0", "2"}
+
+
+def test_live_tmux_panes_mangled_pane_without_claude_is_excluded(monkeypatch):
+    # A version-named pane whose tree has NO claude (e.g. some other tool) is not counted.
+    tmux_out = "%0 111 2.1.212\n"
+
+    class _R:
+        returncode = 0
+        stdout = tmux_out
+
+    monkeypatch.setattr(lv.shutil, "which", lambda _x: "/usr/bin/tmux")
+    monkeypatch.setattr(lv.subprocess, "run", lambda *a, **k: _R())
+    monkeypatch.setattr(lv, "_pane_hosts_claude", lambda pid: False)
+
+    assert lv._live_tmux_panes() == set()
+
+
+def test_pane_hosts_claude_matches_mangled_name_via_cmdline(monkeypatch):
+    import sys
+    import types
+
+    class _FakeProc:
+        def __init__(self, name, cmdline):
+            self._n, self._c = name, cmdline
+
+        def name(self):
+            return self._n
+
+        def cmdline(self):
+            return self._c
+
+        def children(self, recursive=False):
+            return []
+
+    # pane process reports the mangled name but argv[0] is claude
+    root = _FakeProc("2.1.212", ["claude", "--resume"])
+    fake_psutil = types.SimpleNamespace(
+        Process=lambda _pid: root,
+        NoSuchProcess=type("NoSuchProcess", (Exception,), {}),
+        AccessDenied=type("AccessDenied", (Exception,), {}),
+    )
+    monkeypatch.setitem(sys.modules, "psutil", fake_psutil)
+    assert lv._pane_hosts_claude(111) is True
+
+    root2 = _FakeProc("2.1.212", ["node", "server.js"])
+    fake_psutil.Process = lambda _pid: root2
+    assert lv._pane_hosts_claude(111) is False
