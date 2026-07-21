@@ -13,6 +13,7 @@ import json
 import tarfile
 from types import SimpleNamespace
 
+import pytest
 import yaml
 
 from empirica.cli.command_handlers.module_commands import handle_module_provision_command
@@ -235,7 +236,7 @@ def test_topics_dry_run_shows_grants(tmp_path):
 def test_topics_granted_calls_cortex(tmp_path, monkeypatch):
     posted = []
     monkeypatch.setattr(
-        executors, "_post_grants", lambda url, key, grants: posted.append((url, grants)) or (True, "http 200")
+        executors, "_post_grants", lambda url, key, grants: posted.append((url, grants)) or ("granted", "http 200")
     )
     m = _manifest(tmp_path, topics=["empirica-outreach-dispatch"])
     receipt = provision_module(
@@ -250,6 +251,69 @@ def test_topics_granted_calls_cortex(tmp_path, monkeypatch):
     )
     topic_step = next(s for s in receipt["steps"] if s["kind"] == "topic")
     assert topic_step["status"] == "granted" and posted
+
+
+def test_topics_partial_207_surfaces_as_failure(tmp_path, monkeypatch):
+    """A 207 with a failing grant must NOT stamp status=granted / ok=True.
+
+    Regression for prop_atoc4: _post_grants used to read only the status code,
+    so a partial 207 masked as full success. The provision rollup must now
+    surface the partial as an error and flip ok=False.
+    """
+    monkeypatch.setattr(
+        executors,
+        "_post_grants",
+        lambda url, key, grants: ("partial", "http 207 — 1/2 grants failed: empirica-u-david@t: topic conflict"),
+    )
+    m = _manifest(tmp_path, topics=["empirica-outreach-dispatch"])
+    receipt = provision_module(
+        m,
+        dry_run=False,
+        plugin_root=tmp_path / "p",
+        staging_root=tmp_path / "s",
+        cortex_url="https://cortex.example",
+        cortex_api_key="admin-key",
+        org="empirica",
+        tenant="david",
+    )
+    topic_step = next(s for s in receipt["steps"] if s["kind"] == "topic")
+    assert topic_step["status"] == "partial"
+    assert receipt["ok"] is False  # partial fidelity failure must flip the rollup
+    assert any("topic conflict" in e for e in receipt["errors"])
+
+
+@pytest.mark.parametrize(
+    "status,body,expected_status,detail_contains",
+    [
+        # 200, all applied
+        (200, {"ok": True, "grants_applied": [{"user": "u", "topic": "t", "ok": True}]}, "granted", "1 grants"),
+        # 200 with no body detail — still granted
+        (200, {}, "granted", "all"),
+        # 207 but every grant ok → granted (cortex may 207 on idempotent re-grant)
+        (207, {"grants_applied": [{"user": "u", "topic": "t", "ok": True}]}, "granted", "http 207"),
+        # 207 with a failing grant → partial, names the failure
+        (
+            207,
+            {"grants_applied": [{"user": "u", "topic": "t", "ok": False, "error": "acl denied"}]},
+            "partial",
+            "acl denied",
+        ),
+        # 207 with no trustworthy per-grant detail → fail-loud partial, not granted
+        (207, {}, "partial", "no grants_applied detail"),
+        # non-2xx → error
+        (500, {}, "error", "http 500"),
+    ],
+)
+def test_classify_grant_response(status, body, expected_status, detail_contains):
+    got_status, detail = executors._classify_grant_response(status, json.dumps(body).encode())
+    assert got_status == expected_status
+    assert detail_contains in detail
+
+
+def test_classify_grant_response_unparseable_207_is_partial():
+    # Garbage body on a 207 must not be assumed successful.
+    got_status, _ = executors._classify_grant_response(207, b"<html>gateway error</html>")
+    assert got_status == "partial"
 
 
 # ── env presence ────────────────────────────────────────────────────────
