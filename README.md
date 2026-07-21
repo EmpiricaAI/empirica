@@ -354,16 +354,14 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.12.30
+## What's New in 1.12.31
 
-- **`empirica provision-practice <name>`** — one-command single-practitioner onboarding (mkdir → project-init → patch ai_id/tenant/org → project-register → optional forgejo backup). The lightweight sibling of mesh-support's bulk provisioner. `--base-path` defaults to `~/empirica`; the forgejo host comes from `--forgejo-host` or `EMPIRICA_FORGEJO_HOST` (no built-in default).
-- **`/architecture-review` skill** — system-design review at an altitude `/code-audit` + `/eat-the-broccoli` don't cover (failure domains, scalability, data, security, ops, cost, complexity budget). Informational + foresight only: it surfaces failure scenarios and options for the human architect to weigh, and never gates or owns the decision.
-- **Cockpit groups-mode**: ghostty surface + per-pane titling; one terminal window per config (alacritty/ghostty), with a graceful fallback when the binary isn't on PATH.
-- **POSTFLIGHT returns ~3s faster.** The storage pipeline (embeds + global sync — ~5.7s of pure side-effect the response never consumes) now runs **detached** off the critical path, via a fire-and-forget worker with a synchronous fallback so the work is never dropped. Opt-in per-stage timing via `EMPIRICA_POSTFLIGHT_TIMING`.
-- **`project-embed` is incremental.** Only new/changed eidetic findings are re-embedded (was O(all findings) — >30s on a local embedder). The session-end auto-embed is fire-and-forget so a hook timeout can't truncate it mid-run.
-- **Sentinel classifies read-only `tailscale` verbs as noetic** (`status`, `netcheck`, `ip`, `version`, `whois`) — they no longer force an unneeded CHECK when inspecting the tailnet; mutating subcommands (`up`/`set`/`down`/…) stay praxic-gated.
-- **`provision-practice` no longer ships a hardcoded private forgejo host** as the `--forgejo-host` default — it's env/flag-driven, so the shipped package carries no one operator's infra.
-- **`actions/setup-python` 6 → 7** in CI (dependabot).
+- **Practice/ai_id misbind on harnesses that don't set `EMPIRICA_CWD_RELIABLE`** (codex, ecodex). `get_active_project_path` fell to a stale `instance_projects` mapping and bound a session to the wrong practice (a session in one project resolving to another, with a frozen other-session vector snapshot). A stale-mapping guard now trusts the cwd when it's a registered project ROOT that differs from the mapping (physical ground truth, harness-agnostic). Claude Code is unaffected — it sets `EMPIRICA_CWD_RELIABLE` and resolves at Priority -1.
+- **Cockpit didn't recognize Claude Code 2.1.x seats.** CC 2.1.x sets the OS process name to a bare version string (e.g. `2.1.212`), so `_is_claude_proc` filtered live seats out before ever checking the cmdline — the cockpit showed partial seat lists and `instance rebind` failed. Now also matches `cmdline[0]`'s basename, which stays `claude` regardless of the name mangling (otherwise recurs on every CC version bump).
+- **`release_chain` compliance check read PyPI from pip's local cache**, so it reported a freshly-published version as "missing" for minutes after `release.py --publish`. Now queries PyPI's live JSON API.
+- **Statusline context meter** — a bracketed-cell meter (`[####------] 42%`) on the right of the empirica statusline, fed by Claude Code's `context_window.used_percentage`, with green/yellow/red tiering. Renders nothing when the harness supplies no usage.
+- **Dependabot targets `develop`** (all 3 ecosystems) — bumps land on the trunk, get CI-tested there, and flow to main via release, instead of landing on the default branch and needing a manual back-port.
+- **SessionStart skips re-arming the mesh Monitor when a live tail already exists** — stops compaction / new-session-init re-fires from stacking duplicate wake-delivery tails (one seat had accumulated 5).
 ---
 
 ## Privacy & Data
