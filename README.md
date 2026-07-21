@@ -354,14 +354,12 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.12.31
+## What's New in 1.12.32
 
-- **Practice/ai_id misbind on harnesses that don't set `EMPIRICA_CWD_RELIABLE`** (codex, ecodex). `get_active_project_path` fell to a stale `instance_projects` mapping and bound a session to the wrong practice (a session in one project resolving to another, with a frozen other-session vector snapshot). A stale-mapping guard now trusts the cwd when it's a registered project ROOT that differs from the mapping (physical ground truth, harness-agnostic). Claude Code is unaffected — it sets `EMPIRICA_CWD_RELIABLE` and resolves at Priority -1.
-- **Cockpit didn't recognize Claude Code 2.1.x seats.** CC 2.1.x sets the OS process name to a bare version string (e.g. `2.1.212`), so `_is_claude_proc` filtered live seats out before ever checking the cmdline — the cockpit showed partial seat lists and `instance rebind` failed. Now also matches `cmdline[0]`'s basename, which stays `claude` regardless of the name mangling (otherwise recurs on every CC version bump).
-- **`release_chain` compliance check read PyPI from pip's local cache**, so it reported a freshly-published version as "missing" for minutes after `release.py --publish`. Now queries PyPI's live JSON API.
-- **Statusline context meter** — a bracketed-cell meter (`[####------] 42%`) on the right of the empirica statusline, fed by Claude Code's `context_window.used_percentage`, with green/yellow/red tiering. Renders nothing when the harness supplies no usage.
-- **Dependabot targets `develop`** (all 3 ecosystems) — bumps land on the trunk, get CI-tested there, and flow to main via release, instead of landing on the default branch and needing a manual back-port.
-- **SessionStart skips re-arming the mesh Monitor when a live tail already exists** — stops compaction / new-session-init re-fires from stacking duplicate wake-delivery tails (one seat had accumulated 5).
+- **`status` and `postflight-submit` hung indefinitely on macOS** (#365). The cockpit liveness scan walked the full process table via psutil, and on macOS `.environ()`/`.cmdline()` block uninterruptibly inside `sysctl(KERN_PROCARGS2)` against a wedged process — a native syscall block no `try/except` can catch. The process-table walks (`scan_live_claude`, `live_claude_pids_by_instance`, `_pane_hosts_claude`) are now wall-clock-bounded (default 3s, override via `EMPIRICA_LIVENESS_SCAN_TIMEOUT`) and degrade to "inconclusive" instead of wedging the whole command. Linux `/proc` reads were never affected.
+- **Cockpit still missed Claude Code 2.1.x seats in the tmux liveness path.** 1.12.31 fixed `_is_claude_proc`; `_live_tmux_panes` had the same blind spot — CC 2.1.x reports `pane_current_command` as a bare version string (e.g. `2.1.212`), so live panes were dropped. It now resolves each pane's foreground process and matches the `claude` basename via a process-tree walk.
+- **`module provision` reported partial ntfy-grant failures as success.** `_post_grants` read only the HTTP status from cortex's grant endpoint, discarding the 207 multi-status body, so a per-grant failure (topic conflict, permission miss) was stamped `granted` with zero telemetry. It now parses `grants_applied[]` and surfaces `partial` (naming the failing grants), which flips the provision receipt to `ok=false`. A bare 207 with no per-grant detail is treated as `partial` rather than assumed successful.
+- **Statusline context meter is now opt-in** behind `EMPIRICA_CTX_METER`. The empirica statusline is shared across Claude Code and other harnesses; the 1.12.31 meter changed the display for all of them. The bracketed meter now renders only when `EMPIRICA_CTX_METER` is set (`1`/`true`/`bar`); the default restores Claude Code's plain `42%ctx`.
 ---
 
 ## Privacy & Data
