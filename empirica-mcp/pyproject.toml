@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "empirica-mcp"
-version = "1.12.29"
+version = "1.12.30"
 description = "MCP server for Empirica — AI measurement and calibration tools via Model Context Protocol"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -27,7 +27,7 @@ dependencies = [
     # over the empirica CLI, so a loose constraint let `pipx upgrade empirica-mcp`
     # bump the wrapper while leaving core stale — silently serving a 3-version-old
     # tool set. release.py bumps this pin in lockstep with the version field below.
-    "empirica==1.12.29",  # keep == in lockstep with [project].version
+    "empirica==1.12.30",  # keep == in lockstep with [project].version
     "mcp>=1.28.1",       # MCP SDK — floor bumped for CVE-2026-52869/-52870/-59950 (fixed 1.27.2/1.28.1); prior: python-multipart CVE-2026-24486 (1.25+)
 ]
 
