@@ -379,8 +379,43 @@ def _register_automation(auto, dry_run: bool) -> dict:
         return {"kind": "automation", "target": auto.name, "status": "error", "detail": str(e)[:300]}
 
 
-def _post_grants(cortex_url: str, api_key: str, grants: list[dict]) -> tuple[bool, str]:
-    """POST ntfy ACL grants to cortex admin (the contract cortex shipped)."""
+def _classify_grant_response(status: int, raw: bytes) -> tuple[str, str]:
+    """Derive a per-grant-aware status from the ntfy-grant response body.
+
+    Cortex returns 200 (all applied) or 207 multi-status with a
+    ``grants_applied[]`` array of ``{user, topic, permission, ok, error}``
+    records. Reading only the status code stamps partial failures as full
+    success — this parses the body so per-grant failures surface.
+
+    Returns ``(status, detail)`` where status is:
+      - ``"granted"`` — 200, or 207 with every ``grants_applied[].ok`` true
+      - ``"partial"`` — 207 with ≥1 failing grant (detail names them), or a
+        207 whose body carries no trustworthy per-grant detail (fail-loud —
+        never assume success from a bare 207)
+      - ``"error"``   — a non-2xx status
+    """
+    if status not in (200, 207):
+        return "error", f"http {status}"
+    try:
+        applied = (json.loads(raw or b"{}") or {}).get("grants_applied") or []
+    except (ValueError, TypeError):
+        applied = []
+    failures = [g for g in applied if not g.get("ok", True)]
+    if failures:
+        named = "; ".join(f"{g.get('user')}@{g.get('topic')}: {g.get('error') or 'failed'}" for g in failures)
+        return "partial", f"http {status} — {len(failures)}/{len(applied)} grants failed: {named}"[:300]
+    if status == 207 and not applied:
+        return "partial", "http 207 — partial status with no grants_applied detail (treated as failure)"
+    return "granted", f"http {status} — {len(applied) or 'all'} grants applied"
+
+
+def _post_grants(cortex_url: str, api_key: str, grants: list[dict]) -> tuple[str, str]:
+    """POST ntfy ACL grants to cortex admin (the contract cortex shipped).
+
+    Returns ``(status, detail)`` from :func:`_classify_grant_response` — a
+    207 multi-status with per-grant failures resolves to ``"partial"``, not a
+    bare success bool. Transport / non-2xx errors resolve to ``"error"``.
+    """
     url = cortex_url.rstrip("/") + "/v1/admin/ntfy/grants"
     body = json.dumps({"grants": grants}).encode()
     req = urllib.request.Request(url, data=body, method="POST")
@@ -388,11 +423,11 @@ def _post_grants(cortex_url: str, api_key: str, grants: list[dict]) -> tuple[boo
     req.add_header("Content-Type", "application/json")
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
-            return (resp.status in (200, 207), f"http {resp.status}")
+            return _classify_grant_response(resp.status, resp.read())
     except urllib.error.HTTPError as e:
-        return False, f"http {e.code}"
+        return "error", f"http {e.code}"
     except (urllib.error.URLError, OSError) as e:
-        return False, str(e)[:300]
+        return "error", str(e)[:300]
 
 
 def _grant_topics(manifest, cortex_url, cortex_api_key, org, tenant, dry_run) -> list[dict]:
@@ -416,8 +451,8 @@ def _grant_topics(manifest, cortex_url, cortex_api_key, org, tenant, dry_run) ->
         if dry_run:
             out.append({"kind": "topic", "target": t, "status": "would_grant", "detail": json.dumps(grants)})
             continue
-        ok, detail = _post_grants(cortex_url, cortex_api_key, grants)
-        out.append({"kind": "topic", "target": t, "status": "granted" if ok else "error", "detail": detail})
+        status, detail = _post_grants(cortex_url, cortex_api_key, grants)
+        out.append({"kind": "topic", "target": t, "status": status, "detail": detail})
     return out
 
 
@@ -509,7 +544,9 @@ def provision_module(
     steps += _check_env(manifest)
     steps += _register_practice_domains(manifest, dry_run)
 
-    errors = [f"{s['kind']} {s['target']}: {s['detail']}" for s in steps if s["status"] == "error"]
+    # "partial" is a fidelity failure too (a 207 where some grants didn't apply) —
+    # surface it alongside "error" so it flips ok=False instead of masking as success.
+    errors = [f"{s['kind']} {s['target']}: {s['detail']}" for s in steps if s["status"] in ("error", "partial")]
     return {
         "ok": not errors,
         "action": "provision",
