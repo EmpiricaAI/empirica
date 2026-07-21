@@ -213,6 +213,7 @@ from .parsers import (
     add_performance_parsers,
     add_profile_parsers,
     add_projects_parsers,
+    add_provision_practice_parsers,
     add_query_parsers,
     add_release_parsers,
     add_resolve_parser,
@@ -315,6 +316,7 @@ def create_argument_parser():
     add_memory_parsers(subparsers)
     add_profile_parsers(subparsers)
     add_projects_parsers(subparsers)
+    add_provision_practice_parsers(subparsers)
     add_serve_parsers(subparsers)
 
     return parser
@@ -401,6 +403,7 @@ _HELP_CATEGORIES = {
         "projects-discover",
         "projects-list",
         "projects-unregister",
+        "provision-practice",
     ],
     "workspace": [
         "workspace-init",
@@ -839,6 +842,7 @@ def main(args=None):
             "projects-unregister": handle_projects_unregister_command,
             "project-register": handle_project_register_command,
             "forgejo-publish": handle_forgejo_publish_command,
+            "provision-practice": handle_provision_practice_command,
             "daemon-list": handle_daemon_list_command,
             "daemon-grant": handle_daemon_grant_command,
             "daemon-deny": handle_daemon_deny_command,

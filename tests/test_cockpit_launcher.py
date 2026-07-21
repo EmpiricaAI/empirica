@@ -354,6 +354,52 @@ def test_handle_groups_launch_no_alacritty(tmp_cockpit_dir, capsys, monkeypatch)
     assert "alacritty not found" in out["error"].lower()
 
 
+def test_ghostty_available_check():
+    """Smoke check — shouldn't raise regardless of whether ghostty is
+    actually installed on the machine running the test."""
+    from empirica.core.cockpit.launcher import ghostty_available
+
+    result = ghostty_available()
+    assert isinstance(result, bool)
+
+
+def test_handle_groups_launch_no_ghostty(tmp_cockpit_dir, capsys, monkeypatch):
+    """Mirrors test_handle_groups_launch_no_alacritty for the ghostty
+    surface — must check ghostty_available(), not alacritty_available()."""
+    from empirica.cli.command_handlers import cockpit_launcher_commands as cmds
+    from empirica.cli.command_handlers.cockpit_launcher_commands import _handle_groups_launch
+    from empirica.core.cockpit.launcher import (
+        GroupSpec,
+        LauncherConfig,
+        PaneSpec,
+        ProjectSpec,
+    )
+
+    monkeypatch.setattr(cmds, "ghostty_available", lambda: False)
+
+    config = LauncherConfig(
+        groups=[GroupSpec(name="g1", panes=[PaneSpec(project_ref="p1")])],
+        projects=[ProjectSpec(name="p1", path="/tmp/p1")],
+        surface="ghostty",
+    )
+    rc = _handle_groups_launch(config, output="json", quiet=True)
+    assert rc == 1
+    out = json.loads(capsys.readouterr().out)
+    assert out["ok"] is False
+    assert "ghostty not found" in out["error"].lower()
+
+
+def test_wm_class_for_surface():
+    """Ghostty needs reverse-domain-name app-ids (GTK rule); alacritty
+    accepts a bare string. Must match what _spawn_ghostty/_spawn_alacritty
+    actually pass — this is display-only, not the source of truth."""
+    from empirica.cli.command_handlers.cockpit_launcher_commands import _wm_class_for
+
+    assert _wm_class_for("ghostty", "core") == "com.empirica.cockpit.core"
+    assert _wm_class_for("alacritty", "core") == "empirica-core"
+    assert _wm_class_for("tmux", "core") == "empirica-core"  # falls back to alacritty-style
+
+
 # ─── CLI handlers (no-tmux paths) ────────────────────────────────────────
 
 

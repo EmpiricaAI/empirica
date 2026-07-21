@@ -5,6 +5,50 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.30] — 2026-07-21
+
+Patch: POSTFLIGHT returns ~3s faster, `project-embed` made incremental, a
+single-practitioner onboarding verb, a Sentinel over-gating fix, and a new
+system-altitude architecture-review skill.
+
+### Added
+- **`empirica provision-practice <name>`** — one-command single-practitioner
+  onboarding (mkdir → project-init → patch ai_id/tenant/org → project-register →
+  optional forgejo backup). The lightweight sibling of mesh-support's bulk
+  provisioner. `--base-path` defaults to `~/empirica`; the forgejo host comes from
+  `--forgejo-host` or `EMPIRICA_FORGEJO_HOST` (no built-in default).
+- **`/architecture-review` skill** — system-design review at an altitude
+  `/code-audit` + `/eat-the-broccoli` don't cover (failure domains, scalability,
+  data, security, ops, cost, complexity budget). Informational + foresight only:
+  it surfaces failure scenarios and options for the human architect to weigh, and
+  never gates or owns the decision.
+- **Cockpit groups-mode**: ghostty surface + per-pane titling; one terminal window
+  per config (alacritty/ghostty), with a graceful fallback when the binary isn't
+  on PATH.
+
+### Performance
+- **POSTFLIGHT returns ~3s faster.** The storage pipeline (embeds + global sync —
+  ~5.7s of pure side-effect the response never consumes) now runs **detached** off
+  the critical path, via a fire-and-forget worker with a synchronous fallback so
+  the work is never dropped. Opt-in per-stage timing via `EMPIRICA_POSTFLIGHT_TIMING`.
+- **`project-embed` is incremental.** Only new/changed eidetic findings are
+  re-embedded (was O(all findings) — >30s on a local embedder). The session-end
+  auto-embed is fire-and-forget so a hook timeout can't truncate it mid-run.
+
+### Fixed
+- **Sentinel classifies read-only `tailscale` verbs as noetic** (`status`,
+  `netcheck`, `ip`, `version`, `whois`) — they no longer force an unneeded CHECK
+  when inspecting the tailnet; mutating subcommands (`up`/`set`/`down`/…) stay
+  praxic-gated.
+- **`provision-practice` no longer ships a hardcoded private forgejo host** as the
+  `--forgejo-host` default — it's env/flag-driven, so the shipped package carries
+  no one operator's infra.
+
+### Changed
+- **`actions/setup-python` 6 → 7** in CI (dependabot).
+- **eat-the-broccoli Phase 3**: rank findings by blast radius, then cut — calibrate
+  severity to the stated context (8 prioritized findings beat 30).
+
 ## [1.12.29] — 2026-07-19
 
 Corrective patch: greens the trunk (1.12.28 shipped with a stale test that reddened

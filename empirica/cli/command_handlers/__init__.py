@@ -217,6 +217,7 @@ from .projects_commands import (
     handle_projects_sync_command,
     handle_projects_unregister_command,
 )
+from .provision_practice_commands import handle_provision_practice_command
 from .release_commands import handle_release_command
 from .scan_commands import (
     handle_scan_command,
@@ -446,6 +447,7 @@ __all__ = [  # noqa: RUF022
     "handle_projects_list_command",
     "handle_projects_sync_command",
     "handle_projects_unregister_command",
+    "handle_provision_practice_command",
     "handle_rebuild_command",
     "handle_release_command",
     "handle_resolve_artifacts_command",

@@ -56,11 +56,12 @@ class PaneSpec:
 
 @dataclass
 class GroupSpec:
-    """One alacritty window = one tmux session with N panes (default 2).
+    """One terminal window (alacritty or ghostty, per ``surface``) = one
+    tmux session with N panes (default 2).
 
-    Each group becomes a separate alacritty window with its own
-    ``WM_CLASS=empirica-<name>`` so KDE/wmctrl can target it individually
-    (Meta+1..N for taskbar slots once pinned).
+    Each group becomes a separate terminal window with its own
+    WM_CLASS/app-id so KDE/wmctrl can target it individually (Meta+1..N
+    for taskbar slots once pinned).
     """
 
     name: str
@@ -79,9 +80,10 @@ class LauncherConfig:
        project. Single ``tmux attach`` in the launching terminal.
 
     2. **Groups (multi-window)**: ``groups`` → one tmux session per
-       group, one alacritty window per group, panes per group. Each
-       group's alacritty gets a unique WM_CLASS for keyboard-shortcut
-       window switching (Meta+1..N in KDE).
+       group, one terminal window per group (alacritty or ghostty, per
+       ``surface``), panes per group. Each group's window gets a unique
+       WM_CLASS/app-id for keyboard-shortcut window switching (Meta+1..N
+       in KDE).
     """
 
     session_name: str = "cockpit"
@@ -89,7 +91,7 @@ class LauncherConfig:
     projects: list[ProjectSpec] = field(default_factory=list)
     status_windows: list[StatusWindow] = field(default_factory=list)
     groups: list[GroupSpec] = field(default_factory=list)
-    surface: str = "tmux"  # 'tmux' (legacy single attach) | 'alacritty' (groups mode)
+    surface: str = "tmux"  # 'tmux' (legacy single attach) | 'alacritty' | 'ghostty' (groups mode)
     alacritty_args: list[str] = field(default_factory=list)
     warn_on_abnormal_exit: bool = True
     auto_prune_dead: bool = False

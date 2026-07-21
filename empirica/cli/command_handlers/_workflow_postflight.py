@@ -7,6 +7,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import pickle
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -373,7 +375,26 @@ def _run_postflight_storage_pipeline(
 
     now = time.time()
 
-    _pipeline_embed_grounded_calibration(
+    # Opt-in per-stage timing (EMPIRICA_POSTFLIGHT_TIMING=1) — zero overhead when
+    # unset. Every stage here is a side-effect (embed / store / snapshot) that
+    # produces nothing the POSTFLIGHT response consumes, so this is where to look
+    # when POSTFLIGHT feels slow.
+    _timing = os.environ.get("EMPIRICA_POSTFLIGHT_TIMING")
+
+    def _stage(name, fn, *args, **kwargs):
+        if not _timing:
+            return fn(*args, **kwargs)
+        t0 = time.perf_counter()
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            # stderr-direct, not logger.* — an opt-in diagnostic must surface
+            # regardless of the CLI's log level.
+            print(f"[postflight-timing] {name}: {(time.perf_counter() - t0) * 1000:.0f}ms", file=sys.stderr)
+
+    _stage(
+        "embed_grounded_calibration",
+        _pipeline_embed_grounded_calibration,
         session_id,
         vectors,
         grounded_verification,
@@ -382,9 +403,11 @@ def _run_postflight_storage_pipeline(
         goal_id,
         now,
     )
-    _pipeline_cortex_cache_feedback(session_id, vectors, grounded_verification)
-    _pipeline_trajectory_storage(session_id, project_id)
-    _pipeline_episodic_memory(
+    _stage("cortex_cache_feedback", _pipeline_cortex_cache_feedback, session_id, vectors, grounded_verification)
+    _stage("trajectory_storage", _pipeline_trajectory_storage, session_id, project_id)
+    _stage(
+        "episodic_memory",
+        _pipeline_episodic_memory,
         session_id,
         vectors,
         deltas,
@@ -395,10 +418,12 @@ def _run_postflight_storage_pipeline(
         goal_id,
         now,
     )
-    _pipeline_auto_embed_memories(session_id, project_id)
-    _pipeline_workspace_index_sync(session_id, project_id)
-    _pipeline_decay_and_global_sync(session_id, project_id)
-    _pipeline_epistemic_snapshot(
+    _stage("auto_embed_memories", _pipeline_auto_embed_memories, session_id, project_id)
+    _stage("workspace_index_sync", _pipeline_workspace_index_sync, session_id, project_id)
+    _stage("decay_and_global_sync", _pipeline_decay_and_global_sync, session_id, project_id)
+    _stage(
+        "epistemic_snapshot",
+        _pipeline_epistemic_snapshot,
         session_id,
         vectors,
         deltas,
@@ -406,6 +431,80 @@ def _run_postflight_storage_pipeline(
         postflight_confidence,
         checkpoint_id,
     )
+
+
+def _spawn_detached_storage_pipeline(
+    session_id: str,
+    vectors: dict,
+    deltas: dict,
+    reasoning: str,
+    grounded_verification: dict | None,
+    postflight_confidence: float,
+    checkpoint_id: str | None,
+) -> None:
+    """Run the storage pipeline OFF the POSTFLIGHT response critical path.
+
+    Writes the pipeline inputs to a temp JSON payload and spawns
+    ``_postflight_storage_worker`` detached (``start_new_session``), so the
+    ~5.7s of embeds + global sync doesn't block the POSTFLIGHT response. Falls
+    back to a synchronous run if staging or spawning fails — correctness over
+    latency; the storage work is never silently dropped.
+    """
+    import subprocess
+    import tempfile
+
+    def _inline():
+        _run_postflight_storage_pipeline(
+            session_id=session_id,
+            vectors=vectors,
+            deltas=deltas,
+            reasoning=reasoning,
+            grounded_verification=grounded_verification,
+            postflight_confidence=postflight_confidence,
+            checkpoint_id=checkpoint_id,
+        )
+
+    payload = {
+        "session_id": session_id,
+        "vectors": vectors,
+        "deltas": deltas,
+        "reasoning": reasoning,
+        "grounded_verification": grounded_verification,
+        "postflight_confidence": postflight_confidence,
+        "checkpoint_id": checkpoint_id,
+    }
+    # pickle, not json: grounded_verification is an EvidenceBundle object (+
+    # other rich values) that json can't serialize — json.dump would fail on
+    # every real POSTFLIGHT and silently fall back to inline (no detach). It's
+    # our own 0600 temp file, consumed once by our own worker: no untrusted input.
+    path = None
+    try:
+        fd, path = tempfile.mkstemp(prefix="empirica_pf_storage_", suffix=".pkl")
+        with os.fdopen(fd, "wb") as f:
+            pickle.dump(payload, f)
+    except Exception:
+        if path:
+            try:
+                os.unlink(path)
+            except Exception:
+                pass
+        _inline()  # can't stage payload → run inline (never drop the work)
+        return
+
+    try:
+        subprocess.Popen(
+            [sys.executable, "-m", "empirica.cli.command_handlers._postflight_storage_worker", path],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except Exception:
+        try:
+            os.unlink(path)
+        except Exception:
+            pass
+        _inline()  # spawn failed → run inline
 
 
 def _run_grounded_verification(
@@ -1937,10 +2036,14 @@ def handle_postflight_submit_command(args):
                 tx_info["transaction_id"],
                 _extract_evidence_bundle(grounded_verification),
             )
+            # Detached: the ~5.7s storage pipeline (embeds + global sync) runs
+            # off the response critical path via _postflight_storage_worker.
+            # Falls back to synchronous inside the spawn helper if it can't
+            # detach, so the work is never dropped.
             _soft_run(
                 "storage_pipeline",
                 warnings,
-                _run_postflight_storage_pipeline,
+                _spawn_detached_storage_pipeline,
                 session_id=session_id,
                 vectors=vectors,
                 deltas=deltas,
