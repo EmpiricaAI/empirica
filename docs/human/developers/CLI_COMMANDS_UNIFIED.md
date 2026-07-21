@@ -22,9 +22,9 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.12.29
-**Generated:** 2026-07-19 15:37:16 UTC
-**Total commands:** 241 (across 24 categories)
+**Framework version:** 1.12.30
+**Generated:** 2026-07-21 07:45:16 UTC
+**Total commands:** 242 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
 `empirica <command> --help` — the generator extracts the same `help`
@@ -66,7 +66,7 @@ require `--session-id` (`project-bootstrap`, `sessions-show`,
 | [workflow](#workflow) | 4 | `preflight-submit`, `check`, `check-submit`, … |
 | [goals](#goals) | 16 | `goals-create`, `goals-list`, `goals-search`, … |
 | [logging](#logging) | 25 | `finding-log`, `finding-resolve`, `unknown-log`, … |
-| [project](#project) | 17 | `project-init`, `project-update`, `project-create`, … |
+| [project](#project) | 18 | `project-init`, `project-update`, `project-create`, … |
 | [workspace](#workspace) | 20 | `workspace-init`, `workspace-map`, `workspace-list`, … |
 | [checkpoint](#checkpoint) | 7 | `checkpoint-create`, `checkpoint-load`, `checkpoint-list`, … |
 | [sync](#sync) | 6 | `sync-config`, `sync-push`, `sync-pull`, … |
@@ -1674,6 +1674,33 @@ Unregister a project from Cortex (soft archive by default; --purge to hard-delet
   HTTP timeout in seconds (default: 10).
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format (default: human).
+
+#### `empirica provision-practice`
+
+Create + register a new local practice/practitioner in one command
+
+**Arguments:**
+
+- `name` — **required**
+  ai_id / directory name for the new practice
+- `--base-path` — optional · default=`~/empirica`
+  Parent directory the new practice is created under (default: ~/empirica)
+- `--tenant` — optional
+  Tenant slug (default: inferred from cwd's project.yaml)
+- `--org` — optional
+  Org slug (default: inferred from cwd's project.yaml)
+- `--substrate` — optional · default=`cortex`
+  Substrate value written to project.yaml (default: cortex)
+- `--forgejo-owner` — optional
+  If set, wire a forgejo backup remote under this owner (git remote add + sync-config + sync-push)
+- `--forgejo-host` — optional
+  Forgejo SSH remote for the backup, e.g. ssh://git@host:port. Falls back to the EMPIRICA_FORGEJO_HOST env var; required when --forgejo-owner is set (no built-in default).
+- `--no-cortex` — optional · flag
+  Skip cortex registration (local writes only) — passed through to project-register
+- `--dry-run` — optional · flag
+  Print planned actions without executing
+- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
+  Output format
 
 ---
 
@@ -3767,8 +3794,8 @@ Bring up the cockpit (idempotent — attaches if already running)
   Don't attach after creating the layout — useful for headless / scripted bring-up
 - `--quiet-warnings` — optional · flag
   Suppress the abnormal-exit warning even when the previous session ended uncleanly
-- `--surface` — optional · type=`choice` · choices={tmux, alacritty}
-  Override the surface from config. tmux = legacy single-attach. alacritty = one alacritty window per group with WM_CLASS for KDE Meta+1..N switching (requires "groups:" in config).
+- `--surface` — optional · type=`choice` · choices={tmux, alacritty, ghostty}
+  Override the surface from config. tmux = legacy single-attach. alacritty/ghostty = one window per group with WM_CLASS/app-id for KDE Meta+1..N switching (requires "groups:" in config). ghostty additionally supports native drag-and-drop file paste.
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
 

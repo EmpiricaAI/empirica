@@ -354,11 +354,16 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.12.29
+## What's New in 1.12.30
 
-- **`test_org_parent_map` aligned to the metadata-based `parent_org` model.** The 1.12.28 ERM change made `get_org_parent_map()` read `entity_registry.metadata.parent_org` instead of org→org membership edges, but the test still asserted the removed behavior — leaving `main` red. Tests rewritten to the current model (+ a guard that membership edges are not parentage).
-- **`cortex-mailbox-poll` is opt-in only — never auto-queued.** Wake-on-event (the persistent listener) is the canonical mesh trigger; the 30s poller is redundant on wake-on-event seats and is only for harnesses that can't do wake-on-event, where the user opts in via `empirica loop register`. Fixes an ai_id/session-id key mismatch that re-offered it every session (#360) and codifies the opt-in rule (#361). `message-cleanup` housekeeping still auto-installs.
-- **`release.py --version-only --commit`** stages an explicit version/packaging allowlist + CHANGELOG and commits the bump — removing the manual `git add -A` that could sweep a concurrent session's uncommitted work into a release commit. `create_git_tag` now shares the same allowlist (single source of truth). (#359)
+- **`empirica provision-practice <name>`** — one-command single-practitioner onboarding (mkdir → project-init → patch ai_id/tenant/org → project-register → optional forgejo backup). The lightweight sibling of mesh-support's bulk provisioner. `--base-path` defaults to `~/empirica`; the forgejo host comes from `--forgejo-host` or `EMPIRICA_FORGEJO_HOST` (no built-in default).
+- **`/architecture-review` skill** — system-design review at an altitude `/code-audit` + `/eat-the-broccoli` don't cover (failure domains, scalability, data, security, ops, cost, complexity budget). Informational + foresight only: it surfaces failure scenarios and options for the human architect to weigh, and never gates or owns the decision.
+- **Cockpit groups-mode**: ghostty surface + per-pane titling; one terminal window per config (alacritty/ghostty), with a graceful fallback when the binary isn't on PATH.
+- **POSTFLIGHT returns ~3s faster.** The storage pipeline (embeds + global sync — ~5.7s of pure side-effect the response never consumes) now runs **detached** off the critical path, via a fire-and-forget worker with a synchronous fallback so the work is never dropped. Opt-in per-stage timing via `EMPIRICA_POSTFLIGHT_TIMING`.
+- **`project-embed` is incremental.** Only new/changed eidetic findings are re-embedded (was O(all findings) — >30s on a local embedder). The session-end auto-embed is fire-and-forget so a hook timeout can't truncate it mid-run.
+- **Sentinel classifies read-only `tailscale` verbs as noetic** (`status`, `netcheck`, `ip`, `version`, `whois`) — they no longer force an unneeded CHECK when inspecting the tailnet; mutating subcommands (`up`/`set`/`down`/…) stay praxic-gated.
+- **`provision-practice` no longer ships a hardcoded private forgejo host** as the `--forgejo-host` default — it's env/flag-driven, so the shipped package carries no one operator's infra.
+- **`actions/setup-python` 6 → 7** in CI (dependabot).
 ---
 
 ## Privacy & Data
