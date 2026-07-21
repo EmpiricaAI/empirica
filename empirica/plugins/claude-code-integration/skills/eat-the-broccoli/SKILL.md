@@ -164,8 +164,9 @@ it logged a warning and returned `[]` as a *documented* degraded mode →
 
 1. **Real issue** → log it (an issue, a TODO, your tracker).
 2. **Confirmed by-design** → **record the verdict** (an inline annotation or a `.broccoli-accept` line) so the next sweep skips it.
-3. **Roll up a verdict:** 🟢 **GREEN** (ship) · 🟡 **YELLOW** (ship + logged follow-ups) · 🔴 **RED** (blockers — name them).
-4. Re-runs are idempotent: track counts over time. A *rising* silent-failure / debt count is the signal, not the absolute number.
+3. **Rank by blast radius, then cut.** Sort findings by the damage the failure would do, not by how many you found — a sweep with 8 prioritized findings gets acted on; one with 30 gets skimmed and ignored. Calibrate severity to the *stated* context: a missing backup is a 🟢 note for a scratch script and a 🔴 blocker for a billing path. Never grade an MVP against an enterprise checklist — that's noise wearing a badge.
+4. **Roll up a verdict:** 🟢 **GREEN** (ship) · 🟡 **YELLOW** (ship + logged follow-ups) · 🔴 **RED** (blockers — name them).
+5. Re-runs are idempotent: track counts over time. A *rising* silent-failure / debt count is the signal, not the absolute number.
 
 ### The `.broccoli-accept` file
 
