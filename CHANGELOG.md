@@ -5,6 +5,41 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.32] — 2026-07-21
+
+Patch: fixes a macOS hang in `status`/`postflight-submit`, completes Claude
+Code 2.1.x cockpit support, makes the statusline context meter opt-in, and
+hardens ntfy-grant provisioning against silent partial failures.
+
+### Fixed
+- **`status` and `postflight-submit` hung indefinitely on macOS** (#365). The
+  cockpit liveness scan walked the full process table via psutil, and on macOS
+  `.environ()`/`.cmdline()` block uninterruptibly inside `sysctl(KERN_PROCARGS2)`
+  against a wedged process — a native syscall block no `try/except` can catch.
+  The process-table walks (`scan_live_claude`, `live_claude_pids_by_instance`,
+  `_pane_hosts_claude`) are now wall-clock-bounded (default 3s, override via
+  `EMPIRICA_LIVENESS_SCAN_TIMEOUT`) and degrade to "inconclusive" instead of
+  wedging the whole command. Linux `/proc` reads were never affected.
+- **Cockpit still missed Claude Code 2.1.x seats in the tmux liveness path.**
+  1.12.31 fixed `_is_claude_proc`; `_live_tmux_panes` had the same blind spot —
+  CC 2.1.x reports `pane_current_command` as a bare version string (e.g.
+  `2.1.212`), so live panes were dropped. It now resolves each pane's foreground
+  process and matches the `claude` basename via a process-tree walk.
+- **`module provision` reported partial ntfy-grant failures as success.**
+  `_post_grants` read only the HTTP status from cortex's grant endpoint,
+  discarding the 207 multi-status body, so a per-grant failure (topic conflict,
+  permission miss) was stamped `granted` with zero telemetry. It now parses
+  `grants_applied[]` and surfaces `partial` (naming the failing grants), which
+  flips the provision receipt to `ok=false`. A bare 207 with no per-grant detail
+  is treated as `partial` rather than assumed successful.
+
+### Changed
+- **Statusline context meter is now opt-in** behind `EMPIRICA_CTX_METER`. The
+  empirica statusline is shared across Claude Code and other harnesses; the
+  1.12.31 meter changed the display for all of them. The bracketed meter now
+  renders only when `EMPIRICA_CTX_METER` is set (`1`/`true`/`bar`); the default
+  restores Claude Code's plain `42%ctx`.
+
 ## [1.12.31] — 2026-07-21
 
 Patch: a practice-misbind fix for non-Claude-Code harnesses, cockpit support for
