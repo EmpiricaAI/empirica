@@ -61,6 +61,36 @@ def _has_active_listener_intent(instance_id: str) -> bool:
         return False
 
 
+def _has_live_log_tail(instance_id: str) -> bool:
+    """True iff a live (non-orphan) loop_fires tail-Monitor for this ai_id is
+    already running — a monitor is already bridging wakes into an active session.
+
+    SessionStart re-fires on every compaction / new-session-init, and the AI
+    can't reliably dedup across a compaction (the prior Monitor's task id is
+    gone). Without this check the hook re-emits arm instructions and each arm
+    stacks another tail that delivers every wake event an extra time. If a live
+    tail already exists, the hook skips re-arming.
+
+    Orphan tails (ppid == 1, dead parent) do NOT count — they deliver nowhere
+    and are handled by `listener gc`; only a live-parent tail means an active
+    session is already covered. Never raises.
+    """
+    try:
+        from empirica.core.cockpit.listener_processes import (
+            _ai_id_from_listener_cmdline,
+            walk_listener_processes,
+        )
+
+        for p in walk_listener_processes():
+            if p.get("kind") != "log_tail" or p.get("ppid") == 1:
+                continue
+            if _ai_id_from_listener_cmdline(p.get("cmdline", "")) == instance_id:
+                return True
+    except Exception:
+        pass
+    return False
+
+
 def _build_reaction_table(loop_names: list[str]) -> str:
     """Markdown table mapping each active loop → its body skill."""
     rows = []
@@ -397,6 +427,31 @@ def main() -> int:
     # service + no record of prior intent.
     if not loops and not listener_running and not has_prior_intent:
         print(json.dumps({}))
+        return 0
+
+    # A live tail-Monitor for this ai_id already bridging wakes → do NOT re-emit
+    # arm instructions. SessionStart re-fires on compaction / new-session-init;
+    # re-arming would stack a duplicate tail that delivers every event twice.
+    if _has_live_log_tail(instance_id):
+        already = (
+            f"## 📬 Mesh listener already armed\n\n"
+            f"A live tail-Monitor for `{instance_id}` is already bridging wake events "
+            f"into this session — SessionStart re-fired (compaction / new-session-init), "
+            f"but re-arming would stack a duplicate tail that delivers every event twice. "
+            f"**No action needed — do not arm another Monitor.**\n\n"
+            f"If you ever see duplicate wake deliveries, reap same-ai_id duplicates with "
+            f"`empirica listener gc --apply`."
+        )
+        print(
+            json.dumps(
+                {
+                    "hookSpecificOutput": {
+                        "hookEventName": "SessionStart",
+                        "additionalContext": already,
+                    },
+                }
+            )
+        )
         return 0
 
     additional = _build_additional_context(
