@@ -25,16 +25,62 @@ instance during a status sweep.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import shutil
 import subprocess
+import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import NamedTuple
+from typing import NamedTuple, TypeVar
+
+logger = logging.getLogger(__name__)
+
+_T = TypeVar("_T")
 
 EMPIRICA_DIR = Path.home() / ".empirica"
 TTY_SESSIONS_DIR = EMPIRICA_DIR / "tty_sessions"
+
+# Wall-clock ceiling for a psutil process-table walk. On macOS, .environ()/
+# .cmdline() issue sysctl(KERN_PROCARGS2), which can block uninterruptibly on a
+# wedged process (network-mount helper, zombie, VPN/AV agent) — a native syscall
+# block, not a Python exception, so per-process try/except never fires. Bounding
+# the walk turns an indefinite hang (issue #365) into a logged, graceful
+# degradation. Env-overridable as an escape hatch without a release.
+_LIVENESS_SCAN_TIMEOUT_S = float(os.environ.get("EMPIRICA_LIVENESS_SCAN_TIMEOUT", "3.0"))
+
+
+def _run_bounded(fn: Callable[[], _T | None], label: str) -> _T | None:
+    """Run a psutil process-table walk under a hard wall-clock bound.
+
+    On timeout we abandon the (daemon) worker thread — it stays blocked in the
+    syscall but can't hold up process exit — and return None, honoring the
+    callers' 'None = inconclusive, never a dead verdict' contract (liveness then
+    degrades to the tmux / captured-PID / recent-activity signals).
+    """
+    box: dict[str, _T | None] = {}
+
+    def _target():
+        try:
+            box["v"] = fn()
+        except Exception:
+            box["v"] = None
+
+    t = threading.Thread(target=_target, name=f"empirica-{label}", daemon=True)
+    t.start()
+    t.join(_LIVENESS_SCAN_TIMEOUT_S)
+    if t.is_alive():
+        logger.warning(
+            "%s exceeded %.1fs — a process's environ()/cmdline() is blocking; "
+            "treating liveness as inconclusive (raise EMPIRICA_LIVENESS_SCAN_TIMEOUT to adjust)",
+            label,
+            _LIVENESS_SCAN_TIMEOUT_S,
+        )
+        return None
+    return box.get("v")
+
 
 TMUX_INSTANCE_PATTERN = re.compile(r"^tmux_(.+)$")
 
@@ -68,12 +114,15 @@ _VERSION_NAME_RE = re.compile(r"^\d+\.\d+")
 
 
 def _pane_hosts_claude(pane_pid: int) -> bool:
-    """True if the tmux pane's process tree contains a Claude Code process.
+    """True if the tmux pane's process tree contains a Claude Code process
+    (wall-clock bounded — the .cmdline() calls carry the same macOS syscall-hang
+    risk as scan_live_claude, #365; on timeout treat the pane as not-claude)."""
+    return bool(_run_bounded(lambda: _pane_hosts_claude_impl(pane_pid), "pane_hosts_claude"))
 
-    Used when pane_current_command is a mangled version string (CC 2.1.x) rather
-    than 'claude'. Resolves the pane's foreground process + descendants and reuses
-    `_is_claude_proc` (which matches cmdline[0] basename, surviving the rename).
-    """
+
+def _pane_hosts_claude_impl(pane_pid: int) -> bool:
+    """Resolve the pane's foreground process + descendants and reuse
+    `_is_claude_proc` (matches cmdline[0] basename, surviving the CC 2.1.x rename)."""
     try:
         import psutil
 
@@ -234,6 +283,15 @@ class LiveClaudeScan(NamedTuple):
 
 
 def scan_live_claude() -> LiveClaudeScan | None:
+    """Walk the process table for live ``claude`` sessions (wall-clock bounded).
+
+    Bounded by :func:`_run_bounded` so a wedged process's blocking
+    ``environ()``/``cmdline()`` on macOS can't hang the whole command (#365).
+    """
+    return _run_bounded(_scan_live_claude_impl, "scan_live_claude")
+
+
+def _scan_live_claude_impl() -> LiveClaudeScan | None:
     """Walk the process table once for live ``claude`` sessions.
 
     MULTIPLEXER-AGNOSTIC and STATE-INDEPENDENT: sees Claude regardless of
@@ -278,6 +336,13 @@ def scan_live_claude() -> LiveClaudeScan | None:
 
 
 def live_claude_pids_by_instance() -> dict[str, tuple[int, float | None]] | None:
+    """Map each live claude ``EMPIRICA_INSTANCE_ID`` to ``(pid, create_time)``
+    (wall-clock bounded — same macOS syscall-hang guard as
+    :func:`scan_live_claude`, #365)."""
+    return _run_bounded(_live_claude_pids_by_instance_impl, "live_claude_pids_by_instance")
+
+
+def _live_claude_pids_by_instance_impl() -> dict[str, tuple[int, float | None]] | None:
     """Map each live claude ``EMPIRICA_INSTANCE_ID`` to ``(pid, create_time)``.
 
     Like :func:`scan_live_claude` but keyed by instance id and carrying the
