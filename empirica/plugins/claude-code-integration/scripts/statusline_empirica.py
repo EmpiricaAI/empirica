@@ -1089,7 +1089,12 @@ def format_context_window(stdin_context: dict) -> str:
         color = Colors.YELLOW
     else:
         color = Colors.GREEN
-    return f"{color}{int(used_pct)}%ctx{Colors.RESET}"
+    # Bracketed-cell meter that fills as context is consumed, % at the end —
+    # e.g. [####------] 42%. Data is Claude Code's context_window.used_percentage.
+    cells = 10
+    filled = max(0, min(cells, round(used_pct / 10)))
+    bar = "#" * filled + "-" * (cells - filled)
+    return f"{color}[{bar}] {int(used_pct)}%{Colors.RESET}"
 
 
 def _append_postflight_deltas(parts, phase, deltas):
