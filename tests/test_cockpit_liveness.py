@@ -556,3 +556,47 @@ def test_pane_hosts_claude_matches_mangled_name_via_cmdline(monkeypatch):
     root2 = _FakeProc("2.1.212", ["node", "server.js"])
     fake_psutil.Process = lambda _pid: root2
     assert lv._pane_hosts_claude(111) is False
+
+
+# ── #365: bounded process-table walk (macOS sysctl hang → graceful degrade) ──
+
+
+def test_run_bounded_returns_result_when_fast():
+    assert lv._run_bounded(lambda: 42, "fast") == 42
+    assert lv._run_bounded(lambda: None, "fast_none") is None
+
+
+def test_run_bounded_returns_none_on_timeout(monkeypatch):
+    import time
+
+    monkeypatch.setattr(lv, "_LIVENESS_SCAN_TIMEOUT_S", 0.05)
+
+    def _slow():
+        time.sleep(2)  # exceeds the bound; the daemon thread is abandoned
+        return "should-never-be-returned"
+
+    # Bounded: returns None well before the fn would finish (inconclusive, not a hang).
+    assert lv._run_bounded(_slow, "slow") is None
+
+
+def test_scan_live_claude_degrades_to_none_when_impl_hangs(monkeypatch):
+    import time
+
+    monkeypatch.setattr(lv, "_LIVENESS_SCAN_TIMEOUT_S", 0.05)
+
+    def _hang():
+        time.sleep(2)  # simulate a wedged process blocking environ()/cmdline()
+        return lv.LiveClaudeScan(instance_ids=set(), cwd_counts={})
+
+    monkeypatch.setattr(lv, "_scan_live_claude_impl", _hang)
+    # The whole command must not hang — it degrades to None (callers treat as
+    # inconclusive and fall through to tmux/PID/activity signals).
+    assert lv.scan_live_claude() is None
+
+
+def test_pids_by_instance_degrades_to_none_when_impl_hangs(monkeypatch):
+    import time
+
+    monkeypatch.setattr(lv, "_LIVENESS_SCAN_TIMEOUT_S", 0.05)
+    monkeypatch.setattr(lv, "_live_claude_pids_by_instance_impl", lambda: time.sleep(2) or {})
+    assert lv.live_claude_pids_by_instance() is None
