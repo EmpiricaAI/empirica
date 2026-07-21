@@ -159,12 +159,21 @@ def _is_claude_proc(name: str | None, cmdline: list[str] | None) -> bool:
     The CC binary reports as ``claude``; older/dev installs run via ``node``
     with the claude entrypoint in argv. We require the ``claude`` token in
     the cmdline for the node case to avoid sweeping in unrelated node apps.
+
+    Claude Code 2.1.x mangles the OS process name (psutil ``name()``) to a bare
+    version string (e.g. ``2.1.212``), so a name-only gate silently hides every
+    live 2.1.x seat — and it recurs on each version bump. ``cmdline()[0]``'s
+    basename reliably stays ``claude`` regardless, so we match on that too.
     """
     nm = (name or "").lower()
     if nm == "claude":
         return True
+    cmd = cmdline or []
+    # argv[0] basename is 'claude' even when name() is a mangled version string.
+    if cmd and os.path.basename(cmd[0] or "").lower() == "claude":
+        return True
     if nm in _CLAUDE_COMMANDS:  # node — confirm it's actually claude
-        return any("claude" in (arg or "").lower() for arg in (cmdline or []))
+        return any("claude" in (arg or "").lower() for arg in cmd)
     return False
 
 

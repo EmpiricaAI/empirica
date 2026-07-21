@@ -5,6 +5,43 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.31] — 2026-07-21
+
+Patch: a practice-misbind fix for non-Claude-Code harnesses, cockpit support for
+Claude Code 2.1.x, a statusline context meter, and release/CI-tooling hardening.
+
+### Fixed
+- **Practice/ai_id misbind on harnesses that don't set `EMPIRICA_CWD_RELIABLE`**
+  (codex, ecodex). `get_active_project_path` fell to a stale `instance_projects`
+  mapping and bound a session to the wrong practice (a session in one project
+  resolving to another, with a frozen other-session vector snapshot). A
+  stale-mapping guard now trusts the cwd when it's a registered project ROOT that
+  differs from the mapping (physical ground truth, harness-agnostic). Claude Code
+  is unaffected — it sets `EMPIRICA_CWD_RELIABLE` and resolves at Priority -1.
+- **Cockpit didn't recognize Claude Code 2.1.x seats.** CC 2.1.x sets the OS
+  process name to a bare version string (e.g. `2.1.212`), so `_is_claude_proc`
+  filtered live seats out before ever checking the cmdline — the cockpit showed
+  partial seat lists and `instance rebind` failed. Now also matches `cmdline[0]`'s
+  basename, which stays `claude` regardless of the name mangling (otherwise recurs
+  on every CC version bump).
+- **`release_chain` compliance check read PyPI from pip's local cache**, so it
+  reported a freshly-published version as "missing" for minutes after
+  `release.py --publish`. Now queries PyPI's live JSON API.
+
+### Added
+- **Statusline context meter** — a bracketed-cell meter (`[####------] 42%`) on
+  the right of the empirica statusline, fed by Claude Code's
+  `context_window.used_percentage`, with green/yellow/red tiering. Renders nothing
+  when the harness supplies no usage.
+
+### Changed
+- **Dependabot targets `develop`** (all 3 ecosystems) — bumps land on the trunk,
+  get CI-tested there, and flow to main via release, instead of landing on the
+  default branch and needing a manual back-port.
+- **SessionStart skips re-arming the mesh Monitor when a live tail already exists**
+  — stops compaction / new-session-init re-fires from stacking duplicate
+  wake-delivery tails (one seat had accumulated 5).
+
 ## [1.12.30] — 2026-07-21
 
 Patch: POSTFLIGHT returns ~3s faster, `project-embed` made incremental, a

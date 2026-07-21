@@ -598,6 +598,23 @@ def _build_release_chain_check(project_root: Path) -> dict[str, Any]:
     }
 
 
+def _pypi_has_version(pkg: str, version: str) -> bool:
+    """Query PyPI's live JSON API for whether ``version`` of ``pkg`` is published.
+
+    Uses the live API rather than ``pip index versions`` — pip reads its local
+    HTTP cache, which lags minutes behind a fresh publish and produced a
+    false-negative in ``release_chain`` right after ``release.py --publish``.
+    """
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(f"https://pypi.org/pypi/{pkg}/json", timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        return version in data.get("releases", {})
+    except Exception:
+        return False
+
+
 def _check_channel(channel: str, version: str, project_root: Path) -> str:
     """Check if version is published to a specific channel. Returns status string."""
     try:
@@ -621,22 +638,10 @@ def _check_channel(channel: str, version: str, project_root: Path) -> str:
             return "published" if result.returncode == 0 else "missing"
 
         if channel == "pypi":
-            result = subprocess.run(
-                ["pip", "index", "versions", "empirica"],
-                capture_output=True,
-                text=True,
-                timeout=15,
-            )
-            return "published" if version in result.stdout else "missing"
+            return "published" if _pypi_has_version("empirica", version) else "missing"
 
         if channel == "pypi_mcp":
-            result = subprocess.run(
-                ["pip", "index", "versions", "empirica-mcp"],
-                capture_output=True,
-                text=True,
-                timeout=15,
-            )
-            return "published" if version in result.stdout else "missing"
+            return "published" if _pypi_has_version("empirica-mcp", version) else "missing"
 
         if channel == "docker":
             # Check Docker Hub tag existence via API

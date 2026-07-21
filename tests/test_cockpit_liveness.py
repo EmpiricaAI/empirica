@@ -305,6 +305,16 @@ def test_is_claude_proc_rejects_other_processes():
     assert lv._is_claude_proc("python", ["python", "claude_helper.py"]) is False
 
 
+def test_is_claude_proc_matches_mangled_version_name():
+    # Regression (Philipp): Claude Code 2.1.x mangles psutil name() to a bare
+    # version string, so a name-only gate hid every live 2.1.x seat. argv[0]
+    # basename stays 'claude' — match on it.
+    assert lv._is_claude_proc("2.1.212", ["claude", "--resume"]) is True
+    assert lv._is_claude_proc("2.1.212", ["/usr/local/bin/claude", "-p"]) is True
+    # A version-named process that ISN'T claude is still rejected (no over-broadening).
+    assert lv._is_claude_proc("2.1.212", ["node", "server.js"]) is False
+
+
 class _FakeProc:
     """psutil-like process stub for scan_live_claude tests."""
 

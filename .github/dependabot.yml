@@ -7,6 +7,10 @@ updates:
   # Core empirica package
   - package-ecosystem: pip
     directory: "/"
+    # Land bumps on develop (our trunk), not the default branch (main) — so they
+    # get CI-tested on develop and flow to main via the normal release, instead
+    # of landing on main and needing a manual back-port.
+    target-branch: "develop"
     schedule:
       interval: weekly
       day: monday
@@ -34,6 +38,7 @@ updates:
   # MCP wrapper package
   - package-ecosystem: pip
     directory: "/empirica-mcp"
+    target-branch: "develop"
     schedule:
       interval: weekly
       day: monday
@@ -44,6 +49,7 @@ updates:
   # GitHub Actions versions
   - package-ecosystem: github-actions
     directory: "/"
+    target-branch: "develop"
     schedule:
       interval: weekly
       day: monday

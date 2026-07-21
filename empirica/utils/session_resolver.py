@@ -956,6 +956,54 @@ def _get_instance_suffix() -> str:
     return ""
 
 
+def _headless_generic_active_work() -> "str | None":
+    """Priority-2 fallback: the generic ``active_work.json`` project_path, but
+    only in headless mode (no terminal identity). Returns None otherwise."""
+    from pathlib import Path
+
+    if not is_headless():
+        return None
+    try:
+        f = Path.home() / ".empirica" / "active_work.json"
+        if f.exists():
+            with open(f) as fh:
+                return json.load(fh).get("project_path")
+    except Exception:
+        pass
+    return None
+
+
+def _cwd_project_override(instance_path: str) -> "str | None":
+    """Stale-mapping guard: if the cwd is a registered project ROOT that differs
+    from ``instance_path``, return cwd — the instance_projects mapping has gone
+    stale and we're really in the cwd project.
+
+    This is the cross-harness misbind (codex/ecodex): those harnesses don't set
+    EMPIRICA_CWD_RELIABLE, so ``get_active_project_path`` fell to a stale
+    instance_projects entry and mis-bound the practice (a session in ecodex-lab
+    resolving to empirica-extension with a frozen snapshot). cwd-is-a-registered-
+    project-root is a harness-agnostic ground truth. Claude Code is unaffected —
+    it sets EMPIRICA_CWD_RELIABLE and returns at Priority -1 before reaching here.
+    """
+    from pathlib import Path
+
+    try:
+        cwd = str(Path.cwd())
+        if (Path(cwd) / ".empirica" / "project.yaml").exists() and os.path.realpath(cwd) != os.path.realpath(
+            instance_path
+        ):
+            logger.warning(
+                "get_active_project_path: cwd is a registered project (%s) but "
+                "instance_projects points elsewhere (%s) — trusting cwd (stale-mapping guard).",
+                cwd,
+                instance_path,
+            )
+            return cwd
+    except Exception:
+        pass
+    return None
+
+
 def get_active_project_path(claude_session_id: str | None = None) -> "str | None":
     """Get the active project path for the current instance.
 
@@ -1031,6 +1079,9 @@ def get_active_project_path(claude_session_id: str | None = None) -> "str | None
     # project-switch CLI updates instance_projects but CAN'T update active_work
     # (doesn't know claude_session_id). So instance_projects is more current.
     if instance_path:
+        override = _cwd_project_override(instance_path)
+        if override:
+            return override
         logger.debug(f"get_active_project_path: from instance_projects: {instance_path}")
         return instance_path
 
@@ -1039,24 +1090,14 @@ def get_active_project_path(claude_session_id: str | None = None) -> "str | None
         logger.debug(f"get_active_project_path: from active_work_{claude_session_id}: {active_work_path}")
         return active_work_path
 
-    # Priority 2: Generic active_work.json — HEADLESS MODE ONLY
-    # In interactive mode (terminal exists), instance_projects + active_work_{uuid}
-    # handle everything. The generic file would only cause pollution by returning
-    # a stale project from a different terminal/session.
-    # In headless mode (containers, CI), there's no terminal identity — the generic
-    # file IS the primary source.
-    if is_headless():
-        generic_work_file = Path.home() / ".empirica" / "active_work.json"
-        if generic_work_file.exists():
-            try:
-                with open(generic_work_file) as f:
-                    data = json.load(f)
-                    generic_path = data.get("project_path")
-                if generic_path:
-                    logger.debug(f"get_active_project_path: from active_work.json (headless): {generic_path}")
-                    return generic_path
-            except Exception:
-                pass
+    # Priority 2: Generic active_work.json — HEADLESS MODE ONLY. In interactive
+    # mode, instance_projects + active_work_{uuid} handle everything; the generic
+    # file would only pollute with a stale project from another terminal. In
+    # headless mode (containers, CI) there's no terminal identity, so it's primary.
+    generic_path = _headless_generic_active_work()
+    if generic_path:
+        logger.debug(f"get_active_project_path: from active_work.json (headless): {generic_path}")
+        return generic_path
 
     # NO CWD FALLBACK - fail explicitly
     logger.debug(
