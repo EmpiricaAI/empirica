@@ -28,26 +28,38 @@ def _load():
     return mod
 
 
-def _meter(sl, pct) -> str:
+def _render(sl, pct) -> str:
     return _ANSI.sub("", sl.format_context_window({"context_window": {"used_percentage": pct}}))
 
 
-def test_meter_matches_spec(tmp_path, monkeypatch):
+def test_meter_matches_spec_when_opted_in(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("EMPIRICA_CTX_METER", "1")
     sl = _load()
-    assert _meter(sl, 42) == "[####------] 42%"
+    assert _render(sl, 42) == "[####------] 42%"
 
 
-def test_meter_fills_and_caps(tmp_path, monkeypatch):
+def test_meter_fills_and_caps_when_opted_in(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("EMPIRICA_CTX_METER", "bar")
     sl = _load()
-    assert _meter(sl, 80) == "[########--] 80%"
-    assert _meter(sl, 100) == "[##########] 100%"
+    assert _render(sl, 80) == "[########--] 80%"
+    assert _render(sl, 100) == "[##########] 100%"
 
 
-def test_meter_empty_without_usage(tmp_path, monkeypatch):
+def test_default_render_is_plain_percent(tmp_path, monkeypatch):
+    # Without the opt-in env, the shared statusline keeps the plain '%ctx' render
+    # (Claude Code + other harnesses are unchanged — the meter is ecodex-only).
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("EMPIRICA_CTX_METER", raising=False)
+    sl = _load()
+    assert _render(sl, 42) == "42%ctx"
+
+
+def test_empty_without_usage_regardless_of_opt_in(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("EMPIRICA_CTX_METER", "1")
     sl = _load()
     # No usage from the harness → render nothing (don't show a fake 0-bar).
     assert sl.format_context_window({}) == ""
-    assert _meter(sl, 0) == ""
+    assert _render(sl, 0) == ""

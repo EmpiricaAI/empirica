@@ -1089,12 +1089,17 @@ def format_context_window(stdin_context: dict) -> str:
         color = Colors.YELLOW
     else:
         color = Colors.GREEN
-    # Bracketed-cell meter that fills as context is consumed, % at the end —
-    # e.g. [####------] 42%. Data is Claude Code's context_window.used_percentage.
-    cells = 10
-    filled = max(0, min(cells, round(used_pct / 10)))
-    bar = "#" * filled + "-" * (cells - filled)
-    return f"{color}[{bar}] {int(used_pct)}%{Colors.RESET}"
+    # The bracketed-cell meter ([####------] 42%) is OPT-IN, not the default: it's
+    # an ecodex display preference (open-weights operators watching context
+    # headroom). The shared statusline must NOT change Claude Code's existing
+    # plain-'%ctx' render for one harness's visual choice — so a harness that
+    # wants the meter sets EMPIRICA_CTX_METER; everyone else keeps '%ctx'.
+    if os.environ.get("EMPIRICA_CTX_METER", "").strip().lower() in ("1", "true", "bar"):
+        cells = 10
+        filled = max(0, min(cells, round(used_pct / 10)))
+        bar = "#" * filled + "-" * (cells - filled)
+        return f"{color}[{bar}] {int(used_pct)}%{Colors.RESET}"
+    return f"{color}{int(used_pct)}%ctx{Colors.RESET}"
 
 
 def _append_postflight_deltas(parts, phase, deltas):
