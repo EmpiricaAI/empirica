@@ -60,6 +60,34 @@ class LivenessResult:
 # 'claude' is the bin name; 'node' covers older installations / dev launches.
 _CLAUDE_COMMANDS = frozenset({"claude", "node"})
 
+# Claude Code 2.1.x renames the foreground process to a bare version string, so
+# tmux's pane_current_command reports e.g. "2.1.212" instead of "claude". A pane
+# whose command matches this is a mangled-CC candidate — resolve its process tree
+# to confirm (Philipp verified: every live 2.1.212 pane reports this).
+_VERSION_NAME_RE = re.compile(r"^\d+\.\d+")
+
+
+def _pane_hosts_claude(pane_pid: int) -> bool:
+    """True if the tmux pane's process tree contains a Claude Code process.
+
+    Used when pane_current_command is a mangled version string (CC 2.1.x) rather
+    than 'claude'. Resolves the pane's foreground process + descendants and reuses
+    `_is_claude_proc` (which matches cmdline[0] basename, surviving the rename).
+    """
+    try:
+        import psutil
+
+        proc = psutil.Process(pane_pid)
+        for p in [proc, *proc.children(recursive=True)]:
+            try:
+                if _is_claude_proc(p.name(), p.cmdline()):
+                    return True
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+    except Exception:  # noqa: S110 — best-effort; psutil missing / proc gone must never break liveness
+        pass
+    return False
+
 
 def _live_tmux_panes() -> set[str] | None:
     """Return set of pane numbers (e.g. {'1', '2', '3'}) where Claude Code is running.
@@ -76,7 +104,7 @@ def _live_tmux_panes() -> set[str] | None:
         return None
     try:
         result = subprocess.run(
-            ["tmux", "list-panes", "-a", "-F", "#{pane_id} #{pane_current_command}"],
+            ["tmux", "list-panes", "-a", "-F", "#{pane_id} #{pane_pid} #{pane_current_command}"],
             capture_output=True,
             text=True,
             timeout=2,
@@ -88,12 +116,21 @@ def _live_tmux_panes() -> set[str] | None:
         return set()
     panes = set()
     for line in result.stdout.splitlines():
-        parts = line.strip().split(maxsplit=1)
-        if len(parts) != 2:
+        parts = line.strip().split(maxsplit=2)
+        if len(parts) != 3:
             continue
-        pane_id, cmd = parts
+        pane_id, pane_pid, cmd = parts
         if cmd in _CLAUDE_COMMANDS:
             panes.add(pane_id.lstrip("%"))
+        elif _VERSION_NAME_RE.match(cmd):
+            # Mangled CC 2.1.x name (e.g. "2.1.212") — confirm via the process
+            # tree. Only version-string names are tree-walked, so shells/python
+            # panes cost nothing.
+            try:
+                if _pane_hosts_claude(int(pane_pid)):
+                    panes.add(pane_id.lstrip("%"))
+            except ValueError:
+                pass
     return panes
 
 
