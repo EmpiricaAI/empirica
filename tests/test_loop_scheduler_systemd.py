@@ -441,3 +441,82 @@ def test_handler_errors_when_empirica_not_on_path(fake_systemd_env, monkeypatch)
     assert rc != 0, "handler must surface the missing-binary case, not silently install a broken timer"
     # No service file should have been written
     assert not (fake_systemd_env["sysd"] / "empirica-loop-i-x.service").exists()
+
+
+# ── Orphan reaper (ecodex prop_s7ac5 flag-2) ─────────────────────────────
+
+
+def _fake_scan(instance_ids):
+    """A minimal LiveClaudeScan stand-in for reap tests."""
+    from types import SimpleNamespace
+
+    return SimpleNamespace(instance_ids=set(instance_ids), cwd_counts={})
+
+
+def test_is_ephemeral_instance_classification():
+    from empirica.core.loop_scheduler.launchd import is_ephemeral_instance
+
+    # Ephemeral practitioner seats
+    assert is_ephemeral_instance("tmux_12")
+    assert is_ephemeral_instance("pts_3")
+    assert is_ephemeral_instance("term_pts_6")
+    assert is_ephemeral_instance("x11_78940210")
+    # Stable practice ai_ids — never ephemeral
+    assert not is_ephemeral_instance("empirica")
+    assert not is_ephemeral_instance("empirica-workspace")
+    assert not is_ephemeral_instance("cortex")
+    assert not is_ephemeral_instance(None)
+    assert not is_ephemeral_instance("")
+
+
+def test_reap_removes_dead_ephemeral_keeps_live_and_stable(fake_systemd_env, monkeypatch):
+    import empirica.core.cockpit.liveness as liveness
+
+    sched = SystemdLoopScheduler(empirica_bin="/usr/bin/empirica")
+    monkeypatch.setattr(
+        sched,
+        "list_enabled",
+        lambda: [
+            "empirica-loop-tmux_12-cortex-mailbox-poll",  # dead ephemeral → REAP
+            "empirica-loop-tmux_3-message-cleanup",  # live ephemeral → keep
+            "empirica-loop-empirica-cortex-mailbox-poll",  # stable ai_id → keep
+        ],
+    )
+    monkeypatch.setattr(liveness, "scan_live_claude", lambda: _fake_scan({"tmux_3"}))
+    disabled: list[tuple] = []
+    monkeypatch.setattr(sched, "disable", lambda inst, name: disabled.append((inst, name)) or True)
+
+    reaped = sched.reap_orphans(current_instance_id="tmux_3")
+
+    assert reaped == ["empirica-loop-tmux_12-cortex-mailbox-poll"]
+    assert disabled == [("tmux_12", "cortex-mailbox-poll")]
+
+
+def test_reap_bails_when_liveness_inconclusive(fake_systemd_env, monkeypatch):
+    """A None scan (couldn't determine liveness) must reap NOTHING — a transient
+    scan miss can't be allowed to kill a live seat's timer."""
+    import empirica.core.cockpit.liveness as liveness
+
+    sched = SystemdLoopScheduler(empirica_bin="/usr/bin/empirica")
+    monkeypatch.setattr(sched, "list_enabled", lambda: ["empirica-loop-tmux_99-message-cleanup"])
+    monkeypatch.setattr(liveness, "scan_live_claude", lambda: None)
+    disabled: list[tuple] = []
+    monkeypatch.setattr(sched, "disable", lambda i, n: disabled.append((i, n)) or True)
+
+    assert sched.reap_orphans() == []
+    assert disabled == []
+
+
+def test_reap_never_touches_current_instance(fake_systemd_env, monkeypatch):
+    """Even if the current instance somehow isn't in the live set, its own timer
+    is never reaped."""
+    import empirica.core.cockpit.liveness as liveness
+
+    sched = SystemdLoopScheduler(empirica_bin="/usr/bin/empirica")
+    monkeypatch.setattr(sched, "list_enabled", lambda: ["empirica-loop-tmux_5-cortex-mailbox-poll"])
+    monkeypatch.setattr(liveness, "scan_live_claude", lambda: _fake_scan(set()))  # nothing live
+    disabled: list[tuple] = []
+    monkeypatch.setattr(sched, "disable", lambda i, n: disabled.append((i, n)) or True)
+
+    assert sched.reap_orphans(current_instance_id="tmux_5") == []
+    assert disabled == []
