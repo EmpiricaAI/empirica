@@ -125,6 +125,21 @@ def is_placeholder_instance(instance_id: str | None) -> bool:
     return instance_id is None or str(instance_id).strip().lower() in PLACEHOLDER_INSTANCE_IDS
 
 
+# Ephemeral practitioner-seat instance ids — a tmux pane / TTY / X11 session that
+# dies when its terminal closes. A durable loop timer keyed on one becomes an
+# orphan the moment the seat is gone (ecodex prop_s7ac5). The reaper
+# (reap_orphans, both backends) removes such units once their seat is no longer
+# live. Stable practice ids (the ai_id, e.g. 'empirica', 'empirica-workspace')
+# never match — they carry no timer-orphan risk. Shared by both schedulers.
+_EPHEMERAL_INSTANCE_RE = re.compile(r"^(tmux_\d+|pts_\d+|term_[a-z0-9_]+|x11_[a-z0-9]+)$")
+
+
+def is_ephemeral_instance(instance_id: str | None) -> bool:
+    """True if `instance_id` is an ephemeral practitioner-seat id (tmux_N / pts_N
+    / term_* / x11_*) rather than a stable practice ai_id."""
+    return bool(instance_id) and _EPHEMERAL_INSTANCE_RE.match(str(instance_id)) is not None
+
+
 def looks_like_cron(spec: str | int) -> bool:
     """True if `spec` is a 5-field cron expression (vs an interval like '30s')."""
     return isinstance(spec, str) and len(spec.split()) == 5
@@ -328,6 +343,37 @@ class LaunchdLoopScheduler:
         except OSError:
             pass
         return out
+
+    def reap_orphans(self, current_instance_id: str | None = None) -> list[str]:
+        """Remove loop agents whose EPHEMERAL seat (tmux_N / pts_N / term_* /
+        x11_*) is no longer live — the orphan class ecodex flagged (prop_s7ac5):
+        a pane/TTY closes, its agent keeps firing forever.
+
+        Conservative by construction: only ephemeral-keyed agents are considered
+        (stable ai_id loops are never touched); liveness comes from
+        ``scan_live_claude()`` and if it's inconclusive (None) NOTHING is reaped,
+        so a transient scan miss can't kill a live seat's agent; the current
+        instance and any live instance are always kept. Returns the labels reaped.
+        """
+        from empirica.core.cockpit.liveness import scan_live_claude
+
+        scan = scan_live_claude()
+        if scan is None:
+            return []  # inconclusive liveness — never reap blind
+        live = set(scan.instance_ids or ())
+        reaped: list[str] = []
+        for label in self.list_enabled():
+            rest = label.removeprefix("com.empirica.loop.")
+            instance_id, sep, name = rest.partition(".")
+            if not sep or not name or not is_ephemeral_instance(instance_id):
+                continue  # stable ai_id-keyed (or unparseable) → leave it
+            if instance_id == current_instance_id or instance_id in live:
+                continue  # live seat → keep
+            if self.disable(instance_id, name):
+                reaped.append(label)
+        if reaped:
+            logger.info(f"reaped {len(reaped)} orphan loop agent(s): {', '.join(reaped)}")
+        return reaped
 
     # ── Tick (ExecStart equivalent — reuses systemd's tick logic) ───────
 

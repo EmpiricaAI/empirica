@@ -913,6 +913,10 @@ def handle_loop_enable_command(args) -> int:
     body_command = _entry.get("body_command") if (_entry and _entry.get("body_kind") == "cli") else None
     try:
         sched = get_loop_scheduler(empirica_bin=empirica_bin)
+        # Opportunistic orphan reap before installing — clears stale timer units
+        # from dead ephemeral seats (tmux_N/pts_N) so they don't accumulate
+        # (ecodex prop_s7ac5). Best-effort; never blocks the enable.
+        reaped = sched.reap_orphans(current_instance_id=instance_id)
         paths = sched.enable(instance_id, args.name, args.interval, body_command=body_command)
     except LoopSchedulerUnavailable as e:
         return _emit(args, {"ok": False, "error": str(e)}, f"no scheduler available: {e}")
@@ -961,8 +965,12 @@ def handle_loop_enable_command(args) -> int:
         "scheduler_kind": "systemd",
         "timer_path": str(paths.timer),
         "service_path": str(paths.service),
+        "reaped_orphans": reaped,
     }
-    return _emit(args, payload, f"enabled {args.name} (every {args.interval}) — timer + registry stamped systemd")
+    reap_note = f" (reaped {len(reaped)} orphan timer{'s' if len(reaped) != 1 else ''})" if reaped else ""
+    return _emit(
+        args, payload, f"enabled {args.name} (every {args.interval}) — timer + registry stamped systemd{reap_note}"
+    )
 
 
 def handle_loop_disable_command(args) -> int:
@@ -1494,6 +1502,17 @@ def handle_status_command(args) -> int:
       --json          machine-readable output
       --pretty        ANSI colored output (default for --output human)
     """
+    # Opportunistic orphan-timer reap — clear loop units whose ephemeral seat
+    # (tmux_N/pts_N) is dead so ghosts don't accumulate (ecodex prop_s7ac5).
+    # Best-effort: a scheduler-absent host or a scan hiccup must never block
+    # `status`, and reap_orphans itself no-ops on inconclusive liveness.
+    try:
+        from empirica.core.loop_scheduler import get_loop_scheduler
+
+        get_loop_scheduler().reap_orphans(current_instance_id=_resolve_instance_id(args, fallback_to_current=True))
+    except Exception as _reap_err:
+        logger.debug("cockpit status orphan-reap skipped: %s", _reap_err)
+
     fmt = getattr(args, "output", None)
     json_mode = getattr(args, "json", False) or fmt == "json"
     pretty_mode = getattr(args, "pretty", False) or (fmt == "human" and not json_mode)

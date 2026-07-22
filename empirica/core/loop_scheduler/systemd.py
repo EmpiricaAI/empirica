@@ -44,7 +44,11 @@ from pathlib import Path
 # Shared placeholder-instance + cron-detection helpers live in launchd (the
 # other backend); import them so both schedulers reject the same ghost inputs
 # from a single source of truth. launchd does not import systemd → no cycle.
-from empirica.core.loop_scheduler.launchd import is_placeholder_instance, looks_like_cron
+from empirica.core.loop_scheduler.launchd import (
+    is_ephemeral_instance,
+    is_placeholder_instance,
+    looks_like_cron,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -400,6 +404,41 @@ class SystemdLoopScheduler:
             if parts and parts[0].endswith(".timer"):
                 out.append(parts[0].removesuffix(".timer"))
         return out
+
+    def reap_orphans(self, current_instance_id: str | None = None) -> list[str]:
+        """Remove loop timer units whose EPHEMERAL seat (tmux_N / pts_N / term_* /
+        x11_*) is no longer live — the orphan class ecodex flagged (prop_s7ac5):
+        a pane closes, its 30s timer keeps firing forever.
+
+        Conservative by construction:
+        - Only ephemeral-keyed units are considered; stable ai_id loops are never
+          touched.
+        - Liveness comes from ``scan_live_claude()``; if it's inconclusive (None)
+          NOTHING is reaped, so a transient scan miss can't kill a live seat's
+          timer.
+        - The current instance and any live instance are always kept.
+
+        Returns the unit names reaped.
+        """
+        from empirica.core.cockpit.liveness import scan_live_claude
+
+        scan = scan_live_claude()
+        if scan is None:
+            return []  # inconclusive liveness — never reap blind
+        live = set(scan.instance_ids or ())
+        reaped: list[str] = []
+        for unit in self.list_enabled():
+            rest = unit.removeprefix("empirica-loop-")
+            instance_id, sep, name = rest.partition("-")
+            if not sep or not name or not is_ephemeral_instance(instance_id):
+                continue  # stable ai_id-keyed (or unparseable) → leave it
+            if instance_id == current_instance_id or instance_id in live:
+                continue  # live seat → keep
+            if self.disable(instance_id, name):
+                reaped.append(unit)
+        if reaped:
+            logger.info(f"reaped {len(reaped)} orphan loop unit(s): {', '.join(reaped)}")
+        return reaped
 
     # ── Tick (service ExecStart target) ──────────────────────────────────
 
