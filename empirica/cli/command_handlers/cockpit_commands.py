@@ -901,9 +901,19 @@ def handle_loop_enable_command(args) -> int:
         )
     # T10: get_loop_scheduler picks systemd-user (Linux/WSL2) or launchd
     # (macOS). Same API surface across backends; handler stays portable.
+    # Resolve a direct-exec body_command for pure-CLI canonical loops
+    # (body_kind="cli", e.g. message-cleanup → runs on the timer autonomously).
+    # Every other loop — including claude-react / monitor / listener loops like
+    # cortex-mailbox-poll — passes body_command=None and gets the tick-only
+    # ExecStart, so the timer can never run it autonomously. Wake-on-event stays
+    # the sole trigger for those (David 2026-07-22).
+    from empirica.core.cockpit.canonical_loops import canonical_loop_by_name
+
+    _entry = canonical_loop_by_name(args.name)
+    body_command = _entry.get("body_command") if (_entry and _entry.get("body_kind") == "cli") else None
     try:
         sched = get_loop_scheduler(empirica_bin=empirica_bin)
-        paths = sched.enable(instance_id, args.name, args.interval)
+        paths = sched.enable(instance_id, args.name, args.interval, body_command=body_command)
     except LoopSchedulerUnavailable as e:
         return _emit(args, {"ok": False, "error": str(e)}, f"no scheduler available: {e}")
     except Exception as e:

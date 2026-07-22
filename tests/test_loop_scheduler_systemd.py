@@ -144,6 +144,32 @@ def test_enable_cron_writes_oncalendar_not_interval(fake_systemd_env):
     assert "OnUnitActiveSec" not in timer
 
 
+def test_enable_cli_body_command_writes_direct_execstart(fake_systemd_env):
+    """A pure-CLI body (body_kind='cli') runs the verb DIRECTLY on the timer —
+    ExecStart=<bin> <command>, NOT the tick-append. This is what makes
+    message-cleanup actually run when no session is alive to react to a heartbeat.
+    """
+    with patch.object(subprocess, "run", lambda *a, **kw: _fake_run(returncode=0)):
+        sched = SystemdLoopScheduler(empirica_bin="/usr/bin/empirica")
+        paths = sched.enable("empirica", "message-cleanup", "17 3 * * *", body_command="message-cleanup --output json")
+    service = paths.service.read_text()
+    assert "ExecStart=/usr/bin/empirica message-cleanup --output json" in service
+    # It must NOT emit the tick form — the whole point is autonomous execution.
+    assert "loop tick" not in service
+
+
+def test_enable_without_body_command_stays_tick_only(fake_systemd_env):
+    """The default (body_command=None) MUST stay the tick-only ExecStart so a
+    claude-react / monitor / listener loop (e.g. cortex-mailbox-poll) can never
+    be run autonomously by the timer — wake-on-event remains its sole trigger.
+    """
+    with patch.object(subprocess, "run", lambda *a, **kw: _fake_run(returncode=0)):
+        sched = SystemdLoopScheduler(empirica_bin="/usr/bin/empirica")
+        paths = sched.enable("cortex", "cortex-mailbox-poll", "30s")  # no body_command
+    service = paths.service.read_text()
+    assert "ExecStart=/usr/bin/empirica loop tick cortex cortex-mailbox-poll" in service
+
+
 # ── disable() ───────────────────────────────────────────────────────────
 
 

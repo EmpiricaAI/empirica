@@ -121,3 +121,41 @@ def test_cortex_mailbox_poll_uses_systemd_scheduler():
         "canonical value in VALID_SCHEDULER_KIND) so the TUI routes through "
         "systemctl rather than CronCreate and the registry stamp persists"
     )
+
+
+def test_body_kind_discriminator_gates_autonomous_execution():
+    """The body_kind discriminator is what grants (or withholds) autonomous
+    timer execution — the ecodex loop-enable fix (prop_s7ac5).
+
+    - message-cleanup is a pure-CLI body: body_kind='cli' + a body_command that
+      the scheduler runs DIRECTLY, so daily housekeeping happens even with no
+      session alive.
+    - cortex-mailbox-poll is claude-react (needs the AI to poll + react): it MUST
+      NOT carry a body_command, so the scheduler emits the tick-only ExecStart
+      and the timer can never run it autonomously. Wake-on-event stays its sole
+      trigger (David 2026-07-22 — the fix must not re-introduce auto-looping for
+      monitors/listeners).
+    """
+    cleanup = canonical_loop_by_name("message-cleanup")
+    assert cleanup is not None
+    assert cleanup.get("body_kind") == "cli"
+    assert cleanup.get("body_command"), "a cli body must declare its ExecStart body_command"
+
+    poll = canonical_loop_by_name("cortex-mailbox-poll")
+    assert poll is not None
+    assert poll.get("body_kind") == "claude-react"
+    assert poll.get("body_command") is None, (
+        "cortex-mailbox-poll must NOT carry a body_command — a direct ExecStart "
+        "would re-introduce autonomous polling on wake-on-event seats"
+    )
+
+
+def test_no_claude_react_loop_carries_a_body_command():
+    """Fleet-wide invariant: only cli bodies get a body_command. Any monitor /
+    listener / poll loop that gained one would start auto-running on its timer."""
+    for entry in CANONICAL_LOOPS:
+        if entry.get("body_kind") != "cli":
+            assert entry.get("body_command") is None, (
+                f"{entry.get('name')!r} is not body_kind='cli' but carries a "
+                f"body_command — that would grant it autonomous timer execution"
+            )
