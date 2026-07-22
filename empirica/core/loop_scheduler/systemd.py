@@ -175,6 +175,22 @@ ExecStart={empirica_bin} loop tick {instance_id} {name}
 SuccessExitStatus=0
 """
 
+# Pure-CLI body (canonical_loops.py body_kind="cli"): run the verb DIRECTLY on
+# the timer instead of the tick-append. Used for deterministic housekeeping
+# (e.g. message-cleanup) that must run even when no session is alive to react
+# to a heartbeat. NEVER used for claude-react / monitor / listener loops — those
+# stay on the tick template so the timer can't auto-run them.
+_CLI_SERVICE_TEMPLATE = """\
+[Unit]
+Description=Empirica canonical loop — {name} (instance: {instance_id})
+After=default.target
+
+[Service]
+Type=oneshot
+ExecStart={empirica_bin} {command}
+SuccessExitStatus=0
+"""
+
 _TIMER_TEMPLATE = """\
 [Unit]
 Description=Empirica canonical loop timer — {name} (instance: {instance_id})
@@ -247,13 +263,19 @@ class SystemdLoopScheduler:
 
     # ── Write + register ─────────────────────────────────────────────────
 
-    def enable(self, instance_id: str, name: str, interval: str) -> LoopUnitFiles:
+    def enable(self, instance_id: str, name: str, interval: str, body_command: str | None = None) -> LoopUnitFiles:
         """Write the .timer + .service unit files, daemon-reload, enable+start.
 
         Args:
             instance_id: cockpit slot name (e.g. 'cortex', 'empirica').
             name: canonical loop name (e.g. 'cortex-mailbox-poll').
             interval: systemd time spec (e.g. '30s', '5min', '1h').
+            body_command: ExecStart target for a pure-CLI body (canonical_loops
+                body_kind="cli", e.g. 'message-cleanup --output json') — the
+                verb runs DIRECTLY on the timer. ``None`` (the default) emits the
+                tick-only ExecStart (a heartbeat for a live session's Monitor),
+                which is what claude-react / monitor / listener loops MUST get so
+                the timer never runs them autonomously.
 
         Returns:
             LoopUnitFiles with on-disk paths (timer + service).
@@ -269,14 +291,20 @@ class SystemdLoopScheduler:
         paths = self.unit_paths(instance_id, name)
         unit_name = _unit_name(instance_id, name)
 
-        paths.service.write_text(
-            _SERVICE_TEMPLATE.format(
+        if body_command:
+            service_unit = _CLI_SERVICE_TEMPLATE.format(
                 name=name,
                 instance_id=instance_id,
                 empirica_bin=self.empirica_bin,
-            ),
-            encoding="utf-8",
-        )
+                command=body_command,
+            )
+        else:
+            service_unit = _SERVICE_TEMPLATE.format(
+                name=name,
+                instance_id=instance_id,
+                empirica_bin=self.empirica_bin,
+            )
+        paths.service.write_text(service_unit, encoding="utf-8")
         # cron-shaped interval → OnCalendar timer (a daily cron must never become
         # a repeating OnUnitActiveSec interval); otherwise the interval timer.
         if looks_like_cron(interval):

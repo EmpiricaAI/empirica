@@ -217,7 +217,9 @@ class LaunchdLoopScheduler:
 
     # ── Write + register ─────────────────────────────────────────────────
 
-    def enable(self, instance_id: str, name: str, interval: str | int) -> LoopUnitFiles:
+    def enable(
+        self, instance_id: str, name: str, interval: str | int, body_command: str | None = None
+    ) -> LoopUnitFiles:
         """Write the agent plist + launchctl load -w it (persistent until
         explicit unload). Returns the on-disk path.
 
@@ -226,6 +228,12 @@ class LaunchdLoopScheduler:
         (5 fields) installs a ``StartCalendarInterval`` — a daily cron must never
         become a 30-second ``StartInterval`` timer; anything else is an interval
         timer in seconds.
+
+        ``body_command`` (canonical_loops body_kind="cli") runs the verb DIRECTLY
+        on the timer instead of the tick-append — for deterministic housekeeping
+        that must run with no session alive. ``None`` (default) keeps the
+        tick form, which claude-react / monitor / listener loops MUST get so the
+        agent never runs them autonomously.
         """
         if is_placeholder_instance(instance_id):
             raise ValueError(
@@ -235,15 +243,13 @@ class LaunchdLoopScheduler:
         paths = self.unit_paths(instance_id, name)
         label = _label(instance_id, name)
 
+        if body_command:
+            program_args = [self.empirica_bin, *body_command.split()]
+        else:
+            program_args = [self.empirica_bin, "loop", "tick", instance_id, name]
         plist_dict = {
             "Label": label,
-            "ProgramArguments": [
-                self.empirica_bin,
-                "loop",
-                "tick",
-                instance_id,
-                name,
-            ],
+            "ProgramArguments": program_args,
             "RunAtLoad": False,
             # Agent stdout/stderr → /tmp for debugging (macOS launchd
             # convention). S108 noqa: launchd agents expect /tmp paths

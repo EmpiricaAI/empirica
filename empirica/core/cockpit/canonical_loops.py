@@ -93,6 +93,14 @@ CANONICAL_LOOPS: list[dict[str, Any]] = [
         # cannot do wake on event".) Genuine housekeeping crons (message-cleanup)
         # do NOT set this — they auto-install regardless.
         "opt_in_only": True,
+        # claude-react body: the timer must NEVER run this autonomously — it
+        # needs the AI to poll Cortex and react. Wake-on-event via the persistent
+        # listener is the canonical trigger; the timer form only appends a
+        # heartbeat for a live session's Monitor. So this loop carries NO
+        # body_command → the scheduler emits the tick-only ExecStart, never a
+        # direct autonomous run. (David 2026-07-22: the loop-enable codegen fix
+        # must not re-introduce auto-looping for monitors/listeners.)
+        "body_kind": "claude-react",
     },
     {
         # Housekeeping: prune expired git-notes mesh messages once a day.
@@ -114,6 +122,14 @@ CANONICAL_LOOPS: list[dict[str, Any]] = [
         ),
         "body_skill": "message-cleanup",
         "scheduler_kind": "systemd-user",
+        # Pure-CLI body — the timer runs the verb DIRECTLY (deterministic, no
+        # AI-in-the-loop), so daily housekeeping actually happens even when no
+        # session is alive to react to a heartbeat. `body_command` is the
+        # ExecStart target; the scheduler prepends the resolved `empirica` bin.
+        # This is the ONLY discriminator that grants autonomous execution —
+        # loops without body_kind="cli" stay tick-only by construction.
+        "body_kind": "cli",
+        "body_command": "message-cleanup --output json",
     },
 ]
 
