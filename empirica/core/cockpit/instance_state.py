@@ -44,7 +44,12 @@ from empirica.core.cockpit.listener_registry import (
     ListenerRegistry,
     is_listener_paused,
 )
-from empirica.core.cockpit.liveness import _live_tmux_panes, is_alive, scan_live_claude
+from empirica.core.cockpit.liveness import (
+    _live_tmux_panes,
+    claude_pane_bindings,
+    is_alive,
+    scan_live_claude,
+)
 from empirica.core.cockpit.loop_registry import LoopRegistry, is_loop_paused
 from empirica.core.cockpit.notify_dispatcher_view import (
     annotate_loops_with_last_notify,
@@ -304,7 +309,7 @@ def _derive_state_symbol(
     return "idle"
 
 
-def discover_instances() -> list[str]:
+def discover_instances(owned_panes: set[str] | None = None) -> list[str]:
     """Return the sorted list of known instance_ids.
 
     Walks the standard state-file globs under ~/.empirica/ and unions the
@@ -316,6 +321,13 @@ def discover_instances() -> list[str]:
     state file ever written) so the cockpit can still see them.
     Synthetic ``tmux_{pane}`` IDs are stable across cockpit refreshes
     because tmux pane numbers are stable for the lifetime of the pane.
+
+    A pane already OWNED by a named seat (its claude declares an
+    ``EMPIRICA_INSTANCE_ID``) is skipped — the seat is discovered via its own
+    state files, so minting a ``tmux_<pane>`` for it would create a duplicate
+    ghost row. ``owned_panes`` is the set of such pane numbers (see
+    :func:`claude_pane_bindings`); passed in by :func:`aggregate_all` to reuse
+    one scan, or computed here when called standalone.
     """
     EMPIRICA_DIR.mkdir(parents=True, exist_ok=True)
     seen: set[str] = set()
@@ -328,7 +340,12 @@ def discover_instances() -> list[str]:
 
     live_panes = _live_tmux_panes()
     if live_panes:
+        if owned_panes is None:
+            owned_panes = claude_pane_bindings()[1]
         for pane in live_panes:
+            if pane in owned_panes:
+                # Pane belongs to a named seat — no synthetic shadow.
+                continue
             seen.add(f"tmux_{pane}")
 
     return sorted(seen)
@@ -442,6 +459,7 @@ def aggregate_instance_state(
     current_instance_id: str | None = None,
     live_claude_instance_ids: set[str] | None = None,
     live_claude_cwds: set[str] | None = None,
+    tmux_windows: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     """Read all state for one instance and return a serializable dict.
 
@@ -550,6 +568,10 @@ def aggregate_instance_state(
     return {
         "instance_id": instance_id,
         "ai_id": _project_ai_id(project_path),
+        # tmux window index this seat's live claude runs in (display-only, for
+        # the cockpit pane-number column). None when not resolvable (no tmux,
+        # dead seat, or proc→pane link couldn't be walked).
+        "tmux_window": (tmux_windows or {}).get(instance_id),
         "label": label,
         "project_path": project_path,
         "session_id": tx_state["session_id"],
@@ -647,6 +669,11 @@ def aggregate_all(include_dead: bool = False) -> dict[str, Any]:
     live_iids = scan.instance_ids if scan else None
     live_cwds = set(scan.cwd_counts) if scan else None
 
+    # One proc→pane scan feeds both the cockpit window column (tmux_windows)
+    # and shadow-suppression at discovery (owned_panes). Best-effort — ({},set())
+    # when tmux/psutil absent.
+    tmux_windows, owned_panes = claude_pane_bindings()
+
     # Resolve the current instance lazily — exempts the running cockpit
     # from liveness checks (it's alive by definition, even if PID/PPID
     # weren't captured by an old session-init).
@@ -664,8 +691,9 @@ def aggregate_all(include_dead: bool = False) -> dict[str, Any]:
             current_instance_id=current_id,
             live_claude_instance_ids=live_iids,
             live_claude_cwds=live_cwds,
+            tmux_windows=tmux_windows,
         )
-        for i in discover_instances()
+        for i in discover_instances(owned_panes=owned_panes)
     ]
 
     # Count-aware dedup: the cwd FALLBACK signal is project-level, so several

@@ -335,6 +335,137 @@ def _scan_live_claude_impl() -> LiveClaudeScan | None:
     return LiveClaudeScan(instance_ids=instance_ids, cwd_counts=cwd_counts)
 
 
+def claude_pane_bindings() -> tuple[dict[str, int], set[str]]:
+    """Bounded ``(windows_by_instance, owned_panes)`` from one proc→pane scan.
+
+    - ``windows_by_instance``: instance_id → tmux window index. Named seats are
+      matched by their live claude proc's ``EMPIRICA_INSTANCE_ID`` env; a
+      ``tmux_<pane_id>`` fallback covers panes NOT owned by a named seat (unbound
+      / pre-empirica sessions). Feeds the cockpit's pane-number column.
+    - ``owned_panes``: pane numbers (``%`` stripped) whose foreground claude
+      declares an ``EMPIRICA_INSTANCE_ID`` — panes already owned by a named
+      seat, so :func:`discover_instances` can skip minting a synthetic
+      ``tmux_<pane>`` shadow for them.
+
+    Both empty on any failure (no tmux / no psutil / bounded timeout). Purely a
+    display + discovery affordance — never a liveness verdict, never blocks a
+    sweep.
+    """
+    return _run_bounded(_scan_claude_pane_map, "claude_pane_bindings") or ({}, set())
+
+
+def live_claude_windows_by_instance() -> dict[str, int]:
+    """Bounded ``instance_id → tmux window index`` (thin wrapper — the window
+    half of :func:`claude_pane_bindings`)."""
+    return claude_pane_bindings()[0]
+
+
+def _tmux_pane_maps() -> tuple[dict[int, str], dict[str, int]]:
+    """``(pane_pid -> pane, pane_id -> window)`` from one ``tmux list-panes``.
+
+    The claude proc is a child of the pane's shell, so ``pane_pid`` keys the
+    ancestry walk; ``pane_id`` (``%N`` stripped) keys the ``tmux_<N>`` fallback.
+    Both empty on any failure (no tmux / timeout / non-zero exit)."""
+    if shutil.which("tmux") is None:
+        return {}, {}
+    try:
+        result = subprocess.run(
+            ["tmux", "list-panes", "-a", "-F", "#{pane_id} #{pane_pid} #{window_index}"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return {}, {}
+    if result.returncode != 0:
+        return {}, {}
+    pane_pid_to_pane: dict[int, str] = {}
+    pane_id_to_window: dict[str, int] = {}
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if len(parts) != 3:
+            continue
+        pane_id, pane_pid, win = parts
+        try:
+            window = int(win)
+        except ValueError:
+            continue
+        pane = pane_id.lstrip("%")
+        pane_id_to_window[pane] = window
+        try:
+            pane_pid_to_pane[int(pane_pid)] = pane
+        except ValueError:
+            pass
+    return pane_pid_to_pane, pane_id_to_window
+
+
+def _claude_owned_panes(
+    pane_pid_to_pane: dict[int, str], pane_id_to_window: dict[str, int]
+) -> tuple[dict[str, int], set[str]]:
+    """Match live claude procs to their owning tmux pane by walking ancestry.
+
+    Returns ``(windows_by_instance, owned_panes)`` — named seats matched exactly
+    by their claude proc's ``EMPIRICA_INSTANCE_ID``. Best-effort: any error
+    yields the partial result gathered so far (display-only, never a verdict)."""
+    try:
+        import psutil
+    except ImportError:
+        return {}, set()
+    windows: dict[str, int] = {}
+    owned_panes: set[str] = set()
+    try:
+        for proc in psutil.process_iter(["name", "cmdline"]):
+            try:
+                info = proc.info
+                if not _is_claude_proc(info.get("name"), info.get("cmdline")):
+                    continue
+                iid = proc.environ().get("EMPIRICA_INSTANCE_ID")
+            except (psutil.Error, OSError):
+                continue
+            if not iid:
+                continue
+            # Walk the claude proc's ancestry up to the tmux pane shell that
+            # owns it; the pane shell's pid is the tmux pane_pid.
+            node = proc
+            for _ in range(8):
+                try:
+                    if node.pid in pane_pid_to_pane:
+                        pane = pane_pid_to_pane[node.pid]
+                        owned_panes.add(pane)
+                        if pane in pane_id_to_window:
+                            windows[iid] = pane_id_to_window[pane]
+                        break
+                    node = node.parent()
+                except (psutil.Error, OSError):
+                    break
+                if node is None:
+                    break
+    except Exception:
+        # Best-effort display affordance — return whatever we gathered rather
+        # than fail the whole scan (S110: return, not a silent pass).
+        return windows, owned_panes
+    return windows, owned_panes
+
+
+def _scan_claude_pane_map() -> tuple[dict[str, int], set[str]]:
+    pane_pid_to_pane, pane_id_to_window = _tmux_pane_maps()
+    if not pane_pid_to_pane and not pane_id_to_window:
+        return {}, set()
+    windows, owned_panes = _claude_owned_panes(pane_pid_to_pane, pane_id_to_window)
+    # Fallback window for unbound seats registered under the tmux_<pane_id> id
+    # (they never declared EMPIRICA_INSTANCE_ID). The id already encodes the
+    # pane, so read the window straight off pane_id — but only for a window NOT
+    # already claimed by a named seat (defensive: shadows are suppressed at
+    # discovery now, so this fires for genuine unbound fallbacks like a
+    # not-yet-rebound seat, not for named-seat ghosts).
+    claimed = set(windows.values())
+    for pane, window in pane_id_to_window.items():
+        if window in claimed:
+            continue
+        windows[f"tmux_{pane}"] = window
+    return windows, owned_panes
+
+
 def live_claude_pids_by_instance() -> dict[str, tuple[int, float | None]] | None:
     """Map each live claude ``EMPIRICA_INSTANCE_ID`` to ``(pid, create_time)``
     (wall-clock bounded — same macOS syscall-hang guard as

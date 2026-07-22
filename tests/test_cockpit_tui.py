@@ -106,11 +106,14 @@ async def test_tui_has_no_kill_button(cockpit_env):
 
 
 @pytest.mark.asyncio
-async def test_table_has_six_columns(cockpit_env):
+async def test_table_has_seven_columns(cockpit_env):
     """T9 (2026-05-15, David): collapsed separate loops + listeners +
     notifications columns into a unified 'N' (events). The listener (T8)
     is the single wake mechanism now — three columns for the same concept
-    was noise."""
+    was noise.
+
+    2026-07-22 (Philipp): a '#' tmux-window column was inserted between 's'
+    and 'name' so rows sort by the operator's tmux window layout."""
     from textual.widgets import DataTable
 
     from empirica.cli.tui import CockpitApp
@@ -121,7 +124,7 @@ async def test_table_has_six_columns(cockpit_env):
         await pilot.pause()
         table = app.query_one("#inst-table", DataTable)
         col_labels = [c.label.plain for c in table.columns.values()]
-        assert col_labels == ["s", "name", "ph", "dom", "S", "N"]
+        assert col_labels == ["s", "#", "name", "ph", "dom", "S", "N"]
 
 
 # ─── data loading ─────────────────────────────────────────────────────────
@@ -424,8 +427,9 @@ async def test_phase_ask_when_asking_flag_present(cockpit_env):
         for row_key in table.rows:
             if str(row_key.value) == "tmux_42":
                 row = table.get_row(row_key)
-                # v1.6: phase column is shortened — 'ask⚠' with no space
-                phase_cell = str(row[2])
+                # v1.6: phase column is shortened — 'ask⚠' with no space.
+                # 2026-07-22: '#' column inserted at idx 1 → phase now at idx 3.
+                phase_cell = str(row[3])
                 assert "ask" in phase_cell, f"expected ask phase, got {phase_cell!r}"
                 return
         pytest.fail("tmux_42 row not found")
@@ -1266,13 +1270,14 @@ async def test_domain_chip_in_table_when_transaction_open(cockpit_env):
         await pilot.pause()
         await pilot.pause()
         table = app.query_one("#inst-table", DataTable)
-        # Read the 'dom' cell directly via table API (column index 3,
-        # zero-indexed: s, name, ph, dom, ...). The table renders as a
+        # Read the 'dom' cell directly via table API (column index 4,
+        # zero-indexed: s, #, name, ph, dom, ...). The '#' tmux-window column
+        # (2026-07-22) shifted dom from idx 3 to 4. The table renders as a
         # widget — we go via get_cell which works in headless tests.
         row_keys = list(table.rows.keys())
         assert row_keys, "expected at least one row"
         # First row, dom column
-        dom_value = table.get_cell_at((0, 3))
+        dom_value = table.get_cell_at((0, 4))
         # 'leg·H' = legal/high domain chip
         assert dom_value == "leg·H", f"expected leg·H, got {dom_value!r}"
 
