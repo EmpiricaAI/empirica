@@ -160,7 +160,10 @@ class CockpitApp(App):
         # into a single 'N' column. The listener (T8) is the unified wake
         # mechanism — separate columns were noise. N now shows ⊕<count>
         # when there are recent events for this instance, glyph otherwise.
-        table.add_columns("s", "name", "ph", "dom", "S", "N")
+        # '#' = tmux window index the seat lives in (Philipp 2026-07-22): rows
+        # sort ascending by it so cockpit order mirrors the tmux window layout,
+        # making an off/missing seat quick to spot. Blank when unresolvable.
+        table.add_columns("s", "#", "name", "ph", "dom", "S", "N")
         yield table
 
         with Horizontal(id="action-bar"):
@@ -295,9 +298,22 @@ class CockpitApp(App):
         previously_selected = self.selected_instance_id
         table.clear()
         rows = self.payload.get("instances", [])
+        # Sort ascending by tmux window index so cockpit order mirrors the
+        # operator's tmux window layout; seats with no resolvable window sort
+        # last (then by name for a stable, readable order).
+        rows = sorted(
+            rows,
+            key=lambda i: (
+                i.get("tmux_window") is None,
+                i.get("tmux_window") if i.get("tmux_window") is not None else 0,
+                (i.get("label") or i["instance_id"]).lower(),
+            ),
+        )
         for inst in rows:
             iid = inst["instance_id"]
             stat = self._state_glyph(inst["state"])
+            win = inst.get("tmux_window")
+            win_cell = str(win) if win is not None else "·"
             name = (inst.get("label") or iid)[:16]
             phase = self._phase_short(inst.get("phase"), inst.get("asking", False))
             dom = self._domain_chip(inst.get("transaction"))
@@ -306,7 +322,7 @@ class CockpitApp(App):
             # falling back to the loops glyph if no events yet. listeners
             # are subsumed (they're loops with held connections now).
             events_cell = self._events_cell(inst)
-            table.add_row(stat, name, phase, dom, sentinel, events_cell, key=iid)
+            table.add_row(stat, win_cell, name, phase, dom, sentinel, events_cell, key=iid)
 
         if rows:
             target = previously_selected or rows[0]["instance_id"]

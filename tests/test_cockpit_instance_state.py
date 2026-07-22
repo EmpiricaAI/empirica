@@ -304,8 +304,28 @@ def test_discover_includes_tmux_panes_without_state_files(env, monkeypatch):
     """Philipp's case: pane running claude but no instance_projects file
     (session predates empirica install). Cockpit must still surface it."""
     monkeypatch.setattr(ist, "_live_tmux_panes", lambda: {"4", "11"})
-    discovered = ist.discover_instances()
+    # No pane owned by a named seat → both synthetic ids surface.
+    discovered = ist.discover_instances(owned_panes=set())
     assert "tmux_4" in discovered
+    assert "tmux_11" in discovered
+
+
+def test_discover_skips_panes_owned_by_named_seat(env, monkeypatch):
+    """A pane whose claude declares an EMPIRICA_INSTANCE_ID is already a named
+    seat (discovered via its own state files) — no duplicate tmux_<pane> ghost."""
+    monkeypatch.setattr(ist, "_live_tmux_panes", lambda: {"4", "11"})
+    discovered = ist.discover_instances(owned_panes={"4"})
+    assert "tmux_4" not in discovered  # owned → suppressed
+    assert "tmux_11" in discovered  # unowned → still surfaced
+
+
+def test_discover_consults_pane_bindings_when_owned_not_passed(env, monkeypatch):
+    """Standalone discover_instances() (no owned_panes arg) derives owned panes
+    from claude_pane_bindings()."""
+    monkeypatch.setattr(ist, "_live_tmux_panes", lambda: {"4", "11"})
+    monkeypatch.setattr(ist, "claude_pane_bindings", lambda: ({}, {"4"}))
+    discovered = ist.discover_instances()
+    assert "tmux_4" not in discovered
     assert "tmux_11" in discovered
 
 
@@ -316,7 +336,7 @@ def test_discover_unions_state_files_and_tmux_panes(env, monkeypatch):
     _bind_instance(home, project, "tmux_5")
     _bind_instance(home, project, "term-pts-7")
     monkeypatch.setattr(ist, "_live_tmux_panes", lambda: {"5", "8"})
-    discovered = ist.discover_instances()
+    discovered = ist.discover_instances(owned_panes=set())
     assert discovered == ["term-pts-7", "tmux_5", "tmux_8"]
 
 
