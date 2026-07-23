@@ -9,6 +9,7 @@ Machine-readable JSON + human-readable summary.
 
 import json
 import logging
+import os
 import subprocess
 import time
 from pathlib import Path
@@ -1235,7 +1236,18 @@ def run_compliance_report(
 
     # Optional checks (slow)
     if include_tests:
-        pytest_raw = _run_check("pytest", ["python3", "-m", "pytest", "tests/", "-q", "--tb=line"], timeout=300)
+        # The full suite is ~5k tests. Parallelize with pytest-xdist when it's
+        # importable (-n auto ≈ cores× faster) so the LOCAL gate actually finishes
+        # instead of timing out — a serial run overran the old hardcoded 300s,
+        # which cascaded into a governance_integrity failure (pytest left
+        # unmapped). Timeout is generous + env-overridable.
+        import importlib.util
+
+        pytest_cmd = ["python3", "-m", "pytest", "tests/", "-q", "--tb=line"]
+        if importlib.util.find_spec("xdist") is not None:
+            pytest_cmd += ["-n", "auto"]  # pytest-xdist installed → parallelize
+        pytest_timeout = int(os.environ.get("EMPIRICA_COMPLIANCE_PYTEST_TIMEOUT", "1200"))
+        pytest_raw = _run_check("pytest", pytest_cmd, timeout=pytest_timeout)
         results.append(_parse_pytest_result(pytest_raw))
 
     if include_dep_audit:
