@@ -1243,7 +1243,11 @@ def run_compliance_report(
         # unmapped). Timeout is generous + env-overridable.
         import importlib.util
 
-        pytest_cmd = ["python3", "-m", "pytest", "tests/", "-q", "--tb=line"]
+        # Mirror CI's selection (ci.yml: `-m "not integration"`) — integration
+        # tests require a live CLI/git/populated-DB environment and fail on a dev
+        # box with stale ~/.empirica state, which is exactly the local-vs-CI noise
+        # we want to avoid. The local gate should match what CI actually gates on.
+        pytest_cmd = ["python3", "-m", "pytest", "tests/", "-q", "--tb=line", "-m", "not integration"]
         if importlib.util.find_spec("xdist") is not None:
             pytest_cmd += ["-n", "auto"]  # pytest-xdist installed → parallelize
         pytest_timeout = int(os.environ.get("EMPIRICA_COMPLIANCE_PYTEST_TIMEOUT", "1200"))
