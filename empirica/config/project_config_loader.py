@@ -288,8 +288,17 @@ def compose_canonical_seat(*, mesh_id_prefix: str, ai_id: str) -> str | None:
     malformed seat (a wrong-form seat is rejected silently by the
     strict-canonical send resolver).
     """
-    prefix = (mesh_id_prefix or "").strip().rstrip(".")
     basename = (ai_id or "").strip()
-    if not prefix or not basename:
+    if not basename:
+        return None
+    # Already a full canonical 3-form? Some practices store their ai_id
+    # already-qualified (e.g. `empirica-foundation.carly.flta`); prepending the
+    # prefix again would DOUBLE-prefix it. Mirror
+    # content_poll._resolve_canonical_ai_id: a dot means already-canonical, so
+    # pass it through unchanged (prop_mzsijy2).
+    if "." in basename:
+        return basename
+    prefix = (mesh_id_prefix or "").strip().rstrip(".")
+    if not prefix:
         return None
     return f"{prefix}.{basename}"

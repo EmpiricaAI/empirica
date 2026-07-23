@@ -120,11 +120,12 @@ def _extract_skill_prompt_template(body_skill: str) -> str | None:
 
 def render_loop_cron_prompt(
     name: str,
-    interval: str,
+    interval: str | None = None,
     description: str = "",
     base_interval: str = "15m",
     max_interval: str = "4h",
     body_skill: str | None = None,
+    cron: str | None = None,
 ) -> str:
     """Render the loop-cron skill template with placeholders substituted.
 
@@ -147,11 +148,23 @@ def render_loop_cron_prompt(
         if skill_body is not None:
             return skill_body
     desc = description or f"{name} self-scheduling loop"
+    # cron-kind loops carry a cron expression, not an interval — register with
+    # --cron and no backoff (backoff is an interval-loop concept). Interval loops
+    # keep the self-scheduling --interval + exponential backoff form (prop_sno3etin
+    # — before this, cron loops fell back to a hardcoded --interval "15m").
+    if cron:
+        register_line = (
+            f'empirica loop register --name {name} --kind cron --cron "{cron}" \\\n    --description "{desc}"'
+        )
+    else:
+        register_line = (
+            f'empirica loop register --name {name} --kind cron --interval "{interval}" \\\n'
+            f'    --description "{desc}" \\\n'
+            f"    --backoff exponential --base-interval {base_interval} --max-interval {max_interval}"
+        )
     return f"""\
 At start (idempotent — safe to call every fire):
-  empirica loop register --name {name} --kind cron --interval "{interval}" \\
-    --description "{desc}" \\
-    --backoff exponential --base-interval {base_interval} --max-interval {max_interval}
+  {register_line}
 
 Check pause — exit silently AND don't schedule next fire if paused:
   PAUSED=$(empirica loop status {name} --output json | jq -r .paused)
@@ -188,18 +201,20 @@ class LoopInstallRequest:
 
     instance_id: str
     name: str
-    interval: str
+    interval: str | None
     description: str
     scheduler_kind: str = DEFAULT_SCHEDULER_KIND
     requested_at: str = ""
     requested_by: str | None = None
     prompt_template: str = ""
+    cron: str | None = None  # cron expression for kind=cron loops (mutually exclusive with interval)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "instance_id": self.instance_id,
             "name": self.name,
             "interval": self.interval,
+            "cron": self.cron,
             "description": self.description,
             "scheduler_kind": self.scheduler_kind,
             "requested_at": self.requested_at,
@@ -214,10 +229,13 @@ class LoopInstallRequest:
                 data = json.load(f)
         except (OSError, json.JSONDecodeError):
             return None
+        _interval = data.get("interval")
+        _cron = data.get("cron")
         return cls(
             instance_id=str(data.get("instance_id", "")),
             name=str(data.get("name", "")),
-            interval=str(data.get("interval", "")),
+            interval=str(_interval) if _interval else None,
+            cron=str(_cron) if _cron else None,
             description=str(data.get("description", "") or ""),
             scheduler_kind=str(data.get("scheduler_kind") or DEFAULT_SCHEDULER_KIND),
             requested_at=str(data.get("requested_at", "")),
@@ -229,13 +247,14 @@ class LoopInstallRequest:
 def write_pending(
     instance_id: str,
     name: str,
-    interval: str,
+    interval: str | None = None,
     description: str = "",
     scheduler_kind: str = DEFAULT_SCHEDULER_KIND,
     requested_by: str | None = None,
     base_interval: str = "15m",
     max_interval: str = "4h",
     body_skill: str | None = None,
+    cron: str | None = None,
 ) -> Path:
     """Write a pending install request. Idempotent — overwrites existing
     file with the same instance_id+name.
@@ -252,6 +271,7 @@ def write_pending(
         instance_id=instance_id,
         name=name,
         interval=interval,
+        cron=cron,
         description=description,
         scheduler_kind=scheduler_kind,
         requested_at=datetime.now(tz=timezone.utc).isoformat(),
@@ -263,6 +283,7 @@ def write_pending(
             base_interval=base_interval,
             max_interval=max_interval,
             body_skill=body_skill,
+            cron=cron,
         ),
     )
     with open(path, "w", encoding="utf-8") as f:

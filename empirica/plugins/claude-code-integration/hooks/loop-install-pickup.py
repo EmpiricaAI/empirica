@@ -41,12 +41,17 @@ except Exception:
 
 def _format_request(request) -> str:
     requested_by = request.requested_by or "cockpit"
+    # Show the real schedule: cron-kind loops carry a cron expression, not an
+    # interval — surfacing `interval: 15m` for a daily cron misled the reader
+    # AND the register command below (prop_sno3etin).
+    cron = getattr(request, "cron", None)
+    schedule = f"- **cron:** `{cron}`" if cron else f"- **interval:** `{request.interval}`"
     return f"""\
 ## ⚙ Loop install request from {requested_by}
 
 A loop is queued for installation in this instance:
 - **name:** `{request.name}`
-- **interval:** `{request.interval}`
+{schedule}
 - **description:** {request.description or "(none)"}
 - **scheduler:** {request.scheduler_kind}
 

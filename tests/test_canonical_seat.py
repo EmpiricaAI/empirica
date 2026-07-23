@@ -125,3 +125,18 @@ def test_persist_no_seat_without_mesh_prefix(tmp_path):
     # org_id + tenant_slug still persisted
     assert changed is True
     assert out["org_id"] == "org-empirica"
+
+
+def test_compose_canonical_seat_passthrough_already_canonical():
+    """An ai_id that is ALREADY a full canonical 3-form (contains a dot — e.g.
+    a practice that stores `empirica-foundation.carly.flta`) must NOT be
+    double-prefixed. Regression for prop_mzsijy2."""
+    already = "empirica-foundation.carly.flta"
+    assert compose_canonical_seat(mesh_id_prefix="empirica.david", ai_id=already) == already
+    # bare basename still gets the prefix
+    assert compose_canonical_seat(mesh_id_prefix="empirica.david", ai_id="empirica") == "empirica.david.empirica"
+    # empties still return None
+    assert compose_canonical_seat(mesh_id_prefix="empirica.david", ai_id="") is None
+    assert compose_canonical_seat(mesh_id_prefix="", ai_id="empirica") is None
+    # already-canonical passes through even with no prefix (dot-check wins)
+    assert compose_canonical_seat(mesh_id_prefix="", ai_id=already) == already

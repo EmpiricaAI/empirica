@@ -133,3 +133,29 @@ class TestRoundTrip:
             )
             is None
         )
+
+
+class TestCronKindRendering:
+    """Regression for prop_sno3etin: cron-kind loops must register with --cron
+    (their real schedule), not fall back to a hardcoded --interval 15m."""
+
+    def test_cron_loop_renders_cron_not_interval(self):
+        prompt = lir.render_loop_cron_prompt(name="message-cleanup", cron="17 3 * * *", description="daily cleanup")
+        reg = next(l for l in prompt.splitlines() if "loop register" in l)
+        assert '--cron "17 3 * * *"' in reg
+        assert "15m" not in reg  # the old wrong fallback
+        assert "--interval" not in reg
+
+    def test_interval_loop_unchanged(self):
+        prompt = lir.render_loop_cron_prompt(name="poll", interval="30s", description="poll")
+        reg = next(l for l in prompt.splitlines() if "loop register" in l)
+        assert '--interval "30s"' in reg
+        assert "--cron" not in reg
+
+    def test_write_pending_persists_cron_and_roundtrips(self, fake_home):
+        path = lir.write_pending(instance_id="tmux_1", name="message-cleanup", cron="17 3 * * *", description="d")
+        data = json.loads(path.read_text())
+        assert data["cron"] == "17 3 * * *"
+        assert data["interval"] is None
+        back = lir.LoopInstallRequest.from_path(path)
+        assert back is not None and back.cron == "17 3 * * *" and back.interval is None

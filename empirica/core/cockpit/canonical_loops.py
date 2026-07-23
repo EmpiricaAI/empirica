@@ -207,7 +207,11 @@ def maybe_queue_canonical_install(instance_id: str, project_root: Any, requested
                 write_pending(
                     instance_id=instance_id,  # seat-keyed bridge → the seat's pickup hook
                     name=entry["name"],
-                    interval=entry.get("interval", "15m"),
+                    # cron-kind entries carry `cron`, not `interval` — pass each
+                    # through as-is so a cron loop isn't misregistered at the old
+                    # hardcoded 15m fallback (prop_sno3etin).
+                    interval=entry.get("interval"),
+                    cron=entry.get("cron"),
                     description=entry.get("description", ""),
                     base_interval=entry.get("base_interval"),
                     max_interval=entry.get("max_interval"),
