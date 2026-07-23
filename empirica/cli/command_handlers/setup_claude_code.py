@@ -41,7 +41,7 @@ PLUGIN_VERSION_STAMP = ".plugin-version"
 # silently discarded their stdout — i.e. their context injection never landed.
 # All are allowFailure=True, so a generous ceiling only helps; the heavy hooks
 # (compaction, session-init, postflight) keep their own larger explicit timeouts.
-LIGHT_HOOK_TIMEOUT = 10
+LIGHT_HOOK_TIMEOUT = 30
 
 
 def _resolve_empirica_version() -> str:
