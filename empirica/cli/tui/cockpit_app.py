@@ -803,10 +803,13 @@ class CockpitApp(App):
                     args_dict["interval"] = loop_data.get("interval") or loop_data.get("base_interval") or "30s"
                 args = Namespace(**args_dict)
             else:
+                # Loops are practice-keyed now (registered/enabled under ai_id via
+                # _require_loop_key), so pause/resume must target the same
+                # ai_id_for_timer as the systemd branch — not the ephemeral seat.
                 handler = handle_loop_pause_command if target_paused else handle_loop_resume_command
                 args = Namespace(
                     name=name,
-                    instance=inst["instance_id"],
+                    instance=ai_id_for_timer,
                     output="json",
                 )
             try:

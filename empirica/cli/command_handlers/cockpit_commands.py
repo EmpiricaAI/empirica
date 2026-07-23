@@ -372,8 +372,38 @@ def _require_instance_id(args) -> str:
     return instance_id
 
 
+def _require_loop_key(args) -> str:
+    """Resolve the PRACTICE key a loop is stored/scheduled under — the stable
+    ``ai_id``, NOT the ephemeral seat (``tmux_N`` / ``pts_N``).
+
+    Loops belong to the practice (one ``cortex-mailbox-poll`` / ``message-cleanup``
+    per ``ai_id``), keyed the same way the persistent listener already is
+    (``empirica-listener-{ai_id}``; docs/architecture/AI_ID_AS_ANCHOR.md). Keying
+    on the practice is what makes loop timer units orphan-proof — the key doesn't
+    die when the pane closes — and stops per-pane duplicate timers.
+
+    Resolution:
+      1. an explicit non-ephemeral ``--instance`` (caller named a practice key)
+      2. the current practice ``ai_id`` (``InstanceResolver.ai_id()``)
+      3. fallback to the seat ``_require_instance_id`` only if ``ai_id`` is
+         unresolvable (no project.yaml) — never crashes, always returns a key
+    """
+    from empirica.core.loop_scheduler.launchd import is_ephemeral_instance
+
+    explicit = getattr(args, "instance", None)
+    if explicit and not is_ephemeral_instance(explicit):
+        return explicit
+    try:
+        from empirica.utils.session_resolver import InstanceResolver
+
+        ai = InstanceResolver.ai_id()
+    except Exception:
+        ai = None
+    return ai or _require_instance_id(args)
+
+
 def handle_loop_register_command(args) -> int:
-    instance_id = _require_instance_id(args)
+    instance_id = _require_loop_key(args)
     registry = LoopRegistry(instance_id)
     try:
         entry = registry.register(
@@ -406,7 +436,7 @@ def handle_loop_register_command(args) -> int:
 
 
 def handle_loop_unregister_command(args) -> int:
-    instance_id = _require_instance_id(args)
+    instance_id = _require_loop_key(args)
     registry = LoopRegistry(instance_id)
     removed = registry.unregister(args.name)
     payload = {"ok": True, "instance_id": instance_id, "removed": removed, "name": args.name}
@@ -430,7 +460,7 @@ def handle_loop_pause_command(args) -> int:
     if pause flag exists, body exits without scheduling next fire and
     the loop dies cleanly after at most one more silent fire.
     """
-    instance_id = _require_instance_id(args)
+    instance_id = _require_loop_key(args)
     paused = set_loop_paused(instance_id, args.name, paused=True)
 
     registry = LoopRegistry(instance_id)
@@ -494,7 +524,7 @@ def handle_loop_resume_command(args) -> int:
     can't reinstall a CronCreate one-shot directly — surface a hint so
     the user knows to re-issue via /loop or trigger one fire manually.
     """
-    instance_id = _require_instance_id(args)
+    instance_id = _require_loop_key(args)
     paused = set_loop_paused(instance_id, args.name, paused=False)
     registry = LoopRegistry(instance_id)
     entry = registry.get(args.name)
@@ -513,7 +543,7 @@ def handle_loop_resume_command(args) -> int:
 
 
 def handle_loop_set_interval_command(args) -> int:
-    instance_id = _require_instance_id(args)
+    instance_id = _require_loop_key(args)
     registry = LoopRegistry(instance_id)
     try:
         entry = registry.set_interval(args.name, args.interval)
@@ -528,7 +558,7 @@ def handle_loop_set_interval_command(args) -> int:
 
 
 def handle_loop_heartbeat_command(args) -> int:
-    instance_id = _require_instance_id(args)
+    instance_id = _require_loop_key(args)
     registry = LoopRegistry(instance_id)
     try:
         entry = registry.heartbeat(
@@ -569,7 +599,7 @@ def handle_loop_schedule_next_command(args) -> int:
     each fire (and after pause check passes), the body calls this to
     learn when to install the next one-shot.
     """
-    instance_id = _require_instance_id(args)
+    instance_id = _require_loop_key(args)
     registry = LoopRegistry(instance_id)
     plan = registry.schedule_next(args.name)
     if plan is None:
@@ -712,7 +742,7 @@ def handle_loop_fire_command(args) -> int:
     cron template captured, just emits the schedule plan so the caller
     knows what to install.
     """
-    instance_id = _require_instance_id(args)
+    instance_id = _require_loop_key(args)
     registry = LoopRegistry(instance_id)
     entry = registry.get(args.name)
     if entry is None:
@@ -763,7 +793,7 @@ def handle_loop_should_fire_command(args) -> int:
 
     JSON output also includes the reason for traceability.
     """
-    instance_id = _require_instance_id(args)
+    instance_id = _require_loop_key(args)
     registry = LoopRegistry(instance_id)
     should, reason = registry.should_fire(args.name)
     payload = {
@@ -780,7 +810,7 @@ def handle_loop_should_fire_command(args) -> int:
 
 def handle_loop_poke_command(args) -> int:
     """Manual escape hatch — zero the streak, clear the next_fire_threshold."""
-    instance_id = _require_instance_id(args)
+    instance_id = _require_loop_key(args)
     registry = LoopRegistry(instance_id)
     entry = registry.poke(args.name)
     if entry is None:
@@ -800,7 +830,7 @@ def handle_loop_poke_command(args) -> int:
 
 
 def handle_loop_list_command(args) -> int:
-    instance_id = _require_instance_id(args)
+    instance_id = _require_loop_key(args)
     registry = LoopRegistry(instance_id)
     loops = registry.list_loops()
 
@@ -828,7 +858,7 @@ def handle_loop_list_command(args) -> int:
 
 
 def handle_loop_status_command(args) -> int:
-    instance_id = _require_instance_id(args)
+    instance_id = _require_loop_key(args)
     registry = LoopRegistry(instance_id)
     entry = registry.get(args.name)
     if entry is None:
@@ -885,7 +915,7 @@ def handle_loop_enable_command(args) -> int:
         get_loop_scheduler,
     )
 
-    instance_id = _require_instance_id(args)
+    instance_id = _require_loop_key(args)
     empirica_bin = _sh.which("empirica")
     if not empirica_bin:
         return _emit(
@@ -982,7 +1012,7 @@ def handle_loop_disable_command(args) -> int:
         get_loop_scheduler,
     )
 
-    instance_id = _require_instance_id(args)
+    instance_id = _require_loop_key(args)
     try:
         sched = get_loop_scheduler()
         removed = sched.disable(instance_id, args.name)
@@ -1002,7 +1032,7 @@ def handle_loop_systemd_status_command(args) -> int:
         get_loop_scheduler,
     )
 
-    instance_id = _require_instance_id(args)
+    instance_id = _require_loop_key(args)
     try:
         sched = get_loop_scheduler()
         st = sched.status(instance_id, args.name)

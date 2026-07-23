@@ -78,15 +78,28 @@ def _maybe_auto_install_canonical_loops(instance_id: str, project_root: Path) ->
     try:
         if not project_root.joinpath(".empirica").is_dir():
             return 0  # gate 2
+        # Loops are a PRACTICE concern — dedup stamp + the registry gate key on
+        # the stable ai_id, not the ephemeral seat, so a practice open in N panes
+        # queues its canonical loops ONCE and `enable` writes one unit per
+        # practice (docs/architecture/AI_ID_AS_ANCHOR.md). enable() resolves the
+        # same ai_id key. The pending write/consume pair stays seat-keyed — it
+        # just surfaces the request to the current seat's AI, which then runs
+        # `empirica loop enable` (itself ai_id-resolving).
+        try:
+            from empirica.utils.session_resolver import InstanceResolver
+
+            loop_key = InstanceResolver.ai_id() or instance_id
+        except Exception:
+            loop_key = instance_id
         empirica_home = Path.home() / ".empirica"
-        safe_inst = instance_id.replace(":", "_").replace("/", "-")
+        safe_inst = loop_key.replace(":", "_").replace("/", "-")
         stamp = empirica_home / f"canonical_loops_installed_{safe_inst}"
         if stamp.exists():
             return 0  # gate 4
 
         from empirica.core.cockpit.loop_registry import LoopRegistry
 
-        registry = LoopRegistry(instance_id)
+        registry = LoopRegistry(loop_key)
         if registry.list_loops():
             stamp.parent.mkdir(parents=True, exist_ok=True)
             stamp.write_text("skipped: registry already had entries\n")
