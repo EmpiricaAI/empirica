@@ -119,6 +119,7 @@ test = [
     "pytest-asyncio>=0.21",
     "pytest-cov>=4.1",
     "pytest-mock>=3.11",
+    "pytest-xdist>=3.6",          # parallel `-n auto` — keeps `compliance-report --tests` from timing out locally
     "dirty-equals>=0.7",
 ]
 lint = [
