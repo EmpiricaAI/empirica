@@ -381,7 +381,11 @@ def kill_instance(instance_id: str, force: bool = False) -> KillResult:
 _FORGET_PATTERNS = (
     "instance_projects/{id}.json",
     "sentinel_paused_{id}",
-    "loops_{id}.json",
+    # NB: loops_{id}.json is intentionally NOT forgotten with a seat — loops are
+    # PRACTICE-keyed now (loops_{ai_id}.json). Forgetting an ephemeral seat must
+    # not delete the practice's loop registry (it'd be a foot-gun if `instance
+    # forget` were ever called with an ai_id). Loops are removed via
+    # `loop unregister`, not seat teardown.
     "active_session_{id}",
     "hook_counters_{id}.json",
     "context_usage_{id}.json",

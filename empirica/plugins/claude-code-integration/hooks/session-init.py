@@ -1521,15 +1521,26 @@ def _maybe_auto_install_canonical_loops(project_root: Path) -> int:
 
         from pathlib import Path as _Path
 
-        stamp = (
-            _Path.home() / ".empirica" / f"canonical_loops_installed_{instance_id.replace(':', '_').replace('/', '-')}"
-        )
+        # Loops are a PRACTICE concern — dedup stamp + the registry gate key on
+        # the stable ai_id, not the ephemeral seat, so a practice open in N panes
+        # queues its canonical loops ONCE (docs/architecture/AI_ID_AS_ANCHOR.md).
+        # Without this, the gate reads an empty loops_{seat} every new session and
+        # re-queues the phantom install prompt. Mirrors loop-install-pickup.py.
+        # write_pending below stays seat-keyed (matched to its consumer).
+        try:
+            from empirica.utils.session_resolver import InstanceResolver
+
+            loop_key = InstanceResolver.ai_id() or instance_id
+        except Exception:
+            loop_key = instance_id
+
+        stamp = _Path.home() / ".empirica" / f"canonical_loops_installed_{loop_key.replace(':', '_').replace('/', '-')}"
         if stamp.exists():
-            return 0  # gate 4: already auto-installed for this instance
+            return 0  # gate 4: already auto-installed for this practice
 
         from empirica.core.cockpit.loop_registry import LoopRegistry
 
-        registry = LoopRegistry(instance_id)
+        registry = LoopRegistry(loop_key)
         existing = registry.list_loops()
         if existing:
             # Some loops already registered manually — write stamp so we
