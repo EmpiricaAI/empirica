@@ -29,7 +29,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 PLUGIN_NAME = "empirica"
-PLUGIN_VERSION = "1.12.32"
+PLUGIN_VERSION = "1.12.33"
 # Written into the installed plugin dir; the empirica version its files came
 # from. Drives drift-sync (empirica plugin-sync / session-init auto-heal).
 PLUGIN_VERSION_STAMP = ".plugin-version"
