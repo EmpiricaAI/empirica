@@ -56,7 +56,8 @@ def _seed_instance_files(home: Path, instance_id: str) -> list[str]:
     files = [
         home / "instance_projects" / f"{instance_id}.json",
         home / f"sentinel_paused_{instance_id}",
-        home / f"loops_{instance_id}.json",
+        # loops_{id}.json intentionally NOT seeded — loops are practice-keyed now
+        # and are NOT forgotten with a seat (see _FORGET_PATTERNS).
         home / f"active_session_{instance_id}",
         home / f"hook_counters_{instance_id}.json",
         home / f"context_usage_{instance_id}.json",
