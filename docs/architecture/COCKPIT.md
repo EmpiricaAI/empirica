@@ -15,7 +15,7 @@ CLI surfaces on top of one core module:
 | Command | Module | Purpose |
 |---|---|---|
 | `empirica sentinel <pause\|resume\|status>` | `empirica.core.cockpit.sentinel_pause` | Per-instance noetic firewall toggle |
-| `empirica loop <register\|heartbeat\|pause\|install-request\|...>` | `empirica.core.cockpit.loop_registry` | Per-instance **periodic** loop registry CRUD |
+| `empirica loop <register\|heartbeat\|pause\|install-request\|...>` | `empirica.core.cockpit.loop_registry` | **Practice-keyed** (per `ai_id`) **periodic** loop registry CRUD — one loop per practice, like the persistent listener |
 | `empirica listener <register\|pause\|resume\|record-wake\|fire\|install-request\|list\|status\|unregister>` | `empirica.core.cockpit.listener_registry` | Per-instance **event-driven** listener registry CRUD (sister concept to loop) |
 | `empirica instance <kill\|forget\|label\|prune>` | `empirica.core.cockpit.instance_actions` | Destructive lifecycle: terminate / scrub state / rename / bulk-prune-dead |
 | `empirica status [--all\|--instance ID] [--pretty\|--json]` | `empirica.core.cockpit.instance_state` | Cockpit overview, all renderers consume the same JSON |
@@ -57,8 +57,8 @@ scanning is one glob.
 | `sentinel_paused_{instance_id}` | `empirica sentinel pause` (and direct hook writes) | empty file; existence = paused |
 | `sentinel_paused` | global pause fallback | applies to all instances |
 | **Loops (cron / periodic)** | | |
-| `loops_{instance_id}.json` | `empirica loop register/heartbeat/...` | declarative registry of loops |
-| `loop_paused_{instance_id}_{name}` | `empirica loop pause` | empty file; existence = loop paused |
+| `loops_{ai_id}.json` | `empirica loop register/heartbeat/...` | declarative registry of loops — **practice-keyed** (per `ai_id`, resolved via `_require_loop_key`), NOT per seat: one loop per practice + orphan-proof (the key doesn't die with the pane) |
+| `loop_paused_{ai_id}_{name}` | `empirica loop pause` | empty file; existence = loop paused (practice-keyed) |
 | `loop_install_pending_{instance_id}_{name}.json` | `empirica loop install-request` | bridge file — owning Claude's `loop-install-pickup.py` UserPromptSubmit hook surfaces it as system-reminder asking for `/loop` + `CronCreate` |
 | `loop_uninstall_pending_{instance_id}_{name}.json` | `empirica loop pause` (when scheduler_kind=cron-create) | bridge file — `loop-uninstall-pickup.py` hook asks owning Claude to `CronDelete(<job_id>)` |
 | **Listeners (event-driven)** | | |
@@ -73,9 +73,11 @@ scanning is one glob.
 | `<project>/.empirica/active_transaction_{instance_id}.json` | workflow_commands.py | current open transaction |
 | `<project>/.empirica/hook_counters_{instance_id}.json` | sentinel-gate.py / hooks | praxic_tool_calls etc. — used to derive phase |
 
-Discovery walks `instance_projects/`, `sentinel_paused_*`, `loops_*.json`,
-`listeners_*.json`, `active_session_*`, `hook_counters_*.json`, and
-`context_usage_*.json` and unions the derived instance_ids.
+Discovery walks `instance_projects/`, `sentinel_paused_*`, `listeners_*.json`,
+`active_session_*`, `hook_counters_*.json`, and `context_usage_*.json` and
+unions the derived instance_ids. (`loops_*.json` is intentionally NOT a
+discovery signal — loops are **practice-keyed**, so a loops file is a practice
+footprint, not a seat; globbing it would mint a phantom instance.)
 
 ---
 
@@ -304,7 +306,8 @@ directly.
 
 `empirica loop install-request --instance <ID> --name <NAME>
 --interval <INTERVAL>` registers the loop in
-`loops_{instance_id}.json` (visible in cockpit immediately) and queues
+`loops_{ai_id}.json` (the instance's practice key; visible in cockpit
+immediately) and queues
 the install via the hook above. The TUI's L button does the same when
 clicked on an instance with an empty registry, reading the canonical
 loop config from `<project>/.empirica/project.yaml`'s `cockpit.loops`
