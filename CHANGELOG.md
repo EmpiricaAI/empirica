@@ -5,6 +5,53 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.33] — 2026-07-23
+
+Patch: eliminates the ~120s `preflight-submit`/`postflight-submit` hang under a
+cold embedding backend, keys orchestration loops on the practice (not the
+ephemeral seat) so timer units can't orphan, and makes `compliance-report`
+usable locally so CI stops being the first place issues surface.
+
+### Fixed
+- **`preflight-submit` could hang ~120s against a cold embedding model.**
+  `retrieve_task_patterns` fans out ~20 vector searches per call and each
+  independently re-embedded its query string — with the `enrich_*` fan-out all
+  re-embedding the same `task_context`. Against a cold/evicted Ollama model
+  (~6s cold-start) that stacked to a multi-minute block on every
+  embed-triggering command. Fixed on three layers: (1) a bounded process-level
+  memo at the `_get_embedding_safe` chokepoint so each distinct query embeds at
+  most once (preserving the per-type prefix biasing that a single shared vector
+  would flatten); (2) `keep_alive` on every Ollama embed payload (default `-1`,
+  matching a server-side `OLLAMA_KEEP_ALIVE=-1` so the client never downgrades a
+  pinned model) — env `EMPIRICA_EMBED_KEEP_ALIVE`; (3) fail-fast timeout
+  (`60s`→`20s`, batch `120s`→`45s`, env `EMPIRICA_EMBED_TIMEOUT`) that degrades a
+  cold-load read-timeout to the local hash immediately instead of a 3×
+  prompt-shrink retry. The hash fallback is a valid 1024-d vector, so a degrade
+  never breaks a Qdrant query. Net: a backend hiccup can no longer stall the CLI
+  for minutes.
+- **Orchestration loops were keyed on the ephemeral seat, so timer units
+  orphaned** (#377–#383). Canonical loops now key on the practice `ai_id`
+  (stable across seats/sessions) rather than the `tmux_N`/`pts_N` location:
+  phantom `tmux_N` rows are root-caused and fixed (#377), pure-CLI loop bodies
+  run directly on the timer while monitors/listeners stay tick-only (#378),
+  orphan timer units from dead seats are reaped (#379), timer + session-init
+  loops are practice-keyed (#380, #381), and the canonical-loop auto-install is
+  deduped to a single source of truth so session-init no longer re-queues an
+  opt-in-only loop every session (#383).
+- **`_post_grants` reported partial ntfy-grant failures as success** — carried
+  over hardening; a 207 multi-status body is now surfaced per-grant.
+
+### Changed
+- **`compliance-report --tests` completes locally** (#384, #385). The pytest
+  gate now runs in parallel via `pytest-xdist` (`-n auto`) with a configurable
+  timeout (`EMPIRICA_COMPLIANCE_PYTEST_TIMEOUT`, default 1200s) and mirrors CI's
+  `-m "not integration"` selection — so the local report matches CI instead of
+  timing out and cascading to a false `governance_integrity` failure.
+- **Light-hook timeout raised `10s`→`30s`** (#385) so a slow first embed on a
+  cold backend can't discard a `UserPromptSubmit` hook mid-flight (belt-and-
+  suspenders with the embed fail-fast above).
+- **`COCKPIT.md` updated** for practice-keyed loops (#382).
+
 ## [1.12.32] — 2026-07-21
 
 Patch: fixes a macOS hang in `status`/`postflight-submit`, completes Claude

@@ -39,20 +39,34 @@ DEFAULT_MODELS = {
     "local": "hash-1536",
 }
 
+
 # Ollama warmth + fail-fast tuning.
 #
-# keep_alive: sent on every embed request so the model self-heals its
-# residency — each call re-arms a 30m window server-side. This is the durable
-# "pin the embeddings model properly" (vs a manual `keep_alive:-1` curl, which
-# resets on daemon restart/reboot). A remote box with only Empirica as its
-# embed client therefore never lets the model idle-evict between commands.
+# keep_alive: sent on every embed request so the embed model self-heals its
+# residency. Default -1 = "keep resident forever", which MATCHES a properly
+# configured server (OLLAMA_KEEP_ALIVE=-1) — so on such a box the client never
+# DOWNGRADES the server's pin (an earlier 30m default silently overrode a
+# server -1 down to 30m per request; that was a latent regression). On a box
+# whose server does NOT pin the model, -1 from the client keeps our 6GB embed
+# model hot regardless. Server-side OLLAMA_MAX_LOADED_MODELS is what lets it
+# coexist with chat models — keep_alive governs idle, not load pressure.
+#
+# Ollama wants a NUMBER for keep_alive (seconds; -1 = forever) or a duration
+# STRING ("30m"). _parse_keep_alive keeps both forms valid so operators can set
+# EMPIRICA_EMBED_KEEP_ALIVE=-1 / =1800 / =30m interchangeably.
 #
 # timeout: a cold qwen3-embedding cold-start on the Strix Halo measures ~6s;
 # 20s gives margin for cold-start + tailnet idle-link wake while still failing
 # FAST. The old 60s × 3-size-retry could block a single embed for ~180s — the
 # measured multi-minute PREFLIGHT/POSTFLIGHT hang. On timeout we degrade to the
-# local hash rather than block, so a backend hiccup never stalls the CLI.
-_EMBED_KEEP_ALIVE = os.getenv("EMPIRICA_EMBED_KEEP_ALIVE", "30m")
+# local hash (a valid 1024-d vector — never breaks Qdrant) rather than block, so
+# a backend hiccup never stalls the CLI.
+def _parse_keep_alive(raw: str) -> int | str:
+    """-1/1800 -> int (seconds, -1=forever); '30m' -> duration string. Both valid to Ollama."""
+    return int(raw) if raw.lstrip("-").isdigit() else raw
+
+
+_EMBED_KEEP_ALIVE = _parse_keep_alive(os.getenv("EMPIRICA_EMBED_KEEP_ALIVE", "-1"))
 _EMBED_TIMEOUT = float(os.getenv("EMPIRICA_EMBED_TIMEOUT", "20"))
 _EMBED_BATCH_TIMEOUT = float(os.getenv("EMPIRICA_EMBED_BATCH_TIMEOUT", "45"))
 
