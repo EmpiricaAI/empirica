@@ -173,3 +173,76 @@ def test_embed_ollama_retries_with_smaller_prompts_before_fallback():
     assert len(prompts) == 2
     assert len(prompts[1]) <= len(prompts[0])
     assert result == [0.1] * 384
+
+
+def test_embed_ollama_sends_keep_alive_and_degrades_on_timeout():
+    """keep_alive re-arms model warmth on every call (self-healing pin); a read
+    -timeout degrades to local hash IMMEDIATELY — no 3x shrink-retry — because the
+    model LOAD, not the prompt size, is the bottleneck. Regression guard for the
+    ~120s preflight hang (mesh-support prop_4pqqclkpcjhnjnszspasu7qvqm)."""
+    import requests
+
+    provider = EmbeddingsProvider.__new__(EmbeddingsProvider)
+    provider.ollama_url = "http://localhost:11434"
+    provider.model = "qwen3-embedding"
+    provider._vector_size = 1024
+    provider._embed_local_hash = lambda text: [7.0]
+
+    captured = {}
+    calls = []
+
+    def fake_post(url, json, timeout):
+        calls.append(json["prompt"])
+        captured["keep_alive"] = json.get("keep_alive")
+        raise requests.exceptions.ReadTimeout("simulated cold-load")
+
+    with patch("requests.post", side_effect=fake_post), patch("time.sleep", return_value=None):
+        result = provider._embed_ollama("some task context")
+
+    assert captured["keep_alive"]  # keep_alive present in the embed payload
+    assert len(calls) == 1  # timeout degrades on first attempt, no shrink-retry
+    assert result == [7.0]  # local-hash fallback, never a hang
+
+
+def test_get_embedding_safe_memoizes_by_query_string():
+    """retrieve_task_patterns fans out ~20 searches per preflight, many re-embedding
+    the same string. Memoize at the _get_embedding_safe chokepoint so each DISTINCT
+    query embeds at most once per process."""
+    from empirica.core.qdrant import connection as C
+
+    C._embed_memo.clear()
+    calls = []
+
+    def fake_get_embedding(text):
+        calls.append(text)
+        return [0.5] * 1024
+
+    with patch("empirica.core.qdrant.embeddings.get_embedding", side_effect=fake_get_embedding):
+        v1 = C._get_embedding_safe("same query")
+        v2 = C._get_embedding_safe("same query")
+        C._get_embedding_safe("different query")
+
+    assert v1 is v2  # cache returns the identical object on hit
+    assert calls == ["same query", "different query"]  # each distinct string embedded once
+
+
+def test_get_embedding_safe_does_not_cache_failures():
+    """A transient backend failure (None) must not poison later calls for the same string."""
+    from empirica.core.qdrant import connection as C
+
+    C._embed_memo.clear()
+    outcomes = [None, [0.9] * 1024]
+
+    with patch("empirica.core.qdrant.embeddings.get_embedding", side_effect=lambda text: outcomes.pop(0)):
+        first = C._get_embedding_safe("q")  # fails -> None, NOT cached
+        second = C._get_embedding_safe("q")  # retries -> real vector
+
+    assert first is None
+    assert second == [0.9] * 1024
+
+
+def test_get_embedding_safe_empty_text_returns_none():
+    """Empty text is a no-op — never hits the backend, never cached."""
+    from empirica.core.qdrant import connection as C
+
+    assert C._get_embedding_safe("") is None

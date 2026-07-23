@@ -39,6 +39,23 @@ DEFAULT_MODELS = {
     "local": "hash-1536",
 }
 
+# Ollama warmth + fail-fast tuning.
+#
+# keep_alive: sent on every embed request so the model self-heals its
+# residency — each call re-arms a 30m window server-side. This is the durable
+# "pin the embeddings model properly" (vs a manual `keep_alive:-1` curl, which
+# resets on daemon restart/reboot). A remote box with only Empirica as its
+# embed client therefore never lets the model idle-evict between commands.
+#
+# timeout: a cold qwen3-embedding cold-start on the Strix Halo measures ~6s;
+# 20s gives margin for cold-start + tailnet idle-link wake while still failing
+# FAST. The old 60s × 3-size-retry could block a single embed for ~180s — the
+# measured multi-minute PREFLIGHT/POSTFLIGHT hang. On timeout we degrade to the
+# local hash rather than block, so a backend hiccup never stalls the CLI.
+_EMBED_KEEP_ALIVE = os.getenv("EMPIRICA_EMBED_KEEP_ALIVE", "30m")
+_EMBED_TIMEOUT = float(os.getenv("EMPIRICA_EMBED_TIMEOUT", "20"))
+_EMBED_BATCH_TIMEOUT = float(os.getenv("EMPIRICA_EMBED_BATCH_TIMEOUT", "45"))
+
 # Known vector dimensions per model
 MODEL_DIMENSIONS = {
     # OpenAI
@@ -301,10 +318,11 @@ class EmbeddingsProvider:
             payload = {
                 "model": self.model,
                 "prompt": self._prepare_ollama_prompt(text, max_chars=max_chars),
+                "keep_alive": _EMBED_KEEP_ALIVE,  # self-heal residency — re-arm warmth every call
             }
 
             try:
-                resp = requests.post(url, json=payload, timeout=60)
+                resp = requests.post(url, json=payload, timeout=_EMBED_TIMEOUT)
                 resp.raise_for_status()
                 data = resp.json()
                 embedding = data.get("embedding", [])
@@ -343,6 +361,19 @@ class EmbeddingsProvider:
             except requests.exceptions.ConnectionError:
                 logger.warning(f"Cannot connect to Ollama at {self.ollama_url} - falling back to local hash")
                 return self._embed_local_hash(text)
+            except requests.exceptions.Timeout:
+                # A read-timeout means the model is cold-loading (or the box is under load),
+                # NOT that the prompt is too big — so shrinking it and retrying just burns
+                # another _EMBED_TIMEOUT for nothing. The request already armed the load
+                # server-side (keep_alive re-arms warmth), so the NEXT embed hits the
+                # now-resident model. Degrade THIS call to hash immediately: bounds cold-start
+                # cost to a single _EMBED_TIMEOUT (not 3×), and the _get_embedding_safe memo
+                # means only one distinct query string per process ever pays it.
+                logger.warning(
+                    f"Ollama embed timed out after {_EMBED_TIMEOUT}s (model cold-loading?) - "
+                    f"degrading to local hash; server is warming for next call"
+                )
+                return self._embed_local_hash(text)
             except Exception as e:
                 if attempt < len(prompt_sizes):
                     logger.warning(f"Ollama embedding attempt {attempt}/{len(prompt_sizes)} failed: {e}")
@@ -374,8 +405,9 @@ class EmbeddingsProvider:
                 json={
                     "model": self.model,
                     "input": prepared,
+                    "keep_alive": _EMBED_KEEP_ALIVE,  # self-heal residency — re-arm warmth every call
                 },
-                timeout=120,
+                timeout=_EMBED_BATCH_TIMEOUT,
             )
             resp.raise_for_status()
             data = resp.json()

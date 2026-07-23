@@ -9,8 +9,30 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
+from collections import OrderedDict
 
 logger = logging.getLogger(__name__)
+
+# Process-level embedding memo.
+#
+# retrieve_task_patterns issues ~20 search calls per single preflight-submit
+# (lessons/dead_ends/mistakes/findings + the enrich_* fan-out over
+# eidetic/episodic/goals/assumptions/decisions/docs). Many re-embed the SAME
+# query string — the enrich_* calls all reuse the raw task_context. Without
+# caching, a cold/idle-evicted embedding backend turns that into ~20 ×
+# cold-start latency: the measured ~120s preflight hang
+# (mesh-support prop_4pqqclkpcjhnjnszspasu7qvqm).
+#
+# Memoizing at this single chokepoint (every search path funnels through
+# _get_embedding_safe) collapses those ~20 embeds to at most one per DISTINCT
+# query string — preserving the per-type prefix biasing ("How to: X",
+# "Approach for: X", …) that threading a single shared vector would have
+# flattened. Bounded LRU; only SUCCESSFUL (non-None) embeds are cached so a
+# transient backend failure can't poison later calls.
+_EMBED_MEMO_MAX = int(os.getenv("EMPIRICA_EMBED_MEMO_SIZE", "256"))
+_embed_memo: OrderedDict[str, list[float]] = OrderedDict()
+_embed_memo_lock = threading.Lock()
 
 # Public API — these underscore-prefixed functions are intentionally imported
 # by other qdrant modules (vector_store, calibration, decay, memory, etc.)
@@ -87,14 +109,37 @@ def _get_qdrant_imports():
 
 
 def _get_embedding_safe(text: str) -> list[float] | None:
-    """Get embedding with graceful fallback."""
+    """Get embedding with graceful fallback + process-level memoization.
+
+    Memoizes successful embeds by query string so the ~20 search calls a
+    single preflight fans out never re-embed the same string N times (see the
+    _embed_memo note above). Failures are not cached — a transient backend
+    hiccup must not poison later calls.
+    """
+    if not text:
+        return None
+
+    with _embed_memo_lock:
+        hit = _embed_memo.get(text)
+        if hit is not None:
+            _embed_memo.move_to_end(text)
+            return hit
+
     try:
         from .embeddings import get_embedding
 
-        return get_embedding(text)
+        vec = get_embedding(text)
     except Exception as e:
         logger.debug(f"Embedding failed: {e}")
         return None
+
+    if vec is not None:
+        with _embed_memo_lock:
+            _embed_memo[text] = vec
+            _embed_memo.move_to_end(text)
+            while len(_embed_memo) > _EMBED_MEMO_MAX:
+                _embed_memo.popitem(last=False)
+    return vec
 
 
 def _get_embeddings_batch(texts: list[str]) -> list[list[float] | None]:
