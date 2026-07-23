@@ -62,88 +62,17 @@ installed by you.
 
 
 def _maybe_auto_install_canonical_loops(instance_id: str, project_root: Path) -> int:
-    """Zero-touch install on every UserPromptSubmit (works with --resume,
-    unlike SessionStart which only fires on new sessions).
+    """Zero-touch install on every UserPromptSubmit (works with --resume, unlike
+    SessionStart which only fires on new sessions).
 
-    Same four-gate cascade as the original session-init helper:
-      1. resolvable instance_id (caller already provides)
-      2. project has `.empirica/` (signals empirica intent)
-      3. registry empty (don't clobber manual config)
-      4. no stamp file (only install once per instance lifetime)
-
-    Returns count of canonical loops queued; 0 if any gate fails.
-    The stamp file (`~/.empirica/canonical_loops_installed_<instance>`)
-    makes this idempotent — subsequent prompts skip after first fire.
+    Thin wrapper over the single source of truth
+    ``canonical_loops.maybe_queue_canonical_install`` — the practice-keyed,
+    opt_in_only-aware, scheduler_kind-passing cascade shared with
+    ``session-init.py`` (they previously each held a copy that drifted).
     """
-    try:
-        if not project_root.joinpath(".empirica").is_dir():
-            return 0  # gate 2
-        # Loops are a PRACTICE concern — dedup stamp + the registry gate key on
-        # the stable ai_id, not the ephemeral seat, so a practice open in N panes
-        # queues its canonical loops ONCE and `enable` writes one unit per
-        # practice (docs/architecture/AI_ID_AS_ANCHOR.md). enable() resolves the
-        # same ai_id key. The pending write/consume pair stays seat-keyed — it
-        # just surfaces the request to the current seat's AI, which then runs
-        # `empirica loop enable` (itself ai_id-resolving).
-        try:
-            from empirica.utils.session_resolver import InstanceResolver
+    from empirica.core.cockpit.canonical_loops import maybe_queue_canonical_install
 
-            loop_key = InstanceResolver.ai_id() or instance_id
-        except Exception:
-            loop_key = instance_id
-        empirica_home = Path.home() / ".empirica"
-        safe_inst = loop_key.replace(":", "_").replace("/", "-")
-        stamp = empirica_home / f"canonical_loops_installed_{safe_inst}"
-        if stamp.exists():
-            return 0  # gate 4
-
-        from empirica.core.cockpit.loop_registry import LoopRegistry
-
-        registry = LoopRegistry(loop_key)
-        if registry.list_loops():
-            stamp.parent.mkdir(parents=True, exist_ok=True)
-            stamp.write_text("skipped: registry already had entries\n")
-            return 0  # gate 3
-
-        from empirica.core.cockpit.canonical_loops import CANONICAL_LOOPS
-        from empirica.core.cockpit.loop_install_request import write_pending
-
-        # Gate 5: cortex-mailbox-poll is OPT-IN ONLY. Wake-on-event (the
-        # persistent listener) is the canonical mesh trigger; the 30s poller is
-        # redundant on any wake-on-event seat and only wanted on harnesses that
-        # CANNOT do wake-on-event (cron-only VMs, isolated cloud) — where the user
-        # opts in explicitly via `empirica loop register`. So NEVER auto-queue a
-        # loop flagged `opt_in_only`. Genuine housekeeping crons (message-cleanup)
-        # are not flagged and still auto-install. (David 2026-07-19: "wake on
-        # event should be the only mesh trigger unless the user opts in"; cortex
-        # prop_osuft3rn, extension prop_syrvccyu6.)
-        installed = 0
-        for entry in CANONICAL_LOOPS:
-            scheduler_kind = entry.get("scheduler_kind")
-            if entry.get("opt_in_only"):
-                continue  # opt-in only — the user registers it themselves
-            try:
-                write_pending(
-                    instance_id=instance_id,
-                    name=entry["name"],
-                    interval=entry.get("interval", "15m"),
-                    description=entry.get("description", ""),
-                    base_interval=entry.get("base_interval"),
-                    max_interval=entry.get("max_interval"),
-                    requested_by="user-prompt-submit",
-                    body_skill=entry.get("body_skill"),
-                    scheduler_kind=scheduler_kind,  # DEFECT 1: was dropped → wrongly defaulted to cron-create
-                )
-                installed += 1
-            except Exception:
-                pass
-
-        if installed:
-            stamp.parent.mkdir(parents=True, exist_ok=True)
-            stamp.write_text(f"installed {installed} canonical loop(s) via UserPromptSubmit\n")
-        return installed
-    except Exception:
-        return 0  # never crash the user prompt
+    return maybe_queue_canonical_install(instance_id, project_root, requested_by="user-prompt-submit")
 
 
 def main() -> int:

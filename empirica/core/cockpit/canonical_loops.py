@@ -51,6 +51,7 @@ instead — project config takes precedence over this catalog.
 
 from __future__ import annotations
 
+import contextlib
 from typing import Any
 
 CANONICAL_LOOPS: list[dict[str, Any]] = [
@@ -147,8 +148,85 @@ def canonical_loop_by_name(name: str) -> dict[str, Any] | None:
     return None
 
 
+def maybe_queue_canonical_install(instance_id: str, project_root: Any, requested_by: str) -> int:
+    """Queue install-pending for each auto-installable canonical loop — the
+    SINGLE SOURCE OF TRUTH for the SessionStart (``session-init.py``) and
+    UserPromptSubmit (``loop-install-pickup.py``) hooks.
+
+    These previously each held their own copy of this cascade and drifted:
+    ``session-init`` lacked both the ``opt_in_only`` carve-out (so it queued
+    ``cortex-mailbox-poll`` — the wake-on-event loop — on every new session) and
+    the ``scheduler_kind`` passthrough, while ``loop-install-pickup`` had them
+    (from the #361 fix). One helper keeps them from drifting again.
+
+    Gate cascade:
+      1. project has ``.empirica/`` (opted into empirica)
+      2. dedup stamp absent — once per PRACTICE (``canonical_loops_installed_{ai_id}``)
+      3. the practice's loop registry is empty (don't clobber manual config)
+      4. per loop: skip ``opt_in_only`` (e.g. ``cortex-mailbox-poll`` — wake-on-event
+         is the canonical trigger; cron-only harnesses opt in via ``loop register``)
+
+    Loops are PRACTICE-keyed (docs/architecture/AI_ID_AS_ANCHOR.md): the stamp +
+    registry gate key on the stable ``ai_id``; ``write_pending`` stays seat-keyed
+    (its consumer is the seat's pickup hook). Returns the count queued (0 on any
+    failed gate). Never raises — hooks must not crash the prompt/session.
+    """
+    from pathlib import Path
+
+    try:
+        if not Path(project_root).joinpath(".empirica").is_dir():
+            return 0  # gate 1
+        # Loops are a practice concern — dedup + registry gate on the stable ai_id.
+        try:
+            from empirica.utils.session_resolver import InstanceResolver
+
+            loop_key = InstanceResolver.ai_id() or instance_id
+        except Exception:
+            loop_key = instance_id
+        empirica_home = Path.home() / ".empirica"
+        safe_key = loop_key.replace(":", "_").replace("/", "-")
+        stamp = empirica_home / f"canonical_loops_installed_{safe_key}"
+        if stamp.exists():
+            return 0  # gate 2
+
+        from empirica.core.cockpit.loop_registry import LoopRegistry
+
+        if LoopRegistry(loop_key).list_loops():
+            stamp.parent.mkdir(parents=True, exist_ok=True)
+            stamp.write_text("skipped: registry already had entries\n")
+            return 0  # gate 3
+
+        from empirica.core.cockpit.loop_install_request import write_pending
+
+        installed = 0
+        for entry in CANONICAL_LOOPS:
+            if entry.get("opt_in_only"):
+                continue  # gate 4: opt-in only (wake-on-event is canonical)
+            # One loop's write failure must not drop the rest — best-effort.
+            with contextlib.suppress(Exception):
+                write_pending(
+                    instance_id=instance_id,  # seat-keyed bridge → the seat's pickup hook
+                    name=entry["name"],
+                    interval=entry.get("interval", "15m"),
+                    description=entry.get("description", ""),
+                    base_interval=entry.get("base_interval"),
+                    max_interval=entry.get("max_interval"),
+                    requested_by=requested_by,
+                    body_skill=entry.get("body_skill"),
+                    scheduler_kind=entry.get("scheduler_kind"),
+                )
+                installed += 1
+        if installed:
+            stamp.parent.mkdir(parents=True, exist_ok=True)
+            stamp.write_text(f"installed {installed} canonical loop(s) via {requested_by}\n")
+        return installed
+    except Exception:
+        return 0  # never crash the caller
+
+
 __all__ = [
     "CANONICAL_LOOPS",
     "canonical_loop_by_name",
     "canonical_loop_names",
+    "maybe_queue_canonical_install",
 ]
