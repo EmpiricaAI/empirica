@@ -1509,71 +1509,17 @@ def _maybe_auto_install_canonical_loops(project_root: Path) -> int:
     Returns the count of canonical loops queued (0 if any gate failed).
     """
     try:
+        from empirica.core.cockpit.canonical_loops import maybe_queue_canonical_install
         from empirica.utils.session_resolver import get_instance_id
 
         instance_id = get_instance_id()
         if not instance_id:
             return 0  # gate 1: no instance_id (headless / unknown)
-
-        empirica_dir = project_root / ".empirica"
-        if not empirica_dir.is_dir():
-            return 0  # gate 2: project hasn't been empirica-initialized
-
-        from pathlib import Path as _Path
-
-        # Loops are a PRACTICE concern — dedup stamp + the registry gate key on
-        # the stable ai_id, not the ephemeral seat, so a practice open in N panes
-        # queues its canonical loops ONCE (docs/architecture/AI_ID_AS_ANCHOR.md).
-        # Without this, the gate reads an empty loops_{seat} every new session and
-        # re-queues the phantom install prompt. Mirrors loop-install-pickup.py.
-        # write_pending below stays seat-keyed (matched to its consumer).
-        try:
-            from empirica.utils.session_resolver import InstanceResolver
-
-            loop_key = InstanceResolver.ai_id() or instance_id
-        except Exception:
-            loop_key = instance_id
-
-        stamp = _Path.home() / ".empirica" / f"canonical_loops_installed_{loop_key.replace(':', '_').replace('/', '-')}"
-        if stamp.exists():
-            return 0  # gate 4: already auto-installed for this practice
-
-        from empirica.core.cockpit.loop_registry import LoopRegistry
-
-        registry = LoopRegistry(loop_key)
-        existing = registry.list_loops()
-        if existing:
-            # Some loops already registered manually — write stamp so we
-            # don't auto-install on top of user intent next time.
-            stamp.parent.mkdir(parents=True, exist_ok=True)
-            stamp.write_text("skipped: registry already had entries\n")
-            return 0  # gate 3: not fresh
-
-        # All gates pass — queue install-pending for each canonical loop.
-        from empirica.core.cockpit.canonical_loops import CANONICAL_LOOPS
-        from empirica.core.cockpit.loop_install_request import write_pending
-
-        installed = 0
-        for entry in CANONICAL_LOOPS:
-            try:
-                write_pending(
-                    instance_id=instance_id,
-                    name=entry["name"],
-                    interval=entry.get("interval", "15m"),
-                    description=entry.get("description", ""),
-                    base_interval=entry.get("base_interval"),
-                    max_interval=entry.get("max_interval"),
-                    requested_by="session-init",
-                    body_skill=entry.get("body_skill"),
-                )
-                installed += 1
-            except Exception:
-                pass
-
-        if installed:
-            stamp.parent.mkdir(parents=True, exist_ok=True)
-            stamp.write_text(f"installed {installed} canonical loop(s) at session-init\n")
-        return installed
+        # Single source of truth — practice-keyed, opt_in_only-aware,
+        # scheduler_kind-passing. session-init's old inline copy lacked the
+        # opt_in_only carve-out + scheduler_kind (it queued cortex-mailbox-poll
+        # on every new session); delegating fixes that drift permanently.
+        return maybe_queue_canonical_install(instance_id, project_root, requested_by="session-init")
     except Exception:
         return 0
 

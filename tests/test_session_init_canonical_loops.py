@@ -115,11 +115,14 @@ def test_skips_when_registry_already_has_loops(session_init_module, tmp_path):
     assert len(stamp_glob) == 1
 
 
-def test_pending_install_file_carries_skill_body(session_init_module, tmp_path):
-    """After auto-install, the pending install-request file should contain
-    the actual cortex polling body (from the skill) — not the generic
-    `your actual work here` placeholder. Confirms server-side merge
-    (from earlier commit) integrates with auto-install."""
+def test_auto_install_queues_housekeeping_and_skips_opt_in(session_init_module, tmp_path):
+    """Auto-install queues the non-opt-in canonical loops (message-cleanup) with
+    a well-formed install template, and does NOT queue opt_in_only loops
+    (cortex-mailbox-poll — wake-on-event is the canonical trigger).
+
+    This pins the fix for the drift that the shared-helper dedup closed:
+    session-init used to lack the opt_in_only carve-out and queued
+    cortex-mailbox-poll on every new session."""
     import json
 
     project = _make_empirica_project(tmp_path)
@@ -127,9 +130,8 @@ def test_pending_install_file_carries_skill_body(session_init_module, tmp_path):
     assert count >= 1
 
     home = Path(tmp_path / "home")
-    pending = list((home / ".empirica").glob("loop_install_pending_*_cortex-mailbox-poll.json"))
-    assert len(pending) == 1
-    data = json.loads(pending[0].read_text())
-    template = data.get("prompt_template", "")
-    assert "cortex_inbox_poll" in template
-    assert "your actual work here" not in template
+    mc = list((home / ".empirica").glob("loop_install_pending_*_message-cleanup.json"))
+    assert len(mc) == 1
+    assert json.loads(mc[0].read_text()).get("prompt_template")  # real template, not blank
+    # opt_in_only loops must NOT be auto-queued.
+    assert not list((home / ".empirica").glob("loop_install_pending_*_cortex-mailbox-poll.json"))
