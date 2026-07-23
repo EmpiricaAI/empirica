@@ -268,7 +268,10 @@ async def test_l_pauses_all_loops_when_any_unpaused(cockpit_env):
 
     home, project = cockpit_env
     _bind_instance(home, project, "tmux_42")
-    reg = LoopRegistry("tmux_42")
+    # Loops are practice-keyed (ai_id = project basename); the TUI resolves the
+    # same ai_id_for_timer and pauses under it.
+    key = project.name
+    reg = LoopRegistry(key)
     reg.register(name="loop-a", kind="monitor")
     reg.register(name="loop-b", kind="monitor")
 
@@ -281,8 +284,8 @@ async def test_l_pauses_all_loops_when_any_unpaused(cockpit_env):
 
         from empirica.core.cockpit import is_loop_paused
 
-        assert is_loop_paused("tmux_42", "loop-a")
-        assert is_loop_paused("tmux_42", "loop-b")
+        assert is_loop_paused(key, "loop-a")
+        assert is_loop_paused(key, "loop-b")
 
 
 @pytest.mark.asyncio
@@ -292,11 +295,13 @@ async def test_l_resumes_all_loops_when_all_paused(cockpit_env):
 
     home, project = cockpit_env
     _bind_instance(home, project, "tmux_42")
-    reg = LoopRegistry("tmux_42")
+    # Practice-keyed loops (ai_id = project basename).
+    key = project.name
+    reg = LoopRegistry(key)
     reg.register(name="loop-a", kind="monitor")
     reg.register(name="loop-b", kind="monitor")
-    set_loop_paused("tmux_42", "loop-a", True)
-    set_loop_paused("tmux_42", "loop-b", True)
+    set_loop_paused(key, "loop-a", True)
+    set_loop_paused(key, "loop-b", True)
 
     app = CockpitApp(include_dead=True)
     async with app.run_test(headless=True, size=(54, 20)) as pilot:
@@ -305,8 +310,8 @@ async def test_l_resumes_all_loops_when_all_paused(cockpit_env):
         await pilot.press("e")
         await pilot.pause()
 
-        assert not is_loop_paused("tmux_42", "loop-a")
-        assert not is_loop_paused("tmux_42", "loop-b")
+        assert not is_loop_paused(key, "loop-a")
+        assert not is_loop_paused(key, "loop-b")
 
 
 # ─── stop ─────────────────────────────────────────────────────────────────
@@ -620,8 +625,9 @@ async def test_l_button_writes_pending_uninstall_when_armed(cockpit_env):
     from empirica.core.cockpit.loop_registry import LoopRegistry
 
     # Register a loop with a recorded job_id (mimics what a healthy
-    # loop body's heartbeat call writes after CronCreate).
-    reg = LoopRegistry("tmux_test")
+    # loop body's heartbeat call writes after CronCreate). Practice-keyed
+    # (ai_id = project basename) — the TUI pauses under the same key.
+    reg = LoopRegistry(project.name)
     reg.register(name="foo", kind="cron", cron="*/15 * * * *", description="t")
     reg.heartbeat(
         name="foo",

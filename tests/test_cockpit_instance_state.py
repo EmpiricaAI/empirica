@@ -182,10 +182,14 @@ def test_aggregate_includes_sentinel_pause(env):
 def test_aggregate_includes_loops_with_pause_state(env):
     home, project = env
     _bind_instance(home, project, "tmux_5")
-    reg = lr.LoopRegistry("tmux_5")
+    # Loops are PRACTICE-keyed now (ai_id), not seat-keyed — the project has no
+    # project.yaml so the ai_id resolves to the basename. Registering under the
+    # practice key and aggregating the SEAT still surfaces them.
+    key = project.name
+    reg = lr.LoopRegistry(key)
     reg.register(name="poll-a", kind="cron", cron="*/5 * * * *")
     reg.register(name="poll-b", kind="monitor")
-    lr.set_loop_paused("tmux_5", "poll-b", True)
+    lr.set_loop_paused(key, "poll-b", True)
 
     state = ist.aggregate_instance_state("tmux_5")
     assert set(state["loops"].keys()) == {"poll-a", "poll-b"}
@@ -199,7 +203,8 @@ def test_aggregate_all_summary_counts(env):
     _write_transaction(project, "tmux_5", status="open")
     _bind_instance(home, project, "tmux_7")
     _write_transaction(project, "tmux_7", status="closed")
-    reg = lr.LoopRegistry("tmux_5")
+    # Practice-keyed loop (ai_id = project basename); both seats share it.
+    reg = lr.LoopRegistry(project.name)
     reg.register(name="poll", kind="monitor")
 
     # include_dead=True so synthetic instances aren't filtered by liveness.

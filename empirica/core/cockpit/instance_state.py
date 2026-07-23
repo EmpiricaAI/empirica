@@ -50,7 +50,7 @@ from empirica.core.cockpit.liveness import (
     is_alive,
     scan_live_claude,
 )
-from empirica.core.cockpit.loop_registry import LoopRegistry, is_loop_paused
+from empirica.core.cockpit.loop_registry import LoopRegistry, is_loop_paused, registry_path
 from empirica.core.cockpit.notify_dispatcher_view import (
     annotate_loops_with_last_notify,
     build_notify_dispatcher_block,
@@ -69,7 +69,10 @@ ABANDONED_WINDOW_S = 24 * 60 * 60
 INSTANCE_GLOBS = (
     "instance_projects/*.json",
     "sentinel_paused_*",
-    "loops_*.json",
+    # NB: loops_*.json is intentionally NOT a discovery signal — loops are
+    # PRACTICE-keyed now (loops_{ai_id}.json), so a loops file is a practice
+    # footprint, not a seat. Deriving a seat from it would mint a phantom
+    # instance named after the ai_id. Seats come from instance_projects/.
     "listeners_*.json",
     "active_session_*",
     "hook_counters_*.json",
@@ -506,13 +509,22 @@ def aggregate_instance_state(
 
     sentinel = sentinel_status(instance_id)
 
-    # Loop registry — graceful when registry doesn't exist.
-    registry = LoopRegistry(instance_id, label=label)
+    # Loop registry — graceful when registry doesn't exist. Loops belong to the
+    # PRACTICE (ai_id), not the ephemeral seat: one cortex-mailbox-poll /
+    # message-cleanup per practice, keyed like the persistent listener
+    # (docs/architecture/AI_ID_AS_ANCHOR.md). Fall back to the seat only when the
+    # ai_id can't be resolved. This keeps the cockpit reading the same key
+    # `loop enable` writes under, so systemd state annotates correctly.
+    loop_key = _project_ai_id(project_path) or instance_id
     loops_dict: dict[str, Any] = {}
-    for entry in registry.list_loops():
-        d = entry.to_dict()
-        d["paused"] = is_loop_paused(instance_id, entry.name)
-        loops_dict[entry.name] = d
+    # Read-only: don't construct a registry (which would CREATE an empty
+    # loops_{ai_id}.json) for a practice that has no loops — that'd be clutter.
+    if registry_path(loop_key).exists():
+        registry = LoopRegistry(loop_key, label=label)
+        for entry in registry.list_loops():
+            d = entry.to_dict()
+            d["paused"] = is_loop_paused(loop_key, entry.name)
+            loops_dict[entry.name] = d
 
     # systemd state annotation (Phase 1c-tail, goal f718156c): for loops
     # registered with scheduler_kind='systemd', the file-flag pause is
@@ -520,7 +532,7 @@ def aggregate_instance_state(
     # `systemd_active` + `systemd_enabled` so the TUI panel + glyph
     # logic can show accurate state. Best-effort: skip silently when
     # systemd-user isn't available (macOS / Windows-native hosts).
-    _annotate_loops_with_systemd_state(instance_id, loops_dict)
+    _annotate_loops_with_systemd_state(loop_key, loops_dict)
 
     # Per-loop last-notify annotation (audit log → loops by `loop:{name}` source).
     annotate_loops_with_last_notify(loops_dict)
@@ -706,8 +718,22 @@ def aggregate_all(include_dead: bool = False) -> dict[str, Any]:
     if not include_dead:
         instances = [i for i in instances if i.get("alive")]
 
-    loops_registered = sum(len(i["loops"]) for i in instances)
-    loops_paused = sum(1 for i in instances for loop in i["loops"].values() if loop.get("paused"))
+    # Loops are practice-keyed — the same loop shows under every live seat of a
+    # practice, so count DISTINCT (ai_id, loop_name) to avoid double-counting a
+    # practice's loop across its seats.
+    _seen_loops: set[tuple[str, str]] = set()
+    loops_registered = 0
+    loops_paused = 0
+    for i in instances:
+        akey = i.get("ai_id") or i["instance_id"]
+        for lname, loop in i["loops"].items():
+            ident = (akey, lname)
+            if ident in _seen_loops:
+                continue
+            _seen_loops.add(ident)
+            loops_registered += 1
+            if loop.get("paused"):
+                loops_paused += 1
     listeners_registered = sum(len(i.get("listeners") or {}) for i in instances)
     listeners_paused = sum(
         1 for i in instances for listener in (i.get("listeners") or {}).values() if listener.get("paused")
