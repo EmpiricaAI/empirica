@@ -630,9 +630,43 @@ def _life_support_handlers() -> dict:
     return {verb: g[name] for verb, name in wanted.items() if callable(g.get(name))}
 
 
+def _install_default_qdrant_resolver() -> None:
+    """Install the standalone per-project URL resolver (prop_ure7rqfuon,
+    2026-07-24) so ``empirica finding-log``, ``decision-log``, etc. write
+    to the correct per-org Qdrant when running outside cortex-mcp.
+
+    Best-effort: any failure is swallowed silently — this is a hook for
+    per-org routing when tenant DB + CORTEX_QDRANT_URLS_BY_ORG env are
+    both configured. Without them the resolver returns None for every
+    project → callers fall through to EMPIRICA_QDRANT_URL env → same
+    pre-fix behavior. Never breaks a write.
+
+    Skipped when a resolver is already installed (e.g. cortex-mcp
+    process that already installed its own via
+    ``cortex.qdrant_routing.resolve_qdrant_url``).
+    """
+    try:
+        from empirica.core.qdrant.connection import (
+            get_url_resolver,
+            set_url_resolver,
+        )
+
+        if get_url_resolver() is not None:
+            return  # Someone else installed one — respect it.
+        from empirica.core.qdrant.url_resolver_default import (
+            make_default_resolver,
+        )
+
+        set_url_resolver(make_default_resolver())
+    except Exception:
+        pass  # Never let this crash the CLI.
+
+
 def main(args=None):
     """Main CLI entry point"""
     start_time = time.time()
+
+    _install_default_qdrant_resolver()
 
     parser = create_argument_parser()
 

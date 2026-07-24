@@ -11,6 +11,7 @@ import logging
 import os
 import threading
 from collections import OrderedDict
+from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +49,60 @@ __all__ = [
     "_get_qdrant_imports",
     "_get_vector_size",
     "_rest_search",
+    "get_url_resolver",
+    "set_url_resolver",
 ]
+
+
+# ── Per-project URL resolver hook (prop_ure7rqfuon, 2026-07-24) ────
+#
+# Cortex owns per-org Qdrant routing (CORTEX_QDRANT_URLS_BY_ORG env +
+# tenant DB → project → org lookup). Empirica-lib doesn't know about
+# any of that, and until now had no way to resolve a URL from a
+# project_id — it read EMPIRICA_QDRANT_URL env or fell through to
+# localhost:6333. Every empirica write (memory/decisions/docs/edges)
+# from any process using empirica-lib went to that base URL, silently
+# bypassing whatever per-org routing cortex was doing at its own layer.
+#
+# Root of both the org-nle drift + the org-empirica :7333 orphan
+# (mesh-support prop_vdy4h25rlj + prop_2ag3ozdz5b consolidation).
+#
+# Fix (Path 1 per prop_ure7rqfuon): a module-level resolver hook.
+# Hosts install a callable `(project_id: str) -> str | None` that
+# maps project → URL; `_get_qdrant_client(project_id=…)` calls it
+# when no explicit `qdrant_url` was passed. Cortex on startup
+# installs `cortex.qdrant_routing.resolve_qdrant_url`. Standalone
+# empirica CLI installs a default that reads tenants.db +
+# CORTEX_QDRANT_URLS_BY_ORG env directly.
+#
+# Backward compat: no resolver installed → old behavior verbatim
+# (env → localhost). Set to None to explicitly clear.
+_url_resolver: Callable[[str], str | None] | None = None
+
+
+def set_url_resolver(fn: Callable[[str], str | None] | None) -> None:
+    """Install a per-project URL resolver.
+
+    ``fn`` is a callable ``(project_id: str) -> str | None`` — return
+    None to fall through to the env default. Called by
+    ``_get_qdrant_client`` when the caller passes ``project_id=`` but
+    no explicit ``qdrant_url=``. Idempotent (setting twice just replaces).
+    Pass ``None`` to clear the resolver (test hygiene).
+
+    Not thread-safe by design — install once at process startup, never
+    swap under a running load. Cross-repo boundary: cortex on import
+    installs its ``resolve_qdrant_url``; standalone empirica CLI
+    installs a tenant-DB-reading default (see
+    ``empirica.cli.qdrant_url_resolver_default``).
+    """
+    global _url_resolver
+    _url_resolver = fn
+
+
+def get_url_resolver():
+    """Return the currently installed resolver (None if unset)."""
+    return _url_resolver
+
 
 # Lazy imports - Qdrant is optional
 _qdrant_available = None
@@ -59,21 +113,27 @@ class CollectionDimensionMismatchError(RuntimeError):
     """Raised when an existing Qdrant collection and embeddings provider disagree."""
 
 
-def _check_qdrant_available(qdrant_url: str | None = None) -> bool:
+def _check_qdrant_available(
+    qdrant_url: str | None = None,
+    *,
+    project_id: str | None = None,
+) -> bool:
     """Check if Qdrant is available and enabled.
 
     Args:
-        qdrant_url: Optional. Accepted for API parity with `_get_qdrant_client`
-            so cortex's per-org routing can call both with the same signature
-            (prop_aifzk5hv2vgzjcdmef7pocbhde). Currently unused — this function
-            only checks library installation + the global enable flag, both of
-            which are URL-agnostic. The argument is reserved for a future
-            per-URL probe (e.g., reachability test against the resolved URL).
+        qdrant_url: Optional. Accepted for API parity with `_get_qdrant_client`.
+        project_id: Optional. Accepted for API parity too (prop_ure7rqfuon
+            2026-07-24) — callers now thread project_id through the whole
+            write pipeline so the URL resolver hook can fire.
+
+    Both args currently unused — this function only checks library
+    installation + the global enable flag, both URL-agnostic. Reserved
+    for future per-URL reachability probe.
 
     Returns:
         True when qdrant-client is installed and embeddings aren't disabled.
     """
-    del qdrant_url  # reserved for future per-URL reachability probe
+    del qdrant_url, project_id  # reserved for future per-URL reachability probe
     global _qdrant_available, _qdrant_warned
 
     if _qdrant_available is not None:
@@ -290,21 +350,29 @@ def _get_embeddings_batch_for_collection(
     return vectors
 
 
-def _get_qdrant_client(qdrant_url: str | None = None):
+def _get_qdrant_client(
+    qdrant_url: str | None = None,
+    *,
+    project_id: str | None = None,
+):
     """Get Qdrant client with lazy imports.
 
     Args:
-        qdrant_url: Optional per-request URL override. When provided, connect
-            to that URL instead of the module default. Used by cortex's per-org
-            routing (prop_aifzk5hv2vgzjcdmef7pocbhde) — `resolve_qdrant_url(org_id)`
-            returns the right container URL per request, then this factory
-            opens the client against it. None (the default) preserves the
-            pre-existing env→localhost fallback exactly.
+        qdrant_url: Optional per-request URL override. When provided,
+            connect to that URL instead of the module default.
+        project_id: Optional project id. When provided AND no explicit
+            qdrant_url AND a resolver is installed via
+            ``set_url_resolver()``, the resolver is called with the
+            project_id to look up the target URL. Cortex installs
+            ``resolve_qdrant_url`` on startup; standalone empirica CLI
+            installs a default reading tenants.db (prop_ure7rqfuon,
+            2026-07-24). Falls through to env if resolver returns None.
 
     Priority:
-    1. `qdrant_url` argument (explicit per-request URL)
-    2. EMPIRICA_QDRANT_URL environment variable (explicit URL)
-    3. localhost:6333 if Qdrant server is running
+    1. ``qdrant_url`` argument (explicit per-request URL)
+    2. Installed resolver on ``project_id`` (per-org routing hook)
+    3. ``EMPIRICA_QDRANT_URL`` environment variable (module default)
+    4. localhost:6333 if Qdrant server is running
 
     Returns None if no Qdrant server is available. File-based storage was
     removed (#45) because it creates incompatible storage formats, causes
@@ -312,16 +380,32 @@ def _get_qdrant_client(qdrant_url: str | None = None):
     """
     QdrantClient, _, _, _ = _get_qdrant_imports()
 
-    # Priority 1: Per-request URL (cortex per-org routing)
+    # Priority 1: Per-request URL (cortex per-org routing, explicit)
     if qdrant_url:
         return QdrantClient(url=qdrant_url)
 
-    # Priority 2: Module default from env
+    # Priority 2: Resolver hook (per-org routing via project_id lookup).
+    # Cortex on startup installs ``resolve_qdrant_url`` from
+    # ``cortex.qdrant_routing``; standalone empirica CLI installs a
+    # default resolver reading tenants.db + CORTEX_QDRANT_URLS_BY_ORG.
+    # Backward compat: no resolver installed → skip this priority.
+    if project_id and _url_resolver is not None:
+        try:
+            resolved = _url_resolver(project_id)
+        except Exception as e:  # never let a resolver blow up a write
+            logger.warning(
+                f"url_resolver({project_id!r}) raised {type(e).__name__}: {e} — falling through to env",
+            )
+            resolved = None
+        if resolved:
+            return QdrantClient(url=resolved)
+
+    # Priority 3: Module default from env
     url = os.getenv("EMPIRICA_QDRANT_URL")
     if url:
         return QdrantClient(url=url)
 
-    # Priority 3: Check if Qdrant server is running on localhost:6333
+    # Priority 4: Check if Qdrant server is running on localhost:6333
     default_url = "http://localhost:6333"
     try:
         import urllib.request
@@ -340,14 +424,33 @@ def _get_qdrant_client(qdrant_url: str | None = None):
     return None
 
 
-def _service_url(qdrant_url: str | None = None) -> str | None:
+def _service_url(
+    qdrant_url: str | None = None,
+    *,
+    project_id: str | None = None,
+) -> str | None:
     """Resolve the service URL used by the REST search path.
 
     Args:
         qdrant_url: Optional per-request URL override. When provided, that URL
-            wins. Otherwise falls back to EMPIRICA_QDRANT_URL env var.
+            wins.
+        project_id: Optional project id — consults the installed URL resolver
+            (per-org routing hook, prop_ure7rqfuon 2026-07-24) when
+            qdrant_url is absent.
+
+    Priority matches ``_get_qdrant_client``: explicit URL → resolver hook →
+    ``EMPIRICA_QDRANT_URL`` env.
     """
-    return qdrant_url or os.getenv("EMPIRICA_QDRANT_URL")
+    if qdrant_url:
+        return qdrant_url
+    if project_id and _url_resolver is not None:
+        try:
+            resolved = _url_resolver(project_id)
+        except Exception:
+            resolved = None
+        if resolved:
+            return resolved
+    return os.getenv("EMPIRICA_QDRANT_URL")
 
 
 def _rest_search(

@@ -2778,7 +2778,7 @@ def _hard_delete_source_chunks(project_id: str, source_id: str) -> int:
         from empirica.core.qdrant.connection import _get_qdrant_client
     except ImportError:
         return 0
-    client = _get_qdrant_client()
+    client = _get_qdrant_client(project_id=project_id)
     if client is None:
         return 0
     try:
@@ -2818,7 +2818,7 @@ def _hard_delete_source_memory_embed(project_id: str, source_id: str) -> int:
         from empirica.core.qdrant.connection import _get_qdrant_client
     except ImportError:
         return 0
-    client = _get_qdrant_client()
+    client = _get_qdrant_client(project_id=project_id)
     if client is None:
         return 0
     try:

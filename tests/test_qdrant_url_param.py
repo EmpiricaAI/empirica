@@ -211,8 +211,11 @@ def test_embed_single_memory_item_threads_url_to_check_and_client():
             "finding",
             qdrant_url="http://org-mod:7335",
         )
-    mock_check.assert_called_once_with(qdrant_url="http://org-mod:7335")
-    mock_client.assert_called_once_with(qdrant_url="http://org-mod:7335")
+    # prop_ure7rqfuon 2026-07-24: callers now thread project_id too, so
+    # the resolver hook can fire when qdrant_url is not passed. Explicit
+    # url still wins (priority 1), but the signature carries both args.
+    mock_check.assert_called_once_with(qdrant_url="http://org-mod:7335", project_id="proj")
+    mock_client.assert_called_once_with(qdrant_url="http://org-mod:7335", project_id="proj")
 
 
 def test_embed_assumption_threads_url_to_check_and_client():
@@ -226,8 +229,11 @@ def test_embed_assumption_threads_url_to_check_and_client():
             "an assumption",
             qdrant_url="http://org-mod:7335",
         )
-    mock_check.assert_called_once_with(qdrant_url="http://org-mod:7335")
-    mock_client.assert_called_once_with(qdrant_url="http://org-mod:7335")
+    # prop_ure7rqfuon 2026-07-24: callers now thread project_id too, so
+    # the resolver hook can fire when qdrant_url is not passed. Explicit
+    # url still wins (priority 1), but the signature carries both args.
+    mock_check.assert_called_once_with(qdrant_url="http://org-mod:7335", project_id="proj")
+    mock_client.assert_called_once_with(qdrant_url="http://org-mod:7335", project_id="proj")
 
 
 def test_embed_decision_threads_url_to_check_and_client():
@@ -242,8 +248,11 @@ def test_embed_decision_threads_url_to_check_and_client():
             "a rationale",
             qdrant_url="http://org-mod:7335",
         )
-    mock_check.assert_called_once_with(qdrant_url="http://org-mod:7335")
-    mock_client.assert_called_once_with(qdrant_url="http://org-mod:7335")
+    # prop_ure7rqfuon 2026-07-24: callers now thread project_id too, so
+    # the resolver hook can fire when qdrant_url is not passed. Explicit
+    # url still wins (priority 1), but the signature carries both args.
+    mock_check.assert_called_once_with(qdrant_url="http://org-mod:7335", project_id="proj")
+    mock_client.assert_called_once_with(qdrant_url="http://org-mod:7335", project_id="proj")
 
 
 def test_embed_intent_edge_threads_url_to_check_and_client():
@@ -262,8 +271,11 @@ def test_embed_intent_edge_threads_url_to_check_and_client():
             0.8,
             qdrant_url="http://org-mod:7335",
         )
-    mock_check.assert_called_once_with(qdrant_url="http://org-mod:7335")
-    mock_client.assert_called_once_with(qdrant_url="http://org-mod:7335")
+    # prop_ure7rqfuon 2026-07-24: callers now thread project_id too, so
+    # the resolver hook can fire when qdrant_url is not passed. Explicit
+    # url still wins (priority 1), but the signature carries both args.
+    mock_check.assert_called_once_with(qdrant_url="http://org-mod:7335", project_id="proj")
+    mock_client.assert_called_once_with(qdrant_url="http://org-mod:7335", project_id="proj")
 
 
 def test_upsert_memory_threads_url_to_check_and_client():
@@ -272,8 +284,11 @@ def test_upsert_memory_threads_url_to_check_and_client():
         patch.object(memory_mod, "_get_qdrant_client", return_value=None) as mock_client,
     ):
         memory_mod.upsert_memory("proj", [{"id": "x", "text": "t"}], qdrant_url="http://org-mod:7335")
-    mock_check.assert_called_once_with(qdrant_url="http://org-mod:7335")
-    mock_client.assert_called_once_with(qdrant_url="http://org-mod:7335")
+    # prop_ure7rqfuon 2026-07-24: callers now thread project_id too, so
+    # the resolver hook can fire when qdrant_url is not passed. Explicit
+    # url still wins (priority 1), but the signature carries both args.
+    mock_check.assert_called_once_with(qdrant_url="http://org-mod:7335", project_id="proj")
+    mock_client.assert_called_once_with(qdrant_url="http://org-mod:7335", project_id="proj")
 
 
 def test_search_threads_url_to_check_and_client():
@@ -282,8 +297,11 @@ def test_search_threads_url_to_check_and_client():
         patch.object(memory_mod, "_get_qdrant_client", return_value=None) as mock_client,
     ):
         memory_mod.search("proj", "query", qdrant_url="http://org-mod:7335")
-    mock_check.assert_called_once_with(qdrant_url="http://org-mod:7335")
-    mock_client.assert_called_once_with(qdrant_url="http://org-mod:7335")
+    # prop_ure7rqfuon 2026-07-24: callers now thread project_id too, so
+    # the resolver hook can fire when qdrant_url is not passed. Explicit
+    # url still wins (priority 1), but the signature carries both args.
+    mock_check.assert_called_once_with(qdrant_url="http://org-mod:7335", project_id="proj")
+    mock_client.assert_called_once_with(qdrant_url="http://org-mod:7335", project_id="proj")
 
 
 def test_embed_omitting_url_is_legacy_behavior():
@@ -294,5 +312,9 @@ def test_embed_omitting_url_is_legacy_behavior():
         patch.object(memory_mod, "_get_qdrant_client", return_value=None) as mock_client,
     ):
         memory_mod.embed_single_memory_item("proj", "item-1", "text", "finding")
-    mock_check.assert_called_once_with(qdrant_url=None)
-    mock_client.assert_called_once_with(qdrant_url=None)
+    # Legacy caller: qdrant_url omitted → None (env fallback). project_id
+    # comes from the positional arg and IS threaded — the resolver hook
+    # will fire only when installed (post-prop_ure7rqfuon), else falls
+    # through to env identically to pre-change behavior.
+    mock_check.assert_called_once_with(qdrant_url=None, project_id="proj")
+    mock_client.assert_called_once_with(qdrant_url=None, project_id="proj")

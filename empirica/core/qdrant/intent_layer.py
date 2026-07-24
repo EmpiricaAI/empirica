@@ -42,7 +42,7 @@ def embed_assumption(
 
     qdrant_url: optional per-request Qdrant URL (per-org routing); None = default resolution.
     """
-    if not _check_qdrant_available(qdrant_url=qdrant_url):
+    if not _check_qdrant_available(qdrant_url=qdrant_url, project_id=project_id):
         return False
 
     try:
@@ -50,7 +50,7 @@ def embed_assumption(
         import time as _time
 
         _, _, VectorParams, PointStruct = _get_qdrant_imports()
-        client = _get_qdrant_client(qdrant_url=qdrant_url)
+        client = _get_qdrant_client(qdrant_url=qdrant_url, project_id=project_id)
         if client is None:
             return False
         coll = _assumptions_collection(project_id)
@@ -120,7 +120,7 @@ def embed_decision(
 
     qdrant_url: optional per-request Qdrant URL (per-org routing); None = default resolution.
     """
-    if not _check_qdrant_available(qdrant_url=qdrant_url):
+    if not _check_qdrant_available(qdrant_url=qdrant_url, project_id=project_id):
         return False
 
     try:
@@ -128,7 +128,7 @@ def embed_decision(
         import time as _time
 
         _, _, VectorParams, PointStruct = _get_qdrant_imports()
-        client = _get_qdrant_client(qdrant_url=qdrant_url)
+        client = _get_qdrant_client(qdrant_url=qdrant_url, project_id=project_id)
         if client is None:
             return False
         coll = _decisions_collection(project_id)
@@ -200,7 +200,7 @@ def embed_intent_edge(
 
     qdrant_url: optional per-request Qdrant URL (per-org routing); None = default resolution.
     """
-    if not _check_qdrant_available(qdrant_url=qdrant_url):
+    if not _check_qdrant_available(qdrant_url=qdrant_url, project_id=project_id):
         return False
 
     try:
@@ -209,7 +209,7 @@ def embed_intent_edge(
         import time as _time
 
         _, _, VectorParams, PointStruct = _get_qdrant_imports()
-        client = _get_qdrant_client(qdrant_url=qdrant_url)
+        client = _get_qdrant_client(qdrant_url=qdrant_url, project_id=project_id)
         if client is None:
             return False
         coll = _intents_collection(project_id)
@@ -278,11 +278,11 @@ def search_assumptions(
         min_urgency: Minimum urgency_signal threshold (0.0-1.0)
         qdrant_url: optional per-request Qdrant URL (per-org routing)
     """
-    if not _check_qdrant_available(qdrant_url=qdrant_url):
+    if not _check_qdrant_available(qdrant_url=qdrant_url, project_id=project_id):
         return []
 
     try:
-        client = _get_qdrant_client(qdrant_url=qdrant_url)
+        client = _get_qdrant_client(qdrant_url=qdrant_url, project_id=project_id)
         if client is None:
             return []
         coll = _assumptions_collection(project_id)
@@ -354,11 +354,11 @@ def search_decisions(
 
     qdrant_url: optional per-request Qdrant URL (per-org routing); None = default resolution.
     """
-    if not _check_qdrant_available(qdrant_url=qdrant_url):
+    if not _check_qdrant_available(qdrant_url=qdrant_url, project_id=project_id):
         return []
 
     try:
-        client = _get_qdrant_client(qdrant_url=qdrant_url)
+        client = _get_qdrant_client(qdrant_url=qdrant_url, project_id=project_id)
         if client is None:
             return []
         coll = _decisions_collection(project_id)
@@ -423,11 +423,11 @@ def search_intents(
 
     qdrant_url: optional per-request Qdrant URL (per-org routing); None = default resolution.
     """
-    if not _check_qdrant_available(qdrant_url=qdrant_url):
+    if not _check_qdrant_available(qdrant_url=qdrant_url, project_id=project_id):
         return []
 
     try:
-        client = _get_qdrant_client(qdrant_url=qdrant_url)
+        client = _get_qdrant_client(qdrant_url=qdrant_url, project_id=project_id)
         if client is None:
             return []
         coll = _intents_collection(project_id)

@@ -49,12 +49,12 @@ def embed_single_memory_item(
     This is a non-blocking operation - core Empirica works without it.
     """
     # Check if Qdrant is available (graceful degradation)
-    if not _check_qdrant_available(qdrant_url=qdrant_url):
+    if not _check_qdrant_available(qdrant_url=qdrant_url, project_id=project_id):
         return False
 
     try:
         _, _, _, PointStruct = _get_qdrant_imports()
-        client = _get_qdrant_client(qdrant_url=qdrant_url)
+        client = _get_qdrant_client(qdrant_url=qdrant_url, project_id=project_id)
         if client is None:
             return False
         coll = _memory_collection(project_id)
@@ -101,12 +101,12 @@ def upsert_docs(project_id: str, docs: list[dict], qdrant_url: str | None = None
     qdrant_url: optional per-request Qdrant URL (per-org routing); None = default resolution.
     Returns number of docs upserted, or 0 if Qdrant not available.
     """
-    if not _check_qdrant_available(qdrant_url=qdrant_url):
+    if not _check_qdrant_available(qdrant_url=qdrant_url, project_id=project_id):
         return 0
 
     try:
         _, _, _, PointStruct = _get_qdrant_imports()
-        client = _get_qdrant_client(qdrant_url=qdrant_url)
+        client = _get_qdrant_client(qdrant_url=qdrant_url, project_id=project_id)
         if client is None:
             return 0
         coll = _docs_collection(project_id)
@@ -158,12 +158,12 @@ def upsert_memory(project_id: str, items: list[dict], qdrant_url: str | None = N
     qdrant_url: optional per-request Qdrant URL (per-org routing); None = default resolution.
     Returns number of items upserted, or 0 if Qdrant not available.
     """
-    if not _check_qdrant_available(qdrant_url=qdrant_url):
+    if not _check_qdrant_available(qdrant_url=qdrant_url, project_id=project_id):
         return 0
 
     try:
         _, _, _, PointStruct = _get_qdrant_imports()
-        client = _get_qdrant_client(qdrant_url=qdrant_url)
+        client = _get_qdrant_client(qdrant_url=qdrant_url, project_id=project_id)
         if client is None:
             return 0
         coll = _memory_collection(project_id)
@@ -267,7 +267,7 @@ def search(
         search_kinds = [kind]
     empty_result = {k: [] for k in search_kinds}
 
-    if not _check_qdrant_available(qdrant_url=qdrant_url):
+    if not _check_qdrant_available(qdrant_url=qdrant_url, project_id=project_id):
         return empty_result
 
     # Collection config: (name, collection_fn, payload_fields)
@@ -307,7 +307,7 @@ def search(
             pass
 
     results: dict[str, list[dict]] = {}
-    client = _get_qdrant_client(qdrant_url=qdrant_url)
+    client = _get_qdrant_client(qdrant_url=qdrant_url, project_id=project_id)
     if client is None:
         return empty_result
 
