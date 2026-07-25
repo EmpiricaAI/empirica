@@ -818,3 +818,40 @@ def test_decisions_endpoint_ships_description_when_present(tmp_path, monkeypatch
 
     assert len(decisions) == 1
     assert decisions[0]["description"] == body
+
+
+def test_sources_surface_across_drifted_project_ids(tmp_path, monkeypatch, reset_daemon_cache):
+    """Regression: the extension's sources pane under-read because _list_sources
+    filtered `WHERE project_id = ?`.
+
+    A practice's project_id drifts over its life, so its OWN sources end up under
+    several ids (measured on empirica: 14 of 63 sat under three stale ids absent from
+    the registry). The daemon opens a PER-PROJECT db, so the db path is the practice
+    boundary and every row in it belongs to this practice — the read is scoped to the
+    db, not to one id. Each row still reports its stored project_id so the drift stays
+    visible to epistemic gardening."""
+    pid = str(uuid.uuid4())
+    stale_pid = str(uuid.uuid4())  # same practice, earlier identity
+    proj = _make_project_with_db(tmp_path, pid)
+    db_path = proj / ".empirica" / "sessions" / "sessions.db"
+
+    canonical = _insert_source(db_path, pid, "canonical source")
+    drifted = _insert_source(db_path, stale_pid, "drifted source")
+    _insert_source(db_path, stale_pid, "drifted archived", archived=True)
+
+    with patch("empirica.utils.session_resolver.InstanceResolver.project_path", return_value=str(proj)):
+        monkeypatch.chdir(proj)
+        client = TestClient(create_serve_app())
+        rows = client.get("/api/v1/sources").json()["sources"]
+        with_arch = client.get("/api/v1/sources?include_archived=true").json()["sources"]
+
+    ids = {s["id"] for s in rows}
+    assert canonical in ids, "canonical-id source must still surface"
+    assert drifted in ids, "source under a drifted project_id must surface (the under-read)"
+    # Drift stays visible per row — gardening needs to see which ids are stale.
+    by_id = {s["id"]: s for s in rows}
+    assert by_id[canonical]["project_id"] == pid
+    assert by_id[drifted]["project_id"] == stale_pid
+    # Archived filter still applies across the widened read (no regression).
+    assert len(rows) == 2, "archived drifted source stays hidden by default"
+    assert len(with_arch) == 3, "include_archived=true surfaces the archived drifted row too"

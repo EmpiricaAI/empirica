@@ -471,7 +471,9 @@ def _list_decisions(db, project_id: str, limit: int) -> list[dict[str, Any]]:
     ]
 
 
-def _list_sources(db, project_id: str, limit: int, include_archived: bool = False) -> list[dict[str, Any]]:
+def _list_sources(
+    db, project_id: str, limit: int, include_archived: bool = False, practice_scope: bool = True
+) -> list[dict[str, Any]]:
     cursor = db.conn.cursor()
     # Optional columns are schema-resilient (same pattern as _list_goals, David
     # 2026-05-17): archived (hide by default), cortex_uuid + visibility (bridge keys
@@ -489,12 +491,35 @@ def _list_sources(db, project_id: str, limit: int, include_archived: bool = Fals
     # (indistinguishable from active) — the "archived sources still surface in
     # extension" bug. Hidden by default; opt-in via include_archived.
     archived_clause = "AND (archived IS NOT 1) " if (has_archived and not include_archived) else ""
+    # Practice-scoped read (sources-in-extension under-read).
+    #
+    # A practice's project_id drifts over its life, so its OWN sources end up under
+    # several ids. Measured on empirica 2026-07-24: 63 sources, 49 under the canonical
+    # id and 14 under three stale ids (3be592bd/258aa934/e0b752ae) that aren't in
+    # registry.yaml at all — the rows are this repo's own artifacts (CANONICAL_SYSTEM_
+    # PROMPT.md, session_database.py, …). Filtering to the ONE canonical project_id hid
+    # them from the extension pane.
+    #
+    # Safe to read the whole table because `_open_db_for` opens a PER-PROJECT database
+    # (`{project_path}/.empirica/sessions/sessions.db`): the db path IS the practice
+    # boundary, so every row in it belongs to this practice by construction. There is no
+    # other practice's data to leak.
+    #
+    # NOT keyed on `discovered_by_ai` — that column holds the TOOL identity
+    # (`claude-code` / `rovodev` / NULL), not the practice, so keying on it would match
+    # nothing and silently no-op.
+    #
+    # Non-destructive: rows keep their stored project_id (returned per row below), so the
+    # drift stays visible and `epistemic gardening` can reconcile/archive/prune it. Pass
+    # `practice_scope=False` for the strict single-project read.
+    where = "1=1" if practice_scope else "project_id = ?"
+    params: list[Any] = [] if practice_scope else [project_id]
     cursor.execute(
         f"SELECT id, title, source_url, source_type, description, confidence, "
-        f"epistemic_layer, session_id, discovered_by_ai, discovered_at{extra_cols} "
-        f"FROM epistemic_sources WHERE project_id = ? {archived_clause}"
+        f"epistemic_layer, session_id, discovered_by_ai, discovered_at, project_id{extra_cols} "
+        f"FROM epistemic_sources WHERE {where} {archived_clause}"
         f"ORDER BY discovered_at DESC LIMIT ?",
-        (project_id, limit),
+        (*params, limit),
     )
     rows = cursor.fetchall()
     out: list[dict[str, Any]] = []
@@ -511,8 +536,11 @@ def _list_sources(db, project_id: str, limit: int, include_archived: bool = Fals
             "session_id": r[7],
             "discovered_by_ai": r[8],
             "created_at": _to_iso(r[9]),
+            # Stored project_id, surfaced so drift is visible rather than silently
+            # aggregated away — gardening needs to see which sources sit under a stale id.
+            "project_id": r[10],
         }
-        idx = 10
+        idx = 11
         if has_cuuid:
             d["cortex_uuid"] = r[idx]
             idx += 1
