@@ -138,11 +138,26 @@ def resolve_daemon_project() -> dict | None:
 
     # 2. CWD walk-up tail (for "no CC context" daemon launches)
     if project_path is None:
-        cwd = Path(os.environ.get("PWD") or os.getcwd())
-        walked = _walk_up_for_empirica(cwd)
-        if walked:
-            project_path = walked
-            logger.debug(f"daemon_project: resolved via CWD walk-up: {project_path}")
+        # $PWD is tried first because a shell keeps it as the *symlinked* path the
+        # user actually cd'd through, which os.getcwd() resolves away — walking up
+        # from it matches the user's mental model.
+        #
+        # But $PWD is a SHELL convention, not a guarantee: a daemon launched by
+        # systemd inherits the manager's value regardless of the unit's
+        # WorkingDirectory (observed: PWD=/home/yogapad while WorkingDirectory was
+        # the repo), so trusting it alone made the daemon resolve NO project even
+        # though its cwd was correct. Fall through to os.getcwd(), which is always
+        # the real working directory.
+        seen: set[str] = set()
+        for candidate in (os.environ.get("PWD"), os.getcwd()):
+            if not candidate or candidate in seen:
+                continue
+            seen.add(candidate)
+            walked = _walk_up_for_empirica(Path(candidate))
+            if walked:
+                project_path = walked
+                logger.debug(f"daemon_project: resolved via CWD walk-up ({candidate}): {project_path}")
+                break
 
     if project_path is None:
         return None

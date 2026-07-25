@@ -472,3 +472,41 @@ def test_resolve_for_request_returns_none_for_stale_registry_path(tmp_path):
         result = resolve_for_request(project_id="stale")
 
     assert result is None
+
+
+def test_resolve_falls_back_to_getcwd_when_pwd_is_stale(tmp_path, monkeypatch):
+    """Regression: a systemd-launched daemon resolved NO project despite a correct
+    WorkingDirectory.
+
+    $PWD is a SHELL convention. Under systemd the daemon inherits the manager's
+    value regardless of the unit's WorkingDirectory (observed live: PWD=/home/yogapad
+    while WorkingDirectory was the repo). Walking up from $PWD alone therefore found
+    nothing and the daemon bound to no project at all — the unqualified /api/v1/*
+    view returned empty. os.getcwd() is the real working directory and must be tried
+    as well."""
+    proj = _make_project(tmp_path, "systemd-cwd")
+    elsewhere = tmp_path / "unrelated-home"
+    elsewhere.mkdir()
+
+    with patch("empirica.utils.session_resolver.InstanceResolver.project_path", return_value=None):
+        monkeypatch.chdir(proj)  # real cwd = the project
+        monkeypatch.setenv("PWD", str(elsewhere))  # stale/inherited PWD, no project above it
+        result = resolve_daemon_project()
+
+    assert result is not None, "must resolve via os.getcwd() when $PWD points elsewhere"
+    assert result["project_path"] == str(proj)
+
+
+def test_resolve_still_prefers_pwd_when_it_resolves(tmp_path, monkeypatch):
+    """The getcwd() fallback must not displace $PWD: a shell's symlinked path stays
+    the preferred answer when it does resolve to a project."""
+    pwd_proj = _make_project(tmp_path, "via-pwd")
+    cwd_proj = _make_project(tmp_path, "via-cwd")
+
+    with patch("empirica.utils.session_resolver.InstanceResolver.project_path", return_value=None):
+        monkeypatch.chdir(cwd_proj)
+        monkeypatch.setenv("PWD", str(pwd_proj))
+        result = resolve_daemon_project()
+
+    assert result is not None
+    assert result["project_path"] == str(pwd_proj), "$PWD keeps priority when it resolves"
