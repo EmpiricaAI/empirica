@@ -279,6 +279,27 @@ def _missing_symbol(message: str) -> str:
 _KNOWN_VIOLATIONS: frozenset[tuple[str, str]] = frozenset()
 
 
+# Files whose static SQL targets a FOREIGN database — not empirica's own schema —
+# so introspecting our schema cannot validate them.
+#
+# Distinct from `_KNOWN_VIOLATIONS` above, which tracks real dead-query BUGS against
+# OUR schema and ratchets toward empty. These are correct queries pointed at another
+# system's database; listing them there would mislabel them as bugs.
+#
+# The loop's existing "none of the referenced tables are ours → skip" heuristic does
+# not cover these: the foreign DB can use a table NAME we also have (`projects`) with
+# different columns, so the query gets validated against the wrong schema and reports
+# a phantom missing column.
+_FOREIGN_SCHEMA_FILES: frozenset[str] = frozenset(
+    {
+        # Queries cortex's multi-tenant tenants.db (DEFAULT_TENANT_DB_PATHS:
+        # /root/.cortex/tenants.db, ~/.cortex/tenants.db, ~/.empirica/tenants.db).
+        # Its `projects` table legitimately has `org_id`; ours does not.
+        "empirica/core/qdrant/url_resolver_default.py",
+    }
+)
+
+
 # --------------------------------------------------------------------------- #
 # The test.
 # --------------------------------------------------------------------------- #
@@ -292,6 +313,7 @@ def test_static_sql_references_exist_in_schema():
     validated = 0
     skipped_non_dml = 0
     skipped_unknown_table = 0
+    skipped_foreign_schema = 0
     new_violations: list[tuple[str, str, str]] = []  # (loc, sql, error) — fail
     known_violations: list[tuple[str, str, str]] = []  # allow-listed, tracked
     ambiguous: list[tuple[str, str, str]] = []  # other OperationalErrors
@@ -299,6 +321,13 @@ def test_static_sql_references_exist_in_schema():
     for py_file, lineno, sql in all_queries:
         relpath = py_file.relative_to(REPO_ROOT).as_posix()
         loc = f"{relpath}:{lineno}"
+
+        # Targets another system's DB — our schema can't validate it (see the note
+        # on _FOREIGN_SCHEMA_FILES; a shared table NAME would otherwise be checked
+        # against the wrong columns).
+        if relpath in _FOREIGN_SCHEMA_FILES:
+            skipped_foreign_schema += 1
+            continue
 
         keyword = _statement_keyword(sql)
         if keyword.startswith(NON_DML_PREFIXES) or keyword == "":
@@ -343,6 +372,7 @@ def test_static_sql_references_exist_in_schema():
         f"  validated via EXPLAIN      : {validated}",
         f"  skipped (non-DML / DDL)    : {skipped_non_dml}",
         f"  skipped (unknown table)    : {skipped_unknown_table}",
+        f"  skipped (foreign schema)   : {skipped_foreign_schema}",
         f"  ambiguous OperationalError : {len(ambiguous)}",
         f"  known violations (tracked) : {len(known_violations)}",
         f"  NEW violations             : {len(new_violations)}",
