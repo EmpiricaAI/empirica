@@ -136,3 +136,21 @@ def test_stamp_reviews_noop_on_empty(tmp_path):
     from empirica.cli.command_handlers import sources_check_commands as sc
 
     assert sc._stamp_reviews({}) == 0
+
+
+def test_non_http_uris_are_out_of_scope_not_rotted(tmp_path):
+    """mailto:/ftp:/doi: are valid locators the DISK check cannot speak to. Calling
+    them missing (or unpointed) would send a gardener to fix what isn't broken."""
+    from empirica.cli.command_handlers.sources_check_commands import _classify_local_source
+
+    for uri in ("mailto:x@y.com", "ftp://host/f.txt", "doi:10.1000/182"):
+        assert _classify_local_source(uri, tmp_path)[0] == "out_of_scope", uri
+
+
+def test_a_windows_drive_path_is_still_treated_as_a_path(tmp_path):
+    """The URI-scheme guard must not swallow "C:\\path" — a single-char scheme is a
+    drive letter, not a protocol."""
+    from empirica.cli.command_handlers.sources_check_commands import _is_non_local_uri
+
+    assert _is_non_local_uri("C:\\Users\\x\\doc.md") is False
+    assert _is_non_local_uri("mailto:a@b.c") is True

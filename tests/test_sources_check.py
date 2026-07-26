@@ -100,7 +100,7 @@ def test_gated_and_errored_do_not_fail(capsys):
     assert out["dead"] == []
 
 
-def test_non_url_sources_skipped(capsys):
+def test_non_url_sources_are_not_probed_but_are_still_checked(capsys):
     srcs = _sources(
         _src("s1", "https://a.com"),
         _src("s2", "/local/doc.md"),  # not probeable
@@ -108,10 +108,20 @@ def test_non_url_sources_skipped(capsys):
         {"id": "s4", "url": None, "title": "no url"},
     )
     rc = handle_sources_check_command(_args(), _list_sources=lambda pid: srcs, _probe=lambda url, t: ("live", "200"))
-    assert rc == 0
     out = json.loads(capsys.readouterr().out)
-    assert out["checked"] == 1  # only s1
+    # URL probing still skips them — that part of the contract is unchanged.
+    assert out["checked"] == 1  # only s1 is probeable
     assert out["skipped_no_url"] == 3
+    # ...but they are no longer IGNORED. Skipping non-URL sources entirely was the
+    # defect: file rot was invisible (one practice reported "all links resolve" while
+    # half its sources could not be served). "/local/doc.md" does not exist, so it is
+    # now reported missing and fails the check like a dead URL.
+    assert [r["id"] for r in out["local_missing"]] == ["s2"]
+    assert rc == 1
+    # A non-http URI is a locator but not a local-file one — flagging mailto: as
+    # "missing on disk" would be a false accusation.
+    assert out["not_a_locator"] == []
+    assert "s3" not in [r["id"] for r in out["local_missing"]]
 
 
 def test_missing_project_id_exits_one(capsys, monkeypatch):

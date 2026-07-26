@@ -14,6 +14,7 @@ network.
 from __future__ import annotations
 
 import json
+import re
 import ssl
 import sys
 import time
@@ -105,7 +106,15 @@ def _stamp_reviews(verdicts: dict) -> int:
     from empirica.data.session_database import SessionDatabase
 
     now = datetime.now(timezone.utc).isoformat()
-    db = SessionDatabase()
+    try:
+        db = SessionDatabase()
+    except Exception:
+        # No resolvable session DB — CI, a bare checkout, or an injected/faked source
+        # list. Recording the cadence is a SIDE EFFECT of the audit; it must never
+        # decide whether the audit itself can run. (Regression: this raised
+        # ValueError("Cannot determine sessions.db path") and took six sources-check
+        # tests down with it.)
+        return 0
     try:
         stamped = 0
         for source_id, verdict in verdicts.items():
@@ -144,6 +153,15 @@ def _resolve_project_id(args) -> str | None:
 _SOURCE_PATH_PREFIXES = ("", ".empirica/sources", "docs", "docs/sources")
 
 
+def _is_non_local_uri(value: str) -> bool:
+    """True for a non-http URI scheme (mailto:, ftp:, doi:, file:).
+
+    These are locators the DISK check cannot speak to. Windows drive letters
+    ("C:\\x") are excluded by requiring a multi-character scheme.
+    """
+    return bool(re.match(r"^[a-z][a-z0-9+.-]+:", value.strip(), re.IGNORECASE))
+
+
 def _looks_like_a_path(value: str) -> bool:
     """Distinguish a locator from a row where `source_url` holds prose.
 
@@ -153,6 +171,8 @@ def _looks_like_a_path(value: str) -> bool:
     search. Treat a value as a path only if it has a separator or a short
     file-extension suffix.
     """
+    if _is_non_local_uri(value):
+        return False
     if "/" in value or "\\" in value:
         return True
     suffix = Path(value).suffix
@@ -160,7 +180,15 @@ def _looks_like_a_path(value: str) -> bool:
 
 
 def _classify_local_source(value: str, project_root: Path | None) -> tuple[str, str]:
-    """Classify a non-URL source: ``ok`` | ``missing`` | ``not_a_locator``."""
+    """Classify a non-URL source: ``ok`` | ``missing`` | ``not_a_locator`` | ``out_of_scope``.
+
+    ``out_of_scope`` is deliberately distinct from ``not_a_locator``: a ``mailto:`` /
+    ``ftp:`` / ``doi:`` value IS a valid locator, it simply is not a local file, so
+    the disk check has nothing to say about it. Reporting it as a rotted or
+    unpointed source would send a gardener to fix something that is not broken.
+    """
+    if _is_non_local_uri(value):
+        return "out_of_scope", "non-http URI — not a local file"
     if not _looks_like_a_path(value):
         return "not_a_locator", "source_url holds a title/label, not a path"
     candidate = Path(value)
@@ -333,6 +361,8 @@ def handle_sources_check_command(
         if not value or _is_probeable(value):
             continue
         category, detail = _classify_local_source(str(value), project_root)
+        if category == "out_of_scope":
+            continue  # not a local file — the disk check has nothing to say
         rec = {"id": s.get("id"), "title": s.get("title"), "url": value, "status": detail}
         verdicts[s.get("id")] = category
         if category == "ok":
