@@ -85,6 +85,44 @@ def _default_list_sources(project_id: str) -> list[dict]:
     return _query_epistemic_sources(db, project_id, None, "all", include_archived=False)
 
 
+def _stamp_reviews(verdicts: dict) -> int:
+    """Record a TIMESTAMPED verdict per checked source (`last_reviewed_at`,
+    `review_verdict`).
+
+    A source nobody has verified since it was added is not ground truth — it is an
+    assertion with a date on it. Writing the verdict is what turns `sources-check`
+    from a one-off report into a CADENCE: "unchecked since X" becomes queryable, and
+    gardening can rank by review age instead of guessing (decision f5c59ec8).
+
+    Schema-resilient: DBs predating the review columns are left alone rather than
+    failing the check.
+    """
+    if not verdicts:
+        return 0
+    import sqlite3
+    from datetime import datetime, timezone
+
+    from empirica.data.session_database import SessionDatabase
+
+    now = datetime.now(timezone.utc).isoformat()
+    db = SessionDatabase()
+    try:
+        stamped = 0
+        for source_id, verdict in verdicts.items():
+            try:
+                db.conn.execute(
+                    "UPDATE epistemic_sources SET last_reviewed_at = ?, review_verdict = ? WHERE id = ?",
+                    (now, verdict, source_id),
+                )
+                stamped += 1
+            except sqlite3.OperationalError:
+                return 0  # pre-review-columns schema — nothing to stamp
+        db.conn.commit()
+        return stamped
+    finally:
+        db.close()
+
+
 def _resolve_project_id(args) -> str | None:
     project_id = getattr(args, "project_id", None)
     if project_id:
@@ -260,10 +298,12 @@ def handle_sources_check_command(
     dead: list[dict] = []
     gated: list[dict] = []
     errored: list[dict] = []
+    verdicts: dict = {}
     for s in probeable:
         url = s.get("url") or s.get("source_url")
         category, detail = _probe(url, timeout)
         rec = {"id": s.get("id"), "title": s.get("title"), "url": url, "status": detail}
+        verdicts[s.get("id")] = category
         if category == "live":
             live += 1
         elif category == "gated":
@@ -294,6 +334,7 @@ def handle_sources_check_command(
             continue
         category, detail = _classify_local_source(str(value), project_root)
         rec = {"id": s.get("id"), "title": s.get("title"), "url": value, "status": detail}
+        verdicts[s.get("id")] = category
         if category == "ok":
             local_ok += 1
         elif category == "missing":
@@ -301,10 +342,13 @@ def handle_sources_check_command(
         else:
             not_a_locator.append(rec)
 
+    stamped = _stamp_reviews(verdicts)
+
     result = {
         "ok": True,
         "project_id": project_id,
         "checked": len(probeable),
+        "reviews_stamped": stamped,
         "local_ok": local_ok,
         "local_missing": local_missing,
         "not_a_locator": not_a_locator,

@@ -70,3 +70,69 @@ def test_prefixes_match_the_daemon(tmp_path):
     from empirica.cli.command_handlers.sources_check_commands import _SOURCE_PATH_PREFIXES as check_prefixes
 
     assert set(check_prefixes) == set(daemon_prefixes)
+
+
+# ── review cadence (timestamped verdicts) ─────────────────────────────
+
+
+def test_stamp_reviews_writes_timestamped_verdicts(tmp_path, monkeypatch):
+    """A source nobody has verified is an assertion with a date on it, not ground
+    truth. Stamping is what turns sources-check into a CADENCE (decision f5c59ec8)."""
+    import sqlite3
+
+    from empirica.cli.command_handlers import sources_check_commands as sc
+
+    db_file = tmp_path / "s.db"
+    conn = sqlite3.connect(str(db_file))
+    conn.execute("CREATE TABLE epistemic_sources (id TEXT PRIMARY KEY, last_reviewed_at TEXT, review_verdict TEXT)")
+    conn.executemany("INSERT INTO epistemic_sources (id) VALUES (?)", [("a",), ("b",)])
+    conn.commit()
+    conn.close()
+
+    class _DB:
+        def __init__(self):
+            self.conn = sqlite3.connect(str(db_file))
+
+        def close(self):
+            self.conn.close()
+
+    monkeypatch.setattr("empirica.data.session_database.SessionDatabase", _DB)
+    stamped = sc._stamp_reviews({"a": "live", "b": "missing"})
+
+    assert stamped == 2
+    conn = sqlite3.connect(str(db_file))
+    rows = dict(conn.execute("SELECT id, review_verdict FROM epistemic_sources").fetchall())
+    times = [r[0] for r in conn.execute("SELECT last_reviewed_at FROM epistemic_sources").fetchall()]
+    conn.close()
+    assert rows == {"a": "live", "b": "missing"}
+    assert all(t for t in times), "every checked source must carry a review timestamp"
+
+
+def test_stamp_reviews_tolerates_a_db_predating_the_columns(tmp_path, monkeypatch):
+    """An older practice DB must not fail the check just because it can't record."""
+    import sqlite3
+
+    from empirica.cli.command_handlers import sources_check_commands as sc
+
+    db_file = tmp_path / "old.db"
+    conn = sqlite3.connect(str(db_file))
+    conn.execute("CREATE TABLE epistemic_sources (id TEXT PRIMARY KEY)")  # no review columns
+    conn.execute("INSERT INTO epistemic_sources (id) VALUES ('a')")
+    conn.commit()
+    conn.close()
+
+    class _DB:
+        def __init__(self):
+            self.conn = sqlite3.connect(str(db_file))
+
+        def close(self):
+            self.conn.close()
+
+    monkeypatch.setattr("empirica.data.session_database.SessionDatabase", _DB)
+    assert sc._stamp_reviews({"a": "live"}) == 0  # degrades, does not raise
+
+
+def test_stamp_reviews_noop_on_empty(tmp_path):
+    from empirica.cli.command_handlers import sources_check_commands as sc
+
+    assert sc._stamp_reviews({}) == 0
