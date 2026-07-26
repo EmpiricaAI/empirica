@@ -492,7 +492,7 @@ _HELP_CATEGORIES = {
     "memory": ["memory-prime", "memory-scope", "memory-value", "pattern-check", "session-rollup", "memory-report"],
     "vision": ["vision"],
     "domains": ["domain-validate"],
-    "setup": ["onboard", "setup-claude-code", "plugin-sync", "enp-setup", "diagnose", "doctor", "release", "serve"],
+    "setup": ["onboard", "setup", "plugin-sync", "enp-setup", "diagnose", "doctor", "release", "serve"],
 }
 
 
@@ -535,7 +535,7 @@ def _handle_command_result(result, parsed_args) -> int:
 # Self-heal verbs that must NOT trigger the plugin auto-sync (they'd re-invoke
 # it → infinite loop), plus cheap/help paths.
 _PLUGIN_AUTOSYNC_EXEMPT = frozenset(
-    {"plugin-sync", "setup-claude-code", "plugin-version", "doctor", "diagnose", "help"}
+    {"plugin-sync", "setup", "setup-claude-code", "plugin-version", "doctor", "diagnose", "help"}
 )
 
 
@@ -981,7 +981,8 @@ def main(args=None):
             "lesson-embed": handle_lesson_embed_command,
             # Onboarding commands
             "onboard": handle_onboard_command,
-            "setup-claude-code": handle_setup_claude_code_command,
+            "setup": handle_setup_claude_code_command,
+            "setup-claude-code": handle_setup_claude_code_command,  # back-compat alias
             "plugin-sync": handle_plugin_sync_command,
             "enp-setup": handle_enp_setup_command,
             "diagnose": handle_diagnose_command,

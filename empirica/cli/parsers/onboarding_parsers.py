@@ -31,10 +31,20 @@ def add_onboarding_parsers(subparsers):
     )
     plugin_sync_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
 
-    # Setup Claude Code command - configure Claude Code integration
+    # Harness setup. `setup` is the canonical, harness-NEUTRAL name; the original
+    # `setup-claude-code` stays as an alias so nothing breaks.
+    #
+    # The rename is not cosmetic: the verb name leaks "claude-code" into MODEL-FACING
+    # prose — hook error strings and skill docs that other harnesses vendor verbatim —
+    # so every non-Claude harness inherited our harness name. Fixing it once here
+    # de-Claudes it everywhere with no local drift (ecodex prop_vree44a2).
+    #
+    # `setup`, not `init`: `project-init` already exists and means something else
+    # (create a project), whereas this configures the surrounding harness.
     setup_cc_parser = subparsers.add_parser(
-        "setup-claude-code",
-        help="Configure Claude Code integration (hooks, CLAUDE.md, MCP server)",
+        "setup",
+        aliases=["setup-claude-code"],
+        help="Configure harness integration (hooks, system prompt, MCP server)",
         description="""
 Configure Claude Code integration for Empirica. This command:
 

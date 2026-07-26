@@ -186,7 +186,7 @@ silently dropped.
 
 5. **If you keep hitting step 4 repeatedly** (more than ~3 events per
    session), your Monitor is set up wrong. Re-arm with the
-   correctly-filtered command via `empirica setup-claude-code --force`
+   correctly-filtered command via `empirica setup --force`
    or `empirica listener on --output json` (whose `next_step.args.command`
    pins the `grep` filter for your `ai_id`). Fixing the Monitor at the
    source is cheaper than per-event `cortex_get_proposal` calls.

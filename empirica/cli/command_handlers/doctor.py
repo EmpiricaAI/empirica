@@ -322,7 +322,7 @@ def check_cortex_creds() -> Check:
             "Cortex credentials configured",
             WARN,
             f"missing: {', '.join(missing)}",
-            "Run `empirica setup-claude-code` (interactive wizard) or hand-edit ~/.empirica/credentials.yaml",
+            "Run `empirica setup` (interactive wizard) or hand-edit ~/.empirica/credentials.yaml",
             data={"url": url, "has_api_key": bool(api_key)},
         )
     return Check(
@@ -426,7 +426,7 @@ def check_ntfy_creds() -> Check:
             "ntfy credentials configured",
             WARN,
             f"missing: {', '.join(missing)}",
-            "Run `empirica setup-claude-code` wizard or hand-edit ~/.empirica/credentials.yaml",
+            "Run `empirica setup` wizard or hand-edit ~/.empirica/credentials.yaml",
         )
     return Check(
         "ntfy credentials configured",
@@ -541,7 +541,7 @@ def check_listener_service(cwd: Path | None = None) -> Check:
             "listener service installed",
             WARN,
             f"no {status.backend} service for ai_id={ai_id}",
-            f"`empirica loop listen-install --ai-id {ai_id}` (or re-run `empirica setup-claude-code`)",
+            f"`empirica loop listen-install --ai-id {ai_id}` (or re-run `empirica setup`)",
             data={"backend": status.backend, "installed": False, "ai_id": ai_id},
         )
     if not status.active:
@@ -620,7 +620,7 @@ def check_mcp_config() -> Check:
         "MCP servers configured",
         WARN,
         "MCP config present but no `empirica` or `cortex` server entry",
-        "Run `empirica setup-claude-code` to register the empirica MCP server",
+        "Run `empirica setup` to register the empirica MCP server",
         data={"configs": found_configs, "has_empirica": False, "has_cortex": False},
     )
 

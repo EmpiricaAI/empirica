@@ -244,7 +244,7 @@ KEY PRINCIPLES
 INTEGRATION OPTIONS
 
 Claude Code (recommended):
-   $ empirica setup-claude-code
+   $ empirica setup
    # Installs plugin, hooks, CLAUDE.md, MCP server
 
 MCP Server (for any AI agent):
@@ -277,7 +277,7 @@ Multi-terminal (tmux panes):
 NEXT STEPS
 
 1. Initialize your project:   empirica project-init
-2. Set up Claude Code:        empirica setup-claude-code
+2. Set up Claude Code:        empirica setup
 3. Create your first session:  empirica session-create --ai-id {ai_id}
 4. Run your first PREFLIGHT:  empirica preflight-submit -
 5. Check your calibration:    empirica calibration-report

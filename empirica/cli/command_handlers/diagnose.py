@@ -127,10 +127,7 @@ def check_claude_dir() -> CheckResult:
             name="Claude Code config dir",
             status=FAIL,
             detail=f"{claude_dir} does not exist",
-            hint=(
-                "Install Claude Code first (https://docs.anthropic.com/claude-code), "
-                "then run `empirica setup-claude-code`"
-            ),
+            hint=("Install Claude Code first (https://docs.anthropic.com/claude-code), then run `empirica setup`"),
             data={"path": str(claude_dir)},
         )
     return CheckResult(
@@ -153,7 +150,7 @@ def check_plugin_files(claude_dir: Path) -> CheckResult:
             name="Plugin files installed",
             status=FAIL,
             detail=f"{plugin_dir} does not exist",
-            hint="Run `empirica setup-claude-code` to install the plugin files",
+            hint="Run `empirica setup` to install the plugin files",
             data={"plugin_dir": str(plugin_dir)},
         )
 
@@ -170,7 +167,7 @@ def check_plugin_files(claude_dir: Path) -> CheckResult:
             name="Plugin files installed",
             status=FAIL,
             detail=f"Plugin dir exists but missing: {', '.join(missing)}",
-            hint="Run `empirica setup-claude-code --force` to reinstall plugin files",
+            hint="Run `empirica setup --force` to reinstall plugin files",
             data={"plugin_dir": str(plugin_dir), "missing": missing},
         )
 
@@ -190,7 +187,7 @@ def check_settings_json(claude_dir: Path) -> CheckResult:
             name="settings.json present",
             status=FAIL,
             detail=f"{settings_file} does not exist",
-            hint="Run `empirica setup-claude-code` to create it",
+            hint="Run `empirica setup` to create it",
             data={"path": str(settings_file)},
         )
     try:
@@ -201,7 +198,7 @@ def check_settings_json(claude_dir: Path) -> CheckResult:
             name="settings.json present",
             status=FAIL,
             detail=f"{settings_file} exists but is not valid JSON: {e}",
-            hint="Fix the JSON syntax or delete the file and run `empirica setup-claude-code`",
+            hint="Fix the JSON syntax or delete the file and run `empirica setup`",
             data={"path": str(settings_file), "error": str(e)},
         )
     return CheckResult(
@@ -237,7 +234,7 @@ def check_statusline_configured(claude_dir: Path) -> CheckResult:
             name="statusLine configured",
             status=FAIL,
             detail="settings.json has no `statusLine` block",
-            hint="Run `empirica setup-claude-code` to configure the statusline",
+            hint="Run `empirica setup` to configure the statusline",
             data={"has_statusLine": False},
         )
 
@@ -249,7 +246,7 @@ def check_statusline_configured(claude_dir: Path) -> CheckResult:
             detail=f"statusLine exists but not pointing at Empirica: {cmd}",
             hint=(
                 "Another plugin owns the statusLine. Decide which to keep, then "
-                "run `empirica setup-claude-code --force` to override if needed."
+                "run `empirica setup --force` to override if needed."
             ),
             data={"has_statusLine": True, "command": cmd},
         )
@@ -318,7 +315,7 @@ def check_hooks_registered(claude_dir: Path) -> CheckResult:
             name="Hooks registered",
             status=FAIL,
             detail=f"Missing Empirica hooks: {', '.join(missing)}",
-            hint="Run `empirica setup-claude-code --force` to re-register hooks",
+            hint="Run `empirica setup --force` to re-register hooks",
             data={"found": found, "missing": missing},
         )
 
@@ -516,7 +513,7 @@ def check_marketplace_registered(claude_dir: Path) -> CheckResult:
             name="Local marketplace registered",
             status=WARN,
             detail=f"{known} does not exist",
-            hint="Optional but recommended — run `empirica setup-claude-code` to register",
+            hint="Optional but recommended — run `empirica setup` to register",
             data={"path": str(known)},
         )
     try:
@@ -527,14 +524,14 @@ def check_marketplace_registered(claude_dir: Path) -> CheckResult:
             name="Local marketplace registered",
             status=WARN,
             detail=f"{known} exists but is not valid JSON",
-            hint="Fix manually or run `empirica setup-claude-code --force`",
+            hint="Fix manually or run `empirica setup --force`",
         )
     if "local" not in data:
         return CheckResult(
             name="Local marketplace registered",
             status=WARN,
             detail="known_marketplaces.json exists but `local` entry missing",
-            hint="Run `empirica setup-claude-code` to add the local marketplace",
+            hint="Run `empirica setup` to add the local marketplace",
         )
     return CheckResult(
         name="Local marketplace registered",

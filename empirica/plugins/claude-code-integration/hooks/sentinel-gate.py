@@ -809,7 +809,7 @@ EMPIRICA_TIER2_PREFIXES = (
     "empirica release",  # Release pipeline — mechanical, no PREFLIGHT needed
     # Self-heal / maintenance verbs — must NEVER be rush-blocked, or a box with a
     # stale hook can't run the very command that fixes it (deploy-staleness deadlock).
-    "empirica setup-claude-code",
+    "empirica setup",
     "empirica plugin-sync",
     "empirica plugin-version",
 )
@@ -988,7 +988,7 @@ _RECOVERY_MEASUREMENT_PREFIXES = (
     # Recovery / self-heal — must run even from a stale-gated box.
     "empirica doctor",
     "empirica diagnose",
-    "empirica setup-claude-code",
+    "empirica setup",
     "empirica plugin-sync",
     # Sentinel / listener / loop control — manual override + liveness. NARROWED
     # to read/control/heartbeat subverbs; loop register/install stays on the

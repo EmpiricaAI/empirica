@@ -8,8 +8,8 @@ This plugin makes Claude Code measurably more reliable by tracking what the AI k
 
 ```bash
 pip install empirica
-empirica setup-claude-code        # First install
-empirica setup-claude-code --force # Reset/update (preserves non-Empirica hooks)
+empirica setup        # First install
+empirica setup --force # Reset/update (preserves non-Empirica hooks)
 ```
 
 `--force` replaces existing hooks with Empirica's but preserves hooks from other plugins (Railway, Superpowers, etc.). Use it after upgrading or if the default Claude Code settings are still in place.
@@ -196,7 +196,7 @@ echo "true" > ~/.empirica/sentinel_enabled    # Re-enable
 81% reduction in always-loaded context. Loads skills on demand:
 
 ```bash
-empirica setup-claude-code --lean
+empirica setup --lean
 ```
 
 ### EWM Protocol

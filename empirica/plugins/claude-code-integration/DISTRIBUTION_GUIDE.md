@@ -3,7 +3,7 @@
 This guide covers how to distribute the plugin.
 
 > **For end-user install:** since v1.8.14 the plugin is bundled with the
-> `empirica` Python package and wired up via `empirica setup-claude-code`.
+> `empirica` Python package and wired up via `empirica setup`.
 > See [`docs/human/end-users/02_INSTALLATION.md`](../../../docs/human/end-users/02_INSTALLATION.md)
 > for the supported user-facing install path. This document is for plugin
 > publishers (marketplace listings, alternate distribution channels).

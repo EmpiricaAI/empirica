@@ -1187,7 +1187,7 @@ def _check_version_drift() -> str:
             from empirica import __version__ as cli_ver
 
             if plugin_ver != cli_ver:
-                return f"Plugin v{plugin_ver} != CLI v{cli_ver}. Run: empirica setup-claude-code --force"
+                return f"Plugin v{plugin_ver} != CLI v{cli_ver}. Run: empirica setup --force"
     except Exception:
         pass
     return ""

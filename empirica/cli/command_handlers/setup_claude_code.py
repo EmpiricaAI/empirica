@@ -863,7 +863,7 @@ def handle_plugin_sync_command(args):
         if output == "json":
             print(json.dumps({"ok": False, "synced": False, "reason": "source_not_found", "version": version}))
         elif not quiet:
-            print("⚠ empirica plugin source not found — run `empirica setup-claude-code --force`", file=sys.stderr)
+            print("⚠ empirica plugin source not found — run `empirica setup --force`", file=sys.stderr)
         return 1
 
     _sync_plugin_files_in_place(source_dir, plugin_dir)
