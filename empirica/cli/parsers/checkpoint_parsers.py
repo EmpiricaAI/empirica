@@ -1654,6 +1654,18 @@ def add_checkpoint_parsers(subparsers):
             "surface. Skips already-registered rows. Runs standalone (ignores the reconcile flow)."
         ),
     )
+    sources_reconcile_parser.add_argument(
+        "--backfill-citations",
+        action="store_true",
+        help=(
+            "Promote legacy `source_refs` COLUMN citations into real `sourced_from` EDGES, "
+            "and report citation health (how many sources nothing references). `--source` "
+            "historically wrote only the column, so those citations are invisible to the "
+            "artifact graph, sources-map, the daemon's related_from projection and sanctify's "
+            "zombie check. Purely local (no cortex) — any practice can run it with --project-id. "
+            "Dry-run unless --apply. Idempotent."
+        ),
+    )
     sources_reconcile_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
     sources_reconcile_parser.add_argument("--verbose", action="store_true", help="Verbose output")
 

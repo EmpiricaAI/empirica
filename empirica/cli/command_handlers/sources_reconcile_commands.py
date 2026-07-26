@@ -175,6 +175,17 @@ def handle_sources_reconcile_command(args) -> int:
     if getattr(args, "register_shared", False):
         return _run_register_shared_backfill(args, project_id, output)
 
+    if getattr(args, "backfill_citations", False):
+        # Purely local (no cortex) — dispatch before the catalogue path so any
+        # practice can run it offline with just --project-id.
+        db = SessionDatabase()
+        try:
+            payload = _run_citation_backfill(db, project_id, apply)
+        finally:
+            db.close()
+        _emit(output, payload, _render_citation_human(payload))
+        return 0 if payload.get("ok") else 1
+
     db = SessionDatabase()
     try:
         rows = _load_local_sources(db, project_id)
@@ -328,6 +339,185 @@ def _backfill_identity(db, rows: list[dict]) -> int:
     if backfilled:
         db.conn.commit()
     return backfilled
+
+
+# Artifact tables that can carry the legacy `source_refs` citation column.
+# (label, table) — label is what the report calls the citing artifact type.
+_CITATION_TABLES: tuple[tuple[str, str], ...] = (
+    ("finding", "project_findings"),
+    ("unknown", "project_unknowns"),
+    ("dead_end", "project_dead_ends"),
+    ("mistake", "mistakes_made"),
+    ("assumption", "assumptions"),
+    ("decision", "decisions"),
+)
+
+
+def _parse_source_refs(raw: Any) -> list[str]:
+    """Parse a `source_refs` cell into source ids.
+
+    The column has been written both as a JSON list and as a comma-separated
+    string over the years, so accept both rather than assuming one shape.
+    """
+    if not raw:
+        return []
+    text = str(raw).strip()
+    if not text or text in ("[]", "null", "None"):
+        return []
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, list):
+            return [str(v).strip() for v in parsed if str(v).strip()]
+        if isinstance(parsed, str):
+            text = parsed
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return [part.strip() for part in text.split(",") if part.strip()]
+
+
+def _run_citation_backfill(db, project_id: str, apply: bool) -> dict:
+    """Promote legacy `source_refs` COLUMN citations into real `sourced_from` EDGES,
+    and report this practice's citation health.
+
+    Why: `--source` historically serialized ids into the `source_refs` column only,
+    so those citations were invisible to the artifact graph — weave/connectivity,
+    `sources-map`, the daemon's `related_from` projection, and `sanctify`'s
+    zombie-source check all read EDGES. `breadcrumbs._attach_sources` writes the edge
+    for new logs; this recovers the ones written before that landed.
+
+    Honest expectation: the recoverable set is small (measured 2026-07-25 across the
+    whole local fleet: 446 sources, only 6 artifacts carrying `source_refs`). The
+    backfill is cheap, correct and idempotent, but it is NOT what makes a practice's
+    sources well-cited — that is citation discipline at log time. Hence the
+    `citation_health` block: it reports how many sources nothing references, which is
+    the number a practice can actually act on.
+
+    Purely local: no cortex calls, so it works for any practice (tenant or AI) with
+    just `--project-id`. Dry-run unless `apply`.
+    """
+    cur = db.conn.cursor()
+
+    # PRACTICE-scoped, not single-project_id scoped. The session DB lives at
+    # {project_path}/.empirica/sessions/sessions.db — one DB per practice — so every
+    # row in it is this practice's by construction, while its project_id DRIFTS over
+    # the practice's life (measured on empirica: 63 sources across 4 ids, 3 of them
+    # absent from registry.yaml). Filtering to the one canonical id would hide the
+    # drifted rows from gardening — and would disagree with the daemon, which reads
+    # the same set practice-scoped. Run this from within the practice whose DB you
+    # want to garden.
+    valid_sources: set[str] = set()
+    try:
+        cur.execute("SELECT id FROM epistemic_sources")
+        valid_sources = {r[0] for r in cur.fetchall()}
+    except sqlite3.OperationalError as e:
+        return {"ok": False, "error": f"epistemic_sources unreadable: {e}"}
+
+    existing: set[tuple[str, str]] = set()
+    try:
+        cur.execute("SELECT from_id, to_id FROM artifact_edges WHERE relation = 'sourced_from'")
+        existing = {(r[0], r[1]) for r in cur.fetchall()}
+    except sqlite3.OperationalError:
+        pass  # pre-edges schema — everything is "to create"
+
+    to_create: list[dict] = []
+    already: int = 0
+    dangling: list[dict] = []
+    scanned: int = 0
+
+    for label, table in _CITATION_TABLES:
+        try:
+            cur.execute(
+                # `table` interpolates only from the fixed _CITATION_TABLES literal.
+                # Practice-scoped (no project_id filter) for the same reason as the
+                # source read above — citing artifacts drift across ids too.
+                f"SELECT id, source_refs FROM {table} "
+                f"WHERE source_refs IS NOT NULL AND source_refs NOT IN ('', '[]', 'null')"
+            )
+            rows = cur.fetchall()
+        except sqlite3.OperationalError:
+            continue  # table or column absent on this project's schema — normal drift
+        for artifact_id, refs in rows:
+            scanned += 1
+            for sid in _parse_source_refs(refs):
+                if sid not in valid_sources:
+                    # Never fabricate an edge to a source that isn't there — that
+                    # would plant dangling edges the graph would have to carry.
+                    dangling.append({"artifact_id": artifact_id, "type": label, "missing_source_id": sid})
+                    continue
+                if (artifact_id, sid) in existing:
+                    already += 1
+                    continue
+                to_create.append({"artifact_id": artifact_id, "type": label, "source_id": sid})
+
+    created = 0
+    write_failures: list[dict] = []
+    if apply and to_create:
+        for edge in to_create:
+            try:
+                db.conn.execute(
+                    "INSERT OR IGNORE INTO artifact_edges (from_id, to_id, relation) VALUES (?, ?, 'sourced_from')",
+                    (edge["artifact_id"], edge["source_id"]),
+                )
+                created += 1
+            except sqlite3.OperationalError as e:
+                # Surface in the receipt rather than a debug log — a partial backfill
+                # that reports itself as clean is the failure mode worth avoiding.
+                write_failures.append({**edge, "error": str(e)})
+        db.conn.commit()
+
+    # Citation health — the number that actually matters. A source nothing references
+    # is what `sanctify` calls a zombie; a practice with many is under-citing, which no
+    # backfill can fix.
+    #
+    # Scored over ACTIVE sources only. An archived source is retired: nothing should
+    # reference it, so counting it as "uncited" would inflate the number gardening
+    # asks the practice to act on. (Backfill itself still writes edges to archived
+    # sources — the citation really happened; it just isn't a live gap.)
+    cited: set[str] = set()
+    try:
+        cur.execute(
+            "SELECT DISTINCT to_id FROM artifact_edges WHERE relation = 'sourced_from'",
+        )
+        cited = {r[0] for r in cur.fetchall()}
+    except sqlite3.OperationalError:
+        pass
+    if apply:
+        cited |= {e["source_id"] for e in to_create}
+
+    active_sources = valid_sources
+    archived_count = 0
+    try:
+        cur.execute("SELECT id FROM epistemic_sources WHERE COALESCE(archived, 0) = 0")
+        active_sources = {r[0] for r in cur.fetchall()}
+        archived_count = len(valid_sources) - len(active_sources)
+    except sqlite3.OperationalError:
+        pass  # pre-archive schema — every source counts as active
+    uncited = len(active_sources - cited)
+
+    return {
+        "ok": True,
+        "dry_run": not apply,
+        "mode": "backfill-citations",
+        "project_id": project_id,
+        "artifacts_with_source_refs": scanned,
+        "edges_already_present": already,
+        "edges_to_create": len(to_create) if not apply else 0,
+        "edges_created": created,
+        "write_failures": write_failures,
+        "dangling_refs": dangling,
+        "citation_health": {
+            "sources_active": len(active_sources),
+            "sources_archived": archived_count,
+            "sources_cited": len(active_sources & cited),
+            "sources_uncited": uncited,
+            "note": (
+                "Uncited sources are invisible as 'citing artifacts' and count as "
+                "zombies to `sanctify`. Backfill only recovers legacy source_refs; "
+                "closing the gap means citing sources at log time (--source / "
+                "sourced_from in log-artifacts)."
+            ),
+        },
+    }
 
 
 def _doc_path_from_metadata(row: dict) -> str | None:
@@ -608,6 +798,38 @@ def _emit(output: str, payload: dict, human: str | None = None) -> None:
         print(json.dumps(payload, indent=2, default=str))
     else:
         print(human or json.dumps(payload, indent=2, default=str))
+
+
+def _render_citation_human(p: dict) -> str:
+    if not p.get("ok"):
+        return f"sources-reconcile --backfill-citations — FAILED: {p.get('error')}"
+    h = p.get("citation_health", {})
+    lines = [
+        f"sources-reconcile --backfill-citations — {'DRY RUN' if p['dry_run'] else 'APPLIED'}",
+        f"  Artifacts w/ source_refs: {p['artifacts_with_source_refs']}",
+        f"  Edges already present:    {p['edges_already_present']}",
+    ]
+    if p["dry_run"]:
+        lines.append(f"  Edges to create:          {p['edges_to_create']}")
+        if p["edges_to_create"]:
+            lines.append("  Run with --apply to write them.")
+    else:
+        lines.append(f"  Edges created:            {p['edges_created']}")
+    for f in p.get("write_failures", [])[:5]:
+        lines.append(f"    ! write failed {str(f.get('artifact_id'))[:8]} → {f.get('error')}")
+    for d in p.get("dangling_refs", [])[:5]:
+        lines.append(
+            f"    - dangling ref {str(d.get('artifact_id'))[:8]} → missing source {str(d.get('missing_source_id'))[:8]}"
+        )
+    lines += [
+        "  Citation health (active sources):",
+        f"    active:          {h.get('sources_active', 0)}  (archived, not scored: {h.get('sources_archived', 0)})",
+        f"    cited:           {h.get('sources_cited', 0)}",
+        f"    UNCITED:         {h.get('sources_uncited', 0)}",
+    ]
+    if h.get("sources_uncited"):
+        lines.append("    ^ nothing references these; backfill can't fix that — cite sources at log time")
+    return "\n".join(lines)
 
 
 def _render_human(p: dict) -> str:

@@ -179,7 +179,54 @@ empirica goals-get-stale                         # goals past their freshness wi
 empirica project-search --task "<recent theme>"  # what retrieval actually surfaces
 empirica sources-map                             # source inventory (add --global for shared)
 empirica sources-check                           # unreviewed / stale-review sources
+empirica sources-reconcile --backfill-citations   # citation health + recoverable legacy citations (dry-run)
 ```
+
+**Citation health — the weed you can't see.** A source nothing references is a
+**zombie** (`sanctify`'s term): it shows "no citing artifacts" in the extension, adds
+nothing to retrieval, and quietly inflates your source count. Two different problems
+hide behind that one symptom, and only one of them is fixable by tooling:
+
+```bash
+# 1. Recoverable: legacy citations that never became edges. Dry-run, then apply.
+empirica sources-reconcile --backfill-citations
+empirica sources-reconcile --backfill-citations --apply
+```
+
+`--source` historically serialized ids into the `source_refs` COLUMN only, so those
+citations were invisible to the artifact graph — the daemon's `related_from`
+projection, `sources-map` and `sanctify` all read **edges**. The backfill promotes
+them to real `sourced_from` edges. It is idempotent, purely local (no cortex), and
+**never fabricates an edge to a source that doesn't exist** — dangling refs are
+reported, not written.
+
+**Set your expectations honestly: this recovers very little.** Measured across the
+whole local fleet (2026-07-25): **446 sources, 6 artifacts carrying `source_refs`.**
+The backfill is worth running once per practice, but it is not what makes sources
+well-cited.
+
+The number that matters is the one the same command prints:
+
+```
+  Citation health (active sources):
+    active:          50  (archived, not scored: 13)
+    cited:           0
+    UNCITED:         50
+```
+
+**2. Not recoverable by tooling: uncited sources.** If `UNCITED` is most of your
+active sources, no backfill fixes it — the citation never happened. The fix is at log
+time, and it's cheap: pass `--source <id>` on the `*-log` verbs, or assert a
+`sourced_from` edge in `log-artifacts`. Treat a high `UNCITED` count as the gardening
+finding it is: either start citing, or archive the sources nothing will ever
+reference (retired sources are excluded from the score, so archiving genuinely
+retired ones improves the signal rather than gaming it).
+
+Scope note: this reads the practice's own DB (`{project}/.empirica/sessions/sessions.db`),
+so it is practice-scoped by construction and works the same for a tenant practice or an
+AI practice — **run it from inside the practice you're gardening.** It deliberately does
+NOT filter to a single `project_id`, so sources stranded under divergent ids (see the
+scatter diagnosis above) are counted and repaired too.
 
 For findings/unknowns/assumptions, inspect the practice DB read-only (this is noetic —
 a plain SELECT):
@@ -316,6 +363,13 @@ contributor. Propagating the discipline is part of the pass.
 > + collab. That's the load-bearing line between artifact types: a finding *describes*
 > local state; a **lesson transfers a pattern across the practice boundary**. It isn't a
 > lesson until a peer (local or remote) can pick it up and act on it.
+
+> **Citation health propagates too.** `sources-reconcile --backfill-citations` is
+> per-practice by construction (it reads that practice's own DB), so the mesh only gets
+> clean if *each* practice runs it — tenant or AI, same command, no cortex needed. When
+> you collab a finished pass, include your `UNCITED / active` ratio: it makes the gap
+> comparable across practices, and a peer seeing `50/50` learns more from that one number
+> than from a paragraph. Fleet baseline when this landed: **446 sources, 38 citations.**
 
 **1. Register this skill's discipline as a shared reference** so peers pull it rather than
 re-derive it:
