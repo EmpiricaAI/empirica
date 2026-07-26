@@ -20,6 +20,7 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
+from pathlib import Path
 
 # Status → category. Redirects resolve to live (the link works, maybe moved);
 # 401/403 are auth-walled, not rot; 404/410 are the real dead signal; other
@@ -99,6 +100,46 @@ def _resolve_project_id(args) -> str | None:
     return None
 
 
+# Conventional locations a stored source path may resolve against, relative to the
+# project root — mirrors the daemon's `_SOURCE_PATH_PREFIXES` so a source the daemon
+# can serve is never reported rotted here (and vice versa).
+_SOURCE_PATH_PREFIXES = ("", ".empirica/sources", "docs", "docs/sources")
+
+
+def _looks_like_a_path(value: str) -> bool:
+    """Distinguish a locator from a row where `source_url` holds prose.
+
+    Real rows carry titles in this column — e.g. "LarQL - Neural Model as Database"
+    - which can never resolve to a file. Calling those "missing" would send a
+    gardener hunting for a file that never existed; they need re-pointing, not a
+    search. Treat a value as a path only if it has a separator or a short
+    file-extension suffix.
+    """
+    if "/" in value or "\\" in value:
+        return True
+    suffix = Path(value).suffix
+    return bool(suffix) and len(suffix) <= 6 and " " not in suffix
+
+
+def _classify_local_source(value: str, project_root: Path | None) -> tuple[str, str]:
+    """Classify a non-URL source: ``ok`` | ``missing`` | ``not_a_locator``."""
+    if not _looks_like_a_path(value):
+        return "not_a_locator", "source_url holds a title/label, not a path"
+    candidate = Path(value)
+    if candidate.is_absolute():
+        if candidate.is_file():
+            return "ok", str(candidate)
+        return "missing", f"absolute path not on disk: {candidate}"
+    tried = 0
+    if project_root:
+        for prefix in _SOURCE_PATH_PREFIXES:
+            resolved = (project_root / prefix / candidate) if prefix else (project_root / candidate)
+            tried += 1
+            if resolved.is_file():
+                return "ok", str(resolved)
+    return "missing", f"not found under project root (tried {tried} location(s))"
+
+
 def _is_probeable(url) -> bool:
     return isinstance(url, str) and url.startswith(("http://", "https://"))
 
@@ -158,6 +199,20 @@ def _format_human(result: dict) -> str:
             "  (surface-only — dead links stay logged. To retire one: "
             "`empirica delete-artifacts` (dry-run+receipt) or `source-archive`.)"
         )
+
+    local_missing = result.get("local_missing") or []
+    not_a_locator = result.get("not_a_locator") or []
+    if result.get("local_ok") or local_missing or not_a_locator:
+        lines.append(f"  Local files OK:   {result.get('local_ok', 0)}")
+        if local_missing:
+            lines.append(f"  MISSING on disk:  {len(local_missing)}")
+            for r in local_missing[:5]:
+                lines.append(f"    - {str(r.get('title'))[:44]} — {r.get('status')}")
+        if not_a_locator:
+            lines.append(f"  Not a locator:    {len(not_a_locator)}  (source_url holds a title — re-point these)")
+            for r in not_a_locator[:5]:
+                lines.append(f"    - {str(r.get('title'))[:44]}")
+
     return "\n".join(lines)
 
 
@@ -218,10 +273,41 @@ def handle_sources_check_command(
         else:
             errored.append(rec)
 
+    # Local (non-URL) sources: the URL probe skips these entirely, so file rot was
+    # invisible — measured 25 of 50 unservable on one practice while sources-check
+    # reported clean. A source whose file is gone is exactly as dead as a 404.
+    project_root = None
+    try:
+        from empirica.utils.session_resolver import InstanceResolver as _R
+
+        _pp = _R.project_path()
+        project_root = Path(_pp) if _pp else None
+    except Exception:
+        project_root = None
+
+    local_ok = 0
+    local_missing: list[dict] = []
+    not_a_locator: list[dict] = []
+    for s in sources:
+        value = s.get("url") or s.get("source_url")
+        if not value or _is_probeable(value):
+            continue
+        category, detail = _classify_local_source(str(value), project_root)
+        rec = {"id": s.get("id"), "title": s.get("title"), "url": value, "status": detail}
+        if category == "ok":
+            local_ok += 1
+        elif category == "missing":
+            local_missing.append(rec)
+        else:
+            not_a_locator.append(rec)
+
     result = {
         "ok": True,
         "project_id": project_id,
         "checked": len(probeable),
+        "local_ok": local_ok,
+        "local_missing": local_missing,
+        "not_a_locator": not_a_locator,
         "live": live,
         "dead": dead,
         "gated": gated,
@@ -236,4 +322,4 @@ def handle_sources_check_command(
     else:
         sys.stdout.write(_format_human(result) + "\n")
 
-    return 1 if dead else 0
+    return 1 if (dead or local_missing) else 0
