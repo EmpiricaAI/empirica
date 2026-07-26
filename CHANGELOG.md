@@ -68,6 +68,16 @@ double-prefixing) are fixed. Adds a citation backfill + health report for
 - **Per-project Qdrant URL resolver hook**, closing the `EMPIRICA_QDRANT_URL`
   bypass so per-project routing can't be silently overridden by the global env var.
 
+### Security
+- **gitpython floor raised `3.1.51` → `3.1.55`** (caught by the release CVE gate).
+  Fixed in 3.1.54: GHSA-fjr4-x663-mwxc (unguarded `Diffable.diff` allows
+  `--output=` arbitrary file overwrite), GHSA-6p8h-3wgx-97gf (`--template` missing
+  from the clone denylist → hook execution), GHSA-r9mr-m37c-5fr3 (option smuggling
+  through single-char kwarg *values*, bypassing `check_unsafe_options` for every
+  guarded method). Fixed in 3.1.55: GHSA-94p4-4cq8-9g67 (env-var expansion in
+  `Remote.create` URLs can exfiltrate process secrets into `.git/config` and over
+  the network).
+
 ## [1.12.33] — 2026-07-23
 
 Patch: eliminates the ~120s `preflight-submit`/`postflight-submit` hang under a
