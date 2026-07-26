@@ -188,3 +188,45 @@ def test_health_counts_a_source_as_cited_once_backfilled(db):
     assert before["sources_uncited"] == 2
     assert after["sources_cited"] == 1
     assert after["sources_uncited"] == 1
+
+
+# ── DB selection (--project-id picks the practice's database) ──────────
+
+
+def test_project_db_path_resolves_registered_project(tmp_path, monkeypatch):
+    """`--project-id` must select the DATABASE, not just filter rows.
+
+    A bare SessionDatabase() resolves from session context and ignores CWD, so
+    without this a peer practice's numbers would silently be the ACTIVE practice's.
+    """
+    from empirica.cli.command_handlers import sources_reconcile_commands as src
+
+    proj = tmp_path / "peer-practice"
+    (proj / ".empirica" / "sessions").mkdir(parents=True)
+    db_file = proj / ".empirica" / "sessions" / "sessions.db"
+    db_file.write_bytes(b"")
+
+    registry = {"projects": [{"project_id": "peer-uuid", "name": "peer", "path": str(proj)}]}
+    monkeypatch.setattr("empirica.api.registry.load_registry", lambda: registry)
+    monkeypatch.setattr(
+        "empirica.api.registry.find_by_project_id",
+        lambda reg, pid: next((p for p in reg["projects"] if p["project_id"] == pid), None),
+    )
+
+    assert src._project_db_path("peer-uuid") == str(db_file)
+
+
+def test_project_db_path_returns_none_when_unresolvable(tmp_path, monkeypatch):
+    """Unregistered id, or a registered path with no DB on disk → None, so the
+    caller falls back to session-context resolution instead of crashing."""
+    from empirica.cli.command_handlers import sources_reconcile_commands as src
+
+    registry = {"projects": [{"project_id": "ghost", "name": "ghost", "path": str(tmp_path / "nope")}]}
+    monkeypatch.setattr("empirica.api.registry.load_registry", lambda: registry)
+    monkeypatch.setattr(
+        "empirica.api.registry.find_by_project_id",
+        lambda reg, pid: next((p for p in reg["projects"] if p["project_id"] == pid), None),
+    )
+
+    assert src._project_db_path("ghost") is None  # path exists in registry, DB does not
+    assert src._project_db_path("not-in-registry") is None

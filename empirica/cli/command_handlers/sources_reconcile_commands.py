@@ -177,10 +177,20 @@ def handle_sources_reconcile_command(args) -> int:
 
     if getattr(args, "backfill_citations", False):
         # Purely local (no cortex) — dispatch before the catalogue path so any
-        # practice can run it offline with just --project-id.
-        db = SessionDatabase()
+        # practice can run it offline.
+        #
+        # `--project-id` selects the DATABASE here, not just a row filter. A bare
+        # SessionDatabase() resolves the db from SESSION context (transaction →
+        # active_work → TTY → instance_projects) and deliberately ignores CWD
+        # ("CWD is unreliable with Claude Code", get_session_db_path), so gardening
+        # another practice by cd-ing into it silently re-reads the ACTIVE practice's
+        # db and reports its numbers under the other practice's name. Resolving the
+        # path from the registry is what makes this usable per-practice.
+        db_path = _project_db_path(project_id)
+        db = SessionDatabase(db_path=db_path) if db_path else SessionDatabase()
         try:
             payload = _run_citation_backfill(db, project_id, apply)
+            payload["db_path"] = str(getattr(db, "db_path", "") or "")
         finally:
             db.close()
         _emit(output, payload, _render_citation_human(payload))
@@ -373,6 +383,25 @@ def _parse_source_refs(raw: Any) -> list[str]:
     except (json.JSONDecodeError, TypeError):
         pass
     return [part.strip() for part in text.split(",") if part.strip()]
+
+
+def _project_db_path(project_id: str) -> str | None:
+    """Resolve a registered project's session DB from the global registry.
+
+    Returns None when the project isn't registered or has no DB on disk, so the
+    caller can fall back to session-context resolution.
+    """
+    try:
+        from empirica.api.registry import find_by_project_id, load_registry
+
+        entry = find_by_project_id(load_registry(), project_id)
+    except Exception:
+        return None
+    path = (entry or {}).get("path")
+    if not path:
+        return None
+    candidate = Path(path) / ".empirica" / "sessions" / "sessions.db"
+    return str(candidate) if candidate.is_file() else None
 
 
 def _run_citation_backfill(db, project_id: str, apply: bool) -> dict:

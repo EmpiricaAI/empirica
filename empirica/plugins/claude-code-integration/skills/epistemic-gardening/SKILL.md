@@ -222,10 +222,21 @@ finding it is: either start citing, or archive the sources nothing will ever
 reference (retired sources are excluded from the score, so archiving genuinely
 retired ones improves the signal rather than gaming it).
 
-Scope note: this reads the practice's own DB (`{project}/.empirica/sessions/sessions.db`),
-so it is practice-scoped by construction and works the same for a tenant practice or an
-AI practice — **run it from inside the practice you're gardening.** It deliberately does
-NOT filter to a single `project_id`, so sources stranded under divergent ids (see the
+**Gardening another practice — use `--project-id`, not `cd`.** The session DB resolves
+from *session context* (transaction → active_work → TTY → instance_projects) and
+deliberately ignores CWD ("CWD is unreliable with Claude Code" — `get_session_db_path`).
+So `cd`-ing into a peer practice and running the command silently re-reads **your**
+practice's DB and prints its numbers under the other practice's name. `--project-id`
+selects the DATABASE (resolved via `registry.yaml`), which is what makes this usable
+across a tenant's practices:
+
+```bash
+empirica sources-reconcile --backfill-citations --project-id <peer-project-uuid>
+```
+
+The emitted `db_path` tells you which DB was actually read — check it whenever the
+numbers look surprising. Within that DB the read is practice-scoped and deliberately
+does NOT filter to one `project_id`, so sources stranded under divergent ids (see the
 scatter diagnosis above) are counted and repaired too.
 
 For findings/unknowns/assumptions, inspect the practice DB read-only (this is noetic —
