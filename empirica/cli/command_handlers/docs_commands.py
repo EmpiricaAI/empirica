@@ -122,8 +122,14 @@ def _auto_detect_project_config(project_root: Path) -> ProjectConfig:
     if not docs_ignore_classes and not docs_ignore_paths:
         docs_ignore_classes, docs_ignore_paths = _load_docsignore(project_root)
 
-    # Fallback: scan for Python packages in project root
-    if not package_dirs:
+    # Fallback: scan for Python packages in project root.
+    #
+    # `is_dir()` guard: project_root comes from resolver state (active_work /
+    # instance_projects / registry), which can outlive the directory it names — a
+    # project that was deleted, moved, or lived on an unmounted volume. Without the
+    # guard `iterdir()` raises FileNotFoundError and takes the whole command down,
+    # which is how a stale pointer to a removed project bricked `docs-assess`.
+    if not package_dirs and project_root.is_dir():
         for child in project_root.iterdir():
             if child.is_dir() and (child / "__init__.py").exists():
                 if child.name not in {"tests", "test", "docs", "build", ".venv", "venv"}:
@@ -499,20 +505,71 @@ class EpistemicDocsAgent:
 
         return list(set(modules)), category_map
 
-    def _check_if_documented(self, term: str, docs_content: str) -> bool:
-        """Check if a term appears in documentation."""
-        # Normalize the term for searching
-        normalized = term.lower().replace("-", " ").replace("_", " ")
+    # A mention has to SAY something. Below this many words of non-name content on the
+    # mention's own line, it is an index entry ("- ClassName", "| ClassName |"), not
+    # documentation of that class.
+    _MIN_MENTION_WORDS = 8
 
-        # Check various forms
-        return (
-            term.lower() in docs_content
-            or normalized in docs_content
-            or term.replace("-", "_").lower() in docs_content
-            or
-            # For camelCase classes, check word boundaries
-            re.search(r"\b" + term.lower() + r"\b", docs_content) is not None
-        )
+    def _mention_lines(self, term: str, docs_content: str) -> list[str]:
+        """Lines of the docs that actually name `term` (any conventional form)."""
+        forms = {
+            term.lower(),
+            term.lower().replace("-", " ").replace("_", " "),
+            term.replace("-", "_").lower(),
+        }
+        return [ln for ln in docs_content.splitlines() if any(f and f in ln.lower() for f in forms)]
+
+    def _has_substantive_mention(self, term: str, docs_content: str) -> bool:
+        """True when the docs say something ABOUT `term`, not merely name it.
+
+        A bare name in markdown is not documentation. Measured evidence (empirica-
+        workspace, 2026-07-26): adding 137 accurate docstrings moved this metric 0%,
+        while a generated file that merely LISTED 256 feature names took it to 100%.
+        Substring matching therefore rewarded name-dropping and was unmovable by real
+        documentation — inverting the EU AI Act Art. 11 / ISO 7.5 intent the
+        ``tech_docs`` check is meant to serve.
+
+        So a mention counts only if its line carries real content besides the name:
+        strip list/table/heading punctuation, remove the term itself, and require at
+        least ``_MIN_MENTION_WORDS`` words left. "- FooBar" and "| FooBar | core |"
+        fail; a sentence describing FooBar passes.
+        """
+        for line in self._mention_lines(term, docs_content):
+            stripped = re.sub(r"[|#>*_`\-]", " ", line.lower())
+            for form in (term.lower(), term.lower().replace("-", " ").replace("_", " ")):
+                stripped = stripped.replace(form, " ")
+            if len([w for w in stripped.split() if len(w) > 1]) >= self._MIN_MENTION_WORDS:
+                return True
+        return False
+
+    def _check_if_documented(self, term: str, docs_content: str) -> bool:
+        """Is `term` genuinely documented — by a code docstring, or by real prose?
+
+        Docstring presence is authoritative: it is the technical documentation of the
+        symbol itself, it cannot be gamed from a markdown file, and it is what moves
+        when someone does the actual work. Substantive prose in the docs also counts,
+        so practices that document in markdown rather than docstrings are not
+        penalised — but a bare index entry no longer passes.
+        """
+        return term in self._documented_symbols() or self._has_substantive_mention(term, docs_content)
+
+    def _documented_symbols(self) -> set[str]:
+        """Names (modules/classes/public functions) carrying a substantive docstring.
+
+        Derived from the same AST walk as ``check_docstrings`` — that check already
+        knew the truth; the coverage metric simply never consulted it. Cached: the
+        walk is per-assessment, not per-feature.
+        """
+        cached = getattr(self, "_documented_symbols_cache", None)
+        if cached is not None:
+            return cached
+        documented: set[str] = set()
+        try:
+            documented = {str(n).strip() for n in (self.check_docstrings().get("documented_symbols") or []) if n}
+        except Exception:
+            documented = set()
+        self._documented_symbols_cache = documented
+        return documented
 
     def check_docstrings(self) -> dict[str, Any]:
         """
@@ -525,6 +582,10 @@ class EpistemicDocsAgent:
         - coverage: Overall docstring coverage percentage
         """
         modules_missing: list[str] = []
+        # Names carrying a substantive docstring. The walk already computes this
+        # truth to count `documented_items`; recording the NAMES lets the coverage
+        # metric consult it instead of substring-matching markdown.
+        documented_symbols: list[str] = []
         classes_missing: list[str] = []
         functions_missing: list[str] = []
         total_items = 0
@@ -536,6 +597,7 @@ class EpistemicDocsAgent:
         if not pkg_dirs:
             return {
                 "modules_missing": modules_missing,
+                "documented_symbols": documented_symbols,
                 "classes_missing": classes_missing,
                 "functions_missing": functions_missing,
                 "total_items": total_items,
@@ -557,6 +619,7 @@ class EpistemicDocsAgent:
                     total_items += 1
                     if ast.get_docstring(tree):
                         documented_items += 1
+                        documented_symbols.append(Path(rel_path).stem)
                     else:
                         modules_missing.append(str(rel_path))
 
@@ -566,6 +629,7 @@ class EpistemicDocsAgent:
                             total_items += 1
                             if ast.get_docstring(node):
                                 documented_items += 1
+                                documented_symbols.append(node.name)
                             else:
                                 classes_missing.append(f"{rel_path}:{node.name}")
 
@@ -580,6 +644,7 @@ class EpistemicDocsAgent:
                             total_items += 1
                             if ast.get_docstring(node):
                                 documented_items += 1
+                                documented_symbols.append(node.name)
                             else:
                                 functions_missing.append(f"{rel_path}:{node.name}")
 
@@ -592,6 +657,7 @@ class EpistemicDocsAgent:
 
         return {
             "modules_missing": modules_missing,
+            "documented_symbols": documented_symbols,
             "classes_missing": classes_missing,
             "functions_missing": functions_missing,
             "total_items": total_items,
