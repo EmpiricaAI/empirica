@@ -138,7 +138,7 @@ class TestClaudeDir:
         monkeypatch.setenv("HOME", str(tmp_path))
         result = check_claude_dir()
         assert result.status == FAIL
-        assert "setup-claude-code" in result.hint
+        assert "empirica setup" in result.hint
 
     def test_env_var_override_detected(self, tmp_path, monkeypatch):
         custom = tmp_path / "custom_claude"
@@ -164,7 +164,7 @@ class TestPluginFiles:
         result = check_plugin_files(tmp_path)
         assert result.status == FAIL
         assert "does not exist" in result.detail
-        assert "setup-claude-code" in result.hint
+        assert "empirica setup" in result.hint
 
     def test_partial_install_fails_with_list(self, fake_claude_dir):
         # Plugin dir exists but no files in it
