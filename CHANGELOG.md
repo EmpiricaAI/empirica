@@ -5,6 +5,69 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.34] — 2026-07-26
+
+Patch: the extension's sources pane was under-reading a practice's sources and
+never showing citing artifacts; the daemon could bind to no project at all under
+systemd; and two mesh-reported bugs (cron-loop schedules, canonical-id
+double-prefixing) are fixed. Adds a citation backfill + health report for
+`sources-reconcile`.
+
+### Fixed
+- **The extension's sources pane showed only a fraction of a practice's sources.**
+  `_list_sources` filtered `WHERE project_id = ?`, but a practice's `project_id`
+  drifts over its life, so its own sources end up under several ids (measured on
+  one practice: 63 sources across 4 ids, 3 of them absent from `registry.yaml`).
+  The read is now scoped to the database — `_open_db_for` opens a per-project DB,
+  so the DB path is the practice boundary and every row in it belongs to that
+  practice by construction. Applies to the by-id lookup too, so a drifted source
+  stays findable, and each source now reports its stored `project_id` so the drift
+  is visible to gardening rather than silently aggregated away.
+- **A source never reported its citing artifacts.** Edges are stored once,
+  directionally: a citation is written `finding --sourced_from--> source`, so the
+  SOURCE had no outgoing edge and always came back with `related_to: []`.
+  Consumers had to rebuild "citing artifacts" by scanning the whole graph
+  client-side. Adds `related_from[]` (incoming edges, same `{id, type, relation}`
+  shape); `related_to` semantics are unchanged and both directions resolve in the
+  existing single per-table pass.
+- **The daemon could bind to NO project under systemd**, leaving the unqualified
+  `/api/v1/*` view empty even with a correct `WorkingDirectory`. The CWD walk-up
+  used `os.environ.get("PWD") or os.getcwd()`, and `$PWD` is a *shell* convention —
+  a systemd service inherits the manager's value. `$PWD` is still tried first (it
+  preserves the symlinked path a user actually `cd`'d through), but resolution now
+  falls through to `os.getcwd()`.
+- **Cron-kind canonical loops reported and registered `interval=15m`** regardless of
+  their real schedule (#prop_sno3etin). `canonical_loops` fell back to a hardcoded
+  interval for entries that carry a `cron` expression instead, corrupting both the
+  install reminder and the generated `loop register` command. `cron` is now threaded
+  through `write_pending` / `LoopInstallRequest` / `render_loop_cron_prompt`.
+- **`compose_canonical_seat()` double-prefixed an already-canonical `ai_id`**
+  (#prop_mzsijy2). Practices that store the fully-qualified 3-form now pass through
+  unchanged, matching the dot-check `content_poll._resolve_canonical_ai_id` already
+  used.
+- **The SQL schema guard failed on a foreign-schema query.** A query against
+  cortex's `tenants.db` was validated against empirica's schema and reported a
+  phantom missing column, because the foreign DB reuses a table name we also have
+  (`projects`). Adds a file-level `_FOREIGN_SCHEMA_FILES` skip, kept separate from
+  the real-bug ratchet so a correct query is never mislabeled as a tracked bug.
+
+### Added
+- **`sources-reconcile --backfill-citations`** — promotes legacy `source_refs`
+  COLUMN citations into real `sourced_from` EDGES (dry-run unless `--apply`,
+  idempotent, purely local). It never fabricates an edge to a source that doesn't
+  exist; dangling refs are reported, not written. `--project-id` selects the
+  practice's DATABASE via the registry, because the session DB resolves from session
+  context and deliberately ignores CWD — so gardening a peer practice by `cd`-ing
+  into it would otherwise re-read the active practice's DB.
+  Also reports **citation health** (active / cited / uncited, scoring active sources
+  only, since an archived source is retired). Wired into the `epistemic-gardening`
+  skill. Set expectations from the measured baseline: across one full local fleet
+  there were 446 sources but only 6 artifacts carrying `source_refs` — the backfill
+  recovers little, and a high uncited count is citation discipline at log time,
+  which no backfill can repair.
+- **Per-project Qdrant URL resolver hook**, closing the `EMPIRICA_QDRANT_URL`
+  bypass so per-project routing can't be silently overridden by the global env var.
+
 ## [1.12.33] — 2026-07-23
 
 Patch: eliminates the ~120s `preflight-submit`/`postflight-submit` hang under a
