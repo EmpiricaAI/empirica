@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.12.33
-**Generated:** 2026-07-23 15:30:48 UTC
+**Framework version:** 1.12.34
+**Generated:** 2026-07-26 12:41:02 UTC
 **Total commands:** 242 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -1129,6 +1129,8 @@ Match local sources against the central catalogue by content identity and adopt 
   Cortex API key (default: credentials.yaml / CORTEX_API_KEY env)
 - `--register-shared` — optional · flag
   One-time convergence: push existing local-only shared/public sources up to cortex's catalogue (POST /v1/sources/register) so they materialize on the shared surface. Skips already-registered rows. Runs standalone (ignores the reconcile flow).
+- `--backfill-citations` — optional · flag
+  Promote legacy `source_refs` COLUMN citations into real `sourced_from` EDGES, and report citation health (how many sources nothing references). `--source` historically wrote only the column, so those citations are invisible to the artifact graph, sources-map, the daemon's related_from projection and sanctify's zombie check. Purely local (no cortex) — any practice can run it with --project-id. Dry-run unless --apply. Idempotent.
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
 - `--verbose` — optional · flag
