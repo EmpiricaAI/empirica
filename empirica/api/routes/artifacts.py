@@ -849,18 +849,24 @@ def _fetch_source_row(db, project_id: str, source_id: str) -> dict | None:
     """
     import sqlite3
 
+    # Practice-scoped, matching `_list_sources`. The listing reads the whole
+    # per-practice DB (project_id drifts over a practice's life), so scoping this
+    # lookup to ONE project_id made the two disagree: a drifted source appeared in
+    # the pane and then 404'd the moment you opened it — measured 10 of 50 on this
+    # practice. The DB path is the practice boundary either way, so widening the
+    # lookup exposes nothing the listing didn't already return.
+    del project_id  # kept in the signature for call-site clarity; scope is the DB
     cursor = db.conn.cursor()
     try:
         cursor.execute(
             "SELECT id, title, source_url, source_type, description "
-            "FROM epistemic_sources WHERE project_id = ? AND (id = ? OR cortex_uuid = ?) LIMIT 1",
-            (project_id, source_id, source_id),
+            "FROM epistemic_sources WHERE (id = ? OR cortex_uuid = ?) LIMIT 1",
+            (source_id, source_id),
         )
     except sqlite3.OperationalError:
         cursor.execute(
-            "SELECT id, title, source_url, source_type, description "
-            "FROM epistemic_sources WHERE project_id = ? AND id = ? LIMIT 1",
-            (project_id, source_id),
+            "SELECT id, title, source_url, source_type, description FROM epistemic_sources WHERE id = ? LIMIT 1",
+            (source_id,),
         )
     r = cursor.fetchone()
     if not r:

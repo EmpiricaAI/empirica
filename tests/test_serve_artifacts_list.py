@@ -911,3 +911,34 @@ def test_related_from_source_type_is_unknown_for_dangling_edges(tmp_path, monkey
     assert len(row["related_from"]) == 1
     assert row["related_from"][0]["type"] == "unknown"
     assert row["related_from"][0]["relation"] == "sourced_from"
+
+
+def test_listed_source_is_also_fetchable_by_content(tmp_path, monkeypatch, reset_daemon_cache):
+    """Regression: the sources LIST and the /content lookup must agree on scope.
+
+    `_list_sources` reads the whole per-practice DB (project_id drifts over a
+    practice's life), but `_fetch_source_row` was scoped to ONE project_id — so a
+    drifted source appeared in the pane and then 404'd the instant you opened it
+    (measured 10 of 50 on a real practice). Anything the list returns must be
+    fetchable."""
+    pid = str(uuid.uuid4())
+    stale_pid = str(uuid.uuid4())  # same practice, earlier identity
+    proj = _make_project_with_db(tmp_path, pid)
+    db_path = proj / ".empirica" / "sessions" / "sessions.db"
+
+    doc = proj / "notes.md"
+    doc.write_text("body text", encoding="utf-8")
+    drifted = _insert_source(db_path, stale_pid, "drifted doc")
+    sqlite3.connect(str(db_path)).execute(
+        "UPDATE epistemic_sources SET source_url = ?, source_type = 'doc' WHERE id = ?", ("notes.md", drifted)
+    ).connection.commit()
+
+    with patch("empirica.utils.session_resolver.InstanceResolver.project_path", return_value=str(proj)):
+        monkeypatch.chdir(proj)
+        client = TestClient(create_serve_app())
+        listed = {s["id"] for s in client.get("/api/v1/sources").json()["sources"]}
+        resp = client.get(f"/api/v1/sources/{drifted}/content")
+
+    assert drifted in listed, "fixture must be returned by the practice-scoped listing"
+    assert resp.status_code != 404, "a listed source must not 404 on content"
+    assert resp.json()["content"] == "body text"
