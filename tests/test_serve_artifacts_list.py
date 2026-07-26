@@ -855,3 +855,59 @@ def test_sources_surface_across_drifted_project_ids(tmp_path, monkeypatch, reset
     # Archived filter still applies across the widened read (no regression).
     assert len(rows) == 2, "archived drifted source stays hidden by default"
     assert len(with_arch) == 3, "include_archived=true surfaces the archived drifted row too"
+
+
+def test_source_carries_citing_artifacts_via_related_from(tmp_path, monkeypatch, reset_daemon_cache):
+    """Regression: a source's citing artifacts were invisible server-side.
+
+    Edges are stored once, directionally: a finding citing a source is written as
+    `finding --sourced_from--> source`, so the SOURCE has no OUTGOING edge and
+    `_attach_related_to` (which queried only from_id) returned related_to=[]. The
+    extension had to scan the whole artifact graph client-side to rebuild "citing
+    artifacts". `related_from` projects the incoming direction server-side —
+    `sanctify.py`'s zombie-source detection keys on exactly this."""
+    pid = str(uuid.uuid4())
+    proj = _make_project_with_db(tmp_path, pid)
+    db_path = proj / ".empirica" / "sessions" / "sessions.db"
+
+    src = _insert_source(db_path, pid, "RFC 7519")
+    citing = _insert_finding(db_path, pid, "JWTs are signed, not encrypted")
+    _insert_edge(db_path, citing, src, "sourced_from")  # finding -> source
+
+    with patch("empirica.utils.session_resolver.InstanceResolver.project_path", return_value=str(proj)):
+        monkeypatch.chdir(proj)
+        client = TestClient(create_serve_app())
+        sources = client.get("/api/v1/sources").json()["sources"]
+        findings = client.get("/api/v1/findings").json()["findings"]
+
+    source_row = next(s for s in sources if s["id"] == src)
+    # The source now reports who cites it, without any client-side graph scan.
+    assert source_row["related_from"] == [{"id": citing, "type": "finding", "relation": "sourced_from"}]
+    # ...and it has no OUTGOING edge — the reason this was invisible before.
+    assert source_row["related_to"] == []
+
+    # The citing side is unchanged: outgoing still lands in related_to.
+    finding_row = next(f for f in findings if f["id"] == citing)
+    assert finding_row["related_to"] == [{"id": src, "type": "source", "relation": "sourced_from"}]
+    assert finding_row["related_from"] == []
+
+
+def test_related_from_source_type_is_unknown_for_dangling_edges(tmp_path, monkeypatch, reset_daemon_cache):
+    """An incoming edge from a non-existent artifact → type='unknown', mirroring
+    related_to's defensive shape so the wire contract always holds."""
+    pid = str(uuid.uuid4())
+    proj = _make_project_with_db(tmp_path, pid)
+    db_path = proj / ".empirica" / "sessions" / "sessions.db"
+
+    src = _insert_source(db_path, pid, "orphan-cited source")
+    _insert_edge(db_path, str(uuid.uuid4()), src, "sourced_from")  # ghost citer
+
+    with patch("empirica.utils.session_resolver.InstanceResolver.project_path", return_value=str(proj)):
+        monkeypatch.chdir(proj)
+        client = TestClient(create_serve_app())
+        sources = client.get("/api/v1/sources").json()["sources"]
+
+    row = next(s for s in sources if s["id"] == src)
+    assert len(row["related_from"]) == 1
+    assert row["related_from"][0]["type"] == "unknown"
+    assert row["related_from"][0]["relation"] == "sourced_from"

@@ -142,14 +142,26 @@ def _open_db() -> _ReadOnlyDB:
 
 
 def _attach_related_to(db, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """For each row in `rows`, populate `row['related_to']` from artifact_edges.
+    """For each row in `rows`, populate `related_to` + `related_from` from artifact_edges.
 
-    related_to[] format (per spec wire contract):
+    Both use the same wire shape (per spec wire contract):
         [{"id": "<other-artifact-id>", "type": "<type>", "relation": "<rel>"}, ...]
 
-    Uses one query for all rows (`from_id IN (...)`), then in-memory groups.
-    Edge rows whose target type can't be inferred (target not found in any
-    artifact table) get `type: "unknown"` so the wire contract still holds.
+    - ``related_to``   — edges where this artifact is the SOURCE (outgoing).
+    - ``related_from`` — edges where this artifact is the TARGET (incoming).
+
+    Both directions are needed because edges are stored once, directionally. An
+    artifact that cites a source is written as ``finding --sourced_from--> source``,
+    so the SOURCE's own row has no outgoing edge at all — querying only `from_id`
+    left every source with ``related_to: []`` even when many findings cited it, and
+    consumers had to scan the whole artifact graph client-side to rebuild "citing
+    artifacts". ``related_from`` projects that server-side.
+
+    Two queries for all rows (`from_id IN (...)`, `to_id IN (...)`), then in-memory
+    grouping; counterpart types are resolved in a single pass over the union of ids,
+    so adding the direction costs one query, not one per row. Edge rows whose
+    counterpart type can't be inferred (not found in any artifact table) get
+    `type: "unknown"` so the wire contract still holds.
     """
     if not rows or not db.conn:
         return rows
@@ -172,15 +184,22 @@ def _attach_related_to(db, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             from_ids,
         )
         raw_edges = cursor.fetchall()
+        cursor.execute(
+            f"SELECT from_id, to_id, relation FROM artifact_edges WHERE to_id IN ({placeholders})",
+            from_ids,
+        )
+        raw_in_edges = cursor.fetchall()
     except _sqlite3.OperationalError as e:
         if "no such table" in str(e).lower():
             for row in rows:
                 row["related_to"] = []
+                row["related_from"] = []
             return rows
         raise
 
-    # Resolve to_id → type by checking each artifact table once for the union of to_ids
-    to_ids = list({e[1] for e in raw_edges})
+    # Resolve counterpart id → type, checking each artifact table once for the union
+    # of BOTH directions' counterparts (outgoing targets + incoming sources).
+    to_ids = list({e[1] for e in raw_edges} | {e[0] for e in raw_in_edges})
     type_index: dict[str, str] = {}
     if to_ids:
         type_lookups = [
@@ -202,7 +221,7 @@ def _attach_related_to(db, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             except Exception as e:
                 logger.debug(f"_attach_related_to: type lookup on {table} failed: {e}")
 
-    # Group edges by from_id
+    # Group outgoing edges by from_id (counterpart = to_id)
     edges_by_from: dict[str, list[dict[str, str]]] = {}
     for from_id, to_id, relation in raw_edges:
         edges_by_from.setdefault(from_id, []).append(
@@ -213,8 +232,20 @@ def _attach_related_to(db, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             }
         )
 
+    # Group incoming edges by to_id (counterpart = from_id — the artifact pointing AT us)
+    edges_by_to: dict[str, list[dict[str, str]]] = {}
+    for from_id, to_id, relation in raw_in_edges:
+        edges_by_to.setdefault(to_id, []).append(
+            {
+                "id": from_id,
+                "type": type_index.get(from_id, "unknown"),
+                "relation": relation,
+            }
+        )
+
     for row in rows:
         row["related_to"] = edges_by_from.get(row["id"], [])
+        row["related_from"] = edges_by_to.get(row["id"], [])
     return rows
 
 
