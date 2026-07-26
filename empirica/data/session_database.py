@@ -226,69 +226,82 @@ class SessionDatabase:
             migration_runner = MigrationRunner(self.conn)
             migration_runner.run_all(ALL_MIGRATIONS)
 
-        # Create indexes for performance
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_ai ON sessions(ai_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_start ON sessions(start_time)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_cascades_session ON cascades(session_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_cascades_confidence ON cascades(final_confidence)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_beliefs_cascade ON bayesian_beliefs(cascade_id)")
+        # Create indexes for performance.
+        #
+        # Tolerate schema drift. A long-lived DB can predate any of these columns
+        # (created before the column existed, or migrations never ran on it). An index
+        # is a PERFORMANCE aid, so losing one on a legacy DB is harmless — but a hard
+        # failure here abandons _create_tables() and makes the whole database
+        # UNOPENABLE: `CREATE INDEX ... ON sessions(ai_id)` raised "no such column:
+        # ai_id" on a pre-ai_id practice DB, so every command touching that practice
+        # failed at SessionDatabase() init. Skip only on the drift signals; re-raise
+        # anything else so real errors still surface.
+        # Matched on the message rather than an exception class so it holds for both
+        # dialects (sqlite3.OperationalError / psycopg UndefinedColumn|UndefinedTable).
+        _DRIFT_SIGNALS = ("no such column", "no such table", "does not exist", "undefined column", "undefined table")
+
+        def _idx(sql: str) -> None:
+            try:
+                cursor.execute(sql)
+            except Exception as e:
+                msg = str(e).lower()
+                if any(sig in msg for sig in _DRIFT_SIGNALS):
+                    logger.debug(f"skipping index on legacy schema ({e}): {sql}")
+                    return
+                raise
+
+        _idx("CREATE INDEX IF NOT EXISTS idx_sessions_ai ON sessions(ai_id)")
+        _idx("CREATE INDEX IF NOT EXISTS idx_sessions_start ON sessions(start_time)")
+        _idx("CREATE INDEX IF NOT EXISTS idx_cascades_session ON cascades(session_id)")
+        _idx("CREATE INDEX IF NOT EXISTS idx_cascades_confidence ON cascades(final_confidence)")
+        _idx("CREATE INDEX IF NOT EXISTS idx_beliefs_cascade ON bayesian_beliefs(cascade_id)")
         # BEADS integration index (check if column exists first)
         if self.adapter.column_exists("goals", "beads_issue_id"):
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_goals_beads_issue_id ON goals(beads_issue_id)")
+            _idx("CREATE INDEX IF NOT EXISTS idx_goals_beads_issue_id ON goals(beads_issue_id)")
         # Index for reflexes table (replaces old cascade_metadata index)
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_snapshots_session ON epistemic_snapshots(session_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_snapshots_ai ON epistemic_snapshots(ai_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_snapshots_cascade ON epistemic_snapshots(cascade_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_snapshots_created ON epistemic_snapshots(created_at)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_reflexes_session ON reflexes(session_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_reflexes_phase ON reflexes(phase)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_goals_session ON goals(session_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_goals_status ON goals(status)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_subtasks_goal ON subtasks(goal_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_subtasks_status ON subtasks(status)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_mistakes_session ON mistakes_made(session_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_mistakes_goal ON mistakes_made(goal_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_projects_activity ON projects(last_activity_timestamp)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_project_handoffs_project ON project_handoffs(project_id)")
-        cursor.execute(
-            "CREATE INDEX IF NOT EXISTS idx_project_handoffs_timestamp ON project_handoffs(created_timestamp)"
-        )
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_project_findings_project ON project_findings(project_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_project_findings_session ON project_findings(session_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_project_unknowns_project ON project_unknowns(project_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_project_unknowns_resolved ON project_unknowns(is_resolved)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_project_dead_ends_project ON project_dead_ends(project_id)")
+        _idx("CREATE INDEX IF NOT EXISTS idx_snapshots_session ON epistemic_snapshots(session_id)")
+        _idx("CREATE INDEX IF NOT EXISTS idx_snapshots_ai ON epistemic_snapshots(ai_id)")
+        _idx("CREATE INDEX IF NOT EXISTS idx_snapshots_cascade ON epistemic_snapshots(cascade_id)")
+        _idx("CREATE INDEX IF NOT EXISTS idx_snapshots_created ON epistemic_snapshots(created_at)")
+        _idx("CREATE INDEX IF NOT EXISTS idx_reflexes_session ON reflexes(session_id)")
+        _idx("CREATE INDEX IF NOT EXISTS idx_reflexes_phase ON reflexes(phase)")
+        _idx("CREATE INDEX IF NOT EXISTS idx_goals_session ON goals(session_id)")
+        _idx("CREATE INDEX IF NOT EXISTS idx_goals_status ON goals(status)")
+        _idx("CREATE INDEX IF NOT EXISTS idx_subtasks_goal ON subtasks(goal_id)")
+        _idx("CREATE INDEX IF NOT EXISTS idx_subtasks_status ON subtasks(status)")
+        _idx("CREATE INDEX IF NOT EXISTS idx_mistakes_session ON mistakes_made(session_id)")
+        _idx("CREATE INDEX IF NOT EXISTS idx_mistakes_goal ON mistakes_made(goal_id)")
+        _idx("CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status)")
+        _idx("CREATE INDEX IF NOT EXISTS idx_projects_activity ON projects(last_activity_timestamp)")
+        _idx("CREATE INDEX IF NOT EXISTS idx_project_handoffs_project ON project_handoffs(project_id)")
+        _idx("CREATE INDEX IF NOT EXISTS idx_project_handoffs_timestamp ON project_handoffs(created_timestamp)")
+        _idx("CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id)")
+        _idx("CREATE INDEX IF NOT EXISTS idx_project_findings_project ON project_findings(project_id)")
+        _idx("CREATE INDEX IF NOT EXISTS idx_project_findings_session ON project_findings(session_id)")
+        _idx("CREATE INDEX IF NOT EXISTS idx_project_unknowns_project ON project_unknowns(project_id)")
+        _idx("CREATE INDEX IF NOT EXISTS idx_project_unknowns_resolved ON project_unknowns(is_resolved)")
+        _idx("CREATE INDEX IF NOT EXISTS idx_project_dead_ends_project ON project_dead_ends(project_id)")
         # idx_project_reference_docs_project dropped in goal 3d6aeb08 Phase 3 —
         # the project_reference_docs table is dropped by migration 047.
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_epistemic_sources_project ON epistemic_sources(project_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_epistemic_sources_session ON epistemic_sources(session_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_epistemic_sources_type ON epistemic_sources(source_type)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_epistemic_sources_confidence ON epistemic_sources(confidence)")
+        _idx("CREATE INDEX IF NOT EXISTS idx_epistemic_sources_project ON epistemic_sources(project_id)")
+        _idx("CREATE INDEX IF NOT EXISTS idx_epistemic_sources_session ON epistemic_sources(session_id)")
+        _idx("CREATE INDEX IF NOT EXISTS idx_epistemic_sources_type ON epistemic_sources(source_type)")
+        _idx("CREATE INDEX IF NOT EXISTS idx_epistemic_sources_confidence ON epistemic_sources(confidence)")
 
         # Indexes for investigation_branches
-        cursor.execute(
-            "CREATE INDEX IF NOT EXISTS idx_investigation_branches_session ON investigation_branches(session_id)"
-        )
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_investigation_branches_status ON investigation_branches(status)")
-        cursor.execute(
-            "CREATE INDEX IF NOT EXISTS idx_investigation_branches_winner ON investigation_branches(is_winner)"
-        )
-        cursor.execute(
-            "CREATE INDEX IF NOT EXISTS idx_investigation_branches_merge_score ON investigation_branches(merge_score)"
-        )
+        _idx("CREATE INDEX IF NOT EXISTS idx_investigation_branches_session ON investigation_branches(session_id)")
+        _idx("CREATE INDEX IF NOT EXISTS idx_investigation_branches_status ON investigation_branches(status)")
+        _idx("CREATE INDEX IF NOT EXISTS idx_investigation_branches_winner ON investigation_branches(is_winner)")
+        _idx("CREATE INDEX IF NOT EXISTS idx_investigation_branches_merge_score ON investigation_branches(merge_score)")
 
         # Indexes for merge_decisions
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_merge_decisions_session ON merge_decisions(session_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_merge_decisions_round ON merge_decisions(investigation_round)")
-        cursor.execute(
-            "CREATE INDEX IF NOT EXISTS idx_merge_decisions_winning_branch ON merge_decisions(winning_branch_id)"
-        )
+        _idx("CREATE INDEX IF NOT EXISTS idx_merge_decisions_session ON merge_decisions(session_id)")
+        _idx("CREATE INDEX IF NOT EXISTS idx_merge_decisions_round ON merge_decisions(investigation_round)")
+        _idx("CREATE INDEX IF NOT EXISTS idx_merge_decisions_winning_branch ON merge_decisions(winning_branch_id)")
 
         # Indexes for token_savings
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_token_savings_session ON token_savings(session_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_token_savings_type ON token_savings(saving_type)")
+        _idx("CREATE INDEX IF NOT EXISTS idx_token_savings_session ON token_savings(session_id)")
+        _idx("CREATE INDEX IF NOT EXISTS idx_token_savings_type ON token_savings(saving_type)")
 
         # transaction_id indexes — must run AFTER migrations that add the column (#44)
         for table, idx_name in [
