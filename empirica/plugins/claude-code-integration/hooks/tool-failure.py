@@ -32,21 +32,64 @@ IGNORE_TOOLS = {
 }
 
 # Error patterns that are noise
+# A dead-end is an EPISTEMIC judgment — "this approach does not work" — and it is
+# retrieved into later sessions as "avoid re-trying". An operational hiccup is not
+# that. Conflating them floods the graph with noise that then steers future work:
+# measured 2026-07-27, 637 of 750 open dead-ends on this practice were captured tool
+# failures, including a `git commit` that SUCCEEDED (its own why_failed text contains
+# the successful push) and was recorded because a CI-wait loop in the same command
+# hit `timeout`. Future sessions were being told to avoid re-trying `git commit`.
 IGNORE_PATTERNS = [
     "No such file or directory",
     "No matches found",
     "not a tty",
     "Permission denied",  # Usually sandbox, not a real dead-end
+    # Timeouts / signals — the process was killed by the clock or the harness, which
+    # says nothing about whether the APPROACH is viable. This was the dominant miss:
+    # a timeout message is long, so the >=20-char heuristic waved it straight through.
+    "Command timed out",
+    "Exit code 143",  # SIGTERM (timeout)
+    "Exit code 137",  # SIGKILL (OOM / hard kill)
+    "timed out after",
+    "Timeout",
+    "moved to the background",
+    # Non-zero exits that are ordinary, informative results rather than failures.
+    "Exit code 1\n",  # bare grep/rg "no match" — a finding, not a dead end
+    "No such container",
+    "Connection refused",  # a service being down is operational, not epistemic
+    "Could not resolve host",
+    "Temporary failure in name resolution",
+]
+
+# Substrings that indicate the command actually DID its work before something else in
+# the same invocation failed. A partial success must never be recorded as an approach
+# that does not work.
+SUCCESS_MARKERS = [
+    " -> ",  # git push refspec output
+    "->",
+    "files changed",
+    "Successfully",
+    "✅",
+    "passed",
 ]
 
 
 def _is_interesting_failure(tool_name: str, error: str) -> bool:
-    """Determine if this failure is worth logging as a dead-end."""
+    """Is this failure worth recording as a permanent epistemic dead-end?
+
+    The bar is deliberately high. A dead-end is retrieved into later sessions as
+    "avoid re-trying", so a false positive does not merely add noise — it removes a
+    viable approach from the practice's option space, and until migration 060 nothing
+    could ever contradict it.
+    """
     if tool_name in IGNORE_TOOLS:
         return False
-    for pattern in IGNORE_PATTERNS:
-        if pattern in error:
-            return False
+    if any(pattern in error for pattern in IGNORE_PATTERNS):
+        return False
+    # If the output shows the work landed, the command did not fail in the sense that
+    # matters — something later in the same invocation did.
+    if any(marker in error for marker in SUCCESS_MARKERS):
+        return False
     # Short errors are usually transient
     return len(error) >= 20
 
