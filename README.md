@@ -356,42 +356,13 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ## What's New in 1.12.36
 
-- **Tool hiccups were being recorded as permanent dead-ends.** The failure hook logged
-  almost any non-zero exit as a dead-end — and a dead-end is an *epistemic* judgment
-  ("this approach does not work") that retrieval feeds into later sessions as
-  **avoid re-trying**. Nothing ever retries one, so a false dead-end quietly removes a
-  viable approach from the practice's option space forever. Measured across the fleet:
-  **879 of 980 open dead-ends (89%) were this noise**, including a `git commit` that
-  *succeeded* and was captured because a CI-wait loop later in the same command timed
-  out. Timeouts, connection refusals, DNS failures and bare no-match exits are now
-  filtered, plus a check that drops captures whose own error text shows the work
-  landed. **Upgrading stops new noise but does not clean existing rows — run
-  `/epistemic-gardening`, and retry before you close.**
-- **Credentials could reach the graph through that same path.** The hook stringified
-  whole tool payloads into the dead-end, and MCP `cortex_*` tools take `api_key` as a
-  parameter. Secret-named values are now dropped before stringification and
-  secret-shaped tokens scrubbed from free text — before truncation (which can split a
-  token), and failing closed if the redactor itself errors.
-- **Permanent constraints are finally falsifiable.** `dead_end` and `mistake` had no
-  lifecycle columns at all, and `decision` had columns nothing wrote — **0 of 486
-  decisions had ever been assessed**. The artifact types that steer future behaviour
-  hardest were the only ones that could never be revised. Adds `deadend-invalidate`,
-  `mistake-assess`, `decision-assess`, and the new types on `resolve-artifacts`.
-- **Outcomes now flow back to the sources that informed them** via `sourced_from`, so
-  a source's relevance / accuracy / stability is evidenced by what happened to the
-  artifacts citing it. Derived on read, never stored. Attribution is **declared, not
-  inferred** — an artifact can fail because the reasoning was wrong, and inferring
-  blame from invalidation would slander good sources.
-- **Blindspots inherit the fate of their premises.** A blindspot is inferred from a
-  pattern across other artifacts, so when enough of its inputs are invalidated it is
-  flagged for **re-derivation — never auto-invalidated**. It can remain true even when
-  a supporting finding was wrong, and silently deleting an unknown-unknown is the
-  worst available failure direction.
-- **`/epistemic-gardening` can now ask the questions that were previously impossible** —
-  dead-ends never revisited, decisions never assessed, preventions never validated,
-  blindspots with stale inputs. Each is a prompt, not an automatic action: prune *and
-  replant*.
-
+- **Tool hiccups were being recorded as permanent dead-ends, and retrieval fed them back as "avoid re-trying".** The `PostToolUseFailure` hook logged almost any non-zero exit as a dead-end. A dead-end is an *epistemic* judgment — "this approach does not work" — and nothing ever retries one, so a false dead-end silently removes a viable approach from the practice's option space **forever**. Timeouts (SIGTERM 143 / SIGKILL 137), connection refusals, DNS failures and bare `grep` no-match exits are now filtered, and a new `SUCCESS_MARKERS` check drops captures whose own error text shows the work landed.
+- **Credentials could reach the epistemic graph through the same capture path.** The hook stringified whole `tool_input` payloads into `dead_end.approach`, and MCP `cortex_*` tools take `api_key` as a parameter. Artifacts are *retrieved* — into later sessions, into Qdrant, and at `shared` visibility across the org — so this was a write path for secrets. Now redacted at the source in two redundant layers: values under secret-named keys are dropped before stringification, and secret-*shaped* tokens (`ctx_`, `sk-`, `ghp_`, `github_pat_`, `xox*-`, `AKIA`, JWTs, `Bearer …`) are scrubbed from free text, which also catches tokens inline in a `Bash` command. Redaction runs **before** truncation — truncating first can split a token and leave a prefix nothing matches — and **fails closed**: if the redactor errors it emits the placeholder rather than the raw text.
+- **`sources-check` reported a derived metric that was lying.** The standing rollup read the lister's display shape and returned "0 sources scored" moments after stamping 25 verdicts, because `derive_standing` assumed epoch timestamps while `_stamp_reviews` writes ISO strings — and a fail-open `except` converted the resulting `TypeError` into a plausible zero. Timestamps are now normalised across both representations, and the rollup is validated against SQL ground truth rather than against another display surface.
+- **Artifact falsifiability (migration 060).** `dead_end` and `mistake` had **no lifecycle columns at all** and `decision` had columns nothing ever wrote — measured on empirica: 750 dead-ends and 133 mistakes that could not be closed, and **0 of 486 decisions ever assessed**. These are precisely the types that steer future behaviour hardest, and they were the only ones that could not be revised. Now: `deadend-invalidate`, `mistake-assess`, `decision-assess --outcome upheld|reversed|mixed`, and `resolve-artifacts` accepts the new types per-id.
+- **Source outcome feedback.** When an artifact is resolved, the outcome flows to the sources it cites via `sourced_from`, appended to the source's existing `lifecycle_audit_log`. Relevance / accuracy / stability / review-age are **derived on read, never stored** — a stored score drifts from its evidence, which is the exact failure empirica exists to prevent, and it lets the formula change without migrating data. Attribution is **declared, not inferred**: an artifact can fail because the *reasoning* was wrong, so accuracy only moves when a caller passes `--source-implicated`. Inferring blame from invalidation would systematically slander good sources.
+- **Blindspot propagation.** A blindspot is not observed, it is *inferred* from a pattern across other artifacts — so it inherits the fate of its premises. When enough of a blindspot's `derived_from` inputs are invalidated it is flagged `stale_inputs` for **re-derivation, never auto-invalidated**: a blindspot can remain true even when a supporting finding was wrong, and silently deleting an unknown-unknown is the worst available failure direction. Blindspots predating provenance tracking report `unknown_provenance` rather than passing silently.
+- **`/epistemic-gardening` gained the questions it previously could not ask** — dead-ends never revisited, decisions never assessed, mistakes whose prevention was never validated, blindspots with stale inputs, and sources that are uncited, unreviewed or implicated-inaccurate. Each is a *prompt*, not an automatic action: prune **and replant** — the point is to retry a suspect dead-end, not to erase the record of it.
 ---
 
 ## What's New in 1.12.35
