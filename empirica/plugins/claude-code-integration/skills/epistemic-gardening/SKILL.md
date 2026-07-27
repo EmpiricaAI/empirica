@@ -328,9 +328,13 @@ EOF
 - **Age is weak evidence — use `domain`.** A dead-end about a fast-moving dependency
   rots far faster than one about arithmetic. Prioritise domains that moved recently
   (a dependency bumped, an API deprecated, an incident), not just the oldest rows.
-- **Never bulk-close these by filter.** The bulk-by-filter path exists for findings and
-  unknowns. Constraints need a per-item judgment; a policy sweep here manufactures
-  false clearances at scale.
+- **Never bulk-close these by filter.** The bulk-by-filter path deliberately accepts
+  only `finding` and `unknown`. Constraints need a per-item judgment; a policy sweep
+  here manufactures false clearances at scale. **That omission is a design choice, not
+  a gap** — do not "fix" it by widening filter-mode. When you genuinely need volume
+  (e.g. correcting mis-captured tool noise, which is a CORRECTION rather than a
+  judgment), build the `resolutions` array from a SQL id lookup and pass it per-id.
+  The extra step is the friction that keeps a sweep deliberate.
 - **`outcome` is required on a decision** — `upheld | reversed | mixed`. An assessment
   with no stated outcome is not an assessment. `regret` is **self-assessed** 0–1;
   do not derive it.
