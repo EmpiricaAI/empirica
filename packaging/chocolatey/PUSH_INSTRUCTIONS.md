@@ -35,7 +35,7 @@ choco uninstall empirica -y
 
 ### 5. Set API Key
 ```powershell
-$API_KEY = "a4c40d0c-b009-44e5-aa1e-409192a578e6"
+$API_KEY = $env:CHOCO_API_KEY  # set this in your own shell — never hardcode a real key here
 choco apikey --key $API_KEY --source https://push.chocolatey.org/
 ```
 
