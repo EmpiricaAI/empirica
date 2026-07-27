@@ -284,6 +284,79 @@ empirica resolve-artifacts - << 'EOF'
 EOF
 ```
 
+**Permanent-constraint artifacts — dead-ends, mistakes, decisions.** These are the
+ones that matter most and were, until migration 060, impossible to close at all.
+
+> A dead-end says *"approach X failed"*. It is retrieved into later sessions to steer
+> practitioners away — and **nothing ever retries a dead-end**, so a mistaken one is
+> invisible by construction: no event could contradict it. It silently removes a
+> viable approach from the practice's option space, permanently. A mistake's
+> `prevention` advice rots the same way. A decision records reversibility at decision
+> time and, without an assessment, never records what actually happened.
+
+Survey what has never been revisited:
+
+```bash
+sqlite3 .empirica/sessions/sessions.db \
+  "SELECT COUNT(*) FROM project_dead_ends WHERE COALESCE(is_invalidated,0)=0"   # never revisited
+sqlite3 .empirica/sessions/sessions.db \
+  "SELECT COUNT(*) FROM decisions WHERE outcome IS NULL"                        # never assessed
+sqlite3 .empirica/sessions/sessions.db \
+  "SELECT id, substr(approach,1,60), domain FROM project_dead_ends \
+   WHERE COALESCE(is_invalidated,0)=0 AND created_timestamp < strftime('%s','now','-90 days') LIMIT 20"
+```
+
+Close them through the same batch verb:
+
+```bash
+empirica resolve-artifacts - << 'EOF'
+{"resolutions": [
+  {"type": "dead_end", "id": "<id>", "resolution": "retried 2026-07 — works now; the blocking API was fixed"},
+  {"type": "mistake",  "id": "<id>", "resolution": "prevention no longer applies — the hook it guarded was removed"},
+  {"type": "decision", "id": "<id>", "outcome": "upheld", "regret": 0.1},
+  {"type": "decision", "id": "<id>", "outcome": "reversed", "regret": 0.7,
+   "resolution": "the constraint we chose for disappeared"}
+]}
+EOF
+```
+
+**Discipline — this is judgment work, not a sweep:**
+
+- **RETRY before you close.** A dead-end is only invalidated if you actually re-ran the
+  approach and it worked. Closing one you did not retry replaces a wrong constraint
+  with a wrong clearance — worse, because now it looks examined.
+- **Age is weak evidence — use `domain`.** A dead-end about a fast-moving dependency
+  rots far faster than one about arithmetic. Prioritise domains that moved recently
+  (a dependency bumped, an API deprecated, an incident), not just the oldest rows.
+- **Never bulk-close these by filter.** The bulk-by-filter path exists for findings and
+  unknowns. Constraints need a per-item judgment; a policy sweep here manufactures
+  false clearances at scale.
+- **`outcome` is required on a decision** — `upheld | reversed | mixed`. An assessment
+  with no stated outcome is not an assessment. `regret` is **self-assessed** 0–1;
+  do not derive it.
+- **Invalidate, then re-derive if still pertinent.** For a mistake, "no longer applies"
+  and "was wrong" are one state: not actionable. If the underlying lesson still holds
+  in a new form, log it fresh rather than editing the old one.
+
+**Attribution — only blame a source when you mean it.** If an artifact failed *because
+its source was wrong* (not because the reasoning from it was wrong), say so:
+
+```bash
+{"type": "dead_end", "id": "<id>", "resolution": "the doc was wrong about the API",
+ "source_implicated": ["<source-id>"]}
+```
+
+That is the ONLY thing that moves a source's accuracy. Undeclared failures still count
+toward relevance and stability — an artifact can fail for reasons that have nothing to
+do with what it cited, and inferring blame would slander good sources at scale.
+
+**Blindspots inherit their premises.** A blindspot is *inferred*, so when the artifacts
+it was derived from are invalidated it is flagged `stale_inputs` — **re-scan and decide,
+never auto-delete**. Silently removing an unknown-unknown is the worst available failure
+direction: the entire point is that nobody was looking there. Blindspots recorded before
+provenance tracking report `unknown_provenance` — unfalsifiable for a different reason,
+and still worth a re-scan.
+
 **Bulk-by-filter (the *mass-policy* mechanism — dry-run by default).** When clearing a
 backlog by policy rather than per-id, `resolve-artifacts` takes a `filter` block:
 enumerate OPEN findings/unknowns by `older_than` / `matching` / `project_id` and resolve
@@ -374,6 +447,14 @@ contributor. Propagating the discipline is part of the pass.
 > + collab. That's the load-bearing line between artifact types: a finding *describes*
 > local state; a **lesson transfers a pattern across the practice boundary**. It isn't a
 > lesson until a peer (local or remote) can pick it up and act on it.
+
+> **The unfalsifiable pile is per-practice too.** Every practice has its own
+> dead-ends and unassessed decisions, and nobody else can retry them — only the
+> practice that recorded a constraint knows how to re-run it. When you collab a
+> finished pass, include the two counts (`never-revisited dead-ends`,
+> `never-assessed decisions`); they are comparable across practices and make the
+> backlog visible instead of assumed. empirica's baseline when the capability landed:
+> **750 / 485**.
 
 > **Citation health propagates too.** `sources-reconcile --backfill-citations` is
 > per-practice by construction (it reads that practice's own DB), so the mesh only gets
