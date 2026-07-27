@@ -172,18 +172,38 @@ Existing artifacts keep working throughout — every new column is nullable, and
 
 ---
 
-## 8. Open questions
+## 8. Resolved decisions
 
-1. **Retry cadence for dead-ends.** Age alone is weak evidence — a dead-end about a
-   fast-moving dependency rots faster than one about arithmetic. Domain-scoped
-   staleness, or flat?
-2. **`regret_score` semantics.** The column exists, undefined. Self-assessed 0–1? Or
-   derived from the outcome + reversibility recorded at decision time?
-3. **Does an assessed decision feed practitioner calibration?** David: *eventually,
-   yes — not now.* Explicitly out of scope for v1, but the event shape should not
-   preclude it.
-4. **Mistake supersession vs invalidation.** Is "the prevention no longer applies"
-   the same state as "the prevention was wrong"? They imply different actions.
+All four settled by David, 2026-07-27.
+
+1. **Retry cadence for dead-ends → DOMAIN-SCOPED.** Age alone is weak evidence, so
+   staleness is evaluated per domain: a dead-end about a fast-moving dependency rots
+   far faster than one about arithmetic. Implemented as `project_dead_ends.domain`
+   (migration 060); the per-domain windows themselves are a Phase 4 tuning question,
+   deliberately not hard-coded now.
+
+2. **`regret_score` → SELF-ASSESSED 0–1.** Trust the practitioner's own assessment
+   rather than deriving it from outcome × reversibility. This is consistent with how
+   the rest of empirica works — vectors are self-reported beliefs, and evidence
+   *informs* them rather than overriding them. A derived regret would be an asserted
+   number wearing the costume of a measurement.
+
+3. **Mistake supersession vs invalidation → ONE STATE.** "No longer applies" and "was
+   wrong" both mean *not actionable*, so both invalidate; re-derive the mistake
+   afterwards if it is still pertinent. Two states nobody could reliably tell apart
+   would be worse than one that is always clear. This is why `dead_end` and `mistake`
+   share an identical invalidation shape in migration 060.
+
+4. **Calibration feed → EVENTUALLY, NOT V1.** Out of scope here, but the event shape
+   must not preclude it: outcome events carry actor + timestamp so a later calibration
+   consumer can read them without a migration.
+
+### Still open (deferred, not blocking)
+
+- Per-domain staleness windows for dead-ends (Phase 4, needs data on which domains
+  actually rot).
+- Whether a re-derived mistake should link back to the invalidated one
+  (`superseded_by`-style provenance) or stand alone.
 
 ---
 
