@@ -73,7 +73,36 @@ _SHAPE_PATTERNS: tuple[tuple[re.Pattern, str], ...] = (
         re.compile(r"\beyJ[A-Za-z0-9_\-]{6,}\.[A-Za-z0-9_\-]{6,}\.[A-Za-z0-9_\-]+"),
         f"{REDACTED}-jwt",
     ),
+    # HTTP auth headers, generalised over the SCHEME.
+    #
+    # The first cut matched `bearer` only, which cortex correctly called a scheme
+    # allowlist wearing the costume of a redactor: `Authorization: token <hex>` is
+    # the standard forgejo/gitea form and it walked straight through, in clear, on a
+    # practice that runs forgejo. It slipped BOTH layers — no `token` shape rule, and
+    # _KV_PATTERN wants a quoted `key: "value"` while a header is
+    # `Name: scheme credential` with the secret in third position, unquoted.
+    #
+    # Matching the header by name instead of by scheme means Basic / ApiKey / Token /
+    # whatever-comes-next need no new rule. The scheme is preserved: it says which
+    # credential was involved without carrying the credential.
+    (
+        re.compile(
+            r"(?i)\b(authorization|proxy-authorization)(\s*:\s*)([A-Za-z][A-Za-z0-9_-]*[ \t]+)?[A-Za-z0-9._\-+/=]{8,}"
+        ),
+        rf"\1\2\3{REDACTED}",
+    ),
+    # Bare scheme-prefixed forms, for credentials that appear without the header name
+    # (a curl -H fragment, an error echoing just the value).
     (re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._\-]{12,}"), f"Bearer {REDACTED}"),
+    (re.compile(r"(?i)\btoken\s+[A-Za-z0-9._\-]{12,}"), f"token {REDACTED}"),
+    # Credentials embedded in a URL — `https://user:token@host`. Found while
+    # verifying cortex's header report: this is how a git remote carries a forgejo
+    # token, so it lands in any captured `git remote add` / `git push` command.
+    # Scheme and username survive (both diagnostic); the secret does not.
+    (
+        re.compile(r"\b([a-zA-Z][a-zA-Z0-9+.\-]*://)([^/\s:@]+):([^/\s@]{4,})@"),
+        rf"\1\2:{REDACTED}@",
+    ),
 )
 
 # ``api_key='...'`` / ``"token": "..."`` / ``--password X`` — a secret-named key

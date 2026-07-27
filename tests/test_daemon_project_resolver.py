@@ -15,6 +15,8 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from empirica.api.daemon_project import (
     _read_git_remote,
     _slugify_project_name,
@@ -37,6 +39,36 @@ def _make_project(root: Path, name: str, *, project_id: str | None = None, displ
         yaml_lines.append(f"display_name: {display_name}\n")
     (proj / ".empirica" / "project.yaml").write_text("".join(yaml_lines), encoding="utf-8")
     return proj
+
+
+@pytest.fixture(autouse=True)
+def _isolate_daemon_project_state(monkeypatch):
+    """Isolate BOTH pieces of ambient state these tests depend on.
+
+    `$PWD`: `monkeypatch.chdir()` changes the process cwd but does NOT update
+    `$PWD`, and the resolver deliberately prefers `$PWD` (a shell's logical cwd,
+    which survives symlinks) over `os.getcwd()`. An inherited or earlier-test
+    `$PWD` silently wins and the resolver returns a different project than the one
+    the test just built — passing in isolation, failing in a full-suite run.
+
+    The module cache: `daemon_project._cached` / `_cached_project` are module
+    globals. Individual tests reset them on the way IN but never on the way OUT, so
+    a test that populates the cache with a `tmp_path` project leaks it to every
+    later test in the SESSION — and `tmp_path` is gone by then. That is a
+    cross-FILE leak, which is why it surfaced as failures in
+    `test_injection_budget_serve.py` rather than here.
+
+    Resetting on both sides makes the leak structurally impossible rather than
+    relying on each test to remember.
+    """
+    import empirica.api.daemon_project as dp
+
+    monkeypatch.delenv("PWD", raising=False)
+    dp._cached = False
+    dp._cached_project = None
+    yield
+    dp._cached = False
+    dp._cached_project = None
 
 
 # ---------------------------------------------------------------------------

@@ -63,7 +63,44 @@ SECRET_CORPUS = [
     _j("AKIA", "IOSFODNN7EXAMPLE"),
     _j("eyJhbGciOiJIUzI1NiJ9.", "eyJzdWIiOiIxMjM0NTY3ODkwIn0.", "dQw4w9WgXcQabcdef"),
     _j("Bearer ", "abcdefghijklmnopqrstuvwxyz0123"),
+    # The forgejo/gitea header form. Reported by cortex against 1.12.36: it slipped
+    # BOTH layers — no `token` shape rule existed, and _KV_PATTERN wants a quoted
+    # key:"value" while a header is `Name: scheme credential`, unquoted, secret in
+    # third position. Found sitting in real dead-end artifacts on a forgejo practice.
+    _j("token ", "bbbbccccddddeeeeffff00001111222233334444"),
 ]
+
+
+# Header forms, checked as whole strings because the SCHEME must survive while the
+# credential dies — the scheme is what tells a reader which credential was involved.
+AUTH_HEADERS = [
+    ("Authorization: " + _j("token ", "bbbbccccddddeeeeffff0000111122223333"), "token"),
+    ("Authorization: " + _j("Bearer ", "tk_aaaabbbbccccddddeeee"), "Bearer"),
+    ("Authorization: " + _j("Basic ", "dXNlcjpwYXNzd29yZGxvbmc="), "Basic"),
+    ("Authorization: " + _j("ApiKey ", "abcdefghijklmnopqrstuvwx"), "ApiKey"),
+    ("authorization: " + _j("Token ", "ffffeeeeddddccccbbbbaaaa"), "Token"),
+]
+
+
+@pytest.mark.parametrize("header,scheme", AUTH_HEADERS)
+def test_auth_header_redacted_for_any_scheme(header, scheme):
+    """Matching `bearer` alone was a scheme allowlist wearing the costume of a
+    redactor. Matching the header NAME means the next scheme needs no new rule."""
+    out = redaction.redact_secrets(header)
+    secret = header.split()[-1]
+    assert secret not in out, f"{scheme} credential survived: {out}"
+    assert scheme.lower() in out.lower(), "the scheme must survive — it is diagnostic, not secret"
+
+
+@pytest.mark.parametrize("header,scheme", AUTH_HEADERS)
+def test_auth_header_hook_copy_matches_canonical(hook, header, scheme):
+    assert hook._redact(header) == redaction.redact_secrets(header)
+
+
+@pytest.mark.parametrize("header,_scheme", AUTH_HEADERS)
+def test_auth_header_redaction_is_idempotent(header, _scheme):
+    once = redaction.redact_secrets(header)
+    assert redaction.redact_secrets(once) == once
 
 
 @pytest.mark.parametrize("secret", SECRET_CORPUS)
@@ -114,6 +151,26 @@ def test_token_inside_a_bash_command():
     cmd = "curl -H 'Authorization: Bearer " + token + "' https://api.example.com"
     out = redaction.redact_secrets(cmd)
     assert token not in out
+
+
+def test_credentials_embedded_in_a_url():
+    """`https://user:token@host` — how a git remote carries a forgejo token, so it
+    lands in any captured git remote/push command. Found while verifying cortex's
+    header report; they had not reported this one."""
+    token = _j("cccccccccccccccccccc", "dddddddddddddddddddd")
+    cmd = f"git remote add origin https://gituser:{token}@forgejo.example.com/x.git"
+    out = redaction.redact_secrets(cmd)
+    assert token not in out
+    # Scheme and username are diagnostic, not secret — they must survive.
+    assert "https://" in out and "gituser" in out
+    assert "forgejo.example.com" in out
+
+
+def test_url_without_credentials_is_untouched():
+    """The URL rule must not fire on an ordinary URL, or it corrupts every artifact
+    that mentions one."""
+    clean = "cloned from https://github.com/EmpiricaAI/empirica.git at port 8000"
+    assert redaction.redact_secrets(clean) == clean
 
 
 def test_cli_flag_form():

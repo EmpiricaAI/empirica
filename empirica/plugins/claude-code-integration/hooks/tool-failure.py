@@ -143,7 +143,21 @@ _SHAPE_PATTERNS = (
     (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "AKIA<redacted>"),
     (re.compile(r"\bmst-[A-Za-z0-9]{16,}"), "mst-<redacted>"),
     (re.compile(r"\beyJ[A-Za-z0-9_\-]{6,}\.[A-Za-z0-9_\-]{6,}\.[A-Za-z0-9_\-]+"), "<redacted>-jwt"),
+    # Generalised over the auth SCHEME — matching `bearer` only was a scheme
+    # allowlist, and `Authorization: token <hex>` (forgejo/gitea) walked through in
+    # clear. Matching the header NAME means Basic / ApiKey / the next scheme need no
+    # new rule. Scheme preserved; credential destroyed.
+    (
+        re.compile(
+            r"(?i)\b(authorization|proxy-authorization)(\s*:\s*)([A-Za-z][A-Za-z0-9_-]*[ \t]+)?[A-Za-z0-9._\-+/=]{8,}"
+        ),
+        r"\1\2\3<redacted>",
+    ),
     (re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._\-]{12,}"), "Bearer <redacted>"),
+    (re.compile(r"(?i)\btoken\s+[A-Za-z0-9._\-]{12,}"), "token <redacted>"),
+    # `https://user:token@host` — how a git remote carries a forgejo token, so it
+    # lands in any captured git remote/push command. Scheme + user survive.
+    (re.compile(r"\b([a-zA-Z][a-zA-Z0-9+.\-]*://)([^/\s:@]+):([^/\s@]{4,})@"), r"\1\2:<redacted>@"),
 )
 _KV_PATTERN = re.compile(
     r"(?i)(['\"]?\b(?:" + "|".join(sorted(_SECRET_KEY_NAMES)) + r")\b['\"]?\s*[:=]\s*)(['\"])([^'\"]{4,}?)\2"
