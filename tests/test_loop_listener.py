@@ -531,11 +531,20 @@ def test_check_version_drift_returns_none_when_match(monkeypatch):
 
 
 def test_check_version_drift_returns_tuple_on_mismatch(monkeypatch):
-    """Drift returns (in_process, installed) when pip upgraded under us."""
+    """Drift returns (in_process, installed) when pip upgraded under us.
+
+    Pins the install mode: a dev checkout is EDITABLE, and under editable
+    `version_drift()` returns None by design — there a mismatch means stale
+    metadata, not stale code. Without this the test asserts against whatever the
+    developer's environment happens to be.
+    """
     import importlib.metadata
 
     import empirica
+    from empirica.core import version_drift as vd
 
+    vd.is_editable_install.cache_clear()
+    monkeypatch.setattr(vd, "is_editable_install", lambda *_a, **_k: False)
     monkeypatch.setattr(empirica, "__version__", "1.9.10")
     monkeypatch.setattr(importlib.metadata, "version", lambda _: "1.9.11")
     result = listener_mod._check_version_drift()
@@ -569,11 +578,19 @@ def test_listener_exits_cleanly_on_version_drift(monkeypatch):
             "password": "p",
         },
     )
-    # Simulate pip upgrade landed: dist-info says newer than in-process
+    # Simulate pip upgrade landed: dist-info says newer than in-process.
+    # is_editable_install must be pinned False, or this test HANGS FOREVER on a
+    # dev checkout: under editable the drift is (correctly) suppressed, the
+    # listener never raises ListenerUpgraded, and the stream loop never
+    # terminates. That is what it did before this pin — a genuine infinite loop,
+    # not a slow test.
     import importlib.metadata
 
     import empirica
+    from empirica.core import version_drift as vd
 
+    vd.is_editable_install.cache_clear()
+    monkeypatch.setattr(vd, "is_editable_install", lambda *_a, **_k: False)
     monkeypatch.setattr(empirica, "__version__", "1.9.10")
     monkeypatch.setattr(importlib.metadata, "version", lambda _: "1.9.11")
 
@@ -650,6 +667,13 @@ def test_drift_exit_env_bypass(monkeypatch):
     auto-relaunching on upgrade."""
     import importlib.metadata
 
+    from empirica.core import version_drift as vd
+
+    # Pin non-editable: under an editable checkout drift is suppressed by design,
+    # so the "no bypass reports drift" half would assert against the environment
+    # rather than against the env-var behaviour this test is about.
+    vd.is_editable_install.cache_clear()
+    monkeypatch.setattr(vd, "is_editable_install", lambda *_a, **_k: False)
     monkeypatch.setattr(importlib.metadata, "version", lambda name: "9.9.9-test")
 
     # No bypass → forced mismatch reports drift (installed = mocked value).

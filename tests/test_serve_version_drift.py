@@ -27,8 +27,18 @@ def test_version_drift_none_when_matched(monkeypatch):
 
 
 def test_version_drift_tuple_when_mismatched(monkeypatch):
+    """Drift is reported for NON-editable installs, where it is a real signal.
+
+    Must pin the install mode rather than inherit it: a dev checkout is editable,
+    and under editable `version_drift()` returns None by design — a mismatch there
+    means stale METADATA, not stale code, and acting on it caused an unbounded
+    restart loop (1849 restarts / ~4 days). Without this patch the test asserts
+    against whatever the developer's environment happens to be.
+    """
     from empirica import __version__ as real
 
+    vd.is_editable_install.cache_clear()
+    monkeypatch.setattr(vd, "is_editable_install", lambda *_a, **_k: False)
     monkeypatch.setattr(importlib.metadata, "version", lambda _n: "0.0.0-test")
     assert vd.version_drift() == (real, "0.0.0-test")
 
