@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.12.34
-**Generated:** 2026-07-26 12:41:02 UTC
+**Framework version:** 1.12.35
+**Generated:** 2026-07-27 06:35:40 UTC
 **Total commands:** 242 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -85,7 +85,7 @@ require `--session-id` (`project-bootstrap`, `sessions-show`,
 | [memory](#memory) | 6 | `memory-prime`, `memory-scope`, `memory-value`, … |
 | [vision](#vision) | 1 | `vision` |
 | [domains](#domains) | 1 | `domain-validate` |
-| [setup](#setup) | 8 | `onboard`, `setup-claude-code`, `plugin-sync`, … |
+| [setup](#setup) | 8 | `onboard`, `setup`, `plugin-sync`, … |
 
 ---
 
@@ -1176,6 +1176,8 @@ Re-fetch a source and recompute its content identity (content_hash / size / mime
 
 - `--source-id` — **required**
   Source UUID (or unique prefix) to re-fetch
+- `--url` — optional
+  Re-point the source at a new path/URL (gardening 'replant'). A source whose file MOVED is mislocated, not dead — without this it had to be archived and re-added, losing its id and every sourced_from edge pointing at it. The move is recorded in lifecycle_audit_log.
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
 - `--verbose` — optional · flag
@@ -4403,9 +4405,9 @@ Interactive introduction to Empirica (recommended for first-time users)
 - `--ai-id` — optional
   AI identifier (optional, derives from project basename or .empirica/project.yaml)
 
-#### `empirica setup-claude-code`
+#### `empirica setup`  _(aliases: `setup-claude-code`)_
 
-Configure Claude Code integration (hooks, CLAUDE.md, MCP server)
+Configure harness integration (hooks, system prompt, MCP server)
 
 **Arguments:**
 
