@@ -96,6 +96,27 @@ _NEGATIVE_OUTCOMES = frozenset({"invalidated"})
 _MOVED_OUTCOMES = frozenset({"superseded", "invalidated"})
 
 
+def _as_epoch(value) -> float | None:
+    """Normalize a timestamp to epoch seconds.
+
+    `last_reviewed_at` is written as an ISO string by `sources-check` but other
+    lifecycle columns in this schema are REAL epochs, so a consumer cannot assume
+    either. Accepting both is what keeps a derived metric from silently returning
+    zero: this exact mismatch raised a TypeError that fail-open swallowed, and the
+    rollup then reported "0 sources scored" moments after stamping 25 verdicts.
+    """
+    if value is None or value == "":
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        from datetime import datetime
+
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+    except (ValueError, TypeError):
+        return None
+
+
 def derive_standing(
     outcome_events: list[dict],
     citation_count: int,
@@ -126,7 +147,8 @@ def derive_standing(
     moved = [e for e in events if e.get("outcome") in _MOVED_OUTCOMES]
     stability = (1.0 - (len(moved) / len(events))) if events else None
 
-    age_days = ((now - last_reviewed_at) / 86400.0) if last_reviewed_at else None
+    reviewed_epoch = _as_epoch(last_reviewed_at)
+    age_days = ((now - reviewed_epoch) / 86400.0) if reviewed_epoch else None
 
     return {
         "relevance": {

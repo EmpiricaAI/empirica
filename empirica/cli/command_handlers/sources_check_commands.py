@@ -86,6 +86,70 @@ def _default_list_sources(project_id: str) -> list[dict]:
     return _query_epistemic_sources(db, project_id, None, "all", include_archived=False)
 
 
+def _derive_corpus_standing(sources: list[dict]) -> dict:
+    """Roll up derived standing across the corpus — the gardening view.
+
+    Computed on read from the outcome trail (never stored). Reports the counts a
+    practice can ACT on, and keeps "no evidence yet" visibly distinct from a verdict:
+    a corpus of brand-new sources should read as unproven, not as bad.
+
+    Reads the evidence columns DIRECTLY rather than trusting the passed source dicts.
+    The injected lister returns a display shape that carries neither
+    `lifecycle_audit_log` nor `last_reviewed_at`, so deriving from it reported every
+    source as never-reviewed moments after stamping 25 review verdicts — a metric
+    confidently contradicting a write it had just made. Fail-open: an empty rollup
+    beats a wrong one.
+    """
+    import json as _json
+    import time as _time
+
+    from empirica.core.sources.sanctify import derive_standing
+
+    rollup = {"scored": 0, "uncited": 0, "never_reviewed": 0, "review_overdue": 0, "implicated_failures": 0}
+    if not sources:
+        return rollup
+    try:
+        from empirica.data.session_database import SessionDatabase
+
+        db = SessionDatabase()
+    except Exception:
+        return rollup  # no DB (CI / bare checkout) — report nothing, claim nothing
+
+    try:
+        now = _time.time()
+        cur = db.conn.cursor()
+        rows = cur.execute(
+            "SELECT id, lifecycle_audit_log, last_reviewed_at FROM epistemic_sources WHERE COALESCE(archived, 0) = 0"
+        ).fetchall()
+        cited = {
+            r[0]
+            for r in cur.execute("SELECT DISTINCT to_id FROM artifact_edges WHERE relation = 'sourced_from'").fetchall()
+        }
+        for sid, log, reviewed_at in rows:
+            try:
+                events = _json.loads(log) if log else []
+                if not isinstance(events, list):
+                    events = []
+            except (TypeError, ValueError):
+                events = []
+            st = derive_standing(
+                events,
+                citation_count=1 if sid in cited else 0,
+                last_reviewed_at=reviewed_at,
+                now=now,
+            )
+            rollup["scored"] += 1
+            rollup["uncited"] += 1 if st["relevance"]["status"] == "uncited" else 0
+            rollup["never_reviewed"] += 1 if st["never_reviewed"] else 0
+            rollup["review_overdue"] += 1 if st["review_overdue"] else 0
+            rollup["implicated_failures"] += st["accuracy_basis"]["implicated_failures"]
+        return rollup
+    except Exception:
+        return rollup
+    finally:
+        db.close()
+
+
 def _stamp_reviews(verdicts: dict) -> int:
     """Record a TIMESTAMPED verdict per checked source (`last_reviewed_at`,
     `review_verdict`).
@@ -373,12 +437,14 @@ def handle_sources_check_command(
             not_a_locator.append(rec)
 
     stamped = _stamp_reviews(verdicts)
+    standing = _derive_corpus_standing(sources)
 
     result = {
         "ok": True,
         "project_id": project_id,
         "checked": len(probeable),
         "reviews_stamped": stamped,
+        "standing": standing,
         "local_ok": local_ok,
         "local_missing": local_missing,
         "not_a_locator": not_a_locator,

@@ -116,3 +116,24 @@ def test_partial_invalidation_below_threshold_still_stands():
     r = assess_blindspot_inputs(["a", "b", "c", "d"], invalidated_ids={"a"})
     assert r["verdict"] == "stands"
     assert r["invalidated_inputs"] == 1
+
+
+def test_iso_and_epoch_timestamps_both_work():
+    """`sources-check` writes last_reviewed_at as an ISO string while other lifecycle
+    columns are REAL epochs. Assuming one raised a TypeError that fail-open swallowed,
+    so the rollup reported '0 scored' right after stamping 25 verdicts — a metric
+    confidently contradicting a write it had just made."""
+    from datetime import datetime, timezone
+
+    iso = datetime.fromtimestamp(NOW - 10 * DAY, tz=timezone.utc).isoformat()
+    from_iso = derive_standing([], 1, iso, NOW)
+    from_epoch = derive_standing([], 1, NOW - 10 * DAY, NOW)
+
+    assert from_iso["never_reviewed"] is False
+    assert from_iso["review_age_days"] == pytest.approx(from_epoch["review_age_days"], abs=0.01)
+
+
+def test_unparseable_timestamp_degrades_to_never_reviewed():
+    st = derive_standing([], 1, "not-a-date", NOW)
+    assert st["review_age_days"] is None
+    assert st["review_overdue"] is False
