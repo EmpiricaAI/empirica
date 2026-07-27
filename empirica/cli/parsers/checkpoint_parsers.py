@@ -1579,6 +1579,14 @@ def add_checkpoint_parsers(subparsers):
         ),
     )
     source_update_parser.add_argument("--source-id", required=True, help="Source UUID (or unique prefix) to re-fetch")
+    source_update_parser.add_argument(
+        "--url",
+        help=(
+            "Re-point the source at a new path/URL (gardening 'replant'). A source whose file MOVED "
+            "is mislocated, not dead — without this it had to be archived and re-added, losing its id "
+            "and every sourced_from edge pointing at it. The move is recorded in lifecycle_audit_log."
+        ),
+    )
     source_update_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
     source_update_parser.add_argument("--verbose", action="store_true", help="Verbose output")
 

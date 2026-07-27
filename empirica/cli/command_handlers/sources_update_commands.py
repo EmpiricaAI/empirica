@@ -99,6 +99,17 @@ def handle_source_update_command(args):
             return 1
         full_id, title, source_url, canonical_path, old_hash, audit_json = rows[0]
 
+        # Re-point (gardening "replant"): a source whose file MOVED is not dead, it is
+        # mislocated — and until now the CLI could only re-fetch, never re-target, so a
+        # moved doc had to be archived and re-added, losing its id and every
+        # `sourced_from` edge pointing at it. `--url` retargets in place.
+        new_url = getattr(args, "url", None)
+        repointed_from = None
+        if new_url:
+            repointed_from = source_url or canonical_path
+            source_url = new_url
+            canonical_path = new_url if not str(new_url).startswith(("http://", "https://")) else None
+
         content, err = _fetch_content(source_url, canonical_path)
         if content is None:
             # Never wipe an existing hash on a failed re-fetch.
@@ -113,6 +124,15 @@ def handle_source_update_command(args):
         audit = json.loads(audit_json) if audit_json else []
         if not isinstance(audit, list):
             audit = []
+        if repointed_from is not None:
+            audit.append(
+                {
+                    "event": "repointed",
+                    "at": time.time(),
+                    "old_location": repointed_from,
+                    "new_location": new_url,
+                }
+            )
         audit.append(
             {
                 "event": "updated",
@@ -122,11 +142,19 @@ def handle_source_update_command(args):
                 "changed": changed,
             }
         )
-        cur.execute(
-            "UPDATE epistemic_sources SET content_hash = ?, size_bytes = ?, "
-            "mime_type = COALESCE(?, mime_type), lifecycle_audit_log = ? WHERE id = ?",
-            (new_hash, new_size, mime, json.dumps(audit), full_id),
-        )
+        if repointed_from is not None:
+            cur.execute(
+                "UPDATE epistemic_sources SET content_hash = ?, size_bytes = ?, "
+                "mime_type = COALESCE(?, mime_type), lifecycle_audit_log = ?, "
+                "source_url = ?, canonical_path = ? WHERE id = ?",
+                (new_hash, new_size, mime, json.dumps(audit), source_url, canonical_path, full_id),
+            )
+        else:
+            cur.execute(
+                "UPDATE epistemic_sources SET content_hash = ?, size_bytes = ?, "
+                "mime_type = COALESCE(?, mime_type), lifecycle_audit_log = ? WHERE id = ?",
+                (new_hash, new_size, mime, json.dumps(audit), full_id),
+            )
         db.conn.commit()
 
         result = {
