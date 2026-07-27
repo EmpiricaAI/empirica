@@ -78,11 +78,17 @@ LOG_ARTIFACTS_SCHEMA = {
 RESOLVE_ARTIFACTS_SCHEMA = {
     "resolutions": [
         {
-            "type": "unknown | assumption | goal | finding",
+            "type": "unknown | assumption | goal | finding | dead_end | mistake | decision",
             "id": "<UUID of the artifact to resolve>",
             "resolution": "<resolution text or status — semantics depend on type>",
             "verified": "<true/false, optional, for assumption→finding>",
             "superseded_by": "<optional finding UUID that replaced this one — finding type only>",
+            "outcome": "<decision ONLY, REQUIRED: upheld | reversed | mixed — what the choice actually produced>",
+            "regret": "<decision only, optional 0-1 — SELF-assessed, not derived>",
+            "invalidated_by": "<dead_end/mistake only, optional actor>",
+            "source_implicated": "<optional: list of source ids (or true) whose CONTENT misled this artifact. "
+            "Attribution is DECLARED, never inferred — an artifact can fail because the source was wrong OR "
+            "because the reasoning from it was wrong, and only accuracy scoring depends on telling them apart>",
         },
     ],
     "filter": {
@@ -837,6 +843,86 @@ def _persist_filter_resolution_to_notes(atype: str, ids: list, resolution: str) 
         logger.debug(f"git-notes bulk-resolution persist skipped ({atype}, {len(ids)} ids): {e}")
 
 
+def _record_source_outcomes(db, artifact_id: str, artifact_type: str, outcome: str, item: dict | None = None) -> int:
+    """Append a ``source_outcome`` event to every source this artifact cites.
+
+    This is the feedback channel that makes source quality measurable: a source's
+    relevance / accuracy / stability is evidenced by what happened to the artifacts
+    citing it (spec §5, decision f5c59ec8). Without it a source can only ever be
+    "registered", never "borne out".
+
+    ATTRIBUTION IS DECLARED, NEVER INFERRED. An artifact can fail because its SOURCE
+    was wrong or because the REASONING from it was wrong, and those are not
+    distinguishable after the fact. Inferring blame from invalidation would
+    systematically slander good sources, so ``implicated`` is only ever true when the
+    caller names the source explicitly (``source_implicated``: a list of ids, or
+    ``true`` to implicate every cited source). Undeclared outcomes still count toward
+    relevance and stability — just not accuracy.
+
+    Events are appended to ``epistemic_sources.lifecycle_audit_log`` (the same log
+    that already carries ``repointed`` and archive events), because metrics are
+    DERIVED on read, never stored: a stored score drifts from its evidence, which is
+    the exact failure empirica exists to prevent.
+
+    Fail-open: a bookkeeping write must never break the resolution that triggered it.
+    Returns the number of sources annotated.
+    """
+    import json as _json
+    import time as _time
+
+    try:
+        cursor = db.conn.cursor()
+        cursor.execute(
+            "SELECT to_id FROM artifact_edges WHERE from_id LIKE ? AND relation = 'sourced_from'",
+            (f"{artifact_id}%",),
+        )
+        source_ids = [r[0] for r in cursor.fetchall()]
+        if not source_ids:
+            return 0
+
+        declared = (item or {}).get("source_implicated")
+        if declared is True:
+            implicated_ids = set(source_ids)
+        elif isinstance(declared, (list, tuple)):
+            implicated_ids = {str(x) for x in declared}
+        elif isinstance(declared, str):
+            implicated_ids = {declared}
+        else:
+            implicated_ids = set()
+
+        now = _time.time()
+        annotated = 0
+        for sid in source_ids:
+            cursor.execute("SELECT lifecycle_audit_log FROM epistemic_sources WHERE id = ?", (sid,))
+            row = cursor.fetchone()
+            if not row:
+                continue  # edge points at a source this DB does not hold
+            try:
+                log = _json.loads(row[0]) if row[0] else []
+                if not isinstance(log, list):
+                    log = []
+            except (TypeError, ValueError):
+                log = []
+            log.append(
+                {
+                    "event": "source_outcome",
+                    "at": now,
+                    "artifact_id": artifact_id,
+                    "artifact_type": artifact_type,
+                    "outcome": outcome,
+                    "implicated": sid in implicated_ids or any(sid.startswith(i) for i in implicated_ids),
+                }
+            )
+            cursor.execute(
+                "UPDATE epistemic_sources SET lifecycle_audit_log = ? WHERE id = ?",
+                (_json.dumps(log), sid),
+            )
+            annotated += 1
+        return annotated
+    except Exception:
+        return 0  # fail-open by design
+
+
 def handle_resolve_artifacts_command(args):  # noqa: C901 — batch dispatcher fan-out
     """Handle resolve-artifacts command: batch resolution of open artifacts."""
     if getattr(args, "schema", False):
@@ -919,6 +1005,16 @@ def handle_resolve_artifacts_command(args):  # noqa: C901 — batch dispatcher f
                     )
                     if cursor.rowcount > 0:
                         resolved_count += 1
+                        # Findings already had a lifecycle; nothing ever fed it back to
+                        # the sources they cite. A superseded finding says something
+                        # different about its source than a confirmed one.
+                        _record_source_outcomes(
+                            db,
+                            artifact_id,
+                            "finding",
+                            "superseded" if item.get("superseded_by") else "confirmed",
+                            item,
+                        )
                     else:
                         resolution_errors.append(f"Finding '{artifact_id}' not found")
 
@@ -963,6 +1059,72 @@ def handle_resolve_artifacts_command(args):  # noqa: C901 — batch dispatcher f
                             resolved_count += 1
                         else:
                             resolution_errors.append(f"Goal '{artifact_id}' update failed")
+
+                elif artifact_type in ("dead_end", "mistake"):
+                    # Invalidate a permanent-constraint artifact — the transition that
+                    # did not exist before migration 060. A dead-end says "approach X
+                    # failed" and a mistake says "prevention Z"; both steer future
+                    # sessions away from something, and nothing ever retries them, so
+                    # a wrong one was previously unfalsifiable by construction.
+                    #
+                    # ONE shape for both: "the prevention no longer applies" and "it
+                    # was wrong" both mean NOT ACTIONABLE (spec §8.3). Re-derive
+                    # afterwards if the constraint is still pertinent.
+                    import time as _time
+
+                    table = "project_dead_ends" if artifact_type == "dead_end" else "mistakes_made"
+                    actor = item.get("invalidated_by") or item.get("resolved_by") or "resolve-artifacts"
+                    ts = _time.time()
+                    cursor = db.conn.cursor()
+                    cursor.execute(
+                        f"UPDATE {table} SET is_invalidated = 1, invalidated_at = ?, "
+                        f"invalidated_by = ?, invalidation_reason = ?, last_revisited_at = ? WHERE id LIKE ?",
+                        (ts, actor, resolution or "invalidated", ts, f"{artifact_id}%"),
+                    )
+                    if cursor.rowcount > 0:
+                        resolved_count += 1
+                        _record_source_outcomes(db, artifact_id, artifact_type, "invalidated", item)
+                    else:
+                        resolution_errors.append(f"{artifact_type} '{artifact_id}' not found")
+
+                elif artifact_type == "decision":
+                    # Assess a decision against what actually happened. The columns
+                    # have existed since the schema was designed and NOTHING wrote
+                    # them — 0 of 486 decisions had ever been assessed. Reversibility
+                    # was recorded at decision time; consequence never was.
+                    import time as _time
+
+                    outcome = item.get("outcome")
+                    if outcome not in ("upheld", "reversed", "mixed"):
+                        resolution_errors.append(
+                            f"Decision '{artifact_id}' needs outcome=upheld|reversed|mixed (got {outcome!r})"
+                        )
+                    else:
+                        # regret is SELF-ASSESSED 0-1 (spec §8.2) — deriving it from
+                        # outcome x reversibility would be an asserted number wearing
+                        # the costume of a measurement.
+                        regret = item.get("regret", item.get("regret_score"))
+                        try:
+                            regret = None if regret is None else max(0.0, min(1.0, float(regret)))
+                        except (TypeError, ValueError):
+                            regret = None
+                        cursor = db.conn.cursor()
+                        cursor.execute(
+                            "UPDATE decisions SET outcome = ?, outcome_assessed_at = ?, "
+                            "regret_score = COALESCE(?, regret_score) WHERE id LIKE ?",
+                            (outcome, _time.time(), regret, f"{artifact_id}%"),
+                        )
+                        if cursor.rowcount > 0:
+                            resolved_count += 1
+                            _record_source_outcomes(
+                                db,
+                                artifact_id,
+                                "decision",
+                                "confirmed" if outcome == "upheld" else "invalidated",
+                                item,
+                            )
+                        else:
+                            resolution_errors.append(f"Decision '{artifact_id}' not found")
 
                 else:
                     resolution_errors.append(f"Unsupported resolution type: '{artifact_type}'")
