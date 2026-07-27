@@ -125,11 +125,32 @@ def is_launchd_available() -> bool:
 # ─── Templates ──────────────────────────────────────────────────────────
 
 
+# StartLimit* is a CIRCUIT BREAKER, and it is deliberately not tuned to this
+# service's known failure modes — its job is to bound self-exit guards that do not
+# exist yet.
+#
+# The listener self-exits on version drift and expects this unit to relaunch it. If
+# the condition triggering that exit is not actually cleared by a restart,
+# `Restart=always` alone loops forever: measured 2026-07-27, the sibling serve
+# daemon restarted 1849 times over ~4 days on a false-positive drift check, roughly
+# 182 in one hour, degrading quietly the whole time. A limit would have surfaced it
+# in minutes.
+#
+# 5 starts / 60s is loose enough that ordinary crash-restarts and a drift-triggered
+# upgrade restart pass untouched, and tight enough that a tight loop trips almost
+# immediately.
+#
+# The tradeoff is explicit: at the limit systemd leaves the unit in `failed` and
+# STOPS relaunching, so the listener stays down until someone intervenes. That is
+# the intended behaviour — a service stopped loudly is more recoverable than one
+# flapping silently, because only the first gets looked at.
 _SYSTEMD_LISTENER_TEMPLATE = """\
 [Unit]
 Description=Empirica persistent listener — {ai_id}
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
 
 [Service]
 Type=simple
