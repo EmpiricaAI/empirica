@@ -15,6 +15,18 @@ def _build_cli_parser() -> ArgumentParser:
 
 
 def test_project_search_focused_includes_docs_by_default():
+    """Docs must be in the default search — that is this test's stated intent.
+
+    It previously asserted the EXACT set {docs, eidetic, episodic}, which
+    over-specified and froze a real defect as correct: `memory` — where
+    `finding-log` / `decision-log` / `mistake-log` / `deadend-log` write — was
+    missing from the default, making artifacts write-only under the default read
+    path. A test named for docs was silently guarding the absence of memory.
+
+    Asserting the membership this test is ABOUT, plus the artifact collection,
+    rather than the whole set. Set-equality on a list that is expected to grow turns
+    every future addition into a failure and every current omission into a spec.
+    """
     client = type("DummyClient", (), {"collection_exists": lambda self, name: False})()
 
     with (
@@ -23,8 +35,10 @@ def test_project_search_focused_includes_docs_by_default():
     ):
         results = search("project-id", "workflow state model")
 
-    assert set(results.keys()) == {"docs", "eidetic", "episodic"}
+    assert "docs" in results
     assert results["docs"] == []
+    # The collection artifact-logging verbs write to must be reachable by default.
+    assert "memory" in results
 
 
 def test_project_search_parser_help_matches_focused_default():

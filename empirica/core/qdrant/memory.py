@@ -244,22 +244,45 @@ def search(
     Args:
         project_id: Project UUID
         query_text: Search query
-        kind: "focused" (docs + eidetic + episodic), "all", "intelligence", or single collection name
+        kind: "focused" (docs + memory + eidetic + episodic), "all", "intelligence",
+              or single collection name
         limit: Max results per collection
         qdrant_url: optional per-request Qdrant URL (per-org routing); None = default resolution
 
     Returns empty results if Qdrant not available.
 
     kind values:
-        "focused" — docs + eidetic + episodic (default, for local context)
-        "all" — docs + memory + eidetic + episodic (backward compat)
+        "focused" — docs + memory + eidetic + episodic (default, for local context)
+        "all" — identical to "focused"; retained as a backward-compat alias
         "intelligence" — memory + eidetic + episodic + assumptions + decisions + goals
                          (skips docs, designed for Cortex cross-project queries)
         single name — "docs", "memory", "eidetic", "episodic", "assumptions", "decisions", "goals"
+
+    ``memory`` was missing from ``focused`` until 2026-07-27, and ``focused`` is the
+    CLI default. ``memory`` is where ``finding-log`` / ``decision-log`` /
+    ``mistake-log`` / ``deadend-log`` write — so a practice could not retrieve its own
+    artifacts by searching its own project. The write path worked, the default read
+    path could not see it, and nothing failed loudly: the ``memory`` key was absent
+    from the result dict entirely, so the renderer's memory band simply never fired.
+
+    Reported by cortex after it cost three weeks on a client pipeline — they searched
+    their own project for a finding they had logged themselves, got generic module
+    summaries, and began re-deriving it from code. Only ``--global`` returned it, and
+    ``--global`` reads a PROMOTED SUBSET (capped per POSTFLIGHT, impact >= 0.7), so
+    everything below that bar was unreachable from the project that wrote it.
+
+    That ``_COLLECTION_BOOST`` already weighted ``memory`` at 1.2 — second only to
+    ``decisions`` — is the tell: nobody tunes a relevance boost for a collection the
+    default path never queries. The omission was a bug, not a cost tradeoff.
+
+    Consequence, stated so it is not rediscovered: ``focused`` and ``all`` are now the
+    same set. That is the intended end state — ``all`` was already documented as
+    backward compat — not an accidental collision.
     """
-    if kind == "focused":
-        search_kinds = ["docs", "eidetic", "episodic"]
-    elif kind == "all":
+    # "all" is a backward-compat alias of "focused". Sharing one branch keeps them
+    # from drifting apart again — the original bug was precisely that "all" carried
+    # `memory` and the DEFAULT did not.
+    if kind in ("focused", "all"):
         search_kinds = ["docs", "memory", "eidetic", "episodic"]
     elif kind == "intelligence":
         search_kinds = ["memory", "eidetic", "episodic", "assumptions", "decisions", "goals"]
