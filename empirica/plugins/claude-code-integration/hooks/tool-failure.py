@@ -11,6 +11,7 @@ Can block: No (tool already failed)
 
 import json
 import logging
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -99,6 +100,95 @@ def _truncate(s: str, max_len: int = 200) -> str:
     return s[:max_len] + "..." if len(s) > max_len else s
 
 
+# ── Credential redaction ──────────────────────────────────────────────
+#
+# DELIBERATE DUPLICATE of empirica/core/redaction.py. Hooks run standalone —
+# they cannot import from the package — so the logic is copied rather than
+# shared. `tests/test_secret_redaction.py` pins BOTH implementations against
+# one corpus so the copy cannot drift silently.
+#
+# Why this exists: `str(tool_input)` below stringifies the whole tool payload,
+# and MCP `cortex_*` tools take `api_key` as a parameter — so a live credential
+# was being written into `dead_end.approach` and retrieved into later sessions.
+# Redaction happens BEFORE truncation: truncating first can slice a token in
+# half and leave a prefix that no pattern then matches.
+_SECRET_KEY_NAMES = [
+    "api_key",
+    "apikey",
+    "key",
+    "token",
+    "access_token",
+    "refresh_token",
+    "id_token",
+    "session_key",
+    "secret",
+    "client_secret",
+    "password",
+    "passwd",
+    "pwd",
+    "authorization",
+    "auth",
+    "credential",
+    "credentials",
+    "private_key",
+    "signing_key",
+]
+
+_SHAPE_PATTERNS = (
+    (re.compile(r"\bctx_[A-Za-z0-9_\-]{8,}"), "ctx_<redacted>"),
+    (re.compile(r"\bsk-[A-Za-z0-9_\-]{16,}"), "sk-<redacted>"),
+    (re.compile(r"\bghp_[A-Za-z0-9]{16,}"), "ghp_<redacted>"),
+    (re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}"), "github_pat_<redacted>"),
+    (re.compile(r"\bxox[baprs]-[A-Za-z0-9\-]{10,}"), "xox-<redacted>"),
+    (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "AKIA<redacted>"),
+    (re.compile(r"\bmst-[A-Za-z0-9]{16,}"), "mst-<redacted>"),
+    (re.compile(r"\beyJ[A-Za-z0-9_\-]{6,}\.[A-Za-z0-9_\-]{6,}\.[A-Za-z0-9_\-]+"), "<redacted>-jwt"),
+    (re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._\-]{12,}"), "Bearer <redacted>"),
+)
+_KV_PATTERN = re.compile(
+    r"(?i)(['\"]?\b(?:" + "|".join(sorted(_SECRET_KEY_NAMES)) + r")\b['\"]?\s*[:=]\s*)(['\"])([^'\"]{4,}?)\2"
+)
+_FLAG_PATTERN = re.compile(
+    r"(?i)(--(?:" + "|".join(sorted(n.replace("_", "-") for n in _SECRET_KEY_NAMES)) + r")[= ])(\S{4,})"
+)
+
+
+def _redact(text):
+    """Scrub secret-shaped tokens from free text. Fails CLOSED — if the redactor
+    itself errors we emit the placeholder, never the raw text."""
+    if not text:
+        return text
+    try:
+        out = str(text)
+        out = _KV_PATTERN.sub(lambda m: f"{m.group(1)}{m.group(2)}<redacted>{m.group(2)}", out)
+        out = _FLAG_PATTERN.sub(lambda m: f"{m.group(1)}<redacted>", out)
+        for pattern, replacement in _SHAPE_PATTERNS:
+            out = pattern.sub(replacement, out)
+        return out
+    except Exception:
+        return "<redacted>"
+
+
+def _is_secret_key(name):
+    n = str(name).strip().lower().lstrip("-").replace("-", "_")
+    return n in _SECRET_KEY_NAMES or any(n.endswith("_" + k) for k in _SECRET_KEY_NAMES)
+
+
+def _scrub_mapping(data, _depth=0):
+    """Drop secret-NAMED values before the payload is stringified. Exact where
+    the shape patterns are heuristic — `{"password": "hunter2"}` has no
+    recognizable shape, only a recognizable key."""
+    if _depth > 6:
+        return data
+    if isinstance(data, dict):
+        return {k: ("<redacted>" if _is_secret_key(k) else _scrub_mapping(v, _depth + 1)) for k, v in data.items()}
+    if isinstance(data, (list, tuple)):
+        return [_scrub_mapping(v, _depth + 1) for v in data]
+    if isinstance(data, str):
+        return _redact(data)
+    return data
+
+
 def main():
     try:
         hook_input = json.loads(sys.stdin.read())
@@ -123,16 +213,20 @@ def main():
         sys.exit(0)
 
     # Build a meaningful description of what failed
+    # Redact BEFORE truncating — truncation can split a token and leave a prefix
+    # that no pattern matches afterwards.
     if tool_name == "Bash":
         command = tool_input.get("command", "unknown command")
-        approach = f"Bash: {_truncate(command, 150)}"
+        approach = f"Bash: {_truncate(_redact(command), 150)}"
     elif tool_name in ("Edit", "Write"):
         file_path = tool_input.get("file_path", "unknown file")
         approach = f"{tool_name}: {file_path}"
     else:
-        approach = f"{tool_name}: {_truncate(str(tool_input), 150)}"
+        # `str(tool_input)` is where MCP `api_key` parameters leaked in. Scrub the
+        # mapping by key name first, then regex-scrub the rendered string.
+        approach = f"{tool_name}: {_truncate(_redact(str(_scrub_mapping(tool_input))), 150)}"
 
-    why_failed = _truncate(error, 300)
+    why_failed = _truncate(_redact(error), 300)
 
     # Log as dead-end
     try:

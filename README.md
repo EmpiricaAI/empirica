@@ -354,6 +354,46 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
+## What's New in 1.12.36
+
+- **Tool hiccups were being recorded as permanent dead-ends.** The failure hook logged
+  almost any non-zero exit as a dead-end — and a dead-end is an *epistemic* judgment
+  ("this approach does not work") that retrieval feeds into later sessions as
+  **avoid re-trying**. Nothing ever retries one, so a false dead-end quietly removes a
+  viable approach from the practice's option space forever. Measured across the fleet:
+  **879 of 980 open dead-ends (89%) were this noise**, including a `git commit` that
+  *succeeded* and was captured because a CI-wait loop later in the same command timed
+  out. Timeouts, connection refusals, DNS failures and bare no-match exits are now
+  filtered, plus a check that drops captures whose own error text shows the work
+  landed. **Upgrading stops new noise but does not clean existing rows — run
+  `/epistemic-gardening`, and retry before you close.**
+- **Credentials could reach the graph through that same path.** The hook stringified
+  whole tool payloads into the dead-end, and MCP `cortex_*` tools take `api_key` as a
+  parameter. Secret-named values are now dropped before stringification and
+  secret-shaped tokens scrubbed from free text — before truncation (which can split a
+  token), and failing closed if the redactor itself errors.
+- **Permanent constraints are finally falsifiable.** `dead_end` and `mistake` had no
+  lifecycle columns at all, and `decision` had columns nothing wrote — **0 of 486
+  decisions had ever been assessed**. The artifact types that steer future behaviour
+  hardest were the only ones that could never be revised. Adds `deadend-invalidate`,
+  `mistake-assess`, `decision-assess`, and the new types on `resolve-artifacts`.
+- **Outcomes now flow back to the sources that informed them** via `sourced_from`, so
+  a source's relevance / accuracy / stability is evidenced by what happened to the
+  artifacts citing it. Derived on read, never stored. Attribution is **declared, not
+  inferred** — an artifact can fail because the reasoning was wrong, and inferring
+  blame from invalidation would slander good sources.
+- **Blindspots inherit the fate of their premises.** A blindspot is inferred from a
+  pattern across other artifacts, so when enough of its inputs are invalidated it is
+  flagged for **re-derivation — never auto-invalidated**. It can remain true even when
+  a supporting finding was wrong, and silently deleting an unknown-unknown is the
+  worst available failure direction.
+- **`/epistemic-gardening` can now ask the questions that were previously impossible** —
+  dead-ends never revisited, decisions never assessed, preventions never validated,
+  blindspots with stale inputs. Each is a prompt, not an automatic action: prune *and
+  replant*.
+
+---
+
 ## What's New in 1.12.35
 
 - **`docs-assess` tech_docs rewarded name-dropping.** `_check_if_documented` counted a feature as documented if its NAME substring-matched the concatenated markdown, so the metric was satisfiable by dumping class names into a `.md` and unmovable by real documentation — inverting the EU AI Act Art. 11 / ISO 7.5 intent it is framed against. Measured by empirica-workspace: 137 accurate docstrings moved coverage **0%**, while a generated file listing 256 names took it to **100%**. A feature now counts when it has a substantive docstring OR the docs carry real prose about it (the mention's line must retain ≥8 words once list/table/heading punctuation and the name are stripped). The OR is deliberate: gating on docstrings alone would penalise practices that document in markdown. `check_docstrings` now also returns `documented_symbols` — it already computed that truth to count `documented_items` but never named them, so the docstring half had nothing to consult.

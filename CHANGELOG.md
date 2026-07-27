@@ -5,6 +5,113 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.36] — 2026-07-27
+
+Patch, but the most consequential one in a while: it closes an **asymmetric
+falsifiability** hole in the epistemic graph, and fixes the auto-capture path that
+was quietly filling every practice's dead-ends with tool noise.
+
+**Every practice should read the two "Heads-up" notes below** — one changes what
+retrieval feeds you, the other requires a one-time cleanup you have to run yourself.
+
+### Fixed
+
+- **Tool hiccups were being recorded as permanent dead-ends, and retrieval fed them
+  back as "avoid re-trying".** The `PostToolUseFailure` hook logged almost any
+  non-zero exit as a dead-end. A dead-end is an *epistemic* judgment — "this approach
+  does not work" — and nothing ever retries one, so a false dead-end silently removes
+  a viable approach from the practice's option space **forever**. Timeouts (SIGTERM
+  143 / SIGKILL 137), connection refusals, DNS failures and bare `grep` no-match exits
+  are now filtered, and a new `SUCCESS_MARKERS` check drops captures whose own error
+  text shows the work landed.
+
+  Measured across the fleet: **879 of 980 open dead-ends (89%) were this noise** —
+  683–685 of empirica's own 750, including a `git commit` that **succeeded** (its
+  `why_failed` contains the successful push refspec) and was captured because a
+  CI-wait loop later in the same command hit `timeout`. Future sessions were being
+  advised not to re-try `git commit`. Independently reproduced by extension (110/118,
+  93%) and mesh-support (213/223, 95%).
+
+  > **Heads-up — the cleanup is not automatic.** Upgrading stops new noise; it does
+  > not touch rows already written. Run `/epistemic-gardening` and use the
+  > tool-capture triage there. Invalidate rather than delete, and **retry before you
+  > close** — some captured failures are real constraints.
+
+- **Credentials could reach the epistemic graph through the same capture path.** The
+  hook stringified whole `tool_input` payloads into `dead_end.approach`, and MCP
+  `cortex_*` tools take `api_key` as a parameter. Artifacts are *retrieved* — into
+  later sessions, into Qdrant, and at `shared` visibility across the org — so this was
+  a write path for secrets. Now redacted at the source in two redundant layers: values
+  under secret-named keys are dropped before stringification, and secret-*shaped*
+  tokens (`ctx_`, `sk-`, `ghp_`, `github_pat_`, `xox*-`, `AKIA`, JWTs, `Bearer …`) are
+  scrubbed from free text, which also catches tokens inline in a `Bash` command.
+  Redaction runs **before** truncation — truncating first can split a token and leave
+  a prefix nothing matches — and **fails closed**: if the redactor errors it emits the
+  placeholder rather than the raw text.
+
+  Note that *invalidating* an affected row does not remediate it: invalidation removes
+  an artifact from retrieval and leaves its text in the table.
+
+- **`sources-check` reported a derived metric that was lying.** The standing rollup
+  read the lister's display shape and returned "0 sources scored" moments after
+  stamping 25 verdicts, because `derive_standing` assumed epoch timestamps while
+  `_stamp_reviews` writes ISO strings — and a fail-open `except` converted the
+  resulting `TypeError` into a plausible zero. Timestamps are now normalised across
+  both representations, and the rollup is validated against SQL ground truth rather
+  than against another display surface.
+
+### Added
+
+- **Artifact falsifiability (migration 060).** `dead_end` and `mistake` had **no
+  lifecycle columns at all** and `decision` had columns nothing ever wrote — measured
+  on empirica: 750 dead-ends and 133 mistakes that could not be closed, and **0 of 486
+  decisions ever assessed**. These are precisely the types that steer future behaviour
+  hardest, and they were the only ones that could not be revised. Now:
+  `deadend-invalidate`, `mistake-assess`, `decision-assess --outcome upheld|reversed|mixed`,
+  and `resolve-artifacts` accepts the new types per-id.
+
+  `regret_score` is self-assessed rather than derived — consistent with vectors being
+  reported beliefs that evidence *informs* rather than overrides. "No longer applies"
+  and "was wrong" both invalidate: two states nobody could reliably tell apart are
+  worse than one that is always clear.
+
+- **Source outcome feedback.** When an artifact is resolved, the outcome flows to the
+  sources it cites via `sourced_from`, appended to the source's existing
+  `lifecycle_audit_log`. Relevance / accuracy / stability / review-age are **derived on
+  read, never stored** — a stored score drifts from its evidence, which is the exact
+  failure empirica exists to prevent, and it lets the formula change without migrating
+  data. Attribution is **declared, not inferred**: an artifact can fail because the
+  *reasoning* was wrong, so accuracy only moves when a caller passes
+  `--source-implicated`. Inferring blame from invalidation would systematically
+  slander good sources.
+
+  Every metric returns `None` when there is no evidence for it. "Unreviewed" is not
+  "good" and "uncited" is not "inaccurate" — absence of evidence is a first-class
+  state, and collapsing it into a number is how a metric starts lying.
+
+- **Blindspot propagation.** A blindspot is not observed, it is *inferred* from a
+  pattern across other artifacts — so it inherits the fate of its premises. When
+  enough of a blindspot's `derived_from` inputs are invalidated it is flagged
+  `stale_inputs` for **re-derivation, never auto-invalidated**: a blindspot can remain
+  true even when a supporting finding was wrong, and silently deleting an
+  unknown-unknown is the worst available failure direction. Blindspots predating
+  provenance tracking report `unknown_provenance` rather than passing silently.
+
+### Changed
+
+- **`/epistemic-gardening` gained the questions it previously could not ask** —
+  dead-ends never revisited, decisions never assessed, mistakes whose prevention was
+  never validated, blindspots with stale inputs, and sources that are uncited,
+  unreviewed or implicated-inaccurate. Each is a *prompt*, not an automatic action:
+  prune **and replant** — the point is to retry a suspect dead-end, not to erase the
+  record of it.
+
+  Permanent constraints are deliberately excluded from bulk close-by-filter, which
+  accepts only `finding` and `unknown`. A policy sweep over constraints manufactures
+  false clearances at scale, and a false clearance is worse than a false constraint
+  because it looks examined. For genuine volume (correcting the tool-capture noise
+  above), build the resolutions array from a SQL id lookup and pass it per-id.
+
 ## [1.12.35] — 2026-07-27
 
 Patch: makes the `tech_docs` compliance metric measure documentation instead of
