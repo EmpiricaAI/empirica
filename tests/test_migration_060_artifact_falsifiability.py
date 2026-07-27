@@ -58,8 +58,10 @@ def test_never_assessed_is_preserved_not_backfilled(db):
     """Absence of evidence is a first-class state. A pre-existing row must read as
     'never assessed', never as a verdict nobody made."""
     db.conn.execute(
-        "INSERT INTO project_dead_ends (id, project_id, session_id, approach, why_failed) VALUES (?,?,?,?,?)",
-        ("de1", "p1", "s1", "tried X", "because Y"),
+        "INSERT INTO project_dead_ends "
+        "(id, project_id, session_id, approach, why_failed, created_timestamp, dead_end_data) "
+        "VALUES (?,?,?,?,?,?,?)",
+        ("de1", "p1", "s1", "tried X", "because Y", 0.0, "{}"),
     )
     db.conn.commit()
     row = db.conn.execute(
