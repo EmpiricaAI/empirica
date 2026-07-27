@@ -25,6 +25,17 @@ import pytest
 from empirica.core import version_drift as vd
 
 
+@pytest.fixture(autouse=True)
+def _clear_editable_cache():
+    """`is_editable_install` is lru_cached (the negative path enumerates every file
+    in the distribution — 5.5ms vs 0.07ms, and it runs on a watch loop). The cache
+    is per-process, so tests that patch the underlying metadata must clear it on
+    both sides or they leak verdicts into each other."""
+    vd.is_editable_install.cache_clear()
+    yield
+    vd.is_editable_install.cache_clear()
+
+
 class _FakePath(str):
     """dist.files entries expose `.name`; str carries the rest."""
 

@@ -37,12 +37,24 @@ source of truth. Each caller layers its OWN self-heal policy on top:
 from __future__ import annotations
 
 import contextlib
+import functools
 import importlib.metadata
 import json
 
 
+@functools.lru_cache(maxsize=4)
 def is_editable_install(distribution: str = "empirica") -> bool:
     """Is this distribution installed in editable/development mode?
+
+    CACHED, because install mode cannot change within a process lifetime and the
+    negative path is expensive: when neither ``direct_url.json`` nor the
+    ``.egg-info`` check settles it, the fallback enumerates every file in the
+    distribution — measured at **5.5 ms per call against 0.07 ms** for the early
+    return, ~77x. `version_drift()` runs on a watch loop and on every ``/health``,
+    so an uncached negative path would tax exactly the callers this module serves,
+    and would do it on NON-editable installs — the ones that were never broken.
+
+    Call ``is_editable_install.cache_clear()`` if a test needs to re-detect.
 
     Primary signal is PEP 610's ``direct_url.json`` (``dir_info.editable``), which
     pip writes for any ``pip install -e``. Falls back to the ``__editable__*``
