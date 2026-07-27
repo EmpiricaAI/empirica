@@ -112,6 +112,7 @@ def column_exists(cursor: sqlite3.Cursor, table: str, column: str) -> bool:
         "lesson_steps",
         # Prevention-currency measurement (migration 058/059)
         "prevention_events",
+        "blindspot_events",
     }
 
     if table not in VALID_TABLES:
@@ -173,6 +174,7 @@ def add_column_if_missing(cursor: sqlite3.Cursor, table: str, column: str, colum
         "lesson_steps",
         # Prevention-currency measurement (migration 058/059)
         "prevention_events",
+        "blindspot_events",
     }
     VALID_COLUMN_TYPES = {"TEXT", "INTEGER", "REAL", "BLOB", "NULL", "TIMESTAMP", "BOOLEAN", "JSON"}
 

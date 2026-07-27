@@ -1511,6 +1511,11 @@ ALL_MIGRATIONS: list[tuple[str, str, Callable]] = [
         "Add outcome_family to prevention_events — the 2nd outcome family (fabrication-detection-floor). prevention + fabrication-incidence share the event machinery but have different failure signals, so family is explicit: the POSTFLIGHT detector resolves only outcome_family='prevention' rows (mistake/dead-end signal), leaving fabrication rows for a distinct grounding/verification oracle (deferred — spec §6 Q4). Additive + idempotent via add_column_if_missing.",
         lambda cursor: migration_059_prevention_outcome_family(cursor),
     ),
+    (
+        "060_artifact_falsifiability",
+        "Make permanent-constraint artifacts falsifiable (ARTIFACT_LIFECYCLE_AND_OUTCOME_FEEDBACK.md Phase 1). dead_end (750 rows) and mistake (133) had NO lifecycle columns at all: they are permanent NEGATIVE guidance retrieved to steer practitioners away, nothing ever retries them, so a mistaken one was invisible by construction and silently removed a viable approach from the practice's option space forever. Both get the SAME invalidation shape — David 2026-07-27: 'no longer actionable' and 'was wrong' are practically one state (invalidate, then re-derive if pertinent). dead_ends also get `domain` for DOMAIN-SCOPED staleness (a dead-end about a fast-moving dependency rots faster than one about arithmetic). blindspot_events gets `derived_from` because a blindspot is INFERRED from other artifacts and inherits the fate of its premises — stored so propagation can flag stale_inputs and re-derive rather than auto-invalidate. Additive, nullable, idempotent.",
+        lambda cursor: migration_060_artifact_falsifiability(cursor),
+    ),
 ]
 
 
@@ -2410,3 +2415,57 @@ def migration_048_beads_table(cursor: sqlite3.Cursor):
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_beads_beads_issue_id ON beads(beads_issue_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_beads_transaction ON beads(transaction_id)")
     logger.info("✅ Migration 048 complete: beads table created (coordination-records v0)")
+
+
+def migration_060_artifact_falsifiability(cursor: sqlite3.Cursor):
+    """Give permanent-constraint artifacts a way to be proven wrong.
+
+    Measured 2026-07-27: `project_dead_ends` (750 rows) and `mistakes_made` (133) had
+    NO lifecycle columns whatsoever. Both are permanent NEGATIVE guidance — "approach
+    X failed", "I did Y wrong, prevention: Z" — retrieved into later sessions to steer
+    practitioners away. **Nothing ever retries a dead-end**, so a mistaken one is
+    invisible by construction: no event could contradict it. It silently removes a
+    viable approach from the practice's option space, and every future session
+    inherits it as grounding. That is the mechanism behind "stale artifacts poison the
+    well".
+
+    Both types get the SAME invalidation shape. David 2026-07-27: for a mistake,
+    "the prevention no longer applies" and "the prevention was wrong" are practically
+    one state — it is no longer actionable, so invalidate it and re-derive if still
+    pertinent. One state beats two that nobody can tell apart.
+
+    `domain` on dead_ends supports DOMAIN-SCOPED staleness: age alone is weak evidence,
+    since a dead-end about a fast-moving dependency rots far faster than one about
+    arithmetic.
+
+    `derived_from` on blindspot_events stores the artifact ids a blindspot was inferred
+    from. A blindspot is a CONCLUSION, so it inherits the fate of its premises — when
+    enough inputs are invalidated it is flagged for re-derivation. Deliberately not
+    auto-invalidated: a blindspot can stay true even when a supporting finding was
+    wrong, and silently deleting an unknown-unknown is the worst failure direction.
+
+    All columns nullable + additive: "never assessed" stays a legitimate, queryable
+    state rather than being back-filled into a false verdict.
+    """
+    for table in ("project_dead_ends", "mistakes_made"):
+        add_column_if_missing(cursor, table, "is_invalidated", "BOOLEAN", "0")
+        add_column_if_missing(cursor, table, "invalidated_at", "REAL", "NULL")
+        add_column_if_missing(cursor, table, "invalidated_by", "TEXT", "NULL")
+        add_column_if_missing(cursor, table, "invalidation_reason", "TEXT", "NULL")
+        # Retry/assessment bookkeeping — distinguishes "revisited and still true"
+        # from "never revisited", which are different states for gardening.
+        add_column_if_missing(cursor, table, "last_revisited_at", "REAL", "NULL")
+
+    # Domain-scoped staleness for dead-ends (see docstring).
+    add_column_if_missing(cursor, "project_dead_ends", "domain", "TEXT", "NULL")
+
+    # Blindspot provenance — the inputs it was inferred from (JSON array of ids).
+    add_column_if_missing(cursor, "blindspot_events", "derived_from", "TEXT", "NULL")
+
+    for table in ("project_dead_ends", "mistakes_made"):
+        cursor.execute(f"CREATE INDEX IF NOT EXISTS idx_{table}_invalidated ON {table}(is_invalidated)")
+
+    logger.info(
+        "✅ Migration 060 complete: dead_ends + mistakes are falsifiable; "
+        "dead_ends domain-scoped; blindspots record their premises"
+    )
