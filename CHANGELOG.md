@@ -5,6 +5,57 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.35] — 2026-07-27
+
+Patch: makes the `tech_docs` compliance metric measure documentation instead of
+name-dropping, renames the setup verb to something harness-neutral, and turns
+`sources-check` into a timestamped cadence that can see local file rot.
+
+**Heads-up for every practice:** the `tech_docs` fix changes your compliance number.
+It should rise where you have real docstrings and fall where coverage was carried by
+a markdown file listing symbol names.
+
+### Fixed
+- **`docs-assess` tech_docs rewarded name-dropping.** `_check_if_documented` counted
+  a feature as documented if its NAME substring-matched the concatenated markdown, so
+  the metric was satisfiable by dumping class names into a `.md` and unmovable by real
+  documentation — inverting the EU AI Act Art. 11 / ISO 7.5 intent it is framed
+  against. Measured by empirica-workspace: 137 accurate docstrings moved coverage
+  **0%**, while a generated file listing 256 names took it to **100%**. A feature now
+  counts when it has a substantive docstring OR the docs carry real prose about it
+  (the mention's line must retain ≥8 words once list/table/heading punctuation and the
+  name are stripped). The OR is deliberate: gating on docstrings alone would penalise
+  practices that document in markdown. `check_docstrings` now also returns
+  `documented_symbols` — it already computed that truth to count `documented_items`
+  but never named them, so the docstring half had nothing to consult.
+- **A listed source could 404 on `/content`.** The sources LIST reads the whole
+  per-practice DB while the content lookup was still scoped to one `project_id`, so a
+  source with a drifted id appeared in the pane and failed the instant it was opened
+  (10 of 50 on one practice). Both are practice-scoped now.
+- **`docs-assess` crashed on a stale project pointer.** `_auto_detect_project_config`
+  called `iterdir()` on a path taken from resolver state without checking it exists —
+  resolver state outlives the directory it names, and a pointer to a deleted project
+  took the whole command down.
+- **Review stamping could break the audit.** The new cadence opened a session DB
+  unconditionally, so an environment without one (CI, a bare checkout) failed the
+  check instead of simply not recording.
+
+### Added
+- **`empirica setup`** — harness-neutral name for `setup-claude-code`, which stays as
+  an alias. The old name leaked "claude-code" into model-facing prose (hook errors,
+  skill docs) that other harnesses vendor verbatim; the instruction text is swept too.
+  One parser, one handler, two names — no new capability.
+- **`sources-check` sees LOCAL file rot.** It gated on http(s), so file-backed sources
+  were skipped entirely — one practice reported "all probed source links resolve"
+  while 25 of its 50 sources could not be served. Non-URL sources are now classified
+  `ok` / `missing` / `not_a_locator` (the column holds a title, needing a re-point
+  rather than a file hunt) / `out_of_scope` (a `mailto:`/`ftp:`/`doi:` URI the disk
+  check cannot speak to). Path resolution mirrors the daemon's, pinned by a test.
+- **A review cadence.** `sources-check` now records a timestamped verdict per source
+  (`last_reviewed_at`, `review_verdict`) — previously nothing ever wrote those columns
+  (0 of 63 reviewed), so "unchecked since X" was unanswerable and a source could never
+  be more than an assertion with a date on it.
+
 ## [1.12.34] — 2026-07-26
 
 Patch: the extension's sources pane was under-reading a practice's sources and
