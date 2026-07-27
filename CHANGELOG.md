@@ -51,6 +51,11 @@ a markdown file listing symbol names.
   `ok` / `missing` / `not_a_locator` (the column holds a title, needing a re-point
   rather than a file hunt) / `out_of_scope` (a `mailto:`/`ftp:`/`doi:` URI the disk
   check cannot speak to). Path resolution mirrors the daemon's, pinned by a test.
+- **`source-update --url`** — re-point a source whose file MOVED. Gardening is prune
+  *and* replant, but the CLI could only re-fetch, never re-target, so a moved doc had
+  to be archived and re-added — losing its id and with it every `sourced_from` edge
+  pointing at it. `--url` retargets in place, recomputes content identity, and records
+  a `repointed` event in `lifecycle_audit_log` so the move is traceable.
 - **A review cadence.** `sources-check` now records a timestamped verdict per source
   (`last_reviewed_at`, `review_verdict`) — previously nothing ever wrote those columns
   (0 of 63 reviewed), so "unchecked since X" was unanswerable and a source could never
