@@ -28,7 +28,13 @@ dependencies = [
     # bump the wrapper while leaving core stale — silently serving a 3-version-old
     # tool set. release.py bumps this pin in lockstep with the version field below.
     "empirica==1.12.37",  # keep == in lockstep with [project].version
-    "mcp>=1.28.1",       # MCP SDK — floor bumped for CVE-2026-52869/-52870/-59950 (fixed 1.27.2/1.28.1); prior: python-multipart CVE-2026-24486 (1.25+)
+    # Capped below 2.0: mcp 2.0.0 (published 2026-07-28T13:45Z) is a breaking
+    # major — `Server.list_tools` / `Server.call_tool` / `Tool.inputSchema` are
+    # gone, which fails collection of four test modules and pyright outright.
+    # An unpinned `>=` across a major is the actual defect: semver majors break
+    # by design, so this went red on a dependency release with no commit of ours.
+    # Port to the 2.x API, then lift the cap (tracked as a goal).
+    "mcp>=1.28.1,<2",    # MCP SDK — floor bumped for CVE-2026-52869/-52870/-59950 (fixed 1.27.2/1.28.1); prior: python-multipart CVE-2026-24486 (1.25+)
 ]
 
 [project.urls]

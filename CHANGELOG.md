@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`empirica-mcp` pinned below MCP SDK 2.0.** `mcp 2.0.0` (published
+  2026-07-28T13:45Z) removes `Server.list_tools`, `Server.call_tool` and
+  `Tool.inputSchema`. The dependency was declared `mcp>=1.28.1` with no ceiling, so
+  CI resolved the new major and went red **with no commit of ours** — four test
+  modules failed collection and pyright reported 6 errors.
+
+  More importantly this was user-facing: `empirica-mcp` **1.12.37 shipped with the
+  uncapped range**, so a fresh install today resolves 2.0.0 and breaks at import.
+
+  An unpinned `>=` across a major boundary is the defect, not the upstream release —
+  semver majors break by design, and a floor without a ceiling hands release timing
+  to a third party. Porting to the 2.x API is tracked separately.
+
 ### Changed
 
 - **`pytest-randomly` is now a declared test dependency, so CI randomizes test
