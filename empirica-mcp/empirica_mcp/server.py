@@ -1020,11 +1020,19 @@ def _build_tool_schema(name: str, entry: dict) -> types.Tool:
 # MCP Server
 # =============================================================================
 
-app = Server("empirica")
+# MCP SDK 1.x registered handlers via decorators on an already-constructed
+# Server; 2.0 removed those and takes `on_*` callables at construction instead,
+# with different handler signatures and Result-wrapped returns.
+#
+# Supporting BOTH rather than jumping to 2.x-only is deliberate: 2.0.0 is days
+# old, and an MCP server is the integration surface other tools bind to — forcing
+# a brand-new major on every consumer to adopt it is a cost they did not choose.
+# The version difference is confined to the registration shim at the bottom of
+# this section; the handler bodies below are identical on either SDK.
+_MCP2 = not hasattr(Server, "list_tools")
 
 
-@app.list_tools()
-async def list_tools() -> list[types.Tool]:
+async def _list_tools_impl() -> list[types.Tool]:
     """List all available tools."""
     tools = [_build_tool_schema(name, entry) for name, entry in TOOL_REGISTRY.items()]
 
@@ -1104,8 +1112,7 @@ def _err_text(payload: dict) -> list[types.TextContent]:
     return [types.TextContent(type="text", text=json.dumps(payload, indent=2))]
 
 
-@app.call_tool(validate_input=False)
-async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
+async def _call_tool_impl(name: str, arguments: dict) -> list[types.TextContent]:
     """Route tool calls to CLI."""
 
     if name == "get_empirica_introduction":
@@ -1182,6 +1189,32 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
             "command": entry["cli"],
         }
     )
+
+
+# =============================================================================
+# Handler registration — the only SDK-version-dependent code in this module
+# =============================================================================
+#
+# Verified against the installed packages, not the migration guide: the guide's
+# example returns a bare `list[Tool]` from on_list_tools, while the real 2.0
+# signature is `-> Awaitable[ListToolsResult]`. Following the docs alone would
+# have produced a server that imports fine and fails at request time.
+
+if _MCP2:
+
+    async def _on_list_tools(ctx, params=None) -> "types.ListToolsResult":
+        return types.ListToolsResult(tools=await _list_tools_impl())
+
+    async def _on_call_tool(ctx, params) -> "types.CallToolResult":
+        return types.CallToolResult(content=await _call_tool_impl(params.name, params.arguments or {}))
+
+    app = Server("empirica", on_list_tools=_on_list_tools, on_call_tool=_on_call_tool)
+else:
+    app = Server("empirica")
+    # 1.x: `validate_input=False` preserved — the CLI validates, and the SDK's
+    # own validation rejects payload shapes the registry intentionally allows.
+    app.list_tools()(_list_tools_impl)
+    app.call_tool(validate_input=False)(_call_tool_impl)
 
 
 # =============================================================================

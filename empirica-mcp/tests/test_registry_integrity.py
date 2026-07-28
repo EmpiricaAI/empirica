@@ -67,7 +67,7 @@ def test_schema_builds_without_error(name):
     """_build_tool_schema must succeed for every registry entry."""
     tool = _build_tool_schema(name, TOOL_REGISTRY[name])
     assert tool.name == name
-    assert tool.inputSchema["type"] == "object"
+    assert _schema(tool)["type"] == "object"
 
 
 def test_enum_param_keys_are_strings():
@@ -99,3 +99,14 @@ def test_registry_size_floor():
     the surface grows. Failing on this means something stripped the
     registry."""
     assert len(TOOL_REGISTRY) >= 30, f"TOOL_REGISTRY has only {len(TOOL_REGISTRY)} entries — likely truncated"
+
+
+def _schema(tool):
+    """A Tool's input schema, on either SDK major.
+
+    MCP 2.0 renamed protocol fields from camelCase to snake_case for ATTRIBUTE
+    access (`Tool.inputSchema` -> `Tool.input_schema`) while the constructor still
+    accepts both. Tests assert on attributes, so they need this; server code that
+    only CONSTRUCTS Tools does not.
+    """
+    return getattr(tool, "input_schema", None) or tool.inputSchema

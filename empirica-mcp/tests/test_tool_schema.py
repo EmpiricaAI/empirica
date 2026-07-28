@@ -16,7 +16,7 @@ from empirica_mcp.server import _build_tool_schema
 def _props(entry: dict, name: str = "test") -> dict:
     """Helper: extract just the properties block from a built schema."""
     tool = _build_tool_schema(name, entry)
-    return tool.inputSchema["properties"]
+    return _schema(tool)["properties"]
 
 
 # ─── Basic shape ────────────────────────────────────────────────────────
@@ -29,14 +29,14 @@ def test_returns_mcp_tool():
     assert isinstance(tool, types.Tool)
     assert tool.name == "x"
     assert tool.description == "test tool"
-    assert tool.inputSchema["type"] == "object"
+    assert _schema(tool)["type"] == "object"
 
 
 def test_required_passes_through():
     """The `required` list in the entry maps to JSON schema `required`."""
     entry = {"cli": "x", "desc": "", "params": {"a": "--a", "b": "--b"}, "required": ["a"]}
     tool = _build_tool_schema("x", entry)
-    assert tool.inputSchema["required"] == ["a"]
+    assert _schema(tool)["required"] == ["a"]
 
 
 # ─── Param type classification ──────────────────────────────────────────
@@ -157,3 +157,14 @@ def test_non_submit_stdin_json_skips_session_extras():
     props = _props(entry, name="log_artifact_graph")
     assert "session_id" not in props
     assert "vectors" not in props
+
+
+def _schema(tool):
+    """A Tool's input schema, on either SDK major.
+
+    MCP 2.0 renamed protocol fields from camelCase to snake_case for ATTRIBUTE
+    access (`Tool.inputSchema` -> `Tool.input_schema`) while the constructor still
+    accepts both. Tests assert on attributes, so they need this; server code that
+    only CONSTRUCTS Tools does not.
+    """
+    return getattr(tool, "input_schema", None) or tool.inputSchema

@@ -5,6 +5,32 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **`empirica-mcp` now runs on MCP SDK 1.x *and* 2.x**, so the emergency `<2` cap
+  from 1.12.38 widens to `<3` instead of forcing a days-old major on every
+  consumer. An MCP server is an integration surface other tools bind to; making
+  them all jump majors to keep working is a cost they did not choose.
+
+  SDK 2.0 replaced decorator registration on an already-constructed `Server` with
+  `on_*` callables passed at construction, changed handler signatures, and wraps
+  returns in `ListToolsResult` / `CallToolResult`. It also renamed protocol fields
+  to snake_case for **attribute** access (`Tool.inputSchema` → `Tool.input_schema`)
+  while the constructor still accepts both. The version difference is confined to a
+  registration shim; handler bodies are identical on either SDK.
+
+  **The migration guide was wrong on one point that mattered**: its example returns
+  a bare `list[Tool]` from `on_list_tools`, while the installed 2.0 signature is
+  `-> Awaitable[ListToolsResult]`. Following the docs alone would have produced a
+  server that imports cleanly and fails at request time — verified against the
+  installed package instead.
+
+  Suite passes **572/572 on both 1.28.1 and 2.0.0**. The ceiling stays on purpose:
+  an unbounded `>=` is exactly what let 2.0.0 break CI and a published package with
+  no commit of ours.
+
 ## [1.12.38] — 2026-07-28
 
 ### Fixed
