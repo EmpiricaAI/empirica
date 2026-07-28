@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.12.36
-**Generated:** 2026-07-27 14:44:52 UTC
+**Framework version:** 1.12.37
+**Generated:** 2026-07-28 13:32:42 UTC
 **Total commands:** 242 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -1498,7 +1498,7 @@ Semantic search for relevant docs/memory by task description
 - `--task` — **required**
   Task description to search for
 - `--type` — optional · type=`choice` · choices={focused, all, intelligence, docs, memory, eidetic, episodic, assumptions, decisions, goals} · default=`focused`
-  Result type: focused (docs+eidetic+episodic), all, intelligence (goals+decisions+assumptions), or single collection
+  Result type: focused (docs+memory+eidetic+episodic — this project's own knowledge), all (alias of focused, backward compat), intelligence (goals+decisions+assumptions), or a single collection
 - `--limit` — optional · type=`int` · default=`5`
   Number of results to return (default: 5)
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
