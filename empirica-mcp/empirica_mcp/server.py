@@ -1213,8 +1213,14 @@ else:
     app = Server("empirica")
     # 1.x: `validate_input=False` preserved — the CLI validates, and the SDK's
     # own validation rejects payload shapes the registry intentionally allows.
-    app.list_tools()(_list_tools_impl)
-    app.call_tool(validate_input=False)(_call_tool_impl)
+    #
+    # pyright resolves whichever SDK major is INSTALLED, so exactly one of these
+    # two branches always looks wrong to it. This branch is unreachable when 2.x is
+    # installed (`_MCP2` is True), which is precisely when the decorators are gone.
+    # Narrow ignores rather than a file-level suppression, so a real attribute error
+    # elsewhere still surfaces.
+    app.list_tools()(_list_tools_impl)  # pyright: ignore[reportAttributeAccessIssue]
+    app.call_tool(validate_input=False)(_call_tool_impl)  # pyright: ignore[reportAttributeAccessIssue]
 
 
 # =============================================================================
