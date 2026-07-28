@@ -60,5 +60,5 @@ addopts = "-ra --strict-markers"
 dev = [
     "pytest>=9.0.3",
     "pytest-mock>=3.11",
-    "ruff>=0.15.18,<0.16",
+    "ruff>=0.15.18,<0.17",
 ]
