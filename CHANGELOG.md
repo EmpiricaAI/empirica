@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   More importantly this was user-facing: `empirica-mcp` **1.12.37 shipped with the
   uncapped range**, so a fresh install today resolves 2.0.0 and breaks at import.
 
+  The same uncapped range existed in **two** manifests — `empirica-mcp/pyproject.toml`
+  and the main package's `[mcp]` extra. Fixing only the one CI exercised would have
+  left `pip install empirica[mcp]` broken; both are capped.
+
   An unpinned `>=` across a major boundary is the defect, not the upstream release —
   semver majors break by design, and a floor without a ceiling hands release timing
   to a third party. Porting to the 2.x API is tracked separately.

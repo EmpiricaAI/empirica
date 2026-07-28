@@ -102,7 +102,12 @@ vision = [
 
 # MCP server support
 mcp = [
-    "mcp>=1.28.1",  # Security: CVE-2026-52869/-52870 (fix 1.27.2) + CVE-2026-59950 (fix 1.28.1)
+    # Capped <2 for the same reason as empirica-mcp: mcp 2.0.0 removes
+    # Server.list_tools / Server.call_tool / Tool.inputSchema. Missing this the
+    # first time is instructive — the SAME uncapped range existed in two
+    # manifests, and fixing only the one CI happened to exercise would have left
+    # `pip install empirica[mcp]` broken.
+    "mcp>=1.28.1,<2",  # Security: CVE-2026-52869/-52870 (fix 1.27.2) + CVE-2026-59950 (fix 1.28.1)
 ]
 
 # Prose evidence grounding (non-code users)
