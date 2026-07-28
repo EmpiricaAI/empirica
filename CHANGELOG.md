@@ -5,6 +5,21 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **`pytest-randomly` is now a declared test dependency, so CI randomizes test
+  order.** It was installed on dev machines and declared nowhere, which meant CI ran
+  a deterministic file order and *structurally could not observe* order-dependent
+  bugs. Measured 2026-07-28: local randomized runs failed 2, then 5, then 6, then 7
+  tests across successive runs of **identical code** while CI stayed green
+  throughout — the cause being a test that evicted `empirica.api.*` from
+  `sys.modules` without restoring it.
+
+  This deliberately makes CI stricter. A red run here is the plugin doing its job:
+  fix the ordering bug rather than pinning a seed or dropping the plugin.
+
 ## [1.12.37] — 2026-07-28
 
 ### Fixed

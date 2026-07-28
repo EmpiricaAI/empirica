@@ -123,6 +123,20 @@ test = [
     "pytest-cov>=4.1",
     "pytest-mock>=3.11",
     "pytest-xdist>=3.6",          # parallel `-n auto` — keeps `compliance-report --tests` from timing out locally
+    # Randomizes test order so ORDER-DEPENDENT tests fail loudly instead of passing
+    # by luck. Deliberately makes CI stricter.
+    #
+    # It was installed on dev machines and declared nowhere, so CI ran a
+    # deterministic file order and structurally could not see this class of bug.
+    # Measured 2026-07-28: local randomized runs failed 2, then 5, then 6, then 7
+    # tests across successive runs of IDENTICAL code while CI stayed green
+    # throughout. The cause was a test evicting `empirica.api.*` from `sys.modules`
+    # without restoring it — invisible to CI by construction. Green CI was never
+    # evidence of order-independence.
+    #
+    # If this turns CI red, the finding is real: fix the ordering bug rather than
+    # pinning a seed or removing the plugin.
+    "pytest-randomly>=4.1",
     "dirty-equals>=0.7",
 ]
 lint = [
