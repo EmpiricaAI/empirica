@@ -71,10 +71,25 @@ def test_api_registry_imports_without_flask():
         assert callable(prune_stale)
     finally:
         builtins.__import__ = real_import
-        # Restore the evicted modules so later tests' references stay valid.
+        # Restore the evicted modules. A test that mutates `sys.modules` owns
+        # putting it back: leaving `empirica.api.*` evicted means every LATER test
+        # in the session runs against a different module graph than a real process,
+        # which is a correctness hazard, not just a flake source.
         for _mod, _obj in _saved_modules.items():
-            if _obj is not None:
-                sys.modules[_mod] = _obj
+            if _obj is None:
+                continue
+            sys.modules[_mod] = _obj
+            # Re-bind the child on its PARENT package too. Restoring sys.modules
+            # alone leaves a split graph: `sys.modules['empirica.api.registry']` is
+            # the original while `empirica.api.registry` (the attribute) still points
+            # at the copy created during the eviction, so a late
+            # `from empirica.api.registry import x` can bind the wrong function.
+            # That produced a test where a monkeypatch was visibly applied to the
+            # module and yet the code under test called the unpatched original.
+            _parent_name, _, _child = _mod.rpartition(".")
+            _parent = sys.modules.get(_parent_name) if _parent_name else None
+            if _parent is not None and _child:
+                setattr(_parent, _child, _obj)
 
 
 def test_projects_commands_handler_imports_without_flask():

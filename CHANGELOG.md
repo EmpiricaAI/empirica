@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Intermittent suite failures: a test evicted `empirica.api.*` from `sys.modules`
+  and never restored it.** `test_projects_discover_register_target.py` strips those
+  modules to force a genuine re-import under blocked-flask, and restored
+  `builtins.__import__` but not `sys.modules`. Every later test in the session then
+  ran against a mutated module graph. Causation proven by reverting that file alone:
+  45 pass with the fix, 5 fail without it.
+
+  **Restoring `sys.modules` alone was not sufficient**, and the half-fix is worth
+  knowing about because its symptom is so misleading. Putting the module back while
+  its **parent package attribute** still pointed at the copy created during eviction
+  left two module objects for one file — so a test could call
+  `registry.load_registry()` and watch its own monkeypatch apply, while the code
+  under test late-imported the *real* function and returned `None`. Every
+  intermediate check passed and the call still failed. The restore now re-binds each
+  child on its parent package.
+
+  Two supporting fixes: `daemon_project`'s module-global cache is reset process-wide
+  in `conftest.py` (the leak crosses files, so a per-file fixture only moves it), and
+  a test asserting an absolute resolver call-count now asserts its real contract —
+  first call resolves, `refresh=True` forces another.
+
+  Result: the suite passes **5113/5113 in both fixed and randomized order**. Worth
+  knowing fleet-wide: `pytest-randomly` is in no declared extra, so CI runs a
+  deterministic file order and structurally could not see this class of bug. Green
+  CI was never evidence of order-independence.
+
 - **The Sentinel was gating read-only empirica verbs before CHECK.** The gate
   carried a hand-maintained allowlist against a CLI that exposes **279 verbs**, and
   **41 read-only ones were on neither tier** — so they were denied pre-CHECK. That
