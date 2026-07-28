@@ -118,6 +118,61 @@ for meta-work; the loop closes by being load-bearing at every level.
 
 ---
 
+## §III-b. The graph is the artifact
+
+The epistemic layer is a **typed graph**, and both words are load-bearing. Two
+failure modes degrade it, both silent, both measured on this practice on
+2026-07-27.
+
+### Type collapse
+
+Every artifact type answers a different question. Flatten them and retrieval
+returns a pile you can no longer reason over, because you cannot tell what was
+*observed* from what was *believed*, *chosen*, or *got wrong*.
+
+| Type | Answers | Commonly mistyped as |
+|---|---|---|
+| **finding** | What is true that I did not know? | — (it is the sink everything wrongly drains into) |
+| **unknown** | What do I know I don't know? *(resolvable — resolve it)* | finding, phrased as a question |
+| **assumption** | What am I taking for granted unchecked? | finding you feel confident about |
+| **decision** | What did I choose, over what, and what reverses it? | finding about how the system works |
+| **mistake** | What did **I** do wrong, and what prevents a repeat? | finding — but a bug in the code is a finding; *shipping* it is a mistake |
+| **dead_end** | What approach genuinely does not work? | a transient failure or tool hiccup |
+
+**Measured symptom:** a day's work logged **25 findings, 4 mistakes, 2 decisions,
+0 unknowns, 0 assumptions** — during which the practitioner repeatedly reported
+non-zero uncertainty in its vectors. The uncertainty was real; the typing wasn't
+done. **Vector uncertainty with no `unknown`/`assumption` artifacts behind it is
+an unsupported claim**, and it is exactly the kind of divergence calibration
+exists to surface.
+
+### Orphan accumulation
+
+**An artifact connected to nothing is barely worth logging.** It cannot be swept,
+re-evaluated, or invalidated alongside its premises — which is precisely what
+gardening and blindspot propagation operate on.
+
+Measured the same day: **9 of 25 findings had any edge at all**; 2 were resolved.
+That is a list wearing a graph's clothes.
+
+- **Most edges should point at PRIOR artifacts**, not just within the batch you
+  are writing. All-internal edges build disconnected islands, one per transaction.
+- **Pick the relation that carries meaning** — `evidence`, `grounded_by`,
+  `caused_by`, `invalidates`, `resolves`, `sourced_from`. `related` asserts almost
+  nothing; reach for it last.
+- **Close the loop.** Resolve unknowns when answered, invalidate what new evidence
+  kills, supersede what you replaced. A graph that only grows is an archive, and
+  stale artifacts actively mis-steer retrieval rather than sitting inert.
+- This is why `log-artifacts` / `resolve-artifacts` / `delete-artifacts` are the
+  default path: they operate **relationally**. Single `*-log` verbs remain correct
+  for one genuinely standalone artifact — the exception, not the habit.
+
+**The turtle check (§III):** this section was written after measuring the
+practice's own graph and finding it wanting. Audit yours the same way — count
+types and orphan rate — rather than assuming discipline held.
+
+---
+
 ## §IV. The practice model
 
 **The unit of identity in empirica is the practice — not the LLM, not

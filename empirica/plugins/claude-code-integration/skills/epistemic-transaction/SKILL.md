@@ -412,21 +412,49 @@ EOF
 Fall back to individual Read/Grep/Glob for one-shot lookups after a batch
 surfaces something you need to drill into.
 
-Read code. Search patterns. Build understanding. **Log as you go:**
+Read code. Search patterns. Build understanding. **Log as you go — as a graph.**
+
+Pick the type by the QUESTION it answers, not by convenience. A bug you found in
+the code is a `finding`; *you* shipping it is a `mistake`. Something you have not
+verified is an `assumption`; something you know you don't know is an `unknown`.
+Defaulting everything to `finding` is the most common way this layer degrades —
+see `/empirica-constitution` §III-b.
 
 ```bash
-# Every discovery → finding
-empirica finding-log --finding "Middleware chain uses app.use() with path prefix" --impact 0.5
-
-# Every question → unknown
-empirica unknown-log --unknown "Where are role definitions stored?"
-
-# Every failed approach → dead-end
-empirica deadend-log --approach "Tried passport.js" --why-failed "Too heavy for JWT-only auth"
-
-# Every unverified belief → assumption
-empirica assumption-log --assumption "All routes need auth except /health" --confidence 0.8 --domain routing
+empirica log-artifacts - << 'EOF'
+{
+  "nodes": [
+    {"ref": "f1", "type": "finding",
+     "data": {"finding": "Middleware chain uses app.use() with a path prefix", "impact": 0.5}},
+    {"ref": "u1", "type": "unknown",
+     "data": {"unknown": "Where are role definitions stored?"}},
+    {"ref": "a1", "type": "assumption",
+     "data": {"assumption": "All routes need auth except /health",
+              "confidence": 0.8, "domain": "routing"}},
+    {"ref": "d1", "type": "dead_end",
+     "data": {"approach": "Tried passport.js", "why_failed": "Too heavy for JWT-only auth"}}
+  ],
+  "edges": [
+    {"from": "d1", "to": "f1", "relation": "grounded_by"},
+    {"from": "a1", "to": "f1", "relation": "evidence"},
+    {"from": "u1", "to": "<id-of-a-PRIOR-finding>", "relation": "raised_by"}
+  ]
+}
+EOF
 ```
+
+**The last edge is the one that matters most.** Edges to artifacts from EARLIER
+transactions are what make this a graph rather than one disconnected island per
+transaction. If every edge you write connects two nodes you just created, you are
+accumulating orphans — measured on this practice, 9 of 25 findings in a day had
+any edge at all.
+
+Prefer meaningful relations (`evidence`, `grounded_by`, `caused_by`,
+`invalidates`, `resolves`, `sourced_from`) over `related`, which asserts almost
+nothing.
+
+Single `*-log` verbs are still correct for one genuinely standalone artifact —
+the exception, not the habit.
 
 #### Rich markdown bodies — `--description` for nuance
 

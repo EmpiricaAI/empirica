@@ -5,6 +5,61 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **The Sentinel was gating read-only empirica verbs before CHECK.** The gate
+  carried a hand-maintained allowlist against a CLI that exposes **279 verbs**, and
+  **41 read-only ones were on neither tier** — so they were denied pre-CHECK. That
+  included the entire `engagement-*` family (a peer practice hit exactly this),
+  `session-show`, `sources-map`, `projects-list`, `identity-list`, the
+  `checkpoint-*` readers and more.
+
+  Reading is noetic. Denying a read does not protect anything — it teaches the
+  practitioner to rubber-stamp a CHECK in order to look something up, which
+  corrupts what CHECK *means* far more than the gate was defending.
+
+  Fixed by matching the read-shaped **suffix** (`-list`, `-show`, `-search`,
+  `-status`, `-stats`, `-report`, `-map`, `-walk`, `-diff`, `-history`, `-explain`,
+  `-context`, `-top`, `-related`, `-get`, `-verify`, `-signatures`) rather than
+  extending the list again — a new verb named to the existing convention is now
+  classified correctly for free, which is what actually fixes the maintenance
+  problem. A mutating verb would have to be actively misnamed to slip through, and
+  tests pin that the known-mutating verbs stay gated. `sources-check` is the
+  near-miss worth knowing: it writes review stamps, and is safe only because
+  `-check` is deliberately not a read suffix.
+
+  Deliberately **not** inverted to a denylist: defaulting-open on an unknown verb
+  is a posture change to a security-adjacent gate, and the suffix rule gets the
+  same ergonomics without it. Four verbs (`module`, `query`, `scan`, `vision`)
+  remain gated because their read-only status could not be confirmed.
+
+### Changed
+
+- **Artifact type discipline and graph-shape guidance** added to the canonical
+  system prompt, `/empirica-constitution` (new §III-b) and
+  `/epistemic-transaction`. Two measured failure modes:
+
+  **Type collapse** — a day's work on this practice logged 25 findings, 4 mistakes,
+  2 decisions and **zero unknowns or assumptions**, while reporting non-zero
+  uncertainty throughout. Each type answers a different question, and flattening
+  them into `finding` produces a pile that cannot be reasoned over. Vector
+  uncertainty with no `unknown`/`assumption` behind it is an unsupported claim. The
+  two recurring confusions are now named explicitly: a bug in the code is a
+  *finding*, shipping it is a *mistake*; an unverified belief is an *assumption*, a
+  known gap is an *unknown*.
+
+  **Orphan accumulation** — only **9 of 25** findings that day carried any edge, and
+  2 were resolved. An artifact connected to nothing cannot be swept, re-evaluated,
+  or invalidated with its premises, which is exactly what gardening operates on.
+  Guidance now states that most edges should point at artifacts from EARLIER
+  transactions (all-internal edges build one disconnected island per transaction),
+  that `related` asserts almost nothing next to `evidence` / `grounded_by` /
+  `caused_by` / `invalidates` / `resolves`, and that a graph which only grows is an
+  archive. The `/epistemic-transaction` worked example is now a connected
+  `log-artifacts` batch instead of four independent `*-log` calls.
+
 ## [1.12.36] — 2026-07-27
 
 Patch, but the most consequential one in a while: it closes an **asymmetric

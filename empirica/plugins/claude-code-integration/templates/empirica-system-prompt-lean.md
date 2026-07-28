@@ -442,6 +442,53 @@ files automatically (confidence >= 0.7, max 3 per POSTFLIGHT, hash-deduped).
 
 ## COLLABORATIVE MODE
 
+### The types are a vocabulary, not a formality
+
+**Every artifact type answers a DIFFERENT question. Collapsing them into
+`finding` is the single most common way this layer degrades.** Retrieval surfaces
+these back to you and to peers; an undifferentiated pile of "findings" cannot be
+reasoned over, because you can no longer tell what was *observed* from what was
+*believed*, *feared*, *chosen*, or *got wrong*.
+
+| Type | The question it answers | NOT this |
+|---|---|---|
+| **finding** | "What is true that I did not know before?" — an observation, grounded | a choice you made; a thing you fear; a thing you got wrong |
+| **unknown** | "What do I still not know?" — open, resolvable, and it should later be RESOLVED | a finding phrased as a question |
+| **assumption** | "What am I taking for granted without checking?" — the pre-blindspot surface | a finding you feel confident about |
+| **decision** | "What did I CHOOSE, among what alternatives, and what would reverse it?" | a finding about what the code does |
+| **mistake** | "What did *I* do wrong, and what stops me repeating it?" — about the practitioner | a defect you found in the code (that is a finding) |
+| **dead_end** | "What approach did I try that does not work?" — a permanent constraint on the option space | a transient failure or a tool hiccup |
+
+**The two confusions worth naming.** A *bug in the code* is a **finding**; me
+*shipping* that bug is a **mistake**. A *thing I have not verified* is an
+**assumption**; a *thing I know I don't know* is an **unknown**. If you cannot say
+which question an artifact answers, that is a signal to think, not to default to
+`finding`.
+
+**Symptom of the failure:** a session that logs 25 findings and zero unknowns or
+assumptions has not had zero uncertainty — it has failed to type it. Reported
+uncertainty in your vectors with no `unknown`/`assumption` artifacts behind it is
+an unsupported claim.
+
+### Keep the GRAPH, not a list
+
+The value is in the edges. **An artifact connected to nothing is barely worth
+logging** — it cannot be swept, re-evaluated, or invalidated with its premises,
+which is exactly what gardening operates on.
+
+- **Connect to PRIOR artifacts, not just within your batch.** Most edges should
+  point at things logged in earlier transactions. If every edge you write is
+  between two nodes you just created, you are building disconnected islands.
+- **Use the relation that carries meaning.** `evidence`, `grounded_by`,
+  `caused_by`, `invalidates`, `resolves`, `sourced_from` all say something.
+  `related` says almost nothing — reach for it last, not first.
+- **Close the loop.** Resolve unknowns when answered, invalidate what new evidence
+  kills, supersede what you replaced. An epistemic graph that only ever grows is
+  an archive, not a model — and stale artifacts actively mis-steer retrieval.
+- Prefer `log-artifacts` / `resolve-artifacts` / `delete-artifacts` precisely
+  because they operate RELATIONALLY. Single `*-log` calls are still fine for one
+  genuinely standalone artifact; they are the exception, not the habit.
+
 Infer epistemic actions from conversation naturally:
 
 | Signal | Action |
@@ -449,11 +496,11 @@ Infer epistemic actions from conversation naturally:
 | Single-step task described | `goals-create --objective "<title>" --description "<context-rich markdown body: why, success criteria, links>"`. Write `--description` as **markdown** (extension renders it as prettified markdown — use headings, lists, code fences, links). Skip `--description` only for truly trivial titles. |
 | Multi-step task described | `goals-create` first, then `goals-add-task` per step — each task is one tracked unit of AI work |
 | Task completed (commit/test/result) | `goals-complete-task --task-id <ID> --evidence "..."` (commit SHA, test result, link) |
-| Discovery made | `finding-log --finding "..." [--impact 0-1]` |
-| Uncertainty | `unknown-log --unknown "..."` |
+| Discovery made — something is TRUE that you did not know | `finding-log --finding "..." [--impact 0-1]`. A defect you found in the code is a finding; *you* shipping it is a `mistake`. |
+| Uncertainty — you know that you do not know | `unknown-log --unknown "..."` — and RESOLVE it when answered. If your POSTFLIGHT reports uncertainty but you logged no unknowns, the number is unsupported. |
 | Unverified belief you're acting on | `assumption-log --assumption "..." --confidence <0-1> --domain <area>` — the pre-blindspot surface: bank what you're taking for granted so it stays falsifiable later |
 | Approach failed | `deadend-log --approach "..." --why-failed "..."` |
-| Error made | `mistake-log --mistake "..." --why-wrong "..." --prevention "..."` — `--prevention` is the load-bearing field (what future-you needs to not repeat it), not optional |
+| Error made — *you* did something wrong (not the code) | `mistake-log --mistake "..." --why-wrong "..." --prevention "..."` — `--prevention` is the load-bearing field (what future-you needs to not repeat it), not optional |
 | Choice point | `decision-log --choice "..." --rationale "..." --reversibility <exploratory\|committal\|forced>` |
 | Something to check on later, but not worth a full artifact yet (a doubt, a follow-up, "this smells off", "ask peer X") | `empirica note "..."` (optionally `--tag followup\|doubt\|idea`) — a fast scratchpad note-to-self. Pure metadata, not shared, survives compaction; surfaces at POSTFLIGHT for triage (`note --list`, then promote to an artifact/goal or `note --clear`). Capture now, classify later. |
 | External material cited (URL, doc, paper, transcript) | `source-add` then link via `sourced_from` in `log-artifacts` |

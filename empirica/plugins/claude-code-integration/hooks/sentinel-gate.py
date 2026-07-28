@@ -849,8 +849,77 @@ def is_safe_empirica_command(command: str) -> bool:
         if cmd.startswith(prefix):
             return True
 
+    # Tier 1b: Read-only by NAMING CONVENTION.
+    #
+    # The explicit list above cannot keep up. Measured 2026-07-27: the CLI exposes
+    # 279 verbs and 41 read-only ones were absent from both tiers — so they were
+    # DENIED pre-CHECK, including the whole `engagement-*` family (a peer practice
+    # hit exactly that), `session-show`, `sources-map` and `projects-list`. Reading
+    # is noetic; denying a read teaches the practitioner to rubber-stamp a CHECK to
+    # get at information, which corrupts the gate's meaning far more than it
+    # protects anything.
+    #
+    # Matching the SUFFIX rather than extending the list is what actually fixes the
+    # maintenance problem: a new verb named to the existing convention is classified
+    # correctly for free. A mutating verb would have to be actively MISNAMED to slip
+    # through, and `is_read_shaped_empirica_verb` is pinned by tests asserting the
+    # known-mutating verbs stay out.
+    #
+    # Deliberately NOT inverting to a denylist: defaulting-open on an unknown verb
+    # is a posture change to a security-adjacent gate, and this achieves the same
+    # ergonomics without it.
+    if is_read_shaped_empirica_verb(cmd):
+        return True
+
     # Tier 2: State-changing - allowed (these enable the workflow)
     return any(cmd.startswith(prefix) for prefix in EMPIRICA_TIER2_PREFIXES)
+
+
+# Verb suffixes that denote a pure read in empirica's CLI naming convention.
+# Each was verified against the live verb list and the parsers' own help text —
+# not assumed from the name alone.
+EMPIRICA_READ_SUFFIXES = (
+    "-list",
+    "-show",
+    "-search",
+    "-status",
+    "-stats",
+    "-report",
+    "-map",
+    "-walk",
+    "-diff",
+    "-history",
+    "-explain",
+    "-context",
+    "-top",
+    "-related",
+    "-get",
+    "-verify",
+    "-signatures",
+)
+
+# Verbs that LOOK read-shaped but mutate. Empty today — the convention holds
+# across all 279 verbs — but the hook exists so a future misnamed verb has an
+# obvious place to go, and the accompanying test asserts these stay gated.
+# `sources-check` is the near-miss worth remembering: it writes review stamps,
+# and is safe here only because `-check` is deliberately NOT a read suffix.
+EMPIRICA_READ_SHAPED_BUT_MUTATING = ()
+
+
+def is_read_shaped_empirica_verb(cmd: str) -> bool:
+    """Is this an empirica subcommand whose NAME marks it a pure read?
+
+    Matches the verb token only — flags cannot make a read verb mutating, and a
+    mutating verb cannot be laundered by appending a read-shaped word later in the
+    command line.
+    """
+    parts = cmd.split()
+    if len(parts) < 2 or parts[0] != "empirica":
+        return False
+    verb = parts[1]
+    if verb in EMPIRICA_READ_SHAPED_BUT_MUTATING:
+        return False
+    return verb.endswith(EMPIRICA_READ_SUFFIXES)
 
 
 def is_toggle_command(command: str) -> str | None:
