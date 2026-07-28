@@ -735,6 +735,15 @@ EMPIRICA_TIER1_PREFIXES = (
     # mailbox reads as noetic (prop_iefo2tdx); the poll/show verbs only GET.
     "empirica mailbox poll",  # Read cortex inbox/outbox (pure read)
     "empirica mailbox show",  # Read one proposal body (pure read)
+    # Unified breadcrumb query (findings/unknowns/deadends/mistakes/issues/…).
+    # Pure read — `query_commands.py` contains no INSERT/UPDATE/commit/write.
+    # Resolved from the four verbs left gated when the suffix rule landed; the
+    # other three earned their gate: `scan` writes three files (its "read-only"
+    # help means it does not mutate the SERVICES it inspects, not the DB),
+    # `vision` has a `vision log` subcommand, and `module` is slated to gain
+    # fetch/provision. Checked rather than inferred from the help text — `scan`
+    # is exactly the verb that reads as safe and is not.
+    "empirica query",
 )
 
 # Tier 2: State-changing commands - allowed (these ARE the epistemic workflow)

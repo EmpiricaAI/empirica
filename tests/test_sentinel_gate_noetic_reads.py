@@ -76,7 +76,30 @@ PREVIOUSLY_GATED_READS = [
     "empirica workspace-search foo",
     "empirica docs-explain thing",
     "empirica bootstrap-context",
+    # Verified read-only by reading the handler, not the help text:
+    # query_commands.py contains no INSERT/UPDATE/commit/write.
+    "empirica query findings",
 ]
+
+
+# The three verbs that LOOK read-only and are not. Each was left gated on
+# evidence, and `scan` is the cautionary one: its help literally says
+# "(read-only)" — meaning it does not mutate the SERVICES it inspects — while
+# `scan_commands.py` opens three files for write, which is how `scan-history`
+# has anything to show. Help text is not a contract.
+VERBS_THAT_LOOK_READONLY_BUT_WRITE = [
+    "empirica scan",  # writes scan record + last + history
+    "empirica vision",  # has a `vision log` subcommand
+    "empirica module",  # validate today; fetch/provision slated
+]
+
+
+@pytest.mark.parametrize("cmd", VERBS_THAT_LOOK_READONLY_BUT_WRITE)
+def test_verbs_that_write_stay_gated(gate, cmd):
+    assert gate.is_read_shaped_empirica_verb(cmd) is False
+    assert gate.is_safe_empirica_command(cmd) is False, (
+        f"{cmd!r} mutates state and must not flow pre-CHECK — see the handler, not the help text"
+    )
 
 
 @pytest.mark.parametrize("cmd", PREVIOUSLY_GATED_READS)

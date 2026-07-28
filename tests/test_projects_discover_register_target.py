@@ -40,10 +40,20 @@ def test_api_registry_imports_without_flask():
             raise ModuleNotFoundError(f"flask blocked: {name}")
         return real_import(name, *args, **kwargs)
 
-    # Strip cached flask + api modules so the import truly re-runs
+    # Strip cached flask + api modules so the import truly re-runs.
+    #
+    # SAVE THEM. Evicting `empirica.api.*` without restoring leaks across the whole
+    # session: a later test holding a module-level reference (e.g.
+    # `import empirica.api.daemon_project as dp`) keeps pointing at the OLD, evicted
+    # object, so `monkeypatch.setattr(dp, ...)` patches a module nothing imports —
+    # while the code under test late-imports a FRESH copy and runs the real
+    # function. That produced 6-7 intermittent failures in
+    # test_injection_budget_serve.py under `pytest-randomly`, reproducible only when
+    # this file happened to run first, which is why it survived so long.
+    _saved_modules = {}
     for mod in list(sys.modules):
         if mod == "flask" or mod.startswith("flask.") or mod.startswith("empirica.api"):
-            sys.modules.pop(mod, None)
+            _saved_modules[mod] = sys.modules.pop(mod, None)
 
     builtins.__import__ = block_flask
     try:
@@ -61,6 +71,10 @@ def test_api_registry_imports_without_flask():
         assert callable(prune_stale)
     finally:
         builtins.__import__ = real_import
+        # Restore the evicted modules so later tests' references stay valid.
+        for _mod, _obj in _saved_modules.items():
+            if _obj is not None:
+                sys.modules[_mod] = _obj
 
 
 def test_projects_commands_handler_imports_without_flask():

@@ -353,9 +353,21 @@ def test_get_cached_daemon_project_refresh_forces_re_resolve(tmp_path, monkeypat
     with patch("empirica.utils.session_resolver.InstanceResolver.project_path", side_effect=_counting_canonical):
         monkeypatch.chdir(proj)
         get_cached_daemon_project()
+        after_first = call_count["n"]
         get_cached_daemon_project(refresh=True)
+        after_refresh = call_count["n"]
 
-    assert call_count["n"] == 2
+    # Assert the CONTRACT — "refresh re-resolves" — rather than an absolute call
+    # count. `== 2` additionally pinned how many times the resolver consults the
+    # canonical chain per call, which is an implementation detail and made the test
+    # order-dependent: it failed intermittently under `pytest-randomly` and could
+    # not be reproduced in isolation or within a 22-file subset.
+    #
+    # These two assertions are strictly stronger about what the test is FOR (the
+    # first call resolves; refresh forces another) while not caring how the
+    # resolver reaches its answer.
+    assert after_first >= 1, "the first call must resolve"
+    assert after_refresh > after_first, "refresh=True must force a re-resolve, not serve the cache"
 
 
 # ---------------------------------------------------------------------------

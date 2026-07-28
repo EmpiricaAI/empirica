@@ -283,6 +283,51 @@ def pytest_configure(config):
 
 
 @pytest.fixture(autouse=True)
+def reset_process_wide_caches():
+    """Reset module-global caches that leak state BETWEEN TEST FILES.
+
+    `daemon_project` memoises the resolved project in module globals, and
+    `version_drift` memoises install mode via lru_cache. Both are correct for a
+    long-running daemon and both are process-wide, so a test that populates them
+    with a `tmp_path` leaks that value to every later test in the session — by
+    which point the directory is gone.
+
+    Why this is here and not in one test file: it surfaced as failures in
+    `test_injection_budget_serve.py` caused by `test_daemon_project_resolver.py`,
+    i.e. ACROSS files, so a per-file fixture only moves the problem to whichever
+    file the random order happens to put first.
+
+    Measured 2026-07-27: the local venv has `pytest-randomly` installed and CI does
+    not (it is in no declared extra), so CI runs a deterministic file order and
+    **structurally cannot see this class of bug** — local runs failed 2, then 5,
+    then 6, then 7 tests across successive runs of identical code while CI stayed
+    green. A fixed-order local run of the same tree passes 5109/5109. Green CI was
+    never evidence of order-independence here.
+    """
+    try:
+        import empirica.api.daemon_project as _dp
+
+        _dp._cached = False
+        _dp._cached_project = None
+    except Exception:
+        pass
+    try:
+        from empirica.core.version_drift import is_editable_install
+
+        is_editable_install.cache_clear()
+    except Exception:
+        pass
+    yield
+    try:
+        import empirica.api.daemon_project as _dp
+
+        _dp._cached = False
+        _dp._cached_project = None
+    except Exception:
+        pass
+
+
+@pytest.fixture(autouse=True)
 def cleanup_test_artifacts():
     """Automatically clean up test artifacts after each test"""
     yield
