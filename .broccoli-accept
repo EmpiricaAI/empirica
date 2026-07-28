@@ -1,0 +1,8 @@
+# pattern:location — why it's intentional (and what would reverse it)
+# Reviewed 2026-07-28, standard depth × changed scope (delta since v1.12.36).
+
+blind-except:empirica/core/redaction.py:140 — fails CLOSED (emits the placeholder, never raw text). A redactor that degrades to pass-through is worse than none because callers believe they are protected. Reverse if it ever returns the input on error.
+blind-except:empirica/core/version_drift.py:75,103,129 — best-effort by contract; a drift check must never crash a long-running daemon. Safe direction verified: if the distribution cannot be resolved, version_drift() also returns None, so no self-exit is triggered. Reverse if a caller starts treating None as "confirmed no drift" rather than "no signal".
+blind-except:empirica/core/loop_scheduler/persistent_listener.py:116,461,510 — pre-existing, unchanged by this delta.
+complexity:empirica/plugins/.../sentinel-gate.py::_validate_check_record D(29) — pre-existing, untouched. Functions added in this delta are A/B (worst B(9)).
+complexity:empirica/core/qdrant/memory.py::search C(16) — pre-existing shape; this delta REDUCED branching by collapsing focused/all into one branch.
