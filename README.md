@@ -354,11 +354,10 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.12.37
+## What's New in 1.12.38
 
-- **Intermittent suite failures: a test evicted `empirica.api.*` from `sys.modules` and never restored it.** `test_projects_discover_register_target.py` strips those modules to force a genuine re-import under blocked-flask, and restored `builtins.__import__` but not `sys.modules`. Every later test in the session then ran against a mutated module graph. Causation proven by reverting that file alone: 45 pass with the fix, 5 fail without it.
-- **The Sentinel was gating read-only empirica verbs before CHECK.** The gate carried a hand-maintained allowlist against a CLI that exposes **279 verbs**, and **41 read-only ones were on neither tier** — so they were denied pre-CHECK. That included the entire `engagement-*` family (a peer practice hit exactly this), `session-show`, `sources-map`, `projects-list`, `identity-list`, the `checkpoint-*` readers and more.
-- **Artifact type discipline and graph-shape guidance** added to the canonical system prompt, `/empirica-constitution` (new §III-b) and `/epistemic-transaction`. Two measured failure modes:
+- **`empirica-mcp` pinned below MCP SDK 2.0.** `mcp 2.0.0` (published 2026-07-28T13:45Z) removes `Server.list_tools`, `Server.call_tool` and `Tool.inputSchema`. The dependency was declared `mcp>=1.28.1` with no ceiling, so CI resolved the new major and went red **with no commit of ours** — four test modules failed collection and pyright reported 6 errors.
+- **`pytest-randomly` is now a declared test dependency, so CI randomizes test order.** It was installed on dev machines and declared nowhere, which meant CI ran a deterministic file order and *structurally could not observe* order-dependent bugs. Measured 2026-07-28: local randomized runs failed 2, then 5, then 6, then 7 tests across successive runs of **identical code** while CI stayed green throughout — the cause being a test that evicted `empirica.api.*` from `sys.modules` without restoring it.
 ---
 
 ## What's New in 1.12.35
