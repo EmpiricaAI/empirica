@@ -38,6 +38,41 @@ _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
 _URL_RE = re.compile(r"https?://\S+", re.I)
 
 
+def _resolve_source_ids(args, ctx, db, config_data=None) -> list[str]:
+    """Collect cited source ids for any artifact-logging verb, honouring inline --cite.
+
+    Shared rather than copied per verb, because the per-verb version existed only in
+    `finding-log`. The other five verbs ADVERTISED `--source` — argparse accepted it —
+    and their handlers never read it, so citations passed to `unknown-log`,
+    `mistake-log`, `decision-log`, `deadend-log` and `assumption-log` were silently
+    discarded: no error, no warning, no edge. A practitioner following the documented
+    flag produced nothing and had no way to notice.
+
+    That is why the graph measured 2 `sourced_from` edges with ZERO active sources
+    cited — the affordance looked present and did nothing, which is worse than absent.
+
+    Never raises: a citation problem must not fail the log that carries the knowledge.
+    """
+    cfg = config_data or {}
+    source_ids = list(cfg.get("source_ids") or getattr(args, "source_ids", None) or [])
+    cite_title = cfg.get("cite_title") or getattr(args, "cite_title", None)
+    if cite_title:
+        try:
+            new_sid = db.breadcrumbs.create_source(
+                project_id=ctx.get("project_id"),
+                session_id=ctx.get("session_id"),
+                title=cite_title,
+                url=cfg.get("cite_url") or getattr(args, "cite_url", None),
+                source_type=cfg.get("cite_type") or getattr(args, "cite_type", None) or "reference",
+                visibility=ctx.get("visibility"),
+                transaction_id=ctx.get("transaction_id"),
+            )
+            source_ids.insert(0, new_sid)
+        except Exception as e:
+            logger.debug(f"inline --cite create_source failed (non-fatal): {e}")
+    return source_ids
+
+
 def _is_uuid(s: str) -> bool:
     """Check if a string looks like a UUID."""
     return bool(_UUID_RE.match(s))
@@ -1116,6 +1151,7 @@ def handle_unknown_log_command(args):
         _warn_unsourced_citations_if_needed(args, unknown)
 
         # Store to SQLite (durable)
+        source_ids = _resolve_source_ids(args, ctx, db, locals().get("config_data"))
         unknown_id = db.log_unknown(
             project_id=ctx["project_id"],
             session_id=ctx["session_id"],
@@ -1130,6 +1166,7 @@ def handle_unknown_log_command(args):
             visibility=ctx["visibility"],
             epistemic_source=epistemic_source,
             description=description,
+            source_ids=source_ids,
         )
 
         # Entity cross-link
@@ -1504,6 +1541,7 @@ def handle_deadend_log_command(args):
         _warn_unsourced_citations_if_needed(args, approach, why_failed)
 
         # Store to SQLite (durable)
+        source_ids = _resolve_source_ids(args, ctx, db, locals().get("config_data"))
         dead_end_id = db.log_dead_end(
             project_id=ctx["project_id"],
             session_id=ctx["session_id"],
@@ -1519,6 +1557,7 @@ def handle_deadend_log_command(args):
             visibility=ctx["visibility"],
             epistemic_source=epistemic_source,
             description=description,
+            source_ids=source_ids,
         )
 
         # Entity cross-link
@@ -1655,6 +1694,7 @@ def handle_assumption_log_command(args):
         _warn_unsourced_citations_if_needed(args, assumption)
 
         # Store to SQLite (durable)
+        source_ids = _resolve_source_ids(args, ctx, db, locals().get("config_data"))
         assumption_id = db.log_assumption(
             project_id=ctx["project_id"],
             session_id=ctx["session_id"],
@@ -1668,6 +1708,7 @@ def handle_assumption_log_command(args):
             visibility=ctx["visibility"],
             epistemic_source=epistemic_source,
             description=description,
+            source_ids=source_ids,
         )
 
         # GIT NOTES: Store in git notes for sync
@@ -1851,6 +1892,7 @@ def handle_decision_log_command(args):
         _warn_unsourced_citations_if_needed(args, choice, rationale)
 
         # Store to SQLite (durable)
+        source_ids = _resolve_source_ids(args, ctx, db, locals().get("config_data"))
         decision_id = db.log_decision(
             project_id=ctx["project_id"],
             session_id=ctx["session_id"],
@@ -1867,6 +1909,7 @@ def handle_decision_log_command(args):
             visibility=ctx["visibility"],
             epistemic_source=epistemic_source,
             description=description,
+            source_ids=source_ids,
         )
 
         git_stored = _decision_persist_git(
@@ -3359,6 +3402,18 @@ def handle_mistake_log_command(args):
         except Exception:
             pass
 
+        # This handler predates the ctx-dict pattern the others use, so build the
+        # minimal shape the resolver needs rather than reshaping the whole function.
+        source_ids = _resolve_source_ids(
+            args,
+            {
+                "project_id": project_id,
+                "session_id": session_id,
+                "visibility": visibility,
+                "transaction_id": transaction_id,
+            },
+            db,
+        )
         mistake_id = db.log_mistake(
             session_id=session_id,
             mistake=mistake,
@@ -3374,6 +3429,7 @@ def handle_mistake_log_command(args):
             visibility=visibility,
             epistemic_source=epistemic_source,
             description=description,
+            source_ids=source_ids,
         )
 
         if entity_type and entity_type != "project" and entity_id:

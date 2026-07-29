@@ -385,6 +385,24 @@ def _artifact_exists(db, artifact_id: str) -> bool:
                 return True
         except Exception:
             continue
+    # SOURCES ARE EDGE ENDPOINTS TOO. `epistemic_sources` is deliberately absent from
+    # `_ARTIFACT_TABLES` (that map also drives what `delete-artifacts` may DELETE, and
+    # sources are archived, not deleted) — but omitting it here meant `_artifact_exists`
+    # returned False for every source id, so `prune_dangling` judged EVERY
+    # `sourced_from` edge dangling and removed it.
+    #
+    # Not hypothetical: a routine prune during a gardening pass silently destroyed the
+    # practice's only two citation edges while both endpoints were present on disk. It
+    # would have wiped every citation the artifact verbs now write.
+    #
+    # An ARCHIVED source still exists — archiving preserves the audit chain by design
+    # (`source-archive` says so explicitly), so it must not read as a missing endpoint.
+    try:
+        cursor.execute("SELECT 1 FROM epistemic_sources WHERE id = ? LIMIT 1", (artifact_id,))
+        if cursor.fetchone():
+            return True
+    except Exception:
+        pass
     return False
 
 

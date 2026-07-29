@@ -27,6 +27,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`--source` was advertised on five artifact verbs and silently discarded.**
+  `unknown-log`, `deadend-log`, `mistake-log`, `decision-log` and `assumption-log`
+  all accepted `--source` — argparse took it, no error, no warning — and their
+  handlers never read it. Citations passed to them produced nothing, with no way for
+  a practitioner to notice. That is worse than a missing flag: the affordance looked
+  present and did nothing.
+
+  Now wired end-to-end (handler → `SessionDatabase` → repository → `sourced_from`
+  edge), verified by running all five verbs against a real source and counting
+  edges. `--cite` (inline source creation) remains `finding-log`-only for now.
+
+- **`delete-artifacts --prune-dangling` destroyed EVERY citation edge.**
+  `_artifact_exists` walked `_ARTIFACT_TABLES`, which excludes `epistemic_sources`
+  (that map also drives what may be *deleted*, and sources are archived rather than
+  deleted). So every source id read as missing, every `sourced_from` edge was judged
+  dangling, and a routine prune removed them all — while both endpoints sat present
+  on disk. An *archived* source still exists; `source-archive` preserves the audit
+  chain by design, so it must not read as a missing endpoint either.
+
+  Found by triggering it: a prune during this gardening pass destroyed the
+  practice's only two citation edges. Restored from the surviving `source_refs`
+  column and pinned by a regression test.
+
 - **All artifact types can now cite sources.** `sourced_from` edges were writable
   only from `finding-log`; unknowns, dead-ends, mistakes, decisions and assumptions
   could not cite a source **at all**. Measured before the change: 2 `sourced_from`

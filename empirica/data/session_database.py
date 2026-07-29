@@ -2648,6 +2648,7 @@ class SessionDatabase:
         visibility: str | None = None,
         epistemic_source: str | None = None,
         description: str | None = None,
+        source_ids: list[str] | None = None,
     ) -> str:
         """Log a project unknown (delegates to BreadcrumbRepository)"""
         # Auto-derive impact from latest CASCADE if not provided
@@ -2668,6 +2669,7 @@ class SessionDatabase:
             visibility=visibility,
             epistemic_source=epistemic_source,
             description=description,
+            source_ids=source_ids,
         )
 
     def resolve_unknown(self, unknown_id: str, resolved_by: str, resolution_finding_id: str | None = None):
@@ -2694,6 +2696,7 @@ class SessionDatabase:
         visibility: str | None = None,
         epistemic_source: str | None = None,
         description: str | None = None,
+        source_ids: list[str] | None = None,
     ) -> str:
         """Log a project dead end (delegates to BreadcrumbRepository)
 
@@ -2720,6 +2723,7 @@ class SessionDatabase:
             visibility=visibility,
             epistemic_source=epistemic_source,
             description=description,
+            source_ids=source_ids,
         )
 
     def add_reference_doc(
@@ -2914,6 +2918,7 @@ class SessionDatabase:
         visibility: str | None = None,
         epistemic_source: str | None = None,
         description: str | None = None,
+        source_ids: list[str] | None = None,
     ) -> str:
         """Log a mistake for learning (delegates to BreadcrumbRepository)
 
@@ -2945,6 +2950,7 @@ class SessionDatabase:
             visibility=visibility,
             epistemic_source=epistemic_source,
             description=description,
+            source_ids=source_ids,
         )
 
     def get_mistakes(self, session_id: str | None = None, goal_id: str | None = None, limit: int = 10) -> list[dict]:
@@ -2974,6 +2980,7 @@ class SessionDatabase:
         visibility: str | None = None,
         epistemic_source: str | None = None,
         description: str | None = None,
+        source_ids: list[str] | None = None,
     ) -> str:
         """Log an unverified belief (delegates to BreadcrumbRepository)."""
         return self.breadcrumbs.log_assumption(
@@ -2989,6 +2996,7 @@ class SessionDatabase:
             visibility=visibility,
             epistemic_source=epistemic_source,
             description=description,
+            source_ids=source_ids,
         )
 
     def log_decision(
@@ -3008,6 +3016,7 @@ class SessionDatabase:
         visibility: str | None = None,
         epistemic_source: str | None = None,
         description: str | None = None,
+        source_ids: list[str] | None = None,
     ) -> str:
         """Log a decision choice point (delegates to BreadcrumbRepository)."""
         return self.breadcrumbs.log_decision(
@@ -3026,6 +3035,7 @@ class SessionDatabase:
             visibility=visibility,
             epistemic_source=epistemic_source,
             description=description,
+            source_ids=source_ids,
         )
 
     def log_bead(

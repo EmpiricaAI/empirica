@@ -162,3 +162,42 @@ def test_existing_projection_fields_are_unchanged(tmp_path, monkeypatch, field):
         detail = repo.get_contact_detail_map()
 
     assert field in detail["c1"]
+
+
+# ── prune_dangling must not treat sources as missing endpoints ─────────
+
+
+def test_a_source_counts_as_an_existing_edge_endpoint(tmp_path):
+    """`prune_dangling` judged EVERY `sourced_from` edge dangling and deleted it.
+
+    `_artifact_exists` walked `_ARTIFACT_TABLES`, which deliberately excludes
+    `epistemic_sources` (that map also drives what `delete-artifacts` may DELETE, and
+    sources are archived rather than deleted). But omitting it from the EXISTENCE
+    check meant every source id read as missing.
+
+    Not hypothetical: a routine prune during a gardening pass destroyed this
+    practice's only two citation edges while both endpoints sat present on disk, and
+    would have wiped every citation the artifact verbs now write.
+
+    An ARCHIVED source still exists — `source-archive` preserves the audit chain by
+    design — so it must not read as a missing endpoint either.
+    """
+    from empirica.cli.command_handlers.graph_commands import _artifact_exists
+    from empirica.data.session_database import SessionDatabase
+
+    db = SessionDatabase(db_path=str(tmp_path / "t.db"))
+    try:
+        live = db.breadcrumbs.create_source(
+            project_id="p", session_id="s", title="live source", url="http://x", source_type="reference"
+        )
+        gone = db.breadcrumbs.create_source(
+            project_id="p", session_id="s", title="archived source", url="http://y", source_type="reference"
+        )
+        db.conn.execute("UPDATE epistemic_sources SET archived=1 WHERE id=?", (gone,))
+        db.conn.commit()
+
+        assert _artifact_exists(db, live) is True, "a live source is a real edge endpoint"
+        assert _artifact_exists(db, gone) is True, "an ARCHIVED source still exists — archiving is not deletion"
+        assert _artifact_exists(db, "not-a-real-id") is False, "a genuine unknown id must still read missing"
+    finally:
+        db.close()
