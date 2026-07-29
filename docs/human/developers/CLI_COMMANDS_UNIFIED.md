@@ -23,7 +23,7 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.12.38
-**Generated:** 2026-07-28 14:48:12 UTC
+**Generated:** 2026-07-29 07:17:14 UTC
 **Total commands:** 242 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -5137,7 +5137,9 @@ Reply to a message
 - `--from-ai-id` — optional
   Your AI ID (optional, default: claude-code)
 - `--body` — optional
-  Reply body (required)
+  Reply body, or - to read the raw body from stdin (required unless --body-file is used)
+- `--body-file` — optional
+  Read the reply body from a UTF-8 file (mutually exclusive with --body)
 - `--type` — optional · type=`choice` · choices={response, ack} · default=`response`
   Reply type (optional, default: response)
 - `--session-id` — optional
@@ -5163,7 +5165,9 @@ Send message to another agent via git notes
 - `--subject` — optional
   Message subject (required)
 - `--body` — optional
-  Message body (required)
+  Message body, or - to read the raw body from stdin (required unless --body-file is used)
+- `--body-file` — optional
+  Read the message body from a UTF-8 file (mutually exclusive with --body)
 - `--type` — optional · type=`choice` · choices={request, response, notification, ack} · default=`request`
   Message type (optional, default: request)
 - `--reply-to` — optional

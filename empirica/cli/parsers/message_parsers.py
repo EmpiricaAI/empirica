@@ -30,7 +30,16 @@ def add_message_parsers(subparsers):
         help="Channel: crosscheck, direct, broadcast, or custom (optional, default: direct)",
     )
     send_parser.add_argument("--subject", help="Message subject (required)")
-    send_parser.add_argument("--body", help="Message body (required)")
+    send_body_group = send_parser.add_mutually_exclusive_group()
+    send_body_group.add_argument(
+        "--body",
+        help="Message body, or - to read the raw body from stdin (required unless --body-file is used)",
+    )
+    send_body_group.add_argument(
+        "--body-file",
+        metavar="PATH",
+        help="Read the message body from a UTF-8 file (mutually exclusive with --body)",
+    )
     send_parser.add_argument(
         "--type",
         choices=["request", "response", "notification", "ack"],
@@ -89,7 +98,16 @@ def add_message_parsers(subparsers):
     reply_parser.add_argument("--message-id", help="Original message ID (required)")
     reply_parser.add_argument("--channel", help="Channel of original message (required)")
     reply_parser.add_argument("--from-ai-id", help="Your AI ID (optional, default: claude-code)")
-    reply_parser.add_argument("--body", help="Reply body (required)")
+    reply_body_group = reply_parser.add_mutually_exclusive_group()
+    reply_body_group.add_argument(
+        "--body",
+        help="Reply body, or - to read the raw body from stdin (required unless --body-file is used)",
+    )
+    reply_body_group.add_argument(
+        "--body-file",
+        metavar="PATH",
+        help="Read the reply body from a UTF-8 file (mutually exclusive with --body)",
+    )
     reply_parser.add_argument(
         "--type", choices=["response", "ack"], default="response", help="Reply type (optional, default: response)"
     )
