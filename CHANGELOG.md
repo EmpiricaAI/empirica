@@ -9,6 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`sources-check` exempted `file://` from disk verification, and reported existing
+  DIRECTORIES as missing.** `_is_non_local_uri` matched *any* URI scheme, so
+  `file://` was classed `out_of_scope` alongside `mailto:`/`doi:` — but a `file://`
+  URI names a local path the disk check can verify, so a whole class of local
+  sources was silently excused from rot-checking. Separately, the classifier
+  required `.is_file()`, so a source pointing at a directory (a repo, a docs tree, a
+  practice root) reported as rotted while sitting present on disk.
+
+  Measured: 3 active sources marked `missing` became **1** — two were false
+  positives, and the one real rot was a `file://` target that had *moved*, which the
+  exemption had been hiding. Re-pointed; the corpus now reports **0 missing** (17
+  local OK, 10 URLs live).
+
+  Worth generalising: a checker that exempts a case reports clean for it forever.
+  False negatives from an exemption are invisible by construction.
+
+### Added
+
+- **All artifact types can now cite sources.** `sourced_from` edges were writable
+  only from `finding-log`; unknowns, dead-ends, mistakes, decisions and assumptions
+  could not cite a source **at all**. Measured before the change: 2 `sourced_from`
+  edges in the entire graph, and **zero active sources cited by any artifact** —
+  both existing edges pointed at *archived* sources. So the citation gap was partly
+  a missing affordance, not only missing discipline, and the artifact-outcome
+  feedback built for source standing had no wires to carry anything.
+
+  Deliberately edges-only for the five new types: no `source_refs` column and no
+  migration. That column is the legacy ordered-list shape which `_attach_sources`'
+  own docstring records as *invisible to the artifact graph* — propagating it into
+  five more tables would spread the defect the edge exists to fix.
+
+### Fixed
+
 - **`rebuild` embedded RESOLVED unknowns, so answered questions surfaced as open.**
   `rebuild` called `get_project_unknowns(project_id)` without a `resolved`
   argument — and that parameter defaults to `None`, meaning *no filter*. Resolved

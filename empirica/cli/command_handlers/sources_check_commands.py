@@ -218,12 +218,43 @@ _SOURCE_PATH_PREFIXES = ("", ".empirica/sources", "docs", "docs/sources")
 
 
 def _is_non_local_uri(value: str) -> bool:
-    """True for a non-http URI scheme (mailto:, ftp:, doi:, file:).
+    """True for a non-http URI scheme the DISK check cannot speak to
+    (mailto:, ftp:, doi:, cortex: ...).
 
-    These are locators the DISK check cannot speak to. Windows drive letters
-    ("C:\\x") are excluded by requiring a multi-character scheme.
+    `file:` is deliberately EXCLUDED: a `file://` URI names a local path, so the
+    disk check has plenty to say about it. Exempting it as "out of scope" silently
+    excused a whole class of local sources from rot-checking — the opposite of what
+    the check exists for. Found during a gardening pass: a source whose target had
+    simply moved sat unverifiable behind the exemption.
+
+    Windows drive letters ("C:\\x") are excluded by requiring a multi-character
+    scheme.
     """
-    return bool(re.match(r"^[a-z][a-z0-9+.-]+:", value.strip(), re.IGNORECASE))
+    v = value.strip()
+    if v.lower().startswith("file:"):
+        return False
+    return bool(re.match(r"^[a-z][a-z0-9+.-]+:", v, re.IGNORECASE))
+
+
+def _local_path_from(value: str) -> Path:
+    """Resolve a source locator to a filesystem path, unwrapping `file://`."""
+    v = value.strip()
+    if v.lower().startswith("file:"):
+        from urllib.parse import unquote, urlparse
+
+        return Path(unquote(urlparse(v).path))
+    return Path(v)
+
+
+def _referent_exists(candidate: Path) -> bool:
+    """Is the referent still there?
+
+    `.exists()` rather than `.is_file()`: a source may legitimately point at a
+    DIRECTORY (a repo, a docs tree, a practice root). Requiring a regular file
+    reported those as rotted while they sat present on disk — a false `missing`
+    that sends a gardener to repair something unbroken.
+    """
+    return candidate.exists()
 
 
 def _looks_like_a_path(value: str) -> bool:
@@ -255,9 +286,9 @@ def _classify_local_source(value: str, project_root: Path | None) -> tuple[str, 
         return "out_of_scope", "non-http URI — not a local file"
     if not _looks_like_a_path(value):
         return "not_a_locator", "source_url holds a title/label, not a path"
-    candidate = Path(value)
+    candidate = _local_path_from(value)
     if candidate.is_absolute():
-        if candidate.is_file():
+        if _referent_exists(candidate):
             return "ok", str(candidate)
         return "missing", f"absolute path not on disk: {candidate}"
     tried = 0
@@ -265,7 +296,7 @@ def _classify_local_source(value: str, project_root: Path | None) -> tuple[str, 
         for prefix in _SOURCE_PATH_PREFIXES:
             resolved = (project_root / prefix / candidate) if prefix else (project_root / candidate)
             tried += 1
-            if resolved.is_file():
+            if _referent_exists(resolved):
                 return "ok", str(resolved)
     return "missing", f"not found under project root (tried {tried} location(s))"
 

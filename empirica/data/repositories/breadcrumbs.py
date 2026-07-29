@@ -401,6 +401,7 @@ class BreadcrumbRepository(BaseRepository):
         visibility: str | None = None,
         epistemic_source: str | None = None,
         description: str | None = None,
+        source_ids: list[str] | None = None,
     ) -> str:
         """Log a project unknown (what's still unclear)
 
@@ -485,6 +486,7 @@ class BreadcrumbRepository(BaseRepository):
         self.commit()
         logger.info(f"❓ Unknown logged: {unknown[:50]}...")
 
+        self._attach_sources(unknown_id, source_ids)
         return unknown_id
 
     def resolve_unknown(self, unknown_id: str, resolved_by: str, resolution_finding_id: str | None = None):
@@ -601,6 +603,7 @@ class BreadcrumbRepository(BaseRepository):
         visibility: str | None = None,
         epistemic_source: str | None = None,
         description: str | None = None,
+        source_ids: list[str] | None = None,
     ) -> str:
         """Log a project dead end (what didn't work)
 
@@ -684,6 +687,7 @@ class BreadcrumbRepository(BaseRepository):
         self.commit()
         logger.info(f"💀 Dead end logged: {approach[:50]}...")
 
+        self._attach_sources(dead_end_id, source_ids)
         return dead_end_id
 
     # ========================================================================
@@ -997,6 +1001,7 @@ class BreadcrumbRepository(BaseRepository):
         visibility: str | None = None,
         epistemic_source: str | None = None,
         description: str | None = None,
+        source_ids: list[str] | None = None,
     ) -> str:
         """
         Log a mistake for learning and future prevention.
@@ -1070,6 +1075,7 @@ class BreadcrumbRepository(BaseRepository):
         self.commit()
         logger.info(f"📝 Mistake logged: {mistake[:50]}...")
 
+        self._attach_sources(mistake_id, source_ids)
         return mistake_id
 
     def get_mistakes(self, session_id: str | None = None, goal_id: str | None = None, limit: int = 10) -> list[dict]:
@@ -1158,6 +1164,7 @@ class BreadcrumbRepository(BaseRepository):
         visibility: str | None = None,
         epistemic_source: str | None = None,
         description: str | None = None,
+        source_ids: list[str] | None = None,
     ) -> str:
         """Log an unverified belief to the assumptions table."""
         assumption_id = str(uuid.uuid4())
@@ -1198,6 +1205,7 @@ class BreadcrumbRepository(BaseRepository):
 
         self._attach_to_goal(assumption_id, goal_id)
         self.commit()
+        self._attach_sources(assumption_id, source_ids)
         return assumption_id
 
     # =========================================================================
@@ -1221,6 +1229,7 @@ class BreadcrumbRepository(BaseRepository):
         visibility: str | None = None,
         epistemic_source: str | None = None,
         description: str | None = None,
+        source_ids: list[str] | None = None,
     ) -> str:
         """Log a decision choice point to the decisions table."""
         decision_id = str(uuid.uuid4())
@@ -1267,6 +1276,7 @@ class BreadcrumbRepository(BaseRepository):
 
         self._attach_to_goal(decision_id, goal_id)
         self.commit()
+        self._attach_sources(decision_id, source_ids)
         return decision_id
 
     def log_bead(

@@ -154,3 +154,46 @@ def test_a_windows_drive_path_is_still_treated_as_a_path(tmp_path):
 
     assert _is_non_local_uri("C:\\Users\\x\\doc.md") is False
     assert _is_non_local_uri("mailto:a@b.c") is True
+
+
+def test_file_uris_are_CHECKED_not_exempted(tmp_path):
+    """`file://` names a local path, so the disk check has plenty to say about it.
+
+    Treating it as `out_of_scope` alongside mailto:/doi: silently excused a whole
+    class of local sources from rot-checking — the opposite of the check's purpose.
+    Found during a gardening pass: a source whose target had MOVED sat unverifiable
+    behind the exemption, reporting clean while pointing at nothing.
+    """
+    from empirica.cli.command_handlers.sources_check_commands import (
+        _classify_local_source,
+        _is_non_local_uri,
+    )
+
+    real = tmp_path / "doc.md"
+    real.write_text("x", encoding="utf-8")
+
+    assert _is_non_local_uri(f"file://{real}") is False, "file: must NOT be exempted"
+    assert _classify_local_source(f"file://{real}", tmp_path)[0] == "ok"
+    # The case the exemption was hiding: a file:// target that is gone.
+    assert _classify_local_source(f"file://{tmp_path}/vanished.md", tmp_path)[0] == "missing"
+
+
+def test_a_directory_referent_is_present_not_missing(tmp_path):
+    """A source may legitimately point at a DIRECTORY — a repo, a docs tree, a
+    practice root. Requiring a regular file reported those as rotted while they sat
+    on disk, sending a gardener to repair something unbroken."""
+    from empirica.cli.command_handlers.sources_check_commands import _classify_local_source
+
+    d = tmp_path / "a-practice-root"
+    d.mkdir()
+
+    assert _classify_local_source(str(d), tmp_path)[0] == "ok"
+    assert _classify_local_source(f"file://{d}", tmp_path)[0] == "ok"
+
+
+def test_unknown_schemes_remain_out_of_scope(tmp_path):
+    """Narrowing the exemption for `file:` must not widen it for anything else —
+    `cortex://` is a real locator the disk simply cannot speak to."""
+    from empirica.cli.command_handlers.sources_check_commands import _classify_local_source
+
+    assert _classify_local_source("cortex://prop_abc123", tmp_path)[0] == "out_of_scope"
