@@ -234,6 +234,13 @@ async def list_entities(
                 entry["notes"] = cd.get("notes")
                 entry["contact_type"] = cd.get("contact_type")
                 entry["lifecycle_stage"] = cd.get("lifecycle_stage")
+                # linkedin_url was populated in the contacts table (8 rows) but
+                # absent from this projection entirely — not empty, ABSENT — so the
+                # extension's LinkedIn chip could never render and it read as a
+                # population failure rather than a projection gap (extension
+                # prop_pqcicqi). Omitted when the column predates the schema.
+                if "linkedin_url" in cd:
+                    entry["linkedin_url"] = cd.get("linkedin_url")
                 # tier lives in the registry metadata (already parsed into meta);
                 # reporting_to_name resolves the reports_to edge → manager's name.
                 entry["tier"] = meta.get("tier")

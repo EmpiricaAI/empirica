@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`rebuild` embedded RESOLVED unknowns, so answered questions surfaced as open.**
+  `rebuild` called `get_project_unknowns(project_id)` without a `resolved`
+  argument — and that parameter defaults to `None`, meaning *no filter*. Resolved
+  unknowns were re-embedded and returned at rank 1 from `project-search` with no
+  resolution marker, so a reader could not tell the question was answered and it
+  kept re-surfacing.
+
+  Measured on this practice: **396 of 410 embedded unknowns (97%) were already
+  resolved.**
+
+  The asymmetry is what hid it. `get_project_findings` filters resolved/deprecated
+  rows *internally*, so the finding path behaved correctly after the same rebuild —
+  the difference lives in the getters, not in the embed or the payload. Reported by
+  mesh-support; verified end-to-end against their repro (before: resolved unknown at
+  rank 1; after: 0 unknown hits).
+
+- **The daemon contact projection dropped `linkedin_url` entirely.** Not empty —
+  *absent*. The column held 8 populated rows and the extension has rendered a
+  LinkedIn chip since v0.9.x, so it read as a data-population failure rather than a
+  projection gap. Column-guarded, so an older `workspace.db` omits the field rather
+  than failing the whole projection. Reported by extension.
+
 ### Changed
 
 - **`empirica-mcp` now runs on MCP SDK 1.x *and* 2.x**, so the emergency `<2` cap

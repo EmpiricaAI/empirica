@@ -1202,10 +1202,19 @@ class WorkspaceDBRepository(BaseRepository):
         if not self._table_exists("contacts"):
             return {}
 
+        # `linkedin_url` is column-guarded rather than assumed: it postdates the
+        # original contacts schema, so selecting it unconditionally would break the
+        # whole projection on an older workspace.db instead of just omitting one
+        # field. Absent column -> the key is simply missing, which is the same
+        # honest-empty shape the rest of this map uses.
+        cols = {r[1] for r in self._execute("PRAGMA table_info(contacts)").fetchall()}
+        has_linkedin = "linkedin_url" in cols
+
         cursor = self._execute(
             """SELECT contact_id, email_primary, phone_primary, organization_title,
-                      tags, notes, contact_type, lifecycle_stage
-               FROM contacts"""
+                      tags, notes, contact_type, lifecycle_stage"""
+            + (", linkedin_url" if has_linkedin else "")
+            + " FROM contacts"
         )
         out: dict[str, dict[str, Any]] = {}
         for row in cursor.fetchall():
@@ -1224,6 +1233,8 @@ class WorkspaceDBRepository(BaseRepository):
                 "contact_type": row["contact_type"],
                 "lifecycle_stage": row["lifecycle_stage"],
             }
+            if has_linkedin:
+                out[row["contact_id"]]["linkedin_url"] = row["linkedin_url"]
         return out
 
     def get_org_detail_map(self) -> dict[str, dict[str, Any]]:
