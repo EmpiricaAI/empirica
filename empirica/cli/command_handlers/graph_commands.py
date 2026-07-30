@@ -1054,10 +1054,38 @@ def handle_resolve_artifacts_command(args):  # noqa: C901 — batch dispatcher f
                         resolution_errors.append(f"Finding '{artifact_id}' not found")
 
                 elif artifact_type == "assumption":
+                    # This branch targeted `project_assumptions.assumption_id` with
+                    # `is_verified`/`verified_by` — a table, a key and two columns that
+                    # have never existed. The real table is `assumptions(id)` and it
+                    # carries a three-valued `status` CHECK'd to
+                    # unverified|verified|falsified. So assumptions were unresolvable
+                    # through the batch path for its whole life: every call raised
+                    # "no such table". Loud rather than silent, which is why it survived
+                    # unnoticed — nothing in the graph looked wrong, the verb just
+                    # always failed.
+                    #
+                    # `verified` is the load-bearing distinction here, and it is the
+                    # same one migration 061 adds for findings: an assumption that was
+                    # BORNE OUT and one that was FALSIFIED are opposite epistemic
+                    # events, and collapsing them loses exactly the signal assumptions
+                    # exist to provide. Absent an explicit `verified`, default to
+                    # falsified: a resolved-but-unstated assumption is far more often
+                    # one that did not hold, and silently recording it as verified
+                    # would manufacture confirmation.
+                    import time as _ta
+
+                    _verified = item.get("verified")
+                    _status = "verified" if _verified is True else "falsified"
                     cursor = db.conn.cursor()
                     cursor.execute(
-                        "UPDATE project_assumptions SET is_verified = 1, verified_by = ? WHERE assumption_id LIKE ?",
-                        (resolution, f"{artifact_id}%"),
+                        "UPDATE assumptions SET status = ?, resolution_finding_id = ?, "
+                        "resolved_timestamp = ? WHERE id LIKE ?",
+                        (
+                            _status,
+                            item.get("resolution_finding_id") or item.get("superseded_by"),
+                            _ta.time(),
+                            f"{artifact_id}%",
+                        ),
                     )
                     if cursor.rowcount > 0:
                         resolved_count += 1
