@@ -98,6 +98,65 @@ def get_git_root() -> Path | None:
     return None
 
 
+def find_worktree_main_empirica(git_root: Path) -> Path | None:
+    """Resolve the main checkout's ``.empirica/`` for a LINKED git worktree.
+
+    A ``git worktree add`` checkout gets its own git-dir but no ``.empirica/``
+    of its own — that's per-project state (sessions, findings, project.yaml),
+    gitignored, and lives only in the main checkout. Without this, every fresh
+    worktree either fails ``session-create`` with "Project not initialized"
+    (observed 2026-07-30, a Claude Code worktree session: its own SessionStart
+    hook raced the project's ``session-start.sh`` symlink step and lost) or,
+    under ``--auto-init``, mints a SEPARATE ``.empirica/`` at the worktree path
+    — a second, divergent sessions.db/findings/unknowns for what should be one
+    project, not the disconnected-project split-brain adopt-the-id path
+    (``_adopt_existing_project_id``) already guards against for a mint, but a
+    distinct failure mode from it: adopting the id still leaves two databases.
+
+    Returns the main checkout's ``.empirica`` directory when ``git_root`` is a
+    linked worktree of it AND that main checkout is already an initialized
+    Empirica project (has ``.empirica/config.yaml``). Returns None otherwise —
+    including when ``git_root`` IS the main checkout, so callers can always
+    call this unconditionally without a special case for the non-worktree path.
+    """
+    try:
+        git_dir_res = subprocess.run(
+            ["git", "rev-parse", "--git-dir"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+            cwd=str(git_root),
+        )
+        git_common_res = subprocess.run(
+            ["git", "rev-parse", "--git-common-dir"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+            cwd=str(git_root),
+        )
+        if git_dir_res.returncode != 0 or git_common_res.returncode != 0:
+            return None
+
+        git_dir = Path(git_dir_res.stdout.strip())
+        git_common = Path(git_common_res.stdout.strip())
+        if not git_dir.is_absolute():
+            git_dir = (git_root / git_dir).resolve()
+        if not git_common.is_absolute():
+            git_common = (git_root / git_common).resolve()
+        if git_dir == git_common:
+            return None  # main checkout, not a linked worktree
+
+        main_empirica = git_common.parent / ".empirica"
+        if not (main_empirica / "config.yaml").exists():
+            return None  # main checkout isn't an initialized Empirica project either
+
+        return main_empirica
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return None
+
+
 def load_empirica_config() -> dict | None:
     """
     Load .empirica/config.yaml from git root.

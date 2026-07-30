@@ -265,6 +265,113 @@ def _resolve_subject(config_data, args):
     return subject
 
 
+def _maybe_link_worktree_in_auto_init(git_root, project_id, output_format):
+    """Linked-worktree self-heal for ``_handle_auto_init``, factored out to
+    keep that function's branch count under the complexity gate.
+
+    Called BEFORE any adopt-or-mint decision: a fresh ``git worktree add``
+    checkout with no ``.empirica/`` of its own would otherwise mint (or
+    adopt-the-id-into) a SEPARATE ``.empirica/`` here — a second, divergent
+    sessions.db/findings/unknowns for what should be one project's shared
+    state, not the disconnected-project split-brain a mint alone would cause.
+
+    Only acts when ``.empirica/`` is truly absent (see
+    ``find_worktree_main_empirica`` docstring) — an existing dir or symlink is
+    left to the caller's normal checks, untouched.
+
+    Returns ``(True, project_id)`` if it linked (project_id updated from the
+    main checkout's project.yaml when readable), or ``(False, project_id)``
+    unchanged if there was nothing to link — caller falls through to its own
+    adopt-or-mint logic in that case.
+    """
+    empirica_dir = git_root / ".empirica"
+    if empirica_dir.exists() or empirica_dir.is_symlink():
+        return False, project_id
+
+    from empirica.config.path_resolver import find_worktree_main_empirica
+
+    main_empirica = find_worktree_main_empirica(git_root)
+    if not main_empirica:
+        return False, project_id
+
+    empirica_dir.symlink_to(main_empirica, target_is_directory=True)
+    linked_project_id = project_id
+    try:
+        import yaml as _yaml
+
+        linked_yaml = _yaml.safe_load((main_empirica / "project.yaml").read_text()) or {}
+        if isinstance(linked_yaml, dict) and linked_yaml.get("project_id"):
+            linked_project_id = linked_yaml["project_id"]
+    except Exception:
+        pass  # keep the caller's project_id if the linked yaml is unreadable
+    if output_format != "json":
+        print(f"🔗 Linked worktree to main checkout's Empirica project ({main_empirica.parent.name})")
+    return True, linked_project_id
+
+
+def _mint_or_adopt_project(git_root, output_format):
+    """Run project-init for a genuinely uninitialized ``git_root``, adopting
+    an existing canonical project_id when one is discoverable rather than
+    minting a fresh one. Factored out of ``_handle_auto_init`` to keep that
+    function's branch count under the complexity gate.
+
+    Exits the process (matching the prior inline behavior) if project-init
+    itself fails. Returns the resulting project_id on success.
+    """
+    if output_format != "json":
+        print("🔧 Auto-initializing Empirica in this repository...")
+
+    # Adopt-before-mint (data-integrity fix, mesh prop_xa6djztv5rfbnhvkcts63q6vba):
+    # if this path already has a canonical project_id in any authoritative
+    # local source (sessions.db → registry.yaml → workspace.db), ADOPT it so
+    # project-init links to it instead of minting a fresh id that would then
+    # "correct" the canonical workspace row AWAY toward the mint. adopted_id
+    # is None for a genuinely-new project → project-init mints as before.
+    from empirica.cli.command_handlers.workspace_init import _adopt_existing_project_id
+
+    adopted_id, adopted_source = _adopt_existing_project_id(git_root)
+    if adopted_id and output_format != "json":
+        print(f"   🔗 Adopting existing project_id {adopted_id[:8]}… (from {adopted_source})")
+
+    try:
+        from types import SimpleNamespace
+
+        from empirica.cli.command_handlers.project_init import handle_project_init_command
+
+        init_args = SimpleNamespace(
+            non_interactive=True,
+            output="json" if output_format == "json" else "default",
+            project_name=git_root.name,
+            project_description=None,
+            enable_beads=False,
+            create_semantic_index=False,
+            force=False,
+            project_id=adopted_id,  # None → mint (new); set → adopt canonical
+        )
+
+        result = handle_project_init_command(init_args)
+        if result is None:
+            if output_format != "json":
+                print("❌ Auto-init failed. Run 'empirica project-init' manually.")
+            sys.exit(1)
+
+        if output_format != "json":
+            print(f"✅ Project auto-initialized: {git_root.name}")
+            print()
+
+        return result.get("project_id")
+
+    except Exception as e:
+        if output_format == "json":
+            print(
+                json.dumps({"ok": False, "error": f"Auto-init failed: {e}", "hint": "Run 'empirica project-init' manually"})
+            )
+        else:
+            print(f"❌ Auto-init failed: {e}")
+            print("   Run 'empirica project-init' manually")
+        sys.exit(1)
+
+
 def _handle_auto_init(args, output_format, project_id):
     """Handle --auto-init flag: initialize .empirica/ if missing.
 
@@ -305,6 +412,12 @@ def _handle_auto_init(args, output_format, project_id):
     # relying on the resolver chain that doesn't yet know about the new project.
     auto_init_project_path = str(git_root)
 
+    # Linked-worktree self-heal, BEFORE any adopt-or-mint decision — see
+    # _maybe_link_worktree_in_auto_init docstring.
+    linked, project_id = _maybe_link_worktree_in_auto_init(git_root, project_id, output_format)
+    if linked:
+        return auto_init_performed, project_id, auto_init_project_path
+
     # Data-loss guard (mesh-support/Philipp repro): NEVER clobber an existing
     # project.yaml. It holds the canonical project_id + type/domain/tenant/
     # calibration_weights and is gitignored (so it's the only copy). The old
@@ -327,73 +440,36 @@ def _handle_auto_init(args, output_format, project_id):
 
     empirica_config = git_root / ".empirica" / "config.yaml"
     if not empirica_config.exists():
-        if output_format != "json":
-            print("🔧 Auto-initializing Empirica in this repository...")
-
-        # Adopt-before-mint (data-integrity fix, mesh prop_xa6djztv5rfbnhvkcts63q6vba):
-        # if this path already has a canonical project_id in any authoritative
-        # local source (sessions.db → registry.yaml → workspace.db), ADOPT it so
-        # project-init links to it instead of minting a fresh id that would then
-        # "correct" the canonical workspace row AWAY toward the mint. adopted_id
-        # is None for a genuinely-new project → project-init mints as before.
-        from empirica.cli.command_handlers.workspace_init import _adopt_existing_project_id
-
-        adopted_id, adopted_source = _adopt_existing_project_id(git_root)
-        if adopted_id and output_format != "json":
-            print(f"   🔗 Adopting existing project_id {adopted_id[:8]}… (from {adopted_source})")
-
-        try:
-            from types import SimpleNamespace
-
-            from empirica.cli.command_handlers.project_init import handle_project_init_command
-
-            init_args = SimpleNamespace(
-                non_interactive=True,
-                output="json" if output_format == "json" else "default",
-                project_name=git_root.name,
-                project_description=None,
-                enable_beads=False,
-                create_semantic_index=False,
-                force=False,
-                project_id=adopted_id,  # None → mint (new); set → adopt canonical
-            )
-
-            result = handle_project_init_command(init_args)
-            if result is None:
-                if output_format != "json":
-                    print("❌ Auto-init failed. Run 'empirica project-init' manually.")
-                sys.exit(1)
-
-            auto_init_performed = True
-            project_id = result.get("project_id")
-
-            if output_format != "json":
-                print(f"✅ Project auto-initialized: {git_root.name}")
-                print()
-
-        except Exception as e:
-            if output_format == "json":
-                print(
-                    json.dumps(
-                        {"ok": False, "error": f"Auto-init failed: {e}", "hint": "Run 'empirica project-init' manually"}
-                    )
-                )
-            else:
-                print(f"❌ Auto-init failed: {e}")
-                print("   Run 'empirica project-init' manually")
-            sys.exit(1)
+        project_id = _mint_or_adopt_project(git_root, output_format)
+        auto_init_performed = True
 
     return auto_init_performed, project_id, auto_init_project_path
 
 
 def _require_project_initialized(ai_id, output_format):
-    """Fail early if project not initialized in a git repo."""
-    from empirica.config.path_resolver import get_git_root
+    """Fail early if project not initialized in a git repo.
+
+    Self-heals a linked worktree first: a fresh ``git worktree add`` checkout
+    has no ``.empirica/`` of its own even though the main checkout is already
+    an initialized project — without this it would fail here on every worktree
+    session's first command. See ``find_worktree_main_empirica`` docstring.
+    """
+    from empirica.config.path_resolver import find_worktree_main_empirica, get_git_root
 
     git_root = get_git_root()
     if git_root:
         empirica_config = git_root / ".empirica" / "config.yaml"
+        empirica_dir = git_root / ".empirica"
         if not empirica_config.exists():
+            # Only ever symlink into a truly ABSENT path — a real (if
+            # incomplete) .empirica/ or an existing symlink is left alone;
+            # this is a self-heal for the missing-entirely case, not a repair
+            # tool for a partially-initialized or already-linked one.
+            if not empirica_dir.exists() and not empirica_dir.is_symlink():
+                main_empirica = find_worktree_main_empirica(git_root)
+                if main_empirica:
+                    empirica_dir.symlink_to(main_empirica, target_is_directory=True)
+                    return  # healed — proceed as initialized
             if output_format == "json":
                 print(
                     json.dumps(
