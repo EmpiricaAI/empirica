@@ -35,15 +35,18 @@ from empirica.core.goals.types import Goal
 
 
 @pytest.fixture
-def repo(tmp_path, monkeypatch):
-    from empirica.data.session_database import SessionDatabase
+def repo(tmp_path):
+    """Construct against an explicit db_path.
 
-    db = SessionDatabase(db_path=str(tmp_path / "t.db"))
-    monkeypatch.setattr("empirica.data.session_database.SessionDatabase", lambda *a, **k: db)
-    r = GoalRepository()
-    r.db = db
+    `GoalRepository()` with no argument resolves sessions.db from git/context, which
+    a CI runner does not have — it raised "Cannot determine sessions.db path". The
+    first version of this fixture patched the SessionDatabase symbol and passed
+    locally for exactly that reason: my box had the context CI lacks. Passing the
+    path explicitly removes the environment from the test entirely.
+    """
+    r = GoalRepository(db_path=str(tmp_path / "t.db"))
     yield r
-    db.close()
+    r.close()
 
 
 def _insert(db, gid: str, objective: str, blob: dict | str | None, scope: str | None = None):
