@@ -101,7 +101,57 @@ def check_empirica_cli() -> Check:
     return Check("empirica CLI on PATH", PASS, f"{path} ({version})", data={"path": path, "version": version})
 
 
+def _empirica_version_on_path() -> str | None:
+    """The version of the `empirica` a user's shell would actually run, or None.
+
+    Parses the number out of `empirica --version`, which also prints the Python
+    line. Deliberately uses the CLI rather than this process's own
+    `empirica.__version__`: `doctor` can be invoked from the MCP env itself, in
+    which case importing locally would compare that env against itself and never
+    report drift.
+    """
+    rc, out, _ = _run(["empirica", "--version"])
+    if rc != 0 or not out:
+        return None
+    for tok in out.split():
+        if tok and tok[0].isdigit():
+            return tok
+    return None
+
+
+def _mcp_bundled_empirica_version(mcp_path: str) -> str | None:
+    """The empirica version INSIDE the empirica-mcp environment, or None.
+
+    `empirica-mcp` is typically its own isolated env (pipx, or a venv), so it
+    bundles its own `empirica` — which can be arbitrarily older than the one on
+    PATH. Reads that env's interpreter rather than the ambient one.
+
+    Best-effort by design: an env whose interpreter cannot be located or queried
+    returns None, and the caller degrades to the presence-only verdict rather than
+    failing a health check over introspection trouble.
+    """
+    interp = Path(mcp_path).resolve().parent / "python"
+    if not interp.is_file():
+        return None
+    rc, out, _ = _run(
+        [str(interp), "-c", "import importlib.metadata as m; print(m.version('empirica'))"],
+        timeout=8.0,
+    )
+    return out.strip() if rc == 0 and out.strip() else None
+
+
 def check_empirica_mcp() -> Check:
+    """Present AND not stale.
+
+    Presence alone was the whole check, so an MCP env bundling an ancient empirica
+    reported PASS — and every box in a 2026-07-30 fleet sweep that HAD an
+    empirica-mcp seat had a stale one (1.12.33, 1.12.1, 1.8.12 against a current
+    1.12.38). The Desktop MCP path silently ran months-old code while `doctor` said
+    healthy, because nothing upgrades that env when the main install moves and
+    nothing looked.
+
+    A check that cannot fail on a case reports clean for it forever.
+    """
     path = _which("empirica-mcp")
     if not path:
         return Check(
@@ -111,7 +161,26 @@ def check_empirica_mcp() -> Check:
             "pip install --user empirica-mcp  (only needed for Claude Desktop / IDE MCP clients)",
             data={"path": None},
         )
-    return Check("empirica-mcp on PATH", PASS, path, data={"path": path})
+
+    bundled = _mcp_bundled_empirica_version(path)
+    running = _empirica_version_on_path()
+    data = {"path": path, "bundled_empirica": bundled, "running_empirica": running}
+
+    # Unresolvable version on either side degrades to the old presence verdict —
+    # never FAIL a health check because introspection was inconclusive.
+    if not bundled or not running:
+        return Check("empirica-mcp on PATH", PASS, path, data=data)
+
+    if bundled != running:
+        return Check(
+            "empirica-mcp on PATH",
+            WARN,
+            f"{path} — bundles empirica {bundled}, but {running} is on PATH",
+            "pipx upgrade empirica-mcp   (or reinstall it) — the Desktop/IDE MCP path "
+            "runs the BUNDLED version, so it stays on old code until this env is refreshed",
+            data=data,
+        )
+    return Check("empirica-mcp on PATH", PASS, f"{path} (empirica {bundled})", data=data)
 
 
 def check_claude_code_cli() -> Check:

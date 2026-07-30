@@ -5,6 +5,12 @@ version: 2.2.0
 ---
 
 <!-- Vendored from https://github.com/EmpiricaAI/broccoli — edit upstream, not here. -->
+<!-- VENDOR ADAPTATIONS (re-apply on every sync — upstream does not carry them):
+     1. this notice
+     2. repo-relative links rewritten to absolute upstream URLs — INTEGRATIONS.md
+        resolves in the broccoli repo but NOT here, so a plain sync breaks
+        `docs-link-check`. That is how the 2026-07-30 sync landed 1 broken link.
+     Diff old-vs-new before overwriting; the notice is not the only adaptation. -->
 
 # Eat the Broccoli 🥦
 
@@ -233,4 +239,4 @@ once a verdict is recorded — means you never chew the same stalk twice. 🥦
 
 *Want the deterministic checks bundled into one command, and by-design verdicts
 recorded for you so they compound across a team? See
-[INTEGRATIONS.md](INTEGRATIONS.md).*
+[INTEGRATIONS.md](https://github.com/EmpiricaAI/broccoli/blob/master/INTEGRATIONS.md).*
