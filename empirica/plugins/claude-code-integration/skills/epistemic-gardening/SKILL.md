@@ -107,6 +107,7 @@ toward the *least* destructive one that removes it from live retrieval:
 | Lever | What it does | Use when | Reverses? |
 |---|---|---|---|
 | **resolve** | keeps the artifact for history, drops it from live retrieval | the artifact *was* true/open and is now stale, answered, superseded, or verified — **the common case** | yes (`goals-reopen`; re-log) |
+| **retract** | resolve with `--kind retracted` — kept, dropped from retrieval, *and marked as having been wrong* | the artifact was **never true**, or is a mistake/dead-end wearing a finding's clothes (`--kind mistyped`) | yes (re-log) |
 | **archive** | hides from default lists, kept fully | a *completed* goal or a *stale-but-real* source you may cite later | yes (`goals-reopen`) |
 | **delete** | removes it entirely, no history | test-noise, duplicates, mistaken logs — artifacts with **no epistemic value** | no |
 
@@ -115,6 +116,33 @@ plus its `superseded_by` link is a *record of how understanding changed* — tha
 practice's calibration trajectory. Delete only what was never knowledge: a `TEST` finding,
 an accidental double-log, a goal you created then immediately abandoned. When unsure,
 resolve — it's reversible and keeps the trail.
+
+### Gardening is not only weeding — *some of it was never a plant* 🥕
+
+The failure this skill itself produced: **gardening that is staleness-only.** Measured on
+the empirica practice 2026-07-30, after real passes had run —
+
+| what the 1268 resolutions meant | count |
+|---|---|
+| stale / superseded / snapshot | **1267** |
+| wrong | **1** |
+
+A true error rate of 1-in-4199 over six months is not plausible. The practice was not
+error-free; it had no way to *say* it had erred, so every correction got filed as ageing.
+Worse, 1034 of those resolutions narrated "superseded" in prose while the `superseded_by`
+link sat NULL in all 4199 rows — supersession was *described*, never *recorded*.
+
+So on every finding you resolve, answer the question the free text lets you dodge:
+
+- Was it **true then, stale now**? → `--kind stale`
+- Was it **replaced by a specific newer artifact**? → `--kind superseded --superseded-by <id>`
+  (a finding overtaken by reality moving on has no replacement to point at — that is `stale`)
+- Was it **never true**? → `--kind retracted`
+- Is it **a mistake / dead-end / assumption mis-filed as a finding**? → `--kind mistyped`
+
+`stale` is the honest answer most of the time. It is not the honest answer *every* time,
+and a graph in which it always is tells you the vocabulary failed, not that the practice
+was right.
 
 **Never resolve or delete dead-ends and mistakes.** They are the cognitive immune system —
 "we tried X, it failed" is *supposed* to resurface so nobody re-walks it. Prune those only
@@ -275,8 +303,10 @@ empirica finding-resolve <old-id> --resolution "superseded" --superseded-by <new
 # Batch (mixed types in one call):
 empirica resolve-artifacts - << 'EOF'
 {"resolutions": [
-  {"type": "finding",   "id": "<id>", "resolution": "stale — subsystem removed"},
-  {"type": "finding",   "id": "<id>", "resolution": "superseded", "superseded_by": "<new-id>"},
+  {"type": "finding",   "id": "<id>", "resolution": "subsystem removed", "resolution_kind": "stale"},
+  {"type": "finding",   "id": "<id>", "resolution": "replaced", "resolution_kind": "superseded", "superseded_by": "<new-id>"},
+  {"type": "finding",   "id": "<id>", "resolution": "the benchmark never showed this", "resolution_kind": "retracted"},
+  {"type": "finding",   "id": "<id>", "resolution": "this was my error, not an observation", "resolution_kind": "mistyped"},
   {"type": "unknown",   "id": "<id>", "resolution": "answered: see finding <id>"},
   {"type": "assumption","id": "<id>", "resolution": "verified", "verified": true},
   {"type": "goal",      "id": "<id>", "resolution": "done"}

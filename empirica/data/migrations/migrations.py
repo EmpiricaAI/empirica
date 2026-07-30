@@ -1516,6 +1516,11 @@ ALL_MIGRATIONS: list[tuple[str, str, Callable]] = [
         "Make permanent-constraint artifacts falsifiable (ARTIFACT_LIFECYCLE_AND_OUTCOME_FEEDBACK.md Phase 1). dead_end (750 rows) and mistake (133) had NO lifecycle columns at all: they are permanent NEGATIVE guidance retrieved to steer practitioners away, nothing ever retries them, so a mistaken one was invisible by construction and silently removed a viable approach from the practice's option space forever. Both get the SAME invalidation shape — David 2026-07-27: 'no longer actionable' and 'was wrong' are practically one state (invalidate, then re-derive if pertinent). dead_ends also get `domain` for DOMAIN-SCOPED staleness (a dead-end about a fast-moving dependency rots faster than one about arithmetic). blindspot_events gets `derived_from` because a blindspot is INFERRED from other artifacts and inherits the fate of its premises — stored so propagation can flag stale_inputs and re-derive rather than auto-invalidate. Additive, nullable, idempotent.",
         lambda cursor: migration_060_artifact_falsifiability(cursor),
     ),
+    (
+        "061_finding_resolution_kind",
+        "Add resolution_kind to project_findings — a CLOSED vocabulary for WHY a finding was resolved. Migration 057 gave findings is_resolved + a free-text `resolution`, and free text cannot be queried or offered as a choice. Measured 2026-07-30 on this practice: of 1268 resolved findings, 1267 resolve as stale/superseded/snapshot and exactly ONE as an error — a true error rate of 1-in-4199 over six months is not plausible, so errors were not being EXPRESSED rather than not occurring. Gardening was staleness-only because staleness was the only word the surface offered. The kinds separate the two events free text conflates: `stale` (was true, aged out), `superseded` (replaced by a named newer artifact), `retracted` (was FALSE when written — the missing one), `mistyped` (belongs to another artifact type; records the correct type without moving the row, since types are separate TABLES and a true retype must preserve id/edges/provenance). Completes for findings what migration 060 did for dead_ends and mistakes. Additive, nullable — NULL stays a legitimate 'never classified' state rather than being backfilled into a false verdict, since backfilling 1268 prose resolutions would be inference, not fact.",
+        lambda cursor: migration_061_finding_resolution_kind(cursor),
+    ),
 ]
 
 
@@ -2469,3 +2474,53 @@ def migration_060_artifact_falsifiability(cursor: sqlite3.Cursor):
         "✅ Migration 060 complete: dead_ends + mistakes are falsifiable; "
         "dead_ends domain-scoped; blindspots record their premises"
     )
+
+
+def migration_061_finding_resolution_kind(cursor: sqlite3.Cursor):
+    """Give findings a CLOSED vocabulary for *why* they were resolved.
+
+    Migration 057 gave findings ``is_resolved`` + a free-text ``resolution``. Free
+    text cannot be queried, and — more importantly — cannot be *offered*. What the
+    surface does not name, the practitioner does not reach for.
+
+    Measured 2026-07-30 on this practice: of 1268 resolved findings, **1267 resolve
+    as stale/superseded/snapshot and exactly 1 as an error**. A true error rate of
+    1-in-4199 over six months is not plausible, so errors were not being *expressed*
+    rather than not *occurring*. The obvious rebuttal — "we simply had not gardened
+    yet" — does not apply: this practice HAS gardened 1268 findings. Gardening
+    itself was staleness-only, because staleness was the only word available.
+
+    A second symptom of the same gap: 1034 resolved findings say "superseded" in
+    their prose while ``superseded_by`` is NULL across all 4199 rows. Supersession
+    was narrated, never linked.
+
+    The four kinds separate events that free text conflates:
+
+    ``stale``       — was true when written, has aged out.
+    ``superseded``  — replaced by a NAMED newer artifact (pairs with superseded_by).
+    ``retracted``   — was FALSE when written. The missing one.
+    ``mistyped``    — belongs to a different artifact type (e.g. a mistake logged as
+                      a finding). Records the correct type WITHOUT moving the row:
+                      artifact types are separate TABLES, so a true retype is a
+                      cross-table migration that must preserve id (edges reference
+                      it), provenance and goal attachment. That is a distinct
+                      mechanism; this captures the judgment now so the history is
+                      honest even before the mechanism exists.
+
+    Note ``stale`` vs ``retracted`` is the load-bearing distinction, and note that
+    ``superseded`` covers only supersession by a *named artifact* — a finding
+    overtaken by reality moving on (a test-count snapshot, say) has no replacement
+    to point at and is correctly ``stale``.
+
+    Completes for findings what migration 060 did for dead_ends and mistakes.
+
+    Additive and nullable. NULL remains a legitimate, queryable "never classified"
+    state — the 1268 existing resolutions are deliberately NOT backfilled, because
+    inferring intent from prose written months ago is inference, not fact, and a
+    confidently-wrong backfill is worse than an honest gap.
+    """
+    add_column_if_missing(cursor, "project_findings", "resolution_kind", "TEXT", "NULL")
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_project_findings_resolution_kind ON project_findings(resolution_kind)"
+    )
+    logger.info("✅ Migration 061 complete: findings can now record WRONG, not only STALE")

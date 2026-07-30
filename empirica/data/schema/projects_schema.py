@@ -96,6 +96,9 @@ SCHEMAS = [
                     resolution TEXT,
                     resolved_timestamp REAL,
                     superseded_by TEXT,
+                    -- Closed vocabulary (stale|superseded|retracted|mistyped); see
+                    -- empirica.data.resolution_kind. NULL = not classified.
+                    resolution_kind TEXT,
 
                     FOREIGN KEY (project_id) REFERENCES projects(id),
                     FOREIGN KEY (session_id) REFERENCES sessions(session_id),

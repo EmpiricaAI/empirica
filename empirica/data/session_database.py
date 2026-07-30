@@ -2676,9 +2676,24 @@ class SessionDatabase:
         """Mark an unknown as resolved (delegates to BreadcrumbRepository)"""
         return self.breadcrumbs.resolve_unknown(unknown_id, resolved_by, resolution_finding_id=resolution_finding_id)
 
-    def resolve_finding(self, finding_id: str, resolution: str, superseded_by: str | None = None) -> bool:
-        """Mark a finding as resolved/superseded (#307; delegates to BreadcrumbRepository)"""
-        return self.breadcrumbs.resolve_finding(finding_id, resolution, superseded_by=superseded_by)
+    def resolve_finding(
+        self,
+        finding_id: str,
+        resolution: str,
+        superseded_by: str | None = None,
+        resolution_kind: str | None = None,
+    ) -> bool:
+        """Mark a finding as resolved/superseded (#307; delegates to BreadcrumbRepository).
+
+        ``resolution_kind`` (migration 061) records WHY in a closed vocabulary, so
+        *aged out* stays distinguishable from *was never true*.
+        """
+        return self.breadcrumbs.resolve_finding(
+            finding_id,
+            resolution,
+            superseded_by=superseded_by,
+            resolution_kind=resolution_kind,
+        )
 
     def log_dead_end(
         self,

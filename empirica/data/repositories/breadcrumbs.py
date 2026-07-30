@@ -525,7 +525,13 @@ class BreadcrumbRepository(BaseRepository):
         self._persist_resolution_to_git_notes("unknown", unknown_id, resolved_by)
         logger.info(f"✅ Unknown resolved: {unknown_id[:8]}...")
 
-    def resolve_finding(self, finding_id: str, resolution: str, superseded_by: str | None = None) -> bool:
+    def resolve_finding(
+        self,
+        finding_id: str,
+        resolution: str,
+        superseded_by: str | None = None,
+        resolution_kind: str | None = None,
+    ) -> bool:
         """Mark a finding as resolved/superseded — kept for history, dropped from
         live retrieval (#307, the prune primitive). Mirrors resolve_unknown.
 
@@ -534,18 +540,28 @@ class BreadcrumbRepository(BaseRepository):
 
         Args:
             finding_id: Full or partial UUID (minimum 8 chars)
-            resolution: Why it's resolved/superseded (e.g. 'stale', 'superseded', 'invalidated')
+            resolution: Why it's resolved/superseded — the free-text account
             superseded_by: Optional finding ID that replaced it (fruit → its replacement)
+            resolution_kind: Closed vocabulary (migration 061) — ``stale`` |
+                ``superseded`` | ``retracted`` | ``mistyped``. Free text alone
+                could not distinguish *aged out* from *was never true*, which is
+                why this practice showed 1267 stale resolutions against 1. Invalid
+                values normalize to NULL ("not classified") rather than guessing —
+                a wrong kind here is precisely the error being measured.
         """
+        from empirica.data.resolution_kind import normalize_resolution_kind
+
+        kind = normalize_resolution_kind(resolution_kind)
         where = "id LIKE ?" if len(finding_id) < 36 else "id = ?"
         match = f"{finding_id}%" if len(finding_id) < 36 else finding_id
         cur = self._execute(
             f"""
             UPDATE project_findings
-            SET is_resolved = TRUE, resolution = ?, resolved_timestamp = ?, superseded_by = ?
+            SET is_resolved = TRUE, resolution = ?, resolved_timestamp = ?, superseded_by = ?,
+                resolution_kind = ?
             WHERE {where}
             """,
-            (resolution, time.time(), superseded_by, match),
+            (resolution, time.time(), superseded_by, kind, match),
         )
         self.commit()
         updated = bool(getattr(cur, "rowcount", 0))

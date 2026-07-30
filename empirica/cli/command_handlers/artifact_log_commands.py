@@ -1345,6 +1345,7 @@ def handle_finding_resolve_command(args):
         finding_id = getattr(args, "finding_id", None)
         resolution = getattr(args, "resolution", None)
         superseded_by = getattr(args, "superseded_by", None)
+        resolution_kind = getattr(args, "resolution_kind", None)
         output_format = getattr(args, "output", "json")
 
         if not finding_id or not resolution:
@@ -1352,7 +1353,9 @@ def handle_finding_resolve_command(args):
             return 1
 
         db = SessionDatabase()
-        updated = db.resolve_finding(finding_id, resolution, superseded_by=superseded_by)
+        updated = db.resolve_finding(
+            finding_id, resolution, superseded_by=superseded_by, resolution_kind=resolution_kind
+        )
         db.close()
 
         if not updated:
@@ -1363,13 +1366,15 @@ def handle_finding_resolve_command(args):
             "ok": True,
             "finding_id": finding_id,
             "resolution": resolution,
+            "resolution_kind": resolution_kind,
             "superseded_by": superseded_by,
             "message": "Finding resolved (kept for history, dropped from live retrieval)",
         }
         if output_format == "json":
             print(json.dumps(result, indent=2))
         else:
-            print(f"✅ Finding resolved: {finding_id[:8]}... ({resolution})")
+            kind_note = f" [{resolution_kind}]" if resolution_kind else ""
+            print(f"✅ Finding resolved: {finding_id[:8]}...{kind_note} ({resolution})")
             if superseded_by:
                 print(f"   superseded by: {superseded_by[:8]}...")
         return 0

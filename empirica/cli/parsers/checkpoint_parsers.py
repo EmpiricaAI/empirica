@@ -1,5 +1,7 @@
 """Git checkpoint and project management command parsers."""
 
+from empirica.data.resolution_kind import RESOLUTION_KIND_HELP, RESOLUTION_KINDS
+
 from . import format_help_text
 
 
@@ -1179,7 +1181,19 @@ def add_checkpoint_parsers(subparsers):
     )
     finding_resolve_parser.add_argument("finding_id", help="Finding UUID (full or 8+ char prefix)")
     finding_resolve_parser.add_argument(
-        "--resolution", required=True, help="Why resolved (e.g. stale, superseded, invalidated)"
+        "--resolution", required=True, help="Why resolved, in your own words (the account)"
+    )
+    finding_resolve_parser.add_argument(
+        "--kind",
+        dest="resolution_kind",
+        choices=list(RESOLUTION_KINDS),
+        help=(
+            "WHY, in the closed vocabulary — the queryable half of --resolution. "
+            + "; ".join(f"{k}: {v}" for k, v in RESOLUTION_KIND_HELP.items())
+            + ". Reach for 'retracted' when the claim was wrong rather than merely "
+            "old: a practice that only ever records 'stale' cannot tell its own "
+            "ageing from its own errors."
+        ),
     )
     finding_resolve_parser.add_argument(
         "--superseded-by",

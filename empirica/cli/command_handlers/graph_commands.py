@@ -83,6 +83,11 @@ RESOLVE_ARTIFACTS_SCHEMA = {
             "resolution": "<resolution text or status — semantics depend on type>",
             "verified": "<true/false, optional, for assumption→finding>",
             "superseded_by": "<optional finding UUID that replaced this one — finding type only>",
+            "resolution_kind": "<finding only, optional closed vocabulary: stale (was true, aged out) | "
+            "superseded (replaced by a NAMED newer artifact) | retracted (was FALSE when written) | "
+            "mistyped (belongs to another artifact type). Free-text `resolution` cannot be queried and, "
+            "more to the point, cannot be OFFERED — reach for `retracted` when a claim was wrong rather "
+            "than merely old, or the graph cannot tell this practice's ageing from its errors>",
             "outcome": "<decision ONLY, REQUIRED: upheld | reversed | mixed — what the choice actually produced>",
             "regret": "<decision only, optional 0-1 — SELF-assessed, not derived>",
             "invalidated_by": "<dead_end/mistake only, optional actor>",
@@ -1015,24 +1020,36 @@ def handle_resolve_artifacts_command(args):  # noqa: C901 — batch dispatcher f
                     # from live retrieval. superseded_by optionally links the replacement.
                     import time as _tf
 
+                    from empirica.data.resolution_kind import is_retraction, normalize_resolution_kind
+
+                    _kind = normalize_resolution_kind(item.get("resolution_kind"))
                     cursor = db.conn.cursor()
                     cursor.execute(
                         "UPDATE project_findings SET is_resolved = 1, resolution = ?, "
-                        "resolved_timestamp = ?, superseded_by = ? WHERE id LIKE ?",
-                        (resolution, _tf.time(), item.get("superseded_by"), f"{artifact_id}%"),
+                        "resolved_timestamp = ?, superseded_by = ?, resolution_kind = ? WHERE id LIKE ?",
+                        (resolution, _tf.time(), item.get("superseded_by"), _kind, f"{artifact_id}%"),
                     )
                     if cursor.rowcount > 0:
                         resolved_count += 1
                         # Findings already had a lifecycle; nothing ever fed it back to
                         # the sources they cite. A superseded finding says something
                         # different about its source than a confirmed one.
-                        _record_source_outcomes(
-                            db,
-                            artifact_id,
-                            "finding",
-                            "superseded" if item.get("superseded_by") else "confirmed",
-                            item,
-                        )
+                        #
+                        # The no-superseded_by branch used to fall through to
+                        # "confirmed", which was harmless while every resolution meant
+                        # "stale" — but a RETRACTED finding was never true, and telling
+                        # its sources they were CONFIRMED inverts the signal exactly
+                        # where it matters most. Attribution stays declared, not
+                        # inferred (see this function's docstring): "retracted" records
+                        # what happened to the artifact, and still leaves `implicated`
+                        # for the caller to name.
+                        if is_retraction(_kind):
+                            _outcome = "retracted"
+                        elif item.get("superseded_by"):
+                            _outcome = "superseded"
+                        else:
+                            _outcome = "confirmed"
+                        _record_source_outcomes(db, artifact_id, "finding", _outcome, item)
                     else:
                         resolution_errors.append(f"Finding '{artifact_id}' not found")
 

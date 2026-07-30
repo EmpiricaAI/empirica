@@ -485,6 +485,14 @@ which is exactly what gardening operates on.
 - **Close the loop.** Resolve unknowns when answered, invalidate what new evidence
   kills, supersede what you replaced. An epistemic graph that only ever grows is
   an archive, not a model — and stale artifacts actively mis-steer retrieval.
+- **Retraction is a first-class move, and the one most often skipped.** Closing
+  what is *done* and retracting what was *wrong* feel similar and are not: the
+  first records progress, the second records error. Practices reliably do the
+  first and silently omit the second, so their graphs read as though they were
+  never wrong about anything — which no practice is. When you discover a claim
+  you logged is false, say so with `--kind retracted`; when it merely aged, say
+  `stale`. **A practice that cannot distinguish its ageing from its errors cannot
+  calibrate on either.**
 - Prefer `log-artifacts` / `resolve-artifacts` / `delete-artifacts` precisely
   because they operate RELATIONALLY. Single `*-log` calls are still fine for one
   genuinely standalone artifact; they are the exception, not the habit.
@@ -502,10 +510,11 @@ Infer epistemic actions from conversation naturally:
 | Approach failed | `deadend-log --approach "..." --why-failed "..."` |
 | Error made — *you* did something wrong (not the code) | `mistake-log --mistake "..." --why-wrong "..." --prevention "..."` — `--prevention` is the load-bearing field (what future-you needs to not repeat it), not optional |
 | Choice point | `decision-log --choice "..." --rationale "..." --reversibility <exploratory\|committal\|forced>` |
+| **A claim you previously logged turns out to be FALSE** | `finding-resolve <id> --kind retracted --resolution "why it was wrong"` — **not** the housekeeping row below. Retraction is a distinct act from closing what is done: measured 2026-07-30, this practice had resolved 1268 findings of which **1267 meant *stale* and 1 meant *wrong***. A true error rate near zero across thousands of claims is not plausible — errors were not being *expressed*. If the claim was true when written and merely aged, that is `--kind stale`; if a newer artifact replaced it, `--kind superseded --superseded-by <id>`; if it was a mistake or another type wearing a finding's clothes, `--kind mistyped`. |
 | Something to check on later, but not worth a full artifact yet (a doubt, a follow-up, "this smells off", "ask peer X") | `empirica note "..."` (optionally `--tag followup\|doubt\|idea`) — a fast scratchpad note-to-self. Pure metadata, not shared, survives compaction; surfaces at POSTFLIGHT for triage (`note --list`, then promote to an artifact/goal or `note --clear`). Capture now, classify later. |
 | External material cited (URL, doc, paper, transcript) | `source-add` then link via `sourced_from` in `log-artifacts` |
 | Logging 2+ artifacts, or any artifact with an edge to another | **Default to `log-artifacts -`** (one batch: `nodes` + `edges` JSON). The batch verbs are the primary path — reach for a single `finding-log`/`unknown-log`/etc. only when it's genuinely ONE standalone artifact. Batching keeps the sub-graph connected in one call. |
-| Resolving/closing 2+ artifacts (unknowns, assumptions, goals, findings) | **Default to `resolve-artifacts -`** batch JSON, not N single `*-resolve` calls. Single `unknown-resolve`/`finding-resolve` only for one artifact. |
+| Resolving/closing 2+ artifacts (unknowns, assumptions, goals, findings) — *housekeeping: closing what is DONE* | **Default to `resolve-artifacts -`** batch JSON, not N single `*-resolve` calls. Single `unknown-resolve`/`finding-resolve` only for one artifact. Findings take `resolution_kind` here too — carry the same `stale`/`superseded`/`retracted`/`mistyped` judgment through the batch rather than dropping it because the call is bulk. |
 | Triaging stale, duplicate, or test-noise artifacts | **Default to `delete-artifacts -`** batch JSON (dry-run by default; receipt logged as decision for audit). |
 | Logging an artifact you generated without external retrieval | `--epistemic-source intuition` — be honest, don't paper it as `search` |
 | Logging an artifact shaped by reads/greps/web/MCP this session | `--epistemic-source search` |

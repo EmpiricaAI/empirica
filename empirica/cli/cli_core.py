@@ -71,13 +71,18 @@ class GroupedHelpFormatter(argparse.RawDescriptionHelpFormatter):
                     "    preflight-submit (pre)    Start measurement transaction\n",
                     "    check-submit (check)      Gate: ready to act?\n",
                     "    postflight-submit (post)   Close transaction, measure learning\n",
-                    "\n  Epistemic Artifacts (log as you discover):\n",
+                    "\n  Epistemic Artifacts (record what you learn):\n",
                     "    finding-log (fl)           What was learned\n",
                     "    unknown-log (ul)           What needs investigation\n",
                     "    deadend-log (de)           Approach that didn't work\n",
                     "    mistake-log                Error to avoid in future\n",
                     "    assumption-log             Unverified belief\n",
                     "    decision-log               Choice with rationale\n",
+                    "\n  Correction (beliefs have a lifecycle — retract what turns out wrong):\n",
+                    "    finding-resolve            Claim now stale, superseded, or FALSE\n",
+                    "    unknown-resolve            Question now answered\n",
+                    "    resolve-artifacts          Batch: close a connected cluster\n",
+                    "    delete-artifacts           Batch: remove true noise (dry-run default)\n",
                     "\n  Knowledge Sources (external material + lifecycle):\n",
                     "    source-add                 Register a source (doc/url/paper)\n",
                     "    sources-map                Sources graph (--global for mesh)\n",
@@ -256,7 +261,7 @@ def create_argument_parser():
         usage="empirica [--version] [--verbose] <command> [args]",
         description="Empirica - Measurement and calibration layer for AI",
         formatter_class=GroupedHelpFormatter,
-        epilog='Examples:\n  empirica session-create --ai-id empirica\n  empirica preflight-submit -     # JSON on stdin\n  empirica finding-log --finding "Discovered X" --impact 0.7\n  empirica goals-create --objective "Implement Y"\n  empirica project-bootstrap     # Load project context',
+        epilog='Examples:\n  empirica session-create --ai-id empirica\n  empirica preflight-submit -     # JSON on stdin\n  empirica finding-log --finding "Discovered X" --impact 0.7\n  empirica finding-resolve <id> --kind retracted --resolution "X was false"\n  empirica goals-create --objective "Implement Y"\n  empirica project-bootstrap     # Load project context',
     )
 
     # Global options (must come before subcommand)
