@@ -175,23 +175,62 @@ class Goal:
         }
 
     @staticmethod
+    def _scope_from(scope: Any) -> "ScopeVector":
+        """Build a ScopeVector, tolerating legacy scope encodings.
+
+        `scope` has been serialized three ways across the project's history: the
+        current dict, a bare label like ``"project_wide"``, and a single float.
+        `ScopeVector.from_dict` does ``float(data["breadth"])``, so the latter two
+        raise ("string indices must be integers", "'float' object is not iterable"),
+        which `get_goal` swallowed into "Goal not found".
+
+        A legacy value carries no breadth/duration/coordination to recover, so this
+        returns a NEUTRAL 0.5 vector rather than inventing precision. The goal
+        becomes addressable — which is the point — and its scope reads as unknown
+        rather than as a confident number nobody measured.
+        """
+        if isinstance(scope, dict) and {"breadth", "duration", "coordination"} <= set(scope):
+            return ScopeVector.from_dict(scope)
+        return ScopeVector(breadth=0.5, duration=0.5, coordination=0.5)
+
+    @staticmethod
+    def _criterion_from(sc: Any, index: int) -> "SuccessCriterion":
+        """Build a SuccessCriterion from either the current dict form or the legacy
+        plain-string form.
+
+        Older records serialized success criteria as bare strings
+        (``["Goal completion achieved"]``) rather than objects. `sc["id"]` on a
+        string raises "string indices must be integers", which `get_goal` swallowed
+        into a log line and reported as "Goal not found" — measured 2026-07-30, 75 of
+        1431 goals on this practice were unreachable for exactly this reason, their
+        rows sitting intact the whole time.
+
+        Tolerating an older serialization of its own type is a deserializer's job, so
+        it lives here rather than at one call site — every read path benefits.
+        """
+        if isinstance(sc, str):
+            return SuccessCriterion(
+                id=f"legacy-{index}",
+                description=sc,
+                validation_method="completion",
+            )
+        return SuccessCriterion(
+            id=sc.get("id") or f"legacy-{index}",
+            description=sc.get("description", ""),
+            validation_method=sc.get("validation_method", "completion"),
+            threshold=sc.get("threshold"),
+            is_required=sc.get("is_required", True),
+            is_met=sc.get("is_met", False),
+        )
+
+    @staticmethod
     def from_dict(data: dict[str, Any]) -> "Goal":
         """Deserialize from dictionary"""
         return Goal(
             id=data["id"],
             objective=data["objective"],
-            success_criteria=[
-                SuccessCriterion(
-                    id=sc["id"],
-                    description=sc["description"],
-                    validation_method=sc["validation_method"],
-                    threshold=sc.get("threshold"),
-                    is_required=sc.get("is_required", True),
-                    is_met=sc.get("is_met", False),
-                )
-                for sc in data["success_criteria"]
-            ],
-            scope=ScopeVector.from_dict(data["scope"]),
+            success_criteria=[Goal._criterion_from(sc, i) for i, sc in enumerate(data.get("success_criteria") or [])],
+            scope=Goal._scope_from(data.get("scope")),
             dependencies=[
                 Dependency(
                     id=dep["id"],

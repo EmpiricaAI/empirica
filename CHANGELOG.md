@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A mistyped goal-id could silently attach work to the WRONG goal.** Prefix
+  matching had no minimum length, so a two-character fragment (`--goal-id 6a`, left
+  by a shell extraction that returned empty) resolved to whichever goal happened to
+  start with it — and `goals-add-task` parented the task there **with a success
+  message**. Work under a goal nobody will look at is indistinguishable from work
+  that was never tracked, except that it reports success.
+
+  Prefix matching now requires 8 characters (what `goals-list` prints, so the
+  shortest a user could legitimately have copied), refuses on ambiguity rather than
+  taking the first, and treats an empty/whitespace id as a refusal instead of a
+  lookup — unguarded it became `LIKE '%'`, matching every goal.
+
+- **6% of goals were unreachable, reported as "Goal not found" for rows sitting
+  intact.** `Goal.from_dict` read the `id` from the `goal_data` blob, but that blob
+  is a serialized *cache* while the `id` column is the identity — and for many rows
+  the blob is `{}` or a legacy shape. A broad `except Exception` turned every
+  deserialization failure into a bare log line (`Error retrieving goal <id>: 'id'`),
+  which reads as a missing goal rather than a malformed record.
+
+  Measured: **88 of 1431 goals unreachable → 0.** Goals now rebuild from their
+  columns when the blob is empty, and the deserializer tolerates the legacy
+  encodings found in the wild: `success_criteria` as bare strings, and `scope` as a
+  label (`"project_wide"`) or a float. Non-dict scopes return a neutral vector
+  rather than inventing precision nobody measured.
+
+  Reported by cortex, who separated the loud symptom from the dangerous one — the
+  root cause was not their hypothesis (project_id scoping), but their split is what
+  made it findable.
+
 ### Changed
 
 - **Vendor-synced the `eat-the-broccoli` skill from upstream** — the bundled copy had

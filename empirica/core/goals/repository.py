@@ -8,6 +8,7 @@ MVP implementation: Simple database operations, no complex queries yet.
 
 import json
 import logging
+import time
 from typing import Any
 
 from empirica.data.session_database import SessionDatabase
@@ -168,6 +169,93 @@ class GoalRepository:
             self.db.conn.rollback()
             return False
 
+    # Shortest prefix `goals-list` prints, so the shortest a user could have copied.
+    MIN_PREFIX_LEN = 8
+
+    def _goal_from_row(self, row) -> Goal | None:
+        """Build a Goal from a (id, goal_data) row, healing an id-less blob.
+
+        `goal_data` is a serialized COPY; the `id` column is the identity. Measured
+        2026-07-30: 88 of 1431 goals on this practice carry a blob with no `id` key.
+        `Goal.from_dict` does `data["id"]`, so those raised KeyError, a broad
+        `except` swallowed it into a log line, and the caller reported "Goal not
+        found" for a row sitting right there — 6% of goals unaddressable, and the
+        error surfaced as a bare `'id'` that named nothing.
+
+        Injecting the column when the blob omits it is a repair, not a workaround:
+        the column is authoritative and the blob is derived.
+        """
+        goal_id, blob = row[0], row[1]
+        try:
+            data = json.loads(blob) if blob else {}
+        except (TypeError, ValueError) as e:
+            logger.warning(f"Goal {goal_id}: goal_data is not valid JSON ({e}) — rebuilding from columns")
+            data = {}
+        if not isinstance(data, dict):
+            data = {}
+
+        # Fill anything the blob lacks from the COLUMNS, which are authoritative.
+        # `goal_data` is a serialized cache and is literally `{}` for 88 of 1431
+        # goals here — so those were entirely unreachable, reported as "Goal not
+        # found" for rows whose objective and status sit in plain columns.
+        if not data.get("id") or not data.get("objective"):
+            cols = self._goal_columns(goal_id)
+            if cols:
+                data = {**cols, **{k: v for k, v in data.items() if v not in (None, "", [], {})}}
+                data["id"] = goal_id
+
+        try:
+            return Goal.from_dict(data)
+        except KeyError as e:
+            # Name the missing field. A bare KeyError repr reads as `'id'` and sends
+            # the reader hunting for a missing goal rather than a malformed record.
+            logger.error(f"Goal {goal_id}: cannot deserialize — missing required field {e}")
+            return None
+
+    def _goal_columns(self, goal_id: str) -> dict | None:
+        """Reconstruct the Goal-shaped fields from the goals TABLE.
+
+        The columns are the durable record; `goal_data` is a derived blob that can be
+        empty or partial. `success_criteria` genuinely lives only in the blob, so it
+        comes back empty here — an empty list is honest (we do not know them) rather
+        than fabricated, and every other field is real.
+        """
+        try:
+            row = self.db.conn.execute(
+                "SELECT objective, scope, estimated_complexity, created_timestamp, "
+                "completed_timestamp, is_completed, engagement_id FROM goals WHERE id = ?",
+                (goal_id,),
+            ).fetchone()
+        except Exception as e:
+            logger.debug(f"Goal {goal_id}: column rebuild failed ({e})")
+            return None
+        if not row:
+            return None
+
+        try:
+            scope = json.loads(row[1]) if row[1] else {}
+        except (TypeError, ValueError):
+            scope = {}
+        # isinstance guard before the subset test: the scope COLUMN carries legacy
+        # encodings too (a float, or a label like "project_wide"), and `set(0.7)`
+        # raises. I added this exact tolerance to Goal.from_dict and then wrote the
+        # same intolerance one function away — the legacy shapes live in BOTH the
+        # blob and the column, so both readers need it.
+        if not isinstance(scope, dict) or not {"breadth", "duration", "coordination"} <= set(scope):
+            scope = {"breadth": 0.5, "duration": 0.5, "coordination": 0.5}
+
+        return {
+            "id": goal_id,
+            "objective": row[0] or "",
+            "success_criteria": [],
+            "scope": scope,
+            "estimated_complexity": row[2],
+            "created_timestamp": row[3] or time.time(),
+            "completed_timestamp": row[4],
+            "is_completed": bool(row[5]),
+            "engagement_id": row[6],
+        }
+
     def get_goal(self, goal_id: str) -> Goal | None:
         """
         Retrieve goal by ID (supports short ID prefix matching)
@@ -178,25 +266,49 @@ class GoalRepository:
         Returns:
             Goal object or None if not found (also None if prefix is ambiguous)
         """
+        # An empty or whitespace id is an ARGUMENT error, not a lookup. Left to the
+        # prefix path it becomes LIKE '%', which matches every goal — and resolves to
+        # one of them whenever the table happens to hold exactly one.
+        if not goal_id or not str(goal_id).strip():
+            logger.warning("get_goal called with an empty goal_id — refusing to resolve")
+            return None
+        goal_id = str(goal_id).strip()
+
         try:
-            # First try exact match
-            cursor = self.db.conn.execute("SELECT goal_data FROM goals WHERE id = ?", (goal_id,))
+            # First try exact match. Select the id COLUMN too: it is the authoritative
+            # identity, while `goal_data` is a serialized copy that can be incomplete.
+            cursor = self.db.conn.execute("SELECT id, goal_data FROM goals WHERE id = ?", (goal_id,))
             row = cursor.fetchone()
 
             if row:
-                goal_dict = json.loads(row[0])
-                return Goal.from_dict(goal_dict)
+                return self._goal_from_row(row)
 
-            # Fallback: prefix match for short IDs (like git short hashes)
-            cursor = self.db.conn.execute("SELECT goal_data FROM goals WHERE id LIKE ?", (f"{goal_id}%",))
+            # Fallback: prefix match for short IDs (like git short hashes).
+            #
+            # MINIMUM LENGTH is load-bearing. Without it a two-character fragment
+            # resolved to whichever goal happened to start with it, and the caller
+            # attached tracked work to an unrelated goal WITH A SUCCESS MESSAGE
+            # (reported by cortex, 2026-07-30: `--goal-id 6a` from an empty shell
+            # extraction landed a task under "Add MCP resource exposure to Cortex MCP").
+            #
+            # Silently parenting work to the wrong goal is worse than failing: it is
+            # indistinguishable from not tracking the work at all, and nothing later
+            # looks at that goal. 8 matches what `goals-list` actually prints, so it is
+            # the shortest prefix a user could legitimately have copied.
+            if len(goal_id) < self.MIN_PREFIX_LEN:
+                logger.warning(
+                    f"Goal id prefix '{goal_id}' is shorter than {self.MIN_PREFIX_LEN} characters — "
+                    "refusing to prefix-match (too easy to hit the wrong goal)"
+                )
+                return None
+
+            cursor = self.db.conn.execute("SELECT id, goal_data FROM goals WHERE id LIKE ?", (f"{goal_id}%",))
             rows = cursor.fetchall()
 
             if len(rows) == 1:
-                # Unique prefix match
-                goal_dict = json.loads(rows[0][0])
-                return Goal.from_dict(goal_dict)
+                return self._goal_from_row(rows[0])
             elif len(rows) > 1:
-                # Ambiguous prefix - log warning and return None
+                # Ambiguous prefix — refuse rather than pick one.
                 logger.warning(f"Ambiguous goal prefix '{goal_id}' matches {len(rows)} goals")
                 return None
 
