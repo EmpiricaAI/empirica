@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Vendor-synced the `eat-the-broccoli` skill from upstream** — the bundled copy had
+  drifted a full section behind. It carried 27 pattern rows across 4 sections;
+  upstream had **36 across 5**, including the entire *Indistinguishable incompleteness*
+  section (`Silent truncation`, `Absence asserted from a defaulting read`,
+  `Green suite pins the defect`, and more). Every practice was hunting with the older
+  catalog — which is how two rows nearly got contributed upstream that already existed.
+
+  Also carries two rows added upstream from this cycle's defects
+  ([broccoli#1](https://github.com/EmpiricaAI/broccoli/pull/1)):
+  *Exemption reports clean forever* and *One predicate, two questions*.
+
+  The drift was silent and one-directional: the file says "edit upstream, not here"
+  but nothing re-synced it — the same **deploy-staleness** pattern the catalog itself
+  names as the #1 recurring root cause.
+
 ### Fixed
 
 - **`sources-check` exempted `file://` from disk verification, and reported existing

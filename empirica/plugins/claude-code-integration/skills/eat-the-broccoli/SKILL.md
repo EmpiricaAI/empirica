@@ -1,7 +1,7 @@
 ---
 name: eat-the-broccoli
 description: "Use when the user says '/eat-the-broccoli', 'eat the broccoli', 'full quality sweep', 'pre-release audit', 'run the deep tests', or asks to hunt for gaps / membrane misses / stubs / dead code / silent failures / the bugs that pass tests but are still broken. A tiered quality-and-pattern audit: deterministic tooling (lint, types, tests, deps, dead-code, silent-failure) PLUS a learned-pattern hunt for the hard, judgment-requiring failure classes that tools can't catch. Works in any repo or stack. Levels: quick / standard / deep. Scope: changed / module / repo."
-version: 2.1.0
+version: 2.2.0
 ---
 
 <!-- Vendored from https://github.com/EmpiricaAI/broccoli — edit upstream, not here. -->
@@ -125,7 +125,7 @@ it logged a warning and returned `[]` as a *documented* degraded mode →
 | Smell | ✅ by design if | ❌ broken if |
 |---|---|---|
 | **Empty/null masking** — a field empty because something broke upstream | the empty has a *contract* (declared nullable) | a count no longer matches its list; a `.get(k, default)` ate a missing key |
-| **Default masks dropped intent** — a param with a default | the default is a real sensible value | it silently absorbs a value that *was* supplied but got dropped |
+| **Default masks dropped intent** — a param with a default, *or one the interface accepts and no code reads* | the default is a real sensible value, and every accepted param is consumed somewhere | it silently absorbs a value that *was* supplied but got dropped. Harsher variant: the arg parser advertises a flag the handler never reads — documented, accepted, discarded, no error. *An advertised no-op is worse than a missing feature: the missing one fails loudly and teaches* |
 | **Fallback masks primary failure** — a degraded path | it logs/flags that it engaged | "it works" actually means "fallback works, primary silently dead" |
 | **Partial success as success** — a multi-step op, one rollup status | rollup is AND-of-all + per-item surfaced | a mid-step failure is swallowed by the final OK |
 | **Unfalsifiable success** — no distinct signal for worked-vs-failed | success and failure produce *different* legible output | both look the same (empty output, silence). *Ask: if this failed, could I tell?* |
@@ -136,15 +136,40 @@ it logged a warning and returned `[]` as a *documented* degraded mode →
 | **Classifier blind spot / membrane miss** — a matcher on crossing data | it sees through wrappers / chains / quotes / encodings | a wrapped or chained variant slips a start-anchored match |
 | **Encoding / quoting mangle** — data crossing CLI↔shell, JSON↔DB, wire↔local | the boundary escapes / validates explicitly | it assumes clean input (quotes, newlines, unicode, `"0.7"` vs `0.7`) |
 | **Schema drift** — code assumes a shape the migration didn't produce | the unused shape is intentionally deprecated-but-kept | the code path is silently dead against the real schema |
+| **One predicate, two questions** — a check written for one question reused for a second that *looks* identical | both questions genuinely have the same answer for every state, including the edge ones | they diverge on a state neither caller thought about — "what may I delete?" and "what exists?" agree everywhere except on things that are **archived**, so an existence test borrowed from a deletion allow-list judged every archived referent missing and a routine prune destroyed live links |
 | **Trust-the-input** — consuming upstream data unvalidated | validated at the boundary | it assumes well-formed and NoneTypes three calls later |
 | **Two-sources-of-truth drift** — a copy of a load-bearing thing | one is generated from the other | both are hand-maintained and have diverged |
+| **Projection omits what storage holds** — an object/DTO/serializer mirroring a record | the field is deliberately withheld (secret, internal counter) and that's declared somewhere | the column exists, internal queries read it, and consumers reading it off the object get `AttributeError`/`undefined`. *Tell: every test asserts on the behaviour the field ENABLES, none reads it back off the object* |
 | **Semantic drift** — one word, different meanings across components | one canonical definition, referenced | each component quietly means its own thing (`id`, `session`, `scope`, "done") |
 | **Decision downgraded across a boundary** — a deny/soft decision crossing into a consumer with a *narrower* vocabulary | it degrades to the **floor** (deny / fail-closed) | it silently downgrades to *allow* — the three below |
 | ↳ *exit-code / status mismatch* — a host maps a subprocess code to a decision, defaulting on any unrecognized value | the default is the safe one (fail-closed) | unsafe default — a *crashed* gate fails open (e.g. "anything ≠ 2 ⇒ allow") |
 | ↳ *reason-less deny dropped* — a consumer drops a deny when a required field (reason/message) is empty | *(never by design)* | an empty-reason deny silently becomes allow |
 | ↳ *advisory unsupported downstream* — an upstream soft decision (ask/warn) the consumer can't express | it degrades to the floor (deny) | it silently downgrades to allow (no middle ⇒ must fail safe) |
 
-### D. Environment & control flow
+### D. Indistinguishable incompleteness
+
+**An incomplete result that is indistinguishable from a complete one.** Not wrong
+answers — incomplete ones that *look* complete. Every instance passes its own
+checks; the caller reads a partial truth as the whole one and builds on it. The
+class only becomes visible when someone re-derives the total through a different
+surface — so hunt it deliberately:
+
+| Smell | ✅ by design if | ❌ broken if |
+|---|---|---|
+| **Silent truncation** — a bounded read (limit / page size / cap) over a collection | the response carries the *source-side* total (`total`, `points_count`) next to the page, and the caller checks it or pages to exhaustion | the default cap truncates seamlessly — a 201-chunk source at `max=200` joins into a string indistinguishable from complete; a `limit=500` scroll against 3 847 points reads as "not found" |
+| **Completeness signal computed from the wrong side** — `has_more` / `is_last` derived after filtering | derived from *source cursor exhaustion* | derived from the filtered page length — heavy filtering drives it false while whole pages go unread |
+| **Abbreviated identity on a consumer surface** — an id/hash truncated for display where something downstream keys on it | the abbreviation is display-only, clearly non-canonical, full value adjacent | a consumer parses the rendered form as the identity — exact-match joins silently return 0-of-N. *Never abbreviate an identity value where a consumer reads it* |
+| **Absence asserted from a defaulting read** — `.get(k, default)` / optional accessors make *missing key* and *null value* identical | absence claims are made with an explicit key-presence check (`k in row`), after enumerating every candidate field in the schema you already printed | a `.get()` default becomes "present but null"; a capability is declared absent while the sibling field that provides it sits in the same output |
+| **Green suite pins the defect** — a test asserts the exact (buggy) surface form | tests assert the *contract property* (completeness checkable, identity full-length) | the suite encodes the wrong assumption — the defect stays green until an end-to-end known-answer check catches it. *When a defect survives a green suite, the suite is a suspect, not an alibi* |
+| **Exemption reports clean forever** — a checker/validator that SKIPS a case (unsupported scheme, unknown type, "not our concern") | the exemption is *narrow and named*, and skipped items are reported as **skipped**, not folded into the pass count | the skip is silent, so the case can never fail — a `file://` source exempted from a link-rot check reported clean while pointing at nothing, for as long as the exemption stood. *False negatives from an exemption are invisible by construction: you cannot see what was never checked* |
+| **Enablement is a catch-up, not a start** — flipping on a scanner/rail with pre-existing scheduled state | enabling re-arms stale `next_run_at` (or drains explicitly, in dependency order) | every overdue row fires at once in table order — cadences execute in *reverse* of how their cron strings read |
+
+**The counter-move for the whole class:** verify through the surface the
+*consumer* actually reads (not the producer's internals, not your test's
+mock), and design responses so completeness is checkable *from the response
+itself*. A partial read must be self-evidently partial.
+
+### E. Environment & control flow
 | Smell | ✅ by design if | ❌ broken if |
 |---|---|---|
 | **Deploy-staleness** — installed/copied artifact vs source | hash/mtime match, or a single source of truth | the box runs old code while source is "fixed" (the #1 recurring root cause) |
@@ -208,4 +233,4 @@ once a verdict is recorded — means you never chew the same stalk twice. 🥦
 
 *Want the deterministic checks bundled into one command, and by-design verdicts
 recorded for you so they compound across a team? See
-[INTEGRATIONS.md](https://github.com/EmpiricaAI/broccoli/blob/master/INTEGRATIONS.md).*
+[INTEGRATIONS.md](INTEGRATIONS.md).*
