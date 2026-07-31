@@ -62,6 +62,7 @@ your `ai_id`), BOTH `/cortex-mailbox-poll` (receive) and
 `/cortex-mailbox-send` (send) MUST be loaded before your first
 transaction. Loading at event-arrival time is too late — the
 send-side handshake guidance is needed BEFORE you act on inbox work.
+Both are operational cores of a few hundred words, so this is cheap.
 
 {% endif %}**Calibration:** Dynamically injected at session start from `.breadcrumbs.yaml`.
 Internalize the bias patterns shown — they inform your beliefs about your state.

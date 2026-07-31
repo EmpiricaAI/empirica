@@ -331,18 +331,18 @@ def _build_additional_context(
 
 ### REQUIRED: load mesh skills before your first transaction
 
-Because this session will receive AI-mesh wake events, BOTH messaging
-skills MUST be loaded before your first PREFLIGHT:
+This session receives AI-mesh wake events, so BOTH must be loaded before
+your first PREFLIGHT:
 
-- `/cortex-mailbox-poll` — receive side: per-direction × per-status
-  reaction protocol for incoming `proposal_event` notifications
-- `/cortex-mailbox-send` — send side: how to emit proposals, the
-  collab vs ECO-gated flavor split, target ai_id verification, AND
-  the completion-ack handshake (without which the source AI never
-  knows you delivered)
+- `/cortex-mailbox-poll` — the recipient gate and the direction × status
+  reaction table
+- `/cortex-mailbox-send` — the three primitives and their gates, canonical
+  addressing, and the completion-ack contract
 
-Loading them only when an event arrives is too late — the send-side
-handshake guidance is needed BEFORE you act, not after. Load both now.
+Loading them when an event arrives is too late: the ack contract has to be
+in context BEFORE you act, not after. They are operational cores — a few
+hundred words each, not the teaching text — so this costs little and is
+re-read cheaply after every compaction.
 
 {reaction_section}{monitor_block}
 
