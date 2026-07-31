@@ -481,16 +481,34 @@ def handle_mailbox_archive_command(
     archive_url = f"{cortex_url.rstrip('/')}/v1/orchestration/{proposal_id}/archive"
     reason = getattr(args, "reason", None) or "archived via empirica mailbox archive"
     status, resp = _http_post(archive_url, {"api_key": api_key, "reason": reason}, api_key, 10.0)
-    ok = isinstance(resp, dict) and 200 <= status < 300 and resp.get("error") is None and resp.get("ok") is not False
+    # Archiving is idempotent, so an already-archived proposal is the desired state,
+    # not an error. Cortex says so precisely — HTTP 200 with `is_archived: true` —
+    # and the old check still failed it, because `error` was set. A caller archiving
+    # a batch would see "failed" on every proposal it had already handled and could
+    # not tell those apart from a genuine failure. Same false-signal family as the
+    # rest of this surface, in the other direction: a false negative on a no-op.
+    already = isinstance(resp, dict) and resp.get("is_archived") is True
+    ok = (
+        isinstance(resp, dict)
+        and 200 <= status < 300
+        and (already or (resp.get("error") is None and resp.get("ok") is not False))
+    )
     if not ok:
         sys.stderr.write(f"mailbox archive: failed (status={status}): {resp}\n")
         return 1
 
     fmt = getattr(args, "output", "json")
     if fmt == "human":
-        sys.stdout.write(f"archived {proposal_id[:24]}…\n")
+        suffix = " (already archived)" if already else ""
+        sys.stdout.write(f"archived {proposal_id[:24]}…{suffix}\n")
     else:
-        sys.stdout.write(json.dumps({"ok": True, "proposal_id": proposal_id, "archived": True}, indent=2) + "\n")
+        sys.stdout.write(
+            json.dumps(
+                {"ok": True, "proposal_id": proposal_id, "archived": True, "already_archived": already},
+                indent=2,
+            )
+            + "\n"
+        )
     return 0
 
 

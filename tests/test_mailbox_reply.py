@@ -448,3 +448,55 @@ def test_commit_sha_attached_to_completion(capsys):
     )
     complete = next(c for c in calls if "/complete" in c["url"])
     assert complete["body"]["commit_sha"] == "abc123def"
+
+
+# ── archive idempotency ───────────────────────────────────────────────
+
+
+def _archive_args(**overrides):
+    defaults = {"proposal_id": "prop_parent", "reason": None, "output": "json"}
+    defaults.update(overrides)
+    return types.SimpleNamespace(**defaults)
+
+
+def test_archiving_an_already_archived_proposal_is_success_not_failure(capsys):
+    """POSITIVE CONTROL — cortex answers an idempotent re-archive with HTTP 200 and
+    `is_archived: true`, which is the desired state. The old check failed it because
+    `error` was set, so a caller archiving a batch saw "failed" on every proposal it
+    had already handled and could not distinguish those from a real failure."""
+    from empirica.cli.command_handlers.mailbox_commands import handle_mailbox_archive_command
+
+    def post(url, body, api_key, timeout):
+        return 200, {"error": "already_archived", "is_archived": True, "proposal_id": "prop_parent"}
+
+    rc = handle_mailbox_archive_command(_archive_args(), _resolve_cortex_creds=_creds(), _http_post=post)
+
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["already_archived"] is True
+
+
+def test_a_genuine_archive_failure_still_fails(capsys):
+    """NEGATIVE CONTROL — without this the fix could pass by treating everything as
+    success, which is the exact defect class it exists to remove."""
+    from empirica.cli.command_handlers.mailbox_commands import handle_mailbox_archive_command
+
+    def post(url, body, api_key, timeout):
+        return 500, {"error": "boom"}
+
+    rc = handle_mailbox_archive_command(_archive_args(), _resolve_cortex_creds=_creds(), _http_post=post)
+
+    assert rc == 1
+    assert "failed" in capsys.readouterr().err
+
+
+def test_a_first_time_archive_reports_not_already(capsys):
+    from empirica.cli.command_handlers.mailbox_commands import handle_mailbox_archive_command
+
+    def post(url, body, api_key, timeout):
+        return 200, {"ok": True, "proposal_id": "prop_parent", "status": "archived"}
+
+    handle_mailbox_archive_command(_archive_args(), _resolve_cortex_creds=_creds(), _http_post=post)
+
+    assert json.loads(capsys.readouterr().out)["already_archived"] is False
