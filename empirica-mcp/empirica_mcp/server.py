@@ -104,21 +104,39 @@ TOOL_REGISTRY: dict[str, dict] = {
         "cli": "preflight-submit",
         "params": {},
         "required": ["session_id", "vectors"],
-        "desc": "Submit PREFLIGHT self-assessment (13 vectors 0.0-1.0)",
+        "desc": (
+            "Submit PREFLIGHT self-assessment (13 vectors 0.0-1.0). Optional `claims`: "
+            "[{claim, grounding, ref}] with grounding read|ran|retrieved|assumed. Claims "
+            "grounded by `read` or `ran` CERTIFY the transaction — praxic work may then "
+            "proceed with no separate CHECK, which is the path for work you were already "
+            "grounded in before opening. `retrieved` and `assumed` deliberately do not "
+            "certify: prior artifacts are testimony, not observation."
+        ),
         "stdin_json": True,
     },
     "submit_check_assessment": {
         "cli": "check-submit",
         "params": {},
         "required": ["session_id", "vectors"],
-        "desc": "Submit CHECK gate assessment",
+        "desc": (
+            "Submit CHECK gate assessment — gates noetic → praxic. Optional `claims`: "
+            "[{claim, grounding, ref}] naming what the praxic work will rest on, so "
+            "POSTFLIGHT can adjudicate each one rather than averaging them into a single "
+            "know score."
+        ),
         "stdin_json": True,
     },
     "submit_postflight_assessment": {
         "cli": "postflight-submit",
         "params": {},
         "required": ["session_id", "vectors"],
-        "desc": "Submit POSTFLIGHT assessment — closes transaction, triggers grounded verification",
+        "desc": (
+            "Submit POSTFLIGHT assessment — closes transaction, triggers grounded "
+            "verification. Optional `claims`: [{index|id, verdict, note}] with verdict "
+            "held|refuted|untested, adjudicating what was declared at PREFLIGHT/CHECK. "
+            "Anything left unadjudicated is forced to `untested` and reported as a gap, "
+            "so 'never checked' stays distinguishable from 'nothing declared'."
+        ),
         "stdin_json": True,
     },
     # --- Noetic artifacts ---
@@ -336,8 +354,31 @@ TOOL_REGISTRY: dict[str, dict] = {
         "required": [],
         "desc": (
             "Batch resolve open artifacts in one call. JSON body on stdin: "
-            "{resolutions:[{type, id, resolution}]}. Closes unknowns, marks assumptions "
-            "verified/falsified, completes goals. One call replaces N individual resolutions."
+            "{resolutions:[{type, id, resolution, resolution_kind, superseded_by}]}. Closes "
+            "unknowns, marks assumptions verified/falsified, completes goals. "
+            "`resolution_kind` is stale|superseded|retracted|mistyped and records WHY it "
+            "closed — `retracted` means the artifact was wrong, `mistyped` means it was "
+            "never that type, and neither is `stale`. Also accepts a `filter` block "
+            "({type, matching, older_than, project_id}) for policy resolution; that path "
+            "is dry-run unless apply:true, and every dry-run row should be read before "
+            "applying — a leading token like 'test %' selects for artifacts ABOUT a topic "
+            "as often as artifacts OF it."
+        ),
+        "stdin_json": True,
+    },
+    "update_artifacts": {
+        "cli": "update-artifacts",
+        "params": {},
+        "required": [],
+        "desc": (
+            "Batch CORRECT fields on existing artifacts. JSON body on stdin: "
+            "{updates:[{type, id, <field>: <value>}]}. Correctable fields are metadata "
+            "only — visibility, impact, epistemic_source, subject, domain, and per-type "
+            "extras — never the artifact body, which keeps the graph an audit trail rather "
+            "than something rewritable after the fact. Ids shorter than 8 characters are "
+            "refused: a short prefix that happens to be unique is lucky, not safe. This is "
+            "the correction half of the surface; without it a wrong visibility or a "
+            "mis-tagged provenance can be logged but never fixed."
         ),
         "stdin_json": True,
     },
