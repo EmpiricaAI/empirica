@@ -677,8 +677,12 @@ class GoalRepository:
                 goal_id = row[0]
                 goal_data = json.loads(row[1]) if row[1] else {}
 
-                # Add stale metadata to goal_data
-                if "metadata" not in goal_data:
+                # Membership is the wrong test: goals created through the normal path
+                # serialise `"metadata": null`, so the key EXISTS and is None. The old
+                # `"metadata" not in goal_data` guard skipped initialisation and the
+                # next line raised on None — for 1277 of this practice's goals, i.e.
+                # essentially all of them. The verb has never worked outside a fixture.
+                if not isinstance(goal_data.get("metadata"), dict):
                     goal_data["metadata"] = {}
                 goal_data["metadata"]["stale_since"] = time.time()
                 goal_data["metadata"]["stale_reason"] = stale_reason
@@ -698,9 +702,14 @@ class GoalRepository:
             return count
 
         except Exception as e:
+            # Roll back, then RAISE. Returning 0 here made a crash indistinguishable
+            # from "no goals to mark" — the caller printed ok:true, marked 0, while
+            # an exception scrolled past on stderr. The sole caller is the CLI
+            # handler, which already wraps this in its own try/except, so failing
+            # loudly costs nothing and buys an honest exit code.
             logger.error(f"Error marking goals stale: {e}")
             self.db.conn.rollback()
-            return 0
+            raise
 
     def get_stale_goals(self, session_id: str | None = None, project_id: str | None = None) -> list[dict[str, Any]]:
         """Get stale goals for a session or project

@@ -2302,7 +2302,7 @@ written to git notes (breadcrumbs ref) for audit trail.
             "use goals-prune for that. Pair: goals-get-stale to retrieve."
         ),
     )
-    goals_mark_stale_parser.add_argument("--session-id", required=True, help="Session UUID")
+    goals_mark_stale_parser.add_argument("--session-id", help="Session UUID (default: the active session)")
     goals_mark_stale_parser.add_argument(
         "--reason", default="memory_compact", help="Reason for marking stale (default: memory_compact)"
     )

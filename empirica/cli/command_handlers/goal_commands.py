@@ -1805,11 +1805,20 @@ def handle_goals_mark_stale_command(args):
         reason = getattr(args, "reason", "memory_compact")
         output_format = getattr(args, "output", "json")
 
+        # Fall back to the active session, the way every other verb does. This was
+        # `required=True` because the pre-compact hook — its original and only
+        # caller — always knows its own session id. A human or AI running it by hand
+        # does not, and got an argparse usage error for a value the resolver has
+        # been able to supply all along.
         if not session_id:
+            session_id = R.session_id()
+
+        if not session_id:
+            msg = "No session to mark stale — pass --session-id, or run inside a session (empirica session-create)."
             if output_format == "json":
-                print(json.dumps({"ok": False, "error": "Session ID required (--session-id)"}))
+                print(json.dumps({"ok": False, "error": msg}))
             else:
-                print("Error: Session ID required (--session-id)")
+                print(f"Error: {msg}")
             return 1
 
         # Mark goals stale
