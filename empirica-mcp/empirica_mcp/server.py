@@ -1199,7 +1199,22 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[types.TextContent]
         )
 
     if result.returncode == 0:
-        output = result.stdout or result.stderr or '{"ok": true}'
+        # A zero-output command exited 0, so it DID succeed — but say that, don't
+        # fabricate a projection. The old fallback returned a bare `{"ok": true}`,
+        # indistinguishable from a real response body, so a caller could not tell
+        # "the verb reported nothing" from "the verb reported success with no
+        # detail". Cortex hit exactly that shape on the mesh ack path and spent a
+        # second poll working out what it had actually emitted. Name the emptiness.
+        output = result.stdout or result.stderr
+        if not output:
+            output = json.dumps(
+                {
+                    "ok": True,
+                    "command": entry["cli"],
+                    "output": None,
+                    "note": "Command exited 0 but produced no output — nothing to verify against.",
+                }
+            )
         if len(output) > MAX_OUTPUT:
             output = output[:MAX_OUTPUT] + f"\n\n⚠️ Truncated ({len(output)} chars)"
         return [types.TextContent(type="text", text=output)]
