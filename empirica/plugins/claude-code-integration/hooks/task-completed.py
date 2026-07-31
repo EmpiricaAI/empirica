@@ -220,15 +220,20 @@ def main():
         else:
             logger.info(f"  No matching goal found for task: {task_subject}")
 
-    # Log task completion as a finding
-    try:
-        subprocess.run(
-            ["empirica", "finding-log", "--finding", f"Task completed: {task_subject}", "--impact", "0.3"],
-            capture_output=True,
-            timeout=5,
-        )
-    except Exception as e:
-        logger.warning(f"  Failed to log finding: {e}")
+    # Deliberately NOT logging an artifact here.
+    #
+    # This used to shell the finding verb with a task-completion prefix, which typed
+    # an activity record as an observation. A finding answers "what is true that I did
+    # not know before"; "task X finished" answers "what did I do". Two months of that
+    # produced 241 rows in this practice and 254 in cortex's, all of them open, all of
+    # them competing with real findings for retrieval.
+    #
+    # Nothing is lost by dropping it. The Task↔Goal bridge above already records a
+    # completion where it belongs — on the goal, with evidence — and a completion with
+    # no matching goal is precisely the record that was never worth a finding.
+    #
+    # If activity records are wanted later they need their own type. Reaching for
+    # `finding` because it is the verb nearest to hand is how the corpus got here.
 
     logger.info("  Allowing task completion")
     print(json.dumps({}))
