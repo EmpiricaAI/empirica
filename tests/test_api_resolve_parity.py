@@ -52,7 +52,10 @@ def api_db(tmp_path, monkeypatch):
         seed.close()
 
     monkeypatch.setattr(A, "get_cached_daemon_project", lambda: {"project_id": "p"})
-    monkeypatch.setattr(A, "_open_db", lambda: SessionDatabase(db_path=db_file))
+    # Routes resolve scope per-request now (?project_id= / ?path=), so the seam is
+    # `_resolve_project_dict` + `_open_db_for`, not the old single-project alias.
+    monkeypatch.setattr(A, "_resolve_project_dict", lambda *a, **k: {"project_id": "p", "project_path": str(tmp_path)})
+    monkeypatch.setattr(A, "_open_db_for", lambda _proj: SessionDatabase(db_path=db_file))
     return db_file
 
 
@@ -199,7 +202,8 @@ async def test_an_old_project_db_gets_422_with_the_migration_named_not_a_500(tmp
             self.conn.close()
 
     monkeypatch.setattr(A, "get_cached_daemon_project", lambda: {"project_id": "p"})
-    monkeypatch.setattr(A, "_open_db", _DB)
+    monkeypatch.setattr(A, "_resolve_project_dict", lambda *a, **k: {"project_id": "p", "project_path": "/x"})
+    monkeypatch.setattr(A, "_open_db_for", lambda _p: _DB())
     monkeypatch.setattr(A, "_resolve_artifact_by_id", lambda _db, _id: ("finding", "project_findings", "id"))
 
     with pytest.raises(HTTPException) as exc:
@@ -207,3 +211,86 @@ async def test_an_old_project_db_gets_422_with_the_migration_named_not_a_500(tmp
 
     assert exc.value.status_code == 422
     assert "057" in str(exc.value.detail), "the remedy must name the migration"
+
+
+# ── multi-project reachability ────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_a_foreign_project_artifact_is_correctable_via_project_id(tmp_path, monkeypatch):
+    """THE regression, reported by a peer with a live 404.
+
+    Reads honoured `?project_id=` (get_artifact used `_resolve_project_dict`);
+    WRITES used the single-project `_open_db()` alias. One daemon serves the whole
+    fleet, so every practice except the bound one had no correction path at all —
+    the correction surface narrower than the read surface, a third time.
+
+    Note the peer reported the capability as MISSING and it merely wasn't
+    reachable from where they stood. For a shared daemon those are the same thing.
+    """
+    from empirica.api.routes import artifacts as A
+    from empirica.data.session_database import SessionDatabase
+
+    foreign = tmp_path / "other-practice"
+    (foreign / ".empirica" / "sessions").mkdir(parents=True)
+    db_file = str(foreign / ".empirica" / "sessions" / "sessions.db")
+    seed = SessionDatabase(db_path=db_file)
+    try:
+        seed.conn.execute(
+            "INSERT INTO project_findings (id, project_id, session_id, finding, created_timestamp, "
+            "finding_data, epistemic_source) VALUES ('far-1','other','s','a peer claim',0.0,'{}','search')"
+        )
+        seed.conn.commit()
+    finally:
+        seed.close()
+
+    # The daemon is bound ELSEWHERE — exactly David's single-daemon setup.
+    monkeypatch.setattr(A, "get_cached_daemon_project", lambda: {"project_id": "bound-elsewhere"})
+    monkeypatch.setattr(
+        A,
+        "_resolve_project_dict",
+        lambda pid, p: (
+            {"project_id": "other", "project_path": str(foreign)}
+            if (pid or p)
+            else {"project_id": "bound-elsewhere", "project_path": "/nowhere"}
+        ),
+    )
+
+    out = await _resolve("far-1", {"resolved_by": "was never true", "resolution_kind": "retracted"})
+
+    assert out["ok"] is True
+    assert _col(db_file, "SELECT resolution_kind FROM project_findings WHERE id='far-1'") == "retracted"
+
+
+@pytest.mark.asyncio
+async def test_provenance_is_correctable_on_a_foreign_project(tmp_path, monkeypatch):
+    """`epistemic_source` correction is a PROVENANCE fix — distinct from
+    `--kind`, which addresses a claim's truth or its type and neither of which
+    touches where the belief came from."""
+    from empirica.api.routes import artifacts as A
+    from empirica.data.session_database import SessionDatabase
+
+    foreign = tmp_path / "p2"
+    (foreign / ".empirica" / "sessions").mkdir(parents=True)
+    db_file = str(foreign / ".empirica" / "sessions" / "sessions.db")
+    seed = SessionDatabase(db_path=db_file)
+    try:
+        seed.conn.execute(
+            "INSERT INTO project_findings (id, project_id, session_id, finding, created_timestamp, "
+            "finding_data, epistemic_source) VALUES ('prov-1','other','s','cortex found X',0.0,'{}','search')"
+        )
+        seed.conn.commit()
+    finally:
+        seed.close()
+
+    monkeypatch.setattr(A, "get_cached_daemon_project", lambda: {"project_id": "bound-elsewhere"})
+    monkeypatch.setattr(
+        A, "_resolve_project_dict", lambda pid, p: {"project_id": "other", "project_path": str(foreign)}
+    )
+
+    from empirica.api.routes.artifacts import patch_artifact
+
+    out = await patch_artifact("prov-1", {"epistemic_source": "mixed"}, project_id="other")
+
+    assert out["ok"] is True
+    assert _col(db_file, "SELECT epistemic_source FROM project_findings WHERE id='prov-1'") == "mixed"

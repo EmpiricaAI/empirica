@@ -126,16 +126,18 @@ def _open_db_for(project: dict) -> _ReadOnlyDB:
     return _ReadOnlyDB(db_path)
 
 
-def _open_db() -> _ReadOnlyDB:
-    """Backward-compat alias for endpoints that haven't been threaded with
-    per-request `?project_id=X` / `?path=Y` yet.
-
-    Resolves the daemon's CWD-bound active project (current single-project
-    behavior). New endpoints should prefer `_open_db_for(_resolve_project_dict(...))`
-    instead so they honor per-request project selection.
-    """
-    project = _resolve_project_dict(None, None)
-    return _open_db_for(project)
+# `_open_db()` — the single-project backward-compat alias — was REMOVED 2026-07-31.
+#
+# Its own docstring said "endpoints that haven't been threaded with per-request
+# ?project_id= / ?path= yet", and that TODO quietly became a capability boundary:
+# every read route migrated to `_open_db_for(_resolve_project_dict(...))` and every
+# WRITE route stayed behind. With one daemon serving the fleet, a practice could
+# read any project's artifacts and correct only the daemon's own — reported by a
+# peer as a missing capability, because from where they stood it was.
+#
+# Deleted rather than deprecated: leaving two ways to open a database is what let
+# the two sets of routes drift apart in the first place, and a comment saying
+# "prefer the other one" had already failed to prevent exactly that.
 
 
 # ── Edge attachment ──────────────────────────────────────────────────
@@ -1389,7 +1391,12 @@ def _exec_lifecycle_update(cursor, artifact_type: str, sql: str, params: tuple, 
 
 
 @router.patch("/artifacts/{artifact_id}/resolve")
-async def resolve_artifact(artifact_id: str, body: dict):
+async def resolve_artifact(
+    artifact_id: str,
+    body: dict,
+    project_id: str | None = Query(None),
+    path: str | None = Query(None),
+):
     """Mark an artifact as resolved.
 
     Per-type semantics (matches `empirica resolve-artifacts` CLI):
@@ -1420,11 +1427,14 @@ async def resolve_artifact(artifact_id: str, body: dict):
     import time
 
     resolved_by = body.get("resolved_by", "")
-    project = get_cached_daemon_project()
-    if not project:
-        raise HTTPException(status_code=503, detail="Daemon not bound to a project")
-
-    db = _open_db()
+    # Scope: ?project_id=X / ?path=Y / daemon's bound project — mirroring
+    # get_artifact. Until 2026-07-31 this used the single-project `_open_db()`
+    # alias, so READS were multi-project and WRITES were not: a practice could
+    # read any project's artifact through the daemon and correct only the one the
+    # daemon happened to be bound to. Since one daemon serves the whole fleet,
+    # that meant every practice except one had NO correction path at all — the
+    # correction surface narrower than the read surface, again.
+    db = _open_db_for(_resolve_project_dict(project_id, path))
     try:
         resolved = _resolve_artifact_by_id(db, artifact_id)
         if not resolved:
@@ -1506,17 +1516,26 @@ _PATCH_WHITELIST: dict[str, set[str]] = {
 
 
 @router.patch("/artifacts/{artifact_id}")
-async def patch_artifact(artifact_id: str, body: dict):
+async def patch_artifact(
+    artifact_id: str,
+    body: dict,
+    project_id: str | None = Query(None),
+    path: str | None = Query(None),
+):
     """Partial update on an artifact. Only whitelisted fields per type.
+
+    Scope: `?project_id=X`, `?path=Y`, or the daemon's bound project (default).
 
     Body shape: {"<field>": <value>, ...}. Unknown fields are silently dropped.
     Returns 200 with {ok, type, id, updated_fields} or 404 / 422 / 503.
-    """
-    project = get_cached_daemon_project()
-    if not project:
-        raise HTTPException(status_code=503, detail="Daemon not bound to a project")
 
-    db = _open_db()
+    This is the ONLY path that corrects `epistemic_source` on an existing
+    artifact — a provenance fix, distinct from `finding-resolve --kind`, which
+    addresses a claim's TRUTH or its TYPE and neither of which touches where the
+    belief came from. Reported by a peer as missing entirely; it existed but was
+    unreachable from their project, which for a shared daemon is the same thing.
+    """
+    db = _open_db_for(_resolve_project_dict(project_id, path))
     try:
         resolved = _resolve_artifact_by_id(db, artifact_id)
         if not resolved:
@@ -1572,20 +1591,23 @@ async def post_artifacts_log(body: dict):
 
 
 @router.post("/artifacts/resolve")
-async def post_artifacts_resolve(body: dict):
-    """Batch resolve. Body: {ids: [...], resolved_by?: "..."} or {items: [{id, type}, ...]}."""
-    import time
+async def post_artifacts_resolve(
+    body: dict,
+    project_id: str | None = Query(None),
+    path: str | None = Query(None),
+):
+    """Batch resolve. Body: {ids: [...], resolved_by?: "..."} or {items: [{id, type}, ...]}.
 
-    project = get_cached_daemon_project()
-    if not project:
-        raise HTTPException(status_code=503, detail="Daemon not bound to a project")
+    Scope: `?project_id=X`, `?path=Y`, or the daemon's bound project (default).
+    """
+    import time
 
     ids = body.get("ids") or [item.get("id") for item in body.get("items", []) if item.get("id")]
     if not ids:
         raise HTTPException(status_code=422, detail="Body must include 'ids' or 'items'")
     resolved_by = body.get("resolved_by", "")
 
-    db = _open_db()
+    db = _open_db_for(_resolve_project_dict(project_id, path))
     try:
         cursor = db.conn.cursor()
         now = time.time()
@@ -1636,14 +1658,18 @@ async def post_artifacts_resolve(body: dict):
 
 
 @router.post("/artifacts/delete")
-async def post_artifacts_delete(body: dict):
+async def post_artifacts_delete(
+    body: dict,
+    project_id: str | None = Query(None),
+    path: str | None = Query(None),
+):
     """Batch delete. Body: {ids: [...]} or {items: [{id, type}, ...]}.
+
+    Scope: `?project_id=X`, `?path=Y`, or the daemon's bound project (default).
 
     Each delete fans out to all three storage layers via _delete_single_artifact.
     """
-    project = get_cached_daemon_project()
-    if not project:
-        raise HTTPException(status_code=503, detail="Daemon not bound to a project")
+    project = _resolve_project_dict(project_id, path)
     project_id = project.get("project_id")
     project_path = project.get("project_path")
 
@@ -1653,7 +1679,7 @@ async def post_artifacts_delete(body: dict):
     if not raw_items:
         raise HTTPException(status_code=422, detail="Body must include 'ids' or 'items'")
 
-    db = _open_db()
+    db = _open_db_for(project)
     try:
         from empirica.cli.command_handlers.graph_commands import _delete_single_artifact
 
@@ -1697,20 +1723,24 @@ async def post_artifacts_delete(body: dict):
 
 
 @router.delete("/artifacts/{artifact_id}")
-async def delete_artifact(artifact_id: str):
+async def delete_artifact(
+    artifact_id: str,
+    project_id: str | None = Query(None),
+    path: str | None = Query(None),
+):
     """Delete an artifact across all three storage layers.
+
+    Scope: `?project_id=X`, `?path=Y`, or the daemon's bound project (default).
 
     sqlite (row + dangling edges) + Qdrant (vector point) + git notes
     (refs/notes/empirica/{type}/{id}). Closes the documented delete-git-notes
     gap from `empirica delete-artifacts` CLI.
     """
-    project = get_cached_daemon_project()
-    if not project:
-        raise HTTPException(status_code=503, detail="Daemon not bound to a project")
+    project = _resolve_project_dict(project_id, path)
     project_id = project.get("project_id")
     project_path = project.get("project_path")
 
-    db = _open_db()
+    db = _open_db_for(project)
     try:
         resolved = _resolve_artifact_by_id(db, artifact_id)
         if not resolved:
