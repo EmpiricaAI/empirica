@@ -23,8 +23,8 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.12.38
-**Generated:** 2026-07-31 07:04:34 UTC
-**Total commands:** 242 (across 24 categories)
+**Generated:** 2026-07-31 08:26:25 UTC
+**Total commands:** 243 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
 `empirica <command> --help` — the generator extracts the same `help`
@@ -65,7 +65,7 @@ require `--session-id` (`project-bootstrap`, `sessions-show`,
 | [session](#session) | 8 | `session-create`, `sessions-list`, `sessions-show`, … |
 | [workflow](#workflow) | 4 | `preflight-submit`, `check`, `check-submit`, … |
 | [goals](#goals) | 16 | `goals-create`, `goals-list`, `goals-search`, … |
-| [logging](#logging) | 25 | `finding-log`, `finding-resolve`, `unknown-log`, … |
+| [logging](#logging) | 26 | `finding-log`, `finding-resolve`, `unknown-log`, … |
 | [project](#project) | 18 | `project-init`, `project-update`, `project-create`, … |
 | [workspace](#workspace) | 20 | `workspace-init`, `workspace-map`, `workspace-list`, … |
 | [checkpoint](#checkpoint) | 7 | `checkpoint-create`, `checkpoint-load`, `checkpoint-list`, … |
@@ -1244,6 +1244,21 @@ Remove stale, duplicate, or test-noise artifacts from the ledger. Unlike resolve
   Print the input JSON schema and exit
 - `--dry-run` — optional · flag
   Preview deletions without executing
+- `--output` — optional · type=`choice` · choices={human, json} · default=`json`
+  Output format
+- `--verbose` — optional · flag
+  Show detailed output
+
+#### `empirica update-artifacts`
+
+Correct FIELDS on existing artifacts — impact, subject, visibility, and above all epistemic_source. The gardening verb for an artifact that is real and correctly typed but carries WRONG METADATA. Use resolve-artifacts for a row that is done, delete-artifacts for one that was never knowledge, and this for one that is simply mis-tagged.
+
+**Arguments:**
+
+- `config` — **required** · default=`-`
+  JSON file or - for stdin (default: stdin)
+- `--schema` — optional · flag
+  Print the input JSON schema and exit
 - `--output` — optional · type=`choice` · choices={human, json} · default=`json`
   Output format
 - `--verbose` — optional · flag

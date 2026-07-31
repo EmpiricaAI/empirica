@@ -133,6 +133,7 @@ from .graph_commands import (
     handle_delete_artifacts_command,
     handle_log_artifacts_command,
     handle_resolve_artifacts_command,
+    handle_update_artifacts_command,
 )
 from .handoff_commands import handle_handoff_create_command, handle_handoff_query_command
 from .identity_commands import (
@@ -334,6 +335,7 @@ __all__ = [  # noqa: RUF022
     "handle_deadend_log_command",
     "handle_decision_log_command",
     "handle_delete_artifacts_command",
+    "handle_update_artifacts_command",
     "handle_diagnose_command",
     "handle_doc_check_command",
     "handle_doc_plan_suggest_command",

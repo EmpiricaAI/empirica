@@ -1503,16 +1503,11 @@ async def resolve_artifact(
 
 # Whitelisted PATCH fields per artifact type. Anything outside this map is
 # silently dropped — defensive, prevents accidental schema mutation from the API.
-_PATCH_WHITELIST: dict[str, set[str]] = {
-    "finding": {"impact", "subject", "epistemic_source"},
-    "unknown": {"impact", "subject", "epistemic_source"},
-    "dead_end": {"impact", "subject", "epistemic_source"},
-    "mistake": {"prevention", "epistemic_source"},
-    "assumption": {"confidence", "status", "epistemic_source"},
-    "decision": {"outcome", "regret_score", "epistemic_source"},
-    "source": {"confidence", "description"},
-    "goal": {"objective", "status"},
-}
+# Sourced from the SHARED map, not redefined here. This whitelist and the CLI's
+# `update-artifacts` are two consumers of one contract, and every defect fixed on
+# 2026-07-31 came from exactly that shape — two hand-maintained implementations
+# drifting, each complete from inside itself. Importing is what stops the fourth.
+from empirica.data.artifact_fields import ARTIFACT_UPDATABLE_FIELDS as _PATCH_WHITELIST  # noqa: E402
 
 
 @router.patch("/artifacts/{artifact_id}")

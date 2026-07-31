@@ -1680,3 +1680,144 @@ def handle_delete_artifacts_command(args):  # noqa: C901 — batch dispatcher fa
     except Exception as e:
         handle_cli_error(e, "Delete artifacts", getattr(args, "verbose", False))
         return 1
+
+
+UPDATE_ARTIFACTS_SCHEMA = {
+    "updates": [
+        {
+            "type": "finding | unknown | dead_end | mistake | assumption | decision | source | goal",
+            "id": "<UUID or 8+ char prefix>",
+            "<field>": "<new value — see per-type correctable fields below>",
+        }
+    ],
+    "_fields": {
+        "finding / unknown": "impact, subject, epistemic_source, visibility",
+        "dead_end": "impact, subject, epistemic_source, visibility, domain",
+        "mistake": "prevention, epistemic_source, visibility",
+        "assumption": "confidence, status, epistemic_source, visibility",
+        "decision": "outcome, regret_score, epistemic_source, visibility",
+        "source": "confidence, description",
+        "goal": "objective, status",
+    },
+    "_not_updatable": (
+        "The CLAIM TEXT itself (finding/unknown/approach/mistake/choice) is immutable. "
+        "Silently rewriting what an artifact SAID would make the record unfalsifiable — a "
+        "reader could not tell 'this was always the claim' from 'someone edited it after it "
+        "was contradicted'. A claim that turns out wrong takes `finding-resolve --kind "
+        "retracted`, which preserves the original wording and records that it failed. "
+        "Correct the METADATA; retract the CLAIM."
+    ),
+    "_when": (
+        "The gardening verb for a field that is WRONG rather than a row that is DONE. "
+        "resolve-artifacts closes what is finished; delete-artifacts removes what was never "
+        "knowledge; this fixes an artifact that is real and correctly typed but carries a "
+        "bad impact score, a stale visibility, or — most often — a provenance tag that says "
+        "`search` when a peer actually supplied it."
+    ),
+}
+
+
+def _read_update_input(args) -> dict | None:
+    """Read update JSON from stdin or a file. Mirrors _read_deletion_input."""
+    from empirica.cli.cli_utils import parse_json_safely
+
+    if getattr(args, "config", None):
+        if args.config == "-":
+            raw = sys.stdin.read()
+        else:
+            with open(args.config) as f:
+                raw = f.read()
+    else:
+        raw = sys.stdin.read()
+
+    data = parse_json_safely(raw)
+    if not data:
+        print(json.dumps({"ok": False, "error": "Invalid JSON input"}))
+        return None
+    return data
+
+
+def handle_update_artifacts_command(args):
+    """Correct FIELDS on existing artifacts — the gardening verb that was missing.
+
+    `log-artifacts` creates, `resolve-artifacts` closes, `delete-artifacts` removes.
+    None of them can change a field, so an artifact that is real and correctly typed
+    but carries a wrong impact score or a contaminated `epistemic_source` had no
+    correction path at all in the CLI. The daemon has had `PATCH /artifacts/{id}`
+    since v0.5; this closes the asymmetry from the side David calls the real toolset.
+
+    Rejected field names are REPORTED, not silently dropped — a correction that says
+    success while changing nothing is the failure this whole surface exists to end.
+    """
+    from empirica.data.artifact_fields import ARTIFACT_TABLES, filter_updates
+    from empirica.data.session_database import SessionDatabase
+
+    try:
+        if getattr(args, "schema", False):
+            print(json.dumps(UPDATE_ARTIFACTS_SCHEMA, indent=2))
+            return 0
+
+        data = _read_update_input(args)
+        if data is None:
+            return 1
+
+        items = data.get("updates") or []
+        if not isinstance(items, list) or not items:
+            print(json.dumps({"ok": False, "error": "Body must include a non-empty 'updates' array"}))
+            return 1
+
+        db = SessionDatabase()
+        updated, errors, rejected_report = 0, [], []
+        try:
+            cursor = db.conn.cursor()
+            for item in items:
+                if not isinstance(item, dict):
+                    errors.append("update entry is not an object")
+                    continue
+                atype = item.get("type")
+                aid = str(item.get("id") or "").strip()
+                if atype not in ARTIFACT_TABLES:
+                    errors.append(f"unknown type {atype!r} (expected one of {sorted(ARTIFACT_TABLES)})")
+                    continue
+                if len(aid) < 8:
+                    # Same floor as goal-id resolution: a short prefix that happens to
+                    # be unique is not safe, it is lucky.
+                    errors.append(f"id {aid!r} is shorter than 8 characters — refusing to prefix-match")
+                    continue
+
+                body = {k: v for k, v in item.items() if k not in ("type", "id")}
+                updates, rejected = filter_updates(atype, body)
+                if rejected:
+                    rejected_report.append({"id": aid, "type": atype, "rejected": rejected})
+                if not updates:
+                    errors.append(f"{atype} {aid[:8]}: no correctable fields in request")
+                    continue
+
+                table, id_col = ARTIFACT_TABLES[atype]
+                sets = ", ".join(f"{k} = ?" for k in updates)
+                params = [*updates.values(), f"{aid}%"]
+                try:
+                    cursor.execute(f"UPDATE {table} SET {sets} WHERE {id_col} LIKE ?", params)
+                except Exception as e:
+                    errors.append(f"{atype} {aid[:8]}: {e}")
+                    continue
+                if cursor.rowcount > 0:
+                    updated += cursor.rowcount
+                else:
+                    errors.append(f"{atype} {aid[:8]}: not found")
+            db.conn.commit()
+        finally:
+            db.close()
+
+        result = {"ok": True, "updated": updated}
+        if rejected_report:
+            result["rejected_fields"] = rejected_report
+            result["hint"] = "Rejected names are not correctable for that type — run --schema for the per-type list"
+        if errors:
+            result["errors"] = errors
+        print(json.dumps(result, indent=2))
+        return 0
+
+    except Exception as e:
+        handle_cli_error(e, "Update artifacts", getattr(args, "verbose", False))
+        return 1

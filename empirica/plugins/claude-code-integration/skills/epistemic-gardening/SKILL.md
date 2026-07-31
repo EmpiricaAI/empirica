@@ -115,10 +115,23 @@ toward the *least* destructive one that removes it from live retrieval:
 
 | Lever | What it does | Use when | Reverses? |
 |---|---|---|---|
+| **update** | `update-artifacts -` — corrects a FIELD, leaves the artifact live | the artifact is real, true and correctly typed, but its **metadata** is wrong: an inflated `impact`, a stale `visibility`, or — most often — an `epistemic_source` saying `search` when a peer actually supplied it | yes (update again) |
 | **resolve** | keeps the artifact for history, drops it from live retrieval | the artifact *was* true/open and is now stale, answered, superseded, or verified — **the common case** | yes (`goals-reopen`; re-log) |
 | **retract** | resolve with `--kind retracted` — kept, dropped from retrieval, *and marked as having been wrong* | the artifact was **never true**, or is a mistake/dead-end wearing a finding's clothes (`--kind mistyped`) | yes (re-log) |
 | **archive** | hides from default lists, kept fully | a *completed* goal or a *stale-but-real* source you may cite later | yes (`goals-reopen`) |
 | **delete** | removes it entirely, no history | test-noise, duplicates, mistaken logs — artifacts with **no epistemic value** | no |
+
+**Reach for `update` before `resolve` when the CLAIM is fine.** Resolving an artifact
+because its impact score is wrong throws away a true finding to fix a number. The
+question is *what is actually wrong here* — the claim, or the label on it? A finding
+that says something true but is tagged as first-hand observation when a peer supplied
+it does not need closing; it needs its provenance corrected and left live.
+
+**The claim text is deliberately not updatable.** Rewriting what an artifact *said*
+would make the record unfalsifiable — a reader could no longer distinguish "this was
+always the claim" from "someone edited it after it was contradicted". A wrong claim
+gets `--kind retracted`, which preserves the original wording *and* records that it
+failed. **Correct the metadata; retract the claim.**
 
 **The bias is resolve-over-delete.** Epistemic history is an asset: a superseded finding
 plus its `superseded_by` link is a *record of how understanding changed* — that's the

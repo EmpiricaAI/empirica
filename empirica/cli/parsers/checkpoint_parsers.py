@@ -1812,6 +1812,41 @@ Example:
     delete_artifacts_parser.add_argument("--output", choices=["human", "json"], default="json", help="Output format")
     delete_artifacts_parser.add_argument("--verbose", action="store_true", help="Show detailed output")
 
+    # The fourth member of the gardening family. log creates, resolve closes,
+    # delete removes — and until 2026-07-31 nothing could CORRECT A FIELD, so an
+    # artifact that was real and correctly typed but carried a wrong impact score
+    # or a contaminated provenance tag had no path at all from the CLI.
+    update_artifacts_parser = subparsers.add_parser(
+        "update-artifacts",
+        help=(
+            "Correct FIELDS on existing artifacts — impact, subject, visibility, "
+            "and above all epistemic_source. The gardening verb for an artifact "
+            "that is real and correctly typed but carries WRONG METADATA. Use "
+            "resolve-artifacts for a row that is done, delete-artifacts for one "
+            "that was never knowledge, and this for one that is simply mis-tagged."
+        ),
+        description="""
+Correct metadata on artifacts that already exist.
+
+The claim TEXT is deliberately immutable. Rewriting what an artifact said would
+make the record unfalsifiable — a reader could not tell "this was always the
+claim" from "someone edited it after it was contradicted". A claim that turns out
+wrong takes `finding-resolve --kind retracted`, which keeps the original wording
+and records that it failed. Correct the METADATA; retract the CLAIM.
+
+Rejected field names are reported, not silently dropped.
+
+Example:
+  echo '{"updates": [{"type": "finding", "id": "abc12345", "epistemic_source": "mixed"}]}' | empirica update-artifacts -
+        """,
+    )
+    update_artifacts_parser.add_argument(
+        "config", nargs="?", default="-", help="JSON file or - for stdin (default: stdin)"
+    )
+    update_artifacts_parser.add_argument("--schema", action="store_true", help="Print the input JSON schema and exit")
+    update_artifacts_parser.add_argument("--output", choices=["human", "json"], default="json", help="Output format")
+    update_artifacts_parser.add_argument("--verbose", action="store_true", help="Show detailed output")
+
     # EPP activation telemetry
     # Self-reported: Claude logs when it invoked EPP protocol during a turn.
     # Writes to ~/.empirica/hook_counters{suffix}.json (counter + log).
