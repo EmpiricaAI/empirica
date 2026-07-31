@@ -138,3 +138,67 @@ def test_main_checkout_not_flagged_as_worktree(tmp_path, monkeypatch):
     (tmp_path / ".git").mkdir()
     monkeypatch.chdir(tmp_path)
     assert sg._in_linked_git_worktree() is False
+
+
+# --- the exemption must not depend on WHERE in the pipeline the verb sits ---- #
+#
+# Philipp's mesh-support reported (prop_r2swgfcx) that `cat <<EOF | empirica
+# log-artifacts -` was denied, and it wedged a seat: log-artifacts, the *-log verbs
+# and check-submit all failed identically, so every escape hatch the practitioner
+# reached for used the same losing shape. A gate that denies the verb which would
+# clear it is unrecoverable from inside the seat.
+#
+# Cause was position-variance — the matcher tested only the leading token of the
+# first pipeline segment, which is `cat`. That is the same rule the read-only
+# classifier already follows across its three entry points; each divergence from it
+# has been an over-gating bug.
+
+
+def _exempt(command: str) -> bool:
+    return sg._is_recovery_or_measurement_action("Bash", {"command": command})
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat <<'JSON' | empirica log-artifacts -\n{}\nJSON",
+        "cat <<'JSON' | empirica check-submit -\n{}\nJSON",
+        "cd /tmp\ncat <<'JSON' | empirica log-artifacts -\n{}\nJSON",
+        "echo '{}' | empirica postflight-submit -",
+    ],
+)
+def test_a_recovery_verb_is_exempt_wherever_it_sits_in_the_pipeline(command):
+    """POSITIVE CONTROL — the shapes that wedged the seat."""
+    assert _exempt(command), f"recovery verb not exempt in piped form: {command!r}"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "empirica log-artifacts - <<'JSON'\n{}\nJSON",
+        'empirica finding-log --finding "y"',
+        "cd /tmp && empirica goals-list",
+    ],
+)
+def test_negative_control_previously_exempt_shapes_still_are(command):
+    """The shapes that already worked must keep working — widening the search could
+    otherwise have been a rewrite that traded one gap for another."""
+    assert _exempt(command)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "rm -rf /tmp/x",
+        "cat f | empirica log-artifacts - && rm -rf /tmp/x",
+        "git commit -m x",
+        "echo hi | tee /tmp/f",
+        "cat <<'JSON' | python3 -c 'import os'\nJSON",
+    ],
+)
+def test_negative_control_widening_the_search_admits_nothing_mutating(command):
+    """The load-bearing control. `is_safe_bash_command` runs first and rejects any
+    praxic segment, so searching every segment cannot admit a mutating command — but
+    an exemption fix that quietly became an allow-all would pass the positives above
+    and fail only in production."""
+    assert not _exempt(command), f"exemption admitted a mutating command: {command!r}"

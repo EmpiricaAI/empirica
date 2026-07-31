@@ -1119,11 +1119,37 @@ def _is_recovery_or_measurement_action(tool_name: str, tool_input: dict | None) 
     # to read-only filters. A command that isn't fully safe is never exempted.
     if not is_safe_bash_command({"command": normalized}):
         return False
-    # Narrow to the recovery/measurement set: strip a leading `cd … &&`, then
-    # take the leading token before any heredoc / pipe.
+    # Narrow to the recovery/measurement set: strip a leading `cd … &&`, then look
+    # for a recovery verb in ANY pipeline segment, not only the first.
+    #
+    # This used to test the leading token alone, so `cat <<'JSON' | empirica
+    # log-artifacts -` saw `cat`, missed the exemption, and fell through to the rush
+    # guard. That is the shape an AI naturally reaches for when piping JSON to a
+    # verb, and it wedged a seat (philipp/empirica-imagegen): log-artifacts, the
+    # *-log verbs and check-submit all failed identically, so every escape hatch the
+    # practitioner reached for used the same losing shape. A gate that denies the
+    # verb which would clear it is unrecoverable from inside the seat.
+    #
+    # Safety is unchanged: `is_safe_bash_command` above has already rejected anything
+    # with a praxic segment, so by here every segment is read-only or a known-safe
+    # filter. Widening the search cannot admit a mutating command; it only stops the
+    # exemption from depending on where in the pipeline the verb happens to sit.
+    #
+    # This is the position-invariance rule the read-only classifier already follows
+    # across its three entry points (single command / chain segment / pipe segment),
+    # applied to the recovery exemption — each divergence has been an over-gating bug.
+    # Order matters here, and getting it wrong was the first attempt at this fix:
+    # split the PIPELINE first, then strip a heredoc marker from each segment. The
+    # reported shape puts `<<` before `|` (`cat <<'J' | empirica log-artifacts -`),
+    # so splitting on `<<` first discards the very segment carrying the verb.
+    #
+    # Only the first line is examined: a pipeline lives on one line, while the
+    # heredoc BODY follows on subsequent lines and may legitimately contain `|`
+    # inside JSON. Taking the whole string would split on those.
     after_cd = re.sub(r"\A\s*cd\s+[^\n&;|]+\s*&&\s*", "", normalized, count=1)
-    leading = after_cd.split("<<", 1)[0].split("|", 1)[0].strip()
-    return any(leading.startswith(prefix) for prefix in _RECOVERY_MEASUREMENT_PREFIXES)
+    first_line = after_cd.split("\n", 1)[0]
+    segments = [seg.split("<<", 1)[0].strip() for seg in first_line.split("|")]
+    return any(seg.startswith(prefix) for seg in segments if seg for prefix in _RECOVERY_MEASUREMENT_PREFIXES)
 
 
 # --- AUTONOMY CALIBRATION LOOP ---
