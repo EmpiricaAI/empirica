@@ -254,9 +254,15 @@ def handle_mailbox_reply_command(  # noqa: C901 — CLI handler with 7 validatio
                 f"cortex_archive_proposal.\n"
             )
 
-    # Structured output
+    # Structured output.
+    # `proposal_id` is the canonical key — it matches `mailbox archive` and is what a
+    # caller reaches for when confirming what it just emitted. `new_proposal_id` is the
+    # original name, kept as an alias so any out-of-repo consumer keeps working; both
+    # always carry the same value. Cortex looked for `proposal_id`, found nothing, and
+    # reported the ack path as an unverifiable success (prop_t5tl6noq).
     result = {
         "ok": True,
+        "proposal_id": new_proposal_id,
         "new_proposal_id": new_proposal_id,
         "parent_id": parent_id,
         "parent_closed": parent_closed,

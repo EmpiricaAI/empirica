@@ -6,6 +6,7 @@ Verifies the atomic propose+complete shape, smart defaults from parent,
 
 from __future__ import annotations
 
+import json
 import types
 
 from empirica.cli.command_handlers.mailbox_commands import (
@@ -96,6 +97,32 @@ def test_reply_atomic_propose_and_complete(capsys):
     out = capsys.readouterr().out
     assert "prop_new_xyz" in out
     assert '"parent_closed": true' in out
+
+
+def test_the_emitted_id_is_reachable_under_proposal_id(capsys):
+    """The sender must be able to confirm what it emitted from the response alone.
+
+    Cortex reported the ack path as an unverifiable success: it read `proposal_id`,
+    got nothing, and had to run a second outbox poll grepping for its own title to
+    learn what it had sent. The id was there all along under `new_proposal_id` — the
+    projection was reachable only if you already knew the non-obvious key. `mailbox
+    archive` returns `proposal_id`; the ack path must not disagree with it.
+    """
+    _, post = _record_post()
+    handle_mailbox_reply_command(
+        _make_args(),
+        _resolve_cortex_creds=_creds(),
+        _resolve_ai_id=_ai_id(),
+        _http_post=post,
+        _fetch_parent=_fetch_parent(),
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload["proposal_id"] == "prop_new_xyz"
+    # The alias stays — out-of-repo consumers may key off the original name — but the
+    # two must never drift apart into two ids.
+    assert payload["new_proposal_id"] == payload["proposal_id"]
 
 
 def test_reply_smart_default_title(capsys):
