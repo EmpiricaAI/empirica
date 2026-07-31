@@ -40,7 +40,13 @@ def _make_project_with_db(tmp_path: Path, project_id: str) -> Path:
             goal_id TEXT, subtask_id TEXT, transaction_id TEXT,
             finding TEXT NOT NULL, finding_data TEXT,
             subject TEXT, impact REAL DEFAULT 0.5, epistemic_source TEXT,
-            created_timestamp REAL NOT NULL
+            created_timestamp REAL NOT NULL,
+            -- Lifecycle columns (migrations 057/061). Absent from this fixture
+            -- until 2026-07-31, which is why the resolve endpoint's drift went
+            -- unnoticed: the fixture encoded the same pre-057 world the endpoint
+            -- did, so the two agreed with each other and not with production.
+            is_resolved INTEGER DEFAULT 0, resolution TEXT, resolved_timestamp REAL,
+            superseded_by TEXT, resolution_kind TEXT
         );
         CREATE TABLE project_unknowns (
             id TEXT PRIMARY KEY, project_id TEXT, session_id TEXT,
@@ -262,23 +268,41 @@ def test_resolve_unknown_marks_resolved(tmp_path, monkeypatch, reset_daemon_cach
     assert row[1] == "investigation"
 
 
-def test_resolve_assumption_sets_verified(tmp_path, monkeypatch, reset_daemon_cache):
+def test_resolve_assumption_requires_explicit_verified(tmp_path, monkeypatch, reset_daemon_cache):
+    """Borne out and falsified are OPPOSITE events; the default must not invent one.
+
+    This previously asserted that a bare resolve sets `verified` — the same
+    always-verified defect the CLI batch path carried (fixed 6bd55ff5f), in a
+    parallel implementation. A resolved-but-unstated assumption is far more often
+    one that did NOT hold, so defaulting to verified manufactures confirmation the
+    caller never claimed, and an assumption layer that cannot say "this did not
+    hold" is the pre-blindspot surface with its point removed.
+    """
     pid = str(uuid.uuid4())
     proj = _make_project_with_db(tmp_path, pid)
     db_path = proj / ".empirica" / "sessions" / "sessions.db"
 
     a1 = _insert_assumption(db_path, pid)
+    a2 = _insert_assumption(db_path, pid)
 
     with patch("empirica.utils.session_resolver.InstanceResolver.project_path", return_value=str(proj)):
         monkeypatch.chdir(proj)
         client = TestClient(create_serve_app())
-        response = client.patch(f"/api/v1/artifacts/{a1}/resolve", json={"resolved_by": "code review"})
+        bare = client.patch(f"/api/v1/artifacts/{a1}/resolve", json={"resolved_by": "code review"})
+        explicit = client.patch(
+            f"/api/v1/artifacts/{a2}/resolve", json={"resolved_by": "code review", "verified": True}
+        )
 
-    assert response.status_code == 200
+    assert bare.status_code == 200 and explicit.status_code == 200
     conn = sqlite3.connect(str(db_path))
-    row = conn.execute("SELECT status FROM assumptions WHERE id = ?", (a1,)).fetchone()
-    conn.close()
-    assert row[0] == "verified"
+    try:
+        bare_status = conn.execute("SELECT status FROM assumptions WHERE id = ?", (a1,)).fetchone()[0]
+        explicit_status = conn.execute("SELECT status FROM assumptions WHERE id = ?", (a2,)).fetchone()[0]
+    finally:
+        conn.close()
+
+    assert bare_status == "falsified", "an unstated resolve must not claim the assumption held"
+    assert explicit_status == "verified", "the opposite event must stay reachable"
 
 
 def test_resolve_goal_completes(tmp_path, monkeypatch, reset_daemon_cache):
@@ -301,8 +325,17 @@ def test_resolve_goal_completes(tmp_path, monkeypatch, reset_daemon_cache):
     assert row[1] == "completed"
 
 
-def test_resolve_finding_returns_422_no_resolve_semantics(tmp_path, monkeypatch, reset_daemon_cache):
-    """Findings have no 'resolve' state — should 422, not silently 200."""
+def test_resolve_finding_now_resolves_instead_of_422(tmp_path, monkeypatch, reset_daemon_cache):
+    """Findings gained resolve semantics in migration 057 — this endpoint had not.
+
+    This test previously asserted 422 with the comment "findings have no 'resolve'
+    state". That was TRUE when written and false from migration 057 onward, and
+    because the test kept passing it actively guarded the drift: the CLI grew a
+    finding lifecycle while the daemon kept refusing one, and the green test made
+    the refusal look intentional.
+
+    Inverted deliberately, not deleted — the record of what changed is the point.
+    """
     pid = str(uuid.uuid4())
     proj = _make_project_with_db(tmp_path, pid)
     db_path = proj / ".empirica" / "sessions" / "sessions.db"
@@ -312,9 +345,17 @@ def test_resolve_finding_returns_422_no_resolve_semantics(tmp_path, monkeypatch,
     with patch("empirica.utils.session_resolver.InstanceResolver.project_path", return_value=str(proj)):
         monkeypatch.chdir(proj)
         client = TestClient(create_serve_app())
-        response = client.patch(f"/api/v1/artifacts/{f1}/resolve", json={"resolved_by": "x"})
+        response = client.patch(
+            f"/api/v1/artifacts/{f1}/resolve",
+            json={"resolved_by": "the benchmark never showed this", "resolution_kind": "retracted"},
+        )
 
-    assert response.status_code == 422
+    assert response.status_code == 200
+    conn = sqlite3.connect(str(db_path))
+    row = conn.execute("SELECT is_resolved, resolution_kind FROM project_findings WHERE id = ?", (f1,)).fetchone()
+    conn.close()
+    assert row[0] == 1
+    assert row[1] == "retracted", "a daemon seat must be able to RETRACT, not only mark stale"
 
 
 # ── PATCH /artifacts/{id} (partial update) ────────────────────────────

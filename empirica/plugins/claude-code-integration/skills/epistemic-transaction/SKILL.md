@@ -581,7 +581,15 @@ empirica check-submit - << 'EOF'
     "know": 0.82, "uncertainty": 0.15,
     "context": 0.85, "clarity": 0.88
   },
-  "reasoning": "Investigated middleware chain, understand JWT flow, know where roles live. Ready to implement."
+  "reasoning": "Investigated middleware chain, understand JWT flow, know where roles live. Ready to implement.",
+  "claims": [
+    {"claim": "roles live in the JWT claims, not the session store",
+     "grounding": "read", "ref": "src/auth/jwt.py:40-58"},
+    {"claim": "the middleware chain runs auth before the route handler",
+     "grounding": "ran", "ref": "curl -H 'Authorization: ...' /health → 401 before handler log"},
+    {"claim": "all routes except /health need auth",
+     "grounding": "assumed"}
+  ]
 }
 EOF
 ```
@@ -590,6 +598,26 @@ EOF
 - `investigate` → Keep exploring (noetic phase, **same transaction**)
 
 **CHECK does NOT end the transaction.** It gates the transition.
+
+#### Declare the 2–3 claims the work rests on
+
+`know` is **one number over many beliefs**. An honest `know=0.82` can be eleven
+well-grounded claims plus one guess — and the average hides the guess, which is
+the one that breaks. Naming them keeps the outlier visible.
+
+| grounding | means |
+|---|---|
+| `ran` | executed something and observed the result — strongest |
+| `read` | opened the source and saw it |
+| `retrieved` | came from **our own** prior artifact/decision/note — *testimony, not observation*: true when written, ageing like any prior |
+| `assumed` | acting on it without checking — the honest label for a guess |
+
+CHECK echoes back how many are weakly grounded **while you can still act on it**.
+Two of three resting on `assumed` is a reason to keep investigating — and it is
+invisible in an averaged `know`.
+
+Don't inflate the list. Three real load-bearing claims beat ten decorative ones;
+the mechanism is worthless if the claim that actually breaks isn't among them.
 
 ### 4d. Praxic Phase — Implement
 
@@ -610,8 +638,35 @@ empirica decision-log --choice "Use middleware factory pattern" \
 **BEFORE running POSTFLIGHT, always:**
 1. Log all remaining epistemic artifacts (findings, unknowns, decisions, dead-ends, mistakes)
 2. Resolve any unknowns that were answered during the transaction
-3. Complete any goals that were finished
-4. Ask the user: "Any artifacts to log before I close the transaction?"
+3. **Correct what this transaction proved WRONG** — a prior finding the work disproved is
+   `finding-resolve <id> --kind retracted`, not something to leave for a gardening pass.
+   You have the evidence *now*; a later sweep will only have the age.
+4. Complete any goals that were finished
+5. **Adjudicate the claims you declared at CHECK** (see below)
+6. Ask the user: "Any artifacts to log before I close the transaction?"
+
+#### Adjudicate the claims — `held` · `refuted` · `untested`
+
+```bash
+empirica postflight-submit - << 'EOF'
+{
+  "vectors": {"...": "..."},
+  "reasoning": "...",
+  "claims": [
+    {"index": 1, "verdict": "held",     "evidence": "middleware tests pass against real JWTs"},
+    {"index": 2, "verdict": "refuted",  "evidence": "auth runs AFTER the logger, not before"}
+  ]
+}
+EOF
+```
+
+**Anything you don't adjudicate is recorded as `untested` and reported as a gap.**
+That is the feature, not a penalty — `refuted` is rare, `held` is cheap, and
+*"I acted on this and never checked it"* is the one state a single `know` cannot
+express. An untested claim is not a failure of the transaction; **hiding it would be.**
+
+A `refuted` claim usually means a prior artifact is now false too — that is the
+moment to `finding-resolve --kind retracted`, while you hold the evidence.
 
 POSTFLIGHT without artifact sweep = lost data. The measurement window closes
 and unlogged work becomes invisible to calibration. Always log first, then close.

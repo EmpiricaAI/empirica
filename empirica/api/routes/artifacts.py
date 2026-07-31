@@ -1357,16 +1357,65 @@ async def get_artifact(
         db.close()
 
 
+def _exec_lifecycle_update(cursor, artifact_type: str, sql: str, params: tuple, migration: str) -> None:
+    """Run a lifecycle UPDATE, degrading honestly on a project DB that predates it.
+
+    The daemon serves MANY projects, registered at different times and therefore at
+    different schema vintages — this module's own docstring calls that normal. The
+    lifecycle columns arrived in migrations 057/060/061, so a project DB older than
+    those has no `is_resolved` / `is_invalidated` column and the UPDATE raises.
+
+    A raw sqlite error would surface as a 500, which reads as "the daemon is
+    broken" rather than "this project's DB needs migrating". 422 with the migration
+    named is the difference between a bug report and a one-line fix.
+    """
+    import sqlite3 as _sqlite3
+
+    try:
+        cursor.execute(sql, params)
+    except _sqlite3.OperationalError as e:
+        if "no such column" not in str(e).lower():
+            raise
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": f"this project's database predates the {artifact_type} lifecycle",
+                "hint": (
+                    f"Missing columns from migration {migration}. Run any `empirica` command "
+                    "inside that project once to apply pending migrations, then retry."
+                ),
+            },
+        ) from e
+
+
 @router.patch("/artifacts/{artifact_id}/resolve")
 async def resolve_artifact(artifact_id: str, body: dict):
     """Mark an artifact as resolved.
 
     Per-type semantics (matches `empirica resolve-artifacts` CLI):
     - unknown:    is_resolved = 1, resolved_by, resolved_timestamp
-    - assumption: status = 'verified'
+    - assumption: status = 'verified' | 'falsified' (see below)
     - goal:       is_completed = 1, status = 'completed', completed_timestamp
+    - finding:    is_resolved = 1 + optional `resolution_kind` (migration 061)
+    - dead_end /
+      mistake:    is_invalidated = 1 (migration 060 — INVALIDATION, not resolution:
+                  a dead-end is never "done", it is either still-constraining or wrong)
 
-    For other types (finding/decision/dead_end/mistake/source) — 422 (no resolve semantics).
+    For decision/source — 422 (genuinely no resolve semantics).
+
+    **Drifted until 2026-07-31.** This endpoint refused findings, dead_ends and
+    mistakes with a 422 reading "no resolve semantics" — true when written, and
+    false from migration 057 (finding resolution) and 060 (dead_end/mistake
+    invalidation) onward. The CLI gained those lifecycles; this parallel
+    implementation did not, so daemon and extension seats could not correct the
+    three most numerous artifact types at all. Two-sources-of-truth drift, and the
+    422 made it look deliberate.
+
+    `verified` also defaulted unconditionally for assumptions — the same
+    always-verified defect fixed in the CLI batch path (6bd55ff5f). Absent an
+    explicit `verified: false`, an assumption now resolves as **falsified**: a
+    resolved-but-unstated assumption is far more often one that did not hold, and
+    defaulting to verified manufactures confirmation the caller never claimed.
     """
     import time
 
@@ -1390,14 +1439,45 @@ async def resolve_artifact(artifact_id: str, body: dict):
                 (resolved_by, now, artifact_id),
             )
         elif artifact_type == "assumption":
+            # Borne out and falsified are OPPOSITE events; defaulting to verified
+            # manufactures confirmation the caller never claimed.
+            status = "verified" if body.get("verified") is True else "falsified"
             cursor.execute(
-                "UPDATE assumptions SET status = 'verified', resolved_timestamp = ? WHERE id = ?",
-                (now, artifact_id),
+                "UPDATE assumptions SET status = ?, resolved_timestamp = ? WHERE id = ?",
+                (status, now, artifact_id),
             )
         elif artifact_type == "goal":
             cursor.execute(
                 "UPDATE goals SET is_completed = 1, status = 'completed', completed_timestamp = ? WHERE id = ?",
                 (now, artifact_id),
+            )
+        elif artifact_type == "finding":
+            from empirica.data.resolution_kind import normalize_resolution_kind
+
+            _exec_lifecycle_update(
+                cursor,
+                artifact_type,
+                "UPDATE project_findings SET is_resolved = 1, resolution = ?, resolved_timestamp = ?, "
+                "resolution_kind = ?, superseded_by = ? WHERE id = ?",
+                (
+                    resolved_by or body.get("resolution") or "resolved",
+                    now,
+                    normalize_resolution_kind(body.get("resolution_kind")),
+                    body.get("superseded_by"),
+                    artifact_id,
+                ),
+                migration="057/061",
+            )
+        elif artifact_type in ("dead_end", "mistake"):
+            # INVALIDATION, not resolution (migration 060). A dead-end is never
+            # "done" — it is either still-constraining or wrong.
+            table = "project_dead_ends" if artifact_type == "dead_end" else "mistakes_made"
+            _exec_lifecycle_update(
+                cursor,
+                artifact_type,
+                f"UPDATE {table} SET is_invalidated = 1, invalidation_reason = ?, invalidated_at = ? WHERE id = ?",
+                (resolved_by or body.get("reason") or "invalidated", now, artifact_id),
+                migration="060",
             )
         else:
             raise HTTPException(

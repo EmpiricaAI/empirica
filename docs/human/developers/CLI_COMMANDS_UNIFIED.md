@@ -23,7 +23,7 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.12.38
-**Generated:** 2026-07-28 14:48:12 UTC
+**Generated:** 2026-07-31 07:04:34 UTC
 **Total commands:** 242 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -697,7 +697,9 @@ Resolve/supersede a finding — kept for history, dropped from live retrieval (P
 - `finding_id` — **required**
   Finding UUID (full or 8+ char prefix)
 - `--resolution` — **required**
-  Why resolved (e.g. stale, superseded, invalidated)
+  Why resolved, in your own words (the account)
+- `--kind` — optional · type=`choice` · choices={stale, superseded, retracted, mistyped}
+  WHY, in the closed vocabulary — the queryable half of --resolution. stale: was true when written, has since aged out; superseded: replaced by a NAMED newer artifact (use with --superseded-by); retracted: was FALSE when written — a genuine error, not ageing; mistyped: belongs to a different artifact type (e.g. a mistake logged as a finding). Reach for 'retracted' when the claim was wrong rather than merely old: a practice that only ever records 'stale' cannot tell its own ageing from its own errors.
 - `--superseded-by` — optional
   Finding ID that replaced it (superseded finding → its replacement)
 - `--output` — optional · type=`choice` · choices={human, json} · default=`json`

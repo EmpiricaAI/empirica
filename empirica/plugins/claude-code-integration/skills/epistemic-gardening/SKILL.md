@@ -56,13 +56,22 @@ Three registers — don't confuse them:
 
 | Trigger | Depth |
 |---|---|
-| **Before a release** | Full pass — a clean graph is part of the release artifact |
-| **Periodically** (e.g. every N sessions, or when a bootstrap feels noisy) | Standard pass on the loudest artifact types |
+| **PREFLIGHT/CHECK surfaces something you can see is stale, superseded or FALSE** — *the common case* | **Spot-correct inline.** One `finding-resolve --kind …`, no pass, no ceremony. Do it in the transaction you are already in. |
+| **A peer's report makes you doubt a chunk of your graph** | Scoped pass on that cluster |
 | **After a big investigation** that spawned many exploratory findings/unknowns | Scoped pass on that session's artifacts |
-| **When PREFLIGHT/EPISTEMIC FOCUS surfaces something you *know* is stale** | Spot-resolve inline (one verb, no full pass) |
+| **Periodically** (e.g. every N sessions, or when a bootstrap feels noisy) | Standard pass on the loudest artifact types |
+| **Before a release** | Full pass — a clean graph is part of the release artifact |
 
-Don't garden *mid-investigation* — you'll prune branches you're still standing on. Garden
-at a coherent break, not while the question is open.
+**Gardening is not primarily an event.** The full pass is the rare register; the routine
+one is correcting the single artifact you *just noticed was wrong*, at the moment you
+noticed, with the same reflex you already have for logging. A practice that only gardens
+in scheduled sweeps accumulates a graph that is wrong between them — and retrieval reads
+that graph on every PREFLIGHT.
+
+Don't run a *sweep* mid-investigation — you'll prune branches you're still standing on.
+That is a caution about **bulk passes**, and it is not a reason to leave a finding you
+know to be false sitting in retrieval until a tidier moment. Correcting one artifact you
+just disproved is never premature.
 
 ---
 
