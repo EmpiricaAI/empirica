@@ -3220,7 +3220,26 @@ def _validate_check_record(
             )
             unknowns = cursor.fetchone()[0]
             if findings == 0 and unknowns == 0:
-                return ("deny", f"Rushed assessment ({noetic_duration:.0f}s). Investigate and log learnings first.")
+                # The message must report the WHOLE predicate. It used to read
+                # "Rushed assessment (11s). Investigate and log learnings first."
+                # — naming only the elapsed time while the deny actually requires
+                # BOTH a short gap AND zero artifacts. A practitioner reading it
+                # learns "wait longer", which is the one remedy that does not
+                # work: waiting 30s with nothing logged still denies, and logging
+                # one finding at 5s already passes.
+                #
+                # Same family as the artifact-breadth nudge whose predicate could
+                # not be satisfied: a signal whose stated remedy is not the one it
+                # wants. Here the remedy exists and was simply not named.
+                return (
+                    "deny",
+                    f"CHECK submitted {noetic_duration:.0f}s after PREFLIGHT with no findings or unknowns "
+                    "logged in between — nothing records what the investigation found.\n"
+                    "  → Log what you learned (finding-log / unknown-log), then re-submit CHECK. "
+                    "ONE artifact satisfies this; more time alone does not.\n"
+                    "  → Or, if you were already grounded before PREFLIGHT, skip CHECK entirely and "
+                    "go straight to praxic — that is a legitimate path, not a shortcut.",
+                )
     except (TypeError, ValueError):
         pass
 

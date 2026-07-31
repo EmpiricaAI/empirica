@@ -160,9 +160,20 @@ def _is_deny(result):
 def test_rush_guard_denies_genuine_rubber_stamp(monkeypatch):
     # Anti-rubber-stamp preserved: normal work_type, rushed (<30s), zero
     # artifacts → deny. This is the value the guard exists for.
+    #
+    # Asserted on the CONTRACT, not the wording. This previously required the
+    # literal string "Rushed assessment", which pinned the exact phrasing that was
+    # the defect: naming only the elapsed seconds taught practitioners to WAIT
+    # LONGER, when waiting changes nothing (the predicate is a conjunction — 30s
+    # with zero artifacts still denies) and one logged finding at 5s already
+    # passes. A test asserting surface form makes the wrong wording a spec, so it
+    # now asserts what the message must ACCOMPLISH: deny, and name the action that
+    # actually clears it.
     cur, pf = _rush_cursor(check_offset_s=11)
     result = _validate(monkeypatch, cur, pf, _PRAXIC, "code")
-    assert _is_deny(result) and "Rushed assessment" in result[1]
+    assert _is_deny(result), result
+    assert "findings or unknowns" in result[1], "the deny must name the condition that triggered it"
+    assert "finding-log" in result[1], "and the verb that clears it"
 
 
 def test_rush_guard_recoverable_by_post_check_finding(monkeypatch):

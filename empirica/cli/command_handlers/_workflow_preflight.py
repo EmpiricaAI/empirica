@@ -855,6 +855,46 @@ def _preflight_build_result(
     return result
 
 
+def _preflight_create_snapshot(session_id, vectors, reasoning, checkpoint_id, transaction_id):
+    """Capture PREFLIGHT vectors as an epistemic snapshot. Mirrors _check_create_snapshot.
+
+    Added 2026-07-31. CHECK and POSTFLIGHT have written snapshots for a long time
+    and PREFLIGHT never did, so `cascade_phase` carried only those two and the
+    **PREFLIGHT→CHECK gap could not be measured** — the join returns zero pairs.
+
+    That gap is the whole subject of the CHECK-ceremony problem, so its absence
+    meant the one number that would tell us whether any intervention worked was
+    the one number we did not have. Instrument first.
+
+    Fail-soft and non-fatal: a measurement surface must never be able to block the
+    transaction it measures.
+    """
+    try:
+        from empirica.data.epistemic_snapshot import ContextSummary
+        from empirica.data.snapshot_provider import EpistemicSnapshotProvider
+
+        uncertainty = vectors.get("uncertainty", 0.5) if isinstance(vectors, dict) else 0.5
+        provider = EpistemicSnapshotProvider()
+        context_summary = ContextSummary(
+            semantic={"phase": "PREFLIGHT", "confidence": 1.0 - uncertainty},
+            narrative=reasoning or "PREFLIGHT: transaction opened",
+            evidence_refs=[checkpoint_id] if checkpoint_id else [],
+        )
+        snapshot = provider.create_snapshot_from_session(
+            session_id=session_id,
+            context_summary=context_summary,
+            cascade_phase="PREFLIGHT",
+            domain_vectors={"transaction_id": transaction_id} if transaction_id else None,
+        )
+        snapshot.vectors = vectors
+        provider.save_snapshot(snapshot)
+        logger.debug(f"Created PREFLIGHT epistemic snapshot {snapshot.snapshot_id} for session {session_id}")
+        return snapshot.snapshot_id
+    except Exception as e:
+        logger.debug(f"PREFLIGHT epistemic snapshot creation skipped: {e}")
+        return None
+
+
 def handle_preflight_submit_command(args):
     """Handle preflight-submit command - AI-first with config file support"""
     try:
@@ -878,6 +918,18 @@ def handle_preflight_submit_command(args):
 
             # Stage 3a: Write checkpoint to 3-layer storage
             checkpoint_id = _preflight_create_checkpoint(session_id, vectors, reasoning, transaction_id)
+
+            # Stage 3a-bis: Epistemic snapshot for PREFLIGHT.
+            #
+            # CHECK and POSTFLIGHT have written snapshots for a long time;
+            # PREFLIGHT never did, so `epistemic_snapshots.cascade_phase` held only
+            # those two phases and the **PREFLIGHT→CHECK gap was unmeasurable** —
+            # a join for it returns zero pairs. That is the gap at the centre of
+            # the CHECK-ceremony problem (a peer measured 47% of 728 CHECKs
+            # arriving within 30s of their PREFLIGHT, and could only do so from a
+            # different table). Instrument before intervening: without the opening
+            # timestamp there is no way to tell whether any fix worked.
+            _preflight_create_snapshot(session_id, vectors, reasoning, checkpoint_id, transaction_id)
 
             # Stage 3b: Persist transaction file
             resolved_project_path = None
