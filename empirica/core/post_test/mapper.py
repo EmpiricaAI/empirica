@@ -529,16 +529,76 @@ def summarize_evidence(bundle: EvidenceBundle, work_type: str | None = None) -> 
     }
 
 
+#: Evidence-item keys inside the ``artifacts`` source that carry a per-type count,
+#: mapped to (item_key, count_key). The collector emits NO metric for assumptions
+#: or decisions, so this signal is structurally blind to two of the six types — see
+#: the docstring for why that must change what it says rather than what it guesses.
+_BREADTH_OBSERVABLE = {
+    "findings": ("mistake_ratio", "findings"),
+    "mistakes": ("mistake_ratio", "mistakes"),
+    "dead_ends": ("productive_exploration_ratio", "dead_ends_weighted"),
+    "unknowns": ("unknown_resolution_ratio", "total_weighted"),
+}
+
+
 def _signal_artifact_breadth(summary: dict) -> str | None:
-    """Signal for artifact logging breadth."""
+    """Signal for artifact logging breadth.
+
+    Rewritten 2026-07-31 — the previous version fired on EVERY transaction and
+    could never emit its own positive branch.
+
+    ``summary["artifacts"]`` is the evidence-SOURCE dict: its values are per-metric
+    sub-dicts, not numbers. The old filter was
+    ``[k for k, v in artifacts.items() if isinstance(v, (int, float)) and v > 0]``,
+    which therefore matched nothing, always — so ``artifact_types`` was always
+    empty, ``<= 1`` was always true, the narrow warning fired unconditionally, and
+    ``Good artifact breadth`` was unreachable code. Verified by executing the
+    function against a live payload: a transaction logging findings, mistakes,
+    assumptions AND decisions still got "Narrow artifact breadth".
+
+    That is the failure cortex's SER item 4 reported as "the retrospective gate
+    repeats identically and I learned to discount it". It was not repetition —
+    the predicate could not be satisfied. **A check that cannot pass is training,
+    not feedback**, and what it trains is dismissal of every signal beside it.
+
+    Two constraints on the fix:
+
+    1. *Unmeasurable must not read as narrow.* When no per-type counts are
+       observable at all, return ``None`` — silence — rather than asserting a
+       deficiency that was never measured.
+    2. *Do not recommend what cannot be verified.* The old text advised logging
+       "decisions, assumptions, or dead-ends" while the collector emits no metric
+       for decisions or assumptions, so complying could not silence it. The new
+       text names only observable types, and says how many it could see, so a
+       reader can tell a real narrow result from a partial view.
+    """
     artifacts = summary.get("artifacts", {})
     if not artifacts:
         return None
-    artifact_types = [k for k, v in artifacts.items() if isinstance(v, (int, float)) and v > 0]
-    if len(artifact_types) <= 1:
-        return "Narrow artifact breadth — consider logging decisions, assumptions, or dead-ends"
-    if len(artifact_types) >= 4:
-        return f"Good artifact breadth ({len(artifact_types)} types)"
+
+    present = []
+    for label, (item_key, count_key) in _BREADTH_OBSERVABLE.items():
+        item = artifacts.get(item_key)
+        if not isinstance(item, dict):
+            continue
+        value = item.get(count_key)
+        if isinstance(value, (int, float)) and value > 0:
+            present.append(label)
+
+    observable = sum(1 for item_key, _ in _BREADTH_OBSERVABLE.values() if isinstance(artifacts.get(item_key), dict))
+    if observable == 0:
+        # Nothing to measure. Saying nothing beats inventing a verdict.
+        return None
+
+    if len(present) <= 1:
+        seen = present[0] if present else "none"
+        return (
+            f"Narrow artifact breadth — only {seen} logged of the "
+            f"{observable} type(s) measurable here; consider dead-ends or mistakes "
+            "(assumptions/decisions are not observable in this evidence set)"
+        )
+    if len(present) >= 3:
+        return f"Good artifact breadth ({len(present)} observable types)"
     return None
 
 
