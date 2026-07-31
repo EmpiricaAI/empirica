@@ -111,7 +111,18 @@ def declare(
     if not claims:
         return stored
     now = time.time()
-    for idx, raw in enumerate(claims, start=1):
+    # Continue numbering from what this transaction already holds. Claims can be
+    # declared at PREFLIGHT *and* at CHECK, and restarting at 1 each time put two
+    # different claims at index 1 inside one transaction — `adjudicate` keys its
+    # lookup on a dict, so one of them silently won and the other could never be
+    # addressed, then got forced to `untested` and reported as a gap. That made the
+    # mechanism understate its own coverage: three transactions reported phantom
+    # gaps for claims that had in fact been verified.
+    #
+    # The index is the practitioner's addressing space, so it has to be unique
+    # across the whole transaction, not per call.
+    start = _next_claim_index(db, session_id, transaction_id)
+    for idx, raw in enumerate(claims, start=start):
         if not isinstance(raw, dict):
             continue
         text = str(raw.get("claim") or "").strip()
@@ -135,6 +146,24 @@ def declare(
     return stored
 
 
+def _next_claim_index(db, session_id: str, transaction_id: str | None) -> int:
+    """One past the highest index this transaction already uses (1 when empty).
+
+    Fail-soft to 1 on any error, matching the rest of this module: a numbering
+    problem must not be able to fail a CHECK.
+    """
+    try:
+        sql = "SELECT MAX(claim_index) FROM transaction_claims WHERE session_id = ?"
+        params: tuple = (session_id,)
+        if transaction_id:
+            sql += " AND transaction_id = ?"
+            params = (session_id, transaction_id)
+        row = db.conn.execute(sql, params).fetchone()
+        return int(row[0]) + 1 if row and row[0] is not None else 1
+    except Exception:
+        return 1
+
+
 def adjudicate(
     db,
     *,
@@ -155,7 +184,21 @@ def adjudicate(
     """
     rows = _open_claims(db, session_id, transaction_id)
     if not rows:
-        return {"declared": 0, "held": 0, "refuted": 0, "untested": 0, "gaps": []}
+        # Say when verdicts arrived with nothing to attach them to. Returning a
+        # silent zero block here was the exact mirror of the forcing rule below:
+        # that rule exists so "declared but never checked" cannot look like
+        # "nothing declared", and this branch let "adjudicated but never declared"
+        # look like "submitted nothing". Both are the same conflation.
+        dropped = sum(1 for a in adjudications or [] if isinstance(a, dict) and normalize_verdict(a.get("verdict")))
+        out: dict[str, Any] = {"declared": 0, "held": 0, "refuted": 0, "untested": 0, "gaps": []}
+        if dropped:
+            out["dropped_adjudications"] = dropped
+            out["note"] = (
+                f"{dropped} verdict(s) submitted but no claims were declared in this "
+                "transaction — nothing was recorded. Declare claims at PREFLIGHT or CHECK "
+                "for POSTFLIGHT to adjudicate."
+            )
+        return out
 
     by_id = {r["id"]: r for r in rows}
     by_index = {r["claim_index"]: r for r in rows}
