@@ -3094,6 +3094,41 @@ def _check_postflight_loop_closed(
 RUSH_GUARD_EXEMPT_WORK_TYPES = frozenset({"remote-ops"})
 
 
+def _has_grounded_claims(cursor, session_id, current_transaction_id) -> bool:
+    """True when PREFLIGHT declared at least one claim grounded by `read` or `ran`.
+
+    The GROUNDED-AT-OPEN path. Hooks are standalone (no package import), so this
+    queries `transaction_claims` directly on the cursor already in hand — the same
+    way the rush guard reads project_findings/project_unknowns.
+
+    Only `read` and `ran` certify. `retrieved` and `assumed` deliberately do not:
+    our own prior artifacts are testimony rather than observation, and `assumed`
+    is by definition the absence of grounding. That asymmetry is what stops this
+    from becoming a new rubber stamp — you cannot certify by declaring confidence,
+    only by naming something you actually read or ran.
+
+    Fail-CLOSED: any error returns False, so a missing table or a query problem
+    means "not certified" and the normal CHECK path applies. A gate that fails
+    open is worse than one that occasionally asks for a CHECK you did not need.
+    """
+    try:
+        if current_transaction_id:
+            cursor.execute(
+                "SELECT COUNT(*) FROM transaction_claims "
+                "WHERE session_id = ? AND transaction_id = ? AND grounding IN ('read','ran')",
+                (session_id, current_transaction_id),
+            )
+        else:
+            cursor.execute(
+                "SELECT COUNT(*) FROM transaction_claims WHERE session_id = ? AND grounding IN ('read','ran')",
+                (session_id,),
+            )
+        row = cursor.fetchone()
+        return bool(row and row[0])
+    except Exception:
+        return False
+
+
 def _validate_check_record(
     cursor,
     session_id: str,
@@ -3172,8 +3207,36 @@ def _validate_check_record(
         if tool_name == "Bash" and is_safe_empirica_command(tool_input.get("command", "")):
             return None
 
-        # Praxic tools: deny (need CHECK first)
-        return ("deny", "No valid CHECK found. Run CHECK after investigation to gate the noetic→praxic transition.")
+        # GROUNDED AT OPEN — claims declared at PREFLIGHT certify the transaction.
+        #
+        # Noetic work is ungated, so grounding routinely happens BEFORE the window
+        # opens: read the files, then PREFLIGHT. That order is correct and common,
+        # and until now it had no way to be stated — the practitioner either
+        # submitted an empty CHECK (ceremony) or skipped it and got denied here.
+        # 47% of one practice's 728 CHECKs arrived within 30s of their PREFLIGHT,
+        # which is what that pressure looks like in the data.
+        #
+        # A claim grounded by `read` or `ran` is a specific, checkable statement
+        # that cannot be produced by asserting confidence — so this accepts real
+        # certification while still refusing an all-`assumed` declaration.
+        if _has_grounded_claims(cursor, session_id, current_transaction_id):
+            return None
+
+        # Praxic tools: deny — but name BOTH legitimate paths. The old message
+        # said only "Run CHECK", which is why skipping read as omission: the one
+        # moment the practitioner is definitely reading, we told them the
+        # ceremony was the only way through.
+        return (
+            "deny",
+            "No CHECK, and no grounded claims declared at PREFLIGHT — nothing yet records "
+            "what this work rests on.\n"
+            "  → If you still need to investigate: do that, then submit CHECK.\n"
+            "  → If you were ALREADY grounded before opening (you read the files first — "
+            "the normal order), re-run PREFLIGHT with `claims`: 2-3 load-bearing claims, "
+            "each with grounding read|ran|retrieved|assumed. One grounded by read or ran "
+            "certifies the transaction and praxic proceeds — no CHECK needed.\n"
+            "  Skipping CHECK when genuinely grounded is the CORRECT path, not a shortcut.",
+        )
 
     know, uncertainty, reflex_data, check_timestamp = check_row
 

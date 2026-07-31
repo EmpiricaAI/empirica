@@ -164,6 +164,23 @@ calibration score** — it's derived from the same gaps it would be scored again
 
 CHECK gates the noetic → praxic transition. The Sentinel enforces this.
 
+**CHECK CERTIFIES — it does not unlock.** The word *gate* is misleading and it
+shapes behaviour: a gate is something you pass through *in order to* proceed, so
+the instinct becomes "submit one and move on". CHECK is the opposite — it is where
+you **state what the next actions rest on**. An empty CHECK isn't a formality
+completed, it's a certificate signed blank.
+
+Two consequences worth internalising, because they run against the instinct:
+
+- **Skipping CHECK when you're already grounded is the CORRECT path, not a
+  shortcut.** Noetic work is ungated, so reading the files *before* opening the
+  window is the normal order. Say so: put your `claims` in PREFLIGHT with
+  `grounding: read` or `ran`, and praxic proceeds with no CHECK at all. That is a
+  positive, recorded act — you named what you rely on and how you know it.
+- **An empty CHECK is worse than no CHECK.** It looks like diligence and carries
+  nothing. Measured across one practice: **47% of 728 CHECKs arrived within 30
+  seconds of their PREFLIGHT.** That is what the instinct produces at scale.
+
 **When CHECK is needed vs not:**
 
 - **Not needed** (skip the ceremony) — when your predictive ability

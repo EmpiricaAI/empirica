@@ -136,6 +136,20 @@ class PreflightInput(BaseModel):
             "of check-outcome predictions (B4)."
         ),
     )
+    claims: list[dict] | None = Field(
+        default=None,
+        description=(
+            "GROUNDED AT OPEN — the 2-3 load-bearing claims this work rests on, "
+            "declared HERE when the investigation happened BEFORE the window opened "
+            "(noetic work is ungated, so reading the files first is normal and "
+            "correct). Each: {claim, grounding: read|ran|retrieved|assumed, ref}. "
+            "Declaring at least one claim grounded by `read` or `ran` certifies the "
+            "transaction and lets praxic proceed WITHOUT a separate CHECK — the "
+            "skip becomes a positive recorded act rather than an omission. "
+            "You do not skip by asserting confidence; you skip by naming what you "
+            "rely on and how you know it."
+        ),
+    )
     voice: str | None = Field(
         default=None,
         description=(

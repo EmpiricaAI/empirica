@@ -63,6 +63,7 @@ def _preflight_parse_and_validate(args):
         predicted_check_outcomes = getattr(validated, "predicted_check_outcomes", None)
         voice = getattr(validated, "voice", None)
         retrospective_reason = getattr(validated, "retrospective_reason", None)
+        claims = getattr(validated, "claims", None) or []
     else:
         session_id = args.session_id
         vectors = parse_json_safely(args.vectors) if isinstance(args.vectors, str) else args.vectors
@@ -75,6 +76,7 @@ def _preflight_parse_and_validate(args):
         predicted_check_outcomes = None
         voice = getattr(args, "voice", None)
         retrospective_reason = getattr(args, "retrospective_reason", None)
+        claims = []
 
         if not session_id or not vectors:
             print(
@@ -118,6 +120,7 @@ def _preflight_parse_and_validate(args):
         "predicted_check_outcomes": predicted_check_outcomes,
         "voice": voice,
         "retrospective_reason": retrospective_reason,
+        "claims": claims if isinstance(claims, list) else [],
         "output_format": output_format,
     }
 
@@ -855,6 +858,47 @@ def _preflight_build_result(
     return result
 
 
+def _preflight_declare_claims(session_id, transaction_id, claims):
+    """Record claims declared at PREFLIGHT — the GROUNDED-AT-OPEN path.
+
+    Noetic work is ungated, so grounding routinely happens BEFORE the measurement
+    window opens: read the files, then PREFLIGHT. That ordering is correct, and
+    until now it had no way to be stated — the practitioner either submitted an
+    empty CHECK (ceremony) or skipped CHECK and had praxic denied.
+
+    Declaring claims here makes the skip a POSITIVE recorded act. It also cannot
+    be faked by asserting confidence: what gets filed is the claim and HOW it was
+    grounded, so an all-`assumed` declaration is visibly not certification and the
+    Sentinel does not accept it.
+
+    Fail-soft — this must never be able to block opening a transaction.
+    """
+    if not claims:
+        return None
+    try:
+        from empirica.core import claims as _claims
+
+        db = _get_db_for_session(session_id)
+        try:
+            stored = _claims.declare(db, session_id=session_id, transaction_id=transaction_id, claims=claims)
+        finally:
+            db.close()
+        summary = _claims.summarize_for_check(stored)
+        if summary:
+            certified = [c for c in stored if not _claims.is_weak(c.get("grounding"))]
+            summary["certifies_transaction"] = bool(certified)
+            summary["note_skip"] = (
+                "Grounded at open — praxic may proceed without a separate CHECK."
+                if certified
+                else "All claims are retrieved-or-assumed, which does not certify. "
+                "Investigate, or submit a CHECK once you have."
+            )
+        return summary
+    except Exception as e:
+        logger.debug(f"PREFLIGHT claim declaration skipped: {e}")
+        return None
+
+
 def _preflight_create_snapshot(session_id, vectors, reasoning, checkpoint_id, transaction_id):
     """Capture PREFLIGHT vectors as an epistemic snapshot. Mirrors _check_create_snapshot.
 
@@ -931,6 +975,21 @@ def handle_preflight_submit_command(args):
             # timestamp there is no way to tell whether any fix worked.
             _preflight_create_snapshot(session_id, vectors, reasoning, checkpoint_id, transaction_id)
 
+            # Stage 3a-ter: GROUNDED AT OPEN. Claims declared here mean the
+            # investigation happened BEFORE the window opened — which is normal
+            # and correct, since noetic work is ungated and reading the files
+            # first is the natural order. Declaring them certifies the
+            # transaction, and the Sentinel lets praxic proceed without a
+            # separate CHECK.
+            #
+            # This is the fix for the ceremony problem's second mechanism:
+            # skipping CHECK used to read as OMITTING a step (laziness) while
+            # submitting an empty one felt like DOING the process. Now skipping
+            # is a positive, recorded act with content — and it cannot be faked
+            # by asserting confidence, because what you file is what you rely on
+            # and how you know it.
+            preflight_claims = _preflight_declare_claims(session_id, transaction_id, parsed.get("claims"))
+
             # Stage 3b: Persist transaction file
             resolved_project_path = None
             try:
@@ -996,6 +1055,13 @@ def handle_preflight_submit_command(args):
                 work_type=parsed.get("work_type"),
                 voice=parsed.get("voice"),
             )
+
+            # Echo the grounded-at-open declaration so the practitioner sees
+            # immediately whether they may proceed straight to praxic, or whether
+            # what they filed was too weak to certify. Attached here rather than
+            # threaded through the builder's ten parameters.
+            if preflight_claims:
+                result["claims"] = preflight_claims
 
             # NOTE: Statusline cache was removed (2026-02-06). Statusline reads directly from DB.
         except Exception as e:

@@ -163,3 +163,117 @@ def test_the_predicate_is_still_a_conjunction():
 
     assert "if findings == 0 and unknowns == 0:" in src
     assert "noetic_duration < min_duration" in src
+
+
+# ── T3: grounded at open ──────────────────────────────────────────────
+
+
+def _load_gate():
+    """Load the hook as a module. It is standalone by design (no package import),
+    so it is loaded by path rather than imported."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("sentinel_gate_under_test", GATE)
+    mod = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(mod)
+    except SystemExit:
+        pass
+    return mod
+
+
+class _Cursor:
+    """Minimal cursor over an in-memory transaction_claims table."""
+
+    def __init__(self, rows):
+        import sqlite3
+
+        self.conn = sqlite3.connect(":memory:")
+        self.conn.execute(
+            "CREATE TABLE transaction_claims (id TEXT, session_id TEXT, transaction_id TEXT, "
+            "claim_index INT, claim TEXT, grounding TEXT, declared_timestamp REAL)"
+        )
+        for i, (sid, tx, grounding) in enumerate(rows):
+            self.conn.execute(
+                "INSERT INTO transaction_claims VALUES (?,?,?,?,?,?,?)",
+                (f"c{i}", sid, tx, i, "a claim", grounding, 0.0),
+            )
+        self.conn.commit()
+        self._cur = self.conn.cursor()
+
+    def execute(self, *a, **k):
+        return self._cur.execute(*a, **k)
+
+    def fetchone(self):
+        return self._cur.fetchone()
+
+
+@pytest.mark.parametrize("grounding", ["read", "ran"])
+def test_a_claim_grounded_by_read_or_ran_certifies_the_transaction(grounding):
+    """THE T3 regression. Grounding happens BEFORE the window opens routinely —
+    noetic work is ungated — and until now that could not be stated, so the
+    practitioner either filed an empty CHECK or got denied."""
+    gate = _load_gate()
+    cur = _Cursor([("s-1", "tx-1", grounding)])
+
+    assert gate._has_grounded_claims(cur, "s-1", "tx-1") is True
+
+
+@pytest.mark.parametrize("grounding", ["assumed", "retrieved"])
+def test_weak_grounding_does_NOT_certify(grounding):
+    """The asymmetry that stops this becoming a new rubber stamp. `assumed` is by
+    definition the absence of grounding, and `retrieved` is our own prior artifact
+    — testimony, not observation. Neither can substitute for having looked."""
+    gate = _load_gate()
+    cur = _Cursor([("s-1", "tx-1", grounding)])
+
+    assert gate._has_grounded_claims(cur, "s-1", "tx-1") is False
+
+
+def test_claims_from_another_transaction_do_not_certify_this_one():
+    gate = _load_gate()
+    cur = _Cursor([("s-1", "tx-other", "read")])
+
+    assert gate._has_grounded_claims(cur, "s-1", "tx-1") is False
+
+
+def test_no_claims_at_all_does_not_certify():
+    gate = _load_gate()
+
+    assert gate._has_grounded_claims(_Cursor([]), "s-1", "tx-1") is False
+
+
+def test_it_fails_CLOSED_when_the_table_is_missing():
+    """A gate that fails open is worse than one that occasionally asks for a CHECK
+    you did not need. A pre-062 database has no transaction_claims table."""
+    import sqlite3
+
+    gate = _load_gate()
+
+    class _Bare:
+        def __init__(self):
+            self.conn = sqlite3.connect(":memory:")
+            self._cur = self.conn.cursor()
+
+        def execute(self, *a, **k):
+            return self._cur.execute(*a, **k)
+
+        def fetchone(self):
+            return self._cur.fetchone()
+
+    assert gate._has_grounded_claims(_Bare(), "s-1", "tx-1") is False
+
+
+def test_the_no_check_deny_names_the_grounded_at_open_path():
+    """Mechanism 2, addressed where it is actually read. The old deny said only
+    'Run CHECK after investigation', which is why skipping read as omission — at
+    the one moment the practitioner is definitely reading, we told them ceremony
+    was the only way through."""
+    src = GATE.read_text(encoding="utf-8")
+    match = re.search(r'"deny",\s*\n\s*("No CHECK, and no grounded claims.*?)\n\s*\)', src, re.DOTALL)
+    assert match, "no-CHECK deny message not found"
+    msg = match.group(1)
+
+    assert "claims" in msg, "it must name the alternative path"
+    assert "read or ran" in msg, "and what actually certifies"
+    assert "CORRECT path, not a shortcut" in msg, "and that skipping when grounded is correct"
