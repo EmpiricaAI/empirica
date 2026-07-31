@@ -59,6 +59,26 @@ conflate these:
 - CHECK returned `investigate` → NOETIC
 - CHECK returned `proceed` → PRAXIC
 
+**CHECK CERTIFIES — it does not unlock.** The word *gate* misleads: a gate is
+something you pass through *in order to* proceed, so the instinct becomes "submit
+one and move on". CHECK is where you state what the next actions rest on, so an
+empty CHECK is not a formality completed — it's a certificate signed blank.
+
+Two routes into PRAXIC, and **both are correct**:
+
+| situation | route |
+|---|---|
+| Still need to investigate | investigate → `check-submit` with `claims` → praxic |
+| **Already grounded before the window opened** (you read the files first — the normal order, since noetic work is ungated) | declare `claims` in **PREFLIGHT** → praxic directly, **no CHECK** |
+
+One claim grounded by `read` or `ran` certifies the transaction. `retrieved` and
+`assumed` do not — our own artifacts are testimony, not observation.
+
+**Skipping CHECK when genuinely grounded is the correct path, not a shortcut** —
+you skip by naming what you rely on and how you know it, which is a positive
+recorded act. Measured across one practice, 47% of 728 CHECKs arrived within 30
+seconds of their PREFLIGHT: that is what the unlock instinct produces at scale.
+
 **When assessing completion:**
 
 1. Ask the phase-appropriate question

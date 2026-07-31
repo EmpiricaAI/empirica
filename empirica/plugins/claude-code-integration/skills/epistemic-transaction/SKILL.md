@@ -599,6 +599,40 @@ EOF
 
 **CHECK does NOT end the transaction.** It gates the transition.
 
+#### Already grounded? Declare at PREFLIGHT and skip CHECK
+
+Noetic work is **ungated**, so reading the files *before* opening the window is the
+normal order — not a shortcut. When that's what happened, say so in PREFLIGHT:
+
+```bash
+empirica preflight-submit - << 'EOF'
+{
+  "vectors": {"know": 0.85, "uncertainty": 0.15},
+  "task_context": "...",
+  "claims": [
+    {"claim": "roles live in JWT claims, not the session store",
+     "grounding": "read", "ref": "src/auth/jwt.py:40-58"},
+    {"claim": "auth middleware runs before the route handler",
+     "grounding": "ran", "ref": "curl -H 'Authorization: ...' /health → 401 before handler log"}
+  ]
+}
+EOF
+```
+
+**One claim grounded by `read` or `ran` certifies the transaction** — praxic
+proceeds with no CHECK at all, and the response tells you so. `retrieved` and
+`assumed` do *not* certify: our own prior artifacts are testimony rather than
+observation, and `assumed` is by definition the absence of grounding.
+
+This is why skipping is not a shortcut. **You don't skip by asserting confidence —
+you skip by naming what you rely on and how you know it.** That's a positive,
+recorded act; an omission would be filing nothing.
+
+Use CHECK when you genuinely still need to investigate. Use this when you don't.
+Filing an empty CHECK to "do the process" is the one option that helps nobody:
+measured across one practice, **47% of 728 CHECKs arrived within 30 seconds of
+their PREFLIGHT.**
+
 #### Declare the 2–3 claims the work rests on
 
 `know` is **one number over many beliefs**. An honest `know=0.82` can be eleven
