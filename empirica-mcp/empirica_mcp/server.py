@@ -507,6 +507,27 @@ TOOL_REGISTRY: dict[str, dict] = {
         "required": ["unknown_id"],
         "desc": "Resolve an unknown. Use resolution_finding_id to link to the finding that answered it.",
     },
+    # Absent until 2026-07-31 while all six *_log verbs were exposed — so an MCP
+    # seat could CREATE any artifact type and correct exactly one of them. Findings
+    # are ~68% of a typical graph and the type where retraction matters most.
+    "finding_resolve": {
+        "cli": "finding-resolve",
+        "positional": "finding_id",
+        "params": {
+            "resolution": "--resolution",
+            "kind": "--kind",
+            "superseded_by": "--superseded-by",
+        },
+        "required": ["finding_id", "resolution"],
+        "desc": (
+            "Resolve a finding — kept for history, dropped from live retrieval. `kind` is the "
+            "closed vocabulary and the queryable half: stale (true when written, has aged) | "
+            "superseded (replaced by a NAMED newer artifact, pair with superseded_by) | "
+            "retracted (was FALSE when written) | mistyped (belongs to another artifact type). "
+            "Reach for 'retracted' when a claim was wrong rather than merely old — a practice "
+            "that only ever records 'stale' cannot tell its own ageing from its own errors."
+        ),
+    },
     # --- Search and memory ---
     "project_search": {
         "cli": "project-search",

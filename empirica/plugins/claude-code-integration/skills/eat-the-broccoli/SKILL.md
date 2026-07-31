@@ -62,6 +62,17 @@ works.
 | Dead code | vulture, ts-prune, cargo-machete |
 | Silent failures | bare `except:` / empty `catch {}` / discarded `Result` |
 | Contract guards | your CLI / API contract tests |
+| **Test freshness** | mutation testing (mutmut, Stryker, cargo-mutants); or grep for assertion-free tests, tautological asserts, and hand-built fixtures whose schema has drifted from the real one |
+
+**On that last row — coverage does not cover it.** Coverage asks *"was this line
+executed?"*; test freshness asks *"could this test have failed?"* Those come apart
+badly in fast iterative work, because tests written against yesterday's contract
+keep passing against today's code and **actively guard the drift**: a green
+assertion that the API returns 422 is indistinguishable from a green assertion that
+it should. Fixtures are the sharpest edge — a hand-built schema that has fallen
+behind the real one makes fixture and code agree with each other and disagree with
+production, so the suite is green precisely where it is blind. *If a defect
+survives a green suite, the suite is a suspect, not an alibi.*
 
 ### Tooling by language
 

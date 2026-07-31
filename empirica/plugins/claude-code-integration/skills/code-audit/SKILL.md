@@ -101,7 +101,31 @@ radon mi "$TARGET" -s --min B       # Maintainability index
 empirica finding-log --finding "radon: process_vectors() in workflow_commands.py has CC=27 (D)" --impact 0.6
 ```
 
-### 2d. Type Errors (pyright)
+### 2d. Test Freshness (`scripts/test_freshness_audit.py`)
+
+```bash
+python3 scripts/test_freshness_audit.py --human
+python3 scripts/test_freshness_audit.py --baseline   # counts only, track direction
+```
+
+**Not a coverage check.** Coverage asks "was this line executed?"; this asks
+**"could this test have failed?"** Tests drift like any other artifact, and a
+drifted test doesn't go red — it goes green over the wrong contract and *guards*
+the defect.
+
+| finding | what it means |
+|---|---|
+| `stale-fixture` | a hand-built `CREATE TABLE` missing lifecycle columns the real schema has — fixture and code agree with each other and disagree with production |
+| `unfalsifiable-test` | no assertion; passes unless something raises |
+| `tautological-assert` | `assert True` / `assert x == x` — cannot fail by construction |
+| `frozen-over-churn` | *informational only* — module changed repeatedly, its test didn't. Often correct (a contract test surviving refactors is doing its job); a prompt to look, never a defect |
+
+**Triage, don't bulk-fix.** A minimal fixture is a legitimate choice; what makes it
+a finding is that the missing columns arrived in a *migration after it was written*.
+Log real ones as findings, and record deliberate omissions so the next sweep stays
+quiet on them.
+
+### 2e. Type Errors (pyright)
 
 ```bash
 pyright "$TARGET" --outputjson 2>/dev/null
