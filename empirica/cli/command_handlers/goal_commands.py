@@ -1942,8 +1942,21 @@ def handle_goals_activate_command(args):
 def handle_goals_reopen_command(args):
     """Handle goals-reopen command — transition a COMPLETED goal back to in_progress.
 
-    Makes goals-complete reversible: undo an accidental or premature completion,
-    re-linking the goal to the current transaction. The inverse of goals-complete.
+    **This is a repair verb, not a workflow verb** (David, 2026-07-31): reopening a
+    completed goal is wrong as a practice, not merely when the id is blank. When live
+    work touches a closed goal's territory, the correct move is ``goals-create`` framed
+    on the *current* work. Completed goals exist as similarity references for
+    retrieval, not as a backlog to reactivate — dragging one back into the active set
+    injects its stale tasks and framing alongside the live problem and competes with it
+    for attention.
+
+    ``goals-list`` hiding completed goals by default IS that doctrine. The blank-id
+    casualty this fix responds to began with a practitioner working around that default
+    to scrape an id the list had correctly declined to show.
+
+    So the legitimate use is narrow: undoing an accident or a premature close. The
+    reopen records the completion state it clears (see ``reopen_goal``) so that undo is
+    exact rather than approximate.
     """
     try:
         from empirica.data.repositories.goals import GoalDataRepository
@@ -1981,6 +1994,13 @@ def handle_goals_reopen_command(args):
                     print(f"   Reason: {reason}")
                 if transaction_id:
                     print(f"   Linked to transaction: {transaction_id[:8]}")
+                print(
+                    "   Note: reopen is for undoing an accidental or premature close.\n"
+                    "   If live work merely touches this goal's territory, prefer\n"
+                    "   goals-create framed on the current work — completed goals are\n"
+                    "   similarity references, and reactivating one competes with the\n"
+                    "   live problem for attention."
+                )
         else:
             result = {"ok": False, "error": f"Goal {goal_id} not found or not in 'completed' status"}
             print(json.dumps(result))

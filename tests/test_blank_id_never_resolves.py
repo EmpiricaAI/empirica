@@ -23,6 +23,7 @@ could pass by refusing everything.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import time
 import uuid
@@ -76,6 +77,15 @@ def _statuses(conn) -> list[str]:
     return [r[0] for r in conn.execute("SELECT status FROM goals ORDER BY id")]
 
 
+def repo_reopen(conn, goal_id: str, **kwargs) -> bool:
+    return GoalDataRepository(conn).reopen_goal(goal_id, **kwargs)
+
+
+def _reopen_history(conn, gid: str) -> list[dict]:
+    raw = conn.execute("SELECT goal_data FROM goals WHERE id = ?", (gid,)).fetchone()[0]
+    return json.loads(raw)["reopen_history"]
+
+
 # ── reopen_goal ───────────────────────────────────────────────────────
 
 
@@ -108,6 +118,65 @@ def test_negative_control_a_real_prefix_still_reopens():
 
     assert repo.reopen_goal(gid[:8]) is True
     assert _statuses(conn) == ["in_progress"]
+
+
+# ── reopen preserves what it destroys ─────────────────────────────────
+
+
+def test_reopen_records_the_completion_state_it_erases():
+    """The UPDATE nulls completed_timestamp/archived and overwrites
+    transaction_id. Without a record of them a reopen is only approximately
+    reversible — cortex's af151b03 could be restored to `completed` but not to
+    WHEN it completed, because that value existed nowhere else."""
+    conn = _goals_conn()
+    gid = _insert_goal(conn, status="completed", is_completed=1)
+    conn.execute(
+        "UPDATE goals SET completed_timestamp = ?, transaction_id = ?, archived = 1, archived_at = ? WHERE id = ?",
+        (1234.5, "tx-original", 2345.6, gid),
+    )
+    conn.commit()
+
+    assert repo_reopen(conn, gid[:8], transaction_id="tx-new") is True
+
+    entry = _reopen_history(conn, gid)[-1]
+    assert entry["prev_completed_timestamp"] == 1234.5
+    assert entry["prev_transaction_id"] == "tx-original"
+    assert entry["prev_archived"] == 1
+    assert entry["prev_archived_at"] == 2345.6
+    # And the columns really were cleared — otherwise the record is redundant
+    # rather than load-bearing, and this test would pass for the wrong reason.
+    after = conn.execute(
+        "SELECT completed_timestamp, transaction_id, archived FROM goals WHERE id = ?", (gid,)
+    ).fetchone()
+    # tuple() because the repository installs a Row factory on the connection.
+    assert tuple(after) == (None, "tx-new", 0)
+
+
+def test_reopen_still_records_a_reason_alongside_the_prior_state():
+    """Regression guard on the existing contract — the new keys must not
+    displace `reason`, which is what makes a hit auditable as deliberate."""
+    conn = _goals_conn()
+    gid = _insert_goal(conn, status="completed", is_completed=1)
+
+    repo_reopen(conn, gid[:8], reason="premature close")
+
+    assert _reopen_history(conn, gid)[-1]["reason"] == "premature close"
+
+
+def test_activate_records_the_transaction_linkage_it_overwrites():
+    """Activate loses one field the same way. Every peer's forensic table this
+    morning called it fully reversible; it was not, quite."""
+    conn = _goals_conn()
+    gid = _insert_goal(conn, status="planned", is_completed=0)
+    conn.execute("UPDATE goals SET transaction_id = ? WHERE id = ?", ("tx-original", gid))
+    conn.commit()
+    repo = GoalDataRepository(conn)
+
+    assert repo.activate_goal(gid[:8], transaction_id="tx-new") is True
+
+    data = json.loads(conn.execute("SELECT goal_data FROM goals WHERE id = ?", (gid,)).fetchone()[0])
+    assert data["prev_transaction_id"] == "tx-original"
+    assert conn.execute("SELECT transaction_id FROM goals WHERE id = ?", (gid,)).fetchone()[0] == "tx-new"
 
 
 # ── activate_goal (same LIKE shape, planned goals) ────────────────────

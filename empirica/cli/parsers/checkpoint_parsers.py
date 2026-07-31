@@ -2345,9 +2345,11 @@ written to git notes (breadcrumbs ref) for audit trail.
         "goals-reopen",
         aliases=["goal-reopen"],
         help=(
-            "Reopen a COMPLETED goal — flip it back to in_progress and re-link "
-            "it to the active transaction. The inverse of goals-complete: undo "
-            "an accidental or premature completion so it re-enters the active list."
+            "REPAIR verb — undo an accidental or premature completion. Reopening "
+            "is not the normal way to resume related work: when live work touches "
+            "a closed goal's territory, create a new goal framed on the current "
+            "work instead. Completed goals are similarity references, and "
+            "reactivating one competes with the live problem for attention."
         ),
     )
     goals_reopen_parser.add_argument(

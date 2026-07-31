@@ -492,7 +492,7 @@ class GoalDataRepository(BaseRepository):
         # Prefix match on goal_id
         cursor = self._execute(
             """
-            SELECT id, goal_data FROM goals WHERE id LIKE ? AND status = 'planned'
+            SELECT id, goal_data, transaction_id FROM goals WHERE id LIKE ? AND status = 'planned'
         """,
             (f"{goal_id}%",),
         )
@@ -504,6 +504,12 @@ class GoalDataRepository(BaseRepository):
         full_id = row[0]
         goal_data = json.loads(row[1]) if row[1] else {}
         goal_data["activated_at"] = time.time()
+        # Same erasure as reopen, one field wide: the UPDATE below overwrites
+        # transaction_id whenever one is passed, and the CLI always passes the
+        # current one. Every peer's forensic table this morning called activate
+        # "fully reversible" — it is not, quite, and this is the field that
+        # makes the difference. Keep the linkage the goal was created under.
+        goal_data["prev_transaction_id"] = row[2]
 
         params = [full_id]
         sql = "UPDATE goals SET status = 'in_progress', goal_data = ?"
@@ -534,7 +540,8 @@ class GoalDataRepository(BaseRepository):
         if is_blank_id(goal_id):
             return False  # LIKE '%' would reopen an arbitrary completed goal
         cursor = self._execute(
-            "SELECT id, goal_data FROM goals WHERE id LIKE ? AND (status = 'completed' OR is_completed = 1)",
+            "SELECT id, goal_data, completed_timestamp, transaction_id, archived, archived_at "
+            "FROM goals WHERE id LIKE ? AND (status = 'completed' OR is_completed = 1)",
             (f"{goal_id}%",),
         )
         row = cursor.fetchone()
@@ -543,7 +550,20 @@ class GoalDataRepository(BaseRepository):
 
         full_id = row[0]
         goal_data = json.loads(row[1]) if row[1] else {}
-        entry: dict = {"at": time.time()}
+        # Capture what the UPDATE below is about to destroy. It nulls
+        # completed_timestamp, archived and archived_at, and overwrites
+        # transaction_id — so without this the reopen is only approximately
+        # reversible, and an audit has nothing to read but a side effect.
+        # A real casualty lost its true completion date this way: cortex's
+        # goal af151b03, reopened by the blank-id bug, could be restored to
+        # `completed` but not to WHEN it completed.
+        entry: dict = {
+            "at": time.time(),
+            "prev_completed_timestamp": row[2],
+            "prev_transaction_id": row[3],
+            "prev_archived": row[4],
+            "prev_archived_at": row[5],
+        }
         if reason:
             entry["reason"] = reason
         goal_data.setdefault("reopen_history", []).append(entry)
