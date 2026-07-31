@@ -13,6 +13,8 @@ baked into the install-request at install time, then travels with the
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from empirica.core.cockpit.loop_install_request import (
     _extract_skill_prompt_template,
     render_loop_cron_prompt,
@@ -125,3 +127,36 @@ def test_handler_auto_resolves_body_skill_from_canonical_catalog(tmp_path, monke
     template = data.get("prompt_template", "")
     assert "cortex_inbox_poll" in template, "canonical body_skill should have been auto-resolved + baked in"
     assert "your actual work here" not in template
+
+
+# ── the REPO must be self-sufficient ──────────────────────────────────
+
+
+def test_the_repo_copy_alone_carries_the_cron_template():
+    """The tests above resolve through a candidate list whose first entries are
+    the developer's INSTALLED plugin — so they pass on a machine with a stale
+    runtime copy even when the repo carries nothing. That is exactly how CI
+    caught a break these tests had reported green: the cron template was cut out
+    of SKILL.md, and a stale ~/.claude copy kept answering for it locally.
+
+    So assert the repo path directly, with no runtime fallback in play.
+    """
+    from empirica.core.cockpit.loop_install_request import _template_from
+
+    skill_dir = (
+        Path(__file__).resolve().parent.parent
+        / "empirica"
+        / "plugins"
+        / "claude-code-integration"
+        / "skills"
+        / "cortex-mailbox-poll"
+    )
+
+    template = _template_from(skill_dir / "references" / "cron-prompt-template.md")
+
+    assert template, "references/cron-prompt-template.md must carry the '## Cron Prompt Template' fenced block"
+    assert "cortex_inbox_poll" in template
+    # An unterminated fence yields nothing, which is how the first attempt at
+    # this split failed — the section was sliced by line number and lost its
+    # closing ```.
+    assert template.rstrip().endswith("base interval."), "template looks truncated mid-block"

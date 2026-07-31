@@ -68,50 +68,63 @@ def _extract_skill_prompt_template(body_skill: str) -> str | None:
     """Find a skill's `## Cron Prompt Template` code block and return its
     contents — the actual prompt body the AI runs each fire.
 
-    Looks for the skill in two locations (runtime first, then repo):
-      1. ~/.claude/plugins/local/empirica/skills/<name>/SKILL.md
-      2. <repo>/empirica/plugins/claude-code-integration/skills/<name>/SKILL.md
+    Looks in `references/cron-prompt-template.md` first, then the SKILL.md
+    itself, runtime location before repo:
 
-    The skill is expected to have a section `## Cron Prompt Template`
-    followed by a fenced code block (```bash ... ``` or just ``` ... ```)
-    whose contents are the loop body. Returns the code block text on
-    success, None if the skill or section isn't found.
+      1. ~/.claude/plugins/local/empirica/skills/<name>/references/cron-prompt-template.md
+      2. <repo>/.../skills/<name>/references/cron-prompt-template.md
+      3. ~/.claude/plugins/local/empirica/skills/<name>/SKILL.md
+      4. <repo>/.../skills/<name>/SKILL.md
+
+    The references file exists because this template is machine-consumed: the
+    cockpit installs a loop rarely, while a practitioner reads the SKILL.md
+    constantly, so ~600 words of loop shell inside the skill was paid for on
+    every session and read on almost none. The SKILL.md fallback is kept so
+    skills still carrying the section inline continue to work.
+
+    Either way the source is expected to have a section `## Cron Prompt
+    Template` followed by a fenced code block (```bash ... ``` or just
+    ``` ... ```) whose contents are the loop body. Returns the code block text
+    on success, None if no source carries it.
 
     The convention pairs with `canonical_loops.py`'s `body_skill` field —
     loop name == skill name == body source.
     """
     from pathlib import Path
 
+    skills_repo = Path(__file__).resolve().parents[2] / "plugins" / "claude-code-integration" / "skills"
+    skills_runtime = Path.home() / ".claude" / "plugins" / "local" / "empirica" / "skills"
     candidates = [
-        Path.home() / ".claude" / "plugins" / "local" / "empirica" / "skills" / body_skill / "SKILL.md",
-        Path(__file__).resolve().parents[2]
-        / "plugins"
-        / "claude-code-integration"
-        / "skills"
-        / body_skill
-        / "SKILL.md",
+        skills_runtime / body_skill / "references" / "cron-prompt-template.md",
+        skills_repo / body_skill / "references" / "cron-prompt-template.md",
+        skills_runtime / body_skill / "SKILL.md",
+        skills_repo / body_skill / "SKILL.md",
     ]
-    skill_path: Path | None = None
-    for c in candidates:
-        if c.exists():
-            skill_path = c
-            break
-    if skill_path is None:
-        return None
+    # Try each candidate through to a usable template rather than committing to
+    # the first file that merely EXISTS — a runtime SKILL.md that no longer
+    # carries the section would otherwise shadow a repo copy that does, and the
+    # caller would see "no template" when one was sitting one path down.
+    for candidate in candidates:
+        template = _template_from(candidate)
+        if template:
+            return template
+    return None
 
+
+def _template_from(path) -> str | None:
+    """Read one file's `## Cron Prompt Template` fenced block, or None."""
     try:
-        text = skill_path.read_text(encoding="utf-8")
+        text = path.read_text(encoding="utf-8")
     except OSError:
         return None
 
-    # Find the Cron Prompt Template heading
     marker = "## Cron Prompt Template"
     idx = text.find(marker)
     if idx == -1:
         return None
     after_heading = text[idx + len(marker) :]
 
-    # Find the first fenced code block after the heading
+    # First fenced code block after the heading
     fence_match = re.search(r"\n```[a-zA-Z]*\n(.*?)\n```", after_heading, re.DOTALL)
     if not fence_match:
         return None
