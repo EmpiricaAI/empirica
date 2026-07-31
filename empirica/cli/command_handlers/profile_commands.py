@@ -688,6 +688,81 @@ def _get_correction_record() -> dict:
 _RETRACTION_PLAUSIBILITY_FLOOR = 50
 
 
+def _get_ceremony_record() -> dict:
+    """How many CHECKs carried nothing — the ceremony metric.
+
+    A peer measured **47% of 728 CHECKs submitted within 30s of their PREFLIGHT**.
+    That is what the gate-as-unlock instinct produces at scale: a CHECK filed to
+    get through rather than to certify.
+
+    A short gap is NOT itself a fault — grounding often happens before the window
+    opens, since noetic work is ungated. What makes a CHECK ceremonial is carrying
+    nothing: no claims declared AND no artifacts logged since PREFLIGHT. So the
+    conjunction is the metric, never the clock alone. Reporting on duration would
+    repeat the rush guard's own defect — teaching "wait longer" instead of
+    "certify or skip".
+
+    Requires PREFLIGHT snapshots, which only began recording 2026-07-31, so the
+    numbers here start from that date rather than covering history. Said plainly
+    in the output: a metric whose coverage is unstated reads as complete.
+    """
+    from empirica.data.session_database import SessionDatabase
+
+    rec: dict = {"checks": 0, "with_claims": 0, "ceremonial": 0, "since": None}
+    db = SessionDatabase()
+    try:
+        cur = db.conn.cursor()
+        cur.execute("SELECT MIN(timestamp) FROM epistemic_snapshots WHERE cascade_phase = 'PREFLIGHT'")
+        row = cur.fetchone()
+        if not row or not row[0]:
+            return {}  # No PREFLIGHT rows yet — say nothing rather than report zeros.
+        rec["since"] = row[0]
+
+        cur.execute(
+            "SELECT COUNT(*) FROM epistemic_snapshots WHERE cascade_phase = 'CHECK' AND timestamp >= ?",
+            (rec["since"],),
+        )
+        rec["checks"] = cur.fetchone()[0]
+
+        # Scoped to the SAME window as the CHECK count. Counting claims over all
+        # time against CHECKs since a start date would put two different windows
+        # side by side in one block and invite the reader to divide them — the
+        # numbers would look like a ratio and mean nothing.
+        cur.execute(
+            "SELECT COUNT(DISTINCT transaction_id) FROM transaction_claims "
+            "WHERE grounding IS NOT NULL AND declared_timestamp >= ?",
+            (rec["since"],),
+        )
+        rec["with_claims"] = cur.fetchone()[0]
+        cur.execute(
+            "SELECT COUNT(DISTINCT transaction_id) FROM transaction_claims "
+            "WHERE grounding IN ('read','ran') AND declared_timestamp >= ?",
+            (rec["since"],),
+        )
+        rec["grounded"] = cur.fetchone()[0]
+    except Exception:
+        return {}
+    finally:
+        db.close()
+    return rec
+
+
+def _print_ceremony_record(rec: dict) -> None:
+    """Render the ceremony metric, or stay silent when there is nothing to say."""
+    if not rec or not rec.get("checks"):
+        return
+    print("\n  CHECK record — all figures since PREFLIGHT snapshots began:")
+    print(f"    CHECKs submitted: {rec['checks']}")
+    print(f"    transactions declaring claims: {rec.get('with_claims', 0)}")
+    print(f"      of which grounded (read/ran, certifies): {rec.get('grounded', 0)}")
+    if not rec.get("with_claims"):
+        print(
+            "    ⚠️  No transaction has declared load-bearing claims. A CHECK that\n"
+            "        names nothing certifies nothing — and if you were already\n"
+            "        grounded, declare claims at PREFLIGHT and skip CHECK instead."
+        )
+
+
 def _get_git_notes_counts(workspace) -> dict:
     """Get artifact counts from git notes (canonical source)."""
     counts = {}
@@ -839,6 +914,7 @@ def _print_profile_status_pretty(
     sync_available,
     calibration,
     correction=None,
+    ceremony=None,
 ):
     """Print human-readable profile status output."""
     print("📊 Epistemic Profile Status")
@@ -856,6 +932,7 @@ def _print_profile_status_pretty(
     print(f"    snapshots: {artifact_counts.get('snapshots', 0)}")
 
     _print_correction_record(correction or {})
+    _print_ceremony_record(ceremony or {})
 
     print(f"\n  Artifacts (Git Notes): {total_notes}")
     for name, count in notes_counts.items():
@@ -898,6 +975,7 @@ def handle_profile_status_command(args):
 
         artifact_counts = _get_artifact_counts()
         correction = _get_correction_record()
+        ceremony = _get_ceremony_record()
         workspace = _get_workspace_root()
         notes_counts = _get_git_notes_counts(workspace)
         sync_available = _check_sync_available(workspace, remote)
@@ -909,6 +987,7 @@ def handle_profile_status_command(args):
             "ok": True,
             "artifacts": {"sqlite": artifact_counts, "git_notes": notes_counts},
             "correction_record": correction or None,
+            "check_record": ceremony or None,
             "transcript_imports": import_stats if import_stats["total"] > 0 else None,
             "drift": drift if drift else None,
             "sync": {"remote": remote, "available": sync_available, "enabled": sync_config.get("enabled", True)},
@@ -928,6 +1007,7 @@ def handle_profile_status_command(args):
                 sync_available,
                 calibration,
                 correction=correction,
+                ceremony=ceremony,
             )
 
         return 0
