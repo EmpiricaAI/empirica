@@ -88,6 +88,8 @@ def scan_dir(tmp_path, monkeypatch):
 
 def test_positive_control_a_stale_fixture_IS_flagged(scan_dir):
     """The detector must FIRE on a fixture missing lifecycle columns."""
+    # freshness: intentional-stale — this string IS the positive control; the
+    # detector must fire on it, so it must not be reported against this file.
     _write(
         scan_dir,
         "test_stale.py",
@@ -104,6 +106,7 @@ def test_positive_control_a_stale_fixture_IS_flagged(scan_dir):
 def test_negative_control_a_current_fixture_is_NOT_flagged(scan_dir):
     """Silence must mean something — a fixture carrying the lifecycle columns
     produces no finding, so a clean report is informative rather than vacuous."""
+    # freshness: intentional-stale — negative control fixture, deliberately shaped.
     _write(
         scan_dir,
         "test_fresh.py",

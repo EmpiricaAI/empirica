@@ -56,12 +56,26 @@ from typing import Any
 REPO = Path(__file__).resolve().parent.parent
 TESTS_DIR = REPO / "tests"
 
-#: This detector's OWN test file contains deliberately-stale `CREATE TABLE` strings
-#: as positive controls, so scanning it reports its own fixtures as drifted. One
-#: file, named explicitly, for a stated reason — per the exemption rule, a silent
-#: or broad skip is how a checker starts reporting clean forever. Anything else in
-#: tests/ is fair game, including files that look like scaffolding.
-_SELF = "test_test_freshness_audit.py"
+#: Inline marker for a fixture that is stale ON PURPOSE — a positive control for
+#: an old-schema code path, for instance. Put it on or just above the CREATE TABLE:
+#:
+#:     # freshness: intentional-stale — pre-057 schema, positive control for the 422 path
+#:     CREATE TABLE project_findings (id TEXT PRIMARY KEY, finding TEXT);
+#:
+#: Marked fixtures are SKIPPED and COUNTED, never silently dropped — the count is
+#: reported so a growing pile of exemptions is visible rather than invisible.
+#:
+#: This replaced a FILE-level exemption on 2026-07-31, after David asked whether
+#: drift in the tests-about-the-tests is tracked. It was not: the file-level skip
+#: had been applied at both call sites while its stated reason justified only one,
+#: so the auditor was exempt from its own unfalsifiable/tautological checks and
+#: reported zero findings against itself by construction — the `Exemption reports
+#: clean forever` row, committed hours after I contributed that row upstream.
+#:
+#: The general lesson, and why this is per-fixture rather than per-file: **an
+#: exemption must be scoped to the thing it is justified for.** A file is almost
+#: never that thing.
+_INTENTIONAL_STALE = "freshness: intentional-stale"
 
 # `CREATE TABLE [IF NOT EXISTS] name ( ... )` — captures name + body.
 _CREATE_TABLE = re.compile(
@@ -137,11 +151,27 @@ def _fixture_columns(body: str) -> set[str]:
     return {c for c in cols if c and c.upper() not in {"PRIMARY", "FOREIGN", "UNIQUE", "CHECK", "CONSTRAINT", "--"}}
 
 
-def check_stale_fixtures(real: dict[str, set[str]]) -> list[dict[str, Any]]:
-    """Hand-built fixture schemas missing LIFECYCLE columns the real schema has."""
+def check_stale_fixtures(real: dict[str, set[str]], accepted: list | None = None) -> list[dict[str, Any]]:
+    """Hand-built fixture schemas missing LIFECYCLE columns the real schema has.
+
+    ``accepted`` collects fixtures carrying the intentional-stale marker so the
+    caller can REPORT how many were skipped. A silent skip is how a checker starts
+    reporting clean forever.
+    """
     out = []
+    accepted = accepted if accepted is not None else []
     for path in sorted(TESTS_DIR.rglob("*.py")):
-        if path.name == _SELF:
+        # This detector's own test file is ENTIRELY fixture test-data for THIS
+        # check — its CREATE TABLE strings are the positive and negative controls.
+        # Exempting it here is scoped to the one check it is justified for, and it
+        # is COUNTED below rather than skipped silently.
+        #
+        # The original version of this exemption was applied at two call sites while
+        # its reason justified one, which made the auditor blind to unfalsifiable
+        # drift in its own tests. Removing it wholesale was an over-correction; the
+        # fix is scope, not absence.
+        if path.name == "test_test_freshness_audit.py":
+            accepted.append({"file": str(path.relative_to(REPO)), "table": "(whole file — fixture test-data)"})
             continue
         try:
             text = path.read_text(encoding="utf-8")
@@ -150,6 +180,13 @@ def check_stale_fixtures(real: dict[str, set[str]]) -> list[dict[str, Any]]:
         for match in _CREATE_TABLE.finditer(text):
             table, body = match.group(1), match.group(2)
             if table not in real or table not in _LIFECYCLE_COLUMNS:
+                continue
+            # Deliberately-stale fixtures are indistinguishable from accidental
+            # ones by shape alone, so intent has to be DECLARED. Look in the 200
+            # chars preceding the CREATE TABLE for the marker.
+            preamble = text[max(0, match.start() - 200) : match.start()]
+            if _INTENTIONAL_STALE in preamble or _INTENTIONAL_STALE in body:
+                accepted.append({"file": str(path.relative_to(REPO)), "table": table})
                 continue
             have = _fixture_columns(body)
             missing = (_LIFECYCLE_COLUMNS[table] & real[table]) - have
@@ -200,9 +237,10 @@ def _walk_tests(tree: ast.AST):
 def check_unfalsifiable_and_tautological() -> list[dict[str, Any]]:
     """Tests with no assertion, and asserts that cannot fail."""
     out = []
+    # NO self-exemption here: the auditor's own tests must be checkable for
+    # assertion-free and tautological drift like any others. Who watches the
+    # watcher is not a rhetorical question for a freshness tool.
     for path in sorted(TESTS_DIR.rglob("*.py")):
-        if path.name == _SELF:
-            continue
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"))
         except Exception:
@@ -305,8 +343,9 @@ def main() -> int:
     args = ap.parse_args()
 
     findings: list[dict[str, Any]] = []
+    accepted: list[dict[str, Any]] = []
     if args.check in ("stale-fixture", "all"):
-        findings += check_stale_fixtures(_real_schema())
+        findings += check_stale_fixtures(_real_schema(), accepted)
     if args.check in ("unfalsifiable", "all"):
         findings += check_unfalsifiable_and_tautological()
     if args.check in ("frozen", "all"):
@@ -317,14 +356,15 @@ def main() -> int:
         counts[f["check"]] = counts.get(f["check"], 0) + 1
 
     if args.baseline:
-        print(json.dumps({"counts": counts, "total": len(findings)}, indent=2))
+        print(json.dumps({"counts": counts, "total": len(findings), "accepted_intentional": len(accepted)}, indent=2))
         return 0
 
     if args.human:
         if not findings:
             print("✅ No test-freshness findings.")
             return 0
-        print(f"🧪 Test freshness: {len(findings)} finding(s)\n")
+        print(f"🧪 Test freshness: {len(findings)} finding(s)"
+              + (f" · {len(accepted)} intentional-stale fixture(s) accepted" if accepted else "") + "\n")
         for check, n in sorted(counts.items()):
             print(f"  {check}: {n}")
         print()
@@ -335,7 +375,7 @@ def main() -> int:
         if len(findings) > 40:
             print(f"\n  … {len(findings) - 40} more (use JSON output for the full list)")
     else:
-        print(json.dumps({"ok": True, "counts": counts, "findings": findings}, indent=2))
+        print(json.dumps({"ok": True, "counts": counts, "accepted_intentional": accepted, "findings": findings}, indent=2))
 
     if args.strict and any(f.get("severity") != "informational" for f in findings):
         return 1

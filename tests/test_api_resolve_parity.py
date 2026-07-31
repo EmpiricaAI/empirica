@@ -189,6 +189,8 @@ async def test_an_old_project_db_gets_422_with_the_migration_named_not_a_500(tmp
 
     db_file = str(tmp_path / "old.db")
     conn = sqlite3.connect(db_file)
+    # freshness: intentional-stale — a pre-057 schema is the POINT of this test,
+    # which pins that an old project DB degrades to 422 rather than 500.
     conn.execute("CREATE TABLE project_findings (id TEXT PRIMARY KEY, finding TEXT)")
     conn.execute("INSERT INTO project_findings VALUES ('f-old','a pre-057 claim')")
     conn.commit()
