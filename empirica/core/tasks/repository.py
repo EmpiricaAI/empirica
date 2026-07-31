@@ -39,6 +39,15 @@ class TaskRepository:
         Returns:
             Full UUID or None if not found
         """
+        from empirica.data.id_guard import is_blank_id
+
+        if is_blank_id(subtask_id):
+            # LIKE '%' matches every subtask, and the most-recent fallback below would
+            # then hand back a real id — so a blank input completed whichever task
+            # happened to be newest and reported success.
+            logger.error("Refusing to resolve a blank subtask ID — it matches every task")
+            return None
+
         try:
             cursor = self.db.conn.execute(
                 "SELECT id FROM subtasks WHERE id LIKE ? ORDER BY created_timestamp DESC", (f"{subtask_id}%",)

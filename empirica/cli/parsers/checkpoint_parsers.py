@@ -1,8 +1,31 @@
 """Git checkpoint and project management command parsers."""
 
+import argparse
+
+from empirica.data.id_guard import is_blank_id
 from empirica.data.resolution_kind import RESOLUTION_KIND_HELP, RESOLUTION_KINDS
 
 from . import format_help_text
+
+
+def nonblank_id(value: str) -> str:
+    """argparse ``type=`` for id flags — refuse an empty or whitespace-only id.
+
+    ``required=True`` only checks that the flag was *given*, so ``--goal-id ""``
+    sails through: the shell lookup that was meant to produce an id returned
+    nothing, and argparse sees a present-but-empty value. Downstream that blank
+    becomes ``LIKE '%'`` and addresses an arbitrary row (see
+    :mod:`empirica.data.id_guard`).
+
+    The repository guards make that harmless; this makes it *legible*. A caller
+    whose lookup came up empty should be told exactly that, at the boundary,
+    rather than reading "Goal  not found" and wondering which goal.
+    """
+    if is_blank_id(value):
+        raise argparse.ArgumentTypeError(
+            "id is empty — a lookup that produced no id is never a valid target. Check the command that generated it."
+        )
+    return value.strip()
 
 
 def _add_edge_flags(parser, include_evidence_from: bool = False):
@@ -1969,7 +1992,7 @@ Example:
             "--evidence as you finish."
         ),
     )
-    goals_add_task_parser.add_argument("--goal-id", required=True, help="Goal UUID")
+    goals_add_task_parser.add_argument("--goal-id", required=True, type=nonblank_id, help="Goal UUID")
     goals_add_task_parser.add_argument("--description", required=True, help="Task description")
     goals_add_task_parser.add_argument(
         "--importance", choices=["critical", "high", "medium", "low"], default="medium", help="Epistemic importance"
@@ -1983,7 +2006,7 @@ Example:
     goals_add_dep_parser = subparsers.add_parser(
         "goals-add-dependency", help="Add dependency between goals (Goal A depends on Goal B)"
     )
-    goals_add_dep_parser.add_argument("--goal-id", required=True, help="Goal that has the dependency")
+    goals_add_dep_parser.add_argument("--goal-id", required=True, type=nonblank_id, help="Goal that has the dependency")
     goals_add_dep_parser.add_argument("--depends-on", required=True, help="Goal that must complete first")
     goals_add_dep_parser.add_argument(
         "--type",
@@ -2006,7 +2029,9 @@ Example:
             "as-you-go, not batched at the end."
         ),
     )
-    goals_complete_task_parser.add_argument("--task-id", required=True, help="Task UUID (full or unambiguous prefix)")
+    goals_complete_task_parser.add_argument(
+        "--task-id", required=True, type=nonblank_id, help="Task UUID (full or unambiguous prefix)"
+    )
     goals_complete_task_parser.add_argument("--evidence", help="Completion evidence (commit hash, file path, etc.)")
     goals_complete_task_parser.add_argument(
         "--output", choices=["human", "json"], default="human", help="Output format"
@@ -2023,7 +2048,7 @@ Example:
             "(goals-complete) or whether more tasks are needed."
         ),
     )
-    goals_progress_parser.add_argument("--goal-id", required=True, help="Goal UUID")
+    goals_progress_parser.add_argument("--goal-id", required=True, type=nonblank_id, help="Goal UUID")
     goals_progress_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
     goals_progress_parser.add_argument("--verbose", action="store_true", help="Show detailed operation info")
 
@@ -2037,7 +2062,7 @@ Example:
             "completing several at once."
         ),
     )
-    goals_get_tasks_parser.add_argument("--goal-id", required=True, help="Goal UUID")
+    goals_get_tasks_parser.add_argument("--goal-id", required=True, type=nonblank_id, help="Goal UUID")
     goals_get_tasks_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
 
     # Goals list command
@@ -2186,7 +2211,7 @@ Example:
             "branch creation with --no-branch for non-code goals."
         ),
     )
-    goals_claim_parser.add_argument("--goal-id", required=True, help="Goal UUID to claim")
+    goals_claim_parser.add_argument("--goal-id", required=True, type=nonblank_id, help="Goal UUID to claim")
     goals_claim_parser.add_argument(
         "--create-branch", action="store_true", default=True, help="Create git branch (default: True)"
     )
@@ -2209,7 +2234,7 @@ Example:
             "so the closure shows up in the transaction's grounded evidence."
         ),
     )
-    goals_complete_parser.add_argument("--goal-id", required=True, help="Goal UUID to complete")
+    goals_complete_parser.add_argument("--goal-id", required=True, type=nonblank_id, help="Goal UUID to complete")
     goals_complete_parser.add_argument("--run-postflight", action="store_true", help="Run POSTFLIGHT before completing")
     goals_complete_parser.add_argument("--merge-branch", action="store_true", help="Merge git branch to main")
     goals_complete_parser.add_argument("--delete-branch", action="store_true", help="Delete branch after merge")
@@ -2310,7 +2335,9 @@ written to git notes (breadcrumbs ref) for audit trail.
             "claim is the lifecycle hook (branch, BEADS)."
         ),
     )
-    goals_activate_parser.add_argument("--goal-id", required=True, help="Goal UUID to activate (prefix match)")
+    goals_activate_parser.add_argument(
+        "--goal-id", required=True, type=nonblank_id, help="Goal UUID to activate (prefix match)"
+    )
     goals_activate_parser.add_argument("--output", choices=["human", "json"], default="json", help="Output format")
 
     # Goals reopen command (reverse a completed goal back to in_progress)
@@ -2323,7 +2350,9 @@ written to git notes (breadcrumbs ref) for audit trail.
             "an accidental or premature completion so it re-enters the active list."
         ),
     )
-    goals_reopen_parser.add_argument("--goal-id", required=True, help="Goal UUID to reopen (prefix match)")
+    goals_reopen_parser.add_argument(
+        "--goal-id", required=True, type=nonblank_id, help="Goal UUID to reopen (prefix match)"
+    )
     goals_reopen_parser.add_argument("--reason", help="Optional note recorded in the goal's reopen history")
     goals_reopen_parser.add_argument("--output", choices=["human", "json"], default="json", help="Output format")
 
@@ -2346,7 +2375,9 @@ written to git notes (breadcrumbs ref) for audit trail.
         help="Age threshold in days on completion time (default: 30)",
     )
     goals_archive_parser.add_argument(
-        "--goal-id", help="Archive one completed goal by id/prefix (ignores --older-than)"
+        "--goal-id",
+        type=nonblank_id,
+        help="Archive one completed goal by id/prefix (ignores --older-than)",
     )
     goals_archive_parser.add_argument("--apply", action="store_true", help="Actually archive (default: dry-run report)")
     goals_archive_parser.add_argument("--output", choices=["human", "json"], default="json", help="Output format")

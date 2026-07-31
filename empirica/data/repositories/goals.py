@@ -9,6 +9,7 @@ import json
 import time
 import uuid
 
+from ..id_guard import is_blank_id
 from .base import BaseRepository
 
 
@@ -486,6 +487,8 @@ class GoalDataRepository(BaseRepository):
         Returns:
             True if activated, False if goal not found or not planned
         """
+        if is_blank_id(goal_id):
+            return False  # LIKE '%' would activate an arbitrary planned goal
         # Prefix match on goal_id
         cursor = self._execute(
             """
@@ -528,6 +531,8 @@ class GoalDataRepository(BaseRepository):
         Returns:
             True if reopened, False if goal not found or not completed
         """
+        if is_blank_id(goal_id):
+            return False  # LIKE '%' would reopen an arbitrary completed goal
         cursor = self._execute(
             "SELECT id, goal_data FROM goals WHERE id LIKE ? AND (status = 'completed' OR is_completed = 1)",
             (f"{goal_id}%",),
@@ -577,6 +582,11 @@ class GoalDataRepository(BaseRepository):
         Returns:
             List of {id, objective, completed_timestamp} that were (or would be) archived
         """
+        # `None` means "no filter, sweep by age" — but a blank STRING means a caller's
+        # lookup came back empty. Letting the blank fall through to the else-branch
+        # turns a failed lookup into a fleet-wide archive, so the two must not collapse.
+        if goal_id is not None and is_blank_id(goal_id):
+            return []
         if goal_id:
             cursor = self._execute(
                 "SELECT id, objective, completed_timestamp FROM goals "
