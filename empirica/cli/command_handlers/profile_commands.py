@@ -632,6 +632,62 @@ def _get_artifact_counts() -> dict:
     return counts
 
 
+def _get_correction_record() -> dict:
+    """How often has this practice recorded that it was WRONG, versus merely old?
+
+    `resolution_kind` (migration 061) was queryable from the day it shipped and
+    reported NOWHERE a practitioner looks — read in exactly one place, the
+    source-outcome attribution. A field that only the code reads is one step from
+    the free-text `resolution` it replaced, which failed for the same reason:
+    nobody could see the aggregate, so nobody noticed it was degenerate.
+
+    What made the original defect visible was a single number — 1267 stale against
+    1 wrong across 1268 resolutions. This surfaces that number by default.
+
+    Returned separately from `_get_artifact_counts` rather than nested inside it:
+    that dict is summed with ``sum(v for v in ... if isinstance(v, int))`` and
+    iterated with ``count > 0``, so a nested dict would silently drop from the
+    total and raise on the comparison.
+    """
+    from empirica.data.resolution_kind import RESOLUTION_KINDS
+    from empirica.data.session_database import SessionDatabase
+
+    rec: dict = {"resolved": 0, "by_kind": {}, "unclassified": 0, "linked_supersessions": 0}
+    db = SessionDatabase()
+    try:
+        cur = db.conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM project_findings WHERE is_resolved = 1")
+        rec["resolved"] = cur.fetchone()[0]
+        cur.execute(
+            "SELECT COALESCE(resolution_kind, ''), COUNT(*) FROM project_findings WHERE is_resolved = 1 GROUP BY 1"
+        )
+        for kind, n in cur.fetchall():
+            if kind in RESOLUTION_KINDS:
+                rec["by_kind"][kind] = n
+            else:
+                rec["unclassified"] += n
+        # Supersession that is LINKED, not merely narrated. 1034 resolutions said
+        # "superseded" in prose here while this count was 0 across 4199 rows.
+        cur.execute("SELECT COUNT(*) FROM project_findings WHERE superseded_by IS NOT NULL AND superseded_by != ''")
+        rec["linked_supersessions"] = cur.fetchone()[0]
+    except Exception:
+        # Pre-061 DBs have no resolution_kind. Report nothing rather than zeros —
+        # "column absent" and "practice never retracted" are different states and
+        # printing 0 for both is the conflation this whole surface exists to end.
+        return {}
+    finally:
+        db.close()
+    return rec
+
+
+#: Below this many resolutions, zero retractions is unremarkable — a young practice
+#: legitimately has not been wrong yet. Above it, zero stops being plausible and
+#: starts being evidence the vocabulary is not reaching the practitioner. Floored
+#: deliberately so the note is rare: a prompt that fires on every run is one the
+#: reader learns to skip, which is how the POSTFLIGHT breadth nudge lost its force.
+_RETRACTION_PLAUSIBILITY_FLOOR = 50
+
+
 def _get_git_notes_counts(workspace) -> dict:
     """Get artifact counts from git notes (canonical source)."""
     counts = {}
@@ -745,8 +801,44 @@ def _detect_notes_sqlite_drift(artifact_counts, notes_counts):
     return drift
 
 
+def _print_correction_record(rec: dict) -> None:
+    """Render the wrong-vs-stale split, and say so when zero stops being plausible."""
+    if not rec or not rec.get("resolved"):
+        return
+
+    from empirica.data.resolution_kind import is_retraction
+
+    resolved = rec["resolved"]
+    by_kind = rec.get("by_kind", {})
+    retracted = sum(n for k, n in by_kind.items() if is_retraction(k))
+    unclassified = rec.get("unclassified", 0)
+
+    print(f"\n  Correction record ({resolved} findings resolved):")
+    for kind in ("stale", "superseded", "retracted", "mistyped"):
+        if by_kind.get(kind):
+            print(f"    {kind}: {by_kind[kind]}")
+    if unclassified:
+        print(f"    unclassified (pre-061 or omitted --kind): {unclassified}")
+    print(f"    supersessions LINKED (not just narrated): {rec.get('linked_supersessions', 0)}")
+
+    if retracted == 0 and resolved >= _RETRACTION_PLAUSIBILITY_FLOOR:
+        print(
+            f"    ⚠️  {resolved} resolutions, 0 recorded as WRONG. A true error rate near zero\n"
+            "        is implausible at this volume — more likely retraction is not being\n"
+            "        reached for. Use: finding-resolve <id> --kind retracted"
+        )
+
+
 def _print_profile_status_pretty(
-    artifact_counts, notes_counts, import_stats, drift, sync_config, remote, sync_available, calibration
+    artifact_counts,
+    notes_counts,
+    import_stats,
+    drift,
+    sync_config,
+    remote,
+    sync_available,
+    calibration,
+    correction=None,
 ):
     """Print human-readable profile status output."""
     print("📊 Epistemic Profile Status")
@@ -762,6 +854,8 @@ def _print_profile_status_pretty(
         print(f"    unknowns (resolved): {artifact_counts['unknowns_resolved']}")
     print(f"    sessions: {artifact_counts.get('sessions', 0)}")
     print(f"    snapshots: {artifact_counts.get('snapshots', 0)}")
+
+    _print_correction_record(correction or {})
 
     print(f"\n  Artifacts (Git Notes): {total_notes}")
     for name, count in notes_counts.items():
@@ -803,6 +897,7 @@ def handle_profile_status_command(args):
         remote = getattr(args, "remote", None) or sync_config.get("notes_remote", sync_config.get("remote", "forgejo"))
 
         artifact_counts = _get_artifact_counts()
+        correction = _get_correction_record()
         workspace = _get_workspace_root()
         notes_counts = _get_git_notes_counts(workspace)
         sync_available = _check_sync_available(workspace, remote)
@@ -813,6 +908,7 @@ def handle_profile_status_command(args):
         result = {
             "ok": True,
             "artifacts": {"sqlite": artifact_counts, "git_notes": notes_counts},
+            "correction_record": correction or None,
             "transcript_imports": import_stats if import_stats["total"] > 0 else None,
             "drift": drift if drift else None,
             "sync": {"remote": remote, "available": sync_available, "enabled": sync_config.get("enabled", True)},
@@ -823,7 +919,15 @@ def handle_profile_status_command(args):
             print(json.dumps(result, indent=2, default=str))
         else:
             _print_profile_status_pretty(
-                artifact_counts, notes_counts, import_stats, drift, sync_config, remote, sync_available, calibration
+                artifact_counts,
+                notes_counts,
+                import_stats,
+                drift,
+                sync_config,
+                remote,
+                sync_available,
+                calibration,
+                correction=correction,
             )
 
         return 0
