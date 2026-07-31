@@ -100,10 +100,13 @@ RESOLVE_ARTIFACTS_SCHEMA = {
         "_doc": "OPTIONAL bulk-by-filter mode (instead of per-id `resolutions`). "
         "Enumerates OPEN artifacts matching the filter and resolves them — the "
         "gardening path, so no per-id enumeration / direct-SQL is needed. DRY-RUN by default.",
-        "type": "finding | unknown",
+        "type": "finding | unknown | dead_end | mistake — findings/unknowns are RESOLVED "
+        "(is_resolved); dead_ends/mistakes are INVALIDATED (is_invalidated), which is a "
+        "different act: a dead-end is never 'done', it is either still-constraining or wrong",
         "project_id": "<optional — scope to one project_id (default: any in the active DB)>",
         "older_than": "<optional ISO date e.g. 2026-05-01 — only artifacts created before it>",
-        "matching": "<optional SQL LIKE pattern on the artifact text, e.g. 'test %'>",
+        "matching": "<optional SQL LIKE pattern on the artifact text, e.g. 'Bash:%' for auto-captured "
+        "tool-failure noise, which typically dominates the dead_end table>",
     },
     "resolution": "<resolution text, filter mode>",
     "apply": "<optional bool, default false — false = DRY-RUN (report matched + sample, no mutation); true = resolve>",
@@ -771,9 +774,25 @@ def handle_log_artifacts_command(args):
 # older_than, matching) so a gardening pass resolves in one call instead of the
 # direct-SQL workaround. SQLite-only, matching the per-id resolve path; the
 # notes-durability question is separate (tracked as its own goal).
+#
+# dead_end and mistake were absent until 2026-07-31 even though migration 060 gave
+# both `is_invalidated` specifically so they could be falsified. The gap blocked a
+# real pass: autonomy needed to clear ~108 tool-noise dead-ends, and with no filter
+# support the only route was per-id — while NO verb enumerates artifact UUIDs
+# (`epistemics-list` returns vector TRAJECTORIES despite the name). So the bulk
+# correction path required an input the CLI never produced. Same incompleteness
+# family as the rest of this thread: the mechanism exists, the way in does not.
+#
+# Third element is the OPEN-state column. findings/unknowns use `is_resolved`;
+# dead_ends/mistakes use `is_invalidated`, and migration 060 kept that distinct
+# deliberately — a dead-end is never "done", it is either still-constraining or
+# wrong. Collapsing the two would let a gardening pass mark constraints "resolved"
+# and quietly return dead approaches to the option space.
 _FILTER_TYPES = {
-    "finding": ("project_findings", "finding"),
-    "unknown": ("project_unknowns", "unknown"),
+    "finding": ("project_findings", "finding", "is_resolved"),
+    "unknown": ("project_unknowns", "unknown", "is_resolved"),
+    "dead_end": ("project_dead_ends", "approach", "is_invalidated"),
+    "mistake": ("mistakes_made", "mistake", "is_invalidated"),
 }
 
 
@@ -790,9 +809,9 @@ def _resolve_by_filter(db, filt: dict, resolution: str, apply: bool) -> dict:
     atype = filt.get("type")
     if atype not in _FILTER_TYPES:
         return {"ok": False, "error": f"filter.type must be one of {sorted(_FILTER_TYPES)}"}
-    table, textcol = _FILTER_TYPES[atype]
+    table, textcol, openflag = _FILTER_TYPES[atype]
 
-    where = ["(is_resolved IS NOT 1)"]
+    where = [f"({openflag} IS NOT 1)"]
     params: list = []
     if filt.get("project_id"):
         where.append("project_id = ?")
@@ -832,9 +851,14 @@ def _resolve_by_filter(db, filt: dict, resolution: str, apply: bool) -> dict:
             f"UPDATE {table} SET is_resolved = 1, resolution = ?, resolved_timestamp = ? WHERE {clause}",
             [resolution, now, *params],
         )
-    else:  # unknown
+    elif atype == "unknown":
         cur.execute(
             f"UPDATE {table} SET is_resolved = 1, resolved_by = ?, resolved_timestamp = ? WHERE {clause}",
+            [resolution, now, *params],
+        )
+    else:  # dead_end | mistake — invalidation, not resolution (migration 060)
+        cur.execute(
+            f"UPDATE {table} SET is_invalidated = 1, invalidation_reason = ?, invalidated_at = ? WHERE {clause}",
             [resolution, now, *params],
         )
     db.conn.commit()
@@ -846,7 +870,20 @@ def _resolve_by_filter(db, filt: dict, resolution: str, apply: bool) -> dict:
 
 
 def _persist_filter_resolution_to_notes(atype: str, ids: list, resolution: str) -> None:
-    """B2: mirror a filter-mode bulk resolve into git notes, one note per id."""
+    """B2: mirror a filter-mode bulk resolve into git notes, one note per id.
+
+    Dispatch is EXPLICIT per type. The previous shape was ``if finding: ... else:
+    unknown``, which was correct only while those were the sole two filter types —
+    adding dead_end/mistake to _FILTER_TYPES would silently have written every
+    invalidated dead-end into the UNKNOWN store, corrupting the canonical notes
+    with artifacts of the wrong type. The bug would have been invisible in SQLite
+    (which updates correctly) and would only have surfaced on a from-notes rebuild,
+    long after the fact.
+
+    dead_end/mistake have no git-notes resolution store yet, so their invalidation
+    lives in SQLite only and is skipped here rather than mis-filed. Named as a
+    known gap: a from-notes rebuild will resurrect them as valid.
+    """
     if not ids:
         return
     try:
@@ -856,12 +893,17 @@ def _persist_filter_resolution_to_notes(atype: str, ids: list, resolution: str) 
             store = GitFindingStore()
             for fid in ids:
                 store.resolve_finding(fid, resolution)
-        else:
+        elif atype == "unknown":
             from empirica.core.canonical.empirica_git.unknown_store import GitUnknownStore
 
             ustore = GitUnknownStore()
             for uid in ids:
                 ustore.resolve_unknown(uid, resolution)
+        else:
+            logger.debug(
+                f"no git-notes resolution store for {atype!r} — {len(ids)} invalidations are "
+                "SQLite-only; a from-notes rebuild will resurrect them as valid"
+            )
     except Exception as e:
         logger.debug(f"git-notes bulk-resolution persist skipped ({atype}, {len(ids)} ids): {e}")
 
