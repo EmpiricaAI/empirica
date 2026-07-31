@@ -119,9 +119,16 @@ class TestPostflightParserCoverage:
                 reasoning=None,
                 output="json",
             )
-            (session_id, vectors, _reasoning, _grounded_vectors, _grounded_rationale, coverage, output_format) = (
-                _postflight_parse_config_or_legacy(args)
-            )
+            (
+                session_id,
+                vectors,
+                _reasoning,
+                _grounded_vectors,
+                _grounded_rationale,
+                coverage,
+                _claims,
+                output_format,
+            ) = _postflight_parse_config_or_legacy(args)
         finally:
             sys.stdin = old_stdin
 

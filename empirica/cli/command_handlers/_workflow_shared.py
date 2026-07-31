@@ -792,11 +792,59 @@ def _maybe_add_weave_gate(cursor, session_id, transaction_id, retro: dict, total
         pass
 
 
-def _build_retrospective(session_id: str, transaction_id: str | None) -> dict:
+def _retro_adjudicate_claims(db, session_id, transaction_id, adjudications, retro: dict) -> None:
+    """Apply POSTFLIGHT verdicts and record the gap note. Mutates ``retro``.
+
+    Deliberately runs even when the payload carried NO verdicts — that is the case
+    that MATTERS, because it is where declared-then-never-checked claims get forced
+    to ``untested`` and surfaced, instead of quietly staying NULL and reading
+    downstream as "nothing was declared".
+    """
+    try:
+        from empirica.core import claims as _claims
+
+        summary = _claims.adjudicate(
+            db,
+            session_id=session_id,
+            transaction_id=transaction_id,
+            adjudications=adjudications or [],
+        )
+        if not summary.get("declared"):
+            return
+        retro["claims"] = summary
+        if summary.get("untested"):
+            retro["claim_gap_note"] = (
+                f"{summary['untested']} of {summary['declared']} claims declared at CHECK were never "
+                "adjudicated — recorded as UNTESTED. These are beliefs the praxic work rested on that "
+                "nothing verified; they are exactly what a single `know` score averages away."
+            )
+    except Exception as e:
+        logger.debug(f"claim adjudication skipped: {e}")
+
+
+def _build_retrospective(
+    session_id: str,
+    transaction_id: str | None,
+    claim_adjudications: list | None = None,
+    adjudicate_claims: bool = False,
+) -> dict:
     """Build retrospective feedback: artifact breadth, commit discipline, completion hints.
 
     Returns dict with artifact_counts, optional breadth_note, commit_warning, completion_hint.
     Non-fatal -- returns empty dict on any error.
+
+    ``claim_adjudications`` carries POSTFLIGHT verdicts for claims declared at CHECK
+    (migration 062). Passed explicitly rather than via ambient state: adjudication
+    MUTATES rows, and a mutation reached through a side channel is one nobody can
+    trace from the call site.
+
+    ``adjudicate_claims`` must be opted into, and ONLY POSTFLIGHT does so. This
+    function is also called from the CHECK path — purely to read artifact counts for
+    the calibration nudge — and adjudicating there would force every just-declared
+    claim to ``untested`` seconds after CHECK stored it, before any praxic work had
+    a chance to test anything. The feature would report a 100% gap rate forever
+    while looking like it worked. Defaulting the flag to False keeps that failure
+    impossible rather than merely unlikely.
     """
     import subprocess as _sp
 
@@ -806,6 +854,9 @@ def _build_retrospective(session_id: str, transaction_id: str | None) -> dict:
 
         artifact_counts = _retro_count_artifacts(cursor, session_id, transaction_id)
         retro: dict = {"artifact_counts": artifact_counts}
+
+        if adjudicate_claims:
+            _retro_adjudicate_claims(db, session_id, transaction_id, claim_adjudications, retro)
 
         types_used = [k for k, v in artifact_counts.items() if v > 0]
         types_missing = [k for k, v in artifact_counts.items() if v == 0]

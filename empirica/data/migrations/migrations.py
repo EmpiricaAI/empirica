@@ -1521,6 +1521,11 @@ ALL_MIGRATIONS: list[tuple[str, str, Callable]] = [
         "Add resolution_kind to project_findings — a CLOSED vocabulary for WHY a finding was resolved. Migration 057 gave findings is_resolved + a free-text `resolution`, and free text cannot be queried or offered as a choice. Measured 2026-07-30 on this practice: of 1268 resolved findings, 1267 resolve as stale/superseded/snapshot and exactly ONE as an error — a true error rate of 1-in-4199 over six months is not plausible, so errors were not being EXPRESSED rather than not occurring. Gardening was staleness-only because staleness was the only word the surface offered. The kinds separate the two events free text conflates: `stale` (was true, aged out), `superseded` (replaced by a named newer artifact), `retracted` (was FALSE when written — the missing one), `mistyped` (belongs to another artifact type; records the correct type without moving the row, since types are separate TABLES and a true retype must preserve id/edges/provenance). Completes for findings what migration 060 did for dead_ends and mistakes. Additive, nullable — NULL stays a legitimate 'never classified' state rather than being backfilled into a false verdict, since backfilling 1268 prose resolutions would be inference, not fact.",
         lambda cursor: migration_061_finding_resolution_kind(cursor),
     ),
+    (
+        "062_transaction_claims",
+        "Create transaction_claims — per-claim grounding, declared at CHECK and adjudicated at POSTFLIGHT (David-directed 2026-07-31, from cortex SER item 3). `know` is a scalar over heterogeneous beliefs: an HONEST know=0.82 can be eleven well-grounded claims plus one pure guess, and the average conceals the outlier that breaks. A claim carries HOW it was grounded (read | ran | retrieved | assumed) and later WHAT HAPPENED (held | refuted | untested). `retrieved` is deliberately distinct from `read`: our own prior artifacts are TESTIMONY, not observation — true when written, ageing like any prior — which is the hole that cost cortex four wrong design rules when a logged decision said 'one row per show, upserted' and the data was a time series. `untested` is the verdict that carries the value: refuted is rare, held is cheap, and 'I acted on this and never checked it' is precisely what the scalar cannot express. Advisory in v0 — nothing blocks a POSTFLIGHT; unadjudicated claims are FORCED to untested rather than left NULL so 'never adjudicated' and 'nothing declared' never collapse into the same count.",
+        lambda cursor: migration_062_transaction_claims(cursor),
+    ),
 ]
 
 
@@ -2524,3 +2529,57 @@ def migration_061_finding_resolution_kind(cursor: sqlite3.Cursor):
         "CREATE INDEX IF NOT EXISTS idx_project_findings_resolution_kind ON project_findings(resolution_kind)"
     )
     logger.info("✅ Migration 061 complete: findings can now record WRONG, not only STALE")
+
+
+def migration_062_transaction_claims(cursor: sqlite3.Cursor):
+    """Per-claim grounding: what CHECK declared, what POSTFLIGHT found.
+
+    ``know`` averages a transaction's beliefs into one number. An honest 0.82 can
+    be eleven solid claims plus one guess, and the mean hides the guess — which is
+    the one that breaks. This records the claims individually so the outlier stays
+    visible.
+
+    Columns:
+
+    ``grounding``   HOW it was believed at CHECK — ``read`` (saw the source),
+                    ``ran`` (executed and observed), ``retrieved`` (from OUR OWN
+                    prior artifact) or ``assumed`` (acting without checking).
+                    ``retrieved`` is deliberately NOT ``read``: our own artifacts
+                    are testimony, true when written and ageing like any prior.
+                    Tagging it per-CLAIM rather than per-artifact is the right
+                    level — the same decision record can be solid grounding for
+                    one claim and stale for another.
+
+    ``verdict``     WHAT HAPPENED, set at POSTFLIGHT — ``held``, ``refuted`` or
+                    ``untested``. Unadjudicated claims are FORCED to ``untested``
+                    rather than left NULL, so "never adjudicated" cannot read as
+                    "nothing declared" in any count downstream.
+
+    Not nullable-by-omission on purpose: a NULL verdict after POSTFLIGHT would be
+    the same silent-skip conflation this whole mechanism exists to surface.
+
+    Advisory in v0. Nothing here blocks a POSTFLIGHT — two mechanisms in this
+    codebase died of over-firing, and a gate shipped before any evidence it helps
+    would be the most obstructive thing in the system on day one.
+    """
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS transaction_claims (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            transaction_id TEXT,
+            claim_index INTEGER NOT NULL,
+            claim TEXT NOT NULL,
+            grounding TEXT,
+            ref TEXT,
+            verdict TEXT,
+            verdict_evidence TEXT,
+            declared_timestamp REAL NOT NULL,
+            adjudicated_timestamp REAL
+        )
+        """
+    )
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_transaction_claims_tx ON transaction_claims(transaction_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_transaction_claims_session ON transaction_claims(session_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_transaction_claims_verdict ON transaction_claims(verdict)")
+    logger.info("✅ Migration 062 complete: CHECK declares claims, POSTFLIGHT adjudicates them")

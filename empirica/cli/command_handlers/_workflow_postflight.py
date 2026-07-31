@@ -618,10 +618,11 @@ def _postflight_parse_config_or_legacy(args):
     """Parse postflight input from config data or legacy CLI flags.
 
     Returns (session_id, vectors, reasoning, grounded_vectors,
-    grounded_rationale, coverage, output_format). Exits on validation
-    failure. ``coverage`` is the optional agent self-coverage block
-    (paper section 4.1), only available via the JSON-input path because
-    legacy CLI flags don't carry structured nested data.
+    grounded_rationale, coverage, claims, output_format). Exits on validation
+    failure. ``coverage`` and ``claims`` are optional structured blocks, only
+    available via the JSON-input path because legacy CLI flags don't carry nested
+    data — ``claims`` carries the POSTFLIGHT verdicts for claims declared at CHECK
+    (migration 062).
     """
     import sys
 
@@ -634,6 +635,9 @@ def _postflight_parse_config_or_legacy(args):
         grounded_vectors = config_data.get("grounded_vectors")
         grounded_rationale = config_data.get("grounded_rationale")
         coverage = config_data.get("coverage")
+        claims = config_data.get("claims")
+        if not isinstance(claims, list):
+            claims = None
 
         if not session_id or not vectors:
             print(
@@ -659,6 +663,7 @@ def _postflight_parse_config_or_legacy(args):
         grounded_vectors = None
         grounded_rationale = None
         coverage = None
+        claims = None
 
         if not session_id:
             try:
@@ -678,7 +683,7 @@ def _postflight_parse_config_or_legacy(args):
             )
             sys.exit(1)
 
-    return session_id, vectors, reasoning, grounded_vectors, grounded_rationale, coverage, output_format
+    return session_id, vectors, reasoning, grounded_vectors, grounded_rationale, coverage, claims, output_format
 
 
 def _postflight_resolve_preflight_session(session_id):
@@ -724,7 +729,7 @@ def _parse_postflight_input(args) -> dict[str, Any]:
     Returns dict with keys: session_id, vectors, reasoning, preflight_session_id,
     grounded_vectors, grounded_rationale, coverage, output_format.
     """
-    session_id, vectors, reasoning, grounded_vectors, grounded_rationale, coverage, output_format = (
+    session_id, vectors, reasoning, grounded_vectors, grounded_rationale, coverage, claims, output_format = (
         _postflight_parse_config_or_legacy(args)
     )
 
@@ -755,6 +760,7 @@ def _parse_postflight_input(args) -> dict[str, Any]:
         "grounded_vectors": grounded_vectors,
         "grounded_rationale": grounded_rationale,
         "coverage": coverage,
+        "claims": claims,
         "output_format": output_format,
     }
 
@@ -1920,7 +1926,16 @@ def handle_postflight_submit_command(args):
             resolved_project_path = tx_info["resolved_project_path"]
 
             # Stage 4: Checkpoint
-            retrospective = _build_retrospective(session_id, tx_info["transaction_id"])
+            # `adjudicate_claims=True` is passed ONLY here. The CHECK path calls the
+            # same builder for artifact counts, and adjudicating there would force
+            # every just-declared claim to `untested` before any praxic work could
+            # test it (migration 062).
+            retrospective = _build_retrospective(
+                session_id,
+                tx_info["transaction_id"],
+                claim_adjudications=parsed.get("claims") or [],
+                adjudicate_claims=True,
+            )
             postflight_coverage = parsed.get("coverage")
             checkpoint_id = logger_instance.add_checkpoint(
                 phase="POSTFLIGHT",

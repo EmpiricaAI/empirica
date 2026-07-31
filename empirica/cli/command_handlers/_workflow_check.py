@@ -100,6 +100,11 @@ def _check_cmd_parse_inputs(args):
     round_num = getattr(args, "round", None) or (config_data.get("round") if config_data else None)
     verbose = getattr(args, "verbose", False) or (config_data.get("verbose", False) if config_data else False)
     explicit_confidence = config_data.get("confidence") if config_data else None
+    # Per-claim grounding (migration 062). Optional — a CHECK without claims
+    # behaves exactly as before.
+    claims = (config_data.get("claims") if config_data else None) or []
+    if not isinstance(claims, list):
+        claims = []
 
     return {
         "session_id": session_id,
@@ -109,6 +114,7 @@ def _check_cmd_parse_inputs(args):
         "explicit_confidence": explicit_confidence,
         "config_data": config_data,
         "output_format": output_format,
+        "claims": claims,
     }
 
 
@@ -160,6 +166,40 @@ def _check_cmd_load_evidence(db, session_id):
         findings, unknowns, project_id = [], [], None
 
     return findings, unknowns, project_id
+
+
+def _check_declare_claims(session_id, transaction_id, claims):
+    """Persist claims declared at CHECK; return the echo block (or None).
+
+    Shared by BOTH check paths. `check-submit` routes to
+    ``handle_check_submit_command`` and the `check` alias routes to
+    ``handle_check_command`` — wiring only one of them is how a feature ships
+    looking complete and writes nothing, which is exactly what happened on the
+    first attempt here: unit tests passed against the core module while the live
+    verb stored zero rows.
+
+    Fail-soft: an advisory record must never be able to block the noetic→praxic
+    gate. Fail-soft is also what HID the mis-wiring, so the debug log line is the
+    only thing standing between a silent no-op and a diagnosable one — keep it.
+    """
+    if not claims:
+        return None
+    db = None
+    try:
+        from empirica.core import claims as _claims
+
+        db = _get_db_for_session(session_id)
+        declared = _claims.declare(db, session_id=session_id, transaction_id=transaction_id, claims=claims)
+        return _claims.summarize_for_check(declared)
+    except Exception as e:
+        logger.debug(f"claim declaration skipped: {e}")
+        return None
+    finally:
+        if db is not None:
+            try:
+                db.close()
+            except Exception:
+                pass
 
 
 def handle_check_command(args):
@@ -244,6 +284,8 @@ def handle_check_command(args):
             },
         )
 
+        claims_block = _check_declare_claims(session_id, check_transaction_id, inputs.get("claims"))
+
         # 6. Build result
         confidence_value = (
             inputs["explicit_confidence"] if inputs["explicit_confidence"] is not None else (1.0 - uncertainty)
@@ -263,6 +305,7 @@ def handle_check_command(args):
                 "deltas": deltas,
             },
             "evidence": {"findings_count": findings_count, "unknowns_count": unknowns_count},
+            "claims": claims_block,
             "investigation_progress": {
                 "cycle": inputs["cycle"],
                 "round": inputs["round_num"],
@@ -333,6 +376,12 @@ def _check_parse_inputs(args):
 
     session_id = _resolve_and_validate_session(session_id, "CHECK")
 
+    # Per-claim grounding (migration 062). Optional — a CHECK without claims
+    # behaves exactly as before.
+    _claims_in = (config_data.get("claims") if config_data else None) or []
+    if not isinstance(_claims_in, list):
+        _claims_in = []
+
     return {
         "session_id": session_id,
         "vectors": vectors,
@@ -340,6 +389,7 @@ def _check_parse_inputs(args):
         "reasoning": reasoning,
         "cycle": cycle,
         "output_format": output_format,
+        "claims": _claims_in,
     }
 
 
@@ -1301,6 +1351,11 @@ def handle_check_submit_command(args):
             # Stage 11: Epistemic snapshot
             _check_create_snapshot(session_id, vectors, decision, reasoning, round_num, checkpoint_id)
 
+            # Stage 11b: Per-claim grounding (migration 062). `know` averages
+            # heterogeneous beliefs; naming the 2-3 load-bearing ones keeps the
+            # ungrounded outlier visible instead of buried in the mean.
+            claims_block = _check_declare_claims(session_id, check_transaction_id, inputs.get("claims"))
+
             # Stage 12: Build result dict
             result = {
                 "ok": True,
@@ -1326,6 +1381,7 @@ def handle_check_submit_command(args):
                 }
                 if SentinelHooks.is_enabled() and sentinel_override
                 else None,
+                "claims": claims_block,
             }
 
             # Stage 13: Blindspot scan (may override decision)
