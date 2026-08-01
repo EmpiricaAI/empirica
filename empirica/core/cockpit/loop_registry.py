@@ -233,12 +233,39 @@ class SchedulePlan:
     interval_seconds: int
     current_streak: int
     reason: str
+    # Set only for kind='cron' loops, where the expression IS the schedule and
+    # the interval fields are not a computed next fire. Absent (None) means the
+    # interval fields are authoritative, which is the interval-loop case.
+    cron: str | None = None
 
     @property
     def cron_one_shot(self) -> str:
         return cron_pin_one_shot(self.fire_at)
 
+    @property
+    def is_cron(self) -> bool:
+        """True when this loop's schedule is a cron expression.
+
+        Callers must not read ``interval_seconds`` as a next-fire delay when this
+        is set — it is 0, and ``fire_at`` is 'now', because neither is known
+        without cron arithmetic.
+        """
+        return self.cron is not None
+
     def to_dict(self) -> dict[str, Any]:
+        if self.cron is not None:
+            # A cron loop has no computed next fire, so every field that would
+            # imply one is omitted rather than filled with a placeholder.
+            # `cron_one_shot` is the trap in particular: it pins a one-shot to
+            # `fire_at`, which here is *now*, so a caller passing it to
+            # CronCreate would fire immediately and believe it had scheduled
+            # tomorrow's 09:00 run.
+            return {
+                "is_cron": True,
+                "cron": self.cron,
+                "current_streak": self.current_streak,
+                "reason": self.reason,
+            }
         return {
             "next_fire_at": self.fire_at.isoformat(),
             "interval_seconds": self.interval_seconds,
@@ -658,6 +685,33 @@ class LoopRegistry:
 
         entry = LoopEntry.from_dict(name, data["loops"][name])
         now = datetime.now(tz=timezone.utc)
+
+        # A cron loop's schedule is its cron expression. Everything below derives
+        # a fire time from interval + backoff, which for kind='cron' is not a
+        # worse answer — it is an unrelated one, presented in the same shape as a
+        # real one. "Every day at 09:00" came back as "in 15 minutes", and the
+        # caller had no way to tell that the number was invented (#396,
+        # graemester, second defect).
+        #
+        # Computing a true next-fire needs cron arithmetic, which needs a
+        # dependency this package does not have. Rather than add one immediately
+        # before a release, or hand-roll date arithmetic that would be wrong in
+        # its own quieter way, the plan now carries the cron expression and says
+        # plainly that the interval fields are not the schedule. Callers that own
+        # a cron scheduler (CronCreate, `at`) have what they need; callers that
+        # would have silently trusted interval_seconds now get told not to.
+        if entry.kind == "cron" and entry.cron:
+            return SchedulePlan(
+                fire_at=now,
+                interval_seconds=0,
+                current_streak=entry.backoff.empty_streak,
+                reason=(
+                    f"cron loop — schedule is the expression {entry.cron!r}, not an interval. "
+                    "interval_seconds/fire_at are NOT a computed next fire; hand the cron "
+                    "expression to your scheduler."
+                ),
+                cron=entry.cron,
+            )
 
         base_s = entry.backoff.base_interval_seconds or parse_duration(entry.interval) or DEFAULT_BASE_INTERVAL_S
         if entry.backoff.policy == "exponential":

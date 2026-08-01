@@ -123,6 +123,18 @@ CANONICAL_LOOPS: list[dict[str, Any]] = [
         ),
         "body_skill": "message-cleanup",
         "scheduler_kind": "systemd-user",
+        # OPT-IN ONLY, like every cron loop. This entry used to auto-install on
+        # the reasoning that housekeeping should happen even with no session
+        # alive — but a cron job installed without being asked for is exactly
+        # what must not happen (David 2026-08-01). The gate in
+        # maybe_queue_canonical_install keys on kind="cron" so this holds even if
+        # the flag below is dropped; the flag is here to make the entry
+        # self-describing. Opt in with:
+        #   empirica loop register --name message-cleanup --kind cron \
+        #     --cron "17 3 * * *" --description "..."
+        # Consequence, stated plainly: expired mesh messages are not pruned on a
+        # seat that has not opted in.
+        "opt_in_only": True,
         # Pure-CLI body — the timer runs the verb DIRECTLY (deterministic, no
         # AI-in-the-loop), so daily housekeeping actually happens even when no
         # session is alive to react to a heartbeat. `body_command` is the
@@ -163,8 +175,11 @@ def maybe_queue_canonical_install(instance_id: str, project_root: Any, requested
       1. project has ``.empirica/`` (opted into empirica)
       2. dedup stamp absent — once per PRACTICE (``canonical_loops_installed_{ai_id}``)
       3. the practice's loop registry is empty (don't clobber manual config)
-      4. per loop: skip ``opt_in_only`` (e.g. ``cortex-mailbox-poll`` — wake-on-event
-         is the canonical trigger; cron-only harnesses opt in via ``loop register``)
+      4a. per loop: skip ``opt_in_only`` (e.g. ``cortex-mailbox-poll`` — wake-on-event
+          is the canonical trigger; cron-only harnesses opt in via ``loop register``)
+      4b. per loop: skip EVERY ``kind="cron"`` entry. Cron is opt-in only and is
+          never installed by default; wake-on-event is preferred wherever it is
+          possible (David 2026-08-01). Users opt in with ``empirica loop register``.
 
     Loops are PRACTICE-keyed (docs/architecture/AI_ID_AS_ANCHOR.md): the stamp +
     registry gate key on the stable ``ai_id``; ``write_pending`` stays seat-keyed
@@ -201,7 +216,19 @@ def maybe_queue_canonical_install(instance_id: str, project_root: Any, requested
         installed = 0
         for entry in CANONICAL_LOOPS:
             if entry.get("opt_in_only"):
-                continue  # gate 4: opt-in only (wake-on-event is canonical)
+                continue  # gate 4a: opt-in only (wake-on-event is canonical)
+            if entry.get("kind") == "cron":
+                # gate 4b: NO cron loop is ever installed by default (David
+                # 2026-08-01: "cronjobs should be opt in only, never installed by
+                # default — we always want wake on event if possible").
+                #
+                # Structural on purpose. `opt_in_only` is a per-entry flag, and
+                # the entry that violated this rule was the one that simply never
+                # set it — message-cleanup carried a comment explicitly exempting
+                # "genuine housekeeping crons" from the opt-in carve-out. Keying
+                # the gate on `kind` means a cron loop added later cannot
+                # auto-install by forgetting a flag.
+                continue
             # One loop's write failure must not drop the rest — best-effort.
             with contextlib.suppress(Exception):
                 write_pending(

@@ -762,7 +762,18 @@ def handle_loop_fire_command(args) -> int:
     if plan is not None:
         payload.update(plan.to_dict())
     scheduler_kind = entry.scheduling.scheduler_kind or "unknown"
-    if scheduler_kind == "cron-create":
+    # A cron loop's schedule is its expression, and `cron_one_shot` pins a
+    # one-shot to plan.fire_at — which for a cron loop is *now*. Emitting it here
+    # would hand the caller a CronCreate line that fires immediately while
+    # reading like it scheduled the real cadence (#396, graemester).
+    if plan is not None and plan.is_cron:
+        payload["hint"] = (
+            f"empirica CLI can't call CronCreate directly. This loop is cron-kind — "
+            f"install its own expression, recurring: CronCreate(cron='{plan.cron}', "
+            f"recurring=true, prompt='<loop body template>')"
+        )
+        summary = f"fire requested for {args.name} — cron loop, install `{plan.cron}` (recurring)"
+    elif scheduler_kind == "cron-create":
         payload["hint"] = (
             f"empirica CLI can't call CronCreate directly. Re-issue via "
             f"/loop or run: CronCreate(cron='{plan.cron_one_shot}', "

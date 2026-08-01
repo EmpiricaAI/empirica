@@ -65,7 +65,9 @@ def test_opt_in_loop_never_auto_queued(tmp_path, monkeypatch):
     proj = _project(tmp_path)
     mod._maybe_auto_install_canonical_loops("019f-session-uuid", proj)
     assert "cortex-mailbox-poll" not in queued  # opt-in only — never auto-queued
-    assert "message-cleanup" in queued  # housekeeping cron still auto-installs
+    # message-cleanup is kind="cron", and NO cron loop is installed by default
+    # (David 2026-08-01). It used to auto-queue as "genuine housekeeping".
+    assert "message-cleanup" not in queued
 
 
 def test_no_listener_dependency(tmp_path, monkeypatch):
@@ -75,7 +77,7 @@ def test_no_listener_dependency(tmp_path, monkeypatch):
     proj = _project(tmp_path)
     mod._maybe_auto_install_canonical_loops("any-instance", proj)
     assert "cortex-mailbox-poll" not in queued
-    assert "message-cleanup" in queued
+    assert "message-cleanup" not in queued
 
 
 def test_catalog_flags():
@@ -83,4 +85,7 @@ def test_catalog_flags():
 
     by_name = {e["name"]: e for e in CANONICAL_LOOPS}
     assert by_name["cortex-mailbox-poll"].get("opt_in_only") is True
-    assert not by_name["message-cleanup"].get("opt_in_only")
+    # Every cron loop is opt-in. The gate keys on kind so this holds even if the
+    # flag is dropped, but the flag keeps the entry self-describing.
+    assert by_name["message-cleanup"].get("opt_in_only") is True
+    assert all(e.get("opt_in_only") for e in CANONICAL_LOOPS if e.get("kind") == "cron")
