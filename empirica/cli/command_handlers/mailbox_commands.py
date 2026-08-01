@@ -96,6 +96,188 @@ def _default_fetch_parent(cortex_url: str, api_key: str, parent_id: str, timeout
         return None
 
 
+def _default_http_get(url: str, api_key: str, timeout: float = 10.0) -> tuple[int, object]:
+    """GET from cortex with Bearer auth. Returns (status, parsed_body).
+
+    Deliberately NOT modelled on `_default_fetch_parent`, which swallows every
+    exception into a bare `None`. That collapses "not found", "bad credentials" and
+    "network unreachable" into one indistinguishable outcome — the shape this whole
+    verb exists to stop. Returning the status lets the caller say which happened.
+    """
+    req = urllib.request.Request(url, method="GET", headers={"Authorization": f"Bearer {api_key}"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.status, json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        try:
+            return e.code, json.loads(e.read().decode("utf-8"))
+        except Exception:
+            return e.code, {}
+    except Exception as e:
+        return 0, {"error": str(e)}
+
+
+def _resolve_canonical_ai_id(cortex_url: str, api_key: str, local_ai_id: str | None, _http_get: Callable) -> str | None:
+    """Resolve the canonical 3-form `org.tenant.project` from cortex's roster.
+
+    SER participants are keyed by canonical id. `.empirica/project.yaml` carries only
+    the bare project slug (`empirica`), so querying with it returns an empty list —
+    and an empty list is indistinguishable from genuine non-participation.
+
+    That is not hypothetical: the first live run of this verb reported "participates in
+    none" while the practice held `role=required` on four SERs. The bare id produced a
+    confident false negative in the very tool built to stop confident false negatives.
+
+    So the id is READ from the authority rather than assembled from local slugs
+    (project.yaml has no org slug, and guessing one would reintroduce the same class).
+    """
+    if not local_ai_id:
+        return None
+    status, body = _http_get(f"{cortex_url.rstrip('/')}/v1/users/me/roster", api_key, 10.0)
+    if not (200 <= status < 300) or not isinstance(body, dict):
+        return None
+
+    # Scope to the CALLER's tenant. Two tenants legitimately hold the same practice
+    # slug — David and Philipp both have an `empirica-autonomy` — so an unscoped walk
+    # could return a canonical id belonging to someone else's seat.
+    own_tenant = ((body.get("self") or {}).get("tenant_slug")) or ""
+    for tenant in (body.get("org") or {}).get("tenants") or []:
+        if not isinstance(tenant, dict) or (own_tenant and tenant.get("tenant_slug") != own_tenant):
+            continue
+        for proj in tenant.get("projects") or []:
+            # Project rows key the practice as `slug` / `ai_id_short`; there is no
+            # `ai_id` field. Matching the wrong key is how the first version of this
+            # resolver silently returned None for a practice that was right there.
+            if not isinstance(proj, dict):
+                continue
+            if local_ai_id in (proj.get("slug"), proj.get("ai_id_short")):
+                mesh = proj.get("ai_id_mesh")
+                if isinstance(mesh, str) and mesh:
+                    return mesh
+    return None
+
+
+def _ser_rows(body: object) -> list[dict]:
+    """Normalise the response into a list of SER dicts.
+
+    Three shapes are tolerated because the envelope is specified in the mesh skills
+    rather than observed here: a wrapped `{"sers": [...]}`, a bare list, and a single
+    object from the by-id route.
+    """
+    if isinstance(body, dict) and isinstance(body.get("sers"), list):
+        return [s for s in body["sers"] if isinstance(s, dict)]
+    if isinstance(body, list):
+        return [s for s in body if isinstance(s, dict)]
+    if isinstance(body, dict) and body:
+        return [body]
+    return []
+
+
+def _ser_line(s: dict) -> str:
+    sid = str(s.get("ser_id") or s.get("id") or "?")[:24]
+    state = str(s.get("coordination_state") or "?")
+    title = str(s.get("title") or "")[:56]
+    n = len(s.get("participants") or [])
+    return f"  {sid} [{state}] {title}  ({n} participant{'' if n == 1 else 's'})"
+
+
+def handle_mailbox_sers_command(
+    args,
+    *,
+    _resolve_cortex_creds: Callable = _default_resolve_cortex_creds,
+    _resolve_ai_id: Callable = _default_resolve_ai_id,
+    _http_get: Callable = _default_http_get,
+) -> int:
+    """`empirica mailbox sers [<ser_id>]` — read-only view of SER participation.
+
+    Consolidated into the `mailbox` group rather than shipped as a top-level verb.
+    This group is already the cortex-HTTP AI-mesh *content* namespace (poll / show /
+    reply / archive) and already owns credential and ai_id resolution, and the standing
+    guidance is that the default answer to "add a verb" is no. `mesh diagnose --cortex`
+    was the other candidate and is wrong: it produces pass/warn/fail health checks, and
+    this is a data read, not a verdict.
+
+    Read-only on purpose. Transitions and acks already exist through `cortex_propose`
+    payload actions, and prior probes of the write side failed anyway — an unknown
+    `cortex_ser_ack` tool, and a POST answered `Method Not Allowed`.
+
+    Why it exists: nothing in the CLI reached `/v1/sers`, so a practitioner could not
+    answer "am I a participant on this SER" without MCP or raw HTTP. Three seats spent
+    five messages establishing required-tier on two records — and answered at three
+    different evidence grades, because only some could reach the store. An unreachable
+    read does not merely slow people down; it lowers the quality of what they can assert.
+    """
+    output_format = getattr(args, "output", "json")
+    cortex_url, api_key = _resolve_cortex_creds()
+    if not cortex_url or not api_key:
+        sys.stderr.write(
+            "mailbox sers: no cortex credentials — set cortex.url + cortex.api_key in ~/.empirica/credentials.yaml\n"
+        )
+        return 1
+
+    ser_id = getattr(args, "ser_id", None)
+    ai_id = getattr(args, "ai_id", None)
+    if not ai_id and not ser_id:
+        # Resolve the CANONICAL id, never the bare project slug — see
+        # _resolve_canonical_ai_id for why a basename query lies rather than fails.
+        ai_id = _resolve_canonical_ai_id(cortex_url, api_key, _resolve_ai_id(), _http_get)
+
+    if ser_id:
+        url = f"{cortex_url.rstrip('/')}/v1/sers/{ser_id}"
+    elif ai_id and ai_id.count(".") >= 2:
+        url = f"{cortex_url.rstrip('/')}/v1/sers?ai_id={ai_id}"
+    elif ai_id:
+        # Refuse rather than return a confident empty. A non-canonical id matches no
+        # participant row, so the query would succeed and report zero — the exact
+        # false negative this verb exists to remove.
+        sys.stderr.write(
+            f"mailbox sers: {ai_id!r} is not a canonical 3-form (org.tenant.project). "
+            "A bare slug matches no participant row and would report zero participation. "
+            "Pass the full form, or check it with `empirica practice-context --ai-id <slug>`.\n"
+        )
+        return 1
+    else:
+        sys.stderr.write(
+            "mailbox sers: could not resolve a canonical ai_id from the roster — "
+            "pass --ai-id <org.tenant.project>, or run inside a project\n"
+        )
+        return 1
+
+    status, body = _http_get(url, api_key, 10.0)
+    if status == 404 and ser_id:
+        sys.stderr.write(f"mailbox sers: {ser_id} not found, or not visible to this tenant\n")
+        return 1
+    if not (200 <= status < 300):
+        sys.stderr.write(f"mailbox sers: request failed (status={status}): {body}\n")
+        return 1
+
+    sers = _ser_rows(body)
+
+    if output_format == "human":
+        if not sers:
+            # A successful query returning nothing is an ANSWER, not a failure. Saying
+            # so is the whole point: the thread that prompted this verb went five
+            # messages because absence and unreachability looked the same.
+            scope = ser_id or f"ai_id={ai_id}"
+            sys.stdout.write(f"No SERs for {scope} — queried successfully, this practice participates in none.\n")
+        else:
+            sys.stdout.write(f"{len(sers)} SER(s):\n")
+            for s in sers:
+                sys.stdout.write(_ser_line(s) + "\n")
+                for p in s.get("participants") or []:
+                    if isinstance(p, dict):
+                        sys.stdout.write(
+                            f"      {p.get('practice_id') or '?'}  role={p.get('role') or '?'}"
+                            f"  last_ack={p.get('last_ack_at') or 'never'}\n"
+                        )
+    else:
+        sys.stdout.write(
+            json.dumps({"ok": True, "ai_id": ai_id, "ser_id": ser_id, "count": len(sers), "sers": sers}, indent=2)
+            + "\n"
+        )
+    return 0
+
+
 def handle_mailbox_reply_command(  # noqa: C901 — CLI handler with 7 validation gates + 2 HTTP calls; linear flow is clearer than extracting helpers
     args,
     *,
@@ -523,5 +705,7 @@ def handle_mailbox_group_command(args) -> int:
         return handle_mailbox_show_command(args)
     if action == "archive":
         return handle_mailbox_archive_command(args)
-    sys.stderr.write("Usage: empirica mailbox <reply|poll|show|archive>\n")
+    if action == "sers":
+        return handle_mailbox_sers_command(args)
+    sys.stderr.write("Usage: empirica mailbox <reply|poll|show|archive|sers>\n")
     return 1

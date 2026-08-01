@@ -173,4 +173,33 @@ def add_mailbox_parsers(subparsers):
         help="Output format (default: json)",
     )
 
+    # ── sers: read-only SER participation ──
+    #
+    # One subcommand, not two. Bare lists; with an id, shows that record. A separate
+    # `ser show` would have been a second entry on a surface the standing guidance
+    # wants smaller.
+    sers = mailbox_subs.add_parser(
+        "sers",
+        help=(
+            "List the SERs this practice participates in — GET /v1/sers. Pass a ser_id "
+            "to show one, including participant rows so required-tier holders are named. "
+            "Read-only: transitions and acks go through cortex_propose payload actions."
+        ),
+    )
+    sers.add_argument(
+        "ser_id",
+        nargs="?",
+        help="Optional SER id (ser_…). Omit to list this practice's participation.",
+    )
+    sers.add_argument(
+        "--ai-id",
+        help="Canonical 3-form to query for (default: this project's ai_id)",
+    )
+    sers.add_argument(
+        "--output",
+        choices=["human", "json"],
+        default="json",
+        help="Output format (default: json)",
+    )
+
     return mailbox_root
