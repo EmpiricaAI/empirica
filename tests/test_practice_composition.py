@@ -137,3 +137,52 @@ def test_a_real_tree_reports_lists_rather_than_nulls(client):
 
     assert isinstance(body["skills"], list) and body["skills"], "skills came back empty on a real tree"
     assert isinstance(body["agents"], list) and body["agents"]
+
+
+# ── source is a discriminator, not a constant ─────────────────────────
+#
+# Extension's contract specified `source: project|plugin|user`. The first version of
+# this route passed the constant "plugin", so three practices probed live returned
+# identical compositions — truthful (this fleet has no project-scoped config) and
+# zero-signal. `source` is what makes a practice record mean anything.
+
+
+def test_project_scoped_units_are_labelled_project(tmp_path, monkeypatch):
+    """POSITIVE CONTROL — the label that was hardcoded."""
+    plugin = tmp_path / "plugin"
+    (plugin / "agents").mkdir(parents=True)
+    (plugin / "agents" / "inherited.md").write_text("x", encoding="utf-8")
+    monkeypatch.setattr(practice, "_PLUGIN_ROOT", plugin)
+
+    root = tmp_path / "proj"
+    (root / ".claude" / "agents").mkdir(parents=True)
+    (root / ".claude" / "agents" / "local.md").write_text("y", encoding="utf-8")
+
+    by_name = {u["name"]: u["source"] for u in practice._merge_units(root, "agents") or []}
+
+    assert by_name == {"inherited": "plugin", "local": "project"}
+
+
+def test_a_project_unit_overrides_an_inherited_one_of_the_same_name(tmp_path, monkeypatch):
+    """A practice that overrides an inherited agent has deliberately replaced it.
+    Reporting both would misstate what actually runs."""
+    plugin = tmp_path / "plugin"
+    (plugin / "agents").mkdir(parents=True)
+    (plugin / "agents" / "security.md").write_text("x", encoding="utf-8")
+    monkeypatch.setattr(practice, "_PLUGIN_ROOT", plugin)
+
+    root = tmp_path / "proj"
+    (root / ".claude" / "agents").mkdir(parents=True)
+    (root / ".claude" / "agents" / "security.md").write_text("y", encoding="utf-8")
+
+    units = practice._merge_units(root, "agents") or []
+
+    assert len(units) == 1
+    assert units[0]["source"] == "project"
+
+
+def test_no_units_anywhere_is_null_not_empty(tmp_path, monkeypatch):
+    """NEGATIVE CONTROL: the null-vs-empty rule must survive the merge."""
+    monkeypatch.setattr(practice, "_PLUGIN_ROOT", tmp_path / "absent")
+
+    assert practice._merge_units(tmp_path / "also-absent", "agents") is None

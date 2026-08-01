@@ -109,6 +109,35 @@ def _list_markdown_units(directory: Path, source: str) -> list[dict[str, str]] |
         return None
 
 
+def _merge_units(root: Path, kind: str) -> list[dict[str, str]] | None:
+    """Project-scoped units first, then plugin-global, each labelled by `source`.
+
+    Extension's contract specified `source: project|plugin|user` as a DISCRIMINATOR
+    and the first version of this route passed the constant "plugin". Their probe
+    caught it immediately: three practices returned identical compositions, because
+    every field except project_prompt read from the same machine-wide plugin
+    directory and the scoping parameter changed nothing.
+
+    The route was telling the truth — this fleet genuinely has no project-scoped
+    config — but a record that cannot distinguish inherited environment from
+    practice-specific composition renders 18 identical skills everywhere, which is
+    truthful and zero-signal. `source` is what makes the record mean something.
+
+    Project-scoped wins on a name collision: a practice that overrides an inherited
+    agent has deliberately replaced it, and reporting both would misstate what runs.
+    """
+    project_units = _list_markdown_units(root / ".claude" / kind, "project")
+    plugin_units = _list_markdown_units(_PLUGIN_ROOT / kind, "plugin")
+
+    if project_units is None and plugin_units is None:
+        return None
+
+    merged: dict[str, dict[str, str]] = {}
+    for unit in (plugin_units or []) + (project_units or []):
+        merged[unit["name"]] = unit  # project listed second, so it overwrites
+    return sorted(merged.values(), key=lambda u: u["name"])
+
+
 def _read_mcp() -> list[dict[str, Any]] | None:
     """Registered MCP servers, via the scanner's reader.
 
@@ -187,8 +216,8 @@ def get_composition(
         "path": str(root),
         "module": _read_module(root),
         "project_prompt": _read_project_prompt(root),
-        "agents": _list_markdown_units(_PLUGIN_ROOT / "agents", "plugin"),
-        "skills": _list_markdown_units(_PLUGIN_ROOT / "skills", "plugin"),
+        "agents": _merge_units(root, "agents"),
+        "skills": _merge_units(root, "skills"),
         "mcp_servers": _read_mcp(),
         "observed_at": _now_iso(),
         "config_watermark": _watermark(root),
