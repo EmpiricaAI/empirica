@@ -12,8 +12,6 @@ looked and there was nothing" or "I could not look".
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from empirica.api.routes import practice
@@ -130,13 +128,27 @@ def test_an_unresolvable_project_id_is_404_not_an_empty_composition(client):
     assert r.status_code == 404
 
 
-def test_a_real_tree_reports_lists_rather_than_nulls(client):
-    """Against this repo the collectors must actually find things — otherwise every
-    null-vs-empty test above passes while the route reports nothing useful."""
-    body = client.get("/api/v1/practice/composition", params={"path": str(Path.cwd())}).json()
+def test_a_populated_tree_reports_lists_rather_than_nulls(client, tmp_path, monkeypatch):
+    """End-to-end: the collectors must actually reach the route's output — otherwise
+    every null-vs-empty test above passes while the route reports nothing useful.
 
-    assert isinstance(body["skills"], list) and body["skills"], "skills came back empty on a real tree"
-    assert isinstance(body["agents"], list) and body["agents"]
+    The first version of this asserted against the developer's real
+    ~/.claude/plugins tree. It passed locally and failed on CI, which has no installed
+    plugin — my machine's state was answering for the repo's, the same false green
+    that a stale installed hook produced earlier the same day. A test whose subject is
+    'a real tree' has to BUILD one.
+    """
+    plugin = tmp_path / "plugin"
+    (plugin / "skills" / "a-skill").mkdir(parents=True)
+    (plugin / "skills" / "a-skill" / "SKILL.md").write_text("x", encoding="utf-8")
+    (plugin / "agents").mkdir(parents=True)
+    (plugin / "agents" / "an-agent.md").write_text("y", encoding="utf-8")
+    monkeypatch.setattr(practice, "_PLUGIN_ROOT", plugin)
+
+    body = client.get("/api/v1/practice/composition", params={"path": str(tmp_path)}).json()
+
+    assert body["skills"] == [{"name": "a-skill", "source": "plugin"}]
+    assert body["agents"] == [{"name": "an-agent", "source": "plugin"}]
 
 
 # ── source is a discriminator, not a constant ─────────────────────────
