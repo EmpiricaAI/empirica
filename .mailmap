@@ -1,0 +1,40 @@
+# Canonical identities for git's own tooling.
+#
+# SCOPE — read this before assuming it fixed something:
+#
+#   .mailmap is applied by `git shortlog`, `git log --author`, `git blame` and
+#   most local tooling. It is NOT applied by GitHub's contributors graph, which
+#   links a commit to an account solely by matching the commit's author email to
+#   a verified email on that account. Nothing in this file changes what GitHub
+#   shows.
+#
+# WHY IT IS HERE ANYWAY:
+#
+#   About 2,650 commits on main were authored under addresses that resolve to no
+#   GitHub account — `david@getempirica.com` (1299), `empirica@aiworkhorse.local`
+#   (1246), `yogapad@local` (111) — while only the 283 authored as
+#   `64048715+Nubaeon@users.noreply.github.com` are linked. So `git shortlog -sn`
+#   reported one person as five contributors. This file makes the local record
+#   true, which is worth having even though the hosted graph is unaffected.
+#
+# THE HOSTED GRAPH, HONESTLY:
+#
+#   Only two things would fix it retroactively. (1) Adding the address as a
+#   verified email on the account — the supported path, and the only
+#   non-destructive one. (2) Rewriting author emails across history, which
+#   changes every SHA on every branch, invalidates existing clones, and breaks
+#   any external reference to a commit. Not a trade worth making on a repo with
+#   active contributors and open PRs.
+#
+#   Commits authored from 2026-08-01 onward use soulentheo@gmail.com and link
+#   correctly without any of this.
+
+David Samuel Laurence Van Assche <soulentheo@gmail.com> <64048715+Nubaeon@users.noreply.github.com>
+David Samuel Laurence Van Assche <soulentheo@gmail.com> Empirica System <soulentheo@gmail.com>
+David Samuel Laurence Van Assche <soulentheo@gmail.com> Empirica System <david@getempirica.com>
+David Samuel Laurence Van Assche <soulentheo@gmail.com> Empirica System <empirica@aiworkhorse.local>
+David Samuel Laurence Van Assche <soulentheo@gmail.com> Nubaeon <admin@nubaeon.com>
+David Samuel Laurence Van Assche <soulentheo@gmail.com> <yogapad@local>
+
+Karson Van Meeteren <kars85@gmail.com> Karson <kars85@gmail.com>
+pschwinger <pschwinger@users.noreply.github.com> <p.schwinger@ffp.at>
