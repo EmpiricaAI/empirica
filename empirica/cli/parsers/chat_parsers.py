@@ -1,6 +1,6 @@
 """Chat parser — registers `empirica chat` subcommand.
 
-See `empirica/docs/architecture/CHAT.md` for the design + scope per phase.
+See `docs/architecture/CHAT.md` for the design + scope per phase.
 Phase 1 supports: --feed PATH (replay a pre-baked jsonl), --session-id ID
 (resume a session), --feed-delay SECONDS (pacing for visual replay).
 """

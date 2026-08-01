@@ -1,6 +1,6 @@
 """empirica chat — single-instance collaborative epistemic workspace.
 
-See `empirica/docs/architecture/CHAT.md` for the full spec.
+See `docs/architecture/CHAT.md` for the full spec.
 
 Phase 1 deliverables:
   - ChatSession state + jsonl persistence

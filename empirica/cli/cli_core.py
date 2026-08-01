@@ -804,7 +804,7 @@ def main(args=None):
             "off": handle_sentinel_pause_command,
             "on": handle_sentinel_resume_command,
             # Chat (single-instance collaborative epistemic workspace)
-            # See empirica/docs/architecture/CHAT.md
+            # See docs/architecture/CHAT.md
             "chat": handle_chat_command,
             # Notify dispatcher (proposal: PROPOSAL_NOTIFY_DISPATCHER.md)
             "notify": handle_notify_group_command,
