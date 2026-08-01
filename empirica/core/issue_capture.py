@@ -509,6 +509,20 @@ class AutoIssueCaptureService:
             conn = self._get_connection()
             cursor = conn.cursor()
 
+            # `issue-list` and the release gate DISPLAY a short id — the gate prints
+            # "[58533163] Unknown log command failed: ..." — while the stored id is a
+            # full UUID. Resolving by the id you were just shown matched nothing, and
+            # the method returned True regardless, so the CLI printed "marked as
+            # resolved" and the release gate stayed blocked on the same two issues.
+            # A verb the gate itself tells you to run must not lie about whether it ran.
+            from empirica.data.id_guard import resolve_id_prefix
+
+            full_id, id_error = resolve_id_prefix(cursor, "auto_captured_issues", "id", issue_id)
+            if id_error:
+                logger.warning(f"Failed to resolve issue {issue_id!r}: {id_error}")
+                conn.close()
+                return False
+
             # Note: Don't filter by session_id - issues can be resolved from any session
             cursor.execute(
                 """
@@ -516,12 +530,15 @@ class AutoIssueCaptureService:
                 SET status = ?, resolution = ?, updated_at = ?
                 WHERE id = ?
             """,
-                (IssueStatus.RESOLVED.value, resolution, datetime.now(timezone.utc).isoformat(), issue_id),
+                (IssueStatus.RESOLVED.value, resolution, datetime.now(timezone.utc).isoformat(), full_id),
             )
+            changed = cursor.rowcount
 
             conn.commit()
             conn.close()
-            return True
+            # rowcount, not an unconditional True: an UPDATE that matched nothing is
+            # not a resolution, and the caller has no other way to tell.
+            return changed > 0
         except Exception as e:
             logger.warning(f"Failed to resolve issue: {e}")
             return False
