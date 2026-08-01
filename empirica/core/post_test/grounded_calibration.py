@@ -496,22 +496,39 @@ class GroundedCalibrationManager:
 
     def get_grounded_adjustments(self, ai_id: str) -> dict[str, float]:
         """
-        Get calibration adjustments based on grounded evidence.
+        Corrections to APPLY TO SELF-ASSESSMENT: grounded evidence minus what
+        the AI actually believed.
 
-        Like BayesianBeliefManager.get_calibration_adjustments() but
-        grounded in objective evidence.
+        A correction is only meaningful relative to the thing it corrects. This
+        used to compute ``grounded.mean - DEFAULT_PRIOR_MEAN`` — the distance
+        from a fixed 0.5 prior, which is the *right* number only when the
+        self-assessment happened to be exactly 0.5. Everywhere else it was
+        wrong, and on any vector where the AI was OVERCONFIDENT (self above
+        grounded) it was wrong *in sign*: it told an over-assessing
+        practitioner to assess higher still (#393, FrancisFerrero). Worse, the
+        number is exported to ``.breadcrumbs.yaml`` as
+        ``grounded_bias_corrections`` and injected at session start as a bias
+        pattern to internalize — so the instrument was anti-calibrating exactly
+        where calibration was most needed.
+
+        The correct quantity was already being computed two methods away:
+        ``get_calibration_divergence()['gap'] = self_referential - grounded``.
+        A correction that moves self-assessment toward the evidence is its
+        negation. Vectors with no self-referential belief are OMITTED rather
+        than defaulted — there is no self-assessment to correct, and a
+        prior-derived stand-in is the very bug above.
         """
-        beliefs = self.get_grounded_beliefs(ai_id)
-        adjustments = {}
-
         from ..bayesian_beliefs import BayesianBeliefManager
 
         max_correction = BayesianBeliefManager.MAX_CORRECTION_MAGNITUDE
+        adjustments = {}
 
-        for vector, belief in beliefs.items():
-            ec = belief.evidence_count if isinstance(belief.evidence_count, (int, float)) else 0
+        for vector, data in self.get_calibration_divergence(ai_id).items():
+            ec = data["grounded_evidence"] if isinstance(data["grounded_evidence"], (int, float)) else 0
             if ec >= 3:
-                adjustment = belief.mean - self.DEFAULT_PRIOR_MEAN
+                # gap is self-assessed − grounded; the correction moves the
+                # self-assessment toward the evidence, so it is the negation.
+                adjustment = -data["gap"]
                 evidence_weight = min(ec / 10.0, 1.0)
                 raw = round(adjustment * evidence_weight, 4)
                 # Cap correction magnitude (same limit as self-referential track)
