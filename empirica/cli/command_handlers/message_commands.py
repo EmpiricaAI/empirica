@@ -13,6 +13,7 @@ Commands:
 
 import json
 import sys
+from pathlib import Path
 
 from empirica.core.canonical.empirica_git.message_store import GitMessageStore
 
@@ -117,6 +118,48 @@ def _load_message_body(args, config: dict) -> str | None:
     return body
 
 
+def _default_sender() -> str:
+    """Who this practice is, for message-send / message-reply.
+
+    Reported by FrancisFerrero (#389): the sender defaulted to the literal
+    "claude-code" and no `EMPIRICA_MESH_*` variable was consulted anywhere in the
+    package — so every practice's messages were attributed to the same name, and the
+    documented override did nothing.
+
+    Resolution order, most explicit first:
+      1. ``EMPIRICA_MESH_AI_ID`` — the documented override
+      2. ``.empirica/project.yaml`` ``ai_id`` — this practice's own identity
+      3. ``"claude-code"`` — the historical value, kept as a last resort so a
+         project-less invocation still sends rather than failing
+
+    Note this is the practice-local id, not the canonical 3-form. Mesh addressing
+    over cortex uses `<org>.<tenant>.<project>`; this is the local messaging store,
+    which keys on the short id.
+    """
+    import os
+
+    env = os.environ.get("EMPIRICA_MESH_AI_ID")
+    if env and env.strip():
+        return env.strip()
+
+    try:
+        import yaml
+
+        cwd = Path.cwd()
+        for parent in [cwd, *cwd.parents]:
+            proj = parent / ".empirica" / "project.yaml"
+            if proj.exists():
+                cfg = yaml.safe_load(proj.read_text(encoding="utf-8")) or {}
+                ai_id = cfg.get("ai_id")
+                if isinstance(ai_id, str) and ai_id.strip():
+                    return ai_id.strip()
+                break
+    except Exception:
+        pass
+
+    return "claude-code"
+
+
 def _reject_ambiguous_stdin(args) -> str | None:
     """Reject attempts to consume stdin as both config JSON and raw body text."""
     if getattr(args, "config", None) == "-" and getattr(args, "body", None) == "-":
@@ -133,7 +176,7 @@ def handle_message_send_command(args):
         return
     config = _load_config(args)
 
-    from_ai_id = config.get("from_ai_id") or getattr(args, "from_ai_id", None) or "claude-code"
+    from_ai_id = config.get("from_ai_id") or getattr(args, "from_ai_id", None) or _default_sender()
     to_ai_id = config.get("to_ai_id") or getattr(args, "to_ai_id", None)
     channel = config.get("channel") or getattr(args, "channel", "direct")
     subject = config.get("subject") or getattr(args, "subject", None)
@@ -251,7 +294,7 @@ def handle_message_reply_command(args):
 
     message_id = config.get("message_id") or getattr(args, "message_id", None)
     channel = config.get("channel") or getattr(args, "channel", None)
-    from_ai_id = config.get("from_ai_id") or getattr(args, "from_ai_id", None) or "claude-code"
+    from_ai_id = config.get("from_ai_id") or getattr(args, "from_ai_id", None) or _default_sender()
     try:
         body = _load_message_body(args, config)
     except OSError as exc:

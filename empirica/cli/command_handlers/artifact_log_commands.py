@@ -1300,12 +1300,27 @@ def handle_unknown_resolve_command(args):
 
         # Resolve the unknown
         db = SessionDatabase()
-        db.resolve_unknown(
+        resolved = db.resolve_unknown(
             unknown_id=unknown_id,
             resolved_by=resolved_by,
             resolution_finding_id=resolution_finding_id,
         )
         db.close()
+
+        # #390 (FrancisFerrero): this reported "resolved successfully" for ids that
+        # match nothing. A resolution that changed no row is not a resolution, and
+        # saying otherwise means a typo'd id reads exactly like a real close.
+        if not resolved:
+            err = {
+                "ok": False,
+                "unknown_id": unknown_id,
+                "error": f"No unknown matched {unknown_id!r} — nothing was resolved",
+            }
+            if output_format == "json":
+                print(json.dumps(err, indent=2))
+            else:
+                print(f"❌ No unknown matched {unknown_id[:8]}… — nothing was resolved")
+            return 1
 
         # Format output
         result = {
