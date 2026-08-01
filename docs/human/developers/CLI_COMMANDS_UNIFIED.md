@@ -23,7 +23,7 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.12.38
-**Generated:** 2026-07-31 09:19:48 UTC
+**Generated:** 2026-08-01 12:23:00 UTC
 **Total commands:** 243 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -434,7 +434,7 @@ Close a goal as done. Pass --reason explaining what shipped (commit SHAs, what g
 
 **Arguments:**
 
-- `--goal-id` — **required**
+- `--goal-id` — **required** · type=`nonblank_id`
   Goal UUID to complete
 - `--run-postflight` — optional · flag
   Run POSTFLIGHT before completing
@@ -457,7 +457,7 @@ Start working on a goal: create a git branch named after it, link to the BEADS i
 
 **Arguments:**
 
-- `--goal-id` — **required**
+- `--goal-id` — **required** · type=`nonblank_id`
   Goal UUID to claim
 - `--create-branch` — optional · flag · default=`True`
   Create git branch (default: True)
@@ -476,7 +476,7 @@ Decompose a goal into trackable units. One task per distinct piece of work you'l
 
 **Arguments:**
 
-- `--goal-id` — **required**
+- `--goal-id` — **required** · type=`nonblank_id`
   Goal UUID
 - `--description` — **required**
   Task description
@@ -497,7 +497,7 @@ Add dependency between goals (Goal A depends on Goal B)
 
 **Arguments:**
 
-- `--goal-id` — **required**
+- `--goal-id` — **required** · type=`nonblank_id`
   Goal that has the dependency
 - `--depends-on` — **required**
   Goal that must complete first
@@ -514,7 +514,7 @@ Close a task with evidence of completion. Always pass --evidence: commit SHA, te
 
 **Arguments:**
 
-- `--task-id` — **required**
+- `--task-id` — **required** · type=`nonblank_id`
   Task UUID (full or unambiguous prefix)
 - `--evidence` — optional
   Completion evidence (commit hash, file path, etc.)
@@ -527,7 +527,7 @@ Dump the full task list for a goal (id, description, status, evidence, importanc
 
 **Arguments:**
 
-- `--goal-id` — **required**
+- `--goal-id` — **required** · type=`nonblank_id`
   Goal UUID
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
@@ -538,7 +538,7 @@ Show task-level progress for a single goal: how many tasks total, how many compl
 
 **Arguments:**
 
-- `--goal-id` — **required**
+- `--goal-id` — **required** · type=`nonblank_id`
   Goal UUID
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
@@ -600,8 +600,8 @@ Flag in_progress goals as stale (typically called by the pre-compact hook before
 
 **Arguments:**
 
-- `--session-id` — **required**
-  Session UUID
+- `--session-id` — optional
+  Session UUID (default: the active session)
 - `--reason` — optional · default=`memory_compact`
   Reason for marking stale (default: memory_compact)
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
@@ -3797,6 +3797,20 @@ Archive a proposal (soft-delete from inbox view) — POST /v1/orchestration/<id>
   Output format (default: json)
 
 
+##### `empirica mailbox sers`
+
+List the SERs this practice participates in — GET /v1/sers. Pass a ser_id to show one, including participant rows so required-tier holders are named. Read-only: transitions and acks go through cortex_propose payload actions.
+
+**Arguments:**
+
+- `ser_id` — **required**
+  Optional SER id (ser_…). Omit to list this practice's participation.
+- `--ai-id` — optional
+  Canonical 3-form to query for (default: this project's ai_id)
+- `--output` — optional · type=`choice` · choices={human, json} · default=`json`
+  Output format (default: json)
+
+
 #### `empirica cockpit`
 
 Multi-instance cockpit launcher — bring up the canonical tmux layout in one command, with abnormal-exit detection
@@ -4862,7 +4876,7 @@ Flip a planned goal to in_progress and link it to the active transaction. Use wh
 
 **Arguments:**
 
-- `--goal-id` — **required**
+- `--goal-id` — **required** · type=`nonblank_id`
   Goal UUID to activate (prefix match)
 - `--output` — optional · type=`choice` · choices={human, json} · default=`json`
   Output format
@@ -4875,7 +4889,7 @@ Archive completed goals older than N days so the completed list doesn't grow unb
 
 - `--older-than` — optional · type=`int` · default=`30`
   Age threshold in days on completion time (default: 30)
-- `--goal-id` — optional
+- `--goal-id` — optional · type=`nonblank_id`
   Archive one completed goal by id/prefix (ignores --older-than)
 - `--apply` — optional · flag
   Actually archive (default: dry-run report)
@@ -4907,11 +4921,11 @@ Bulk close stale, duplicate, or planned-never-activated goals (dry-run by defaul
 
 #### `empirica goals-reopen`  _(aliases: `goal-reopen`)_
 
-Reopen a COMPLETED goal — flip it back to in_progress and re-link it to the active transaction. The inverse of goals-complete: undo an accidental or premature completion so it re-enters the active list.
+REPAIR verb — undo an accidental or premature completion. Reopening is not the normal way to resume related work: when live work touches a closed goal's territory, create a new goal framed on the current work instead. Completed goals are similarity references, and reactivating one competes with the live problem for attention.
 
 **Arguments:**
 
-- `--goal-id` — **required**
+- `--goal-id` — **required** · type=`nonblank_id`
   Goal UUID to reopen (prefix match)
 - `--reason` — optional
   Optional note recorded in the goal's reopen history
@@ -5154,7 +5168,9 @@ Reply to a message
 - `--from-ai-id` — optional
   Your AI ID (optional, default: claude-code)
 - `--body` — optional
-  Reply body (required)
+  Reply body, or - to read the raw body from stdin (required unless --body-file is used)
+- `--body-file` — optional
+  Read the reply body from a UTF-8 file (mutually exclusive with --body)
 - `--type` — optional · type=`choice` · choices={response, ack} · default=`response`
   Reply type (optional, default: response)
 - `--session-id` — optional
@@ -5180,7 +5196,9 @@ Send message to another agent via git notes
 - `--subject` — optional
   Message subject (required)
 - `--body` — optional
-  Message body (required)
+  Message body, or - to read the raw body from stdin (required unless --body-file is used)
+- `--body-file` — optional
+  Read the message body from a UTF-8 file (mutually exclusive with --body)
 - `--type` — optional · type=`choice` · choices={request, response, notification, ack} · default=`request`
   Message type (optional, default: request)
 - `--reply-to` — optional

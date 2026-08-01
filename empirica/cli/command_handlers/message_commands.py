@@ -95,19 +95,56 @@ def _load_config(args) -> dict:
     return {}
 
 
+def _load_message_body(args, config: dict) -> str | None:
+    """Resolve a message body without sending arbitrary prose through shell expansion.
+
+    Config JSON retains its existing precedence over CLI arguments. ``--body -``
+    reads raw text from stdin, while ``--body-file`` reads a UTF-8 file.
+    """
+    config_body = config.get("body")
+    if config_body:
+        return config_body
+
+    body = getattr(args, "body", None)
+    if body == "-":
+        return sys.stdin.read()
+
+    body_file = getattr(args, "body_file", None)
+    if body_file:
+        with open(body_file, encoding="utf-8") as f:
+            return f.read()
+
+    return body
+
+
+def _reject_ambiguous_stdin(args) -> str | None:
+    """Reject attempts to consume stdin as both config JSON and raw body text."""
+    if getattr(args, "config", None) == "-" and getattr(args, "body", None) == "-":
+        return "Cannot use config stdin ('message-send -' or 'message-reply -') together with --body -"
+    return None
+
+
 def handle_message_send_command(args):
     """Handle message-send command."""
     store = _get_store()
+    stdin_error = _reject_ambiguous_stdin(args)
+    if stdin_error:
+        _output({"ok": False, "message": stdin_error}, args)
+        return
     config = _load_config(args)
 
     from_ai_id = config.get("from_ai_id") or getattr(args, "from_ai_id", None) or "claude-code"
     to_ai_id = config.get("to_ai_id") or getattr(args, "to_ai_id", None)
     channel = config.get("channel") or getattr(args, "channel", "direct")
     subject = config.get("subject") or getattr(args, "subject", None)
-    body = config.get("body") or getattr(args, "body", None)
+    try:
+        body = _load_message_body(args, config)
+    except OSError as exc:
+        _output({"ok": False, "message": f"Cannot read --body-file: {exc}"}, args)
+        return
 
     if not to_ai_id or not subject or not body:
-        _output({"ok": False, "message": "Required: --to-ai-id, --subject, --body"}, args)
+        _output({"ok": False, "message": "Required: --to-ai-id, --subject, and --body or --body-file"}, args)
         return
 
     message_id = store.send_message(
@@ -206,15 +243,23 @@ def handle_message_read_command(args):
 def handle_message_reply_command(args):
     """Handle message-reply command."""
     store = _get_store()
+    stdin_error = _reject_ambiguous_stdin(args)
+    if stdin_error:
+        _output({"ok": False, "message": stdin_error}, args)
+        return
     config = _load_config(args)
 
     message_id = config.get("message_id") or getattr(args, "message_id", None)
     channel = config.get("channel") or getattr(args, "channel", None)
     from_ai_id = config.get("from_ai_id") or getattr(args, "from_ai_id", None) or "claude-code"
-    body = config.get("body") or getattr(args, "body", None)
+    try:
+        body = _load_message_body(args, config)
+    except OSError as exc:
+        _output({"ok": False, "message": f"Cannot read --body-file: {exc}"}, args)
+        return
 
     if not message_id or not channel or not body:
-        _output({"ok": False, "message": "Required: --message-id, --channel, --body"}, args)
+        _output({"ok": False, "message": "Required: --message-id, --channel, and --body or --body-file"}, args)
         return
 
     reply_id = store.reply(
