@@ -34,6 +34,18 @@ updates:
           - "ruff"
           - "pyright"
           - "pytest*"
+    ignore:
+      # ruff is pinned to a minor range ON PURPOSE — see the comment on the pin in
+      # pyproject.toml: patches auto-pick-up, minors do not, because a new minor
+      # brings new lint rules and those have repeatedly turned CI red after a green
+      # local run. Widening the ceiling is a deliberate act taken when we want a
+      # ruff feature, not a dependency chore.
+      #
+      # Without this, dependabot re-proposes the same ceiling bump every week and a
+      # reviewer eventually merges it without reading the pin's rationale. Closing
+      # #386/#387 by hand only works until next Monday.
+      - dependency-name: "ruff"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
 
   # MCP wrapper package
   - package-ecosystem: pip
@@ -45,6 +57,14 @@ updates:
       time: "07:30"
       timezone: "Etc/UTC"
     open-pull-requests-limit: 3
+    ignore:
+      # Same rationale as the root block — and this one is not redundant: #387
+      # proposed the identical ceiling widening against empirica-mcp/pyproject.toml
+      # specifically. An ignore on the root package does not cover this directory,
+      # so omitting it here would silence half the noise and leave the other half
+      # arriving every Monday.
+      - dependency-name: "ruff"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
 
   # GitHub Actions versions
   - package-ecosystem: github-actions
