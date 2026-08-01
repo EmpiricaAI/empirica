@@ -7,105 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
+### Contributors
 
-- **BREAKING: no cron loop is installed by default.** Wake-on-event is the
-  preferred trigger wherever the harness supports it; a cron job is a standing
-  scheduled process on a user's machine and must be asked for.
+This release is substantially the work of outside reporters. Seven of the fixes below
+came from issues filed by **[@FrancisFerrero](https://github.com/FrancisFerrero)**
+(#388–#394), one from **[@graemester](https://github.com/graemester)** (#396), and
+**[@markymuc](https://github.com/markymuc)** contributed #397 directly.
 
-  `message-cleanup` (daily, `kind: cron`) previously auto-installed on every
-  fresh practice under a comment exempting "genuine housekeeping crons" from the
-  opt-in carve-out. It no longer does. The auto-install gate now skips every
-  `kind == "cron"` entry structurally rather than relying on the per-entry
-  `opt_in_only` flag — the entry that broke the rule was precisely the one that
-  never set the flag.
+Several of these reports were sharper than the bug they described. #393 named a wrong
+formula and turned out to be a calibration tool steering practitioners the wrong way on
+exactly the vectors where they were already overconfident. #397's test failed on Linux
+CI and, chased down, showed that a raised `OSError` from `shutil.rmtree` is not a
+refusal — the data is already gone when it raises.
 
-  Net effect: a fresh practice acquires **no scheduled jobs at all**. Expired
-  mesh messages are not pruned on a seat that has not opted in. Opt in with
-  `empirica loop register --name message-cleanup --kind cron --cron "17 3 * * *"`.
-
-  New: [`docs/architecture/TRIGGER_MODEL.md`](docs/architecture/TRIGGER_MODEL.md)
-  — what each trigger mechanism is, when to reach for which, and how the opt-in
-  rule is enforced.
-
-
-- **BREAKING: `delete-artifacts` now PREVIEWS by default. Pass `--apply` to
-  actually delete.** The gardening skill, `ARTIFACT_HYGIENE.md` and the Empirica
-  system prompt all documented dry-run-as-default and an `--apply` flag — while
-  the code had `--dry-run` as opt-in and deleted immediately. A practitioner
-  following the documented "preview first, then apply" workflow destroyed
-  artifacts and got a receipt saying so only afterwards.
-
-  Deletion is the one lever with no history to recover from, so the docs
-  described the right design and the code was the defect. `--dry-run` remains
-  accepted as a no-op, since it is the flag those documents told people to pass.
-  A JSON body that sets `dry_run` explicitly still wins; only the default moved.
-
-### Fixed
-
-- **A mistyped goal-id could silently attach work to the WRONG goal.** Prefix
-  matching had no minimum length, so a two-character fragment (`--goal-id 6a`, left
-  by a shell extraction that returned empty) resolved to whichever goal happened to
-  start with it — and `goals-add-task` parented the task there **with a success
-  message**. Work under a goal nobody will look at is indistinguishable from work
-  that was never tracked, except that it reports success.
-
-  Prefix matching now requires 8 characters (what `goals-list` prints, so the
-  shortest a user could legitimately have copied), refuses on ambiguity rather than
-  taking the first, and treats an empty/whitespace id as a refusal instead of a
-  lookup — unguarded it became `LIKE '%'`, matching every goal.
-
-- **6% of goals were unreachable, reported as "Goal not found" for rows sitting
-  intact.** `Goal.from_dict` read the `id` from the `goal_data` blob, but that blob
-  is a serialized *cache* while the `id` column is the identity — and for many rows
-  the blob is `{}` or a legacy shape. A broad `except Exception` turned every
-  deserialization failure into a bare log line (`Error retrieving goal <id>: 'id'`),
-  which reads as a missing goal rather than a malformed record.
-
-  Measured: **88 of 1431 goals unreachable → 0.** Goals now rebuild from their
-  columns when the blob is empty, and the deserializer tolerates the legacy
-  encodings found in the wild: `success_criteria` as bare strings, and `scope` as a
-  label (`"project_wide"`) or a float. Non-dict scopes return a neutral vector
-  rather than inventing precision nobody measured.
-
-  Reported by cortex, who separated the loud symptom from the dangerous one — the
-  root cause was not their hypothesis (project_id scoping), but their split is what
-  made it findable.
-
-### Changed
-
-- **Vendor-synced the `eat-the-broccoli` skill from upstream** — the bundled copy had
-  drifted a full section behind. It carried 27 pattern rows across 4 sections;
-  upstream had **36 across 5**, including the entire *Indistinguishable incompleteness*
-  section (`Silent truncation`, `Absence asserted from a defaulting read`,
-  `Green suite pins the defect`, and more). Every practice was hunting with the older
-  catalog — which is how two rows nearly got contributed upstream that already existed.
-
-  Also carries two rows added upstream from this cycle's defects
-  ([broccoli#1](https://github.com/EmpiricaAI/broccoli/pull/1)):
-  *Exemption reports clean forever* and *One predicate, two questions*.
-
-  The drift was silent and one-directional: the file says "edit upstream, not here"
-  but nothing re-synced it — the same **deploy-staleness** pattern the catalog itself
-  names as the #1 recurring root cause.
-
-### Fixed
-
-- **`sources-check` exempted `file://` from disk verification, and reported existing
-  DIRECTORIES as missing.** `_is_non_local_uri` matched *any* URI scheme, so
-  `file://` was classed `out_of_scope` alongside `mailto:`/`doi:` — but a `file://`
-  URI names a local path the disk check can verify, so a whole class of local
-  sources was silently excused from rot-checking. Separately, the classifier
-  required `.is_file()`, so a source pointing at a directory (a repo, a docs tree, a
-  practice root) reported as rotted while sitting present on disk.
-
-  Measured: 3 active sources marked `missing` became **1** — two were false
-  positives, and the one real rot was a `file://` target that had *moved*, which the
-  exemption had been hiding. Re-pointed; the corpus now reports **0 missing** (17
-  local OK, 10 URLs live).
-
-  Worth generalising: a checker that exempts a case reports clean for it forever.
-  False negatives from an exemption are invisible by construction.
 
 ### Added
 
@@ -145,31 +59,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   own docstring records as *invisible to the artifact graph* — propagating it into
   five more tables would spread the defect the edge exists to fix.
 
-### Fixed
-
-- **`rebuild` embedded RESOLVED unknowns, so answered questions surfaced as open.**
-  `rebuild` called `get_project_unknowns(project_id)` without a `resolved`
-  argument — and that parameter defaults to `None`, meaning *no filter*. Resolved
-  unknowns were re-embedded and returned at rank 1 from `project-search` with no
-  resolution marker, so a reader could not tell the question was answered and it
-  kept re-surfacing.
-
-  Measured on this practice: **396 of 410 embedded unknowns (97%) were already
-  resolved.**
-
-  The asymmetry is what hid it. `get_project_findings` filters resolved/deprecated
-  rows *internally*, so the finding path behaved correctly after the same rebuild —
-  the difference lives in the getters, not in the embed or the payload. Reported by
-  mesh-support; verified end-to-end against their repro (before: resolved unknown at
-  rank 1; after: 0 unknown hits).
-
-- **The daemon contact projection dropped `linkedin_url` entirely.** Not empty —
-  *absent*. The column held 8 populated rows and the extension has rendered a
-  LinkedIn chip since v0.9.x, so it read as a data-population failure rather than a
-  projection gap. Column-guarded, so an older `workspace.db` omits the field rather
-  than failing the whole projection. Reported by extension.
-
 ### Changed
+
+- **BREAKING: no cron loop is installed by default.** Wake-on-event is the
+  preferred trigger wherever the harness supports it; a cron job is a standing
+  scheduled process on a user's machine and must be asked for.
+
+  `message-cleanup` (daily, `kind: cron`) previously auto-installed on every
+  fresh practice under a comment exempting "genuine housekeeping crons" from the
+  opt-in carve-out. It no longer does. The auto-install gate now skips every
+  `kind == "cron"` entry structurally rather than relying on the per-entry
+  `opt_in_only` flag — the entry that broke the rule was precisely the one that
+  never set the flag.
+
+  Net effect: a fresh practice acquires **no scheduled jobs at all**. Expired
+  mesh messages are not pruned on a seat that has not opted in. Opt in with
+  `empirica loop register --name message-cleanup --kind cron --cron "17 3 * * *"`.
+
+  New: [`docs/architecture/TRIGGER_MODEL.md`](docs/architecture/TRIGGER_MODEL.md)
+  — what each trigger mechanism is, when to reach for which, and how the opt-in
+  rule is enforced.
+
+
+- **BREAKING: `delete-artifacts` now PREVIEWS by default. Pass `--apply` to
+  actually delete.** The gardening skill, `ARTIFACT_HYGIENE.md` and the Empirica
+  system prompt all documented dry-run-as-default and an `--apply` flag — while
+  the code had `--dry-run` as opt-in and deleted immediately. A practitioner
+  following the documented "preview first, then apply" workflow destroyed
+  artifacts and got a receipt saying so only afterwards.
+
+  Deletion is the one lever with no history to recover from, so the docs
+  described the right design and the code was the defect. `--dry-run` remains
+  accepted as a no-op, since it is the flag those documents told people to pass.
+  A JSON body that sets `dry_run` explicitly still wins; only the default moved.
+
+- **Vendor-synced the `eat-the-broccoli` skill from upstream** — the bundled copy had
+  drifted a full section behind. It carried 27 pattern rows across 4 sections;
+  upstream had **36 across 5**, including the entire *Indistinguishable incompleteness*
+  section (`Silent truncation`, `Absence asserted from a defaulting read`,
+  `Green suite pins the defect`, and more). Every practice was hunting with the older
+  catalog — which is how two rows nearly got contributed upstream that already existed.
+
+  Also carries two rows added upstream from this cycle's defects
+  ([broccoli#1](https://github.com/EmpiricaAI/broccoli/pull/1)):
+  *Exemption reports clean forever* and *One predicate, two questions*.
+
+  The drift was silent and one-directional: the file says "edit upstream, not here"
+  but nothing re-synced it — the same **deploy-staleness** pattern the catalog itself
+  names as the #1 recurring root cause.
 
 - **`empirica-mcp` now runs on MCP SDK 1.x *and* 2.x**, so the emergency `<2` cap
   from 1.12.38 widens to `<3` instead of forcing a days-old major on every
@@ -192,6 +129,143 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Suite passes **572/572 on both 1.28.1 and 2.0.0**. The ceiling stays on purpose:
   an unbounded `>=` is exactly what let 2.0.0 break CI and a published package with
   no commit of ours.
+
+### Fixed
+
+- **PREFLIGHT and CHECK silently retrieved nothing unless `EMPIRICA_QDRANT_URL` was
+  set** (#388, FrancisFerrero). The retrieval gate checked that one env var while the
+  client resolves a URL four ways — explicit argument, per-project resolver hook, the
+  env var, then a `localhost:6333` probe. Anyone on paths 1, 2 or 4 had working writes
+  and silently empty reads, and the empty return is byte-identical to "Qdrant is up and
+  nothing matched", so nothing invited a second look. The gate now asks the same
+  cached, no-network question the search itself asks one line later.
+
+- **`calibration-report` bias corrections were measured against a fixed 0.5 prior, not
+  against the self-assessment they instruct you to correct** (#393, FrancisFerrero).
+  On this practice's own live `.breadcrumbs.yaml`, 5 of 12 vectors carried a correction
+  pointing the *opposite way* from the divergence printed fourteen lines above — and
+  not a random 5: the failure concentrated on exactly the vectors where self-assessment
+  sat *above* the evidence. The tool told an over-assessing practitioner to assess
+  higher, and the same number is injected at session start as a bias pattern to
+  internalize. A perfectly calibrated vector received the maximum allowed correction
+  for being exactly right.
+
+- **`unknown-resolve` reported success for UUIDs that do not exist** (#390,
+  FrancisFerrero), and wrote a git note for the resolution that never happened — so the
+  durable record agreed with the false report.
+
+- **`message-send`/`message-reply` attributed every practice's messages to the literal
+  `claude-code`** (#389, FrancisFerrero). `EMPIRICA_MESH_AI_ID` had no reader anywhere
+  in the package.
+
+- **`message-read` never read the message** (#391, FrancisFerrero). It called
+  `mark_read` and returned that receipt — the write half of "read" and none of the read
+  half, while the content sat intact in the git note.
+
+- **A limited inbox returned an arbitrary subset, not the newest N** (#394,
+  FrancisFerrero). The limit was applied during ref iteration, before the sort, and ref
+  order is message UUID order.
+
+- **Mistake `prevention` came back empty, or as the word "None"** (#392,
+  FrancisFerrero). `.get("prevention", "")` returns `None` when the key exists with a
+  null value — the default only fires for a *missing* key — so 27 null preventions
+  rendered the literal string `"None"` into the embedded text. Three call sites built
+  that string with two different behaviours, and the reader tested for `"Prevention:"`
+  while splitting on `"Prevention: "`, so a truncated text raised `IndexError`.
+
+- **The batch artifact verbs mutated by unbounded prefix match.** `resolve-artifacts`
+  issued `UPDATE ... WHERE id LIKE ?` with no LIMIT across six branches, so a short id
+  resolved *every* matching artifact while the receipt counted it as one;
+  `delete-artifacts` took the first row of a prefix match with no length or ambiguity
+  check, on the one lever with no history to recover from. All three now resolve to
+  exactly one full id and address rows by `WHERE id = ?`.
+
+- **`goals-complete-task --task-id 1` completed an unrelated task and reported
+  success.** The documented 8-character minimum was never enforced, and ambiguity
+  resolved by recency.
+
+- **A cron loop's `schedule-next` returned an invented interval** (#396, graemester).
+  "Every day at 09:00" came back as "in 15 minutes", in the same shape as a real
+  answer. Cron plans now carry the expression and omit every field implying a computed
+  next fire — `cron_one_shot` in particular pins a one-shot to *now*, so a caller would
+  fire immediately while believing it had scheduled tomorrow.
+
+- **`.breadcrumbs.yaml` grew one blank line per export, per section, unbounded** — 3766
+  of 3934 lines on this practice. Two exporters had independently copy-pasted the same
+  splice arithmetic, so the same defect existed twice.
+
+- **`session-init` self-heals a missing `.empirica/` in linked worktrees** (#397,
+  markymuc). Also corrects the trailing-slash `rmtree` safety test: a raised `OSError`
+  is not a refusal — on Linux/glibc `rmtree` deletes the target's contents and *then*
+  raises.
+
+
+- **A mistyped goal-id could silently attach work to the WRONG goal.** Prefix
+  matching had no minimum length, so a two-character fragment (`--goal-id 6a`, left
+  by a shell extraction that returned empty) resolved to whichever goal happened to
+  start with it — and `goals-add-task` parented the task there **with a success
+  message**. Work under a goal nobody will look at is indistinguishable from work
+  that was never tracked, except that it reports success.
+
+  Prefix matching now requires 8 characters (what `goals-list` prints, so the
+  shortest a user could legitimately have copied), refuses on ambiguity rather than
+  taking the first, and treats an empty/whitespace id as a refusal instead of a
+  lookup — unguarded it became `LIKE '%'`, matching every goal.
+
+- **6% of goals were unreachable, reported as "Goal not found" for rows sitting
+  intact.** `Goal.from_dict` read the `id` from the `goal_data` blob, but that blob
+  is a serialized *cache* while the `id` column is the identity — and for many rows
+  the blob is `{}` or a legacy shape. A broad `except Exception` turned every
+  deserialization failure into a bare log line (`Error retrieving goal <id>: 'id'`),
+  which reads as a missing goal rather than a malformed record.
+
+  Measured: **88 of 1431 goals unreachable → 0.** Goals now rebuild from their
+  columns when the blob is empty, and the deserializer tolerates the legacy
+  encodings found in the wild: `success_criteria` as bare strings, and `scope` as a
+  label (`"project_wide"`) or a float. Non-dict scopes return a neutral vector
+  rather than inventing precision nobody measured.
+
+  Reported by cortex, who separated the loud symptom from the dangerous one — the
+  root cause was not their hypothesis (project_id scoping), but their split is what
+  made it findable.
+
+- **`sources-check` exempted `file://` from disk verification, and reported existing
+  DIRECTORIES as missing.** `_is_non_local_uri` matched *any* URI scheme, so
+  `file://` was classed `out_of_scope` alongside `mailto:`/`doi:` — but a `file://`
+  URI names a local path the disk check can verify, so a whole class of local
+  sources was silently excused from rot-checking. Separately, the classifier
+  required `.is_file()`, so a source pointing at a directory (a repo, a docs tree, a
+  practice root) reported as rotted while sitting present on disk.
+
+  Measured: 3 active sources marked `missing` became **1** — two were false
+  positives, and the one real rot was a `file://` target that had *moved*, which the
+  exemption had been hiding. Re-pointed; the corpus now reports **0 missing** (17
+  local OK, 10 URLs live).
+
+  Worth generalising: a checker that exempts a case reports clean for it forever.
+  False negatives from an exemption are invisible by construction.
+
+- **`rebuild` embedded RESOLVED unknowns, so answered questions surfaced as open.**
+  `rebuild` called `get_project_unknowns(project_id)` without a `resolved`
+  argument — and that parameter defaults to `None`, meaning *no filter*. Resolved
+  unknowns were re-embedded and returned at rank 1 from `project-search` with no
+  resolution marker, so a reader could not tell the question was answered and it
+  kept re-surfacing.
+
+  Measured on this practice: **396 of 410 embedded unknowns (97%) were already
+  resolved.**
+
+  The asymmetry is what hid it. `get_project_findings` filters resolved/deprecated
+  rows *internally*, so the finding path behaved correctly after the same rebuild —
+  the difference lives in the getters, not in the embed or the payload. Reported by
+  mesh-support; verified end-to-end against their repro (before: resolved unknown at
+  rank 1; after: 0 unknown hits).
+
+- **The daemon contact projection dropped `linkedin_url` entirely.** Not empty —
+  *absent*. The column held 8 populated rows and the extension has rendered a
+  LinkedIn chip since v0.9.x, so it read as a data-population failure rather than a
+  projection gap. Column-guarded, so an older `workspace.db` omits the field rather
+  than failing the whole projection. Reported by extension.
 
 ## [1.12.38] — 2026-07-28
 
