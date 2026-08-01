@@ -250,38 +250,43 @@ class TestSymlinkTeardownSafety:
         assert (wt_root / ".empirica").is_symlink()
         assert (main_root / ".empirica" / "sessions.db").read_text() == "important sessions.db content\n"
 
-    def test_shutil_rmtree_WITH_trailing_slash_is_platform_dependent(self, tmp_path):
-        """NOT PORTABLE — confirmed on two platforms, not assumed on either.
+    def test_shutil_rmtree_WITH_trailing_slash_destroys_the_target_either_way(self, tmp_path):
+        """PORTABLE-DANGEROUS — and the raise is not a refusal.
 
-        On macOS/BSD libc, the trailing slash defeats shutil.rmtree's own
-        top-level-symlink guard the same way it defeats `rm -rf`: it resolves
-        through the link and deletes the main checkout's real data. On
-        Linux/glibc (GitHub Actions CI, caught by this exact test on its first
-        real run — PR #397 review, 2026-08-01) it instead raises
-        NotADirectoryError and refuses. Different libc/CPython combination,
-        different outcome.
+        The trailing slash defeats shutil.rmtree's top-level-symlink guard the
+        same way it defeats `rm -rf`: the call resolves through the link and
+        deletes the main checkout's real contents.
 
-        Unlike `rm -rf .empirica/` (portable-dangerous — confirmed identical
-        on both platforms above), this call's safety is NOT something you can
-        rely on from the platform alone. The test accepts either outcome but
-        requires each to be internally consistent: a refusal must leave
-        main's data untouched; a non-refusal is the known hazard and is
-        pinned as such, not asserted safe.
+        The outcomes differ by platform, but only in what happens AFTER the
+        damage. On macOS/BSD the call completes. On Linux/glibc it deletes every
+        entry and then raises NotADirectoryError when it tries to rmdir the
+        symlink itself — so the exception arrives *after* the data is gone.
+
+        That distinction is the whole point of this test. The earlier version
+        treated an OSError as evidence of refusal and asserted main's data had
+        survived; on CI it had not. An error that reads as "nothing happened"
+        while everything happened is the most dangerous shape a failure can
+        take, so the portable claim is asserted directly: the target's contents
+        do not survive, with or without an exception.
         """
         main_root = _init_main_repo(tmp_path / "main")
         _seed_main_empirica(main_root)
         wt_root = _add_worktree(main_root, tmp_path / "wt")
         (wt_root / ".empirica").symlink_to(main_root / ".empirica", target_is_directory=True)
 
+        raised = None
         try:
             shutil.rmtree(str(wt_root / ".empirica") + "/")
-        except OSError:
-            # Refused (observed: Linux/glibc CI runners) — safe by refusal.
-            assert (main_root / ".empirica" / "sessions.db").exists()
-        else:
-            # Did not refuse (observed: macOS/BSD) — the known hazard: main's
-            # real data is gone. Documented, not asserted fine.
-            assert not (main_root / ".empirica" / "sessions.db").exists()
+        except OSError as exc:
+            raised = exc
+
+        # The hazard, asserted on every platform. Do NOT weaken this to
+        # "unless it raised" — raising is exactly when it is most misleading.
+        assert not (main_root / ".empirica" / "sessions.db").exists(), (
+            f"trailing-slash rmtree left main's data intact (raised={raised!r}) — "
+            "if this platform is genuinely safe that is worth knowing, but it is "
+            "not what was observed on either macOS/BSD or Linux/glibc"
+        )
 
     def test_git_worktree_remove_refuses_without_force(self, tmp_path):
         main_root = _init_main_repo(tmp_path / "main")
