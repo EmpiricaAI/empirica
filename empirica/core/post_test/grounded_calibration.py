@@ -43,6 +43,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, ClassVar
 
+from .breadcrumbs_yaml import splice_section
 from .collector import EvidenceBundle, PostTestCollector
 from .mapper import (
     UNGROUNDABLE_VECTORS,
@@ -631,12 +632,7 @@ class GroundedCalibrationManager:
                     break
             if in_section and section_end == -1:
                 section_end = len(existing_lines)
-            if section_start >= 0:
-                new_lines = existing_lines[:section_start] + [yaml_block] + existing_lines[section_end:]
-            elif existing_lines:
-                new_lines = existing_lines + [yaml_block]
-            else:
-                new_lines = [yaml_block]
+            new_lines = splice_section(existing_lines, yaml_block, section_start, section_end)
             with open(breadcrumbs_path, "w") as f:
                 f.writelines(new_lines)
             return True
