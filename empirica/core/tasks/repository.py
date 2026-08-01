@@ -15,6 +15,11 @@ from .types import EpistemicImportance, SubTask, TaskDecomposition, TaskStatus
 
 logger = logging.getLogger(__name__)
 
+# Shortest accepted partial task id. A UUID prefix below this identifies
+# nothing — `LIKE '1%'` spans hundreds of rows — so anything shorter is
+# treated as a typo rather than silently resolved by recency.
+MIN_SUBTASK_ID_PREFIX = 8
+
 
 class TaskRepository:
     """Database operations for Task persistence"""
@@ -37,7 +42,7 @@ class TaskRepository:
             subtask_id: Partial (8+ chars) or full UUID
 
         Returns:
-            Full UUID or None if not found
+            Full UUID or None if not found or ambiguous
         """
         from empirica.data.id_guard import is_blank_id
 
@@ -46,6 +51,18 @@ class TaskRepository:
             # then hand back a real id — so a blank input completed whichever task
             # happened to be newest and reported success.
             logger.error("Refusing to resolve a blank subtask ID — it matches every task")
+            return None
+
+        # The 8-char minimum above was documented but never enforced, so a
+        # one-character `--task-id 1` became LIKE '1%', matched hundreds of
+        # tasks, and silently resolved to the newest of them. That completed an
+        # unrelated task in an unrelated goal and reported success. A prefix too
+        # short to identify anything is a typo, not a query.
+        if len(subtask_id.strip()) < MIN_SUBTASK_ID_PREFIX and "-" not in subtask_id:
+            logger.error(
+                f"Refusing to resolve subtask ID {subtask_id!r}: "
+                f"prefixes must be at least {MIN_SUBTASK_ID_PREFIX} characters"
+            )
             return None
 
         try:
@@ -59,7 +76,16 @@ class TaskRepository:
                 return None
 
             if len(results) > 1:
-                logger.warning(f"Multiple subtasks match '{subtask_id}' - using most recent")
+                # Previously: "using most recent" — it picked one and returned
+                # success, so the caller could not tell a precise hit from a
+                # coin flip across N candidates. Ambiguity is a question for the
+                # caller, not something to resolve by recency.
+                logger.error(
+                    f"Refusing to resolve subtask ID {subtask_id!r}: matches {len(results)} tasks "
+                    f"({', '.join(r[0][:8] for r in results[:3])}"
+                    f"{', …' if len(results) > 3 else ''}) — use a longer prefix"
+                )
+                return None
 
             resolved = results[0][0]
             logger.debug(f"Resolved subtask ID '{subtask_id}' to {resolved}")

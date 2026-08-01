@@ -489,18 +489,23 @@ class BreadcrumbRepository(BaseRepository):
         self._attach_sources(unknown_id, source_ids)
         return unknown_id
 
-    def resolve_unknown(self, unknown_id: str, resolved_by: str, resolution_finding_id: str | None = None):
-        """Mark an unknown as resolved
+    def resolve_unknown(self, unknown_id: str, resolved_by: str, resolution_finding_id: str | None = None) -> bool:
+        """Mark an unknown as resolved. Returns True only if a row actually changed.
 
         Args:
             unknown_id: Full or partial UUID (minimum 8 chars)
             resolved_by: Resolution explanation
             resolution_finding_id: Optional finding ID that answered this unknown
+
+        Reported by FrancisFerrero (#390): this used to run the UPDATE, ignore the
+        rowcount and return None, so the CLI printed "Unknown resolved successfully"
+        for a UUID that does not exist. An UPDATE matching zero rows is not a
+        resolution — and a caller cannot tell a real close from a typo'd id.
         """
         # Support partial UUID matching (like git short hashes)
         if len(unknown_id) < 36:
             # Partial ID - use LIKE
-            self._execute(
+            cursor = self._execute(
                 """
                 UPDATE project_unknowns
                 SET is_resolved = TRUE, resolved_by = ?, resolved_timestamp = ?,
@@ -511,7 +516,7 @@ class BreadcrumbRepository(BaseRepository):
             )
         else:
             # Full ID - exact match
-            self._execute(
+            cursor = self._execute(
                 """
                 UPDATE project_unknowns
                 SET is_resolved = TRUE, resolved_by = ?, resolved_timestamp = ?,
@@ -521,9 +526,18 @@ class BreadcrumbRepository(BaseRepository):
                 (resolved_by, time.time(), resolution_finding_id, unknown_id),
             )
 
+        changed = (cursor.rowcount or 0) > 0 if cursor is not None else False
+        if not changed:
+            # Nothing matched. Do NOT commit a git note for a resolution that did not
+            # happen, and do not log success — that combination is what made the
+            # original defect invisible.
+            logger.info(f"No unknown matched {unknown_id[:8]}… — nothing resolved")
+            return False
+
         self.commit()
         self._persist_resolution_to_git_notes("unknown", unknown_id, resolved_by)
         logger.info(f"✅ Unknown resolved: {unknown_id[:8]}...")
+        return True
 
     def resolve_finding(
         self,

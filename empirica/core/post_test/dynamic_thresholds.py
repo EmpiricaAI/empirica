@@ -34,6 +34,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from .breadcrumbs_yaml import splice_section
+
 logger = logging.getLogger(__name__)
 
 # Hardcoded fallbacks — used only when MCO config unavailable
@@ -679,13 +681,7 @@ def export_brier_to_breadcrumbs(
                 existing_lines = f.readlines()
 
         section_start, section_end = _find_brier_section(existing_lines)
-
-        if section_start >= 0:
-            new_lines = existing_lines[:section_start] + [yaml_block] + existing_lines[section_end:]
-        elif existing_lines:
-            new_lines = existing_lines + [yaml_block]
-        else:
-            new_lines = [yaml_block]
+        new_lines = splice_section(existing_lines, yaml_block, section_start, section_end)
 
         with open(breadcrumbs_path, "w") as f:
             f.writelines(new_lines)

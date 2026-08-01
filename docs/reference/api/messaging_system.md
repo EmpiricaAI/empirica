@@ -69,7 +69,26 @@ empirica message-send - << 'EOF'
   "goal_id": "goal-123"
 }
 EOF
+
+# Raw body from stdin (preferred for multiline prose or shell metacharacters)
+empirica message-send \
+  --to-ai-id philipp-code \
+  --subject "Literal body" \
+  --body - << 'EOF'
+Backticks like `code` and text such as $(example) remain literal.
+EOF
+
+# Body from a UTF-8 file
+empirica message-send \
+  --to-ai-id philipp-code \
+  --subject "Report" \
+  --body-file ./report.md
 ```
+
+Use a single-quoted heredoc delimiter as shown above. Do not place arbitrary
+message prose in a double-quoted shell argument: the shell expands command
+substitutions before Empirica receives the body. Config JSON stdin and raw-body
+stdin are separate modes and cannot be combined in one command.
 
 **Parameters:**
 
@@ -77,7 +96,8 @@ EOF
 |-----------|----------|---------|-------------|
 | `--to-ai-id` | Yes | - | Recipient AI ID or `*` for broadcast |
 | `--subject` | Yes | - | Message subject |
-| `--body` | Yes | - | Message body |
+| `--body` | Conditional | - | Message body; pass `-` to read raw body text from stdin |
+| `--body-file` | Conditional | - | Read the body from a UTF-8 file; mutually exclusive with `--body` |
 | `--from-ai-id` | No | `claude-code` | Sender AI ID |
 | `--to-machine` | No | - | Recipient machine hostname |
 | `--channel` | No | `direct` | Channel: `direct`, `broadcast`, `crosscheck` |
@@ -234,6 +254,14 @@ Reply to a message.
 empirica message-reply \
   --message-id abc123-msg-id \
   --body "Review complete. Found 2 issues: ..."
+
+# Shell-safe multiline reply
+empirica message-reply \
+  --message-id abc123-msg-id \
+  --channel direct \
+  --body - << 'EOF'
+Review complete. Literal `code` and $(example) are preserved.
+EOF
 ```
 
 **Parameters:**
@@ -241,7 +269,8 @@ empirica message-reply \
 | Parameter | Required | Default | Description |
 |-----------|----------|---------|-------------|
 | `--message-id` | Yes | - | Message to reply to |
-| `--body` | Yes | - | Reply body |
+| `--body` | Conditional | - | Reply body; pass `-` to read raw body text from stdin |
+| `--body-file` | Conditional | - | Read the reply body from a UTF-8 file; mutually exclusive with `--body` |
 | `--output` | No | `human` | Output format |
 
 ---

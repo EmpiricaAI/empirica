@@ -456,7 +456,9 @@ When AI A → AI B handoff occurs:
 
 ```bash
 # Stores in ./.qdrant_data directory
-export EMPIRICA_QDRANT_PATH="./.qdrant_data"
+# NOTE: EMPIRICA_QDRANT_PATH is no longer read by anything — file-based
+# storage was removed in #45. Point EMPIRICA_QDRANT_URL at a server, or run
+# Qdrant on localhost:6333 and set nothing at all.
 ```
 
 ### Remote Qdrant (Production)

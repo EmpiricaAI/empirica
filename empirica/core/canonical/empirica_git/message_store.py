@@ -254,12 +254,24 @@ class GitMessageStore:
 
                 messages.append(msg)
 
-                if len(messages) >= limit:
-                    break
-
-            # Sort by timestamp (newest first)
+            # Sort THEN slice. Reported by FrancisFerrero (#394, problem 2): the break
+            # used to run inside the loop, before this sort. Iteration order is ref
+            # name — a message UUID — so a limited fetch returned an arbitrary subset
+            # which was then sorted, not the newest N.
+            #
+            # Their symptom chain is the part worth keeping: with a backlog above the
+            # limit, marking messages read let OLDER messages enter the window and be
+            # reported as new. They chased that as a notification bug before finding it
+            # here, which is what a wrong-subset bug looks like from the outside — not
+            # obviously wrong data, just data that keeps changing for no reason.
+            #
+            # The early break did bound work when many messages match. Correctness wins:
+            # the ref scan is O(total) regardless because the filter needs each message's
+            # content, and that cost is problem 1 of the same issue — a real fix (one
+            # for-each-ref plus a single `git cat-file --batch`) rather than a break that
+            # only looked like one.
             messages.sort(key=lambda m: m.get("timestamp", ""), reverse=True)
-            return messages
+            return messages[:limit]
 
         except Exception as e:
             logger.warning(f"Failed to get inbox: {e}")

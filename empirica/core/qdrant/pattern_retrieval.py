@@ -97,8 +97,35 @@ def compute_time_gap_info(last_session_timestamp: float | None = None) -> dict[s
 
 
 def get_qdrant_url() -> str | None:
-    """Check if Qdrant is configured."""
+    """The ``EMPIRICA_QDRANT_URL`` env value, or None when unset.
+
+    **This is one of four ways a Qdrant URL gets resolved — do NOT use it as an
+    availability gate.** ``_get_qdrant_client`` resolves in priority order:
+    explicit URL → per-project resolver hook → this env var → a localhost:6333
+    probe. Gating retrieval on the env var alone made PREFLIGHT/CHECK return
+    empty for anyone relying on priority 1, 2, or 4 — writes landed, reads
+    silently didn't (#388). Use ``_retrieval_available()`` for the gate.
+    """
     return os.getenv("EMPIRICA_QDRANT_URL")
+
+
+def _retrieval_available() -> bool:
+    """Whether pattern retrieval can run — the same question the data path asks.
+
+    Delegates to ``_check_qdrant_available()``, which is what every
+    ``_search_memory_by_type`` call already gates on one line down. It is a
+    cached module-global (library installed + embeddings not disabled) with no
+    network probe, so this costs nothing on the PREFLIGHT hot path. If the
+    library is present but no server is reachable, the searches return [] via
+    their own exception path — the same graceful-empty as before.
+    """
+    try:
+        from .vector_store import _check_qdrant_available
+
+        return bool(_check_qdrant_available())
+    except Exception as e:  # import failure means retrieval genuinely can't run
+        logger.debug(f"_retrieval_available() could not resolve Qdrant: {e}")
+        return False
 
 
 def _search_memory_by_type(
@@ -966,7 +993,7 @@ def retrieve_task_patterns(
     # Compute time gap metadata (signal for Claude, not retrieval control)
     time_gap_info = compute_time_gap_info(last_session_timestamp)
 
-    if not get_qdrant_url():
+    if not _retrieval_available():
         return {
             "lessons": [],
             "dead_ends": [],
@@ -1189,7 +1216,7 @@ def check_against_patterns(
         include_goals: Include active goals for alignment check
         include_assumptions: Include unverified assumptions as risk signal
     """
-    if not get_qdrant_url():
+    if not _retrieval_available():
         return {"dead_end_matches": [], "mistake_matches": [], "mistake_risk": None, "has_warnings": False}
 
     warnings = {"dead_end_matches": [], "mistake_matches": [], "mistake_risk": None, "has_warnings": False}

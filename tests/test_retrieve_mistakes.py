@@ -26,7 +26,7 @@ def _fake_search(mistake_items):
 
 
 def test_retrieve_task_patterns_surfaces_prior_mistakes(monkeypatch):
-    monkeypatch.setattr(pr, "get_qdrant_url", lambda: "http://fake")
+    monkeypatch.setattr(pr, "_retrieval_available", lambda: True)
     monkeypatch.setattr(
         pr,
         "_search_memory_by_type",
@@ -40,7 +40,7 @@ def test_retrieve_task_patterns_surfaces_prior_mistakes(monkeypatch):
 
 
 def test_check_against_patterns_surfaces_mistake_matches(monkeypatch):
-    monkeypatch.setattr(pr, "get_qdrant_url", lambda: "http://fake")
+    monkeypatch.setattr(pr, "_retrieval_available", lambda: True)
     monkeypatch.setattr(
         pr,
         "_search_memory_by_type",
@@ -54,12 +54,12 @@ def test_check_against_patterns_surfaces_mistake_matches(monkeypatch):
 
 
 def test_absent_mistakes_are_empty_lists_not_missing(monkeypatch):
-    monkeypatch.setattr(pr, "get_qdrant_url", lambda: "http://fake")
+    monkeypatch.setattr(pr, "_retrieval_available", lambda: True)
     monkeypatch.setattr(pr, "_search_memory_by_type", _fake_search([]))
     assert pr.retrieve_task_patterns("proj", "some task", vectors=None).get("prior_mistakes") == []
     assert pr.check_against_patterns("proj", current_approach="x", vectors=None)["mistake_matches"] == []
 
 
 def test_no_qdrant_still_returns_prior_mistakes_key(monkeypatch):
-    monkeypatch.setattr(pr, "get_qdrant_url", lambda: None)  # qdrant unavailable
+    monkeypatch.setattr(pr, "_retrieval_available", lambda: False)  # qdrant unavailable
     assert "prior_mistakes" in pr.retrieve_task_patterns("proj", "task")
