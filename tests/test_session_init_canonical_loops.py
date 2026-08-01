@@ -54,6 +54,29 @@ def isolate_home_and_instance(monkeypatch, tmp_path):
     )
 
 
+# Both canonical loops are now opt-in — cortex-mailbox-poll because wake-on-event
+# is the canonical mesh trigger, message-cleanup because it is kind="cron" and no
+# cron loop is installed by default (David 2026-08-01). So the catalogue no
+# longer contains anything auto-installable, and these MECHANISM tests must not
+# depend on it doing so: they inject their own ordinary interval loop. That also
+# decouples them from the next policy change, which is what broke them this time.
+AUTO_INSTALLABLE = {
+    "name": "test-interval-loop",
+    "kind": "interval",
+    "interval": "5m",
+    "description": "an ordinary auto-installable loop, injected by the test",
+    "body_skill": "noop",
+}
+
+
+@pytest.fixture
+def auto_installable(monkeypatch):
+    from empirica.core.cockpit import canonical_loops as cl
+
+    monkeypatch.setattr(cl, "CANONICAL_LOOPS", [*cl.CANONICAL_LOOPS, AUTO_INSTALLABLE])
+    return AUTO_INSTALLABLE["name"]
+
+
 def _make_empirica_project(tmp_path) -> Path:
     """Create a project root with .empirica/ (empirica-aware)."""
     project = tmp_path / "project"
@@ -61,11 +84,11 @@ def _make_empirica_project(tmp_path) -> Path:
     return project
 
 
-def test_installs_on_fresh_empirica_aware_project(session_init_module, tmp_path):
-    """Project has .empirica/, instance is fresh → install one canonical loop."""
+def test_installs_on_fresh_empirica_aware_project(session_init_module, tmp_path, auto_installable):
+    """Project has .empirica/, instance is fresh → install the auto-installable loop."""
     project = _make_empirica_project(tmp_path)
     count = session_init_module._maybe_auto_install_canonical_loops(project)
-    assert count >= 1  # At least cortex-mailbox-poll
+    assert count >= 1
 
     # Stamp file should now exist (idempotency marker)
     home = Path(tmp_path / "home")
@@ -73,7 +96,7 @@ def test_installs_on_fresh_empirica_aware_project(session_init_module, tmp_path)
     assert len(stamp_glob) == 1
 
 
-def test_idempotent_via_stamp_file(session_init_module, tmp_path):
+def test_idempotent_via_stamp_file(session_init_module, tmp_path, auto_installable):
     """Second run on same instance → 0 installs (stamp blocks)."""
     project = _make_empirica_project(tmp_path)
     first = session_init_module._maybe_auto_install_canonical_loops(project)
@@ -115,14 +138,16 @@ def test_skips_when_registry_already_has_loops(session_init_module, tmp_path):
     assert len(stamp_glob) == 1
 
 
-def test_auto_install_queues_housekeeping_and_skips_opt_in(session_init_module, tmp_path):
-    """Auto-install queues the non-opt-in canonical loops (message-cleanup) with
-    a well-formed install template, and does NOT queue opt_in_only loops
-    (cortex-mailbox-poll — wake-on-event is the canonical trigger).
+def test_auto_install_queues_only_non_opt_in_non_cron(session_init_module, tmp_path, auto_installable):
+    """Auto-install queues an ordinary interval loop with a well-formed template,
+    and queues NEITHER an opt_in_only loop (cortex-mailbox-poll — wake-on-event is
+    the canonical trigger) NOR any cron loop (message-cleanup — cron is opt-in
+    only, never installed by default).
 
-    This pins the fix for the drift that the shared-helper dedup closed:
-    session-init used to lack the opt_in_only carve-out and queued
-    cortex-mailbox-poll on every new session."""
+    This pins two fixes at once: the drift the shared-helper dedup closed
+    (session-init used to lack the opt_in_only carve-out and queued
+    cortex-mailbox-poll every session), and the cron policy that superseded
+    message-cleanup's housekeeping exemption."""
     import json
 
     project = _make_empirica_project(tmp_path)
@@ -130,8 +155,10 @@ def test_auto_install_queues_housekeeping_and_skips_opt_in(session_init_module, 
     assert count >= 1
 
     home = Path(tmp_path / "home")
-    mc = list((home / ".empirica").glob("loop_install_pending_*_message-cleanup.json"))
-    assert len(mc) == 1
-    assert json.loads(mc[0].read_text()).get("prompt_template")  # real template, not blank
+    pending = list((home / ".empirica").glob("loop_install_pending_*_test-interval-loop.json"))
+    assert len(pending) == 1
+    assert json.loads(pending[0].read_text()).get("prompt_template")  # real template, not blank
+    # No cron loop may be queued, by policy.
+    assert not list((home / ".empirica").glob("loop_install_pending_*_message-cleanup.json"))
     # opt_in_only loops must NOT be auto-queued.
     assert not list((home / ".empirica").glob("loop_install_pending_*_cortex-mailbox-poll.json"))
