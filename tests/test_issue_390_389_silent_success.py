@@ -230,3 +230,66 @@ def test_a_missing_message_is_an_error_not_an_empty_envelope(monkeypatch, capsys
     assert body["ok"] is False
     assert "No message" in body["error"]
     assert store.marked is False, "an unloadable message must not have its unread flag consumed"
+
+
+# ── #394 problem 2: limit applied before the sort ─────────────────────
+#
+# The break ran inside the iteration, before the sort. Ref order is message UUID, so a
+# limited fetch returned an arbitrary subset which was then sorted — not the newest N.
+# Symptom the reporter chased first: with a backlog above the limit, marking messages
+# read let OLDER messages enter the window and look new.
+
+
+def _store_with(messages):
+    """A GitMessageStore whose ref walk and note loads are stubbed, so the test
+    exercises the ordering logic rather than git."""
+    from empirica.core.canonical.empirica_git.message_store import GitMessageStore
+
+    store = GitMessageStore.__new__(GitMessageStore)
+    store._git_available = True
+    store.workspace_root = "."
+    by_id = {m["message_id"]: m for m in messages}
+
+    class _R:
+        returncode = 0
+        # Deliberately NOT in timestamp order — ref order is UUID order.
+        stdout = "\n".join(f"refs/notes/empirica/messages/direct/{m}" for m in sorted(by_id))
+
+    store.load_message = lambda channel, message_id: by_id.get(message_id)
+    store._matches_inbox_filters = lambda *a, **k: True
+    return store, _R
+
+
+def test_a_limited_inbox_returns_the_NEWEST_messages(monkeypatch):
+    """POSITIVE CONTROL — the arbitrary-subset bug."""
+    import subprocess
+
+    from empirica.core.canonical.empirica_git.message_store import GitMessageStore
+
+    # The alphabetically-FIRST ref must be the OLDEST message, otherwise ref order
+    # coincides with newest-first and the old code passes. My first fixture made
+    # exactly that mistake and the failing-first control caught it.
+    msgs = [
+        {"message_id": "aaaa", "timestamp": "2026-01-01", "subject": "oldest"},
+        {"message_id": "bbbb", "timestamp": "2026-07-01", "subject": "middle"},
+        {"message_id": "ffff", "timestamp": "2026-08-01", "subject": "newest"},
+    ]
+    store, fake = _store_with(msgs)
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: fake())
+
+    got = GitMessageStore.get_inbox(store, ai_id="me", limit=1)
+
+    assert [m["subject"] for m in got] == ["newest"], "limit returned an arbitrary ref-order subset"
+
+
+def test_the_limit_is_still_respected(monkeypatch):
+    """NEGATIVE CONTROL: sorting before slicing must not stop bounding the result."""
+    import subprocess
+
+    from empirica.core.canonical.empirica_git.message_store import GitMessageStore
+
+    msgs = [{"message_id": f"{i:04x}", "timestamp": f"2026-01-{i + 1:02d}", "subject": str(i)} for i in range(10)]
+    store, fake = _store_with(msgs)
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: fake())
+
+    assert len(GitMessageStore.get_inbox(store, ai_id="me", limit=3)) == 3
