@@ -2,7 +2,7 @@
 
 **Updated:** 2026-05-16
 **Status:** shipped (T8–T12, 1.9.5 → 1.9.6)
-**Related:** [COCKPIT.md](COCKPIT.md), [DISPATCH_BUS.md](DISPATCH_BUS.md), [NOTIFY.md](NOTIFY.md)
+**Related:** [TRIGGER_MODEL.md](TRIGGER_MODEL.md) — when to use this vs a loop, [COCKPIT.md](COCKPIT.md), [DISPATCH_BUS.md](DISPATCH_BUS.md), [NOTIFY.md](NOTIFY.md)
 
 ---
 

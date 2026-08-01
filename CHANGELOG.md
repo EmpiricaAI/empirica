@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING: no cron loop is installed by default.** Wake-on-event is the
+  preferred trigger wherever the harness supports it; a cron job is a standing
+  scheduled process on a user's machine and must be asked for.
+
+  `message-cleanup` (daily, `kind: cron`) previously auto-installed on every
+  fresh practice under a comment exempting "genuine housekeeping crons" from the
+  opt-in carve-out. It no longer does. The auto-install gate now skips every
+  `kind == "cron"` entry structurally rather than relying on the per-entry
+  `opt_in_only` flag — the entry that broke the rule was precisely the one that
+  never set the flag.
+
+  Net effect: a fresh practice acquires **no scheduled jobs at all**. Expired
+  mesh messages are not pruned on a seat that has not opted in. Opt in with
+  `empirica loop register --name message-cleanup --kind cron --cron "17 3 * * *"`.
+
+  New: [`docs/architecture/TRIGGER_MODEL.md`](docs/architecture/TRIGGER_MODEL.md)
+  — what each trigger mechanism is, when to reach for which, and how the opt-in
+  rule is enforced.
+
+
 - **BREAKING: `delete-artifacts` now PREVIEWS by default. Pass `--apply` to
   actually delete.** The gardening skill, `ARTIFACT_HYGIENE.md` and the Empirica
   system prompt all documented dry-run-as-default and an `--apply` flag — while

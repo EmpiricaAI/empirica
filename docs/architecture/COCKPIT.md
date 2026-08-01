@@ -253,6 +253,12 @@ call sites. See [`NOTIFY.md`](NOTIFY.md) for the full spec.
 
 ## Loop self-scheduling
 
+> **Which trigger should this even be?** See
+> [TRIGGER_MODEL.md](TRIGGER_MODEL.md) — wake-on-event is preferred wherever the
+> harness supports it, and **cron loops are opt-in only, never installed by
+> default**. This section covers how a loop schedules itself once you have
+> established that a loop is the right mechanism.
+
 Loops are self-scheduling: the body owns the schedule, the scheduler
 is dumb. Each fire heartbeats its result (`found` / `empty` / `fail` /
 `paused`), calls `empirica loop schedule-next` to compute the next-fire
