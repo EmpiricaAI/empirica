@@ -1,6 +1,6 @@
 """Argparse parsers for `empirica visibility` subcommand group (Phase 0).
 
-Per docs/architecture/PROPOSAL_VISIBILITY_TIERS.md.
+Per docs/architecture/PROPOSAL_VISIBILITY_TIERS.md (not in this repo).
 """
 
 from __future__ import annotations

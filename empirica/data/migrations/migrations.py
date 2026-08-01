@@ -1692,7 +1692,7 @@ def migration_039_artifact_visibility(cursor: sqlite3.Cursor):
     the CLI/repository layer in Python (the helper does not support CHECK
     constraints in ALTER TABLE ADD COLUMN). Default 'shared' on all existing rows.
 
-    See docs/architecture/PROPOSAL_VISIBILITY_TIERS.md.
+    See docs/architecture/PROPOSAL_VISIBILITY_TIERS.md (not in this repo).
     """
     artifact_tables = [
         "project_findings",
@@ -1732,7 +1732,7 @@ def migration_040_epistemic_source(cursor: sqlite3.Cursor):
     rule (gate route to "investigate" when claims are high but evidence
     is all-intuition) is deferred until calibration history accumulates.
 
-    See docs/architecture/PROMPT_FOR_EMPIRICA_CLAUDE_source_aware_sentinel.md.
+    See docs/architecture/PROMPT_FOR_EMPIRICA_CLAUDE_source_aware_sentinel.md (not in this repo).
     """
     artifact_tables = [
         "project_findings",

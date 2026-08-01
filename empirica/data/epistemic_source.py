@@ -1,6 +1,6 @@
 """Epistemic source tagging for artifacts (source-aware Sentinel substrate).
 
-Per docs/architecture/PROMPT_FOR_EMPIRICA_CLAUDE_source_aware_sentinel.md.
+Per docs/architecture/PROMPT_FOR_EMPIRICA_CLAUDE_source_aware_sentinel.md (not in this repo).
 
 Every finding/decision/unknown/mistake/assumption/dead-end can be tagged
 with how the AI arrived at it:

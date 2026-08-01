@@ -4,7 +4,7 @@ projects-discover  — walk the filesystem looking for .empirica/ directories
 projects-list      — list discovered projects (cached or fresh-scanned)
 projects-bulk-register — register all discovered projects on Cortex (T2)
 
-See docs/specs/PROPOSAL_BULK_PROJECT_LINK.md (mirrored from
+See docs/specs/PROPOSAL_BULK_PROJECT_LINK.md (not in this repo) (mirrored from
 empirica-extension/docs/v0.5-BULK-PROJECT-LINK.md) for the design rationale.
 """
 

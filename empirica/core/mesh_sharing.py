@@ -8,7 +8,7 @@ rows in workspace.db for narrative + discoverability surfaces (artifact
 graph, dashboards, `empirica mesh-agreements list`). Sync is unidirectional:
 empirica reads cortex, never writes back.
 
-See docs/architecture/MESH_SHARING_AGREEMENTS.md for the full model.
+See docs/architecture/MESH_SHARING_AGREEMENTS.md (not in this repo) for the full model.
 """
 
 from __future__ import annotations
@@ -194,7 +194,7 @@ def derive_layer(
     L2 = same org, different tenant
     L3 = different org
 
-    See docs/architecture/MESH_SHARING_AGREEMENTS.md for the full
+    See docs/architecture/MESH_SHARING_AGREEMENTS.md (not in this repo) for the full
     ceiling/floor mapping.
     """
     if party_a_org != party_b_org:

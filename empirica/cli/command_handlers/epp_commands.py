@@ -14,7 +14,7 @@ This is weak signal (AI-self-reported) but useful for trending and for
 verifying the hook change is actually triggering EPP protocol usage in practice.
 Graduation to stronger automatic measurement is deferred to Spec 2.
 
-See: docs/superpowers/specs/2026-04-07-epp-strengthening-design.md
+See: docs/superpowers/specs/2026-04-07-epp-strengthening-design.md (not in this repo)
 """
 
 from __future__ import annotations

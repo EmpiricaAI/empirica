@@ -1,6 +1,6 @@
 """MeshContent — common substrate for cross-practice primitives.
 
-Per `docs/architecture/MESH_CONTENT.md`. This module is the empirica-side
+Per `docs/architecture/MESH_CONTENT.md (not in this repo)`. This module is the empirica-side
 home for the helpers + contract that every mesh-citizen primitive
 (Source today, SER and future types tomorrow) implements:
 

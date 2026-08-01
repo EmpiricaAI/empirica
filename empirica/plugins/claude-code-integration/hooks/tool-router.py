@@ -170,7 +170,7 @@ HEDGE_PATTERNS = {
 # ============================================================================
 # EPP Semantic Pushback Check — always-on forcing block for substantive prompts
 # ============================================================================
-# See: docs/superpowers/specs/2026-04-07-epp-strengthening-design.md
+# See: docs/superpowers/specs/2026-04-07-epp-strengthening-design.md (not in this repo)
 # Phase 0 experiment (2026-04-07) validated effect size across Opus/Sonnet/Haiku:
 # all 3 models passed the decision gate (>=20% improvement on >=2/6 metrics).
 # Block is injected LAST in additionalContext to exploit attention recency bias.

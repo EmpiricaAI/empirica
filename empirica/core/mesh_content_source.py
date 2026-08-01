@@ -6,7 +6,7 @@ sources-map continue to work unchanged on the raw row; this wrapper
 is opt-in for callers that want the substrate view (canonical
 address, normalized visibility, render-for-promotion).
 
-Per `docs/architecture/MESH_CONTENT.md` §7 Slice 1: wrapper, not a
+Per `docs/architecture/MESH_CONTENT.md (not in this repo)` §7 Slice 1: wrapper, not a
 schema change. Storage stays in `epistemic_sources` (per-project
 SQLite). When future MeshContent primitives (SER mirror, shared
 decision, etc.) need the same substrate, they get their own thin

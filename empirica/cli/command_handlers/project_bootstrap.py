@@ -196,7 +196,7 @@ def _sync_mesh_sharing_agreements() -> None:
     serving the visibility ladders check.
 
     Implements trigger #1 of the
-    ``docs/architecture/MESH_SHARING_AGREEMENTS.md`` sync contract.
+    ``docs/architecture/MESH_SHARING_AGREEMENTS.md (not in this repo)`` sync contract.
     Trigger #2 (ntfy push subscriber on ``<org>-mesh-sharing-changed``) is
     tracked separately under goal b22d506d task B.5.
 

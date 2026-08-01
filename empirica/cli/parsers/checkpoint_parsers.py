@@ -1888,7 +1888,7 @@ Example:
     # EPP activation telemetry
     # Self-reported: Claude logs when it invoked EPP protocol during a turn.
     # Writes to ~/.empirica/hook_counters{suffix}.json (counter + log).
-    # See: docs/superpowers/specs/2026-04-07-epp-strengthening-design.md
+    # See: docs/superpowers/specs/2026-04-07-epp-strengthening-design.md (not in this repo)
     epp_activate_parser = subparsers.add_parser(
         "epp-activate", help="Log EPP (Epistemic Persistence Protocol) activation — self-reported telemetry"
     )

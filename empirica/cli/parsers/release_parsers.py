@@ -128,8 +128,7 @@ def add_release_parsers(subparsers):
         description=(
             "Empirica's derived-state mirror of cortex's authoritative "
             "mesh_sharing_agreements table. Stored as entity_type="
-            "'mesh_sharing_agreement' rows in workspace.db's entity_registry. "
-            "See docs/architecture/MESH_SHARING_AGREEMENTS.md."
+            "'mesh_sharing_agreement' rows in workspace.db's entity_registry."
         ),
     )
     mesh_agr_sub = mesh_agr_parser.add_subparsers(dest="action", required=True)

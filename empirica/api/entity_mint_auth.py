@@ -5,7 +5,7 @@ per-org ``empirica serve`` daemon binds beyond loopback — the hosted-daemon
 deployment on Hetzner/EU. Self-hosted loopback daemons stay auth-free, so
 same-box consumers (e.g. a CRM MCP server) are unaffected.
 
-Co-spec: ``empirica-mesh-support/docs/entity-mint-service-token-spec.md``.
+Co-spec: ``empirica-mesh-support/docs/entity-mint-service-token-spec.md (not in this repo)``.
 Consumers: cortex OAuth P3 ``get_or_create_user``, crm-mcp (NLE CRM round-trip).
 
 Model — shared-secret, deliberately NOT JWT:

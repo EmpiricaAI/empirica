@@ -20,7 +20,7 @@ Design:
 Location (Canonical):
 - Project-local: ./.empirica/sessions/sessions.db (relative to CWD)
 - NOT home directory: ~/ (config/credentials are global, data is project-scoped)
-- See: docs/reference/STORAGE_LOCATIONS.md for rationale
+- See: docs/reference/STORAGE_LOCATIONS.md (not in this repo) for rationale
 
 Storage Architecture:
 - Global (~/.empirica/): config.yaml, credentials.yaml, calibration/

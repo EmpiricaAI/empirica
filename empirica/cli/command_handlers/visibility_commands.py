@@ -1,6 +1,6 @@
 """Handlers for `empirica visibility <action>` (Phase 0).
 
-Per docs/architecture/PROPOSAL_VISIBILITY_TIERS.md.
+Per docs/architecture/PROPOSAL_VISIBILITY_TIERS.md (not in this repo).
 
 Phase 0 commands:
   - list : counts by tier (+ optional recent items per tier and per type)

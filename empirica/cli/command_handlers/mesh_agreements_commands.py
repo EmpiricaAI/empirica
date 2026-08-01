@@ -3,7 +3,7 @@ into empirica's entity_registry mirror.
 
 Read-only from cortex's perspective (no admin verbs here — sharing
 governance happens via cortex REST direct or the extension System tab
-admin UI). See docs/architecture/MESH_SHARING_AGREEMENTS.md.
+admin UI). See docs/architecture/MESH_SHARING_AGREEMENTS.md (not in this repo).
 """
 
 from __future__ import annotations
