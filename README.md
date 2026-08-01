@@ -247,7 +247,7 @@ empirica AI ◄────────── outbox/completed event ───�
 | **Mesh proposals (two flavors)** | A noetic flavor is auto-accepted (FYI / question / discussion). Praxic flavors (code change / architecture / investigation) are **ECO-gated** — they wait for an Accept/Decline decision before the target AI acts |
 | **`empirica mailbox reply`** | One CLI verb closes the AI-to-AI handshake atomically — single-step completion ack instead of two |
 | **Persistent listener service** | systemd-user / launchd daemon holds a push stream open. Idle sessions wake the moment a peer's proposal is decided, not on next user prompt |
-| **Canonical loops** | Inbox polling (30s adaptive) and daily housekeeping auto-install per AI — no per-project config needed |
+| **Canonical loops (opt-in)** | Wake-on-event is the standing trigger, so nothing is scheduled by default. Inbox polling (30s adaptive) exists for harnesses that *cannot* do wake-on-event, and daily housekeeping is a cron loop — **both are opt-in**, registered with `empirica loop register`. See [Trigger Model](docs/architecture/TRIGGER_MODEL.md) |
 
 The browser-side ECO surface (Accept/Decline, inbox triage, publish review) lives in the proprietary [Empirica Extension](https://getempirica.com). The full API surface for proposals, listener events, and the trust pipeline is documented at [getempirica.com](https://getempirica.com).
 
