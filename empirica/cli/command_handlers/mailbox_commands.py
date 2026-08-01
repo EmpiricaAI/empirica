@@ -480,6 +480,7 @@ def _default_fetch_mailbox(
     limit: int | None,
     related: bool,
     timeout: float = 10.0,
+    meta_out: dict | None = None,
 ) -> list[dict]:
     """Wrap content_poll's canonical-resolving inbox/outbox fetchers.
 
@@ -497,6 +498,7 @@ def _default_fetch_mailbox(
         cortex_url,
         api_key,
         ai_id,
+        meta_out=meta_out,
         statuses=statuses,
         since=since,
         limit=limit,
@@ -557,6 +559,7 @@ def handle_mailbox_poll_command(
     limit = getattr(args, "limit", None)
     related = bool(getattr(args, "related", False))
 
+    _poll_meta: dict = {}
     try:
         proposals = _fetch_mailbox(
             cortex_url,
@@ -567,6 +570,7 @@ def handle_mailbox_poll_command(
             since=since,
             limit=limit,
             related=related,
+            meta_out=_poll_meta,
         )
     except Exception as e:  # network / auth / parse — surface, don't crash
         sys.stderr.write(f"mailbox poll: fetch failed: {type(e).__name__}: {e}\n")
@@ -581,6 +585,18 @@ def handle_mailbox_poll_command(
         "count": len(proposals),
         "proposals": proposals,
     }
+    # Completeness, when cortex reports it. `count` is what THIS poll returned;
+    # `matched` is how many exist. Without the pair, a truncated poll is
+    # indistinguishable from a complete one — which is what made "have I replied
+    # to everything?" unanswerable at the CLI layer and pushed backlog triage
+    # onto memory. Keys are omitted entirely when cortex does not send them, so
+    # an older cortex yields the previous envelope byte-for-byte.
+    if _poll_meta.get("matched") is not None:
+        result["matched"] = _poll_meta["matched"]
+    if _poll_meta.get("has_more") is not None:
+        result["has_more"] = _poll_meta["has_more"]
+        if _poll_meta["has_more"]:
+            result["truncated_hint"] = "more proposals match than were returned — raise --limit or page with --since"
 
     fmt = getattr(args, "output", "json")
     if fmt == "human":

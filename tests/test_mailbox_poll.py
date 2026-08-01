@@ -35,7 +35,10 @@ def _poll_args(**overrides):
 
 
 def _fake_fetch(proposals, recorder=None):
-    def fn(cortex_url, api_key, ai_id, *, outbox, statuses, since, limit, related, timeout=10.0):
+    # `meta_out` is an optional out-dict the handler now passes so a truncated
+    # poll can report `matched`/`has_more`. Accepted and ignored here — these
+    # tests predate completeness and assert the envelope's other fields.
+    def fn(cortex_url, api_key, ai_id, *, outbox, statuses, since, limit, related, timeout=10.0, meta_out=None):
         if recorder is not None:
             recorder.update(
                 {

@@ -342,6 +342,7 @@ def _fetch_orch(
     since: str | None = None,
     limit: int | None = None,
     related: bool = False,
+    meta_out: dict | None = None,
 ) -> list[dict]:
     """Shared GET for /v1/orchestration/{inbox,outbox} with the same shape.
 
@@ -375,6 +376,19 @@ def _fetch_orch(
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         raw = resp.read().decode("utf-8")
         body = json.loads(raw) if raw else {}
+    # Cortex reports completeness on the envelope (`matched`, `has_more`) since
+    # prod acd536d6. Dropping it meant a CLI consumer could not distinguish a
+    # TRUNCATED poll from a complete one — so "did I already reply to everything"
+    # was unanswerable, and a partial result read as complete.
+    #
+    # Surfaced through an optional out-dict rather than by widening the return
+    # type: `_fetch_orch` is shared with the LISTENER, and a return-type change
+    # there has wake-path blast radius. Callers that want completeness pass a
+    # dict; the listener passes nothing and is bit-for-bit unaffected.
+    if meta_out is not None:
+        for key in ("matched", "has_more", "returned"):
+            if key in body:
+                meta_out[key] = body[key]
     proposals = body.get("proposals", [])
     return proposals if isinstance(proposals, list) else []
 
@@ -389,6 +403,7 @@ def fetch_cortex_inbox(
     limit: int | None = None,
     related: bool = False,
     timeout: float = 10.0,
+    meta_out: dict | None = None,
 ) -> list[dict]:
     """GET /v1/orchestration/inbox — proposals where target_claudes contains ai_id.
 
@@ -406,6 +421,7 @@ def fetch_cortex_inbox(
         since=since,
         limit=limit,
         related=related,
+        meta_out=meta_out,
     )
 
 
@@ -419,6 +435,7 @@ def fetch_cortex_outbox(
     limit: int | None = None,
     related: bool = False,
     timeout: float = 10.0,
+    meta_out: dict | None = None,
 ) -> list[dict]:
     """GET /v1/orchestration/outbox — proposals where source_claude == ai_id.
 
@@ -436,6 +453,7 @@ def fetch_cortex_outbox(
         since=since,
         limit=limit,
         related=related,
+        meta_out=meta_out,
     )
 
 
