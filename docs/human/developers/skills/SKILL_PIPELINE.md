@@ -8,7 +8,7 @@ The Empirica skill pipeline provides a progressive disclosure system for loading
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ Verbose Skills (plugins/claude-code-integration/skills/)    │
+│ Verbose Skills (empirica/plugins/.../skills/)               │
 │ └─ Full Claude Code skills in SKILL.md format               │
 │ └─ Loaded by Claude Code on semantic match                  │
 └──────────────────────────┬──────────────────────────────────┘
@@ -37,7 +37,7 @@ The Empirica skill pipeline provides a progressive disclosure system for loading
 
 ## Components
 
-### 1. Verbose Skills (`plugins/claude-code-integration/skills/`)
+### 1. Verbose Skills (`empirica/plugins/claude-code-integration/skills/`)
 
 Full Claude Code skills in SKILL.md format:
 
@@ -60,7 +60,7 @@ allowed-tools: Bash(empirica:*),Read,Grep,Glob
 [Detailed documentation]
 ```
 
-**Location:** `plugins/claude-code-integration/skills/<skill-name>/SKILL.md`
+**Location:** `empirica/plugins/claude-code-integration/skills/<skill-name>/SKILL.md`
 **Loaded by:** Claude Code (on semantic match when user asks "how do I...")
 **Size:** 100+ lines per skill
 
@@ -103,7 +103,7 @@ Extracts verbose skills to condensed format:
 
 ```bash
 # Extract single skill
-empirica skill-extract --skill-dir plugins/claude-code-integration/skills/empirica-framework
+empirica skill-extract --skill-dir empirica/plugins/claude-code-integration/skills/code-audit
 
 # Extract all skills from directory
 empirica skill-extract --skills-dir .claude/skills --output-file meta-agent-config.yaml
@@ -173,7 +173,7 @@ Response includes:
 
 ## Best Practices
 
-1. **Create verbose skills** in `plugins/claude-code-integration/skills/` for Claude Code semantic matching
+1. **Create verbose skills** in `empirica/plugins/claude-code-integration/skills/` for Claude Code semantic matching
 2. **Extract to condensed** using `skill-extract` after major changes
 3. **Commit both** so team members get verbose and condensed versions
 4. **Let bootstrap inject** condensed skills at session start
@@ -183,7 +183,7 @@ Response includes:
 ## Files
 
 - `project_skills/*.yaml` - Condensed runtime skills
-- `plugins/claude-code-integration/skills/*/SKILL.md` - Verbose Claude Code skills
+- `empirica/plugins/claude-code-integration/skills/*/SKILL.md` - Verbose Claude Code skills
 - `skill_extractor/` - Architecture docs and implementation guide
 - `empirica/core/skills/parser.py` - Markdown to YAML parser
 - `empirica/core/skills/extractor.py` - Extraction logic

@@ -1904,6 +1904,32 @@ class DocsExplainAgent:
 
         return self._qdrant_available
 
+    def _diagnose_semantic_gap(self) -> str | None:
+        """Why did semantic search not answer? Returns a remedy, or None.
+
+        `docs-explain` documents Qdrant semantic search as its primary mode with
+        keyword as fallback. When the docs collection is empty the primary mode
+        returns nothing on EVERY query, forever, and the output is
+        indistinguishable from a machine with no Qdrant — the fallback masks a
+        dead primary. Naming the remedy is the difference between a degraded
+        mode and a silent one.
+        """
+        if not self.project_id:
+            return "no project_id resolved — run from a project root or pass --project-id"
+        try:
+            from empirica.core.qdrant.collections import _docs_collection
+            from empirica.core.qdrant.connection import _get_qdrant_client
+
+            client = _get_qdrant_client(project_id=self.project_id)
+            if client is None:
+                return None  # genuinely no Qdrant — keyword IS the mode, not a degradation
+            coll = _docs_collection(self.project_id)
+            if not client.collection_exists(coll) or client.count(coll).count == 0:
+                return "Qdrant is running but no documents are embedded — run `empirica project-embed` to enable semantic search"
+        except Exception:
+            return None
+        return None
+
     def _semantic_search(self, query: str, limit: int = 5) -> list[dict]:
         """
         Perform semantic search using Qdrant if available.
@@ -2031,6 +2057,14 @@ class DocsExplainAgent:
         # Fall back to keyword search if semantic search unavailable or returned nothing
         if not scored_docs:
             search_mode = "keyword"
+            # Distinguish "Qdrant isn't set up" from "Qdrant is running and the
+            # docs collection is EMPTY". Both silently produced identical
+            # keyword-mode output, so a practice whose docs were simply never
+            # embedded looked the same as one with no Qdrant at all — and the
+            # answers were correspondingly poor ("How do I start a session?"
+            # returning a category index). Measured here: 497 documents in the
+            # semantic index, 0 points in the collection.
+            self._semantic_unavailable_reason = self._diagnose_semantic_gap()
             keywords = self._expand_topic(search_text)
 
             for path, content in docs.items():
@@ -2121,6 +2155,9 @@ class DocsExplainAgent:
             "query": search_text,
             "audience": audience,
             "search_mode": search_mode,  # "semantic" if Qdrant used, "keyword" otherwise
+            # Present only when keyword mode is a DEGRADATION rather than the
+            # honest answer — i.e. Qdrant is reachable but has no documents.
+            "semantic_unavailable_reason": getattr(self, "_semantic_unavailable_reason", None),
             "explanation": explanation,
             "sources": sources,
             "related_topics": related[:5],
@@ -2174,6 +2211,8 @@ def _print_explain_human_output(result: dict):
     search_mode = result.get("search_mode", "keyword")
     mode_icon = "🧠" if search_mode == "semantic" else "🔤"
     print(f"{mode_icon} Search: {search_mode}")
+    if result.get("semantic_unavailable_reason"):
+        print(f"   ⚠️  semantic search did not run: {result['semantic_unavailable_reason']}")
 
     if result.get("audience") != "all":
         print(f"👤 Audience: {result['audience']}")
