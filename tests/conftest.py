@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from _pytest.monkeypatch import MonkeyPatch
 
 # =============================================================================
 # Instance Isolation: Prevent tests from corrupting live Empirica state
@@ -73,6 +74,33 @@ def isolate_empirica_instance():
     for var in ("TMUX", "TMUX_PANE", "WINDOWID", "TERM_SESSION_ID"):
         os.environ.pop(var, None)
 
+    # Pin the DURABLE practitioner key to a test value.
+    #
+    # Setting EMPIRICA_INSTANCE_ID above is not sufficient on its own. When the
+    # exact per-instance transaction file is missing — which it always is under
+    # test — `_find_transaction_file` deliberately falls back to SCANNING for
+    # any active_transaction_*.json matching the durable claude_session_id
+    # (KNOWN_ISSUES 11.21, added so a transaction survives a compaction that
+    # rotated the instance suffix). That key is tty-anchored and resolves to the
+    # developer's real session, so the scan reached past the isolation and found
+    # the live transaction of whoever was running the suite.
+    #
+    # The symptom was a test that passed on CI and on a developer box between
+    # transactions, and failed inside one: a reconcile test got
+    # `blocked: open_transaction` because the code correctly refuses to rekey a
+    # live session's rows. The test was measuring the author's session.
+    #
+    # Pinning the key here makes the scan structurally unable to match a real
+    # file. Tests that exercise the resolver patch this themselves at function
+    # scope, which still wins and restores to this stub.
+    mp = MonkeyPatch()
+    try:
+        import empirica.utils.session_resolver as _sr
+
+        mp.setattr(_sr, "get_claude_session_id", lambda: f"test-cc-{os.getpid()}", raising=False)
+    except Exception:
+        pass
+
     # Belt-and-suspenders: back up active_transaction files
     backup = {}
     patterns = [
@@ -88,6 +116,8 @@ def isolate_empirica_instance():
                 pass
 
     yield
+
+    mp.undo()
 
     # Restore environment
     for var in identity_vars:

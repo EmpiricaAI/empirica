@@ -98,6 +98,31 @@ def test_workspace_rekey_noop_on_missing_db(tmp_path):
     assert _rekey_workspace_db(OLD, NEW, tmp_path / "nope.db") == {}
 
 
+@pytest.fixture(autouse=True)
+def _no_live_transaction(monkeypatch):
+    """Never let these tests read the developer's real session state.
+
+    `_reconcile_identity_if_diverged` calls `InstanceResolver.transaction_read()`
+    and refuses to reconcile while a transaction is open — correct behaviour,
+    since reconcile rekeys the live session's own rows. But two tests below
+    exercised the reconcile path WITHOUT controlling that call, so they read
+    whatever transaction the person running the suite happened to have open.
+
+    They passed on CI (no session) and on a developer box between transactions,
+    and failed inside one — a full-suite run during an open transaction reported
+    `blocked: open_transaction`, `reconciled: False`. The test was measuring the
+    author's session, not the code.
+
+    The transaction gate has its own two tests (blocked, and force-bypasses)
+    which patch this deliberately; pinning the default to "no open transaction"
+    here makes every other test in the file deterministic without weakening
+    those.
+    """
+    import empirica.utils.session_resolver as sr
+
+    monkeypatch.setattr(sr.InstanceResolver, "transaction_read", staticmethod(lambda: None))
+
+
 def _args(reconcile, force=False):
     return types.SimpleNamespace(reconcile=reconcile, force=force)
 
