@@ -1904,6 +1904,30 @@ class DocsExplainAgent:
 
         return self._qdrant_available
 
+    @staticmethod
+    def _match_doc_key(doc_path: str | None, docs: dict) -> str | None:
+        """Resolve an embedded doc_path to this dict's key, or None.
+
+        Embedding writes repo-relative paths; the in-memory dict is keyed
+        relative to the docs directory. Rather than assume one prefix, try the
+        path as given, then progressively strip leading segments — so the match
+        survives either side changing its base later.
+        """
+        if not doc_path:
+            return None
+        if doc_path in docs:
+            return doc_path
+        parts = doc_path.split("/")
+        for i in range(1, len(parts)):
+            candidate = "/".join(parts[i:])
+            if candidate in docs:
+                return candidate
+        # And the inverse: dict keyed WITH a prefix the embedding lacks.
+        for key in docs:
+            if key.endswith("/" + doc_path) or doc_path.endswith("/" + key):
+                return key
+        return None
+
     def _diagnose_semantic_gap(self) -> str | None:
         """Why did semantic search not answer? Returns a remedy, or None.
 
@@ -2049,10 +2073,17 @@ class DocsExplainAgent:
         if semantic_results:
             search_mode = "semantic"
             for result in semantic_results:
-                doc_path = result.get("doc_path")
-                if doc_path and doc_path in docs:
+                # The two sides key the same document differently. Embedding
+                # stores the repo-relative path (`docs/human/end-users/X.md`);
+                # this dict is keyed relative to the DOCS DIR (`human/end-users/X.md`).
+                # So `doc_path in docs` was never true, every semantic hit was
+                # discarded, and the command fell back to keyword on every query
+                # while reporting perfectly relevant hits internally. Semantic
+                # mode had never once been used.
+                key = self._match_doc_key(result.get("doc_path"), docs)
+                if key:
                     score = result.get("score", 0.5) * 2.0
-                    scored_docs.append((score, doc_path, docs[doc_path]))
+                    scored_docs.append((score, key, docs[key]))
 
         # Fall back to keyword search if semantic search unavailable or returned nothing
         if not scored_docs:
