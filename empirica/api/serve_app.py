@@ -331,6 +331,13 @@ def create_serve_app() -> FastAPI:
 
     app.include_router(calibration_router)
 
+    # Practice composition — what a practice is MADE OF (module, project prompt,
+    # agents, skills, MCP servers). Extension is MV3 with no filesystem access, so
+    # none of that was reachable to it before this route existed (prop_od4esudv).
+    from empirica.api.routes.practice import router as practice_router
+
+    app.include_router(practice_router)
+
     @app.get("/api/v1/health", response_model=HealthResponse)
     async def health():  # pyright: ignore[reportUnusedFunction]
         """Health check — reports integrations, active project info, and
