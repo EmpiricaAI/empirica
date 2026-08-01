@@ -259,8 +259,36 @@ def handle_message_inbox_command(args):
 
 
 def handle_message_read_command(args):
-    """Handle message-read command."""
+    """Handle message-read — return the message content AND mark it read.
+
+    Reported by FrancisFerrero (#391) as "returns empty from/subject/body". The
+    diagnosis is sharper than that: those fields were never in the projection at all.
+    This verb only ever called ``mark_read`` and returned the receipt — it performed
+    the write half of "read" and none of the read half, while the content sat
+    perfectly intact in the git note the whole time.
+
+    That is why the workaround was `git notes show`: the data was never missing, only
+    unreachable through the verb named after fetching it. A consumer acting on the
+    envelope alone gets nothing to act on — and they report a logged peer mistake of
+    acknowledging messages on envelope data, which is exactly the failure this shape
+    invites.
+
+    Content is loaded BEFORE marking read, so a load failure does not silently consume
+    the unread flag.
+    """
     store = _get_store()
+
+    message = store.load_message(channel=args.channel, message_id=args.message_id)
+    if message is None:
+        _output(
+            {
+                "ok": False,
+                "message_id": args.message_id,
+                "error": f"No message {args.message_id!r} on channel {args.channel!r}",
+            },
+            args,
+        )
+        return
 
     success = store.mark_read(
         channel=args.channel,
@@ -276,6 +304,21 @@ def handle_message_read_command(args):
                 "marked_read": True,
                 "message_id": args.message_id,
                 "ai_id": args.ai_id,
+                # The point of the verb. Key names are taken from what send_message
+                # actually writes — `from`, `to`, `timestamp` — not from what they
+                # sound like they should be.
+                #
+                # My first draft read `from_ai_id`/`to_ai_id`/`sent_at` and would have
+                # returned empty fields, reproducing this exact bug report while
+                # claiming to fix it. Checked the writer before trusting the names.
+                "from": message.get("from"),
+                "to": message.get("to"),
+                "subject": message.get("subject"),
+                "body": message.get("body"),
+                "channel": args.channel,
+                "timestamp": message.get("timestamp"),
+                "thread_id": message.get("thread_id"),
+                "priority": message.get("priority"),
             },
             args,
         )

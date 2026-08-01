@@ -148,3 +148,85 @@ def test_no_caller_hardcodes_the_sender_any_more():
 
     assert 'or "claude-code"' not in src, "a call site is hardcoding the sender again"
     assert os.path.basename(mc.__file__) == "message_commands.py"
+
+
+# ── #391: message-read never read ─────────────────────────────────────
+#
+# Reported as "returns empty from/subject/body". The fields were never in the
+# projection at all — the verb called mark_read and returned the receipt, doing the
+# write half of "read" and none of the read half, while the content sat intact in the
+# git note. Hence the `git notes show` workaround: the data was never missing, only
+# unreachable through the verb named after fetching it.
+
+
+class _FakeStore:
+    """Stands in for GitMessageStore. Key names mirror what send_message WRITES —
+    `from`, `to`, `timestamp` — which is the detail that matters here."""
+
+    def __init__(self, message=None, mark_ok=True):
+        self._message = message
+        self._mark_ok = mark_ok
+        self.marked = False
+
+    def load_message(self, channel, message_id):
+        return self._message
+
+    def mark_read(self, channel, message_id, ai_id, machine=None):
+        self.marked = True
+        return self._mark_ok
+
+
+_STORED = {
+    "from": "empirica-cortex",
+    "to": "empirica",
+    "subject": "Boundary cleanup",
+    "body": "The full body text.",
+    "timestamp": 1785500000.0,
+    "thread_id": "t-1",
+    "priority": "normal",
+}
+
+
+def _read(monkeypatch, store, capsys):
+    import types
+
+    from empirica.cli.command_handlers import message_commands as mc
+
+    monkeypatch.setattr(mc, "_get_store", lambda: store)
+    args = types.SimpleNamespace(channel="direct", message_id="m-1", ai_id="empirica", output="json")
+    mc.handle_message_read_command(args)
+    import json as _json
+
+    return _json.loads(capsys.readouterr().out)
+
+
+def test_message_read_returns_the_content(monkeypatch, capsys):
+    """POSITIVE CONTROL — the fields the reporter could not get."""
+    body = _read(monkeypatch, _FakeStore(_STORED), capsys)
+
+    assert body["from"] == "empirica-cortex"
+    assert body["subject"] == "Boundary cleanup"
+    assert body["body"] == "The full body text."
+
+
+def test_it_still_marks_the_message_read(monkeypatch, capsys):
+    """NEGATIVE CONTROL: the write half worked and must keep working. Adding the read
+    half must not cost the behaviour the verb already had."""
+    store = _FakeStore(_STORED)
+
+    body = _read(monkeypatch, store, capsys)
+
+    assert store.marked is True
+    assert body["marked_read"] is True
+
+
+def test_a_missing_message_is_an_error_not_an_empty_envelope(monkeypatch, capsys):
+    """Returning ok:true with null fields would be the original defect wearing the
+    fix's clothes — the caller still could not tell absent from unreadable."""
+    store = _FakeStore(None)
+
+    body = _read(monkeypatch, store, capsys)
+
+    assert body["ok"] is False
+    assert "No message" in body["error"]
+    assert store.marked is False, "an unloadable message must not have its unread flag consumed"
