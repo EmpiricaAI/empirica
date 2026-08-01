@@ -364,7 +364,9 @@ def _mint_or_adopt_project(git_root, output_format):
     except Exception as e:
         if output_format == "json":
             print(
-                json.dumps({"ok": False, "error": f"Auto-init failed: {e}", "hint": "Run 'empirica project-init' manually"})
+                json.dumps(
+                    {"ok": False, "error": f"Auto-init failed: {e}", "hint": "Run 'empirica project-init' manually"}
+                )
             )
         else:
             print(f"❌ Auto-init failed: {e}")

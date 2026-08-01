@@ -119,22 +119,28 @@ def find_worktree_main_empirica(git_root: Path) -> Path | None:
     including when ``git_root`` IS the main checkout, so callers can always
     call this unconditionally without a special case for the non-worktree path.
 
-    Teardown safety (tested empirically on macOS/BSD coreutils and CPython
-    3.13 — ``tests/test_worktree_empirica_link.py::TestSymlinkTeardownSafety``,
-    2026-08-01, in response to review on PR #397):
+    Teardown safety (tested empirically, not assumed — on both macOS/BSD and
+    Linux/glibc CI runners after the first result turned out to be
+    platform-dependent — ``tests/test_worktree_empirica_link.py::
+    TestSymlinkTeardownSafety``, 2026-08-01, PR #397 review):
 
-    - SAFE — removes only the link, main checkout's data is untouched:
-      ``rm -rf .empirica`` (no trailing slash), ``shutil.rmtree(".empirica")``
-      (raises ``OSError`` and refuses — Python explicitly guards a symlink
-      passed as the top-level path), ``git worktree remove`` (refuses without
-      ``--force`` because the symlink is untracked; ``--force`` removes only
-      the worktree's own files, main survives).
-    - DANGEROUS — resolves through the link and deletes the main checkout's
-      REAL data: ``rm -rf .empirica/`` and ``shutil.rmtree(".empirica/")`` —
-      **both** with a trailing slash. Neither shell ``rm`` nor Python's
-      ``shutil.rmtree`` guard against this form; a trailing slash on a
-      directory symlink makes both resolve into the target before deleting.
-      Never remove this symlink with a trailing slash.
+    - SAFE, portable — removes only the link, main checkout's data is
+      untouched on every platform tested: ``rm -rf .empirica`` (no trailing
+      slash), ``shutil.rmtree(".empirica")`` (no trailing slash — raises
+      ``OSError`` and refuses, Python's own top-level-symlink guard),
+      ``git worktree remove`` (refuses without ``--force`` because the
+      symlink is untracked; ``--force`` removes only the worktree's own
+      files, main survives).
+    - DANGEROUS, portable — resolves through the link and deletes the main
+      checkout's REAL data on every platform tested: ``rm -rf .empirica/``
+      (trailing slash). Never remove this symlink with a trailing slash.
+    - DANGEROUS on macOS/BSD, SAFE on Linux/glibc — NOT portable:
+      ``shutil.rmtree(".empirica/")`` (trailing slash). On macOS/BSD it
+      behaves like ``rm -rf .empirica/`` above (deletes through). On Linux
+      (confirmed on GitHub Actions runners) it instead raises
+      ``NotADirectoryError`` and refuses. Do not rely on this call being
+      safe on any given platform, and do not rely on it being unsafe either
+      — same rule either way: never pass a trailing slash.
     """
     try:
         git_dir_res = subprocess.run(

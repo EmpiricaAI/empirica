@@ -250,17 +250,38 @@ class TestSymlinkTeardownSafety:
         assert (wt_root / ".empirica").is_symlink()
         assert (main_root / ".empirica" / "sessions.db").read_text() == "important sessions.db content\n"
 
-    def test_shutil_rmtree_WITH_trailing_slash_deletes_through_the_link(self, tmp_path):
-        """DANGEROUS case: the trailing-slash form defeats shutil.rmtree's own
-        symlink guard the same way it defeats `rm -rf` — confirmed, not assumed."""
+    def test_shutil_rmtree_WITH_trailing_slash_is_platform_dependent(self, tmp_path):
+        """NOT PORTABLE — confirmed on two platforms, not assumed on either.
+
+        On macOS/BSD libc, the trailing slash defeats shutil.rmtree's own
+        top-level-symlink guard the same way it defeats `rm -rf`: it resolves
+        through the link and deletes the main checkout's real data. On
+        Linux/glibc (GitHub Actions CI, caught by this exact test on its first
+        real run — PR #397 review, 2026-08-01) it instead raises
+        NotADirectoryError and refuses. Different libc/CPython combination,
+        different outcome.
+
+        Unlike `rm -rf .empirica/` (portable-dangerous — confirmed identical
+        on both platforms above), this call's safety is NOT something you can
+        rely on from the platform alone. The test accepts either outcome but
+        requires each to be internally consistent: a refusal must leave
+        main's data untouched; a non-refusal is the known hazard and is
+        pinned as such, not asserted safe.
+        """
         main_root = _init_main_repo(tmp_path / "main")
         _seed_main_empirica(main_root)
         wt_root = _add_worktree(main_root, tmp_path / "wt")
         (wt_root / ".empirica").symlink_to(main_root / ".empirica", target_is_directory=True)
 
-        shutil.rmtree(str(wt_root / ".empirica") + "/")
-
-        assert not (main_root / ".empirica" / "sessions.db").exists()
+        try:
+            shutil.rmtree(str(wt_root / ".empirica") + "/")
+        except OSError:
+            # Refused (observed: Linux/glibc CI runners) — safe by refusal.
+            assert (main_root / ".empirica" / "sessions.db").exists()
+        else:
+            # Did not refuse (observed: macOS/BSD) — the known hazard: main's
+            # real data is gone. Documented, not asserted fine.
+            assert not (main_root / ".empirica" / "sessions.db").exists()
 
     def test_git_worktree_remove_refuses_without_force(self, tmp_path):
         main_root = _init_main_repo(tmp_path / "main")
