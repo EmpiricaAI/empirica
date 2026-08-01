@@ -118,6 +118,23 @@ def find_worktree_main_empirica(git_root: Path) -> Path | None:
     Empirica project (has ``.empirica/config.yaml``). Returns None otherwise —
     including when ``git_root`` IS the main checkout, so callers can always
     call this unconditionally without a special case for the non-worktree path.
+
+    Teardown safety (tested empirically on macOS/BSD coreutils and CPython
+    3.13 — ``tests/test_worktree_empirica_link.py::TestSymlinkTeardownSafety``,
+    2026-08-01, in response to review on PR #397):
+
+    - SAFE — removes only the link, main checkout's data is untouched:
+      ``rm -rf .empirica`` (no trailing slash), ``shutil.rmtree(".empirica")``
+      (raises ``OSError`` and refuses — Python explicitly guards a symlink
+      passed as the top-level path), ``git worktree remove`` (refuses without
+      ``--force`` because the symlink is untracked; ``--force`` removes only
+      the worktree's own files, main survives).
+    - DANGEROUS — resolves through the link and deletes the main checkout's
+      REAL data: ``rm -rf .empirica/`` and ``shutil.rmtree(".empirica/")`` —
+      **both** with a trailing slash. Neither shell ``rm`` nor Python's
+      ``shutil.rmtree`` guard against this form; a trailing slash on a
+      directory symlink makes both resolve into the target before deleting.
+      Never remove this symlink with a trailing slash.
     """
     try:
         git_dir_res = subprocess.run(

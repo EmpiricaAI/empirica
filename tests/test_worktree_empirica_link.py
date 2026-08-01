@@ -1,5 +1,13 @@
 """Tests for the linked-worktree .empirica/ self-heal.
 
+``TestSymlinkTeardownSafety`` answers a review question on PR #397: what
+happens to the MAIN checkout's real ``.empirica/`` data when a worktree's
+symlinked copy is torn down, by three plausible paths (plain ``rm -rf``,
+Python's ``shutil.rmtree``, ``git worktree remove``) — with and without a
+trailing slash, since a trailing slash changes whether the tool resolves
+through a directory symlink before deleting. Established empirically rather
+than asserted, per the review's explicit ask.
+
 Bug (observed 2026-07-30, a Claude Code worktree session): a fresh
 `git worktree add` checkout has no `.empirica/` of its own even though the
 main checkout is already an initialized Empirica project. `.empirica/` is
@@ -23,6 +31,7 @@ the actual worktree detection.
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 from argparse import Namespace
@@ -183,6 +192,103 @@ class TestAutoInitLinksWorktreesInsteadOfMinting:
         assert performed is True
         assert project_id == "freshly-minted-uuid"
         assert project_path == str(wt_root)
+
+
+def _seed_main_empirica(main_root):
+    """(Re)populate main_root/.empirica with real-looking data, for teardown
+    tests that tear the directory down and need a fresh fixture per case."""
+    empirica_dir = main_root / ".empirica"
+    empirica_dir.mkdir(exist_ok=True)
+    (empirica_dir / "sessions.db").write_text("important sessions.db content\n")
+    (empirica_dir / "config.yaml").write_text("version: 2\n")
+
+
+class TestSymlinkTeardownSafety:
+    """What happens to the MAIN checkout's real .empirica/ data when a
+    worktree's SYMLINKED copy is torn down — established empirically per
+    review on PR #397, not asserted. Each test seeds fresh main data (a prior
+    DANGEROUS case in the same run would otherwise contaminate the fixture)."""
+
+    def test_rm_rf_without_trailing_slash_only_unlinks(self, tmp_path):
+        main_root = _init_main_repo(tmp_path / "main")
+        _seed_main_empirica(main_root)
+        wt_root = _add_worktree(main_root, tmp_path / "wt")
+        (wt_root / ".empirica").symlink_to(main_root / ".empirica", target_is_directory=True)
+
+        subprocess.run(["rm", "-rf", ".empirica"], cwd=str(wt_root), check=True)
+
+        assert not (wt_root / ".empirica").exists()
+        assert (main_root / ".empirica" / "sessions.db").read_text() == "important sessions.db content\n"
+
+    def test_rm_rf_WITH_trailing_slash_deletes_through_the_link(self, tmp_path):
+        """DANGEROUS case, confirmed rather than assumed: a trailing slash on
+        a directory symlink makes `rm -rf` resolve into the target first."""
+        main_root = _init_main_repo(tmp_path / "main")
+        _seed_main_empirica(main_root)
+        wt_root = _add_worktree(main_root, tmp_path / "wt")
+        (wt_root / ".empirica").symlink_to(main_root / ".empirica", target_is_directory=True)
+
+        subprocess.run(["rm", "-rf", ".empirica/"], cwd=str(wt_root), check=True)
+
+        # This is the failure mode the review flagged — pinned here so it's a
+        # documented, known hazard rather than a surprise. If this assertion
+        # ever starts FAILING (i.e. main's data survives), that's a platform
+        # behavior change worth knowing about, not a bug in this test.
+        assert not (main_root / ".empirica" / "sessions.db").exists()
+
+    def test_shutil_rmtree_without_trailing_slash_refuses(self, tmp_path):
+        """Python's own safety check: rmtree refuses a symlink as the
+        top-level path, unlike a bare `rm -rf`."""
+        main_root = _init_main_repo(tmp_path / "main")
+        _seed_main_empirica(main_root)
+        wt_root = _add_worktree(main_root, tmp_path / "wt")
+        (wt_root / ".empirica").symlink_to(main_root / ".empirica", target_is_directory=True)
+
+        with pytest.raises(OSError):
+            shutil.rmtree(str(wt_root / ".empirica"))
+
+        assert (wt_root / ".empirica").is_symlink()
+        assert (main_root / ".empirica" / "sessions.db").read_text() == "important sessions.db content\n"
+
+    def test_shutil_rmtree_WITH_trailing_slash_deletes_through_the_link(self, tmp_path):
+        """DANGEROUS case: the trailing-slash form defeats shutil.rmtree's own
+        symlink guard the same way it defeats `rm -rf` — confirmed, not assumed."""
+        main_root = _init_main_repo(tmp_path / "main")
+        _seed_main_empirica(main_root)
+        wt_root = _add_worktree(main_root, tmp_path / "wt")
+        (wt_root / ".empirica").symlink_to(main_root / ".empirica", target_is_directory=True)
+
+        shutil.rmtree(str(wt_root / ".empirica") + "/")
+
+        assert not (main_root / ".empirica" / "sessions.db").exists()
+
+    def test_git_worktree_remove_refuses_without_force(self, tmp_path):
+        main_root = _init_main_repo(tmp_path / "main")
+        _seed_main_empirica(main_root)
+        wt_root = _add_worktree(main_root, tmp_path / "wt")
+        (wt_root / ".empirica").symlink_to(main_root / ".empirica", target_is_directory=True)
+
+        result = subprocess.run(
+            ["git", "worktree", "remove", str(wt_root)],
+            cwd=str(main_root),
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode != 0
+        assert wt_root.exists()
+        assert (main_root / ".empirica" / "sessions.db").exists()
+
+    def test_git_worktree_remove_force_preserves_main_empirica(self, tmp_path):
+        main_root = _init_main_repo(tmp_path / "main")
+        _seed_main_empirica(main_root)
+        wt_root = _add_worktree(main_root, tmp_path / "wt")
+        (wt_root / ".empirica").symlink_to(main_root / ".empirica", target_is_directory=True)
+
+        _git("worktree", "remove", "--force", str(wt_root), cwd=main_root)
+
+        assert not wt_root.exists()
+        assert (main_root / ".empirica" / "sessions.db").read_text() == "important sessions.db content\n"
 
 
 if __name__ == "__main__":
