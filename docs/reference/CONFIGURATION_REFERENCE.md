@@ -696,8 +696,7 @@ has_key = loader.has_credential("MINIMAX_API_KEY")
 
 ### Vector Search & Embeddings (Qdrant)
 
-- `EMPIRICA_QDRANT_URL`: URL for Qdrant server (e.g., `http://localhost:6333`). Required for semantic search.
-- `EMPIRICA_QDRANT_PATH`: Path for file-based Qdrant storage (default: `./.qdrant_data`). Used as fallback when URL not set.
+- `EMPIRICA_QDRANT_URL`: URL for a Qdrant server (e.g., `http://localhost:6333`). **Optional.** It is one of four ways a URL is resolved, in priority order: an explicit per-request URL, the installed per-project resolver hook, this variable, then a probe of `localhost:6333`. A local Qdrant on the default port therefore needs no configuration at all. (Retrieval used to gate on this variable alone, so setups relying on any other path had working writes and silently empty reads — #388.)
 - `EMPIRICA_ENABLE_EMBEDDINGS`: Enable/disable embedding generation (`true`, `false`)
 - `EMPIRICA_EMBEDDINGS_PROVIDER`: Embeddings provider (`openai`, `ollama`, `jina`, `voyage`, `local`, `auto`). Default: `auto` (uses Ollama if available, else local hash)
 - `EMPIRICA_EMBEDDINGS_MODEL`: Model for embeddings (varies by provider). Defaults: `text-embedding-3-small` (OpenAI), `qwen3-embedding` (Ollama), `jina-embeddings-v3` (Jina), `voyage-3-lite` (Voyage). Also configurable via `~/.empirica/config.yaml` (embeddings section)

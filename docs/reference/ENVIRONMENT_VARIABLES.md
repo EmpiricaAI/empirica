@@ -63,7 +63,7 @@ This takes priority over the env var and is dynamically settable without restart
 | `EMPIRICA_EMBEDDINGS_MODEL` | Embedding model name | `qwen3-embedding` | No |
 | `EMPIRICA_EMBEDDINGS_PROVIDER` | Embedding provider | `auto` | No |
 | `EMPIRICA_QDRANT_URL` | Qdrant vector store URL | (optional) | If remote |
-| `EMPIRICA_QDRANT_PATH` | Local Qdrant data directory | `./.qdrant_data` | No |
+| ~~`EMPIRICA_QDRANT_PATH`~~ | **Removed.** File-based Qdrant storage was dropped in #45 (incompatible on-disk formats, lock conflicts between concurrent processes, CWD-relative paths). Nothing in the codebase reads this variable; setting it has no effect. Run a Qdrant server instead. | — | — |
 | `EMPIRICA_OLLAMA_URL` | Ollama server URL | `http://localhost:11434` | If Ollama |
 | `JINA_API_KEY` | Jina embedding API key | (empty) | If Jina |
 | `VOYAGE_API_KEY` | Voyage embedding API key | (empty) | If Voyage |
