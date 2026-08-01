@@ -9,6 +9,8 @@ import json
 import logging
 import sys
 
+from empirica.data.id_guard import resolve_id_prefix
+
 from ..cli_utils import handle_cli_error
 
 logger = logging.getLogger(__name__)
@@ -938,8 +940,8 @@ def _record_source_outcomes(db, artifact_id: str, artifact_type: str, outcome: s
     try:
         cursor = db.conn.cursor()
         cursor.execute(
-            "SELECT to_id FROM artifact_edges WHERE from_id LIKE ? AND relation = 'sourced_from'",
-            (f"{artifact_id}%",),
+            "SELECT to_id FROM artifact_edges WHERE from_id = ? AND relation = 'sourced_from'",
+            (artifact_id,),
         )
         source_ids = [r[0] for r in cursor.fetchall()]
         if not source_ids:
@@ -1044,13 +1046,26 @@ def handle_resolve_artifacts_command(args):  # noqa: C901 — batch dispatcher f
                 resolution_errors.append("Missing 'id' or 'type' in resolution item")
                 continue
 
+            # Resolve the prefix to exactly ONE full id before any mutation.
+            # Every branch below used to issue `UPDATE ... WHERE id LIKE ?` with
+            # no LIMIT, so a short id resolved every matching artifact while
+            # `resolved_count += 1` reported a single one. Addressing rows by
+            # exact id makes each branch single-row by construction, which fixes
+            # the mass-mutation and the undercount together.
+            if artifact_type in _ARTIFACT_TABLES:
+                _table, _id_col, _ = _ARTIFACT_TABLES[artifact_type]
+                artifact_id, _id_error = resolve_id_prefix(db.conn.cursor(), _table, _id_col, artifact_id)
+                if _id_error:
+                    resolution_errors.append(f"{artifact_type}: {_id_error}")
+                    continue
+
             try:
                 if artifact_type == "unknown":
                     cursor = db.conn.cursor()
                     cursor.execute(
                         "UPDATE project_unknowns SET is_resolved = 1, resolved_by = ?, "
-                        "resolved_timestamp = datetime('now') WHERE id LIKE ?",
-                        (resolution, f"{artifact_id}%"),
+                        "resolved_timestamp = datetime('now') WHERE id = ?",
+                        (resolution, artifact_id),
                     )
                     if cursor.rowcount > 0:
                         resolved_count += 1
@@ -1068,8 +1083,8 @@ def handle_resolve_artifacts_command(args):  # noqa: C901 — batch dispatcher f
                     cursor = db.conn.cursor()
                     cursor.execute(
                         "UPDATE project_findings SET is_resolved = 1, resolution = ?, "
-                        "resolved_timestamp = ?, superseded_by = ?, resolution_kind = ? WHERE id LIKE ?",
-                        (resolution, _tf.time(), item.get("superseded_by"), _kind, f"{artifact_id}%"),
+                        "resolved_timestamp = ?, superseded_by = ?, resolution_kind = ? WHERE id = ?",
+                        (resolution, _tf.time(), item.get("superseded_by"), _kind, artifact_id),
                     )
                     if cursor.rowcount > 0:
                         resolved_count += 1
@@ -1121,12 +1136,12 @@ def handle_resolve_artifacts_command(args):  # noqa: C901 — batch dispatcher f
                     cursor = db.conn.cursor()
                     cursor.execute(
                         "UPDATE assumptions SET status = ?, resolution_finding_id = ?, "
-                        "resolved_timestamp = ? WHERE id LIKE ?",
+                        "resolved_timestamp = ? WHERE id = ?",
                         (
                             _status,
                             item.get("resolution_finding_id") or item.get("superseded_by"),
                             _ta.time(),
-                            f"{artifact_id}%",
+                            artifact_id,
                         ),
                     )
                     if cursor.rowcount > 0:
@@ -1143,8 +1158,8 @@ def handle_resolve_artifacts_command(args):  # noqa: C901 — batch dispatcher f
                     import time as _time
 
                     cursor.execute(
-                        "SELECT goal_data FROM goals WHERE id LIKE ?",
-                        (f"{artifact_id}%",),
+                        "SELECT goal_data FROM goals WHERE id = ?",
+                        (artifact_id,),
                     )
                     row = cursor.fetchone()
                     if not row:
@@ -1157,8 +1172,8 @@ def handle_resolve_artifacts_command(args):  # noqa: C901 — batch dispatcher f
                         gd["completed_reason"] = reason
                         cursor.execute(
                             "UPDATE goals SET is_completed = 1, status = 'completed', "
-                            "completed_timestamp = ?, goal_data = ? WHERE id LIKE ?",
-                            (_time.time(), json.dumps(gd), f"{artifact_id}%"),
+                            "completed_timestamp = ?, goal_data = ? WHERE id = ?",
+                            (_time.time(), json.dumps(gd), artifact_id),
                         )
                         if cursor.rowcount > 0:
                             resolved_count += 1
@@ -1183,8 +1198,8 @@ def handle_resolve_artifacts_command(args):  # noqa: C901 — batch dispatcher f
                     cursor = db.conn.cursor()
                     cursor.execute(
                         f"UPDATE {table} SET is_invalidated = 1, invalidated_at = ?, "
-                        f"invalidated_by = ?, invalidation_reason = ?, last_revisited_at = ? WHERE id LIKE ?",
-                        (ts, actor, resolution or "invalidated", ts, f"{artifact_id}%"),
+                        f"invalidated_by = ?, invalidation_reason = ?, last_revisited_at = ? WHERE id = ?",
+                        (ts, actor, resolution or "invalidated", ts, artifact_id),
                     )
                     if cursor.rowcount > 0:
                         resolved_count += 1
@@ -1216,8 +1231,8 @@ def handle_resolve_artifacts_command(args):  # noqa: C901 — batch dispatcher f
                         cursor = db.conn.cursor()
                         cursor.execute(
                             "UPDATE decisions SET outcome = ?, outcome_assessed_at = ?, "
-                            "regret_score = COALESCE(?, regret_score) WHERE id LIKE ?",
-                            (outcome, _time.time(), regret, f"{artifact_id}%"),
+                            "regret_score = COALESCE(?, regret_score) WHERE id = ?",
+                            (outcome, _time.time(), regret, artifact_id),
                         )
                         if cursor.rowcount > 0:
                             resolved_count += 1
@@ -1387,12 +1402,11 @@ def _delete_single_artifact(
 
     table, id_col, _data_col = _ARTIFACT_TABLES[artifact_type]
 
-    cursor.execute(f"SELECT {id_col} FROM {table} WHERE {id_col} LIKE ?", (f"{artifact_id}%",))
-    row = cursor.fetchone()
-    if not row:
-        return {"error": f"{artifact_type} '{artifact_id}' not found"}
-
-    full_id = row[0]
+    # Deletion is the one lever with no history to recover from, so an ambiguous
+    # or too-short prefix must refuse rather than take whichever row came first.
+    full_id, id_error = resolve_id_prefix(cursor, table, id_col, artifact_id)
+    if id_error:
+        return {"error": f"{artifact_type}: {id_error}"}
 
     if dry_run:
         return {"type": artifact_type, "id": full_id, "action": "would_delete"}
@@ -1779,10 +1793,14 @@ def handle_update_artifacts_command(args):
                 if atype not in ARTIFACT_TABLES:
                     errors.append(f"unknown type {atype!r} (expected one of {sorted(ARTIFACT_TABLES)})")
                     continue
-                if len(aid) < 8:
-                    # Same floor as goal-id resolution: a short prefix that happens to
-                    # be unique is not safe, it is lucky.
-                    errors.append(f"id {aid!r} is shorter than 8 characters — refusing to prefix-match")
+                # Same floor as goal-id resolution: a short prefix that happens to
+                # be unique is not safe, it is lucky. The shared resolver also
+                # refuses ambiguity, which the bare length check did not — the
+                # UPDATE below carried no LIMIT, so two matches meant two writes.
+                _table_for_id, _id_col_for_id = ARTIFACT_TABLES[atype]
+                aid, id_error = resolve_id_prefix(cursor, _table_for_id, _id_col_for_id, aid)
+                if id_error:
+                    errors.append(f"{atype}: {id_error}")
                     continue
 
                 body = {k: v for k, v in item.items() if k not in ("type", "id")}
@@ -1795,9 +1813,9 @@ def handle_update_artifacts_command(args):
 
                 table, id_col = ARTIFACT_TABLES[atype]
                 sets = ", ".join(f"{k} = ?" for k in updates)
-                params = [*updates.values(), f"{aid}%"]
+                params = [*updates.values(), aid]
                 try:
-                    cursor.execute(f"UPDATE {table} SET {sets} WHERE {id_col} LIKE ?", params)
+                    cursor.execute(f"UPDATE {table} SET {sets} WHERE {id_col} = ?", params)
                 except Exception as e:
                     errors.append(f"{atype} {aid[:8]}: {e}")
                     continue
