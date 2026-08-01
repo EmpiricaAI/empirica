@@ -22,7 +22,23 @@ import logging
 import os
 from typing import Any
 
+from empirica.core.mistake_text import parse_mistake_text
+
 logger = logging.getLogger(__name__)
+
+
+def _mistake_entry(m: dict, score_key: str) -> dict:
+    """Project an embedded mistake into the retrieval payload shape.
+
+    Both halves go through the shared parser. The inline split this replaced
+    took `text.split(" Prevention:")[0]` for the mistake, which left the
+    `MISTAKE: ` prefix in place for anything embedded by the live log path —
+    that path writes the prefix, the bulk re-embed paths do not, so the same
+    artifact surfaced differently depending on which one had last touched it.
+    """
+    mistake, prevention = parse_mistake_text(m.get("text"))
+    return {"mistake": mistake, "prevention": prevention, score_key: m.get("score", 0.0)}
+
 
 # Defaults
 # NOTE: Threshold lowered to 0.5 because placeholder embeddings (hash-based)
@@ -1046,14 +1062,7 @@ def retrieve_task_patterns(
     mistakes_raw = _search_memory_by_type(
         project_id, f"Mistake or pitfall doing: {task_context}", "mistake", limits["mistakes"], threshold
     )
-    prior_mistakes = [
-        {
-            "mistake": m.get("text", "").split(" Prevention:")[0] if m.get("text") else "",
-            "prevention": m.get("text", "").split("Prevention: ")[1] if "Prevention:" in m.get("text", "") else "",
-            "score": m.get("score", 0.0),
-        }
-        for m in mistakes_raw
-    ]
+    prior_mistakes = [_mistake_entry(m, "score") for m in mistakes_raw]
 
     # Search for relevant findings (high-impact facts). Over-fetch, then re-rank
     # by recency at read-time so stale findings sink below fresh relevant ones.
@@ -1241,14 +1250,7 @@ def check_against_patterns(
         mistakes = _search_memory_by_type(
             project_id, f"Mistake or pitfall: {current_approach}", "mistake", limit, threshold
         )
-        warnings["mistake_matches"] = [
-            {
-                "mistake": m.get("text", "").split(" Prevention:")[0] if m.get("text") else "",
-                "prevention": m.get("text", "").split("Prevention: ")[1] if "Prevention:" in m.get("text", "") else "",
-                "similarity": m.get("score", 0.0),
-            }
-            for m in mistakes
-        ]
+        warnings["mistake_matches"] = [_mistake_entry(m, "similarity") for m in mistakes]
 
     # Check vector patterns for mistake risk
     if vectors:

@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from empirica.core.mistake_text import build_mistake_text
 from empirica.utils.session_resolver import InstanceResolver as R
 
 from ..cli_utils import handle_cli_error
@@ -3366,7 +3367,7 @@ def _mistake_persist_git_and_qdrant(
             embedded = embed_single_memory_item(
                 project_id=project_id,
                 item_id=mistake_id,
-                text=f"MISTAKE: {mistake} Prevention: {prevention or 'none specified'}",
+                text=build_mistake_text(mistake, prevention, prefix=True),
                 item_type="mistake",
                 session_id=session_id,
                 goal_id=goal_id,

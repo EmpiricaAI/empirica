@@ -17,6 +17,8 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from empirica.core.mistake_text import build_mistake_text
+
 logger = logging.getLogger(__name__)
 
 
@@ -95,7 +97,7 @@ def _build_mistake_items(mistakes: list[dict]) -> list[dict]:
         mid_str = str(m.get("id", ""))
         if not mid_str:
             continue
-        text = f"{m.get('mistake', '')} Prevention: {m.get('prevention', '')}"
+        text = build_mistake_text(m.get("mistake"), m.get("prevention"))
         items.append(
             {
                 "id": f"mistake_{mid_str}",

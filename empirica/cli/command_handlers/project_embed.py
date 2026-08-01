@@ -8,6 +8,8 @@ import json
 import logging
 import os
 
+from empirica.core.mistake_text import build_mistake_text
+
 from ..cli_utils import handle_cli_error
 
 logger = logging.getLogger(__name__)
@@ -134,7 +136,7 @@ def _build_memory_items(findings, unknowns, mistakes, dead_ends, lessons, snapsh
             items.append(
                 {
                     "id": f"mistake_{mid}",
-                    "text": f"{m.get('mistake', '')} Prevention: {m.get('prevention', '')}",
+                    "text": build_mistake_text(m.get("mistake"), m.get("prevention")),
                     "type": "mistake",
                     "session_id": m.get("session_id"),
                     "goal_id": m.get("goal_id"),
