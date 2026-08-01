@@ -181,14 +181,36 @@ def _delete_args(**kw):
     return types.SimpleNamespace(**base)
 
 
+class _FakeDB:
+    """Stands in for SessionDatabase so this test needs no project on disk.
+
+    The first version of these tests let the handler open the real database.
+    They passed on a developer box with a populated .empirica/ and failed in CI,
+    where there is none: the handler produced no stdout and json.loads("")
+    raised. A test that only passes where the author happens to be sitting is
+    not a test of the code.
+    """
+
+    def __init__(self):
+        self.conn = sqlite3.connect(":memory:")
+        self.conn.execute("CREATE TABLE project_findings (id TEXT PRIMARY KEY)")
+
+    def close(self):
+        self.conn.close()
+
+
 def _run_delete(monkeypatch, capsys, args, payload):
     import json as _json
 
     import empirica.cli.command_handlers.graph_commands as gc
+    import empirica.data.session_database as sdb
 
     monkeypatch.setattr(gc, "_read_deletion_input", lambda _a: payload)
+    monkeypatch.setattr(sdb, "SessionDatabase", _FakeDB)
     gc.handle_delete_artifacts_command(args)
-    return _json.loads(capsys.readouterr().out)
+    out = capsys.readouterr().out
+    assert out.strip(), "handler produced no stdout — it must always emit a JSON receipt"
+    return _json.loads(out)
 
 
 PAYLOAD = {"deletions": [{"type": "finding", "id": "nonexistent-but-well-formed-id"}], "reason": "test"}
