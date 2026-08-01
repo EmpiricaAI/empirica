@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.12.38
-**Generated:** 2026-08-01 12:23:00 UTC
+**Framework version:** 1.13.0
+**Generated:** 2026-08-01 19:59:09 UTC
 **Total commands:** 243 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -1234,7 +1234,7 @@ Close multiple open artifacts (unknowns, assumptions, goals) in one call. Typica
 
 #### `empirica delete-artifacts`
 
-Remove stale, duplicate, or test-noise artifacts from the ledger. Unlike resolve-artifacts (closes WITH a resolution reason), this hard-deletes from SQLite + Qdrant. The deletion itself is logged as a decision for audit. Use --dry-run first to preview. For "still valid but answered", use resolve. For "never should have been logged", use this.
+Remove stale, duplicate, or test-noise artifacts from the ledger. Unlike resolve-artifacts (closes WITH a resolution reason), this hard-deletes from SQLite + Qdrant. The deletion itself is logged as a decision for audit. PREVIEWS by default — pass --apply to actually delete. For "still valid but answered", use resolve. For "never should have been logged", use this.
 
 **Arguments:**
 
@@ -1242,8 +1242,10 @@ Remove stale, duplicate, or test-noise artifacts from the ledger. Unlike resolve
   JSON file or - for stdin (default: stdin)
 - `--schema` — optional · flag
   Print the input JSON schema and exit
+- `--apply` — optional · flag
+  Actually delete (default is preview only)
 - `--dry-run` — optional · flag
-  Preview deletions without executing
+  Accepted for compatibility — preview is the default, so this is a no-op
 - `--output` — optional · type=`choice` · choices={human, json} · default=`json`
   Output format
 - `--verbose` — optional · flag
