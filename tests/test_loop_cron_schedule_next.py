@@ -112,3 +112,33 @@ def test_a_cron_kind_loop_with_no_expression_falls_back_to_interval(registry):
 def test_an_unregistered_loop_still_returns_none(registry):
     """NEGATIVE CONTROL: the not-registered contract is unchanged."""
     assert registry.schedule_next("never-registered") is None
+
+
+def test_the_human_summary_never_shows_a_fabricated_next_fire(tmp_path, monkeypatch, capsys):
+    """Found by the pattern hunt, on the fix itself.
+
+    `schedule_next`'s JSON payload correctly omits every fabricated next-fire
+    field for a cron loop, and the `loop fire` hint was corrected to print the
+    real expression — but the `loop schedule-next` HUMAN summary still
+    interpolated `cron_one_shot`, which pins a one-shot to `fire_at` (= now).
+
+    So the two outputs of the same command disagreed, and the readable one — the
+    one a person acts on — was the wrong one. Fixing the path in front of you
+    instead of the class is the failure this whole release keeps rediscovering.
+    """
+    import types
+
+    from empirica.cli.command_handlers import cockpit_commands as cc
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    registry = LoopRegistry("summary-test")
+    registry.register(name="daily", description="d", kind="cron", cron="0 9 * * *")
+
+    monkeypatch.setattr(cc, "LoopRegistry", lambda *a, **k: registry)
+    monkeypatch.setattr(cc, "_require_loop_key", lambda _a: "summary-test")
+
+    cc.handle_loop_schedule_next_command(types.SimpleNamespace(name="daily", instance=None, output="human"))
+    out = capsys.readouterr().out
+
+    assert "0 9 * * *" in out
+    assert "next fire:" not in out, "human summary claimed a computed next fire for a cron loop"

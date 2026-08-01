@@ -6,3 +6,8 @@ blind-except:empirica/core/version_drift.py:75,103,129 — best-effort by contra
 blind-except:empirica/core/loop_scheduler/persistent_listener.py:116,461,510 — pre-existing, unchanged by this delta.
 complexity:empirica/plugins/.../sentinel-gate.py::_validate_check_record D(29) — pre-existing, untouched. Functions added in this delta are A/B (worst B(9)).
 complexity:empirica/core/qdrant/memory.py::search C(16) — pre-existing shape; this delta REDUCED branching by collapsing focused/all into one branch.
+
+# Reviewed 2026-08-01, deep depth × repo scope (pre-release sweep for 1.13.0).
+blind-except:empirica/core/cockpit/loop_registry.py:120,415,527 — narrow typed catches (FileNotFoundError/OSError) around optional state-file reads, not blind swallows. Absence of the file is the normal case. Reverse if the catch widens to Exception.
+blind-except:empirica/core/qdrant/pattern_retrieval.py:861 — narrow (TypeError/ValueError) around per-item score coercion inside a loop; skipping one malformed payload is correct and the alternative is dropping the whole result set. Pre-existing (7a7a7aa30, 2026-07-10).
+complexity:empirica/core/cockpit/canonical_loops.py::maybe_queue_canonical_install C — a documented 5-gate cascade (project / stamp / registry / opt_in_only / kind==cron). The branching IS the specification; flattening it would hide the gates. Reverse if a sixth gate lands without a matching test.

@@ -614,7 +614,14 @@ def handle_loop_schedule_next_command(args) -> int:
         "name": args.name,
         **plan.to_dict(),
     }
-    summary = f"next fire: {plan.fire_at.isoformat()} ({plan.cron_one_shot}) — {plan.reason}"
+    # A cron loop has no computed next fire, and `cron_one_shot` pins a one-shot
+    # to plan.fire_at — which for a cron loop is *now*. The JSON payload already
+    # omits those fields; this human summary must not reintroduce them, or the
+    # two disagree and the readable one is the one people act on.
+    if plan.is_cron:
+        summary = f"cron loop — schedule is `{plan.cron}` (no computed next fire): {plan.reason}"
+    else:
+        summary = f"next fire: {plan.fire_at.isoformat()} ({plan.cron_one_shot}) — {plan.reason}"
     return _emit(args, payload, summary)
 
 
