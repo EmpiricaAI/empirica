@@ -2,7 +2,23 @@
 
 **Module:** Various utility modules in `empirica.utils.*`
 **Category:** System & Infrastructure
-**Stability:** Production Ready
+**Stability:** ⚠️ DRIFTED — signatures unverified (see notice below)
+
+
+> ### ⚠️ This document has drifted from the code
+>
+> **3 of the 13 functions documented below do not exist.** They carry full
+> signatures, parameter tables and runnable examples, and the examples fail on the
+> first call. Verified 2026-08-01.
+>
+> Treat every signature here as unverified until this notice is removed. The
+> authoritative surfaces are `empirica <command> --help` for the CLI and the
+> module source for the Python API.
+>
+> A test (`tests/test_api_docs_symbols_exist.py`) now fails CI if a *new*
+> undocumented-but-absent symbol appears, and holds a frozen inventory of the
+> existing ones that may only shrink. Rewriting these entries against the real
+> API is tracked as a goal.
 
 ---
 
