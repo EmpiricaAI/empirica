@@ -2,23 +2,15 @@
 
 **Module:** Various utility modules in `empirica.utils.*`
 **Category:** System & Infrastructure
-**Stability:** ⚠️ DRIFTED — signatures unverified (see notice below)
+**Stability:** Prose is hand-written; the Verified API surface section is generated from source
 
 
-> ### ⚠️ This document has drifted from the code
+> ### Verified against the code
 >
-> **3 of the 13 functions documented below do not exist.** They carry full
-> signatures, parameter tables and runnable examples, and the examples fail on the
-> first call. Verified 2026-08-01.
->
-> Treat every signature here as unverified until this notice is removed. The
-> authoritative surfaces are `empirica <command> --help` for the CLI and the
-> module source for the Python API.
->
-> A test (`tests/test_api_docs_symbols_exist.py`) now fails CI if a *new*
-> undocumented-but-absent symbol appears, and holds a frozen inventory of the
-> existing ones that may only shrink. Rewriting these entries against the real
-> API is tracked as a goal.
+> The entries that documented functions which do not exist have been removed
+> (43 across four files, 2026-08-01), and a **Verified API surface** section
+> generated from source is appended below. `tests/test_api_docs_symbols_exist.py`
+> fails CI if a function that does not exist is documented here again.
 
 ---
 
@@ -255,51 +247,6 @@ from empirica.data.migrations.migration_runner import MigrationRunner
 
 migration_runner = MigrationRunner("./sessions.db")
 ```
-
-### `run_migrations(self, target_version: Optional[str] = None) -> Dict[str, Any]`
-
-Run pending migrations up to target version.
-
-**Parameters:**
-- `target_version: Optional[str]` - Target version, runs all if None
-
-**Returns:** `Dict[str, Any]` - Migration results
-
-**Example:**
-```python
-results = migration_runner.run_migrations(target_version="1.0.5")
-print(f"Migrated from {results['from_version']} to {results['to_version']}")
-print(f"Applied {len(results['applied_migrations'])} migrations")
-```
-
-### `get_current_schema_version(self) -> str`
-
-Get current schema version.
-
-**Returns:** `str` - Current version string
-
-**Example:**
-```python
-current_version = migration_runner.get_current_schema_version()
-print(f"Current schema version: {current_version}")
-```
-
-### `check_pending_migrations(self) -> List[Dict[str, str]]`
-
-Check for pending migrations.
-
-**Returns:** `List[Dict[str, str]]` - List of pending migration dictionaries
-
-**Example:**
-```python
-pending = migration_runner.check_pending_migrations()
-if pending:
-    print(f"Pending migrations: {len(pending)}")
-    for migration in pending:
-        print(f"  - {migration['version']}: {migration['description']}")
-```
-
----
 
 ## Best Practices
 
@@ -559,3 +506,21 @@ repo.checkpoint_branch(branch_id, findings, confidence)
 
 **API Stability:** Stable
 **Last Updated:** 2026-01-03
+
+---
+
+## Verified API surface
+
+Generated from source. Every entry below exists; the signatures are the real ones.
+
+
+### `empirica/data/migrations/migration_runner.py`
+
+
+#### class `MigrationRunner`
+
+- `has_run(self, migration_id: str) -> bool` — Check if a migration has already been executed
+- `mark_as_run(self, migration_id: str, description: str='')` — Mark a migration as executed
+- `run_migration(self, migration_id: str, description: str, migration_func: Callable)` — Run a migration if it hasn't been executed yet
+- `run_all(self, migrations: list[tuple[str, str, Callable]])` — Run all pending migrations
+

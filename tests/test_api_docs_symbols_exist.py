@@ -35,63 +35,11 @@ import pytest
 
 API_DOCS = Path(__file__).parent.parent / "docs" / "reference" / "api"
 
-# Frozen inventory of symbols documented but absent, as of 2026-08-01.
-# THIS LIST MAY ONLY SHRINK. Fix a doc, delete the entry.
-# Tracked for rewrite — see the goal "API reference docs: 43 documented
-# functions do not exist".
-KNOWN_STALE: dict[str, set[str]] = {
-    "goals_tasks.md": {
-        "assign_task",
-        "bulk_create_tasks",
-        "calculate_goal_confidence",
-        "create_dependency",
-        "create_task",
-        "decompose_goal",
-        "get_goal_progress",
-        "get_goals_for_session",
-        "get_goals_ready_for_work",
-        "get_task_dependencies",
-        "get_tasks_for_goal",
-        "update_multiple_goals_status",
-        "update_task_status",
-    },
-    "knowledge_management.md": {
-        "add_reference_document",
-        "add_source",
-        "cleanup_stale_references",
-        "export_knowledge_base",
-        "get_dead_ends",
-        "get_findings",
-        "get_knowledge_delta",
-        "get_knowledge_graph",
-        "get_reference_documents",
-        "get_sources",
-        "get_unknowns",
-        "identify_knowledge_gaps",
-        "import_knowledge_base",
-        "search_reference_documents",
-        "update_source_confidence",
-    },
-    "project_management.md": {
-        "add_reference_document",
-        "create_handoff_report",
-        "export_project_data",
-        "get_all_projects",
-        "get_handoff_history",
-        "get_latest_handoff",
-        "get_project_health",
-        "get_project_learning_delta",
-        "get_project_stats",
-        "get_sessions_for_project",
-        "search_reference_docs",
-        "update_project",
-    },
-    "system_utilities.md": {
-        "check_pending_migrations",
-        "get_current_schema_version",
-        "run_migrations",
-    },
-}
+# EMPTY, and it stays empty. The 43 phantom entries this list was created to
+# track were removed on 2026-08-01 and replaced with a generated-from-source
+# surface. An entry here would mean a documented function does not exist —
+# which is now a CI failure, not a debt to record.
+KNOWN_STALE: dict[str, set[str]] = {}
 
 _HEADING = re.compile(r"^#+ `?([a-z_]\w*)\(", re.M)
 
@@ -170,4 +118,4 @@ def test_every_stale_entry_is_actually_documented():
 def test_the_inventory_is_not_growing_silently():
     """A single number someone would have to consciously raise. Swapping one
     phantom for another keeps the per-file tests green; this does not."""
-    assert sum(len(v) for v in KNOWN_STALE.values()) <= 43
+    assert sum(len(v) for v in KNOWN_STALE.values()) == 0

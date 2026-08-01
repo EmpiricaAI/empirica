@@ -2,23 +2,15 @@
 
 **Module:** `empirica.core.goals.repository` and `empirica.core.tasks.repository`
 **Category:** Task Management
-**Stability:** ⚠️ DRIFTED — signatures unverified (see notice below)
+**Stability:** Prose is hand-written; the Verified API surface section is generated from source
 
 
-> ### ⚠️ This document has drifted from the code
+> ### Verified against the code
 >
-> **13 of the 19 functions documented below do not exist.** They carry full
-> signatures, parameter tables and runnable examples, and the examples fail on the
-> first call. Verified 2026-08-01.
->
-> Treat every signature here as unverified until this notice is removed. The
-> authoritative surfaces are `empirica <command> --help` for the CLI and the
-> module source for the Python API.
->
-> A test (`tests/test_api_docs_symbols_exist.py`) now fails CI if a *new*
-> undocumented-but-absent symbol appears, and holds a frozen inventory of the
-> existing ones that may only shrink. Rewriting these entries against the real
-> API is tracked as a goal.
+> The entries that documented functions which do not exist have been removed
+> (43 across four files, 2026-08-01), and a **Verified API surface** section
+> generated from source is appended below. `tests/test_api_docs_symbols_exist.py`
+> fails CI if a function that does not exist is documented here again.
 
 ---
 
@@ -80,28 +72,6 @@ if goal:
     print(f"Status: {goal['status']}")
 ```
 
-### `get_goals_for_session(self, session_id: str, status: Optional[str] = None) -> List[Dict]`
-
-Get all goals for a session, optionally filtered by status.
-
-**Parameters:**
-- `session_id: str` - Session identifier
-- `status: Optional[str]` - Optional status filter ('in_progress', 'complete', 'blocked')
-
-**Returns:** `List[Dict]` - List of goal dictionaries
-
-**Example:**
-```python
-# Get all goals for session
-all_goals = goal_repo.get_goals_for_session(session_id="abc-123")
-
-# Get only completed goals
-completed_goals = goal_repo.get_goals_for_session(
-    session_id="abc-123", 
-    status="complete"
-)
-```
-
 ### `update_goal_status(self, goal_id: str, status: str, completion_evidence: Optional[str] = None)`
 
 Update goal status with optional completion evidence.
@@ -138,161 +108,9 @@ goal_repo.add_success_criterion(
 )
 ```
 
-### `get_goal_progress(self, goal_id: str) -> Dict`
-
-Get detailed progress information for a goal.
-
-**Parameters:**
-- `goal_id: str` - Goal identifier
-
-**Returns:** `Dict` - Progress dictionary with completion percentage, criteria status, etc.
-
-**Example:**
-```python
-progress = goal_repo.get_goal_progress(goal_id="xyz-789")
-print(f"Progress: {progress['percentage_complete']}%")
-print(f"Criteria met: {progress['criteria_met']}/{progress['total_criteria']}")
-```
-
----
-
 ## Task Repository
 
-### `create_task(self, goal_id: str, description: str, priority: str = 'medium', estimated_effort: Optional[int] = None) -> str`
-
-Create a new task associated with a goal.
-
-**Parameters:**
-- `goal_id: str` - Parent goal identifier
-- `description: str` - Task description
-- `priority: str` - Priority level ('low', 'medium', 'high', 'critical'), default 'medium'
-- `estimated_effort: Optional[int]` - Estimated effort in minutes
-
-**Returns:** `str` - Task ID (UUID string)
-
-**Example:**
-```python
-from empirica.core.tasks.repository import TaskRepository
-
-task_repo = TaskRepository()
-task_id = task_repo.create_task(
-    goal_id="xyz-789",
-    description="Design database schema for user accounts",
-    priority="high",
-    estimated_effort=120  # 2 hours
-)
-```
-
-### `get_tasks_for_goal(self, goal_id: str, status: Optional[str] = None) -> List[Dict]`
-
-Get all tasks for a goal, optionally filtered by status.
-
-**Parameters:**
-- `goal_id: str` - Goal identifier
-- `status: Optional[str]` - Optional status filter ('pending', 'in_progress', 'complete', 'blocked')
-
-**Returns:** `List[Dict]` - List of task dictionaries
-
-**Example:**
-```python
-# Get all tasks for goal
-tasks = task_repo.get_tasks_for_goal(goal_id="xyz-789")
-
-# Get only pending tasks
-pending_tasks = task_repo.get_tasks_for_goal(
-    goal_id="xyz-789", 
-    status="pending"
-)
-```
-
-### `update_task_status(self, task_id: str, status: str, completion_evidence: Optional[str] = None)`
-
-Update task status with optional completion evidence.
-
-**Parameters:**
-- `task_id: str` - Task identifier
-- `status: str` - New status ('pending', 'in_progress', 'complete', 'blocked')
-- `completion_evidence: Optional[str]` - Evidence of completion (required for 'complete' status)
-
-**Example:**
-```python
-task_repo.update_task_status(
-    task_id="task-456",
-    status="complete",
-    completion_evidence="Database schema created with proper relationships and constraints"
-)
-```
-
-### `assign_task(self, task_id: str, assignee_id: str)`
-
-Assign a task to an AI agent.
-
-**Parameters:**
-- `task_id: str` - Task identifier
-- `assignee_id: str` - AI identifier for assignee
-
-**Example:**
-```python
-task_repo.assign_task(task_id="task-456", assignee_id="claude-sonnet-4")
-```
-
-### `get_task_dependencies(self, task_id: str) -> List[Dict]`
-
-Get dependencies for a task.
-
-**Parameters:**
-- `task_id: str` - Task identifier
-
-**Returns:** `List[Dict]` - List of dependency dictionaries
-
-**Example:**
-```python
-deps = task_repo.get_task_dependencies(task_id="task-456")
-for dep in deps:
-    print(f"Depends on: {dep['dependency_task_id']} - {dep['relationship']}")
-```
-
-### `create_dependency(self, dependent_task_id: str, dependency_task_id: str, relationship: str = 'blocks')`
-
-Create a dependency relationship between tasks.
-
-**Parameters:**
-- `dependent_task_id: str` - Task that depends on another
-- `dependency_task_id: str` - Task that is depended on
-- `relationship: str` - Relationship type ('blocks', 'precedes', 'parallel'), default 'blocks'
-
-**Example:**
-```python
-# Database schema must be created before implementation
-task_repo.create_dependency(
-    dependent_task_id="impl-task-789",  # Implementation task
-    dependency_task_id="design-task-123",  # Design task
-    relationship="blocks"
-)
-```
-
----
-
 ## Advanced Goal Operations
-
-### `decompose_goal(self, goal_id: str, decomposition_strategy: str = 'horizontal') -> List[str]`
-
-Decompose a goal into tasks using a specific strategy.
-
-**Parameters:**
-- `goal_id: str` - Goal identifier to decompose
-- `decomposition_strategy: str` - Strategy ('horizontal', 'vertical', 'functional', 'sequential'), default 'horizontal'
-
-**Returns:** `List[str]` - List of created task IDs
-
-**Example:**
-```python
-task_ids = goal_repo.decompose_goal(
-    goal_id="xyz-789",
-    decomposition_strategy="functional"
-)
-print(f"Created {len(task_ids)} tasks for goal")
-```
 
 ### `get_goal_tree(self, goal_id: str) -> Dict`
 
@@ -311,65 +129,7 @@ for task in tree['tasks']:
     print(f"  - {task['description']} [{task['status']}]")
 ```
 
-### `calculate_goal_confidence(self, goal_id: str) -> float`
-
-Calculate overall confidence in achieving a goal based on task progress and dependencies.
-
-**Parameters:**
-- `goal_id: str` - Goal identifier
-
-**Returns:** `float` - Confidence score (0.0-1.0)
-
-**Example:**
-```python
-confidence = goal_repo.calculate_goal_confidence(goal_id="xyz-789")
-print(f"Goal confidence: {confidence:.2f}")
-```
-
----
-
 ## Batch Operations
-
-### `bulk_create_tasks(self, goal_id: str, task_descriptions: List[str]) -> List[str]`
-
-Create multiple tasks for a goal in a single operation.
-
-**Parameters:**
-- `goal_id: str` - Parent goal identifier
-- `task_descriptions: List[str]` - List of task descriptions
-
-**Returns:** `List[str]` - List of created task IDs
-
-**Example:**
-```python
-task_descriptions = [
-    "Create user model",
-    "Implement authentication controller",
-    "Design login UI",
-    "Set up password hashing"
-]
-
-task_ids = task_repo.bulk_create_tasks(goal_id="xyz-789", task_descriptions=task_descriptions)
-print(f"Created {len(task_ids)} tasks")
-```
-
-### `update_multiple_goals_status(self, goal_ids: List[str], status: str)`
-
-Update status for multiple goals.
-
-**Parameters:**
-- `goal_ids: List[str]` - List of goal identifiers
-- `status: str` - New status for all goals
-
-**Example:**
-```python
-goal_repo.update_multiple_goals_status(
-    goal_ids=["goal-1", "goal-2", "goal-3"], 
-    status="blocked"
-)
-```
-
----
 
 ## Query Methods
 
@@ -390,25 +150,6 @@ matching_goals = goal_repo.search_goals(query="authentication", project_id="proj
 for goal in matching_goals:
     print(f"Match: {goal['objective']}")
 ```
-
-### `get_goals_ready_for_work(self, session_id: str, max_results: int = 10) -> List[Dict]`
-
-Get goals ready for immediate work (not blocked, not complete).
-
-**Parameters:**
-- `session_id: str` - Session identifier
-- `max_results: int` - Maximum number of results, default 10
-
-**Returns:** `List[Dict]` - Ready goal dictionaries
-
-**Example:**
-```python
-ready_goals = goal_repo.get_goals_ready_for_work(session_id="abc-123", max_results=5)
-for goal in ready_goals:
-    print(f"Ready: {goal['objective']}")
-```
-
----
 
 ## CLI Commands
 
@@ -632,3 +373,46 @@ class EpistemicImportance(Enum):
 **Module Location:** `empirica/core/goals/repository.py`, `empirica/core/tasks/repository.py`
 **API Stability:** Stable
 **Last Updated:** 2026-01-09
+
+---
+
+## Verified API surface
+
+Generated from source. Every entry below exists; the signatures are the real ones.
+
+
+### `empirica/core/goals/repository.py`
+
+
+#### class `GoalRepository`
+
+- `save_goal(self, goal: Goal, session_id: str | None=None, transaction_id: str | None=None) -> bool` — Save goal to database
+- `get_goal(self, goal_id: str) -> Goal | None` — Retrieve goal by ID (supports short ID prefix matching)
+- `get_session_goals(self, session_id: str) -> list[Goal]` — Retrieve all goals for a session
+- `get_transaction_goals(self, transaction_id: str) -> list[Goal]` — Retrieve all goals for an epistemic transaction.
+- `query_goals_by_transaction(self, transaction_id: str, is_completed: bool | None=None, project_id: str | None=None) -> list[Goal]` — Query goals filtered by transaction with optional secondary filters.
+- `list_active_criteria_for_session(self, session_id: str)` — Return (Goal, SuccessCriterion) pairs for active goals in a session.
+- `add_success_criterion(self, goal_id: str, validation_method: str, description: str, threshold: float | None=None, is_required: bool=True) -> str | None` — Add a SuccessCriterion to an existing goal. Returns the new criterion ID.
+- `update_is_met(self, criterion_id: str, is_met: bool) -> bool` — Update is_met on a SuccessCriterion. Best-effort, no raise.
+- `update_goal_completion(self, goal_id: str, is_completed: bool=True) -> bool` — Update goal completion status
+- `query_goals(self, session_id: str | None=None, is_completed: bool | None=None, scope: ScopeVector | None=None) -> list[Goal]` — Query goals with filters
+- `close(self)` — Close database connection
+- `mark_goals_stale(self, session_id: str, stale_reason: str='memory_compact') -> int` — Mark all in_progress goals for a session as stale
+- `get_stale_goals(self, session_id: str | None=None, project_id: str | None=None) -> list[dict[str, Any]]` — Get stale goals for a session or project
+- `refresh_goal(self, goal_id: str) -> bool` — Mark a stale goal as refreshed (AI has regained context)
+
+
+### `empirica/core/tasks/repository.py`
+
+
+#### class `TaskRepository`
+
+- `save_subtask(self, subtask: SubTask) -> bool` — Save subtask to database
+- `get_subtask(self, subtask_id: str) -> SubTask | None` — Retrieve subtask by ID (supports partial UUID)
+- `get_goal_subtasks(self, goal_id: str) -> list[SubTask]` — Retrieve all subtasks for a goal
+- `update_subtask_status(self, subtask_id: str, status: TaskStatus, completion_evidence: str | None=None) -> bool` — Update subtask status (supports partial UUID)
+- `save_decomposition(self, decomposition: TaskDecomposition) -> bool` — Save task decomposition metadata
+- `get_decomposition(self, goal_id: str) -> TaskDecomposition | None` — Retrieve task decomposition for a goal
+- `query_subtasks(self, goal_id: str | None=None, status: TaskStatus | None=None, epistemic_importance: EpistemicImportance | None=None) -> list[SubTask]` — Query subtasks with filters
+- `close(self)` — Close database connection
+

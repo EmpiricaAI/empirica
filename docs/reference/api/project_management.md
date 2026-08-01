@@ -2,23 +2,15 @@
 
 **Module:** `empirica.data.repositories.projects` and related modules
 **Category:** Project & Workspace Management
-**Stability:** ⚠️ DRIFTED — signatures unverified (see notice below)
+**Stability:** Prose is hand-written; the Verified API surface section is generated from source
 
 
-> ### ⚠️ This document has drifted from the code
+> ### Verified against the code
 >
-> **12 of the 27 functions documented below do not exist.** They carry full
-> signatures, parameter tables and runnable examples, and the examples fail on the
-> first call. Verified 2026-08-01.
->
-> Treat every signature here as unverified until this notice is removed. The
-> authoritative surfaces are `empirica <command> --help` for the CLI and the
-> module source for the Python API.
->
-> A test (`tests/test_api_docs_symbols_exist.py`) now fails CI if a *new*
-> undocumented-but-absent symbol appears, and holds a frozen inventory of the
-> existing ones that may only shrink. Rewriting these entries against the real
-> API is tracked as a goal.
+> The entries that documented functions which do not exist have been removed
+> (43 across four files, 2026-08-01), and a **Verified API surface** section
+> generated from source is appended below. `tests/test_api_docs_symbols_exist.py`
+> fails CI if a function that does not exist is documented here again.
 
 ---
 
@@ -99,111 +91,7 @@ if project:
     print(f"Status: {project['status']}")
 ```
 
-### `update_project(self, project_id: str, **updates) -> bool`
-
-Update project fields.
-
-**Parameters:**
-- `project_id: str` - Project identifier
-- `**updates` - Field updates (name, description, status, etc.)
-
-**Returns:** `bool` - True if update successful
-
-**Example:**
-```python
-success = project_repo.update_project(
-    project_id="proj-123",
-    status="in_review",
-    last_activity_timestamp=time.time()
-)
-```
-
-### `get_all_projects(self, status: Optional[str] = None) -> List[Dict]`
-
-Get all projects, optionally filtered by status.
-
-**Parameters:**
-- `status: Optional[str]` - Optional status filter ('active', 'completed', 'on_hold', 'archived')
-
-**Returns:** `List[Dict]` - List of project dictionaries
-
-**Example:**
-```python
-active_projects = project_repo.get_all_projects(status="active")
-for proj in active_projects:
-    print(f"{proj['name']} - {proj['description']}")
-```
-
----
-
 ## Project Handoff Management
-
-### `create_handoff_report(self, project_id: str, ai_id: str, session_summary: Dict[str, Any], next_session_context: Optional[Dict[str, Any]] = None) -> str`
-
-Create an AI-to-AI handoff report for the project.
-
-**Parameters:**
-- `project_id: str` - Project identifier
-- `ai_id: str` - AI identifier creating the handoff
-- `session_summary: Dict[str, Any]` - Summary of completed work
-- `next_session_context: Optional[Dict[str, Any]]` - Context for next session
-
-**Returns:** `str` - Handoff report ID
-
-**Example:**
-```python
-handoff_id = project_repo.create_handoff_report(
-    project_id="proj-123",
-    ai_id="claude-sonnet-4",
-    session_summary={
-        "completed_work": ["auth module", "jwt implementation"],
-        "remaining_tasks": ["oauth2 flow", "password reset"],
-        "key_decisions": ["use bcrypt for hashing", "jwt expiry 24h"],
-        "unknowns": ["scaling requirements", "audit logging needs"]
-    },
-    next_session_context={
-        "focus": "oauth2 implementation",
-        "blocking_issues": [],
-        "recommended_approach": "follow RFC6749"
-    }
-)
-```
-
-### `get_latest_handoff(self, project_id: str) -> Optional[Dict]`
-
-Get the most recent handoff report for a project.
-
-**Parameters:**
-- `project_id: str` - Project identifier
-
-**Returns:** `Optional[Dict]` - Latest handoff report or None
-
-**Example:**
-```python
-latest_handoff = project_repo.get_latest_handoff(project_id="proj-123")
-if latest_handoff:
-    print(f"Handoff from: {latest_handoff['created_by']}")
-    print(f"Context: {latest_handoff['next_session_context']}")
-```
-
-### `get_handoff_history(self, project_id: str, limit: int = 10) -> List[Dict]`
-
-Get handoff history for a project.
-
-**Parameters:**
-- `project_id: str` - Project identifier
-- `limit: int` - Maximum number of handoffs to return, default 10
-
-**Returns:** `List[Dict]` - List of handoff reports
-
-**Example:**
-```python
-history = project_repo.get_handoff_history(project_id="proj-123", limit=5)
-for handoff in history:
-    print(f"Handoff {handoff['timestamp']}: {handoff['summary'][:50]}...")
-```
-
----
 
 ## Project Knowledge Management
 
@@ -352,30 +240,6 @@ for dead_end in dead_ends:
 
 ## Reference Documentation Management
 
-### `add_reference_document(self, project_id: str, doc_path: str, doc_type: str, description: str, tags: Optional[List[str]] = None) -> str`
-
-Add a reference document to the project.
-
-**Parameters:**
-- `project_id: str` - Project identifier
-- `doc_path: str` - Path to document (relative to project or URL)
-- `doc_type: str` - Type of document ('spec', 'api', 'tutorial', 'paper', 'code', etc.)
-- `description: str` - Description of the document
-- `tags: Optional[List[str]]` - Optional tags for categorization
-
-**Returns:** `str` - Document ID
-
-**Example:**
-```python
-doc_id = project_repo.add_reference_document(
-    project_id="proj-123",
-    doc_path="https://datatracker.ietf.org/doc/html/rfc6749",
-    doc_type="spec",
-    description="OAuth 2.0 Authorization Framework specification",
-    tags=["oauth2", "security", "authorization"]
-)
-```
-
 ### `get_project_reference_docs(self, project_id: str, doc_type: Optional[str] = None, tags: Optional[List[str]] = None) -> List[Dict]`
 
 Get reference documents for a project, with optional filters.
@@ -394,28 +258,6 @@ security_docs = project_repo.get_project_reference_docs(
     tags=["security", "authentication"]
 )
 ```
-
-### `search_reference_docs(self, project_id: str, query: str, max_results: int = 10) -> List[Dict]`
-
-Search reference documents by content.
-
-**Parameters:**
-- `project_id: str` - Project identifier
-- `query: str` - Search query
-- `max_results: int` - Maximum results to return, default 10
-
-**Returns:** `List[Dict]` - List of matching document dictionaries
-
-**Example:**
-```python
-oauth_docs = project_repo.search_reference_docs(
-    project_id="proj-123",
-    query="oauth2 implementation best practices",
-    max_results=5
-)
-```
-
----
 
 ## Epistemic Source Tracking
 
@@ -479,40 +321,6 @@ high_confidence_sources = project_repo.get_epistemic_sources(
 
 ## Project Analytics
 
-### `get_project_health(self, project_id: str) -> Dict[str, Any]`
-
-Get comprehensive project health metrics.
-
-**Parameters:**
-- `project_id: str` - Project identifier
-
-**Returns:** `Dict[str, Any]` - Health metrics including epistemic vectors, progress, risks
-
-**Example:**
-```python
-health = project_repo.get_project_health(project_id="proj-123")
-print(f"Project health score: {health['overall_health']}")
-print(f"Knowledge certainty: {health['epistemic_certainty']}")
-print(f"Risk level: {health['risk_level']}")
-```
-
-### `get_project_learning_delta(self, project_id: str, session_ids: Optional[List[str]] = None) -> Dict[str, float]`
-
-Get epistemic learning delta for the project.
-
-**Parameters:**
-- `project_id: str` - Project identifier
-- `session_ids: Optional[List[str]]` - Optional list of session IDs to include (all if None)
-
-**Returns:** `Dict[str, float]` - Learning deltas for each epistemic vector
-
-**Example:**
-```python
-delta = project_repo.get_project_learning_delta(project_id="proj-123")
-print(f"Knowledge gain: {delta['know']}")
-print(f"Uncertainty reduction: {delta['uncertainty']}")
-```
-
 ### `get_project_sessions(self, project_id: str) -> List[Dict]`
 
 Get all sessions associated with a project.
@@ -551,63 +359,7 @@ success = project_repo.link_session_to_project(
 )
 ```
 
-### `get_sessions_for_project(self, project_id: str) -> List[Dict]`
-
-Get all sessions for a project.
-
-**Parameters:**
-- `project_id: str` - Project identifier
-
-**Returns:** `List[Dict]` - List of session dictionaries
-
-**Example:**
-```python
-project_sessions = project_repo.get_sessions_for_project(project_id="proj-123")
-for session in project_sessions:
-    print(f"AI: {session['ai_id']}, Started: {session['start_time']}")
-```
-
----
-
 ## Project Utilities
-
-### `get_project_stats(self, project_id: str) -> Dict[str, Any]`
-
-Get comprehensive project statistics.
-
-**Parameters:**
-- `project_id: str` - Project identifier
-
-**Returns:** `Dict[str, Any]` - Statistics including counts, averages, and trends
-
-**Example:**
-```python
-stats = project_repo.get_project_stats(project_id="proj-123")
-print(f"Total sessions: {stats['total_sessions']}")
-print(f"Average confidence: {stats['avg_confidence']}")
-print(f"Knowledge growth rate: {stats['knowledge_growth_rate']}")
-```
-
-### `export_project_data(self, project_id: str, export_format: str = 'json') -> Dict[str, Any]`
-
-Export project data in specified format.
-
-**Parameters:**
-- `project_id: str` - Project identifier
-- `export_format: str` - Export format ('json', 'markdown', 'csv'), default 'json'
-
-**Returns:** `Dict[str, Any]` - Exported data
-
-**Example:**
-```python
-export_data = project_repo.export_project_data(
-    project_id="proj-123",
-    export_format="markdown"
-)
-# Use export_data['content'] for markdown report
-```
-
----
 
 ## CLI Commands
 
@@ -666,3 +418,27 @@ Methods typically raise:
 **Module Location:** `empirica/data/repositories/projects.py`
 **API Stability:** Beta (analytics methods planned)
 **Last Updated:** 2026-02-08
+
+---
+
+## Verified API surface
+
+Generated from source. Every entry below exists; the signatures are the real ones.
+
+
+### `empirica/data/repositories/projects.py`
+
+
+#### class `ProjectRepository`
+
+- `create_project(self, name: str, description: str | None=None, repos: list[str] | None=None, project_type: str | None=None, project_tags: list[str] | None=None, parent_project_id: str | None=None, project_id: str | None=None) -> str` — Create a new project for multi-repo/multi-session tracking.
+- `get_project(self, project_id: str) -> dict | None` — Get project data
+- `get_project_by_name(self, name: str) -> dict | None` — Get project data by name (case-insensitive)
+- `resolve_project_id(self, project_id_or_name: str) -> str | None` — Resolve project identifier to UUID.
+- `link_session_to_project(self, session_id: str, project_id: str)` — Link a session to a project
+- `get_project_sessions(self, project_id: str) -> list[dict]` — Get all sessions for a project
+- `aggregate_project_learning_deltas(self, project_id: str) -> dict[str, float]` — Compute total epistemic learning across all project sessions.
+- `create_project_handoff(self, project_id: str, project_summary: str, key_decisions: list[str] | None=None, patterns_discovered: list[str] | None=None, remaining_work: list[str] | None=None) -> str` — Create project-level handoff report by aggregating session handoffs.
+- `get_latest_project_handoff(self, project_id: str) -> dict | None` — Get the most recent project handoff
+- `get_ai_epistemic_handoff(self, project_id: str, ai_id: str) -> dict | None` — Get latest epistemic handoff (POSTFLIGHT checkpoint) for a specific AI in this project.
+

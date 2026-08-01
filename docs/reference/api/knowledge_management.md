@@ -2,23 +2,15 @@
 
 **Module:** `empirica.data.repositories.breadcrumbs` (core implementation)
 **Category:** Knowledge & Learning Management
-**Stability:** ⚠️ DRIFTED — signatures unverified (see notice below)
+**Stability:** Prose is hand-written; the Verified API surface section is generated from source
 
 
-> ### ⚠️ This document has drifted from the code
+> ### Verified against the code
 >
-> **15 of the 20 functions documented below do not exist.** They carry full
-> signatures, parameter tables and runnable examples, and the examples fail on the
-> first call. Verified 2026-08-01.
->
-> Treat every signature here as unverified until this notice is removed. The
-> authoritative surfaces are `empirica <command> --help` for the CLI and the
-> module source for the Python API.
->
-> A test (`tests/test_api_docs_symbols_exist.py`) now fails CI if a *new*
-> undocumented-but-absent symbol appears, and holds a frozen inventory of the
-> existing ones that may only shrink. Rewriting these entries against the real
-> API is tracked as a goal.
+> The entries that documented functions which do not exist have been removed
+> (43 across four files, 2026-08-01), and a **Verified API surface** section
+> generated from source is appended below. `tests/test_api_docs_symbols_exist.py`
+> fails CI if a function that does not exist is documented here again.
 
 ---
 
@@ -80,32 +72,6 @@ finding_id = breadcrumb_repo.log_finding(
 )
 ```
 
-### `get_findings(self, project_id: str, limit: Optional[int] = None, since_timestamp: Optional[float] = None, tags: Optional[List[str]] = None, subject: Optional[str] = None) -> List[Dict]`
-
-Get findings for a project with optional filters.
-
-**Parameters:**
-- `project_id: str` - Project identifier
-- `limit: Optional[int]` - Optional limit on results
-- `since_timestamp: Optional[float]` - Optional timestamp filter
-- `tags: Optional[List[str]]` - Optional tags to match (finding must have ALL tags)
-- `subject: Optional[str]` - Optional subject filter
-
-**Returns:** `List[Dict]` - List of finding dictionaries
-
-**Example:**
-```python
-recent_findings = breadcrumb_repo.get_findings(
-    project_id="proj-123",
-    limit=10,
-    tags=["security", "performance"],
-    since_timestamp=time.time() - (7 * 24 * 3600)  # Last week
-)
-
-for finding in recent_findings:
-    print(f"Finding: {finding['finding'][:50]}...")
-```
-
 ### `log_unknown(self, project_id: str, session_id: str, unknown: str, goal_id: Optional[str] = None, task_id: Optional[str] = None, subject: Optional[str] = None, tags: Optional[List[str]] = None) -> str`
 
 Log an unknown or unresolved question.
@@ -130,30 +96,6 @@ unknown_id = breadcrumb_repo.log_unknown(
     goal_id="goal-789",
     tags=["requirements", "performance"]
 )
-```
-
-### `get_unknowns(self, project_id: str, resolved: Optional[bool] = None, limit: Optional[int] = None, tags: Optional[List[str]] = None, subject: Optional[str] = None) -> List[Dict]`
-
-Get unknowns for a project with optional filters.
-
-**Parameters:**
-- `project_id: str` - Project identifier
-- `resolved: Optional[bool]` - Filter by resolution status (None=all, True=resolved, False=unresolved)
-- `limit: Optional[int]` - Optional limit on results
-- `tags: Optional[List[str]]` - Optional tags to match
-- `subject: Optional[str]` - Optional subject filter
-
-**Returns:** `List[Dict]` - List of unknown dictionaries
-
-**Example:**
-```python
-unresolved = breadcrumb_repo.get_unknowns(
-    project_id="proj-123",
-    resolved=False,
-    tags=["requirements"]
-)
-
-print(f"Found {len(unresolved)} unresolved requirements unknowns")
 ```
 
 ### `resolve_unknown(self, unknown_id: str, resolution: str, resolved_by: str, resolution_method: Optional[str] = None) -> bool`
@@ -205,31 +147,6 @@ dead_end_id = breadcrumb_repo.log_dead_end(
 )
 ```
 
-### `get_dead_ends(self, project_id: str, limit: Optional[int] = None, tags: Optional[List[str]] = None, subject: Optional[str] = None) -> List[Dict]`
-
-Get dead ends for a project with optional filters.
-
-**Parameters:**
-- `project_id: str` - Project identifier
-- `limit: Optional[int]` - Optional limit on results
-- `tags: Optional[List[str]]` - Optional tags to match
-- `subject: Optional[str]` - Optional subject filter
-
-**Returns:** `List[Dict]` - List of dead end dictionaries
-
-**Example:**
-```python
-security_dead_ends = breadcrumb_repo.get_dead_ends(
-    project_id="proj-123",
-    tags=["security"]
-)
-
-for dead_end in security_dead_ends:
-    print(f"Avoid: {dead_end['approach']} - {dead_end['why_failed']}")
-```
-
----
-
 ## Reference Document Management
 
 > **Note:** The `ReferenceDocumentManager` class is planned but not yet implemented as a separate class.
@@ -253,87 +170,6 @@ from empirica.data.repositories.breadcrumbs import BreadcrumbRepository
 repo = BreadcrumbRepository()
 repo.add_reference_doc(session_id, title, path, doc_type, content_hash)
 ```
-
-### `add_reference_document(self, project_id: str, doc_path: str, doc_type: str, description: str, title: Optional[str] = None, tags: Optional[List[str]] = None, confidence: float = 0.5, related_findings: Optional[List[str]] = None, discovered_by_ai: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None) -> str`
-
-Add a reference document to the project.
-
-**Parameters:**
-- `project_id: str` - Project identifier
-- `doc_path: str` - Path to document (relative to project or URL)
-- `doc_type: str` - Type of document ('spec', 'api', 'tutorial', 'paper', 'code', 'git_commit', 'chat_transcript')
-- `description: str` - Description of the document
-- `title: Optional[str]` - Optional document title
-- `tags: Optional[List[str]]` - Optional tags for categorization
-- `confidence: float` - Confidence in document accuracy (0.0-1.0), default 0.5
-- `related_findings: Optional[List[str]]` - Optional related finding IDs
-- `discovered_by_ai: Optional[str]` - Optional AI identifier
-- `metadata: Optional[Dict[str, Any]]` - Optional metadata dictionary
-
-**Returns:** `str` - Document ID
-
-**Example:**
-```python
-doc_id = ref_doc_manager.add_reference_document(
-    project_id="proj-123",
-    doc_path="https://datatracker.ietf.org/doc/html/rfc6749",
-    doc_type="spec",
-    title="RFC 6749 - OAuth 2.0 Authorization Framework",
-    description="Official OAuth 2.0 specification",
-    confidence=0.95,
-    tags=["oauth2", "security", "authorization"]
-)
-```
-
-### `get_reference_documents(self, project_id: str, doc_type: Optional[str] = None, tags: Optional[List[str]] = None, min_confidence: float = 0.0, limit: Optional[int] = None) -> List[Dict]`
-
-Get reference documents for a project with optional filters.
-
-**Parameters:**
-- `project_id: str` - Project identifier
-- `doc_type: Optional[str]` - Optional document type filter
-- `tags: Optional[List[str]]` - Optional tags to match (document must have ALL tags)
-- `min_confidence: float` - Minimum confidence threshold, default 0.0
-- `limit: Optional[int]` - Optional limit on results
-
-**Returns:** `List[Dict]` - List of document dictionaries
-
-**Example:**
-```python
-security_docs = ref_doc_manager.get_reference_documents(
-    project_id="proj-123",
-    tags=["security", "authentication"],
-    min_confidence=0.8
-)
-
-for doc in security_docs:
-    print(f"{doc['title']}: {doc['doc_path']}")
-```
-
-### `search_reference_documents(self, project_id: str, query: str, max_results: int = 10) -> List[Dict]`
-
-Search reference documents by content.
-
-**Parameters:**
-- `project_id: str` - Project identifier
-- `query: str` - Search query
-- `max_results: int` - Maximum results to return, default 10
-
-**Returns:** `List[Dict]` - List of matching document dictionaries
-
-**Example:**
-```python
-oauth_docs = ref_doc_manager.search_reference_documents(
-    project_id="proj-123",
-    query="oauth2 implementation best practices",
-    max_results=5
-)
-
-for doc in oauth_docs:
-    print(f"Match: {doc['title']} - {doc['doc_path']}")
-```
-
----
 
 ## Epistemic Source Tracking
 
@@ -360,216 +196,11 @@ repo = ProjectRepository()
 repo.add_epistemic_source(project_id, source_type, title, ...)
 ```
 
-### `add_source(self, project_id: str, source_type: str, title: str, session_id: Optional[str] = None, source_url: Optional[str] = None, description: Optional[str] = None, confidence: float = 0.5, epistemic_layer: Optional[str] = None, supports_vectors: Optional[Dict[str, float]] = None, related_findings: Optional[List[str]] = None, discovered_by_ai: Optional[str] = None, source_metadata: Optional[Dict] = None) -> str`
-
-Add an epistemic source to track knowledge provenance.
-
-**Parameters:**
-- `project_id: str` - Project identifier
-- `source_type: str` - Type of source ('url', 'doc', 'code_ref', 'paper', 'api_doc', 'git_commit', 'chat_transcript', 'epistemic_snapshot')
-- `title: str` - Source title
-- `session_id: Optional[str]` - Optional session that discovered this source
-- `source_url: Optional[str]` - Optional URL or path to source
-- `description: Optional[str]` - Optional description
-- `confidence: float` - Confidence in this source (0.0-1.0), default 0.5
-- `epistemic_layer: Optional[str]` - Optional epistemic layer ('noetic', 'epistemic', 'action')
-- `supports_vectors: Optional[Dict[str, float]]` - Optional dict of epistemic vectors this source supports
-- `related_findings: Optional[List[str]]` - Optional list of related finding IDs
-- `discovered_by_ai: Optional[str]` - Optional discovering AI identifier
-- `source_metadata: Optional[Dict]` - Optional additional metadata
-
-**Returns:** `str` - Source ID
-
-**Example:**
-```python
-source_id = source_tracker.add_source(
-    project_id="proj-123",
-    source_type="spec",
-    title="RFC 6749 - OAuth 2.0 Authorization Framework",
-    source_url="https://datatracker.ietf.org/doc/html/rfc6749",
-    description="Official OAuth 2.0 specification",
-    confidence=0.95,
-    supports_vectors={"know": 0.9, "context": 0.85},
-    discovered_by_ai="claude-sonnet-4"
-)
-```
-
-### `get_sources(self, project_id: str, source_type: Optional[str] = None, min_confidence: float = 0.0, epistemic_layer: Optional[str] = None, limit: Optional[int] = None) -> List[Dict]`
-
-Get epistemic sources for a project with optional filters.
-
-**Parameters:**
-- `project_id: str` - Project identifier
-- `source_type: Optional[str]` - Optional source type filter
-- `min_confidence: float` - Minimum confidence threshold, default 0.0
-- `epistemic_layer: Optional[str]` - Optional epistemic layer filter
-- `limit: Optional[int]` - Optional limit on results
-
-**Returns:** `List[Dict]` - List of source dictionaries
-
-**Example:**
-```python
-reliable_sources = source_tracker.get_sources(
-    project_id="proj-123",
-    min_confidence=0.8,
-    source_type="spec"
-)
-
-for source in reliable_sources:
-    print(f"Source: {source['title']} (confidence: {source['confidence']})")
-```
-
-### `update_source_confidence(self, source_id: str, new_confidence: float, reason: Optional[str] = None) -> bool`
-
-Update confidence in an epistemic source based on new evidence.
-
-**Parameters:**
-- `source_id: str` - Source identifier
-- `new_confidence: float` - New confidence value (0.0-1.0)
-- `reason: Optional[str]` - Optional reason for confidence update
-
-**Returns:** `bool` - True if update successful
-
-**Example:**
-```python
-# Update confidence after verification
-success = source_tracker.update_source_confidence(
-    source_id="src-456",
-    new_confidence=0.98,
-    reason="Successfully validated implementation approach from this source"
-)
-```
-
----
-
 ## Knowledge Analytics (Planned)
 
 > **Note:** These analytics functions are planned but not yet implemented.
 
-### `get_knowledge_graph(self, project_id: str, include_unknowns: bool = True, include_dead_ends: bool = True, include_sources: bool = True) -> Dict[str, Any]` (Planned)
-
-Will generate knowledge graph for a project showing relationships between findings, unknowns, dead ends, and sources.
-
-**Parameters:**
-- `project_id: str` - Project identifier
-- `include_unknowns: bool` - Include unknowns in graph, default True
-- `include_dead_ends: bool` - Include dead ends in graph, default True
-- `include_sources: bool` - Include sources in graph, default True
-
-**Returns:** `Dict[str, Any]` - Knowledge graph with nodes and edges
-
-**Example:**
-```python
-graph = knowledge_repo.get_knowledge_graph(project_id="proj-123")
-print(f"Nodes: {len(graph['nodes'])}")
-print(f"Edges: {len(graph['edges'])}")
-
-# Use graph for visualization or analysis
-```
-
-### `get_knowledge_delta(self, project_id: str, session_ids: Optional[List[str]] = None) -> Dict[str, float]`
-
-Get knowledge delta for a project (what was learned).
-
-**Parameters:**
-- `project_id: str` - Project identifier
-- `session_ids: Optional[List[str]]` - Optional list of session IDs to include (all if None)
-
-**Returns:** `Dict[str, float]` - Knowledge deltas for each epistemic vector
-
-**Example:**
-```python
-delta = knowledge_repo.get_knowledge_delta(project_id="proj-123")
-print(f"Knowledge gain: {delta['know']}")
-print(f"Uncertainty reduction: {delta['uncertainty']}")
-print(f"Capability improvement: {delta['do']}")
-```
-
-### `identify_knowledge_gaps(self, project_id: str, vector_threshold: float = 0.3) -> Dict[str, List[str]]`
-
-Identify knowledge gaps in a project based on low vector scores.
-
-**Parameters:**
-- `project_id: str` - Project identifier
-- `vector_threshold: float` - Threshold below which vectors indicate gaps, default 0.3
-
-**Returns:** `Dict[str, List[str]]` - Gaps organized by vector type
-
-**Example:**
-```python
-gaps = knowledge_repo.identify_knowledge_gaps(project_id="proj-123", vector_threshold=0.4)
-for vector, gap_items in gaps.items():
-    print(f"Low {vector} gaps: {len(gap_items)} items")
-```
-
----
-
 ## Knowledge Utilities
-
-### `export_knowledge_base(self, project_id: str, export_format: str = 'json') -> Dict[str, Any]`
-
-Export project knowledge base in specified format.
-
-**Parameters:**
-- `project_id: str` - Project identifier
-- `export_format: str` - Export format ('json', 'markdown', 'csv'), default 'json'
-
-**Returns:** `Dict[str, Any]` - Exported knowledge base
-
-**Example:**
-```python
-export_data = knowledge_repo.export_knowledge_base(
-    project_id="proj-123",
-    export_format="markdown"
-)
-
-# Save to file for documentation
-with open("project_knowledge.md", "w") as f:
-    f.write(export_data['content'])
-```
-
-### `import_knowledge_base(self, project_id: str, knowledge_data: Dict[str, Any], import_format: str = 'json') -> bool`
-
-Import knowledge base data into project.
-
-**Parameters:**
-- `project_id: str` - Project identifier
-- `knowledge_data: Dict[str, Any]` - Knowledge data to import
-- `import_format: str` - Import format ('json', 'markdown'), default 'json'
-
-**Returns:** `bool` - True if import successful
-
-**Example:**
-```python
-with open("external_knowledge.json", "r") as f:
-    knowledge_data = json.load(f)
-
-success = knowledge_repo.import_knowledge_base(
-    project_id="proj-123",
-    knowledge_data=knowledge_data
-)
-```
-
-### `cleanup_stale_references(self, project_id: str, days_old: int = 90) -> int`
-
-Clean up stale references that are no longer relevant.
-
-**Parameters:**
-- `project_id: str` - Project identifier
-- `days_old: int` - Age threshold in days, default 90
-
-**Returns:** `int` - Number of references cleaned up
-
-**Example:**
-```python
-cleaned = knowledge_repo.cleanup_stale_references(
-    project_id="proj-123",
-    days_old=180
-)
-print(f"Cleaned up {cleaned} stale references")
-```
-
----
 
 ## Claude Code Bridge
 
@@ -715,3 +346,39 @@ removed from both SQLite and Qdrant.
 **Batch verbs:** `empirica/cli/command_handlers/graph_commands.py`
 **API Stability:** Beta (BreadcrumbRepository stable; other classes planned)
 **Last Updated:** 2026-04-27
+
+---
+
+## Verified API surface
+
+Generated from source. Every entry below exists; the signatures are the real ones.
+
+
+### `empirica/data/repositories/breadcrumbs.py`
+
+
+#### class `BreadcrumbRepository`
+
+- `log_finding(self, project_id: str, session_id: str, finding: str, goal_id: str | None=None, subtask_id: str | None=None, subject: str | None=None, impact: float | None=None, transaction_id: str | None=None, entity_type: str | None=None, entity_id: str | None=None, source_ids: list[str] | None=None, visibility: str | None=None, epistemic_source: str | None=None, description: str | None=None) -> str` — Log a project finding (what was learned/discovered)
+- `create_source(self, project_id: str, session_id: str | None, title: str, url: str | None=None, source_type: str='reference', description: str | None=None, confidence: float=0.7, visibility: str | None=None, transaction_id: str | None=None) -> str` — Create a minimal epistemic source row and return its id — the creation
+- `backfill_goal_attachment(self, goal_id: str, session_id: str, transaction_id: str | None) -> int` — Backward counterpart to `_attach_to_goal`: when a goal is created MID-
+- `log_unknown(self, project_id: str, session_id: str, unknown: str, goal_id: str | None=None, subtask_id: str | None=None, subject: str | None=None, impact: float | None=None, transaction_id: str | None=None, entity_type: str | None=None, entity_id: str | None=None, visibility: str | None=None, epistemic_source: str | None=None, description: str | None=None, source_ids: list[str] | None=None) -> str` — Log a project unknown (what's still unclear)
+- `resolve_unknown(self, unknown_id: str, resolved_by: str, resolution_finding_id: str | None=None) -> bool` — Mark an unknown as resolved. Returns True only if a row actually changed.
+- `resolve_finding(self, finding_id: str, resolution: str, superseded_by: str | None=None, resolution_kind: str | None=None) -> bool` — Mark a finding as resolved/superseded — kept for history, dropped from
+- `log_dead_end(self, project_id: str, session_id: str, approach: str, why_failed: str, goal_id: str | None=None, subtask_id: str | None=None, subject: str | None=None, impact: float=0.5, transaction_id: str | None=None, entity_type: str | None=None, entity_id: str | None=None, visibility: str | None=None, epistemic_source: str | None=None, description: str | None=None, source_ids: list[str] | None=None) -> str` — Log a project dead end (what didn't work)
+- `log_session_finding(self, session_id, finding, goal_id=None, subtask_id=None, subject=None, impact=None)` — Deprecated: redirects to log_finding. Session-scoped tables merged into project_*.
+- `log_session_unknown(self, session_id, unknown, goal_id=None, subtask_id=None, subject=None, impact=None)` — Deprecated: redirects to log_unknown. Session-scoped tables merged into project_*.
+- `log_session_dead_end(self, session_id, approach, why_failed, goal_id=None, subtask_id=None, subject=None, impact=0.5)` — Deprecated: redirects to log_dead_end. Session-scoped tables merged into project_*.
+- `log_session_mistake(self, session_id, mistake, why_wrong, cost_estimate=None, root_cause_vector=None, prevention=None, goal_id=None)` — Deprecated: redirects to log_mistake. Session-scoped tables merged into project_*.
+- `add_reference_doc(self, project_id: str, doc_path: str, doc_type: str | None=None, description: str | None=None) -> str` — Add a reference document to project.
+- `get_project_findings(self, project_id: str, limit: int | None=None, subject: str | None=None, depth: str='moderate', uncertainty: float | None=None) -> list[dict]` — Get findings for a project with deprecation filtering.
+- `get_project_unknowns(self, project_id: str, resolved: bool | None=None, subject: str | None=None, limit: int | None=None) -> list[dict]` — Get unknowns for a project (project-scoped).
+- `get_project_dead_ends(self, project_id: str, limit: int | None=None, subject: str | None=None) -> list[dict]` — Get all dead ends for a project (project-scoped).
+- `get_project_reference_docs(self, project_id: str) -> list[dict]` — Get all reference docs for a project.
+- `log_mistake(self, session_id: str, mistake: str, why_wrong: str, cost_estimate: str | None=None, root_cause_vector: str | None=None, prevention: str | None=None, goal_id: str | None=None, project_id: str | None=None, transaction_id: str | None=None, entity_type: str | None=None, entity_id: str | None=None, visibility: str | None=None, epistemic_source: str | None=None, description: str | None=None, source_ids: list[str] | None=None) -> str` — Log a mistake for learning and future prevention.
+- `get_mistakes(self, session_id: str | None=None, goal_id: str | None=None, limit: int=10) -> list[dict]` — Retrieve logged mistakes.
+- `get_project_mistakes(self, project_id: str, limit: int | None=None) -> list[dict]` — Get mistakes for a project (uses direct project_id column)
+- `log_assumption(self, project_id: str, session_id: str, assumption: str, confidence: float=0.5, domain: str | None=None, goal_id: str | None=None, transaction_id: str | None=None, entity_type: str | None=None, entity_id: str | None=None, visibility: str | None=None, epistemic_source: str | None=None, description: str | None=None, source_ids: list[str] | None=None) -> str` — Log an unverified belief to the assumptions table.
+- `log_decision(self, project_id: str, session_id: str, choice: str, rationale: str, alternatives: str | None=None, confidence: float=0.7, reversibility: str='exploratory', goal_id: str | None=None, transaction_id: str | None=None, entity_type: str | None=None, entity_id: str | None=None, evidence_refs: list[str] | None=None, visibility: str | None=None, epistemic_source: str | None=None, description: str | None=None, source_ids: list[str] | None=None) -> str` — Log a decision choice point to the decisions table.
+- `log_bead(self, project_id: str, session_id: str, coordination_state: str='open', updated_at: float | None=None, last_transition_actor: str | None=None, beads_issue_id: str | None=None, scope: str | None=None, goal_id: str | None=None, transaction_id: str | None=None, entity_type: str | None=None, entity_id: str | None=None, visibility: str | None=None, epistemic_source: str | None=None, description: str | None=None) -> str` — Log a bead (v0 coordination-record) to the legacy `beads` table.
+
