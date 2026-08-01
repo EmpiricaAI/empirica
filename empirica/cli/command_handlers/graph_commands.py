@@ -1597,7 +1597,14 @@ def handle_delete_artifacts_command(args):  # noqa: C901 — batch dispatcher fa
 
         items = data.get("deletions", data.get("items", []))
         reason = data.get("reason", "Batch deletion — non-pertinent")
-        dry_run = data.get("dry_run", getattr(args, "dry_run", False))
+        # Preview unless --apply. The JSON body still wins when it says so
+        # explicitly, so a payload carrying dry_run:false with --apply behaves as
+        # before; what changed is the DEFAULT, which used to be "delete".
+        # --dry-run is accepted and ignored: it was the flag three documents told
+        # people to pass, and preview is now what happens with or without it.
+        dry_run = data.get("dry_run")
+        if dry_run is None:
+            dry_run = not getattr(args, "apply", False)
 
         db = SessionDatabase()
         if not db.conn:

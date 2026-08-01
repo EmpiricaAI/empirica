@@ -1811,9 +1811,9 @@ Example:
             "Remove stale, duplicate, or test-noise artifacts from the "
             "ledger. Unlike resolve-artifacts (closes WITH a resolution "
             "reason), this hard-deletes from SQLite + Qdrant. The deletion "
-            "itself is logged as a decision for audit. Use --dry-run first "
-            'to preview. For "still valid but answered", use resolve. For '
-            '"never should have been logged", use this.'
+            "itself is logged as a decision for audit. PREVIEWS by default — "
+            'pass --apply to actually delete. For "still valid but answered", '
+            'use resolve. For "never should have been logged", use this.'
         ),
         description="""
 Delete stale or non-pertinent artifacts from the epistemic chain.
@@ -1821,7 +1821,9 @@ Delete stale or non-pertinent artifacts from the epistemic chain.
 Accepts JSON with deletions array. Each item specifies type and id.
 Deletes from SQLite + Qdrant. Logs deletion as a decision for audit trail.
 
-Supports --dry-run to preview without deleting.
+PREVIEWS by default. Pass --apply to actually delete. --dry-run is still
+accepted (it was the documented flag) and is now a no-op, since preview is
+the default.
 
 Example:
   echo '{"deletions": [{"type": "finding", "id": "abc123"}], "reason": "Stale test data"}' | empirica delete-artifacts -
@@ -1831,7 +1833,20 @@ Example:
         "config", nargs="?", default="-", help="JSON file or - for stdin (default: stdin)"
     )
     delete_artifacts_parser.add_argument("--schema", action="store_true", help="Print the input JSON schema and exit")
-    delete_artifacts_parser.add_argument("--dry-run", action="store_true", help="Preview deletions without executing")
+    # Preview is the DEFAULT. The gardening skill, ARTIFACT_HYGIENE.md and the
+    # system prompt all documented dry-run-by-default plus an --apply flag that
+    # never existed, while the code deleted immediately — so a practitioner
+    # following the docs ran a "preview" and destroyed artifacts. Deletion is the
+    # one lever with no history to recover from, so the docs described the right
+    # design and the code was the bug (David's call, 2026-08-01).
+    delete_artifacts_parser.add_argument(
+        "--apply", action="store_true", help="Actually delete (default is preview only)"
+    )
+    delete_artifacts_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Accepted for compatibility — preview is the default, so this is a no-op",
+    )
     delete_artifacts_parser.add_argument("--output", choices=["human", "json"], default="json", help="Output format")
     delete_artifacts_parser.add_argument("--verbose", action="store_true", help="Show detailed output")
 

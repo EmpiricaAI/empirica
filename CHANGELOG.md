@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING: `delete-artifacts` now PREVIEWS by default. Pass `--apply` to
+  actually delete.** The gardening skill, `ARTIFACT_HYGIENE.md` and the Empirica
+  system prompt all documented dry-run-as-default and an `--apply` flag — while
+  the code had `--dry-run` as opt-in and deleted immediately. A practitioner
+  following the documented "preview first, then apply" workflow destroyed
+  artifacts and got a receipt saying so only afterwards.
+
+  Deletion is the one lever with no history to recover from, so the docs
+  described the right design and the code was the defect. `--dry-run` remains
+  accepted as a no-op, since it is the flag those documents told people to pass.
+  A JSON body that sets `dry_run` explicitly still wins; only the default moved.
+
 ### Fixed
 
 - **A mistyped goal-id could silently attach work to the WRONG goal.** Prefix

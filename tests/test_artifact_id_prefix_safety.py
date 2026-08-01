@@ -157,3 +157,69 @@ def test_no_batch_verb_still_mutates_by_prefix():
     assert 'f"{artifact_id}%"' not in src, "a resolve/delete path is prefix-matching again"
     assert 'f"{aid}%"' not in src, "the update path is prefix-matching again"
     assert "resolve_id_prefix" in src, "the shared resolver is no longer used"
+
+
+# ── delete-artifacts previews by default ──────────────────────────────
+#
+# The gardening skill, ARTIFACT_HYGIENE.md and the global system prompt all
+# stated that delete-artifacts is dry-run by default and that `--apply` performs
+# the deletion. Neither was true: `--dry-run` was store_true (default False), so
+# a bare invocation deleted immediately, and `--apply` did not exist. Someone
+# following the documented "preview first" workflow destroyed artifacts.
+#
+# Resolved in favour of the docs (David, 2026-08-01): deletion is the one lever
+# with no history to recover from, so preview is the safe default and the code
+# was the bug. `--dry-run` stays accepted as a no-op, since it is the flag three
+# documents told people to pass.
+
+
+def _delete_args(**kw):
+    import types
+
+    base = {"config": "-", "schema": False, "apply": False, "dry_run": False, "output": "json", "verbose": False}
+    base.update(kw)
+    return types.SimpleNamespace(**base)
+
+
+def _run_delete(monkeypatch, capsys, args, payload):
+    import json as _json
+
+    import empirica.cli.command_handlers.graph_commands as gc
+
+    monkeypatch.setattr(gc, "_read_deletion_input", lambda _a: payload)
+    gc.handle_delete_artifacts_command(args)
+    return _json.loads(capsys.readouterr().out)
+
+
+PAYLOAD = {"deletions": [{"type": "finding", "id": "nonexistent-but-well-formed-id"}], "reason": "test"}
+
+
+def test_a_bare_invocation_previews(monkeypatch, capsys):
+    """POSITIVE CONTROL — the reproduction. This used to delete."""
+    result = _run_delete(monkeypatch, capsys, _delete_args(), PAYLOAD)
+
+    assert result["dry_run"] is True
+
+
+def test_apply_actually_deletes(monkeypatch, capsys):
+    """NEGATIVE CONTROL: if preview were unconditional the verb would be inert."""
+    result = _run_delete(monkeypatch, capsys, _delete_args(apply=True), PAYLOAD)
+
+    assert result["dry_run"] is False
+
+
+def test_the_dry_run_flag_is_still_accepted(monkeypatch, capsys):
+    """It is the flag three documents told people to pass — it must not error."""
+    result = _run_delete(monkeypatch, capsys, _delete_args(dry_run=True), PAYLOAD)
+
+    assert result["dry_run"] is True
+
+
+def test_an_explicit_body_value_still_wins(monkeypatch, capsys):
+    """Callers that set dry_run in the JSON body kept their meaning; only the
+    DEFAULT changed."""
+    body = {**PAYLOAD, "dry_run": False}
+
+    result = _run_delete(monkeypatch, capsys, _delete_args(), body)
+
+    assert result["dry_run"] is False
