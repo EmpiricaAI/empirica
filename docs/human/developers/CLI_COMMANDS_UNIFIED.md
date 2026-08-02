@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.13.0
-**Generated:** 2026-08-01 20:41:25 UTC
+**Framework version:** 1.13.1
+**Generated:** 2026-08-02 16:16:39 UTC
 **Total commands:** 243 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -600,6 +600,8 @@ Flag in_progress goals as stale (typically called by the pre-compact hook before
 
 **Arguments:**
 
+- `--goal-id` — optional
+  Abandon ONE goal: record that it is dead but was NOT delivered. Sets status='abandoned' with is_completed=0, so no completion metric counts it. Without this flag the verb keeps its original session-wide behaviour (annotate compaction metadata, status untouched).
 - `--session-id` — optional
   Session UUID (default: the active session)
 - `--reason` — optional · default=`memory_compact`
@@ -1533,8 +1535,8 @@ Embed project docs & memory into Qdrant for semantic search
 
 **Arguments:**
 
-- `--project-id` — **required**
-  Project UUID
+- `--project-id` — optional
+  Project UUID (default: resolved from the active project, like every other verb). It was required=True, which made the command that generate_semantic_index.py prints as its final line impossible to run as printed — a second step left to operator memory AND unrunnable.
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
 - `--verbose` — optional · flag
@@ -4444,6 +4446,8 @@ Configure harness integration (hooks, system prompt, MCP server)
 
 **Arguments:**
 
+- `--harness` — optional
+  Which harness to configure (default: $EMPIRICA_HARNESS, else claude-code). Supported: claude-code. Others are refused by name rather than silently handed Claude Code's files.
 - `--force` — optional · flag
   Reinstall plugin even if it already exists
 - `--skip-mcp` — optional · flag
