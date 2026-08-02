@@ -1753,6 +1753,43 @@ def _has_dangerous_tool_flags(cmd: str) -> bool:
     return False
 
 
+# git accepts GLOBAL options between the binary and the subcommand, so the
+# read verbs in SAFE_BASH_PREFIXES ("git status", "git log", …) miss every
+# invocation that uses one. `git -C <path> status` is the common case — it is
+# how you read a SIBLING repo without cd — and it was denied while the identical
+# `git status` flowed.
+#
+# Only INERT globals are stripped. `-c <key>=<val>` and `--config-env` are
+# deliberately NOT here: `git -c alias.x='!rm -rf /' x` executes a shell command,
+# so a config-setting invocation must keep failing the prefix match.
+_GIT_INERT_GLOBAL_FLAGS = ("--no-pager", "--paginate", "--literal-pathspecs", "--no-replace-objects")
+_GIT_INERT_GLOBAL_VALUED = ("--git-dir", "--work-tree", "--namespace")
+
+
+def _normalize_git_globals(cmd: str) -> str:
+    """Rewrite `git <inert globals> <subcmd> …` as `git <subcmd> …`.
+
+    Verb-preserving by construction: the subcommand is whatever survives, so
+    `git -C /repo push` normalizes to `git push` and is still rejected. This
+    widens WHICH INVOCATIONS reach the check, never what the check permits.
+    """
+    parts = cmd.split()
+    if not parts or parts[0] != "git":
+        return cmd
+    i = 1
+    while i < len(parts):
+        tok = parts[i]
+        if tok == "-C" and i + 1 < len(parts):
+            i += 2
+        elif tok in _GIT_INERT_GLOBAL_FLAGS or (tok.startswith(_GIT_INERT_GLOBAL_VALUED) and "=" in tok):
+            i += 1
+        else:
+            break
+    if i == 1:
+        return cmd
+    return "git " + " ".join(parts[i:])
+
+
 def _matches_safe_prefix(cmd: str) -> bool:
     """Check if a command matches any SAFE_BASH_PREFIXES entry.
 
@@ -1763,6 +1800,10 @@ def _matches_safe_prefix(cmd: str) -> bool:
     """
     if _has_dangerous_tool_flags(cmd):
         return False
+    # Strip git's inert global options so `git -C <path> status` reaches the
+    # same check as `git status`. The dangerous-flag guard above runs on the
+    # ORIGINAL text, so nothing is smuggled past it by normalization.
+    cmd = _normalize_git_globals(cmd)
     for prefix in SAFE_BASH_PREFIXES:
         if cmd.startswith(prefix):
             return True

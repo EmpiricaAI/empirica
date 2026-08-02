@@ -140,3 +140,68 @@ def test_a_tools_write_mode_is_praxic_even_when_its_name_is_trusted(gate):
         "awk 'BEGIN{system(\"rm x\")}'",
     ]:
         assert not gate.is_safe_bash_command({"command": command}), command
+
+
+# --- git's global options sit between the binary and the subcommand ----------
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git status",
+        "git --no-pager log --oneline -5",
+        "git -C /tmp/repo status --short",
+        "git -C /tmp/repo log --oneline",
+        "git --git-dir=/tmp/r/.git status",
+        "git -C /a --no-pager diff --stat",
+    ],
+)
+def test_git_read_verbs_flow_through_inert_global_options(gate, command):
+    """`git -C <path> status` is how you read a SIBLING repo without cd.
+
+    The prefix list holds "git status", so every invocation carrying a global
+    option missed it and a pure read was denied — while the identical command
+    without the option flowed.
+    """
+    assert gate.is_safe_bash_command({"command": command})
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git -C /tmp/repo push origin main",
+        "git -C /tmp/repo commit -m x",
+        "git --no-pager reset --hard HEAD~1",
+        "git push",
+    ],
+)
+def test_normalization_widens_reach_not_permission(gate, command):
+    """Verb-preserving by construction: `git -C /r push` normalizes to `git push`.
+
+    Normalization changes WHICH INVOCATIONS reach the check, never what the
+    check permits.
+    """
+    assert not gate.is_safe_bash_command({"command": command})
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git -c alias.x='!rm -rf /' x",
+        "git -c core.pager=sh log",
+        "git --config-env=alias.y=EVIL y",
+    ],
+)
+def test_config_setting_globals_are_never_stripped(gate, command):
+    """`-c` is arbitrary execution, not an inert global.
+
+    `git -c alias.x='!rm -rf /' x` runs a shell command. Stripping it would
+    normalize an exec into a read — the one normalization that must not happen,
+    which is why the inert list is an allowlist rather than "skip leading flags".
+    """
+    assert not gate.is_safe_bash_command({"command": command})
+
+
+def test_normalization_is_a_noop_for_non_git(gate):
+    assert gate._normalize_git_globals("rg -C 3 pattern") == "rg -C 3 pattern"
+    assert gate._normalize_git_globals("git status") == "git status"
