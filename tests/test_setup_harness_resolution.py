@@ -97,7 +97,8 @@ def test_a_known_harness_is_refused_as_not_yet_not_as_unheard_of(capsys):
     _refuse_unsupported_harness("zed", "json")
     unknown = json.loads(capsys.readouterr().out)["detail"]
 
-    assert "codex" in known and "yet" in known
+    assert "codex" in known and "SELF-PROVISIONING" in known
+    assert "by design, not a missing feature" in known, "codex is not a gap to fill"
     assert "unrecognized" in unknown
 
 

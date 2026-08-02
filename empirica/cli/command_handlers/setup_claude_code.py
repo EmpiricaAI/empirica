@@ -1696,12 +1696,27 @@ SUPPORTED_HARNESSES: dict[str, str] = {
     "claude-code": "Claude Code — plugin, CLAUDE.md, settings.json hooks, MCP server",
 }
 
-# Harnesses we know exist and deliberately do not claim to configure. Named
-# separately so the refusal can say "not yet" rather than "never heard of it" —
-# the two need different responses from whoever hits them.
+# Harnesses we know exist and deliberately do not configure. Named separately so
+# the refusal can explain WHY rather than say "never heard of it" — and the
+# reason matters, because "self-provisioning" and "not built yet" call for
+# opposite responses from whoever hits them.
+#
+# codex is the first case: confirmed by ecodex (who own it) that it is
+# SELF-PROVISIONING, not a gap. It lives in ~/.codex-native, vendors the
+# empirica plugin into its own binary (deployed to
+# ~/.codex/plugins/cache/nubaeon/empirica/<ver>/), and loads hooks through its
+# native plugin engine rather than from a settings.json. There is nothing
+# hook-shaped for this command to write, so a codex writer here would be wrong
+# to add rather than merely missing.
+_CODEX_REASON = (
+    "codex / ecodex is SELF-PROVISIONING — it vendors the empirica plugin into its own "
+    "binary (~/.codex-native, ~/.codex/plugins/cache/nubaeon/empirica/<ver>/) and loads "
+    "hooks via its native plugin engine, not settings.json. Nothing for this command to "
+    "write; this is by design, not a missing feature."
+)
 KNOWN_UNSUPPORTED_HARNESSES: dict[str, str] = {
-    "codex": "codex / ecodex — sets EMPIRICA_HARNESS=codex from its own launcher; no setup writer here yet",
-    "ecodex": "codex / ecodex — sets EMPIRICA_HARNESS=codex from its own launcher; no setup writer here yet",
+    "codex": _CODEX_REASON,
+    "ecodex": _CODEX_REASON,
 }
 
 
