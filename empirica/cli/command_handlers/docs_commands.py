@@ -1817,6 +1817,25 @@ def _print_notebooklm_suggestions(result: dict, verbose: bool):
 # =============================================================================
 
 
+_OPENING_HEADER = "(opening — no section matched the query wording)"
+_OPENING_CHARS = 600
+
+# Minimum semantic score for the opening-fallback to fire. Measured 2026-08-02
+# against this practice's 524-doc collection: real queries retrieve the right
+# document at 0.35-0.38 ("cron loops and wake on event" -> TRIGGER_MODEL.md,
+# "epistemic vectors calibration" -> 05_EPISTEMIC_VECTORS_EXPLAINED.md), while
+# a nonsense query tops out at 0.25 on unrelated transcripts. Semantic search
+# ALWAYS returns nearest neighbours, so without a floor the fallback would
+# render a confident doc opening for input that matched nothing.
+#
+# EXPRESSED IN SCORED UNITS, NOT RAW. `_score_and_rank` stores `score * 2.0`, so
+# the raw 0.35/0.25 split arrives here as 0.70/0.50. A floor written in raw units
+# silently never fires — which is exactly what happened on the first attempt, and
+# is the same unit-mismatch shape as the doc_path key mismatch: a comparison
+# against a value that looks right and is in the wrong space.
+_FALLBACK_MIN_SCORE = 0.60
+
+
 class DocsExplainAgent:
     """
     Epistemic Documentation Explain Agent.
@@ -2149,6 +2168,18 @@ class DocsExplainAgent:
 
         for score, path, content in top_docs:
             sections = self._extract_relevant_sections(content, keywords)
+            if not sections and search_mode == "semantic" and score >= _FALLBACK_MIN_SCORE:
+                # Semantic chose this document; keyword extraction then found no
+                # section, because a natural-language question's wording need not
+                # appear literally in the prose. Discarding it here throws away
+                # the retrieval that just worked and renders an empty answer under
+                # a confident "Answering:" header — the same defect as the
+                # doc_path key mismatch one layer down, where semantic hits were
+                # also dropped by a keyword-keyed step.
+                #
+                # Fall back to the document's opening, which is the part that
+                # states what it is about.
+                sections = [(_OPENING_HEADER, content[:_OPENING_CHARS])]
             for header, body in sections:
                 all_sections.append(f"**{path}** {header}\n{body.strip()}")
             sources.append({"path": path, "relevance": round(score, 2)})
@@ -2159,7 +2190,18 @@ class DocsExplainAgent:
         else:
             explanation_header = f"**Topic:** {topic}\n\n"
 
-        explanation = explanation_header + "\n\n---\n\n".join(all_sections[:5])
+        body = "\n\n---\n\n".join(all_sections[:5])
+        if not body.strip():
+            # Never assert an answer that is not there. An "Answering: <question>"
+            # header with nothing under it reads as "we looked and this is what
+            # there is", which is a stronger claim than "no passage matched".
+            body = (
+                f"No passage in the {len(sources)} document(s) searched matched this closely enough to quote. "
+                "The documents themselves are listed under sources — try `--topic` with a narrower term."
+                if sources
+                else "No matching documentation found."
+            )
+        explanation = explanation_header + body
 
         # Suggest NotebookLM content for deeper dive
         notebooklm_suggestion = None
