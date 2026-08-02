@@ -977,7 +977,15 @@ def add_checkpoint_parsers(subparsers):
     project_embed_parser = subparsers.add_parser(
         "project-embed", help="Embed project docs & memory into Qdrant for semantic search"
     )
-    project_embed_parser.add_argument("--project-id", required=True, help="Project UUID")
+    project_embed_parser.add_argument(
+        "--project-id",
+        help=(
+            "Project UUID (default: resolved from the active project, like every "
+            "other verb). It was required=True, which made the command that "
+            "generate_semantic_index.py prints as its final line impossible to run "
+            "as printed — a second step left to operator memory AND unrunnable."
+        ),
+    )
     project_embed_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
     project_embed_parser.add_argument("--verbose", action="store_true", help="Show detailed operation info")
     project_embed_parser.add_argument(

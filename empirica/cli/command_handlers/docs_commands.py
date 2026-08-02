@@ -2287,8 +2287,16 @@ def _print_explain_human_output(result: dict):
     if result.get("semantic_unavailable_reason"):
         print(f"   ⚠️  semantic search did not run: {result['semantic_unavailable_reason']}")
 
-    if result.get("audience") != "all":
-        print(f"👤 Audience: {result['audience']}")
+    # Guarded with .get, used with [] — an ABSENT audience returns None,
+    # None != "all" is True, control enters the branch, and it then KeyErrors on
+    # the very key whose absence let it in. The missing key passes the guard
+    # BECAUSE it is missing. Reported by a peer practice as
+    # "docs-explain error: 'audience'" — a bare key name where an answer should
+    # have been. generate_semantic_index.py writes entries with no audience key,
+    # so this fires on exactly the payloads the indexer produces.
+    audience = result.get("audience")
+    if audience and audience != "all":
+        print(f"👤 Audience: {audience}")
 
     print("\n" + "-" * 60)
 

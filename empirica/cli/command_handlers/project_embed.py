@@ -481,9 +481,20 @@ def handle_project_embed_command(args):
         from empirica.data.session_database import SessionDatabase
         from empirica.utils.session_resolver import InstanceResolver as R
 
-        project_id = args.project_id
         context_project = R.project_path()
         root = context_project if context_project else os.getcwd()
+        project_id = args.project_id or R.project_id_from_db(root)
+        if not project_id:
+            print(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": "no project_id given and none resolvable from the active project",
+                        "hint": "run from a project root, or pass --project-id",
+                    }
+                )
+            )
+            return 1
         sync_global = getattr(args, "global_sync", False)
 
         init_collections(project_id)
