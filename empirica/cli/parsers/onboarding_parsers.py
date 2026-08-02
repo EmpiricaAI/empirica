@@ -46,7 +46,15 @@ def add_onboarding_parsers(subparsers):
         aliases=["setup-claude-code"],
         help="Configure harness integration (hooks, system prompt, MCP server)",
         description="""
-Configure Claude Code integration for Empirica. This command:
+Configure this machine's AI harness to run Empirica.
+
+Which harness: --harness, else $EMPIRICA_HARNESS (the same signal the hooks
+read), else claude-code. A harness with no writer is REFUSED by name and
+nothing is written — it used to install Claude Code's surface regardless and
+report success, which on any other harness configured a path that harness
+never loads.
+
+Supported today: claude-code. For Claude Code, this command:
 
 1. Installs the empirica plugin to ~/.claude/plugins/local/
 2. Configures CLAUDE.md system prompt in ~/.claude/
@@ -58,6 +66,14 @@ Configure Claude Code integration for Empirica. This command:
 
 Run this after 'brew install empirica' or 'pip install empirica'.
         """,
+    )
+    setup_cc_parser.add_argument(
+        "--harness",
+        help=(
+            "Which harness to configure (default: $EMPIRICA_HARNESS, else claude-code). "
+            "Supported: claude-code. Others are refused by name rather than silently "
+            "handed Claude Code's files."
+        ),
     )
     setup_cc_parser.add_argument("--force", action="store_true", help="Reinstall plugin even if it already exists")
     setup_cc_parser.add_argument(

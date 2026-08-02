@@ -1679,10 +1679,97 @@ def _migrate_legacy_project_identity(force, output_format):
         return {"status": "error", "message": str(e)}
 
 
+# Which harnesses this command can actually configure.
+#
+# The harness IDENTITY convention already existed at runtime — hooks read
+# EMPIRICA_HARNESS, defaulting to "claude-code", and codex's launcher injects
+# "codex". Setup had no such notion: it wrote Claude Code's surface whatever it
+# was running under. session-init says it plainly — ~/.claude/plugins/local/
+# empirica/ is "a path other harnesses never load" — so a codex user running
+# `empirica setup` configured a surface their harness ignores and was told it
+# succeeded. Silent wrong target with a success message.
+#
+# This registry is the extension point AND the honesty boundary: a harness with
+# no writer is refused by name rather than quietly handed Claude Code's files.
+# Adding codex means adding a writer here, not editing a conditional.
+SUPPORTED_HARNESSES: dict[str, str] = {
+    "claude-code": "Claude Code — plugin, CLAUDE.md, settings.json hooks, MCP server",
+}
+
+# Harnesses we know exist and deliberately do not claim to configure. Named
+# separately so the refusal can say "not yet" rather than "never heard of it" —
+# the two need different responses from whoever hits them.
+KNOWN_UNSUPPORTED_HARNESSES: dict[str, str] = {
+    "codex": "codex / ecodex — sets EMPIRICA_HARNESS=codex from its own launcher; no setup writer here yet",
+    "ecodex": "codex / ecodex — sets EMPIRICA_HARNESS=codex from its own launcher; no setup writer here yet",
+}
+
+
+def resolve_harness(args) -> str:
+    """Which harness `setup` should configure.
+
+    Precedence: explicit --harness > EMPIRICA_HARNESS > "claude-code".
+
+    The env var is deliberately the SAME signal the hooks already read, rather
+    than a second setup-only mechanism — two sources of truth for "which harness
+    am I" is how they drift apart.
+
+    The legacy `setup-claude-code` alias pins claude-code regardless: the old
+    name names the harness, so a script calling it keeps working even under
+    EMPIRICA_HARNESS=codex.
+    """
+    explicit = getattr(args, "harness", None)
+    if explicit:
+        return str(explicit).strip().lower()
+    # argparse stores the subcommand AS TYPED (verified), so the legacy alias is
+    # distinguishable from `setup` without a synthetic flag.
+    if getattr(args, "command", None) == "setup-claude-code":
+        return "claude-code"
+    return (os.environ.get("EMPIRICA_HARNESS") or "claude-code").strip().lower() or "claude-code"
+
+
+def _refuse_unsupported_harness(harness: str, output_format: str):
+    """Report an unconfigurable harness. Writes NOTHING — that is the point."""
+    supported = sorted(SUPPORTED_HARNESSES)
+    known = KNOWN_UNSUPPORTED_HARNESSES.get(harness)
+    reason = known or f"unrecognized harness {harness!r}"
+    if output_format == "json":
+        print(
+            json.dumps(
+                {
+                    "ok": False,
+                    "error": f"no setup writer for harness {harness!r}",
+                    "detail": reason,
+                    "harness": harness,
+                    "supported": supported,
+                    "wrote_nothing": True,
+                    "hint": (
+                        "Pass --harness claude-code to configure Claude Code's surface anyway, "
+                        "or unset EMPIRICA_HARNESS."
+                    ),
+                },
+                indent=2,
+            )
+        )
+    else:
+        print(f"❌ No setup writer for harness '{harness}'")
+        print(f"   {reason}")
+        print(f"   Supported: {', '.join(supported)}")
+        print("\n   Nothing was written. Previously this would have installed Claude Code's")
+        print("   plugin, hooks and CLAUDE.md into ~/.claude/ — a path your harness does not")
+        print("   read — and reported success.")
+        print("\n   If you DO want Claude Code's surface configured: empirica setup --harness claude-code")
+    return 1
+
+
 def handle_setup_claude_code_command(args):
-    """Handle setup-claude-code command"""
+    """Handle the setup command (harness integration)."""
     try:
         output_format = getattr(args, "output", "human")
+
+        harness = resolve_harness(args)
+        if harness not in SUPPORTED_HARNESSES:
+            return _refuse_unsupported_harness(harness, output_format)
         force = getattr(args, "force", False)
         skip_mcp = getattr(args, "skip_mcp", False)
         skip_claude_md = getattr(args, "skip_claude_md", False)
