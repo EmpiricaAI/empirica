@@ -1711,8 +1711,12 @@ SUPPORTED_HARNESSES: dict[str, str] = {
 _CODEX_REASON = (
     "codex / ecodex is SELF-PROVISIONING — it vendors the empirica plugin into its own "
     "binary (~/.codex-native, ~/.codex/plugins/cache/nubaeon/empirica/<ver>/) and loads "
-    "hooks via its native plugin engine, not settings.json. Nothing for this command to "
-    "write; this is by design, not a missing feature."
+    "hooks via its native plugin engine, not settings.json, so there is no hook-shaped "
+    "file for this command to write. By design, not a missing feature. "
+    "Use ecodex's own pipeline (scripts/setup-codex.py + arg0 defaults), which handles "
+    "the plugin deploy, hook wiring and EMPIRICA_SENTINEL_* env. The one thing codex "
+    "needs from empirica is the SHARED, harness-agnostic ~/.empirica/credentials.yaml — "
+    "write it directly, or let ecodex's bootstrap handle it."
 )
 KNOWN_UNSUPPORTED_HARNESSES: dict[str, str] = {
     "codex": _CODEX_REASON,

@@ -98,7 +98,11 @@ def test_a_known_harness_is_refused_as_not_yet_not_as_unheard_of(capsys):
     unknown = json.loads(capsys.readouterr().out)["detail"]
 
     assert "codex" in known and "SELF-PROVISIONING" in known
-    assert "by design, not a missing feature" in known, "codex is not a gap to fill"
+    assert "not a missing feature" in known.lower(), "codex is not a gap to fill"
+    # A refusal that names no alternative is an unrecoverable gate: it tells you
+    # to stop without telling you where to go.
+    assert "setup-codex" in known, "point at the pipeline that DOES provision codex"
+    assert "credentials.yaml" in known, "name the one thing codex needs from empirica"
     assert "unrecognized" in unknown
 
 
