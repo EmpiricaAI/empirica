@@ -186,3 +186,53 @@ def test_reopening_an_open_goal_reports_failure(repo):
     _add(repo, ID_A, status="in_progress")
 
     assert repo.reopen_goal(ID_A, reason="nothing to undo") is False
+
+
+# ── injected context is scoped by project, never by session ───────────
+
+SITUATION_SQL = (
+    "SELECT objective FROM goals g WHERE g.project_id = ? AND g.is_completed = 0 "
+    "AND g.status IN ('in_progress', 'planned') "
+    "ORDER BY CASE g.status WHEN 'in_progress' THEN 0 WHEN 'planned' THEN 1 ELSE 2 END, "
+    "g.created_timestamp DESC LIMIT 1"
+)
+
+
+def test_the_situation_path_does_not_reach_across_sessions(repo):
+    """Sessions are compaction boundaries, not scope.
+
+    This query used to widen with
+    `OR g.session_id IN (SELECT session_id FROM sessions WHERE project_id = ?)`,
+    which silently redefines "my goals" as "goals from any session that touched
+    this project". Measured 2026-08-02: that branch reached 0 real goals and 22
+    E2E test fixtures, so it was importing test noise into injected context.
+    """
+    repo.conn.execute(
+        "INSERT INTO goals (id, project_id, session_id, objective, status, is_completed, created_timestamp) "
+        "VALUES ('g-mine','proj-1','sess-1','mine',            'in_progress',0,1.0)"
+    )
+    repo.conn.execute(
+        "INSERT INTO goals (id, project_id, session_id, objective, status, is_completed, created_timestamp) "
+        "VALUES ('g-other',NULL,   'sess-1','not mine',        'in_progress',0,9.0)"
+    )
+    repo.conn.commit()
+
+    got = repo.conn.execute(SITUATION_SQL, ("proj-1",)).fetchone()
+
+    assert got[0] == "mine", "a project-less goal sharing a session must not be injected"
+
+
+def test_the_situation_path_excludes_abandoned(repo):
+    """The status allowlist already does this — pinned so a future edit to the
+    allowlist cannot silently readmit dead goals."""
+    repo.conn.execute(
+        "INSERT INTO goals (id, project_id, objective, status, is_completed, created_timestamp) "
+        "VALUES ('g-dead','proj-1','dead','abandoned',0,9.0)"
+    )
+    repo.conn.execute(
+        "INSERT INTO goals (id, project_id, objective, status, is_completed, created_timestamp) "
+        "VALUES ('g-live','proj-1','live','in_progress',0,1.0)"
+    )
+    repo.conn.commit()
+
+    assert repo.conn.execute(SITUATION_SQL, ("proj-1",)).fetchone()[0] == "live"

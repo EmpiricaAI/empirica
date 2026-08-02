@@ -72,7 +72,18 @@ def _active_goal(conn: sqlite3.Connection, project_id: str) -> dict | None:
     Recency-aware picker: status_rank (in_progress=0, planned=1) primary,
     created_timestamp DESC secondary. Belt-and-suspenders project scope —
     accepts goals matched by g.project_id OR by session→project join, since
-    older rows may have project_id unpopulated.
+    Scoped to project_id ALONE. This used to widen with
+    `OR g.session_id IN (SELECT session_id FROM sessions WHERE project_id = ?)`
+    to catch older rows with project_id unpopulated. Measured 2026-08-02: that
+    branch reached 0 real goals — every row it added was an "E2E test goal
+    workflow" fixture whose session also lacks a project_id (22 of them), so it
+    was importing test noise into injected context and nothing else.
+
+    Removed per the rule that sessions are compaction boundaries and must not
+    scope lifecycle: a session join here silently makes "my goals" mean "goals
+    from sessions that touched this project", which is a different and wider
+    claim than the caller asks for. If legacy project-less goals ever matter,
+    backfill project_id — do not widen the read.
     """
     try:
         cur = conn.execute(
@@ -80,10 +91,7 @@ def _active_goal(conn: sqlite3.Connection, project_id: str) -> dict | None:
             SELECT g.id, g.objective, g.description, g.scope,
                    g.created_timestamp, g.status
             FROM goals g
-            WHERE (g.project_id = ?
-                   OR g.session_id IN (
-                       SELECT session_id FROM sessions WHERE project_id = ?
-                   ))
+            WHERE g.project_id = ?
               AND g.is_completed = 0
               AND g.status IN ('in_progress', 'planned')
             ORDER BY
@@ -93,7 +101,7 @@ def _active_goal(conn: sqlite3.Connection, project_id: str) -> dict | None:
               g.created_timestamp DESC
             LIMIT 1
             """,
-            (project_id, project_id),
+            (project_id,),
         )
         row = cur.fetchone()
         if not row:
