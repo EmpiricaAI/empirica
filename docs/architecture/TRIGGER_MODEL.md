@@ -6,7 +6,7 @@ Three mechanisms exist. They are not interchangeable, and the choice between the
 is a policy decision, not a tuning knob. This document says which to reach for,
 what the opt-in rules are, and why they are what they are.
 
-Companion docs: [`EVENT_LISTENER.md`](EVENT_LISTENER.md) for how the push pipeline
+Companion docs: [`MESSAGING_LAYERS.md`](MESSAGING_LAYERS.md) — what a practice can *say* (and which of the two messaging layers needs Cortex), [`EVENT_LISTENER.md`](EVENT_LISTENER.md) for how the push pipeline
 works end to end, and [`COCKPIT.md`](COCKPIT.md) for loop state files, pause
 semantics and the pickup hook.
 

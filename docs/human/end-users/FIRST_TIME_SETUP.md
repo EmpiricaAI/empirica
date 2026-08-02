@@ -10,7 +10,7 @@
 pip install empirica                 # 1. Install the CLI
 cd your-project                       # 2. Any git repo
 empirica project-init                 # 3. Mints .empirica/ + project.yaml
-empirica setup-claude-code            # (optional, Claude Code users) installs plugin + hooks
+empirica setup            # (optional, Claude Code users) installs plugin + hooks
 empirica diagnose                     # Sanity check — green = ready
 ```
 
@@ -75,7 +75,7 @@ This creates:
 If you're using Claude Code as your AI:
 
 ```bash
-empirica setup-claude-code
+empirica setup
 ```
 
 This installs the empirica plugin to `~/.claude/plugins/local/empirica/`,
@@ -94,7 +94,7 @@ You only need cortex+ntfy if you're opting into the cross-AI mesh layer
 (peer-AI coordination, push-wake on inbox events, the browser
 extension's ECO triage). If you skip the wizard, mesh features stay
 inert; everything local still works. You can always re-run
-`empirica setup-claude-code --force` later to add the creds when you
+`empirica setup --force` later to add the creds when you
 want them.
 
 After the api_key prompt (if you supply one), the wizard fetches

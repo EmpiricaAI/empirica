@@ -36,7 +36,7 @@ via Ollama Cloud, etc.), run this once to install the Empirica plugin and
 configure the statusline + hooks:
 
 ```bash
-empirica setup-claude-code
+empirica setup
 ```
 
 This copies the plugin files into `~/.claude/plugins/local/empirica/`, adds

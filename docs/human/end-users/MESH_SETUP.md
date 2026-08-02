@@ -1,5 +1,9 @@
 # The Full Mesh Solution — Setup Guide
 
+> **Two messaging layers exist.** `message-*` is git-notes based and needs no Cortex;
+> `mailbox *` is Cortex's ECO-gated proposal layer. See
+> [Messaging Layers](../../architecture/MESSAGING_LAYERS.md) before assuming you need a server.
+
 > **Reading order tip:** if you haven't yet, start with [MESH_CONCEPTS.md](MESH_CONCEPTS.md) — it explains *why* the mesh works the way it does (practitioner/practice framing, what actually rides the wire between AIs). This doc is the *how*: installing the optional layers on top of core.
 
 **Empirica core works standalone.** Artifacts, goals, calibration, project-search, the sentinel gate, the artifact graph, commit-context, `bd` issue-tracker integration (per-project goal decomposition + ready-work filtering) — all of these run on the local install without any further setup beyond `pip install empirica` and `empirica project-init`. If that's all you need, you're done.
@@ -95,7 +99,7 @@ If you're being onboarded into an existing organisation (e.g., your team already
 Run the setup-claude-code wizard, which discovers and persists creds for you:
 
 ```bash
-empirica setup-claude-code --force
+empirica setup --force
 ```
 
 The wizard prompts for:
@@ -177,7 +181,7 @@ For each project you want included in the mesh:
 ```bash
 cd your-project
 empirica project-init                       # if not already done
-empirica setup-claude-code --force          # if you haven't run it for this project
+empirica setup --force          # if you haven't run it for this project
 empirica projects-sync                      # discovers + registers locally + pushes to Cortex
 ```
 

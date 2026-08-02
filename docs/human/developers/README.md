@@ -10,7 +10,7 @@ the foundation layer.**
 | You want to | Start here |
 |---|---|
 | Set up Claude Code | [CLAUDE_CODE_SETUP.md](CLAUDE_CODE_SETUP.md) |
-| Read the live system prompt | `~/.claude/empirica-system-prompt.md` (after `empirica setup-claude-code`) |
+| Read the live system prompt | `~/.claude/empirica-system-prompt.md` (after `empirica setup`) |
 | Browse the CLI | [CLI_COMMANDS_UNIFIED.md](CLI_COMMANDS_UNIFIED.md) (see currency disclaimer at top) |
 | Build a skill | [skills/SKILL_PIPELINE.md](skills/SKILL_PIPELINE.md) |
 | Build on the foundation layer | [EXTENDING_EMPIRICA.md](EXTENDING_EMPIRICA.md) |
@@ -30,7 +30,7 @@ the foundation layer.**
 ## System Prompts
 
 The live system prompt is generated from a single lean source and
-deployed by `empirica setup-claude-code`:
+deployed by `empirica setup`:
 
 ```
 empirica/plugins/claude-code-integration/templates/

@@ -78,7 +78,7 @@ Scenario: Prompt says "empirica onboard" but command doesn't exist
 
 | File | When |
 |------|------|
-| `~/.claude/empirica-system-prompt.md` | Live tuning (immediate effect; gets overwritten on next `empirica setup-claude-code --force`) |
+| `~/.claude/empirica-system-prompt.md` | Live tuning (immediate effect; gets overwritten on next `empirica setup --force`) |
 | `~/.claude/CLAUDE.md` | User overrides — preserved across `setup-claude-code` runs |
 | `empirica/plugins/claude-code-integration/templates/empirica-system-prompt-lean.md` | Canonical lean source — the only system-prompt template (deployed on `setup-claude-code`, written to `~/.claude/empirica-system-prompt.md` and @included from CLAUDE.md) |
 

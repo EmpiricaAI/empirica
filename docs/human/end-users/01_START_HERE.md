@@ -73,7 +73,7 @@ empirica --version
 ```bash
 cd your-project              # any git repo
 empirica project-init        # creates .empirica/ — required for every command
-empirica setup-claude-code   # Claude Code users only: plugin + statusline + hooks
+empirica setup   # Claude Code users only: plugin + statusline + hooks
 empirica diagnose            # sanity check — tells you if anything's off
 ```
 
@@ -199,7 +199,7 @@ exact schemas.
 | `Cannot determine sessions.db path` | No `.empirica/` | `empirica project-init` |
 | `No active transaction` | Missing PREFLIGHT | `empirica preflight-submit -` |
 | `No valid CHECK found` | Sentinel blocking praxic | `empirica check-submit -` with `proceed: true` |
-| `Statusline not showing` | Hook gap | `empirica setup-claude-code --force` then restart Claude Code |
+| `Statusline not showing` | Hook gap | `empirica setup --force` then restart Claude Code |
 | `Vector 'know' must be between 0.0 and 1.0` | Nested tier object | Flatten to `vectors: {know: 0.7, ...}` |
 
 For more: [03_TROUBLESHOOTING.md](03_TROUBLESHOOTING.md).
@@ -211,7 +211,7 @@ For more: [03_TROUBLESHOOTING.md](03_TROUBLESHOOTING.md).
 ### For AI Agents
 
 - `empirica onboard` — interactive epistemic-tracking practice
-- `empirica setup-claude-code` — full Claude Code integration
+- `empirica setup` — full Claude Code integration
 
 ### For Users
 
@@ -253,4 +253,4 @@ Hiding it produces silent divergence later.
 
 ---
 
-**Ready?** `empirica project-init` then `empirica setup-claude-code` then `empirica onboard`. 🚀
+**Ready?** `empirica project-init` then `empirica setup` then `empirica onboard`. 🚀

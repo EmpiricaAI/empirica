@@ -10,7 +10,7 @@
 pip install empirica empirica-mcp
 cd your-project
 empirica project-init
-empirica setup-claude-code      # the canonical path
+empirica setup      # the canonical path
 empirica diagnose               # sanity check
 ```
 
@@ -214,7 +214,7 @@ Claude should run the command and surface findings + open goals.
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | `empirica: command not found` | pip bin not on PATH | `export PATH="$HOME/.local/bin:$PATH"` |
-| Statusline not showing | Hook path wrong | `empirica setup-claude-code --force` then restart Claude Code |
+| Statusline not showing | Hook path wrong | `empirica setup --force` then restart Claude Code |
 | Claude unaware of Empirica | CLAUDE.md missing the include | Re-run `setup-claude-code` |
 | Sentinel blocking everything | No valid CHECK | `empirica check-submit -` with `proceed: true` |
 | Plugin hooks not running | Plugin disabled | Check `~/.claude/settings.json` → `enabledPlugins.empirica@local: true` |
@@ -261,7 +261,7 @@ Inside an open transaction, `--session-id` is auto-derived.
 
 ## Appendix — Manual Install
 
-Only use this if `empirica setup-claude-code` can't run (e.g., locked-down
+Only use this if `empirica setup` can't run (e.g., locked-down
 environment, custom Claude config path). Otherwise the automated flow is
 faster and stays in sync on each release.
 

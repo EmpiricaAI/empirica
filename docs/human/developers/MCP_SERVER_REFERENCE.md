@@ -24,7 +24,7 @@ The Empirica MCP server exposes Empirica functionality through MCP (Model Contex
 
 ## Setup
 
-### Via `empirica setup-claude-code`
+### Via `empirica setup`
 
 The setup command auto-configures MCP in `~/.claude/mcp.json`:
 

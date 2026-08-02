@@ -481,7 +481,7 @@ per the structure above.
 **Step 3 — Setup the Claude Code plugin.**
 
 ```bash
-empirica setup-claude-code --force
+empirica setup --force
 ```
 
 This installs the hooks (including `session-monitor-arm.py` which arms

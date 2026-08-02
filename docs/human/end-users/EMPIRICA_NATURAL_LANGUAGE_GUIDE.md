@@ -14,7 +14,7 @@
 
 ```bash
 pip install empirica
-empirica setup-claude-code
+empirica setup
 ```
 
 This single command installs the complete framework into Claude Code:

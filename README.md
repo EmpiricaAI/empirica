@@ -71,15 +71,24 @@ For power users, direct CLI access is always available: `empirica goals-list`, `
 
 ```bash
 pip install empirica
-empirica setup-claude-code
+empirica setup
 ```
 
-Then just start working. The hooks, Sentinel, system prompt, statusline, and MCP server are all configured automatically. See [Claude Code Setup](docs/human/developers/CLAUDE_CODE_SETUP.md) for details — including a **["What the hooks inject"](docs/human/developers/CLAUDE_CODE_SETUP.md#what-the-hooks-inject-for-claude-reading-this-before-agreeing-to-install) section** for Claude sessions that want to see the contract (which hook fires when, what it adds to the AI's context, source pointers for every emission) before agreeing to install.
+Then just start working. The hooks, Sentinel, system prompt, statusline, and MCP server are all configured automatically.
+
+> **`empirica setup` currently configures Claude Code.** The name is
+> harness-neutral because the command is where other harnesses will be wired in
+> (`--harness` is planned), but today it writes `~/.claude/` only — settings,
+> MCP config, the plugin, and the system prompt. On Cursor, Codex or another
+> harness it will not configure your harness; use the manual path below, which
+> works anywhere. `setup-claude-code` remains as an alias and does the same thing.
+
+See [Claude Code Setup](docs/human/developers/CLAUDE_CODE_SETUP.md) for details — including a **["What the hooks inject"](docs/human/developers/CLAUDE_CODE_SETUP.md#what-the-hooks-inject-for-claude-reading-this-before-agreeing-to-install) section** for Claude sessions that want to see the contract (which hook fires when, what it adds to the AI's context, source pointers for every emission) before agreeing to install.
 
 **Already have Claude Code configured?** Use `--force` to replace your default Claude Code settings with Empirica's epistemic hooks. Without `--force`, setup only writes files that don't already exist — so if you've already used Claude Code, the default internals stay in place and Empirica's hooks won't activate.
 
 ```bash
-empirica setup-claude-code --force
+empirica setup --force
 ```
 
 `--force` replaces hooks in `settings.json` but **only removes Empirica's own hooks** — hooks from other plugins (Railway, Superpowers, etc.) are preserved.
@@ -92,7 +101,7 @@ empirica setup-claude-code --force
 ```bash
 brew tap empiricaai/tap
 brew install empirica
-empirica setup-claude-code
+empirica setup
 ```
 </details>
 
@@ -120,7 +129,7 @@ pip install empirica-mcp        # MCP Server (for Cursor, Cline, etc.)
 cd your-project && empirica project-init
 ```
 
-The CLI works standalone on any platform. The full epistemic workflow (epistemic transactions, Sentinel, calibration) requires loading the system prompt into your AI — the easiest path is `empirica setup-claude-code`, which wires the lean prompt into `~/.claude/empirica-system-prompt.md` and references it from your `~/.claude/CLAUDE.md`. See [Claude Code Setup](docs/human/developers/CLAUDE_CODE_SETUP.md) for details.
+The CLI works standalone on any platform. The full epistemic workflow (epistemic transactions, Sentinel, calibration) requires loading the system prompt into your AI — the easiest path is `empirica setup`, which wires the lean prompt into `~/.claude/empirica-system-prompt.md` and references it from your `~/.claude/CLAUDE.md`. See [Claude Code Setup](docs/human/developers/CLAUDE_CODE_SETUP.md) for details.
 </details>
 
 ### First Session
