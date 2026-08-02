@@ -41,7 +41,8 @@ def repo(tmp_path):
     conn = sqlite3.connect(tmp_path / "s.db")
     conn.execute(
         "CREATE TABLE goals (id TEXT PRIMARY KEY, session_id TEXT, project_id TEXT, transaction_id TEXT, "
-        "objective TEXT, status TEXT, is_completed INTEGER DEFAULT 0, goal_data TEXT, created_timestamp REAL)"
+        "objective TEXT, status TEXT, is_completed INTEGER DEFAULT 0, goal_data TEXT, created_timestamp REAL, "
+        "completed_timestamp REAL, archived INTEGER DEFAULT 0, archived_at REAL)"
     )
     conn.commit()
     r = GoalDataRepository.__new__(GoalDataRepository)
@@ -147,3 +148,41 @@ def test_a_null_status_goal_still_injects(repo):
     _add(repo, ID_A, status=None, obj="legacy row")
 
     assert repo.conn.execute(TOPIC_SQL_NEW, ("tx-1",)).fetchone()[0] == "legacy row"
+
+
+# ── the reverse edge ──────────────────────────────────────────────────
+
+
+def test_an_abandoned_goal_can_be_reopened(repo):
+    """A terminal state with no exit is a one-way door.
+
+    Abandonment gets decided on circumstantial evidence — "the SER it references
+    is no longer live", "untouched for 30 days" — which is exactly the kind of
+    judgement that turns out wrong. reopen_goal originally matched only
+    `status='completed' OR is_completed=1`, and abandoned is neither, so the new
+    state shipped without a way back. Caught before using it on real goals.
+    """
+    _add(repo, ID_A, status="in_progress")
+    assert repo.abandon_goal(ID_A, "SER no longer live") is True
+
+    assert repo.reopen_goal(ID_A, reason="the SER was only invisible to me") is True
+
+    row = repo.conn.execute("SELECT status, is_completed FROM goals WHERE id=?", (ID_A,)).fetchone()
+    assert row[0] == "in_progress"
+    assert row[1] == 0
+
+
+def test_reopening_a_completed_goal_still_works(repo):
+    """NEGATIVE CONTROL: widening the match must not break the original case."""
+    _add(repo, ID_A, status="completed", completed=1)
+
+    assert repo.reopen_goal(ID_A, reason="premature close") is True
+    assert repo.conn.execute("SELECT status FROM goals WHERE id=?", (ID_A,)).fetchone()[0] == "in_progress"
+
+
+def test_reopening_an_open_goal_reports_failure(repo):
+    """NEGATIVE CONTROL: reopen is for terminal states. An in_progress goal is
+    not one, and saying 'reopened' would be the silent-success class again."""
+    _add(repo, ID_A, status="in_progress")
+
+    assert repo.reopen_goal(ID_A, reason="nothing to undo") is False

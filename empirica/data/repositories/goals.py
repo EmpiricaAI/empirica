@@ -573,9 +573,15 @@ class GoalDataRepository(BaseRepository):
         return True
 
     def reopen_goal(self, goal_id: str, reason: str | None = None, transaction_id: str | None = None) -> bool:
-        """Reopen a COMPLETED goal — flip status back to in_progress and clear
-        the completed flags. Makes ``goals-complete`` reversible via the CLI
-        (an accidental or premature completion can be undone).
+        """Reopen a COMPLETED or ABANDONED goal — flip status back to
+        in_progress and clear the completed flags. Makes both terminal states
+        reversible via the CLI (an accidental or premature close can be undone).
+
+        Abandoned is included deliberately. A terminal state with no exit is a
+        one-way door, and abandonment is frequently decided on circumstantial
+        evidence — "the SER it references is no longer live", "untouched for 30
+        days" — which is exactly the kind of judgement that turns out wrong. The
+        reverse edge is what makes it safe to act on that evidence at all.
 
         Args:
             goal_id: Goal UUID (prefix match supported)
@@ -583,13 +589,13 @@ class GoalDataRepository(BaseRepository):
             transaction_id: Current transaction UUID to re-link the goal to
 
         Returns:
-            True if reopened, False if goal not found or not completed
+            True if reopened, False if goal not found or not in a terminal state
         """
         if is_blank_id(goal_id):
             return False  # LIKE '%' would reopen an arbitrary completed goal
         cursor = self._execute(
             "SELECT id, goal_data, completed_timestamp, transaction_id, archived, archived_at "
-            "FROM goals WHERE id LIKE ? AND (status = 'completed' OR is_completed = 1)",
+            "FROM goals WHERE id LIKE ? AND (status = 'completed' OR status = 'abandoned' OR is_completed = 1)",
             (f"{goal_id}%",),
         )
         row = cursor.fetchone()
