@@ -89,3 +89,61 @@ def test_the_typed_rules_still_win_over_the_catch_all(tmp_path):
     assert rule is not None and rule.doc_type == "architecture", (
         f"the catch-all is shadowing typed rules — docs/architecture resolved to {rule.doc_type if rule else None!r}"
     )
+
+
+# ── coverage-by-default needs a complementary opt-OUT ─────────────────
+
+
+def test_a_noindex_marker_excludes_a_subtree(tmp_path):
+    """POSITIVE CONTROL. The catch-all made coverage the default, which is right,
+    but without an opt-out it sweeps in material written to be analysed rather
+    than retrieved.
+
+    Measured 2026-08-02: it pulled in docs/research/acat_pilot_runs/** — raw
+    session transcripts — and those were the TOP HIT for a nonsense query (0.25),
+    because long diffuse prose matches everything weakly. Internal material does
+    not merely waste index space; it becomes what semantic search falls back on
+    when nothing genuinely matches.
+    """
+    from empirica.core.docs.semantic_scan import scan_project
+
+    internal = tmp_path / "docs" / "transcripts"
+    internal.mkdir(parents=True)
+    (internal / ".noindex").write_text("internal")
+    (internal / "session.md").write_text("# transcript\n" + "x" * 500)
+
+    public = tmp_path / "docs" / "architecture"
+    public.mkdir(parents=True)
+    (public / "DESIGN.md").write_text("# design\n" + "y" * 500)
+
+    indexed = scan_project(tmp_path)
+
+    assert "docs/architecture/DESIGN.md" in indexed
+    assert "docs/transcripts/session.md" not in indexed, "a .noindex subtree must not be indexed"
+
+
+def test_the_marker_applies_to_nested_descendants(tmp_path):
+    """A marker on a parent covers everything beneath it — otherwise every new
+    subfolder of an internal tree needs its own marker, which is the
+    per-directory bookkeeping the catch-all exists to remove."""
+    from empirica.core.docs.semantic_scan import scan_project
+
+    root = tmp_path / "docs" / "runs"
+    deep = root / "2026-06" / "session-a"
+    deep.mkdir(parents=True)
+    (root / ".noindex").write_text("internal")
+    (deep / "notes.md").write_text("# notes\n" + "z" * 500)
+
+    assert "docs/runs/2026-06/session-a/notes.md" not in scan_project(tmp_path)
+
+
+def test_an_unmarked_tree_is_still_indexed(tmp_path):
+    """NEGATIVE CONTROL: opt-out must be explicit. If absence of a marker
+    excluded anything, coverage would stop being the default."""
+    from empirica.core.docs.semantic_scan import scan_project
+
+    d = tmp_path / "docs" / "whatever"
+    d.mkdir(parents=True)
+    (d / "doc.md").write_text("# doc\n" + "q" * 500)
+
+    assert "docs/whatever/doc.md" in scan_project(tmp_path)

@@ -77,8 +77,42 @@ SKIP_PATTERNS = (
 MIN_FILE_SIZE = 100  # bytes
 
 
+NOINDEX_MARKER = ".noindex"
+
+
 def _should_skip(relpath: str) -> bool:
     return any(pat in relpath for pat in SKIP_PATTERNS)
+
+
+def _is_marked_internal(filepath: Path, project_root: Path) -> bool:
+    """True when any ancestor directory carries a `.noindex` marker.
+
+    The catch-all `docs/**/*.md` rule made coverage the default, which is right —
+    but coverage-by-default and internal-by-choice are complementary, not
+    competing. Without an opt-OUT, the catch-all sweeps in material that exists
+    to be written rather than retrieved.
+
+    Measured 2026-08-02: it pulled in `docs/research/acat_pilot_runs/**` — raw
+    session transcripts — and those transcripts were the top hit for a NONSENSE
+    query (score 0.25), because long diffuse prose matches everything weakly.
+    Internal material does not merely waste index space; it becomes the thing
+    semantic search falls back on when nothing genuinely matches.
+
+    A marker rather than a directory list, for the same reason the rule is a
+    catch-all rather than a list: a new internal folder opts out by carrying the
+    file, not by someone remembering to edit a constant.
+    """
+    try:
+        current = filepath.parent.resolve()
+        root = project_root.resolve()
+    except OSError:
+        return False
+    while True:
+        if (current / NOINDEX_MARKER).exists():
+            return True
+        if current == root or current.parent == current:
+            return False
+        current = current.parent
 
 
 def _extract_module_docstring(filepath: Path) -> str | None:
@@ -172,6 +206,8 @@ def scan_project(project_root: Path) -> dict[str, dict[str, Any]]:
 
             relpath = str(filepath.relative_to(project_root))
             if _should_skip(relpath) or relpath in entries:
+                continue
+            if _is_marked_internal(filepath, project_root):
                 continue
 
             tags = list(rule.base_tags)

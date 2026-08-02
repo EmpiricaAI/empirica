@@ -1,0 +1,10 @@
+Raw session transcripts from ACAT pilot runs.
+
+INTERNAL — written to be analysed, not retrieved. Excluded from the semantic
+index because long diffuse prose matches every query weakly: these transcripts
+were the top hit for a NONSENSE query (score 0.25) once the docs/**/*.md
+catch-all swept them in. Internal material does not merely waste index space, it
+becomes what semantic search falls back on when nothing genuinely matches.
+
+Analysis and conclusions drawn FROM these runs belong in docs/research/ proper,
+where they are indexed.
