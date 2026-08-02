@@ -96,7 +96,14 @@ def _from_transaction(db_path: Path, transaction_state: dict) -> str | None:
             cur = conn.cursor()
             cur.execute(
                 "SELECT objective FROM goals "
+                # `is_completed = 0` alone is not "open": an ABANDONED goal is
+                # deliberately left at is_completed=0 so no completion metric
+                # counts it as delivered, which means this filter would inject
+                # dead goals as current work. The other two injection paths use
+                # status allowlists and exclude it by construction; this one did
+                # not, so the exclusion is explicit here.
                 "WHERE transaction_id = ? AND is_completed = 0 "
+                "AND (status IS NULL OR status != 'abandoned') "
                 "ORDER BY created_timestamp DESC LIMIT 1",
                 (transaction_id,),
             )

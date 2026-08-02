@@ -1804,6 +1804,43 @@ def handle_goals_mark_stale_command(args):
         session_id = getattr(args, "session_id", None)
         reason = getattr(args, "reason", "memory_compact")
         output_format = getattr(args, "output", "json")
+        goal_id = getattr(args, "goal_id", None)
+
+        # Per-goal mode: record that ONE goal is dead but NOT delivered.
+        #
+        # The lifecycle had no terminal state for that, so an abandoned goal
+        # could only be closed as `completed` — false, and counted as delivered
+        # work by every status='completed' query including grounded calibration.
+        # The session-wide branch below is unchanged: despite this verb's name it
+        # only annotates compaction metadata and leaves status alone.
+        if goal_id:
+            from empirica.data.session_database import SessionDatabase
+
+            db = SessionDatabase()
+            ok = db.goals.abandon_goal(goal_id, reason)
+            db.close()
+            result = (
+                {
+                    "ok": True,
+                    "goal_id": goal_id,
+                    "status": "abandoned",
+                    "reason": reason,
+                    "note": "is_completed stays 0 — abandoned is not delivered",
+                }
+                if ok
+                else {
+                    "ok": False,
+                    "goal_id": goal_id,
+                    "error": "no open goal matched that id (already completed, ambiguous, or absent)",
+                }
+            )
+            if output_format == "json":
+                print(json.dumps(result, indent=2))
+            elif ok:
+                print(f"🗑️  Goal {goal_id} marked abandoned (not delivered) — {reason}")
+            else:
+                print(f"❌ {result['error']}", file=sys.stderr)
+            return 0 if ok else 1
 
         # Fall back to the active session, the way every other verb does. This was
         # `required=True` because the pre-compact hook — its original and only

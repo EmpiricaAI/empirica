@@ -6,11 +6,14 @@ Encapsulates all database operations for goals/subtasks domain.
 """
 
 import json
+import logging
 import time
 import uuid
 
 from ..id_guard import is_blank_id
 from .base import BaseRepository
+
+logger = logging.getLogger(__name__)
 
 
 class GoalDataRepository(BaseRepository):
@@ -425,6 +428,51 @@ class GoalDataRepository(BaseRepository):
 
         self.commit()
         return count
+
+    def abandon_goal(self, goal_id: str, reason: str) -> bool:
+        """Record that a goal is dead but was NOT delivered.
+
+        The lifecycle was planned | in_progress | completed, with no terminal
+        state for work that stopped mattering. So an abandoned goal could only
+        be closed as ``completed`` — which is false, and which every
+        ``status='completed'`` query counts as delivered work, grounded
+        calibration included. Measured 2026-08-02: 22 goals on this practice sat
+        30+ days untouched in the injected-context pool with no way out.
+
+        ``is_completed`` stays 0 deliberately. Abandoned is not done, and no
+        completion metric may count it.
+
+        Note this is NOT what ``mark_goals_stale`` does — that annotates
+        compaction metadata and leaves status untouched, despite the name.
+
+        Returns True only if a row actually changed.
+        """
+        from ..id_guard import resolve_id_prefix
+
+        cursor = self.conn.cursor()
+        full_id, id_error = resolve_id_prefix(cursor, "goals", "id", goal_id)
+        if id_error:
+            logger.warning(f"abandon_goal({goal_id!r}): {id_error}")
+            return False
+
+        row = self._execute("SELECT goal_data FROM goals WHERE id = ?", (full_id,)).fetchone()
+        goal_data = {}
+        if row and row[0]:
+            try:
+                goal_data = json.loads(row[0])
+            except (ValueError, TypeError):
+                goal_data = {}
+        goal_data["abandoned_reason"] = reason
+        goal_data["abandoned_at"] = time.time()
+
+        cur = self._execute(
+            "UPDATE goals SET status = 'abandoned', goal_data = ? WHERE id = ? AND is_completed = 0",
+            (json.dumps(goal_data), full_id),
+        )
+        self.commit()
+        # rowcount, not True: a goal already completed must not be silently
+        # re-labelled, and the caller has no other way to learn that.
+        return cur.rowcount > 0
 
     def get_stale_goals(self, session_id: str | None = None, project_id: str | None = None) -> list[dict]:
         """Get stale goals for a session or project
