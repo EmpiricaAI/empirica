@@ -8,8 +8,6 @@ artifacts cite, so source quality was unmeasurable.
 from __future__ import annotations
 
 import json
-import tempfile
-from pathlib import Path
 
 import pytest
 
@@ -17,10 +15,14 @@ from empirica.cli.command_handlers import graph_commands as gc
 
 
 @pytest.fixture
-def db(monkeypatch):
+def db(monkeypatch, tmp_path):
     from empirica.data.session_database import SessionDatabase
 
-    real = SessionDatabase(db_path=str(Path(tempfile.mkdtemp()) / "t.db"))
+    # tmp_path, not mkdtemp — same leak class as the four cortex reported. This
+    # one they did NOT report (its dirs are indistinguishable from the 820 they
+    # attributed to test_migration_060, since both write "t.db"), which is why
+    # the sweep was by CONSTRUCT rather than by their list.
+    real = SessionDatabase(db_path=str(tmp_path / "t.db"))
     conn = real.conn
     conn.execute(
         "INSERT INTO project_dead_ends (id, project_id, session_id, approach, why_failed, "

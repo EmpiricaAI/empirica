@@ -42,7 +42,6 @@ from __future__ import annotations
 
 import ast
 import sqlite3
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -95,19 +94,23 @@ SQL_EXEC_METHODS = {"execute", "executemany", "executescript"}
 # --------------------------------------------------------------------------- #
 # Step 1 — build the union schema in one in-memory connection.
 # --------------------------------------------------------------------------- #
-def _build_schema_connection() -> sqlite3.Connection:
+def _build_schema_connection(tmpdir: Path) -> sqlite3.Connection:
     """Build session + workspace schema in one connection; return it live.
 
     Uses the production schema builders so the test tracks the real schema
     automatically as it evolves.
+
+    Takes the temp dir rather than making one: it used to call mkdtemp() and
+    keep the connection open, so the directory outlived the call by design and
+    nothing ever removed it. The caller passes pytest's tmp_path, which is
+    cleaned up for us.
     """
     from empirica.data.repositories.workspace_db import _ensure_workspace_schema
     from empirica.data.session_database import SessionDatabase
 
     # SessionDatabase needs a file path (it resolves a default otherwise and
-    # may pollute CWD). Use a throwaway temp file, then keep the live conn.
-    tmpdir = tempfile.mkdtemp(prefix="sql_schema_test_")
-    db_path = str(Path(tmpdir) / "sessions.db")
+    # may pollute CWD).
+    db_path = str(tmpdir / "sessions.db")
 
     sdb = SessionDatabase(db_path=db_path, db_type="sqlite")
     conn = sdb.conn
@@ -303,8 +306,8 @@ _FOREIGN_SCHEMA_FILES: frozenset[str] = frozenset(
 # --------------------------------------------------------------------------- #
 # The test.
 # --------------------------------------------------------------------------- #
-def test_static_sql_references_exist_in_schema():
-    conn = _build_schema_connection()
+def test_static_sql_references_exist_in_schema(tmp_path):
+    conn = _build_schema_connection(tmp_path)
     schema = _introspect_columns(conn)
     known_tables = set(schema.keys())
 

@@ -9,8 +9,6 @@ by construction and silently removed a viable approach from the option space.
 from __future__ import annotations
 
 import sqlite3
-import tempfile
-from pathlib import Path
 
 import pytest
 
@@ -18,8 +16,11 @@ from empirica.data.session_database import SessionDatabase
 
 
 @pytest.fixture
-def db():
-    d = SessionDatabase(db_path=str(Path(tempfile.mkdtemp()) / "t.db"))
+def db(tmp_path):
+    # tmp_path, not mkdtemp: the old fixture closed the DB but never removed the
+    # directory, so every run stranded one more. 820 of them on this box, and a
+    # peer's /tmp hit 100% and failed tests in code nobody had touched.
+    d = SessionDatabase(db_path=str(tmp_path / "t.db"))
     yield d
     d.close()
 
