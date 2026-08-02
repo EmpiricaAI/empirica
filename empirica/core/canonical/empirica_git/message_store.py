@@ -23,6 +23,7 @@ import time
 import uuid
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -38,6 +39,11 @@ class GitMessageStore:
     Each message gets its own ref (consistent with findings, goals, etc.).
     Channel is encoded in the ref path for efficient discovery.
     """
+
+    # At most one opportunistic prune per hour per repo, however many messages
+    # are sent in between. Bounds the write path: a burst of sends triggers one
+    # prune, not one per send.
+    PRUNE_INTERVAL_SECONDS = 3600
 
     def __init__(self, workspace_root: str | None = None):
         """Initialize git message store"""
@@ -157,6 +163,12 @@ class GitMessageStore:
             )
 
             logger.info(f"Sent message {message_id[:8]} on #{channel} to {to_ai_id}")
+
+            # Enforce the TTL from the event that grows the ref set. Interval-gated
+            # and best-effort — see _maybe_prune_expired. Deliberately AFTER the
+            # send has succeeded, so a prune failure can never cost a message.
+            self._maybe_prune_expired()
+
             return message_id
 
         except Exception as e:
@@ -551,6 +563,69 @@ class GitMessageStore:
                 counts[ch] = len(msgs)
         return counts
 
+    def _batch_delete_refs(self, refs: list[str]) -> bool:
+        """Delete every ref in ONE `git update-ref --stdin`, not one spawn each."""
+        if not refs:
+            return True
+        commands = "".join(f"delete {ref}\n" for ref in refs)
+        try:
+            proc = subprocess.run(
+                ["git", "update-ref", "--stdin"],
+                cwd=self.workspace_root,
+                input=commands.encode(),
+                capture_output=True,
+                timeout=30,
+            )
+            if proc.returncode != 0:
+                logger.warning(f"Batch ref delete failed: {proc.stderr.decode(errors='replace')[:200]}")
+                return False
+            return True
+        except Exception as e:
+            logger.warning(f"Batch ref delete failed: {e}")
+            return False
+
+    def _maybe_prune_expired(self) -> None:
+        """Prune expired messages on write, at most once per PRUNE_INTERVAL.
+
+        #394's "Adjacent" note: the default TTL is 86400 but NOTHING enforces it
+        unless someone schedules `message-cleanup`. The reporter's repo had 306
+        refs of which 150 were already expired — a TTL that expires nothing is a
+        setting, not a policy.
+
+        A scheduled loop is the wrong mechanism here: cron is opt-in-only in this
+        project and never installed by default, so a fix that depends on one is a
+        fix that does not run for anybody who did not read the docs — the same
+        leave-it-to-operator-memory shape as the docs index's second step.
+
+        So it hangs off a real event instead. Sending is the natural one: it is
+        the act that GROWS the ref set, so the cost is paid by whoever creates
+        it, and a repo nobody writes to does not need pruning. The interval
+        marker keeps it amortized — a burst of 100 sends triggers one prune, not
+        100 — and best-effort throughout, because failing to prune must never
+        fail the send that triggered it.
+        """
+        # workspace_root is a str (it is handed straight to subprocess cwd=),
+        # so build the path rather than assuming Path semantics.
+        marker = Path(self.workspace_root) / ".git" / "empirica-last-message-prune"
+        now = time.time()
+        try:
+            if marker.exists() and (now - marker.stat().st_mtime) < self.PRUNE_INTERVAL_SECONDS:
+                return
+            if not marker.parent.is_dir():
+                return
+            # Stamp BEFORE pruning, not after: if the prune raises or the process
+            # dies mid-way, a marker written only on success would let every
+            # subsequent send retry it, turning a broken prune into a permanent
+            # tax on the write path.
+            marker.touch()
+        except OSError:
+            return
+
+        try:
+            self.cleanup_expired()
+        except Exception as e:
+            logger.debug(f"Opportunistic prune skipped: {e}")
+
     def cleanup_expired(self, dry_run: bool = False) -> list[dict[str, Any]]:
         """
         Remove expired messages.
@@ -571,32 +646,26 @@ class GitMessageStore:
             if result.returncode != 0:
                 return []
 
+            # Batch-read, batch-delete. This function had the SAME 2N defect #394
+            # reported in get_inbox — load_message per ref, two spawns each — and
+            # it survived the original fix because that fix addressed the reported
+            # instance rather than the class. Deleting was worse than reading: one
+            # `update-ref -d` spawn per expired message, and cleanup is exactly the
+            # path where the expired count is largest (the reporter's repo: 150 of
+            # 306). Now three reads and one write, whatever N is.
+            refs = [line.strip() for line in result.stdout.strip().split("\n") if line.strip()]
+            refs = [r for r in refs if len(r.split("/")) >= 6]
+
+            expired_refs = []
             removed = []
-
-            for line in result.stdout.strip().split("\n"):
-                if not line:
-                    continue
-
-                ref_parts = line.strip().split("/")
-                if len(ref_parts) < 6:
-                    continue
-
-                msg_channel = ref_parts[4]
-                msg_id = ref_parts[5]
-                msg = self.load_message(msg_channel, msg_id)
-
+            for refname, msg in self._batch_load_notes(refs).items():
                 if msg and self._is_expired(msg):
                     removed.append(msg)
-                    if not dry_run:
-                        # Remove the git note ref
-                        full_ref = f"refs/notes/empirica/messages/{msg_channel}/{msg_id}"
-                        subprocess.run(
-                            ["git", "update-ref", "-d", full_ref],
-                            cwd=self.workspace_root,
-                            capture_output=True,
-                            text=True,
-                        )
-                        logger.info(f"Removed expired message {msg_id[:8]} from #{msg_channel}")
+                    expired_refs.append(refname)
+
+            if expired_refs and not dry_run:
+                self._batch_delete_refs(expired_refs)
+                logger.info(f"Removed {len(expired_refs)} expired message(s)")
 
             return removed
 
