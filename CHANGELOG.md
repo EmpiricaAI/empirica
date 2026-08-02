@@ -5,6 +5,81 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.1] - 2026-08-02
+
+Fixes, one of them data-loss. Plus `empirica setup --harness`, and an EWM
+interview that provisions instead of describing.
+
+### Fixed — data loss
+
+- **The PreCompact hook could silently delete your working tree.** It stashed
+  the tree and popped it 90 lines later *on the happy path only*, so three
+  `sys.exit(2)` branches and the harness's 30s timeout each left the tree empty
+  and the stash orphaned — while printing `(stash: saved+restored)`, because
+  that message was keyed on a stash being *created*, not on the pop succeeding.
+  It also popped `stash@{0}` rather than the stash it made, so in a shared
+  checkout it could restore another instance's work over yours.
+
+  Now: `try/finally` so the restore is total, a SIGTERM handler for the harness
+  timeout, pop by identity, and — since SIGKILL runs no handler — the next run
+  recovers any orphaned stash on entry, only when the tree is clean and only
+  from the top, so it can never overwrite live work. The status line is keyed on
+  the pop and prints the recovery command when it fails.
+
+  **If you have ever seen work vanish after a compaction, check
+  `git stash list`.**
+
+### Fixed
+
+- **`empirica setup` configured Claude Code's surface on every harness.** On
+  codex it wrote `~/.claude/plugins/local/empirica/` — a path that harness never
+  loads — and reported success. Unsupported harnesses are now refused by name,
+  writing nothing, and the refusal points at the pipeline that does provision
+  them. Confirmed with ecodex, who own codex: it is self-provisioning by design,
+  not a gap.
+- **`docs-explain` crashed on a missing `audience` key.** The guard used `.get`
+  and the use `[]`, so an absent key entered the branch and then raised on the
+  very key whose absence let it in. The index now emits `audience` on every
+  entry, so the guard is no longer vacuous.
+- **Message TTL enforced nothing** unless `message-cleanup` was scheduled.
+  Enforcement now runs from the send — the event that grows the ref set —
+  interval-gated to one prune per hour. `cleanup_expired` also carried the same
+  per-ref subprocess defect reported in #394 for `get_inbox`; both now batch.
+  (#394, reported by FrancisFerrero)
+- **The Sentinel gated two read-only shell shapes.** `sed 's/x/y/'` writes to
+  stdout but was trusted only as `sed -n`, and `for VAR in ...` was classified
+  as a command rather than a loop header. Both flow now; every mutating mode
+  still gates, including `sed -i.bak` and `-ni`, which exact-token flag matching
+  would have missed. (reported by empirica-cortex)
+- **`provision-practice` could not infer tenant/org from a real practice.** It
+  read the bare `tenant`/`org` keys while the rest of the repo writes and reads
+  `tenant_slug`/`org_id`, so the documented "run this from inside an existing
+  practice" default never fired. Reads both, writes canonical.
+- `project-embed --project-id` is no longer required — it resolves from the
+  active project, which makes the follow-up command the docs generator prints
+  actually runnable.
+
+### Added
+
+- **`empirica setup --harness`** — resolves from `--harness`, else
+  `$EMPIRICA_HARNESS` (the same signal the hooks read), else `claude-code`.
+  `setup-claude-code` keeps pinning claude-code, so existing scripts are
+  unaffected.
+- **EWM interview v0.2** — guided multi-choice questions instead of prose
+  prompts, options inferred from the repo and configured MCP servers, the
+  protocol rendered as a readable artifact, and a provisioning phase that
+  actually runs `provision-practice` rather than describing it. Also documents
+  that a project-local protocol shadows the global one.
+- **`ARCHITECTURE.md`** — a top-level map of how the pieces fit, with a Known
+  Tensions section.
+
+### Performance
+
+- **CI wall time 11m → 7m** via `-n auto`. The obvious suspect — always-on
+  coverage — was measured and is free here: the suite is subprocess-bound, and
+  the parent's tracer never sees subprocesses. Speedup is machine-dependent
+  (3.2x local, 1.4–1.7x on a shared runner).
+
 ## [1.13.0] - 2026-08-01
 
 ### Contributors
