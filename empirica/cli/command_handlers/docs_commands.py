@@ -887,19 +887,15 @@ class EpistemicDocsAgent:
         return recommendations[:5]  # Top 5 recommendations
 
     def _classify_audience(self, doc_path: str) -> str:
-        """
-        Classify doc audience based on path.
+        """Classify doc audience by path — delegates to the canonical rule.
 
-        AI-first model: Everything is AI-facing by default.
-        Only explicitly human-prefixed paths are for humans.
+        The index builder needs this too (it now emits `audience` on every
+        entry), and a classifier maintained in two places drifts. One
+        definition, in the layer both callers can reach.
         """
-        path_str = str(doc_path).lower()
-        if "human/end-users" in path_str or "human/end_users" in path_str:
-            return "user"
-        elif "human/developers" in path_str or "human/developer" in path_str:
-            return "developer"
-        else:
-            return "ai"  # Default - AI is primary consumer
+        from empirica.core.docs.semantic_scan import classify_audience
+
+        return classify_audience(str(doc_path))
 
     def _get_sensitivity_threshold(self, audience: str, base_threshold: float) -> float:
         """
@@ -2294,8 +2290,13 @@ def _print_explain_human_output(result: dict):
     # "docs-explain error: 'audience'" — a bare key name where an answer should
     # have been. generate_semantic_index.py writes entries with no audience key,
     # so this fires on exactly the payloads the indexer produces.
+    # Skips the two values that carry no information: "all" and the AI-first
+    # default "ai". Now that the index emits an audience on EVERY entry, the
+    # unfiltered form would print "👤 Audience: ai" under every answer — a line
+    # on every doc tells the reader nothing. It renders when the doc is aimed
+    # somewhere unusual, which is the only time it's worth the line.
     audience = result.get("audience")
-    if audience and audience != "all":
+    if audience and audience not in ("all", "ai"):
         print(f"👤 Audience: {audience}")
 
     print("\n" + "-" * 60)

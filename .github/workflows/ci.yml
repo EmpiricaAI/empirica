@@ -95,10 +95,23 @@ jobs:
         # fresh CI runner they fail for environmental reasons unrelated to
         # the code being tested. Run them in a separate workflow (nightly /
         # on-demand) once the env-bootstrapping is wired.
-        run: pytest tests/ -q --tb=short -m "not integration"
+        # -n auto: the suite is subprocess-heavy, so it parallelises almost
+        # linearly. Measured on the full 5573 tests at 4 workers (a GitHub
+        # runner's core count): 653s -> 213s, 3.06x, zero failures — the
+        # per-worker instance id is PID-derived, so isolation already held.
+        #
+        # Coverage stays ON: it was the obvious suspect for the 2x regression
+        # and it is NOT the cause. Measured serial with vs without: 653s vs
+        # 669s, identical `user` time. The suite spends its time spawning
+        # subprocesses, which the parent's tracer never sees. It also feeds
+        # empirica's own post-test evidence collector locally, so removing it
+        # would cost grounded calibration and buy nothing.
+        run: pytest tests/ -q --tb=short -m "not integration" -n auto
 
       - name: pytest (empirica-mcp)
         working-directory: empirica-mcp
+        # No -n here: this suite runs in 2s, so worker startup would cost more
+        # than it saves. Parallelism is for the 10-minute job, not this one.
         run: pytest tests/ -q --tb=short
 
   # ── Compliance + dep-audit ──────────────────────────────────────────

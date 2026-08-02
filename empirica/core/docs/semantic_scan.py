@@ -84,6 +84,24 @@ def _should_skip(relpath: str) -> bool:
     return any(pat in relpath for pat in SKIP_PATTERNS)
 
 
+def classify_audience(relpath: str) -> str:
+    """Who reads this doc: "user", "developer", or "ai".
+
+    AI-first: a practice's doc store is read by practitioners, so "ai" is the
+    default and only an explicitly human-prefixed path is anything else.
+
+    Canonical here rather than in the CLI handler because both the index
+    builder and the renderer need it, and two hand-maintained copies of a
+    classifier drift. `docs_commands._classify_audience` delegates to this.
+    """
+    path_str = relpath.lower().replace("\\", "/")
+    if "human/end-users" in path_str or "human/end_users" in path_str:
+        return "user"
+    if "human/developers" in path_str or "human/developer" in path_str:
+        return "developer"
+    return "ai"
+
+
 def _is_marked_internal(filepath: Path, project_root: Path) -> bool:
     """True when any ancestor directory carries a `.noindex` marker.
 
@@ -221,7 +239,11 @@ def scan_project(project_root: Path) -> dict[str, dict[str, Any]]:
             elif filepath.suffix == ".md":
                 description = _extract_md_title(filepath)
 
-            entry: dict[str, Any] = {"tags": tags, "doc_type": rule.doc_type}
+            entry: dict[str, Any] = {
+                "tags": tags,
+                "doc_type": rule.doc_type,
+                "audience": classify_audience(relpath),
+            }
             if description:
                 entry["description"] = description
             concepts = _concepts_from_content(filepath)
