@@ -35,6 +35,18 @@ SCAN_RULES: tuple[ScanRule, ...] = (
     ScanRule(glob="docs/guides/**/*.md", doc_type="guide", base_tags=("guide",)),
     ScanRule(glob="docs/human/**/*.md", doc_type="user-docs", base_tags=("documentation",)),
     ScanRule(glob="docs/*.md", doc_type="documentation", base_tags=("documentation",)),
+    # Catch-all for docs/ — LAST among the docs rules, so the typed ones above
+    # still win (first match wins). Without it, a doc in any subdirectory the
+    # rules do not name is silently invisible to semantic search: no error, no
+    # staleness signal, it simply never answers a query. Measured 2026-08-02:
+    # docs/examples/ and docs/foundation/ matched nothing, and MESSAGING_LAYERS
+    # and UPGRADE_TO_1.13 were unreachable the day they were written.
+    #
+    # A rule per directory would fix today and re-break the next time someone
+    # adds a folder. Coverage-by-default makes omission impossible instead of
+    # merely remembered — the same reason the cron gate keys on `kind` rather
+    # than a per-entry flag.
+    ScanRule(glob="docs/**/*.md", doc_type="documentation", base_tags=("documentation",)),
     ScanRule(
         glob="empirica/core/**/*.py", doc_type="core-module", base_tags=("core", "python"), extract_docstring=True
     ),
