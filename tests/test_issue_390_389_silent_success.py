@@ -255,7 +255,14 @@ def _store_with(messages):
         # Deliberately NOT in timestamp order — ref order is UUID order.
         stdout = "\n".join(f"refs/notes/empirica/messages/direct/{m}" for m in sorted(by_id))
 
-    store.load_message = lambda channel, message_id: by_id.get(message_id)
+    # Stub the BATCH loader, not load_message. get_inbox stopped calling
+    # load_message when #394 problem 1 was fixed — it now reads every note in one
+    # `cat-file --batch` pair — so a stub on the old seam is simply never
+    # consulted, and this test would pass on any ordering at all.
+    def _batch(refs):
+        return {ref: by_id[ref.rsplit("/", 1)[-1]] for ref in refs if ref.rsplit("/", 1)[-1] in by_id}
+
+    store._batch_load_notes = _batch
     store._matches_inbox_filters = lambda *a, **k: True
     return store, _R
 

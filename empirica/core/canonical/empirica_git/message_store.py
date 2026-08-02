@@ -200,6 +200,81 @@ class GitMessageStore:
             logger.warning(f"Failed to load message: {e}")
             return None
 
+    def _batch_load_notes(self, refs: list[str]) -> dict[str, dict[str, Any]]:
+        """Read every message note in THREE git calls, whatever N is.
+
+        #394 problem 1 (FrancisFerrero): get_inbox called load_message per ref,
+        and load_message spawns two subprocesses — `git notes list` to find the
+        annotated commit, then `git notes show` for content. A 500-message
+        mailbox cost 1001 process spawns to return 5.
+
+        The shape here:
+
+          1. `for-each-ref --format='%(refname) %(objectname)'` — every ref AND
+             its notes-commit object, one call (the caller already made it).
+          2. `cat-file --batch` fed `<commit>^{tree}` — each message ref holds
+             exactly one note, so each tree has one entry; parse its blob sha.
+          3. `cat-file --batch` fed those blob shas — all contents, one call.
+
+        Trees are BINARY (`<mode> <name>\\0<20 raw bytes>`), so stdout is read as
+        bytes and only the note payload is decoded. Returns {refname: message}
+        and silently skips anything malformed — a single unreadable note must
+        not take the whole inbox down, which is the behaviour load_message had.
+        """
+        if not refs:
+            return {}
+
+        def _batch(requests: list[str]) -> list[tuple[str, str, bytes]]:
+            """Run `cat-file --batch` and frame the output into (sha, type, payload)."""
+            proc = subprocess.run(
+                ["git", "cat-file", "--batch"],
+                cwd=self.workspace_root,
+                input="\n".join(requests).encode() + b"\n",
+                capture_output=True,
+            )
+            if proc.returncode != 0:
+                return []
+            out, pos, framed = proc.stdout, 0, []
+            while pos < len(out):
+                nl = out.find(b"\n", pos)
+                if nl == -1:
+                    break
+                header = out[pos:nl].decode("utf-8", "replace").split()
+                pos = nl + 1
+                # "<sha> missing" for anything unresolvable — no payload follows.
+                if len(header) < 3:
+                    continue
+                sha, otype, size = header[0], header[1], int(header[2])
+                framed.append((sha, otype, out[pos : pos + size]))
+                pos += size + 1  # payload is followed by a newline
+            return framed
+
+        # Phase 1: ref -> notes-commit tree -> the single note blob inside it.
+        trees = _batch([f"{r}^{{tree}}" for r in refs])
+        blob_for_ref: dict[str, str] = {}
+        for ref, (_sha, otype, payload) in zip(refs, trees, strict=False):
+            if otype != "tree":
+                continue
+            nul = payload.find(b"\x00")
+            if nul == -1 or len(payload) < nul + 21:
+                continue
+            blob_for_ref[ref] = payload[nul + 1 : nul + 21].hex()
+
+        # Phase 2: every note payload in one call.
+        contents = _batch(list(blob_for_ref.values()))
+        by_sha = {sha: payload for sha, otype, payload in contents if otype == "blob"}
+
+        messages: dict[str, dict[str, Any]] = {}
+        for ref, blob in blob_for_ref.items():
+            raw = by_sha.get(blob)
+            if raw is None:
+                continue
+            try:
+                messages[ref] = json.loads(raw.decode("utf-8"))
+            except (ValueError, UnicodeDecodeError):
+                continue
+        return messages
+
     def get_inbox(
         self,
         ai_id: str,
@@ -232,26 +307,25 @@ class GitMessageStore:
             if result.returncode != 0:
                 return []
 
-            messages = []
-
+            # Collect the refs first, then read every note in ONE batch. This
+            # used to call load_message per ref, and load_message spawns two
+            # subprocesses (`git notes list`, then `git notes show`) — 2N+1
+            # spawns to answer a question about N messages (#394 problem 1).
+            refs = []
             for line in result.stdout.strip().split("\n"):
                 if not line:
                     continue
-
                 ref_parts = line.strip().split("/")
                 if len(ref_parts) < 6:
                     continue
+                refs.append(line.strip())
 
-                msg_channel = ref_parts[4]
-                msg_id = ref_parts[5]
-
-                msg = self.load_message(msg_channel, msg_id)
+            messages = []
+            for msg in self._batch_load_notes(refs).values():
                 if not msg:
                     continue
-
                 if not self._matches_inbox_filters(msg, ai_id, machine, status, include_expired):
                     continue
-
                 messages.append(msg)
 
             # Sort THEN slice. Reported by FrancisFerrero (#394, problem 2): the break
