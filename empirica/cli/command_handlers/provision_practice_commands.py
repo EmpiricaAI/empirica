@@ -53,7 +53,21 @@ def _infer_tenant_org(cwd: Path) -> tuple[str | None, str | None]:
         data = yaml.safe_load(project_yaml.read_text()) or {}
     except Exception:
         return None, None
-    return data.get("tenant"), data.get("org")
+    # `tenant_slug`/`org_id` FIRST — that is the canonical spelling, written by
+    # `setup` and read by ~24 other modules. Reading only the bare `tenant`/`org`
+    # keys meant the inference never fired on a real practice: this repo's own
+    # project.yaml carries `tenant_slug: david` / `org_id: org-empirica`, and
+    # running `provision-practice --dry-run` from inside it still failed with
+    # "couldn't be inferred from the current directory's .empirica/project.yaml"
+    # — the documented behaviour ("run this from inside an existing practice to
+    # inherit its tenant/org") was false for every practice except one this
+    # command had provisioned itself.
+    #
+    # The bare keys stay as a fallback so practices provisioned by the old code
+    # path keep resolving.
+    tenant = data.get("tenant_slug") or data.get("tenant")
+    org = data.get("org_id") or data.get("org")
+    return tenant, org
 
 
 def _patch_project_yaml(project_yaml: Path, ai_id: str, tenant: str, org: str, substrate: str, dry_run: bool) -> bool:
@@ -67,7 +81,12 @@ def _patch_project_yaml(project_yaml: Path, ai_id: str, tenant: str, org: str, s
     if not yaml:
         raise RuntimeError("pyyaml required")
     data = yaml.safe_load(project_yaml.read_text()) or {}
-    desired = {"ai_id": ai_id, "tenant": tenant, "org": org, "substrate": substrate}
+    # Write the CANONICAL key names. Writing bare `tenant`/`org` is what made
+    # this command the sole outlier in the repo — it minted practices whose
+    # tenant/org were invisible to the ~24 modules that read `tenant_slug`/
+    # `org_id`, including its own sibling inference. Two spellings for one fact
+    # is the two-sources-of-truth class; there is now one.
+    desired = {"ai_id": ai_id, "tenant_slug": tenant, "org_id": org, "substrate": substrate}
     if all(data.get(k) == v for k, v in desired.items()):
         return False
     if dry_run:
