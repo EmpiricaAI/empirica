@@ -160,7 +160,12 @@ SAFE_BASH_PREFIXES = (
     "rg ",
     "ag ",
     "ack ",
-    "sed -n",
+    # `sed ` not `sed -n`: sed writes to STDOUT unless -i is given, and -i is
+    # caught by _has_dangerous_tool_flags below. Pinning the prefix to -n gated
+    # `sed 's/x/y/'` — a pure stdout filter — which pushed toward the
+    # CHECK-to-read anti-pattern the firewall exists to forbid. Reported by
+    # empirica-cortex against a three-stage noetic grep pipeline.
+    "sed ",
     "awk ",
     "jq ",
     "jq.",  # JSON processing (read-only)
@@ -411,7 +416,7 @@ SAFE_PIPE_TARGETS = (
     "grep",
     "rg",
     "awk",
-    "sed -n",
+    "sed ",
     "cut",
     "tr",
     "less",
@@ -1699,6 +1704,28 @@ _TOOL_DANGEROUS_FLAGS: dict[str, frozenset[str]] = {
 _AWK_WRITE_RE = re.compile(r"(print|printf)[^;\n]*>>?\s*\"")
 _AWK_NAMES = frozenset({"awk", "gawk", "mawk", "nawk"})
 
+# sed needs its own branch rather than a flag SET, because in-place is not one
+# token. GNU sed takes an optional suffix (`-i.bak`) and allows short-flag
+# clustering (`-ni`), so exact-token membership would miss both and wave through
+# a genuine in-place edit. Any short cluster containing `i` counts.
+_SED_NAMES = frozenset({"sed", "gsed"})
+
+
+def _sed_edits_in_place(stripped: str) -> bool:
+    """True if this sed invocation writes files rather than stdout."""
+    for tok in stripped.split()[1:]:
+        if not tok.startswith("-") or tok == "-":
+            break  # first non-flag token is the script; flags are done
+        if tok == "--":
+            break
+        if tok.startswith("--"):
+            if tok.split("=", 1)[0] in ("--in-place", "--inplace"):
+                return True
+            continue
+        if "i" in tok[1:]:  # -i, -i.bak, -ni, -ni.bak
+            return True
+    return False
+
 
 def _has_dangerous_tool_flags(cmd: str) -> bool:
     """True if ``cmd`` is a safe-prefixed tool invoked with a mutating/exec flag
@@ -1714,6 +1741,8 @@ def _has_dangerous_tool_flags(cmd: str) -> bool:
     head = stripped.split(" ", 1)[0]
     if head in _AWK_NAMES:
         return "system(" in stripped or bool(_AWK_WRITE_RE.search(stripped))
+    if head in _SED_NAMES:
+        return _sed_edits_in_place(stripped)
     flags = _TOOL_DANGEROUS_FLAGS.get(head)
     if flags:
         for tok in stripped.split()[1:]:
@@ -1759,6 +1788,11 @@ _SHELL_KEYWORDS_INERT = frozenset(
         "false",  # bash builtins, no exec
     }
 )
+
+# `for VAR in ...` — the loop header binds a name over a word list and executes
+# nothing. Anchored and deliberately narrow: a NAME, then the `in` keyword. The
+# C-style `for ((...))` form does not match and keeps its existing treatment.
+_FOR_HEADER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\s+in(\s|$)")
 
 # Compound keywords: `<keyword> <body>` — strip the keyword and recurse on body.
 # Covers `if cond`, `then cmd`, `else cmd`, `elif cond`, `while cond`, etc.
@@ -1976,6 +2010,23 @@ def _is_segment_safe(segment: str) -> bool:
         if stripped.startswith(prefix):
             rest = stripped[len(prefix) :].strip()
             if not rest:
+                return True
+            # `for VAR in <words>` is a HEADER, not a command — it binds a name
+            # over a word list and runs nothing. Recursing on it asked whether
+            # `f in *.py` is a safe command, which it obviously is not, so a
+            # loop whose body was pure `wc` gated on its first line.
+            #
+            # Safe because the two things that CAN execute here are handled
+            # before we arrive: command substitutions in the word list were
+            # validated individually in step 1 and stripped in step 2, and the
+            # loop BODY is a separate chain segment (`do wc -l "$f"`) that still
+            # goes through the full classifier. Excusing the header does not
+            # excuse the body — `for f in a b; do rm "$f"; done` stays gated on
+            # the `rm`.
+            #
+            # C-style `for ((i=0; i<10; i++))` does not match the VAR-in shape
+            # and keeps its existing treatment.
+            if prefix == "for " and _FOR_HEADER_RE.match(rest):
                 return True
             return _is_segment_safe(rest)
 
