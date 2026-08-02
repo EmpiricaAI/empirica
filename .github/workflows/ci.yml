@@ -95,16 +95,27 @@ jobs:
         # fresh CI runner they fail for environmental reasons unrelated to
         # the code being tested. Run them in a separate workflow (nightly /
         # on-demand) once the env-bootstrapping is wired.
-        # -n auto: the suite is subprocess-heavy, so it parallelises almost
-        # linearly. Measured on the full 5573 tests at 4 workers (a GitHub
-        # runner's core count): 653s -> 213s, 3.06x, zero failures — the
-        # per-worker instance id is PID-derived, so isolation already held.
+        # -n auto: the suite is subprocess-heavy and parallelises well. Zero
+        # isolation failures at 4 workers — the per-worker instance id is
+        # PID-derived, so it already held.
+        #
+        # The speedup is MACHINE-DEPENDENT, and the honest numbers differ:
+        #
+        #   local, 4 workers   653s -> 204s   3.2x
+        #   this CI runner     591s -> 346s   1.7x  (3.13)
+        #                             420s    1.4x  (3.11)
+        #
+        # A dev box parallelises this suite roughly linearly; a shared 4-vCPU
+        # GitHub runner does not, because the work is spawning subprocesses and
+        # hitting sqlite — I/O the runner contends on. Wall time 11m -> 7m,
+        # which is the real win; do not quote the local 3.2x as a CI figure.
         #
         # Coverage stays ON: it was the obvious suspect for the 2x regression
-        # and it is NOT the cause. Measured serial with vs without: 653s vs
-        # 669s, identical `user` time. The suite spends its time spawning
-        # subprocesses, which the parent's tracer never sees. It also feeds
-        # empirica's own post-test evidence collector locally, so removing it
+        # and it is NOT the cause. Measured both serially and under xdist —
+        # 653s vs 669s serial, 204s vs 213s at 4 workers, identical `user`
+        # time. The suite spends its time spawning subprocesses, which the
+        # parent's tracer never sees. It also feeds empirica's own post-test
+        # evidence collector locally (it reads coverage.json), so removing it
         # would cost grounded calibration and buy nothing.
         run: pytest tests/ -q --tb=short -m "not integration" -n auto
 
