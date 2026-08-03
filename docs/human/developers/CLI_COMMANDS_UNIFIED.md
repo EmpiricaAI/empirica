@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.13.1
-**Generated:** 2026-08-02 16:16:39 UTC
+**Framework version:** 1.13.2
+**Generated:** 2026-08-03 13:22:05 UTC
 **Total commands:** 243 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -1514,8 +1514,8 @@ Semantic search for relevant docs/memory by task description
 
 **Arguments:**
 
-- `--project-id` — **required**
-  Project UUID
+- `--project-id` — optional
+  Project UUID or name (default: resolved from the active project, like every other verb). It was required=True, which made the `project-search --task ... --global` line printed in the dispatch-agent skill unrunnable as written.
 - `--task` — **required**
   Task description to search for
 - `--type` — optional · type=`choice` · choices={focused, all, intelligence, docs, memory, eidetic, episodic, assumptions, decisions, goals} · default=`focused`
@@ -3764,7 +3764,7 @@ Poll your cortex mesh inbox (or --outbox) — a CLI receive path so tool-aggrega
 - `--outbox` — optional · flag
   Poll your OUTBOX (status changes on proposals YOU sent) instead of the inbox
 - `--status` — optional
-  Comma-separated status filter (default: 'accepted,changed' for inbox, 'completed,changed,declined' for outbox). Choices: eco_review, accepted, changed, declined, completed, expired.
+  Comma-separated status filter (default: 'accepted,changed' for inbox, 'completed,changed,declined' for outbox). Choices: eco_review, accepted, accepted_pending_dispatch, changed, declined, completed, expired, or 'all' for every status. An unrecognised value is an error, not an empty result.
 - `--since` — optional
   ISO-8601 timestamp — only proposals created_at >= since (incremental polling)
 - `--limit` — optional · type=`int` · default=`20`
