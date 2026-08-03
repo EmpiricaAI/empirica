@@ -167,6 +167,110 @@ def scan(files: list[Path], verbs: set[str]) -> tuple[dict[str, list[str]], set[
     return drift, mentioned
 
 
+
+# --- Flag validation -------------------------------------------------------
+#
+# The verb check passed green while THREE unrunnable commands shipped:
+#
+#     empirica deadend-log --list      # deadend-log is real; --list is not
+#     empirica finding-log --list      # same
+#     empirica project-search --task   # real flags, but --project-id was required
+#
+# A phantom FLAG is worse than a phantom verb. A phantom verb fails with
+# "unknown command" — unambiguous. A phantom flag on a real verb produces a
+# usage error that reads as though the CALLER got it wrong, so an AI following
+# the doc blames its own invocation and retries variations of a command that
+# can never work.
+#
+# argparse holds the truth. The guard simply never asked it.
+
+# `empirica <verb> <rest-of-invocation>` — rest stops at a pipe, redirect,
+# comment, or end of line, since those begin a different command.
+_INVOCATION = re.compile(r"\bempirica\s+([a-z][a-z0-9-]{2,})((?:\s+[^\n|>#]*)?)")
+
+# A long flag. Short flags are not checked: `-` alone is the stdin convention
+# used all over the corpus (`empirica preflight-submit -`), and single-dash
+# clusters are too ambiguous to judge without shell semantics.
+_FLAG = re.compile(r"(?<![\w-])--([a-z][a-z0-9-]*)")
+
+# Quoted argument VALUES are data, not flags. The corpus is full of lines like
+#   empirica unknown-log --unknown "CLAUDE.md references --type on project-search"
+# where `--type` is the CONTENT being logged. Scanning it as a flag reported the
+# one remaining "drift" in the whole corpus, and it was prose about a flag rather
+# than a use of one. Strip quoted spans before extracting.
+_QUOTED = re.compile(r"\"[^\"]*\"|'[^']*'")
+
+# Flags argparse provides implicitly or that every parser inherits.
+_UNIVERSAL_FLAGS = {"help", "version"}
+
+
+def _long_opts(parser) -> set[str]:
+    return {o[2:] for a in parser._actions for o in getattr(a, "option_strings", ()) if o.startswith("--")}
+
+
+def live_flags_by_verb() -> dict[str, set[str]]:
+    """Long option names each command accepts, keyed by "verb" and "verb sub".
+
+    GROUP commands must be resolved two levels deep. `empirica loop register
+    --name X` puts `--name` on the `register` subparser, not on `loop` — a
+    one-level lookup reports every group-command flag in the corpus as drift.
+    Checking the real corpus surfaced 11 such false positives before this;
+    shipping them would have trained everyone to ignore the guard, which is
+    worse than not having it.
+    """
+    from empirica.cli.cli_core import create_argument_parser
+
+    out: dict[str, set[str]] = {}
+    parser = create_argument_parser()
+    for action in parser._actions:
+        if not isinstance(action, argparse._SubParsersAction):
+            continue
+        for verb, sub in action.choices.items():
+            out[verb] = set(_UNIVERSAL_FLAGS) | _long_opts(sub)
+            for nested in sub._actions:
+                if isinstance(nested, argparse._SubParsersAction):
+                    for subverb, subparser in nested.choices.items():
+                        out[f"{verb} {subverb}"] = set(_UNIVERSAL_FLAGS) | _long_opts(sub) | _long_opts(subparser)
+    return out
+
+
+def flag_drift_in(text: str, flags_by_verb: dict[str, set[str]], *, code_spans_only: bool = True) -> set[tuple]:
+    """{(verb, flag)} used in `text` that the verb does not accept."""
+    scanned = "\n".join(_CODE_SPAN.findall(text)) if code_spans_only else text
+    bad: set[tuple] = set()
+    for verb, rest in _INVOCATION.findall(scanned):
+        # Prefer the two-level key when the next token names a subcommand.
+        tokens = rest.split()
+        sub = tokens[0] if tokens and not tokens[0].startswith("-") else None
+        known = flags_by_verb.get(f"{verb} {sub}") if sub else None
+        if known is None:
+            known = flags_by_verb.get(verb)
+        if known is None:  # unknown verb — the verb check already reports it
+            continue
+        for flag in _FLAG.findall(_QUOTED.sub(" ", rest)):
+            if flag not in known:
+                bad.add((verb, flag))
+    return bad
+
+
+def scan_flags(files: list[Path], flags_by_verb: dict[str, set[str]]) -> dict[str, list[str]]:
+    """Return {"verb --flag" -> [relpaths]}."""
+    drift: dict[str, list[str]] = {}
+    for path in files:
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        rel = _relpath(path)
+        code_spans_only = path.suffix.lower() not in (".yaml", ".yml")
+        for verb, flag in flag_drift_in(text, flags_by_verb, code_spans_only=code_spans_only):
+            key = f"{verb} --{flag}"
+            drift.setdefault(key, [])
+            if rel not in drift[key]:
+                drift[key].append(rel)
+    return drift
+
+
 def _relpath(path: Path) -> str:
     try:
         return str(path.relative_to(_REPO))
@@ -183,13 +287,15 @@ def main(argv: list[str] | None = None) -> int:
     verbs = live_verbs()
     files = corpus_files(args.include_private)
     drift, mentioned = scan(files, verbs)
+    flag_drift = scan_flags(files, live_flags_by_verb())
     uncovered = sorted(v for v in verbs if v not in mentioned and v not in _ALLOW_UNMENTIONED)
 
     result = {
-        "ok": not drift,
+        "ok": not drift and not flag_drift,
         "verbs": len(verbs),
         "corpus_files": len(files),
         "drift": dict(sorted(drift.items())),
+        "flag_drift": dict(sorted(flag_drift.items())),
         "uncovered_count": len(uncovered),
         "uncovered": uncovered,
     }
@@ -205,9 +311,22 @@ def main(argv: list[str] | None = None) -> int:
             print("\nA pruned/renamed verb still has a dangling prompt reference. Fix the prompt or restore the verb.")
         else:
             print("✓ No drift — every `empirica <verb>` in the prompt corpus resolves to a live verb.")
+
+        if flag_drift:
+            print(f"\n❌ FLAG DRIFT — {len(flag_drift)} flag(s) that the verb does not accept:")
+            for key, paths in sorted(flag_drift.items()):
+                print(f"  `empirica {key}` — {', '.join(paths)}")
+            print(
+                "\nA phantom FLAG fails with a usage error that reads as though the CALLER "
+                "got it wrong, so a reader blames their own invocation and retries a command "
+                "that can never work. Fix the prompt, or add the flag."
+            )
+        else:
+            print("✓ No flag drift — every flag shown on a live verb is one that verb accepts.")
+
         print(f"\n(coverage: {len(uncovered)} live verb(s) never mentioned in prompts — informational, not a failure)")
 
-    return 1 if drift else 0
+    return 1 if (drift or flag_drift) else 0
 
 
 if __name__ == "__main__":
