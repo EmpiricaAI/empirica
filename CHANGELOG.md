@@ -5,6 +5,78 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.2] - 2026-08-03
+
+Retrieval correctness. The context injected into every session was ranked
+without ever asking what the work was about — and three separate defects made
+stale artifacts outrank fresh ones. Plus documentation that stops overstating
+what ships.
+
+### Fixed — injected context
+
+- **The focus block computed no relevance at all.** `format_epistemic_focus`
+  took no task context and ranked global top-N by
+  `impact × type_confidence × recency`, so two sessions doing unrelated work
+  received identical artifacts. **Relevance is now first-class**: a task-driven
+  semantic query runs and its scores feed the weight, so a dead-end from months
+  ago about *this* task outranks a fresh irrelevant finding. Additive blend —
+  a multiplicative term would zero out exactly the artifact that matters most.
+  Degradation is announced in the header rather than silently ranking on
+  recency while reading as task-matched.
+- **An undateable artifact ranked as if created this second, forever.** The
+  timestamp lookup defaulted to *now* when the field was absent, so recency was
+  inert for any fetch that omitted the column — and `project-bootstrap` returns
+  goals with no date field at all.
+- **13 legacy rows stored timestamps as TEXT.** SQLite sorts text above every
+  number, so December-2025 rows were returned as the *most recent* by every
+  `ORDER BY created_timestamp DESC` — including the breadcrumbs queries that
+  build session context. Normalised.
+- `memory.search` did not project `artifact_id`, so semantic results could not
+  be joined back to the rows they described.
+- `goals-list --output json` never returned `description`. Every consumer saw
+  title-only goals and could not tell a goal carrying a 2,400-character spec
+  from one carrying none.
+
+### Fixed
+
+- **PreCompact could delete your working tree** and report success — it stashed,
+  popped only on the happy path, and printed `(stash: saved+restored)` keyed on
+  the stash being *created*. If you have ever seen work vanish after a
+  compaction, check `git stash list`.
+- `mailbox poll --outbox` hid every collab: the default filter excluded
+  `accepted`, which is a collab's terminal state (182 emissions, 21 visible).
+- The publish doorbell was undeliverable by **two independent mechanisms** —
+  excluded from the push relay *and* its status excluded from the catch-up
+  filter. Fixing either alone left the other fatal.
+- An unknown `--status` returned an empty mailbox instead of an error,
+  indistinguishable from having no mail.
+- The Sentinel gated three read-only shell shapes: `sed 's/x/y/'`,
+  `for VAR in ...`, and every `git` read verb carrying a global option
+  (`git -C <path> status`). Mutating modes still gate, including `sed -i.bak`
+  and `-ni`, which exact-token matching would have missed.
+- Test fixtures leaked ~1,046 temp directories, filling a shared `/tmp` and
+  surfacing as failures in unrelated suites.
+
+### Added
+
+- **`scripts/prompt_eval.py`** — evaluate a prompt change against *recorded
+  behaviour* rather than its own words, using the calibration gap that no text
+  audit can reach.
+- **`docs/reference/SKILLS.md`** — all 18 skills with their real triggers, and
+  which three are load-bearing.
+- Manifest gains `requires_runtime.mcp`, `requires.skills`, `requires.prompts`,
+  `provides.mcp`, `provides.services`; `seat` is optional so a service-layer
+  practice can author one.
+- The drift guard validates **flags**, not just verbs.
+
+### Changed
+
+- **Platform support is now honest.** Claude Code and Codex-via-ecodex are
+  supported; everything else is untested. MCP is documented as a fallback for
+  harnesses that cannot run the CLI integration, with the reason stated: it
+  cannot enforce the Sentinel gate the way a blocking pre-tool hook does.
+- CI wall time 11m → 7m via `-n auto`.
+
 ## [1.13.1] - 2026-08-02
 
 Fixes, one of them data-loss. Plus `empirica setup --harness`, and an EWM
