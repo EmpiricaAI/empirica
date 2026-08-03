@@ -26,6 +26,7 @@ system prompt deliberately leaves out so it stays small:
 - **What counts as done?** Phase-aware completion (§I)
 - **How do lessons interact with new findings?** Cognitive immune system (§II)
 - **Are the rules self-applicable?** The turtle principle (§III)
+- **How should artifacts be TYPED and CONNECTED?** The graph is the artifact (§III-b)
 - **What IS a practice, and how does it relate to a Claude / a directory / a project?** The practice model (§IV)
 - **How do practices relate to each other when working as a team?** Mesh discipline (§V)
 - **How is sustained multi-practice coordination held — and why is creating it gated?** (§VI)
@@ -35,10 +36,21 @@ fresh-context session that needs orientation past the system prompt, or
 when the system prompt's routing feels insufficient for the situation
 in front of you.
 
-For mechanism choice, artifact logging conventions, transaction lifecycle,
-search routing, escalation — load the system prompt or
-`/cortex-mailbox-send` (for mesh comms) or `/epistemic-transaction` (for
-planning). Those have the operational depth.
+**What lives elsewhere.** This list used to include artifact logging and
+search routing — both of which this document actually covers (§III-b, §IV) —
+while the system prompt was simultaneously routing them *here*. A reader
+following either pointer landed back where they started, passing over the
+section that answers them. Corrected in both directions:
+
+| You need | Go to |
+|---|---|
+| Transaction lifecycle, PREFLIGHT/CHECK/POSTFLIGHT payloads | system prompt §TRANSACTION DISCIPLINE, then `/epistemic-transaction` |
+| Which action needs CHECK | system prompt §NOETIC FIREWALL |
+| Mesh comms mechanics — addressing, acks, proposal shape | `/cortex-mailbox-send` and `/cortex-mailbox-poll` |
+| Correcting or retiring existing artifacts | `/epistemic-gardening` |
+
+Artifact **typing and graph discipline** is §III-b below — this document owns
+it. Practice and project routing is §IV. Escalation is §V.
 
 ---
 

@@ -141,3 +141,51 @@ def test_the_trigger_list_itself_is_not_trimmed():
     listed = triggers.group(1)
     for required in ("artifact logging", "phase-aware completion", "cognitive immune system"):
         assert required in listed, f"trigger '{required}' was trimmed out of the load list"
+
+
+# ─── the circular pointer ─────────────────────────────────────────────────
+
+
+def test_the_constitution_does_not_route_back_what_the_prompt_routes_to_it():
+    """Both documents pointing at each other for the same topic strands the reader.
+
+    The system prompt's trigger list sent 'artifact logging' and 'search routing'
+    to the constitution. The constitution's intro sent them BACK to the system
+    prompt — while §III-b and §IV substantively cover them. A reader following
+    either pointer landed where they started, having passed over the answer.
+
+    Worse than a dangling pointer: a loop terminates only when the reader gives
+    up, and giving up looks like "this system doesn't document that".
+    """
+    prompt = _template()
+    claim = re.search(r"What the constitution genuinely owns:(.+?)\n\n", prompt, re.S)
+    assert claim, "the prompt must state what it routes to the constitution"
+
+    constitution = _CONSTITUTION.read_text()
+    intro = constitution.split("## §I.")[0]
+
+    # Any topic the prompt assigns to the constitution must not appear in a
+    # sentence of the intro that routes it back to the system prompt.
+    bounce = re.findall(r"^.*load the system prompt.*$", intro, re.M | re.I)
+    claimed = claim.group(1).lower()
+
+    for line in bounce:
+        for topic in ("artifact logging", "search routing", "escalation"):
+            if topic in line.lower() and topic.split()[0] in claimed:
+                raise AssertionError(
+                    f"circular pointer: the system prompt routes {topic!r} to the constitution, "
+                    f"and the constitution routes it back — {line.strip()!r}"
+                )
+
+
+def test_every_section_appears_in_the_constitutions_own_contents():
+    """§III-b was real, substantive, and absent from the intro's list — invisible
+    in the document's own table of contents while the paragraph below it actively
+    disclaimed the topic it covers."""
+    constitution = _CONSTITUTION.read_text()
+    intro = constitution.split("## §I.")[0]
+
+    sections = re.findall(r"^## (§[IVb\-]+)\.", constitution, re.M)
+    missing = [s for s in sections if s not in intro]
+
+    assert not missing, f"sections absent from the constitution's own contents list: {missing}"
