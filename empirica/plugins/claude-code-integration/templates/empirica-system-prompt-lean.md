@@ -375,13 +375,26 @@ artifact logging, project routing, transaction lifecycle, context management,
 escalation paths, phase-aware completion, reading conversation signals, the
 cognitive immune system.
 
-This list is a set of TRIGGERS, not a table of contents. Two of them route
-elsewhere, and pointing them here sent you to the wrong surface:
+This list is a set of TRIGGERS, not a table of contents — it exists to make the
+skill LOAD, so it stays broad. But a trigger that routes you to a page which
+doesn't answer it is worse than no trigger, and six of these routed wrong:
 
 | Topic | Actually lives in |
 |---|---|
 | Epistemic Persistence Protocol (EPP) | `/epistemic-persistence-protocol` — its own skill |
 | Epistemic Workflow Manager (EWM) | your `workflow-protocol.yaml`, loaded automatically each session |
+| Action gating (what needs CHECK) | **§NOETIC FIREWALL, above** — already in your context |
+| Transaction lifecycle | **§TRANSACTION DISCIPLINE, above** for the rules; `/epistemic-transaction` for payloads and planning |
+| Context management / compaction | **§CONTEXT IS ABUNDANT, above** |
+| Reading conversation signals | **§COLLABORATIVE MODE, above** — the signal→action table |
+
+**Four of those six are in THIS file.** Sending you to a lazy skill for guidance
+you are already holding is the expensive kind of wrong: you pay the load, and the
+page doesn't answer, so the honest conclusion is "Empirica doesn't cover this."
+
+What the constitution genuinely owns: search routing, artifact logging and the
+graph, project/practice routing, escalation paths, phase-aware completion, and
+the cognitive immune system.
 
 ---
 
