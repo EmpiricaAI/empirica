@@ -179,15 +179,19 @@ Helpers go in the same file, defined before the function they serve.
 If Cortex MCP is not connected, use local Empirica search:
 
 ```bash
-# Search for relevant dead-ends
+# Semantic search across dead-ends, findings and the rest of the graph.
+# --global widens past this project into the shared learnings pool.
 empirica project-search --task "<description>" --global --output json 2>/dev/null
 
-# Get recent dead-ends directly
-empirica deadend-log --list --output json 2>/dev/null | head -20
-
-# Get recent findings
-empirica finding-log --list --output json 2>/dev/null | head -20
+# Narrow to one artifact kind when the query is broad
+empirica project-search --task "<description>" --type assumptions --output json 2>/dev/null
 ```
+
+**There is no `--list` on the `*-log` verbs.** They WRITE artifacts; retrieval
+is semantic and goes through `project-search` (or `investigate`). This block
+used to print `deadend-log --list` and `finding-log --list`, neither of which
+exists — an AI following it got a usage error with no way to tell whether the
+skill was wrong or its own invocation was.
 
 Format the results the same way as the Cortex path.
 

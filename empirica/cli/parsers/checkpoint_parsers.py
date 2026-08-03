@@ -941,7 +941,15 @@ def add_checkpoint_parsers(subparsers):
     project_search_parser = subparsers.add_parser(
         "project-search", help="Semantic search for relevant docs/memory by task description"
     )
-    project_search_parser.add_argument("--project-id", required=True, help="Project UUID")
+    project_search_parser.add_argument(
+        "--project-id",
+        help=(
+            "Project UUID or name (default: resolved from the active project, "
+            "like every other verb). It was required=True, which made the "
+            "`project-search --task ... --global` line printed in the "
+            "dispatch-agent skill unrunnable as written."
+        ),
+    )
     project_search_parser.add_argument("--task", required=True, help="Task description to search for")
     project_search_parser.add_argument(
         "--type",

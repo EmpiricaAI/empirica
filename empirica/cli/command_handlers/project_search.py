@@ -27,6 +27,7 @@ WHEN AN AI SHOULD REACH FOR IT  (vs the mesh)
 from __future__ import annotations
 
 import json
+import os
 
 from ..cli_utils import handle_cli_error
 
@@ -85,7 +86,27 @@ def handle_project_search_command(args):
             search_global,
         )
 
-        project_id = resolve_project_id(args.project_id)
+        # Resolve from the active project when omitted — same shape as
+        # project-embed. A search verb that cannot be run from inside the
+        # project it searches is a verb whose documented usage does not run.
+        if args.project_id:
+            project_id = resolve_project_id(args.project_id)
+        else:
+            from empirica.utils.session_resolver import InstanceResolver as R
+
+            root = R.project_path() or os.getcwd()
+            project_id = R.project_id_from_db(root)
+            if not project_id:
+                print(
+                    json.dumps(
+                        {
+                            "ok": False,
+                            "error": "no project_id given and none resolvable from the active project",
+                            "hint": "run from a project root, or pass --project-id",
+                        }
+                    )
+                )
+                return 1
         task = args.task
         kind = getattr(args, "type", "all")
         limit = getattr(args, "limit", 5)

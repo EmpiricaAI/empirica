@@ -370,10 +370,18 @@ Load it:
 - When you need to route a decision you haven't encountered before
 - When the user asks about Empirica capabilities or workflow
 
-The constitution covers: search routing, action gating, artifact logging,
-interaction protocols (EPP, EWM), project routing, transaction lifecycle,
-context management, escalation paths, phase-aware completion, natural
-interpretation of conversation signals, and the cognitive immune system.
+**Load it when you hit any of these** — search routing, action gating,
+artifact logging, project routing, transaction lifecycle, context management,
+escalation paths, phase-aware completion, reading conversation signals, the
+cognitive immune system.
+
+This list is a set of TRIGGERS, not a table of contents. Two of them route
+elsewhere, and pointing them here sent you to the wrong surface:
+
+| Topic | Actually lives in |
+|---|---|
+| Epistemic Persistence Protocol (EPP) | `/epistemic-persistence-protocol` — its own skill |
+| Epistemic Workflow Manager (EWM) | your `workflow-protocol.yaml`, loaded automatically each session |
 
 ---
 
