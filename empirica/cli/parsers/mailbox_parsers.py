@@ -9,6 +9,24 @@ Implements prop_rau4ymp62fhenavyolejadahtq.
 
 from __future__ import annotations
 
+# The proposal statuses cortex actually stores. ONE definition, read by both the
+# --status help text and the validator in mailbox_commands — they used to be two
+# things, with only the help text knowing the truth and nothing enforcing it.
+VALID_POLL_STATUSES = (
+    "eco_review",
+    "accepted",
+    "changed",
+    "declined",
+    "completed",
+    "expired",
+)
+
+# `all` is not a stored status; it means "no filter". Accepted because it is the
+# obvious word to type — I typed it — and because passing it through as a
+# literal matched nothing and returned an empty mailbox indistinguishable from
+# a genuinely empty one.
+POLL_STATUS_ALL = "all"
+
 
 def add_mailbox_parsers(subparsers):
     """Register `empirica mailbox <action>` subcommand group."""
@@ -117,9 +135,13 @@ def add_mailbox_parsers(subparsers):
     )
     poll.add_argument(
         "--status",
-        help="Comma-separated status filter (default: 'accepted,changed' for "
-        "inbox, 'completed,changed,declined' for outbox). Choices: "
-        "eco_review, accepted, changed, declined, completed, expired.",
+        help=(
+            "Comma-separated status filter (default: 'accepted,changed' for "
+            "inbox, 'completed,changed,declined' for outbox). Choices: "
+            + ", ".join(VALID_POLL_STATUSES)
+            + f", or '{POLL_STATUS_ALL}' for every status. An unrecognised value is "
+            "an error, not an empty result."
+        ),
     )
     poll.add_argument(
         "--since",

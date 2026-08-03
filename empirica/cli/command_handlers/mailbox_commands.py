@@ -551,7 +551,27 @@ def handle_mailbox_poll_command(
     outbox = bool(getattr(args, "outbox", False))
     status_arg = getattr(args, "status", None)
     if status_arg:
-        statuses = tuple(s.strip() for s in status_arg.split(",") if s.strip())
+        from empirica.cli.parsers.mailbox_parsers import POLL_STATUS_ALL, VALID_POLL_STATUSES
+
+        requested = tuple(s.strip() for s in status_arg.split(",") if s.strip())
+        # An unrecognised status used to be passed straight through to cortex,
+        # match nothing, and return an empty mailbox — indistinguishable from
+        # having no mail. `--status all` was the case that bit: a reasonable
+        # thing to type, silently answering "you have nothing" while 29
+        # proposals sat there. A filter that selects nothing because the filter
+        # is wrong must not look like a filter that selects nothing because
+        # there is nothing.
+        unknown = [s for s in requested if s != POLL_STATUS_ALL and s not in VALID_POLL_STATUSES]
+        if unknown:
+            sys.stderr.write(
+                f"mailbox poll: unknown --status value(s): {', '.join(unknown)}\n"
+                f"  valid: {', '.join(VALID_POLL_STATUSES)}, or '{POLL_STATUS_ALL}' for every status\n"
+            )
+            return 1
+        if POLL_STATUS_ALL in requested:
+            statuses = VALID_POLL_STATUSES
+        else:
+            statuses = requested
     else:
         # inbox → what you act on; outbox → status changes on your emissions.
         statuses = ("completed", "changed", "declined") if outbox else ("accepted", "changed")

@@ -259,12 +259,35 @@ def _relay_non_proposal_wake(msg: dict, instance_id: str, loop_name: str, canoni
         body = json.loads(raw) if isinstance(raw, str) and raw.lstrip().startswith("{") else None
     except (json.JSONDecodeError, TypeError):
         body = None
-    if not isinstance(body, dict) or body.get("event") not in _NON_PROPOSAL_WAKE_SHAPES:
+    if not isinstance(body, dict):
+        return False
+    shape_name = body.get("event")
+    if shape_name not in _NON_PROPOSAL_WAKE_SHAPES:
+        # An allowlist over ANOTHER system's vocabulary drifts the moment that
+        # system adds a shape, and this one dropped the unknown silently — no
+        # log, no counter, nothing. So a new cortex wake shape would simply not
+        # arrive, and the only symptom is an AI that never reacts to something
+        # nobody can see was sent.
+        #
+        # Not widened to relay unknown shapes: relaying an unrecognised body
+        # would emit an event whose reaction protocol we do not know. Making the
+        # drop AUDIBLE is the correct half — it converts an invisible gap into a
+        # line someone can grep, without inventing behaviour for an unknown.
+        #
+        # Proposal-shaped events are excluded from the warning: they are
+        # reconstructed by the catch-up immediately below, so they are not
+        # dropped at all and warning about them would be noise.
+        if shape_name and shape_name not in ("proposal_event",):
+            err_stream.write(
+                f"listener: UNHANDLED non-proposal wake shape '{shape_name}' — not relayed. "
+                f"If it has no proposal-store row the catch-up cannot reconstruct it, so it is LOST. "
+                f"Known shapes: {sorted(_NON_PROPOSAL_WAKE_SHAPES)}\n"
+            )
         return False
     targets = body.get("target_claudes")
     if isinstance(targets, list) and canonical and canonical not in targets:
         return False  # defense-in-depth: body names targets and we're not one
-    shape = body["event"]
+    shape = shape_name
     line = json.dumps(
         {
             "ts": _dt.datetime.now(_dt.timezone.utc).isoformat(),
