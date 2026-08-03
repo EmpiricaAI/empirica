@@ -1822,6 +1822,41 @@ def _postflight_format_human_output(
     _postflight_print_project_context(session_id)
 
 
+def _near_miss_session(cursor, session_id: str) -> str | None:
+    """A stored session_id exactly one edit away from this one, if any.
+
+    The corruption vector is a pointer file holding a UUID with a single dropped
+    character. Naming the real row turns "not found" into "here is the row you
+    meant" — the difference between a message that misdirects and one that fixes.
+    """
+    from empirica.utils.session_resolver import within_one_edit
+
+    if not session_id or len(session_id) < 12:
+        return None
+
+    try:
+        rows = [
+            r[0]
+            for r in cursor.execute("SELECT session_id FROM sessions WHERE session_id LIKE ?", (session_id[:8] + "%",))
+        ]
+    except Exception:
+        return None
+
+    return next((c for c in rows if c and within_one_edit(str(c), session_id)), None)
+
+
+def _session_not_found_message(cursor, session_id: str) -> str:
+    msg = f"session {session_id!r} ({len(session_id)} chars) not found in project DB"
+    near = _near_miss_session(cursor, session_id)
+    if near:
+        msg += (
+            f"\n  A stored session differs by one character: {near!r} ({len(near)} chars).\n"
+            "  The session row is almost certainly fine and the POINTER is malformed — "
+            "check .empirica/active_transaction_*.json for a truncated id."
+        )
+    return msg
+
+
 def _validate_postflight_preconditions(session_id: str) -> tuple[bool, str | None]:
     """Pre-mutation validation for POSTFLIGHT.
 
@@ -1844,11 +1879,25 @@ def _validate_postflight_preconditions(session_id: str) -> tuple[bool, str | Non
             )
             row = cursor.fetchone()
             if row is None:
-                return False, f"session {session_id[:8]} not found in project DB"
+                # Print the id IN FULL, and name the near-miss.
+                #
+                # This used to print `session_id[:8]`. Reported by cortex after a
+                # malformed pointer file dropped one character from the LAST
+                # segment of a UUID: the message printed the real session's
+                # prefix, so everyone who read it checked whether that prefix
+                # existed, found it intact and correctly bound, and concluded the
+                # resolver was broken. Three practices searched the wrong
+                # component.
+                #
+                # An error that identifies a record by a prefix cannot report a
+                # mismatch occurring outside that prefix. It does not merely fail
+                # to help — it reliably accuses the wrong thing, because the part
+                # it shows IS correct.
+                return False, _session_not_found_message(cursor, session_id)
             project_id = row[0]
             if not project_id:
                 return False, (
-                    f"session {session_id[:8]} has no project_id — run "
+                    f"session {session_id} has no project_id — run "
                     "'empirica project-switch <project>' before POSTFLIGHT"
                 )
             return True, None

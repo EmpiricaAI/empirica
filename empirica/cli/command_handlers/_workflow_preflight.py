@@ -149,6 +149,57 @@ def _preflight_check_unclosed_transaction():
     return None
 
 
+def _preflight_check_session_exists(session_id):
+    """Warn when the session this transaction attaches to has no row.
+
+    Reported by cortex: a pointer file held a UUID with one dropped character.
+    PREFLIGHT accepted the 35-char id and returned ok:true, the transaction opened
+    against a session that did not exist, and the failure only surfaced at
+    POSTFLIGHT — where the error truncated the id and pointed at the wrong
+    component. The corruption entered here, silently.
+
+    WARNS rather than blocks, deliberately. PREFLIGHT is hot-path: a validation
+    regression that refuses legitimate work is worse than the bug it prevents.
+    Note also that `session_id` is documented as a UUID but is not one in
+    practice — `latest`, `investigation-cli-mapping` and a bare 8-char prefix are
+    all live rows here, so validating the SHAPE would reject real sessions.
+    Existence is the invariant; shape is not.
+    """
+    try:
+        from empirica.data.session_database import SessionDatabase
+
+        db = SessionDatabase()
+        try:
+            cur = db.conn.cursor()
+            cur.execute("SELECT 1 FROM sessions WHERE session_id = ?", (session_id,))
+            if cur.fetchone():
+                return None
+
+            warning = {
+                "session_id": session_id,
+                "length": len(session_id or ""),
+                "message": (
+                    f"No session row for {session_id!r}. This transaction will open, but POSTFLIGHT "
+                    "will fail its precondition check and the measurement window will be lost."
+                ),
+                "fix": "Run `empirica session-create`, or correct the id — see below if a near-match exists.",
+            }
+            from empirica.cli.command_handlers._workflow_postflight import _near_miss_session
+
+            near = _near_miss_session(cur, session_id)
+            if near:
+                warning["near_miss"] = near
+                warning["message"] += (
+                    f" A stored session differs by one character: {near!r}. The row is almost "
+                    "certainly fine and the POINTER is malformed — check .empirica/active_transaction_*.json."
+                )
+            return warning
+        finally:
+            db.close()
+    except Exception:
+        return None  # Never let a diagnostic block PREFLIGHT.
+
+
 def _preflight_create_checkpoint(session_id, vectors, reasoning, transaction_id):
     """Create GitEnhancedReflexLogger checkpoint for PREFLIGHT.
 
@@ -828,6 +879,7 @@ def _preflight_build_result(
     unclosed_transaction_warning,
     work_type=None,
     voice=None,
+    session_warning=None,
 ):
     """Assemble the final PREFLIGHT result dict."""
     result: dict = {
@@ -849,6 +901,11 @@ def _preflight_build_result(
         "patterns": patterns if patterns and any(patterns.values()) else None,
         "unclosed_transaction_warning": unclosed_transaction_warning,
     }
+    # Surfaced, not merely computed. A warning built and dropped is the defect
+    # this repo keeps producing — the claims adjudication warning had exactly
+    # that shape, carefully constructed and unreachable.
+    if session_warning:
+        result["session_warning"] = session_warning
     noetic_guidance = _build_noetic_guidance(work_type)
     if noetic_guidance is not None:
         result["noetic_guidance"] = noetic_guidance
@@ -956,6 +1013,9 @@ def handle_preflight_submit_command(args):
         # Stage 2: Check for unclosed transaction — warn but don't block
         unclosed_transaction_warning = _preflight_check_unclosed_transaction()
 
+        # Stage 2b: Does the session this transaction attaches to actually exist?
+        session_warning = _preflight_check_session_exists(session_id)
+
         # Stage 3: Create checkpoint and transaction
         try:
             transaction_id = str(uuid.uuid4())
@@ -1054,6 +1114,7 @@ def handle_preflight_submit_command(args):
                 unclosed_transaction_warning,
                 work_type=parsed.get("work_type"),
                 voice=parsed.get("voice"),
+                session_warning=session_warning,
             )
 
             # Echo the grounded-at-open declaration so the practitioner sees
