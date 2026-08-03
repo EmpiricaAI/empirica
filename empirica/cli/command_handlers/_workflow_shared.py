@@ -810,8 +810,19 @@ def _retro_adjudicate_claims(db, session_id, transaction_id, adjudications, retr
             adjudications=adjudications or [],
         )
         if not summary.get("declared"):
+            # `declared == 0` is not automatically "nothing to say". adjudicate()
+            # deliberately reports `dropped_adjudications` here — verdicts arrived
+            # with no claims to attach them to — and returning early discarded the
+            # one branch written to prevent that exact silence. The guard is for
+            # the genuinely-empty case, so make it test for emptiness.
+            if summary.get("dropped_adjudications"):
+                retro["claims"] = summary
             return
         retro["claims"] = summary
+        if summary.get("adjudication_warning"):
+            # Surfaced beside the gap note on purpose: the gap note is what these
+            # dropped verdicts get misread as.
+            retro["claim_adjudication_warning"] = summary["adjudication_warning"]
         if summary.get("untested"):
             retro["claim_gap_note"] = (
                 f"{summary['untested']} of {summary['declared']} claims declared at CHECK were never "

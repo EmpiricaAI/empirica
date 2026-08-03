@@ -32,9 +32,12 @@ the data earns it.
 
 from __future__ import annotations
 
+import logging
 import time
 import uuid
 from typing import Any, Literal
+
+logger = logging.getLogger(__name__)
 
 Grounding = Literal["read", "ran", "retrieved", "assumed"]
 Verdict = Literal["held", "refuted", "untested"]
@@ -204,24 +207,51 @@ def adjudicate(
     by_index = {r["claim_index"]: r for r in rows}
     now = time.time()
 
+    # Every `continue` below used to be silent, and the silence was expensive in a
+    # specific way: the unmatched entry falls through to the bulk `untested` sweep,
+    # so POSTFLIGHT reports "declared at CHECK, never adjudicated — acted on, never
+    # checked" about a claim the practitioner DID adjudicate, in the payload, with
+    # evidence attached. A false "you didn't verify" is worse than no signal: it is
+    # exactly the signal this mechanism exists to produce, so being wrong about it
+    # trains the practitioner to distrust a working discipline.
+    #
+    # It also defeats diagnosis. Reported by mesh-support after three transactions
+    # and two self-consistent WRONG root-causes (they theorised claim-index
+    # bookkeeping; the real cause was sending `adjudication` where the contract
+    # wants `verdict`, so the entry was dropped before matching was attempted).
+    # A defect that survives two good-faith diagnoses from its own error message is
+    # doing work to hide itself.
+    applied = 0
+    unmatched: list[dict[str, Any]] = []
+
+    def _reject(raw_entry, reason: str) -> None:
+        keys = sorted(raw_entry.keys()) if isinstance(raw_entry, dict) else []
+        entry: dict[str, Any] = {"reason": reason, "keys_seen": keys}
+        # Name the specific confusion when we can. These two are natural rather
+        # than careless: the guidance prose calls the act "adjudication" while the
+        # payload key is `verdict`, and calls the support "note" while the key is
+        # `evidence`. `keys_seen` still carries the general case.
+        near = {"adjudication": "verdict", "note": "evidence", "claim": "index or id"}
+        confusions = [f"{k} -> {v}" for k, v in near.items() if k in keys]
+        if confusions:
+            entry["likely_key_confusion"] = confusions
+        unmatched.append(entry)
+
     for raw in adjudications or []:
         if not isinstance(raw, dict):
+            unmatched.append({"reason": "not_an_object", "keys_seen": []})
             continue
         verdict = normalize_verdict(raw.get("verdict"))
         if verdict is None:
+            # Distinguish absent from unrecognised — "you sent no verdict" and
+            # "you sent a verdict I don't know" need different corrections.
+            _reject(raw, "missing_verdict" if raw.get("verdict") is None else "unrecognized_verdict")
             continue
-        target = None
-        ident = raw.get("id") or raw.get("claim_id")
-        if ident:
-            ident = str(ident)
-            target = by_id.get(ident) or next((r for r in rows if len(ident) >= 8 and r["id"].startswith(ident)), None)
-        if target is None and raw.get("index") is not None:
-            try:
-                target = by_index.get(int(raw["index"]))
-            except (TypeError, ValueError):
-                target = None
+        target = _match_claim(raw, rows, by_id, by_index)
         if target is None:
+            _reject(raw, "no_matching_claim")
             continue
+        applied += 1
         db.conn.execute(
             "UPDATE transaction_claims SET verdict = ?, verdict_evidence = ?, adjudicated_timestamp = ? WHERE id = ?",
             (verdict, str(raw.get("evidence") or "").strip() or None, now, target["id"]),
@@ -255,7 +285,43 @@ def adjudicate(
                     ),
                 }
             )
-    return {"declared": len(final), **counts, "gaps": gaps}
+    out = {"declared": len(final), **counts, "gaps": gaps}
+    if unmatched:
+        out["adjudication"] = {
+            "applied": applied,
+            "unmatched": len(unmatched),
+            "entries": unmatched,
+            "hint": "each entry needs 'verdict' (held|refuted|untested) plus 'index' or 'id'",
+        }
+        # Say it in the same breath as the gap note, because the gap note is the
+        # thing the dropped entries are about to be misread as.
+        out["adjudication_warning"] = (
+            f"{len(unmatched)} of {len(unmatched) + applied} submitted verdict(s) were NOT applied — "
+            "the claims they targeted are counted as 'untested' below, which understates what you "
+            "actually checked. Fix the entry shape and the untested count will drop."
+        )
+    return out
+
+
+def _match_claim(raw: dict, rows: list[dict[str, Any]], by_id: dict, by_index: dict) -> dict[str, Any] | None:
+    """Resolve one adjudication entry to the claim it targets, or None.
+
+    Accepts an explicit ``id`` (or 8+ char prefix) or a 1-based ``index`` matching
+    declaration order. Index is what a practitioner has to hand; id is unambiguous
+    when both are available.
+    """
+    ident = raw.get("id") or raw.get("claim_id")
+    if ident:
+        ident = str(ident)
+        target = by_id.get(ident) or next((r for r in rows if len(ident) >= 8 and r["id"].startswith(ident)), None)
+        if target is not None:
+            return target
+    if raw.get("index") is not None:
+        try:
+            return by_index.get(int(raw["index"]))
+        except (TypeError, ValueError):
+            return None
+    return None
 
 
 def _open_claims(db, session_id: str, transaction_id: str | None) -> list[dict[str, Any]]:
@@ -277,7 +343,13 @@ def _query_claims(db, session_id: str, transaction_id: str | None, only_open: bo
     sql += " ORDER BY claim_index"
     try:
         cur = db.conn.execute(sql, params)
-    except Exception:
+    except Exception as e:
+        # `[]` here is indistinguishable from "no claims were declared", so a
+        # schema drift (a missing migration 062, a renamed column) disables the
+        # whole claims mechanism and reports a clean zero forever. Degrading is
+        # right — claims must never break POSTFLIGHT — but degrading QUIETLY is
+        # what turns a fixable error into an invisible one. Say it, then degrade.
+        logger.warning(f"claims query failed — reporting 0 claims, which is NOT the same as none declared: {e}")
         return []
     return [
         {
