@@ -699,6 +699,85 @@ def resolve_session_id(session_id_or_alias: str, ai_id: str | None = None) -> st
         raise ValueError(f"Cannot resolve session alias - database unavailable: {e}") from e
 
 
+def within_one_edit(a: str, b: str) -> bool:
+    """True when the two differ by exactly one insertion, deletion, or substitution.
+
+    An exact edit check, deliberately, not a prefix/suffix heuristic. The first
+    version of this compared an 8-char head against a 6-char tail. It passed on a
+    SYNTHETIC example where the dropped character fell outside the tail window and
+    FAILED on the real reported id, where the missing digit fell inside it.
+
+    A near-miss detector tuned to a case other than the reported one reproduces the
+    very defect it exists to fix: it inspects part of an identifier and is blind to
+    differences in the rest.
+    """
+    if a == b:
+        return False
+    la, lb = len(a), len(b)
+    if abs(la - lb) > 1:
+        return False
+
+    if la == lb:  # substitution
+        return sum(1 for x, y in zip(a, b) if x != y) == 1
+
+    longer, shorter = (a, b) if la > lb else (b, a)
+    i = j = skipped = 0
+    while i < len(longer) and j < len(shorter):
+        if longer[i] != shorter[j]:
+            if skipped:
+                return False
+            skipped = 1
+            i += 1
+            continue
+        i += 1
+        j += 1
+    return True
+
+
+def _is_uuid_shaped(value: str) -> bool:
+    """Parseable as a UUID.
+
+    Used only to distinguish "typo" from "id this DB has not seen" — NEVER as a
+    validity test on its own. Three live session_ids here are legitimately not
+    UUIDs (`latest`, `investigation-cli-mapping`, a bare 8-char prefix), so
+    rejecting on shape alone would refuse real sessions.
+    """
+    import uuid as _uuid
+
+    try:
+        _uuid.UUID(str(value))
+        return True
+    except (ValueError, AttributeError, TypeError):
+        return False
+
+
+def _lookup_session(session_id: str) -> tuple[bool, str | None]:
+    """(exists, near_miss). Never raises — a diagnostic must not become the fault."""
+    try:
+        from empirica.data.session_database import SessionDatabase
+
+        db = SessionDatabase()
+        try:
+            cur = db.conn.cursor()
+            cur.execute("SELECT 1 FROM sessions WHERE session_id = ?", (session_id,))
+            if cur.fetchone():
+                return True, None
+            if len(session_id) < 12:
+                return False, None
+            rows = [
+                r[0]
+                for r in cur.execute("SELECT session_id FROM sessions WHERE session_id LIKE ?", (session_id[:8] + "%",))
+            ]
+            return False, next((c for c in rows if c and within_one_edit(str(c), session_id)), None)
+        finally:
+            db.close()
+    except Exception as e:
+        # Cannot verify -> do not block. An unreachable DB must not stop a
+        # transaction the way a typo should.
+        logger.debug(f"session existence check unavailable: {e}")
+        return True, None
+
+
 def _resolve_partial_uuid(partial_or_full_uuid: str) -> str:
     """
     Resolve partial UUID (8 chars) to full UUID, or validate full UUID.
@@ -712,9 +791,57 @@ def _resolve_partial_uuid(partial_or_full_uuid: str) -> str:
     Raises:
         ValueError: If UUID not found or ambiguous
     """
-    # If it looks like a full UUID (contains hyphens), return as-is
+    # A hyphen used to be the ENTIRE test, and the safety was inverted: an 8-char
+    # partial fell through to a real `LIKE` query that raises on a miss, while a
+    # full-looking id was returned unchecked. Typing LESS of the id was the safe
+    # move. The docstring above has always promised "or validate full UUID"; that
+    # half was never implemented.
+    #
+    # Found by cortex after a hand-typed PREFLIGHT payload dropped one hex digit
+    # mid-string. The bad id was returned ok, written to the transaction pointer
+    # file BEFORE any DB touch, and every later POSTFLIGHT / log-artifacts in that
+    # session resolved from the poisoned pointer. There is no upstream producer to
+    # repair — practitioners re-type 36-char UUIDs and some fraction will be
+    # wrong — so this check is the whole defense, not defense-in-depth.
+    #
+    # Raising here is CONSISTENCY, not a new restriction: the partial branch below
+    # already raises ValueError on a miss, and every caller already handles it
+    # (_resolve_and_validate_session turns it into `{"ok": false, ...}` + exit 1).
     if "-" in partial_or_full_uuid:
-        logger.debug(f"Full UUID provided: {partial_or_full_uuid}")
+        existing, near = _lookup_session(partial_or_full_uuid)
+        if existing:
+            logger.debug(f"Full UUID provided: {partial_or_full_uuid}")
+            return partial_or_full_uuid
+
+        # Absent from THIS project's DB. Two very different cases, and collapsing
+        # them would trade one bug for a worse one:
+        #
+        #   malformed, or one edit from a real row  -> a typo. Raise.
+        #   well-formed and unlike anything stored  -> possibly a legitimate id
+        #                                              from another project's DB.
+        #                                              Warn, pass through.
+        #
+        # The reported corruption (`…3030ce39f1bb` -> `…3030ce9f1bb`) is caught by
+        # BOTH tests: 35 chars is unparseable AND one edit from the stored row. A
+        # valid 36-char id for a session this DB has never seen is not obviously
+        # wrong, and refusing it would break cross-project resolution to fix a
+        # typo — a hot-path regression is worse than the silent bug it prevents.
+        malformed = not _is_uuid_shaped(partial_or_full_uuid)
+        if near or malformed:
+            msg = f"No session found matching: {partial_or_full_uuid!r} ({len(partial_or_full_uuid)} chars)"
+            if near:
+                msg += (
+                    f" — but {near!r} ({len(near)} chars) differs by one character. "
+                    "The session row is fine; the id you passed is not."
+                )
+            elif malformed:
+                msg += " — not a well-formed UUID. Check for a dropped or extra character."
+            raise ValueError(msg)
+
+        logger.warning(
+            f"session_id {partial_or_full_uuid!r} is well-formed but has no row in this project's DB — "
+            "passing through. POSTFLIGHT will fail its precondition check if this is wrong."
+        )
         return partial_or_full_uuid
 
     # Partial UUID - query database

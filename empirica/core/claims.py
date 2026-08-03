@@ -231,7 +231,10 @@ def adjudicate(
         # than careless: the guidance prose calls the act "adjudication" while the
         # payload key is `verdict`, and calls the support "note" while the key is
         # `evidence`. `keys_seen` still carries the general case.
-        near = {"adjudication": "verdict", "note": "evidence", "claim": "index or id"}
+        # `note` is deliberately absent: it is now ACCEPTED as an alias for
+        # `evidence`, so naming it as a confusion would send the reader to fix
+        # a key that already works.
+        near = {"adjudication": "verdict", "claim": "index or id"}
         confusions = [f"{k} -> {v}" for k, v in near.items() if k in keys]
         if confusions:
             entry["likely_key_confusion"] = confusions
@@ -254,7 +257,15 @@ def adjudicate(
         applied += 1
         db.conn.execute(
             "UPDATE transaction_claims SET verdict = ?, verdict_evidence = ?, adjudicated_timestamp = ? WHERE id = ?",
-            (verdict, str(raw.get("evidence") or "").strip() or None, now, target["id"]),
+            # `note` accepted as an alias for `evidence`, because the MCP tool
+            # description SHIPPED saying `note` while this line read `evidence` —
+            # so a caller following the documented contract had their evidence
+            # silently dropped. The description is fixed, but callers copied it,
+            # and the guidance prose calls this "a note" regardless.
+            #
+            # Forgiving input where the ambiguity is ours, not theirs — the same
+            # reason log-artifacts accepts `id` for `ref`.
+            (verdict, str(raw.get("evidence") or raw.get("note") or "").strip() or None, now, target["id"]),
         )
         target["verdict"] = verdict
 

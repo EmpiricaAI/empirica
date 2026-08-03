@@ -74,7 +74,10 @@ def test_the_specific_confusion_is_named():
 
     confusions = out["adjudication"]["entries"][0]["likely_key_confusion"]
     assert "adjudication -> verdict" in confusions
-    assert "note -> evidence" in confusions
+    assert "claim -> index or id" in confusions
+    # `note` must NOT be named: it is accepted as an alias for `evidence`, so
+    # flagging it would send the reader to fix a key that already works.
+    assert not any("note" in c for c in confusions)
 
 
 def test_the_warning_connects_drops_to_the_untested_count():
@@ -168,3 +171,29 @@ def test_the_warning_is_promoted_for_declared_claims():
     ws._retro_adjudicate_claims(db, "S1", "T1", [{"claim": "c1", "adjudication": "held"}], retro)
 
     assert "claim_adjudication_warning" in retro
+
+
+def test_note_is_accepted_as_an_alias_for_evidence():
+    """The MCP tool description SHIPPED documenting `note` while adjudicate()
+    read `evidence`, so a caller following the documented contract had their
+    evidence silently dropped. The description is corrected, but callers copied
+    it — and the guidance prose calls this "a note" regardless.
+
+    Forgiving input where the ambiguity is ours, not the caller's.
+    """
+    db = _DB()
+    db.declare(1)
+    _adj(db, [{"index": 1, "verdict": "held", "note": "checked against the log"}])
+
+    stored = db.conn.execute("SELECT verdict, verdict_evidence FROM transaction_claims").fetchone()
+    assert stored[0] == "held"
+    assert stored[1] == "checked against the log"
+
+
+def test_evidence_wins_when_both_keys_are_present():
+    db = _DB()
+    db.declare(1)
+    _adj(db, [{"index": 1, "verdict": "held", "evidence": "canonical", "note": "secondary"}])
+
+    stored = db.conn.execute("SELECT verdict_evidence FROM transaction_claims").fetchone()
+    assert stored[0] == "canonical"

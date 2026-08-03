@@ -132,7 +132,7 @@ TOOL_REGISTRY: dict[str, dict] = {
         "required": ["session_id", "vectors"],
         "desc": (
             "Submit POSTFLIGHT assessment — closes transaction, triggers grounded "
-            "verification. Optional `claims`: [{index|id, verdict, note}] with verdict "
+            "verification. Optional `claims`: [{index|id, verdict, evidence}] with verdict "
             "held|refuted|untested, adjudicating what was declared at PREFLIGHT/CHECK. "
             "Anything left unadjudicated is forced to `untested` and reported as a gap, "
             "so 'never checked' stays distinguishable from 'nothing declared'."
