@@ -516,6 +516,38 @@ def _poll_human_line(p: dict) -> str:
     return f"  {pid}… [{status}] {title}  <from {src}>"
 
 
+def _resolve_poll_statuses(status_arg: str | None, *, outbox: bool) -> tuple[str, ...] | None:
+    """Resolve --status into the tuple to query. None means "reject, already reported".
+
+    An unrecognised status used to be passed straight through to cortex, match
+    nothing, and return an empty mailbox — indistinguishable from having no
+    mail. `--status all` was the case that bit: a reasonable thing to type,
+    silently answering "you have nothing" while 80 proposals sat there. A filter
+    that selects nothing because the FILTER is wrong must not look like a filter
+    that selects nothing because there IS nothing.
+    """
+    from empirica.cli.parsers.mailbox_parsers import POLL_STATUS_ALL, VALID_POLL_STATUSES
+
+    if not status_arg:
+        # inbox → what you act on; outbox → status changes on your emissions.
+        return ("completed", "changed", "declined") if outbox else ("accepted", "changed")
+
+    requested = tuple(s.strip() for s in status_arg.split(",") if s.strip())
+    if not requested:
+        return ("completed", "changed", "declined") if outbox else ("accepted", "changed")
+
+    unknown = [s for s in requested if s != POLL_STATUS_ALL and s not in VALID_POLL_STATUSES]
+    if unknown:
+        sys.stderr.write(
+            f"mailbox poll: unknown --status value(s): {', '.join(unknown)}\n"
+            f"  valid: {', '.join(VALID_POLL_STATUSES)}, or '{POLL_STATUS_ALL}' for every status\n"
+        )
+        return None
+    if POLL_STATUS_ALL in requested:
+        return VALID_POLL_STATUSES
+    return requested
+
+
 def handle_mailbox_poll_command(
     args,
     *,
@@ -534,6 +566,20 @@ def handle_mailbox_poll_command(
     DIVERGES from the `cortex_inbox_poll` MCP default of `eco_review` by design:
     the CLI's purpose is reacting to ECO-decided wakes, not reviewing pending.
     """
+    # Argument validation FIRST — before creds, before ai_id, before any I/O.
+    # A malformed --status is a usage error, and whether it is malformed does
+    # not depend on whether this box is configured. Validating after the creds
+    # check meant a typo reported "Cortex creds missing" on an unconfigured box:
+    # the wrong diagnosis, pointing the reader at an unrelated thing to fix.
+    #
+    # It also made the tests for it environment-dependent — they passed here
+    # (creds present) and failed on CI (creds absent), which is how this
+    # ordering got noticed at all.
+    outbox = bool(getattr(args, "outbox", False))
+    statuses = _resolve_poll_statuses(getattr(args, "status", None), outbox=outbox)
+    if statuses is None:
+        return 1
+
     cortex_url, api_key = _resolve_cortex_creds()
     if not cortex_url or not api_key:
         sys.stderr.write(
@@ -548,33 +594,6 @@ def handle_mailbox_poll_command(
         sys.stderr.write("mailbox poll: ai_id unresolved — set --ai-id or add ai_id to .empirica/project.yaml.\n")
         return 1
 
-    outbox = bool(getattr(args, "outbox", False))
-    status_arg = getattr(args, "status", None)
-    if status_arg:
-        from empirica.cli.parsers.mailbox_parsers import POLL_STATUS_ALL, VALID_POLL_STATUSES
-
-        requested = tuple(s.strip() for s in status_arg.split(",") if s.strip())
-        # An unrecognised status used to be passed straight through to cortex,
-        # match nothing, and return an empty mailbox — indistinguishable from
-        # having no mail. `--status all` was the case that bit: a reasonable
-        # thing to type, silently answering "you have nothing" while 29
-        # proposals sat there. A filter that selects nothing because the filter
-        # is wrong must not look like a filter that selects nothing because
-        # there is nothing.
-        unknown = [s for s in requested if s != POLL_STATUS_ALL and s not in VALID_POLL_STATUSES]
-        if unknown:
-            sys.stderr.write(
-                f"mailbox poll: unknown --status value(s): {', '.join(unknown)}\n"
-                f"  valid: {', '.join(VALID_POLL_STATUSES)}, or '{POLL_STATUS_ALL}' for every status\n"
-            )
-            return 1
-        if POLL_STATUS_ALL in requested:
-            statuses = VALID_POLL_STATUSES
-        else:
-            statuses = requested
-    else:
-        # inbox → what you act on; outbox → status changes on your emissions.
-        statuses = ("completed", "changed", "declined") if outbox else ("accepted", "changed")
     since = getattr(args, "since", None)
     limit = getattr(args, "limit", None)
     related = bool(getattr(args, "related", False))
