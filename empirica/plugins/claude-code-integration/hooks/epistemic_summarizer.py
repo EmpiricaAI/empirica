@@ -34,6 +34,13 @@ IMPORTANCE_TO_IMPACT = {
 RECENCY_HALF_LIFE_HOURS = 24
 DECAY_CONSTANT = math.log(2) / RECENCY_HALF_LIFE_HOURS  # ~0.029
 
+# Weight for an item we cannot date. Deliberately mid-scale: an undateable item
+# should rank below anything fresh and above nothing at all. Equivalent to ~4.6
+# days old, so a missing timestamp DEGRADES the ordering rather than inverting
+# it — the previous behaviour (default to now) put undateable items at the very
+# top forever.
+NEUTRAL_RECENCY = 0.05
+
 
 def calculate_weight(item: dict, item_type: str) -> float:
     """
@@ -61,7 +68,7 @@ def calculate_weight(item: dict, item_type: str) -> float:
 
     # Calculate recency decay
     # Try multiple timestamp field names for compatibility
-    timestamp = item.get("created_timestamp") or item.get("timestamp") or item.get("created_at") or time.time()
+    timestamp = item.get("created_timestamp") or item.get("timestamp") or item.get("created_at")
 
     # Handle string timestamps
     if isinstance(timestamp, str):
@@ -70,10 +77,31 @@ def calculate_weight(item: dict, item_type: str) -> float:
 
             timestamp = datetime.fromisoformat(timestamp.replace("Z", "+00:00")).timestamp()
         except (ValueError, AttributeError):
-            timestamp = time.time()
+            timestamp = None
 
-    age_hours = (time.time() - timestamp) / 3600
-    recency = math.exp(-DECAY_CONSTANT * age_hours)
+    if timestamp is None:
+        # An item we cannot date must NOT be treated as new.
+        #
+        # This defaulted to time.time(), which gave every undateable item
+        # recency=1.0 — the maximum — permanently. Measured: an item with no
+        # timestamp scored 0.81, identical to one created this second, while a
+        # correctly-dated 8-month-old scored 0.0. So the entire recency term was
+        # inert for any item whose fetch omitted the column, and `goals` is
+        # exactly such a fetch: project-bootstrap returns goals with no
+        # timestamp field at all.
+        #
+        # The result was an EPISTEMIC FOCUS block that surfaced the same
+        # high-impact items every session regardless of age or of what the work
+        # was about, which is how 2025-12 findings stayed pinned at the top for
+        # eight months.
+        #
+        # Neutral rather than punitive: NEUTRAL_RECENCY ranks an undateable item
+        # below anything fresh and above nothing, so a missing column degrades
+        # the ordering instead of inverting it.
+        recency = NEUTRAL_RECENCY
+    else:
+        age_hours = (time.time() - timestamp) / 3600
+        recency = math.exp(-DECAY_CONSTANT * age_hours)
 
     return round(impact * type_conf * recency, 2)
 
