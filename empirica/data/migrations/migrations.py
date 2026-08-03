@@ -1526,6 +1526,11 @@ ALL_MIGRATIONS: list[tuple[str, str, Callable]] = [
         "Create transaction_claims — per-claim grounding, declared at CHECK and adjudicated at POSTFLIGHT (David-directed 2026-07-31, from cortex SER item 3). `know` is a scalar over heterogeneous beliefs: an HONEST know=0.82 can be eleven well-grounded claims plus one pure guess, and the average conceals the outlier that breaks. A claim carries HOW it was grounded (read | ran | retrieved | assumed) and later WHAT HAPPENED (held | refuted | untested). `retrieved` is deliberately distinct from `read`: our own prior artifacts are TESTIMONY, not observation — true when written, ageing like any prior — which is the hole that cost cortex four wrong design rules when a logged decision said 'one row per show, upserted' and the data was a time series. `untested` is the verdict that carries the value: refuted is rare, held is cheap, and 'I acted on this and never checked it' is precisely what the scalar cannot express. Advisory in v0 — nothing blocks a POSTFLIGHT; unadjudicated claims are FORCED to untested rather than left NULL so 'never adjudicated' and 'nothing declared' never collapse into the same count.",
         lambda cursor: migration_062_transaction_claims(cursor),
     ),
+    (
+        "063_finding_retrieval_signal",
+        "Add last_retrieved_at + retrieval_count to project_findings — stamp WHEN an artifact was actually surfaced, so relevance has a signal that is not age. Proposed by empirica-outreach from a sweep of 636 unresolved findings, and the evidence is that AGE IS THE WRONG AXIS: their single most valuable artifact was a MAY finding whose symptom string matched a live log line and produced a root cause, while a finding written four days earlier was wrong on arrival. Any TTL or age-decay model would have destroyed the valuable one and kept the noise. Retrieval frequency separates them — a high-impact finding never surfaced in three months is either mis-scored or dead, and one surfaced constantly is load-bearing regardless of when it was written. project_dead_ends got last_revisited_at in migration 060, but that column is written by GARDENING rather than by retrieval, so the free signal was discarded; findings are the largest population (636 vs 186 on outreach) and had the weakest machinery. Additive and nullable: NULL means 'never surfaced since this column existed', a legitimate queryable state and NOT 'never useful' — backfilling it would invent history.",
+        lambda cursor: migration_063_finding_retrieval_signal(cursor),
+    ),
 ]
 
 
@@ -2583,3 +2588,25 @@ def migration_062_transaction_claims(cursor: sqlite3.Cursor):
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_transaction_claims_session ON transaction_claims(session_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_transaction_claims_verdict ON transaction_claims(verdict)")
     logger.info("✅ Migration 062 complete: CHECK declares claims, POSTFLIGHT adjudicates them")
+
+
+def migration_063_finding_retrieval_signal(cursor: sqlite3.Cursor):
+    """Retrieval frequency as a relevance signal, distinct from age.
+
+    Age answers "when was this written". It cannot answer "is anyone still
+    using this", and those diverge in both directions: an artifact can be
+    months old and load-bearing, or hours old and already wrong.
+
+    `last_retrieved_at` is stamped when an artifact is actually SURFACED into
+    context — not when gardening touches it, which is the flaw in dead_ends'
+    `last_revisited_at`: on outreach it is populated on 173 of 186 rows, and
+    those are exactly the 173 a sweep had just walked. The column recorded the
+    gardener, not the readers.
+
+    Nullable and additive. NULL means "never surfaced since this column
+    existed" — a legitimate state, deliberately NOT backfilled, because
+    inventing retrieval history would poison the signal it exists to provide.
+    """
+    add_column_if_missing(cursor, "project_findings", "last_retrieved_at", "REAL", "NULL")
+    add_column_if_missing(cursor, "project_findings", "retrieval_count", "INTEGER", "0")
+    logger.info("✅ Migration 063 complete: findings carry a retrieval signal, not just an age")

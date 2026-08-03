@@ -164,7 +164,9 @@ def circle_1_active_state(
                 f"ORDER BY created_timestamp DESC LIMIT ?",
                 (project_id, cutoff_7d, *active_goal_ids, cap("recent_findings", 10)),
             )
-            for r in cur.fetchall():
+            _rows = cur.fetchall()
+            _stamp_retrieval(cur, [r[0] for r in _rows])
+            for r in _rows:
                 weight = circle_1_weight(r[3], "finding", r[8])
                 out["recent_findings"].append(
                     {
@@ -687,6 +689,42 @@ def _default_cap(key: str, limits: dict) -> int:
         "dead_ends_relevant": 3,
     }
     return int(limits.get(key, defaults.get(key, 5)))
+
+
+def _stamp_retrieval(cur, finding_ids: list[str]) -> None:
+    """Record that these findings were actually SURFACED into context.
+
+    Age says when an artifact was written; it cannot say whether anyone still
+    uses it, and those diverge in both directions. outreach's sweep of 636
+    findings made the case concretely: their most valuable artifact was from
+    May and matched a live log line, while one written four days earlier was
+    wrong on arrival. Any TTL would have destroyed the first and kept the
+    second.
+
+    Stamped on RETRIEVAL, deliberately — `project_dead_ends.last_revisited_at`
+    is written by gardening instead, so on outreach it is populated on 173 of
+    186 rows and those are exactly the 173 a sweep had just walked. It records
+    the gardener, not the readers, which is the opposite of a relevance signal.
+
+    Best-effort: a bootstrap must never fail because a bookkeeping write did.
+    """
+    if not finding_ids:
+        return
+    try:
+        now = time.time()
+        cur.executemany(
+            "UPDATE project_findings SET last_retrieved_at = ?, "
+            "retrieval_count = COALESCE(retrieval_count, 0) + 1 WHERE id = ?",
+            [(now, fid) for fid in finding_ids],
+        )
+        # COMMIT. This function is called from a read path that closes its
+        # connection without committing, so the UPDATE was discarded and the
+        # stamp silently recorded nothing — verified by counting stamped rows
+        # across a real bootstrap: 0 before, 0 after. A write inside a read
+        # path is exactly where this is easy to miss.
+        cur.connection.commit()
+    except Exception as e:  # column may predate the migration on an old DB
+        logger.debug(f"retrieval stamp skipped: {e}")
 
 
 def _pack_topic_match(art_id: str, atype: str, fields: dict, similarity: float) -> dict:
