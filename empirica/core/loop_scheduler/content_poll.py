@@ -86,9 +86,21 @@ EMISSION_STATUSES_INBOX = ("accepted", "changed", "declined")
 #  - 'declined'  → ECO rejected (real wake — update mental model)
 #  - 'completed' → target AI finished the work (real wake — David's AI-to-AI
 #                  ack primitive, carries commit_sha in audit_log details)
+#  - 'accepted_pending_dispatch' → a publish proposal parked awaiting dispatch.
+#                  ACTIONABLE by the EMITTER (source_claude), not the target:
+#                  the emitting practice must run the dispatch and close the
+#                  loop. Excluded until now, which — with the push relay also
+#                  not carrying `platform_dispatch_ready` — closed BOTH delivery
+#                  paths by two independent mechanisms. Neither exclusion alone
+#                  was fatal; together they were. Root-caused from source by
+#                  empirica-cortex, corroborated against 631 real fires where
+#                  APD appears zero times.
 # 'accepted' on outbox is informational only (ECO approved your emission,
-# target will act) — skipping prevents noise.
-EMISSION_STATUSES_OUTBOX = ("changed", "declined", "completed")
+# target will act) — skipping prevents noise. Deliberately still excluded: APD
+# is actionable, plain 'accepted' is an ack. The CLI's `mailbox poll --outbox`
+# default DOES include plain 'accepted' — reporting and waking are different
+# questions.
+EMISSION_STATUSES_OUTBOX = ("changed", "declined", "completed", "accepted_pending_dispatch")
 
 # Back-compat alias (T6 code referenced EMISSION_STATUSES for inbox).
 EMISSION_STATUSES = EMISSION_STATUSES_INBOX

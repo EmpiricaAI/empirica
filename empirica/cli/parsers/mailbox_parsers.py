@@ -15,6 +15,15 @@ from __future__ import annotations
 VALID_POLL_STATUSES = (
     "eco_review",
     "accepted",
+    # A publish proposal parked awaiting dispatch. MISSING from the first
+    # version of this tuple, which I built by hand from the old help text —
+    # so `--status accepted_pending_dispatch` was rejected as unknown. A
+    # hand-maintained allowlist over ANOTHER system's vocabulary diverges the
+    # moment they add a value; this one diverged before it was ever committed.
+    # Kept as an explicit list anyway (rejecting a typo is worth more than
+    # accepting every string), but the divergence risk is real and the honest
+    # fix would be cortex publishing its status vocabulary as data.
+    "accepted_pending_dispatch",
     "changed",
     "declined",
     "completed",

@@ -95,13 +95,21 @@ def test_all_expands_to_the_full_set():
     assert set(statuses) == set(VALID_POLL_STATUSES), "'all' must mean every status, not the literal string"
 
 
-def test_defaults_are_unchanged_when_no_status_given():
-    """The wake-react defaults are deliberate; validation must not disturb them."""
+def test_defaults_are_applied_when_no_status_given():
+    """Validation must not disturb the defaults — but the outbox default CHANGED.
+
+    This test used to assert ("completed", "changed", "declined"), which encoded
+    the bug: it pinned the very filter that hid every collab. A test asserting
+    current behaviour is not automatically asserting correct behaviour.
+    """
+    from empirica.cli.command_handlers.mailbox_commands import _default_poll_statuses
+
     _, inbox = _statuses_for(_args())
     _, outbox = _statuses_for(_args(outbox=True))
 
-    assert inbox == ("accepted", "changed")
-    assert outbox == ("completed", "changed", "declined")
+    assert inbox == _default_poll_statuses(outbox=False)
+    assert outbox == _default_poll_statuses(outbox=True)
+    assert "accepted" in outbox
 
 
 def test_help_text_and_validator_read_the_same_definition():
@@ -116,3 +124,62 @@ def test_help_text_and_validator_read_the_same_definition():
 
     src = inspect.getsource(mailbox_parsers.add_mailbox_parsers)
     assert "VALID_POLL_STATUSES" in src, "help text must be built from the constant, not hand-listed"
+
+
+# --- the defaults are a REPORT, not a wake filter -----------------------------
+
+
+def test_outbox_default_includes_accepted():
+    """`accepted` is a collab's TERMINAL state, not a transient one.
+
+    The old default ("completed", "changed", "declined") came from "status
+    changes on your emissions" — right for a wake filter, wrong for a report.
+    Measured by cortex against real rows: 182 emissions, 21 visible. The
+    "newest visible" timestamp matched a reported cutoff to the second, because
+    it was not a date bound at all — it was the last non-collab emission.
+    """
+    from empirica.cli.command_handlers.mailbox_commands import _default_poll_statuses
+
+    assert "accepted" in _default_poll_statuses(outbox=True), "every collab was invisible without this"
+    assert "accepted_pending_dispatch" in _default_poll_statuses(outbox=True)
+    assert "completed" in _default_poll_statuses(outbox=True), "acks must still show"
+
+
+def test_inbox_default_is_unchanged():
+    from empirica.cli.command_handlers.mailbox_commands import _default_poll_statuses
+
+    assert _default_poll_statuses(outbox=False) == ("accepted", "changed")
+
+
+def test_reporting_and_waking_stay_separate():
+    """The CLI report shows plain `accepted`; the WAKE filter deliberately does not.
+
+    Waking on every outbox accept is noise and content_poll documents that.
+    Collapsing the two would trade a reporting bug for a notification-storm bug.
+    """
+    from empirica.cli.command_handlers.mailbox_commands import _default_poll_statuses
+    from empirica.core.loop_scheduler.content_poll import EMISSION_STATUSES_OUTBOX
+
+    assert "accepted" in _default_poll_statuses(outbox=True)
+    assert "accepted" not in EMISSION_STATUSES_OUTBOX
+
+
+def test_apd_is_wakeable_because_it_is_actionable():
+    """The load-bearing half: without this a dropped doorbell is unrecoverable.
+
+    `platform_dispatch_ready` in the relay allowlist fixes LIVE delivery only.
+    Recovery needs the status in the catch-up filter — the bug closed both
+    paths by two independent mechanisms.
+    """
+    from empirica.core.loop_scheduler.content_poll import EMISSION_STATUSES_OUTBOX
+
+    assert "accepted_pending_dispatch" in EMISSION_STATUSES_OUTBOX
+
+
+def test_apd_is_an_accepted_status_value():
+    """I hardcoded VALID_POLL_STATUSES from the help text and missed this one.
+
+    `--status accepted_pending_dispatch` was rejected as unknown — my fix for a
+    silent-empty had become a false-reject on a real status.
+    """
+    assert "accepted_pending_dispatch" in VALID_POLL_STATUSES

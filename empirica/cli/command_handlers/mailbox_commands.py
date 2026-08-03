@@ -516,6 +516,31 @@ def _poll_human_line(p: dict) -> str:
     return f"  {pid}… [{status}] {title}  <from {src}>"
 
 
+def _default_poll_statuses(outbox: bool) -> tuple[str, ...]:
+    """Default filters. `accepted` is on BOTH sides, and that is the fix.
+
+    The outbox default was ("completed", "changed", "declined") — reasoned from
+    "status changes on your emissions", which is right for a WAKE filter and
+    wrong for a report. `accepted` is not a transient state on the outbox: it is
+    the TERMINAL state of every collab. Excluding it hid the only status most
+    emissions will ever hold.
+
+    Measured by empirica-cortex against real rows: 182 emissions from one
+    source, 21 visible under the old default. The "newest visible" timestamp
+    matched a reported cutoff to the second — it was not a date bound at all,
+    it was the last non-collab emission, after which everything was invisible
+    by kind.
+
+    NOTE: `content_poll.EMISSION_STATUSES_OUTBOX` still excludes plain
+    `accepted` deliberately — waking on every outbox accept is noise, and that
+    is documented there. Reporting and waking are different questions; this
+    default answers the reporting one.
+    """
+    if outbox:
+        return ("accepted", "accepted_pending_dispatch", "changed", "declined", "completed")
+    return ("accepted", "changed")
+
+
 def _resolve_poll_statuses(status_arg: str | None, *, outbox: bool) -> tuple[str, ...] | None:
     """Resolve --status into the tuple to query. None means "reject, already reported".
 
@@ -528,13 +553,10 @@ def _resolve_poll_statuses(status_arg: str | None, *, outbox: bool) -> tuple[str
     """
     from empirica.cli.parsers.mailbox_parsers import POLL_STATUS_ALL, VALID_POLL_STATUSES
 
-    if not status_arg:
-        # inbox → what you act on; outbox → status changes on your emissions.
-        return ("completed", "changed", "declined") if outbox else ("accepted", "changed")
+    if not status_arg or not tuple(s.strip() for s in status_arg.split(",") if s.strip()):
+        return _default_poll_statuses(outbox)
 
     requested = tuple(s.strip() for s in status_arg.split(",") if s.strip())
-    if not requested:
-        return ("completed", "changed", "declined") if outbox else ("accepted", "changed")
 
     unknown = [s for s in requested if s != POLL_STATUS_ALL and s not in VALID_POLL_STATUSES]
     if unknown:

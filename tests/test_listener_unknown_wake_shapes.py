@@ -52,12 +52,12 @@ def test_a_known_shape_is_still_relayed():
 
 def test_an_unknown_shape_is_reported_on_stderr():
     """THE FIX: previously this returned False and wrote nothing anywhere."""
-    relayed, out, err = _relay({"event": "platform_dispatch_ready", "dispatch_id": "d1"})
+    relayed, out, err = _relay({"event": "totally_unknown_shape", "x": 1})
 
-    assert relayed is False, "still not relayed — we do not know its reaction protocol"
+    assert relayed is False, "not relayed — we do not know its reaction protocol"
     assert out == "", "and nothing is emitted into the session"
     assert "UNHANDLED" in err
-    assert "platform_dispatch_ready" in err, "name the shape, or the log cannot be acted on"
+    assert "totally_unknown_shape" in err, "name the shape, or the log cannot be acted on"
     assert "ser_escalation" in err, "list what IS known, so the gap is legible"
 
 
@@ -103,6 +103,27 @@ def test_recipient_gate_still_rejects_a_body_that_names_other_targets():
 def test_the_allowlist_is_still_an_allowlist():
     """If this ever becomes 'relay anything', the reaction protocol is undefined."""
     assert "ser_escalation" in _NON_PROPOSAL_WAKE_SHAPES
-    assert "platform_dispatch_ready" not in _NON_PROPOSAL_WAKE_SHAPES, (
-        "adding a shape here is a deliberate act — it asserts we know how to react to it"
-    )
+    assert "some_shape_nobody_declared" not in _NON_PROPOSAL_WAKE_SHAPES
+
+
+def test_platform_dispatch_ready_is_relayed_now_that_we_know_its_protocol():
+    """Added only after cortex supplied the reaction protocol.
+
+    An allowlist entry asserts we know what happens on receipt — per-platform,
+    and idempotent on dispatch_id, because a double-delivered doorbell plus an
+    unconditional dispatch is a duplicate live social post.
+    """
+    relayed, out, _err = _relay({"event": "platform_dispatch_ready", "dispatch_id": "d1"})
+
+    assert relayed is True
+    emitted = json.loads(out.strip())
+    assert emitted["event_type"] == "platform_dispatch_ready"
+    assert emitted["dispatch_id"] == "d1"
+
+
+def test_an_unknown_shape_still_warns():
+    """The audible-drop fix must survive adding a shape to the allowlist."""
+    _relayed, _out, err = _relay({"event": "some_future_cortex_shape", "x": 1})
+
+    assert "UNHANDLED" in err
+    assert "some_future_cortex_shape" in err

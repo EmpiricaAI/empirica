@@ -239,7 +239,21 @@ def _is_real_event(ntfy_message: dict[str, Any]) -> bool:
 # reconstruct them — the doorbell body is the only possible LIVE delivery.
 # Extensible allowlist: each shape added here also needs a durable store the
 # catch-up can reconcile from on a dropped doorbell (ser_escalation → /v1/sers).
-_NON_PROPOSAL_WAKE_SHAPES = frozenset({"ser_escalation"})
+# `platform_dispatch_ready` is the ONE entry here that DOES have a proposal
+# row, so unlike ser_escalation it is not unrecoverable without this relay —
+# with `accepted_pending_dispatch` now in EMISSION_STATUSES_OUTBOX the catch-up
+# reconstructs it. This entry is the LATENCY path, and the status filter is the
+# RECOVERY path; the bug needed both because it had neither.
+#
+# Reaction protocol (owned by the emitting practice, per cortex): dispatch the
+# accepted platform, then close the loop. Two properties the consumer must hold,
+# stated here because an allowlist entry asserts we know what happens on
+# receipt: it is PER-PLATFORM (a three-platform article fires three times, each
+# dispatching only its own), and it MUST be idempotent on
+# `platform_decisions[X].dispatch_id` — a double-delivered doorbell plus an
+# unconditional dispatch is a duplicate live social post, which is unrecoverable
+# in a way a missed one is not. Delivered-twice-and-suppressed beats exactly-once.
+_NON_PROPOSAL_WAKE_SHAPES = frozenset({"ser_escalation", "platform_dispatch_ready"})
 
 
 def _relay_non_proposal_wake(msg: dict, instance_id: str, loop_name: str, canonical, output_stream, err_stream) -> bool:

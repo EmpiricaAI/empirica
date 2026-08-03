@@ -85,7 +85,15 @@ def test_poll_outbox_flips_direction_and_default_statuses(capsys):
     assert rc == 0
     out = json.loads(capsys.readouterr().out)
     assert out["direction"] == "outbox"
-    assert out["statuses"] == ["completed", "changed", "declined"]
+    # Was ["completed", "changed", "declined"] — that expectation ENCODED the
+    # bug. `accepted` is a collab's terminal state, so excluding it made every
+    # collab invisible: 182 emissions, 21 visible when cortex measured it.
+    # Asserted against the shared default rather than a literal, so the two
+    # cannot drift apart again.
+    from empirica.cli.command_handlers.mailbox_commands import _default_poll_statuses
+
+    assert out["statuses"] == list(_default_poll_statuses(outbox=True))
+    assert "accepted" in out["statuses"]
     assert rec["outbox"] is True
 
 
