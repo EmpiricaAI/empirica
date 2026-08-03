@@ -141,15 +141,20 @@ def fetch_ranked_artifacts(session_id: str, db_path: str | None = None, limit: i
         cursor = conn.cursor()
 
         # Build project filter
+        #
+        # `pf` (findings) omitted `is_resolved = 0` while `uf` (unknowns) and
+        # `gf` (goals) both filtered their closed state. So a finding marked
+        # superseded still entered the hot cache — the one surface whose whole
+        # job is "what is currently true".
         if project_id:
-            pf = "WHERE project_id = ?"
+            pf = "WHERE is_resolved = 0 AND project_id = ?"
             pf_args = (project_id,)
             uf = "WHERE is_resolved = 0 AND project_id = ?"
             uf_args = (project_id,)
             gf = "WHERE is_completed = 0 AND project_id = ?"
             gf_args = (project_id,)
         else:
-            pf, pf_args = "", ()
+            pf, pf_args = "WHERE is_resolved = 0", ()
             uf, uf_args = "WHERE is_resolved = 0", ()
             gf, gf_args = "WHERE is_completed = 0", ()
 

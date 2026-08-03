@@ -450,11 +450,56 @@ def _wire_edges(db, edges: list[dict], ref_map: dict[str, str]) -> tuple[int, li
         try:
             _store_edge(db, from_id, to_id, relation, edge.get("metadata"))
             wired += 1
+            if relation == "invalidates":
+                note = _supersede_target(db, from_id, to_id)
+                if note:
+                    warnings.append(note)
         except Exception as e:
             logger.debug(f"Failed to wire edge {edge}: {e}")
             warnings.append(f"edge {i}: store failed — {e}")
 
     return wired, warnings
+
+
+def _supersede_target(db, from_id: str, to_id: str) -> str | None:
+    """An `invalidates` edge DEPRECATES its target. Returns a note, or None.
+
+    Drawing the edge used to be inert: the overturned artifact kept
+    `is_resolved = 0`, kept its full retrieval weight, and went on competing
+    with the artifact that replaced it. Recording that something is superseded
+    and having it still surface as current are contradictory, and only the
+    author of the edge knew which was true.
+
+    In fast iterative work this is the common case — artifacts evolve, the old
+    one is not merely older but WRONG — and recency decay cannot express that:
+    it only knows age. `resolve_finding` already carries the right vocabulary
+    (`superseded_by` + `resolution_kind='superseded'`); nothing called it from
+    the graph.
+
+    Best-effort by design: failing to deprecate must never fail the log that
+    carried the edge, so problems surface as warnings rather than exceptions.
+    Only findings are handled — they are the only type with the
+    `superseded_by` column today; other types keep the edge without the
+    state change, which is reported rather than hidden.
+    """
+    try:
+        cur = db.conn.cursor()
+        row = cur.execute("SELECT 1 FROM project_findings WHERE id = ?", (to_id,)).fetchone()
+        if not row:
+            return (
+                f"invalidates {to_id[:8]}: edge stored, but only findings carry `superseded_by` "
+                "today — the target keeps its current retrieval weight"
+            )
+        db.resolve_finding(
+            to_id,
+            resolution=f"Superseded by {from_id}",
+            superseded_by=from_id,
+            resolution_kind="superseded",
+        )
+        return None
+    except Exception as e:  # never fail the log for a side effect
+        logger.debug(f"supersede side-effect skipped ({from_id}->{to_id}): {e}")
+        return f"invalidates {to_id[:8]}: edge stored but target not deprecated ({type(e).__name__})"
 
 
 def _store_edge(db, from_id: str, to_id: str, relation: str, metadata: dict | None = None):

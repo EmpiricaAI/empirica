@@ -113,6 +113,11 @@ def _build_test_project(tmp_path: Path, name: str = "test-proj") -> tuple[Path, 
             goal_id TEXT, subtask_id TEXT, transaction_id TEXT,
             finding TEXT NOT NULL, finding_data TEXT,
             subject TEXT, impact REAL DEFAULT 0.5, epistemic_source TEXT,
+            -- Mirrors project_unknowns below. This fixture gave unknowns an
+            -- is_resolved column and findings none, which encoded the exact
+            -- production asymmetry it was testing around: findings retrieval
+            -- ignored resolution while unknowns honoured it.
+            is_resolved INTEGER DEFAULT 0, resolved_timestamp REAL, superseded_by TEXT,
             created_timestamp REAL NOT NULL
         );
         CREATE TABLE project_unknowns (

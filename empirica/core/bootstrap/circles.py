@@ -154,7 +154,12 @@ def circle_1_active_state(
                 f"SELECT id, finding, finding_data, impact, epistemic_source, "
                 f"session_id, goal_id, transaction_id, created_timestamp "
                 f"FROM project_findings "
-                f"WHERE project_id = ? AND created_timestamp >= ? "
+                # is_resolved = 0: `resolve_finding` documents itself as "kept for
+                # history, dropped from live retrieval" and this query never
+                # honoured it, so a finding explicitly marked superseded kept
+                # surfacing at full weight beside the artifact that replaced it.
+                # Unknowns were already filtered here; findings were not.
+                f"WHERE project_id = ? AND created_timestamp >= ? AND is_resolved = 0 "
                 f"AND goal_id IN ({placeholders}) "
                 f"ORDER BY created_timestamp DESC LIMIT ?",
                 (project_id, cutoff_7d, *active_goal_ids, cap("recent_findings", 10)),

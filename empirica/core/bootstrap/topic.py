@@ -126,7 +126,8 @@ def _from_recent_findings(db_path: Path, project_id: str) -> str | None:
         cutoff = time.time() - RECENT_FINDINGS_HOURS * 3600
         cur.execute(
             "SELECT finding FROM project_findings "
-            "WHERE project_id = ? AND created_timestamp >= ? "
+            # Superseded findings must not win topic matches — see circles.py.
+            "WHERE project_id = ? AND created_timestamp >= ? AND is_resolved = 0 "
             "ORDER BY impact DESC, created_timestamp DESC LIMIT 3",
             (project_id, cutoff),
         )
