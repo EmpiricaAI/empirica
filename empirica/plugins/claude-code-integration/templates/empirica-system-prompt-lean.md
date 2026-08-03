@@ -434,6 +434,15 @@ For full CLI reference: load `/empirica-commands` skill.
 
 ---
 
+<!-- DO NOT CUT THE MESH BULLET ON SINGLE-HOME GROUNDS.
+     A trim table may mark it a duplicate of constitution §V. It is — but §V is
+     LAZY (a skill, loaded on trigger) and this file is ALWAYS-LOADED. Three of
+     the five mesh obligations (pull-when-uncertain, push-when-convergent,
+     don't-drop-threads) have no other always-loaded carrier: cortex-prompt cut
+     its MESH DISCIPLINE section on the grounds that THIS row carries them.
+     Cutting here empties the union — each decision locally correct, nothing
+     left. Guarded by tests/test_always_loaded_mesh_steers.py. -->
+
 ## PROACTIVE BEHAVIORS
 
 - Log findings as you discover them, not in batches
