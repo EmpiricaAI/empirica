@@ -235,6 +235,11 @@ Empirica doesn't replace or reinvent anything Claude Code already does. Claude C
 
 The result: Claude Code's native capabilities, enhanced with measurement, gating, and calibration feedback that compounds over time.
 
+**18 skills ship with the plugin** — the transaction discipline, graph gardening,
+the quality sweep, mesh messaging, and more. They are *lazy*: a skill does
+nothing until it loads, so knowing when each fires matters more than knowing
+what it holds. → **[Skills reference](docs/reference/SKILLS.md)**
+
 ---
 
 ## Cross-AI Mesh (Optional Ecosystem Layer)
@@ -310,12 +315,27 @@ All read-only, all support `--output json`. Backs cross-project orchestration, C
 
 ## Platform Support
 
-| Platform | Integration Level | What You Get |
-|----------|------------------|-------------|
-| **Claude Code** | Full (production) | Hooks, Sentinel gate, skills, agents, statusline, MCP |
-| **Cursor, Cline** | MCP server | Epistemic transaction workflow, memory, calibration via MCP tools |
-| **Gemini CLI, Copilot** | Experimental | System prompt + CLI |
-| **Any AI** | CLI + prompt | Full measurement via CLI commands and system prompt |
+**Two harnesses are supported.** Everything else is untested — prompt and rules
+files may exist for other tools, but their presence is not support, and we would
+rather say so than let you find out mid-project.
+
+| Harness | Status | What you get |
+|---|---|---|
+| **Claude Code** | **Supported** | Full integration — plugin, hooks, Sentinel gate, skills, agents, statusline, MCP |
+| **Codex** (via [ecodex](https://github.com/EmpiricaAI/ecodex)) | **Supported** | Self-provisioning: ecodex vendors the plugin into its own binary and loads hooks natively. `empirica setup` refuses codex **by name** and points you at ecodex's pipeline — that refusal is correct, not a gap |
+| Antigravity (Google), Vibe (Mistral AI) | **Not yet** | Possible future support. Not now |
+| Everything else | **Untested** | The CLI works anywhere Python does, but no harness integration is verified |
+
+### MCP is a fallback, not a second path
+
+`empirica-mcp` exists for harnesses that **cannot** run the CLI integration —
+Claude Desktop, Gipitee-style clients. Use it when you have no alternative.
+
+The reason matters: an MCP surface cannot enforce the Sentinel gate the way a
+blocking pre-tool hook does. So an MCP-only deployment gives you the measurement
+layer with a **weaker guarantee** — the noetic/praxic firewall becomes advisory.
+That is a real difference in what the system promises, and it should be a
+deliberate choice rather than something you infer from a feature table.
 
 ---
 
