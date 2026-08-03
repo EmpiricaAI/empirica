@@ -78,6 +78,29 @@ def _add_entity_flags(parser):
     parser.add_argument("--via", help="Discovery channel (cli, email, linkedin, calendar, agent, web)")
 
 
+def _add_cite_flags(parser) -> None:
+    """`--cite` / `--cite-url` / `--cite-type` — inline source creation.
+
+    Kills the source-add -> --source two-step. `_resolve_source_ids` in the
+    artifact-log handlers already reads `cite_title` / `cite_url` / `cite_type`
+    for EVERY artifact type; only finding-log exposed the flags, so on the other
+    five the handler support existed and was unreachable from the CLI.
+    """
+    parser.add_argument(
+        "--cite",
+        dest="cite_title",
+        help="Inline source: create + link a source in one call (kills the source-add→--source two-step). "
+        "Value is the source title; pair with --cite-url / --cite-type.",
+    )
+    parser.add_argument("--cite-url", dest="cite_url", help="URL/path for the --cite inline source.")
+    parser.add_argument(
+        "--cite-type",
+        dest="cite_type",
+        default="reference",
+        help="Source type for --cite (reference, doc, paper, url, design, …). Default: reference.",
+    )
+
+
 def add_checkpoint_parsers(subparsers):
     """Add git checkpoint management command parsers (Phase 2)"""
     # Checkpoint create command
@@ -260,6 +283,7 @@ def add_checkpoint_parsers(subparsers):
         dest="source_ids",
         help="Source ID (from source-add). Repeatable for multiple sources.",
     )
+    _add_cite_flags(mistake_log_parser)
     mistake_log_parser.add_argument(
         "--visibility",
         choices=["public", "shared", "local"],
@@ -1073,19 +1097,7 @@ def add_checkpoint_parsers(subparsers):
         dest="source_ids",
         help="Source ID (from source-add). Repeatable for multiple sources.",
     )
-    finding_log_parser.add_argument(
-        "--cite",
-        dest="cite_title",
-        help="Inline source: create + link a source in one call (kills the source-add→--source two-step). "
-        "Value is the source title; pair with --cite-url / --cite-type.",
-    )
-    finding_log_parser.add_argument("--cite-url", dest="cite_url", help="URL/path for the --cite inline source.")
-    finding_log_parser.add_argument(
-        "--cite-type",
-        dest="cite_type",
-        default="reference",
-        help="Source type for --cite (reference, doc, paper, url, design, …). Default: reference.",
-    )
+    _add_cite_flags(finding_log_parser)
     _add_entity_flags(finding_log_parser)
     _add_edge_flags(finding_log_parser)
     finding_log_parser.add_argument(
@@ -1172,6 +1184,7 @@ def add_checkpoint_parsers(subparsers):
         dest="source_ids",
         help="Source ID (from source-add). Repeatable for multiple sources.",
     )
+    _add_cite_flags(unknown_log_parser)
     _add_entity_flags(unknown_log_parser)
     _add_edge_flags(unknown_log_parser)
     unknown_log_parser.add_argument(
@@ -1319,6 +1332,7 @@ def add_checkpoint_parsers(subparsers):
         dest="source_ids",
         help="Source ID (from source-add). Repeatable for multiple sources.",
     )
+    _add_cite_flags(deadend_log_parser)
     _add_entity_flags(deadend_log_parser)
     _add_edge_flags(deadend_log_parser)
     deadend_log_parser.add_argument(
@@ -1372,6 +1386,7 @@ def add_checkpoint_parsers(subparsers):
         dest="source_ids",
         help="Source ID (from source-add). Repeatable for multiple sources.",
     )
+    _add_cite_flags(assumption_log_parser)
     assumption_log_parser.add_argument(
         "--visibility",
         choices=["public", "shared", "local"],
@@ -1441,6 +1456,7 @@ def add_checkpoint_parsers(subparsers):
         dest="source_ids",
         help="Source ID (from source-add) for external citations. Repeatable.",
     )
+    _add_cite_flags(decision_log_parser)
     _add_entity_flags(decision_log_parser)
     _add_edge_flags(decision_log_parser, include_evidence_from=True)
     decision_log_parser.add_argument(
