@@ -28,16 +28,22 @@ class _FakeDB:
 def _goals_db():
     conn = sqlite3.connect(":memory:")
     conn.execute(
-        "CREATE TABLE goals (id TEXT PRIMARY KEY, objective TEXT, status TEXT, is_completed INT, "
-        "created_timestamp REAL, session_id TEXT, project_id TEXT, transaction_id TEXT, archived INT DEFAULT 0)"
+        # `description` is NOT optional padding — the real schema has it and the
+        # list query SELECTs it. A hand-rolled fixture schema drifts from the
+        # real one, and then the test fails for a schema reason wearing a
+        # behaviour reason's clothes ("no such column" surfaced as a returned
+        # non-dict). Keep this in step with the goals table.
+        "CREATE TABLE goals (id TEXT PRIMARY KEY, objective TEXT, description TEXT, status TEXT, "
+        "is_completed INT, created_timestamp REAL, session_id TEXT, project_id TEXT, "
+        "transaction_id TEXT, archived INT DEFAULT 0)"
     )
     conn.execute("CREATE TABLE sessions (session_id TEXT PRIMARY KEY, project_id TEXT, ai_id TEXT)")
     conn.execute("CREATE TABLE subtasks (goal_id TEXT, status TEXT)")
     now = time.time()
     conn.execute("INSERT INTO sessions VALUES ('s1','projA','ai')")
-    conn.execute("INSERT INTO goals VALUES ('g-a','goal A','in_progress',0,?,'s1','projA',NULL,0)", (now,))
-    conn.execute("INSERT INTO goals VALUES ('g-b','goal B','in_progress',0,?,'s1','projB',NULL,0)", (now,))
-    conn.execute("INSERT INTO goals VALUES ('g-c','goal C','in_progress',0,?,'s1',NULL,NULL,0)", (now,))
+    conn.execute("INSERT INTO goals VALUES ('g-a','goal A','body a','in_progress',0,?,'s1','projA',NULL,0)", (now,))
+    conn.execute("INSERT INTO goals VALUES ('g-b','goal B','body b','in_progress',0,?,'s1','projB',NULL,0)", (now,))
+    conn.execute("INSERT INTO goals VALUES ('g-c','goal C','body c','in_progress',0,?,'s1',NULL,NULL,0)", (now,))
     conn.commit()
     return conn
 

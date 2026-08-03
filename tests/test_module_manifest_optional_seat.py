@@ -94,3 +94,53 @@ def test_typos_are_still_refused_loudly(block, bad_key):
 
     assert "Extra inputs are not permitted" in str(exc.value)
     assert bad_key in str(exc.value)
+
+
+# --- provides must be able to answer what requires asks ----------------------
+
+
+def test_a_practice_can_declare_hosting_an_mcp_server():
+    """The supply side of `requires_runtime.mcp`, which shipped without one.
+
+    Cortex's capability surface is a hosted MCP server plus a REST API — none
+    of skills/agents/hooks/automations. `provides: {}` was accurate and useless.
+    """
+    m = ModuleManifest(**_MINIMAL, provides={"mcp": ["cortex"], "services": ["cortex-rest"]})
+
+    assert m.provides.mcp == ["cortex"]
+    assert m.provides.services == ["cortex-rest"]
+
+
+def test_every_required_axis_has_a_matching_provided_axis():
+    """A dependency declarable in one direction only is half a graph.
+
+    Every seat requires the cortex MCP server; before this, nothing could
+    declare providing it, so a requires→provides drift check would report an
+    unsatisfiable dependency forever. Asserted structurally so adding a new
+    `requires_runtime` axis without its supply side fails here.
+    """
+    from empirica.core.modules.manifest import Provides, RequiresRuntime
+
+    required = set(RequiresRuntime.model_fields)
+    provided = set(Provides.model_fields)
+
+    assert "mcp" in required and "mcp" in provided, "mcp must be declarable on both sides"
+
+
+def test_a_requires_provides_pair_resolves():
+    """The end-to-end property mesh-support's drift check needs."""
+    consumer = ModuleManifest(**_MINIMAL, requires_runtime={"mcp": ["cortex"]})
+    provider = ModuleManifest(
+        name="cortex", seat_name="empirica.david.empirica-cortex", version="1.0", provides={"mcp": ["cortex"]}
+    )
+
+    unsatisfied = set(consumer.requires_runtime.mcp) - set(provider.provides.mcp)
+
+    assert unsatisfied == set(), "the consumer's requirement must be satisfiable by the provider's declaration"
+
+
+def test_provides_defaults_stay_empty_lists():
+    m = ModuleManifest(**_MINIMAL)
+
+    assert m.provides.mcp == []
+    assert m.provides.services == []

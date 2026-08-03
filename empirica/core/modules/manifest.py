@@ -97,7 +97,24 @@ class Automation(BaseModel):
 
 
 class Provides(BaseModel):
-    """Plugin-layer payload → ``empirica module provision``."""
+    """What a module contributes — plugin payload AND hosted surfaces.
+
+    The first four are plugin-layer, installed by ``empirica module provision``.
+    ``mcp`` and ``services`` are NOT installed by anything here: they name
+    capabilities a practice HOSTS, so peers can resolve what they depend on.
+
+    Why they exist: ``requires_runtime.mcp`` was added without a matching
+    provides axis, which made the dependency declarable in one direction only.
+    Every seat on the fleet requires the cortex MCP server and nothing could
+    declare providing it, so a requires→provides drift check could never
+    resolve — the union of `requires` across a seat would always contain an
+    entry with no possible supplier.
+
+    Raised by empirica-cortex, whose capability surface is exactly a hosted MCP
+    server plus a REST API. They left `provides: {}` and flagged it rather than
+    shoehorning a hosted service into `skills:`, which was the right call: an
+    accurate-and-useless empty is recoverable, a plausible-looking lie is not.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -105,6 +122,15 @@ class Provides(BaseModel):
     agents: list[str] = Field(default_factory=list)
     hooks: list[str] = Field(default_factory=list)
     automations: list[Automation] = Field(default_factory=list)
+    mcp: list[str] = Field(
+        default_factory=list,
+        description="MCP server names this practice HOSTS (the supply side of requires_runtime.mcp)",
+    )
+    services: list[str] = Field(
+        default_factory=list,
+        description="Hosted non-MCP surfaces — a REST API, a webhook sink, a queue. Named, not addressed: "
+        "endpoints belong in config, this is for dependency resolution",
+    )
     domains: list[str] = Field(
         default_factory=list,
         description="Engagement domain ids this module's practice joins (→ practice_domains at provision)",

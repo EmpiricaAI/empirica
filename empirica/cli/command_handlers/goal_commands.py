@@ -1304,7 +1304,7 @@ def handle_goals_list_command(args):
                    g.created_timestamp, g.session_id, s.ai_id,
                    (SELECT COUNT(*) FROM subtasks WHERE goal_id = g.id) as total_subtasks,
                    (SELECT COUNT(*) FROM subtasks WHERE goal_id = g.id AND status = 'completed') as completed_subtasks,
-                   g.project_id
+                   g.project_id, g.description
             FROM goals g
             LEFT JOIN sessions s ON g.session_id = s.session_id
             WHERE 1=1
@@ -1358,7 +1358,8 @@ def handle_goals_list_command(args):
         drift_count = _count_goal_drift(cursor, project_id, status_filter, show_completed)
 
         # Build results
-        # Row: 0=id, 1=objective, 2=status, 3=is_completed, 4=created, 5=session_id, 6=ai_id, 7=total, 8=completed
+        # Row: 0=id, 1=objective, 2=status, 3=is_completed, 4=created, 5=session_id,
+        #      6=ai_id, 7=total, 8=completed, 9=project_id, 10=description
         goals = []
         for row in rows:
             total = row[7] or 0
@@ -1369,6 +1370,14 @@ def handle_goals_list_command(args):
                 {
                     "goal_id": row[0],
                     "objective": row[1],
+                    # The SELECT did not fetch this, so every JSON consumer saw
+                    # title-only goals and could not tell a goal with a rich
+                    # spec from one with none. It cost me twice in one session:
+                    # I re-derived a goal's scope from conversation while its
+                    # 2,440-character description sat in the row, and I deleted
+                    # a goal believing the body had been eaten by a shell quote.
+                    # An omitted field reads as an absent value.
+                    "description": row[10],
                     "status": row[2],
                     "is_completed": bool(row[3]),
                     "created_at": row[4],
