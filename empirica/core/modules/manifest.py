@@ -123,6 +123,11 @@ class RequiresRuntime(BaseModel):
 
     env: list[str] = Field(default_factory=list)
     topics: list[str] = Field(default_factory=list)
+    # MCP servers the module needs at runtime. Sits beside env/topics because it
+    # IS a runtime dependency — a module whose skills call an MCP tool is as
+    # broken without that server as without its env vars. Presence-declared
+    # only; wiring the server is the harness's job, not the provisioner's.
+    mcp: list[str] = Field(default_factory=list)
     secrets_ref: str | None = None
 
     @field_validator("secrets_ref")
@@ -143,6 +148,12 @@ class Requires(BaseModel):
 
     empirica_core: str | None = None
     cortex_api: str | None = None
+    # Skills and prompt layers this module depends on being present. Declared
+    # rather than fetched: the point is a precise pre-install error naming what
+    # is missing, instead of a module that installs cleanly and then misbehaves
+    # because a skill it assumed was never there.
+    skills: list[str] = Field(default_factory=list)
+    prompts: list[str] = Field(default_factory=list)
 
 
 class ModuleManifest(BaseModel):
@@ -155,7 +166,20 @@ class ModuleManifest(BaseModel):
     version: str
     visibility: Literal["public", "private", "enterprise"] = "private"
     requires: Requires = Field(default_factory=Requires)
-    seat: Seat
+    # OPTIONAL — "practice with a manifest" and "practice with a seat" are
+    # different sets, and cortex is the proof: its role body ships through
+    # ecosystem-update's prompts component rather than the seat mechanism, so a
+    # `seat.import` in its repo would either point at a file it does not hold or
+    # duplicate content homed elsewhere. Requiring the block forced a choice
+    # between fabricating a seat doc to satisfy a validator and not having a
+    # manifest at all.
+    #
+    # Note this is the BLOCK, not the identity: `seat_name` stays required,
+    # because every practice has a canonical id (executors.py keys
+    # join_practice_domain off it) even when it has no seat LAYER to install.
+    # Nothing in core dereferences seat.import_/seat.mode — the block is
+    # declarative, read by autonomy's install_seat.py from the file itself.
+    seat: Seat | None = None
     artifacts: Artifacts = Field(default_factory=Artifacts)
     provides: Provides = Field(default_factory=Provides)
     requires_runtime: RequiresRuntime = Field(default_factory=RequiresRuntime)
