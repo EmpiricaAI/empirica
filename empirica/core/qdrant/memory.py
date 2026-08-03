@@ -296,7 +296,15 @@ def search(
     # Collection config: (name, collection_fn, payload_fields)
     _SEARCH_COLLECTIONS = {
         "docs": (_docs_collection, ["doc_path", "tags", "concepts"]),
-        "memory": (_memory_collection, ["type", "text", "session_id", "goal_id", "timestamp", "impact"]),
+        # `artifact_id` is the DB row id and it was NOT projected, so callers got
+        # semantically-ranked results they could not join back to anything. It
+        # sits in the payload; only the projection dropped it. Same field-omission
+        # shape as goals-list not SELECTing description — the data was always
+        # there, the reader just never asked for it.
+        "memory": (
+            _memory_collection,
+            ["type", "text", "session_id", "goal_id", "timestamp", "impact", "artifact_id"],
+        ),
         "eidetic": (_eidetic_collection, ["type", "content", "confidence", "domain", "created_at", "first_seen"]),
         "episodic": (_episodic_collection, ["type", "narrative", "session_id", "outcome", "created_at", "timestamp"]),
         "assumptions": (

@@ -1034,6 +1034,11 @@ def _generate_new_session_prompt(
             subtasks=dynamic_context.get("pending_subtasks", []),
             max_items=5,
             session_id=new_session_id,
+            # Relevance is first-class: without these two the block is a global
+            # top-N and cannot be about the work in progress. last_task is the
+            # best available statement of what this session is doing.
+            task_context=dynamic_context.get("last_task") or None,
+            project_id=dynamic_context.get("session_context", {}).get("project_id"),
         )
     else:
         # Fallback to legacy formatting if summarizer not available

@@ -41,12 +41,39 @@ DECAY_CONSTANT = math.log(2) / RECENCY_HALF_LIFE_HOURS  # ~0.029
 # top forever.
 NEUTRAL_RECENCY = 0.05
 
+# --- Relevance -------------------------------------------------------------
+#
+# Relevance is FIRST CLASS: it drives what is RETRIEVED, not merely how a
+# fixed set is ordered. Re-ranking a pool that was already cut to "top N by
+# impact" cannot surface the artifact ranked N+1, however relevant it is — so
+# a task-driven query runs and its results are merged into the pool.
+#
+# Blend is ADDITIVE, not multiplicative. A multiplicative relevance term would
+# zero out anything the query does not match, which destroys the case that
+# matters most: a dead-end from months ago about exactly this task SHOULD
+# surface. The objection was never to age — it was to ancient IRRELEVANT
+# artifacts crowding out today's work.
+RELEVANCE_SHARE = 0.65
+RECENCY_SHARE = 0.35
 
-def calculate_weight(item: dict, item_type: str) -> float:
+# Used when no relevance signal exists (no task_context, or Qdrant unreachable).
+# Mid-scale so the blend degrades to recency-dominated ordering rather than
+# collapsing — but the caller MUST announce the degradation; see
+# `relevance_unavailable_note`.
+NEUTRAL_RELEVANCE = 0.5
+
+
+def calculate_weight(item: dict, item_type: str, relevance: float | None = None) -> float:
     """
     Calculate epistemic weight for ranking.
 
-    Formula: weight = impact * type_confidence * recency_decay
+    Formula: weight = impact * type_confidence * (RELEVANCE_SHARE * relevance
+                                                  + RECENCY_SHARE * recency)
+
+    `relevance` is the semantic match against the current task_context, in
+    [0, 1]. Passing None means "no signal available" and uses
+    NEUTRAL_RELEVANCE — which the caller must ANNOUNCE rather than let the
+    reader assume the block is task-matched when it is not.
 
     Args:
         item: Dictionary with 'impact' and timestamp fields
@@ -103,25 +130,91 @@ def calculate_weight(item: dict, item_type: str) -> float:
         age_hours = (time.time() - timestamp) / 3600
         recency = math.exp(-DECAY_CONSTANT * age_hours)
 
-    return round(impact * type_conf * recency, 2)
+    if relevance is None:
+        # NO SIGNAL for the whole block — pure recency, exactly as before.
+        #
+        # Blending a neutral constant here would hand every ancient artifact a
+        # floor of RELEVANCE_SHARE * 0.5, reintroducing the problem this change
+        # exists to remove. Degrading means "behave as you did before relevance
+        # existed", not "invent a middling score".
+        blended = recency
+    else:
+        # SIGNAL AVAILABLE — every item is scored on the same scale, including
+        # items the query did not match (relevance 0.0). Mixing the two modes
+        # within one block would let a MATCHED item score lower than an
+        # unmatched one, which is incoherent: matching must never hurt.
+        rel = max(0.0, min(1.0, relevance))
+        blended = (RELEVANCE_SHARE * rel) + (RECENCY_SHARE * recency)
+    return round(impact * type_conf * blended, 2)
 
 
-def rank_items(items: list[tuple[dict, str]]) -> list[tuple[float, dict, str]]:
+def rank_items(
+    items: list[tuple[dict, str]],
+    relevance_by_id: dict[str, float] | None = None,
+) -> list[tuple[float, dict, str]]:
     """
-    Rank items by epistemic weight.
+    Rank items by epistemic weight, blended with task relevance.
 
     Args:
         items: List of (item_dict, item_type) tuples
+        relevance_by_id: artifact id -> semantic score for the current task.
+            None (or a missing id) means no signal for that item.
 
     Returns:
         List of (weight, item_dict, item_type) sorted descending by weight
     """
     weighted = []
     for item, item_type in items:
-        weight = calculate_weight(item, item_type)
+        # None means "no signal for this BLOCK". When a signal exists, an item
+        # absent from the results genuinely scored 0 relevance — not unknown.
+        rel = None if relevance_by_id is None else relevance_by_id.get(str(item.get("id", "")), 0.0)
+        weight = calculate_weight(item, item_type, relevance=rel)
         weighted.append((weight, item, item_type))
 
     return sorted(weighted, key=lambda x: x[0], reverse=True)
+
+
+def fetch_relevance(
+    project_id: str | None, task_context: str | None, limit: int = 25
+) -> tuple[dict | None, str | None]:
+    """Semantic scores for the current task. Returns (scores_by_id, degradation_note).
+
+    The note is NOT decoration. A silent empty result here is indistinguishable
+    from "nothing is relevant", and the block would then read as task-matched
+    while being ranked purely on recency — fallback-masks-primary, on the
+    surface that shapes what every session pays attention to.
+    """
+    if not task_context or not project_id:
+        return None, "no task_context — ranked by recency and impact only"
+    try:
+        # The `memory` collection, NOT `epistemics`. Measured on this store:
+        # epistemics holds 0 points while memory holds 5,734 — finding-log,
+        # decision-log and the rest write there. Querying epistemics would have
+        # made this feature ship INERT: every call returning nothing, degrading
+        # forever, behind a green test suite and a plausible design.
+        from empirica.core.qdrant.memory import search as memory_search
+
+        results = memory_search(project_id, task_context, kind="memory", limit=limit)
+    except Exception as exc:  # import or transport failure
+        return None, f"relevance unavailable ({type(exc).__name__}) — ranked by recency and impact only"
+
+    hits = []
+    for bucket in (results or {}).values():
+        hits.extend(bucket or [])
+    if not hits:
+        return None, "relevance unavailable (semantic search returned nothing) — ranked by recency and impact only"
+
+    # artifact_id is the DB `id`, which is what the pool items carry.
+    scores: dict[str, float] = {}
+    for h in hits:
+        aid = h.get("artifact_id") or h.get("id")
+        if aid is None:
+            continue
+        score = float(h.get("score") or 0.0)
+        key = str(aid)
+        if score > scores.get(key, -1.0):
+            scores[key] = score
+    return (scores or None), (None if scores else "relevance unavailable (no artifact ids in results)")
 
 
 def format_item(weight: float, item: dict, item_type: str) -> str:
@@ -210,6 +303,8 @@ def format_epistemic_focus(
     subtasks: list[dict] | None = None,
     max_items: int = 15,
     session_id: str | None = None,
+    task_context: str | None = None,
+    project_id: str | None = None,
 ) -> str:
     """
     Format epistemically-weighted summary for injection.
@@ -242,14 +337,21 @@ def format_epistemic_focus(
     if not all_items:
         return "## EPISTEMIC FOCUS\n\n*No breadcrumbs logged yet.*\n"
 
-    ranked = rank_items(all_items)[:max_items]
+    relevance, degraded = fetch_relevance(project_id, task_context)
+    ranked = rank_items(all_items, relevance_by_id=relevance)[:max_items]
 
     # Group by weight tier
     critical = [(w, i, t) for w, i, t in ranked if w > 0.7]
     important = [(w, i, t) for w, i, t in ranked if 0.4 <= w <= 0.7]
     context_items = [(w, i, t) for w, i, t in ranked if w < 0.4]
 
-    lines = ["## EPISTEMIC FOCUS (Confidence-Ranked)\n"]
+    header = "## EPISTEMIC FOCUS (Confidence-Ranked)" if degraded else "## EPISTEMIC FOCUS (Relevance-Ranked)"
+    lines = [header + "\n"]
+    if degraded:
+        # Say it. A block that silently ranks on recency while the reader
+        # assumes it is task-matched is worse than one that admits it — they
+        # would trust it for a question it never answered.
+        lines.append(f"> ⚠️ {degraded}\n")
     _format_tier(lines, "### Critical (weight > 0.7)", critical)
     _format_tier(lines, "### Important (weight 0.4-0.7)", important)
     _format_tier(lines, "### Context (weight < 0.4)", context_items)
