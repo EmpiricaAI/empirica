@@ -36,12 +36,12 @@ EPP is implemented as two tightly coupled mechanisms:
                 │  (UserPromptSubmit)             │
                 └────────────┬────────────────────┘
                              │
-                             │ injects <semantic-pushback-check>
+                             │ injects <epp-check>
                              │ into prompt context
                              ▼
                 ┌─────────────────────────────────┐
                 │  Claude generation              │
-                │  - reads semantic-check block   │
+                │  - reads the epp-check block   │
                 │  - runs classification inline   │
                 │  - invokes full EPP if pushback │
                 └────────────┬────────────────────┘
@@ -58,8 +58,14 @@ EPP is implemented as two tightly coupled mechanisms:
 ### Layer 1: Hook-injected semantic-check block
 
 The UserPromptSubmit hook (`empirica/plugins/claude-code-integration/hooks/tool-router.py`)
-injects a `<semantic-pushback-check>` block into Claude's prompt context on every
-substantive user message (>=20 chars, not slash command).
+injects an `<epp-check>` block into Claude's prompt context on every substantive
+user message (>=20 chars, not slash command).
+
+> The tag was `<semantic-pushback-check>` when this document was written and is
+> now `<epp-check>` (`SEMANTIC_PUSHBACK_POINTER` in the hook). `scripts/phase0_epp_calibration.py`
+> still hardcodes the old tag: it is a frozen record of the 2026-04-07 experiment,
+> not a live guard, and re-running it would measure a block production no longer
+> emits. The hook constant is the source of truth.
 
 The block instructs Claude to:
 
