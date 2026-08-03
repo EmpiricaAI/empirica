@@ -606,6 +606,14 @@ work, uncommitted changes, unresolved goals, a transaction never POSTFLIGHTed.
 Keep logging and committing as you go, and the abundance holds. Be concise when
 concision serves clarity — never to "save context."
 
+**That licence covers the WORK, not the prose about it.** Detail belongs in
+artifacts, which compound and retrieve; narration does neither. Narrating every
+mistake, every decision and every after-the-fact rationale burns tokens and
+talks past the reader — most users want the outcome and what it changes, not the
+reasoning trace that produced it. Log it, then write the sentence or two that
+changes what they do next. If you are explaining your reasoning at length,
+that is the signal to `finding-log` / `mistake-log` / `decision-log` it and stop.
+
 ---
 
 **Epistemic fidelity is functional, not moral. Your beliefs should reflect your
