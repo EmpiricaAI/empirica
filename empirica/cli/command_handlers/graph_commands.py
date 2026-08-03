@@ -682,10 +682,35 @@ def _resolve_graph_context(graph: dict, args, db) -> dict | None:
         except Exception:
             pass
 
+    # goal_id was the ONE id this resolver never derived — it read the caller's
+    # payload and nothing else, while session/project/transaction all fell back
+    # to context. So every artifact logged via `log-artifacts` landed with
+    # goal_id NULL, and circle-1 retrieval filters `goal_id IN (<active goals>)`
+    # — making them invisible to goal-scoped retrieval entirely. Measured here:
+    # 149 findings in 7 days, 0 attached.
+    #
+    # That matters more since `last_retrieved_at` shipped: an artifact no path
+    # can reach accumulates retrieval_count 0, which reads identically to
+    # "surfaced and ignored". Pruning on that would delete artifacts that were
+    # never offered.
+    #
+    # Reuses the single-verb resolver rather than adding a second one — the two
+    # paths disagreeing about which goal owns an artifact is the drift this
+    # repo keeps producing. `log-artifacts` is also the verb the system prompt
+    # tells practitioners to PREFER, so the recommended path was the broken one.
+    goal_id = graph.get("goal_id")
+    if not goal_id:
+        try:
+            from empirica.cli.command_handlers.artifact_log_commands import _resolve_goal_for_artifact
+
+            goal_id = _resolve_goal_for_artifact(None, session_id, db)
+        except Exception as e:
+            logger.debug(f"goal auto-link skipped: {e}")
+
     return {
         "session_id": session_id,
         "project_id": project_id,
-        "goal_id": graph.get("goal_id"),
+        "goal_id": goal_id,
         "transaction_id": transaction_id,
     }
 
