@@ -57,7 +57,7 @@ You see:  ⚡87% ↕70% │ 🎯1 │ POST 🔍85% │ K:88% C:82% │ Δ +K
 
 **You direct. The AI measures.**
 
-Empirica's CLI has 150+ commands spanning investigation, measurement, calibration, and memory — like a cockpit instrument panel. You don't need to learn any of them. The AI reads the instruments, operates the controls, and reports back in natural language. The statusline gives you the flight data at a glance.
+Empirica's CLI has 280 commands spanning investigation, measurement, calibration, and memory — like a cockpit instrument panel. You don't need to learn any of them. The AI reads the instruments, operates the controls, and reports back in natural language. The statusline gives you the flight data at a glance.
 
 For power users, direct CLI access is always available: `empirica goals-list`, `empirica calibration-report`, `empirica project-search --task "..."`, and more.
 
@@ -76,12 +76,16 @@ empirica setup
 
 Then just start working. The hooks, Sentinel, system prompt, statusline, and MCP server are all configured automatically.
 
-> **`empirica setup` currently configures Claude Code.** The name is
-> harness-neutral because the command is where other harnesses will be wired in
-> (`--harness` is planned), but today it writes `~/.claude/` only — settings,
-> MCP config, the plugin, and the system prompt. On Cursor, Codex or another
-> harness it will not configure your harness; use the manual path below, which
-> works anywhere. `setup-claude-code` remains as an alias and does the same thing.
+> **`empirica setup --harness` picks the harness.** It resolves from
+> `--harness`, else `$EMPIRICA_HARNESS`, else `claude-code`. An unsupported
+> harness is **refused by name and nothing is written** — previously it wrote
+> `~/.claude/` regardless and reported success, which on any other harness
+> configured a path that harness never reads.
+>
+> Codex is refused deliberately: ecodex is self-provisioning (it vendors the
+> plugin into its own binary), so there is nothing here to write, and the
+> refusal points you at that pipeline. `setup-claude-code` remains as an alias
+> and pins `claude-code` regardless of environment.
 
 See [Claude Code Setup](docs/human/developers/CLAUDE_CODE_SETUP.md) for details — including a **["What the hooks inject"](docs/human/developers/CLAUDE_CODE_SETUP.md#what-the-hooks-inject-for-claude-reading-this-before-agreeing-to-install) section** for Claude sessions that want to see the contract (which hook fires when, what it adds to the AI's context, source pointers for every emission) before agreeing to install.
 
@@ -346,7 +350,7 @@ deliberate choice rather than something you infer from a feature table.
 | **[getempirica.com](https://getempirica.com)** | Training course, interactive guides, deep explanations |
 | **[Natural Language Guide](docs/human/end-users/EMPIRICA_NATURAL_LANGUAGE_GUIDE.md)** | How to collaborate with AI using Empirica |
 | **[Getting Started](docs/human/end-users/01_START_HERE.md)** | First-time setup and concepts |
-| **[CLI Reference](docs/human/developers/CLI_COMMANDS_UNIFIED.md)** | All 150+ commands documented |
+| **[CLI Reference](docs/human/developers/CLI_COMMANDS_UNIFIED.md)** | All 280 commands documented |
 | **[Architecture](docs/architecture/)** | Technical reference for contributors |
 | **[Claude Code Setup](docs/human/developers/CLAUDE_CODE_SETUP.md)** | Install + system prompt + plugin wiring |
 | **[Changelog](CHANGELOG.md)** | Full release history — every version since 1.0 |
