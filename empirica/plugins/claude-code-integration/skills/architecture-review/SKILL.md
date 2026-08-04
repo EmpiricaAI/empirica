@@ -12,11 +12,9 @@ gets acted on.
 
 ## Role: foresight, not ownership
 
-**This skill is informational + foresight. The human owns the architecture
-decision — you don't.** Your job is to surface scenarios, blind spots, and risks
-the architect may not have front-of-mind, with enough specificity that *they* can
-weigh them. You are augmenting an expert's foresight, not replacing their
-judgment.
+**The human owns the architecture decision — you don't.** Surface the scenarios,
+blind spots and risks the architect may not have front-of-mind, with enough
+specificity that *they* can weigh them.
 
 Concretely:
 
