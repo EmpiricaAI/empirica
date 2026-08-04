@@ -271,19 +271,3 @@ Total: 1/7 ASCII blocks have embedded DiagramSpec (14%)
 ```
 
 ---
-
-## Design Philosophy
-
-The heuristic routing in mdview (`routing.py`, `boxrender.py`, etc.) exists for non-AI
-scenarios — humans pasting ASCII art without spec metadata. It's a best-effort fallback.
-
-In AI-assisted workflows (which is the primary use case), the AI **always knows** what
-it's drawing. This skill ensures that knowledge gets persisted as DiagramSpec JSON
-alongside the content. Once embedded:
-
-- Any future render (by any tool, any user) produces the same high-quality output
-- No network calls to kroki.io or mermaid.ink for ASCII diagrams
-- Themed SVG with dark/light mode support via asciisvg
-- The ASCII art in the markdown is still human-readable in any editor
-
-**The AI's intelligence gets persisted, not thrown away.**

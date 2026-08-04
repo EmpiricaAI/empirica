@@ -207,22 +207,6 @@ lesson — `lesson-create --visibility shared/public`.
    a finding is truly superseded. Propose the pass; never reach into their DB with
    `--project-id` to prune.
 
-## Anti-patterns
-
-| Smell | Why |
-|---|---|
-| Deleting what should be resolved | throws away the calibration trail |
-| Resolving dead-ends or mistakes | they are *meant* to resurface |
-| Gardening mid-investigation | prunes branches you are standing on |
-| A pass with no POSTFLIGHT | counts invisible to calibration |
-| N single verbs on related artifacts | use `resolve-artifacts -` |
-| `--apply` without reading the dry-run | the receipt exists to catch a mis-scoped prune |
-| Reaching into a peer's DB | practice-owned judgment |
-| Gardening only the active-project view | list verbs undercount; run `--all-projects` |
-| Hand-written SQL to bulk-resolve | not durable, not the mechanism to teach |
-| Bulk-age-resolving findings | prune noise, keep durables |
-| Acting on a stale "our state is bad" self-assessment | git-date it first |
-
 ## Output contract
 
 Resolved findings/unknowns/assumptions, archived goals + sources, pruned dangling edges,
