@@ -253,3 +253,47 @@ def test_compaction_names_resolution_not_only_logging():
     assert "retract" in section.lower(), "retraction is the move practices reliably skip — name it"
     for concept in ("resolv", "graph"):
         assert concept in section.lower(), f"'{concept}' missing — the reason is what makes the rule stick"
+
+
+# ─── cortex-gated content ─────────────────────────────────────────────────
+
+
+def _render(cortex: bool) -> str:
+    from jinja2 import Template
+
+    return Template(_template()).render(cortex=cortex, empirica_version="0.0.0")
+
+
+def test_the_template_renders_with_and_without_cortex():
+    """Guards the guard: a template that fails to render would make every
+    assertion below unreachable rather than false."""
+    assert len(_render(True).split()) > 1000
+    assert len(_render(False).split()) > 1000
+
+
+def test_cortex_only_surfaces_do_not_leak_into_cortex_less_installs():
+    """A cortex-less install must not be pointed at layers it does not have.
+
+    `empirica-org-prompt.md` is owned and distributed by CORTEX, not core — core
+    ships only `empirica-system-prompt-lean.md`. The alias paragraph referencing
+    the org-prompt layer sat OUTSIDE the `{% if cortex %}` guard, so every
+    cortex-less install read a pointer to a file that never existed for it.
+
+    Same class as the constitution's dangling triggers, one layer out: a reference
+    that resolves for the author and for nobody else.
+    """
+    plain = _render(False)
+
+    for cortex_only in ("empirica-org-prompt.md", "cortex_collab", "target_claudes"):
+        assert cortex_only not in plain, (
+            f"'{cortex_only}' leaks into a cortex-less render — it points at something that install does not have"
+        )
+
+
+def test_the_canonical_addressing_contract_survives_on_cortex_installs():
+    """The 3-form is a WIRE contract — bare basenames bounce. It must not be
+    trimmed along with the alias prose around it."""
+    withc = _render(True)
+
+    assert "<org>.<tenant>.<exact-project-name>" in withc
+    assert "delivery_failed" in withc

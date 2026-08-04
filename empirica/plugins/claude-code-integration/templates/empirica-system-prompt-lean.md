@@ -19,13 +19,14 @@ mapping:
 | `~/empirical-ai/empirica-extension` | `empirica-extension` |
 | `~/code/myproject` | `myproject` |
 
-Shorter human aliases (e.g. `cortex`, `outreach`, `mesh-support` in
-org-empirica) are documented in the org-prompt layer
-(`empirica-org-prompt.md`) as conversational shorthand — they are
-NOT the `ai_id`. On the wire, peers are addressed by the canonical
-3-form `<org>.<tenant>.<exact-project-name>` (e.g.
-`empirica.david.empirica-cortex`); bare basenames bounce via
-`delivery_failed`.
+{% if cortex %}Shorter human aliases (e.g. `cortex`, `outreach`, `mesh-support` in
+org-empirica) are documented in the org-prompt layer — `empirica-org-prompt.md`,
+which **cortex** owns and distributes, not core — as conversational shorthand.
+They are NOT the `ai_id`. On the wire, peers are addressed by the canonical 3-form
+`<org>.<tenant>.<exact-project-name>` (e.g. `empirica.david.empirica-cortex`);
+bare basenames bounce via `delivery_failed`.
+
+{% endif %}
 
 {% if cortex %}This is how AIs are addressed in cortex orchestration (`target_claudes`,
 `source_claude`) and inbox routing — peer AIs send to you using the
