@@ -50,9 +50,27 @@ OBLIGATIONS: dict[str, tuple[str, list[str]]] = {
 
 
 def _always_loaded(cortex: bool = True) -> str:
-    from jinja2 import Template
+    """Render via the PRODUCTION renderer, not jinja2.
 
-    return Template(_TEMPLATE.read_text()).render(cortex=cortex, empirica_version="0.0.0").lower()
+    These tests used `jinja2.Template`. Production does not: `_render_versioned_template`
+    substitutes placeholders and strips `{% if cortex %}` blocks with its own string
+    handling. So the tests were validating the template against a DIFFERENT ENGINE
+    than the one that ships — a passing test proved the template renders under jinja2,
+    which nothing in production ever does.
+
+    It also broke CI, because jinja2 is not a declared dependency. The import error
+    was the visible symptom; the wrong-engine problem was the real one, and it would
+    have survived simply adding jinja2 to the test extras.
+    """
+    import tempfile
+    from pathlib import Path as _P
+
+    from empirica.cli.command_handlers.setup_claude_code import _render_versioned_template
+
+    with tempfile.TemporaryDirectory() as td:
+        dst = _P(td) / "out.md"
+        _render_versioned_template(_TEMPLATE, dst, cortex_enabled=cortex)
+        return dst.read_text().lower()
 
 
 def test_the_template_renders_so_the_gate_is_not_vacuous():

@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import os
 import stat
-import tempfile
 import time
 from pathlib import Path
 
@@ -42,9 +41,11 @@ _ENDPOINT = "https://c.test/token"
 
 
 @pytest.fixture
-def creds(monkeypatch):
-    d = Path(tempfile.mkdtemp())
-    p = d / "credentials.yaml"
+def creds(monkeypatch, tmp_path):
+    # `tmp_path`, not `mkdtemp()` — pytest removes it. The repo guards this after
+    # leaked fixture dirs filled a shared /tmp and surfaced as unrelated suite
+    # failures somebody spent an hour debugging.
+    p = tmp_path / "credentials.yaml"
     p.write_text(
         'version: "1.0"\n'
         "cortex:\n  url: https://c.test\n  api_key: SECRET-KEY\n"
