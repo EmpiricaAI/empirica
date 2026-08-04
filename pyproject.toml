@@ -45,10 +45,14 @@ dependencies = [
     "requests>=2.33.0",         # Security: CVE-2026-25645 fix
 
     # Security and cryptography
-    "cryptography>=44.0.1,<50", # Security: CVE-2024-6119, CVE-2024-12797 fixes (44.0.1 floor).
-                                # Upper bound <48 keeps shared-env compat with hardware-token tools
-                                # (pynitrokey, spsdk, etc.) that pin cryptography<47-<48. Bump
-                                # the cap when those ecosystems catch up; we use no 48-only API.
+    "cryptography>=50.0.0,<51", # Security: CVE-2026-69247 is fixed ONLY in 50.0.0, and the old
+                                # `<50` cap excluded the fix — CI resolved 49.0.0 and the CVE gate
+                                # blocked the 1.13.3 release. 48.x additionally carries
+                                # CVE-2026-69248 and CVE-2026-69249, so 50.0.0 is the first version
+                                # clear of all three; a floor below it cannot be made safe by any cap.
+                                # The previous comment justified the cap by hardware-token tools
+                                # (pynitrokey, spsdk) pinning <47-<48 — already stale, since the cap
+                                # it described was <50 and permitted 49. We use no 50-only API.
     "gitpython>=3.1.55",        # Security: CVE-2024-22190 RCE + GHSA-2f96-g7mh-g2hx/v396-v7q4-x2qj/956x-8gvw-wg5v argument-injection fixes;
                                 # GHSA-fjr4/6p8h/r9mr (unguarded Diffable.diff, --template hook exec,
                                 # kwarg-value option smuggling) fixed in 3.1.54, GHSA-94p4 (env-var
