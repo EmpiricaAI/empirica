@@ -5,6 +5,90 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.4] - 2026-08-04
+
+The Claude-5 prompt pass, and three defects it found on the way — plus a
+credential wipe caught during the OAuth migration.
+
+### Fixed — credentials
+
+- **An empty `api_key` overwrote a live one.** `save_cortex_config` merged on
+  `is not None`, so a client saving settings with a blank key field wrote the
+  empty string over the stored credential. Severity is not "the CLI breaks":
+  `authenticate_bearer` accepting JWT **or** api_key by shape is what makes the
+  OAuth cutover staged rather than big-bang, and every revoke-after-verification
+  gate assumes the key still works while the token is being proven. This let a
+  client silently delete half of that, on a seat that looks migrated because the
+  token works. **Empty is now absent** — clearing a credential is an explicit act,
+  not something a blank form field does by omission.
+
+### Fixed — retrieval
+
+- **`active_subtasks` was structurally dead for three months.** The circle-1 query
+  selected `name` / `importance` and filtered on `is_completed`; the table has
+  `description` / `epistemic_importance` / `status`. It raised `OperationalError`
+  on every call since 2026-05-07 and a bare `except: pass` swallowed it, so every
+  bootstrap reported zero while **2096 subtasks accumulated**. It presented as "the
+  feature is underused" — and that appearance *was* the defect: tasks never
+  surfaced in retrieval, so nothing rewarded logging them. Also handles both
+  `complete` and `completed` spellings, since matching one silently leaks the other.
+
+### Added
+
+- **OAuth token storage + silent refresh** for daemon-brokered seats
+  (`cortex.oauth` in `credentials.yaml`, `cortex_access_token(refresh=...)`).
+  A failed refresh returns `None` rather than a stale token; rotated refresh tokens
+  are persisted; renewal happens 120s before expiry.
+- **`§EFFORT AND DELEGATION`** in the system prompt — ceremony scaling by task
+  size, and delegation guidance (verify subagent self-reports, `fork` vs enrich,
+  Sentinel interaction). The always-loaded layer previously had one mention of
+  subagents, and it was a definition.
+- **`§REPORTING`** — the reasoning chain stays internal, artifacts carry the
+  epistemic content, the user gets work done plus what is next. Concise is
+  explicitly not thin.
+
+### Changed — prompts and skills (Claude-5 pass)
+
+Whole-file rewrites rather than incremental edits, because an edit preserves the
+original's structure while removing its words.
+
+- `epistemic-transaction` 5790 → 2206 words. The largest cut was not prose: "Plan
+  Transactions Mode" restated the "Reference Guide" step for step. Every wire
+  format preserved and verified by parsing.
+- `empirica-constitution` 2858 → 2505, and **richer** where it is the single home —
+  gains the retraction gap (`stale` / `superseded` / `retracted` / `mistyped`),
+  measured here as 1268 findings resolved with 1267 meaning *stale* and 1 meaning
+  *wrong*.
+- `epistemic-persistence-protocol` 1718 → 942. Removed scripted reply templates
+  that mandated transcribing internal confidence numbers into user-facing text.
+- `dispatch-agent` 1012 → 742, then corrected to pass the **whole knowledge graph**
+  rather than four hand-picked types. Removed a phantom Agent parameter and a false
+  premise (`fork` inherits context, so enrichment is redundant there).
+- `CONTEXT IS ABUNDANT` → `§COMPACTION`, 243 → 144 words. The original argued
+  rather than instructed and never named the moment it should fire.
+- **Three skills stopped prescribing canned vector values.** They opened with a
+  PREFLIGHT to run carrying literal numbers — teaching practitioners to submit an
+  assessment nobody made. A pasted vector set is not a low reading, it is a
+  fabricated one.
+- Goal sizing single-homed to `/epistemic-transaction` (it had three homes with
+  three different wordings, which gave different answers for the same work).
+- `eat-the-broccoli` synced to upstream v2.4.1.
+- Load-triggers now route to the surface that answers them; cortex-only content no
+  longer renders into cortex-less installs.
+
+### Changed — CLI
+
+- **`empirica doctor` 312 → 170 lines.** Non-passing checks are hoisted into an
+  `attention` block (absent when everything passes, so its presence is the signal),
+  and `data` is dropped from passing checks. `ok` / `summary` / `checks` / `cwd`
+  keep their shape.
+
+### Security
+
+- `aiohttp>=3.14.3` — CVE-2026-59881, CVE-2026-69243, CVE-2026-69244. Transitive
+  via `anthropic` / `google-auth` / `google-api-core` under extras markers, so
+  `pip show` reports an empty `Required-by` and it reads as unowned. It is owned.
+
 ## [1.13.3] - 2026-08-04
 
 Artifacts that nothing could retrieve, a measurement that accused the practitioner
