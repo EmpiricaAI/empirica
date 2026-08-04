@@ -5,6 +5,108 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.3] - 2026-08-04
+
+Artifacts that nothing could retrieve, a measurement that accused the practitioner
+falsely, and an identifier check whose safety was inverted. Plus the first slices
+of the Claude-5 prompt pass.
+
+### Fixed — retrieval reachability
+
+- **`log-artifacts` never attached artifacts to a goal.** `_resolve_graph_context`
+  derived session, project and transaction from context but read `goal_id` from
+  the caller's payload only — so every artifact logged through the batch verb
+  landed with `goal_id` NULL, and circle-1 retrieval filters
+  `goal_id IN (<active goals>)`. Measured on this store: **149 findings over 7
+  days, 0 attached.** The batch verb is the one the system prompt tells
+  practitioners to *prefer*, so the recommended path was the broken one and every
+  spot-check landed on the working single-verb path. It compounds with
+  `last_retrieved_at` (1.13.2): an artifact no path can reach accrues
+  `retrieval_count 0`, indistinguishable from "surfaced and ignored" — pruning on
+  that signal would have deleted artifacts that were never offered.
+
+### Fixed — a measurement that was wrong about the practitioner
+
+- **A verdict that could not be applied said nothing, and was then reported as a
+  discipline gap.** POSTFLIGHT claim adjudication dropped malformed entries with a
+  bare `continue`; the claims they targeted fell through to the bulk sweep and were
+  reported as *"declared at CHECK, never adjudicated — acted on, never checked"* —
+  about claims the practitioner HAD adjudicated, with evidence, in the payload.
+  A false "you didn't verify" is worse than no signal: it is precisely the signal
+  the mechanism exists to produce. Now returns `adjudication: {applied, unmatched,
+  entries, hint}` plus a warning tying the drops to the untested count.
+- **Two further silent drops in the same path.** The `dropped_adjudications`
+  warning built for "verdicts with no claims" was unreachable, discarded by an
+  early return on `declared == 0`; and `_query_claims` swallowed every exception
+  into `return []`, so a missing migration would disable claims entirely and report
+  a clean zero forever.
+- **The MCP tool description documented a key the implementation ignores.**
+  `claims: [{index|id, verdict, note}]` while `adjudicate()` read `evidence` —
+  the published contract was a partial cause of the bug above. Description
+  corrected, and `note` accepted as an alias.
+
+### Fixed — session identifiers
+
+- **The safety was inverted: typing LESS of an id was the safe move.** An 8-char
+  partial id was resolved by a real DB query that raises on a miss, while a
+  full-looking id was returned unchecked (`if "-" in x: return x`). A hand-typed
+  UUID missing one character was accepted, written to the transaction pointer file
+  *before* any DB touch, and every later POSTFLIGHT in that session resolved from
+  the poisoned pointer. Now raises for ids that are malformed or one edit from a
+  stored row; a well-formed id absent from this project's DB still passes with a
+  warning, preserving cross-project resolution.
+- **The error hid the failure it reported.** `session {session_id[:8]} not found`
+  printed the *real* session's prefix when the typo sat in the last segment, so
+  readers verified that prefix, found it intact, and concluded the resolver was
+  broken. An error that identifies a record by a prefix cannot report a mismatch
+  outside it. Now prints the id in full with lengths, names any row one edit away,
+  and points at the pointer file.
+- PREFLIGHT now warns (never blocks) when the session row is missing.
+
+### Changed — prompts and skills (Claude-5 pass, first slices)
+
+- **`epistemic-persistence-protocol` rewritten** (1718 → 942 words). The Step-4
+  scripted reply templates mandated transcribing internal confidence numbers into
+  user-facing text — the phrasing class flagged for reasoning-echo on
+  Claude-5-generation models. Their *purpose* (no silent position shifts) is kept
+  as a requirement rather than a script. All contracts preserved: the five
+  categories and four actions are closed enums on `epp-activate`.
+- **`dispatch-agent` rewritten** (1012 → 671 words). Removed a phantom Agent
+  parameter (`run_in_background`), documented two real ones (`isolation`, `model`),
+  corrected a false premise (`fork` inherits full context, so enrichment is
+  redundant there), and replaced numeric thresholds with the actual selection
+  criterion.
+- **Load-triggers now route to the surface that answers them.** Four of ten
+  triggers advertised for `/empirica-constitution` had zero coverage there — and
+  all four live in the system prompt itself. A pointer that routes *away* from
+  guidance already in context is worse than a dangling one: the page does not
+  answer, and the reasonable conclusion is that the system does not cover it.
+  The constitution's intro reciprocally routed those topics *back*, forming a loop
+  past `§III-b`, which answers them and was missing from its own contents list.
+- **New `§REPORTING`** in the system prompt: the reasoning chain stays internal,
+  artifacts carry the epistemic content where it compounds, `note` is the
+  scratchpad, and the user gets work done plus what is next. Concise is explicitly
+  not thin — brevity cuts the reasoning trace, never bad news or unfinished work.
+- **`CONTEXT IS ABUNDANT` → `COMPACTION`** (243 → 144 words, plus resolution).
+  The original argued rather than instructed, offered only prohibitions, and never
+  named the moment it was meant to fire. Now names the trigger (the urge to
+  compress) and the action (log it now), and states that resolving — closing goals,
+  answering unknowns, retracting what turned out false — is half the discipline:
+  the graph is what survives compaction and what is retrieved back, so an
+  unresolved entry returns as though current and mis-steers the next decision.
+
+### Security
+
+- **`cryptography>=50.0.0`.** The previous `<50` cap *excluded* the only fix for
+  CVE-2026-69247, and 48.x additionally carried CVE-2026-69248 and CVE-2026-69249 —
+  every version the cap permitted was vulnerable to something.
+
+### Added
+
+- `--cite` works on every artifact type, not just findings.
+- An `invalidates` edge now deprecates its target instead of being recorded and
+  ignored.
+
 ## [1.13.2] - 2026-08-03
 
 Retrieval correctness. The context injected into every session was ranked
