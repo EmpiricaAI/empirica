@@ -66,13 +66,17 @@ Pruning removes what's dead; weaving connects what's live. Most connecting is au
 empirica preflight-submit - << 'EOF'
 {"work_type": "audit", "criticality": "medium",
  "task_context": "Epistemic gardening pass on <practice>",
- "vectors": {"know": 0.7, "do": 0.9, "context": 0.75, "clarity": 0.7,
-   "coherence": 0.7, "signal": 0.6, "density": 0.5, "state": 0.7,
-   "change": 0.1, "completion": 0.0, "impact": 0.5, "engagement": 0.9,
-   "uncertainty": 0.3},
+ "vectors": {"...": "YOUR assessment across the 13 vectors"},
  "current_phase": "noetic"}
 EOF
+```
 
+**Assess your own vectors — do not paste these.** A canned vector set is not a
+low reading, it is a *fabricated* one, and it corrupts the calibration record more
+than skipping the transaction would. The shape is the contract; the numbers are
+yours.
+
+```bash
 empirica goals-create --objective "Epistemic gardening pass" \
   --description "Resolve stale/superseded findings, close answered unknowns, verify or drop
 assumptions, archive done goals + stale sources, prune dangling edges. Success: EPISTEMIC
@@ -114,7 +118,7 @@ sqlite3 .empirica/sessions/sessions.db \
 
 ```bash
 empirica check-submit - << 'EOF'
-{"vectors": {"know": 0.8, "uncertainty": 0.2, "context": 0.8, "clarity": 0.8},
+{"vectors": {"...": "YOUR assessment — what the survey actually taught you"},
  "current_phase": "noetic",
  "reasoning": "Surveyed — N stale findings, M answered unknowns, K done goals, J stale sources."}
 EOF

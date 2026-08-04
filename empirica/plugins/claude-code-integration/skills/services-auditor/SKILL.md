@@ -44,11 +44,7 @@ empirica preflight-submit - <<'EOF'
   "work_type": "audit",
   "domain": "default",
   "criticality": "medium",
-  "vectors": {
-    "know": 0.55, "uncertainty": 0.45,
-    "context": 0.70, "clarity": 0.65,
-    "engagement": 0.85
-  },
+  "vectors": { "...": "YOUR assessment across the 13 vectors" },
   "reasoning": "Audit transaction. Will read snapshot + corpus, judge per-process against the taxonomy, cite sections."
 }
 EOF
@@ -191,10 +187,7 @@ actually did:
 ```bash
 empirica postflight-submit - <<'EOF'
 {
-  "vectors": {
-    "know": 0.85, "uncertainty": 0.15,
-    "completion": 1.0, "do": 0.85,
-    "impact": 0.65, "engagement": 0.85
+  "vectors": { "...": "YOUR assessment — what the audit actually established"
   },
   "reasoning": "Audit complete. Judged N AI-touching processes against corpus. Emitted X findings + Y assumptions + Z unknowns. Citation coverage K/52. Recommended actions surfaced as text — no destructive operations performed."
 }

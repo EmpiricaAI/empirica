@@ -297,3 +297,40 @@ def test_the_canonical_addressing_contract_survives_on_cortex_installs():
 
     assert "<org>.<tenant>.<exact-project-name>" in withc
     assert "delivery_failed" in withc
+
+
+# ─── no canned vector values in any skill ─────────────────────────────────
+
+
+def test_no_skill_prescribes_canned_vector_values():
+    """Three skills printed a fixed vector block for the practitioner to submit
+    verbatim — `know: 0.2, uncertainty: 0.7` and so on — as step one of their
+    procedure.
+
+    That teaches the single habit the measurement layer exists to prevent:
+    reporting numbers you did not assess. A pasted vector set is not a LOW reading,
+    it is a FABRICATED one, and it corrupts the calibration record more than
+    skipping the transaction would. It is also the plausible mechanism behind the
+    measured 47%-of-728 rubber-stamp CHECK rate.
+
+    The payload SHAPE is a contract and stays. The numbers are the practitioner's.
+    `/epistemic-transaction` is exempt: it documents the payload format itself, and
+    a format example needs illustrative values.
+    """
+    import re
+    from pathlib import Path
+
+    skills = Path(_ROOT) / "empirica" / "plugins" / "claude-code-integration" / "skills"
+    offenders = []
+    for d in sorted(skills.iterdir()):
+        if not (d / "SKILL.md").exists() or d.name == "epistemic-transaction":
+            continue
+        text = (d / "SKILL.md").read_text()
+        # A concrete float assigned to a vector key inside a submitted payload.
+        if re.search(r'"(know|uncertainty|clarity|coherence|engagement)":\s*0\.\d', text):
+            offenders.append(d.name)
+
+    assert not offenders, (
+        f"these skills prescribe canned vector values: {offenders}. "
+        "Print the payload shape; let the practitioner supply their own assessment."
+    )

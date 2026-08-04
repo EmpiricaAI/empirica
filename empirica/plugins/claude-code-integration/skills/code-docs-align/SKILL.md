@@ -32,37 +32,32 @@ is worse than missing documentation — it actively misleads. `/code-audit` chec
 
 ## Phase 0: PREFLIGHT
 
-Open an epistemic transaction before any investigation. Required by Sentinel.
+Open a transaction before investigating.
 
 ```bash
 empirica preflight-submit - << 'EOF'
 {
-  "vectors": {
-    "know": 0.2, "do": 0.0, "context": 0.3,
-    "clarity": 0.2, "coherence": 0.3, "signal": 0.2, "density": 0.1,
-    "state": 0.1, "change": 0.0, "completion": 0.0, "impact": 0.0,
-    "engagement": 0.8, "uncertainty": 0.7
-  },
-  "current_phase": "noetic",
-  "notes": "Starting code-docs-align investigation"
+  "work_type": "docs",
+  "task_context": "Code-docs alignment audit on <target>",
+  "vectors": { "...": "YOUR OWN assessment across the 13 vectors" },
+  "reasoning": "What you actually know about this codebase's docs right now"
 }
 EOF
 ```
 
-Then gate through CHECK:
-```bash
-empirica check-submit - << 'EOF'
-{
-  "vectors": {
-    "know": 0.2, "do": 0.0, "context": 0.3,
-    "clarity": 0.3, "coherence": 0.3, "signal": 0.2, "density": 0.1,
-    "state": 0.1, "change": 0.0, "completion": 0.0, "impact": 0.0,
-    "engagement": 0.8, "uncertainty": 0.6
-  },
-  "current_phase": "noetic"
-}
-EOF
-```
+**No canned vector values.** This skill used to print a fixed block —
+`know: 0.2, uncertainty: 0.7` and so on — for you to submit verbatim. That
+teaches the one habit the whole measurement layer exists to prevent: reporting
+numbers you did not assess. A pasted vector set is not a low reading, it is a
+*fabricated* one, and it corrupts the calibration record more than skipping the
+transaction would.
+
+Assess where you genuinely are. If you have already read the docs you are about
+to audit, `know` is not 0.2, and saying so is the point.
+
+If you were already grounded before opening — you read the target first — declare
+`claims` in PREFLIGHT with grounding `read` or `ran` and proceed straight to
+praxic. **No CHECK needed**; see `/epistemic-transaction`.
 
 ---
 
