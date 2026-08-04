@@ -208,3 +208,51 @@ def test_the_oauth_block_takes_no_env_fallback(creds, monkeypatch):
     monkeypatch.setenv("CORTEX_OAUTH_ACCESS_TOKEN", "FROM-ENV")
 
     assert loader.get_cortex_oauth() == {}
+
+
+# ─── empty is not a value ─────────────────────────────────────────────────
+
+
+def test_an_empty_api_key_does_not_wipe_the_stored_one(creds):
+    """Reported live during the api_key→OAuth migration.
+
+    A client whose settings form left the key field blank wrote `api_key=""` on
+    every Save. The guard was `is not None`, so the empty string passed it and
+    overwrote a working credential.
+
+    Severity is not "the CLI breaks". `authenticate_bearer` accepting JWT OR
+    api_key by shape is what makes the cutover STAGED rather than big-bang, and
+    every revoke-after-verification gate assumes the key still works while the
+    token is being proven. This let a client silently delete half of that — leaving
+    a seat that LOOKS migrated because the token works, with the fallback gone from
+    under a gate still counting on it.
+    """
+    loader, p = creds
+    loader.save_cortex_config(api_key="")
+
+    assert _read(p)["cortex"]["api_key"] == "SECRET-KEY"
+
+
+def test_whitespace_is_also_not_a_value(creds):
+    loader, p = creds
+    loader.save_cortex_config(api_key="   ")
+
+    assert _read(p)["cortex"]["api_key"] == "SECRET-KEY"
+
+
+def test_a_real_key_still_overwrites(creds):
+    """The guard must not make the field unwritable — rotation is normal."""
+    loader, p = creds
+    loader.save_cortex_config(api_key="ROTATED-KEY")
+
+    assert _read(p)["cortex"]["api_key"] == "ROTATED-KEY"
+
+
+def test_url_only_updates_leave_the_key_alone(creds):
+    """The path the extension actually takes: saving settings should never be able
+    to remove a credential as a side effect."""
+    loader, p = creds
+    loader.save_cortex_config(url="https://new.test")
+
+    assert _read(p)["cortex"]["api_key"] == "SECRET-KEY"
+    assert _read(p)["cortex"]["url"] == "https://new.test"

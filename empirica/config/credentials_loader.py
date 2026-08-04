@@ -31,6 +31,35 @@ except ImportError:
 import json  # noqa: E402 — intentionally after conditional yaml import
 
 
+def _apply_api_key(cortex_block: dict, api_key: str | None) -> None:
+    """Set `api_key` — but treat EMPTY AS ABSENT, never as a value to write.
+
+    The guard used to be `is not None`, so `api_key=""` passed it and overwrote a
+    live credential. Reported during the api_key→OAuth migration: a client whose
+    settings form left the key field blank wrote the empty string on every Save,
+    and it hit exactly the seats mid-migration.
+
+    Severity is not "the CLI breaks". `authenticate_bearer` accepting JWT OR
+    api_key by shape is the single property making that cutover STAGED rather than
+    big-bang, and every revoke-after-verification gate assumes the key still works
+    while the token is being proven. This let a client silently delete half of that,
+    leaving a seat that LOOKS migrated because the token works — the fallback gone
+    from under a gate still counting on it.
+
+    Clearing a credential is an explicit act, not something a blank form field does
+    by omission.
+    """
+    if api_key is None:
+        return
+    if str(api_key).strip():
+        cortex_block["api_key"] = api_key
+    elif cortex_block.get("api_key"):
+        logger.warning(
+            "save_cortex_config: refusing to overwrite the stored cortex api_key with an "
+            "empty value — pass the key, or remove it from credentials.yaml deliberately."
+        )
+
+
 class CredentialsLoader:
     """Load and manage AI adapter credentials"""
 
@@ -242,8 +271,8 @@ class CredentialsLoader:
             cortex_block = {}
         if url is not None:
             cortex_block["url"] = url.rstrip("/") or None
-        if api_key is not None:
-            cortex_block["api_key"] = api_key
+
+        _apply_api_key(cortex_block, api_key)
 
         existing["cortex"] = cortex_block
         if "version" not in existing:
