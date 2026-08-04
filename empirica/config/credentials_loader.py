@@ -376,6 +376,205 @@ class CredentialsLoader:
         self._credentials_cache = None
         return target
 
+    # ── Shared write path ───────────────────────────────────────────────
+    #
+    # Extracted for the OAuth block only. `save_cortex_config` and
+    # `save_ntfy_config` still carry their own copies: this landed inside a
+    # time-boxed migration, and refactoring two working credential writers to
+    # share a path with brand-new code is how a migration takes down auth for
+    # everyone. Converge them deliberately, afterwards.
+
+    def _resolve_credentials_target(self, config_path: Path | None) -> Path:
+        """Same precedence as `save_cortex_config`: explicit → env → existing → home."""
+        target = config_path
+        if target is None:
+            env_path = os.getenv("EMPIRICA_CREDENTIALS_PATH")
+            if env_path:
+                target = Path(env_path)
+        if target is None:
+            target = self._find_config_file()
+        if target is None:
+            target = Path.home() / ".empirica" / "credentials.yaml"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        return target
+
+    def _read_existing(self, target: Path) -> dict:
+        if not (target.exists() and YAML_AVAILABLE):
+            return {}
+        try:
+            return yaml.safe_load(target.read_text(encoding="utf-8")) or {}
+        except Exception as e:
+            # Do NOT silently overwrite a credentials file we failed to parse —
+            # that discards working keys for every provider to save a token.
+            raise RuntimeError(
+                f"credentials file at {target} is unreadable ({e}); refusing to overwrite it. "
+                "Fix or move the file, then retry."
+            ) from e
+
+    def _write_credentials(self, target: Path, data: dict) -> Path:
+        """Atomic write via mkstemp + replace.
+
+        Mode 0600 comes from `mkstemp` and survives `os.replace`, which preserves
+        the TEMP file's mode rather than the destination's. That is load-bearing
+        here: this file holds refresh tokens, which mint access tokens indefinitely.
+        """
+        if not YAML_AVAILABLE:
+            raise RuntimeError("PyYAML not installed (`pip install pyyaml`)")
+        if "version" not in data:
+            data["version"] = "1.0"
+
+        tmp_fd, tmp_path = tempfile.mkstemp(prefix=".credentials-", suffix=".yaml.tmp", dir=str(target.parent))
+        try:
+            with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+                yaml.dump(data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+            os.replace(tmp_path, target)
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
+
+        self._credentials_cache = None
+        return target
+
+    # ── OAuth (brokered seats) ──────────────────────────────────────────
+    #
+    # Core owns exactly ONE of the two auth paths in the api_key-retirement
+    # migration: the DAEMON-BROKERED path. `credentials.yaml` holds the refresh
+    # token, the daemon renews silently, and that is what makes a 24h access-token
+    # TTL invisible to the user instead of a daily re-auth.
+    #
+    # The other path — direct in-client OAuth — is NOT ours and must not be served
+    # from here. Cowork seats authenticate natively through Claude's own client
+    # (confirmed independently: onboarding runbook §250, and 239 of 241 prod
+    # refresh tokens issued to client "Claude"), so every seat reaching this store
+    # has a local daemon. A single store serving both paths is how the bare-key
+    # risk returns under another name: a co-resident process lifting a cortex
+    # credential takes the whole epistemic profile with it.
+
+    def save_cortex_oauth(
+        self,
+        *,
+        access_token: str | None = None,
+        refresh_token: str | None = None,
+        expires_at: float | None = None,
+        token_endpoint: str | None = None,
+        config_path: Path | None = None,
+    ) -> Path:
+        """Persist the OAuth token set under `cortex.oauth`.
+
+        Merges — never touches `cortex.api_key`. **Keys stay valid throughout the
+        migration**: dual-accept by shape is the safety net, and a seat must never
+        conclude its key is dead merely because a token now exists. Revocation is a
+        separate, per-identity act gated on observed Bearer traffic.
+
+        Reuses `save_cortex_config`'s atomic write, so the file keeps mode 0600
+        (mkstemp creates at 0600; `os.replace` preserves it).
+        """
+        if all(v is None for v in (access_token, refresh_token, expires_at, token_endpoint)):
+            raise ValueError("save_cortex_oauth: at least one token field required")
+
+        target = self._resolve_credentials_target(config_path)
+        existing = self._read_existing(target)
+
+        cortex_block = existing.get("cortex") or {}
+        if not isinstance(cortex_block, dict):
+            cortex_block = {}
+        oauth_block = cortex_block.get("oauth") or {}
+        if not isinstance(oauth_block, dict):
+            oauth_block = {}
+
+        for key, value in (
+            ("access_token", access_token),
+            ("refresh_token", refresh_token),
+            ("expires_at", expires_at),
+            ("token_endpoint", token_endpoint),
+        ):
+            if value is not None:
+                oauth_block[key] = value
+
+        cortex_block["oauth"] = oauth_block
+        existing["cortex"] = cortex_block
+        return self._write_credentials(target, existing)
+
+    def get_cortex_oauth(self) -> dict[str, Any]:
+        """Return the stored `cortex.oauth` block, or {} when absent.
+
+        Deliberately file-only, with no env fallback. The api_key path takes env as
+        a gap-filler, and that asymmetry is intentional: a token set is four
+        correlated fields that must move together, and letting a stray env var
+        supply one of them produces a mismatched set — a refresh token from one
+        identity beside an access token from another — which fails in ways far
+        harder to read than "no token".
+        """
+        if not self._credentials_cache:
+            self._load_credentials()
+        cortex = self._credentials_cache.get("cortex") if self._credentials_cache else None
+        oauth = cortex.get("oauth") if isinstance(cortex, dict) else None
+        return oauth if isinstance(oauth, dict) else {}
+
+    def cortex_access_token(self, *, refresh: Any = None, leeway_s: float = 120.0) -> str | None:
+        """A currently-valid access token, refreshing through `refresh` if needed.
+
+        `refresh` is injected — a callable taking `(refresh_token, token_endpoint)`
+        and returning `{access_token, expires_at, refresh_token?}`. Core does not
+        hardcode cortex's token endpoint or own the HTTP call; this keeps the store
+        testable without a network and keeps the auth server's contract on the
+        cortex side of the boundary, where it changes.
+
+        `leeway_s` refreshes shortly BEFORE expiry. A token that is valid when
+        checked and expired when it arrives is the classic race here, and 0 leeway
+        makes it a certainty under any latency.
+
+        Returns None when there is nothing stored, or when a refresh was needed and
+        could not be performed — never a stale token, because a caller cannot tell
+        one from a live one and would send it.
+        """
+        import time as _time
+
+        oauth = self.get_cortex_oauth()
+        token = oauth.get("access_token")
+        expires_at = oauth.get("expires_at")
+
+        try:
+            still_valid = token and expires_at and float(expires_at) - leeway_s > _time.time()
+        except (TypeError, ValueError):
+            still_valid = False
+        if still_valid:
+            return str(token)
+
+        refresh_token = oauth.get("refresh_token")
+        if not (refresh and refresh_token):
+            # Say which half is missing. "no token" and "cannot renew the token I
+            # have" need different fixes, and collapsing them sends the operator
+            # to re-auth when the real problem is a missing refresh hook.
+            logger.debug(
+                "cortex access token unavailable: %s",
+                "no refresh_token stored" if refresh else "no refresh callable supplied",
+            )
+            return None
+
+        try:
+            renewed = refresh(refresh_token, oauth.get("token_endpoint")) or {}
+        except Exception as e:
+            logger.warning(f"cortex token refresh failed, not falling back to the expired token: {e}")
+            return None
+
+        new_access = renewed.get("access_token")
+        if not new_access:
+            logger.warning("cortex token refresh returned no access_token")
+            return None
+
+        self.save_cortex_oauth(
+            access_token=new_access,
+            expires_at=renewed.get("expires_at"),
+            # Rotating auth servers issue a new refresh token on every use; dropping
+            # it here would work once and then lock the seat out at the next renewal.
+            refresh_token=renewed.get("refresh_token"),
+        )
+        return str(new_access)
+
     def get_cortex_config(self) -> dict[str, str | None]:
         """Return Cortex {url, api_key} resolved file-first:
 
