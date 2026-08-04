@@ -119,11 +119,24 @@ def circle_1_active_state(
         # 2. Active subtasks. The subtasks table is keyed off the parent goal.
         if active_goal_ids:
             placeholders = ",".join("?" * len(active_goal_ids))
+            # Columns are `description` / `epistemic_importance` / `status`. This
+            # asked for `name` / `importance` / `is_completed` — a PRE-MIGRATION
+            # shape that no longer exists — so the query raised OperationalError on
+            # every call and the handler below swallowed it. `active_subtasks` was
+            # therefore EMPTY for every practitioner from 2026-05-07 until this fix,
+            # while 2096 subtasks accumulated in the table.
+            #
+            # It presented as "the feature is underused". It was structurally
+            # unreachable, and the appearance of disuse was the bug: tasks never
+            # surfaced in retrieval, so nothing rewarded logging them.
+            #
+            # `status` carries BOTH 'complete' and 'completed' (67 / 1146 rows) —
+            # matching one spelling silently drops the other, so both are excluded.
             try:
                 cur.execute(
-                    f"SELECT id, name, status, importance, goal_id, created_timestamp "
+                    f"SELECT id, description, status, epistemic_importance, goal_id, created_timestamp "
                     f"FROM subtasks WHERE goal_id IN ({placeholders}) "
-                    f"AND COALESCE(is_completed, 0) = 0 "
+                    f"AND COALESCE(status, '') NOT IN ('complete', 'completed') "
                     f"ORDER BY created_timestamp DESC LIMIT ?",
                     (*active_goal_ids, cap("active_subtasks", 20)),
                 )
@@ -133,18 +146,22 @@ def circle_1_active_state(
                         {
                             "id": r[0],
                             "type": "subtask",
-                            "name": r[1],
+                            "description": r[1],
                             "status": r[2],
-                            "importance": r[3],
+                            "epistemic_importance": r[3],
                             "goal_id": r[4],
                             "created_at": _to_iso(r[5]),
                             "weight": weight,
                             "surface_reason": "active",
                         }
                     )
-            except sqlite3.OperationalError:
-                # subtasks table shape differs across migrations; skip gracefully
-                pass
+            except sqlite3.OperationalError as e:
+                # Degrade, but SAY so. A silent pass here is what hid a dead query
+                # for three months — the caller cannot distinguish "no open tasks"
+                # from "this never ran".
+                logger.warning(
+                    f"active_subtasks query failed — reporting none, which is NOT the same as none existing: {e}"
+                )
 
         # 3. Recent findings within active goals (last 7 days, decayed)
         cutoff_7d = time.time() - 7 * 24 * 3600
