@@ -1085,12 +1085,41 @@ def handle_doctor_command(args: Any) -> int:
     if output_format == "human":
         print(_format_human(checks))
     else:
-        payload = {
+        # Rightsized. This printed 312 lines for a run where 22 of 24 checks
+        # PASSED — ~290 lines describing things that are fine, with the two that
+        # need action buried mid-array and no way to find them without reading all
+        # of it.
+        #
+        # Two changes, neither removing information:
+        #
+        #   `attention` — the non-passing checks, hoisted. A caller (human, AI, or
+        #   the MCP tool) sees what to act on without scanning. Omitted entirely
+        #   when everything passes, so its PRESENCE is the signal.
+        #
+        #   empty `hint` / `data` dropped per check. Emitted on every passing
+        #   check, carrying nothing.
+        #
+        # `ok`, `summary`, `checks` and `cwd` keep their shape and meaning, so the
+        # MCP doctor tool and any other consumer are unaffected.
+        def _slim(c: Any, *, full: bool = False) -> dict:
+            d = {k: v for k, v in asdict(c).items() if v not in ("", {}, None)}
+            # `data` is diagnostic payload — only useful when something is wrong.
+            # Measured: 20 of 24 PASSING checks carried it, one of them 37 lines on
+            # its own, and it was the bulk of the 312. Kept in full for anything
+            # needing action (and in `attention`, which repeats those entries).
+            if not full and c.status == PASS:
+                d.pop("data", None)
+            return d
+
+        payload: dict[str, Any] = {
             "ok": fails == 0,
             "summary": {"total": len(checks), "pass": passed, "warn": warns, "fail": fails, "skip": skips},
-            "checks": [asdict(c) for c in checks],
-            "cwd": str(cwd),
         }
+        needs_action = [_slim(c, full=True) for c in checks if c.status != PASS]
+        if needs_action:
+            payload["attention"] = needs_action
+        payload["checks"] = [_slim(c) for c in checks]
+        payload["cwd"] = str(cwd)
         print(json.dumps(payload, indent=2))
     if fails:
         return 1
