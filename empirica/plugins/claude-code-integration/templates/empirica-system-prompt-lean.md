@@ -457,6 +457,44 @@ For full CLI reference: load `/empirica-commands` skill.
      Cutting here empties the union — each decision locally correct, nothing
      left. Guarded by tests/test_always_loaded_mesh_steers.py. -->
 
+## EFFORT AND DELEGATION
+
+**Scale ceremony to the work.** Nothing here maps task size to transaction weight,
+so the default drifts to full ceremony for everything — and a PREFLIGHT whose
+reasoning is thinner than the task deserves is the same defect as a rubber-stamp
+CHECK, one phase earlier.
+
+| Work | Shape |
+|---|---|
+| A one-line fix, a typo, a config value | No transaction. Just do it. |
+| A contained change you are already grounded in | PREFLIGHT with `claims` → praxic → POSTFLIGHT. **No CHECK** |
+| Multi-file, or you must investigate first | Full loop, CHECK carrying the 2–3 claims the work rests on |
+| Spans 3+ files, 2+ goals, or several noetic→praxic cycles | Load `/epistemic-transaction` and plan it |
+
+`work_type` already says how much the evidence layer can see; let it also inform
+how much ceremony is worth. `release` and `remote-ops` are largely unobservable
+locally, so elaborate self-assessment buys little. `code` and `debug` are where
+grounding actually bites.
+
+**Delegate freely, verify always.** Subagents are cheap and you should use them for
+fan-out — but a subagent's "all green" is an **uncalibrated self-report**. Trust its
+artifacts (diffs, test output you can re-run), never its verdict; re-run the gates
+yourself.
+
+Two things about them that are not obvious:
+
+- **A subagent's epistemic state does not persist into the practice.** Anything it
+  learned that outlives the task is yours to log, or it is simply lost.
+- **`fork` inherits your full conversation context; a fresh agent does not.** Fork
+  when it needs what you know *now*; enrich the prompt (`/dispatch-agent`) when it
+  needs what the practice learned *before this session*.
+
+Their tool calls count toward your transaction, and they bypass your Sentinel
+gates — so a subagent cannot launder a praxic action past a CHECK you have not
+submitted.
+
+---
+
 ## PROACTIVE BEHAVIORS
 
 - Log findings as you discover them, not in batches

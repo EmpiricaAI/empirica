@@ -334,3 +334,38 @@ def test_no_skill_prescribes_canned_vector_values():
         f"these skills prescribe canned vector values: {offenders}. "
         "Print the payload shape; let the practitioner supply their own assessment."
     )
+
+
+def test_effort_and_delegation_guidance_exists():
+    """The audit's item 6: the stack was near-silent on both, and both are things
+    Claude-5-generation models do differently.
+
+    Before this there was ONE mention of subagents in the whole always-loaded
+    layer, and it was a definition. Nothing mapped task size to transaction weight,
+    so the default drifts to full ceremony for everything — and a PREFLIGHT whose
+    reasoning is thinner than the task deserves is a rubber-stamp CHECK one phase
+    earlier.
+    """
+    section = _template().split("## EFFORT AND DELEGATION", 1)
+    assert len(section) == 2, "the effort/delegation section is gone"
+    body = section[1].split("\n## ", 1)[0].lower()
+
+    # Ceremony scaling must name the no-CHECK route — it is the one practitioners
+    # skip, and skipping it correctly is the point.
+    assert "no check" in body
+
+    # Delegation must carry the verify rule, not just permission to delegate.
+    assert "self-report" in body or "verify" in body
+    assert "fork" in body, "fork-vs-fresh is the routing decision, not an aside"
+    assert "does not persist" in body, "an unlogged subagent discovery is lost — say so"
+
+
+def test_effort_guidance_does_not_restate_the_harness():
+    """Anthropic's harness already carries act-when-ready, brevity and autonomy.
+    Duplicating them here is the same repetition defect one layer up — against the
+    harness instead of against another file in this stack.
+    """
+    body = _template().split("## EFFORT AND DELEGATION", 1)[1].split("\n## ", 1)[0].lower()
+
+    for harness_owned in ("be concise", "act when ready", "lead with the outcome"):
+        assert harness_owned not in body, f"'{harness_owned}' is the harness's job, not ours"
