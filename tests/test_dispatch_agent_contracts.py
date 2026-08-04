@@ -125,3 +125,36 @@ def test_the_trigger_surface_is_intact():
     body = desc.group(1).lower()
     for cue in ("dispatch", "agent", "context"):
         assert cue in body, f"trigger cue '{cue}' removed"
+
+
+def test_the_whole_graph_is_passed_not_a_curated_subset():
+    """David: the subagent should get the knowledge graph for the work — all
+    relevant artifacts, not a hand-picked few types.
+
+    The first rewrite enumerated dead_end/finding/decision/mistake and added
+    bespoke selection rules. That silently dropped **unknowns and assumptions** —
+    the two types that tell a subagent what is genuinely undecided and what is
+    being taken on faith. Dropping them is how a subagent confidently builds on
+    something nobody verified.
+
+    The fix reuses what PREFLIGHT and the post-compact hook already inject rather
+    than assembling a parallel pipeline.
+    """
+    text = _skill()
+
+    assert "bootstrap-context" in text, "must reuse the existing cross-type retrieval"
+    for kind in ("unknown", "assumption"):
+        assert kind in text.lower(), f"'{kind}' must reach the subagent — it is what is NOT settled"
+
+    assert "edge" in text.lower() or "connect" in text.lower(), "the edges are most of the graph's value"
+
+
+def test_no_type_filtering_or_similarity_cutoff_returns():
+    """Both are the curation instinct, and both silently narrow the graph."""
+    text = _skill()
+
+    assert not re.search(r"similarity\s*[>≥]\s*0\.\d", text)
+    # Whitespace-normalised: the source is line-wrapped, so a literal match on the
+    # phrase is brittle in a way that has nothing to do with the guarantee.
+    flat = " ".join(text.split()).lower()
+    assert "do not filter by type" in flat

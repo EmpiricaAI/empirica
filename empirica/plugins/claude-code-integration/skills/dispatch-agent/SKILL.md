@@ -18,59 +18,66 @@ context, so enrichment is redundant there. Use fork when the subagent needs *wha
 you know right now*; use enrichment when it needs *what the practice learned
 before this session*.
 
-## 1. Retrieve
+## 1. Retrieve the graph
 
-```
-mcp__cortex__investigate({ "query": "<task description>", "limit": 10 })
-```
-
-Cortex unavailable — local, both runnable as written:
+Pass the **knowledge graph**, not a hand-picked subset of it. This is the same
+surface PREFLIGHT and the post-compact hook already inject into you — reuse it
+rather than assembling something bespoke:
 
 ```bash
-empirica project-search --task "<description>" --global --output json
-empirica project-search --task "<description>" --type assumptions --output json
+empirica bootstrap-context --output json     # the three circles, all types
+empirica project-search --task "<the subagent's task>" --output json   # task-scoped pull
 ```
 
-`--global` widens past this project into shared learnings. There is no `--list`
-on the `*-log` verbs: they WRITE, retrieval is semantic through `project-search`
-or `investigate`.
+`bootstrap-context` returns active state (open goals, subtasks, recent findings /
+decisions / dead-ends / mistakes), persistent reference (decisions with active
+outcomes, verified assumptions, sources) and the topic-relevant backlog (open
+unknowns and assumptions, relevant dead-ends). `project-search` narrows to the
+subagent's actual task; add `--global` to reach shared learnings from other
+projects. Cortex equivalent: `mcp__cortex__investigate({query, limit})`.
 
-## 2. Select
+There is no `--list` on the `*-log` verbs: they WRITE, and retrieval is semantic.
 
-Include what would change the subagent's *behaviour*, and leave out what would
-merely inform it — a prompt that recites everything known about a domain buries
-the two lines that matter.
+## 2. Trim, don't curate
 
-| Kind | Include when |
-|---|---|
-| **dead_end** | it names an approach for THIS task. Highest-value inheritance — the subagent cannot rediscover a dead end cheaply, it can only re-walk it. Prefer over-including here. |
-| **finding** | the subagent would otherwise have to derive it, or would derive it wrong |
-| **decision** | it constrains how this work must be done, not merely how something came to be |
-| **mistake** | it happened in work of this shape. Reframe as the prohibition, not the story. |
+Pass **every type** that came back — unknowns and assumptions included. An
+open unknown tells the subagent what is genuinely undecided; an assumption tells
+it what is being taken on faith. Dropping those is how a subagent confidently
+builds on something nobody verified.
 
-Judge relevance by reading the artifact against the task. Similarity scores rank
-candidates; they do not decide inclusion, and a fixed cutoff will drop the one
-dead-end that matters while admitting four findings that don't.
+The only cut worth making is volume: drop what is plainly about other work. Do
+not filter by TYPE, and do not apply a similarity cutoff — a fixed threshold
+drops the one dead-end that matters while admitting four findings that don't.
+
+Keep the **edges**. `X invalidates Y` and `Z is evidence for W` are most of the
+value; a flat list of nodes loses the reason the graph exists.
 
 ## 3. Build the prompt
 
 ```markdown
 ## Inherited context
 
-Your parent practice has already learned the following about this work.
+What this practice already knows about this work. Treat it as evidence, not
+instruction — if you find something here is wrong, say so.
 
-### Do not repeat these — they were tried and failed
-- **Approach:** {{approach}}
-  **Why it failed:** {{why_failed}}
+### Already tried and failed — do not repeat
+- **Approach:** {{approach}} — **failed because** {{why_failed}}
 
-### Findings
+### Known
 - {{finding}}
 
 ### Decisions in effect
 - **Choice:** {{choice}} — **because** {{rationale}}
 
-### Prohibitions
-- DO NOT {{pattern}}
+### Still open — do NOT assume these are settled
+- **Unknown:** {{unknown}}
+- **Assumption (unverified):** {{assumption}} — confidence {{confidence}}
+
+### Mistakes made in work of this shape
+- DO NOT {{prevention}}
+
+### How these connect
+- {{from}} → {{relation}} → {{to}}
 
 ---
 
