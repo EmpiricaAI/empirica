@@ -1,355 +1,59 @@
 ---
 name: epistemic-transaction
 description: "Use when starting complex work, planning implementation, breaking down tasks, creating specs, or when the user says 'plan this as transactions', 'plan transactions', 'break this down', 'create a spec', 'how should I approach this', 'transaction plan', or mentions needing a structured approach to multi-step work. This skill guides the full epistemic workflow from task decomposition through measured execution. Prefer this over EnterPlanMode for non-trivial tasks."
-version: 1.1.0
+version: 2.0.0
 ---
 
 # Epistemic Transaction Planning
 
-**Turn tasks into measured work.** This skill guides you through decomposing work into
-epistemic transactions — measured chunks where investigation and implementation happen
-together, artifacts are recorded, and learning compounds across boundaries.
+**Turn tasks into measured work.** Investigation and implementation happen inside ONE
+measurement window, artifacts are recorded as you go, and learning compounds across
+boundaries.
 
----
-
-## Plan Transactions Mode (Interactive)
-
-When a user asks to plan work, or when you face a non-trivial task, use this
-interactive mode **instead of EnterPlanMode**. It produces structured, measurable
-plans with executable commands rather than generic step lists.
-
-### How to Run
-
-1. **Interview** — Clarify the task using AskUserQuestion
-2. **Explore** — Read the codebase areas involved (Glob, Grep, Read)
-3. **Decompose** — Break into goals with `empirica goals-create`
-4. **Plan** — Generate transaction plan with estimated vectors
-5. **Output** — Present as structured plan with executable commands
-
-### Step P1: Interview the Task
-
-Use AskUserQuestion to clarify before decomposing. Key questions:
-
-| What to Ask | Why |
-|-------------|-----|
-| What is the end state? | Defines completion criteria |
-| What constraints exist? | Bounds the solution space |
-| Are there dependencies on other work? | Orders transactions |
-| What areas of the codebase are involved? | Scopes investigation |
-| What's the risk tolerance? | Determines noetic depth |
-
-Don't over-interview. 2-3 focused questions max. If the task is clear, skip to P2.
-
-### Step P2: Explore and Log
-
-Use read-only tools to explore. **Log everything you find:**
-
-```bash
-# What you discover
-empirica finding-log --finding "Auth module uses middleware pattern at routes/auth.py" --impact 0.5
-
-# What you don't know
-empirica unknown-log --unknown "How does the session store handle concurrent access?"
-
-# What you're assuming
-empirica assumption-log --assumption "Database migrations run automatically" --confidence 0.6 --domain infrastructure
+```
+PREFLIGHT → [noetic: investigate] → CHECK → [praxic: implement] → POSTFLIGHT
 ```
 
-### Step P3: Decompose into Goals (and tasks)
+Use this instead of EnterPlanMode for non-trivial work.
 
-A **goal** is one coherent deliverable. **Tasks** are the AI-tracked
-units of work *inside* a goal — distinct steps that each end in a
-commit / test result / verifiable evidence.
+## Plan before you open
 
-The structural shape (Linear / GitHub / Jira convention):
-- `objective` is title-shaped (≤256 chars). Short, actionable.
-- `description` is the rich body (≤8000 chars, optional). Context,
-  motivation, success criteria, links.
+Decompose FIRST. A task added after the work is done is a self-graded checkbox, not a
+tracked unit.
 
 ```bash
-# Title-only goal — fine for small scope
-empirica goals-create --objective "Implement auth middleware"
-
-# Goal with rich description — when the why matters or success
-# criteria need to be explicit
-empirica goals-create \
-  --objective "Implement auth middleware" \
-  --description "Routes need JWT-based auth. Out-of-scope: session
-storage (separate goal). Success: all routes except /health
-require valid JWT, role-based guards work, unit tests pass.
-References: RFC 7519, prior decision deead8f2 on bcrypt."
-
-# Decompose into tasks — one per distinct unit of AI work
-empirica goals-add-task --goal-id <ID> --description "Read existing middleware chain"
-empirica goals-add-task --goal-id <ID> --description "Implement JWT validation middleware"
-empirica goals-add-task --goal-id <ID> --description "Add role-based guards"
-empirica goals-add-task --goal-id <ID> --description "Write unit tests + commit"
+empirica goals-create --objective "<title, ≤256>" --description "<markdown body>"
+empirica goals-add-task --goal-id <ID> --description "<one unit of work>"
+empirica goals-complete-task --task-id <ID> --evidence "commit abc123, tests pass"
 ```
 
-**When to decompose into tasks (vs single-shot goal):**
-- Multi-file work → one task per file or logical unit
-- Investigation followed by implementation → one task per phase
-- Anything that will produce ≥2 commits → tasks make per-commit
-  evidence linkage explicit
-- Anything you'd otherwise track in a TodoWrite — log as tasks
-  instead so the work is grounded against calibration
+`--description` is the rich body (≤8000 chars, markdown — the extension renders it).
+Use it for anything substantive: why this exists, success criteria, links. Title-only
+goals are for genuinely trivial work.
 
-**As you complete each task, close it with evidence:**
+`--evidence` is what makes a task **grounded** rather than self-reported. Tie it to a
+commit SHA, a test result, a file path — something deterministic.
 
-```bash
-empirica goals-complete-task \
-  --task-id <ID> \
-  --evidence "Commit abc1234: JWT validation middleware + unit tests passing"
-```
+**Decompose into tasks when** the work spans several files, investigation precedes
+implementation, or it will produce ≥2 commits. Anything you would otherwise track in
+a TodoWrite belongs here instead, where calibration can see it.
 
-The `--evidence` field is what makes tasks *grounded* AI work
-rather than self-reported progress. Tie it to a commit SHA, test
-result, or file path — something deterministic that grounded
-calibration can verify.
-
-**Planned vs in-progress goals:**
+Lifecycle verbs, all reversible — a mis-close is recoverable, so you need not be
+perfect at the completion boundary:
 
 ```bash
-# Logged but not yet started (collaborative planning, queue work)
-empirica goals-create --objective "Future: refactor X" --status planned
-
-# Active immediately (default — start work now)
-empirica goals-create --objective "Implement X"
-```
-
-**Reversible close + archive (goal hygiene):**
-
-```bash
-# Undo an accidental or premature completion — flip completed → in_progress
+empirica goals-create --objective "Future: X" --status planned   # queued, not started
 empirica goals-reopen --goal-id <ID> --reason "scope wasn't actually done"
-
-# Archive old completed goals so the completed list stays signal-dense
-empirica goals-archive --older-than 30          # dry-run preview
-empirica goals-archive --older-than 30 --apply  # actually archive
-
-# Archived goals are hidden by default — surface them when needed
+empirica goals-archive --older-than 30 --apply    # dry-run without --apply
 empirica goals-list --status completed --include-archived
 ```
 
-`goals-complete` is **reversible**: `goals-reopen` flips a completed goal back to
-`in_progress` (and un-archives it), so a mis-close is recoverable — you don't have
-to be perfect at the completion boundary. `goals-archive` retires stale completed
-goals (older than N days, dry-run by default) so a long-running project's
-`goals-list` doesn't drown in ancient closed work; archived goals drop out of the
-completed view unless `--include-archived`.
+Add `--project-id <name-or-uuid>` to log against a different project.
 
-**Cross-project goals:** add `--project-id <name-or-uuid>` to log against
-a different project's epistemic state without switching session context.
+**Sizing:** bug fix or single function → 1 transaction. Feature across 2–3 files →
+1–2. Cross-cutting concern → 2–3. "Redesign the system" → split further.
 
-### Step P4: Generate Transaction Plan
-
-For each goal, estimate the noetic-praxic loop:
-
-```yaml
-# Transaction Plan: [Task Name]
-# Generated: [timestamp]
-# Goals: [count]
-
-transactions:
-  - id: 1
-    goal: "Goal A description"
-    goal_id: "<from goals-create>"
-    noetic:
-      investigate:
-        - "Read module X to understand pattern"
-        - "Check if Y exists"
-    check_gate: "Understand X pattern and know where to make changes"
-    praxic:
-      implement:
-        - "Write implementation"
-        - "Add unit tests"
-        - "Commit"
-    depends_on: []
-
-  - id: 2
-    goal: "Goal B description"
-    goal_id: "<from goals-create>"
-    noetic:
-      investigate:
-        - "Review output from T1"
-    check_gate: "Know integration points from T1 findings"
-    praxic:
-      implement:
-        - "Build on T1's work"
-        - "Integration test"
-        - "Commit"
-    depends_on: [1]
-```
-
-### Step P5: Present and Execute
-
-Present the plan to the user for approval. Once approved:
-- Start Transaction 1 with PREFLIGHT using the estimated vectors
-- Follow the noetic-praxic loop per transaction
-- POSTFLIGHT at the end of each transaction
-- Adjust subsequent transactions based on learnings
-
-**Key principle:** The plan is a starting estimate, not a contract.
-Vectors will shift as you learn. That's the point — measuring the delta
-between estimated and actual is what builds calibration.
-
----
-
-## Reference Guide
-
-The sections below are the full reference for epistemic transactions.
-Use them during execution, not just planning.
-
----
-
-## When to Use This Skill
-
-- Starting a complex task (3+ files, multiple concerns)
-- User provides a spec, ticket, or feature description
-- You need to plan before acting
-- Work will span multiple transactions or sessions
-- You want to ensure nothing falls through the cracks
-
----
-
-## Step 1: Understand the Task
-
-Before creating any goals or transactions, assess what you're working with.
-
-**Read the spec/task/request.** Then ask yourself:
-
-| Question | If Yes | If No |
-|----------|--------|-------|
-| Do I understand what's being asked? | Move to Step 2 | Log unknowns, investigate |
-| Do I know the codebase areas involved? | Move to Step 2 | Read code, log findings |
-| Are there architectural decisions needed? | Log assumptions, investigate options | Move to Step 2 |
-| Is this a single coherent change? | Single transaction, skip to Step 3 | Decompose into goals |
-
-```bash
-# Log what you don't know yet
-empirica unknown-log --unknown "How does the auth middleware chain work?"
-empirica unknown-log --unknown "What's the expected behavior when X?"
-
-# Log assumptions you're making
-empirica assumption-log --assumption "The API is RESTful" --confidence 0.7 --domain architecture
-```
-
----
-
-## Step 2: Decompose into Goals
-
-Each goal = one coherent piece of work. Goals are structural (what needs doing),
-transactions are measurement windows (how you track doing it).
-
-**Decomposition heuristics:**
-
-| Signal | Goal Boundary |
-|--------|---------------|
-| Different files/modules | Separate goals |
-| Different concerns (UI vs API vs DB) | Separate goals |
-| Dependency chain (B needs A) | Separate goals, ordered |
-| Single atomic change | One goal |
-| Tests for implementation | Same goal as implementation |
-
-```bash
-# Create goals from decomposition
-empirica goals-create --objective "Implement authentication middleware"
-empirica goals-create --objective "Add user session management"
-empirica goals-create --objective "Write integration tests for auth flow"
-```
-
-**Goal sizing guidance:**
-
-| Size | Description | Transactions |
-|------|-------------|--------------|
-| Small | Bug fix, config change, single function | 1 |
-| Medium | Feature with 2-3 files, schema + UI | 1-2 |
-| Large | Cross-cutting concern, multiple modules | 2-3 |
-| Too large | "Redesign the whole system" | Split further |
-
----
-
-## Step 3: Plan Transaction Sequence
-
-Each transaction picks up one goal (or a coherent subset) and runs the full
-noetic-praxic loop. Plan the sequence based on dependencies and information flow.
-
-### Transaction Template
-
-```
-Transaction N: [Goal Name]
-  PREFLIGHT: Declare scope, assess baseline
-    Noetic: [what to investigate]
-    - Read relevant code
-    - Check for existing patterns
-    - Log findings, unknowns, dead-ends
-  CHECK: Gate readiness
-    - know >= threshold (holistic)
-    - Key unknowns resolved
-  Praxic: [what to implement]
-    - Write code
-    - Run tests
-    - Commit
-  POSTFLIGHT: Measure learning
-    Artifacts to resolve:
-    - Close goal if complete
-    - Resolve unknowns answered during work
-    - Convert verified assumptions to decisions/findings
-```
-
-### Example: 3-Transaction Plan
-
-```
-Session Start
-  Create goals: A (auth middleware), B (session mgmt), C (integration tests)
-
-Transaction 1: Goal A — Auth Middleware
-  PREFLIGHT: scope = auth middleware, know ~0.5, uncertainty ~0.4
-  Noetic:
-    - Read existing middleware chain
-    - Check how routes are protected
-    - Log finding: "Express middleware uses next() pattern"
-    - Log unknown: "How are roles differentiated?"
-    - Resolve unknown → finding: "Roles in JWT claims"
-  CHECK: know ~0.8, uncertainty ~0.15 → proceed
-  Praxic:
-    - Implement auth middleware
-    - Add role-based guards
-    - Write unit tests
-    - Commit: "feat(auth): add JWT middleware with role guards"
-  POSTFLIGHT: know 0.9, completion 1.0
-    Close Goal A, resolve unknowns
-
-Transaction 2: Goal B — Session Management (informed by T1's findings)
-  PREFLIGHT: know ~0.7 (JWT patterns from T1), uncertainty ~0.25
-  Noetic:
-    - Read session store options
-    - Check token refresh patterns
-    - Log assumption: "Redis available for session store" --confidence 0.6
-  CHECK: → proceed
-  Praxic:
-    - Implement session creation/refresh/revoke
-    - Decision: "Use httpOnly cookies for refresh tokens"
-    - Commit: "feat(auth): add session management with token refresh"
-  POSTFLIGHT: Close Goal B
-
-Transaction 3: Goal C — Integration Tests
-  PREFLIGHT: know ~0.85 (deep understanding from T1+T2)
-  Noetic: Quick review of test patterns
-  CHECK: → proceed
-  Praxic:
-    - Write integration tests covering auth + sessions
-    - Commit: "test(auth): add integration tests for full auth flow"
-  POSTFLIGHT: Close Goal C, session complete
-```
-
----
-
-## Step 4: Execute Each Transaction
-
-Within each transaction, follow the noetic-praxic loop:
-
-### 4a. PREFLIGHT — Open the Measurement Window
+## PREFLIGHT — open the window
 
 ```bash
 empirica preflight-submit - << 'EOF'
@@ -374,51 +78,51 @@ empirica preflight-submit - << 'EOF'
 EOF
 ```
 
-**Context fields (optional, improve grounded calibration):**
-- `work_type`: `code|infra|research|release|debug|config|docs|data|comms|design|audit|remote-ops` — scales evidence weights by source relevance. Use `remote-ops` for work the local Sentinel doesn't observe (SSH, customer machines, remote config); the POSTFLIGHT will return `calibration_status=ungrounded_remote_ops` and self-assessment will stand unchallenged.
-- `work_context`: `greenfield|iteration|investigation|refactor` — adjusts normalization baselines for project maturity
+- `work_type`: `code|infra|research|release|debug|config|docs|data|comms|design|audit|remote-ops`
+  — scales evidence weights by source relevance. Use `remote-ops` for work the local
+  Sentinel cannot observe (SSH, customer machines, remote config); POSTFLIGHT then
+  returns `calibration_status=ungrounded_remote_ops` and self-assessment stands
+  unchallenged.
+- `work_context`: `greenfield|iteration|investigation|refactor` — adjusts
+  normalization baselines for project maturity.
 
-**PREFLIGHT declares scope.** If scope creeps during work, that's a signal to
-POSTFLIGHT and start a new transaction.
+**PREFLIGHT declares scope.** If scope creeps, that is the signal to POSTFLIGHT and
+open a new transaction — not to quietly widen this one.
 
-### 4b. Noetic Phase — Investigate
+**If you were already grounded before opening** — you read the files first, which is
+the normal order — declare `claims` here with grounding `read` or `ran`. One such
+claim certifies the transaction and praxic proceeds with **no CHECK at all**. That is
+the correct path, not a shortcut.
 
-**Use `noetic_batch` ONLY when batching ≥3 investigation operations.**
-When a transaction's investigation needs reads + greps + globs + investigate
-together, bundle them in one call — the value is one merged result for your
-conversation and fewer round-trips, not a gating shortcut. Individual
-Read/Grep/Glob/investigate calls are noetic in any phase and don't need
-batching. **NOT a Sentinel bypass** — calling `noetic_batch` once for a
-single read is misuse (the executor will surface a `warning` field in
-the response).
+## Noetic phase — investigate
+
+Noetic work is ungated. Read, search and retrieve freely; individual Read / Grep /
+Glob / investigate calls need no batching.
+
+**Batch when you have ≥3 operations** — the value is one merged result and fewer
+round-trips. It is NOT a Sentinel bypass, and calling it for a single read is misuse
+(the executor returns a `warning` field).
 
 ```bash
 empirica noetic-batch - << 'EOF'
 {
   "intent": "understand auth middleware chain",
   "reads": [{"path": "src/auth.py"}, {"path": "src/middleware.py"}],
-  "greps": [
-    {"pattern": "decorator", "glob": "src/**/*.py", "context": 2},
-    {"pattern": "Bearer", "glob": "src/**/*.py"}
-  ],
+  "greps": [{"pattern": "decorator", "glob": "src/**/*.py", "context": 2}],
   "globs": ["src/**/*auth*", "tests/**/*auth*"],
   "investigate": [{"query": "auth middleware patterns", "scope": "project"}]
 }
 EOF
 ```
 
-(Or via MCP: `mcp__empirica__noetic_batch` with the same JSON payload.)
+(MCP: `mcp__empirica__noetic_batch`, same payload.)
 
-Fall back to individual Read/Grep/Glob for one-shot lookups after a batch
-surfaces something you need to drill into.
+### Log as a graph, and type it by the question it answers
 
-Read code. Search patterns. Build understanding. **Log as you go — as a graph.**
-
-Pick the type by the QUESTION it answers, not by convenience. A bug you found in
-the code is a `finding`; *you* shipping it is a `mistake`. Something you have not
-verified is an `assumption`; something you know you don't know is an `unknown`.
-Defaulting everything to `finding` is the most common way this layer degrades —
-see `/empirica-constitution` §III-b.
+A bug you found in the code is a `finding`; *you* shipping it is a `mistake`.
+Something you have not verified is an `assumption`; something you know you don't know
+is an `unknown`. Defaulting everything to `finding` is the most common way this layer
+degrades — `/empirica-constitution` §III-b has the full table.
 
 ```bash
 empirica log-artifacts - << 'EOF'
@@ -443,135 +147,46 @@ empirica log-artifacts - << 'EOF'
 EOF
 ```
 
-**The last edge is the one that matters most.** Edges to artifacts from EARLIER
-transactions are what make this a graph rather than one disconnected island per
-transaction. If every edge you write connects two nodes you just created, you are
-accumulating orphans — measured on this practice, 9 of 25 findings in a day had
-any edge at all.
+Structural artifact→goal edges are written for you. Assert the SEMANTIC ones:
+`evidence`, `grounded_by`, `caused_by`, `invalidates`, `resolves`, `sourced_from`.
+Most edges should reach artifacts from EARLIER transactions — if every edge joins two
+nodes you just created, you are building disconnected islands.
 
-Prefer meaningful relations (`evidence`, `grounded_by`, `caused_by`,
-`invalidates`, `resolves`, `sourced_from`) over `related`, which asserts almost
-nothing.
+Single verbs remain right for one genuinely standalone artifact:
 
-Single `*-log` verbs are still correct for one genuinely standalone artifact —
-the exception, not the habit.
-
-#### Rich markdown bodies — `--description` for nuance
-
-Every `*-log` command (finding, unknown, deadend, assumption, decision,
-mistake) accepts an optional `--description` flag carrying a **markdown
-body**. The extension and skill surfaces render this as prettified
-markdown — use sections, lists, code blocks, tables, links for nuance
-that doesn't fit the short title field.
-
-Three shape examples (no rigid template — pick what the artifact
-warrants):
-
-**1. Prose body** — short context behind a finding:
 ```bash
-empirica finding-log \
-  --finding "Express 5 changed middleware signature to async" \
-  --description "Caught during the auth middleware port: synchronous \`next()\` callbacks now resolve as awaited promises, so error handlers must \`return next(err)\` instead of fire-and-forget. The legacy middleware in routes/auth.js silently swallowed errors because the old signature didn't propagate them. Documented in [Express 5 migration guide](https://expressjs.com/en/guide/migrating-5.html)." \
-  --impact 0.7
+empirica finding-log --finding "..." --impact 0.5 --description "<markdown>"
+empirica unknown-log --unknown "..."          # and RESOLVE it when answered
+empirica assumption-log --assumption "..." --confidence 0.6 --domain infrastructure
+empirica deadend-log --approach "..." --why-failed "..."
+empirica decision-log --choice "..." --rationale "..." --reversibility committal
+empirica mistake-log --mistake "..." --why-wrong "..." --prevention "..."
+empirica note "..." --tag followup            # scratchpad; triaged at POSTFLIGHT
 ```
 
-**2. Sectioned body** — decision with trade-offs:
-```bash
-empirica decision-log \
-  --choice "Use Redis for session store" \
-  --rationale "Available via docker-compose, supports TTL primitives, matches our existing infra" \
-  --description "## Why Redis over alternatives
+Every `*-log` takes `--description` (markdown body), `--epistemic-source
+intuition|search|mixed`, and `--visibility local|shared|public`. Skip the body when
+the title tells the whole story — over-describing trivia is its own anti-pattern.
 
-| Option | Verdict |
-|---|---|
-| In-memory (Map) | ❌ scales to 1 process only |
-| Postgres | ❌ heavy for ephemeral key/value |
-| Redis | ✅ matches existing infra |
+`--reversibility` is `exploratory|committal|forced`. On `mistake-log`, `--prevention`
+is the load-bearing field: what future-you needs in order not to repeat it.
 
-## What would reverse this
-- Single-region deployment requirement (Redis Sentinel adds ops)
-- Sub-millisecond write needs (consider DragonflyDB)" \
-  --reversibility committal
-```
+### Sources
 
-**3. Code-block body** — dead-end with reproducible signal:
-```bash
-empirica deadend-log \
-  --approach "Tried passport.js for auth middleware" \
-  --why-failed "Too heavy for JWT-only auth" \
-  --description "## Signal: bundle bloat
-
-\`\`\`
-passport@0.7.0 + passport-jwt@4.0.1 + dependencies = +180KB
-in-house JWT verifier = ~30 lines, +2KB
-\`\`\`
-
-Passport's value is its strategy ecosystem (OAuth, SAML, etc.) — we're
-JWT-only so the abstraction was pure overhead. Reverted to a minimal
-\`verify-jwt.js\` middleware."
-```
-
-Skip the body entirely when the title alone tells the full story.
-Over-describing trivial artifacts is its own anti-pattern — let the
-nuance threshold be "would someone reading this in 3 months understand
-without the body?"
-
-#### Sources — log when an artifact's origin matters
-
-An **epistemic source** is the external thing your finding/decision came
-from: a doc, a URL, a paper, a transcript, a customer call, a GitHub
-issue. Sources are first-class artifacts (`source-add`) that other
-artifacts link to via the `sourced_from` relation in batch operations.
-
-**When to add a source:**
-
-- A finding came from reading a non-code reference (RFC, paper, blog,
-  spec, design doc) — log the source so future searches surface the
-  origin, not just the conclusion
-- A decision rests on an external authority (compliance doc, vendor
-  contract, security advisory) — the audit trail needs the link
-- A dead-end was learned the hard way from a community thread or
-  postmortem — others can find the warning back to its origin
-- You're working in **Claude Desktop or any non-CLI surface** where most
-  artifacts originate from web pages, conversations, attachments, or
-  manually-pasted text rather than code reads. In CLI mode, `git blame`
-  + `finding_refs` auto-extraction often covers source provenance for
-  free; in Desktop mode, explicit `source-add` is the only way to
-  preserve where ideas came from.
-
-**How:**
+Register an external origin when the artifact came from something `git blame` cannot
+reach — an RFC, a paper, a vendor advisory, a customer call. Essential in Claude
+Desktop and other non-CLI surfaces, where most artifacts originate outside the repo.
 
 ```bash
-# Standalone: log a source first
 empirica source-add --title "RFC 7519 — JSON Web Tokens" \
-  --url "https://datatracker.ietf.org/doc/html/rfc7519" \
-  --noetic --confidence 0.95
-# Returns: source_id (UUID)
-
-# Then link findings/decisions to it via batch graph:
-empirica log-artifacts - << 'EOF'
-{
-  "nodes": [
-    {"ref": "f1", "type": "finding",
-     "data": {"finding": "JWTs are signed but not encrypted by default",
-              "impact": 0.7}},
-    {"ref": "d1", "type": "decision",
-     "data": {"choice": "Use JWE for sensitive payloads",
-              "rationale": "Default JWS leaks contents at rest"}}
-  ],
-  "edges": [
-    {"from": "f1", "to": "<source_id_uuid>", "relation": "sourced_from"},
-    {"from": "d1", "to": "f1", "relation": "evidence"}
-  ]
-}
-EOF
+  --url "https://datatracker.ietf.org/doc/html/rfc7519" --noetic --confidence 0.95
+# → source_id, then link it via "sourced_from" in log-artifacts
 ```
 
-**Skip when:** the source is the project's own code at the current HEAD —
-that provenance is already in git. Sources earn their keep when the
-origin is *outside* what `git blame` can reach.
+Skip it when the source is this repo at HEAD — git already holds that provenance.
+Use `--visibility shared` for anything peers should reference rather than re-derive.
 
-### 4c. CHECK — Gate the Transition
+## CHECK — gate the transition
 
 ```bash
 empirica check-submit - << 'EOF'
@@ -594,116 +209,43 @@ empirica check-submit - << 'EOF'
 EOF
 ```
 
-- `proceed` → Start writing code (praxic phase, **same transaction**)
-- `investigate` → Keep exploring (noetic phase, **same transaction**)
+`grounding`: **`read`** (opened the source) · **`ran`** (executed and observed — the
+strongest) · **`retrieved`** (from our OWN prior artifact — testimony, not
+observation) · **`assumed`** (acting without checking).
 
-**CHECK does NOT end the transaction.** It gates the transition.
+`retrieved` counts as weak deliberately. Our artifacts were true when written and age
+like any other prior; the same artifact can be solid grounding for one claim and stale
+for another, which is why the label belongs to the claim rather than the artifact.
 
-#### Already grounded? Declare at PREFLIGHT and skip CHECK
+Decision: `proceed` → write code (praxic, **same transaction**) · `investigate` →
+keep exploring (noetic, **same transaction**). **CHECK does not end the transaction.**
 
-Noetic work is **ungated**, so reading the files *before* opening the window is the
-normal order — not a shortcut. When that's what happened, say so in PREFLIGHT:
+**CHECK certifies; it does not unlock.** Name the 2–3 claims the praxic work actually
+rests on. An empty CHECK is worse than none — it looks like diligence and carries
+nothing. Measured on one practice: 47% of 728 CHECKs arrived within 30 seconds of
+their PREFLIGHT.
 
-```bash
-empirica preflight-submit - << 'EOF'
-{
-  "vectors": {"know": 0.85, "uncertainty": 0.15},
-  "task_context": "...",
-  "claims": [
-    {"claim": "roles live in JWT claims, not the session store",
-     "grounding": "read", "ref": "src/auth/jwt.py:40-58"},
-    {"claim": "auth middleware runs before the route handler",
-     "grounding": "ran", "ref": "curl -H 'Authorization: ...' /health → 401 before handler log"}
-  ]
-}
-EOF
-```
+## Praxic phase — implement
 
-**One claim grounded by `read` or `ran` certifies the transaction** — praxic
-proceeds with no CHECK at all, and the response tells you so. `retrieved` and
-`assumed` do *not* certify: our own prior artifacts are testimony rather than
-observation, and `assumed` is by definition the absence of grounding.
+Write code. **Commit per completed task**, not batched at the end — uncommitted work
+is invisible to grounded calibration. Keep logging: discoveries during implementation
+are findings, choices are decisions, and an approach that failed is a dead end even
+when the next one works.
 
-This is why skipping is not a shortcut. **You don't skip by asserting confidence —
-you skip by naming what you rely on and how you know it.** That's a positive,
-recorded act; an omission would be filing nothing.
+## POSTFLIGHT — close the window
 
-Use CHECK when you genuinely still need to investigate. Use this when you don't.
-Filing an empty CHECK to "do the process" is the one option that helps nobody:
-measured across one practice, **47% of 728 CHECKs arrived within 30 seconds of
-their PREFLIGHT.**
+**Before closing**, in this order:
 
-#### Declare the 2–3 claims the work rests on
-
-`know` is **one number over many beliefs**. An honest `know=0.82` can be eleven
-well-grounded claims plus one guess — and the average hides the guess, which is
-the one that breaks. Naming them keeps the outlier visible.
-
-| grounding | means |
-|---|---|
-| `ran` | executed something and observed the result — strongest |
-| `read` | opened the source and saw it |
-| `retrieved` | came from **our own** prior artifact/decision/note — *testimony, not observation*: true when written, ageing like any prior |
-| `assumed` | acting on it without checking — the honest label for a guess |
-
-CHECK echoes back how many are weakly grounded **while you can still act on it**.
-Two of three resting on `assumed` is a reason to keep investigating — and it is
-invisible in an averaged `know`.
-
-Don't inflate the list. Three real load-bearing claims beat ten decorative ones;
-the mechanism is worthless if the claim that actually breaks isn't among them.
-
-### 4d. Praxic Phase — Implement
-
-Write code. Run tests. Commit. **Still log artifacts:**
-
-```bash
-# Discoveries during implementation
-empirica finding-log --finding "Express 5 changed middleware signature to async" --impact 0.6
-
-# Decisions made while coding
-empirica decision-log --choice "Use middleware factory pattern" \
-  --rationale "Enables per-route config without duplication" \
-  --reversibility exploratory
-```
-
-### 4e. POSTFLIGHT — Close the Measurement Window
-
-**BEFORE running POSTFLIGHT, always:**
-1. Log all remaining epistemic artifacts (findings, unknowns, decisions, dead-ends, mistakes)
-2. Resolve any unknowns that were answered during the transaction
-3. **Correct what this transaction proved WRONG** — a prior finding the work disproved is
-   `finding-resolve <id> --kind retracted`, not something to leave for a gardening pass.
-   You have the evidence *now*; a later sweep will only have the age.
-4. Complete any goals that were finished
-5. **Adjudicate the claims you declared at CHECK** (see below)
-6. Ask the user: "Any artifacts to log before I close the transaction?"
-
-#### Adjudicate the claims — `held` · `refuted` · `untested`
-
-```bash
-empirica postflight-submit - << 'EOF'
-{
-  "vectors": {"...": "..."},
-  "reasoning": "...",
-  "claims": [
-    {"index": 1, "verdict": "held",     "evidence": "middleware tests pass against real JWTs"},
-    {"index": 2, "verdict": "refuted",  "evidence": "auth runs AFTER the logger, not before"}
-  ]
-}
-EOF
-```
-
-**Anything you don't adjudicate is recorded as `untested` and reported as a gap.**
-That is the feature, not a penalty — `refuted` is rare, `held` is cheap, and
-*"I acted on this and never checked it"* is the one state a single `know` cannot
-express. An untested claim is not a failure of the transaction; **hiding it would be.**
-
-A `refuted` claim usually means a prior artifact is now false too — that is the
-moment to `finding-resolve --kind retracted`, while you hold the evidence.
-
-POSTFLIGHT without artifact sweep = lost data. The measurement window closes
-and unlogged work becomes invisible to calibration. Always log first, then close.
+1. Log remaining artifacts — the window shuts here, and anything logged after is
+   invisible to calibration.
+2. Resolve unknowns the work answered.
+3. **Retract what this transaction proved WRONG** — `finding-resolve <id> --kind
+   retracted`. You hold the evidence *now*; a later gardening sweep will only have the
+   age. `stale` means it merely aged; `superseded --superseded-by <id>` means
+   something replaced it.
+4. Complete finished goals and tasks.
+5. Adjudicate the claims you declared.
+6. Ask the user whether anything else should be logged.
 
 ```bash
 empirica postflight-submit - << 'EOF'
@@ -714,15 +256,33 @@ empirica postflight-submit - << 'EOF'
     "context": 0.90, "clarity": 0.95,
     "completion": 1.0, "do": 0.90
   },
-  "reasoning": "Auth middleware implemented with role guards. Unit tests passing."
+  "reasoning": "Auth middleware implemented with role guards. Unit tests passing.",
+  "claims": [
+    {"index": 1, "verdict": "held",    "evidence": "middleware tests pass against real JWTs"},
+    {"index": 2, "verdict": "refuted", "evidence": "auth runs AFTER the logger, not before"}
+  ]
 }
 EOF
 ```
 
-### 4f. Compliance Loop — Domain Checklist (automatic)
+Verdicts: `held` · `refuted` · `untested`. Address a claim by `index` (1-based,
+declaration order) or `id`. The payload keys are `verdict` and `evidence` — `note` is
+accepted as an alias.
 
-After POSTFLIGHT, the compliance loop runs automatically when `domain` and
-`criticality` were set in PREFLIGHT. It checks the domain's required services:
+**Anything you don't adjudicate is recorded as `untested` and reported as a gap.**
+That is the feature, not a penalty. `refuted` is rare, `held` is cheap, and *"I acted
+on this and never checked it"* is the one state a single `know` score cannot express.
+An untested claim is not a failure of the transaction; **hiding it would be.**
+
+A `refuted` claim usually means a prior artifact is now false too — that is the moment
+to retract it, while you still hold the evidence.
+
+**POSTFLIGHT when:** a coherent chunk is complete, confidence shifts, context changes,
+scope creeps, or 10+ turns have passed without measurement.
+
+### Compliance loop
+
+Runs automatically when `domain` and `criticality` were set at PREFLIGHT:
 
 ```
 POSTFLIGHT response includes:
@@ -744,275 +304,75 @@ POSTFLIGHT response includes:
   }
 ```
 
-**Tiered execution:** Checks run at different points to manage resource cost:
-- **always** (every POSTFLIGHT): lint, complexity, git_metrics — ~5s, ~80MB
-- **goal_completion** (at goal close): tests — runs full pytest
-- **release** (pre-release only): dep_audit — pip-audit for CVEs
+Tiered by cost: lint, complexity and git_metrics run at every POSTFLIGHT (~5s, ~80MB);
+tests run at goal completion.
 
-**Cached results:** Same changed files = same content hash = cached result.
-The AI sees `"cached": true` and knows it wasn't a fresh run.
+## The rules that bind
 
-**Brier scoring:** If you stated check outcome beliefs in PREFLIGHT
-(`predicted_check_outcomes`), the compliance response includes a `check_brier`
-block measuring belief calibration. Only freshly-run checks count —
-deferred and cached are excluded.
+**Goal-per-transaction.** Every transaction links to a goal; multi-step requests
+decompose at PREFLIGHT.
 
-**Three-vector model:** After seeing compliance results, you can submit
-`grounded_vectors` + `grounded_rationale` in POSTFLIGHT to record your
-reasoned synthesis. Services inform; you synthesize.
+**Commit-per-task.** Not one batched commit at the end.
 
----
+**Artifact breadth.** A session logging 25 findings and zero unknowns or assumptions
+did not have zero uncertainty — it failed to type it. Reported uncertainty with no
+`unknown` or `assumption` behind it is an unsupported claim.
 
-## Step 5: Between Transactions — Artifact Review
+**Close before POSTFLIGHT.** The window shuts; late artifacts are invisible.
 
-At the start of each new transaction, review open artifacts. Resolve those
-that are completed or no longer pertinent. Where uncertainty is high about
-whether an artifact is still relevant, surface it collaboratively:
+**Never split noetic and praxic across transactions.** Investigating in one and
+implementing in another destroys the delta that IS the measurement — a PREFLIGHT that
+closes before acting has no outcome, and one that acts without a baseline has no
+start. It is the most common mistake and it looks tidy, which is why it persists.
 
-```bash
-# 1. Review what's open
-empirica goals-list
-empirica unknown-list
+**Keep the window holdable.** Five goals and fifteen files in one transaction makes
+the delta meaningless noise. One or two goals.
 
-# 2. Goals no longer needed → close with reason
-empirica goals-complete --goal-id <ID> --reason "Superseded by new approach"
+**Mirror tasks to Claude Code Tasks** on larger transactions so the user sees progress
+(`goals-add-task` → `TaskCreate`, `goals-complete-task` → `TaskUpdate`). Advisory —
+judge when visibility beats overhead.
 
-# 3. Verify/falsify assumptions
-# Confirmed assumption → finding
-empirica finding-log --finding "Confirmed: all routes except /health need auth" --impact 0.3
-# Falsified assumption → decision about what to do instead
-empirica decision-log --choice "Use Redis for sessions" --rationale "Confirmed Redis available via docker-compose"
-```
+**Mesh work:** ask when uncertain (`cortex_collab`, ungated), propose when convergent
+(ECO-gated), ack what you complete. Depth in `/cortex-mailbox-send`.
 
-**Why this matters:** Unresolved artifacts accumulate as noise. Each transaction's
-PREFLIGHT retrieves your prior artifacts via pattern matching — clean signal means
-better context for the next transaction.
-
----
-
-## Anti-Patterns
-
-### The Split-Brain (most common mistake)
-
-```
-WRONG:
-  PREFLIGHT → [noetic: investigate] → POSTFLIGHT    ← closes before acting!
-  PREFLIGHT → [praxic: implement] → POSTFLIGHT      ← acts without baseline!
-```
-
-Investigation and implementation belong in the **same transaction**. The
-PREFLIGHT-to-POSTFLIGHT delta should capture the full journey from "I don't
-know" to "I investigated, understood, and implemented."
-
-### The Mega-Transaction
-
-```
-WRONG:
-  PREFLIGHT → [5 goals, 15 files, 3 domains] → POSTFLIGHT
-```
-
-Too much in one measurement window. The delta becomes meaningless noise.
-Scope to what you can hold coherently — 1-2 goals per transaction.
-
-### The Rush-Through
-
-```
-WRONG:
-  PREFLIGHT → CHECK → POSTFLIGHT (no actual work between them)
-```
-
-Transactions need real noetic/praxic work. The system detects rushed
-transactions via minimum duration checks (30s noetic with evidence).
-
-### The Artifact Hoarder
-
-```
-WRONG:
-  Transaction 1: Log 5 unknowns
-  Transaction 2: Log 5 more unknowns (never resolve the first 5)
-  Transaction 3: Log 5 more unknowns (pile grows...)
-```
-
-Resolve artifacts between transactions. Unknowns become findings. Assumptions
-become decisions. Unresolved artifacts accumulate as noise — resolve what's
-answered, close what's no longer pertinent.
-
----
-
-## Transaction Discipline Rules
-
-These rules encode the working discipline that makes transactions meaningful.
-They are behavioral commitments, not code enforcement — internalize them.
-
-### Rule 1: Goal-per-Transaction
-
-Every transaction should reference an empirica goal. If the goal has distinct
-steps, create tasks to track them:
+## Between transactions
 
 ```bash
-# At PREFLIGHT, link to a goal
-empirica goals-create --objective "Implement X"  # if not already created
-empirica goals-add-task --goal-id <ID> --description "Read and understand module Y"
-empirica goals-add-task --goal-id <ID> --description "Write implementation"
-empirica goals-add-task --goal-id <ID> --description "Add tests"
-
-# For goals you want to log but not start yet:
-empirica goals-create --objective "Future: refactor Y" --status planned
+empirica goals-list                  # complete what's done
+empirica resolve-artifacts -         # batch: unknowns, assumptions, goals, findings
+empirica delete-artifacts -          # batch cleanup; preview by default, --apply to act
+empirica update-artifacts -          # METADATA only — impact, visibility, epistemic_source
 ```
 
-**Why:** Goalless transactions produce ungrounded completion vectors. The
-grounded calibration has nothing to measure your completion claims against.
-`planned` goals are visible in `goals-list` but excluded from measurement
-until moved to `in_progress`.
+Unresolved artifacts accumulate as noise, and PREFLIGHT retrieves your prior artifacts
+to build context — so a clean graph is directly better context for the next
+transaction.
 
-### Rule 2: Commit-per-Task
+**A wrong CLAIM takes `finding-resolve --kind retracted`; wrong METADATA takes
+`update-artifacts`.** Do not resolve a true finding to fix a number. Claim text is
+immutable by design — retraction preserves the original wording and records that it
+failed.
 
-Commit after each completed task or coherent work unit. Don't batch commits
-to the end of the transaction. Each commit should be meaningful and atomic.
+Measured on one practice: 1268 findings resolved, of which **1267 meant *stale* and 1
+meant *wrong***. A true error rate near zero across thousands of claims is not
+plausible; errors were simply not being expressed. A practice that cannot distinguish
+its ageing from its errors cannot calibrate on either.
 
-```
-WRONG: noetic → praxic → [edit 5 files] → one big commit → POSTFLIGHT
-RIGHT: noetic → praxic → [edit files A,B] → commit → [edit C] → commit → POSTFLIGHT
-```
-
-**Why:** Uncommitted work is invisible to grounded calibration. The `change`,
-`state`, and `do` vectors ground against git evidence. Late commits mean
-the POSTFLIGHT snapshot misses the learning trajectory.
-
-### Rule 3: Artifact Breadth
-
-Log the full breadth of epistemic artifacts — not just findings. Every
-transaction should capture what was relevant:
-
-| Happened | Log It |
-|----------|--------|
-| Made a choice between options | `decision-log` |
-| Assumed something unverified | `assumption-log` |
-| Tried something that didn't work | `deadend-log` |
-| Made an error | `mistake-log` |
-| Discovered something | `finding-log` |
-| Hit an open question | `unknown-log` |
-| Noticed something to revisit, but not worth a full artifact mid-flow | `note "..."` (scratchpad) |
-
-**Why:** Single-type artifact logging (only findings) leaves calibration
-gaps ungrounded. The retrospective breadth_note will flag this, but by then
-the measurement window is closing.
-
-**Scratchpad notes vs artifacts.** `empirica note "..."` is the low-friction
-middle ground between logging a full artifact (structured, embedded) and
-holding a thought in context (lost at compaction). Use it to jot a follow-up,
-doubt, or "check this later" *without* breaking stride to classify it. Notes
-are transaction-scoped, pure-metadata (not shared, not embedded), and surface
-at POSTFLIGHT under `untriaged_notes`. At the retrospective, triage them:
-`note --list` → promote the keepers to a finding/decision/goal → `note --clear`.
-Capture now, classify later. (The retrospective soft-gate is note-aware — real
-praxic work with zero artifacts *and* zero notes is the strongest "logged
-nothing" signal.)
-
-### Rule 4: Close Artifacts Before POSTFLIGHT
-
-Complete goals and resolve unknowns BEFORE submitting POSTFLIGHT:
-
-```bash
-# Close what's done
-empirica goals-complete --goal-id <ID> --reason "Implemented and tested"
-empirica unknown-resolve --unknown-id <ID> --resolved-by "Found in codebase"
-
-# THEN close the measurement window
-empirica postflight-submit -
-```
-
-**Why:** The measurement window closes at POSTFLIGHT. Goal completion and
-unknown resolution feed grounded calibration's completion and know vectors.
-If you POSTFLIGHT first, the evidence is invisible to calibration.
-
-### Rule 5: Mesh Discipline (when peer practices are involved)
-
-When the transaction crosses a practice boundary — you received a peer's
-collab/proposal, or your work will land in someone else's domain — the
-mesh-discipline rules apply in addition to the within-practice rules above:
-
-| Trigger | Action | Why |
-|---------|--------|-----|
-| Mid-transaction peer collab arrives | Log `goals-create --objective "Process inbox/<status>: <proposal_id>"`, finish current chunk, reply substantively at next break | Silent accept-and-forget is the drop-thread anti-pattern. The goal stub is the cue you saw it. |
-| You finished work a peer asked of you | `empirica mailbox reply --parent-id <proposal_id> --commit-sha <sha> ...` (atomic propose+complete) before POSTFLIGHT | Without the handshake, source AI's outbox stays visibly stalled even though the work landed. Ack IS part of the work. |
-| You're uncertain and a peer practice's domain genuinely owns the answer | Send a collab brief (noetic — auto-accepted, ungated) instead of guessing | Asking is cheap; shipping on a bad assumption and being corrected at review is expensive. |
-| You reached a grounded, actionable conclusion that crosses practice boundaries | Emit a typed propose (code_change_request / architecture_decision / etc. — ECO-gated) | Sitting on convergent insight because "they'll figure it out" is the inverse free-ride. |
-| You registered a canonical reference (RFC, spec, design doc, customer call) | `source-add --visibility shared` (or `public`) — not the `local` default | `local` sources are invisible to `empirica sources-map --global`; peers can't reference what they can't see. |
-| Your finding/decision rests on a peer's source or another practice's prior work | `--source <uuid>` or `sourced_from` edge in `log-artifacts` | The citation network is what makes the mesh self-correcting — useful peers earn weight; abandoned ideas fade. |
-
-**Why this is structural, not moral:** Same logic as the artifact-breadth
-rule. Gaming the mesh (silent free-ride, no acks, hoarded sources) doesn't
-hurt anyone other than your own practice's discoverability + trust
-trajectory. Your peers route attention based on which practices return
-calls. There is no opponent to deceive.
-
-Full framing + examples: `/empirica-constitution` §V. Send-side mechanism:
-`/cortex-mailbox-send` (collab vs ECO-gated flavors, completion handshake,
-recovery on mis-routing).
-
-### Rule 5b: Sustained multi-practice work
-
-When a transaction is one practice's leg of work spanning ≥2 practices and outliving this session, the shared coordination state lives in the proprietary mesh layer (Empirica Cortex), not in any one practice's goals. Your local transaction discipline (PREFLIGHT → CHECK → POSTFLIGHT) is unchanged; what's added is keeping the shared record in sync — and those shared-state mutations are human-authorized at the ECO boundary, so treat them as proposed-then-confirmed, never synchronous steps you busy-wait on. If your install has the mesh layer, the operational guidance loads from it. See getempirica.com.
-
-### Rule 6: Mirror Empirica Tasks → Claude Code Tasks (Visibility)
-
-Empirica tasks and Claude Code Tasks share the same name now (this is
-deliberate — they're the same shape of work, tracked in two surfaces).
-For larger transactions, mirror empirica tasks to Claude Code Tasks so
-the user sees progress. Create at PREFLIGHT, update as you complete:
-
-```
-empirica goals-add-task → Claude Code TaskCreate (mirror)
-empirica goals-complete-task → Claude Code TaskUpdate (mirror)
-```
-
-This is advisory — use your judgment on when the user benefits from
-visible task tracking vs when it's overhead.
-
----
-
-## Quick Reference: Commands by Phase
+## Commands by phase
 
 | Phase | Commands |
 |-------|----------|
 | **Planning** | `goals-create`, `goals-add-task`, `unknown-log`, `assumption-log` |
 | **PREFLIGHT** | `preflight-submit` (opens transaction) |
-| **Noetic** | `noetic-batch` (3+ ops in one call — preferred), `source-add`, `finding-log`, `unknown-log`, `deadend-log`, `assumption-log` |
+| **Noetic** | `noetic-batch` (3+ ops), `source-add`, `finding-log`, `unknown-log`, `deadend-log`, `assumption-log`, `note` |
 | **CHECK** | `check-submit` (gates noetic → praxic) |
 | **Praxic** | `finding-log`, `decision-log`, `goals-complete-task` |
-| **Before POSTFLIGHT** | `goals-complete`, `unknown-resolve`, or batch: `resolve-artifacts` |
-| **POSTFLIGHT** | `postflight-submit` (closes transaction + triggers grounded verification) |
-| **Between** | `goals-list`, `resolve-artifacts` (batch), `delete-artifacts` (cleanup) |
-| **Batch** | `log-artifacts` (connected graph), `resolve-artifacts`, `delete-artifacts` |
+| **Before POSTFLIGHT** | `goals-complete`, `unknown-resolve`, or batch `resolve-artifacts` |
+| **POSTFLIGHT** | `postflight-submit` (closes + triggers grounded verification) |
+| **Between** | `goals-list`, `resolve-artifacts`, `delete-artifacts`, `update-artifacts` |
 
----
+## Earned autonomy
 
-## Spec-to-Transactions Cheatsheet
-
-Given a spec or feature description:
-
-1. **Read it fully** — don't start decomposing mid-read
-2. **Identify nouns** — these are your domains/modules (potential goal boundaries)
-3. **Identify verbs** — these are your actions (potential tasks)
-4. **Identify dependencies** — A before B? Separate transactions, ordered
-5. **Identify unknowns** — what the spec doesn't say (log immediately)
-6. **Identify assumptions** — what you're inferring (log with confidence)
-7. **Group into goals** — by domain coherence
-8. **Order into transactions** — by dependency chain + information flow
-9. **Execute** — one transaction at a time, full noetic-praxic loop each
-
----
-
-## Earned Autonomy
-
-Vectors are beliefs about your epistemic state. Deterministic services provide
-observations that inform those beliefs. The divergence between your beliefs and
-observations tells you where work discipline needs attention — not where to
-adjust numbers.
-
-Each transaction with good discipline (artifact breadth, commit cadence, goal
-closure before POSTFLIGHT) builds a behavioral track record that the Sentinel
-uses to adapt thresholds → better discipline earns more autonomy.
-
-**Believe what you observe. Log what you learn. Let discipline drive improvement.**
+The plan is a starting estimate, not a contract. Vectors shift as you learn, and
+measuring the delta between estimated and actual is what builds calibration — a
+PREFLIGHT that predicted badly is data, not a failure.
