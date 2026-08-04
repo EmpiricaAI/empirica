@@ -176,35 +176,20 @@ round-trip + Monitor poll cycle).
 
 ---
 
-## Delivery model — authoritative (David-ratified 2026-06-21)
+## Delivery model
 
-The listener is a **liveness** layer, not a delivery guarantee:
+**The mailbox is the source of truth; push is liveness only.** This listener
+delivers one wake per genuinely-new actionable item. It is not a retry engine, not
+an acknowledgement engine, and nothing here guarantees delivery — a dropped wake is
+reconciled on the next poll, and a message to an empty practice simply waits.
 
-- **Mailbox is the source of truth.** A message lands in the recipient
-  practice's cortex mailbox and stays there durably. The practitioner
-  picks it up on `session_init`, on monitor-arm, or on an explicit inbox
-  poll. If the practice is empty (no live practitioner), the message
-  simply waits — pull is the truth, so nothing is lost and no nag is needed.
-- **Push is one wake per genuinely-new actionable item.** That is the
-  whole job of this listener. It is NOT a retry / acknowledgement engine.
-- **No cortex babysitting.** The historical reminder/escalation chain
-  (cortex commit `38caedf`: T+60s reminder re-emit, T+120s `ai_unreachable`
-  escalation) is **retired** — it was responsibility-creep (delivery is the
-  sender's job), stream-noise on an already-crowded mesh, and itself
-  unreliable ("server restart eats pending tasks"). Do not build behavior
-  that depends on a cortex reminder or escalation ping.
-- **Human visibility = the extension + ntfy stream**, which already surface
-  routed collabs / proposals / SERs ambiently. That *is* the "did my AI
-  pick this up?" surface — cortex does not re-ping to tell a human what
-  they can already see.
-- **Autonomy is the systemic crack-net.** The canonical autonomy
-  watch-layer sweeps for anything that genuinely slipped (failed
-  completions, items that landed but were never picked up, sends that
-  bounced and weren't refired) — one quiet sweep with judgment replacing
-  N per-message timers. **System messages must stay rare and high-signal;
-  they must never become stream noise.**
+The consequence that matters when arming this: **never act irreversibly on a push
+alone.** Reconcile against the durable proposal state.
 
----
+Full model — send-side refire duty, why the reminder/escalation chain was retired,
+and the autonomy sweep that catches the tail: `/cortex-mailbox-poll`, which owns it.
+This section carried a 250-word restatement of that page; it now carries the steer
+you need *before* you would know to load it.
 
 ## SessionStart hook integration
 
