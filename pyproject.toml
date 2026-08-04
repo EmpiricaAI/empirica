@@ -61,6 +61,14 @@ dependencies = [
     "python-multipart>=0.0.27", # Security: CVE-2026-42561 fix (transitive via mcp/nicegui/p4-confidence-tracker; direct pin overrides)
     "pyjwt>=2.13.0",            # Security: PYSEC-2026-175/177/178/179 fixes (transitive via mcp)
     "pyasn1>=0.6.4",            # Security: CVE-2026-59885/59886 quadratic-OID + univ.Real DoS fixes (transitive via rsa/pyasn1-modules; direct pin)
+    "aiohttp>=3.14.3",          # Security: CVE-2026-59881 + CVE-2026-69243 (fix 3.14.2) and
+                                # CVE-2026-69244 (fix 3.14.3). Transitive via anthropic,
+                                # google-auth and google-api-core — as an EXTRAS-conditional
+                                # requirement, so `pip show aiohttp` reports an empty
+                                # `Required-by` and it reads as not-ours. It is ours: the release
+                                # CVE gate resolves it through `get_empirica_managed_packages()`,
+                                # which walks declared requirements rather than installed
+                                # back-references. Direct pin so the audited env is on the fixed line.
 
     # Optional but commonly used
     "anthropic>=0.39.0",        # Anthropic SDK for adapters
