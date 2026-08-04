@@ -258,10 +258,9 @@ Good goals have:
 - **Linked findings** — why this goal exists (reference finding IDs)
 - **Dependencies** — what must happen first
 
-**Goal sizing:**
-- Each goal = 1 transaction of praxic work
-- If a goal would take 3+ transactions, split it further
-- If two goals always need to happen together, merge them
+**Goal sizing:** one goal = one praxic transaction. Full sizing guidance is in
+`/epistemic-transaction` — it owns the transaction lifecycle, and this text had
+drifted into three homes with three different wordings.
 
 ---
 

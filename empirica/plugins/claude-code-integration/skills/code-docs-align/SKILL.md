@@ -301,8 +301,9 @@ empirica goals-create --objective "Update ref-doc architecture.md — 5 dead sym
 empirica goals-create --objective "Clean stale inline comments referencing removed functions"
 ```
 
-**Goal sizing:** Each goal = 1 praxic transaction. If a goal spans 3+ files in different
-domains, split it. If two goals always need to happen together, merge them.
+**Goal sizing:** one goal = one praxic transaction. Full sizing guidance is in
+`/epistemic-transaction` — it owns the transaction lifecycle, and this text had
+drifted into three homes with three different wordings.
 
 ---
 
