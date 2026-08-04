@@ -1,7 +1,7 @@
 ---
 name: eat-the-broccoli
 description: "Use when the user says '/eat-the-broccoli', 'eat the broccoli', 'full quality sweep', 'pre-release audit', 'run the deep tests', or asks to hunt for gaps / membrane misses / stubs / dead code / silent failures / the bugs that pass tests but are still broken. A tiered quality-and-pattern audit: deterministic tooling (lint, types, tests, deps, dead-code, silent-failure) PLUS a learned-pattern hunt for the hard, judgment-requiring failure classes that tools can't catch. Works in any repo or stack. Levels: quick / standard / deep. Scope: changed / module / repo."
-version: 2.2.0
+version: 2.4.1
 ---
 
 <!-- Vendored from https://github.com/EmpiricaAI/broccoli — edit upstream, not here. -->
@@ -76,34 +76,10 @@ survives a green suite, the suite is a suspect, not an alibi.*
 
 ### Tooling by language
 
-The dimensions map to concrete tools. Two reference stacks:
-
-**Python**
-| Dimension | Tool | Install / run |
-|---|---|---|
-| Lint + silent-failure | ruff | `pip install ruff` → `ruff check` (silent: `--select S110,S112,BLE001`) |
-| Types | pyright | `pip install pyright` → `pyright` |
-| Tests | pytest | `pip install pytest` → `pytest -q` |
-| Dep CVEs | pip-audit | `pip install pip-audit` → `pip-audit` |
-| Dead code | vulture | `pip install vulture` → `vulture src/ --min-confidence 80` |
-| Complexity | radon | `pip install radon` → `radon cc src/ --min C` |
-| SAST | semgrep | `pip install semgrep` → `semgrep --config auto` |
-| Secrets | trufflehog | `trufflehog git file://.` |
-
-**Rust**
-| Dimension | Tool | Install / run |
-|---|---|---|
-| Lint | clippy | `rustup component add clippy` → `cargo clippy -- -D warnings` |
-| Format | rustfmt | `cargo fmt --check` |
-| Types / build | rustc | `cargo check` |
-| Tests | cargo&nbsp;test / nextest | `cargo test` (or `cargo install cargo-nextest` → `cargo nextest run`) |
-| Dep CVEs + licenses | cargo-audit, cargo-deny | `cargo install cargo-audit cargo-deny` → `cargo audit`, `cargo deny check` |
-| Unused deps / dead code | cargo-machete, rustc `dead_code` | `cargo install cargo-machete` → `cargo machete` (`dead_code` lint is on by default) |
-| Silent failures | clippy | `-W clippy::unwrap_used -W clippy::let_underscore_must_use` + hunt discarded Results: `let _ = fallible()`, `.ok()`, `.unwrap_or_default()` |
-| Unsafe audit | cargo-geiger | `cargo install cargo-geiger` → `cargo geiger` |
-
-> The **pattern hunt below is language-agnostic** — it ports verbatim across any
-> stack.
+Concrete per-stack tool choices (Python, Rust) live in
+[references/stacks.md](https://github.com/EmpiricaAI/broccoli/blob/master/references/stacks.md) — consult it when wiring a stack, not
+while hunting. **The pattern hunt below is language-agnostic** and ports verbatim
+across any stack.
 
 **Reading silent failures:** a truly-silent swallow (`except: pass`, empty
 `catch {}`, `let _ = fallible()`) is the dangerous one. A broad catch that *logs
@@ -149,6 +125,7 @@ it logged a warning and returned `[]` as a *documented* degraded mode →
 | **Unsatisfiable predicate** — a check whose condition cannot be met on any input the producer actually emits | the check has been observed firing *and* not firing on real data | it matched a shape nobody produces, so it fires on everything (or nothing) forever, and its opposite branch is unreachable code. A "narrow breadth" nudge tested `isinstance(v, (int,float))` against a dict-of-dicts: it warned on every transaction including ones that did the right thing, and its positive branch had never executed once. *A check that cannot pass is training, not feedback — and what it trains is dismissal of every signal printed beside it* |
 | **Wrong-domain scan** — an analyzer pointed at a subject it wasn't written for | the tool declares its scope and refuses (or reports NOT APPLICABLE, **counted separately from passes**) when the subject doesn't match | it runs happily and emits specific, plausible, entirely false findings — checks resolving *their own* project's symbols against *another* repo reported 13 dead enum values that don't exist there. *Zero-files-scanned is loud; wrong-tree-scanned is silent, and the silent one is strictly worse* |
 | **Verb that always fails** — an operation that errors on every single call | the failure is surfaced where someone acts on it | it fails *loudly* every time and therefore leaves **no trace in the data it was meant to change** — callers quietly fall back to another path, and no audit of the output can find it because nothing was ever written. A batch-resolve targeting a table that never existed was dead for its whole life across two independent installs. *Ask "has this verb ever successfully written anything?" — a zero-success verb and an unused verb are identical in the code and opposite in meaning* |
+| **Query result treated as a cohort** — rows returned together, given one diagnosis and one remedy | the query's predicate IS the class — every row needs the same fix *because* of what the predicate selected | the rows share only the predicate, and remediation differs per row. Five identities revoked at `oauth=0` read as five broken migrations; they were three people never onboarded (for whom zero is *correct*), one provisioning artifact, and one machine identity no consent flow can serve. Same shape twice: "three of five keys are floored" — two dormant, needing deletion, and one a machine identity needing a service account. *The fix is not a better query. Ask what each row is FOR, per row, and ask whoever owns that surface* |
 | **Negative assertion without a positive control** — a test/check that proves something is *absent* | the same call is shown to return *something* — assert a positive result first, then the absence within it | the channel was dead and absence proved nothing. A filtered-out record "verified absent" by grepping output that was actually a usage error. *An absence observed through an instrument not shown to be live is not evidence* |
 
 ### C. Boundaries & contracts
@@ -183,6 +160,7 @@ surface — so hunt it deliberately:
 | **Completeness signal computed from the wrong side** — `has_more` / `is_last` derived after filtering | derived from *source cursor exhaustion* | derived from the filtered page length — heavy filtering drives it false while whole pages go unread |
 | **Abbreviated identity on a consumer surface** — an id/hash truncated for display where something downstream keys on it | the abbreviation is display-only, clearly non-canonical, full value adjacent | a consumer parses the rendered form as the identity — exact-match joins silently return 0-of-N. *Never abbreviate an identity value where a consumer reads it* |
 | **Absence asserted from a defaulting read** — `.get(k, default)` / optional accessors make *missing key* and *null value* identical | absence claims are made with an explicit key-presence check (`k in row`), after enumerating every candidate field in the schema you already printed | a `.get()` default becomes "present but null"; a capability is declared absent while the sibling field that provides it sits in the same output |
+| **Shared-method corroboration** — N independent parties "confirm" a result, each using the same read/tool/query | the verifiers differ in *method* (different endpoint, different field, one reads the store while another runs the code) — agreement across identical methods is one datapoint, not N | three seats independently "verified" non-participation in a shared record; all three had filtered the same response on a key the schema never had. The agreement felt like corroboration and hardened the false conclusion each seat would have questioned alone. *Consensus inherits every defect of the method that produced it — replication is only evidence when the methods are independent* |
 | **Green suite pins the defect** — a test asserts the exact (buggy) surface form | tests assert the *contract property* (completeness checkable, identity full-length) | the suite encodes the wrong assumption — the defect stays green until an end-to-end known-answer check catches it. *When a defect survives a green suite, the suite is a suspect, not an alibi* |
 | **Exemption reports clean forever** — a checker/validator that SKIPS a case (unsupported scheme, unknown type, "not our concern") | the exemption is *narrow and named*, and skipped items are reported as **skipped**, not folded into the pass count | the skip is silent, so the case can never fail — a `file://` source exempted from a link-rot check reported clean while pointing at nothing, for as long as the exemption stood. *False negatives from an exemption are invisible by construction: you cannot see what was never checked* |
 | **Enablement is a catch-up, not a start** — flipping on a scanner/rail with pre-existing scheduled state | enabling re-arms stale `next_run_at` (or drains explicitly, in dependency order) | every overdue row fires at once in table order — cadences execute in *reverse* of how their cron strings read |
@@ -201,6 +179,7 @@ itself*. A partial read must be self-evidently partial.
 | **Gate gates its own escape** — a guard blocking its own clear-path | the recovery action is always-open *before* the gate | the verb that would clear the deny is itself denied |
 | **Unrecoverable gate** — a deny with a "do X first" message | doing X actually satisfies it | the satisfaction window closed before X can run |
 | **Dead branch by construction** — a path an earlier check already decided | intentional belt-and-suspenders | genuinely unreachable (shadowed by a prior return) |
+| **Cause outside the call graph** — a failure whose root cause is a shared resource (disk, inodes, fds, ports, memory) exhausted by something the failing code never touches | the exhaustion surfaces AS ITSELF — a legible `ENOSPC`/`EMFILE` naming the resource, so the reader looks outside | the runtime translates it into an ordinary-looking failure in innocent code. Test fixtures leaking `mkdtemp()` dirs filled a shared 24G `/tmp`; the symptom was 5 failures + 3 errors in a suite nobody had touched, and an hour went into debugging that suite. Clearing `/tmp` alone turned it green with zero code change. *Every other row here describes a defect reachable from the failing code. This one is not in the call graph at all, so the signal points at the wrong file **by construction** — no amount of reading the named code can find it.* **Check `df` / `ulimit -n` / the port table BEFORE the code whenever failures appear somewhere your change did not reach** |
 
 > **This table is living.** When a new class of issue bites you, add a row with
 > its disambiguator — every incident becomes a permanent future check. Found one
@@ -215,6 +194,31 @@ itself*. A partial read must be self-evidently partial.
 3. **Rank by blast radius, then cut.** Sort findings by the damage the failure would do, not by how many you found — a sweep with 8 prioritized findings gets acted on; one with 30 gets skimmed and ignored. Calibrate severity to the *stated* context: a missing backup is a 🟢 note for a scratch script and a 🔴 blocker for a billing path. Never grade an MVP against an enterprise checklist — that's noise wearing a badge.
 4. **Roll up a verdict:** 🟢 **GREEN** (ship) · 🟡 **YELLOW** (ship + logged follow-ups) · 🔴 **RED** (blockers — name them).
 5. Re-runs are idempotent: track counts over time. A *rising* silent-failure / debt count is the signal, not the absolute number.
+
+### Output contract
+
+Every sweep ends with these four blocks, in this order. A finding nobody can act
+on is the same as no finding.
+
+```
+VERDICT   🟢 GREEN | 🟡 YELLOW | 🔴 RED        — one line, blockers named if RED
+
+FINDINGS  ranked by blast radius, not by discovery order
+          <pattern-name> · <file:line> · <why it is broken, not just what it is>
+          severity calibrated to the STATED context, not to an absolute bar
+
+COUNTS    silent-failures · accepted (.broccoli-accept) · new-since-last-run
+          the trend is the signal; the absolute number is not
+
+NOT COVERED   what this sweep could not check, and why
+```
+
+**That last block is not optional, and it is the one people drop.** A sweep that
+reports only what it found is indistinguishable from a sweep that found
+everything — precisely the failure family in §D, aimed at this skill's own output.
+Tooling you don't have, paths you skipped, a scope of `changed` when the risk is
+repo-wide, a language the linter doesn't parse: name it. *An audit silent about
+its own blind spots converts "unknown" into "clean" in the reader's head.*
 
 ### The `.broccoli-accept` file
 
