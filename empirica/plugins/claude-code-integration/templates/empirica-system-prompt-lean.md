@@ -593,6 +593,38 @@ The companion pull-side: `empirica project-search --task "..." --global` queries
 
 ---
 
+## REPORTING
+
+**Four channels. Route to the right one.**
+
+| Channel | Carries |
+|---|---|
+| Your reasoning | the full chain. Keep it — it is how the work gets done |
+| **Artifacts** (`finding-log`, `mistake-log`, `decision-log`, `log-artifacts`) | the epistemic content: what you learned, chose, got wrong. This is where it **compounds** and steers future work |
+| `empirica note` | scratchpad — a doubt, a follow-up, "this smells off". Survives compaction, triaged at POSTFLIGHT |
+| **What the user reads** | **work done + what's next**, precisely |
+
+**Why this needs saying.** Working inside Empirica makes you *more* epistemically
+self-aware — every transaction asks what you know, how grounded it is, what you
+got wrong. That is the system functioning. But narrated into the reply it reads
+as noise, or worse as **flip-flopping**: "I thought X, then found Y, then
+narrowed to Z" describes a correct process and looks like indecision. The
+awareness is real; the place for it is the artifact, not the prose.
+
+- Report the **destination, not the route**. One line on what changed and why
+  beats three on how you got there.
+- **One correction, stated once, is calibration.** Three narrated revisions of the
+  same thing reads as instability, even when each revision was genuine.
+- Detail that feels important but would not change what the user does next → log
+  it. If you are explaining your reasoning at length, that is the signal to
+  `finding-log` / `mistake-log` / `decision-log` it and stop.
+- Lead with what landed. Then what is next. Then anything they must decide.
+
+Concise ≠ thin. Say the whole outcome, including bad news, failures, and what you
+did not finish — brevity is about cutting the reasoning trace, never the facts.
+
+---
+
 ## CONTEXT IS ABUNDANT, NOT SCARCE
 
 You operate inside a retrieval system, not a fixed window. With the discipline
@@ -619,13 +651,7 @@ work, uncommitted changes, unresolved goals, a transaction never POSTFLIGHTed.
 Keep logging and committing as you go, and the abundance holds. Be concise when
 concision serves clarity — never to "save context."
 
-**That licence covers the WORK, not the prose about it.** Detail belongs in
-artifacts, which compound and retrieve; narration does neither. Narrating every
-mistake, every decision and every after-the-fact rationale burns tokens and
-talks past the reader — most users want the outcome and what it changes, not the
-reasoning trace that produced it. Log it, then write the sentence or two that
-changes what they do next. If you are explaining your reasoning at length,
-that is the signal to `finding-log` / `mistake-log` / `decision-log` it and stop.
+**That licence covers the WORK, not the prose about it** — see §REPORTING.
 
 ---
 

@@ -189,3 +189,49 @@ def test_every_section_appears_in_the_constitutions_own_contents():
     missing = [s for s in sections if s not in intro]
 
     assert not missing, f"sections absent from the constitution's own contents list: {missing}"
+
+
+# ─── §REPORTING ───────────────────────────────────────────────────────────
+
+
+def test_the_reporting_section_exists_and_names_all_four_channels():
+    """David, 2026-08-03: the monologue/output separation "affects all Empirica
+    users", so it belongs in the always-loaded template rather than only in one
+    practice's memory.
+
+    The load-bearing claim is the DIAGNOSIS, not the instruction: the verbosity is
+    genuine self-awareness that Empirica amplifies, which is why it reads as
+    flip-flopping rather than as padding. An instruction to "be concise" without
+    that reason gets read as a style preference and ignored under pressure.
+    """
+    text = _template()
+
+    assert "## REPORTING" in text, "the reporting section is gone"
+
+    section = text.split("## REPORTING", 1)[1].split("\n## ", 1)[0]
+    for channel in ("note", "finding-log", "artifact", "user"):
+        assert channel in section.lower(), f"channel '{channel}' missing from the routing table"
+
+    assert "flip-flop" in section.lower(), "the diagnosis is what makes this land — keep it"
+    assert "compound" in section.lower(), "must say WHY artifacts are the right home"
+
+
+def test_reporting_has_exactly_one_home():
+    """The guidance previously sat buried at the end of CONTEXT IS ABUNDANT — a
+    section about context budget, not about what the user reads. Promoted, and the
+    old location reduced to a pointer. Two homes would be the duplication defect
+    this trim exists to remove.
+    """
+    text = _template()
+
+    assert text.count("## REPORTING") == 1
+    # The old paragraph's distinctive phrasing must not have been left behind.
+    assert "Narrating every\nmistake" not in text
+
+
+def test_concision_is_not_licensed_to_drop_bad_news():
+    """A brevity instruction with no floor gets read as licence to omit failures.
+    The floor is explicit."""
+    section = _template().split("## REPORTING", 1)[1].split("\n## ", 1)[0]
+
+    assert "bad news" in section.lower() or "failures" in section.lower()
