@@ -235,3 +235,21 @@ def test_concision_is_not_licensed_to_drop_bad_news():
     section = _template().split("## REPORTING", 1)[1].split("\n## ", 1)[0]
 
     assert "bad news" in section.lower() or "failures" in section.lower()
+
+
+def test_compaction_names_resolution_not_only_logging():
+    """David: "resolving goals and artifacts is important too, not just logging
+    them — epistemic hygiene is paramount."
+
+    Caught a regression: the tightening pass dropped "unresolved goals" from the
+    original failure list. The compaction-specific reason is what makes it stick —
+    the graph is what survives compaction and what gets retrieved BACK, so a stale
+    or unresolved entry does not sit inertly, it returns as though current and
+    mis-steers the next decision.
+    """
+    section = _template().split("## COMPACTION", 1)[1].split("\n## ", 1)[0]
+
+    assert "unresolved" in section.lower(), "the failure list must include unresolved work, not just unlogged"
+    assert "retract" in section.lower(), "retraction is the move practices reliably skip — name it"
+    for concept in ("resolv", "graph"):
+        assert concept in section.lower(), f"'{concept}' missing — the reason is what makes the rule stick"

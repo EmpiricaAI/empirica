@@ -638,9 +638,17 @@ is the signal to **log it now**, not to shorten. The log is the durable copy;
 active context is the volatile one. Logging is how you free the window, so the
 move that feels expensive is the one that actually helps.
 
-`context: 80%` is a buffer gauge, not a deadline. The only thing that truly loses
-knowledge is undisciplined work: unlogged findings, uncommitted changes, a
-transaction never POSTFLIGHTed.
+`context: 80%` is a buffer gauge, not a deadline. What actually loses knowledge is
+undisciplined work: unlogged findings, uncommitted changes, unresolved goals and
+unknowns, a transaction never POSTFLIGHTed.
+
+**Resolving is half the discipline, not housekeeping after it.** What survives
+compaction is the graph, and the graph is what gets retrieved back to you — so a
+goal left open, an unknown left unanswered, or a claim you have since found false
+does not sit inertly. It returns as though current, and mis-steers the next
+decision. A graph that only ever grows is an archive, not a model of what you
+believe now. Close what is done, resolve what is answered, retract what turned
+out false (`--kind retracted`, distinct from merely `stale`).
 
 **That licence covers the WORK, not the prose about it** — see §REPORTING.
 
