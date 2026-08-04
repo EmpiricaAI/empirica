@@ -49,6 +49,21 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 
+class InvalidSessionIdError(ValueError):
+    """The caller passed a session id that does not resolve.
+
+    A ValueError SUBCLASS on purpose: every existing `except ValueError` around
+    session resolution keeps working unchanged.
+
+    It exists so the CLI error handler can tell *bad input* from *a defect*.
+    Auto-capture files every CLI failure as a HIGH-severity issue, which is right
+    for a crash and wrong for the CLI correctly rejecting a typo — those pile up in
+    the tracker and block the release gate. The test suite proved it: a contract
+    test deliberately passes `nonexistent-session-id` to check error formatting,
+    and every run wrote 8 high-severity issues into the live project.
+    """
+
+
 class InstanceResolver:
     """Unified context resolution for all Empirica components.
 
@@ -836,7 +851,7 @@ def _resolve_partial_uuid(partial_or_full_uuid: str) -> str:
                 )
             elif malformed:
                 msg += " — not a well-formed UUID. Check for a dropped or extra character."
-            raise ValueError(msg)
+            raise InvalidSessionIdError(msg)
 
         logger.warning(
             f"session_id {partial_or_full_uuid!r} is well-formed but has no row in this project's DB — "
@@ -861,7 +876,7 @@ def _resolve_partial_uuid(partial_or_full_uuid: str) -> str:
         db.close()
 
         if not results:
-            raise ValueError(f"No session found matching: {partial_or_full_uuid}")
+            raise InvalidSessionIdError(f"No session found matching: {partial_or_full_uuid}")
 
         if len(results) > 1:
             logger.warning(f"Multiple sessions match '{partial_or_full_uuid}' - using most recent")

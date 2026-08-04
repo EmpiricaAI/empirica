@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.13.2
-**Generated:** 2026-08-03 13:22:05 UTC
+**Framework version:** 1.13.3
+**Generated:** 2026-08-04 07:46:07 UTC
 **Total commands:** 243 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -737,6 +737,12 @@ Log an open question — something you'd need to know before acting confidently,
   Scope: session (ephemeral), project (persistent), or both (dual-log). Auto-inferred if omitted.
 - `--source` — optional
   Source ID (from source-add). Repeatable for multiple sources.
+- `--cite` — optional
+  Inline source: create + link a source in one call (kills the source-add→--source two-step). Value is the source title; pair with --cite-url / --cite-type.
+- `--cite-url` — optional
+  URL/path for the --cite inline source.
+- `--cite-type` — optional · default=`reference`
+  Source type for --cite (reference, doc, paper, url, design, …). Default: reference.
 - `--entity-type` — optional · type=`choice` · choices={project, organization, contact, engagement}
   Entity type this artifact relates to (default: project)
 - `--entity-id` — optional
@@ -828,6 +834,12 @@ Log an approach that didn't work. Use when you tried something and the result ru
   Scope: session (ephemeral), project (persistent), or both (dual-log). Auto-inferred if omitted.
 - `--source` — optional
   Source ID (from source-add). Repeatable for multiple sources.
+- `--cite` — optional
+  Inline source: create + link a source in one call (kills the source-add→--source two-step). Value is the source title; pair with --cite-url / --cite-type.
+- `--cite-url` — optional
+  URL/path for the --cite inline source.
+- `--cite-type` — optional · default=`reference`
+  Source type for --cite (reference, doc, paper, url, design, …). Default: reference.
 - `--entity-type` — optional · type=`choice` · choices={project, organization, contact, engagement}
   Entity type this artifact relates to (default: project)
 - `--entity-id` — optional
@@ -881,6 +893,12 @@ Log a belief you're acting on without verification. Use when proceeding requires
   Anchor this artifact to another (relation=related). Repeatable.
 - `--source` — optional
   Source ID (from source-add). Repeatable for multiple sources.
+- `--cite` — optional
+  Inline source: create + link a source in one call (kills the source-add→--source two-step). Value is the source title; pair with --cite-url / --cite-type.
+- `--cite-url` — optional
+  URL/path for the --cite inline source.
+- `--cite-type` — optional · default=`reference`
+  Source type for --cite (reference, doc, paper, url, design, …). Default: reference.
 - `--visibility` — optional · type=`choice` · choices={public, shared, local}
   Visibility tier (default: shared). public=world-shareable, shared=team-private, local=machine-only.
 - `--epistemic-source` — optional · type=`choice` · choices={intuition, search, mixed}
@@ -920,6 +938,12 @@ Log a deliberate choice between alternatives. Use at every fork: which library, 
   Finding ID as evidence for this decision. Repeatable for multiple findings.
 - `--source` — optional
   Source ID (from source-add) for external citations. Repeatable.
+- `--cite` — optional
+  Inline source: create + link a source in one call (kills the source-add→--source two-step). Value is the source title; pair with --cite-url / --cite-type.
+- `--cite-url` — optional
+  URL/path for the --cite inline source.
+- `--cite-type` — optional · default=`reference`
+  Source type for --cite (reference, doc, paper, url, design, …). Default: reference.
 - `--entity-type` — optional · type=`choice` · choices={project, organization, contact, engagement}
   Entity type this artifact relates to (default: project)
 - `--entity-id` — optional
@@ -977,6 +1001,12 @@ Log an error YOU made + how to prevent it. Use when you introduced a bug, mis-ap
   Anchor this artifact to another (relation=related). Repeatable.
 - `--source` — optional
   Source ID (from source-add). Repeatable for multiple sources.
+- `--cite` — optional
+  Inline source: create + link a source in one call (kills the source-add→--source two-step). Value is the source title; pair with --cite-url / --cite-type.
+- `--cite-url` — optional
+  URL/path for the --cite inline source.
+- `--cite-type` — optional · default=`reference`
+  Source type for --cite (reference, doc, paper, url, design, …). Default: reference.
 - `--visibility` — optional · type=`choice` · choices={public, shared, local}
   Visibility tier (default: shared). public=world-shareable, shared=team-private, local=machine-only.
 - `--epistemic-source` — optional · type=`choice` · choices={intuition, search, mixed}

@@ -312,3 +312,54 @@ def test_non_uuid_aliases_are_untouched_by_the_shape_test(monkeypatch):
 
     for alias in ("latest", "investigation-cli-mapping", "2bc1da78"):
         assert not _is_uuid_shaped(alias)
+
+
+# ─── rejected input is not a defect ───────────────────────────────────────
+
+
+def test_a_rejected_id_raises_the_typed_error_not_a_bare_ValueError(monkeypatch):
+    """Auto-capture files every CLI failure as HIGH severity, and the release gate
+    blocks on HIGH. So "the CLI correctly rejected a typo" and "the CLI crashed"
+    must be distinguishable at the type level.
+
+    Found the hard way: making resolution strict turned a contract test that
+    deliberately passes `nonexistent-session-id` into 8 high-severity issues per
+    suite run, written to the live project, which blocked `release.py --prepare`.
+    """
+    from empirica.utils import session_resolver as sr
+
+    class _DB:
+        def __init__(self):
+            self.conn = sqlite3.connect(":memory:")
+            self.conn.execute("CREATE TABLE sessions (session_id TEXT, start_time REAL)")
+            self.conn.execute("INSERT INTO sessions VALUES (?, 1.0)", (_REAL,))
+            self.conn.commit()
+
+        def close(self):
+            self.conn.close()
+
+    monkeypatch.setattr("empirica.data.session_database.SessionDatabase", _DB)
+
+    with pytest.raises(sr.InvalidSessionIdError):
+        sr._resolve_partial_uuid(_TYPO)
+
+    # Subclass of ValueError, so every existing `except ValueError` around session
+    # resolution keeps working — including _resolve_and_validate_session, which
+    # turns it into the CLI's ok:false envelope.
+    assert issubclass(sr.InvalidSessionIdError, ValueError)
+
+
+def test_bad_input_is_captured_at_low_severity_not_high():
+    """LOW, not silent. A flood of rejected ids is worth seeing (a broken caller,
+    a bad script) — only the severity was wrong, so dropping the capture entirely
+    would trade one blind spot for another.
+    """
+    import inspect
+
+    from empirica.cli import cli_utils
+
+    src = inspect.getsource(cli_utils.handle_cli_error)
+
+    assert "InvalidSessionIdError" in src, "the handler must distinguish rejected input from a defect"
+    assert "IssueSeverity.LOW" in src
+    assert "IssueSeverity.HIGH" in src, "genuine failures must still capture HIGH"

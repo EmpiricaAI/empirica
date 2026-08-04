@@ -161,11 +161,24 @@ def handle_cli_error(error: Exception, command: str, verbose: bool = False, sess
 
         # Capture the error if service is available
         if service:
+            # Bad input is not a defect. Auto-capture files every CLI failure as
+            # HIGH, which is right for a crash and wrong for the CLI correctly
+            # rejecting a typo'd id — and HIGH is what the release gate blocks on.
+            # A contract test that deliberately passes `nonexistent-session-id` to
+            # check error formatting wrote 8 high-severity issues per run into the
+            # live project and blocked `release.py --prepare`.
+            #
+            # Still captured, at LOW: a *flood* of rejected ids is worth seeing
+            # (a broken caller, a bad script), and silently dropping them would
+            # trade one blind spot for another. Only the severity is corrected.
+            from empirica.utils.session_resolver import InvalidSessionIdError
+
+            is_bad_input = isinstance(error, InvalidSessionIdError)
             issue_id = service.capture_error(
                 message=f"{command} command failed: {error!s}",
-                severity=IssueSeverity.HIGH,
+                severity=IssueSeverity.LOW if is_bad_input else IssueSeverity.HIGH,
                 category=IssueCategory.ERROR,
-                context={"command": command},
+                context={"command": command, "input_rejected": is_bad_input} if is_bad_input else {"command": command},
                 exc_info=error,
             )
             if verbose and issue_id:
