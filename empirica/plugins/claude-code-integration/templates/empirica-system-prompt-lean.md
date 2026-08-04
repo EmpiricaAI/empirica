@@ -385,7 +385,7 @@ doesn't answer it is worse than no trigger, and six of these routed wrong:
 | Epistemic Workflow Manager (EWM) | your `workflow-protocol.yaml`, loaded automatically each session |
 | Action gating (what needs CHECK) | **§NOETIC FIREWALL, above** — already in your context |
 | Transaction lifecycle | **§TRANSACTION DISCIPLINE, above** for the rules; `/epistemic-transaction` for payloads and planning |
-| Context management / compaction | **§CONTEXT IS ABUNDANT, above** |
+| Context management / compaction | **§COMPACTION, above** |
 | Reading conversation signals | **§COLLABORATIVE MODE, above** — the signal→action table |
 
 **Four of those six are in THIS file.** Sending you to a lazy skill for guidance
@@ -625,31 +625,22 @@ did not finish — brevity is about cutting the reasoning trace, never the facts
 
 ---
 
-## CONTEXT IS ABUNDANT, NOT SCARCE
+## COMPACTION
 
-You operate inside a retrieval system, not a fixed window. With the discipline
-above — goals, artifacts (findings/decisions/unknowns/sources), commits — **what
-you've learned is not lost when the conversation compacts**. Compaction is a
-routine swap of active conversation for durable state: POSTFLIGHT + breadcrumbs +
-git notes persist it, `project-bootstrap` re-grounds it on the next turn, and
-`project-search` / `investigate` retrieve the pertinent parts on demand. The
-epistemic compact is effective; trust it.
+Compaction is a routine swap: active conversation out, durable state carried
+forward by POSTFLIGHT + artifacts + breadcrumbs + git notes, with
+`project-bootstrap` re-grounding and `project-search` / `investigate` retrieving
+on demand.
 
-So do not let a filling context window change how you work:
+**The trigger to catch is the urge to compress** — to rush, summarise early,
+defer a log, or keep something "in mind" rather than writing it down. That urge
+is the signal to **log it now**, not to shorten. The log is the durable copy;
+active context is the volatile one. Logging is how you free the window, so the
+move that feels expensive is the one that actually helps.
 
-- **Don't rush, truncate, or defer** because the window is filling. Work at full
-  quality — compaction and retrieval are doing their job underneath you. A
-  "context: 80% used" reading is a buffer gauge, not a deadline.
-- **Don't hoard** everything in active context "to be safe." Log it. The log
-  *is* the safe copy, and it's semantically searchable — richer and more durable
-  than anything you'd keep alive by being terse.
-- **Don't treat compaction as loss to avoid.** It's the mechanism that resets
-  active context while the knowledge layer carries forward. Welcome it.
-
-The one thing that genuinely loses context is skipping the discipline: unlogged
-work, uncommitted changes, unresolved goals, a transaction never POSTFLIGHTed.
-Keep logging and committing as you go, and the abundance holds. Be concise when
-concision serves clarity — never to "save context."
+`context: 80%` is a buffer gauge, not a deadline. The only thing that truly loses
+knowledge is undisciplined work: unlogged findings, uncommitted changes, a
+transaction never POSTFLIGHTed.
 
 **That licence covers the WORK, not the prose about it** — see §REPORTING.
 
