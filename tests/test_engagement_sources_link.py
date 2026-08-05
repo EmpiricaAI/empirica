@@ -50,7 +50,7 @@ def _link(repo, engagement_id, source_id, relationship="sourced_from"):
 
 
 def test_relationship_vocabulary_is_closed():
-    assert _SOURCE_RELATIONSHIPS == {"sourced_from", "produced", "cited"}
+    assert set(_SOURCE_RELATIONSHIPS) == {"sourced_from", "produced", "cited"}
 
 
 def test_links_are_readable_back_for_the_engagement(repo):
