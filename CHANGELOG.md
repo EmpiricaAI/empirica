@@ -5,6 +5,63 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.6] - 2026-08-05
+
+Authoring stops being a release step, and every listener stops speaking for the
+whole machine.
+
+### Changed
+
+- **`release.py` splits authoring from verification.** `--prepare` used to write
+  the release-facing docs — version sweep, README's What's New, CLI reference —
+  *after* checking out `main`. That one choice produced three defects: `main`
+  accumulated files `develop` had never seen, so every release merge conflicted
+  on exactly `README.md` and `CLI_COMMANDS_UNIFIED.md`; the bump had to be
+  committed before the sync could run, leaving a window where `pyproject` led the
+  README, which is how 1.13.4 shipped advertising *"What's New in 1.13.3"*; and
+  the sync could `warning()`-and-return while the release continued regardless.
+  Now `--docs` authors them **on develop**, commits nothing (the diff is for
+  review), and refuses to run on `main`; `--prepare` and `--publish` *verify* and
+  abort with the command that fixes each miss. Authoring is reasoning-adjacent
+  work and belongs where the author and the review are; the release path does
+  deterministic work and gates on the authoring being done. A gate cannot ship
+  the wrong thing quietly — an action can, and did.
+- **The CLI-reference currency check compares content, not mtime.** "Someone ran
+  the generator" and "the output matches the CLI" are different questions, and
+  only the second matters. It strips the generator's `**Generated:**` stamp
+  first: comparing raw text made the check answer *what time is it*, and a gate
+  that always trips is worth what one that never trips is worth — both stop being
+  read.
+
+- **`/cortex-mailbox-send` gains a pre-send verification steer.** Measured in one
+  40-minute thread across three practices: ~10 messages, four numbers withdrawn,
+  and every one had an authoritative check a single command away that nobody ran
+  first. The mesh **inverts** the cost of being wrong — locally a wrong belief
+  costs a re-run, on the wire it costs every recipient's context, forces a
+  correction round-trip, and leaves a false artifact to retract — and because a
+  fast correction *feels* like the system working, the pull is to send and let
+  peers catch it. Three rules before the send (one authoritative check per number
+  or mechanism claim; estimates never go in tables; don't log the artifact until
+  the claim is grounded) plus a reply-worthiness gate. It lives in the send skill
+  because that is the only surface loaded at the moment it can intercept.
+
+### Fixed
+
+- **Every listener forwarded every practitioner on the box.** The presence store
+  is machine-global, and `list_presence` has taken a `practice_ai_id` scope since
+  it was written — the emitter never passed it. So each listener read the whole
+  store and posted every practitioner on the machine: emission rate was
+  `listeners × sessions` rather than `sessions`, and every post but one was a
+  duplicate upsert of a row another listener had just written. Measured across
+  three practices: **12,906 heartbeats/hour from one box against a designed
+  ~1,680**. The 60-second interval was always honoured — honoured L times per
+  session. It reads as an interval defect from the receiving side because the
+  payload carries `machine` and `session_id` but **no sender identity**, so nine
+  listeners posting one session every 60s is indistinguishable from one emitter
+  posting every 6.7s: `60 / 7.3 = 8.2s`, against 8.3s measured. The fix is one
+  argument. `ai_id=None` still reads the whole box, so machine-level aggregation
+  stays reachable as an explicit opt-in rather than the accidental default.
+
 ## [1.13.5] - 2026-08-05
 
 One defect class, found in three modules, plus the gate that stops a release

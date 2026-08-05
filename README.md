@@ -2,7 +2,7 @@
 
 > **We Gave AI a Mirror. Now It Measures What It Believes.**
 
-[![Version](https://img.shields.io/badge/version-1.13.5-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.5)
+[![Version](https://img.shields.io/badge/version-1.13.6-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.6)
 [![PyPI](https://img.shields.io/pypi/v/empirica)](https://pypi.org/project/empirica/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -114,13 +114,13 @@ empirica setup
 
 ```bash
 # Security-hardened Alpine image (~276MB, recommended)
-docker pull nubaeon/empirica:1.13.5-alpine
+docker pull nubaeon/empirica:1.13.6-alpine
 
 # Standard image (Debian slim, ~414MB)
-docker pull nubaeon/empirica:1.13.5
+docker pull nubaeon/empirica:1.13.6
 
 # Run
-docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.5 /bin/bash
+docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.6 /bin/bash
 ```
 </details>
 
@@ -387,15 +387,12 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.13.5
+## What's New in 1.13.6
 
-- **The sources read path returned a fraction of a practice's sources, and in the worst case zero.** A practice's `project_id` drifts over its life, so its own sources end up under several ids — `WHERE project_id = ?` hides the rest. The daemon was fixed in 1.13.0 (`13dafd2f7`) and its CLI twin was not, so `sources-map`, `source-list` and `sources-check` kept under-reading for eleven days. Measured here: 29 shown against 39 unarchived. Measured on mesh-support: **0 shown against 17**, which is why it was filed as "the catalogue is empty" — re-cataloguing would have added duplicate rows to a full table and still read zero. The two magnitudes fail differently: a partial under-read is a plausible number nobody counts, a total one actively misdirects. Reads are now practice-scoped (the db path IS the practice boundary), each row reports its stored `project_id` so drift stays visible to gardening, and an explicit `--project-id` keeps the strict single-id read for deliberate cross-project queries.
-- **`sources-reconcile` was the third site, and its writes were the dangerous half.** It carries its own SQL and never called the shared lister, so a bare `--register-shared` reported `candidates: 0, registered: 0` — "nothing to do" where the truth was "looked in the wrong place". Two independent read/write pairs, not one: the backfill's write never filtered and was safe to widen alone, while `_load_local_sources` feeds writes that did. The sharpest case is data integrity rather than visibility — the PK-swap's finding-reference cascade filtered `project_findings` by `project_id`, so a swap would rename the source and leave every citation under a drifted id pointing at the old uuid: dangling refs created by the repair itself. The backfill also now reports `rehomed` rows, because registering a drifted source under the active id converges the drift rather than propagating it onto cortex's shared surface — but doing that silently would be the same defect class again.
-- **A subtask could be done and not counted.** `subtasks.status` held two words for one state while the goal-progress rollup counts only one (`SUM(CASE WHEN s.status = 'completed'`), so 67 rows storing the singular `complete` read as unfinished against 1162 `completed`. Migration 064 normalizes them. It is dead legacy rather than a live vocabulary split — `TaskStatus.COMPLETED` is `'completed'`, no writer has emitted the singular since 2026-02-03 — which is what makes a one-time normalization the right instrument instead of a permanent reader contract. Reader tolerance stays where it exists: fleet DBs migrate on their own next run, so for an interval some are normalized and some are not.
-- **A release cannot ship without release notes.** `release.py` derived two surfaces from `CHANGELOG.md` and could silently skip both: nothing checked that an entry for the released version existed (**22 tagged releases have none**), and the README "What's New" sync had four `warning()`-and-return paths that never raised. 1.13.4 published with the badge, docker tags and version line all reading 1.13.4 and the section that says *what changed* still reading 1.13.3. `verify_changelog_entry()` now asserts the TOP changelog heading IS the version being released — one assertion that closes existence, staleness, and the sync reading the wrong section — and runs before anything mutates the tree, in both `--prepare` and `--publish`. Every skip in the sync is fatal, and it verifies the heading actually landed rather than trusting its regex matched. Two tests assert the invariant over this repo's own files, so CI catches the next one.
-- **`GET` + `POST /api/v1/engagements/{id}/sources`** — attach a source to an engagement and read them back. Idempotent **per source, not per relationship**: `entity_artifacts` is unique on `(artifact_type, artifact_id, entity_type, entity_id)`, so the relationship is an attribute of the one edge rather than part of its identity. A re-POST under a different relationship returns `409` naming the one already stored, instead of quietly doing nothing.
-- **`docs/reference/api/SERVE_API.md`** states the practice-scoped rule once, with the measured evidence, and documents both new routes.
-- **The 1.12.23 changelog entry**, absent since the release itself. One of the 22 the new gate exists to prevent.
+- **`release.py` splits authoring from verification.** `--prepare` used to write the release-facing docs — version sweep, README's What's New, CLI reference — *after* checking out `main`. That one choice produced three defects: `main` accumulated files `develop` had never seen, so every release merge conflicted on exactly `README.md` and `CLI_COMMANDS_UNIFIED.md`; the bump had to be committed before the sync could run, leaving a window where `pyproject` led the README, which is how 1.13.4 shipped advertising *"What's New in 1.13.3"*; and the sync could `warning()`-and-return while the release continued regardless. Now `--docs` authors them **on develop**, commits nothing (the diff is for review), and refuses to run on `main`; `--prepare` and `--publish` *verify* and abort with the command that fixes each miss. Authoring is reasoning-adjacent work and belongs where the author and the review are; the release path does deterministic work and gates on the authoring being done. A gate cannot ship the wrong thing quietly — an action can, and did.
+- **The CLI-reference currency check compares content, not mtime.** "Someone ran the generator" and "the output matches the CLI" are different questions, and only the second matters. It strips the generator's `**Generated:**` stamp first: comparing raw text made the check answer *what time is it*, and a gate that always trips is worth what one that never trips is worth — both stop being read.
+- **`/cortex-mailbox-send` gains a pre-send verification steer.** Measured in one 40-minute thread across three practices: ~10 messages, four numbers withdrawn, and every one had an authoritative check a single command away that nobody ran first. The mesh **inverts** the cost of being wrong — locally a wrong belief costs a re-run, on the wire it costs every recipient's context, forces a correction round-trip, and leaves a false artifact to retract — and because a fast correction *feels* like the system working, the pull is to send and let peers catch it. Three rules before the send (one authoritative check per number or mechanism claim; estimates never go in tables; don't log the artifact until the claim is grounded) plus a reply-worthiness gate. It lives in the send skill because that is the only surface loaded at the moment it can intercept.
+- **Every listener forwarded every practitioner on the box.** The presence store is machine-global, and `list_presence` has taken a `practice_ai_id` scope since it was written — the emitter never passed it. So each listener read the whole store and posted every practitioner on the machine: emission rate was `listeners × sessions` rather than `sessions`, and every post but one was a duplicate upsert of a row another listener had just written. Measured across three practices: **12,906 heartbeats/hour from one box against a designed ~1,680**. The 60-second interval was always honoured — honoured L times per session. It reads as an interval defect from the receiving side because the payload carries `machine` and `session_id` but **no sender identity**, so nine listeners posting one session every 60s is indistinguishable from one emitter posting every 6.7s: `60 / 7.3 = 8.2s`, against 8.3s measured. The fix is one argument. `ai_id=None` still reads the whole box, so machine-level aggregation stays reachable as an explicit opt-in rather than the accidental default.
 ---
 
 ## What's New in 1.12.35
@@ -437,6 +434,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 **Author:** David S. L. Van Assche
-**Version:** 1.13.5
+**Version:** 1.13.6
 
 *Turtles all the way down — built with its own epistemic framework, measuring what it knows at every step.*
