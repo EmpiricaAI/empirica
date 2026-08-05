@@ -350,10 +350,28 @@ class ReleaseManager:
 
         api_key = os.environ.get("CHOCOLATEY_API_KEY")
         if not api_key:
-            warning(
-                "CHOCOLATEY_API_KEY not set — built .nupkg but skipping push (set the env var or run 'choco apikey set')"
+            # HARD FAIL, not warn-and-return. This gate was wrong about
+            # availability, not merely quiet: its own message named
+            # `choco apikey set` as an alternative, so a key stored in
+            # Chocolatey's own credential store satisfies `choco push` while this
+            # check reports it missing and skips. Built package, exit 0, nothing
+            # published.
+            #
+            # Found by ecodex on 2026-08-05 in the identical shape: their
+            # `release.sh --publish-crates` gated on CARGO_REGISTRY_TOKEN while
+            # cargo reads ~/.cargo/credentials.toml natively — the token WAS
+            # there and the script never tried, caught only by checking crates.io
+            # rather than the exit code.
+            #
+            # The sharper version of "a channel that cannot run must say so": a
+            # gate must be right about whether the channel CAN run, and an env
+            # var is not where most tools keep their credentials.
+            error(
+                "CHOCOLATEY_API_KEY not set — refusing to skip silently.\n"
+                "   The .nupkg is built. If your key is in Chocolatey's own store "
+                "(`choco apikey set`), this REST push cannot read it:\n"
+                "   export CHOCOLATEY_API_KEY=<key>   # or push manually with `choco push`"
             )
-            return
 
         if self.dry_run:
             info(f"Would PUT {nupkg} to https://push.chocolatey.org/api/v2/package/ (REST)")
