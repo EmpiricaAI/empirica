@@ -2724,27 +2724,50 @@ def handle_source_get_command(args):
         return None
 
 
-def _query_epistemic_sources(db, project_id, source_type_filter, direction_filter, include_archived=False):
+def _query_epistemic_sources(
+    db, project_id, source_type_filter, direction_filter, include_archived=False, practice_scope=True
+):
     """Query epistemic_sources and legacy refdocs, returning combined list.
 
     include_archived defaults False — archived sources are hidden by default
     in line with SOURCES_LIFECYCLE_SPEC's read-side default. Pass True for
     forensics views that need to surface terminated rows.
+
+    Practice-scoped read (the CLI half of the sources under-read).
+    ``13dafd2f7`` fixed this shape in the daemon's ``_list_sources`` and left its
+    CLI twin untouched, so ``sources-map`` / ``sources-list`` / ``sources-check``
+    kept filtering ``WHERE project_id = ?``. A practice's project_id drifts over
+    its life, so its OWN sources end up under several ids: measured here
+    2026-08-05, ``sources-map`` reported 29 while the db held 39 unarchived — 10
+    sitting under ``3be592bd``, the same stale id named in that commit. On
+    mesh-support the drift is total (17 rows, 0 shown), which is what made it
+    read as an empty catalogue rather than an unreadable one.
+
+    Safe to read the whole table because ``SessionDatabase()`` resolves to THIS
+    project's ``.empirica/sessions/sessions.db`` — the db path IS the practice
+    boundary, so every row in it belongs to this practice by construction.
+
+    ``practice_scope=False`` keeps the strict single-id read, and callers MUST
+    pass it when the user explicitly named a ``--project-id``: otherwise a
+    deliberate cross-project query would silently return the local practice.
+
+    Non-destructive — rows keep their stored project_id and it is surfaced per
+    row, so the drift stays visible for gardening to reconcile.
     """
     sources = []
     try:
         # archived/archive_reason/archived_at are LEFT-OUT-protected via
         # COALESCE in case the DB hasn't been migrated past 044 yet (older
         # installs reading newer code).
-        query = """
+        query = f"""
             SELECT id, source_type, title, description, confidence,
                    epistemic_layer, source_url, discovered_at, source_metadata,
                    COALESCE(archived, 0) AS archived,
-                   archive_reason, archive_target_id, archived_at
+                   archive_reason, archive_target_id, archived_at, project_id
             FROM epistemic_sources
-            WHERE project_id = ?
+            WHERE {"1=1" if practice_scope else "project_id = ?"}
         """
-        params = [project_id]
+        params = [] if practice_scope else [project_id]
         if not include_archived:
             query += " AND COALESCE(archived, 0) = 0"
         if source_type_filter:
@@ -2775,6 +2798,10 @@ def _query_epistemic_sources(db, project_id, source_type_filter, direction_filte
                     "archive_reason": row[10] if len(row) > 10 else None,
                     "archive_target_id": row[11] if len(row) > 11 else None,
                     "archived_at": row[12] if len(row) > 12 else None,
+                    # Stored project_id, surfaced so drift is visible rather than
+                    # silently aggregated away — gardening needs to see which
+                    # sources sit under a stale id.
+                    "project_id": row[13] if len(row) > 13 else None,
                 }
             )
             r["source"] = "epistemic_sources"
@@ -3129,6 +3156,7 @@ def handle_sources_map_command(args):
         from empirica.data.session_database import SessionDatabase
 
         project_id = getattr(args, "project_id", None)
+        explicit_project_id = project_id
         include_global = getattr(args, "include_global", False)
         query_text = getattr(args, "query", None) or ""
         source_type_filter = getattr(args, "source_type", None)
@@ -3155,6 +3183,10 @@ def handle_sources_map_command(args):
             source_type_filter,
             "all",
             include_archived=False,
+            # An explicit --project-id is a deliberate cross-project query and
+            # must keep the strict single-id read; the auto-resolved default is
+            # practice-scoped so drifted ids stay visible.
+            practice_scope=explicit_project_id is None,
         )
 
         discoverable_sources = []
@@ -3285,6 +3317,7 @@ def handle_source_list_command(args):
         from empirica.data.session_database import SessionDatabase
 
         project_id = getattr(args, "project_id", None)
+        explicit_project_id = project_id
         source_type_filter = getattr(args, "source_type", None)
         direction_filter = getattr(args, "direction", "all")
         include_archived = getattr(args, "include_archived", False)
@@ -3310,6 +3343,7 @@ def handle_source_list_command(args):
             source_type_filter,
             direction_filter,
             include_archived=include_archived,
+            practice_scope=explicit_project_id is None,
         )
 
         if output_format == "json":
