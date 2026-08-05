@@ -29,7 +29,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 PLUGIN_NAME = "empirica"
-PLUGIN_VERSION = "1.13.6"
+PLUGIN_VERSION = "1.13.7"
 # Written into the installed plugin dir; the empirica version its files came
 # from. Drives drift-sync (empirica plugin-sync / session-init auto-heal).
 PLUGIN_VERSION_STAMP = ".plugin-version"
@@ -898,7 +898,19 @@ def _install_claude_md(plugin_dir, claude_dir, output_format):
         # version (closes Philipp's #100 — hardcoded version drifts every release).
         _render_versioned_template(claude_md_src, empirica_prompt_dst)
         if output_format != "json":
+            # Report the CONTENT digest and the source it came from, not just the
+            # version. A peer reported `setup --force` installing a pre-change
+            # prompt under a current version header — a version string is a claim
+            # about provenance, never evidence of content, and with only a version
+            # printed there is no way to tell a stale render from a fresh one.
+            # Two seats can now compare digests directly.
+            import hashlib
+
+            digest = hashlib.sha256(empirica_prompt_dst.read_bytes()).hexdigest()[:12]
             print(f"   ✓ Empirica prompt ({prompt_label}) written to ~/.claude/empirica-system-prompt.md")
+            print(
+                f"     content {digest} · {len(empirica_prompt_dst.read_text().split())} words · from {claude_md_src}"
+            )
 
         if claude_md_dst.exists():
             existing_content = claude_md_dst.read_text()

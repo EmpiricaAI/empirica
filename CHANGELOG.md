@@ -5,6 +5,54 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.7] - 2026-08-05
+
+Reporting discipline reaches the fleet, and three surfaces stop being trusted as
+proxies for content.
+
+### Changed
+
+- **`§REPORTING` in the system prompt: report D, not A → B → C → D.** If the work
+  went A→D, the user gets **D** — A–C is one sentence at most, because everything
+  cut is already in the artifacts. The reply points at a graph that holds the
+  detail rather than retelling it, and *if a paragraph would make a good artifact,
+  it IS one: log it and cut it.* Every reply now ends with **what is still to do,
+  as a list** — the one thing a human cannot reconstruct from the graph, and the
+  thing that sets direction. In a multi-practice environment their attention is
+  the scarce resource, far scarcer than the practitioner's.
+- **`--publish` is tag-and-push; CI owns every channel.** `release.yml` already
+  defined build, both PyPI packages, Docker, Homebrew and the GitHub release, so
+  the local path was redundant — and running both made every release race on the
+  GitHub release (`a release with the same tag name already exists`, recovered
+  with `--clobber`, three times in one day). `CI_CD.md` set the bar at "verified
+  for a release or two"; 1.13.4, 1.13.5 and 1.13.6 all published cleanly through
+  CI. `--local-artifacts` restores the old path for when CI is down — an escape
+  hatch, not an alternative, since running both is what caused the race. A test
+  asserts `release.yml` still defines every channel job, so removing one fails
+  there rather than at the next release.
+- **`setup` reports the prompt's CONTENT, not just its version.** It now prints a
+  sha256 digest, word count and source path beside the version, so two seats can
+  compare what was installed instead of comparing claims about it. A version
+  string is provenance, never evidence of content — a distinction that cost three
+  separate diagnoses in one day (PyPI's `.info.version` *and* `.releases` both
+  lagging behind the simple index; an interpreter path read as a code version; a
+  prompt header read as proof of the prompt's text).
+
+### Added
+
+- **`doctor`: Presence coverage.** Since the heartbeat emitter became
+  practice-scoped, a practice with live sessions and no running listener goes dark
+  on the mesh — previously any listener carried it. Zero-impact today (23 records,
+  22 stale, the one live record has its listener) but that is circumstance, not
+  construction. Also catches label drift, where a record written as `workspace`
+  while its listener runs as `empirica-workspace` is orphaned just as effectively.
+- **`emitter_id` on the practitioner heartbeat** (`<ai_id>:<pid>`). The payload
+  carried `machine` and `session_id` and nothing identifying the SENDER, so N
+  listeners posting one session every 60s was indistinguishable, receiver-side,
+  from one emitter posting every 60/N — an ambiguity that produced a reported
+  interval defect which did not exist. Additive and optional; an unknown field is
+  ignored by the handler.
+
 ## [1.13.6] - 2026-08-05
 
 Authoring stops being a release step, and every listener stops speaking for the

@@ -2,7 +2,7 @@
 
 > **We Gave AI a Mirror. Now It Measures What It Believes.**
 
-[![Version](https://img.shields.io/badge/version-1.13.6-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.6)
+[![Version](https://img.shields.io/badge/version-1.13.7-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.7)
 [![PyPI](https://img.shields.io/pypi/v/empirica)](https://pypi.org/project/empirica/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -114,13 +114,13 @@ empirica setup
 
 ```bash
 # Security-hardened Alpine image (~276MB, recommended)
-docker pull nubaeon/empirica:1.13.6-alpine
+docker pull nubaeon/empirica:1.13.7-alpine
 
 # Standard image (Debian slim, ~414MB)
-docker pull nubaeon/empirica:1.13.6
+docker pull nubaeon/empirica:1.13.7
 
 # Run
-docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.6 /bin/bash
+docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.7 /bin/bash
 ```
 </details>
 
@@ -387,12 +387,13 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.13.6
+## What's New in 1.13.7
 
-- **`release.py` splits authoring from verification.** `--prepare` used to write the release-facing docs — version sweep, README's What's New, CLI reference — *after* checking out `main`. That one choice produced three defects: `main` accumulated files `develop` had never seen, so every release merge conflicted on exactly `README.md` and `CLI_COMMANDS_UNIFIED.md`; the bump had to be committed before the sync could run, leaving a window where `pyproject` led the README, which is how 1.13.4 shipped advertising *"What's New in 1.13.3"*; and the sync could `warning()`-and-return while the release continued regardless. Now `--docs` authors them **on develop**, commits nothing (the diff is for review), and refuses to run on `main`; `--prepare` and `--publish` *verify* and abort with the command that fixes each miss. Authoring is reasoning-adjacent work and belongs where the author and the review are; the release path does deterministic work and gates on the authoring being done. A gate cannot ship the wrong thing quietly — an action can, and did.
-- **The CLI-reference currency check compares content, not mtime.** "Someone ran the generator" and "the output matches the CLI" are different questions, and only the second matters. It strips the generator's `**Generated:**` stamp first: comparing raw text made the check answer *what time is it*, and a gate that always trips is worth what one that never trips is worth — both stop being read.
-- **`/cortex-mailbox-send` gains a pre-send verification steer.** Measured in one 40-minute thread across three practices: ~10 messages, four numbers withdrawn, and every one had an authoritative check a single command away that nobody ran first. The mesh **inverts** the cost of being wrong — locally a wrong belief costs a re-run, on the wire it costs every recipient's context, forces a correction round-trip, and leaves a false artifact to retract — and because a fast correction *feels* like the system working, the pull is to send and let peers catch it. Three rules before the send (one authoritative check per number or mechanism claim; estimates never go in tables; don't log the artifact until the claim is grounded) plus a reply-worthiness gate. It lives in the send skill because that is the only surface loaded at the moment it can intercept.
-- **Every listener forwarded every practitioner on the box.** The presence store is machine-global, and `list_presence` has taken a `practice_ai_id` scope since it was written — the emitter never passed it. So each listener read the whole store and posted every practitioner on the machine: emission rate was `listeners × sessions` rather than `sessions`, and every post but one was a duplicate upsert of a row another listener had just written. Measured across three practices: **12,906 heartbeats/hour from one box against a designed ~1,680**. The 60-second interval was always honoured — honoured L times per session. It reads as an interval defect from the receiving side because the payload carries `machine` and `session_id` but **no sender identity**, so nine listeners posting one session every 60s is indistinguishable from one emitter posting every 6.7s: `60 / 7.3 = 8.2s`, against 8.3s measured. The fix is one argument. `ai_id=None` still reads the whole box, so machine-level aggregation stays reachable as an explicit opt-in rather than the accidental default.
+- **`§REPORTING` in the system prompt: report D, not A → B → C → D.** If the work went A→D, the user gets **D** — A–C is one sentence at most, because everything cut is already in the artifacts. The reply points at a graph that holds the detail rather than retelling it, and *if a paragraph would make a good artifact, it IS one: log it and cut it.* Every reply now ends with **what is still to do, as a list** — the one thing a human cannot reconstruct from the graph, and the thing that sets direction. In a multi-practice environment their attention is the scarce resource, far scarcer than the practitioner's.
+- **`--publish` is tag-and-push; CI owns every channel.** `release.yml` already defined build, both PyPI packages, Docker, Homebrew and the GitHub release, so the local path was redundant — and running both made every release race on the GitHub release (`a release with the same tag name already exists`, recovered with `--clobber`, three times in one day). `CI_CD.md` set the bar at "verified for a release or two"; 1.13.4, 1.13.5 and 1.13.6 all published cleanly through CI. `--local-artifacts` restores the old path for when CI is down — an escape hatch, not an alternative, since running both is what caused the race. A test asserts `release.yml` still defines every channel job, so removing one fails there rather than at the next release.
+- **`setup` reports the prompt's CONTENT, not just its version.** It now prints a sha256 digest, word count and source path beside the version, so two seats can compare what was installed instead of comparing claims about it. A version string is provenance, never evidence of content — a distinction that cost three separate diagnoses in one day (PyPI's `.info.version` *and* `.releases` both lagging behind the simple index; an interpreter path read as a code version; a prompt header read as proof of the prompt's text).
+- **`doctor`: Presence coverage.** Since the heartbeat emitter became practice-scoped, a practice with live sessions and no running listener goes dark on the mesh — previously any listener carried it. Zero-impact today (23 records, 22 stale, the one live record has its listener) but that is circumstance, not construction. Also catches label drift, where a record written as `workspace` while its listener runs as `empirica-workspace` is orphaned just as effectively.
+- **`emitter_id` on the practitioner heartbeat** (`<ai_id>:<pid>`). The payload carried `machine` and `session_id` and nothing identifying the SENDER, so N listeners posting one session every 60s was indistinguishable, receiver-side, from one emitter posting every 60/N — an ambiguity that produced a reported interval defect which did not exist. Additive and optional; an unknown field is ignored by the handler.
 ---
 
 ## What's New in 1.12.35
@@ -434,6 +435,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 **Author:** David S. L. Van Assche
-**Version:** 1.13.6
+**Version:** 1.13.7
 
 *Turtles all the way down — built with its own epistemic framework, measuring what it knows at every step.*
