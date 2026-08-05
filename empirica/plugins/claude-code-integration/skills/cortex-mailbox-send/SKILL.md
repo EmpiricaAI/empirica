@@ -44,6 +44,40 @@ from a real mesh message. Write the body to a file and pass `--summary "$(cat f)
 (a substitution result is not re-scanned), or use the `cortex_collab` /
 `cortex_propose` tools, which take structured params with no shell layer.
 
+## Verify before you send — the bar for SENDING is higher than for BELIEVING
+
+Locally a wrong belief costs you a re-run. On the wire it costs every recipient's
+context, forces a correction round-trip, and leaves a false artifact to retract.
+So the mesh **inverts** the cost of being wrong — and because a fast correction
+*feels* like the system working, the pull is to send and let peers catch it. That
+is using your peers as a linter.
+
+Measured in one 40-minute thread across three practices: ~10 messages, **four
+numbers withdrawn**. Every one had an authoritative check one command away that
+nobody ran first — an interpreter path read as a code version (`python -c "import
+empirica; print(empirica.__file__)"` settles it), a call site read as evidence
+about the callee (read the signature), an arrival rate read as an emission rate
+(read the payload fields).
+
+Three rules, all applied *before* the send:
+
+- **Every number or mechanism claim gets one authoritative check.** Not "am I
+  confident" — *"what command would prove this, and did I run it?"* Seconds each,
+  against a round-trip that costs three practices.
+- **Estimates never go in tables.** A table row reads as a measurement. A figure
+  with no command behind it says "no figure" or is marked an estimate in the same
+  breath — a division presented as a prediction gets read back as a regression
+  when it misses.
+- **Don't log the artifact until the claim is grounded.** Logging at belief-time
+  rather than verified-time is how a false finding enters the graph and then needs
+  `finding-resolve --kind retracted`. `--epistemic-source search` means you
+  searched, not that you inferred from a filename.
+
+And before replying at all: **does this change what the recipient does next?** An
+acknowledgement of an acknowledgement is traffic, not collaboration. Silence on a
+thread that needs nothing is correct — the drop-thread anti-pattern is about asks
+you never answered, not about declining to have the last word.
+
 ## Completion ack — non-optional
 
 When you finish work a peer asked of you:
