@@ -61,6 +61,11 @@ def _strip_generated_stamp(text: str) -> str:
     return "\n".join(ln for ln in text.splitlines() if not ln.startswith("**Generated:**"))
 
 
+def error_soft(msg: str):
+    """Report a failed check without exiting — the caller decides."""
+    log(f"❌ {msg}", RED)
+
+
 def error(msg: str):
     log(f"❌ ERROR: {msg}", RED)
     sys.exit(1)
@@ -721,6 +726,90 @@ class ReleaseManager:
             if res.returncode != 0:
                 error(f"CLI docs generator failed ({res.returncode}): {res.stderr.strip()[:300]}")
             return _strip_generated_stamp(probe.read_text()) != _strip_generated_stamp(target.read_text())
+
+    def run_verify(self):
+        """``--verify``: did the release actually LAND on every channel?
+
+        `--publish` is tag-and-push, so CI owns delivery — and a CI job's
+        `success` is not evidence that it published. On v1.13.7 the Docker and
+        Homebrew jobs both concluded `success` with every substantive step
+        SKIPPED, because a secret-check step gated them and skipping is not
+        failing. PyPI and GitHub landed; Docker and the tap silently did not, and
+        nothing in the pipeline noticed.
+
+        So this checks ARTIFACTS, never job status, and each check uses the
+        instrument that answers the question actually being asked:
+
+        - PyPI: the **simple index**, which is what pip resolves against. Both
+          JSON fields (`.info.version` and `.releases`) lag behind it by minutes.
+        - Docker: the per-tag endpoint, not the paginated tag list, which is
+          ordered by last-update and caches.
+        - Homebrew: the tap's REMOTE head, not a local clone that may be stale.
+        """
+        import urllib.error
+        import urllib.request
+
+        log("\n╔════════════════════════════════════════════════════════════╗")
+        log("║  Empirica Release — VERIFY (artifacts, not job status)     ║")
+        log("╚════════════════════════════════════════════════════════════╝\n")
+        self.version = self.read_version()
+        v = self.version
+
+        def _get(url: str) -> str | None:
+            try:
+                with urllib.request.urlopen(url, timeout=15) as r:
+                    return r.read().decode("utf-8", "replace")
+            except Exception:
+                return None
+
+        results: list[tuple[str, bool, str]] = []
+
+        for pkg, fname in (("empirica", f"empirica-{v}"), ("empirica-mcp", f"empirica_mcp-{v}")):
+            body = _get(f"https://pypi.org/simple/{pkg}/")
+            ok = bool(body and fname in body)
+            results.append((f"PyPI {pkg}", ok, "simple index" if ok else "absent from the simple index"))
+
+        for tag in (v, f"{v}-alpine"):
+            ok = _get(f"https://hub.docker.com/v2/repositories/nubaeon/empirica/tags/{tag}") is not None
+            results.append((f"Docker {tag}", ok, "present" if ok else "tag not found"))
+
+        gh = subprocess.run(
+            ["gh", "release", "view", f"v{v}", "--json", "assets", "-q", ".assets|length"],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            cwd=str(self.repo_root),
+        )
+        n = gh.stdout.strip() if gh.returncode == 0 else "0"
+        results.append(
+            (f"GitHub v{v}", gh.returncode == 0 and n not in ("", "0"), f"{n} asset(s)" if n else "no release")
+        )
+
+        tap = subprocess.run(
+            ["git", "ls-remote", "https://github.com/EmpiricaAI/homebrew-tap", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        results.append(
+            (
+                "Homebrew tap",
+                tap.returncode == 0,
+                "reachable — check the formula version" if tap.returncode == 0 else "unreachable",
+            )
+        )
+
+        for name, ok, detail in results:
+            (success if ok else error_soft)(f"{name}: {detail}")
+
+        missing = [n for n, ok, _ in results if not ok]
+        if missing:
+            error(
+                f"{len(missing)} channel(s) did not land: {', '.join(missing)}\n"
+                f"   CI job status is NOT evidence of publication — a gated skip still concludes success.\n"
+                f"   Recover with: python scripts/release.py --publish --local-artifacts"
+            )
+        success(f"All {len(results)} channels carry {v}")
 
     def run_docs(self):
         """``--docs``: author the release-facing docs on THIS branch. No merge, no
@@ -1818,14 +1907,36 @@ brew install empirica
             # an escape hatch, not a routine alternative, because running both is
             # exactly what created the race.
             self.create_git_tag()
+
+            # The split is per-channel, because CI's coverage is per-channel.
+            #
+            # CI publishes PyPI ×2 (OIDC trusted publishing, no secret needed) and
+            # the GitHub release (GITHUB_TOKEN). Those are also exactly the channels
+            # that raced when we published locally too.
+            #
+            # Docker moved to CI on 2026-08-05: DOCKERHUB_USERNAME/_TOKEN are now
+            # repo secrets, reusing the existing scoped nubaeon registry token
+            # rather than minting a new one.
+            #
+            # HOMEBREW + CHOCOLATEY stay local, and Homebrew deliberately so. The
+            # credential that pushes the tap is the `gh` CLI's own OAuth token
+            # (`gho_`, user Nubaeon) carrying repo + workflow + gist + admin:*_key.
+            # Copying that into a repo secret would let any workflow here act as
+            # that user across every repo they can reach, and OAuth tokens rotate
+            # on re-auth so it would break silently. Sharing it is not sharing —
+            # it is widening. A fine-grained PAT scoped to EmpiricaAI/homebrew-tap
+            # with Contents:write is the correct fix and is a deliberate mint.
+            #
+            # Chocolatey no-ops off Windows anyway.
+            self.update_homebrew_tap()
+            self.build_and_push_chocolatey()
+
             if self.local_artifacts:
-                warning("--local-artifacts: publishing from this machine AS WELL as CI — expect races")
+                warning("--local-artifacts: also publishing PyPI + Docker + GitHub locally — these RACE with CI")
                 self.publish_to_pypi()
                 self.publish_mcp_to_pypi()
                 self.build_and_push_docker()
                 self.create_github_release()
-                self.update_homebrew_tap()
-                self.build_and_push_chocolatey()
 
             # Switch back to develop
             if not self.dry_run:
@@ -1837,8 +1948,10 @@ brew install empirica
 
             success(f"Tagged v{self.version} — CI (release.yml) publishes every channel from here")
             info("Watch: gh run list --branch main --limit 1")
-            info(f"Verify PyPI on the SIMPLE INDEX — both JSON fields lag: "
-                 f"curl -s https://pypi.org/simple/empirica/ | grep {self.version}")
+            info(
+                f"Verify PyPI on the SIMPLE INDEX — both JSON fields lag: "
+                f"curl -s https://pypi.org/simple/empirica/ | grep {self.version}"
+            )
             info(f"PyPI: https://pypi.org/project/empirica/{self.version}/")
             info(f"PyPI (MCP): https://pypi.org/project/empirica-mcp/{self.version}/")
             info(f"Docker: docker pull nubaeon/empirica:{self.version}")
@@ -1912,14 +2025,36 @@ brew install empirica
             # an escape hatch, not a routine alternative, because running both is
             # exactly what created the race.
             self.create_git_tag()
+
+            # The split is per-channel, because CI's coverage is per-channel.
+            #
+            # CI publishes PyPI ×2 (OIDC trusted publishing, no secret needed) and
+            # the GitHub release (GITHUB_TOKEN). Those are also exactly the channels
+            # that raced when we published locally too.
+            #
+            # Docker moved to CI on 2026-08-05: DOCKERHUB_USERNAME/_TOKEN are now
+            # repo secrets, reusing the existing scoped nubaeon registry token
+            # rather than minting a new one.
+            #
+            # HOMEBREW + CHOCOLATEY stay local, and Homebrew deliberately so. The
+            # credential that pushes the tap is the `gh` CLI's own OAuth token
+            # (`gho_`, user Nubaeon) carrying repo + workflow + gist + admin:*_key.
+            # Copying that into a repo secret would let any workflow here act as
+            # that user across every repo they can reach, and OAuth tokens rotate
+            # on re-auth so it would break silently. Sharing it is not sharing —
+            # it is widening. A fine-grained PAT scoped to EmpiricaAI/homebrew-tap
+            # with Contents:write is the correct fix and is a deliberate mint.
+            #
+            # Chocolatey no-ops off Windows anyway.
+            self.update_homebrew_tap()
+            self.build_and_push_chocolatey()
+
             if self.local_artifacts:
-                warning("--local-artifacts: publishing from this machine AS WELL as CI — expect races")
+                warning("--local-artifacts: also publishing PyPI + Docker + GitHub locally — these RACE with CI")
                 self.publish_to_pypi()
                 self.publish_mcp_to_pypi()
                 self.build_and_push_docker()
                 self.create_github_release()
-                self.update_homebrew_tap()
-                self.build_and_push_chocolatey()
 
             # Switch back to develop
             if not self.dry_run:
@@ -1931,8 +2066,10 @@ brew install empirica
 
             success(f"Tagged v{self.version} — CI (release.yml) publishes every channel from here")
             info("Watch: gh run list --branch main --limit 1")
-            info(f"Verify PyPI on the SIMPLE INDEX — both JSON fields lag: "
-                 f"curl -s https://pypi.org/simple/empirica/ | grep {self.version}")
+            info(
+                f"Verify PyPI on the SIMPLE INDEX — both JSON fields lag: "
+                f"curl -s https://pypi.org/simple/empirica/ | grep {self.version}"
+            )
             info(f"PyPI: https://pypi.org/project/empirica/{self.version}/")
             info(f"PyPI (MCP): https://pypi.org/project/empirica-mcp/{self.version}/")
             info(f"Docker: docker pull nubaeon/empirica:{self.version}")
@@ -1986,6 +2123,14 @@ Legacy (one-shot, less safe):
         ),
     )
     parser.add_argument(
+        "--verify",
+        action="store_true",
+        help=(
+            "Check that the CURRENT version actually landed on every channel — "
+            "artifacts, not CI job status. Run a few minutes after --publish."
+        ),
+    )
+    parser.add_argument(
         "--docs",
         action="store_true",
         help=(
@@ -2029,7 +2174,9 @@ Legacy (one-shot, less safe):
         skip_tests=args.skip_tests,
         commit_bump=args.commit,
     )
-    if args.docs:
+    if args.verify:
+        manager.run_verify()
+    elif args.docs:
         manager.run_docs()
     elif args.version_only:
         manager.run_version_update()

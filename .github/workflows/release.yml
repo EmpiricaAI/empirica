@@ -16,7 +16,8 @@ name: Release
 # Required GitHub Actions secrets (Settings → Secrets and variables → Actions):
 #   DOCKERHUB_USERNAME    — Docker Hub username (e.g. "nubaeon")
 #   DOCKERHUB_TOKEN       — Docker Hub access token with push scope
-#   HOMEBREW_TAP_TOKEN    — PAT with `repo` scope for Nubaeon/homebrew-tap
+#   HOMEBREW_TAP_TOKEN    — NOT SET. The homebrew job was removed 2026-08-05;
+#                           the tap publishes locally. See the note below.
 #
 # Optional: configure PyPI trusted publishers for empirica + empirica-mcp.
 # If trusted publishing isn't set up, the PyPI step will fail — fix by
@@ -139,8 +140,14 @@ jobs:
           DH_USER: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
           if [ -z "$DH_USER" ]; then
-            echo "::warning::DOCKERHUB_USERNAME not set — skipping Docker push"
-            echo "skip=true" >> "$GITHUB_OUTPUT"
+            # FAIL, do not skip. A gated skip that still concludes `success` is
+            # indistinguishable from a real publish at the job level — on v1.13.7
+            # this job reported success while every step after this one was
+            # skipped, and Docker simply never got the release. `--publish` is now
+            # tag-and-push only, so CI is the ONLY path: a channel that cannot run
+            # must say so loudly rather than pass quietly.
+            echo "::error::DOCKERHUB_USERNAME not set — cannot publish Docker. Configure the secret or remove this job."
+            exit 1
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
@@ -180,76 +187,18 @@ jobs:
   # ── Homebrew tap ────────────────────────────────────────────────────
   # Checks out the tap repo, updates Formula/empirica.rb with the new
   # version + sha256, commits + pushes. Skip on missing token.
-  homebrew:
-    name: Update Homebrew tap
-    runs-on: ubuntu-latest
-    needs: pypi-empirica
-    timeout-minutes: 10
+  # homebrew: REMOVED 2026-08-05 — published locally by `release.py --publish`.
+  #
+  # The tap push authenticates with the `gh` CLI's own OAuth token (`gho_`, user
+  # Nubaeon) carrying repo + workflow + gist + admin:*_key. Copying that into a
+  # repo secret would let any workflow here act as that user across every repo
+  # they can reach, and OAuth tokens rotate on re-auth so it would break
+  # silently — that is widening privilege, not sharing a credential.
+  #
+  # To bring it back: mint a FINE-GRAINED PAT scoped to EmpiricaAI/homebrew-tap
+  # with Contents:write, set it as HOMEBREW_TAP_TOKEN, and restore this job from
+  # git history. A deliberate mint is the correct fix; reuse is not.
 
-    steps:
-      - name: Resolve version
-        id: ver
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-
-      - name: Check tap token
-        id: secrets
-        env:
-          TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-        run: |
-          if [ -z "$TOKEN" ]; then
-            echo "::warning::HOMEBREW_TAP_TOKEN not set — skipping tap update"
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Download empirica sdist
-        if: steps.secrets.outputs.skip == 'false'
-        uses: actions/download-artifact@v8
-        with:
-          name: empirica-dist
-          path: dist/
-
-      - name: Compute sha256
-        if: steps.secrets.outputs.skip == 'false'
-        id: hash
-        run: |
-          SHA=$(sha256sum "dist/empirica-${{ steps.ver.outputs.version }}.tar.gz" | awk '{print $1}')
-          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
-
-      - name: Check out tap
-        if: steps.secrets.outputs.skip == 'false'
-        uses: actions/checkout@v7
-        with:
-          repository: Nubaeon/homebrew-tap
-          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          path: homebrew-tap
-
-      - name: Update formula
-        if: steps.secrets.outputs.skip == 'false'
-        working-directory: homebrew-tap
-        run: |
-          VERSION="${{ steps.ver.outputs.version }}"
-          SHA="${{ steps.hash.outputs.sha256 }}"
-          sed -i -E "s|url \"https://files.pythonhosted.org/packages/source/e/empirica/empirica-.*\\.tar\\.gz\"|url \"https://files.pythonhosted.org/packages/source/e/empirica/empirica-${VERSION}.tar.gz\"|" Formula/empirica.rb || true
-          sed -i -E "s|sha256 \"[a-f0-9]{64}\"|sha256 \"${SHA}\"|" Formula/empirica.rb
-          sed -i -E "s|version \"[0-9]+\\.[0-9]+\\.[0-9]+\"|version \"${VERSION}\"|" Formula/empirica.rb || true
-
-      - name: Commit + push
-        if: steps.secrets.outputs.skip == 'false'
-        working-directory: homebrew-tap
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Formula/empirica.rb
-          if git diff --staged --quiet; then
-            echo "::notice::Formula already up to date; nothing to commit"
-          else
-            git commit -m "Update empirica to ${{ steps.ver.outputs.version }}"
-            git push
-          fi
-
-  # ── GitHub release ──────────────────────────────────────────────────
   github-release:
     name: GitHub release
     runs-on: ubuntu-latest

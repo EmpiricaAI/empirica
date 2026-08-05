@@ -253,17 +253,45 @@ def test_docs_ready_gate_checks_every_release_facing_surface():
 # 1.13.4/5/6 all published cleanly through CI.
 
 
-def test_publish_tags_and_lets_ci_do_the_channels():
+def test_publish_leaves_ci_only_channels_to_ci():
+    """PyPI and the GitHub release are CI's — publishing them locally too is what
+    raced (`a release with the same tag name already exists`, three times in one
+    day)."""
     src = RELEASE_PY.read_text()
     for flow in ("run_publish", "run(self)"):
         body = _flow_body(src, flow)
-        assert "self.create_git_tag()" in body, f"{flow} must still tag — the tag is what triggers release.yml"
-        for channel in ("self.publish_to_pypi()", "self.build_and_push_docker()", "self.create_github_release()"):
+        assert "self.create_git_tag()" in body, f"{flow} must tag — the tag triggers release.yml"
+        for channel in ("self.publish_to_pypi()", "self.create_github_release()", "self.build_and_push_docker()"):
             line = next(ln for ln in body.splitlines() if channel in ln)
             assert line.startswith("                "), (
-                f"{flow}: {channel} must sit inside the --local-artifacts branch, not run unconditionally — "
-                f"publishing locally AND in CI is what raced the GitHub release"
+                f"{flow}: {channel} must sit inside the --local-artifacts branch — CI owns it"
             )
+
+
+def test_publish_still_does_the_channels_ci_cannot():
+    """Docker and Homebrew gate on repo secrets that do not exist, and a gated
+    skip concludes `success` — so CI has never published them. 1.13.7 shipped
+    without both because the local path had been removed on the strength of that
+    green tick. They stay local until the secrets land."""
+    src = RELEASE_PY.read_text()
+    for flow in ("run_publish", "run(self)"):
+        body = _flow_body(src, flow)
+        for channel in ("self.update_homebrew_tap()",):
+            line = next(ln for ln in body.splitlines() if channel in ln)
+            assert line.startswith("            ") and not line.startswith("                "), (
+                f"{flow}: {channel} must run unconditionally — CI cannot publish it "
+                f"(no DOCKERHUB_*/HOMEBREW_TAP_TOKEN secret), and its job still reports success"
+            )
+
+
+def test_ci_secret_gates_fail_loudly_rather_than_skip():
+    """The defect that hid it: warning + skip, with the job still green."""
+    wf = (REPO_ROOT / ".github" / "workflows" / "release.yml").read_text()
+    assert "skip=true" not in wf, (
+        "a secret-gated skip concludes `success`, making a job that published "
+        "indistinguishable from one that did nothing — gates must exit 1"
+    )
+    assert wf.count("::error::DOCKERHUB_USERNAME") == 1
 
 
 def test_local_artifacts_defaults_off():
@@ -276,5 +304,12 @@ def test_ci_release_workflow_still_covers_every_channel():
     """The precondition for slimming: if a job is removed from release.yml, the
     local path is no longer redundant and this fails before a release does."""
     wf = (REPO_ROOT / ".github" / "workflows" / "release.yml").read_text()
-    for job in ("pypi-empirica:", "pypi-empirica-mcp:", "docker:", "homebrew:", "github-release:"):
+    for job in ("pypi-empirica:", "pypi-empirica-mcp:", "docker:", "github-release:"):
         assert job in wf, f"release.yml must still define {job} — --publish no longer does it locally"
+    # Homebrew is deliberately NOT here: it publishes locally, because the tap
+    # credential is a broad OAuth token and sharing it would widen privilege.
+    assert "\n  homebrew:" not in wf, (
+        "the homebrew job must stay removed until a fine-grained PAT exists — a job "
+        "that cannot authenticate either fails every release or skips silently, and "
+        "both are worse than publishing it locally"
+    )
