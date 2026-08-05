@@ -1284,6 +1284,42 @@ gate, doc alignment, mesh-listener hardening, and a security floor bump.
   CVE-2026-52870 (fixed in 1.27.2) and CVE-2026-59950 (fixed in 1.28.1). Applied to
   both the root `mcp` extra and the empirica-mcp SDK pin.
 
+## [1.12.23] — 2026-07-15
+
+### Added
+- **`--all-projects` on `goals-list` + `unknown-list`.** The list verbs scope to
+  the active project's top-N, which hides goals/unknowns stranded under other or
+  divergent `project_id`s. `--all-projects` bypasses that scope so a gardening
+  pass can see (and clean) the whole graph, adds a project column, and raises the
+  default limit. You can't garden what you can't see.
+- **`resolve-artifacts` gains a `filter` block — bulk resolve by policy.** Instead
+  of enumerating ids, pass `{"filter": {"type": "finding|unknown", "project_id":
+  "...", "older_than": "YYYY-MM-DD", "matching": "test %"}, "apply": false}` to
+  resolve OPEN matching artifacts in one call. **Dry-run by default** (reports
+  matched count + a sample); `apply: true` commits. The safe bulk-resolve
+  mechanism — no hand-written SQL.
+- **`rebuild --qdrant-only`.** Re-embed Qdrant from the *current* SQLite **without**
+  the notes-import step that the default `rebuild` runs first. Safe to run after
+  direct-SQL / bulk hygiene changes that aren't yet in git notes — it never
+  touches (or reverts) SQLite.
+
+### Changed
+- **Resolution is now durable to git notes.** Resolving a finding/unknown persists
+  `is_resolved`/`resolution`/`superseded_by` to the canonical note store (not just
+  SQLite), so a `rebuild --from-notes` or a multi-device sync **preserves** resolved
+  and superseded state instead of resurrecting the artifact as open.
+- **`GET /api/v1/sources`** hides archived sources by default (opt-in
+  `?include_archived=true`) and projects `cortex_uuid` + `visibility` so a consumer
+  can reconcile a local source against its cloud twin via the bridge key.
+- **`/epistemic-gardening` skill refreshed (v1.1.0)** — structural-first sequencing
+  + `--all-projects`, the `resolve-artifacts` filter, the `rebuild --qdrant-only`
+  footgun, and four new anti-patterns.
+
+### Fixed
+- **`rebuild --qdrant` is per-project resilient.** One bad / old-schema project DB
+  (e.g. a stale registration missing a column) no longer aborts the whole re-embed —
+  it's isolated and the rest of the projects still rebuild.
+
 ## [1.12.22] — 2026-07-14
 
 ### Added
