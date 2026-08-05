@@ -614,6 +614,50 @@ class ReleaseManager:
         except Exception as exc:
             warning(f"CLI docs regen failed: {exc}")
 
+    def verify_changelog_entry(self):
+        """Hard-gate the release on a CHANGELOG entry for THIS version.
+
+        Both surfaces the release derives from CHANGELOG were previously
+        ungated, and both failed silently:
+
+        1. **No entry at all.** Nothing checked that ``## [<version>]`` exists,
+           so a release could ship with no notes. Measured at 1.13.4: **22
+           tagged releases have no CHANGELOG heading** (1.11.9, 1.12.19,
+           1.8.17, 1.9.7/8, 1.7.7/12, most of the 1.0-1.6 era).
+        2. **Entry exists but isn't on top.** ``sync_readme_whats_new`` reads
+           the FIRST ``## `` section, whatever it is — so a leftover
+           ``## [Unreleased]``, or the previous release still sitting at the
+           top, silently syncs the wrong release's notes into README.
+
+        Checking that the top heading IS this version closes both at once, and
+        catches the third observed failure too: a feature commit that writes
+        its bullets over the previous release's heading (819e917f0 did exactly
+        this to 1.12.19, absorbing a shipped release's notes into the next one)
+        leaves the top heading stale, which fails here.
+        """
+        log("\n" + "=" * 60)
+        log("📋 Verifying CHANGELOG entry")
+        log("=" * 60)
+
+        changelog_path = self.repo_root / "CHANGELOG.md"
+        if not changelog_path.exists():
+            error(f"CHANGELOG.md not found at {changelog_path} — cannot release without release notes")
+
+        headings = re.findall(r"^## \[([^\]]+)\]", changelog_path.read_text(), re.MULTILINE)
+        if not headings:
+            error("CHANGELOG.md has no `## [version]` entries — cannot verify the release entry")
+
+        if headings[0] != self.version:
+            error(
+                f"CHANGELOG.md's top entry is [{headings[0]}], but this release is {self.version}.\n"
+                f"   Write a `## [{self.version}] - YYYY-MM-DD` section at the top of CHANGELOG.md "
+                f"before releasing.\n"
+                f"   (README's What's New syncs from the TOP entry — a mismatch here silently "
+                f"publishes the wrong release notes.)"
+            )
+
+        success(f"CHANGELOG has a top-level entry for {self.version}")
+
     def sync_readme_whats_new(self):
         """Sync README 'What's New' section from CHANGELOG.
 
@@ -628,16 +672,21 @@ class ReleaseManager:
         changelog_path = self.repo_root / "CHANGELOG.md"
         readme_path = self.repo_root / "README.md"
 
+        # Every skip below used to be a warning() + return. A warning in a
+        # 200-line release log is invisible: 1.13.4 shipped with README's
+        # What's New still reading "What's New in 1.13.3" (bump commit
+        # 9051f063b touched only the 5 regex-swept version strings), and
+        # nothing failed. A sync that cannot run is a release blocker.
         if not changelog_path.exists() or not readme_path.exists():
-            warning("CHANGELOG.md or README.md not found, skipping What's New sync")
-            return
+            error("CHANGELOG.md or README.md not found — cannot sync README's What's New")
 
-        # Extract latest CHANGELOG entry (between first ## and second ##)
+        # Extract latest CHANGELOG entry (between first ## and second ##).
+        # verify_changelog_entry() has already established that this top entry
+        # IS self.version, so entries[1] is the right release by construction.
         changelog = changelog_path.read_text()
         entries = re.split(r"^## ", changelog, flags=re.MULTILINE)
         if len(entries) < 2:
-            warning("Could not parse CHANGELOG entries")
-            return
+            error("Could not parse CHANGELOG entries — README's What's New would go unsynced")
 
         # entries[0] is the header, entries[1] is the latest release
         latest_entry = entries[1].strip()
@@ -674,8 +723,10 @@ class ReleaseManager:
             whats_new_items.append(current)
 
         if not whats_new_items:
-            warning("No bullet items found in latest CHANGELOG entry")
-            return
+            error(
+                f"No `- **…` bullet items found in the CHANGELOG entry for {self.version} — "
+                f"README's What's New would be synced empty"
+            )
 
         # Build the new What's New section
         new_whats_new = f"## What's New in {self.version}\n\n"
@@ -692,16 +743,31 @@ class ReleaseManager:
             r"## What's New in [^\n]+\n.+?(?=\n## |\n### |\n---\n)",
             re.DOTALL,
         )
-        match = pattern.search(readme)
-        if match:
-            readme = pattern.sub(new_whats_new, readme, count=1)
-            if not self.dry_run:
-                readme_path.write_text(readme)
-                success(f"README What's New synced from CHANGELOG ({len(whats_new_items)} items)")
-            else:
-                info(f"Would sync README What's New ({len(whats_new_items)} items)")
-        else:
-            warning("Could not find What's New section pattern in README")
+        if not pattern.search(readme):
+            error(
+                "Could not find a `## What's New in …` section in README.md — "
+                "the sync has nothing to replace and README would keep the previous release's notes"
+            )
+
+        # Replacement via lambda: `re.sub` interprets backslash escapes in a
+        # replacement STRING, so a changelog bullet containing one would be
+        # mangled (or raise) on the way into README.
+        readme = pattern.sub(lambda _: new_whats_new, readme, count=1)
+
+        if self.dry_run:
+            info(f"Would sync README What's New ({len(whats_new_items)} items)")
+            return
+
+        readme_path.write_text(readme)
+
+        # Verify the write landed rather than trusting that the regex matched.
+        # This is the check whose absence let 1.13.4 ship with a 1.13.3 heading.
+        if f"## What's New in {self.version}" not in readme_path.read_text():
+            error(
+                f"README's What's New still does not read `## What's New in {self.version}` after sync — "
+                f"refusing to release a README that advertises a different version than it ships"
+            )
+        success(f"README What's New synced from CHANGELOG ({len(whats_new_items)} items)")
 
     def run_command(self, cmd: list[str], check: bool = True, cwd: str | None = None) -> subprocess.CompletedProcess:
         """Run a shell command"""
@@ -1451,6 +1517,10 @@ brew install empirica
         try:
             self.version = self.read_version()
 
+            # Gate BEFORE anything mutates the tree: a missing release entry
+            # should abort with a clean checkout, not a half-swept one.
+            self.verify_changelog_entry()
+
             # Capture develop HEAD BEFORE the merge, so the trust-CI check can
             # match this release commit against develop's CI run.
             head = subprocess.run(
@@ -1565,6 +1635,10 @@ brew install empirica
 
         try:
             self.version = self.read_version()
+
+            # Re-gate here too: --publish is runnable without --prepare, and
+            # publish is the step that makes the notes public.
+            self.verify_changelog_entry()
 
             # Verify we're on main with built artifacts
             result = subprocess.run(
