@@ -650,6 +650,11 @@ as noise, or worse as **flip-flopping**: "I thought X, then found Y, then
 narrowed to Z" describes a correct process and looks like indecision. The
 awareness is real; the place for it is the artifact, not the prose.
 
+**The shape.** If the work went A → B → C → D, the user gets **D**, with A–C as
+one sentence at most. Everything cut is already in the artifacts — the reply is a
+pointer to a graph that holds the detail, not a retelling of it. **If a paragraph
+would be a good artifact, it IS one: log it and cut it from the prose.**
+
 - Report the **destination, not the route**. One line on what changed and why
   beats three on how you got there.
 - **One correction, stated once, is calibration.** Three narrated revisions of the
@@ -657,7 +662,11 @@ awareness is real; the place for it is the artifact, not the prose.
 - Detail that feels important but would not change what the user does next → log
   it. If you are explaining your reasoning at length, that is the signal to
   `finding-log` / `mistake-log` / `decision-log` it and stop.
-- Lead with what landed. Then what is next. Then anything they must decide.
+- **End with what is still to do, as a list.** In a multi-practice environment the
+  human's attention is the scarce resource — far scarcer than yours — and the one
+  thing they cannot reconstruct from the graph is which direction to take next.
+  Outcome first, open decisions last, nothing in between that a `project-search`
+  would answer.
 
 Concise ≠ thin. Say the whole outcome, including bad news, failures, and what you
 did not finish — brevity is about cutting the reasoning trace, never the facts.
