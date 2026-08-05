@@ -254,3 +254,118 @@ async def list_engagement_tasks(engagement_id: str):
     with WorkspaceDBRepository.open() as repo:
         tasks = repo.get_engagement_tasks(engagement_id)
     return {"ok": True, "engagement_id": engagement_id, "count": len(tasks), "tasks": tasks}
+
+
+# Source-link vocabulary. Deliberately NOT the entity_artifacts default 'about':
+# a source attached to an engagement says something specific about direction —
+# the engagement drew ON it, PRODUCED it, or CITED it.
+_SOURCE_RELATIONSHIPS = frozenset({"sourced_from", "produced", "cited"})
+
+
+class EngagementSourceLinkRequest(BaseModel):
+    source_id: str = Field(..., description="epistemic_sources.id to attach")
+    relationship: str = Field("sourced_from", description="sourced_from | produced | cited")
+    relevance: float = Field(1.0, ge=0.0, le=1.0)
+    artifact_source: str | None = Field(
+        None, description="trajectory_path of the owning practice; defaults to the active project"
+    )
+    discovered_via: str | None = Field(None, description="cli | extension | agent | manual")
+
+
+def _resolve_artifact_source(explicit: str | None) -> str:
+    """Which practice owns the source. Explicit wins; otherwise the active project."""
+    if explicit:
+        return explicit
+    try:
+        from empirica.utils.session_resolver import InstanceResolver as R
+
+        return str(R.project_path() or "")
+    except Exception:
+        return ""
+
+
+@router.get("/engagements/{engagement_id}/sources", dependencies=[Depends(verify_mint_bearer)])
+async def list_engagement_sources(engagement_id: str, limit: int = Query(50, ge=1, le=500)):
+    """List the sources attached to an engagement.
+
+    Unknown/empty engagement → ``sources: []`` (honest-empty, same contract as
+    ``/tasks``: the board renders 0 rather than erroring). Note the empty here is
+    genuinely "no links", not "looked in the wrong place" — the read is keyed on
+    the engagement id the caller supplied, with no second scope to drift.
+    """
+    from empirica.data.repositories.workspace_db import WorkspaceDBRepository
+
+    with WorkspaceDBRepository.open() as repo:
+        links = [
+            row
+            for row in repo.get_entity_artifacts_by_entity("engagement", engagement_id, limit=limit)
+            if row.get("artifact_type") == "source"
+        ]
+    return {"ok": True, "engagement_id": engagement_id, "count": len(links), "sources": links}
+
+
+@router.post("/engagements/{engagement_id}/sources", dependencies=[Depends(verify_mint_bearer)])
+async def attach_engagement_source(engagement_id: str, req: EngagementSourceLinkRequest):
+    """Attach a source to an engagement — idempotent per source.
+
+    **The uniqueness key is narrower than this route's vocabulary implies, and
+    that is deliberate rather than hidden.** ``entity_artifacts`` enforces
+    ``UNIQUE(artifact_type, artifact_id, entity_type, entity_id)`` — the
+    relationship is an ATTRIBUTE of the one edge, not part of its identity. So an
+    engagement can hold a given source once, not once per relationship.
+
+    Goal 1aa0988d specified idempotency on ``(engagement_id, source_id,
+    relationship)``, which the schema does not support. Rather than quietly
+    delivering the narrower contract, a re-POST with a DIFFERENT relationship
+    returns 409 naming the existing one, so the caller learns the model instead
+    of wondering why nothing changed. Widening the key is workspace's call —
+    ``entity_artifacts`` is their schema, not core's to assume.
+    """
+    if req.relationship not in _SOURCE_RELATIONSHIPS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"invalid relationship {req.relationship!r} — must be one of {sorted(_SOURCE_RELATIONSHIPS)}",
+        )
+
+    from empirica.data.repositories.workspace_db import WorkspaceDBRepository
+
+    with WorkspaceDBRepository.open() as repo:
+        for row in repo.get_entity_artifacts_by_entity("engagement", engagement_id, limit=500):
+            if row.get("artifact_type") != "source" or row.get("artifact_id") != req.source_id:
+                continue
+            if row.get("relationship") == req.relationship:
+                return {
+                    "ok": True,
+                    "engagement_id": engagement_id,
+                    "link_id": row.get("id"),
+                    "created": False,
+                    "reason": "already_linked",
+                }
+            # Same source, different relationship. The unique key excludes
+            # relationship, so the insert below would fail with a bare integrity
+            # error — say WHY instead, and name what is already there.
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"source {req.source_id} is already linked to engagement {engagement_id} as "
+                    f"{row.get('relationship')!r}. entity_artifacts is unique on "
+                    f"(artifact_type, artifact_id, entity_type, entity_id) — relationship is an "
+                    f"attribute of the single edge, not part of its identity."
+                ),
+            )
+
+        link_id = repo.add_entity_artifact(
+            artifact_id=req.source_id,
+            artifact_type="source",
+            artifact_source=_resolve_artifact_source(req.artifact_source),
+            entity_type="engagement",
+            entity_id=engagement_id,
+            relationship=req.relationship,
+            relevance=req.relevance,
+            discovered_via=req.discovered_via,
+            engagement_id=engagement_id,
+        )
+
+    if not link_id:
+        raise HTTPException(status_code=409, detail="link not created (integrity conflict)")
+    return {"ok": True, "engagement_id": engagement_id, "link_id": link_id, "created": True}

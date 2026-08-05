@@ -78,12 +78,16 @@ def _default_probe(url: str, timeout: float = 6.0) -> tuple[str, str]:
 
 
 def _default_list_sources(project_id: str) -> list[dict]:
-    """List this project's epistemic_sources (reuses the canonical lister)."""
+    """List this practice's epistemic_sources (reuses the canonical lister).
+
+    Practice-scoped: a source-rot check that silently skips the rows sitting
+    under a drifted project_id reports a clean corpus it never looked at.
+    """
     from empirica.cli.command_handlers.artifact_log_commands import _query_epistemic_sources
     from empirica.data.session_database import SessionDatabase
 
     db = SessionDatabase()
-    return _query_epistemic_sources(db, project_id, None, "all", include_archived=False)
+    return _query_epistemic_sources(db, project_id, None, "all", include_archived=False, practice_scope=True)
 
 
 def _derive_corpus_standing(sources: list[dict]) -> dict:

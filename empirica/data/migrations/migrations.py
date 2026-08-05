@@ -1531,6 +1531,11 @@ ALL_MIGRATIONS: list[tuple[str, str, Callable]] = [
         "Add last_retrieved_at + retrieval_count to project_findings — stamp WHEN an artifact was actually surfaced, so relevance has a signal that is not age. Proposed by empirica-outreach from a sweep of 636 unresolved findings, and the evidence is that AGE IS THE WRONG AXIS: their single most valuable artifact was a MAY finding whose symptom string matched a live log line and produced a root cause, while a finding written four days earlier was wrong on arrival. Any TTL or age-decay model would have destroyed the valuable one and kept the noise. Retrieval frequency separates them — a high-impact finding never surfaced in three months is either mis-scored or dead, and one surfaced constantly is load-bearing regardless of when it was written. project_dead_ends got last_revisited_at in migration 060, but that column is written by GARDENING rather than by retrieval, so the free signal was discarded; findings are the largest population (636 vs 186 on outreach) and had the weakest machinery. Additive and nullable: NULL means 'never surfaced since this column existed', a legitimate queryable state and NOT 'never useful' — backfilling it would invent history.",
         lambda cursor: migration_063_finding_retrieval_signal(cursor),
     ),
+    (
+        "064_subtask_status_vocabulary",
+        "Normalize `subtasks.status` 'complete' -> 'completed'. One table, two words for one state, and the rollups only count the plural: goals.py's per-goal progress does SUM(CASE WHEN s.status = 'completed'), so every row carrying the singular is silently counted as NOT done. Measured on the empirica practice: 67 rows 'complete', 1162 'completed', 895 'pending'. This is DEAD legacy data, not a live vocabulary split — TaskStatus.COMPLETED is 'completed' and no current writer emits the singular; the 67 rows span 2025-12-03 to 2026-02-03 and nothing has written that value in the six months since. So it is a one-time normalization, not a two-writers problem needing a reader contract. Reader tolerance stays where it exists (bootstrap circles filters NOT IN ('complete','completed')): fleet DBs migrate on their own next run, and a reader that assumes the migration already ran is a reader that breaks on the DB that has not.",
+        lambda cursor: migration_064_subtask_status_vocabulary(cursor),
+    ),
 ]
 
 
@@ -2610,3 +2615,33 @@ def migration_063_finding_retrieval_signal(cursor: sqlite3.Cursor):
     add_column_if_missing(cursor, "project_findings", "last_retrieved_at", "REAL", "NULL")
     add_column_if_missing(cursor, "project_findings", "retrieval_count", "INTEGER", "0")
     logger.info("✅ Migration 063 complete: findings carry a retrieval signal, not just an age")
+
+
+def migration_064_subtask_status_vocabulary(cursor: sqlite3.Cursor):
+    """One table, two words for one state — and the rollups count only one.
+
+    `goals.py` computes per-goal progress with
+    ``SUM(CASE WHEN s.status = 'completed' THEN 1 ELSE 0 END)``, so every subtask
+    carrying the singular `complete` is silently counted as NOT done. Measured on
+    the empirica practice before this ran: 67 `complete`, 1162 `completed`, 895
+    `pending`.
+
+    It is dead legacy data rather than a live split, which is what makes a
+    one-time normalization the right instrument instead of a reader contract:
+    ``TaskStatus.COMPLETED`` is ``"completed"`` and no current writer emits the
+    singular. The 67 rows span 2025-12-03 to 2026-02-03; nothing has written that
+    value in the six months since.
+
+    Reader tolerance stays where it already exists (bootstrap `circles.py` filters
+    ``NOT IN ('complete', 'completed')``). Every practice's DB migrates on its own
+    next run, so until then some are normalized and some are not — a reader that
+    assumes this migration has run is a reader that breaks on the DB where it
+    has not.
+    """
+    cursor.execute("SELECT COUNT(*) FROM subtasks WHERE status = 'complete'")
+    stale = cursor.fetchone()[0]
+    if stale:
+        cursor.execute("UPDATE subtasks SET status = 'completed' WHERE status = 'complete'")
+        logger.info(f"✅ Migration 064 complete: normalized {stale} subtask(s) from 'complete' to 'completed'")
+    else:
+        logger.info("✅ Migration 064 complete: no 'complete' subtasks to normalize")

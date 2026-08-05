@@ -2,7 +2,7 @@
 
 > **We Gave AI a Mirror. Now It Measures What It Believes.**
 
-[![Version](https://img.shields.io/badge/version-1.13.4-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.4)
+[![Version](https://img.shields.io/badge/version-1.13.5-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.5)
 [![PyPI](https://img.shields.io/pypi/v/empirica)](https://pypi.org/project/empirica/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -114,13 +114,13 @@ empirica setup
 
 ```bash
 # Security-hardened Alpine image (~276MB, recommended)
-docker pull nubaeon/empirica:1.13.4-alpine
+docker pull nubaeon/empirica:1.13.5-alpine
 
 # Standard image (Debian slim, ~414MB)
-docker pull nubaeon/empirica:1.13.4
+docker pull nubaeon/empirica:1.13.5
 
 # Run
-docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.4 /bin/bash
+docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.5 /bin/bash
 ```
 </details>
 
@@ -387,15 +387,15 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.13.4
+## What's New in 1.13.5
 
-- **An empty `api_key` overwrote a live one.** `save_cortex_config` merged on `is not None`, so a client saving settings with a blank key field wrote the empty string over the stored credential. Severity is not "the CLI breaks": `authenticate_bearer` accepting JWT **or** api_key by shape is what makes the OAuth cutover staged rather than big-bang, and every revoke-after-verification gate assumes the key still works while the token is being proven. This let a client silently delete half of that, on a seat that looks migrated because the token works. **Empty is now absent** — clearing a credential is an explicit act, not something a blank form field does by omission.
-- **`active_subtasks` was structurally dead for three months.** The circle-1 query selected `name` / `importance` and filtered on `is_completed`; the table has `description` / `epistemic_importance` / `status`. It raised `OperationalError` on every call since 2026-05-07 and a bare `except: pass` swallowed it, so every bootstrap reported zero while **2096 subtasks accumulated**. It presented as "the feature is underused" — and that appearance *was* the defect: tasks never surfaced in retrieval, so nothing rewarded logging them. Also handles both `complete` and `completed` spellings, since matching one silently leaks the other.
-- **OAuth token storage + silent refresh** for daemon-brokered seats (`cortex.oauth` in `credentials.yaml`, `cortex_access_token(refresh=...)`). A failed refresh returns `None` rather than a stale token; rotated refresh tokens are persisted; renewal happens 120s before expiry.
-- **`§EFFORT AND DELEGATION`** in the system prompt — ceremony scaling by task size, and delegation guidance (verify subagent self-reports, `fork` vs enrich, Sentinel interaction). The always-loaded layer previously had one mention of subagents, and it was a definition.
-- **`§REPORTING`** — the reasoning chain stays internal, artifacts carry the epistemic content, the user gets work done plus what is next. Concise is explicitly not thin.
-- **Three skills stopped prescribing canned vector values.** They opened with a PREFLIGHT to run carrying literal numbers — teaching practitioners to submit an assessment nobody made. A pasted vector set is not a low reading, it is a fabricated one. - Goal sizing single-homed to `/epistemic-transaction` (it had three homes with three different wordings, which gave different answers for the same work). - `eat-the-broccoli` synced to upstream v2.4.1. - Load-triggers now route to the surface that answers them; cortex-only content no longer renders into cortex-less installs.
-- **`empirica doctor` 312 → 170 lines.** Non-passing checks are hoisted into an `attention` block (absent when everything passes, so its presence is the signal), and `data` is dropped from passing checks. `ok` / `summary` / `checks` / `cwd` keep their shape.
+- **The sources read path returned a fraction of a practice's sources, and in the worst case zero.** A practice's `project_id` drifts over its life, so its own sources end up under several ids — `WHERE project_id = ?` hides the rest. The daemon was fixed in 1.13.0 (`13dafd2f7`) and its CLI twin was not, so `sources-map`, `source-list` and `sources-check` kept under-reading for eleven days. Measured here: 29 shown against 39 unarchived. Measured on mesh-support: **0 shown against 17**, which is why it was filed as "the catalogue is empty" — re-cataloguing would have added duplicate rows to a full table and still read zero. The two magnitudes fail differently: a partial under-read is a plausible number nobody counts, a total one actively misdirects. Reads are now practice-scoped (the db path IS the practice boundary), each row reports its stored `project_id` so drift stays visible to gardening, and an explicit `--project-id` keeps the strict single-id read for deliberate cross-project queries.
+- **`sources-reconcile` was the third site, and its writes were the dangerous half.** It carries its own SQL and never called the shared lister, so a bare `--register-shared` reported `candidates: 0, registered: 0` — "nothing to do" where the truth was "looked in the wrong place". Two independent read/write pairs, not one: the backfill's write never filtered and was safe to widen alone, while `_load_local_sources` feeds writes that did. The sharpest case is data integrity rather than visibility — the PK-swap's finding-reference cascade filtered `project_findings` by `project_id`, so a swap would rename the source and leave every citation under a drifted id pointing at the old uuid: dangling refs created by the repair itself. The backfill also now reports `rehomed` rows, because registering a drifted source under the active id converges the drift rather than propagating it onto cortex's shared surface — but doing that silently would be the same defect class again.
+- **A subtask could be done and not counted.** `subtasks.status` held two words for one state while the goal-progress rollup counts only one (`SUM(CASE WHEN s.status = 'completed'`), so 67 rows storing the singular `complete` read as unfinished against 1162 `completed`. Migration 064 normalizes them. It is dead legacy rather than a live vocabulary split — `TaskStatus.COMPLETED` is `'completed'`, no writer has emitted the singular since 2026-02-03 — which is what makes a one-time normalization the right instrument instead of a permanent reader contract. Reader tolerance stays where it exists: fleet DBs migrate on their own next run, so for an interval some are normalized and some are not.
+- **A release cannot ship without release notes.** `release.py` derived two surfaces from `CHANGELOG.md` and could silently skip both: nothing checked that an entry for the released version existed (**22 tagged releases have none**), and the README "What's New" sync had four `warning()`-and-return paths that never raised. 1.13.4 published with the badge, docker tags and version line all reading 1.13.4 and the section that says *what changed* still reading 1.13.3. `verify_changelog_entry()` now asserts the TOP changelog heading IS the version being released — one assertion that closes existence, staleness, and the sync reading the wrong section — and runs before anything mutates the tree, in both `--prepare` and `--publish`. Every skip in the sync is fatal, and it verifies the heading actually landed rather than trusting its regex matched. Two tests assert the invariant over this repo's own files, so CI catches the next one.
+- **`GET` + `POST /api/v1/engagements/{id}/sources`** — attach a source to an engagement and read them back. Idempotent **per source, not per relationship**: `entity_artifacts` is unique on `(artifact_type, artifact_id, entity_type, entity_id)`, so the relationship is an attribute of the one edge rather than part of its identity. A re-POST under a different relationship returns `409` naming the one already stored, instead of quietly doing nothing.
+- **`docs/reference/api/SERVE_API.md`** states the practice-scoped rule once, with the measured evidence, and documents both new routes.
+- **The 1.12.23 changelog entry**, absent since the release itself. One of the 22 the new gate exists to prevent.
 ---
 
 ## What's New in 1.12.35
@@ -437,6 +437,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 **Author:** David S. L. Van Assche
-**Version:** 1.13.4
+**Version:** 1.13.5
 
 *Turtles all the way down — built with its own epistemic framework, measuring what it knows at every step.*

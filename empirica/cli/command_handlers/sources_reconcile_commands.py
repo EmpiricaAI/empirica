@@ -98,7 +98,7 @@ def _maybe_push_small_body(cortex_url, api_key, cortex_uuid: str, row: dict | No
     return result
 
 
-def _run_register_shared_backfill(args, project_id, output) -> int:
+def _run_register_shared_backfill(args, project_id, output, practice_scope: bool = True) -> int:
     """One-time convergence: push existing local-only shared/public sources up to
     cortex's catalogue (POST /v1/sources/register) + stamp cortex_uuid.
 
@@ -117,14 +117,39 @@ def _run_register_shared_backfill(args, project_id, output) -> int:
 
     db = SessionDatabase()
     try:
-        cols = ("id", "title", "source_type", "visibility", "content_hash", "size_bytes", "canonical_path", "mime_type")
+        cols = (
+            "id",
+            "title",
+            "source_type",
+            "visibility",
+            "content_hash",
+            "size_bytes",
+            "canonical_path",
+            "mime_type",
+            "project_id",
+        )
+        # Practice-scoped candidate read (same class as 75f0663c5). A practice's
+        # project_id drifts, so `WHERE project_id = ?` made a bare run report
+        # `candidates: 0, registered: 0` — which reads as "nothing to do" and is
+        # actually "looked in the wrong place" (cortex, prop_4qwhtflam5h27gyty2prerbflq).
+        #
+        # Safe to widen WITHOUT touching the write below, unlike the --apply path:
+        # this function owns both, and its UPDATE is `WHERE id = ?` with no project
+        # filter, so the stamp cannot silently miss. Verified by resolving each SQL
+        # line to its enclosing def — my first reading of the grep hits paired them
+        # wrongly and would have blocked this one-liner behind the trio.
+        #
+        # An explicit --project-id keeps the strict read: a deliberate cross-project
+        # query must not silently return the local practice.
+        scoped = "1=1" if practice_scope else "project_id = ?"
+        params: list = [] if practice_scope else [project_id]
         rows = db.conn.execute(
             f"SELECT {', '.join(cols)} FROM epistemic_sources "
-            "WHERE project_id = ? AND COALESCE(archived, 0) = 0 "
+            f"WHERE {scoped} AND COALESCE(archived, 0) = 0 "
             "AND visibility IN ('shared', 'public') AND cortex_uuid IS NULL",
-            (project_id,),
+            params,
         ).fetchall()
-        registered, failed = 0, []
+        registered, failed, rehomed = 0, [], []
         for raw in rows:
             r = dict(raw) if hasattr(raw, "keys") else dict(zip(cols, raw, strict=False))
             identity = {k: r.get(k) for k in ("content_hash", "size_bytes", "canonical_path", "mime_type")}
@@ -132,6 +157,14 @@ def _run_register_shared_backfill(args, project_id, output) -> int:
                 cortex_url, api_key, r["id"], project_id, r["title"], r["source_type"], r["visibility"], identity
             )
             if res.get("registered"):
+                # Registered under the ACTIVE project_id, not the row's stored one.
+                # Deliberate: cortex's catalogue is keyed per project, so registering
+                # a drifted row under its stale id would propagate the drift onto the
+                # shared surface instead of converging it. Reported per row below —
+                # re-homing provenance silently would be the same defect class this
+                # whole fix is about.
+                if r.get("project_id") and r["project_id"] != project_id:
+                    rehomed.append({"id": str(r["id"])[:8], "was": str(r["project_id"])[:8]})
                 db.conn.execute("UPDATE epistemic_sources SET cortex_uuid = ? WHERE id = ?", (r["id"], r["id"]))
                 # Commit per-source: the backfill is a long network loop that can
                 # be interrupted/reaped; a single end-of-loop commit would lose
@@ -141,7 +174,14 @@ def _run_register_shared_backfill(args, project_id, output) -> int:
                 registered += 1
             else:
                 failed.append({"id": str(r["id"])[:8], "error": res.get("error")})
-        _emit(output, {"ok": True, "candidates": len(rows), "registered": registered, "failed": failed})
+        payload = {"ok": True, "candidates": len(rows), "registered": registered, "failed": failed}
+        if rehomed:
+            payload["rehomed"] = rehomed
+            payload["rehomed_note"] = (
+                f"{len(rehomed)} source(s) were stored under a drifted project_id and are now "
+                f"registered in cortex under the active id {str(project_id)[:8]}"
+            )
+        _emit(output, payload)
         return 0 if not failed else 2
     finally:
         db.close()
@@ -173,7 +213,9 @@ def handle_sources_reconcile_command(args) -> int:
         return 1
 
     if getattr(args, "register_shared", False):
-        return _run_register_shared_backfill(args, project_id, output)
+        return _run_register_shared_backfill(
+            args, project_id, output, practice_scope=getattr(args, "project_id", None) is None
+        )
 
     if getattr(args, "backfill_citations", False):
         # Purely local (no cortex) — dispatch before the catalogue path so any
@@ -198,7 +240,7 @@ def handle_sources_reconcile_command(args) -> int:
 
     db = SessionDatabase()
     try:
-        rows = _load_local_sources(db, project_id)
+        rows = _load_local_sources(db, project_id, practice_scope=getattr(args, "project_id", None) is None)
         backfilled = _backfill_identity(db, rows)
 
         cortex_url, api_key = _resolve_cortex_config(args)
@@ -231,7 +273,7 @@ def handle_sources_reconcile_command(args) -> int:
                     swapped.append(_swap_source_id(db, project_id, pair["local_uuid"], pair["cortex_uuid"]))
                 else:
                     # Default: non-destructive alias adopt (daemon resolves id OR cortex_uuid).
-                    aliased.append(_set_cortex_uuid_alias(db, project_id, pair["local_uuid"], pair["cortex_uuid"]))
+                    aliased.append(_set_cortex_uuid_alias(db, pair["local_uuid"], pair["cortex_uuid"]))
                 # P2 sync-when-small: push the body for small sources so remote peers can fetch it.
                 if push_bodies:
                     pushed = _maybe_push_small_body(
@@ -286,15 +328,23 @@ def _resolve_active_project_id() -> str | None:
         return None
 
 
-def _load_local_sources(db, project_id: str) -> list[dict]:
-    """Non-archived rows with everything the matcher needs."""
+def _load_local_sources(db, project_id: str, practice_scope: bool = True) -> list[dict]:
+    """Non-archived rows with everything the matcher needs.
+
+    Practice-scoped by default — see `_run_register_shared_backfill`. Unlike that
+    function this read IS coupled to filtered writes downstream
+    (`_set_cortex_uuid_alias`, `_swap_source_id` and its finding-ref cascade), so
+    widening it alone would leave those writes matching zero rows in silence. They
+    are widened in the same commit; the writes now key on `id` only, which is
+    unique within a practice because the db path IS the practice boundary.
+    """
     cursor = db.conn.cursor()
     cursor.execute(
         "SELECT id, title, source_url, content_hash, size_bytes, "
         "canonical_path, mime_type, source_metadata "
         "FROM epistemic_sources "
-        "WHERE project_id = ? AND COALESCE(archived, 0) = 0",
-        (project_id,),
+        f"WHERE {'1=1' if practice_scope else 'project_id = ?'} AND COALESCE(archived, 0) = 0",
+        [] if practice_scope else [project_id],
     )
     rows = []
     for r in cursor.fetchall():
@@ -643,7 +693,7 @@ def _confirm_matches(
         return [], [], f"unavailable: {e}"
 
 
-def _set_cortex_uuid_alias(db, project_id: str, local_uuid: str, cortex_uuid: str) -> dict:
+def _set_cortex_uuid_alias(db, local_uuid: str, cortex_uuid: str) -> dict:
     """Non-destructive adopt (Unified Source Identity, Option A): record the
     catalogue uuid as an ALIAS on the local row WITHOUT rewriting its PK.
 
@@ -656,8 +706,11 @@ def _set_cortex_uuid_alias(db, project_id: str, local_uuid: str, cortex_uuid: st
     cursor = db.conn.cursor()
     try:
         cursor.execute(
-            "UPDATE epistemic_sources SET cortex_uuid = ? WHERE id = ? AND project_id = ?",
-            (cortex_uuid, local_uuid, project_id),
+            # Keyed on id alone: the source came from a practice-scoped read, so a
+            # project_id filter here would silently match zero rows for any source
+            # sitting under a drifted id — the write half of the under-read.
+            "UPDATE epistemic_sources SET cortex_uuid = ? WHERE id = ?",
+            (cortex_uuid, local_uuid),
         )
         db.conn.commit()
         if cursor.rowcount == 0:
@@ -704,8 +757,11 @@ def _swap_source_id(
     try:
         cursor.execute("BEGIN")
         cursor.execute(
-            "UPDATE epistemic_sources SET id = ? WHERE id = ? AND project_id = ?",
-            (cortex_uuid, local_uuid, project_id),
+            # id-only, as above. A PK swap that no-ops because the row sits under a
+            # drifted project_id would still cascade every REFERENCE to the new id,
+            # leaving them pointing at a row that was never renamed.
+            "UPDATE epistemic_sources SET id = ? WHERE id = ?",
+            (cortex_uuid, local_uuid),
         )
         if cursor.rowcount == 0:
             db.conn.rollback()
@@ -732,7 +788,6 @@ def _swap_source_id(
 
         result["finding_refs"] = _swap_finding_source_refs(
             cursor,
-            project_id,
             local_uuid,
             cortex_uuid,
         )
@@ -753,14 +808,20 @@ def _swap_source_id(
 
 def _swap_finding_source_refs(
     cursor,
-    project_id: str,
     local_uuid: str,
     cortex_uuid: str,
 ) -> int:
-    """Rewrite source_refs JSON arrays on findings that cite the old id."""
+    """Rewrite source_refs JSON arrays on findings that cite the old id.
+
+    Practice-scoped, and this one is a data-integrity matter rather than a
+    visibility one: findings drift across project_ids exactly as sources do, so a
+    `project_id` filter here would rename the source and leave every finding under
+    a drifted id still citing the OLD uuid — dangling refs created by the repair.
+    The cascade must cover every citation in the practice or it must not run.
+    """
     cursor.execute(
-        "SELECT id, source_refs FROM project_findings WHERE project_id = ? AND source_refs LIKE ?",
-        (project_id, f"%{local_uuid}%"),
+        "SELECT id, source_refs FROM project_findings WHERE source_refs LIKE ?",
+        (f"%{local_uuid}%",),
     )
     updated = 0
     for finding_id, refs_json in cursor.fetchall():
