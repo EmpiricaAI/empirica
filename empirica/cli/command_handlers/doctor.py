@@ -85,6 +85,55 @@ def _http_get(url: str, headers: dict | None = None, timeout: float = 5.0) -> tu
 # ─── Install presence ──────────────────────────────────────────────────
 
 
+def check_orphaned_presence() -> Check:
+    """Live practitioners whose practice has no running listener.
+
+    Since the heartbeat emitter became practice-scoped, each listener forwards
+    only its OWN practice's presence records. A practice with live sessions and no
+    running listener therefore goes dark on the mesh — previously any listener
+    would have carried it. Zero-impact when every live practice has a listener,
+    which is the normal state; this exists because "normal" here is circumstance,
+    not construction.
+
+    Also catches label drift between the two vocabularies: a record written as
+    `workspace` while its listener runs as `empirica-workspace` is orphaned just as
+    effectively as a missing listener.
+    """
+    try:
+        from empirica.core.practitioner_presence import list_presence
+
+        live = list_presence(include_stale=False)
+    except Exception as e:
+        return Check("Presence coverage", WARN, "", f"could not read presence store: {type(e).__name__}: {e}")
+
+    if not live:
+        return Check("Presence coverage", PASS, "no live practitioners")
+
+    rc, out, _ = _run(["systemctl", "--user", "list-units", "--type=service", "--no-pager"], timeout=6.0)
+    if rc != 0:
+        return Check("Presence coverage", PASS, f"{len(live)} live (listener units not enumerable here)")
+    listeners = {
+        ln.split("empirica-listener-", 1)[1].split(".service", 1)[0]
+        for ln in out.splitlines()
+        if "empirica-listener-" in ln and ".service" in ln
+    }
+    orphans: dict[str, int] = {}
+    for rec in live:
+        practice = (rec.get("practice_ai_id") or "").strip() or "<unlabelled>"
+        if practice not in listeners:
+            orphans[practice] = orphans.get(practice, 0) + 1
+    if not orphans:
+        return Check("Presence coverage", PASS, f"{len(live)} live practitioner(s), all covered")
+    detail = ", ".join(f"{k}={v}" for k, v in sorted(orphans.items()))
+    return Check(
+        "Presence coverage",
+        WARN,
+        f"{sum(orphans.values())} of {len(live)} live record(s) have no listener: {detail}",
+        "start the practice's listener, or reconcile the practice_ai_id label with its listener name",
+        data={"orphans": orphans, "listeners": sorted(listeners)},
+    )
+
+
 def check_python() -> Check:
     v = sys.version_info
     if v >= (3, 10):
@@ -1044,6 +1093,7 @@ def run_all_checks(cwd: Path | None = None) -> list[Check]:
         check_outreach(),
         # Listener / loops + MCP config
         check_loops_registered(),
+        check_orphaned_presence(),
         check_listener_service(cwd),
         check_mcp_config(),
     ]

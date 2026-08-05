@@ -85,8 +85,12 @@ class ReleaseManager:
         old_version: str | None = None,
         skip_tests: bool = False,
         commit_bump: bool = False,
+        local_artifacts: bool = False,
     ):
         self.dry_run = dry_run
+        # Escape hatch: publish artifacts from this machine IN ADDITION to CI.
+        # Default False — the tag triggers release.yml, which owns every channel.
+        self.local_artifacts = local_artifacts
         self.repo_root = Path(__file__).parent.parent
         self.version: str | None = None
         self.old_version: str | None = old_version
@@ -1799,13 +1803,29 @@ brew install empirica
             self.tarball_sha256 = self.calculate_sha256()
 
             # Publish to all channels
-            self.publish_to_pypi()
-            self.publish_mcp_to_pypi()
+            # The tag IS the publish. Pushing `v*.*.*` to main triggers
+            # release.yml, whose jobs cover every channel: build, pypi-empirica,
+            # pypi-empirica-mcp, docker, homebrew, github-release.
+            #
+            # Publishing locally too made this a two-writers-one-artifact race —
+            # `a release with the same tag name already exists`, recovered by
+            # `--clobber`, three times in one day. CI_CD.md always framed the local
+            # path as transitional pending "verified for a release or two"; 1.13.4,
+            # 1.13.5 and 1.13.6 all published cleanly through CI, so the handover is
+            # due rather than speculative.
+            #
+            # `--local-artifacts` restores the old path for when CI is unavailable —
+            # an escape hatch, not a routine alternative, because running both is
+            # exactly what created the race.
             self.create_git_tag()
-            self.build_and_push_docker()
-            self.create_github_release()
-            self.update_homebrew_tap()
-            self.build_and_push_chocolatey()
+            if self.local_artifacts:
+                warning("--local-artifacts: publishing from this machine AS WELL as CI — expect races")
+                self.publish_to_pypi()
+                self.publish_mcp_to_pypi()
+                self.build_and_push_docker()
+                self.create_github_release()
+                self.update_homebrew_tap()
+                self.build_and_push_chocolatey()
 
             # Switch back to develop
             if not self.dry_run:
@@ -1815,7 +1835,10 @@ brew install empirica
             log("║  ✅ Release Published!                                     ║")
             log("╚════════════════════════════════════════════════════════════╝\n")
 
-            success(f"Released empirica v{self.version}")
+            success(f"Tagged v{self.version} — CI (release.yml) publishes every channel from here")
+            info("Watch: gh run list --branch main --limit 1")
+            info(f"Verify PyPI on the SIMPLE INDEX — both JSON fields lag: "
+                 f"curl -s https://pypi.org/simple/empirica/ | grep {self.version}")
             info(f"PyPI: https://pypi.org/project/empirica/{self.version}/")
             info(f"PyPI (MCP): https://pypi.org/project/empirica-mcp/{self.version}/")
             info(f"Docker: docker pull nubaeon/empirica:{self.version}")
@@ -1874,13 +1897,29 @@ brew install empirica
                 error("Tests failed — aborting release. Fix and retry.")
 
             # Publish
-            self.publish_to_pypi()
-            self.publish_mcp_to_pypi()
+            # The tag IS the publish. Pushing `v*.*.*` to main triggers
+            # release.yml, whose jobs cover every channel: build, pypi-empirica,
+            # pypi-empirica-mcp, docker, homebrew, github-release.
+            #
+            # Publishing locally too made this a two-writers-one-artifact race —
+            # `a release with the same tag name already exists`, recovered by
+            # `--clobber`, three times in one day. CI_CD.md always framed the local
+            # path as transitional pending "verified for a release or two"; 1.13.4,
+            # 1.13.5 and 1.13.6 all published cleanly through CI, so the handover is
+            # due rather than speculative.
+            #
+            # `--local-artifacts` restores the old path for when CI is unavailable —
+            # an escape hatch, not a routine alternative, because running both is
+            # exactly what created the race.
             self.create_git_tag()
-            self.build_and_push_docker()
-            self.create_github_release()
-            self.update_homebrew_tap()
-            self.build_and_push_chocolatey()
+            if self.local_artifacts:
+                warning("--local-artifacts: publishing from this machine AS WELL as CI — expect races")
+                self.publish_to_pypi()
+                self.publish_mcp_to_pypi()
+                self.build_and_push_docker()
+                self.create_github_release()
+                self.update_homebrew_tap()
+                self.build_and_push_chocolatey()
 
             # Switch back to develop
             if not self.dry_run:
@@ -1890,7 +1929,10 @@ brew install empirica
             log("║  ✅ Release Complete!                                      ║")
             log("╚════════════════════════════════════════════════════════════╝\n")
 
-            success(f"Released empirica v{self.version}")
+            success(f"Tagged v{self.version} — CI (release.yml) publishes every channel from here")
+            info("Watch: gh run list --branch main --limit 1")
+            info(f"Verify PyPI on the SIMPLE INDEX — both JSON fields lag: "
+                 f"curl -s https://pypi.org/simple/empirica/ | grep {self.version}")
             info(f"PyPI: https://pypi.org/project/empirica/{self.version}/")
             info(f"PyPI (MCP): https://pypi.org/project/empirica-mcp/{self.version}/")
             info(f"Docker: docker pull nubaeon/empirica:{self.version}")
@@ -1934,6 +1976,16 @@ Legacy (one-shot, less safe):
         ),
     )
     parser.add_argument(
+        "--local-artifacts",
+        action="store_true",
+        help=(
+            "With --publish, ALSO publish artifacts from this machine (PyPI, Docker, "
+            "GitHub release, Homebrew). Default is tag-and-push only — the tag triggers "
+            "release.yml, which owns every channel. Escape hatch for when CI is down; "
+            "running both races on the GitHub release."
+        ),
+    )
+    parser.add_argument(
         "--docs",
         action="store_true",
         help=(
@@ -1971,6 +2023,7 @@ Legacy (one-shot, less safe):
         parser.error("--commit is only valid with --version-only.")
 
     manager = ReleaseManager(
+        local_artifacts=args.local_artifacts,
         dry_run=args.dry_run,
         old_version=args.old_version,
         skip_tests=args.skip_tests,

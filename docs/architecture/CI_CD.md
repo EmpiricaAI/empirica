@@ -57,7 +57,7 @@ separate:
 |---|---|---|
 | `--docs` | **develop** | Authors the release-facing docs: version sweep across 27 files, README's What's New from CHANGELOG, CLI reference regen. **Commits nothing** — the diff is for review, then committed with the bump. |
 | `--prepare` | main | Merge, build, gates (import / ruff / pyright / pip-audit / pytest / issue-tracker). **Writes no tracked docs** — it *verifies* the `--docs` output is committed and refuses otherwise. |
-| `--publish` | main | Tag + push, which triggers this workflow. |
+| `--publish` | main | **Tag + push only.** The tag triggers this workflow, which publishes every channel. `--local-artifacts` restores local publishing as an escape hatch for when CI is down. |
 
 **Why `--docs` exists** (2026-08-05). `--prepare` used to author those files
 itself, *after* checking out main. That one choice produced three defects:
@@ -188,16 +188,23 @@ pipeline. `release.yml` should match its behavior:
 | README What's New + CLI reference | `--docs` (on develop); `--prepare` only verifies | Not needed (already committed) |
 | Build sdist + wheel | `--prepare` | `build` job |
 | Test gate | `--prepare` runs `pytest` | `ci.yml` already ran on pre-tag commit |
-| Publish PyPI ×2 | `--publish` (twine) | `pypi-*` jobs (OIDC) |
+| Publish PyPI ×2 | CI only (`--local-artifacts` to force local) | `pypi-*` jobs (OIDC) |
 | Create git tag | `--publish` | Tag is the trigger |
-| Push Docker ×2 | `--publish` | `docker` job |
-| GitHub release | `--publish` (`gh release create`) | `github-release` job |
-| Homebrew tap update | `--publish` (`git push` to tap) | `homebrew` job |
+| Push Docker ×2 | CI only | `docker` job |
+| GitHub release | CI only | `github-release` job |
+| Homebrew tap update | CI only | `homebrew` job |
 
-**Migration plan:** today `--publish` does all of these locally. Once
-the CI workflow is verified for a release or two, `--publish` can be
-slimmed down to just `git tag + git push --tags` and CI takes over the
-rest. Trust the pipeline before you delete the local code.
+**Migration: done (2026-08-05).** `--publish` is now tag-and-push only.
+The bar this plan set — "verified for a release or two" — was met by
+1.13.4, 1.13.5 and 1.13.6 publishing cleanly through CI, and the cost of
+waiting was visible: with both paths live, every release raced on the
+GitHub release (`a release with the same tag name already exists`,
+recovered with `--clobber`, three times in one day).
+
+`--local-artifacts` keeps the old path for when CI is unavailable. It is
+an escape hatch, not an alternative — running both is what caused the
+race. A test asserts release.yml still defines every channel job, so
+removing one fails there rather than at the next release.
 
 ---
 

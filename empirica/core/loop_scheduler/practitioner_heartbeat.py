@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import socket
 import threading
 import urllib.error
@@ -146,7 +147,11 @@ def resolve_canonical_ai_id(
 
 
 def _practitioner_body(
-    record: dict[str, Any], *, machine: str, canonical_ai_id: str | None = None
+    record: dict[str, Any],
+    *,
+    machine: str,
+    canonical_ai_id: str | None = None,
+    emitter_id: str | None = None,
 ) -> dict[str, Any] | None:
     """Map a local presence record → cortex heartbeat body. None if unmappable.
 
@@ -171,6 +176,16 @@ def _practitioner_body(
     }
     if canonical_ai_id:
         body["ai_id"] = canonical_ai_id
+    if emitter_id:
+        # WHO sent this row, as distinct from WHOSE it is.
+        #
+        # Without it the receiver can only key on session_id, and N listeners
+        # posting one session every 60s is indistinguishable from one emitter
+        # posting every 60/N. That ambiguity cost a real diagnosis: cortex read an
+        # arrival interval of 8.3s as an emission interval and reported an
+        # interval defect that did not exist (60/7.3 = 8.2). Additive and
+        # optional — an unknown field is ignored by the handler.
+        body["emitter_id"] = emitter_id
     # When blocked, surface the reason in cortex's blocked_reason column too.
     if status == "blocked" and record.get("pending_question"):
         body["blocked_reason"] = record["pending_question"]
@@ -181,6 +196,7 @@ def emit_practitioner_heartbeat(
     record: dict[str, Any],
     *,
     machine: str | None = None,
+    emitter_id: str | None = None,
     post_fn: Callable[[str, bytes, dict, float], int] = _default_post,
     resolve_creds_fn: Callable[[], tuple] = _default_resolve_creds,
     get_fn: Callable[[str, str, float], dict] = _default_get,
@@ -202,7 +218,10 @@ def emit_practitioner_heartbeat(
         record.get("practice_ai_id"), resolve_creds_fn=resolve_creds_fn, get_fn=get_fn, timeout=timeout
     )
     body = _practitioner_body(
-        record, machine=machine or socket.gethostname() or "unknown-host", canonical_ai_id=canonical
+        record,
+        machine=machine or socket.gethostname() or "unknown-host",
+        canonical_ai_id=canonical,
+        emitter_id=emitter_id,
     )
     if body is None:
         return 0  # SKIP — unmappable record
@@ -270,6 +289,9 @@ class PractitionerHeartbeatEmitter:
         # behaviour and is now an explicit opt-in for box-level aggregation rather
         # than the accidental default.
         self.ai_id = (ai_id or "").strip() or None
+        # Stable per-process id for the RECEIVER's arithmetic: `<ai_id>:<pid>`.
+        # One listener process is one emitter, so pid is the right grain.
+        self.emitter_id = f"{self.ai_id or 'unscoped'}:{os.getpid()}"
         self.machine = machine or socket.gethostname() or "unknown-host"
         self.interval_sec = interval_sec
         self.timeout_sec = timeout_sec
@@ -348,6 +370,7 @@ class PractitionerHeartbeatEmitter:
                 results[sid] = emit_practitioner_heartbeat(
                     rec,
                     machine=self.machine,
+                    emitter_id=self.emitter_id,
                     post_fn=self._post_fn,
                     resolve_creds_fn=self._resolve_creds_fn,
                     get_fn=self._get_fn,

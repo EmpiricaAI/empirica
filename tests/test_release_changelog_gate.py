@@ -186,8 +186,12 @@ def test_readme_whats_new_matches_the_shipped_version():
 
 
 def _flow_body(src: str, name: str) -> str:
+    """Source of one method. Falls back to end-of-file for the last method in the
+    class — `run` is last today, and an index() that assumes a
+    following `def` fails with a ValueError that reads like a missing method."""
     start = src.index(f"def {name}")
-    return src[start : src.index("\n    def ", start + 1)]
+    nxt = src.find("\n    def ", start + 1)
+    return src[start : nxt if nxt != -1 else len(src)]
 
 
 def test_prepare_verifies_docs_instead_of_authoring_them():
@@ -238,3 +242,39 @@ def test_docs_ready_gate_checks_every_release_facing_surface():
     assert "What's New" in body, "README What's New version"
     assert "_cli_docs_stale" in body, "CLI reference currency"
     assert "__init__.py" in body, "version sweep landed"
+
+
+# ---- publish is tag-and-push; CI owns the channels -------------------------
+#
+# Local --publish and release.yml both published every channel, so each release
+# raced on the GitHub release ("a release with the same tag name already
+# exists", recovered with --clobber — three times on 2026-08-05). CI_CD.md always
+# framed the local path as transitional pending "verified for a release or two";
+# 1.13.4/5/6 all published cleanly through CI.
+
+
+def test_publish_tags_and_lets_ci_do_the_channels():
+    src = RELEASE_PY.read_text()
+    for flow in ("run_publish", "run(self)"):
+        body = _flow_body(src, flow)
+        assert "self.create_git_tag()" in body, f"{flow} must still tag — the tag is what triggers release.yml"
+        for channel in ("self.publish_to_pypi()", "self.build_and_push_docker()", "self.create_github_release()"):
+            line = next(ln for ln in body.splitlines() if channel in ln)
+            assert line.startswith("                "), (
+                f"{flow}: {channel} must sit inside the --local-artifacts branch, not run unconditionally — "
+                f"publishing locally AND in CI is what raced the GitHub release"
+            )
+
+
+def test_local_artifacts_defaults_off():
+    mod = _load_release_module()
+    assert mod.ReleaseManager().local_artifacts is False
+    assert mod.ReleaseManager(local_artifacts=True).local_artifacts is True
+
+
+def test_ci_release_workflow_still_covers_every_channel():
+    """The precondition for slimming: if a job is removed from release.yml, the
+    local path is no longer redundant and this fails before a release does."""
+    wf = (REPO_ROOT / ".github" / "workflows" / "release.yml").read_text()
+    for job in ("pypi-empirica:", "pypi-empirica-mcp:", "docker:", "homebrew:", "github-release:"):
+        assert job in wf, f"release.yml must still define {job} — --publish no longer does it locally"
