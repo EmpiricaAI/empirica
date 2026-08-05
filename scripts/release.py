@@ -52,6 +52,15 @@ def log(msg: str, color: str = RESET):
     print(f"{color}{msg}{RESET}")
 
 
+def _strip_generated_stamp(text: str) -> str:
+    """Drop the generator's `**Generated:** <UTC>` line before comparing.
+
+    It changes on every render and carries no content, so including it makes a
+    currency check answer "what time is it" instead of "does this match the CLI".
+    """
+    return "\n".join(ln for ln in text.splitlines() if not ln.startswith("**Generated:**"))
+
+
 def error(msg: str):
     log(f"❌ ERROR: {msg}", RED)
     sys.exit(1)
@@ -613,6 +622,139 @@ class ReleaseManager:
                 success("CLI_COMMANDS_UNIFIED.md regenerated")
         except Exception as exc:
             warning(f"CLI docs regen failed: {exc}")
+
+    def verify_docs_ready(self):
+        """Gate: the release-facing docs are already authored, on this branch.
+
+        The split this enforces (David, 2026-08-05): **authoring is not a release
+        step.** Writing README's What's New and regenerating the CLI reference are
+        reasoning-adjacent work that belongs on develop, where the author is and
+        where review happens. ``--prepare`` used to DO them, after the checkout to
+        main, and that one choice produced three separate defects:
+
+        - **Write-on-main with no path back.** main accumulated a README and a CLI
+          reference develop had never seen, so every release merge conflicted on
+          exactly those two files.
+        - **A window where the version led the docs.** The bump had to be
+          committed before ``--prepare`` could check out main, so ``pyproject``
+          said 1.13.5 while README still said 1.13.4 — precisely the state that
+          shipped 1.13.4 advertising "What's New in 1.13.3".
+        - **A silent skip.** The sync warned and returned on four paths and the
+          release continued regardless.
+
+        Now: run ``--docs`` on develop, review the diff, commit it with the bump.
+        ``--prepare`` only checks, and refuses to proceed if the check fails. A
+        gate cannot ship the wrong thing quietly; an action can.
+        """
+        log("\n" + "=" * 60)
+        log("📚 Verifying release docs are authored (not authoring them)")
+        log("=" * 60)
+
+        self.verify_changelog_entry()
+
+        readme_path = self.repo_root / "README.md"
+        if not readme_path.exists():
+            error("README.md not found")
+        heading = re.search(r"^## What's New in (\S+)", readme_path.read_text(), re.MULTILINE)
+        if not heading:
+            error("README.md has no `## What's New in …` section to verify")
+        if heading.group(1) != self.version:
+            error(
+                f"README's What's New reads {heading.group(1)}, but this release is {self.version}.\n"
+                f"   Run `python scripts/release.py --docs` on develop, review the diff, and commit it\n"
+                f"   with the version bump — the README must not lag the version it ships."
+            )
+        success(f"README What's New is authored for {self.version}")
+
+        if self._cli_docs_stale():
+            error(
+                "docs/human/developers/CLI_COMMANDS_UNIFIED.md is out of date with the CLI.\n"
+                "   Run `python scripts/release.py --docs` on develop and commit the regenerated file."
+            )
+        success("CLI reference is current")
+
+        # The version sweep is deterministic, but it is still a WRITE, so it moved
+        # to --docs with the rest. Verify it landed rather than re-running it here:
+        # __init__.py is the cheapest witness that the sweep ran at this version.
+        init_py = self.repo_root / "empirica" / "__init__.py"
+        if init_py.exists():
+            swept = re.search(r'__version__\s*=\s*"([^"]+)"', init_py.read_text())
+            if swept and swept.group(1) != self.version:
+                error(
+                    f"empirica/__init__.py says {swept.group(1)} but this release is {self.version} — "
+                    f"the version sweep has not been committed.\n"
+                    f"   Run `python scripts/release.py --docs` on develop and commit it."
+                )
+        success(f"Version sweep is committed at {self.version}")
+
+    def _cli_docs_stale(self) -> bool:
+        """True when regenerating the CLI reference would change it.
+
+        Compares against a temp render rather than trusting an mtime: the file is
+        generated, so 'someone ran the generator' and 'the output matches the CLI'
+        are different questions and only the second one matters.
+
+        The generator stamps a `**Generated:** <UTC>` line, which differs on every
+        render and is not content. Comparing raw text made the check fire on the
+        clock — a gate that always trips is indistinguishable from one that never
+        does, because both stop being read.
+        """
+        target = self.repo_root / "docs" / "human" / "developers" / "CLI_COMMANDS_UNIFIED.md"
+        generator = self.repo_root / "scripts" / "generate_cli_docs.py"
+        if not generator.exists() or not target.exists():
+            warning("CLI docs generator or target missing — skipping currency check")
+            return False
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as td:
+            probe = Path(td) / "cli.md"
+            res = subprocess.run(
+                [sys.executable, str(generator), "--output", str(probe)],
+                capture_output=True,
+                text=True,
+                cwd=str(self.repo_root),
+            )
+            if res.returncode != 0:
+                error(f"CLI docs generator failed ({res.returncode}): {res.stderr.strip()[:300]}")
+            return _strip_generated_stamp(probe.read_text()) != _strip_generated_stamp(target.read_text())
+
+    def run_docs(self):
+        """``--docs``: author the release-facing docs on THIS branch. No merge, no
+        build, no publish, and deliberately no commit — the diff is for review.
+
+        Deterministic work (the version sweep, the build, the upload) stays in
+        ``--prepare``/``--publish``. This is the half a human should look at.
+        """
+        log("\n╔════════════════════════════════════════════════════════════╗")
+        log("║  Empirica Release — DOCS (author, review, then commit)     ║")
+        log("╚════════════════════════════════════════════════════════════╝\n")
+
+        self.version = self.read_version()
+        branch = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True,
+            text=True,
+            cwd=str(self.repo_root),
+        ).stdout.strip()
+        if branch == "main":
+            error(
+                "--docs must not run on main. Authoring on main is what left main holding a "
+                "README and CLI reference develop had never seen, conflicting every release.\n"
+                "   Switch to develop and re-run."
+            )
+        info(f"Authoring docs for {self.version} on '{branch}'")
+
+        self.verify_changelog_entry()
+        self.update_version_strings()
+        self.sync_readme_whats_new()
+        self.regenerate_cli_docs()
+
+        log("\n" + "=" * 60)
+        success(f"Docs authored for {self.version} — NOT committed")
+        info("Review the diff, then commit the sweep + CHANGELOG + README together:")
+        info("  git diff")
+        info(f"  git add -u && git commit -m 'chore(release): bump version to {self.version}'")
+        info("Then: python scripts/release.py --prepare")
 
     def verify_changelog_entry(self):
         """Hard-gate the release on a CHANGELOG entry for THIS version.
@@ -1517,9 +1659,11 @@ brew install empirica
         try:
             self.version = self.read_version()
 
-            # Gate BEFORE anything mutates the tree: a missing release entry
-            # should abort with a clean checkout, not a half-swept one.
-            self.verify_changelog_entry()
+            # Gate, not action. The docs must already be authored and committed
+            # on develop — see verify_docs_ready() for why this is a check now.
+            # Runs before anything mutates the tree, so a miss aborts on a clean
+            # checkout rather than a half-swept one.
+            self.verify_docs_ready()
 
             # Capture develop HEAD BEFORE the merge, so the trust-CI check can
             # match this release commit against develop's CI run.
@@ -1536,16 +1680,13 @@ brew install empirica
             if not self.dry_run:
                 self.ensure_main_branch()
 
-            # Update version strings (targeted regex — `sweep_version`
-            # removed in 1.9.9; see comment in clear_bytecode_cache)
-            self.update_version_strings()
+            # NO writes to tracked docs here. The version sweep, README's What's
+            # New and the CLI reference are authored by `--docs` on develop and
+            # arrive already committed; verify_docs_ready() above refuses the
+            # release otherwise. Doing them here wrote files on main that develop
+            # never saw, which is why every release merge conflicted on README.md
+            # and CLI_COMMANDS_UNIFIED.md.
             self.clear_bytecode_cache()
-
-            # Sync README What's New from CHANGELOG
-            self.sync_readme_whats_new()
-
-            # Regenerate CLI docs (CLI_COMMANDS_UNIFIED.md picks up __version__)
-            self.regenerate_cli_docs()
 
             # Build packages
             self.build_package()
@@ -1638,7 +1779,7 @@ brew install empirica
 
             # Re-gate here too: --publish is runnable without --prepare, and
             # publish is the step that makes the notes public.
-            self.verify_changelog_entry()
+            self.verify_docs_ready()
 
             # Verify we're on main with built artifacts
             result = subprocess.run(
@@ -1793,6 +1934,16 @@ Legacy (one-shot, less safe):
         ),
     )
     parser.add_argument(
+        "--docs",
+        action="store_true",
+        help=(
+            "Author the release-facing docs on the CURRENT branch (develop): version "
+            "sweep, README What's New from CHANGELOG, CLI reference regen. Writes "
+            "nothing to git — review the diff and commit it with the bump. --prepare "
+            "then only VERIFIES these are done."
+        ),
+    )
+    parser.add_argument(
         "--prepare",
         action="store_true",
         help="Merge to main, build, and test — but do NOT publish. Review before --publish.",
@@ -1825,7 +1976,9 @@ Legacy (one-shot, less safe):
         skip_tests=args.skip_tests,
         commit_bump=args.commit,
     )
-    if args.version_only:
+    if args.docs:
+        manager.run_docs()
+    elif args.version_only:
         manager.run_version_update()
     elif args.prepare:
         manager.run_prepare()

@@ -50,10 +50,26 @@ update touchpoint.
 
 ## Release pipeline (release.yml)
 
-Local + remote split. The local `scripts/release.py --prepare` does the
-heavy lifting (version sweep across 27 files, test gate, artifact build,
-issue-tracker check). `--publish` creates the tag + pushes — and that's
-what triggers this workflow.
+Local + remote split. Three local phases, and the first one is deliberately
+separate:
+
+| Phase | Branch | Does |
+|---|---|---|
+| `--docs` | **develop** | Authors the release-facing docs: version sweep across 27 files, README's What's New from CHANGELOG, CLI reference regen. **Commits nothing** — the diff is for review, then committed with the bump. |
+| `--prepare` | main | Merge, build, gates (import / ruff / pyright / pip-audit / pytest / issue-tracker). **Writes no tracked docs** — it *verifies* the `--docs` output is committed and refuses otherwise. |
+| `--publish` | main | Tag + push, which triggers this workflow. |
+
+**Why `--docs` exists** (2026-08-05). `--prepare` used to author those files
+itself, *after* checking out main. That one choice produced three defects:
+main accumulated a README and CLI reference develop had never seen, so every
+release merge conflicted on exactly those two files; the bump had to be
+committed before the sync could run, leaving a window where `pyproject` led the
+README — which is how 1.13.4 shipped advertising *"What's New in 1.13.3"*; and
+the sync could `warning()`-and-return while the release continued regardless.
+
+Authoring is reasoning-adjacent work and belongs on develop where the author
+and the review are. The release path does deterministic work and *gates* on the
+authoring being done.
 
 **Trigger:** push of a `v*.*.*` tag to `main`.
 
@@ -166,9 +182,10 @@ with:
 The local `scripts/release.py` is the source of truth for the release
 pipeline. `release.yml` should match its behavior:
 
-| Step | Local (`release.py --prepare/--publish`) | CI (`release.yml`) |
+| Step | Local (`release.py --docs/--prepare/--publish`) | CI (`release.yml`) |
 |---|---|---|
-| Version sweep across 27 files | `--prepare` | Not needed (already committed) |
+| Version sweep across 27 files | `--docs` (on develop, reviewed + committed) | Not needed (already committed) |
+| README What's New + CLI reference | `--docs` (on develop); `--prepare` only verifies | Not needed (already committed) |
 | Build sdist + wheel | `--prepare` | `build` job |
 | Test gate | `--prepare` runs `pytest` | `ci.yml` already ran on pre-tag commit |
 | Publish PyPI ×2 | `--publish` (twine) | `pypi-*` jobs (OIDC) |

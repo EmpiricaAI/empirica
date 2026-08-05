@@ -125,9 +125,10 @@ def test_both_release_flows_call_the_gate():
     for flow in ("def run_prepare", "def run_publish"):
         start = src.index(flow)
         end = src.index("\n    def ", start + 1)
-        assert "self.verify_changelog_entry()" in src[start:end], (
-            f"{flow} must call verify_changelog_entry() — a release path that skips it "
-            f"can publish a version with no release notes"
+        assert "self.verify_docs_ready()" in src[start:end], (
+            f"{flow} must gate on verify_docs_ready() — which wraps the changelog check "
+            f"plus README/CLI/version-sweep currency. A release path that skips it can "
+            f"publish a version with no release notes"
         )
 
 
@@ -170,3 +171,70 @@ def test_readme_whats_new_matches_the_shipped_version():
     assert match.group(1) == version.group(1), (
         f"README advertises What's New in {match.group(1)} but ships {version.group(1)}"
     )
+
+
+# ---- the authoring/verification split (David, 2026-08-05) -------------------
+#
+# `--prepare` used to AUTHOR the release docs — version sweep, README What's New,
+# CLI reference — after checking out main. That one choice produced three
+# defects: main accumulated files develop never saw (every release merge
+# conflicted on exactly README.md and CLI_COMMANDS_UNIFIED.md), the bump had to
+# be committed before the sync could run (the window that shipped 1.13.4
+# advertising 1.13.3), and the sync could warn-and-skip while the release
+# continued. Authoring now lives in `--docs`, run on develop; `--prepare` only
+# checks.
+
+
+def _flow_body(src: str, name: str) -> str:
+    start = src.index(f"def {name}")
+    return src[start : src.index("\n    def ", start + 1)]
+
+
+def test_prepare_verifies_docs_instead_of_authoring_them():
+    body = _flow_body(RELEASE_PY.read_text(), "run_prepare")
+    assert "self.verify_docs_ready()" in body
+    for authoring in ("self.sync_readme_whats_new()", "self.regenerate_cli_docs()", "self.update_version_strings()"):
+        assert authoring not in body, (
+            f"run_prepare must not call {authoring} — it runs after the checkout to main, so it "
+            f"writes files develop never sees and conflicts on the next release merge"
+        )
+
+
+def test_publish_also_gates_on_docs():
+    assert "self.verify_docs_ready()" in _flow_body(RELEASE_PY.read_text(), "run_publish")
+
+
+def test_docs_mode_authors_all_three_and_commits_nothing():
+    body = _flow_body(RELEASE_PY.read_text(), "run_docs")
+    for authoring in ("self.update_version_strings()", "self.sync_readme_whats_new()", "self.regenerate_cli_docs()"):
+        assert authoring in body, f"--docs must author {authoring}"
+    # It PRINTS the commit command as guidance; it must not RUN one.
+    assert "commit_version_bump" not in body and "run_command" not in body, (
+        "--docs must leave the diff uncommitted — the review step is the point"
+    )
+
+
+def test_docs_mode_refuses_to_run_on_main():
+    body = _flow_body(RELEASE_PY.read_text(), "run_docs")
+    assert 'branch == "main"' in body and "error(" in body, (
+        "authoring on main is the defect being removed; --docs must refuse there"
+    )
+
+
+def test_cli_docs_currency_ignores_the_generated_timestamp(tmp_path: Path):
+    """A gate that always trips is as useless as one that never does — both stop
+    being read. The generator stamps a UTC time on every render."""
+    mod = _load_release_module()
+    a = "**Generated:** 2026-08-05 09:34:49 UTC\n\n# CLI\n\n- foo\n"
+    b = "**Generated:** 2026-08-05 12:08:40 UTC\n\n# CLI\n\n- foo\n"
+    assert mod._strip_generated_stamp(a) == mod._strip_generated_stamp(b)
+    c = "**Generated:** 2026-08-05 12:08:40 UTC\n\n# CLI\n\n- foo\n- bar\n"
+    assert mod._strip_generated_stamp(b) != mod._strip_generated_stamp(c)
+
+
+def test_docs_ready_gate_checks_every_release_facing_surface():
+    body = _flow_body(RELEASE_PY.read_text(), "verify_docs_ready")
+    assert "verify_changelog_entry" in body, "CHANGELOG entry"
+    assert "What's New" in body, "README What's New version"
+    assert "_cli_docs_stale" in body, "CLI reference currency"
+    assert "__init__.py" in body, "version sweep landed"
