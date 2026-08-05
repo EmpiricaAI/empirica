@@ -363,8 +363,20 @@ daemon's active project.
 | `GET /api/v1/mistakes` | `{mistakes: [...], project_id}` | `?limit=N` |
 | `GET /api/v1/assumptions` | `{assumptions: [...], project_id}` | `?confidence_min=N`, `?limit=N` |
 | `GET /api/v1/decisions` | `{decisions: [...], project_id}` | `?limit=N` |
-| `GET /api/v1/sources` | `{sources: [...], project_id}` | `?limit=N` |
+| `GET /api/v1/sources` | `{sources: [...], project_id}` | `?limit=N`, `?include_archived=true` |
 | `GET /api/v1/goals` | `{goals: [...], project_id}` | `?status=active\|completed\|planned\|all`, `?limit=N` |
+
+> **Sources are read practice-scoped, not by a single `project_id`.** A practice's
+> `project_id` drifts over its life, so its own sources end up under several ids
+> and a `WHERE project_id = ?` read hides them — measured on one practice as 29
+> of 39 shown, and on another as 0 of 17, where the total case read as "the
+> catalogue is empty" rather than "the read path is broken". The db path IS the
+> practice boundary (one sessions.db per project), so the whole table belongs to
+> the practice by construction. Each row still reports its **stored** `project_id`
+> so the drift stays visible to gardening rather than being aggregated away. The
+> CLI (`sources-map`, `source-list`, `sources-check`, `sources-reconcile`) follows
+> the same rule, and an explicit `--project-id` there keeps the strict single-id
+> read for deliberate cross-project queries.
 
 **Common row shape (varies per type):**
 
@@ -814,10 +826,42 @@ Triage: transition `lifecycle_state`/`stage`/`outcome`/`title`/`description` + m
 
 An engagement's tasks from `engagement_tasks` (`task_id`, `title`, `description`, `status`, `assigned_to`, `due_at`, `completed_at`, `blocked_by`, `created_at`), oldest first. Unknown/empty engagement → `{tasks: [], count: 0}` (honest-empty).
 
+### GET /api/v1/engagements/{id}/sources
+
+The sources attached to an engagement, from `entity_artifacts` filtered to
+`artifact_type='source'` (findings and other linked artifacts are excluded).
+`?limit=` 1–500, default 50, newest first. Unknown/empty engagement →
+`{sources: [], count: 0}` (honest-empty, same contract as `/tasks`).
+
+### POST /api/v1/engagements/{id}/sources
+
+Attach a source. Body: `{source_id, relationship?, relevance?, artifact_source?,
+discovered_via?}`. `relationship` ∈ `sourced_from` (default) | `produced` |
+`cited`; anything else → `422`. `artifact_source` is the owning practice's
+trajectory path, defaulted to the active project.
+
+**Idempotent per source, not per relationship.** `entity_artifacts` is unique on
+`(artifact_type, artifact_id, entity_type, entity_id)` — the relationship is an
+attribute of the single edge, not part of its identity, so an engagement holds a
+given source once:
+
+| Re-POST | Result |
+|---|---|
+| same `source_id`, same `relationship` | `200 {created: false, reason: "already_linked"}` |
+| same `source_id`, different `relationship` | `409` naming the relationship already stored |
+
+The `409` is deliberate rather than a silent no-op: the caller asked for
+something the schema cannot represent, and should learn that instead of
+wondering why nothing changed.
+
 ```bash
 curl 'http://localhost:8000/api/v1/engagements?org=o-nle'
 curl 'http://localhost:8000/api/v1/engagements?contact=c-carly-…'
 curl 'http://localhost:8000/api/v1/engagements/eng-…/tasks'
+curl 'http://localhost:8000/api/v1/engagements/eng-…/sources'
+curl -X POST 'http://localhost:8000/api/v1/engagements/eng-…/sources' \
+  -H 'Content-Type: application/json' \
+  -d '{"source_id": "src-…", "relationship": "cited"}'
 ```
 
 ---
