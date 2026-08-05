@@ -765,7 +765,11 @@ def run_listener(  # noqa: C901 — held-connection loop; clarity beats decompos
             PractitionerHeartbeatEmitter,
         )
 
-        practitioner_heartbeat = PractitionerHeartbeatEmitter()
+        # Scoped to THIS practice. Without ai_id the emitter forwards every
+        # practitioner on the box (the store is box-global), so N listeners each
+        # posted all M sessions — `listeners x sessions` instead of `sessions`,
+        # with every post but one a duplicate upsert.
+        practitioner_heartbeat = PractitionerHeartbeatEmitter(ai_id=instance_id)
         practitioner_heartbeat.start()
         err_stream.write("listener: practitioner-presence emitter started\n")
     except Exception as e:

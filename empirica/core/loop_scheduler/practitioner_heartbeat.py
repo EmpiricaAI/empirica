@@ -242,6 +242,7 @@ class PractitionerHeartbeatEmitter:
     def __init__(
         self,
         *,
+        ai_id: str | None = None,
         machine: str | None = None,
         interval_sec: float = _DEFAULT_INTERVAL_SEC,
         timeout_sec: float = _DEFAULT_TIMEOUT_SEC,
@@ -251,6 +252,24 @@ class PractitionerHeartbeatEmitter:
         _list_fn: Callable[[], list] | None = None,
         _refresh_fn: Callable[[], dict] | None = None,
     ):
+        # Which practice's presence records this emitter forwards.
+        #
+        # The presence store is BOX-GLOBAL (`~/.empirica/practitioner_presence_*.json`),
+        # so an unfiltered read returns every practice's live sessions. With one
+        # listener per practice and no filter, each listener posted EVERY
+        # practitioner on the machine — making the rate `listeners x sessions`
+        # rather than `sessions`, and every post but one a duplicate upsert of a row
+        # another listener had just written (cortex keys on
+        # user_id x machine x session_id).
+        #
+        # Measured 2026-08-05 by mesh-support: 12,272 req/hr against an expected 540
+        # from a 60s interval — a 22.7x gap read as "the interval is not honoured".
+        # It was honoured, nine times over.
+        #
+        # None means "forward every practice on this box", which is the old
+        # behaviour and is now an explicit opt-in for box-level aggregation rather
+        # than the accidental default.
+        self.ai_id = (ai_id or "").strip() or None
         self.machine = machine or socket.gethostname() or "unknown-host"
         self.interval_sec = interval_sec
         self.timeout_sec = timeout_sec
@@ -262,12 +281,18 @@ class PractitionerHeartbeatEmitter:
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
 
-    @staticmethod
-    def _default_list() -> list[dict]:
-        """Read local non-stale practitioner presence records."""
+    def _default_list(self) -> list[dict]:
+        """Read this practice's non-stale presence records.
+
+        ``list_presence`` has taken a ``practice_ai_id`` scope since it was
+        written — the resolver docstring calls it "practice → its active
+        practitioner(s)". This emitter simply never passed it, so every listener
+        read the whole box-global store and forwarded every practitioner on the
+        machine. The capability was there; the caller was the defect.
+        """
         from empirica.core.practitioner_presence import list_presence
 
-        return list_presence(include_stale=False)
+        return list_presence(self.ai_id, include_stale=False)
 
     @staticmethod
     def _default_refresh() -> dict:
