@@ -297,6 +297,34 @@ def _relay_non_proposal_wake(msg: dict, instance_id: str, loop_name: str, canoni
                 f"If it has no proposal-store row the catch-up cannot reconstruct it, so it is LOST. "
                 f"Known shapes: {sorted(_NON_PROPOSAL_WAKE_SHAPES)}\n"
             )
+        elif not shape_name and not body.get("proposal_id"):
+            # The `and shape_name` guard made this warning conditional on the very
+            # field whose absence it needed to report: a body with `event` missing
+            # or null took neither branch and vanished in total silence — the one
+            # case where the drop is least diagnosable from either side.
+            #
+            # Found by cortex 2026-08-06 while tracing why zero `ser_escalation`
+            # events had ever been relayed: 819 audible drops across 9 listeners,
+            # not one of them naming that shape. An audible-drop mechanism that
+            # cannot report a MISSING key leaves exactly one hypothesis untestable,
+            # and it was the live one.
+            #
+            # Narrowed to bodies with no `proposal_id` either. The ordinary
+            # proposal doorbell arrives with `proposal_id` and NO `event` key, and
+            # it is reconstructed by the catch-up below — warning on those would
+            # fire on every proposal wake (1132 of them in one log) and bury the
+            # signal it exists to raise. `test_a_body_with_no_event_key_does_not_warn`
+            # pins that silence; it carried no rationale, and the fixture
+            # (`{"proposal_id": "prop_1"}`) is the only thing that says why.
+            #
+            # Keys are surfaced because the shape is unidentifiable without them —
+            # "a body arrived with no event key" is not actionable; "…and it had
+            # ser_id, escalation, target_claudes" names the sender's intent.
+            err_stream.write(
+                f"listener: DROPPED a wake body with no 'event' key — not relayed, and the "
+                f"catch-up can only reconstruct it if it has a proposal-store row. "
+                f"Body keys: {sorted(body.keys())}\n"
+            )
         return False
     targets = body.get("target_claudes")
     if isinstance(targets, list) and canonical and canonical not in targets:

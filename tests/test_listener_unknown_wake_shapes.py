@@ -127,3 +127,31 @@ def test_an_unknown_shape_still_warns():
 
     assert "UNHANDLED" in err
     assert "some_future_cortex_shape" in err
+
+
+def test_a_body_with_neither_event_nor_proposal_id_is_audible():
+    """The hole the `and shape_name` guard left: a body whose `event` key is
+    missing or null took neither branch and vanished in total silence — the one
+    case least diagnosable from either side.
+
+    Found by cortex 2026-08-06 tracing why zero `ser_escalation` events had ever
+    relayed: 819 audible drops across 9 listeners, not one naming that shape. An
+    audible-drop mechanism that cannot report a MISSING key leaves exactly one
+    hypothesis untestable, and it was the live one.
+    """
+    relayed, _out, err = _relay({"ser_id": "ser_x", "escalation": True})
+
+    assert relayed is False
+    assert "no 'event' key" in err
+    assert "ser_id" in err, "the body's keys must be surfaced — the shape is unidentifiable without them"
+
+
+def test_the_proposal_doorbell_stays_silent():
+    """Why the warning is narrowed rather than general: the ordinary proposal
+    doorbell arrives with `proposal_id` and NO `event`, is reconstructed by the
+    catch-up, and fires on every proposal wake — 1132 in one log. A warning that
+    common buries the signal it exists to raise."""
+    relayed, _out, err = _relay({"proposal_id": "prop_1", "status": "accepted"})
+
+    assert relayed is False
+    assert err == ""
