@@ -405,14 +405,24 @@ def test_wm_class_for_surface():
 
 def test_status_handler_returns_clean_state(tmp_cockpit_dir, capsys, monkeypatch):
     """`empirica cockpit status` works on a fresh machine (no state files,
-    no tmux session)."""
+    no tmux session).
+
+    `session_live` is a real `tmux has-session` probe, so without stubbing it this
+    test asserted the DEVELOPER'S machine was clean, not the handler's behaviour —
+    green on CI and red for any practitioner with the cockpit session open, which
+    during normal disciplined work is always. The config path was isolated and the
+    liveness probe was not; a partially isolated test reads as isolated.
+    """
     from empirica.core.cockpit.launcher import config as cfg_mod
 
     monkeypatch.setattr(cfg_mod, "DEFAULT_CONFIG_PATH", tmp_cockpit_dir / "config.yaml")
 
+    from empirica.cli.command_handlers import cockpit_launcher_commands as cmd_mod
     from empirica.cli.command_handlers.cockpit_launcher_commands import (
         handle_cockpit_status_command,
     )
+
+    monkeypatch.setattr(cmd_mod, "cockpit_session_exists", lambda _name: False)
 
     args = SimpleNamespace(config=None, output="json")
     rc = handle_cockpit_status_command(args)
