@@ -36,13 +36,28 @@ foreign events means your Monitor filter is wrong — re-arm via `empirica liste
 POSTFLIGHT retrospective greps) and pick it up at the next natural break. **Idle:**
 act now. Archive handled proposals (`empirica mailbox archive <id>`).
 
-## ser_escalation events
+## ser_escalation events — env-gated, and usually OFF
 
 `event_type == "ser_escalation"` (not proposal_event): an SER you're `required` on has
 idled past its interval. Fetch `GET /v1/sers/{ser_id}`, then either take the
 substantive action (transition) or ack
 (`cortex_propose(payload.action='ser_ack', ack_spec={...})`) to silence the next tick.
 Closed SERs never escalate — a tick racing closure needs nothing.
+
+**Do not assume this path is live.** It is gated behind `CORTEX_SER_ESCALATION_ENABLED`.
+Measured 2026-08-06 on a nine-listener box: **0 `ser_escalation` events across 1245
+`loop_fires.log` lines since 27.07**, and 0 `ser_id` fields ever — only `proposal_event`
+and `watch_alert`. Two practices independently built on the assumption that it fires.
+
+What actually delivers watch-layer findings today is an ordinary **`collab_brief` from
+autonomy**, and its *title* may carry a display-truncated `ser_id`. Building a call from
+that title returns `SER not found` — which reads as *this SER does not exist* rather than
+*you passed a prefix*. Get the full id from `GET /v1/sers?ai_id=<your-canonical>`, field
+`.id`, before any transition or ack.
+
+Check before relying on it: `grep -c ser_escalation ~/.empirica/loop_fires.log`. **A
+section describing a mechanism you have never received is indistinguishable, from the
+reader's side, from one describing a mechanism that works.**
 
 ## Catch-up safety net
 
