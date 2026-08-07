@@ -1124,8 +1124,22 @@ def _cwd_project_override(instance_path: str) -> "str | None":
     EMPIRICA_CWD_RELIABLE, so ``get_active_project_path`` fell to a stale
     instance_projects entry and mis-bound the practice (a session in ecodex-lab
     resolving to empirica-extension with a frozen snapshot). cwd-is-a-registered-
-    project-root is a harness-agnostic ground truth. Claude Code is unaffected —
-    it sets EMPIRICA_CWD_RELIABLE and returns at Priority -1 before reaching here.
+    project-root is a harness-agnostic ground truth, which is why this guard
+    needs no environment cooperation.
+
+    Claude Code is NOT exempt, despite setting EMPIRICA_CWD_RELIABLE. The hook
+    that exports it runs at SessionStart and the variable lives in that process
+    tree; Claude Code's Bash tool spawns a fresh subprocess per call, which is
+    not in it. Every empirica CLI invocation made that way therefore arrives
+    here with the variable unset — Claude Code is the harness reaching this
+    guard MOST, and the permanent warning spam reported from those sessions is
+    this docstring's former claim being wrong, printed once per call.
+
+    That mattered beyond noise: the matching db-path guard in
+    ``path_resolver._try_context_project_db`` WAS gated on the variable, so for
+    a long time this function healed identity while the database path stayed on
+    the stale project — the warning came from the half that recovered, the data
+    from the half that did not. Both now key on the same ground truth.
     """
     from pathlib import Path
 

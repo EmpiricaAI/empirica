@@ -288,9 +288,54 @@ def _try_context_project_db(context_project_path: str, git_root) -> Path | None:
     """Try to use the context project's sessions.db, with cross-project bleed check.
 
     Returns the db_path if valid, None if context should be skipped.
+
+    Two guards, and they are not interchangeable:
+
+    - **cwd is a registered project ROOT** — harness-agnostic ground truth, the
+      same signal ``session_resolver._cwd_project_override`` uses for IDENTITY.
+      Needs no environment cooperation, so it works from any subprocess.
+    - ``EMPIRICA_CWD_RELIABLE`` — a hint the harness sets when it knows cwd is
+      meaningful. Never wrong when present; simply absent for a whole class of
+      callers.
+
+    Only the second existed here, while identity resolution used only the first.
+    That split is the defect: a SessionStart hook exports the variable into its
+    own process tree, and Claude Code's Bash tool spawns a fresh subprocess per
+    call that is not in that tree — so for CLI invocations the variable never
+    arrives, the correction never ran, and the db path stayed pinned to the
+    stale project *while the identity half logged that it had trusted cwd*.
+
+    Observed downstream as ``goals-complete`` reporting "Goal not found" for an
+    existing goal and ``goals-list`` returning zero against a project holding
+    700+ artifacts, in a session whose PREFLIGHT/CHECK/POSTFLIGHT resolved
+    correctly — those read identity; the goals verbs open the database.
     """
     cwd_reliable = os.getenv("EMPIRICA_CWD_RELIABLE", "").lower() == "true"
     context_is_local = True
+
+    # Harness-agnostic correction, tried first because it is the stronger claim:
+    # a cwd holding .empirica/project.yaml is a REGISTERED PROJECT ROOT, not
+    # merely a git root that happens to differ. An open transaction on the
+    # context still wins — hopping projects mid-transaction would split the
+    # measurement window across two databases.
+    try:
+        cwd = Path.cwd()
+        if (
+            os.path.realpath(cwd) != os.path.realpath(context_project_path)
+            and (cwd / ".empirica" / "project.yaml").exists()
+            and not _has_open_transaction(context_project_path)
+        ):
+            cwd_db = cwd / ".empirica" / "sessions" / "sessions.db"
+            if cwd_db.exists():
+                logger.debug(
+                    f"📍 Stale-mapping guard (db path): cwd={cwd} is a registered project "
+                    f"but context={context_project_path} — preferring cwd, matching identity resolution."
+                )
+                return cwd_db
+    except OSError as e:
+        # cwd can be unresolvable (deleted directory); fall through to the
+        # context path rather than failing resolution outright.
+        logger.debug(f"cwd unresolvable during stale-mapping guard: {e}")
 
     if cwd_reliable and git_root and str(git_root) != context_project_path:
         if not _has_open_transaction(context_project_path):
