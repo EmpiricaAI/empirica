@@ -350,17 +350,38 @@ def check_project_yaml(cwd: Path | None = None) -> Check:
             "Re-run `empirica project-init --force` or edit project.yaml to add ai_id",
             data={"path": str(pyaml_path)},
         )
+    check_data = {
+        "path": str(pyaml_path),
+        "ai_id": ai_id,
+        "dir_basename": cwd.name,
+        "org_id": data.get("org_id"),
+        "tenant_slug": data.get("tenant_slug"),
+        "mesh_id_prefix": data.get("mesh_id_prefix"),
+    }
+    # The convention is ai_id == directory basename. A mismatch is LATENT, not
+    # live: nothing breaks until something reads ai_id and acts on it — and the
+    # thing that does is `setup-claude-code --force`, which mints a listener
+    # unit under whatever the file declares. It looks like a successful upgrade
+    # and leaves the practice invisible to every peer addressing the canonical
+    # form. Nine dormant projects on one box carried this mismatch when it was
+    # first audited, each one armed to mint a broken listener on next setup.
+    # WARN, not FAIL: a checkout under a non-canonical directory name (a git
+    # worktree, a renamed clone) is legitimate, and there ai_id is the authority.
+    if ai_id != cwd.name:
+        return Check(
+            "project.yaml present + has ai_id",
+            WARN,
+            f"ai_id={ai_id} but directory is {cwd.name}",
+            "Peers address the canonical ai_id, and `setup-claude-code --force` "
+            "will mint a listener under it. Reconcile project.yaml's ai_id with "
+            "the directory name, or confirm the mismatch is deliberate.",
+            data=check_data,
+        )
     return Check(
         "project.yaml present + has ai_id",
         PASS,
         f"ai_id={ai_id}",
-        data={
-            "path": str(pyaml_path),
-            "ai_id": ai_id,
-            "org_id": data.get("org_id"),
-            "tenant_slug": data.get("tenant_slug"),
-            "mesh_id_prefix": data.get("mesh_id_prefix"),
-        },
+        data=check_data,
     )
 
 

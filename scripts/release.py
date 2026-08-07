@@ -178,6 +178,20 @@ class ReleaseManager:
         else:
             info(f"Would update Homebrew formula: {formula_path}")
 
+    # The ONLY path Homebrew reads in a third-party tap that has a Formula/ dir.
+    #
+    # Homebrew/brew Library/Homebrew/tap.rb:
+    #     potential_formula_dirs = [path/"Formula", path/"HomebrewFormula", path]
+    #     formula_dir = potential_formula_dirs.find(&:directory?) || (path/"Formula")
+    #
+    # `find` returns the FIRST existing directory, so a tap with a Formula/ dir
+    # never reads root-level .rb files. EmpiricaAI/homebrew-tap has had Formula/
+    # since 2026-05-11 (ecodex v0.0.1) while every empirica release from 1.12.x
+    # through 1.13.7 wrote empirica.rb to the tap ROOT — pushed cleanly, verified
+    # present, and invisible to `brew install`. The push succeeded; the publish
+    # did not. Write where brew looks, not where the file happens to live.
+    TAP_FORMULA_RELPATH = "Formula/empirica.rb"
+
     def update_homebrew_tap(self):
         """Copy updated formula to the Homebrew tap repo and push"""
         log("\n" + "=" * 60)
@@ -196,32 +210,36 @@ class ReleaseManager:
             Path.home() / "empirical-ai" / "homebrew-tap",  # home dir
         ]
 
+        # Identify a tap by its .git, not by a formula file: keying the search on
+        # `empirica.rb` made the candidate probe depend on the very layout this
+        # function is responsible for producing, so a correctly-laid-out tap
+        # (formula under Formula/) would have read as "not a tap at all".
         info(f"Searching for tap repo (looking for {len(tap_candidates)} candidate paths)")
         tap_repo = None
         for candidate in tap_candidates:
-            marker = candidate / "empirica.rb"
-            if marker.exists():
+            if (candidate / ".git").exists():
                 tap_repo = candidate
                 info(f"  ✓ found at: {tap_repo}")
                 break
             else:
-                info(f"  ✗ not at:   {candidate} (no empirica.rb)")
+                info(f"  ✗ not at:   {candidate} (no .git)")
 
         if tap_repo is None:
             warning("Homebrew tap repo not found. Manual step needed:")
-            warning(f"  cp {local_formula} <your-tap-repo>/empirica.rb")
-            warning("  cd <your-tap-repo> && git commit -am 'Update empirica to {self.version}' && git push")
+            warning(f"  cp {local_formula} <your-tap-repo>/{self.TAP_FORMULA_RELPATH}")
+            warning(f"  cd <your-tap-repo> && git commit -am 'Update empirica to {self.version}' && git push")
             warning("Compliance release_chain check will surface this gap until republished.")
             return
 
-        tap_formula = tap_repo / "empirica.rb"
+        tap_formula = tap_repo / self.TAP_FORMULA_RELPATH
 
         if not self.dry_run:
+            tap_formula.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(local_formula, tap_formula)
             success(f"Copied formula to {tap_formula}")
 
             # Commit and push
-            self.run_command(["git", "add", "empirica.rb"], cwd=str(tap_repo))
+            self.run_command(["git", "add", self.TAP_FORMULA_RELPATH], cwd=str(tap_repo))
             self.run_command(
                 ["git", "commit", "-m", f"Update empirica to {self.version}"], cwd=str(tap_repo), check=False
             )
@@ -762,9 +780,9 @@ class ReleaseManager:
           JSON fields (`.info.version` and `.releases`) lag behind it by minutes.
         - Docker: the per-tag endpoint, not the paginated tag list, which is
           ordered by last-update and caches.
-        - Homebrew: the tap's REMOTE head, not a local clone that may be stale.
+        - Homebrew: the formula at the path brew RESOLVES (Formula/empirica.rb)
+          on the tap's remote head — not a local clone, and not the tap root.
         """
-        import urllib.error
         import urllib.request
 
         log("\n╔════════════════════════════════════════════════════════════╗")
@@ -803,19 +821,21 @@ class ReleaseManager:
             (f"GitHub v{v}", gh.returncode == 0 and n not in ("", "0"), f"{n} asset(s)" if n else "no release")
         )
 
-        tap = subprocess.run(
-            ["git", "ls-remote", "https://github.com/EmpiricaAI/homebrew-tap", "HEAD"],
-            capture_output=True,
-            text=True,
-            timeout=20,
-        )
-        results.append(
-            (
-                "Homebrew tap",
-                tap.returncode == 0,
-                "reachable — check the formula version" if tap.returncode == 0 else "unreachable",
-            )
-        )
+        # Read the formula brew would actually resolve, at the path brew reads
+        # (see TAP_FORMULA_RELPATH), and assert it carries THIS version. The old
+        # check was `git ls-remote HEAD` — a reachability ping whose success
+        # message literally said "check the formula version", i.e. it deferred
+        # the only question that mattered. It passed on 1.13.7 while the tap
+        # served no empirica formula at all.
+        tap_raw = _get(f"https://raw.githubusercontent.com/EmpiricaAI/homebrew-tap/HEAD/{self.TAP_FORMULA_RELPATH}")
+        tap_ok = bool(tap_raw and v in tap_raw)
+        if not tap_raw:
+            tap_detail = f"no formula at {self.TAP_FORMULA_RELPATH} — brew cannot resolve it"
+        elif not tap_ok:
+            tap_detail = f"{self.TAP_FORMULA_RELPATH} exists but does not carry {v}"
+        else:
+            tap_detail = f"{self.TAP_FORMULA_RELPATH} carries {v}"
+        results.append(("Homebrew tap", tap_ok, tap_detail))
 
         for name, ok, detail in results:
             (success if ok else error_soft)(f"{name}: {detail}")

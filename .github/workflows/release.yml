@@ -10,14 +10,14 @@ name: Release
 #        (no PYPI_API_TOKEN secret needed once trusted publisher is configured
 #        at pypi.org/manage/account/publishing/)
 #      → builds + pushes Docker images (nubaeon/empirica:<tag> + :latest + :<tag>-alpine)
-#      → updates Nubaeon/homebrew-tap formula
+#      → updates EmpiricaAI/homebrew-tap Formula/empirica.rb
 #      → creates GitHub release with auto-generated notes
 #
 # Required GitHub Actions secrets (Settings → Secrets and variables → Actions):
 #   DOCKERHUB_USERNAME    — Docker Hub username (e.g. "nubaeon")
 #   DOCKERHUB_TOKEN       — Docker Hub access token with push scope
-#   HOMEBREW_TAP_TOKEN    — NOT SET. The homebrew job was removed 2026-08-05;
-#                           the tap publishes locally. See the note below.
+#   HOMEBREW_TAP_TOKEN    — fine-grained PAT scoped to EmpiricaAI/homebrew-tap,
+#                           Contents:write only. NOT a `gh` OAuth token.
 #
 # Optional: configure PyPI trusted publishers for empirica + empirica-mcp.
 # If trusted publishing isn't set up, the PyPI step will fail — fix by
@@ -185,19 +185,100 @@ jobs:
             nubaeon/empirica:${{ steps.ver.outputs.version }}-alpine
 
   # ── Homebrew tap ────────────────────────────────────────────────────
-  # Checks out the tap repo, updates Formula/empirica.rb with the new
-  # version + sha256, commits + pushes. Skip on missing token.
-  # homebrew: REMOVED 2026-08-05 — published locally by `release.py --publish`.
+  # Checks out EmpiricaAI/homebrew-tap, updates Formula/empirica.rb with the
+  # new version + sha256, commits + pushes.
   #
-  # The tap push authenticates with the `gh` CLI's own OAuth token (`gho_`, user
-  # Nubaeon) carrying repo + workflow + gist + admin:*_key. Copying that into a
-  # repo secret would let any workflow here act as that user across every repo
-  # they can reach, and OAuth tokens rotate on re-auth so it would break
-  # silently — that is widening privilege, not sharing a credential.
+  # Restored 2026-08-07 after David minted a fine-grained PAT scoped to
+  # EmpiricaAI/homebrew-tap with Contents:write. The job was removed on
+  # 2026-08-05 rather than fed the `gh` CLI's OAuth token (`gho_`, repo +
+  # workflow + gist + admin:*_key), which would have let any workflow here act
+  # as that user across every repo they can reach and would rotate silently on
+  # re-auth. A deliberate scoped mint is the fix; credential reuse was not.
   #
-  # To bring it back: mint a FINE-GRAINED PAT scoped to EmpiricaAI/homebrew-tap
-  # with Contents:write, set it as HOMEBREW_TAP_TOKEN, and restore this job from
-  # git history. A deliberate mint is the correct fix; reuse is not.
+  # Formula/ is load-bearing, not cosmetic. Homebrew resolves a third-party tap
+  # via the FIRST existing dir of [Formula, HomebrewFormula, .] (tap.rb
+  # `potential_formula_dirs` + `find(&:directory?)`), and this tap has had a
+  # Formula/ dir since 2026-05-11 — so a formula written to the tap root is
+  # never read. This job always wrote Formula/empirica.rb; the LOCAL path wrote
+  # the root, which is why 1.12.x–1.13.7 pushed cleanly and installed nothing.
+  homebrew:
+    name: Update Homebrew tap
+    runs-on: ubuntu-latest
+    needs: pypi-empirica
+    timeout-minutes: 10
+
+    steps:
+      - name: Resolve version
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Check tap token
+        env:
+          TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            # FAIL, do not skip — same reasoning as the Docker gate above. A
+            # gated skip still concludes `success` at the job level, so a job
+            # that published is indistinguishable from one that did nothing.
+            echo "::error::HOMEBREW_TAP_TOKEN not set — cannot publish the Homebrew tap. Configure the secret or remove this job."
+            exit 1
+          fi
+
+      - name: Download empirica sdist
+        uses: actions/download-artifact@v8
+        with:
+          name: empirica-dist
+          path: dist/
+
+      - name: Compute sha256
+        id: hash
+        run: |
+          SHA=$(sha256sum "dist/empirica-${{ steps.ver.outputs.version }}.tar.gz" | awk '{print $1}')
+          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Check out tap
+        uses: actions/checkout@v7
+        with:
+          repository: EmpiricaAI/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+
+      - name: Update formula
+        working-directory: homebrew-tap
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          SHA="${{ steps.hash.outputs.sha256 }}"
+          test -f Formula/empirica.rb || {
+            echo "::error::Formula/empirica.rb missing from the tap — brew resolves Formula/ and would serve no empirica formula."
+            exit 1
+          }
+          sed -i -E "s|url \"https://files.pythonhosted.org/packages/source/e/empirica/empirica-.*\\.tar\\.gz\"|url \"https://files.pythonhosted.org/packages/source/e/empirica/empirica-${VERSION}.tar.gz\"|" Formula/empirica.rb
+          sed -i -E "s|sha256 \"[a-f0-9]{64}\"|sha256 \"${SHA}\"|" Formula/empirica.rb
+          sed -i -E "s|version \"[0-9]+\\.[0-9]+\\.[0-9]+\"|version \"${VERSION}\"|" Formula/empirica.rb
+          # Assert the rewrite actually took. `sed` exits 0 when a pattern does
+          # not match, so a drifted formula would otherwise commit unchanged and
+          # the job would still report success.
+          grep -q "empirica-${VERSION}.tar.gz" Formula/empirica.rb || {
+            echo "::error::url rewrite did not take — Formula/empirica.rb does not reference empirica-${VERSION}.tar.gz"
+            exit 1
+          }
+          grep -q "${SHA}" Formula/empirica.rb || {
+            echo "::error::sha256 rewrite did not take — Formula/empirica.rb does not carry ${SHA}"
+            exit 1
+          }
+
+      - name: Commit + push
+        working-directory: homebrew-tap
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/empirica.rb
+          if git diff --staged --quiet; then
+            echo "::notice::Formula already up to date; nothing to commit"
+          else
+            git commit -m "Update empirica to ${{ steps.ver.outputs.version }}"
+            git push
+          fi
 
   github-release:
     name: GitHub release

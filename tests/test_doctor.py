@@ -135,17 +135,56 @@ def test_check_project_yaml_warns_when_missing(tmp_path):
 def test_check_project_yaml_passes_with_ai_id(tmp_path):
     import yaml
 
+    # ai_id must equal the directory basename — that IS the convention, and the
+    # check below enforces it, so the happy path has to satisfy it.
+    ai_id = tmp_path.name
     (tmp_path / ".empirica").mkdir()
     (tmp_path / ".empirica" / "project.yaml").write_text(
-        yaml.safe_dump(
-            {"ai_id": "test", "name": "Test", "org_id": "org-x", "tenant_slug": "x", "mesh_id_prefix": "x_x"}
-        )
+        yaml.safe_dump({"ai_id": ai_id, "name": "Test", "org_id": "org-x", "tenant_slug": "x", "mesh_id_prefix": "x_x"})
     )
     result = check_project_yaml(tmp_path)
     assert result.status == PASS
-    assert "ai_id=test" in result.detail
-    assert result.data["ai_id"] == "test"
+    assert f"ai_id={ai_id}" in result.detail
+    assert result.data["ai_id"] == ai_id
+    assert result.data["dir_basename"] == ai_id
     assert result.data["mesh_id_prefix"] == "x_x"
+
+
+def test_check_project_yaml_warns_when_ai_id_does_not_match_directory(tmp_path):
+    """A stale ai_id is what `setup-claude-code --force` mints a listener from.
+
+    The mismatch is latent until someone runs setup in that directory; then it
+    silently produces a listener under the wrong name that looks like a clean
+    upgrade. Doctor is where the latent form has to become visible.
+    """
+    import yaml
+
+    (tmp_path / ".empirica").mkdir()
+    (tmp_path / ".empirica" / "project.yaml").write_text(yaml.safe_dump({"ai_id": "workspace", "name": "Workspace"}))
+    result = check_project_yaml(tmp_path)
+    assert result.status == WARN
+    # Both values must appear — the whole point is that you cannot tell which
+    # one is stale without seeing them side by side.
+    assert "workspace" in result.detail
+    assert tmp_path.name in result.detail
+    assert "setup-claude-code --force" in result.hint
+    assert result.data["ai_id"] == "workspace"
+    assert result.data["dir_basename"] == tmp_path.name
+
+
+def test_check_project_yaml_mismatch_warns_rather_than_fails(tmp_path):
+    """WARN, not FAIL: a worktree or renamed clone is a legitimate mismatch.
+
+    Pinning this so a later 'tighten the guard' change has to argue with the
+    reason rather than silently break every worktree checkout.
+    """
+    import yaml
+
+    (tmp_path / ".empirica").mkdir()
+    (tmp_path / ".empirica" / "project.yaml").write_text(yaml.safe_dump({"ai_id": "some-other-name"}))
+    result = check_project_yaml(tmp_path)
+    assert result.status == WARN
+    assert result.status != FAIL
 
 
 def test_check_project_yaml_warns_without_ai_id(tmp_path):

@@ -1454,6 +1454,22 @@ def _install_listener_service(args, output_format: str, skip: bool = False) -> d
             print("   ℹ️  listener service: no ai_id (run `empirica project-init` first)")
         return None
 
+    # `--force` faithfully propagates whatever identity project.yaml declares,
+    # so a stale ai_id becomes a freshly-minted, mis-tagged listener — silently,
+    # and looking exactly like a successful upgrade. The practice then writes
+    # presence under the stale name and is invisible to peers addressing the
+    # canonical form. This is the one place that reads both values, so it is
+    # the place to say so. Warn rather than refuse: a worktree or renamed clone
+    # is a legitimate mismatch and ai_id is the authority there.
+    mismatch = ai_id != Path.cwd().name
+    if mismatch and output_format != "json":
+        print(
+            f"   ⚠️  listener service: ai_id '{ai_id}' does not match directory "
+            f"'{Path.cwd().name}' — installing under '{ai_id}'.\n"
+            f"      Peers address the ai_id, so if that value is stale this "
+            f"listener will be unreachable. Check `empirica doctor`."
+        )
+
     try:
         from empirica.core.loop_scheduler.persistent_listener import (
             ListenerServiceUnavailable,
@@ -1491,6 +1507,8 @@ def _install_listener_service(args, output_format: str, skip: bool = False) -> d
     return {
         "backend": service.backend,
         "ai_id": ai_id,
+        "dir_basename": Path.cwd().name,
+        "ai_id_matches_dir": not mismatch,
         "unit_path": str(unit_path),
         "log_path": status.log_path,
         "active": status.active,
