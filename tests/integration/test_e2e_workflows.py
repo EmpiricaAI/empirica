@@ -24,6 +24,28 @@ import pytest
 pytestmark = pytest.mark.integration
 
 
+@pytest.fixture(autouse=True)
+def _isolate_session_db(tmp_path, monkeypatch):
+    """Point every subprocess in this module at a THROWAWAY sessions.db.
+
+    These tests shell out to the real `empirica` CLI. Without an override the CLI
+    resolves the live practice database and writes real goals into it: 189 goals
+    titled "E2E test goal workflow" accumulated in the empirica practice between
+    2026-02-17 and 2026-08-07, and because they were stranded under an empty
+    project_id nobody could see them. Once the scoping backfill surfaced them they
+    accounted for **36 of that practice's 39 in_progress goals** — a test suite was
+    the practice's apparent stalled-work backlog.
+
+    `EMPIRICA_SESSION_DB` is priority 0 in `get_session_db_path()`, and subprocesses
+    inherit `os.environ`, so setting it here covers all 16 subprocess calls without
+    touching each one.
+
+    An E2E test that exercises the real CLI is right to do so — the defect was never
+    the subprocess, it was writing production epistemic state as a side effect.
+    """
+    monkeypatch.setenv("EMPIRICA_SESSION_DB", str(tmp_path / "e2e-sessions.db"))
+
+
 class TestCheckpointWorkflowE2E:
     """End-to-end checkpoint workflow tests"""
 
