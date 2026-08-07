@@ -1026,31 +1026,64 @@ def _configure_mcp_server(claude_dir, home, force, output_format):
     if not mcp_cmd:
         return False, None
 
-    mcp_file = claude_dir / "mcp.json"
-    mcp_config = _ensure_json_file(mcp_file, {"mcpServers": {}})
+    entry = {
+        "command": mcp_cmd,
+        "args": [],
+        "type": "stdio",
+        "tools": ["*"],
+        "description": "Empirica epistemic framework - CASCADE workflow, goals, findings",
+    }
 
-    existing = mcp_config.get("mcpServers", {}).get("empirica")
-    needs_update = (
-        not existing or force or existing.get("command") != mcp_cmd  # Binary path changed
-    )
-    if needs_update:
-        mcp_config.setdefault("mcpServers", {})["empirica"] = {
-            "command": mcp_cmd,
-            "args": [],
-            "type": "stdio",
-            "tools": ["*"],
-            "description": "Empirica epistemic framework - CASCADE workflow, goals, findings",
-        }
-        _write_json_file(mcp_file, mcp_config)
-        if output_format != "json":
-            if existing and existing.get("command") != mcp_cmd:
-                print(f"   ✓ MCP server updated: {mcp_cmd}")
-                print(f"     (was: {existing.get('command', 'unknown')})")
-            else:
-                print(f"   ✓ MCP server configured: {mcp_cmd}")
-    else:
-        if output_format != "json":
+    # Two files, and only one of them is loaded by Claude Code.
+    #
+    # `~/.claude.json` is where Claude Code keeps user-scope MCP servers. Proved
+    # 2026-08-07 rather than inferred: a probe server written ONLY to
+    # `~/.claude/mcp.json` did not appear in `claude mcp list`, and both servers
+    # that differed between the files resolved to their `~/.claude.json` values
+    # (`claude mcp get empirica` reports "Scope: User config" with that command
+    # and env). Until now setup wrote ONLY the legacy file, so the registration
+    # it reported as configured had no effect on this harness at all — a fault
+    # doctor could not see either, because it inspected the same wrong file.
+    #
+    # The legacy file keeps being written, with an IDENTICAL entry. Dropping it
+    # would silently unregister the server for any client that does read it
+    # (unmeasured), and writing a DIFFERENT value there is what produced the
+    # divergence doctor now warns about. Same value in both is the only option
+    # that neither breaks a reader nor manufactures a warning.
+    targets = [
+        (home / ".claude.json", "live"),  # Claude Code, user scope
+        (claude_dir / "mcp.json", "legacy"),
+    ]
+
+    wrote_any = False
+    previous_cmd = None
+    for path, label in targets:
+        config = _ensure_json_file(path, {"mcpServers": {}})
+        existing = config.get("mcpServers", {}).get("empirica") or {}
+        if existing.get("command") and existing.get("command") != mcp_cmd:
+            previous_cmd = existing.get("command")
+
+        # MERGE, do not replace. Setup owns the keys it writes and nothing else:
+        # the live config on a working box carries an `env` block
+        # (EMPIRICA_EPISTEMIC_MODE, EMPIRICA_PERSONALITY) that setup has never
+        # written, and replacing the entry wholesale would silently delete it.
+        # "Repair the drifted entry" is the right instinct and the wrong verb —
+        # setup cannot tell a broken env from a deliberate one, so it must not
+        # adjudicate. `doctor` now tests whether the entry can actually launch
+        # and names the failure; that is where that judgement belongs.
+        merged = {**existing, **entry}
+        if merged != existing or force:
+            config.setdefault("mcpServers", {})["empirica"] = merged
+            _write_json_file(path, config)
+            wrote_any = True
+            if output_format != "json":
+                print(f"   ✓ MCP server written to {label} config: {path}")
+
+    if output_format != "json":
+        if not wrote_any:
             print(f"   MCP server already configured: {mcp_cmd}")
+        elif previous_cmd:
+            print(f"   ✓ MCP server updated: {mcp_cmd}\n     (was: {previous_cmd})")
 
     return True, mcp_cmd
 
