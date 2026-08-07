@@ -2133,10 +2133,17 @@ Example:
     goals_list_parser.add_argument(
         "--all-projects",
         action="store_true",
-        help="See the COMPLETE backlog (default caps at 20). Cross-project view (gardening): "
-        "list goals across ALL project_ids, not just the active project. Adds a project column "
-        "and raises the limit to 2000. Surfaces goals stranded under other/divergent project_ids "
-        "that the normal active-project scope hides. (`--all` works as a prefix abbreviation.)",
+        help="Cross-project view (gardening): list goals across ALL project_ids, not just the "
+        "active project. Adds a project column and raises the cap to 2000. Surfaces goals "
+        "stranded under other/divergent project_ids that the active-project scope hides. "
+        "For the full backlog of THIS project only, use --uncapped.",
+    )
+    goals_list_parser.add_argument(
+        "--uncapped",
+        action="store_true",
+        help="Show this project's FULL backlog — no 20-goal cap, project scope unchanged. "
+        "The header's truncation notice used to point at --all-projects, which also widens "
+        "the project scope: the advertised remedy did something other than what was wanted.",
     )
     goals_list_parser.add_argument("--scope-breadth-min", type=float, help="Filter by minimum breadth (0.0-1.0)")
     goals_list_parser.add_argument("--scope-breadth-max", type=float, help="Filter by maximum breadth (0.0-1.0)")

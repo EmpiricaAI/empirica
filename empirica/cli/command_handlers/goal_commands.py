@@ -1290,6 +1290,12 @@ def handle_goals_list_command(args):
         all_projects = getattr(args, "all_projects", False)
         if all_projects and limit == 20:
             limit = 2000
+        # --uncapped: this project's full backlog, project scope UNCHANGED. The
+        # truncation notice previously pointed at --all-projects, which also widens
+        # the project scope — an advertised remedy that does something other than
+        # what the reader wanted. Explicit --limit still wins over both.
+        if getattr(args, "uncapped", False) and limit == 20:
+            limit = 2000
 
         db = SessionDatabase()
         cursor = db.conn.cursor()
@@ -1440,7 +1446,8 @@ def _print_goals_list_human(goals, status_desc, filter_desc, total_matching, lim
     if total_matching is not None and total_matching > len(goals):
         print(
             f"🎯 GOALS ({status_desc.upper()}) - showing {len(goals)} of {total_matching} "
-            f"[{filter_desc}] · CAPPED at {limit} — use --all-projects (or raise --limit) for the full backlog"
+            f"[{filter_desc}] · CAPPED at {limit} — use --uncapped for this project's full backlog, "
+            f"--all-projects to also cross project scope, or raise --limit"
         )
     else:
         print(f"🎯 GOALS ({status_desc.upper()}) - {len(goals)} found [{filter_desc}]")

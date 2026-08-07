@@ -1536,6 +1536,11 @@ ALL_MIGRATIONS: list[tuple[str, str, Callable]] = [
         "Normalize `subtasks.status` 'complete' -> 'completed'. One table, two words for one state, and the rollups only count the plural: goals.py's per-goal progress does SUM(CASE WHEN s.status = 'completed'), so every row carrying the singular is silently counted as NOT done. Measured on the empirica practice: 67 rows 'complete', 1162 'completed', 895 'pending'. This is DEAD legacy data, not a live vocabulary split — TaskStatus.COMPLETED is 'completed' and no current writer emits the singular; the 67 rows span 2025-12-03 to 2026-02-03 and nothing has written that value in the six months since. So it is a one-time normalization, not a two-writers problem needing a reader contract. Reader tolerance stays where it exists (bootstrap circles filters NOT IN ('complete','completed')): fleet DBs migrate on their own next run, and a reader that assumes the migration already ran is a reader that breaks on the DB that has not.",
         lambda cursor: migration_064_subtask_status_vocabulary(cursor),
     ),
+    (
+        "065_backfill_goal_project_id_from_session",
+        "Scope goals stranded with an empty project_id, from session EVIDENCE only. A goal with no project_id is invisible to every project-scoped listing — which is the default one — so it is unaddressable rather than lost. Measured 2026-08-07: 305 of 1520 on the empirica practice, and fleet-wide (cortex 72, one archive 216, autopilot 9). Writes ONLY where the goal's own session row names a project, because a practice db can hold more than one registered project (this one holds two: Empirica and empirica-platform), so assigning the rest to the main project is an inference — and an inference shipped as a migration hardens into a fact on every machine at once. Provenance recorded in goal_data so the write is reversible and distinguishable from a project_id the practitioner set.",
+        lambda cursor: migration_065_backfill_goal_project_id_from_session(cursor),
+    ),
 ]
 
 
@@ -2615,6 +2620,58 @@ def migration_063_finding_retrieval_signal(cursor: sqlite3.Cursor):
     add_column_if_missing(cursor, "project_findings", "last_retrieved_at", "REAL", "NULL")
     add_column_if_missing(cursor, "project_findings", "retrieval_count", "INTEGER", "0")
     logger.info("✅ Migration 063 complete: findings carry a retrieval signal, not just an age")
+
+
+def migration_065_backfill_goal_project_id_from_session(cursor: sqlite3.Cursor):
+    """Scope goals stranded with an empty project_id — from session EVIDENCE only.
+
+    A goal with no project_id is invisible to every project-scoped listing, which
+    is the default one. Measured 2026-08-07: 305 on the empirica practice (of
+    1520), and the pattern is fleet-wide — cortex 72, one archive 216, autopilot 9.
+    They were not lost, they were unaddressable.
+
+    **Only the evidenced ones are written.** Where the goal's own session row names
+    a project, that is a fact about the goal and it is safe anywhere. Where it does
+    not, this migration leaves the row alone: a practice's db can hold more than one
+    registered project (this one holds two), so "assign it to the main project"
+    would be an inference, and an inference shipped as a migration hardens into a
+    fact on 39 machines at once.
+
+    Provenance is recorded in goal_data rather than applied silently, so the write
+    is reversible and distinguishable from a project_id the practitioner set.
+    """
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('goals','sessions')")
+    if len({r[0] for r in cursor.fetchall()}) < 2:
+        logger.info("✅ Migration 065: goals/sessions table missing — nothing to backfill")
+        return
+
+    cursor.execute("""
+        SELECT g.id, g.goal_data, s.project_id
+        FROM goals g JOIN sessions s ON s.session_id = g.session_id
+        WHERE COALESCE(g.project_id, '') = '' AND COALESCE(s.project_id, '') <> ''
+    """)
+    rows = cursor.fetchall()
+    if not rows:
+        logger.info("✅ Migration 065: no session-evidenced stranded goals")
+        return
+
+    import json as _json
+    import time as _time
+
+    now = _time.time()
+    for gid, gdata, pid in rows:
+        try:
+            data = _json.loads(gdata) if gdata else {}
+        except (TypeError, ValueError):
+            data = {}
+        if not isinstance(data, dict):
+            data = {}
+        data["project_id_backfill"] = {"assigned": pid, "prior": "", "tier": "session_evidence", "at": now}
+        cursor.execute(
+            "UPDATE goals SET project_id = ?, goal_data = ? WHERE id = ? AND COALESCE(project_id,'') = ''",
+            (pid, _json.dumps(data), gid),
+        )
+    logger.info(f"✅ Migration 065 complete: scoped {len(rows)} goal(s) from session evidence")
 
 
 def migration_064_subtask_status_vocabulary(cursor: sqlite3.Cursor):
