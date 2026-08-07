@@ -1014,34 +1014,80 @@ def _maybe_add_deferred_proposals_note(cursor, session_id: str, retro: dict) -> 
     which was over-broad — surfaced 16 false positives in the first
     transaction that fired it (planning goals from weeks prior). Tightened
     to convention-prefix only 2026-05-17.
+
+    **`is_completed = 0` was an inversion, corrected 2026-08-07.** The ack a
+    peer is waiting for becomes due precisely WHEN the work finishes, so a
+    reminder that only fires while the goal is open goes silent at the exact
+    moment it is needed. Measured: autonomy's Claude-5 trim directive shipped
+    across eight commits and two merged PRs, its goals were closed, and the
+    proposal sat at `completed=null` for four days — the source AI's outbox
+    showing stalled work that was done. The check could not have caught it:
+    completing the goal is what removed it from the query.
+
+    Completed goals are now surfaced separately, as "ack owed", and only within
+    a recent window — an ack for something closed weeks ago is either already
+    sent or no longer actionable, and permanent nagging trains the note to be
+    ignored.
+
+    **Known limitation, stated in the note itself.** This reads local goal state
+    and has no view of cortex's proposal table, so it cannot tell an unacked
+    completion from an acked one — both appear. Verifying would mean a network
+    call inside POSTFLIGHT, which is hot path. The asymmetry justifies the false
+    positive: prompting to confirm an ack already sent costs one glance, while
+    missing an unsent one leaves a peer blocked for days, which is the incident
+    that motivated this. The note says "confirm, do not assume" for that reason
+    — it is a prompt, not an accusation.
     """
     try:
         cursor.execute(
             """
-            SELECT g.id, g.objective FROM goals g
+            SELECT g.id, g.objective, g.is_completed FROM goals g
             JOIN sessions s ON g.session_id = s.session_id
-            WHERE g.is_completed = 0
-              AND s.project_id = (
+            WHERE s.project_id = (
                 SELECT project_id FROM sessions WHERE session_id = ?
               )
               AND g.objective LIKE 'Process proposal prop_%'
+              AND (
+                g.is_completed = 0
+                OR g.completed_timestamp >= strftime('%s', 'now') - 604800
+              )
             ORDER BY g.created_timestamp DESC
         """,
             (session_id,),
         )
-        deferred = cursor.fetchall()
-        if not deferred:
+        rows = cursor.fetchall()
+        if not rows:
             return
-        listing = "\n".join(f"  - {gid[:8]}: {obj[:90]}" for gid, obj in deferred[:10])
-        more = f"\n  ... + {len(deferred) - 10} more" if len(deferred) > 10 else ""
-        retro["deferred_proposals_note"] = (
-            f"{len(deferred)} proposal-derived goal(s) still open in this project. "
-            "These came in from peer AIs and were deferred during in-flight "
-            "work. Action or ack them now — without follow-through the source "
-            "AI's outbox stays visibly stalled (the half-handshake bug class).\n"
-            f"{listing}{more}"
-        )
-        retro["deferred_proposals_count"] = len(deferred)
+
+        open_goals = [(gid, obj) for gid, obj, done in rows if not done]
+        ack_owed = [(gid, obj) for gid, obj, done in rows if done]
+
+        parts = []
+        if open_goals:
+            listing = "\n".join(f"  - {gid[:8]}: {obj[:90]}" for gid, obj in open_goals[:10])
+            more = f"\n  ... + {len(open_goals) - 10} more" if len(open_goals) > 10 else ""
+            parts.append(
+                f"{len(open_goals)} proposal-derived goal(s) still open in this project. "
+                "These came in from peer AIs and were deferred during in-flight "
+                "work. Action or ack them now — without follow-through the source "
+                f"AI's outbox stays visibly stalled (the half-handshake bug class).\n{listing}{more}"
+            )
+        if ack_owed:
+            listing = "\n".join(f"  - {gid[:8]}: {obj[:90]}" for gid, obj in ack_owed[:10])
+            more = f"\n  ... + {len(ack_owed) - 10} more" if len(ack_owed) > 10 else ""
+            parts.append(
+                f"{len(ack_owed)} proposal-derived goal(s) COMPLETED in the last 7 days — "
+                "CONFIRM the ack, do not assume it. This reads local goal state only and "
+                "cannot see whether the peer was told, so an already-acked goal appears "
+                "here too; that is the cheaper error. Close any that are open with "
+                "`empirica mailbox reply --parent-id <prop_id> --commit-sha <sha>`. "
+                "Finishing the work is not telling the peer, and doing the work while "
+                f"saying nothing is the half-handshake in its quietest form.\n{listing}{more}"
+            )
+
+        retro["deferred_proposals_note"] = "\n\n".join(parts)
+        retro["deferred_proposals_count"] = len(open_goals)
+        retro["proposal_acks_owed_count"] = len(ack_owed)
     except Exception:
         pass
 
