@@ -2139,6 +2139,15 @@ Example:
         "For the full backlog of THIS project only, use --uncapped.",
     )
     goals_list_parser.add_argument(
+        "--scope",
+        choices=["project", "practice", "fleet"],
+        default=None,
+        help="project (default): active project_id. practice: this db, ALL project_ids — "
+        "same as --all-projects. fleet: a per-practice SUMMARY of open goals across every "
+        "registered practice (read-only; a peer's graph is never gardened from here). "
+        "`shared` is deliberately absent until its membership source is settled.",
+    )
+    goals_list_parser.add_argument(
         "--uncapped",
         action="store_true",
         help="Show this project's FULL backlog — no 20-goal cap, project scope unchanged. "

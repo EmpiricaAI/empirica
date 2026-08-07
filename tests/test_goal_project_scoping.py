@@ -86,3 +86,52 @@ def test_malformed_goal_data_does_not_break_the_row(tmp_path):
 def test_missing_tables_are_a_noop(tmp_path):
     conn = sqlite3.connect(str(tmp_path / "empty.db"))
     migrate(conn.cursor())  # must not raise
+
+
+# ---- --scope: project / practice / fleet -----------------------------------
+#
+# `--all-projects` crossed project_ids inside ONE sessions.db and was read as
+# "the whole fleet". Measured 2026-08-07: it reached 1520 goals in one practice
+# while the fleet held 726 open across 25 practices, unreachable by any flag.
+
+
+def test_scope_project_and_practice_read_only_this_db():
+    from empirica.cli.command_handlers.goal_commands import _dbs_for_scope
+
+    for scope in ("project", "practice"):
+        dbs = _dbs_for_scope(scope)
+        assert len(dbs) == 1, f"{scope} must not leave this practice's db"
+        assert dbs[0][1] == "this practice"
+
+
+def test_scope_fleet_reaches_other_practices():
+    from empirica.cli.command_handlers.goal_commands import _dbs_for_scope
+
+    dbs = _dbs_for_scope("fleet")
+    assert len(dbs) > 1, "fleet must reach registered peers — that is the whole point"
+    assert dbs[0][1] == "this practice", "own db stays first"
+    assert len({d[0] for d in dbs}) == len(dbs), "no db listed twice"
+
+
+def test_fleet_opens_peer_databases_READ_ONLY():
+    """A peer's graph is never gardened from here. The sweep counts; it never writes."""
+    import inspect
+
+    from empirica.cli.command_handlers import goal_commands as m
+
+    src = inspect.getsource(m._print_fleet_goal_summary)
+    assert "mode=ro" in src, "peer dbs must be opened read-only"
+    for write_verb in ("UPDATE", "DELETE", "INSERT", "commit()"):
+        assert write_verb not in src, f"fleet summary must never {write_verb}"
+
+
+def test_shared_scope_is_absent_rather_than_guessed():
+    """`shared` needs a membership source (SER participants) that is not settled.
+    An arm that silently guesses its members is worse than one that does not exist."""
+    from pathlib import Path
+
+    from empirica.cli.parsers.checkpoint_parsers import __file__ as pf
+
+    src = Path(pf).read_text()
+    assert '"project", "practice", "fleet"' in src
+    assert '"shared"' not in src.split("--scope")[1][:400]

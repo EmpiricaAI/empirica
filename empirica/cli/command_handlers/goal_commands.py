@@ -1258,6 +1258,89 @@ def _handle_goals_list_command_helper(cursor, project_id, session_id):
     return None
 
 
+def _dbs_for_scope(scope: str) -> list[tuple[str, str]]:
+    """Resolve a --scope to the (db_path, label) pairs to read.
+
+    Why this exists: `--all-projects` crossed `project_id` groups inside ONE
+    sessions.db and was read as "the whole fleet". Measured 2026-08-07 — it reached
+    1520 goals in one practice while the fleet held 726 OPEN goals across 25
+    practices, unreachable by any flag. The name promised fleet scope and delivered
+    drift scope.
+
+    READ-ONLY across practices, always. Listing a peer's goals is fine; resolving,
+    archiving or editing them is not — a peer's graph is never gardened from here.
+    """
+    from pathlib import Path
+
+    from empirica.config.path_resolver import get_session_db_path
+
+    try:
+        own_db = str(get_session_db_path())
+    except Exception as e:
+        logger.debug(f"own session db unresolvable: {e}")
+        return []
+    own = [(own_db, "this practice")]
+    if scope in ("project", "practice"):
+        return own
+
+    try:
+        import yaml
+
+        reg = yaml.safe_load((Path.home() / ".empirica" / "registry.yaml").read_text()) or {}
+        entries = reg.get("projects") or []
+    except Exception as e:
+        logger.debug(f"registry unreadable, falling back to this practice: {e}")
+        return own
+
+    out = []
+    for entry in entries:
+        path, slug = entry.get("path"), entry.get("slug") or "?"
+        if not path:
+            continue
+        db = Path(path) / ".empirica" / "sessions" / "sessions.db"
+        if db.exists() and str(db) != own_db:
+            out.append((str(db), slug))
+    return own + out
+
+
+def _print_fleet_goal_summary(output_format: str) -> int:
+    """Per-practice OPEN-goal counts across every registered practice.
+
+    A summary, not a merged listing: the fleet held 726 open goals when measured,
+    and a flat list of those answers no question anyone asks. "Where is the work"
+    does. Read-only by construction — this opens each db for a COUNT and nothing
+    else.
+    """
+    import sqlite3
+
+    rows = []
+    for db_path, label in _dbs_for_scope("fleet"):
+        try:
+            conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+            n = conn.execute(
+                "SELECT COUNT(*) FROM goals WHERE COALESCE(is_completed,0)=0 AND status IN ('in_progress','planned')"
+            ).fetchone()[0]
+            conn.close()
+        except Exception as e:  # a practice mid-migration must not break the sweep
+            logger.debug(f"fleet summary skipped {label}: {e}")
+            continue
+        if n:
+            rows.append({"practice": label, "open_goals": n})
+    rows.sort(key=lambda r: -r["open_goals"])
+    total = sum(r["open_goals"] for r in rows)
+
+    if output_format == "json":
+        print(json.dumps({"ok": True, "scope": "fleet", "total_open": total, "practices": rows}, indent=2))
+        return 0
+    print(f"{'=' * 70}")
+    print(f"🌍 FLEET OPEN GOALS — {total} across {len(rows)} practices (read-only)")
+    print(f"{'=' * 70}\n")
+    for r in rows:
+        print(f"  {r['open_goals']:>5}  {r['practice']}")
+    print("\n  Listing another practice's goals is fine; resolving them is not.")
+    return 0
+
+
 def handle_goals_list_command(args):
     """Handle goals-list command - list goals with optional filters
 
@@ -1287,7 +1370,13 @@ def handle_goals_list_command(args):
         # the whole goal graph is visible — the active-project filter otherwise hides
         # goals stranded under other/divergent project_ids. Raise the default cap so a
         # cross-project sweep isn't silently truncated at 20 (explicit --limit wins).
-        all_projects = getattr(args, "all_projects", False)
+        # --scope folds into the existing flags rather than adding a branch:
+        # `practice` IS what --all-projects always did, and `fleet` short-circuits
+        # to a summary because a merged 726-row listing answers nobody's question.
+        scope = getattr(args, "scope", None)
+        if scope == "fleet":
+            return _print_fleet_goal_summary(output_format)
+        all_projects = getattr(args, "all_projects", False) or scope == "practice"
         if all_projects and limit == 20:
             limit = 2000
         # --uncapped: this project's full backlog, project scope UNCHANGED. The
