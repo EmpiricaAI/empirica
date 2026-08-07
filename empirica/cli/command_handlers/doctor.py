@@ -51,8 +51,14 @@ class Check:
 # ─── Helpers ────────────────────────────────────────────────────────────
 
 
-def _which(cmd: str) -> str | None:
-    return shutil.which(cmd)
+def _which(cmd: str, path: str | None = None) -> str | None:
+    """`shutil.which`, optionally against an explicit PATH rather than ours.
+
+    The `path` argument matters for MCP entries that pin their own `env.PATH`:
+    resolving such a command against doctor's PATH answers a different question
+    than the one being asked.
+    """
+    return shutil.which(cmd, path=path) if path else shutil.which(cmd)
 
 
 def _run(args: list[str], timeout: float = 5.0) -> tuple[int, str, str]:
@@ -710,19 +716,75 @@ def check_listener_service(cwd: Path | None = None) -> Check:
 
 
 def _find_mcp_config_paths() -> list[Path]:
-    """Common locations for MCP client config that may register empirica/cortex servers."""
+    """Common locations for MCP client config that may register empirica/cortex servers.
+
+    ``~/.claude.json`` is FIRST and is not optional: it is where Claude Code
+    stores user-scope MCP servers (`claude mcp remove ... -s user` reports
+    "File modified: ~/.claude.json"). It was absent from this list, so doctor
+    inspected ``~/.claude/mcp.json``, found a clean entry, and reported PASS
+    while the config Claude Code actually loaded carried an env.PATH on which
+    the empirica CLI did not resolve — broken for weeks, and doctor was
+    structurally incapable of seeing it.
+
+    Reported by empirica.philipp.empirica-mesh-support and reproduced here: the
+    two files had already diverged on this box as well.
+    """
     home = Path.home()
     return [
-        home / ".claude" / "mcp.json",  # Claude Code
+        home / ".claude.json",  # Claude Code, user scope — the live store
+        home / ".claude" / "mcp.json",  # Claude Code, legacy/project-adjacent
         home / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json",  # macOS Desktop
         home / ".config" / "Claude" / "claude_desktop_config.json",  # Linux Desktop fallback
     ]
 
 
+def _mcp_entry_command_resolves(entry: dict) -> tuple[bool, str | None]:
+    """Can this MCP server entry actually launch its command?
+
+    Returns ``(resolves, missing_detail)``. An entry that names a command the
+    client cannot execute is a *nominally present, functionally dead* server —
+    which is precisely what a name-only check cannot distinguish. When the
+    entry pins ``env.PATH``, resolution must be tested against THAT PATH, not
+    the PATH doctor happens to be running under.
+    """
+    command = entry.get("command")
+    if not isinstance(command, str) or not command:
+        return True, None  # nothing to verify (e.g. a url/sse-style entry)
+
+    # An absolute path is checked directly; PATH does not enter into it.
+    cmd_path = Path(command)
+    if cmd_path.is_absolute():
+        if cmd_path.exists():
+            return True, None
+        return False, f"command does not exist: {command}"
+
+    env = entry.get("env")
+    pinned_path = env.get("PATH") if isinstance(env, dict) else None
+    if not pinned_path:
+        return True, None  # inherits the client's PATH — not ours to judge
+
+    if _which(command, path=pinned_path):
+        return True, None
+    return False, f"`{command}` does not resolve on the entry's own env.PATH"
+
+
 def check_mcp_config() -> Check:
-    """Surface any MCP config file's mcpServers entries (read-only, no modification)."""
+    """Surface MCP config entries and verify they can actually launch.
+
+    This check used to test only whether an entry EXISTED BY NAME. A server
+    whose `command` cannot be resolved is nominally present and functionally
+    dead, and the name test passes it — so "MCP servers configured: PASS" was
+    reported for weeks against a config that returned "empirica CLI not found"
+    on every call. Presence is not function; test the thing you are claiming.
+    """
     found_configs = []
     server_names: set[str] = set()
+    broken: list[str] = []
+    # name -> {command} seen per file, so the SAME server defined differently in
+    # two configs is surfaced. That divergence is what let the fault hide: one
+    # file was clean, doctor read that one, and the one the client loaded was not.
+    definitions: dict[str, set[str]] = {}
+
     for path in _find_mcp_config_paths():
         if not path.exists():
             continue
@@ -736,6 +798,16 @@ def check_mcp_config() -> Check:
         found_configs.append({"path": str(path), "servers": list(servers.keys())})
         server_names.update(servers.keys())
 
+        for name, entry in servers.items():
+            if not isinstance(entry, dict):
+                continue
+            definitions.setdefault(name, set()).add(str(entry.get("command") or ""))
+            if name not in ("empirica", "cortex"):
+                continue
+            resolves, detail = _mcp_entry_command_resolves(entry)
+            if not resolves:
+                broken.append(f"{path.name}:{name} — {detail}")
+
     if not found_configs:
         return Check(
             "MCP servers configured",
@@ -745,22 +817,51 @@ def check_mcp_config() -> Check:
             data={"configs": []},
         )
 
+    diverged = sorted(n for n, cmds in definitions.items() if len(cmds) > 1)
     has_empirica = "empirica" in server_names
     has_cortex = "cortex" in server_names
+    base_data = {
+        "configs": found_configs,
+        "has_empirica": has_empirica,
+        "has_cortex": has_cortex,
+        "broken": broken,
+        "diverged": diverged,
+    }
+
+    if broken:
+        return Check(
+            "MCP servers configured",
+            WARN,
+            "; ".join(broken),
+            "The entry exists but its command cannot launch — re-run `empirica setup --force`, "
+            "or fix the entry's env.PATH to include the directory holding the CLI.",
+            data=base_data,
+        )
+
+    if diverged:
+        return Check(
+            "MCP servers configured",
+            WARN,
+            f"same server defined differently across configs: {', '.join(diverged)}",
+            "Claude Code loads ~/.claude.json for user-scope servers. When two configs disagree, "
+            "the one you inspect may not be the one that runs — reconcile them.",
+            data=base_data,
+        )
+
     if has_empirica or has_cortex:
         detail_parts = [f"{c['path']}: {', '.join(c['servers'])}" for c in found_configs]
         return Check(
             "MCP servers configured",
             PASS,
             " | ".join(detail_parts),
-            data={"configs": found_configs, "has_empirica": has_empirica, "has_cortex": has_cortex},
+            data=base_data,
         )
     return Check(
         "MCP servers configured",
         WARN,
         "MCP config present but no `empirica` or `cortex` server entry",
         "Run `empirica setup` to register the empirica MCP server",
-        data={"configs": found_configs, "has_empirica": False, "has_cortex": False},
+        data=base_data,
     )
 
 
