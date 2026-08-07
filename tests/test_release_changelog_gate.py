@@ -302,14 +302,24 @@ def test_local_artifacts_defaults_off():
 
 def test_ci_release_workflow_still_covers_every_channel():
     """The precondition for slimming: if a job is removed from release.yml, the
-    local path is no longer redundant and this fails before a release does."""
+    local path is no longer redundant and this fails before a release does.
+
+    Homebrew was pinned ABSENT here from 2026-08-05, on the condition "until a
+    fine-grained PAT exists" — the tap credential at the time was a broad `gh`
+    OAuth token, and putting that in a repo secret widens privilege rather than
+    sharing a credential. David minted a PAT scoped to EmpiricaAI/homebrew-tap
+    with Contents:write on 2026-08-07, which discharges the condition, so the
+    assertion inverts rather than being deleted. The pin did its job: it made
+    restoring the job a deliberate act with a stated reason instead of a quiet
+    re-add.
+    """
     wf = (REPO_ROOT / ".github" / "workflows" / "release.yml").read_text()
-    for job in ("pypi-empirica:", "pypi-empirica-mcp:", "docker:", "github-release:"):
+    for job in ("pypi-empirica:", "pypi-empirica-mcp:", "docker:", "github-release:", "homebrew:"):
         assert job in wf, f"release.yml must still define {job} — --publish no longer does it locally"
-    # Homebrew is deliberately NOT here: it publishes locally, because the tap
-    # credential is a broad OAuth token and sharing it would widen privilege.
-    assert "\n  homebrew:" not in wf, (
-        "the homebrew job must stay removed until a fine-grained PAT exists — a job "
-        "that cannot authenticate either fails every release or skips silently, and "
-        "both are worse than publishing it locally"
-    )
+
+    # A job that cannot authenticate must fail loudly. Skipping still concludes
+    # `success` at the job level, which is how v1.13.7 reported a clean release
+    # while publishing to two of six channels.
+    for gate in ("::error::HOMEBREW_TAP_TOKEN not set", "::error::DOCKERHUB_USERNAME not set"):
+        assert gate in wf, f"missing hard-fail gate: {gate}"
+    assert "::warning::HOMEBREW_TAP_TOKEN" not in wf, "a warning gate lets the job pass having done nothing"
