@@ -288,43 +288,56 @@ def _relay_non_proposal_wake(msg: dict, instance_id: str, loop_name: str, canoni
         # drop AUDIBLE is the correct half — it converts an invisible gap into a
         # line someone can grep, without inventing behaviour for an unknown.
         #
-        # Proposal-shaped events are excluded from the warning: they are
-        # reconstructed by the catch-up immediately below, so they are not
-        # dropped at all and warning about them would be noise.
-        if shape_name and shape_name not in ("proposal_event",):
-            err_stream.write(
-                f"listener: UNHANDLED non-proposal wake shape '{shape_name}' — not relayed. "
-                f"If it has no proposal-store row the catch-up cannot reconstruct it, so it is LOST. "
-                f"Known shapes: {sorted(_NON_PROPOSAL_WAKE_SHAPES)}\n"
-            )
-        elif not shape_name and not body.get("proposal_id"):
-            # The `and shape_name` guard made this warning conditional on the very
-            # field whose absence it needed to report: a body with `event` missing
-            # or null took neither branch and vanished in total silence — the one
-            # case where the drop is least diagnosable from either side.
+        # Warn only when the catch-up genuinely CANNOT recover the body — that
+        # is, when there is no proposal-store row to reconstruct from. Presence
+        # of `proposal_id` is that property, and it is exactly what the warning
+        # text below already claims to be testing.
+        #
+        # The previous condition excluded the single literal "proposal_event",
+        # on the assumption that cortex puts a wake-shape name in `event`. On a
+        # normal proposal push it puts the STATUS there. So the exclusion tested
+        # a vocabulary the emitter does not use, and the line fired on healthy
+        # traffic: 1152 times on this box, 152 across 10 practices on Philipp's,
+        # carrying the words "so it is LOST" while nothing was lost — every one
+        # preceded in the log by "ntfy event arrived → running catch-up".
+        #
+        # That is worse than a cosmetic nit, because it destroys the property
+        # the line was added for. Among those 1152 sat a single
+        # `ser_auto_blocked` — plausibly a real unrecognised shape, and entry
+        # 1153 in a stream everyone had learned to skip. A detector that fires
+        # on the healthy case cannot discriminate the case it exists for.
+        #
+        # Keying on an emitter's vocabulary was the mistake; key on the property
+        # that makes the claim true.
+        if not body.get("proposal_id"):
+            # Both remaining cases are genuinely unrecoverable — no store row, so
+            # the catch-up has nothing to reconstruct from. They differ only in
+            # how much the sender told us, which decides what the line can say.
             #
+            # An earlier version made the shape warning conditional on `event`
+            # being present — the very field whose absence it needed to report —
+            # so a body with `event` missing or null vanished in total silence.
             # Found by cortex 2026-08-06 while tracing why zero `ser_escalation`
             # events had ever been relayed: 819 audible drops across 9 listeners,
-            # not one of them naming that shape. An audible-drop mechanism that
-            # cannot report a MISSING key leaves exactly one hypothesis untestable,
-            # and it was the live one.
-            #
-            # Narrowed to bodies with no `proposal_id` either. The ordinary
-            # proposal doorbell arrives with `proposal_id` and NO `event` key, and
-            # it is reconstructed by the catch-up below — warning on those would
-            # fire on every proposal wake (1132 of them in one log) and bury the
-            # signal it exists to raise. `test_a_body_with_no_event_key_does_not_warn`
-            # pins that silence; it carried no rationale, and the fixture
-            # (`{"proposal_id": "prop_1"}`) is the only thing that says why.
-            #
-            # Keys are surfaced because the shape is unidentifiable without them —
-            # "a body arrived with no event key" is not actionable; "…and it had
-            # ser_id, escalation, target_claudes" names the sender's intent.
-            err_stream.write(
-                f"listener: DROPPED a wake body with no 'event' key — not relayed, and the "
-                f"catch-up can only reconstruct it if it has a proposal-store row. "
-                f"Body keys: {sorted(body.keys())}\n"
-            )
+            # not one naming that shape. An audible-drop mechanism that cannot
+            # report a MISSING key leaves exactly one hypothesis untestable, and
+            # it was the live one.
+            if shape_name:
+                err_stream.write(
+                    f"listener: UNHANDLED non-proposal wake shape '{shape_name}' — not relayed, "
+                    f"and it carries no proposal_id, so the catch-up cannot reconstruct it. LOST. "
+                    f"Known shapes: {sorted(_NON_PROPOSAL_WAKE_SHAPES)}\n"
+                )
+            else:
+                # Keys are surfaced because the shape is unidentifiable without
+                # them — "a body arrived with no event key" is not actionable;
+                # "…and it had ser_id, escalation, target_claudes" names the
+                # sender's intent.
+                err_stream.write(
+                    f"listener: DROPPED a wake body with no 'event' key and no proposal_id — "
+                    f"not relayed, and nothing for the catch-up to reconstruct from. "
+                    f"Body keys: {sorted(body.keys())}\n"
+                )
         return False
     targets = body.get("target_claudes")
     if isinstance(targets, list) and canonical and canonical not in targets:

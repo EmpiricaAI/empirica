@@ -155,3 +155,58 @@ def test_the_proposal_doorbell_stays_silent():
 
     assert relayed is False
     assert err == ""
+
+
+# ─── The false alarm: statuses are not wake shapes ─────────────────────
+#
+# The exclusion used to be `shape_name not in ("proposal_event",)`, assuming
+# cortex writes a wake-shape name into `event`. On a normal proposal push it
+# writes the STATUS. So the check tested a vocabulary the emitter never uses and
+# the line fired on healthy traffic — 1152 times on one box, 152 across ten
+# practices on another, each saying "so it is LOST" while nothing was lost.
+#
+# Reported by empirica.philipp.empirica-mesh-support. The cost is not noise: a
+# single `ser_auto_blocked` sat among those 1152, plausibly a real unrecognised
+# shape, arriving as entry 1153 in a stream everyone had learned to skip.
+
+
+@pytest.mark.parametrize(
+    "status", ["accepted", "shipped", "auto_routed", "responded", "auto_accepted", "proposal_event"]
+)
+def test_a_proposal_push_carrying_a_status_does_not_warn(status: str):
+    """THE REGRESSION. These all have a proposal-store row, so the catch-up
+    reconstructs them and nothing is lost."""
+    relayed, _out, err = _relay({"event": status, "proposal_id": "prop_1"})
+
+    assert relayed is False, "a proposal push is handled by the catch-up, not relayed here"
+    assert err == "", f"false LOST warning on a healthy {status!r} push: {err!r}"
+
+
+def test_an_unknown_shape_without_a_proposal_id_still_warns():
+    """The true positive the warning exists for must survive the fix."""
+    relayed, _out, err = _relay({"event": "totally_new_shape"})
+
+    assert relayed is False
+    assert "totally_new_shape" in err
+    assert "LOST" in err
+
+
+def test_the_warning_keys_on_recoverability_not_on_the_shape_name():
+    """Same unknown shape, with and without a store row — only one is lost.
+
+    Keying on an emitter's vocabulary is what broke this; the property that
+    makes the claim true is whether the catch-up can reconstruct the body.
+    """
+    _, _, err_recoverable = _relay({"event": "ser_auto_blocked", "proposal_id": "prop_1"})
+    _, _, err_lost = _relay({"event": "ser_auto_blocked"})
+
+    assert err_recoverable == ""
+    assert "ser_auto_blocked" in err_lost
+
+
+def test_a_body_with_neither_event_nor_proposal_id_names_its_keys():
+    """Unidentifiable shapes are only actionable if the line says what arrived."""
+    _, _, err = _relay({"ser_id": "ser_x", "escalation": True})
+
+    assert "no 'event' key" in err
+    assert "ser_id" in err and "escalation" in err
