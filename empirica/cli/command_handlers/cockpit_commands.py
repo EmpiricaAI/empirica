@@ -1100,7 +1100,36 @@ def handle_loop_tick_command(args) -> int:
                 {"ok": True, "skipped": "not_registered", "instance_id": args.instance_id, "name": args.name},
                 f"tick skipped: {args.instance_id}/{args.name} not in registry (ghost unit — remove it)",
             )
+        # `empirica loop pause` had never been enforced by code. All six
+        # is_loop_paused call sites read the flag into a display or status
+        # payload; not one gated behaviour. The only enforcement was a
+        # `PAUSED=…; exit 0` snippet carried in a cron job's prompt_template —
+        # which reaches ONLY cron-create loops, runs in an already-woken
+        # session, and is therefore downstream of the entire cost. A
+        # systemd-user / launchd / kindless loop has its unit run this very
+        # function, so there was no body for a pause check to live in.
+        #
+        # Measured across two machines: 28 loops, 19 registries, zero prompts,
+        # and scheduler_kind null on 17/17 here. Philipp had three armed launchd
+        # loops paused since 2026-08-05 still waking sessions ~24×/day.
+        #
+        # It belongs HERE, beside the guard above, because that guard is the
+        # proven one: it caught ~80,438 ghost fires over 14 days on
+        # mesh-support's box and emitted zero wake events. Same function, same
+        # return path, same `skipped:` shape. The comparison that names the
+        # defect — ghost timers were CHEAPER than paused loops, because ghosts
+        # fail that guard while paused loops passed it and reached the emit.
+        if is_loop_paused(args.instance_id, args.name):
+            return _emit(
+                args,
+                {"ok": True, "skipped": "paused", "instance_id": args.instance_id, "name": args.name},
+                f"tick skipped: {args.instance_id}/{args.name} is paused",
+            )
     except Exception:
+        # Best-effort, and deliberately FAIL-OPEN: a read hiccup ticks rather
+        # than skips. Failing closed on the pause read would silently stop
+        # healthy loops on a transient error, which is a worse failure than one
+        # extra fire — the pause flag is a preference, not a safety interlock.
         pass  # registry read is best-effort — never block a legit tick on a read hiccup
 
     try:
