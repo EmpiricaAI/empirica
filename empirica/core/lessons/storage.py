@@ -547,6 +547,22 @@ class LessonStorageManager:
         """
         results = []
 
+        def _governance(lesson) -> dict:
+            """The fields that decide whether a lesson leaves the practice.
+
+            `sharing_policy` is the whole distinction between a lesson and a
+            finding, so it has to be visible on the surface a practitioner would
+            use to CHECK it. It was absent from every projection here, which
+            meant the only way to confirm a lesson was actually shared was to
+            open the YAML by hand — and a verification that requires bypassing
+            the serving surface does not get done.
+            """
+            return {
+                "sharing_policy": getattr(lesson, "sharing_policy", None),
+                "abstraction_level": getattr(lesson, "abstraction_level", None),
+                "abstract_pattern": getattr(lesson, "abstract_pattern", None),
+            }
+
         # Vector-based search
         if improves_vector:
             lesson_ids = self._hot.lessons_that_improve(improves_vector, threshold=0.1, limit=limit)
@@ -562,6 +578,7 @@ class LessonStorageManager:
                             "description": getattr(lesson, "description", ""),
                             "improves": improves_vector,
                             "delta": delta_val,
+                            **_governance(lesson),
                         }
                     )
 
@@ -577,6 +594,7 @@ class LessonStorageManager:
                             "name": lesson.name,
                             "description": getattr(lesson, "description", ""),
                             "domain": domain,
+                            **_governance(lesson),
                         }
                     )
 
@@ -603,7 +621,8 @@ class LessonStorageManager:
             cursor = self._conn.cursor()
             cursor.execute(
                 """
-                SELECT id, name, description, domain
+                SELECT id, name, description, domain,
+                       sharing_policy, abstraction_level, abstract_pattern
                 FROM lessons
                 ORDER BY created_timestamp DESC
                 LIMIT ?
@@ -611,7 +630,17 @@ class LessonStorageManager:
                 (limit,),
             )
             for row in cursor.fetchall():
-                results.append({"id": row[0], "name": row[1], "description": row[2], "domain": row[3]})
+                results.append(
+                    {
+                        "id": row[0],
+                        "name": row[1],
+                        "description": row[2],
+                        "domain": row[3],
+                        "sharing_policy": row[4],
+                        "abstraction_level": row[5],
+                        "abstract_pattern": row[6],
+                    }
+                )
 
         return results
 

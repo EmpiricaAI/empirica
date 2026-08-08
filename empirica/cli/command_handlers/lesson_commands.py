@@ -19,6 +19,42 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# The payload contract for `lesson-create`, enforced rather than implied.
+#
+# The handler used to cherry-pick keys with `.get()`, so anything it did not
+# recognise vanished and the call still returned ok:true. A caller passing
+# summary/title/context/pattern/anti_pattern/application got an empty lesson and
+# a success message. Keeping the accepted set in one named place means the error
+# can list it, which is what makes the CLI self-describing — `--help` documents
+# --name/--input/--json/--output and nothing about the payload schema, so there
+# was no way to get this right from the CLI surface alone.
+KNOWN_LESSON_KEYS: frozenset[str] = frozenset(
+    {
+        "name",
+        "version",
+        "description",
+        "epistemic",
+        "steps",
+        "domain",
+        "tags",
+        "suggested_tier",
+        "suggested_price",
+        "created_by",
+        "abstraction_level",
+        "sharing_policy",
+        "abstract_pattern",
+    }
+)
+
+# Closed vocabularies. Mirrors the Literal[...] annotations on Lesson; an
+# out-of-vocabulary value is rejected, never silently defaulted.
+LESSON_ENUMS: dict[str, tuple[str, ...]] = {
+    "abstraction_level": ("personal", "project", "domain", "cross_org"),
+    "sharing_policy": ("private", "project", "org", "public", "licensed"),
+}
+
+_PHASE_VALUES: frozenset[str] = frozenset({"noetic", "praxic"})
+
 
 def handle_lesson_create_command(args: Namespace) -> dict[str, Any]:
     """
@@ -99,11 +135,48 @@ def handle_lesson_create_command(args: Namespace) -> dict[str, Any]:
             expected_delta=expected_delta,
         )
 
+        # Reject what we cannot store, rather than dropping it and reporting
+        # success. A caller passing `summary` plainly intends content; silently
+        # discarding it is the worst available behaviour, because the receipt
+        # says the lesson was created and nothing says it is empty.
+        unknown = sorted(set(input_data) - KNOWN_LESSON_KEYS)
+        if unknown:
+            return {
+                "ok": False,
+                "error": (f"Unknown field(s): {', '.join(unknown)}. Accepted: {', '.join(sorted(KNOWN_LESSON_KEYS))}."),
+                "unknown_fields": unknown,
+                "accepted_fields": sorted(KNOWN_LESSON_KEYS),
+            }
+
+        # Enums are REJECTED, not coerced. sharing_policy silently falling back
+        # to `private` is the consequential one: it decides whether the lesson
+        # crosses the practice boundary at all, which is the entire distinction
+        # between a lesson and a finding. A practitioner authoring a lesson to
+        # propagate a pattern got a success message and an artifact no peer
+        # would ever see.
+        for field, allowed in LESSON_ENUMS.items():
+            if field in input_data and input_data[field] not in allowed:
+                return {
+                    "ok": False,
+                    "error": (f"Invalid {field}: {input_data[field]!r}. Allowed: {', '.join(allowed)}."),
+                }
+
         # Parse steps
         steps = []
-        for step_data in input_data.get("steps", []):
-            phase_str = step_data.get("phase", "praxic").lower()
-            phase = LessonPhase.NOETIC if phase_str == "noetic" else LessonPhase.PRAXIC
+        for idx, step_data in enumerate(input_data.get("steps", [])):
+            phase_str = str(step_data.get("phase", "praxic")).lower()
+            # Previously: NOETIC if phase_str == "noetic" else PRAXIC — so every
+            # unrecognised phase silently became praxic. A six-step lesson using
+            # diagnose/remediate/verify stored six praxic steps and said ok.
+            if phase_str not in _PHASE_VALUES:
+                return {
+                    "ok": False,
+                    "error": (
+                        f"Invalid phase {step_data.get('phase')!r} on step {idx + 1}. "
+                        f"Allowed: {', '.join(sorted(_PHASE_VALUES))}."
+                    ),
+                }
+            phase = LessonPhase(phase_str)
 
             step = LessonStep(
                 order=step_data.get("order", len(steps) + 1),
@@ -131,12 +204,21 @@ def handle_lesson_create_command(args: Namespace) -> dict[str, Any]:
             suggested_tier=input_data.get("suggested_tier", "free"),
             suggested_price=input_data.get("suggested_price", 0.0),
             created_by=input_data.get("created_by", "cli"),
+            # Were never passed at all — the dataclass defaults won, so every
+            # supplied value was discarded. Not a coercion; an omission.
+            abstraction_level=input_data.get("abstraction_level", "personal"),
+            sharing_policy=input_data.get("sharing_policy", "private"),
+            abstract_pattern=input_data.get("abstract_pattern"),
         )
 
         # Store lesson
         storage = get_lesson_storage()
         result = storage.create_lesson(lesson)
 
+        # Return the STORED record, not a message. `ok: true` beside a
+        # congratulatory string is not checkable; the caller had to read the
+        # file back to discover the lesson was an empty shell. Echo what was
+        # persisted so success and failure produce different, legible output.
         return {
             "ok": True,
             "lesson_id": lesson.id,
@@ -145,7 +227,15 @@ def handle_lesson_create_command(args: Namespace) -> dict[str, Any]:
             "step_count": len(steps),
             "cold_path": result.get("cold_path"),
             "elapsed_ms": result.get("elapsed_ms"),
-            "message": f'Lesson "{name}" created successfully',
+            "stored": {
+                "description_chars": len(lesson.description or ""),
+                "steps": [{"order": s.order, "phase": s.phase.value} for s in lesson.steps],
+                "domain": lesson.domain,
+                "tags": list(lesson.tags or []),
+                "abstraction_level": lesson.abstraction_level,
+                "sharing_policy": lesson.sharing_policy,
+                "abstract_pattern": lesson.abstract_pattern,
+            },
         }
 
     except json.JSONDecodeError as e:
