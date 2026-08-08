@@ -463,6 +463,29 @@ INFRA_SAFE_PREFIXES = (
     "vmstat",
     "iostat",
     "dmesg",
+    # macOS counterparts. Every OS-specific entry here was Linux, so on a darwin
+    # fleet work_type=infra gated exactly the read-only recon this tuple exists
+    # to permit: a bare `launchctl list` was denied while `systemctl list-units`
+    # passed. The asymmetry was precise — `vmstat` (Linux) present, `vm_stat`
+    # (darwin) absent — and all eight verbs below had zero occurrences anywhere
+    # in this file. Reported by empirica.philipp.empirica-mesh-support after
+    # hitting it live during a fleet check.
+    #
+    # Scoped to read-only SUBCOMMANDS, not bare binaries: `launchctl` also has
+    # bootstrap/bootout/kickstart and `plutil` has -convert, so `launchctl ` and
+    # `plutil ` as prefixes would permit mutation. `diskutil` likewise — list and
+    # info only, never erase/partition/mount.
+    "launchctl list",
+    "launchctl print",
+    "sw_vers",
+    "system_profiler",
+    "scutil --get",
+    "vm_stat",
+    "diskutil list",
+    "diskutil info",
+    "pmset -g",
+    "plutil -p",
+    "plutil -lint",
     # Docker inspection (not mutation)
     "docker ps",
     "docker images",
@@ -2236,7 +2259,26 @@ def is_safe_bash_command(tool_input: dict) -> bool:
     # after SSH-recon. The SSH branch below is the load-bearing relaxation.
     if _current_work_type in ("infra", "config", "debug", "remote-ops"):
         cmd = command.lstrip()
-        if any(cmd.startswith(prefix) for prefix in INFRA_SAFE_PREFIXES):
+        # The prefix match is a claim about the COMMAND WORD, not about the
+        # whole line. `systemctl status nginx | sh` and `systemctl status nginx
+        # > /etc/hosts` both start with a safe prefix and both do something this
+        # allowlist exists to forbid — the first executes arbitrary output, the
+        # second writes a file. Before this guard they returned True from here
+        # and were reported to the caller as "Safe Bash (read-only)".
+        #
+        # The `&&` case was already caught, by _classify_chain above, which is
+        # exactly why this was easy to miss: two of the four hazards were
+        # handled, so the branch looked guarded.
+        #
+        # Both checks already exist and are already used — the pipe guard on the
+        # empirica-prefix branch ten lines up (same reasoning, same comment
+        # about smuggling an executor), and the redirect guard on the
+        # chain-segment path. This branch is the one that had neither.
+        if (
+            any(cmd.startswith(prefix) for prefix in INFRA_SAFE_PREFIXES)
+            and not _contains_outside_quotes(command, "|")
+            and not _has_dangerous_redirects(command)
+        ):
             return True
 
     # Under work_type=remote-ops, SSH/rsync/scp pass wholesale — the AI's
