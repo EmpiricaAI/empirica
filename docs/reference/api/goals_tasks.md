@@ -72,39 +72,58 @@ if goal:
     print(f"Status: {goal['status']}")
 ```
 
-### `update_goal_status(self, goal_id: str, status: str, completion_evidence: Optional[str] = None)`
+### `update_goal_status(project_id: str, goal_id: str, status: str, completion_evidence: Optional[str] = None)`
 
 Update goal status with optional completion evidence.
 
+> **This is a module-level function in `empirica.core.qdrant.goals`, not a
+> `GoalRepository` method.** It takes `project_id` first and there is no `self`.
+> The repository's own completion verb is
+> `GoalRepository.update_goal_completion(goal_id, is_completed)`, which does not
+> take evidence — evidence lives on the Qdrant-side call above, or on the CLI's
+> `goals-complete --reason`.
+
 **Parameters:**
+- `project_id: str` - Project identifier
 - `goal_id: str` - Goal identifier
 - `status: str` - New status ('in_progress', 'complete', 'blocked', 'paused')
 - `completion_evidence: Optional[str]` - Evidence of completion (required for 'complete' status)
 
 **Example:**
 ```python
-goal_repo.update_goal_status(
+from empirica.core.qdrant.goals import update_goal_status
+
+update_goal_status(
+    project_id="proj-123",
     goal_id="xyz-789",
     status="complete",
     completion_evidence="Authentication system implemented with tests passing"
 )
 ```
 
-### `add_success_criterion(self, goal_id: str, criterion: str, weight: float = 1.0)`
+### `add_success_criterion(self, goal_id: str, validation_method: str, description: str, threshold: float = None, is_required: bool = True)`
 
 Add a success criterion to a goal.
 
 **Parameters:**
 - `goal_id: str` - Goal identifier
-- `criterion: str` - Success criterion description
-- `weight: float` - Relative importance weight (default 1.0)
+- `validation_method: str` - How the criterion is checked
+- `description: str` - What the criterion asserts
+- `threshold: float` - Value the validation must meet, where the method produces one
+- `is_required: bool` - Whether the goal can complete without it (default `True`)
+
+There are **no `criterion` or `weight` parameters**. The criterion text goes in
+`description`; `validation_method` carries how it gets checked, which is the
+field that makes a criterion verifiable rather than aspirational.
 
 **Example:**
 ```python
 goal_repo.add_success_criterion(
     goal_id="xyz-789",
-    criterion="User can login with username/password",
-    weight=0.8
+    validation_method="test_suite",
+    description="User can login with username/password",
+    threshold=1.0,
+    is_required=True,
 )
 ```
 
@@ -112,41 +131,54 @@ goal_repo.add_success_criterion(
 
 ## Advanced Goal Operations
 
-### `get_goal_tree(self, goal_id: str) -> Dict`
+### `get_goal_tree(self, session_id: str) -> Dict`
 
-Get complete goal tree with all tasks and dependencies.
+Get the complete goal tree for a session, with all tasks and dependencies.
+
+> Defined on `SessionDatabase`, not on `GoalRepository`, and it takes a
+> **`session_id`** — the tree is the goals belonging to a session, not the
+> descendants of one goal. There is no goal-rooted variant.
 
 **Parameters:**
-- `goal_id: str` - Goal identifier
+- `session_id: str` - Session identifier
 
-**Returns:** `Dict` - Tree structure with goal and all tasks
+**Returns:** `Dict` - Tree structure with the session's goals and their tasks
 
 **Example:**
 ```python
-tree = goal_repo.get_goal_tree(goal_id="xyz-789")
-print(f"Goal: {tree['objective']}")
-for task in tree['tasks']:
-    print(f"  - {task['description']} [{task['status']}]")
+tree = session_db.get_goal_tree(session_id="sess-456")
+for goal in tree["goals"]:
+    print(f"Goal: {goal['objective']}")
 ```
 
 ## Batch Operations
 
 ## Query Methods
 
-### `search_goals(self, query: str, session_id: Optional[str] = None, project_id: Optional[str] = None) -> List[Dict]`
+### `search_goals(project_id: str, query: str, item_type: Optional[str] = None, status: Optional[str] = None, ai_id: Optional[str] = None, include_subtasks: bool = False, limit: int = None) -> List[Dict]`
 
-Search goals by text query with optional filters.
+Semantic search over goals with optional filters.
+
+> A module-level function in `empirica.core.qdrant.goals`, not a
+> `GoalRepository` method. `project_id` is required and comes first; there is no
+> `session_id` filter.
 
 **Parameters:**
-- `query: str` - Text to search for in objectives
-- `session_id: Optional[str]` - Optional session filter
-- `project_id: Optional[str]` - Optional project filter
+- `project_id: str` - Project identifier (required)
+- `query: str` - Text to search for
+- `item_type: Optional[str]` - Restrict to a goal or subtask type
+- `status: Optional[str]` - Filter by status
+- `ai_id: Optional[str]` - Filter by the practice that logged it
+- `include_subtasks: bool` - Include subtasks in results (default `False`)
+- `limit: int` - Maximum results
 
 **Returns:** `List[Dict]` - Matching goal dictionaries
 
 **Example:**
 ```python
-matching_goals = goal_repo.search_goals(query="authentication", project_id="proj-123")
+from empirica.core.qdrant.goals import search_goals
+
+matching_goals = search_goals(project_id="proj-123", query="authentication", limit=20)
 for goal in matching_goals:
     print(f"Match: {goal['objective']}")
 ```

@@ -326,7 +326,7 @@ for cascade in cascades:
 
 ## Epistemic Vector Methods
 
-### `store_vectors(self, session_id: str, phase: str, vectors: Dict[str, float], cascade_id: Optional[str] = None, round_num: int = 1, metadata: Optional[Dict] = None, reasoning: Optional[str] = None)`
+### `store_vectors(self, session_id: str, phase: str, vectors: Dict[str, float], cascade_id: Optional[str] = None, round_num: int = 1, metadata: Optional[Dict] = None, reasoning: Optional[str] = None, transaction_id: Optional[str] = None)`
 
 Store epistemic vectors in the reflexes table.
 
@@ -338,6 +338,7 @@ Store epistemic vectors in the reflexes table.
 - `round_num: int` - Current round number, default 1
 - `metadata: Optional[Dict]` - Optional metadata dictionary
 - `reasoning: Optional[str]` - Optional reasoning explanation
+- `transaction_id: Optional[str]` - Epistemic transaction this measurement belongs to. Pass it: transactions, not sessions, are the unit a measurement window closes over, and vectors stored without it cannot be grouped back into the loop that produced them
 
 **Example:**
 ```python
@@ -403,7 +404,7 @@ for vector_record in check_vectors:
 
 ## Project Management Methods
 
-### `create_project(self, name: str, description: Optional[str] = None, repos: Optional[List[str]] = None) -> str`
+### `create_project(self, name: str, description: Optional[str] = None, repos: Optional[List[str]] = None, project_type: Optional[str] = None, project_tags: Optional[List[str]] = None, parent_project_id: Optional[str] = None, project_id: Optional[str] = None) -> str`
 
 Create a new project.
 
@@ -411,6 +412,10 @@ Create a new project.
 - `name: str` - Project name (e.g., "Empirica Core")
 - `description: Optional[str]` - Project description
 - `repos: Optional[List[str]]` - List of repository names
+- `project_type: Optional[str]` - Project classification
+- `project_tags: Optional[List[str]]` - Tags for grouping and retrieval
+- `parent_project_id: Optional[str]` - Parent project, for nested/sub-projects
+- `project_id: Optional[str]` - Supply an explicit id instead of generating one
 
 **Returns:** `str` - Project ID (UUID string)
 

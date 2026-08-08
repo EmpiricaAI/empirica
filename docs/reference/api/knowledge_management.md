@@ -46,7 +46,13 @@ from empirica.data.repositories.breadcrumbs import BreadcrumbRepository
 breadcrumb_repo = BreadcrumbRepository()
 ```
 
-### `log_finding(self, project_id: str, session_id: str, finding: str, goal_id: Optional[str] = None, task_id: Optional[str] = None, subject: Optional[str] = None, tags: Optional[List[str]] = None) -> str`
+> **Two parameter names to watch, because both were documented and neither
+> exists.** The association parameter is **`subtask_id`, not `task_id`**, and
+> there is **no `tags` parameter** on any of these — categorisation is the
+> single `subject` field. Code copied from the previous version of this page
+> raised `TypeError` on the first call.
+
+### `log_finding(self, project_id: str, session_id: str, finding: str, goal_id: Optional[str] = None, subtask_id: Optional[str] = None, subject: Optional[str] = None, impact: Optional[float] = None, transaction_id: Optional[str] = None, entity_type: Optional[str] = None, entity_id: Optional[str] = None, source_ids: Optional[List[str]] = None, visibility: Optional[str] = None, epistemic_source: Optional[str] = None, description: Optional[str] = None) -> str`
 
 Log a new finding discovered during work.
 
@@ -55,9 +61,15 @@ Log a new finding discovered during work.
 - `session_id: str` - Session where finding was made
 - `finding: str` - Description of the finding
 - `goal_id: Optional[str]` - Optional associated goal
-- `task_id: Optional[str]` - Optional associated task
-- `subject: Optional[str]` - Optional subject area
-- `tags: Optional[List[str]]` - Optional tags for categorization
+- `subtask_id: Optional[str]` - Optional associated subtask
+- `subject: Optional[str]` - Subject/topic tag for retrieval
+- `impact: Optional[float]` - Significance, 0.0–1.0
+- `transaction_id: Optional[str]` - Epistemic transaction this belongs to
+- `entity_type: Optional[str]` / `entity_id: Optional[str]` - Bind to a CRM entity
+- `source_ids: Optional[List[str]]` - Epistemic sources this is `sourced_from`
+- `visibility: Optional[str]` - `local` (default), `shared`, or `public`
+- `epistemic_source: Optional[str]` - `intuition`, `search`, or `mixed`
+- `description: Optional[str]` - Rich markdown body
 
 **Returns:** `str` - Finding ID
 
@@ -68,11 +80,13 @@ finding_id = breadcrumb_repo.log_finding(
     session_id="sess-456",
     finding="Discovered that bcrypt is 3x slower than argon2 for password hashing",
     goal_id="goal-789",
-    tags=["performance", "security", "authentication"]
+    subject="authentication",
+    impact=0.6,
+    epistemic_source="search",
 )
 ```
 
-### `log_unknown(self, project_id: str, session_id: str, unknown: str, goal_id: Optional[str] = None, task_id: Optional[str] = None, subject: Optional[str] = None, tags: Optional[List[str]] = None) -> str`
+### `log_unknown(self, project_id: str, session_id: str, unknown: str, goal_id: Optional[str] = None, subtask_id: Optional[str] = None, subject: Optional[str] = None, impact: Optional[float] = None, transaction_id: Optional[str] = None, entity_type: Optional[str] = None, entity_id: Optional[str] = None, visibility: Optional[str] = None, epistemic_source: Optional[str] = None, description: Optional[str] = None, source_ids: Optional[List[str]] = None) -> str`
 
 Log an unknown or unresolved question.
 
@@ -81,9 +95,8 @@ Log an unknown or unresolved question.
 - `session_id: str` - Session where unknown was identified
 - `unknown: str` - Description of the unknown
 - `goal_id: Optional[str]` - Optional associated goal
-- `task_id: Optional[str]` - Optional associated task
-- `subject: Optional[str]` - Optional subject area
-- `tags: Optional[List[str]]` - Optional tags for categorization
+- `subtask_id: Optional[str]` - Optional associated subtask
+- Remaining parameters match `log_finding` above
 
 **Returns:** `str` - Unknown ID
 
@@ -94,33 +107,42 @@ unknown_id = breadcrumb_repo.log_unknown(
     session_id="sess-456",
     unknown="What are the performance requirements for auth system?",
     goal_id="goal-789",
-    tags=["requirements", "performance"]
+    subject="performance",
 )
 ```
 
-### `resolve_unknown(self, unknown_id: str, resolution: str, resolved_by: str, resolution_method: Optional[str] = None) -> bool`
+### `resolve_unknown(self, unknown_id: str, resolved_by: str, resolution_finding_id: Optional[str] = None) -> bool`
 
 Mark an unknown as resolved.
 
 **Parameters:**
 - `unknown_id: str` - Unknown identifier
-- `resolution: str` - Resolution description
 - `resolved_by: str` - Identifier of resolver
-- `resolution_method: Optional[str]` - Method used for resolution
+- `resolution_finding_id: Optional[str]` - The finding that answers the unknown
+
+There is **no `resolution` string and no `resolution_method`**. The answer is
+carried by the finding referenced in `resolution_finding_id` — which is the
+design point, not an omission: a resolution written as free text is invisible to
+the graph, so an unknown is closed by pointing at the artifact that answered it.
 
 **Returns:** `bool` - True if resolution successful
 
 **Example:**
 ```python
+finding_id = breadcrumb_repo.log_finding(
+    project_id="proj-123",
+    session_id="sess-456",
+    finding="Performance requirements are 1000 req/sec with <100ms latency",
+    subject="performance",
+)
 success = breadcrumb_repo.resolve_unknown(
     unknown_id="unk-123",
-    resolution="Performance requirements are 1000 req/sec with <100ms latency",
     resolved_by="claude-sonnet-4",
-    resolution_method="stakeholder_interview"
+    resolution_finding_id=finding_id,
 )
 ```
 
-### `log_dead_end(self, project_id: str, session_id: str, approach: str, why_failed: str, goal_id: Optional[str] = None, task_id: Optional[str] = None, subject: Optional[str] = None, tags: Optional[List[str]] = None) -> str`
+### `log_dead_end(self, project_id: str, session_id: str, approach: str, why_failed: str, goal_id: Optional[str] = None, subtask_id: Optional[str] = None, subject: Optional[str] = None, impact: Optional[float] = None, transaction_id: Optional[str] = None, entity_type: Optional[str] = None, entity_id: Optional[str] = None, visibility: Optional[str] = None, epistemic_source: Optional[str] = None, description: Optional[str] = None, source_ids: Optional[List[str]] = None) -> str`
 
 Log a failed approach or dead end.
 
@@ -130,9 +152,8 @@ Log a failed approach or dead end.
 - `approach: str` - Description of the failed approach
 - `why_failed: str` - Explanation of why it failed
 - `goal_id: Optional[str]` - Optional associated goal
-- `task_id: Optional[str]` - Optional associated task
-- `subject: Optional[str]` - Optional subject area
-- `tags: Optional[List[str]]` - Optional tags for categorization
+- `subtask_id: Optional[str]` - Optional associated subtask
+- Remaining parameters match `log_finding` above
 
 **Returns:** `str` - Dead end ID
 
@@ -143,7 +164,7 @@ dead_end_id = breadcrumb_repo.log_dead_end(
     session_id="sess-456",
     approach="Using JWT tokens without refresh mechanism",
     why_failed="Caused frequent re-authentication for users",
-    tags=["authentication", "usability", "security"]
+    subject="authentication",
 )
 ```
 

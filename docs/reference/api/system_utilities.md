@@ -212,15 +212,23 @@ for gap_type, details in detailed_gaps.items():
         print(f"  - {detail['location']}: {detail['issue']}")
 ```
 
-### `analyze_complete_integrity(self) -> Dict[str, Any]`
+### `analyze_complete_integrity(project_root: str) -> Dict[str, Any]`
 
 Run complete integrity analysis including deprecation and superfluity checks.
+
+> A module-level function in `empirica.utils.doc_code_integrity`, not a method —
+> it takes the project root and there is no analyzer object to construct.
+
+**Parameters:**
+- `project_root: str` - Path to the project being analysed
 
 **Returns:** `Dict[str, Any]` - Comprehensive integrity report
 
 **Example:**
 ```python
-full_report = analyzer.analyze_complete_integrity()
+from empirica.utils.doc_code_integrity import analyze_complete_integrity
+
+full_report = analyze_complete_integrity(project_root=".")
 print(f"Integrity score: {full_report['integrity_score']}")
 print(f"Phantom commands: {full_report['phantom_commands']}")
 print(f"Missing documentation: {full_report['missing_documentation']}")

@@ -48,7 +48,7 @@ from empirica.data.repositories.projects import ProjectRepository
 project_repo = ProjectRepository()
 ```
 
-### `create_project(self, name: str, description: str, repos: Optional[List[str]] = None, metadata: Optional[Dict[str, Any]] = None) -> str`
+### `create_project(self, name: str, description: str = None, repos: Optional[List[str]] = None, project_type: Optional[str] = None, project_tags: Optional[List[str]] = None, parent_project_id: Optional[str] = None, project_id: Optional[str] = None) -> str`
 
 Create a new project.
 
@@ -56,7 +56,13 @@ Create a new project.
 - `name: str` - Project name
 - `description: str` - Project description
 - `repos: Optional[List[str]]` - List of repository URLs associated with project
-- `metadata: Optional[Dict[str, Any]]` - Optional project metadata
+- `project_type: Optional[str]` - Project classification
+- `project_tags: Optional[List[str]]` - Tags for grouping and retrieval
+- `parent_project_id: Optional[str]` - Parent project, for nested/sub-projects
+- `project_id: Optional[str]` - Supply an explicit id instead of generating one
+
+There is **no `metadata` parameter**. Structured attributes go in `project_type`
+and `project_tags`; a `metadata={...}` dict raises `TypeError`.
 
 **Returns:** `str` - Project ID (UUID string)
 
@@ -66,11 +72,8 @@ project_id = project_repo.create_project(
     name="User Authentication System",
     description="Secure user authentication with OAuth2 and JWT tokens",
     repos=["https://github.com/company/auth-service.git"],
-    metadata={
-        "domain": "security",
-        "complexity": "high",
-        "team_size": 3
-    }
+    project_type="security",
+    project_tags=["auth", "high-complexity"],
 )
 ```
 
@@ -95,7 +98,7 @@ if project:
 
 ## Project Knowledge Management
 
-### `log_finding(self, project_id: str, session_id: str, finding: str, goal_id: Optional[str] = None, task_id: Optional[str] = None) -> str`
+### `log_finding(self, project_id: str, session_id: str, finding: str, goal_id: Optional[str] = None, subtask_id: Optional[str] = None, subject: Optional[str] = None, impact: Optional[float] = None, transaction_id: Optional[str] = None, entity_type: Optional[str] = None, entity_id: Optional[str] = None, source_ids: Optional[List[str]] = None, visibility: Optional[str] = None, epistemic_source: Optional[str] = None, description: Optional[str] = None) -> str`
 
 Log a project finding (discovery or insight).
 
@@ -104,7 +107,15 @@ Log a project finding (discovery or insight).
 - `session_id: str` - Session where finding was made
 - `finding: str` - Description of the finding
 - `goal_id: Optional[str]` - Optional associated goal
-- `task_id: Optional[str]` - Optional associated task
+- `subtask_id: Optional[str]` - Optional associated subtask. **Named `subtask_id`, not `task_id`** — passing `task_id=` raises `TypeError`
+- `subject: Optional[str]` - Subject/topic tag for retrieval
+- `impact: Optional[float]` - Significance, 0.0–1.0
+- `transaction_id: Optional[str]` - Epistemic transaction this belongs to
+- `entity_type: Optional[str]` / `entity_id: Optional[str]` - Bind the finding to a CRM entity (org, contact, engagement)
+- `source_ids: Optional[List[str]]` - Epistemic sources this finding is `sourced_from`
+- `visibility: Optional[str]` - `local` (default), `shared`, or `public`
+- `epistemic_source: Optional[str]` - `intuition`, `search`, or `mixed`
+- `description: Optional[str]` - Rich markdown body
 
 **Returns:** `str` - Finding ID
 
@@ -114,18 +125,24 @@ finding_id = project_repo.log_finding(
     project_id="proj-123",
     session_id="sess-456",
     finding="Discovered that bcrypt is 3x slower than argon2 for password hashing",
-    goal_id="goal-789"
+    goal_id="goal-789",
+    impact=0.6,
+    epistemic_source="search",
 )
 ```
 
-### `get_project_findings(self, project_id: str, limit: Optional[int] = None, since_timestamp: Optional[float] = None) -> List[Dict]`
+### `get_project_findings(self, project_id: str, limit: Optional[int] = None, subject: Optional[str] = None, depth: Optional[int] = None, uncertainty: Optional[float] = None) -> List[Dict]`
 
 Get all findings for a project.
 
 **Parameters:**
 - `project_id: str` - Project identifier
 - `limit: Optional[int]` - Optional limit on results
-- `since_timestamp: Optional[float]` - Optional timestamp filter
+- `subject: Optional[str]` - Filter by subject/topic tag
+- `depth: Optional[int]` - Graph-walk depth for related artifacts
+- `uncertainty: Optional[float]` - Filter by uncertainty threshold
+
+There is no `since_timestamp` parameter; filter by time on the returned rows.
 
 **Returns:** `List[Dict]` - List of finding dictionaries
 
@@ -136,7 +153,7 @@ for finding in findings:
     print(f"Finding: {finding['finding']}")
 ```
 
-### `log_unknown(self, project_id: str, session_id: str, unknown: str, goal_id: Optional[str] = None, task_id: Optional[str] = None) -> str`
+### `log_unknown(self, project_id: str, session_id: str, unknown: str, goal_id: Optional[str] = None, subtask_id: Optional[str] = None, subject: Optional[str] = None, impact: Optional[float] = None, transaction_id: Optional[str] = None, entity_type: Optional[str] = None, entity_id: Optional[str] = None, visibility: Optional[str] = None, epistemic_source: Optional[str] = None, description: Optional[str] = None, source_ids: Optional[List[str]] = None) -> str`
 
 Log an unknown or unresolved question for the project.
 
@@ -145,7 +162,8 @@ Log an unknown or unresolved question for the project.
 - `session_id: str` - Session where unknown was identified
 - `unknown: str` - Description of the unknown
 - `goal_id: Optional[str]` - Optional associated goal
-- `task_id: Optional[str]` - Optional associated task
+- `subtask_id: Optional[str]` - Optional associated subtask. **Named `subtask_id`, not `task_id`**
+- Remaining parameters match `log_finding` above: `subject`, `impact`, `transaction_id`, `entity_type`/`entity_id`, `visibility`, `epistemic_source`, `description`, `source_ids`
 
 **Returns:** `str` - Unknown ID
 
@@ -159,13 +177,15 @@ unknown_id = project_repo.log_unknown(
 )
 ```
 
-### `get_project_unknowns(self, project_id: str, resolved: Optional[bool] = None) -> List[Dict]`
+### `get_project_unknowns(self, project_id: str, resolved: Optional[bool] = None, subject: Optional[str] = None, limit: Optional[int] = None) -> List[Dict]`
 
 Get unknowns for a project, optionally filtered by resolution status.
 
 **Parameters:**
 - `project_id: str` - Project identifier
 - `resolved: Optional[bool]` - Filter by resolution status (None=all, True=resolved, False=unresolved)
+- `subject: Optional[str]` - Filter by subject/topic tag
+- `limit: Optional[int]` - Optional limit on results
 
 **Returns:** `List[Dict]` - List of unknown dictionaries
 
@@ -175,27 +195,37 @@ unresolved = project_repo.get_project_unknowns(project_id="proj-123", resolved=F
 print(f"Project has {len(unresolved)} unresolved unknowns")
 ```
 
-### `resolve_unknown(self, unknown_id: str, resolution: str, resolved_by: str) -> bool`
+### `resolve_unknown(self, unknown_id: str, resolved_by: str, resolution_finding_id: Optional[str] = None) -> bool`
 
 Mark an unknown as resolved.
 
 **Parameters:**
 - `unknown_id: str` - Unknown identifier
-- `resolution: str` - Resolution description
 - `resolved_by: str` - Identifier of resolver
+- `resolution_finding_id: Optional[str]` - The finding that answers the unknown
+
+There is **no `resolution` string parameter**. The resolution is carried by the
+finding referenced in `resolution_finding_id`, which is what keeps the answer in
+the graph rather than in a free-text field nothing can traverse. Log the finding
+first, then resolve the unknown against its id.
 
 **Returns:** `bool` - True if resolution successful
 
 **Example:**
 ```python
+finding_id = project_repo.log_finding(
+    project_id="proj-123",
+    session_id="sess-456",
+    finding="Performance requirements are 1000 req/sec with <100ms latency",
+)
 success = project_repo.resolve_unknown(
     unknown_id="unk-123",
-    resolution="Performance requirements are 1000 req/sec with <100ms latency",
-    resolved_by="claude-sonnet-4"
+    resolved_by="claude-sonnet-4",
+    resolution_finding_id=finding_id,
 )
 ```
 
-### `log_dead_end(self, project_id: str, session_id: str, approach: str, why_failed: str, goal_id: Optional[str] = None, task_id: Optional[str] = None) -> str`
+### `log_dead_end(self, project_id: str, session_id: str, approach: str, why_failed: str, goal_id: Optional[str] = None, subtask_id: Optional[str] = None, subject: Optional[str] = None, impact: Optional[float] = None, transaction_id: Optional[str] = None, entity_type: Optional[str] = None, entity_id: Optional[str] = None, visibility: Optional[str] = None, epistemic_source: Optional[str] = None, description: Optional[str] = None, source_ids: Optional[List[str]] = None) -> str`
 
 Log a failed approach or dead end.
 
@@ -205,7 +235,8 @@ Log a failed approach or dead end.
 - `approach: str` - Description of the failed approach
 - `why_failed: str` - Explanation of why it failed
 - `goal_id: Optional[str]` - Optional associated goal
-- `task_id: Optional[str]` - Optional associated task
+- `subtask_id: Optional[str]` - Optional associated subtask. **Named `subtask_id`, not `task_id`**
+- Remaining parameters match `log_finding` above
 
 **Returns:** `str` - Dead end ID
 
@@ -219,13 +250,14 @@ dead_end_id = project_repo.log_dead_end(
 )
 ```
 
-### `get_project_dead_ends(self, project_id: str, limit: Optional[int] = None) -> List[Dict]`
+### `get_project_dead_ends(self, project_id: str, limit: Optional[int] = None, subject: Optional[str] = None) -> List[Dict]`
 
 Get all dead ends for a project.
 
 **Parameters:**
 - `project_id: str` - Project identifier
 - `limit: Optional[int]` - Optional limit on results
+- `subject: Optional[str]` - Filter by subject/topic tag
 
 **Returns:** `List[Dict]` - List of dead end dictionaries
 
@@ -240,23 +272,22 @@ for dead_end in dead_ends:
 
 ## Reference Documentation Management
 
-### `get_project_reference_docs(self, project_id: str, doc_type: Optional[str] = None, tags: Optional[List[str]] = None) -> List[Dict]`
+### `get_project_reference_docs(self, project_id: str) -> List[Dict]`
 
-Get reference documents for a project, with optional filters.
+Get all reference documents registered for a project.
 
 **Parameters:**
 - `project_id: str` - Project identifier
-- `doc_type: Optional[str]` - Optional document type filter
-- `tags: Optional[List[str]]` - Optional tags to match (documents must have ALL tags)
+
+There are **no `doc_type` or `tags` filter parameters** — both were documented
+and neither has ever existed. Filter the returned list in the caller.
 
 **Returns:** `List[Dict]` - List of document dictionaries
 
 **Example:**
 ```python
-security_docs = project_repo.get_project_reference_docs(
-    project_id="proj-123",
-    tags=["security", "authentication"]
-)
+docs = project_repo.get_project_reference_docs(project_id="proj-123")
+security_docs = [d for d in docs if "security" in (d.get("tags") or [])]
 ```
 
 ## Epistemic Source Tracking
