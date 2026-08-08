@@ -1125,12 +1125,28 @@ def handle_loop_tick_command(args) -> int:
                 {"ok": True, "skipped": "paused", "instance_id": args.instance_id, "name": args.name},
                 f"tick skipped: {args.instance_id}/{args.name} is paused",
             )
-    except Exception:
+    except Exception as e:
         # Best-effort, and deliberately FAIL-OPEN: a read hiccup ticks rather
         # than skips. Failing closed on the pause read would silently stop
         # healthy loops on a transient error, which is a worse failure than one
         # extra fire — the pause flag is a preference, not a safety interlock.
-        pass  # registry read is best-effort — never block a legit tick on a read hiccup
+        #
+        # But AUDIBLE, which the first version of this was not. `except: pass`
+        # around the pause read means a PERSISTENT failure — a permissions
+        # change on the flag file, a full disk, a corrupt sidecar — falls
+        # through to the emit on every tick, forever, while `loop list` happily
+        # reports paused=True. That is the exact defect this guard was added to
+        # fix, restored through the error path, with no signal anywhere.
+        #
+        # Caught by empirica.david.empirica-mesh-support reading 1761911a7
+        # within minutes of it landing. Fail-open is a decision; fail-open in
+        # silence is the decision plus an invisible failure mode, and this
+        # practice shipped exactly that shape twice today already.
+        sys.stderr.write(
+            f"loop tick: pause/registry read FAILED for {args.instance_id}/{args.name} "
+            f"({type(e).__name__}: {e}) — ticking anyway (fail-open). "
+            f"If this repeats, `loop list` may report paused while the loop keeps firing.\n"
+        )
 
     try:
         path = SystemdLoopScheduler.tick(args.instance_id, args.name)

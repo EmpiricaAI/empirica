@@ -112,3 +112,35 @@ def test_a_pause_read_error_fails_OPEN(tick):
     _payload, ticked = tick(paused=OSError("registry unreadable"))
 
     assert ticked == ["cortex-mailbox-poll"], "a read error suppressed a healthy loop"
+
+
+def test_the_fail_open_path_is_audible(tick, capsys):
+    """Fail-open is a decision; fail-open in SILENCE is that decision plus an
+    invisible failure mode.
+
+    The first version of this guard used a bare `except: pass` around the pause
+    read. A PERSISTENT failure — permissions change on the flag file, full disk,
+    corrupt sidecar — would then fall through to the emit on every tick forever,
+    while `loop list` reported paused=True. That is the exact defect the guard
+    was added to fix, restored through the error path with no signal anywhere.
+
+    Caught by empirica.david.empirica-mesh-support reading 1761911a7 within
+    minutes of it landing.
+    """
+    _payload, ticked = tick(paused=OSError("permission denied"))
+
+    assert ticked == ["cortex-mailbox-poll"], "must still fail OPEN"
+    err = capsys.readouterr().err
+    assert "FAILED" in err, "the fail-open path emitted nothing"
+    assert "cortex-mailbox-poll" in err, "the loop must be named"
+    assert "permission denied" in err, "the cause must be named"
+
+
+def test_the_healthy_paths_stay_quiet(tick, capsys):
+    """The warning must fire on the error path only. A line on every healthy
+    tick would bury itself — 1152 false alarms did exactly that to the
+    listener's LOST warning earlier the same day."""
+    tick(paused=False)
+    assert capsys.readouterr().err == ""
+    tick(paused=True)
+    assert capsys.readouterr().err == ""
