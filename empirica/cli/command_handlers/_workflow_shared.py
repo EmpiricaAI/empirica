@@ -11,6 +11,7 @@ import logging
 import os
 import sys
 import time
+from pathlib import Path
 
 from empirica.config.path_resolver import resolve_session_db_path
 from empirica.core.canonical.empirica_git.sentinel_hooks import SentinelHooks
@@ -949,6 +950,7 @@ def _build_retrospective(
             pass
 
         _maybe_add_deferred_proposals_note(cursor, session_id, retro)
+        _maybe_add_ser_ack_debt_note(retro)
         _maybe_add_untriaged_notes(cursor, session_id, transaction_id, retro)
 
         db.close()
@@ -1090,6 +1092,88 @@ def _maybe_add_deferred_proposals_note(cursor, session_id: str, retro: dict) -> 
         retro["proposal_acks_owed_count"] = len(ack_owed)
     except Exception:
         pass
+
+
+def _maybe_add_ser_ack_debt_note(retro: dict, *, timeout_s: float = 3.0) -> None:
+    """Surface SER participation debt at POSTFLIGHT — the artifact class the
+    proposal-goal check above cannot see.
+
+    Why it exists: the deferred-proposals note matches goals titled
+    `Process proposal prop_%`. SER acks are not proposals and carry no such
+    goal, so while that check ran clean, ser_a705318d accumulated 2888 minutes
+    of unacked debt against this very practice and reached
+    `system:ser-auto-block` — a multi-practice record blocked with our name on
+    it, found only because a peer escalated by hand. The check answered "are
+    there unacked proposal-derived goals" and was consumed as "is my ack debt
+    clear"; those differ by exactly the class that was blocking.
+
+    Hot-path constraints, honoured rather than hoped:
+    - The data is cortex-side (`GET /v1/sers?ai_id=<canonical>`), and POSTFLIGHT
+      has a standing rule against per-call overhead. Hard timeout, best-effort.
+    - Failure is SILENT-BUT-LOGGED, never blocking: the skip reason lands in
+      `retro["ser_ack_check"]` so a persistent failure is legible from the
+      retrospective itself. A bare `except: pass` here would be this morning's
+      silent fail-open again — handled is not the same as legible.
+    - Debt is the raw comparison `last_ack_at < last_transition_at` on a row
+      where this practice is `required`. Cortex's escalation policy is not
+      reimplemented; the operator judges the numbers.
+    """
+    try:
+        import yaml as _yaml
+
+        pyaml = Path.cwd() / ".empirica" / "project.yaml"
+        canonical = None
+        if pyaml.exists():
+            data = _yaml.safe_load(pyaml.read_text(encoding="utf-8")) or {}
+            canonical = data.get("canonical_seat") if isinstance(data, dict) else None
+        if not canonical or canonical.count(".") < 2:
+            retro["ser_ack_check"] = "skipped (no canonical_seat in project.yaml)"
+            return
+
+        from empirica.cli.command_handlers.mailbox_commands import (
+            _default_http_get,
+            _default_resolve_cortex_creds,
+        )
+
+        cortex_url, api_key = _default_resolve_cortex_creds()
+        if not cortex_url or not api_key:
+            retro["ser_ack_check"] = "skipped (no cortex credentials)"
+            return
+
+        status, body = _default_http_get(f"{cortex_url.rstrip('/')}/v1/sers?ai_id={canonical}", api_key, timeout_s)
+        if status != 200 or not isinstance(body, dict):
+            retro["ser_ack_check"] = f"skipped (cortex returned {status})"
+            return
+
+        owed = []
+        for ser in body.get("sers") or []:
+            if not isinstance(ser, dict) or ser.get("coordination_state") == "closed":
+                continue  # closed SERs never escalate — spec §lifecycle
+            for p in ser.get("participants") or []:
+                if not isinstance(p, dict) or p.get("practice_id") != canonical:
+                    continue
+                if p.get("role") != "required":
+                    continue  # only required-tier rows escalate on silence
+                last_tx = ser.get("last_transition_at")
+                last_ack = p.get("last_ack_at")
+                if last_tx and (not last_ack or str(last_ack) < str(last_tx)):
+                    owed.append(
+                        f"  - {ser.get('ser_id', '?')}: state={ser.get('coordination_state', '?')} last_ack={last_ack or 'never'} last_transition={last_tx}"
+                    )
+
+        retro["ser_ack_check"] = "ok"
+        if owed:
+            retro["ser_acks_owed_count"] = len(owed)
+            retro["ser_acks_owed_note"] = (
+                f"{len(owed)} SER(s) where this practice is REQUIRED and has not acked the "
+                "latest transition. Unacked required rows escalate and can auto-block the "
+                "record with this practice named as the debtor (ser_a705318d reached "
+                "2888m). Ack via `cortex_ser_ack` or `empirica mailbox sers` to inspect.\n" + "\n".join(owed)
+            )
+    except Exception as e:
+        # Legible skip, not silence — see docstring. This branch is the one the
+        # 2888m incident's fix must not itself reproduce.
+        retro["ser_ack_check"] = f"skipped ({type(e).__name__}: {e})"
 
 
 def _soft_run(stage_name: str, warnings: list, fn, *args, **kwargs):
