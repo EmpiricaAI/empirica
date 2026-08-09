@@ -1158,7 +1158,9 @@ def _maybe_add_ser_ack_debt_note(retro: dict, *, timeout_s: float = 3.0) -> None
                 last_ack = p.get("last_ack_at")
                 if last_tx and (not last_ack or str(last_ack) < str(last_tx)):
                     owed.append(
-                        f"  - {ser.get('ser_id', '?')}: state={ser.get('coordination_state', '?')} last_ack={last_ack or 'never'} last_transition={last_tx}"
+                        # Cortex rows carry the id under either key; reading one of them
+                        # prints '?' for the other, which is a name the reader cannot act on.
+                        f"  - {ser.get('ser_id') or ser.get('id') or '?'}: state={ser.get('coordination_state', '?')} last_ack={last_ack or 'never'} last_transition={last_tx}"
                     )
 
         retro["ser_ack_check"] = "ok"
