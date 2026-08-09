@@ -790,9 +790,11 @@ class CockpitApp(App):
         ai_id_for_timer = (
             inst.get("ai_id") or InstanceResolver.ai_id(project_path=inst.get("project_path")) or inst["instance_id"]
         )
+        from empirica.core.cockpit.loop_registry import is_os_scheduled
+
         for name, loop_data in loops.items():
             scheduler_kind = (loop_data.get("scheduler_kind") or "").lower()
-            if scheduler_kind.startswith("systemd"):
+            if is_os_scheduled(scheduler_kind):
                 handler = handle_loop_disable_command if target_paused else handle_loop_enable_command
                 args_dict = {
                     "name": name,
@@ -941,13 +943,17 @@ class CockpitApp(App):
         timer_instance = (
             inst.get("ai_id") or InstanceResolver.ai_id(project_path=inst.get("project_path")) or inst["instance_id"]
         )
+        from empirica.core.cockpit.loop_registry import is_os_scheduled
+
         for cfg in configs:
             scheduler_kind = (cfg.get("scheduler_kind") or "").lower()
             try:
-                # canonical_loops.py declares 'systemd-user' per the
-                # VALID_SCHEDULER_KIND alphabet — match by prefix so any
-                # systemd* variant routes through systemctl install.
-                if scheduler_kind.startswith("systemd"):
+                # Route every OS-scheduled kind through the scheduler
+                # backend. Was a startswith('systemd') prefix test, which
+                # sent macOS launchd loops down the CronCreate path — the
+                # predicate lives beside VALID_SCHEDULER_KIND so the two
+                # cannot drift apart again.
+                if is_os_scheduled(scheduler_kind):
                     # Phase 1c: systemd-scheduled loops install via systemctl
                     # directly. No pending file, no AI cooperation needed —
                     # the timer starts immediately. SessionStart's monitor-arm

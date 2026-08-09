@@ -217,6 +217,11 @@ class LaunchdLoopScheduler:
     factory without conditional branches.
     """
 
+    # See SystemdLoopScheduler.SCHEDULER_KIND. Requires "launchd" to be in
+    # VALID_SCHEDULER_KIND, which it was not until 2026-08-09 — update() raises
+    # on anything outside that tuple, so this value was previously unstorable.
+    SCHEDULER_KIND = "launchd"
+
     def __init__(self, empirica_bin: str = "empirica"):
         self.empirica_bin = empirica_bin
         if not is_launchd_available():

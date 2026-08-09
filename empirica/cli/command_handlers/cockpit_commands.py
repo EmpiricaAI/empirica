@@ -972,9 +972,13 @@ def handle_loop_enable_command(args) -> int:
         return _emit(args, {"ok": False, "error": str(e)}, f"enable failed: {e}")
 
     # Register in the cockpit's loop registry (idempotent — register catches
-    # the duplicate case). Stamp scheduler_kind='systemd' via heartbeat so
-    # later toggles know to route through systemctl rather than the legacy
-    # pause sidecar.
+    # the duplicate case). Stamp the kind of the scheduler we ACTUALLY chose
+    # via get_loop_scheduler(), so later toggles route through the same
+    # backend rather than the legacy pause sidecar.
+    #
+    # This was hard-coded 'systemd-user' while the scheduler above was
+    # already platform-selected — so on macOS a launchd loop was stamped
+    # systemd. Wrong, and VALID, so the registry validator could not see it.
     registry = LoopRegistry(instance_id)
     description = getattr(args, "description", "") or ""
     try:
@@ -989,7 +993,7 @@ def handle_loop_enable_command(args) -> int:
             status=entry.last_status or "ok",
             result=entry.last_result,
             message=entry.last_message,
-            scheduler_kind="systemd-user",
+            scheduler_kind=getattr(sched, "SCHEDULER_KIND", "systemd-user"),
         )
     except ValueError:
         # Already registered — refresh scheduler_kind only.
@@ -1000,7 +1004,7 @@ def handle_loop_enable_command(args) -> int:
                 status=existing.last_status if existing else "ok",
                 result=existing.last_result if existing else None,
                 message=existing.last_message if existing else None,
-                scheduler_kind="systemd-user",
+                scheduler_kind=getattr(sched, "SCHEDULER_KIND", "systemd-user"),
             )
         except Exception:
             pass  # registry stamp is best-effort; systemd state is source of truth

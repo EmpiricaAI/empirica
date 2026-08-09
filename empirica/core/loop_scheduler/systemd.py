@@ -246,6 +246,13 @@ class SystemdLoopScheduler:
             captures the canonical path (resilient to PATH drift).
     """
 
+    # The registry value for loops this backend schedules. Lives on the
+    # backend so callers stamp what they actually used instead of a literal —
+    # a hard-coded "systemd-user" in the enable handler was labelling macOS
+    # launchd loops as systemd, which is a wrong-but-VALID value and therefore
+    # invisible to the registry validator.
+    SCHEDULER_KIND = "systemd-user"
+
     def __init__(self, empirica_bin: str = "empirica"):
         self.empirica_bin = empirica_bin
         if not is_systemd_available():

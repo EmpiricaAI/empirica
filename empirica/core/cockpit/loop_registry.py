@@ -33,10 +33,41 @@ VALID_RESULT = ("found", "empty", "fail", "paused")
 VALID_SCHEDULER_KIND = (
     "cron-create",
     "systemd-user",
+    # macOS. Its absence was not cosmetic: `update()` RAISES on any kind
+    # outside this tuple, so `launchd` was unsettable and every macOS row was
+    # wrong by construction — recorded as None or as a wrong-but-valid value.
+    # Measured null on 17/17 loops on one box and 10/10 on another, which reads
+    # as "nobody sets this field" and is actually "nobody CAN". An empty column
+    # has two explanations and they look identical from the data.
+    "launchd",
     "system-cron",
     "at-queue",
     "unknown",
 )
+
+# Kinds scheduled by the OS, where enable/disable routes through the scheduler
+# backend (systemctl / launchctl) rather than the legacy CronCreate pending
+# file. Named here, beside the vocabulary it derives from, because the callers
+# were testing `scheduler_kind.startswith("systemd")` — a prefix match against
+# one platform's spelling, which silently sent every launchd loop down the
+# CronCreate path. Matching on another layer's vocabulary by prefix is the same
+# defect class as the listener warning that keyed on "proposal_event" while the
+# emitter wrote statuses.
+OS_SCHEDULED_KINDS = frozenset({"systemd-user", "launchd"})
+
+
+def is_os_scheduled(scheduler_kind: str | None) -> bool:
+    """True when enable/disable must route through the scheduler backend.
+
+    Tolerates the historical `systemd` / `systemd-user` spelling split, which is
+    why the old prefix test existed — that part was reasonable, the platform
+    assumption baked into it was not.
+    """
+    if not scheduler_kind:
+        return False
+    kind = scheduler_kind.strip().lower()
+    return kind in OS_SCHEDULED_KINDS or kind.startswith("systemd")
+
 
 # Default backoff envelope when caller passes --backoff exponential without
 # explicit floor/ceiling. 15m base × 2^N capped at 4h matches the proposal.
