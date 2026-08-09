@@ -392,7 +392,15 @@ class CockpitApp(App):
         match by prefix so any 'systemd*' variant routes through the systemctl
         liveness check instead of falling through to file-flag pause.
         """
-        if (v.get("scheduler_kind") or "").lower().startswith("systemd"):
+        from empirica.core.cockpit.loop_registry import scheduler_kind_of
+
+        # Same nested/flat trap as the dispatch sites: a flat read here was
+        # always None, so this never took the systemd branch and every loop
+        # fell through to the file-flag pause. Left keyed on systemd
+        # deliberately — the branch reads `systemd_active`, and launchd has no
+        # equivalent liveness field, so routing launchd here would render every
+        # macOS loop as off. That needs a mac to decide.
+        if (scheduler_kind_of(v) or "").lower().startswith("systemd"):
             # systemd_active absent → unknown → treat as off (conservative)
             return not v.get("systemd_active", False)
         return bool(v.get("paused"))
@@ -790,10 +798,15 @@ class CockpitApp(App):
         ai_id_for_timer = (
             inst.get("ai_id") or InstanceResolver.ai_id(project_path=inst.get("project_path")) or inst["instance_id"]
         )
-        from empirica.core.cockpit.loop_registry import is_os_scheduled
+        from empirica.core.cockpit.loop_registry import is_os_scheduled, scheduler_kind_of
 
         for name, loop_data in loops.items():
-            scheduler_kind = (loop_data.get("scheduler_kind") or "").lower()
+            # NESTED shape here: instance_state builds these from
+            # LoopEntry.to_dict(), which puts scheduler_kind under `scheduling`.
+            # A flat .get() returns None, which fails every dispatch test —
+            # so this branch silently sent EVERY loop, systemd included, down
+            # the CronCreate path.
+            scheduler_kind = (scheduler_kind_of(loop_data) or "").lower()
             if is_os_scheduled(scheduler_kind):
                 handler = handle_loop_disable_command if target_paused else handle_loop_enable_command
                 args_dict = {
@@ -943,10 +956,12 @@ class CockpitApp(App):
         timer_instance = (
             inst.get("ai_id") or InstanceResolver.ai_id(project_path=inst.get("project_path")) or inst["instance_id"]
         )
-        from empirica.core.cockpit.loop_registry import is_os_scheduled
+        from empirica.core.cockpit.loop_registry import is_os_scheduled, scheduler_kind_of
 
         for cfg in configs:
-            scheduler_kind = (cfg.get("scheduler_kind") or "").lower()
+            # FLAT shape here (CANONICAL_LOOPS / project configs). Same accessor
+            # so the two call sites cannot drift apart on which shape they read.
+            scheduler_kind = (scheduler_kind_of(cfg) or "").lower()
             try:
                 # Route every OS-scheduled kind through the scheduler
                 # backend. Was a startswith('systemd') prefix test, which

@@ -56,6 +56,35 @@ VALID_SCHEDULER_KIND = (
 OS_SCHEDULED_KINDS = frozenset({"systemd-user", "launchd"})
 
 
+def scheduler_kind_of(data: dict[str, Any] | None) -> str | None:
+    """Read `scheduler_kind` from either shape a caller may hold.
+
+    There are two, and mixing them up is inert rather than loud:
+
+    - **nested** — `LoopEntry.to_dict()` puts it under `scheduling`, and that is
+      what the cockpit passes around (`instance_state` builds its loop dicts
+      straight from `to_dict()`).
+    - **flat** — `CANONICAL_LOOPS` and project loop configs declare it at the
+      top level, because they are hand-authored config rather than serialised
+      entries.
+
+    Callers were doing `data.get("scheduler_kind")`, which is correct for the
+    config shape and silently `None` for the serialised one. A `None` kind fails
+    every dispatch test, so OS-scheduled loops quietly took the CronCreate path
+    and the bug tested green on the config shape — flagged by
+    empirica.david.empirica-mesh-support before it could ship that way twice.
+    """
+    if not data:
+        return None
+    flat = data.get("scheduler_kind")
+    if flat:
+        return flat
+    nested = data.get("scheduling")
+    if isinstance(nested, dict):
+        return nested.get("scheduler_kind")
+    return None
+
+
 def is_os_scheduled(scheduler_kind: str | None) -> bool:
     """True when enable/disable must route through the scheduler backend.
 

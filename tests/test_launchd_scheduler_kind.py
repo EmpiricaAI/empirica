@@ -123,3 +123,71 @@ def test_the_tui_dispatch_sites_use_the_predicate():
     dispatch = src.count("if is_os_scheduled(scheduler_kind):")
 
     assert dispatch == 2, f"expected both dispatch sites to use the predicate, found {dispatch}"
+
+
+# ─── The nested/flat shape trap ────────────────────────────────────────
+#
+# Flagged by empirica.david.empirica-mesh-support before it shipped twice.
+# `LoopEntry.to_dict()` nests scheduler_kind under `scheduling`; CANONICAL_LOOPS
+# and project configs declare it flat. Callers did `data.get("scheduler_kind")`,
+# correct for config and silently None for a serialised entry — and a None kind
+# fails every dispatch test, so OS-scheduled loops took the CronCreate path
+# while the tests passed against the config shape.
+#
+# The first version of the dispatch fix was INERT at the serialised call site
+# for exactly this reason, and its tests were green.
+
+
+def test_scheduler_kind_reads_the_nested_shape():
+    """THE INERTNESS BUG. This is what instance_state passes to the TUI."""
+    from empirica.core.cockpit.loop_registry import scheduler_kind_of
+
+    assert scheduler_kind_of({"scheduling": {"scheduler_kind": "launchd"}}) == "launchd"
+
+
+def test_scheduler_kind_reads_the_flat_shape():
+    """CANONICAL_LOOPS and project configs are hand-authored and flat."""
+    from empirica.core.cockpit.loop_registry import scheduler_kind_of
+
+    assert scheduler_kind_of({"scheduler_kind": "systemd-user"}) == "systemd-user"
+
+
+@pytest.mark.parametrize("data", [None, {}, {"scheduling": None}, {"scheduling": {}}, {"scheduler_kind": None}])
+def test_scheduler_kind_is_none_when_genuinely_absent(data):
+    """Absent must stay absent — inventing a kind would route CronCreate loops
+    to a scheduler that never installed them."""
+    from empirica.core.cockpit.loop_registry import scheduler_kind_of
+
+    assert scheduler_kind_of(data) is None
+
+
+def test_a_serialised_registry_entry_dispatches_correctly(tmp_path, monkeypatch):
+    """END TO END on the real shape, which is the test that was missing.
+
+    Everything before this asserted on hand-built dicts — the same mistake as
+    the code: correct against the shape I imagined, silent against the one the
+    registry actually writes.
+    """
+    from empirica.core.cockpit import loop_registry as lr
+    from empirica.core.cockpit.loop_registry import is_os_scheduled, scheduler_kind_of
+
+    monkeypatch.setattr(lr, "EMPIRICA_DIR", tmp_path)
+    monkeypatch.setattr(lr, "registry_path", lambda _i: tmp_path / "loops_test.json")
+    reg = lr.LoopRegistry("test-instance")
+    reg.register(name="probe", kind="interval", interval="30s", description="")
+    reg.heartbeat(name="probe", status="ok", scheduler_kind="launchd")
+
+    serialised = reg.get("probe").to_dict()
+    assert "scheduler_kind" not in serialised, "shape changed — this test is the reason to notice"
+    assert is_os_scheduled(scheduler_kind_of(serialised)), "a real registry entry failed dispatch"
+
+
+def test_the_tui_sites_use_the_accessor_not_a_flat_get():
+    """Structural — the TUI is not exercised by unit tests, and a flat .get()
+    here is inert rather than broken, so nothing else would catch a regression."""
+    from pathlib import Path
+
+    src = Path(__import__("empirica.cli.tui.cockpit_app", fromlist=["x"]).__file__).read_text()
+
+    assert src.count("scheduler_kind_of(") >= 3, "a dispatch or liveness site is still reading flat"
+    assert '.get("scheduler_kind")' not in src, "a flat scheduler_kind read remains — it will be silently None"
