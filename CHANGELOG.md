@@ -5,6 +5,68 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.8] - 2026-08-10
+
+Patch release: five community-reported silent-failure fixes, the loop-pause
+guard, resolver convergence, and macOS launchd support.
+
+### Fixed
+
+- **resolve-artifacts rejected unknown top-level keys** (#402): a payload keyed
+  `unknowns` instead of `resolutions` returned `ok:true, resolved:0` — a success
+  receipt for a no-op. Unknown keys now fail naming the offender and the
+  accepted set, and validation runs before the db connection.
+- **setup no longer silently destroys plugin customization** (#403): files
+  differing from what setup writes are backed up under `<plugin_dir>.bak/` and
+  each one is named in the output. The sync stays unconditional — stale vendored
+  hooks are the worse hazard — but the destruction is now recoverable and loud.
+- **doctor detects core/MCP version skew** (#404): `pipx upgrade empirica`
+  leaves the injected `empirica-mcp` behind silently. New check WARNs naming
+  both versions and the recovery (`pipx inject empirica empirica-mcp --force`).
+- **mistakes are no longer double-embedded** (#405): the live log path and bulk
+  re-embed disagreed on the Qdrant point id and text, so every rebuild added a
+  second copy of every live-logged mistake. Both paths now share one identity;
+  historical prefixed points remain readable.
+- **PREFLIGHT retrieval reports its scope** (#406): the pattern block now
+  carries `retrieved_from.project_id`, so a wrong-corpus retrieval is
+  distinguishable from a correct one instead of both looking like a full block.
+- **`empirica loop pause` is enforced by code for the first time**: the pause
+  flag was read by six display surfaces and zero gates. A paused loop now skips
+  in `loop tick` beside the proven not-registered guard (~80k production
+  invocations), with an audible fail-open on read errors.
+- **Project identity and db-path resolution share one ground truth**: the
+  stale-mapping guard healed identity while the sessions.db path stayed pinned
+  to the stale project (goals-list returning 0 against a populated project).
+  Both now key on cwd-is-a-registered-project-root.
+- **Listener LOST warning no longer fires on healthy traffic**: it keyed on a
+  vocabulary the emitter does not use (1152 false alarms on one box) and now
+  keys on recoverability (`proposal_id` present).
+- **lesson-create rejects what it cannot store**: unknown fields, out-of-vocab
+  enums and unrecognised step phases fail loudly instead of returning `ok:true`
+  for silently-discarded content; `sharing_policy` and `abstraction_level` are
+  now actually persisted, and serving projections carry them.
+- **doctor reads the MCP config Claude Code actually loads** (`~/.claude.json`),
+  tests that entries can launch, and flags same-server divergence across
+  configs; `setup` writes the live config (merge, never replace).
+
+### Added
+
+- **macOS launchd support**: `launchd` is a valid `scheduler_kind` (it was
+  unsettable — the registry raised on it), each scheduler backend declares its
+  own kind, and TUI dispatch routes OS-scheduled loops by a shared predicate
+  instead of a `systemd` prefix test. macOS acceptance testing tracked with a
+  macOS practitioner.
+- **POSTFLIGHT surfaces ack debt**: completed proposal-derived goals appear as
+  "ack owed" for 7 days (the reminder previously went silent exactly when the
+  ack came due), and SER required-tier ack debt is checked best-effort against
+  cortex with every skip legible.
+- **API reference signature guard**: documented parameter lists are compared
+  against the AST (20 of 62 were wrong under a green name-existence check);
+  ships with an empty shrink-only inventory.
+- **Homebrew tap actually installable**: formula moved to `Formula/` (root
+  files are invisible to brew), CI job restored against a scoped PAT, and
+  `--verify` now checks the formula version at the path brew resolves.
+
 ## [1.13.7] - 2026-08-05
 
 Reporting discipline reaches the fleet, and three surfaces stop being trusted as

@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.13.7
-**Generated:** 2026-08-05 14:12:59 UTC
+**Framework version:** 1.13.8
+**Generated:** 2026-08-10 12:58:48 UTC
 **Total commands:** 243 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -377,7 +377,11 @@ List goals in the current project. Default: active (in_progress). Use --status {
 - `--project-id` — optional
   Filter by project ID (structural scope)
 - `--all-projects` — optional · flag
-  See the COMPLETE backlog (default caps at 20). Cross-project view (gardening): list goals across ALL project_ids, not just the active project. Adds a project column and raises the limit to 2000. Surfaces goals stranded under other/divergent project_ids that the normal active-project scope hides. (`--all` works as a prefix abbreviation.)
+  Cross-project view (gardening): list goals across ALL project_ids, not just the active project. Adds a project column and raises the cap to 2000. Surfaces goals stranded under other/divergent project_ids that the active-project scope hides. For the full backlog of THIS project only, use --uncapped.
+- `--scope` — optional · type=`choice` · choices={project, practice, fleet}
+  project (default): active project_id. practice: this db, ALL project_ids — same as --all-projects. fleet: a per-practice SUMMARY of open goals across every registered practice (read-only; a peer's graph is never gardened from here). `shared` is deliberately absent until its membership source is settled.
+- `--uncapped` — optional · flag
+  Show this project's FULL backlog — no 20-goal cap, project scope unchanged. The header's truncation notice used to point at --all-projects, which also widens the project scope: the advertised remedy did something other than what was wanted.
 - `--scope-breadth-min` — optional · type=`float`
   Filter by minimum breadth (0.0-1.0)
 - `--scope-breadth-max` — optional · type=`float`

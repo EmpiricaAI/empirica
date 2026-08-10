@@ -2,7 +2,7 @@
 
 > **We Gave AI a Mirror. Now It Measures What It Believes.**
 
-[![Version](https://img.shields.io/badge/version-1.13.7-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.7)
+[![Version](https://img.shields.io/badge/version-1.13.8-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.8)
 [![PyPI](https://img.shields.io/pypi/v/empirica)](https://pypi.org/project/empirica/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -114,13 +114,13 @@ empirica setup
 
 ```bash
 # Security-hardened Alpine image (~276MB, recommended)
-docker pull nubaeon/empirica:1.13.7-alpine
+docker pull nubaeon/empirica:1.13.8-alpine
 
 # Standard image (Debian slim, ~414MB)
-docker pull nubaeon/empirica:1.13.7
+docker pull nubaeon/empirica:1.13.8
 
 # Run
-docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.7 /bin/bash
+docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.8 /bin/bash
 ```
 </details>
 
@@ -387,13 +387,16 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.13.7
+## What's New in 1.13.8
 
-- **`§REPORTING` in the system prompt: report D, not A → B → C → D.** If the work went A→D, the user gets **D** — A–C is one sentence at most, because everything cut is already in the artifacts. The reply points at a graph that holds the detail rather than retelling it, and *if a paragraph would make a good artifact, it IS one: log it and cut it.* Every reply now ends with **what is still to do, as a list** — the one thing a human cannot reconstruct from the graph, and the thing that sets direction. In a multi-practice environment their attention is the scarce resource, far scarcer than the practitioner's.
-- **`--publish` is tag-and-push; CI owns every channel.** `release.yml` already defined build, both PyPI packages, Docker, Homebrew and the GitHub release, so the local path was redundant — and running both made every release race on the GitHub release (`a release with the same tag name already exists`, recovered with `--clobber`, three times in one day). `CI_CD.md` set the bar at "verified for a release or two"; 1.13.4, 1.13.5 and 1.13.6 all published cleanly through CI. `--local-artifacts` restores the old path for when CI is down — an escape hatch, not an alternative, since running both is what caused the race. A test asserts `release.yml` still defines every channel job, so removing one fails there rather than at the next release.
-- **`setup` reports the prompt's CONTENT, not just its version.** It now prints a sha256 digest, word count and source path beside the version, so two seats can compare what was installed instead of comparing claims about it. A version string is provenance, never evidence of content — a distinction that cost three separate diagnoses in one day (PyPI's `.info.version` *and* `.releases` both lagging behind the simple index; an interpreter path read as a code version; a prompt header read as proof of the prompt's text).
-- **`doctor`: Presence coverage.** Since the heartbeat emitter became practice-scoped, a practice with live sessions and no running listener goes dark on the mesh — previously any listener carried it. Zero-impact today (23 records, 22 stale, the one live record has its listener) but that is circumstance, not construction. Also catches label drift, where a record written as `workspace` while its listener runs as `empirica-workspace` is orphaned just as effectively.
-- **`emitter_id` on the practitioner heartbeat** (`<ai_id>:<pid>`). The payload carried `machine` and `session_id` and nothing identifying the SENDER, so N listeners posting one session every 60s was indistinguishable, receiver-side, from one emitter posting every 60/N — an ambiguity that produced a reported interval defect which did not exist. Additive and optional; an unknown field is ignored by the handler.
+- **resolve-artifacts rejected unknown top-level keys** (#402): a payload keyed `unknowns` instead of `resolutions` returned `ok:true, resolved:0` — a success receipt for a no-op. Unknown keys now fail naming the offender and the accepted set, and validation runs before the db connection.
+- **setup no longer silently destroys plugin customization** (#403): files differing from what setup writes are backed up under `<plugin_dir>.bak/` and each one is named in the output. The sync stays unconditional — stale vendored hooks are the worse hazard — but the destruction is now recoverable and loud.
+- **doctor detects core/MCP version skew** (#404): `pipx upgrade empirica` leaves the injected `empirica-mcp` behind silently. New check WARNs naming both versions and the recovery (`pipx inject empirica empirica-mcp --force`).
+- **mistakes are no longer double-embedded** (#405): the live log path and bulk re-embed disagreed on the Qdrant point id and text, so every rebuild added a second copy of every live-logged mistake. Both paths now share one identity; historical prefixed points remain readable.
+- **PREFLIGHT retrieval reports its scope** (#406): the pattern block now carries `retrieved_from.project_id`, so a wrong-corpus retrieval is distinguishable from a correct one instead of both looking like a full block.
+- **`empirica loop pause` is enforced by code for the first time**: the pause flag was read by six display surfaces and zero gates. A paused loop now skips in `loop tick` beside the proven not-registered guard (~80k production invocations), with an audible fail-open on read errors.
+- **Project identity and db-path resolution share one ground truth**: the stale-mapping guard healed identity while the sessions.db path stayed pinned to the stale project (goals-list returning 0 against a populated project). Both now key on cwd-is-a-registered-project-root.
+- **Listener LOST warning no longer fires on healthy traffic**: it keyed on a vocabulary the emitter does not use (1152 false alarms on one box) and now keys on recoverability (`proposal_id` present).
 ---
 
 ## What's New in 1.12.35
@@ -435,6 +438,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 **Author:** David S. L. Van Assche
-**Version:** 1.13.7
+**Version:** 1.13.8
 
 *Turtles all the way down — built with its own epistemic framework, measuring what it knows at every step.*
