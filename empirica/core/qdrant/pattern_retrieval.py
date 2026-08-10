@@ -1091,6 +1091,14 @@ def retrieve_task_patterns(
 
     # Build result
     result = {
+        # Which corpus this block came from — GH #406. A full, well-formed block
+        # from the WRONG project is indistinguishable from a correct one without
+        # this: #388 fixed the loud scope failure (empty block), and this is the
+        # quiet one, where the practitioner reads plausible prior mistakes that
+        # belong to a different corpus and nothing says so. `retrieved_from` is
+        # the project_id every collection query below was scoped to; a consumer
+        # that knows its intended project can now compare rather than trust.
+        "retrieved_from": {"project_id": project_id},
         "lessons": lessons,
         "dead_ends": dead_ends,
         "prior_mistakes": prior_mistakes,

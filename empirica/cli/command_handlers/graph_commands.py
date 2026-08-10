@@ -1103,6 +1103,32 @@ def handle_resolve_artifacts_command(args):  # noqa: C901 — batch dispatcher f
             print(json.dumps(fres, indent=2))
             return 0 if fres.get("ok") else 1
 
+        # Reject unrecognised top-level keys rather than no-op'ing under them.
+        # A payload keyed `unknowns` instead of `resolutions` used to perform
+        # nothing and return ok:true, resolved:0, errors:[] — a success receipt
+        # for a no-op (GH #402). Same defect class as lesson-create's silently
+        # discarded fields (7b7227a6b): the caller has no signal the call did
+        # nothing, and the error message is the only surface that can teach the
+        # schema, since a wrong key produces no rejection anywhere else.
+        _KNOWN_TOP_KEYS = {"resolutions", "items", "filter", "resolution", "resolved_by", "apply"}
+        _unknown_keys = sorted(set(resolutions) - _KNOWN_TOP_KEYS)
+        if _unknown_keys and not resolutions.get("resolutions") and not resolutions.get("items"):
+            print(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": (
+                            f"Unrecognised top-level key(s): {', '.join(_unknown_keys)}. "
+                            f"Expected `resolutions` (per-id list) or `filter` (bulk mode). "
+                            f"Accepted keys: {', '.join(sorted(_KNOWN_TOP_KEYS))}."
+                        ),
+                        "unknown_keys": _unknown_keys,
+                    }
+                )
+            )
+            db.close()
+            return 1
+
         resolved_count = 0
         resolution_errors: list[str] = []
         items = resolutions.get("resolutions", resolutions.get("items", []))

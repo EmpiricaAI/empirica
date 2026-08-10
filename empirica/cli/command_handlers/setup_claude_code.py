@@ -756,6 +756,16 @@ def _install_plugin_files(source_dir, plugin_dir, output_format):
 
     # Always sync plugin files — hooks and scripts must track the installed version.
     # Previous behavior skipped this if directory existed, causing stale scripts.
+    #
+    # But sync must not be SILENT DESTRUCTION (GH #403): a plain `setup` (no
+    # --force) replaced locally-customized plugin scripts with no warning and no
+    # backup, and the absence of --force reasonably suggested existing files
+    # would be preserved. Skipping the sync is not the fix — a stale vendored
+    # hook is a documented fleet-wide hazard worse than a lost local edit — so
+    # the sync stays unconditional and the destruction becomes recoverable and
+    # loud instead: files that differ from what setup is about to write are
+    # backed up with their relative paths, and each one is NAMED in the output.
+    _preserved = _backup_locally_modified_plugin_files(source_dir, plugin_dir, output_format)
     if plugin_dir.exists():
         shutil.rmtree(plugin_dir)
 
@@ -780,6 +790,56 @@ def _install_plugin_files(source_dir, plugin_dir, output_format):
 
     if output_format != "json":
         print(f"   ✓ Plugin installed to {plugin_dir}")
+
+
+def _backup_locally_modified_plugin_files(source_dir: Path, plugin_dir: Path, output_format: str) -> list[str]:
+    """Before a plugin sync, save every installed file that differs from source.
+
+    GH #403. The comparison is INSTALLED vs WHAT-SETUP-WOULD-WRITE: a file that
+    matches source needs no backup (the sync is a no-op for it), and a file that
+    differs is either a stale vendored copy (harmless to back up) or a local
+    customization (the case this exists for — twice-reported data loss). The
+    backup preserves relative paths under `<plugin_dir>.bak/`, most-recent-wins,
+    and every preserved file is NAMED in the output — a backup nobody is told
+    about recovers nothing.
+
+    Best-effort by design: a backup failure must not block the sync, because the
+    sync is what keeps hooks tracking the installed version — but it fails
+    AUDIBLY (the e520028f9 rule: handled is not the same as legible).
+    """
+    preserved: list[str] = []
+    try:
+        if not plugin_dir.exists() or not source_dir.exists():
+            return preserved
+        backup_root = plugin_dir.parent / f"{plugin_dir.name}.bak"
+        for installed in plugin_dir.rglob("*"):
+            if not installed.is_file():
+                continue
+            rel = installed.relative_to(plugin_dir)
+            if "__pycache__" in rel.parts or rel.suffix == ".pyc" or rel.name == PLUGIN_VERSION_STAMP:
+                continue
+            src = source_dir / rel
+            try:
+                if src.exists() and src.read_bytes() == installed.read_bytes():
+                    continue  # identical to what the sync writes — nothing to lose
+            except OSError:
+                continue
+            dest = backup_root / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(installed, dest)
+            preserved.append(str(rel))
+        if preserved and output_format != "json":
+            print(f"   ⚠️  {len(preserved)} installed plugin file(s) differ from this version and were backed up:")
+            for rel in preserved:
+                print(f"      {rel}  →  {backup_root / rel}")
+            print(
+                "      The sync overwrites the installed copies — restore any deliberate customization from the backup."
+            )
+    except Exception as e:
+        sys.stderr.write(
+            f"setup: plugin backup FAILED ({type(e).__name__}: {e}) — syncing anyway; local edits in {plugin_dir} may be lost\n"
+        )
+    return preserved
 
 
 def _installed_plugin_dir() -> Path:

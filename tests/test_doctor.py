@@ -467,9 +467,9 @@ def test_run_all_checks_returns_complete_list():
     assert "Outreach project" in names
 
 
-def test_run_all_checks_count_is_25():
-    """Post-prop_ilf6uy4q expansion: 18 base + 5 mesh = 23, + noetic-tools = 24."""
-    assert len(run_all_checks()) == 25
+def test_run_all_checks_count_is_26():
+    """+1 for check_mcp_version_skew (GH #404, injected-topology skew)."""
+    assert len(run_all_checks()) == 26
 
 
 # ─── Tailscale (prop_ilf6uy4q) ─────────────────────────────────────────

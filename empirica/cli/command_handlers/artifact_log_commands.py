@@ -3398,10 +3398,18 @@ def _mistake_persist_git_and_qdrant(
 
             from empirica.core.qdrant.vector_store import embed_single_memory_item
 
+            # Same point identity as the bulk re-embed path (GH #405). The point
+            # id is md5 of THIS string, so live writing bare `<uuid>` while
+            # rebuild wrote `mistake_<uuid>` meant an upsert from one path never
+            # replaced the other's point — every rebuild added a second copy of
+            # every live-logged mistake, and the texts differed too (live added
+            # a `MISTAKE: ` prefix bulk did not), so the copies did not even
+            # dedupe by content. Both halves converge on the bulk convention
+            # because rebuild is the mass writer: prefixed id, unprefixed text.
             embedded = embed_single_memory_item(
                 project_id=project_id,
-                item_id=mistake_id,
-                text=build_mistake_text(mistake, prevention, prefix=True),
+                item_id=f"mistake_{mistake_id}",
+                text=build_mistake_text(mistake, prevention),
                 item_type="mistake",
                 session_id=session_id,
                 goal_id=goal_id,

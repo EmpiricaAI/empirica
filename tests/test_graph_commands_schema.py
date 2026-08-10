@@ -220,3 +220,37 @@ def test_log_artifacts_schema_no_longer_advertises_bead():
     assert "bead" not in schema_str
     for rel in ("tracks", "owned_by", "about", "worked_by"):
         assert rel not in schema_str
+
+
+# ─── GH #402: a success receipt for a no-op ────────────────────────────
+
+
+class TestUnrecognisedTopLevelKeyIsRejected:
+    """`resolve-artifacts` returned ok:true, resolved:0, errors:[] for a payload
+    whose top-level key was not part of the schema — nothing happened and
+    nothing said so. The error is the only surface that can teach the schema,
+    since a wrong key produces no rejection anywhere else (GH #402)."""
+
+    def _run(self, payload: str):
+        import json as _json
+        import subprocess
+
+        p = subprocess.run(["empirica", "resolve-artifacts", "-"], input=payload, capture_output=True, text=True)
+        return p.returncode, _json.loads(p.stdout)
+
+    def test_unknown_top_level_key_returns_ok_false(self):
+        rc, out = self._run('{"unknowns":[{"id":"deadbeef","resolution":"probe"}]}')
+        assert out["ok"] is False, "a no-op must not report success"
+        assert rc == 1
+        assert out["unknown_keys"] == ["unknowns"]
+        assert "resolutions" in out["error"], "the error must teach the accepted schema"
+
+    def test_documented_filter_mode_still_accepted(self):
+        _rc, out = self._run('{"filter":{"type":"finding","matching":"zzz-no-match-%"},"resolution":"x","apply":false}')
+        assert out["ok"] is True
+
+    def test_empty_resolutions_list_is_not_flagged_as_unknown_key(self):
+        """An empty documented payload is a different (pre-existing) behaviour —
+        the unknown-key guard must only fire on genuinely unrecognised keys."""
+        _rc, out = self._run('{"resolutions": []}')
+        assert "unknown_keys" not in out

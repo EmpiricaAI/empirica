@@ -768,6 +768,57 @@ def _mcp_entry_command_resolves(entry: dict) -> tuple[bool, str | None]:
     return False, f"`{command}` does not resolve on the entry's own env.PATH"
 
 
+def check_mcp_version_skew() -> Check:
+    """Core and empirica-mcp must move together — pipx upgrade splits them.
+
+    `empirica-mcp` is an INJECTED package in the pipx venv, and `pipx upgrade
+    empirica` upgrades only the main package: the injected one silently stays
+    behind, doctor passed 0 FAIL, and the config check only verified a server
+    was *configured*, not that its version matched core (GH #404). A 1.13.1
+    server behind a 1.13.7 CLI serves six releases of drift with nothing
+    anywhere saying so.
+
+    Version comparison is by installed distribution metadata — the same
+    instrument for both packages, not a version string one of them prints.
+
+    Complementary to `check_empirica_mcp`, not a duplicate: that check covers
+    the SEPARATE-ENV topology (a standalone empirica-mcp env bundling its own
+    empirica, compared against the one on PATH). This one covers the INJECTED
+    topology, where both distributions share one venv — there `bundled` always
+    equals `running`, so the existing check passes while the empirica-mcp
+    package itself sits releases behind. Each check SKIPs cleanly on the other's
+    topology (separate env → empirica-mcp not importable here; injected →
+    that check's versions match by construction).
+    """
+    import importlib.metadata as _im
+
+    try:
+        core_v = _im.version("empirica")
+    except Exception:
+        return Check("core/MCP version match", SKIP, "empirica distribution metadata unavailable")
+    try:
+        mcp_v = _im.version("empirica-mcp")
+    except Exception:
+        # Not installed in this environment is a legitimate state (MCP is
+        # optional) — absence is not skew.
+        return Check(
+            "core/MCP version match",
+            SKIP,
+            "empirica-mcp not installed in this environment",
+            data={"core": core_v, "mcp": None},
+        )
+    if core_v != mcp_v:
+        return Check(
+            "core/MCP version match",
+            WARN,
+            f"empirica {core_v} but empirica-mcp {mcp_v} — the MCP server is serving a different release",
+            "pipx users: `pipx inject empirica empirica-mcp --force` (pipx upgrade does NOT "
+            "upgrade injected packages). pip users: `pip install -U empirica-mcp`.",
+            data={"core": core_v, "mcp": mcp_v},
+        )
+    return Check("core/MCP version match", PASS, f"both at {core_v}", data={"core": core_v, "mcp": mcp_v})
+
+
 def check_mcp_config() -> Check:
     """Surface MCP config entries and verify they can actually launch.
 
@@ -1218,6 +1269,7 @@ def run_all_checks(cwd: Path | None = None) -> list[Check]:
         check_orphaned_presence(),
         check_listener_service(cwd),
         check_mcp_config(),
+        check_mcp_version_skew(),
     ]
 
 

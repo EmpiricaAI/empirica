@@ -845,7 +845,10 @@ def _preflight_retrieve_patterns(db, session_id, project_id, task_context, reaso
             include_decisions=True,
             vectors=vectors,
         )
-        if patterns and any(v for k, v in patterns.items() if k != "time_gap"):
+        # `retrieved_from` is metadata (always truthy — GH #406's scope label),
+        # so it must not satisfy the "did retrieval find anything" test, or every
+        # empty retrieval renders as a block.
+        if patterns and any(v for k, v in patterns.items() if k not in ("time_gap", "retrieved_from")):
             time_gap = patterns.get("time_gap", {})
             gap_note = time_gap.get("note", "") if time_gap else ""
             logger.debug(

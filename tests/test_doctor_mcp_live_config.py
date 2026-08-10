@@ -161,3 +161,47 @@ def test_consistent_working_config_still_passes(tmp_path, monkeypatch):
     assert result.status == PASS
     assert result.data["broken"] == []
     assert result.data["diverged"] == []
+
+
+# ─── GH #404: core/MCP version skew ────────────────────────────────────
+
+
+class TestVersionSkew:
+    """`pipx upgrade empirica` upgrades only the main package; the injected
+    empirica-mcp silently stays behind and doctor passed 0 FAIL. A 1.13.1
+    server behind a 1.13.7 CLI serves six releases of drift invisibly."""
+
+    def _check(self, monkeypatch, core, mcp):
+        import importlib.metadata as im
+
+        from empirica.cli.command_handlers.doctor import check_mcp_version_skew
+
+        def _v(name):
+            val = {"empirica": core, "empirica-mcp": mcp}[name]
+            if val is None:
+                raise im.PackageNotFoundError(name)
+            return val
+
+        monkeypatch.setattr(im, "version", _v)
+        return check_mcp_version_skew()
+
+    def test_skew_warns_naming_both_versions_and_the_recovery(self, monkeypatch):
+        from empirica.cli.command_handlers.doctor import WARN
+
+        result = self._check(monkeypatch, "1.13.7", "1.13.1")
+        assert result.status == WARN
+        assert "1.13.7" in result.detail and "1.13.1" in result.detail
+        assert "pipx inject" in result.hint, "the hint must carry the recovery — pipx upgrade will not fix it"
+
+    def test_matched_versions_pass(self, monkeypatch):
+        from empirica.cli.command_handlers.doctor import PASS
+
+        result = self._check(monkeypatch, "1.13.7", "1.13.7")
+        assert result.status == PASS
+
+    def test_mcp_absent_is_a_skip_not_a_warn(self, monkeypatch):
+        """MCP is optional; absence is a legitimate state, not skew."""
+        from empirica.cli.command_handlers.doctor import SKIP
+
+        result = self._check(monkeypatch, "1.13.7", None)
+        assert result.status == SKIP
