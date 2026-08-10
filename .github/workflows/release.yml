@@ -152,6 +152,19 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # The build context must contain the wheel the Dockerfile COPYs. This
+      # step was missing from the job's FIRST DAY: the secret gate always
+      # skipped before 2026-08-05 and 1.13.7 was recovered locally, so
+      # v1.13.8 was the job's first real execution — and it failed on
+      # `dist/*.whl: not found`. A job that has never run is a job whose
+      # wiring has never been tested; the hard-fail gate turned that from a
+      # silent skip into a diagnosable failure on the first attempt.
+      - name: Download empirica dist
+        uses: actions/download-artifact@v8
+        with:
+          name: empirica-dist
+          path: dist/
+
       - name: Set up Docker Buildx
         if: steps.secrets.outputs.skip == 'false'
         uses: docker/setup-buildx-action@v4
