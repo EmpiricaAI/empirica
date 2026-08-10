@@ -95,6 +95,15 @@ def _extract_skill_prompt_template(body_skill: str) -> str | None:
     skills_repo = Path(__file__).resolve().parents[2] / "plugins" / "claude-code-integration" / "skills"
     skills_runtime = Path.home() / ".claude" / "plugins" / "local" / "empirica" / "skills"
     candidates = [
+        # PACKAGED template first — ser_c96ac4a3 strip-phase. The template is
+        # machine-consumed loop shell, not practitioner teaching content, so it
+        # ships inside the package where a skill removal cannot orphan it. This
+        # is what decouples loop installs from the skills being stripped from
+        # the open plugin: before this entry, deleting cortex-mailbox-poll's
+        # skill dir would have silently degraded every loop install to the
+        # generic placeholder. Skill-dir candidates remain as fallbacks for
+        # skills that still carry the section inline.
+        Path(__file__).resolve().parent / "loop_templates" / f"{body_skill}.md",
         skills_runtime / body_skill / "references" / "cron-prompt-template.md",
         skills_repo / body_skill / "references" / "cron-prompt-template.md",
         skills_runtime / body_skill / "SKILL.md",
