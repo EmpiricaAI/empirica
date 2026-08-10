@@ -53,7 +53,7 @@ dependencies = [
                                 # The previous comment justified the cap by hardware-token tools
                                 # (pynitrokey, spsdk) pinning <47-<48 — already stale, since the cap
                                 # it described was <50 and permitted 49. We use no 50-only API.
-    "gitpython>=3.1.55",        # Security: CVE-2024-22190 RCE + GHSA-2f96-g7mh-g2hx/v396-v7q4-x2qj/956x-8gvw-wg5v argument-injection fixes;
+    "gitpython>=3.1.59",        # Security: CVE-2024-22190 RCE + GHSA-2f96-g7mh-g2hx/v396-v7q4-x2qj/956x-8gvw-wg5v argument-injection fixes;
                                 # GHSA-fjr4/6p8h/r9mr (unguarded Diffable.diff, --template hook exec,
                                 # kwarg-value option smuggling) fixed in 3.1.54, GHSA-94p4 (env-var
                                 # expansion in Remote.create URLs -> secret exfil) in 3.1.55 (floor)
