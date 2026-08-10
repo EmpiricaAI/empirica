@@ -1083,26 +1083,6 @@ def handle_resolve_artifacts_command(args):  # noqa: C901 — batch dispatcher f
             print(json.dumps({"ok": False, "error": "Invalid JSON input"}))
             return 1
 
-        db = SessionDatabase()
-        if not db.conn:
-            print(json.dumps({"ok": False, "error": "No database connection"}))
-            return 1
-
-        # B1: filter-based bulk resolve (instead of per-id `resolutions`).
-        # Enumerates OPEN artifacts matching the filter and resolves them;
-        # dry-run by default. Replaces the direct-SQL a garden falls back to.
-        filt = resolutions.get("filter")
-        if filt:
-            fres = _resolve_by_filter(
-                db,
-                filt,
-                resolutions.get("resolution", resolutions.get("resolved_by", "bulk resolve by filter")),
-                bool(resolutions.get("apply", False)),
-            )
-            db.close()
-            print(json.dumps(fres, indent=2))
-            return 0 if fres.get("ok") else 1
-
         # Reject unrecognised top-level keys rather than no-op'ing under them.
         # A payload keyed `unknowns` instead of `resolutions` used to perform
         # nothing and return ok:true, resolved:0, errors:[] — a success receipt
@@ -1126,8 +1106,27 @@ def handle_resolve_artifacts_command(args):  # noqa: C901 — batch dispatcher f
                     }
                 )
             )
-            db.close()
             return 1
+
+        db = SessionDatabase()
+        if not db.conn:
+            print(json.dumps({"ok": False, "error": "No database connection"}))
+            return 1
+
+        # B1: filter-based bulk resolve (instead of per-id `resolutions`).
+        # Enumerates OPEN artifacts matching the filter and resolves them;
+        # dry-run by default. Replaces the direct-SQL a garden falls back to.
+        filt = resolutions.get("filter")
+        if filt:
+            fres = _resolve_by_filter(
+                db,
+                filt,
+                resolutions.get("resolution", resolutions.get("resolved_by", "bulk resolve by filter")),
+                bool(resolutions.get("apply", False)),
+            )
+            db.close()
+            print(json.dumps(fres, indent=2))
+            return 0 if fres.get("ok") else 1
 
         resolved_count = 0
         resolution_errors: list[str] = []

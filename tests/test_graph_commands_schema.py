@@ -231,23 +231,64 @@ class TestUnrecognisedTopLevelKeyIsRejected:
     nothing said so. The error is the only surface that can teach the schema,
     since a wrong key produces no rejection anywhere else (GH #402)."""
 
-    def _run(self, payload: str):
-        import json as _json
-        import subprocess
+    import pytest as _pytest
 
-        p = subprocess.run(["empirica", "resolve-artifacts", "-"], input=payload, capture_output=True, text=True)
-        return p.returncode, _json.loads(p.stdout)
+    @_pytest.fixture(autouse=True)
+    def _isolated_db(self, tmp_path, monkeypatch):
+        """A CREATABLE isolated db for the paths that reach one.
+
+        CI checkouts have no .empirica at all (it is gitignored), so any path
+        that connects must get a valid tmp target — while the reject-path test
+        deliberately overrides this with an uncreatable path to prove the
+        validation never touches the db."""
+        monkeypatch.setenv("EMPIRICA_SESSION_DB", str(tmp_path / "iso.db"))
+
+    def _run(self, payload: str):
+        """In-process, stdin-fed.
+
+        The first version shelled out to the installed `empirica` binary against
+        the live session db — green locally, empty-stdout JSONDecodeError on CI
+        runners, because it measured the box rather than the code (the defect
+        class this very session kept re-shipping). The unknown-key validation
+        was also moved BEFORE the db connection in the handler, so the reject
+        path needs no database at all.
+        """
+        import io
+        import json as _json
+        from argparse import Namespace
+        from contextlib import redirect_stdout
+        from unittest.mock import patch
+
+        from empirica.cli.command_handlers.graph_commands import handle_resolve_artifacts_command
+
+        buf = io.StringIO()
+        with patch("sys.stdin", io.StringIO(payload)), redirect_stdout(buf):
+            rc = handle_resolve_artifacts_command(Namespace(config=None, output="json", schema=False))
+        out = buf.getvalue().strip()
+        return rc, (_json.loads(out) if out else {})
 
     def test_unknown_top_level_key_returns_ok_false(self):
         rc, out = self._run('{"unknowns":[{"id":"deadbeef","resolution":"probe"}]}')
-        assert out["ok"] is False, "a no-op must not report success"
+        assert out.get("ok") is False, "a no-op must not report success"
         assert rc == 1
         assert out["unknown_keys"] == ["unknowns"]
         assert "resolutions" in out["error"], "the error must teach the accepted schema"
 
+    def test_reject_path_needs_no_database(self, monkeypatch, tmp_path):
+        """Validation runs before the db connection — a broken or absent db must
+        not turn a schema error into a different failure. This is also what
+        makes the test CI-safe."""
+        monkeypatch.setenv("EMPIRICA_SESSION_DB", str(tmp_path / "never-created" / "iso.db"))
+        _rc, out = self._run('{"unknowns":[{"id":"x","resolution":"y"}]}')
+        assert out.get("ok") is False
+        assert out.get("unknown_keys") == ["unknowns"]
+
     def test_documented_filter_mode_still_accepted(self):
         _rc, out = self._run('{"filter":{"type":"finding","matching":"zzz-no-match-%"},"resolution":"x","apply":false}')
-        assert out["ok"] is True
+        # The pin is only that the unknown-key guard did not reject a documented
+        # schema — the filter's own result depends on db state, which is not
+        # this test's subject.
+        assert "unknown_keys" not in out
 
     def test_empty_resolutions_list_is_not_flagged_as_unknown_key(self):
         """An empty documented payload is a different (pre-existing) behaviour —
