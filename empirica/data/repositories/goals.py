@@ -75,10 +75,22 @@ class GoalDataRepository(BaseRepository):
         # Build scope JSON from individual vectors
         scope_data = {"breadth": scope_breadth, "duration": scope_duration, "coordination": scope_coordination}
 
+        # Resolve project_id from the session row, mirroring
+        # core.goals.repository.GoalRepository.save_goal — goals inherit
+        # project scope. A session with no row or a NULL project_id stays
+        # NULL: that is the honest value for an unbound session, whereas a
+        # goal born NULL under a BOUND session never surfaces in any
+        # project-scoped view (the silent-invisibility defect this closes).
+        project_id = None
+        if session_id:
+            row = self._execute("SELECT project_id FROM sessions WHERE session_id = ?", (session_id,)).fetchone()
+            if row:
+                project_id = row[0]
+
         self._execute(
             """
-            INSERT INTO goals (id, session_id, objective, description, scope, status, created_timestamp, is_completed, goal_data, beads_issue_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+            INSERT INTO goals (id, session_id, objective, description, scope, status, created_timestamp, is_completed, goal_data, beads_issue_id, project_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
         """,
             (
                 goal_id,
@@ -90,6 +102,7 @@ class GoalDataRepository(BaseRepository):
                 time.time(),
                 json.dumps({}),
                 beads_issue_id,
+                project_id,
             ),
         )
 

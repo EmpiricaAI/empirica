@@ -140,12 +140,18 @@ class SessionRepository(BaseRepository):
             instance_id = R.instance_id()
 
         session_id = str(uuid.uuid4())
+        # project_id lands on the LOCAL row too, not only the global registry
+        # below. Before this, the parameter was accepted and silently dropped
+        # locally — the CLI's separate link_session_to_project step was the
+        # only writer of sessions.project_id, so API-created sessions stayed
+        # unbound and everything that inherits project scope from the session
+        # row (goals above all) was born NULL under them.
         self._execute(
             """
             INSERT INTO sessions (
                 session_id, ai_id, user_id, start_time, components_loaded,
-                subject, bootstrap_level, instance_id, parent_session_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                subject, bootstrap_level, instance_id, parent_session_id, project_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
             (
                 session_id,
@@ -157,6 +163,7 @@ class SessionRepository(BaseRepository):
                 bootstrap_level,
                 instance_id,
                 parent_session_id,
+                project_id,
             ),
         )
 
