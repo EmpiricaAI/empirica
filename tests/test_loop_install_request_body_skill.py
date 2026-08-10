@@ -140,19 +140,24 @@ def test_the_repo_copy_alone_carries_the_cron_template():
     of SKILL.md, and a stale ~/.claude copy kept answering for it locally.
 
     So assert the repo path directly, with no runtime fallback in play.
+
+    Since the SER strip-phase the repo truth is the PACKAGED template
+    (core/cockpit/loop_templates/) — the skill dir this test originally read
+    left the repo with the strip, and the packaged copy is what decouples loop
+    installs from skill distribution.
     """
     from empirica.core.cockpit.loop_install_request import _template_from
 
-    skill_dir = (
+    packaged = (
         Path(__file__).resolve().parent.parent
         / "empirica"
-        / "plugins"
-        / "claude-code-integration"
-        / "skills"
-        / "cortex-mailbox-poll"
+        / "core"
+        / "cockpit"
+        / "loop_templates"
+        / "cortex-mailbox-poll.md"
     )
 
-    template = _template_from(skill_dir / "references" / "cron-prompt-template.md")
+    template = _template_from(packaged)
 
     assert template, "references/cron-prompt-template.md must carry the '## Cron Prompt Template' fenced block"
     assert "cortex_inbox_poll" in template

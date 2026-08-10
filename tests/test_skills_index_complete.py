@@ -60,17 +60,22 @@ def test_the_index_does_not_invent_skills():
     assert not phantom, f"documented but not shipped: {phantom}"
 
 
-def test_the_load_bearing_three_are_marked():
-    """David's distinction, encoded: these carry most work and must be findable.
+def test_load_bearing_marking_and_relocated_skills_are_findable():
+    """David's distinction, encoded — updated for the SER strip-phase.
 
-    Without it all 18 read as equally weighted, which is what let the trim
-    conversation treat them as interchangeable.
+    Gardening is the load-bearing skill this plugin still ships. The other two
+    of the original three (epistemic-transaction, empirica-constitution) moved
+    to the Cortex bundle; the index must still NAME them so a reader looking
+    for a skill they used last month learns where it went, rather than
+    concluding it was deleted.
     """
     text = _INDEX.read_text()
 
-    for skill in ("epistemic-transaction", "epistemic-gardening", "empirica-constitution"):
-        assert skill in text
+    assert "epistemic-gardening" in text
     assert "load-bearing" in text.lower()
+    for relocated in ("epistemic-transaction", "empirica-constitution", "cortex-mailbox-poll", "cortex-mailbox-send"):
+        assert relocated in text, f"{relocated} moved to the Cortex bundle but the index no longer says where it went"
+    assert "Cortex bundle" in text
 
 
 def test_the_readme_points_at_it():

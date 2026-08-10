@@ -1,48 +1,39 @@
 # Skills — what ships, when each fires, which are load-bearing
 
-Empirica ships **18 skills** with the Claude Code plugin. They are *lazy*: a
+Empirica ships **14 skills** with the Claude Code plugin. They are *lazy*: a
 skill does nothing until it is loaded, so knowing when each one fires matters
 more than knowing what it contains.
 
 Until this document existed you discovered them by finding a `/slash-command`
 in a prompt, or not at all — and the README did not mention skills exist.
 
-> **Load-bearing vs situational.** Three skills carry most day-to-day work and
-> the rest fire on specific triggers. If you read only part of this page, read
-> [the three](#the-three-load-bearing-skills).
+> **Load-bearing vs situational.** One skill carries most graph upkeep and the
+> rest fire on specific triggers. The deep protocol skills (transactions,
+> constitution, mesh mailbox) ship with the Cortex bundle, not this plugin —
+> the system prompt's §TRANSACTION DISCIPLINE carries the always-loaded core.
 
 ---
 
-## The three load-bearing skills
-
-Most work routes through these. Treat them as part of the operating model, not
-as optional extras.
+## The load-bearing skill
 
 | Skill | Fires when | Why it is load-bearing |
 |---|---|---|
-| **`/epistemic-transaction`** | Work spans 3+ files, 2+ goals, or several noetic→praxic cycles | The transaction discipline itself — PREFLIGHT vectors, goal decomposition, task evidence, wire formats for every submission. Largest skill in the set at ~5,800 words, and the depth is the point |
 | **`/epistemic-gardening`** | Pre-release, periodically, or when retrieval starts surfacing stale artifacts | Resolve / archive / prune so the graph reflects what is live. An epistemic graph that only grows is an archive, and stale artifacts actively mis-steer retrieval |
-| **`/empirica-constitution`** | First PREFLIGHT of a session; routing a decision you have not met before; the user asks what Empirica can do | Deep governance — phase-aware completion, the cognitive immune system, the practice model. The *why* underneath the operational routing |
-
-The constitution is the least frequently load-bearing of the three: it answers
-"which mechanism, and why", which comes up less often than "how do I run this
-transaction" or "this graph needs weeding".
 
 ---
 
 ## Mesh (require Cortex)
 
 These need the Cortex mesh configured. Core is fully functional without them.
+The deep protocol skills — `cortex-mailbox-poll`, `cortex-mailbox-send`,
+`empirica-constitution`, `epistemic-transaction` — are distributed with the
+Cortex bundle, not this plugin: installing Cortex provides them alongside its
+MCP tools. (Written without the `/` here deliberately: the index guard treats
+backticked slash-commands as claims that this plugin ships them.)
 
 | Skill | Fires when |
 |---|---|
-| **`/cortex-mailbox-send`** | Sending to a peer AI — FYI/question (collab, auto-accepted), typed work request (propose, ECO-gated), or a completion-ack for work a peer asked of you |
-| **`/cortex-mailbox-poll`** | A wake event arrives (`proposal_event` / `ser_escalation`); covers the recipient gate and the direction × status reaction table |
 | **`/inbox-listener`** | Arming an event listener — "arm this listener", "subscribe to ntfy topic", "wake me when X arrives" |
-
-Both mailbox skills must be loaded **before** your first transaction if a
-listener is armed. The ack contract has to be in context before you act on
-inbox work, not after.
 
 ---
 
