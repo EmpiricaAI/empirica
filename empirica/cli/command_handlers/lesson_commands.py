@@ -164,6 +164,18 @@ def handle_lesson_create_command(args: Namespace) -> dict[str, Any]:
         # Parse steps
         steps = []
         for idx, step_data in enumerate(input_data.get("steps", [])):
+            # A plain-string step crashed with AttributeError at the .get below
+            # instead of the clean message every other malformed field gets —
+            # this path predates the unknown-field/enum hardening (mesh-support,
+            # prop_kdi4qrcc). Same contract: name the step, name the shape.
+            if not isinstance(step_data, dict):
+                return {
+                    "ok": False,
+                    "error": (
+                        f"Invalid step {idx + 1}: expected an object with an 'action' field "
+                        f"(got {type(step_data).__name__}: {step_data!r})."
+                    ),
+                }
             phase_str = str(step_data.get("phase", "praxic")).lower()
             # Previously: NOETIC if phase_str == "noetic" else PRAXIC — so every
             # unrecognised phase silently became praxic. A six-step lesson using

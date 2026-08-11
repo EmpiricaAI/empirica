@@ -191,3 +191,22 @@ def test_the_receipt_echoes_the_stored_record_not_a_message():
     assert stored["description_chars"] == len("twelve chars")
     assert stored["steps"] == [{"order": 1, "phase": "noetic"}]
     assert "sharing_policy" in stored, "the field that decides propagation must be in the receipt"
+
+
+# ─── Step shape ────────────────────────────────────────────────────────
+
+
+def test_plain_string_step_is_rejected_not_crashed():
+    """`steps: ["do the thing"]` crashed with AttributeError at the phase
+    lookup instead of the clean validation message every other malformed
+    field gets — this path predated the unknown-field/enum hardening
+    (mesh-support, prop_kdi4qrcc)."""
+    result = _run({"name": "t", "description": "d", "steps": ["do the thing", {"order": 2, "action": "b"}]})
+    assert result["ok"] is False
+    assert "step 1" in result["error"], "the caller needs to know WHICH step"
+    assert "str" in result["error"], "the caller needs to know the shape that was wrong"
+
+
+def test_dict_steps_still_accepted_after_shape_guard():
+    result = _run({"name": "t2", "description": "d", "steps": [{"order": 1, "action": "a"}]})
+    assert result["ok"] is True
