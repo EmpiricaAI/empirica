@@ -690,7 +690,8 @@ def _epistemic_workflow_advice(task_lower: str) -> list[str]:
     return [
         "This involves epistemic workflow. "
         "Use the Empirica MCP tools (preflight/check/postflight) "
-        "or invoke the `epistemic-transaction` skill for planning guidance."
+        "or invoke the `epistemic-transaction` skill (ships with the Cortex bundle) "
+        "for planning guidance."
     ]
 
 

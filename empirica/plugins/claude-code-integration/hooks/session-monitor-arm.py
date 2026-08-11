@@ -344,6 +344,12 @@ in context BEFORE you act, not after. They are operational cores — a few
 hundred words each, not the teaching text — so this costs little and is
 re-read cheaply after every compaction.
 
+Both ship with the CORTEX BUNDLE, not the open plugin. If either
+slash-skill is absent on this box, do NOT work the mesh from memory of the
+protocol — say the skill is missing in your first reply so the gap is
+visible, and fall back to the system prompt's mesh steers for anything
+that cannot wait.
+
 {reaction_section}{monitor_block}
 
 **Reaction protocol** — when an event arrives (one JSON line in the chat):
