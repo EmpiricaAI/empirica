@@ -5,6 +5,43 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.9] - 2026-08-11
+
+Patch release: the goals project-scoping fix (two layers), the SER strip-phase
+boundary cleanup, and packaging/CI hardening carried over from 1.13.8's
+recovery.
+
+### Fixed
+- **API-path goals were born with `project_id` NULL** and never surfaced in
+  any project-scoped view again (reported by a mesh peer: 5 goals invisible,
+  one in_progress since March). Two layers: `GoalDataRepository.create_goal`
+  inserted without the column, and — the root — `create_session` accepted
+  `project_id` and silently dropped it for the local sessions row, so the
+  resolver alone would have been inert. Both fixed; NULL stays honest for
+  genuinely unbound sessions. The fix is birth-time only: existing NULL goals
+  whose session was later linked can be recovered with
+  `UPDATE goals SET project_id = (SELECT project_id FROM sessions WHERE
+  session_id = goals.session_id) WHERE project_id IS NULL`.
+- **`lesson-create` crashed with `AttributeError` on plain-string `steps`
+  entries** instead of the clean per-field validation message the other
+  hardened fields give. Same contract now: step index + wrong shape named.
+- **Docker release job never downloaded the dist artifact it COPYs** — the
+  1.13.8 Docker publish was the job's first-ever real execution and failed on
+  it; the workflow now stages `dist/` before building.
+
+### Changed
+- **SER strip-phase (boundary cleanup):** the four deep protocol skills
+  (`cortex-mailbox-poll`, `cortex-mailbox-send`, `empirica-constitution`,
+  `epistemic-transaction`) left the open plugin — they are distributed with
+  the Cortex bundle. The skills index documents where each went (18 → 14).
+  Loop installs are decoupled: the cron template ships packaged inside
+  `empirica.core.cockpit.loop_templates`, so canonical loop installs no
+  longer depend on skill files. Hook-emitted pointers to the relocated
+  skills now fail legibly — an absent skill is named aloud instead of
+  silently no-opping. The CLI reference and eight mesh/setup docs were
+  scrubbed to concept-not-protocol (real tenant rosters in examples replaced
+  with neutral `alice`/`bob` forms).
+
 ## [1.13.8] - 2026-08-10
 
 Patch release: five community-reported silent-failure fixes, the loop-pause
