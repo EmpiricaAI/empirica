@@ -40,6 +40,7 @@ if str(_REPO_ROOT) not in sys.path:
 def _get_version() -> str:
     try:
         from empirica import __version__
+
         return __version__
     except Exception:
         return "unknown"
@@ -133,20 +134,23 @@ def _collect_subcommands(parser: argparse.ArgumentParser) -> list[dict[str, Any]
                         break
                 if not help_text:
                     help_text = (sub_parser.description or "").strip()
-                subs.append({
-                    "name": name,
-                    "aliases": [],
-                    "help": help_text,
-                    "args": _collect_args(sub_parser),
-                    "subcommands": _collect_subcommands(sub_parser),
-                    "_parser_id": id(sub_parser),
-                })
+                subs.append(
+                    {
+                        "name": name,
+                        "aliases": [],
+                        "help": help_text,
+                        "args": _collect_args(sub_parser),
+                        "subcommands": _collect_subcommands(sub_parser),
+                        "_parser_id": id(sub_parser),
+                    }
+                )
     return subs
 
 
 def collect_commands() -> dict[str, dict[str, Any]]:
     """Walk the main parser and return a {command_name: command_info} map."""
     from empirica.cli.cli_core import create_argument_parser
+
     parser = create_argument_parser()
 
     commands: dict[str, dict[str, Any]] = {}
@@ -239,10 +243,12 @@ def _format_command_block(cmd: dict[str, Any], level: int = 4) -> str:
         out.append("**Subcommands:**")
         for sub in cmd["subcommands"]:
             out.append("")
-            out.append(_format_command_block(
-                {**sub, "name": f"{cmd['name']} {sub['name']}"},
-                level=level + 1,
-            ))
+            out.append(
+                _format_command_block(
+                    {**sub, "name": f"{cmd['name']} {sub['name']}"},
+                    level=level + 1,
+                )
+            )
 
     out.append("")
     return "\n".join(out)
@@ -252,8 +258,8 @@ _PROLOGUE = """# Empirica CLI Commands — Unified Reference
 
 > **This document is reference-only.** It catalogs *what* commands and
 > flags exist. For *why* — when to use a command, workflow patterns,
-> decision trees — read the skills (`/empirica-constitution`,
-> `/epistemic-transaction`, `/cortex-mailbox-send`, `/cortex-mailbox-poll`)
+> decision trees — read the shipped skills (see `docs/reference/SKILLS.md`;
+> the deep protocol skills ship with the Cortex bundle)
 > and the `docs/architecture/` design docs. The split is intentional:
 > mechanical reference rots fastest, so we auto-generate it; conceptual
 > material is hand-curated where rot is slower and the cost of
@@ -317,12 +323,14 @@ def render(commands: dict[str, dict[str, Any]]) -> str:
     from empirica.cli.cli_core import _HELP_CATEGORIES
 
     out: list[str] = []
-    out.append(_PROLOGUE.format(
-        version=_get_version(),
-        timestamp=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
-        total=len(commands),
-        category_count=len(_HELP_CATEGORIES),
-    ))
+    out.append(
+        _PROLOGUE.format(
+            version=_get_version(),
+            timestamp=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+            total=len(commands),
+            category_count=len(_HELP_CATEGORIES),
+        )
+    )
 
     # Category index table
     out.append("| Category | Count | Commands |")
@@ -346,9 +354,11 @@ def render(commands: dict[str, dict[str, Any]]) -> str:
             if cmd is None:
                 out.append(f"### `empirica {cmd_name}`")
                 out.append("")
-                out.append("_Not currently wired through the main parser. "
-                           "Either a planned command or a stale entry in "
-                           "`_HELP_CATEGORIES`._")
+                out.append(
+                    "_Not currently wired through the main parser. "
+                    "Either a planned command or a stale entry in "
+                    "`_HELP_CATEGORIES`._"
+                )
                 out.append("")
                 continue
             rendered.add(cmd_name)
@@ -382,13 +392,14 @@ def main() -> int:
         description="Regenerate CLI_COMMANDS_UNIFIED.md from live parsers",
     )
     parser.add_argument(
-        "--output", "-o",
-        default=str(_REPO_ROOT / "docs" / "human" / "developers"
-                    / "CLI_COMMANDS_UNIFIED.md"),
+        "--output",
+        "-o",
+        default=str(_REPO_ROOT / "docs" / "human" / "developers" / "CLI_COMMANDS_UNIFIED.md"),
         help="Output path (default: docs/human/developers/CLI_COMMANDS_UNIFIED.md)",
     )
     parser.add_argument(
-        "--dry-run", action="store_true",
+        "--dry-run",
+        action="store_true",
         help="Print to stdout, don't write the file",
     )
     args = parser.parse_args()

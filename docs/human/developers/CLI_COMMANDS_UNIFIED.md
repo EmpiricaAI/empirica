@@ -2,8 +2,8 @@
 
 > **This document is reference-only.** It catalogs *what* commands and
 > flags exist. For *why* — when to use a command, workflow patterns,
-> decision trees — read the skills (`/empirica-constitution`,
-> `/epistemic-transaction`, `/cortex-mailbox-send`, `/cortex-mailbox-poll`)
+> decision trees — read the shipped skills (see `docs/reference/SKILLS.md`;
+> the deep protocol skills ship with the Cortex bundle)
 > and the `docs/architecture/` design docs. The split is intentional:
 > mechanical reference rots fastest, so we auto-generate it; conceptual
 > material is hand-curated where rot is slower and the cost of
@@ -23,7 +23,7 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.13.8
-**Generated:** 2026-08-10 12:58:48 UTC
+**Generated:** 2026-08-11 10:47:32 UTC
 **Total commands:** 243 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer

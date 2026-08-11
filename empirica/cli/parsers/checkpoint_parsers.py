@@ -584,7 +584,8 @@ def add_checkpoint_parsers(subparsers):
     )
     workspace_overview_parser.add_argument("--verbose", action="store_true", help="Show detailed operation info")
 
-    # Entity registry CLI surface (backs the Practice Model — see /empirica-constitution XIII).
+    # Entity registry CLI surface (backs the Practice Model — see the
+    # empirica-constitution skill §XIII, shipped with the Cortex bundle).
     # Reads from ~/.empirica/workspace/workspace.db (entity_registry + entity_memberships).
     entity_list_parser = subparsers.add_parser(
         "entity-list",
