@@ -1559,6 +1559,7 @@ EOF
 
 **Operational governance:** Load `/empirica-constitution` when you hit a routing decision you're not sure about (which mechanism, which project, how to interact).
 **Complex work:** Load `/epistemic-transaction` when planning multi-step work, decomposing tasks into goals, or structuring transaction sequences.
+*(Both ship with the Cortex bundle, not the open plugin — if a load fails on this box, note it and proceed on the system prompt's operational core rather than guessing the skill's content.)*
 **Position-holding:** Load `/epistemic-persistence-protocol` when holding or updating a position under user pushback.
 """
 

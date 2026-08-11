@@ -149,7 +149,11 @@ def _append_to_output(output, message):
 
 def _build_no_transaction_nudge(hook_input):
     """Build a skill nudge message when no active transaction exists."""
-    skill_nudge = "no active transaction — load /empirica-constitution for orientation before PREFLIGHT"
+    skill_nudge = (
+        "no active transaction — load /empirica-constitution (ships with the Cortex "
+        "bundle) for orientation before PREFLIGHT; if absent on this box, proceed on "
+        "the system prompt's operational core"
+    )
 
     user_prompt = hook_input.get("prompt", "").lower()
     complex_work_signals = [

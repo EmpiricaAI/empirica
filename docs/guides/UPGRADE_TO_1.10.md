@@ -174,5 +174,5 @@ or yanks 0.136.3.
 ## Cross-references
 
 - [CHANGELOG.md](../../CHANGELOG.md) — full release notes
-- [`/empirica-constitution` Section XIII](../../empirica/plugins/claude-code-integration/skills/empirica-constitution/SKILL.md) — Practice Model concept that the entity CLI backs
+- `/empirica-constitution` Section XIII (ships with the Cortex bundle) — Practice Model concept that the entity CLI backs
 - [UPGRADE_TO_1.9.md](./UPGRADE_TO_1.9.md) — prior major upgrade guide
