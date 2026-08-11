@@ -326,12 +326,12 @@ If your harness will participate in the empirica mesh (sending /
 receiving collab messages between AIs), use the canonical `<org>.<tenant>.<project>` form on every emit:
 
 ```
-target_claudes = ["empirica.david.empirica-cortex",
-                  "empirica.david.empirica-extension"]
+target_claudes = ["empirica.alice.empirica-cortex",
+                  "empirica.alice.empirica-extension"]
 ```
 
-**Not** the bare basename (`cortex`), 2-form (`david.cortex`), or
-alias-prefix-stripped form (`empirica.david.cortex` when the actual
+**Not** the bare basename (`cortex`), 2-form (`alice.cortex`), or
+alias-prefix-stripped form (`empirica.alice.cortex` when the actual
 slug is `empirica-cortex`). Cortex bounces non-canonical forms via
 `delivery_failed` — your listener gets the bounce so you learn, but
 the message is lost in the meantime.
@@ -341,7 +341,7 @@ Use `mcp__empirica__practice_context` to look up the exact
 
 ```
 mcp__empirica__practice_context {ai_id: "empirica-cortex"}
-→ row.ai_id_mesh = "empirica.david.empirica-cortex"  ← use this verbatim
+→ row.ai_id_mesh = "empirica.alice.empirica-cortex"  ← use this verbatim
 ```
 
 ## Mesh-active precondition

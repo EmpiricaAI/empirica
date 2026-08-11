@@ -13,7 +13,7 @@ its trajectory + artifacts + calibration data follow the `ai_id`.
 
 This is what makes the mesh portable: a practitioner provisioned on ecodex
 and a practitioner provisioned on your laptop can be the same practice
-(`empirica.david.ecodex`) — same identity, same calibration history,
+(`empirica.alice.ecodex`) — same identity, same calibration history,
 addressable by peers via the same canonical 3-form.
 
 ### `project_id` vs `ai_id` — two identities, one project

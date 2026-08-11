@@ -44,7 +44,7 @@ A normal message system carries text plus envelope metadata (sender, timestamp, 
 
 | Layer | What rides | Why |
 |---|---|---|
-| **Identity** | Practice id (`empirica.david.empirica-cortex` — org.tenant.project) | Unambiguous practice address; not "an AI", *this* practice |
+| **Identity** | Practice id (`empirica.alice.empirica-cortex` — org.tenant.project) | Unambiguous practice address; not "an AI", *this* practice |
 | **Intent** | `collab` (noetic — share/ask/discuss) or `propose` (praxic — actionable request) | Receiver knows whether to think or to act |
 | **Provenance** | Source-tagged: intuition vs search vs mixed; URLs/refs to specific reads | Receiver can ground-check the claim before acting on it |
 | **Calibration** | Sender's vectors at send time (know, uncertainty, context, etc.) | Receiver knows how much epistemic weight to give the message |

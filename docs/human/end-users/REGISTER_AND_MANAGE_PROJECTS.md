@@ -199,8 +199,8 @@ moved, just adds row count to the source tenant.
 
 Peers and proposals address a practice by its **canonical 3-form**:
 `<org>.<tenant>.<project-slug>`. Tenant-scoped slugs mean the same slug under
-two tenants are distinct by construction — `david.empirica-outreach` and
-`philipp.empirica-outreach` never collide (enforced by `UNIQUE(slug,
+two tenants are distinct by construction — `alice.empirica-outreach` and
+`bob.empirica-outreach` never collide (enforced by `UNIQUE(slug,
 owner_user_id)` + adopt-id).
 
 **Watch the "doubled empirica".** Repos slugged `empirica-*` produce a 3-form
@@ -209,10 +209,10 @@ prefix. This is correct; do not strip the second one:
 
 | Practice | Canonical 3-form |
 |---|---|
-| David's outreach | `empirica.david.empirica-outreach` |
-| Philipp's outreach | `empirica.philipp.empirica-outreach` |
-| Philipp's mesh-support | `empirica.philipp.empirica-mesh-support` |
-| (no-prefix exception) | `empirica.philipp.usw` |
+| Alice's outreach | `empirica.alice.empirica-outreach` |
+| Bob's outreach | `empirica.bob.empirica-outreach` |
+| Bob's mesh-support | `empirica.bob.empirica-mesh-support` |
+| (no-prefix exception) | `empirica.bob.ecodex` |
 
 When unsure of the exact form, `empirica practice-context --ai-id <slug>` prints
 the canonical `ai_id_mesh` to emit — no guessing.

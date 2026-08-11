@@ -257,7 +257,7 @@ Local `ai_id` is the **exact project name** (directory basename,
 
 **On the wire — canonical 3-form is required**:
 `<org>.<tenant>.<exact-project-name>` (e.g.
-`empirica.david.empirica-cortex`). Listeners subscribe to ntfy with
+`empirica.alice.empirica-cortex`). Listeners subscribe to ntfy with
 `?tags=<canonical>`. `target_claudes` / `source_claude` use the
 canonical. Cortex publishes only canonical tags; basename / alias
 forms bounce via `delivery_failed`. The canonical is resolvable from
