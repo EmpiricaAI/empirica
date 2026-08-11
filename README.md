@@ -387,16 +387,12 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.13.8
+## What's New in 1.13.9
 
-- **resolve-artifacts rejected unknown top-level keys** (#402): a payload keyed `unknowns` instead of `resolutions` returned `ok:true, resolved:0` — a success receipt for a no-op. Unknown keys now fail naming the offender and the accepted set, and validation runs before the db connection.
-- **setup no longer silently destroys plugin customization** (#403): files differing from what setup writes are backed up under `<plugin_dir>.bak/` and each one is named in the output. The sync stays unconditional — stale vendored hooks are the worse hazard — but the destruction is now recoverable and loud.
-- **doctor detects core/MCP version skew** (#404): `pipx upgrade empirica` leaves the injected `empirica-mcp` behind silently. New check WARNs naming both versions and the recovery (`pipx inject empirica empirica-mcp --force`).
-- **mistakes are no longer double-embedded** (#405): the live log path and bulk re-embed disagreed on the Qdrant point id and text, so every rebuild added a second copy of every live-logged mistake. Both paths now share one identity; historical prefixed points remain readable.
-- **PREFLIGHT retrieval reports its scope** (#406): the pattern block now carries `retrieved_from.project_id`, so a wrong-corpus retrieval is distinguishable from a correct one instead of both looking like a full block.
-- **`empirica loop pause` is enforced by code for the first time**: the pause flag was read by six display surfaces and zero gates. A paused loop now skips in `loop tick` beside the proven not-registered guard (~80k production invocations), with an audible fail-open on read errors.
-- **Project identity and db-path resolution share one ground truth**: the stale-mapping guard healed identity while the sessions.db path stayed pinned to the stale project (goals-list returning 0 against a populated project). Both now key on cwd-is-a-registered-project-root.
-- **Listener LOST warning no longer fires on healthy traffic**: it keyed on a vocabulary the emitter does not use (1152 false alarms on one box) and now keys on recoverability (`proposal_id` present).
+- **API-path goals were born with `project_id` NULL** and never surfaced in any project-scoped view again (reported by a mesh peer: 5 goals invisible, one in_progress since March). Two layers: `GoalDataRepository.create_goal` inserted without the column, and — the root — `create_session` accepted `project_id` and silently dropped it for the local sessions row, so the resolver alone would have been inert. Both fixed; NULL stays honest for genuinely unbound sessions. The fix is birth-time only: existing NULL goals whose session was later linked can be recovered with `UPDATE goals SET project_id = (SELECT project_id FROM sessions WHERE session_id = goals.session_id) WHERE project_id IS NULL`.
+- **`lesson-create` crashed with `AttributeError` on plain-string `steps` entries** instead of the clean per-field validation message the other hardened fields give. Same contract now: step index + wrong shape named.
+- **Docker release job never downloaded the dist artifact it COPYs** — the 1.13.8 Docker publish was the job's first-ever real execution and failed on it; the workflow now stages `dist/` before building.
+- **SER strip-phase (boundary cleanup):** the four deep protocol skills (`cortex-mailbox-poll`, `cortex-mailbox-send`, `empirica-constitution`, `epistemic-transaction`) left the open plugin — they are distributed with the Cortex bundle. The skills index documents where each went (18 → 14). Loop installs are decoupled: the cron template ships packaged inside `empirica.core.cockpit.loop_templates`, so canonical loop installs no longer depend on skill files. Hook-emitted pointers to the relocated skills now fail legibly — an absent skill is named aloud instead of silently no-opping. The CLI reference and eight mesh/setup docs were scrubbed to concept-not-protocol (real tenant rosters in examples replaced with neutral `alice`/`bob` forms).
 ---
 
 ## What's New in 1.12.35
