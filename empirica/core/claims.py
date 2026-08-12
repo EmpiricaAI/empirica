@@ -205,6 +205,13 @@ def adjudicate(
 
     by_id = {r["id"]: r for r in rows}
     by_index = {r["claim_index"]: r for r in rows}
+    # Text index for the natural {claim: text, verdict} adjudication shape. A
+    # text declared by ≥2 claims maps to None so it stays unmatched rather than
+    # attaching a verdict to the wrong one.
+    by_text: dict[str, dict[str, Any] | None] = {}
+    for r in rows:
+        key = _normalize_claim_text(r.get("claim"))
+        by_text[key] = None if key in by_text else r
     now = time.time()
 
     # Every `continue` below used to be silent, and the silence was expensive in a
@@ -234,7 +241,11 @@ def adjudicate(
         # `note` is deliberately absent: it is now ACCEPTED as an alias for
         # `evidence`, so naming it as a confusion would send the reader to fix
         # a key that already works.
-        near = {"adjudication": "verdict", "claim": "index or id"}
+        # `claim` is now a valid matcher (text), so it is NOT a key confusion —
+        # only flag `adjudication`→`verdict`. A `claim` present but unmatched
+        # means the text matched no declared claim or was ambiguous (declared by
+        # ≥2), which the reason string already conveys.
+        near = {"adjudication": "verdict"}
         confusions = [f"{k} -> {v}" for k, v in near.items() if k in keys]
         if confusions:
             entry["likely_key_confusion"] = confusions
@@ -250,7 +261,7 @@ def adjudicate(
             # "you sent a verdict I don't know" need different corrections.
             _reject(raw, "missing_verdict" if raw.get("verdict") is None else "unrecognized_verdict")
             continue
-        target = _match_claim(raw, rows, by_id, by_index)
+        target = _match_claim(raw, rows, by_id, by_index, by_text)
         if target is None:
             _reject(raw, "no_matching_claim")
             continue
@@ -302,7 +313,8 @@ def adjudicate(
             "applied": applied,
             "unmatched": len(unmatched),
             "entries": unmatched,
-            "hint": "each entry needs 'verdict' (held|refuted|untested) plus 'index' or 'id'",
+            "hint": "each entry needs 'verdict' (held|refuted|untested) plus one of "
+            "'claim' (the declared text), 'index' (1-based), or 'id'",
         }
         # Say it in the same breath as the gap note, because the gap note is the
         # thing the dropped entries are about to be misread as.
@@ -314,12 +326,27 @@ def adjudicate(
     return out
 
 
-def _match_claim(raw: dict, rows: list[dict[str, Any]], by_id: dict, by_index: dict) -> dict[str, Any] | None:
+def _normalize_claim_text(text: str | None) -> str:
+    """Fold a claim string to a stable match key: strip + collapse inner
+    whitespace + casefold. So an adjudication echoing the declared text matches
+    even with trivial reformatting (a re-wrapped line, a case change)."""
+    return " ".join(str(text or "").split()).casefold()
+
+
+def _match_claim(
+    raw: dict, rows: list[dict[str, Any]], by_id: dict, by_index: dict, by_text: dict
+) -> dict[str, Any] | None:
     """Resolve one adjudication entry to the claim it targets, or None.
 
-    Accepts an explicit ``id`` (or 8+ char prefix) or a 1-based ``index`` matching
-    declaration order. Index is what a practitioner has to hand; id is unambiguous
-    when both are available.
+    Three keys, in order of precision: an explicit ``id`` (or 8+ char prefix); a
+    1-based ``index`` matching declaration order; or the ``claim`` TEXT itself.
+    Text is what a practitioner reaches for FIRST — the natural symmetric mirror
+    of declaring ``{claim: "...", grounding: "..."}`` at CHECK is adjudicating
+    ``{claim: "...", verdict: "..."}`` at POSTFLIGHT — so accepting it is the
+    difference between the mechanism working as written and silently recording
+    every verdict as ``untested`` (GH #409). Ambiguity is handled: a text that
+    matches more than one declared claim is NOT resolved (the caller keeps it
+    unmatched and reports it) rather than guessing.
     """
     ident = raw.get("id") or raw.get("claim_id")
     if ident:
@@ -332,6 +359,10 @@ def _match_claim(raw: dict, rows: list[dict[str, Any]], by_id: dict, by_index: d
             return by_index.get(int(raw["index"]))
         except (TypeError, ValueError):
             return None
+    if raw.get("claim"):
+        # by_text maps normalized text → row, or → None when that text was
+        # declared by ≥2 claims (ambiguous, don't guess).
+        return by_text.get(_normalize_claim_text(raw.get("claim")))
     return None
 
 

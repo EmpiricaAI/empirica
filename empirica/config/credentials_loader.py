@@ -490,6 +490,7 @@ class CredentialsLoader:
         expires_at: float | None = None,
         token_endpoint: str | None = None,
         client_id: str | None = None,
+        refresh_owner: str | None = None,
         config_path: Path | None = None,
     ) -> Path:
         """Persist the OAuth token set under `cortex.oauth`.
@@ -502,7 +503,7 @@ class CredentialsLoader:
         Reuses `save_cortex_config`'s atomic write, so the file keeps mode 0600
         (mkstemp creates at 0600; `os.replace` preserves it).
         """
-        if all(v is None for v in (access_token, refresh_token, expires_at, token_endpoint, client_id)):
+        if all(v is None for v in (access_token, refresh_token, expires_at, token_endpoint, client_id, refresh_owner)):
             raise ValueError("save_cortex_oauth: at least one token field required")
 
         target = self._resolve_credentials_target(config_path)
@@ -515,15 +516,34 @@ class CredentialsLoader:
         if not isinstance(oauth_block, dict):
             oauth_block = {}
 
+        # One oauth block = ONE token family = ONE client_id. Writing tokens with
+        # a client_id that DIFFERS from the stored one must REPLACE the block, not
+        # merge into it — a per-field merge would leave the old client_id paired
+        # with the new tokens, and cortex revokes a refresh whose presented
+        # client_id != the family's (row["client_id"] != client → revoke). That
+        # Frankenstein pairing is what corrupted David's auth-login family when the
+        # extension bridged token-only over it (prop_qybz3yc4). A write that omits
+        # client_id is a same-family field update and merges as before.
+        existing_cid = oauth_block.get("client_id")
+        if client_id is not None and existing_cid is not None and client_id != existing_cid:
+            oauth_block = {}
+
         for key, value in (
             ("access_token", access_token),
             ("refresh_token", refresh_token),
             ("expires_at", expires_at),
             ("token_endpoint", token_endpoint),
-            # The CLI's OWN DCR client — sole refresher of this token family.
-            # (A different client attempting refresh gets the presented token
-            # revoked by cortex; the id must travel with the token set.)
+            # The client_id the token family was minted to — a refresh MUST
+            # present this exact id (cortex revokes on mismatch), so it travels
+            # with the set.
             ("client_id", client_id),
+            # Who is allowed to refresh this family: 'cli' (the shell process,
+            # headless-fallback mode) or 'daemon' (the always-on serve process,
+            # the linked/brokered mode). Exactly ONE refresher — cortex rotates
+            # on every use and reuse-detection revokes the whole family, so two
+            # refreshers mutually destroy it. Absent → treated as 'cli' (the
+            # headless default; keeps pre-field tokens working).
+            ("refresh_owner", refresh_owner),
         ):
             if value is not None:
                 oauth_block[key] = value

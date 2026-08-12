@@ -5,6 +5,44 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.10] - 2026-08-12
+
+The daemon-brokered OAuth capability, its safety guards, and two silent-drop
+fixes. The OAuth bridge is safe to enable only against a daemon carrying this
+version's capability signal — which is what this release provides.
+
+### Added
+- **Daemon-brokered OAuth — linked identity (David-directed).** One cortex
+  identity, the OAuth token set bridged through `credentials.yaml` (not the
+  api_key), api_key retired. A `refresh_owner` field (`daemon` | `cli` |
+  `extension`) makes exactly one process the refresher, because cortex rotates
+  on every use and reuse-detection revokes the whole family. The serve daemon
+  gains a sole-refresher tick and a credentials-route capability signal
+  (`oauth_bridge_supported`) plus a persisted-owner echo, so a client verifies
+  its write survived instead of trusting `ok:true` — a released 1.13.9 daemon
+  silently dropped the field, which would have written an ownerless family two
+  processes then refresh into revocation. The CLI-own-client `auth login` flow
+  stays as the headless fallback; the CLI refreshes only families it owns.
+
+### Fixed
+- **`save_cortex_oauth` never merges tokens across client_ids.** One oauth
+  block is one token family; a write whose `client_id` differs from the stored
+  one now replaces the block wholesale instead of leaving the old client_id
+  paired with new tokens (a mismatch cortex rejects on refresh). A write that
+  omits `client_id` stays a same-family field update.
+- **POSTFLIGHT claim verdicts by claim TEXT (GH #409).** Adjudication keyed on
+  `id`/`index` only, so the natural `{claim: "<text>", verdict: "..."}` — the
+  symmetric mirror of declaring a claim at CHECK — fell through and every such
+  verdict recorded `untested`, reporting "acted on, never checked" about claims
+  that WERE adjudicated. Claim text is now a valid matcher (whitespace/case
+  folded; ambiguous text stays unmatched). `postflight-submit` also now rejects
+  unknown top-level keys (a payload keyed `claims_adjudication` was accepted and
+  dropped, same class as #402).
+- **Weave-gate counting verified for batched artifacts (GH #408).** A
+  regression test pins that two nodes plus an edge created in one
+  `log-artifacts` call count as two connected artifacts, and that an edge to a
+  prior-transaction node still connects this one.
+
 ## [1.13.9] - 2026-08-12
 
 Patch release: `empirica auth login` (CLI-owned cortex OAuth), the goals
