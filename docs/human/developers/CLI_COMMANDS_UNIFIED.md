@@ -23,8 +23,8 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.13.9
-**Generated:** 2026-08-11 11:07:33 UTC
-**Total commands:** 243 (across 24 categories)
+**Generated:** 2026-08-12 09:10:26 UTC
+**Total commands:** 244 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
 `empirica <command> --help` — the generator extracts the same `help`
@@ -76,7 +76,7 @@ require `--session-id` (`project-bootstrap`, `sessions-show`,
 | [issue](#issue) | 6 | `issue-list`, `issue-show`, `issue-handoff`, … |
 | [investigation](#investigation) | 5 | `investigate`, `investigate-create-branch`, `investigate-checkpoint-branch`, … |
 | [monitoring](#monitoring) | 9 | `monitor`, `assess-state`, `trajectory-project`, … |
-| [cockpit](#cockpit) | 16 | `status`, `tui`, `off`, … |
+| [cockpit](#cockpit) | 17 | `status`, `tui`, `off`, … |
 | [skills](#skills) | 3 | `skill-suggest`, `skill-fetch`, `skill-extract` |
 | [architecture](#architecture) | 3 | `assess-component`, `assess-compare`, `assess-directory` |
 | [sentinel](#sentinel) | 4 | `sentinel-orchestrate`, `sentinel-load-profile`, `sentinel-status`, … |
@@ -3847,6 +3847,41 @@ List the SERs this practice participates in — GET /v1/sers. Pass a ser_id to s
   Canonical 3-form to query for (default: this project's ai_id)
 - `--output` — optional · type=`choice` · choices={human, json} · default=`json`
   Output format (default: json)
+
+
+#### `empirica auth`
+
+Cortex OAuth for this CLI seat: login (browser flow), status (retirement-ready?), logout (revoke)
+
+**Subcommands:**
+
+##### `empirica auth login`
+
+Authorization_code + PKCE browser flow; stores the token set under cortex.oauth and verifies it with a real authenticated call. Never touches the api_key.
+
+**Arguments:**
+
+- `--timeout` — optional · type=`float` · default=`300`
+  Seconds to wait for the browser callback (optional, default: 300)
+- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
+
+
+##### `empirica auth status`
+
+Show this seat's credential state: oauth token validity, refresh custody, api_key presence, retirement-ready verdict
+
+**Arguments:**
+
+- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
+
+
+##### `empirica auth logout`
+
+Revoke this seat's refresh token at cortex and drop cortex.oauth. The api_key is untouched — logout is never a lockout.
+
+**Arguments:**
+
+- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
 
 
 #### `empirica cockpit`

@@ -5,11 +5,24 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.13.9] - 2026-08-11
+## [1.13.9] - 2026-08-12
 
-Patch release: the goals project-scoping fix (two layers), the SER strip-phase
-boundary cleanup, and packaging/CI hardening carried over from 1.13.8's
-recovery.
+Patch release: `empirica auth login` (CLI-owned cortex OAuth), the goals
+project-scoping fix (two layers), the SER strip-phase boundary cleanup, and
+packaging/CI hardening carried over from 1.13.8's recovery.
+
+### Added
+- **`empirica auth {login,status,logout}` — CLI-owned cortex OAuth.** The
+  authorization_code + PKCE flow with the CLI's own registered client: login
+  opens the browser, catches the loopback redirect, stores the token set
+  under `cortex.oauth`, and verifies it with a real authenticated call
+  ("stored" is not "works"). The CLI is the sole refresher of its own token
+  family; rotation is persisted before the refresh returns. Mesh transports
+  (mailbox, listener, heartbeats) now resolve OAuth-first with api_key
+  fallback — the api_key stays valid throughout; retirement is a separate
+  per-seat act gated on a per-surface survival matrix (see the public lesson
+  `destructive-ops-need-per-surface-survival-signoff`). `auth status` gives
+  each seat an honest retirement-ready verdict.
 
 ### Fixed
 - **API-path goals were born with `project_id` NULL** and never surfaced in
