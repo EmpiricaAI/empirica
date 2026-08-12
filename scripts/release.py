@@ -837,6 +837,20 @@ class ReleaseManager:
             tap_detail = f"{self.TAP_FORMULA_RELPATH} carries {v}"
         results.append(("Homebrew tap", tap_ok, tap_detail))
 
+        # Dependency-CLOSURE check: the unit a user installs is `pip install -U
+        # empirica empirica-mcp`, not either package alone. empirica-mcp pins
+        # `empirica==<v>` exactly, so if the sibling lags on PyPI even briefly,
+        # `-U` on a box with both resolves the OLD mcp, whose == pin DOWNGRADES
+        # empirica — a self-reverting release that every per-package check reports
+        # green (mesh report prop_tmmiftrs). Verify what the user RECEIVES, not
+        # what you uploaded. Best-effort: a venv/network failure is a WARN (the
+        # per-channel checks stand); a wrong RESOLVED version is a hard miss.
+        closure_ok, closure_detail = self._verify_install_closure(v)
+        if closure_ok is None:
+            info(f"Install closure: {closure_detail}")
+        else:
+            results.append(("Install closure (pip -U both)", closure_ok, closure_detail))
+
         for name, ok, detail in results:
             (success if ok else error_soft)(f"{name}: {detail}")
 
@@ -848,6 +862,49 @@ class ReleaseManager:
                 f"   Recover with: python scripts/release.py --publish --local-artifacts"
             )
         success(f"All {len(results)} channels carry {v}")
+
+    def _verify_install_closure(self, v: str):
+        """Resolve `pip install -U empirica empirica-mcp` in a throwaway venv and
+        assert BOTH land on ``v``. Returns (ok, detail); ok is None (skip → WARN)
+        on a venv/pip/network failure so an environment hiccup doesn't fail the
+        release, but a wrong RESOLVED version is a hard (ok=False) miss.
+
+        This is the check that would have caught the self-reverting 1.13.10: with
+        empirica-mcp lagging on PyPI, unpinned `-U` pulls the old mcp whose
+        `empirica==` pin downgrades empirica — invisible to every per-package
+        check (mesh report prop_tmmiftrs).
+        """
+        import tempfile
+        import venv as _venv
+
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                vdir = Path(td) / "v"
+                _venv.create(vdir, with_pip=True)
+                pip = vdir / "bin" / "pip"
+                inst = subprocess.run(
+                    [str(pip), "install", "-q", "-U", "empirica", "empirica-mcp"],
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                )
+                if inst.returncode != 0:
+                    return None, f"skipped — clean-venv install failed: {inst.stderr.strip()[:120]}"
+                got = {}
+                for pkg in ("empirica", "empirica-mcp"):
+                    show = subprocess.run([str(pip), "show", pkg], capture_output=True, text=True, timeout=30)
+                    for line in show.stdout.splitlines():
+                        if line.startswith("Version:"):
+                            got[pkg] = line.split(":", 1)[1].strip()
+                            break
+                if got.get("empirica") == v and got.get("empirica-mcp") == v:
+                    return True, f"pip -U resolves empirica {v} + empirica-mcp {v}"
+                return False, (
+                    f"pip -U resolves empirica {got.get('empirica', '?')} + "
+                    f"empirica-mcp {got.get('empirica-mcp', '?')} — a sibling lag/pin DOWNGRADES the closure"
+                )
+        except Exception as e:
+            return None, f"skipped — closure check errored: {str(e)[:120]}"
 
     def run_docs(self):
         """``--docs``: author the release-facing docs on THIS branch. No merge, no
