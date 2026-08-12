@@ -246,3 +246,46 @@ def test_mesh_transports_resolve_through_the_bearer(monkeypatch):
     )
     url, key = mailbox_commands._default_resolve_cortex_creds()
     assert (url, key) == ("https://cortex.example", "oauth_tok")
+
+
+# ─── Option A: refresh custody by daemon presence (David 2026-08-12) ─────
+
+
+def test_login_assigns_daemon_owner_when_daemon_running(loader, monkeypatch):
+    """On a serve-daemon box the CLI's own family must be daemon-owned — the
+    serve tick is the sole refresher, so the listener + CLI reading it can't
+    double-refresh into revocation (independent-families model)."""
+    monkeypatch.setattr("empirica.core.auth.cortex_oauth._serve_daemon_running", lambda: True)
+    _run_login(loader)
+    assert loader.get_cortex_oauth()["refresh_owner"] == "daemon"
+
+
+def test_login_assigns_cli_owner_when_headless(loader, monkeypatch):
+    """No daemon → no competing refresher → cli-owned is correct."""
+    monkeypatch.setattr("empirica.core.auth.cortex_oauth._serve_daemon_running", lambda: False)
+    _run_login(loader)
+    assert loader.get_cortex_oauth()["refresh_owner"] == "cli"
+
+
+def _run_login(loader):
+    from empirica.core.auth.cortex_oauth import login
+
+    calls = []
+    http = _mock_http(
+        {
+            "/.well-known": DISCO,
+            "/register": {"client_id": "cli_own"},
+            "/token": {"access_token": _AT1, "refresh_token": _RT1, "expires_in": 3600},
+        },
+        calls,
+    )
+
+    def _fake_browser(url):
+        import urllib.parse
+        import urllib.request
+
+        q = dict(urllib.parse.parse_qsl(urllib.parse.urlparse(url).query))
+        urllib.request.urlopen(f"{q['redirect_uri']}?code=c&state={q['state']}", timeout=5)
+
+    login(loader=loader, open_browser=_fake_browser, timeout_s=10, http=http)
+    loader._credentials_cache = None
