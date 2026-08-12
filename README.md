@@ -2,7 +2,7 @@
 
 > **We Gave AI a Mirror. Now It Measures What It Believes.**
 
-[![Version](https://img.shields.io/badge/version-1.13.12-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.12)
+[![Version](https://img.shields.io/badge/version-1.13.13-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.13)
 [![PyPI](https://img.shields.io/pypi/v/empirica)](https://pypi.org/project/empirica/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -114,13 +114,13 @@ empirica setup
 
 ```bash
 # Security-hardened Alpine image (~276MB, recommended)
-docker pull nubaeon/empirica:1.13.12-alpine
+docker pull nubaeon/empirica:1.13.13-alpine
 
 # Standard image (Debian slim, ~414MB)
-docker pull nubaeon/empirica:1.13.12
+docker pull nubaeon/empirica:1.13.13
 
 # Run
-docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.12 /bin/bash
+docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.13 /bin/bash
 ```
 </details>
 
@@ -387,9 +387,9 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.13.12
+## What's New in 1.13.13
 
-- **`auth login` assigns refresh custody by daemon presence.** On a box running `empirica serve`, the CLI's own OAuth family is written `refresh_owner=daemon` so the serve tick is the sole refresher (the token stays warm without the browser — api_key retirement) and the listener + CLI read it without a second-refresher collision. On a headless box it stays `cli` (no competing refresher). Detected via the serve health endpoint; best-effort, defaults to `cli` on any probe failure. This is the last piece of the independent-families model: each surface (CLI, extension) holds its own family under one user identity — no shared token, no CORS change, no bridge.
+- **`auth login` no longer inherits a foreign family's client_id.** It reused the stored `client_id` unconditionally, so run over a family belonging to a different client (e.g. the extension's), it would mint the CLI's tokens under the other party's client — two clients presenting one rotating family, which cortex reuse-detection revokes — and because the incoming id then always equalled the stored one, the one-family replace-guard could never fire. Login now reuses the stored client only when the family is the CLI's own (`refresh_owner` in `cli`/`daemon`); over a foreign or unknown-owner block it registers its own client and the guard replaces theirs. Completes the independent-families OAuth model.
 ---
 
 ## What's New in 1.12.35
@@ -431,6 +431,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 **Author:** David S. L. Van Assche
-**Version:** 1.13.12
+**Version:** 1.13.13
 
 *Turtles all the way down — built with its own epistemic framework, measuring what it knows at every step.*

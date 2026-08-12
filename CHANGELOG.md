@@ -5,6 +5,20 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.13] - 2026-08-12
+
+### Fixed
+- **`auth login` no longer inherits a foreign family's client_id.** It reused
+  the stored `client_id` unconditionally, so run over a family belonging to a
+  different client (e.g. the extension's), it would mint the CLI's tokens under
+  the other party's client — two clients presenting one rotating family, which
+  cortex reuse-detection revokes — and because the incoming id then always
+  equalled the stored one, the one-family replace-guard could never fire. Login
+  now reuses the stored client only when the family is the CLI's own
+  (`refresh_owner` in `cli`/`daemon`); over a foreign or unknown-owner block it
+  registers its own client and the guard replaces theirs. Completes the
+  independent-families OAuth model.
+
 ## [1.13.12] - 2026-08-12
 
 Completes the independent-families OAuth model (the ratified architecture):
