@@ -31,6 +31,24 @@ except ImportError:
 import json  # noqa: E402 — intentionally after conditional yaml import
 
 
+def _as_epoch_seconds(value):
+    """Normalize an epoch timestamp to SECONDS, tolerating JS milliseconds.
+
+    The extension bridges `expires_at` as `Date.now()`-style milliseconds; a
+    seconds-based comparison then reads it as the year ~58,600 and the token
+    looks permanently valid. Anything past ~year 5138 (1e11 s) is treated as
+    milliseconds and divided by 1000. `None`/unparseable pass through unchanged
+    so the caller's own "absent" handling still fires.
+    """
+    if value is None:
+        return None
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return value
+    return v / 1000.0 if v > 1e11 else v
+
+
 def _apply_api_key(cortex_block: dict, api_key: str | None) -> None:
     """Set `api_key` — but treat EMPTY AS ABSENT, never as a value to write.
 
@@ -66,6 +84,15 @@ class CredentialsLoader:
     # Singleton pattern for caching
     _instance = None
     _credentials_cache = None
+    # mtime of the file the cache was loaded from. The long-running serve daemon
+    # holds this singleton for its whole life, so without a staleness check a
+    # credentials.yaml written by a SEPARATE process (`empirica auth login`, the
+    # extension bridge) is invisible until the daemon restarts — the daemon then
+    # serves a stale oauth block and a bridge guard reading it overwrites a
+    # freshly-written family (extension prop_zyz4wflb). Tracking mtime makes the
+    # cache reload on disk change.
+    _cache_source_mtime: float | None = None
+    _cache_source_path = None
 
     def __new__(cls):
         """Create singleton instance of credentials loader."""
@@ -77,6 +104,22 @@ class CredentialsLoader:
         """Initialize credentials loader and cache."""
         if self._credentials_cache is None:
             self._load_credentials()
+
+    def _reload_if_file_changed(self) -> None:
+        """Drop the cache when the source file's mtime moved. Cheap (one stat)
+        and best-effort: a stat failure leaves the cache intact rather than
+        thrashing. This is what lets the daemon see a credential written by
+        another process without a restart."""
+        try:
+            path = self._cache_source_path
+            if path is None or not path.exists():
+                return
+            current = path.stat().st_mtime
+            if self._cache_source_mtime is not None and current != self._cache_source_mtime:
+                self._credentials_cache = None
+                self._load_credentials()
+        except OSError:
+            pass
 
     def _find_config_file(self) -> Path | None:
         """
@@ -133,6 +176,13 @@ class CredentialsLoader:
 
                 # Interpolate environment variables
                 self._credentials_cache = self._interpolate_env_vars(config)
+                # Record the source + its mtime so a later read can detect a
+                # concurrent write and reload (serve-daemon freshness).
+                try:
+                    self._cache_source_path = config_file
+                    self._cache_source_mtime = config_file.stat().st_mtime
+                except OSError:
+                    self._cache_source_mtime = None
                 logger.info(f"   Loaded {len(config.get('providers', {}))} provider configurations")
 
             except Exception as e:
@@ -531,7 +581,12 @@ class CredentialsLoader:
         for key, value in (
             ("access_token", access_token),
             ("refresh_token", refresh_token),
-            ("expires_at", expires_at),
+            # Canonicalize to epoch SECONDS on write, whatever the caller sent —
+            # the extension bridges JS milliseconds, and a stored ms value makes
+            # the CLI's expiry check permanently-true (never refreshes, dies at
+            # cortex's TTL). Store seconds; the read side normalizes too, so a
+            # token already stored in ms recovers on next read without a re-login.
+            ("expires_at", _as_epoch_seconds(expires_at)),
             ("token_endpoint", token_endpoint),
             # The client_id the token family was minted to — a refresh MUST
             # present this exact id (cortex revokes on mismatch), so it travels
@@ -562,6 +617,7 @@ class CredentialsLoader:
         identity beside an access token from another — which fails in ways far
         harder to read than "no token".
         """
+        self._reload_if_file_changed()
         if not self._credentials_cache:
             self._load_credentials()
         cortex = self._credentials_cache.get("cortex") if self._credentials_cache else None
@@ -589,9 +645,15 @@ class CredentialsLoader:
 
         oauth = self.get_cortex_oauth()
         token = oauth.get("access_token")
-        expires_at = oauth.get("expires_at")
+        expires_at = _as_epoch_seconds(oauth.get("expires_at"))
 
         try:
+            # Defensive: normalize ms→s here too. An extension bridge wrote
+            # expires_at in JS milliseconds (Date.now()), which as seconds is the
+            # year ~58,600 → `still_valid` permanently true → the CLI never
+            # refreshes and presents a server-dead token after ~24h while its own
+            # check reports healthy. Worse than empty: works today, 401s tomorrow,
+            # and cannot self-diagnose (extension prop_jehnbjq).
             still_valid = token and expires_at and float(expires_at) - leeway_s > _time.time()
         except (TypeError, ValueError):
             still_valid = False
@@ -655,6 +717,7 @@ class CredentialsLoader:
         env_url = os.getenv("CORTEX_REMOTE_URL") or os.getenv("CORTEX_URL")
         env_key = os.getenv("CORTEX_API_KEY")
 
+        self._reload_if_file_changed()
         if not self._credentials_cache:
             self._load_credentials()
 

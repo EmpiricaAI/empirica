@@ -268,3 +268,76 @@ def test_token_only_write_still_merges_same_family(loader):
     assert o["access_token"] == _AT2
     assert o["client_id"] == "c1", "same-family field update must preserve client_id"
     assert o["refresh_token"] == _RT1
+
+
+# ─── ms/seconds + daemon cache staleness (extension prop_jehnbjq/zyz4wflb) ──
+
+
+def test_expires_at_milliseconds_is_normalized_to_seconds(loader):
+    """The extension bridges Date.now() milliseconds. Stored as-is it reads as
+    the year ~58,600 → 'still_valid' permanently true → the CLI never refreshes
+    and 401s after cortex's TTL. Both write and read must normalize to seconds."""
+    ms = 1786551254393  # a real bridged value (year ~58,600 if read as seconds)
+    loader.save_cortex_oauth(access_token=_AT, expires_at=ms, client_id="c1", refresh_owner="daemon")
+    loader._credentials_cache = None
+    stored = loader.get_cortex_oauth()
+    assert stored["expires_at"] < 1e11, "write must canonicalize ms → seconds"
+    assert abs(stored["expires_at"] - ms / 1000.0) < 1.0
+
+
+def test_already_stored_ms_recovers_on_read(loader):
+    """A token already in the file with ms expiry (David's box) must not read as
+    permanently-valid — the read-side normalize catches it so cortex_access_token
+    treats a truly-expired token as expired."""
+    import time as _t
+
+    # Simulate a pre-fix stored ms value in the PAST (so, expired, once normalized).
+    past_ms = int((_t.time() - 3600) * 1000)
+    loader.save_cortex_oauth(
+        access_token=_AT, refresh_token=_RT, expires_at=past_ms, client_id="c1", refresh_owner="cli", token_endpoint=_TE
+    )
+    # Force the raw ms back into the file (bypassing the write-normalizer) to model
+    # a token stored before the fix.
+    import yaml
+
+    path = loader._resolve_credentials_target(None)
+    data = yaml.safe_load(path.read_text())
+    data["cortex"]["oauth"]["expires_at"] = past_ms
+    path.write_text(yaml.safe_dump(data))
+    loader._credentials_cache = None
+
+    refreshed = {"n": 0}
+
+    def _http(url, **_kw):
+        refreshed["n"] += 1
+        return {"access_token": _FRESH_AT, "expires_in": 3600}
+
+    from empirica.core.auth import cortex_bearer
+
+    out = cortex_bearer(loader, http=_http)
+    assert refreshed["n"] == 1, "a ms-past-expiry token must read as expired and refresh"
+    assert out["bearer"] == _FRESH_AT
+
+
+def test_loader_reloads_on_file_mtime_change(loader, tmp_path):
+    """The daemon holds the singleton for its life; a credentials.yaml written by
+    ANOTHER process (auth login, the bridge) must be visible without a restart."""
+    import os
+    import time as _t
+
+    loader.save_cortex_oauth(access_token=_AT, client_id="c1", refresh_owner="cli")
+    # Prime the cache + mtime.
+    assert loader.get_cortex_oauth()["refresh_owner"] == "cli"
+
+    # A separate writer changes the block, then bumps mtime past the cached one.
+    path = loader._resolve_credentials_target(None)
+    import yaml
+
+    data = yaml.safe_load(path.read_text())
+    data["cortex"]["oauth"]["refresh_owner"] = "daemon"
+    path.write_text(yaml.safe_dump(data))
+    future = _t.time() + 10
+    os.utime(path, (future, future))
+
+    # No manual cache-clear — the loader must notice the mtime move.
+    assert loader.get_cortex_oauth()["refresh_owner"] == "daemon", "daemon must see a concurrent write without restart"
