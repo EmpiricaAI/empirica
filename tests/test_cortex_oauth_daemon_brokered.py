@@ -51,10 +51,12 @@ def test_refresh_owner_persists_and_defaults_are_honored(loader):
     assert loader.get_cortex_oauth().get("refresh_owner") == "daemon"
 
 
-def test_cli_does_not_refresh_a_daemon_owned_family(loader):
-    """The revocation guard: cortex_bearer must NOT invoke refresh on a
-    daemon-owned token even when it is expired — a second refresher revokes
-    the family. It reads what's there, and if expired falls back to api_key."""
+@pytest.mark.parametrize("owner", ["daemon", "extension"])
+def test_cli_does_not_refresh_a_family_it_does_not_own(loader, owner):
+    """The revocation guard, generalised (extension's per-seat model): the CLI
+    refreshes ONLY a 'cli'-owned family. A 'daemon'-owned (serve tick refreshes)
+    or 'extension'-owned (daemonless Desktop seat, extension refreshes) family
+    must be read-only from the CLI — a second refresher revokes it."""
     from empirica.core.auth import cortex_bearer
 
     loader.save_cortex_oauth(
@@ -63,7 +65,7 @@ def test_cli_does_not_refresh_a_daemon_owned_family(loader):
         expires_at=time.time() - 10,  # expired
         token_endpoint=_TE,
         client_id="cli_x",
-        refresh_owner="daemon",
+        refresh_owner=owner,
     )
     loader._credentials_cache = None
 
