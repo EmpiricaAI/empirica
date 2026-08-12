@@ -375,21 +375,43 @@ def login(
         raise RuntimeError("token exchange returned no access_token")
 
     now = _time.time()
+    # Refresh custody depends on whether a long-lived daemon is present. On a
+    # box running `empirica serve`, the daemon's tick AND the listener AND the
+    # CLI all reach cortex_bearer; if this family were 'cli'-owned, more than one
+    # of them would refresh it and cortex would revoke it (two presenters of one
+    # rotating credential). So a daemon-present box gets 'daemon' — the serve
+    # tick is the sole refresher, everything else is read-only, and the token
+    # stays warm without the browser (the retirement goal). A headless box has
+    # no competing refresher, so 'cli' is correct there.
+    owner = "daemon" if _serve_daemon_running() else "cli"
     loader.save_cortex_oauth(
         access_token=tokens.get("access_token"),
         refresh_token=tokens.get("refresh_token"),
         expires_at=_expires_at(tokens, now=now),
         token_endpoint=disco["token_endpoint"],
         client_id=client_id,
-        # auth login is the headless-fallback path: this shell process owns
-        # its own client's family and refreshes it. The daemon-brokered path
-        # writes refresh_owner='daemon' via the credentials route instead.
-        refresh_owner="cli",
+        refresh_owner=owner,
     )
     return {
         "ok": True,
         "client_id": client_id,
         "expires_at": _expires_at(tokens, now=now),
         "has_refresh_token": bool(tokens.get("refresh_token")),
+        "refresh_owner": owner,
         "authorize_url": authorize_url,
     }
+
+
+def _serve_daemon_running() -> bool:
+    """True iff the local `empirica serve` daemon answers its health endpoint.
+    Best-effort: any failure means 'assume no daemon' → cli-owned, the safe
+    default (a lone shell refreshing its own family can't collide)."""
+    import os
+    import urllib.request
+
+    port = os.getenv("EMPIRICA_SERVE_PORT", "8000")
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/v1/health", timeout=2) as r:
+            return 200 <= r.status < 300
+    except Exception:
+        return False

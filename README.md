@@ -2,7 +2,7 @@
 
 > **We Gave AI a Mirror. Now It Measures What It Believes.**
 
-[![Version](https://img.shields.io/badge/version-1.13.11-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.11)
+[![Version](https://img.shields.io/badge/version-1.13.12-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.12)
 [![PyPI](https://img.shields.io/pypi/v/empirica)](https://pypi.org/project/empirica/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -114,13 +114,13 @@ empirica setup
 
 ```bash
 # Security-hardened Alpine image (~276MB, recommended)
-docker pull nubaeon/empirica:1.13.11-alpine
+docker pull nubaeon/empirica:1.13.12-alpine
 
 # Standard image (Debian slim, ~414MB)
-docker pull nubaeon/empirica:1.13.11
+docker pull nubaeon/empirica:1.13.12
 
 # Run
-docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.11 /bin/bash
+docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.12 /bin/bash
 ```
 </details>
 
@@ -387,12 +387,9 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.13.11
+## What's New in 1.13.12
 
-- **Daemon serves fresh credentials without a restart.** `CredentialsLoader` is a singleton the long-running serve daemon holds for its life; it only reloaded the file on restart, so a token written by `empirica auth login` or the extension bridge while the daemon ran was invisible — the daemon served a stale block and a bridge guard reading it would overwrite a fresh family. The loader now tracks the source file's mtime and reloads on change.
-- **OAuth `expires_at` is normalized to seconds.** The extension bridges the expiry as JavaScript milliseconds; compared against `time.time()` seconds it reads as the year ~58,600, so the token looks permanently valid — the CLI never refreshes and presents a server-dead credential after cortex's ~24h TTL while its own check reports healthy. Normalized (ms→s) on every producer path — write, read, and the `_expires_at` passthrough — so a token already stored in milliseconds self-heals on the next read with no re-login.
-- **The credentials route echoes `oauth_client_id`.** The GET response returned `oauth_set` + `oauth_refresh_owner` but not the family's client_id, so a client's family comparison read null. Now echoed on GET and POST (the DCR client identifier, never the live token).
-- **`release.py --verify` checks the install closure.** empirica-mcp pins `empirica==<v>` exactly, so while a sibling lags on PyPI, `pip install -U` resolves the old mcp and its pin downgrades empirica — a release that self-reverts while every per-package channel check reads green. Verify now resolves `pip install -U empirica empirica-mcp` in a throwaway venv and asserts both land on the target.
+- **`auth login` assigns refresh custody by daemon presence.** On a box running `empirica serve`, the CLI's own OAuth family is written `refresh_owner=daemon` so the serve tick is the sole refresher (the token stays warm without the browser — api_key retirement) and the listener + CLI read it without a second-refresher collision. On a headless box it stays `cli` (no competing refresher). Detected via the serve health endpoint; best-effort, defaults to `cli` on any probe failure. This is the last piece of the independent-families model: each surface (CLI, extension) holds its own family under one user identity — no shared token, no CORS change, no bridge.
 ---
 
 ## What's New in 1.12.35
@@ -434,6 +431,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 **Author:** David S. L. Van Assche
-**Version:** 1.13.11
+**Version:** 1.13.12
 
 *Turtles all the way down — built with its own epistemic framework, measuring what it knows at every step.*
