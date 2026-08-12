@@ -327,10 +327,19 @@ def login(
         if not disco.get(required):
             raise RuntimeError(f"discovery document lacks {required}")
 
-    # Reuse the stored client when present — re-registering on every login
-    # would grow cortex's client table by one row per login forever.
+    # Reuse the stored client ONLY when the stored family is OUR OWN
+    # (cli/daemon-owned) — re-registering on every login would grow cortex's
+    # client table by one row per login. But reusing it UNCONDITIONALLY is the
+    # client_id-reuse trap (David, prop_4ikynx2k): run over a FOREIGN family
+    # (e.g. the extension's), login would mint the CLI's tokens under the other
+    # party's client_id → two clients presenting one rotating family → cortex
+    # revokes it. And because incoming would then always equal stored, the
+    # save_cortex_oauth replace-guard could never fire. So over a foreign or
+    # unknown-owner block we register our OWN client and let the guard REPLACE
+    # theirs.
     oauth = loader.get_cortex_oauth()
-    client_id = oauth.get("client_id")
+    owner = (oauth.get("refresh_owner") or "").lower()
+    client_id = oauth.get("client_id") if owner in ("cli", "daemon") else None
     if not client_id:
         client_id = register_client(disco["registration_endpoint"], http=http)["client_id"]
 

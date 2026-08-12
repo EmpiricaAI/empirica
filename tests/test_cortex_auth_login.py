@@ -59,6 +59,7 @@ _OLD_AT, _OLD_RT = "OLD_AT", "OLD_RT"
 _NEW_AT, _NEW_RT = "NEW_AT", "NEW_RT"
 _LIVE_AT, _STALE_AT, _RT = "LIVE_AT", "STALE_AT", "RT"
 _AT1, _RT1, _AT2 = "AT1", "RT1", "AT2"
+_EXT_AT, _EXT_RT, _OLD, _OLD_RT2 = "EXT_AT", "EXT_RT", "OLD", "OLD_RT2"
 
 DISCO = {
     "authorization_endpoint": "https://cortex.example/v1/oauth/authorize",
@@ -209,8 +210,10 @@ def test_login_end_to_end_persists_the_full_token_set(loader):
 
 
 def test_login_reuses_stored_client(loader):
-    """Re-login must not re-register — one DCR row per seat, not per login."""
-    loader.save_cortex_oauth(client_id="cli_existing", token_endpoint=DISCO["token_endpoint"])
+    """Re-login must not re-register — one DCR row per seat, not per login. The
+    stored family must be OWNED (cli/daemon) for reuse: reusing an unowned or
+    foreign client_id is the client_id-reuse trap."""
+    loader.save_cortex_oauth(client_id="cli_existing", token_endpoint=DISCO["token_endpoint"], refresh_owner="cli")
     loader._credentials_cache = None
     calls = []
     http = _mock_http(
@@ -289,3 +292,71 @@ def _run_login(loader):
 
     login(loader=loader, open_browser=_fake_browser, timeout_s=10, http=http)
     loader._credentials_cache = None
+
+
+# ─── client_id-reuse trap (David prop_4ikynx2k) ─────────────────────────
+
+
+def test_login_does_not_inherit_a_foreign_familys_client_id(loader, monkeypatch):
+    """The trap: a stored FOREIGN family (refresh_owner not cli/daemon) must NOT
+    have its client_id reused — else login mints the CLI's tokens under the
+    other party's client → two refreshers → revocation, and the replace-guard
+    can never fire. Login must register its OWN client and REPLACE the block."""
+    monkeypatch.setattr("empirica.core.auth.cortex_oauth._serve_daemon_running", lambda: False)
+    loader.save_cortex_oauth(
+        access_token=_EXT_AT, refresh_token=_EXT_RT, client_id="ext_client", refresh_owner="extension"
+    )
+    loader._credentials_cache = None
+
+    calls = []
+    http = _mock_http(
+        {
+            "/.well-known": DISCO,
+            "/register": {"client_id": "cli_own_new"},
+            "/token": {"access_token": _AT1, "refresh_token": _RT1, "expires_in": 3600},
+        },
+        calls,
+    )
+
+    def _fake_browser(url):
+        import urllib.parse
+        import urllib.request
+
+        q = dict(urllib.parse.parse_qsl(urllib.parse.urlparse(url).query))
+        urllib.request.urlopen(f"{q['redirect_uri']}?code=c&state={q['state']}", timeout=5)
+
+    from empirica.core.auth.cortex_oauth import login
+
+    login(loader=loader, open_browser=_fake_browser, timeout_s=10, http=http)
+    loader._credentials_cache = None
+    stored = loader.get_cortex_oauth()
+    # Registered its OWN client (not the extension's) and REPLACED the family.
+    assert any("/register" in c["url"] for c in calls), "must register its own client over a foreign family"
+    assert stored["client_id"] == "cli_own_new"
+    assert stored["client_id"] != "ext_client"
+
+
+def test_login_reuses_our_own_stored_client(loader, monkeypatch):
+    """Same-family re-login must still reuse the CLI's own client (no table
+    growth) — reuse is correct when the stored family is cli/daemon-owned."""
+    monkeypatch.setattr("empirica.core.auth.cortex_oauth._serve_daemon_running", lambda: False)
+    loader.save_cortex_oauth(access_token=_OLD, refresh_token=_OLD_RT2, client_id="cli_mine", refresh_owner="cli")
+    loader._credentials_cache = None
+
+    calls = []
+    http = _mock_http(
+        {"/.well-known": DISCO, "/token": {"access_token": _AT1, "expires_in": 3600}},
+        calls,
+    )
+
+    def _fake_browser(url):
+        import urllib.parse
+        import urllib.request
+
+        q = dict(urllib.parse.parse_qsl(urllib.parse.urlparse(url).query))
+        urllib.request.urlopen(f"{q['redirect_uri']}?code=c&state={q['state']}", timeout=5)
+
+    from empirica.core.auth.cortex_oauth import login
+
+    login(loader=loader, open_browser=_fake_browser, timeout_s=10, http=http)
+    assert not any("/register" in c["url"] for c in calls), "our own family: reuse client, no re-register"
