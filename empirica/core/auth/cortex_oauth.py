@@ -216,7 +216,13 @@ def refresh_access_token(refresh_token: str, token_endpoint: str, client_id: str
 def _expires_at(token_response: dict, *, now: float) -> float | None:
     if token_response.get("expires_at"):
         try:
-            return float(token_response["expires_at"])
+            v = float(token_response["expires_at"])
+            # Absolute-expiry passthrough. Cortex only emits `expires_in`
+            # (seconds) today, so this branch is dead for the cortex flow — but a
+            # provider that returned an absolute expiry in JS milliseconds would
+            # poison the clock exactly like the bridge did. Normalize ms→s here
+            # too (extension prop_d44ipjuc) so no producer path can enter ms.
+            return v / 1000.0 if v > 1e11 else v
         except (TypeError, ValueError):
             return None
     if token_response.get("expires_in"):

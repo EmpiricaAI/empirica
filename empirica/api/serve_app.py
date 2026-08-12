@@ -143,6 +143,12 @@ class CortexCredentialsResponse(BaseModel):
     oauth_bridge_supported: bool = True
     oauth_set: bool = False
     oauth_refresh_owner: str | None = None
+    # The stored family's client_id — the extension's family-comparison key
+    # (deciding foreign-family vs same-family before a bridge write). NOT a
+    # secret (a DCR client identifier, not a token); the live token is never
+    # returned. Absent on a pre-this-version daemon → the client falls back to
+    # refresh_owner as the discriminator.
+    oauth_client_id: str | None = None
 
 
 class NtfyCredentialsRequest(BaseModel):
@@ -557,6 +563,7 @@ def _register_credentials_routes(app: FastAPI) -> None:
                 written_path=str(path),
                 oauth_set=bool(oauth.get("access_token")),
                 oauth_refresh_owner=oauth.get("refresh_owner"),
+                oauth_client_id=oauth.get("client_id"),
             )
         except Exception as e:
             logger.error(f"set_cortex_credentials failed: {e}", exc_info=True)
@@ -589,6 +596,7 @@ def _register_credentials_routes(app: FastAPI) -> None:
                 api_key_preview=f"...{key[-4:]}" if len(key) >= 4 else None,
                 oauth_set=bool(oauth.get("access_token")),
                 oauth_refresh_owner=oauth.get("refresh_owner"),
+                oauth_client_id=oauth.get("client_id"),
             )
         except Exception as e:
             logger.error(f"get_cortex_credentials failed: {e}", exc_info=True)

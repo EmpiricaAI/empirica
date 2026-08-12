@@ -2,7 +2,7 @@
 
 > **We Gave AI a Mirror. Now It Measures What It Believes.**
 
-[![Version](https://img.shields.io/badge/version-1.13.10-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.10)
+[![Version](https://img.shields.io/badge/version-1.13.11-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.11)
 [![PyPI](https://img.shields.io/pypi/v/empirica)](https://pypi.org/project/empirica/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -114,13 +114,13 @@ empirica setup
 
 ```bash
 # Security-hardened Alpine image (~276MB, recommended)
-docker pull nubaeon/empirica:1.13.10-alpine
+docker pull nubaeon/empirica:1.13.11-alpine
 
 # Standard image (Debian slim, ~414MB)
-docker pull nubaeon/empirica:1.13.10
+docker pull nubaeon/empirica:1.13.11
 
 # Run
-docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.10 /bin/bash
+docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.11 /bin/bash
 ```
 </details>
 
@@ -387,12 +387,12 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.13.10
+## What's New in 1.13.11
 
-- **Daemon-brokered OAuth — linked identity (David-directed).** One cortex identity, the OAuth token set bridged through `credentials.yaml` (not the api_key), api_key retired. A `refresh_owner` field (`daemon` | `cli` | `extension`) makes exactly one process the refresher, because cortex rotates on every use and reuse-detection revokes the whole family. The serve daemon gains a sole-refresher tick and a credentials-route capability signal (`oauth_bridge_supported`) plus a persisted-owner echo, so a client verifies its write survived instead of trusting `ok:true` — a released 1.13.9 daemon silently dropped the field, which would have written an ownerless family two processes then refresh into revocation. The CLI-own-client `auth login` flow stays as the headless fallback; the CLI refreshes only families it owns.
-- **`save_cortex_oauth` never merges tokens across client_ids.** One oauth block is one token family; a write whose `client_id` differs from the stored one now replaces the block wholesale instead of leaving the old client_id paired with new tokens (a mismatch cortex rejects on refresh). A write that omits `client_id` stays a same-family field update.
-- **POSTFLIGHT claim verdicts by claim TEXT (GH #409).** Adjudication keyed on `id`/`index` only, so the natural `{claim: "<text>", verdict: "..."}` — the symmetric mirror of declaring a claim at CHECK — fell through and every such verdict recorded `untested`, reporting "acted on, never checked" about claims that WERE adjudicated. Claim text is now a valid matcher (whitespace/case folded; ambiguous text stays unmatched). `postflight-submit` also now rejects unknown top-level keys (a payload keyed `claims_adjudication` was accepted and dropped, same class as #402).
-- **Weave-gate counting verified for batched artifacts (GH #408).** A regression test pins that two nodes plus an edge created in one `log-artifacts` call count as two connected artifacts, and that an edge to a prior-transaction node still connects this one.
+- **Daemon serves fresh credentials without a restart.** `CredentialsLoader` is a singleton the long-running serve daemon holds for its life; it only reloaded the file on restart, so a token written by `empirica auth login` or the extension bridge while the daemon ran was invisible — the daemon served a stale block and a bridge guard reading it would overwrite a fresh family. The loader now tracks the source file's mtime and reloads on change.
+- **OAuth `expires_at` is normalized to seconds.** The extension bridges the expiry as JavaScript milliseconds; compared against `time.time()` seconds it reads as the year ~58,600, so the token looks permanently valid — the CLI never refreshes and presents a server-dead credential after cortex's ~24h TTL while its own check reports healthy. Normalized (ms→s) on every producer path — write, read, and the `_expires_at` passthrough — so a token already stored in milliseconds self-heals on the next read with no re-login.
+- **The credentials route echoes `oauth_client_id`.** The GET response returned `oauth_set` + `oauth_refresh_owner` but not the family's client_id, so a client's family comparison read null. Now echoed on GET and POST (the DCR client identifier, never the live token).
+- **`release.py --verify` checks the install closure.** empirica-mcp pins `empirica==<v>` exactly, so while a sibling lags on PyPI, `pip install -U` resolves the old mcp and its pin downgrades empirica — a release that self-reverts while every per-package channel check reads green. Verify now resolves `pip install -U empirica empirica-mcp` in a throwaway venv and asserts both land on the target.
 ---
 
 ## What's New in 1.12.35
@@ -434,6 +434,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 **Author:** David S. L. Van Assche
-**Version:** 1.13.10
+**Version:** 1.13.11
 
 *Turtles all the way down — built with its own epistemic framework, measuring what it knows at every step.*
