@@ -5,6 +5,37 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.11] - 2026-08-12
+
+Credential-path hardening from the extension's live OAuth-bridge bring-up, plus
+a release-verification guard. Every fix here was found by running the bridge
+against a real daemon, not by reasoning about it.
+
+### Fixed
+- **Daemon serves fresh credentials without a restart.** `CredentialsLoader` is
+  a singleton the long-running serve daemon holds for its life; it only reloaded
+  the file on restart, so a token written by `empirica auth login` or the
+  extension bridge while the daemon ran was invisible — the daemon served a
+  stale block and a bridge guard reading it would overwrite a fresh family. The
+  loader now tracks the source file's mtime and reloads on change.
+- **OAuth `expires_at` is normalized to seconds.** The extension bridges the
+  expiry as JavaScript milliseconds; compared against `time.time()` seconds it
+  reads as the year ~58,600, so the token looks permanently valid — the CLI
+  never refreshes and presents a server-dead credential after cortex's ~24h TTL
+  while its own check reports healthy. Normalized (ms→s) on every producer path
+  — write, read, and the `_expires_at` passthrough — so a token already stored
+  in milliseconds self-heals on the next read with no re-login.
+- **The credentials route echoes `oauth_client_id`.** The GET response returned
+  `oauth_set` + `oauth_refresh_owner` but not the family's client_id, so a
+  client's family comparison read null. Now echoed on GET and POST (the DCR
+  client identifier, never the live token).
+- **`release.py --verify` checks the install closure.** empirica-mcp pins
+  `empirica==<v>` exactly, so while a sibling lags on PyPI, `pip install -U`
+  resolves the old mcp and its pin downgrades empirica — a release that
+  self-reverts while every per-package channel check reads green. Verify now
+  resolves `pip install -U empirica empirica-mcp` in a throwaway venv and
+  asserts both land on the target.
+
 ## [1.13.10] - 2026-08-12
 
 The daemon-brokered OAuth capability, its safety guards, and two silent-drop
