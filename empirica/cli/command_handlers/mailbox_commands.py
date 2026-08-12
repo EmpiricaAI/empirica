@@ -27,10 +27,12 @@ from pathlib import Path
 def _default_resolve_cortex_creds() -> tuple[str | None, str | None]:
     """Resolve Cortex URL + api_key from credentials_loader."""
     try:
-        from empirica.config.credentials_loader import get_credentials_loader
+        # OAuth-first with api_key fallback (empirica auth login) — the
+        # resolver never returns a stale token and never raises past here.
+        from empirica.core.auth import cortex_bearer
 
-        cfg = get_credentials_loader().get_cortex_config()
-        return cfg.get("url"), cfg.get("api_key")
+        creds = cortex_bearer()
+        return creds.get("url"), creds.get("bearer")
     except Exception:
         return None, None
 

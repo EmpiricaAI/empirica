@@ -245,10 +245,14 @@ class LivenessProbe:
 
 def _default_cortex_loader() -> dict[str, Any] | None:
     try:
-        from empirica.config.credentials_loader import get_credentials_loader
+        # OAuth-first with api_key fallback (empirica auth login); shape kept
+        # {url, api_key} for the existing consumer below.
+        from empirica.core.auth import cortex_bearer
 
-        cfg = get_credentials_loader().get_cortex_config()
-        return cfg or None
+        creds = cortex_bearer()
+        if not creds.get("bearer"):
+            return None
+        return {"url": creds.get("url"), "api_key": creds.get("bearer")}
     except Exception as e:
         logger.warning(f"liveness probe cortex loader failed: {e}")
         return None

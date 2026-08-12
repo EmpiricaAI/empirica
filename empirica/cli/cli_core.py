@@ -128,6 +128,7 @@ from .command_handlers.architecture_commands import (
     handle_assess_component_command,
     handle_assess_directory_command,
 )
+from .command_handlers.auth_commands import handle_auth_group_command
 from .command_handlers.bootstrap_context_commands import handle_bootstrap_context_command
 from .command_handlers.chat_commands import handle_chat_command
 from .command_handlers.cockpit_commands import (
@@ -193,6 +194,7 @@ from .command_handlers.trajectory_commands import (
 )
 from .parsers import (
     add_architecture_parsers,
+    add_auth_parsers,
     add_bus_parsers,
     add_cascade_parsers,
     add_chat_parsers,
@@ -307,6 +309,7 @@ def create_argument_parser():
     add_mcp_parsers(subparsers)
     add_message_parsers(subparsers)
     add_mailbox_parsers(subparsers)
+    add_auth_parsers(subparsers)
     add_bus_parsers(subparsers)
     add_mesh_parsers(subparsers)
     add_cockpit_parsers(subparsers)
@@ -477,6 +480,7 @@ _HELP_CATEGORIES = {
         "instance",
         "practitioner",
         "mailbox",
+        "auth",
         "cockpit",
         "daemon-list",
         "daemon-grant",
@@ -795,6 +799,7 @@ def main(args=None):
             "module": handle_module_group_command,
             "listener": handle_listener_group_command,
             "mailbox": handle_mailbox_group_command,
+            "auth": handle_auth_group_command,
             "instance": handle_instance_group_command,
             "practitioner": handle_practitioner_group_command,
             "status": handle_cockpit_status_command,

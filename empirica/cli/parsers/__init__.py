@@ -43,6 +43,7 @@ def format_help_text(text, required=False, default=None):
 
 
 from .architecture_parsers import add_architecture_parsers
+from .auth_parsers import add_auth_parsers
 from .bus_parsers import add_bus_parsers
 from .cascade_parsers import add_cascade_parsers
 from .chat_parsers import add_chat_parsers
@@ -86,6 +87,7 @@ from .voice_parsers import add_voice_parsers
 
 __all__ = [
     "add_architecture_parsers",
+    "add_auth_parsers",
     "add_bus_parsers",
     "add_cascade_parsers",
     "add_chat_parsers",

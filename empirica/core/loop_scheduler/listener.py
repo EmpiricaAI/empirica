@@ -471,7 +471,6 @@ def _emit_catchup_events(
     callers shouldn't depend on the value for control flow).
     """
     try:
-        from empirica.config.credentials_loader import get_credentials_loader
         from empirica.core.loop_scheduler.content_poll import (
             ContentPollUnreachable,
             poll_and_diff,
@@ -481,12 +480,15 @@ def _emit_catchup_events(
         return 0
 
     try:
-        cortex = get_credentials_loader().get_cortex_config()
+        # OAuth-first with api_key fallback (empirica auth login).
+        from empirica.core.auth import cortex_bearer
+
+        creds = cortex_bearer()
     except Exception as e:
         logger.warning(f"catch-up disabled — cortex creds unreadable: {e}")
         return 0
 
-    url, key = cortex.get("url"), cortex.get("api_key")
+    url, key = creds.get("url"), creds.get("bearer")
     if not url or not key:
         logger.debug("catch-up skipped — cortex creds missing")
         return 0
