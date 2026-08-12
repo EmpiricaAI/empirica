@@ -2,7 +2,7 @@
 
 > **We Gave AI a Mirror. Now It Measures What It Believes.**
 
-[![Version](https://img.shields.io/badge/version-1.13.13-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.13)
+[![Version](https://img.shields.io/badge/version-1.13.14-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.14)
 [![PyPI](https://img.shields.io/pypi/v/empirica)](https://pypi.org/project/empirica/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -114,13 +114,13 @@ empirica setup
 
 ```bash
 # Security-hardened Alpine image (~276MB, recommended)
-docker pull nubaeon/empirica:1.13.13-alpine
+docker pull nubaeon/empirica:1.13.14-alpine
 
 # Standard image (Debian slim, ~414MB)
-docker pull nubaeon/empirica:1.13.13
+docker pull nubaeon/empirica:1.13.14
 
 # Run
-docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.13 /bin/bash
+docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.14 /bin/bash
 ```
 </details>
 
@@ -387,9 +387,9 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.13.13
+## What's New in 1.13.14
 
-- **`auth login` no longer inherits a foreign family's client_id.** It reused the stored `client_id` unconditionally, so run over a family belonging to a different client (e.g. the extension's), it would mint the CLI's tokens under the other party's client — two clients presenting one rotating family, which cortex reuse-detection revokes — and because the incoming id then always equalled the stored one, the one-family replace-guard could never fire. Login now reuses the stored client only when the family is the CLI's own (`refresh_owner` in `cli`/`daemon`); over a foreign or unknown-owner block it registers its own client and the guard replaces theirs. Completes the independent-families OAuth model.
+- **The `empirica auth` surface now states that Cortex is proprietary.** The CLI help, command docstrings, and the OAuth module note that Cortex (getempirica.com) is Empirica's proprietary serving layer — not part of this open-source core — and that connecting requires a Cortex account, which is what these OAuth verbs authenticate. Empirica core is fully functional without Cortex. (The end-user docs already carried this; the auth CLI surface did not.)
 ---
 
 ## What's New in 1.12.35
@@ -431,6 +431,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 **Author:** David S. L. Van Assche
-**Version:** 1.13.13
+**Version:** 1.13.14
 
 *Turtles all the way down — built with its own epistemic framework, measuring what it knows at every step.*
