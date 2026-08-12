@@ -629,6 +629,39 @@ def _postflight_parse_config_or_legacy(args):
     config_data, output_format = _parse_workflow_input(args, "POSTFLIGHT")
 
     if config_data:
+        # Reject unknown top-level keys BEFORE anything is recorded (GH #409,
+        # same class as #402): a payload keyed `claims_adjudication` instead of
+        # `claims` was silently accepted, ok:true, and every claim then read
+        # `untested` — a dropped payload wearing a discipline-failure's clothes.
+        # Naming the offender + the accepted set turns a mystery into a typo fix.
+        _known = {
+            "session_id",
+            "vectors",
+            "reasoning",
+            "grounded_vectors",
+            "grounded_rationale",
+            "coverage",
+            "claims",
+            "preflight_session_id",
+            "work_type",
+            "output",
+        }
+        unknown = sorted(k for k in config_data if k not in _known)
+        if unknown:
+            print(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": f"Unknown POSTFLIGHT key(s): {', '.join(unknown)}",
+                        "hint": (
+                            "Claim verdicts go under 'claims' as "
+                            "[{claim|index|id, verdict: held|refuted|untested, evidence}]. "
+                            f"Accepted top-level keys: {', '.join(sorted(_known))}."
+                        ),
+                    }
+                )
+            )
+            sys.exit(1)
         session_id = config_data.get("session_id") or getattr(args, "session_id", None)
         vectors = config_data.get("vectors")
         reasoning = config_data.get("reasoning", "")

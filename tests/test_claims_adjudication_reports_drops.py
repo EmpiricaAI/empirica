@@ -39,10 +39,13 @@ class _DB:
         self.conn.commit()
 
     def declare(self, n=2):
-        for i in range(1, n + 1):
+        self.declare_texts([f"claim {i}" for i in range(1, n + 1)])
+
+    def declare_texts(self, texts):
+        for i, text in enumerate(texts, start=1):
             self.conn.execute(
                 "INSERT INTO transaction_claims VALUES (?,?,?,?,?,?,NULL,NULL,NULL,NULL,?)",
-                (f"claim-id-{i:04d}-aaaa", "S1", "T1", i, f"claim {i}", "read", 1.0),
+                (f"claim-id-{i:04d}-aaaa", "S1", "T1", i, text, "read", 1.0),
             )
         self.conn.commit()
 
@@ -74,10 +77,45 @@ def test_the_specific_confusion_is_named():
 
     confusions = out["adjudication"]["entries"][0]["likely_key_confusion"]
     assert "adjudication -> verdict" in confusions
-    assert "claim -> index or id" in confusions
+    # `claim` is NO LONGER a confusion — it is a valid matcher (claim text). This
+    # entry is rejected only for `adjudication` (should be `verdict`); once that
+    # is fixed the claim-text match resolves (GH #409).
+    assert not any("claim ->" in c for c in confusions)
     # `note` must NOT be named: it is accepted as an alias for `evidence`, so
     # flagging it would send the reader to fix a key that already works.
     assert not any("note" in c for c in confusions)
+
+
+def test_claim_text_is_a_valid_matcher():
+    """The GH #409 fix: {claim: <text>, verdict: ...} — the natural symmetric
+    mirror of declaring {claim: <text>, grounding: ...} — adjudicates, instead
+    of silently recording the claim as untested."""
+    db = _DB()
+    db.declare(2)  # declares "claim 1", "claim 2"
+    out = _adj(db, [{"claim": "claim 1", "verdict": "held", "note": "checked"}])
+    assert out["held"] == 1, "claim-text match must apply the verdict"
+    assert out["untested"] == 1, "the un-adjudicated claim 2 stays untested"
+    assert "adjudication" not in out, "no unmatched entries → no warning block"
+
+
+def test_claim_text_match_tolerates_reformatting():
+    """Text match folds whitespace + case, so a re-wrapped or re-cased echo of
+    the declared claim still resolves."""
+    db = _DB()
+    db.declare(1)  # "claim 1"
+    out = _adj(db, [{"claim": "  CLAIM   1 ", "verdict": "refuted"}])
+    assert out["refuted"] == 1
+
+
+def test_ambiguous_claim_text_is_not_guessed():
+    """Two claims with identical text → the text key maps to None, so an
+    adjudication by that text stays unmatched rather than hitting the wrong one."""
+    db = _DB()
+    # Declare two claims with the SAME text.
+    db.declare_texts(["dup claim", "dup claim"])
+    out = _adj(db, [{"claim": "dup claim", "verdict": "held"}])
+    assert out["held"] == 0, "ambiguous text must not resolve to either claim"
+    assert out["adjudication"]["unmatched"] == 1
 
 
 def test_the_warning_connects_drops_to_the_untested_count():
