@@ -14,7 +14,7 @@ Usage:
 import json
 from typing import Any, TypeVar
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -98,6 +98,16 @@ class PreflightInput(BaseModel):
             value is outside 0.0-1.0, or required vectors (know,
             uncertainty) are missing.
     """
+
+    # Reject unknown top-level keys instead of silently dropping them. Pydantic's
+    # default is extra='ignore', so a payload keyed `task_description` was accepted
+    # with ok:true while task_context stayed "" — and task_context is the SOLE
+    # driver of Qdrant pattern retrieval, so the typo silently cost the caller
+    # every lesson, dead-end, prior mistake and finding for that transaction. It
+    # surfaced only as `patterns: null`, indistinguishable from "found nothing".
+    # POSTFLIGHT already guards this class explicitly (GH #402/#409); this closes
+    # the asymmetry, schema-derived so it cannot drift from the model.
+    model_config = ConfigDict(extra="forbid")
 
     session_id: str = Field(min_length=1, max_length=100, description="Session identifier")
     vectors: dict[str, float] = Field(description="Epistemic vector values")
