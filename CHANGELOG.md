@@ -5,11 +5,11 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.13.10] - 2026-08-12
 
-Queued for 1.13.10 — the daemon-brokered OAuth capability and two silent-drop
-fixes. **Not yet released; the OAuth bridge is safe to enable only against a
-daemon carrying this version's capability signal.**
+The daemon-brokered OAuth capability, its safety guards, and two silent-drop
+fixes. The OAuth bridge is safe to enable only against a daemon carrying this
+version's capability signal — which is what this release provides.
 
 ### Added
 - **Daemon-brokered OAuth — linked identity (David-directed).** One cortex
@@ -25,6 +25,11 @@ daemon carrying this version's capability signal.**
   stays as the headless fallback; the CLI refreshes only families it owns.
 
 ### Fixed
+- **`save_cortex_oauth` never merges tokens across client_ids.** One oauth
+  block is one token family; a write whose `client_id` differs from the stored
+  one now replaces the block wholesale instead of leaving the old client_id
+  paired with new tokens (a mismatch cortex rejects on refresh). A write that
+  omits `client_id` stays a same-family field update.
 - **POSTFLIGHT claim verdicts by claim TEXT (GH #409).** Adjudication keyed on
   `id`/`index` only, so the natural `{claim: "<text>", verdict: "..."}` — the
   symmetric mirror of declaring a claim at CHECK — fell through and every such
