@@ -387,9 +387,9 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.13.12
+## What's New in 1.13.13
 
-- **`auth login` assigns refresh custody by daemon presence.** On a box running `empirica serve`, the CLI's own OAuth family is written `refresh_owner=daemon` so the serve tick is the sole refresher (the token stays warm without the browser — api_key retirement) and the listener + CLI read it without a second-refresher collision. On a headless box it stays `cli` (no competing refresher). Detected via the serve health endpoint; best-effort, defaults to `cli` on any probe failure. This is the last piece of the independent-families model: each surface (CLI, extension) holds its own family under one user identity — no shared token, no CORS change, no bridge.
+- **`auth login` no longer inherits a foreign family's client_id.** It reused the stored `client_id` unconditionally, so run over a family belonging to a different client (e.g. the extension's), it would mint the CLI's tokens under the other party's client — two clients presenting one rotating family, which cortex reuse-detection revokes — and because the incoming id then always equalled the stored one, the one-family replace-guard could never fire. Login now reuses the stored client only when the family is the CLI's own (`refresh_owner` in `cli`/`daemon`); over a foreign or unknown-owner block it registers its own client and the guard replaces theirs. Completes the independent-families OAuth model.
 ---
 
 ## What's New in 1.12.35
