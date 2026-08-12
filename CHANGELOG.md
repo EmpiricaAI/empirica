@@ -12,6 +12,15 @@ project-scoping fix (two layers), the SER strip-phase boundary cleanup, and
 packaging/CI hardening carried over from 1.13.8's recovery.
 
 ### Added
+- **Prevention pipeline emits at PREFLIGHT.** The recurrence oracle has run
+  at every POSTFLIGHT since P1-v1, over an emitter nothing called — so the
+  pipeline had never produced a row. Anti-patterns surfaced into a
+  transaction's context (dead-ends, prior mistakes, lessons) now become
+  `prevention_event` rows the oracle advances to `prevented`/`failed`.
+  Fail-open (measurement never breaks PREFLIGHT), deduped per session. An
+  opt-in `EMPIRICA_PREVENTION_SHADOW` control-arm mode records
+  would-have-surfaced rows while withholding the warnings, for the
+  prevention-value base-rate experiment.
 - **`empirica auth {login,status,logout}` — CLI-owned cortex OAuth.** The
   authorization_code + PKCE flow with the CLI's own registered client: login
   opens the browser, catches the loopback redirect, stores the token set
