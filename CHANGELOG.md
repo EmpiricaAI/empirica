@@ -5,6 +5,22 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.12] - 2026-08-12
+
+Completes the independent-families OAuth model (the ratified architecture):
+`empirica auth login` now assigns refresh custody automatically.
+
+### Added
+- **`auth login` assigns refresh custody by daemon presence.** On a box running
+  `empirica serve`, the CLI's own OAuth family is written `refresh_owner=daemon`
+  so the serve tick is the sole refresher (the token stays warm without the
+  browser — api_key retirement) and the listener + CLI read it without a
+  second-refresher collision. On a headless box it stays `cli` (no competing
+  refresher). Detected via the serve health endpoint; best-effort, defaults to
+  `cli` on any probe failure. This is the last piece of the independent-families
+  model: each surface (CLI, extension) holds its own family under one user
+  identity — no shared token, no CORS change, no bridge.
+
 ## [1.13.11] - 2026-08-12
 
 Credential-path hardening from the extension's live OAuth-bridge bring-up, plus
