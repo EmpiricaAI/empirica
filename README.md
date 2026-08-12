@@ -387,9 +387,9 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.13.13
+## What's New in 1.13.14
 
-- **`auth login` no longer inherits a foreign family's client_id.** It reused the stored `client_id` unconditionally, so run over a family belonging to a different client (e.g. the extension's), it would mint the CLI's tokens under the other party's client — two clients presenting one rotating family, which cortex reuse-detection revokes — and because the incoming id then always equalled the stored one, the one-family replace-guard could never fire. Login now reuses the stored client only when the family is the CLI's own (`refresh_owner` in `cli`/`daemon`); over a foreign or unknown-owner block it registers its own client and the guard replaces theirs. Completes the independent-families OAuth model.
+- **The `empirica auth` surface now states that Cortex is proprietary.** The CLI help, command docstrings, and the OAuth module note that Cortex (getempirica.com) is Empirica's proprietary serving layer — not part of this open-source core — and that connecting requires a Cortex account, which is what these OAuth verbs authenticate. Empirica core is fully functional without Cortex. (The end-user docs already carried this; the auth CLI surface did not.)
 ---
 
 ## What's New in 1.12.35
