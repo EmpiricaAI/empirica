@@ -818,7 +818,9 @@ def _preflight_persist_pattern_count(patterns, resolved_project_path):
         pass
 
 
-def _preflight_retrieve_patterns(db, session_id, project_id, task_context, reasoning, vectors, resolved_project_path):
+def _preflight_retrieve_patterns(
+    db, session_id, project_id, task_context, reasoning, vectors, resolved_project_path, transaction_id=None
+):
     """Load relevant patterns based on task_context or reasoning.
 
     Arms the AI with lessons, dead_ends, and findings BEFORE starting work.
@@ -865,6 +867,17 @@ def _preflight_retrieve_patterns(db, session_id, project_id, task_context, reaso
             )
 
         _preflight_persist_pattern_count(patterns, resolved_project_path)
+
+        # The other half of the prevention pipeline: each surfaced anti-pattern
+        # becomes an `exposed` prevention_event the POSTFLIGHT oracle can advance.
+        # Fail-open — measurement must never break PREFLIGHT.
+        try:
+            from empirica.core.prevention.wiring import emit_preflight_exposures
+
+            emit_preflight_exposures(db, session_id, transaction_id, patterns)
+        except Exception as e:
+            logger.debug(f"prevention exposure emission failed (non-fatal): {e}")
+
         return patterns
     except Exception as e:
         logger.debug(f"Pattern retrieval failed (optional): {e}")
@@ -1100,7 +1113,14 @@ def handle_preflight_submit_command(args):
 
             # Stage 9: Retrieve patterns for task context
             patterns = _preflight_retrieve_patterns(
-                db, session_id, cal["project_id"], task_context, reasoning, vectors, resolved_project_path
+                db,
+                session_id,
+                cal["project_id"],
+                task_context,
+                reasoning,
+                vectors,
+                resolved_project_path,
+                transaction_id=transaction_id,
             )
 
             db.close()

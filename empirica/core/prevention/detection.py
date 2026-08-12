@@ -48,16 +48,32 @@ def apply_prevention_detection(db, session_id: str, *, now: float | None = None)
         for row_id, goal_id, subtask_id, exposed_at, acknowledged, window_s in exposed:
             since = exposed_at or 0
             # Causal order: only failures logged AFTER the exposure count.
-            failure = db.conn.execute(
-                "SELECT 1 FROM mistakes_made WHERE session_id = ? AND goal_id = ? AND created_timestamp > ? LIMIT 1",
-                (session_id, goal_id, since),
-            ).fetchone()
-            if not failure:
+            # NULL-goal rows match SESSION-scoped: PREFLIGHT emission (wiring.py)
+            # runs before any goal exists, and `goal_id = NULL` matches nothing in
+            # SQL — without this branch every PREFLIGHT exposure would be
+            # structurally unable to fail, which is a thumb on the experiment's
+            # scale, not a safe default.
+            if goal_id is None:
                 failure = db.conn.execute(
-                    "SELECT 1 FROM session_dead_ends WHERE session_id = ? "
-                    "AND (goal_id = ? OR subtask_id = ?) AND created_timestamp > ? LIMIT 1",
-                    (session_id, goal_id, subtask_id, since),
+                    "SELECT 1 FROM mistakes_made WHERE session_id = ? AND created_timestamp > ? LIMIT 1",
+                    (session_id, since),
                 ).fetchone()
+                if not failure:
+                    failure = db.conn.execute(
+                        "SELECT 1 FROM session_dead_ends WHERE session_id = ? AND created_timestamp > ? LIMIT 1",
+                        (session_id, since),
+                    ).fetchone()
+            else:
+                failure = db.conn.execute(
+                    "SELECT 1 FROM mistakes_made WHERE session_id = ? AND goal_id = ? AND created_timestamp > ? LIMIT 1",
+                    (session_id, goal_id, since),
+                ).fetchone()
+                if not failure:
+                    failure = db.conn.execute(
+                        "SELECT 1 FROM session_dead_ends WHERE session_id = ? "
+                        "AND (goal_id = ? OR subtask_id = ?) AND created_timestamp > ? LIMIT 1",
+                        (session_id, goal_id, subtask_id, since),
+                    ).fetchone()
 
             if failure:
                 outcome = "failed"  # exposed, but the warned-about failure still landed
