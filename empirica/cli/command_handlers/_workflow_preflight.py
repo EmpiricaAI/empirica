@@ -870,11 +870,20 @@ def _preflight_retrieve_patterns(
 
         # The other half of the prevention pipeline: each surfaced anti-pattern
         # becomes an `exposed` prevention_event the POSTFLIGHT oracle can advance.
-        # Fail-open — measurement must never break PREFLIGHT.
+        # In EXP-SHADOW control-arm mode the rows are recorded shadow=true and
+        # the anti-pattern classes are STRIPPED before they reach the AI — the
+        # experiment withholds warnings, never knowledge. Fail-open — measurement
+        # must never break PREFLIGHT.
         try:
-            from empirica.core.prevention.wiring import emit_preflight_exposures
+            from empirica.core.prevention.wiring import (
+                emit_preflight_exposures,
+                shadow_mode_active,
+                suppress_exposure_classes,
+            )
 
             emit_preflight_exposures(db, session_id, transaction_id, patterns)
+            if shadow_mode_active():
+                patterns = suppress_exposure_classes(patterns)
         except Exception as e:
             logger.debug(f"prevention exposure emission failed (non-fatal): {e}")
 

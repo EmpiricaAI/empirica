@@ -141,3 +141,57 @@ def test_emission_is_fail_open():
     assert emit_preflight_exposures(broken, "s", "t", PATTERNS) == 0
     assert emit_preflight_exposures(_db(), "s", "t", None) == 0
     assert emit_preflight_exposures(_db(), "s", "t", {"dead_ends": "not-a-list"}) == 0
+
+
+# ─── EXP-SHADOW control arm (spec §6, ecodex prop_ualvtcxj) ─────────────
+
+
+def test_shadow_mode_records_hidden_rows_and_suppresses_delivery(monkeypatch):
+    """Control arm: rows exist (shadow=true, acknowledged=false — nothing was
+    delivered) and the anti-pattern classes are stripped from what reaches the
+    AI, while knowledge classes pass through untouched."""
+    from empirica.core.prevention.wiring import suppress_exposure_classes
+
+    db = _db()
+    monkeypatch.setenv("EMPIRICA_PREVENTION_SHADOW", "1")
+    patterns = {k: (list(v) if isinstance(v, list) else dict(v)) for k, v in PATTERNS.items()}
+    written = emit_preflight_exposures(db, "ctl1", "tx1", patterns)
+    assert written == 3
+    rows = db.conn.execute("SELECT shadow, acknowledged FROM prevention_events").fetchall()
+    assert all(r == (1, 0) for r in rows), "shadow rows are recorded and never acknowledged"
+
+    suppressed = suppress_exposure_classes(patterns)
+    assert all(suppressed[cls] == [] for cls in EXPOSURE_CLASSES)
+    assert suppressed["relevant_findings"], "the experiment withholds WARNINGS, not knowledge"
+
+
+def test_shadow_rows_close_at_window_without_acknowledgement(monkeypatch):
+    """The base-rate cell: a shadow row with no failure closes at window
+    elapse even though acknowledged is structurally false — under the
+    acknowledged-only rule the control arm could never produce its
+    no-failure measurement and the ATE would have no denominator."""
+    db = _db()
+    monkeypatch.setenv("EMPIRICA_PREVENTION_SHADOW", "1")
+    emit_preflight_exposures(db, "ctl1", "tx1", PATTERNS)
+    exposed_at = db.conn.execute("SELECT MIN(exposed_at) FROM prevention_events").fetchone()[0]
+    window_s = db.conn.execute("SELECT MIN(window_s) FROM prevention_events").fetchone()[0]
+
+    assert apply_prevention_detection(db, "ctl1", now=exposed_at + window_s + 1) == 3
+    rows = db.conn.execute("SELECT outcome, shadow FROM prevention_events").fetchall()
+    assert all(r == ("prevented", 1) for r in rows), "no-failure-within-W, disambiguated by the shadow flag"
+
+
+def test_shadow_rows_fail_like_treatment_rows(monkeypatch):
+    """Failure incidence must be measurable identically in both arms."""
+    db = _db()
+    monkeypatch.setenv("EMPIRICA_PREVENTION_SHADOW", "1")
+    emit_preflight_exposures(db, "ctl1", "tx1", PATTERNS)
+    exposed_at = db.conn.execute("SELECT MIN(exposed_at) FROM prevention_events").fetchone()[0]
+    db.conn.execute(
+        "INSERT INTO mistakes_made (session_id, goal_id, created_timestamp) VALUES ('ctl1', NULL, ?)",
+        (exposed_at + 60,),
+    )
+    db.conn.commit()
+    assert apply_prevention_detection(db, "ctl1", now=exposed_at + 120) == 3
+    outcomes = {r[0] for r in db.conn.execute("SELECT outcome FROM prevention_events").fetchall()}
+    assert outcomes == {"failed"}

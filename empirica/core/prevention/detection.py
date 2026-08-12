@@ -36,7 +36,7 @@ def apply_prevention_detection(db, session_id: str, *, now: float | None = None)
         # or a fabrication exposure would get a FALSE 'prevented' verdict from the
         # mere absence of a mistake. Those rows await a distinct oracle (spec §6 Q4).
         exposed = db.conn.execute(
-            "SELECT id, goal_id, subtask_id, exposed_at, acknowledged, window_s "
+            "SELECT id, goal_id, subtask_id, exposed_at, acknowledged, window_s, shadow "
             "FROM prevention_events WHERE session_id = ? AND outcome = 'exposed' "
             "AND (outcome_family = 'prevention' OR outcome_family IS NULL)",
             (session_id,),
@@ -45,7 +45,7 @@ def apply_prevention_detection(db, session_id: str, *, now: float | None = None)
             return 0
 
         updated = 0
-        for row_id, goal_id, subtask_id, exposed_at, acknowledged, window_s in exposed:
+        for row_id, goal_id, subtask_id, exposed_at, acknowledged, window_s, shadow in exposed:
             since = exposed_at or 0
             # Causal order: only failures logged AFTER the exposure count.
             # NULL-goal rows match SESSION-scoped: PREFLIGHT emission (wiring.py)
@@ -77,8 +77,13 @@ def apply_prevention_detection(db, session_id: str, *, now: float | None = None)
 
             if failure:
                 outcome = "failed"  # exposed, but the warned-about failure still landed
-            elif acknowledged and window_s is not None and (now - since) >= window_s:
-                outcome = "prevented"  # window elapsed, acknowledged, no failure = prevention
+            elif (acknowledged or shadow) and window_s is not None and (now - since) >= window_s:
+                # Shadow (control-arm) rows were never delivered, so acknowledged
+                # is structurally false — they close at window elapse regardless.
+                # On a shadow row 'prevented' reads as "no failure within W,
+                # UNEXPOSED": the base-rate cell, disambiguated by the shadow
+                # flag the analysis conditions on (spec §6 no-control-arm row).
+                outcome = "prevented"
             else:
                 continue  # window still open — absence is not yet evidence (§5)
 

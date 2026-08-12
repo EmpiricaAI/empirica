@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 
 from .persist import emit_prevention_exposure
 
@@ -35,6 +36,18 @@ logger = logging.getLogger(__name__)
 
 # The classes whose surfacing constitutes an anti-pattern exposure.
 EXPOSURE_CLASSES = ("dead_ends", "prior_mistakes", "lessons")
+
+# EXP-SHADOW control arm (spec §6: "Core emits exposures AND non-exposures (a
+# shadow flag) so both arms exist"). When set on a subject practice, retrieval
+# still runs — so would-have-surfaced is KNOWN — but the anti-pattern classes
+# are stripped from what reaches the AI, and each item is recorded as a
+# shadow=true, acknowledged=false row. The corpus runner sets this env var on
+# control-arm seats; treatment seats never set it.
+SHADOW_MODE_ENV = "EMPIRICA_PREVENTION_SHADOW"
+
+
+def shadow_mode_active() -> bool:
+    return os.getenv(SHADOW_MODE_ENV, "").strip().lower() in ("1", "true", "yes")
 
 
 def _pattern_key(cls: str, item: dict) -> str:
@@ -48,15 +61,21 @@ def _pattern_key(cls: str, item: dict) -> str:
     return f"{cls}:{ident}"
 
 
-def emit_preflight_exposures(db, session_id: str, transaction_id: str | None, patterns: dict | None) -> int:
+def emit_preflight_exposures(
+    db, session_id: str, transaction_id: str | None, patterns: dict | None, *, shadow: bool | None = None
+) -> int:
     """Emit one exposure row per surfaced anti-pattern. Returns rows written.
 
-    Fail-open and duplicate-safe: a pattern already exposed in this session
-    (any outcome) is not re-emitted — re-surfacing is retrieval doing its job,
-    not a new treatment event. Errors never propagate into PREFLIGHT.
+    `shadow=None` reads the env toggle; True records control-arm rows
+    (shadow=true, acknowledged=false — nothing was delivered). Fail-open and
+    duplicate-safe: a pattern already exposed in this session (any outcome) is
+    not re-emitted — re-surfacing is retrieval doing its job, not a new
+    treatment event. Errors never propagate into PREFLIGHT.
     """
     if not patterns or not isinstance(patterns, dict):
         return 0
+    if shadow is None:
+        shadow = shadow_mode_active()
     try:
         written = 0
         for cls in EXPOSURE_CLASSES:
@@ -79,12 +98,29 @@ def emit_preflight_exposures(db, session_id: str, transaction_id: str | None, pa
                     transaction_id,
                     pattern_key=key,
                     subject_key=f"session:{session_id}",
-                    acknowledged=True,  # injected into context — see module docstring
+                    # Treatment: injected into context = acknowledged (see module
+                    # docstring). Control: nothing delivered, so never acknowledged.
+                    acknowledged=not shadow,
+                    shadow=shadow,
                 )
                 written += 1
         if written:
-            logger.debug(f"prevention: {written} exposure(s) emitted at PREFLIGHT")
+            logger.debug(f"prevention: {written} {'shadow ' if shadow else ''}exposure(s) emitted at PREFLIGHT")
         return written
     except Exception as e:
         logger.debug(f"prevention emission failed (non-fatal): {e}")
         return 0
+
+
+def suppress_exposure_classes(patterns: dict | None) -> dict | None:
+    """Control-arm delivery suppression: strip the anti-pattern classes so
+    they never reach the AI's context. Called AFTER emission recorded what
+    would have surfaced. Returns the same dict, mutated — knowledge classes
+    (findings, eidetic, docs, goals…) pass through untouched, because the
+    experiment withholds WARNINGS, not knowledge."""
+    if not patterns or not isinstance(patterns, dict):
+        return patterns
+    for cls in EXPOSURE_CLASSES:
+        if cls in patterns:
+            patterns[cls] = []
+    return patterns
