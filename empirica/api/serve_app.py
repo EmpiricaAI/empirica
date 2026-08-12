@@ -98,13 +98,26 @@ class ArtifactImportResponse(BaseModel):
 class CortexCredentialsRequest(BaseModel):
     """Set Cortex creds via the daemon. At least one field required.
 
-    Extension flow: user enters cortexUrl + cortexApiKey in Settings,
-    extension POSTs to this endpoint, daemon writes to
-    ~/.empirica/credentials.yaml so the CLI sees the same creds.
+    Two flows share this route:
+    - api_key bridge (legacy): user enters cortexUrl + cortexApiKey in Settings.
+    - OAuth bridge (linked identity): the extension POSTs its OAuth token set so
+      the CLI reads the SAME family from credentials.yaml. `refresh_owner`
+      defaults to 'daemon' when oauth fields are present — the daemon's tick
+      becomes the sole refresher (spec: one identity, oauth-bridged, api_key
+      retired). The extension MUST then stop self-refreshing that family.
     """
 
     url: str | None = None
     api_key: str | None = None
+    # OAuth bridge fields (all optional; presence of access_token triggers the
+    # oauth write path). Never carries the api_key's job — this bridges the
+    # OAuth layer, per the linked-identity design.
+    oauth_access_token: str | None = None
+    oauth_refresh_token: str | None = None
+    oauth_expires_at: float | None = None
+    oauth_token_endpoint: str | None = None
+    oauth_client_id: str | None = None
+    oauth_refresh_owner: str | None = None  # defaults to 'daemon' below
 
 
 class CortexCredentialsResponse(BaseModel):
@@ -249,14 +262,52 @@ def _drift_watch_loop(interval_sec: float, stop: threading.Event) -> None:
         return
 
 
-def _make_serve_lifespan():
-    """Build the ASGI lifespan that runs the drift watcher for the app's life.
+def _oauth_refresh_loop(interval_sec: float, stop: threading.Event) -> None:
+    """The daemon is the SOLE refresher of daemon-owned OAuth families.
 
-    Interval from EMPIRICA_SERVE_DRIFT_CHECK_SEC (default 60s); <=0 disables the
-    watcher (the /health surfacing still works — it checks live per request)."""
+    Cortex rotates the refresh token on every use and reuse-detection revokes
+    the whole family, so exactly one process may refresh. When the extension
+    bridges its OAuth in with refresh_owner='daemon', THIS loop keeps it fresh
+    — the CLI and the extension both become read-only consumers, which is what
+    lets the api_key retire without the browser needing to be open (the
+    always-on daemon carries the renewal).
+
+    Only touches refresh_owner='daemon' families; a 'cli'/absent family is the
+    headless-fallback case that its own shell process refreshes. Fail-open —
+    a refresh failure logs and retries next tick; it never crashes the daemon.
+    """
+    from empirica.config.credentials_loader import get_credentials_loader
+    from empirica.core.auth import default_refresh
+
+    while not stop.wait(interval_sec):
+        try:
+            loader = get_credentials_loader()
+            oauth = loader.get_cortex_oauth()
+            if (oauth.get("refresh_owner") or "cli").lower() != "daemon":
+                continue
+            if not oauth.get("refresh_token"):
+                continue
+            # cortex_access_token refreshes through the injected callable only
+            # when the token is within leeway of expiry, and persists the
+            # rotated set. Returns None on failure — logged, retried next tick.
+            token = loader.cortex_access_token(refresh=default_refresh(loader), leeway_s=300.0)
+            if token is None:
+                logger.warning("serve: daemon-owned oauth token refresh returned no token; will retry next tick")
+        except Exception as e:
+            logger.warning(f"serve: oauth refresh tick failed (non-fatal): {e}")
+
+
+def _make_serve_lifespan():
+    """Build the ASGI lifespan that runs the drift watcher + oauth refresher for
+    the app's life.
+
+    Drift interval from EMPIRICA_SERVE_DRIFT_CHECK_SEC (default 60s); <=0
+    disables it. OAuth-refresh interval from EMPIRICA_SERVE_OAUTH_REFRESH_SEC
+    (default 300s); <=0 disables it (the CLI-own-client fallback still works)."""
     from contextlib import asynccontextmanager
 
     interval = float(os.environ.get("EMPIRICA_SERVE_DRIFT_CHECK_SEC", "60"))
+    oauth_interval = float(os.environ.get("EMPIRICA_SERVE_OAUTH_REFRESH_SEC", "300"))
     stop = threading.Event()
 
     @asynccontextmanager
@@ -267,6 +318,13 @@ def _make_serve_lifespan():
                 args=(interval, stop),
                 daemon=True,
                 name="empirica-serve-drift",
+            ).start()
+        if oauth_interval > 0:
+            threading.Thread(
+                target=_oauth_refresh_loop,
+                args=(oauth_interval, stop),
+                daemon=True,
+                name="empirica-serve-oauth-refresh",
             ).start()
         try:
             yield
@@ -444,19 +502,34 @@ def _register_credentials_routes(app: FastAPI) -> None:
 
         At least one of url/api_key must be provided. Atomic write via
         tempfile + rename — never partial-corrupts the file."""
-        if not req.url and not req.api_key:
+        if not req.url and not req.api_key and not req.oauth_access_token:
             return CortexCredentialsResponse(
                 ok=False,
-                error="url or api_key required",
+                error="url, api_key, or oauth_access_token required",
             )
         try:
             from empirica.config.credentials_loader import CredentialsLoader
 
             loader = CredentialsLoader()
-            path = loader.save_cortex_config(
-                url=req.url,
-                api_key=req.api_key,
-            )
+            path = None
+            if req.url or req.api_key:
+                path = loader.save_cortex_config(
+                    url=req.url,
+                    api_key=req.api_key,
+                )
+            # OAuth bridge: write the token set under cortex.oauth WITHOUT
+            # touching api_key (the two sections are independent). Default the
+            # custody to 'daemon' — the bridge exists so the daemon refreshes
+            # and every surface reads one family.
+            if req.oauth_access_token or req.oauth_refresh_token:
+                path = loader.save_cortex_oauth(
+                    access_token=req.oauth_access_token,
+                    refresh_token=req.oauth_refresh_token,
+                    expires_at=req.oauth_expires_at,
+                    token_endpoint=req.oauth_token_endpoint,
+                    client_id=req.oauth_client_id,
+                    refresh_owner=(req.oauth_refresh_owner or "daemon"),
+                )
             cfg = loader.get_cortex_config()
             key = cfg.get("api_key") or ""
             return CortexCredentialsResponse(

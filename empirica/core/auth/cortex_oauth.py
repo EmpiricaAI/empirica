@@ -273,7 +273,14 @@ def cortex_bearer(loader=None, *, http=_http_json) -> dict[str, Any]:
     cfg = loader.get_cortex_config()
     token = None
     try:
-        token = loader.cortex_access_token(refresh=default_refresh(loader, http=http))
+        # Refresh custody: only the OWNER refreshes. A daemon-owned family is
+        # kept fresh by the serve process's tick — the CLI reads access_token
+        # ONLY (no refresh callable), or it would be a second refresher and
+        # cortex would revoke the family. 'cli' / absent → this process refreshes
+        # (headless-fallback mode).
+        owner = (loader.get_cortex_oauth().get("refresh_owner") or "cli").lower()
+        refresh_cb = None if owner == "daemon" else default_refresh(loader, http=http)
+        token = loader.cortex_access_token(refresh=refresh_cb)
     except Exception as e:  # refresh machinery must never take down the api_key path
         logger.warning(f"oauth token resolution failed, falling back to api_key: {e}")
     if token:
@@ -367,6 +374,10 @@ def login(
         expires_at=_expires_at(tokens, now=now),
         token_endpoint=disco["token_endpoint"],
         client_id=client_id,
+        # auth login is the headless-fallback path: this shell process owns
+        # its own client's family and refreshes it. The daemon-brokered path
+        # writes refresh_owner='daemon' via the credentials route instead.
+        refresh_owner="cli",
     )
     return {
         "ok": True,

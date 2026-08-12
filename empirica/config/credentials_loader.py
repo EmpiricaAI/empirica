@@ -490,6 +490,7 @@ class CredentialsLoader:
         expires_at: float | None = None,
         token_endpoint: str | None = None,
         client_id: str | None = None,
+        refresh_owner: str | None = None,
         config_path: Path | None = None,
     ) -> Path:
         """Persist the OAuth token set under `cortex.oauth`.
@@ -502,7 +503,7 @@ class CredentialsLoader:
         Reuses `save_cortex_config`'s atomic write, so the file keeps mode 0600
         (mkstemp creates at 0600; `os.replace` preserves it).
         """
-        if all(v is None for v in (access_token, refresh_token, expires_at, token_endpoint, client_id)):
+        if all(v is None for v in (access_token, refresh_token, expires_at, token_endpoint, client_id, refresh_owner)):
             raise ValueError("save_cortex_oauth: at least one token field required")
 
         target = self._resolve_credentials_target(config_path)
@@ -520,10 +521,17 @@ class CredentialsLoader:
             ("refresh_token", refresh_token),
             ("expires_at", expires_at),
             ("token_endpoint", token_endpoint),
-            # The CLI's OWN DCR client — sole refresher of this token family.
-            # (A different client attempting refresh gets the presented token
-            # revoked by cortex; the id must travel with the token set.)
+            # The client_id the token family was minted to — a refresh MUST
+            # present this exact id (cortex revokes on mismatch), so it travels
+            # with the set.
             ("client_id", client_id),
+            # Who is allowed to refresh this family: 'cli' (the shell process,
+            # headless-fallback mode) or 'daemon' (the always-on serve process,
+            # the linked/brokered mode). Exactly ONE refresher — cortex rotates
+            # on every use and reuse-detection revokes the whole family, so two
+            # refreshers mutually destroy it. Absent → treated as 'cli' (the
+            # headless default; keeps pre-field tokens working).
+            ("refresh_owner", refresh_owner),
         ):
             if value is not None:
                 oauth_block[key] = value
