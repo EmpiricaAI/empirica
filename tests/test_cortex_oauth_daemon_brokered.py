@@ -195,3 +195,27 @@ def test_daemon_refresh_tick_only_touches_daemon_owned(loader, monkeypatch):
     stop.wait = _wait_once  # type: ignore[method-assign]
     _oauth_refresh_loop(0.01, stop)
     assert called["n"] == 0, "a cli-owned family must be skipped by the daemon tick"
+
+
+# ─── Version-skew capability signal (extension prop_xxex55iv) ───────────
+
+
+def test_response_advertises_capability_and_echoes_persisted_owner():
+    """The daemon must advertise oauth_bridge_supported (presence-and-true =
+    'I persist refresh_owner') and echo the owner actually persisted, so a
+    client VERIFIES its write survived instead of trusting ok:true. The 1.13.9
+    skew accepted the field and dropped it — the echo is what catches that."""
+    from empirica.api.serve_app import CortexCredentialsResponse
+
+    # A build carrying refresh_owner defaults the capability flag to True.
+    resp = CortexCredentialsResponse(ok=True, oauth_set=True, oauth_refresh_owner="daemon")
+    assert resp.oauth_bridge_supported is True
+    assert resp.oauth_refresh_owner == "daemon"
+
+    # A pre-capability daemon serializes WITHOUT the field; a client parsing
+    # that JSON sees it absent → treats as unsupported → does not bridge.
+    legacy_json = '{"ok": true, "url": "https://cortex.example", "api_key_set": true}'
+    import json as _json
+
+    parsed = _json.loads(legacy_json)
+    assert "oauth_bridge_supported" not in parsed, "absence is the unsupported signal — the client must not assume True"

@@ -121,9 +121,17 @@ class CortexCredentialsRequest(BaseModel):
 
 
 class CortexCredentialsResponse(BaseModel):
-    """Cortex creds GET/POST response. NEVER returns the full key over
-    the wire — `api_key_preview` is last-4-chars only, so even if CORS
-    gets loosened the secret doesn't leak via read."""
+    """Cortex creds GET/POST response. NEVER returns the full key OR a live
+    oauth token over the wire — `api_key_preview` is last-4-chars only, and no
+    token field is echoed, so even a loosened CORS can't exfiltrate a secret.
+
+    `oauth_bridge_supported` is the CAPABILITY SIGNAL: its PRESENCE-AND-TRUE
+    tells a client this daemon persists the oauth bridge WITH refresh_owner.
+    A pre-1.13.10 daemon omits the field entirely, so absence = unsupported =
+    the client must not bridge (or it writes an ownerless family that two
+    processes refresh → cortex revokes it). `oauth_refresh_owner` ECHOES what
+    was actually persisted, so a writer VERIFIES its field survived rather than
+    trusting ok:true — the 1.13.9 skew accepted the field and dropped it."""
 
     ok: bool
     url: str | None = None
@@ -131,6 +139,10 @@ class CortexCredentialsResponse(BaseModel):
     api_key_preview: str | None = None
     written_path: str | None = None
     error: str | None = None
+    # Capability signal + write-verification for the OAuth bridge.
+    oauth_bridge_supported: bool = True
+    oauth_set: bool = False
+    oauth_refresh_owner: str | None = None
 
 
 class NtfyCredentialsRequest(BaseModel):
@@ -532,12 +544,19 @@ def _register_credentials_routes(app: FastAPI) -> None:
                 )
             cfg = loader.get_cortex_config()
             key = cfg.get("api_key") or ""
+            # Re-read what was ACTUALLY persisted so the client verifies its
+            # oauth write survived — the 1.13.9 skew accepted the field and
+            # dropped it, returning ok:true over a token with no owner.
+            loader._credentials_cache = None
+            oauth = loader.get_cortex_oauth()
             return CortexCredentialsResponse(
                 ok=True,
                 url=cfg.get("url"),
                 api_key_set=bool(key),
                 api_key_preview=f"...{key[-4:]}" if len(key) >= 4 else None,
                 written_path=str(path),
+                oauth_set=bool(oauth.get("access_token")),
+                oauth_refresh_owner=oauth.get("refresh_owner"),
             )
         except Exception as e:
             logger.error(f"set_cortex_credentials failed: {e}", exc_info=True)
@@ -554,13 +573,22 @@ def _register_credentials_routes(app: FastAPI) -> None:
         try:
             from empirica.config.credentials_loader import CredentialsLoader
 
-            cfg = CredentialsLoader().get_cortex_config()
+            loader = CredentialsLoader()
+            cfg = loader.get_cortex_config()
             key = cfg.get("api_key") or ""
+            oauth = loader.get_cortex_oauth()
+            # Advertise the capability + the current owner. Deliberately does
+            # NOT return the access token (live-bearer exfiltration; CORS allows
+            # any chrome-extension origin). The client reads oauth_bridge_supported
+            # to decide whether to bridge, and oauth_refresh_owner to see who
+            # currently owns refresh — never the token itself.
             return CortexCredentialsResponse(
                 ok=True,
                 url=cfg.get("url"),
                 api_key_set=bool(key),
                 api_key_preview=f"...{key[-4:]}" if len(key) >= 4 else None,
+                oauth_set=bool(oauth.get("access_token")),
+                oauth_refresh_owner=oauth.get("refresh_owner"),
             )
         except Exception as e:
             logger.error(f"get_cortex_credentials failed: {e}", exc_info=True)
