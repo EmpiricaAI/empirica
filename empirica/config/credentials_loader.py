@@ -516,6 +516,18 @@ class CredentialsLoader:
         if not isinstance(oauth_block, dict):
             oauth_block = {}
 
+        # One oauth block = ONE token family = ONE client_id. Writing tokens with
+        # a client_id that DIFFERS from the stored one must REPLACE the block, not
+        # merge into it — a per-field merge would leave the old client_id paired
+        # with the new tokens, and cortex revokes a refresh whose presented
+        # client_id != the family's (row["client_id"] != client → revoke). That
+        # Frankenstein pairing is what corrupted David's auth-login family when the
+        # extension bridged token-only over it (prop_qybz3yc4). A write that omits
+        # client_id is a same-family field update and merges as before.
+        existing_cid = oauth_block.get("client_id")
+        if client_id is not None and existing_cid is not None and client_id != existing_cid:
+            oauth_block = {}
+
         for key, value in (
             ("access_token", access_token),
             ("refresh_token", refresh_token),

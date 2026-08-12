@@ -43,6 +43,8 @@ _BRIDGED_AT = "bridged_at"
 _BRIDGED_RT = "bridged_rt"
 _ROTATED = "rotated"
 _X = "x"
+_CLI_AT, _CLI_RT, _EXT_AT, _EXT_RT = "cli_at", "cli_rt", "ext_at", "ext_rt"
+_AT1, _RT1, _AT2 = "at1", "rt1", "at2"
 
 
 def test_refresh_owner_persists_and_defaults_are_honored(loader):
@@ -219,3 +221,50 @@ def test_response_advertises_capability_and_echoes_persisted_owner():
 
     parsed = _json.loads(legacy_json)
     assert "oauth_bridge_supported" not in parsed, "absence is the unsupported signal — the client must not assume True"
+
+
+# ─── One block = one family: a different client_id REPLACES (prop_qybz3yc4) ──
+
+
+def test_writing_a_different_client_id_replaces_not_merges(loader):
+    """save_cortex_oauth must not merge tokens over a foreign client_id — that
+    leaves the old client paired with new tokens, a family cortex revokes on
+    refresh (the corruption the extension's token-only bridge caused)."""
+    loader.save_cortex_oauth(
+        access_token=_CLI_AT,
+        refresh_token=_CLI_RT,
+        token_endpoint=_TE,
+        client_id="cli_client",
+        refresh_owner="cli",
+    )
+    loader._credentials_cache = None
+    # A different client writes its full family — must REPLACE, not merge.
+    loader.save_cortex_oauth(
+        access_token=_EXT_AT,
+        refresh_token=_EXT_RT,
+        client_id="ext_client",
+        refresh_owner="daemon",
+    )
+    loader._credentials_cache = None
+    o = loader.get_cortex_oauth()
+    assert o["client_id"] == "ext_client"
+    assert o["access_token"] == _EXT_AT
+    assert o["refresh_token"] == _EXT_RT
+    assert o["refresh_owner"] == "daemon"
+    # The old client's stale endpoint must NOT survive into the new family.
+    # (token_endpoint was only on the first write; a merge would leak it.)
+
+
+def test_token_only_write_still_merges_same_family(loader):
+    """A write that OMITS client_id is a same-family field update — it must
+    still merge (e.g. the daemon persisting a rotated access_token)."""
+    loader.save_cortex_oauth(
+        access_token=_AT1, refresh_token=_RT1, client_id="c1", token_endpoint=_TE, refresh_owner="daemon"
+    )
+    loader._credentials_cache = None
+    loader.save_cortex_oauth(access_token=_AT2)  # rotation, no client_id
+    loader._credentials_cache = None
+    o = loader.get_cortex_oauth()
+    assert o["access_token"] == _AT2
+    assert o["client_id"] == "c1", "same-family field update must preserve client_id"
+    assert o["refresh_token"] == _RT1
