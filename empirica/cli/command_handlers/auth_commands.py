@@ -1,4 +1,9 @@
-"""`empirica auth` — CLI-owned cortex OAuth (login / status / logout).
+"""`empirica auth` — OAuth for the proprietary Cortex service (login/status/logout).
+
+Cortex (getempirica.com) is Empirica's PROPRIETARY serving layer — not part of
+this open-source core. Connecting to it requires a Cortex account; these verbs
+authenticate that account via OAuth. Empirica core runs fully without Cortex
+(single-AI measurement); Cortex is what lights up the mesh.
 
 The path that makes api_key retirement structurally possible on a CLI box:
 the CLI holds its own DCR client and refreshes its own tokens. The api_key

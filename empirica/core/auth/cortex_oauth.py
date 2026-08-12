@@ -1,4 +1,9 @@
-"""CLI-owned OAuth against cortex — authorization_code + PKCE, RFC 8252 native flow.
+"""CLI-owned OAuth against the proprietary Cortex service — authorization_code
++ PKCE, RFC 8252 native flow.
+
+Cortex (getempirica.com) is Empirica's PROPRIETARY serving layer, not part of
+this open-source core; connecting requires a Cortex account. This module only
+authenticates that account — Empirica core is fully functional without it.
 
 Design constraints, all measured (2026-08-12, OAuth thread):
 
