@@ -883,7 +883,13 @@ class ReleaseManager:
                 _venv.create(vdir, with_pip=True)
                 pip = vdir / "bin" / "pip"
                 inst = subprocess.run(
-                    [str(pip), "install", "-q", "-U", "empirica", "empirica-mcp"],
+                    # --no-cache-dir: the throwaway venv still shares ~/.cache/pip,
+                    # so right after publish a stale cached index for the PRIOR
+                    # version resolves the old pair and false-fails the closure —
+                    # exactly when this check runs (diagnosed on 1.13.15; a manual
+                    # `pip cache purge` then re-verify went green). Force a fresh
+                    # index fetch so the check reads what a first-time user gets.
+                    [str(pip), "install", "--no-cache-dir", "-q", "-U", "empirica", "empirica-mcp"],
                     capture_output=True,
                     text=True,
                     timeout=300,
