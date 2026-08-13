@@ -29,6 +29,7 @@ import json
 import logging
 import secrets
 import socket
+import sys
 import threading
 import urllib.parse
 import urllib.request
@@ -369,12 +370,34 @@ def login(
         )
     )
 
-    if open_browser is None:
-        import webbrowser
+    # Print the URL BEFORE any browser attempt, to STDERR. A browserless box
+    # (WSL2 with Windows-interop off, headless server, container) can neither
+    # open a browser NOR reliably signal that it failed — webbrowser.open returns
+    # True for a BROWSER='echo %s' shim, and webbrowser.get() RAISES where no
+    # browser exists at all. So NEVER gate on the opener: always surface the URL
+    # so the user can paste it into any reachable browser, and the loopback
+    # callback still returns. stderr (not stdout) keeps --output json parseable.
+    print(
+        f"\nAuthorize this seat in your browser. If it does not open automatically, "
+        f"open this URL:\n\n    {authorize_url}\n",
+        file=sys.stderr,
+        flush=True,
+    )
 
-        open_browser = webbrowser.open
-    opener = threading.Thread(target=open_browser, args=(authorize_url,), daemon=True)
-    opener.start()
+    def _best_effort_open() -> None:
+        try:
+            opener_fn = open_browser
+            if opener_fn is None:
+                import webbrowser
+
+                opener_fn = webbrowser.open  # may itself raise on a browserless box
+            opener_fn(authorize_url)
+        except Exception as e:
+            # browserless (WSL2 interop-off, headless) — expected; the URL was
+            # already printed above, so this is a degraded path, not a failure.
+            logger.debug("auth login: browser open failed (%s); URL printed to stderr", e)
+
+    threading.Thread(target=_best_effort_open, daemon=True).start()
 
     code = _wait_for_callback(server, state, timeout_s)
     tokens = exchange_code(

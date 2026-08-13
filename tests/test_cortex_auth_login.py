@@ -209,6 +209,62 @@ def test_login_end_to_end_persists_the_full_token_set(loader):
     assert loader.get_cortex_config()["api_key"] == "ctx_test_key"
 
 
+def test_login_prints_authorize_url_to_stderr_not_stdout(loader, capsys):
+    """A browserless box (WSL2 interop-off, headless, container) must never hang
+    blind: the authorize URL is printed to STDERR before the browser attempt, so
+    the user can paste it into any reachable browser and the loopback callback
+    still returns. stderr (not stdout) so `auth login --output json` stays
+    parseable. Regression guard for the silent-hang class."""
+    http = _mock_http(
+        {
+            "/.well-known": DISCO,
+            "/register": {"client_id": "cli_new"},
+            "/token": {"access_token": _AT1, "refresh_token": _RT1, "expires_in": 3600},
+        },
+        [],
+    )
+
+    def _fake_browser(url):
+        import urllib.parse
+
+        q = dict(urllib.parse.parse_qsl(urllib.parse.urlparse(url).query))
+        urllib.request.urlopen(f"{q['redirect_uri']}?code=authcode&state={q['state']}", timeout=5)
+
+    result = login(loader=loader, open_browser=_fake_browser, timeout_s=10, http=http)
+    assert result["ok"]
+
+    captured = capsys.readouterr()
+    assert result["authorize_url"] in captured.err  # printed, on stderr
+    assert result["authorize_url"] not in captured.out  # NOT on stdout (json-safe)
+
+
+def test_login_survives_a_browser_opener_that_raises(loader, capsys):
+    """webbrowser.get() RAISES on a genuinely browserless box. The opener is
+    best-effort — a raising opener must not abort login; the printed URL carries
+    the flow. The callback here is driven independently of the opener."""
+    http = _mock_http(
+        {
+            "/.well-known": DISCO,
+            "/register": {"client_id": "cli_new"},
+            "/token": {"access_token": _AT1, "refresh_token": _RT1, "expires_in": 3600},
+        },
+        [],
+    )
+
+    def _raising_browser(url):
+        # Complete the callback out-of-band first (as a real user pasting the
+        # printed URL would), then blow up like a browserless resolver does.
+        import urllib.parse
+
+        q = dict(urllib.parse.parse_qsl(urllib.parse.urlparse(url).query))
+        urllib.request.urlopen(f"{q['redirect_uri']}?code=authcode&state={q['state']}", timeout=5)
+        raise RuntimeError("could not locate runnable browser")
+
+    result = login(loader=loader, open_browser=_raising_browser, timeout_s=10, http=http)
+    assert result["ok"] and result["has_refresh_token"]
+    assert result["authorize_url"] in capsys.readouterr().err
+
+
 def test_login_reuses_stored_client(loader):
     """Re-login must not re-register — one DCR row per seat, not per login. The
     stored family must be OWNED (cli/daemon) for reuse: reusing an unowned or
