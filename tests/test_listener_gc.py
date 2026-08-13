@@ -221,8 +221,11 @@ def test_gc_flags_when_health_marker_stale_and_no_service(tmp_path, monkeypatch)
 # ── Criterion 3: stale ────────────────────────────────────────────────
 
 
-def test_gc_flags_old_armed_at_with_no_wake(tmp_path, monkeypatch):
-    """armed_at > age threshold AND no last_wake_at → stale."""
+def test_gc_flags_dead_listener_old_and_quiet(tmp_path, monkeypatch):
+    """A DEAD listener (no service unit, no fresh health) that is old with no
+    recent wake is pruned, and 'stale' is among the reasons. Stale fires only
+    for not-live listeners now — a live one is kept regardless of a quiet inbox
+    (see the two regression tests below)."""
     old_armed = time.time() - (10 * 24 * 60 * 60)  # 10 days
     _seed_active(
         tmp_path,
@@ -230,12 +233,46 @@ def test_gc_flags_old_armed_at_with_no_wake(tmp_path, monkeypatch):
         topic="ntfy:empirica-orchestration-events-david?tags=empirica.david.empirica-cortex",
         armed_at=old_armed,
     )
-    _seed_service_unit(tmp_path, "empirica-cortex")
-    _seed_health_marker(tmp_path, "empirica-cortex", age_seconds=60)
+    # No service unit, no health marker → not live.
     _rc, payload, _ = _run_gc(tmp_path, monkeypatch, age_days=7)
     assert payload["pruned_count"] == 1
     reasons = payload["pruned"][0]["reasons"]
     assert any("stale" in r for r in reasons)
+
+
+def test_gc_keeps_live_listener_old_and_quiet(tmp_path, monkeypatch):
+    """REGRESSION: a live listener (installed service + fresh health) is never
+    pruned as 'stale' for a quiet inbox, however old the arm. Philipp
+    mesh-support measured 6/7 live launchd listeners reaped as stale
+    (2026-08-13) because stale wasn't liveness-aware and the criteria are ORed."""
+    very_old_armed = time.time() - (60 * 24 * 60 * 60)  # 60 days, no wake
+    _seed_active(
+        tmp_path,
+        "empirica-cortex",
+        topic="ntfy:empirica-orchestration-events-david?tags=empirica.david.empirica-cortex",
+        armed_at=very_old_armed,
+    )
+    _seed_service_unit(tmp_path, "empirica-cortex")
+    _seed_health_marker(tmp_path, "empirica-cortex", age_seconds=60)
+    _rc, payload, _ = _run_gc(tmp_path, monkeypatch, age_days=7)
+    assert payload["pruned_count"] == 0
+    assert payload["kept_count"] == 1
+
+
+def test_gc_keeps_live_listener_by_installed_service_alone(tmp_path, monkeypatch):
+    """REGRESSION: liveness by the installed service ALONE (no health marker)
+    still protects from stale — Philipp's launchd listeners are installed, and
+    the fix must not rely on a health marker being present on every platform."""
+    very_old_armed = time.time() - (60 * 24 * 60 * 60)
+    _seed_active(
+        tmp_path,
+        "empirica-cortex",
+        topic="ntfy:empirica-orchestration-events-david?tags=empirica.david.empirica-cortex",
+        armed_at=very_old_armed,
+    )
+    _seed_service_unit(tmp_path, "empirica-cortex")  # installed only, no health
+    _rc, payload, _ = _run_gc(tmp_path, monkeypatch, age_days=7)
+    assert payload["pruned_count"] == 0
 
 
 def test_gc_keeps_old_armed_at_with_recent_wake(tmp_path, monkeypatch):
@@ -258,7 +295,10 @@ def test_gc_keeps_old_armed_at_with_recent_wake(tmp_path, monkeypatch):
 
 
 def test_gc_age_days_respected(tmp_path, monkeypatch):
-    """--age-days N controls the staleness threshold."""
+    """--age-days N controls when the stale REASON fires, observed on a DEAD
+    listener (which no_service prunes either way — so the age threshold's effect
+    is visible in the reasons, not the prune outcome). A live listener could not
+    be used here: the fix keeps it regardless of age."""
     armed_3d_ago = time.time() - (3 * 24 * 60 * 60)
     _seed_active(
         tmp_path,
@@ -266,16 +306,17 @@ def test_gc_age_days_respected(tmp_path, monkeypatch):
         topic="ntfy:empirica-orchestration-events-david?tags=empirica.david.empirica-cortex",
         armed_at=armed_3d_ago,
     )
-    _seed_service_unit(tmp_path, "empirica-cortex")
-    _seed_health_marker(tmp_path, "empirica-cortex", age_seconds=60)
+    # Dead: no service unit, no health marker.
 
-    # 7d threshold: 3d-old not stale
+    # 7d threshold: 3d-old is not stale; still pruned by no_service, no stale reason
     _rc, payload, _ = _run_gc(tmp_path, monkeypatch, age_days=7)
-    assert payload["pruned_count"] == 0
+    assert payload["pruned_count"] == 1
+    assert not any("stale" in r for r in payload["pruned"][0]["reasons"])
 
-    # 1d threshold: 3d-old is stale
+    # 1d threshold: 3d-old crosses the stale threshold → stale joins the reasons
     _rc, payload, _ = _run_gc(tmp_path, monkeypatch, age_days=1)
     assert payload["pruned_count"] == 1
+    assert any("stale" in r for r in payload["pruned"][0]["reasons"])
 
 
 # ── --apply actually removes ──────────────────────────────────────────

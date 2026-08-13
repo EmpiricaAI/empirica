@@ -2400,6 +2400,26 @@ def _gc_legacy_topic_reason(topic: str) -> str | None:
     return None
 
 
+def _gc_listener_is_live(ai_id: str, empirica_dir: Path, installed_ids: set[str], now: float) -> bool:
+    """A listener is live if it has an installed persistent service OR a fresh
+    health marker (<5 min old). This is the liveness signal that must protect a
+    listener from the STALE criterion too, not only from no-service: a running
+    listener is never 'stale' just because its inbox went quiet. Without it, the
+    ORed stale reason reaps live launchd listeners the #114 no-service guard
+    protects (Philipp mesh-support: 6/7 live candidates reaped as stale
+    2026-08-13). Empty ai_id is treated as not-live so orphan files stay
+    prunable — matching the pre-existing stale behaviour, not no-service's."""
+    if not ai_id:
+        return False
+    if ai_id in installed_ids:
+        return True
+    health_file = empirica_dir / f"listener_health_{ai_id}.json"
+    try:
+        return health_file.exists() and (now - health_file.stat().st_mtime <= 300)
+    except OSError:
+        return False
+
+
 def _gc_no_service_or_health_reason(
     ai_id: str,
     empirica_dir: Path,
@@ -2473,11 +2493,16 @@ def _gc_evaluate_file(
     armed_at = float(data.get("armed_at") or 0)
     last_wake_at = float(data.get("last_wake_at") or 0)
 
+    # Liveness keep-override: a live listener (installed service OR fresh health)
+    # is never pruned as 'stale' for a quiet inbox. The three criteria are ORed,
+    # so the #114 guard inside no-service cannot rescue what stale flags — the
+    # gate has to sit here, on the stale reason itself.
+    is_live = _gc_listener_is_live(ai_id, empirica_dir, installed_ids, now)
     reasons: list[str] = []
     for reason in (
         _gc_legacy_topic_reason(topic),
         _gc_no_service_or_health_reason(ai_id, empirica_dir, installed_ids, now),
-        _gc_stale_reason(armed_at, last_wake_at, now, age_threshold_sec, age_days),
+        None if is_live else _gc_stale_reason(armed_at, last_wake_at, now, age_threshold_sec, age_days),
     ):
         if reason:
             reasons.append(reason)
