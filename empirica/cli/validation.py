@@ -185,6 +185,26 @@ class PreflightInput(BaseModel):
             "which clears the gate on the next transaction's POSTFLIGHT."
         ),
     )
+    current_phase: str | None = Field(
+        default=None,
+        description=(
+            "The phase this payload opens in — accepted but not acted on at "
+            "PREFLIGHT (a transaction always opens noetic; the field carries "
+            "meaning at CHECK/POSTFLIGHT). Declared here so the documented "
+            "payloads that carry it validate rather than tripping extra=forbid."
+        ),
+        pattern="^(noetic|praxic)$",
+    )
+    notes: str | None = Field(
+        default=None,
+        max_length=5000,
+        description=(
+            "Free-form scratch note carried on the payload — accepted but not "
+            "acted on at PREFLIGHT. Declared so documented payloads that include "
+            "it validate; use task_context for anything that should drive "
+            "pattern retrieval (notes does not)."
+        ),
+    )
 
     @field_validator("session_id")
     @classmethod

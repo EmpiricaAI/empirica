@@ -22,7 +22,6 @@ from pydantic import ValidationError
 
 from empirica.cli.validation import PreflightInput
 
-
 VALID_MINIMUM = {
     "session_id": "11111111-2222-3333-4444-555555555555",
     "vectors": {"know": 0.5, "uncertainty": 0.5},
@@ -70,6 +69,26 @@ def test_accepts_the_documented_optional_fields():
     assert model.task_context.startswith("what the work is")
     assert model.work_type == "infra"
     assert model.claims and model.claims[0]["grounding"] == "read"
+
+
+def test_accepts_current_phase_and_notes_the_documented_ignored_keys():
+    """current_phase and notes are documented payload keys (skills, CLAUDE.md,
+    every real preflight) that PREFLIGHT accepts-and-ignores. extra=forbid must
+    NOT reject them — doing so would hard-error the entire fleet's documented
+    payloads on upgrade. This is the regression guard the original guard lacked."""
+    model = PreflightInput(
+        **VALID_MINIMUM,
+        current_phase="praxic",
+        notes="scratch note carried on the payload",
+    )
+
+    assert model.current_phase == "praxic"
+    assert model.notes.startswith("scratch note")
+
+
+def test_current_phase_is_constrained_to_the_two_phases():
+    with pytest.raises(ValidationError):
+        PreflightInput(**VALID_MINIMUM, current_phase="halfway")
 
 
 def test_minimum_valid_payload_still_constructs():
