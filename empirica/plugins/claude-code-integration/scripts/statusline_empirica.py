@@ -15,6 +15,7 @@ Environment:
   EMPIRICA_STATUS_MODE: basic|default|learning|full (default: default)
   EMPIRICA_AI_ID: AI identifier override (default: resolved from project.yaml → basename, then 'claude-code')
   EMPIRICA_SIGNALING_LEVEL: basic|default|full (default: default)
+  EMPIRICA_STATUS_MODEL: 0|false|off to hide the active-model tag (default: shown)
 
 Author: Claude Code
 Date: 2025-12-30
@@ -1110,6 +1111,35 @@ def _append_postflight_deltas(parts, phase, deltas):
             parts.append(f"Δ {delta_str}")
 
 
+def format_model(stdin_context: dict | None) -> str:
+    """Format the active model as a white 🧠 <name> tag from Claude Code stdin data.
+
+    Francisco wants the glyph; his terminal is the only instrument that can judge
+    it, and it reported two distinct failures during tuning:
+      - "Fable " — 🧠 is double-cell and some terminals advance only one, so the
+        width error eats the last character. A TRAILING space absorbs that
+        sacrificially.
+      - "F Fable 5" — the glyph collided with the name when they were adjacent.
+        A space BETWEEN glyph and name keeps them apart.
+    Both paddings are load-bearing; do not "tidy" them away. WHITE, not GRAY:
+    GRAY is \033[90m ("bright black"), invisible on a dark terminal.
+
+    LOCAL CUSTOMISATION — re-applied by imac-reapply-local step 10; upstream
+    PR #411 proposes it as a built-in option.
+
+    Suppressed when EMPIRICA_STATUS_MODEL is 0|false|off (default: shown).
+    """
+    if os.environ.get("EMPIRICA_STATUS_MODEL", "").strip().lower() in ("0", "false", "off"):
+        return ""
+    if not stdin_context:
+        return ""
+    model = stdin_context.get("model") or {}
+    name = model.get("display_name") or model.get("id")
+    if not name:
+        return ""
+    return f"{Colors.WHITE}🧠 {name}{Colors.RESET} "
+
+
 def _format_statusline_header(project_name, vectors, threshold_info):
     """Build the common header: [label] confidence threshold + extensions.
 
@@ -1567,6 +1597,11 @@ def main():
             threshold_info=None,
             stdin_context=stdin_context,
         )
+        # Model tag sits OUTSIDE empirica's line: appended after a 3-space gap so
+        # it reads as harness state, separate from the ' │ '-joined empirica cells.
+        model_tag = format_model(stdin_context)
+        if model_tag:
+            output = f"{output}   {model_tag}"
         print(output)
 
     except Exception as e:
