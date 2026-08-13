@@ -5,6 +5,41 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.15] - 2026-08-13
+
+### Added
+- **The statusline can show the active model as an optional tag** (`🧠 <name>`,
+  read from the model Claude Code reports on every render). Hide it with
+  `EMPIRICA_STATUS_MODEL=0` (or `false`/`off`). Answers "which model is this
+  seat actually running?" at a glance in multi-model sessions — fast-mode
+  toggles, per-seat pins, `/model` switches. (#411)
+
+### Changed
+- **Core `entity-create` mints the `entity_registry` spine only — it no longer
+  authors CRM detail.** Writing the `organizations` detail table is
+  empirica-workspace's lane (its org create/update owns that row); the daemon's
+  read path that *surfaces* org detail is unchanged. Aligns `entity-create` with
+  the ratified core/workspace boundary — core surfaces the registry, workspace
+  authors the detail.
+
+### Fixed
+- **`auth login` prints the authorize URL so browserless boxes never hang
+  blind.** It opened a browser and blocked on the callback without ever
+  surfacing the URL, so a box that can't open one (WSL2 with Windows-interop
+  off, headless server, container) hung silently until timeout with nothing on
+  screen to act on. The URL now prints to stderr (keeping `--output json`
+  parseable) before the browser attempt, and the opener is best-effort —
+  `webbrowser.open` returns True for a `BROWSER='echo'` shim and
+  `webbrowser.get()` raises on a truly browserless box, so gating on its result
+  would still hang.
+- **`preflight-submit` rejects unknown top-level keys** instead of silently
+  dropping them. A payload keyed `task_description` left `task_context` at its
+  empty default — and `task_context` is the sole driver of pattern retrieval —
+  so a plausible typo cost the caller every lesson, dead-end and prior finding
+  for that transaction, surfacing only as `patterns: null`. Documented keys
+  (`current_phase`, `notes`) are accepted; typos are rejected by name. Mirrors
+  the POSTFLIGHT guard. (#410)
+
 ## [1.13.14] - 2026-08-12
 
 ### Changed
