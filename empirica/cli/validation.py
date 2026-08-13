@@ -14,7 +14,7 @@ Usage:
 import json
 from typing import Any, TypeVar
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -99,6 +99,16 @@ class PreflightInput(BaseModel):
             uncertainty) are missing.
     """
 
+    # Reject unknown top-level keys instead of silently dropping them. Pydantic's
+    # default is extra='ignore', so a payload keyed `task_description` was accepted
+    # with ok:true while task_context stayed "" — and task_context is the SOLE
+    # driver of Qdrant pattern retrieval, so the typo silently cost the caller
+    # every lesson, dead-end, prior mistake and finding for that transaction. It
+    # surfaced only as `patterns: null`, indistinguishable from "found nothing".
+    # POSTFLIGHT already guards this class explicitly (GH #402/#409); this closes
+    # the asymmetry, schema-derived so it cannot drift from the model.
+    model_config = ConfigDict(extra="forbid")
+
     session_id: str = Field(min_length=1, max_length=100, description="Session identifier")
     vectors: dict[str, float] = Field(description="Epistemic vector values")
     reasoning: str | None = Field(default="", max_length=5000, description="Reasoning for assessment")
@@ -173,6 +183,26 @@ class PreflightInput(BaseModel):
             "was logged (e.g. 'pure mechanical rename, no decisions') to "
             "acknowledge and proceed — or instead log the missed artifacts, "
             "which clears the gate on the next transaction's POSTFLIGHT."
+        ),
+    )
+    current_phase: str | None = Field(
+        default=None,
+        description=(
+            "The phase this payload opens in — accepted but not acted on at "
+            "PREFLIGHT (a transaction always opens noetic; the field carries "
+            "meaning at CHECK/POSTFLIGHT). Declared here so the documented "
+            "payloads that carry it validate rather than tripping extra=forbid."
+        ),
+        pattern="^(noetic|praxic)$",
+    )
+    notes: str | None = Field(
+        default=None,
+        max_length=5000,
+        description=(
+            "Free-form scratch note carried on the payload — accepted but not "
+            "acted on at PREFLIGHT. Declared so documented payloads that include "
+            "it validate; use task_context for anything that should drive "
+            "pattern retrieval (notes does not)."
         ),
     )
 
