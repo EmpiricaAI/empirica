@@ -5,6 +5,23 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.16] - 2026-08-14
+
+### Fixed
+- **`listener gc` no longer reaps live listeners for a quiet inbox.** The three
+  prune criteria were ORed, and the stale criterion never received the liveness
+  signal — so a live, installed, running listener whose inbox had merely been
+  quiet for longer than `--age-days` was pruned, and the no-service liveness
+  guard couldn't rescue it. Liveness (an installed service **or** a fresh health
+  marker) now gates the stale criterion directly: a live listener is never
+  "stale" for a quiet inbox. (Reported by a fleet seat that measured 6 of 7
+  prune candidates still running.)
+- **The release install-closure check stops false-failing on a stale pip
+  cache.** `--verify`'s clean-venv `pip install -U` shares `~/.cache/pip`, so
+  right after publishing it could resolve the *prior* version from cache and
+  report RED on a correctly-published release. It now runs with
+  `--no-cache-dir`, reading what a first-time user actually gets.
+
 ## [1.13.15] - 2026-08-13
 
 ### Added
