@@ -967,40 +967,6 @@ class WorkspaceDBRepository(BaseRepository):
         self.commit()
         return True
 
-    def upsert_organization_detail(
-        self,
-        org_id: str,
-        name: str,
-        domain: str | None = None,
-        industry: str | None = None,
-        org_type: str | None = None,
-        description: str | None = None,
-        tags: str | None = None,
-    ) -> None:
-        """Insert or update an organizations-table detail row alongside the
-        entity_registry entry. CI-safe: guarded by _table_exists so core's
-        test env (no organizations table) is unaffected. The canonical impl
-        lives in workspace's WorkspaceDatabase (upsert_organization_detail).
-        """
-        if not self._table_exists("organizations"):
-            return  # CI safety — workspace-owned detail table
-        now = time.time()
-        self._execute(
-            """INSERT INTO organizations
-               (org_id, name, domain, industry, org_type, description, tags, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT(org_id) DO UPDATE SET
-                   name = excluded.name,
-                   domain = excluded.domain,
-                   industry = excluded.industry,
-                   org_type = excluded.org_type,
-                   description = excluded.description,
-                   tags = excluded.tags,
-                   updated_at = excluded.updated_at""",
-            (org_id, name, domain, industry, org_type, description, tags, now, now),
-        )
-        self.commit()
-
     def mark_entity_status(
         self,
         entity_type: str,

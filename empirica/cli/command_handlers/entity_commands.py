@@ -365,20 +365,12 @@ def mint_entity(
         # engagement-create (written to the sidecar after this mint); the stable
         # point id makes that a clean idempotent enrichment.
         _embed_entity_row(entity_type, eid, name, description, metadata)
-        # Self-heal: write the organizations-table detail row alongside the
-        # registry entry (CI-safe guard, no-op if the table doesn't exist).
-        # Closes the registry-without-detail orphan gap (core prop_zajvxjuk).
-        if entity_type == "organization":
-            meta = extra_metadata or {}
-            repo.upsert_organization_detail(
-                org_id=eid,
-                name=name,
-                domain=meta.get("domain"),
-                industry=meta.get("industry"),
-                org_type=meta.get("org_type", "prospect"),
-                description=description,
-                tags=json.dumps(meta["tags"]) if isinstance(meta.get("tags"), list) else None,
-            )
+        # Core mints only the entity_registry SPINE — it does NOT author CRM
+        # detail. Writing the organizations detail table is empirica-workspace's
+        # lane (its org create/update owns that row); core authoring it crosses
+        # the ratified core/workspace boundary (David 2026-08-13). The daemon
+        # still SURFACES org detail via get_org_detail_map — surfacing is core's
+        # role, authoring is not.
         return {"ok": True, "entity_id": eid, "created": created, "matched_by": None if created else "id"}
 
     if repo is not None:
