@@ -1126,7 +1126,11 @@ def format_model(stdin_context: dict | None) -> str:
 
     LOCAL CUSTOMISATION — re-applied by imac-reapply-local step 10; upstream
     PR #411 proposes it as a built-in option.
+
+    Suppressed when EMPIRICA_STATUS_MODEL is 0|false|off (default: shown).
     """
+    if os.environ.get("EMPIRICA_STATUS_MODEL", "").strip().lower() in ("0", "false", "off"):
+        return ""
     if not stdin_context:
         return ""
     model = stdin_context.get("model") or {}
