@@ -387,10 +387,9 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.13.16
+## What's New in 1.13.17
 
-- **`listener gc` no longer reaps live listeners for a quiet inbox.** The three prune criteria were ORed, and the stale criterion never received the liveness signal — so a live, installed, running listener whose inbox had merely been quiet for longer than `--age-days` was pruned, and the no-service liveness guard couldn't rescue it. Liveness (an installed service **or** a fresh health marker) now gates the stale criterion directly: a live listener is never "stale" for a quiet inbox. (Reported by a fleet seat that measured 6 of 7 prune candidates still running.)
-- **The release install-closure check stops false-failing on a stale pip cache.** `--verify`'s clean-venv `pip install -U` shares `~/.cache/pip`, so right after publishing it could resolve the *prior* version from cache and report RED on a correctly-published release. It now runs with `--no-cache-dir`, reading what a first-time user actually gets.
+- **`setup-claude-code` no longer drops bundle-installed skills on a plugin sync.** The plugin install replaced the skills directory wholesale (rmtree + copy), so any skill installed on top of the open plugin — the ones that ship with the CORTEX bundle rather than the open plugin itself — was silently deleted on every ecosystem/plugin update. The install now snapshots any skill directory the open plugin does not ship, before the replace, and restores it after, naming each preserved skill in the output. The open plugin owns only the skills it ships and leaves the rest alone.
 ---
 
 ## What's New in 1.12.35
