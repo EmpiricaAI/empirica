@@ -129,3 +129,46 @@ def test_sync_is_in_place_no_rmtree(monkeypatch, fake_install, fake_source):
     _run()
     assert (fake_install / "user-local-note.txt").read_text() == "keep me\n"
     assert (fake_install / "hooks" / "sentinel-gate.py").read_text() == "# v2 gate (fixed)\n"
+
+
+def test_install_preserves_bundle_skills_not_shipped_by_source(tmp_path):
+    """REGRESSION (Philipp mesh-support 2026-08-14): the wholesale rmtree+copytree
+    plugin replace in _install_plugin_files must NOT drop skills the open plugin
+    does not ship. The CORTEX BUNDLE installs cortex-mailbox-poll/-send,
+    empirica-constitution, epistemic-transaction, before-you-assert on top of the
+    open plugin's skills dir; a sync silently deleted them on every update."""
+    source = tmp_path / "source"
+    (source / "skills" / "open-skill").mkdir(parents=True)
+    (source / "skills" / "open-skill" / "SKILL.md").write_text("open v2\n")
+    (source / "plugin.json").write_text("{}\n")
+
+    install = tmp_path / "install"
+    (install / "skills" / "open-skill").mkdir(parents=True)
+    (install / "skills" / "open-skill" / "SKILL.md").write_text("open v1 (stale)\n")
+    # Bundle-installed skill: present in the install, absent from source.
+    (install / "skills" / "cortex-mailbox-poll").mkdir(parents=True)
+    (install / "skills" / "cortex-mailbox-poll" / "SKILL.md").write_text("bundle content\n")
+
+    scc._install_plugin_files(source, install, "json")
+
+    # The bundle skill survived the replace...
+    assert (install / "skills" / "cortex-mailbox-poll" / "SKILL.md").read_text() == "bundle content\n"
+    # ...and the open plugin's own skill was refreshed from source.
+    assert (install / "skills" / "open-skill" / "SKILL.md").read_text() == "open v2\n"
+
+
+def test_install_no_foreign_skills_is_clean(tmp_path):
+    """When the install has only skills the source ships, nothing extra is kept
+    and the replace refreshes normally (no false preservation)."""
+    source = tmp_path / "source"
+    (source / "skills" / "open-skill").mkdir(parents=True)
+    (source / "skills" / "open-skill" / "SKILL.md").write_text("open v2\n")
+    (source / "plugin.json").write_text("{}\n")
+
+    install = tmp_path / "install"
+    (install / "skills" / "open-skill").mkdir(parents=True)
+    (install / "skills" / "open-skill" / "SKILL.md").write_text("open v1\n")
+
+    scc._install_plugin_files(source, install, "json")
+    assert (install / "skills" / "open-skill" / "SKILL.md").read_text() == "open v2\n"
+    assert sorted(p.name for p in (install / "skills").iterdir()) == ["open-skill"]

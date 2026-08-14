@@ -737,6 +737,48 @@ def _setup_directories(output_format):
     return home, claude_dir, plugins_dir, plugin_dir, marketplace_dir, empirica_dir
 
 
+def _snapshot_foreign_skills(source_dir, plugin_dir):
+    """Snapshot skill directories the OPEN plugin does not ship — i.e. skills
+    installed on top of it by the CORTEX BUNDLE (present in the installed
+    skills/ but absent from source skills/) — into a temp dir, BEFORE a
+    wholesale rmtree+copytree replace. Returns (tmpdir, names).
+
+    Without this, an open-plugin sync silently drops every bundle skill on every
+    update (Philipp mesh-support 2026-08-14: cortex-mailbox-poll/-send,
+    empirica-constitution, epistemic-transaction, before-you-assert). The open
+    plugin owns the skills it ships; it must leave the rest alone."""
+    installed_skills = plugin_dir / "skills"
+    if not installed_skills.is_dir():
+        return None, []
+    source_skills = source_dir / "skills"
+    shipped = {p.name for p in source_skills.iterdir()} if source_skills.is_dir() else set()
+    foreign = [p for p in installed_skills.iterdir() if p.is_dir() and p.name not in shipped]
+    if not foreign:
+        return None, []
+    import tempfile
+
+    tmp = Path(tempfile.mkdtemp(prefix="empirica-foreign-skills-"))
+    names = []
+    for p in foreign:
+        shutil.copytree(p, tmp / p.name)
+        names.append(p.name)
+    return tmp, names
+
+
+def _restore_foreign_skills(tmp, names, plugin_dir, output_format):
+    """Restore the skills snapshotted by _snapshot_foreign_skills after the
+    replace, so bundle-installed skills survive an open-plugin sync."""
+    if not tmp:
+        return
+    dest = plugin_dir / "skills"
+    dest.mkdir(parents=True, exist_ok=True)
+    for name in names:
+        shutil.copytree(tmp / name, dest / name, dirs_exist_ok=True)
+    shutil.rmtree(tmp, ignore_errors=True)
+    if output_format != "json" and names:
+        print(f"   🛡️  Preserved {len(names)} bundle skill(s) across the sync: {', '.join(sorted(names))}")
+
+
 def _install_plugin_files(source_dir, plugin_dir, output_format):
     """Install plugin files: migrate old dirs, copy source, set permissions."""
     if output_format != "json":
@@ -766,6 +808,9 @@ def _install_plugin_files(source_dir, plugin_dir, output_format):
     # loud instead: files that differ from what setup is about to write are
     # backed up with their relative paths, and each one is NAMED in the output.
     _preserved = _backup_locally_modified_plugin_files(source_dir, plugin_dir, output_format)
+    # Snapshot bundle-installed skills the open plugin does not ship, BEFORE the
+    # rmtree destroys them; restored after the copytree (Philipp mesh-support).
+    _foreign_tmp, _foreign_names = _snapshot_foreign_skills(source_dir, plugin_dir)
     if plugin_dir.exists():
         shutil.rmtree(plugin_dir)
 
@@ -774,6 +819,7 @@ def _install_plugin_files(source_dir, plugin_dir, output_format):
         return [f for f in files if f in ("__pycache__", ".git", ".pyc")]
 
     shutil.copytree(source_dir, plugin_dir, ignore=ignore_patterns)
+    _restore_foreign_skills(_foreign_tmp, _foreign_names, plugin_dir, output_format)
 
     # Make hooks executable
     hooks_dir = plugin_dir / "hooks"
