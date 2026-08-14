@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "empirica-mcp"
-version = "1.13.16"
+version = "1.13.17"
 description = "MCP server for Empirica — AI measurement and calibration tools via Model Context Protocol"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -27,7 +27,7 @@ dependencies = [
     # over the empirica CLI, so a loose constraint let `pipx upgrade empirica-mcp`
     # bump the wrapper while leaving core stale — silently serving a 3-version-old
     # tool set. release.py bumps this pin in lockstep with the version field below.
-    "empirica==1.13.16",  # keep == in lockstep with [project].version
+    "empirica==1.13.17",  # keep == in lockstep with [project].version
     # Spans BOTH SDK majors: server.py detects which is present and registers
     # handlers accordingly (decorators on 1.x, `on_*` constructor params on 2.x).
     # Suite passes 572/572 on 1.28.1 and on 2.0.0.

@@ -5,6 +5,18 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.17] - 2026-08-14
+
+### Fixed
+- **`setup-claude-code` no longer drops bundle-installed skills on a plugin
+  sync.** The plugin install replaced the skills directory wholesale (rmtree +
+  copy), so any skill installed on top of the open plugin — the ones that ship
+  with the CORTEX bundle rather than the open plugin itself — was silently
+  deleted on every ecosystem/plugin update. The install now snapshots any skill
+  directory the open plugin does not ship, before the replace, and restores it
+  after, naming each preserved skill in the output. The open plugin owns only
+  the skills it ships and leaves the rest alone.
+
 ## [1.13.16] - 2026-08-14
 
 ### Fixed
