@@ -387,9 +387,11 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.13.17
+## What's New in 1.13.18
 
-- **`setup-claude-code` no longer drops bundle-installed skills on a plugin sync.** The plugin install replaced the skills directory wholesale (rmtree + copy), so any skill installed on top of the open plugin — the ones that ship with the CORTEX bundle rather than the open plugin itself — was silently deleted on every ecosystem/plugin update. The install now snapshots any skill directory the open plugin does not ship, before the replace, and restores it after, naming each preserved skill in the output. The open plugin owns only the skills it ships and leaves the rest alone.
+- **`empirica-constitution` and `epistemic-transaction` ship in the open plugin again.** They are core discipline (the governance decision tree and transaction planning), not proprietary mesh protocol — an earlier strip over-reached by bundling all four protocol skills. Only the two mesh skills (`cortex-mailbox-poll`/`-send`) remain Cortex-bundle-only; their references in the two restored skills are framed as boundary pointers ("where your install has Cortex").
+- **`docs/architecture/CORTEX_OAUTH.md`** — documents the independent-families OAuth model (one identity, per-surface token families, `refresh_owner` custody, the daemon refresh loop, the browserless print-URL fallback) that had no hand-written home.
+- **Migration 066 normalizes TEXT `created_timestamp` to REAL.** A few legacy rows stored the epoch as a *text* string in an otherwise-numeric column, and SQLite sorts text above every number — so those rows were returned as the *newest* by every `ORDER BY created_timestamp DESC`, including the queries that build injected session context, surfacing months-old findings as if just written. Idempotent and defensive: only numeric epoch text is cast; a non-epoch string (e.g. an ISO date) is left untouched rather than mangled.
 ---
 
 ## What's New in 1.12.35
