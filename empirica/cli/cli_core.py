@@ -503,7 +503,17 @@ _HELP_CATEGORIES = {
     "memory": ["memory-prime", "memory-scope", "memory-value", "pattern-check", "session-rollup", "memory-report"],
     "vision": ["vision"],
     "domains": ["domain-validate"],
-    "setup": ["onboard", "setup", "plugin-sync", "enp-setup", "diagnose", "doctor", "release", "serve"],
+    "setup": [
+        "onboard",
+        "setup",
+        "plugin-sync",
+        "enp-setup",
+        "diagnose",
+        "doctor",
+        "release",
+        "serve",
+        "serve-service",
+    ],
 }
 
 
@@ -1033,6 +1043,7 @@ def main(args=None):
             "profile-import": handle_profile_import_command,
             # Server commands
             "serve": handle_serve_command,
+            "serve-service": handle_serve_service_command,
             # Memory management commands
             "memory-prime": handle_memory_prime_command,
             "memory-scope": handle_memory_scope_command,

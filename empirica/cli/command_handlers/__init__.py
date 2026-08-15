@@ -234,7 +234,7 @@ from .sentinel_commands import (
     handle_sentinel_orchestrate_command,
     handle_sentinel_status_command,
 )
-from .serve_commands import handle_serve_command
+from .serve_commands import handle_serve_command, handle_serve_service_command
 from .session_commands import (
     handle_memory_compact_command,
     handle_session_snapshot_command,
@@ -467,6 +467,7 @@ __all__ = [  # noqa: RUF022
     "handle_sentinel_status_command",
     # Serve command
     "handle_serve_command",
+    "handle_serve_service_command",
     "handle_services_audit_command",
     # Checkpoint commands (Phase 2)
     "handle_session_create_command",

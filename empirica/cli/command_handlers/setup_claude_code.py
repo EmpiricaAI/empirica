@@ -2051,6 +2051,21 @@ def handle_setup_claude_code_command(args):
         # re-key its local history. Non-fatal.
         identity_migration_result = _migrate_legacy_project_identity(force, output_format)
 
+        # Stage 6.9: Restart the serve daemon so a code update actually lands
+        # (--force only — this is the post-release upgrade ritual). A long-running
+        # editable serve daemon keeps serving its start-time code: editable installs
+        # skip drift-self-exit by design (the 1849-restart flap fix), so nothing
+        # bounces it automatically. This does — but ONLY where the service is
+        # installed + active; it is a safe no-op for an unsupervised daemon, no
+        # service, or a non-force run.
+        serve_restarted = False
+        if force:
+            from empirica.core.loop_scheduler.persistent_serve import (
+                restart_serve_service_if_running,
+            )
+
+            serve_restarted = restart_serve_service_if_running()
+
         # Stage 7: Output
         if output_format == "json":
             return {
@@ -2067,6 +2082,7 @@ def handle_setup_claude_code_command(args):
                 },
                 "tenant_metadata": tenant_metadata,
                 "listener_service": listener_service_result,
+                "serve_restarted": serve_restarted,
                 "identity_migration": identity_migration_result,
                 "hooks_configured": [
                     "PreToolUse (Sentinel)",
