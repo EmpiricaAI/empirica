@@ -387,11 +387,9 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.13.18
+## What's New in 1.13.19
 
-- **`empirica-constitution` and `epistemic-transaction` ship in the open plugin again.** They are core discipline (the governance decision tree and transaction planning), not proprietary mesh protocol — an earlier strip over-reached by bundling all four protocol skills. Only the two mesh skills (`cortex-mailbox-poll`/`-send`) remain Cortex-bundle-only; their references in the two restored skills are framed as boundary pointers ("where your install has Cortex").
-- **`docs/architecture/CORTEX_OAUTH.md`** — documents the independent-families OAuth model (one identity, per-surface token families, `refresh_owner` custody, the daemon refresh loop, the browserless print-URL fallback) that had no hand-written home.
-- **Migration 066 normalizes TEXT `created_timestamp` to REAL.** A few legacy rows stored the epoch as a *text* string in an otherwise-numeric column, and SQLite sorts text above every number — so those rows were returned as the *newest* by every `ORDER BY created_timestamp DESC`, including the queries that build injected session context, surfacing months-old findings as if just written. Idempotent and defensive: only numeric epoch text is cast; a non-epoch string (e.g. an ISO date) is left untouched rather than mangled.
+- **OAuth-only seats can authenticate on `projects`, `forgejo`, and `practice-context` commands.** Each had its own hand-rolled resolver that read `cortex.api_key` straight from `credentials.yaml` and never fell through to `cortex_bearer`, so a seat with the api_key retired (the direction of the OAuth work) resolved a `None` token and could not authenticate. All three now route the credential fall-through through `cortex_bearer` — OAuth-first with api_key fallback — while the two that accept CLI flags keep their `--cortex-url` / `--api-key` override ahead of it.
 ---
 
 ## What's New in 1.12.35
