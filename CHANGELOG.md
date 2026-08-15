@@ -5,6 +5,30 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.18] - 2026-08-15
+
+### Added
+- **`empirica-constitution` and `epistemic-transaction` ship in the open plugin
+  again.** They are core discipline (the governance decision tree and
+  transaction planning), not proprietary mesh protocol — an earlier strip
+  over-reached by bundling all four protocol skills. Only the two mesh skills
+  (`cortex-mailbox-poll`/`-send`) remain Cortex-bundle-only; their references in
+  the two restored skills are framed as boundary pointers ("where your install
+  has Cortex").
+- **`docs/architecture/CORTEX_OAUTH.md`** — documents the independent-families
+  OAuth model (one identity, per-surface token families, `refresh_owner`
+  custody, the daemon refresh loop, the browserless print-URL fallback) that had
+  no hand-written home.
+
+### Fixed
+- **Migration 066 normalizes TEXT `created_timestamp` to REAL.** A few legacy
+  rows stored the epoch as a *text* string in an otherwise-numeric column, and
+  SQLite sorts text above every number — so those rows were returned as the
+  *newest* by every `ORDER BY created_timestamp DESC`, including the queries that
+  build injected session context, surfacing months-old findings as if just
+  written. Idempotent and defensive: only numeric epoch text is cast; a
+  non-epoch string (e.g. an ISO date) is left untouched rather than mangled.
+
 ## [1.13.17] - 2026-08-14
 
 ### Fixed
