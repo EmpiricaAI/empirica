@@ -914,11 +914,17 @@ def _resolve_cortex_config(args) -> tuple[str | None, str | None]:
     if arg_url and arg_key:
         return arg_url.rstrip("/"), arg_key
 
-    from empirica.config.credentials_loader import get_credentials_loader
+    # Fall through to cortex_bearer (OAuth-first, api_key fallback) so an
+    # OAuth-only seat with the api_key retired still authenticates here. It
+    # reads the same credentials.yaml/env the loader does, plus the OAuth token.
+    try:
+        from empirica.core.auth import cortex_bearer
 
-    cfg = get_credentials_loader().get_cortex_config()
-    url = arg_url or cfg.get("url")
-    key = arg_key or cfg.get("api_key")
+        creds = cortex_bearer()
+    except Exception:
+        creds = {}
+    url = arg_url or creds.get("url")
+    key = arg_key or creds.get("bearer")
     return (url.rstrip("/") if url else None, key or None)
 
 

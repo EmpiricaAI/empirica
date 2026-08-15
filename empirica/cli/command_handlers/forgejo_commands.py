@@ -34,14 +34,19 @@ FORGEJO_REMOTE_NAME = "forgejo"
 
 
 def _resolve_cortex_config() -> tuple[str | None, str | None]:
-    """(cortex_url, api_key) from ~/.empirica/credentials.yaml `cortex.*`."""
+    """(cortex_url, bearer) via cortex_bearer — OAuth-first with api_key fallback.
+
+    Previously read cortex.api_key straight from credentials.yaml, so an
+    OAuth-only seat (api_key retired) resolved a None token and could not
+    authenticate here. cortex_bearer returns the OAuth token when present and
+    falls back to the api_key otherwise — a drop-in for the api_key this used to
+    return.
+    """
     try:
-        cred = Path.home() / ".empirica" / "credentials.yaml"
-        if not cred.exists():
-            return None, None
-        cfg = yaml.safe_load(cred.read_text()) or {}
-        cortex = cfg.get("cortex") or {}
-        return cortex.get("url"), cortex.get("api_key")
+        from empirica.core.auth import cortex_bearer
+
+        creds = cortex_bearer()
+        return creds.get("url"), creds.get("bearer")
     except Exception:
         return None, None
 
