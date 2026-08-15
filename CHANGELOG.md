@@ -5,6 +5,18 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.19] - 2026-08-15
+
+### Fixed
+- **OAuth-only seats can authenticate on `projects`, `forgejo`, and
+  `practice-context` commands.** Each had its own hand-rolled resolver that read
+  `cortex.api_key` straight from `credentials.yaml` and never fell through to
+  `cortex_bearer`, so a seat with the api_key retired (the direction of the OAuth
+  work) resolved a `None` token and could not authenticate. All three now route
+  the credential fall-through through `cortex_bearer` — OAuth-first with api_key
+  fallback — while the two that accept CLI flags keep their `--cortex-url` /
+  `--api-key` override ahead of it.
+
 ## [1.13.18] - 2026-08-15
 
 ### Added
