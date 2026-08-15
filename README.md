@@ -2,7 +2,7 @@
 
 > **We Gave AI a Mirror. Now It Measures What It Believes.**
 
-[![Version](https://img.shields.io/badge/version-1.13.19-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.19)
+[![Version](https://img.shields.io/badge/version-1.13.20-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.20)
 [![PyPI](https://img.shields.io/pypi/v/empirica)](https://pypi.org/project/empirica/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -114,13 +114,13 @@ empirica setup
 
 ```bash
 # Security-hardened Alpine image (~276MB, recommended)
-docker pull nubaeon/empirica:1.13.19-alpine
+docker pull nubaeon/empirica:1.13.20-alpine
 
 # Standard image (Debian slim, ~414MB)
-docker pull nubaeon/empirica:1.13.19
+docker pull nubaeon/empirica:1.13.20
 
 # Run
-docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.19 /bin/bash
+docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.20 /bin/bash
 ```
 </details>
 
@@ -387,9 +387,10 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.13.19
+## What's New in 1.13.20
 
-- **OAuth-only seats can authenticate on `projects`, `forgejo`, and `practice-context` commands.** Each had its own hand-rolled resolver that read `cortex.api_key` straight from `credentials.yaml` and never fell through to `cortex_bearer`, so a seat with the api_key retired (the direction of the OAuth work) resolved a `None` token and could not authenticate. All three now route the credential fall-through through `cortex_bearer` — OAuth-first with api_key fallback — while the two that accept CLI flags keep their `--cortex-url` / `--api-key` override ahead of it.
+- **`empirica serve-service install|uninstall|status`** — opt-in supervision of the serve daemon as a persistent OS service (systemd-user / launchd). Until now the daemon was supervised only where an operator hand-built a systemd unit, so a fresh install or another box had no reboot-restart and no way to pick up new code after an update. The codified unit carries the same StartLimit circuit breaker as the listener (the 1849-restart-flap guard) and the `:port` ExecStartPre reaper; `install` backs up any existing unit to `<unit>.bak` and never touches a drop-in `override.conf`. launchd sets `EMPIRICA_SERVE_DRIFT_EXIT=1` (it has no `INVOCATION_ID`) so the supervised drift self-exit works there too.
+- **Restart-on-update.** `setup-claude-code --force` now restarts the serve daemon where the service is installed + active, so a code update actually lands — a long-running editable daemon holds its start-time code (editable installs skip the drift self-exit by design). Safe no-op where no service is installed.
 ---
 
 ## What's New in 1.12.35
@@ -431,6 +432,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 **Author:** David S. L. Van Assche
-**Version:** 1.13.19
+**Version:** 1.13.20
 
 *Turtles all the way down — built with its own epistemic framework, measuring what it knows at every step.*

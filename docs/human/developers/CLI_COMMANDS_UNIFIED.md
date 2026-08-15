@@ -22,9 +22,9 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.13.19
-**Generated:** 2026-08-15 14:25:51 UTC
-**Total commands:** 244 (across 24 categories)
+**Framework version:** 1.13.20
+**Generated:** 2026-08-15 17:37:20 UTC
+**Total commands:** 245 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
 `empirica <command> --help` — the generator extracts the same `help`
@@ -85,7 +85,7 @@ require `--session-id` (`project-bootstrap`, `sessions-show`,
 | [memory](#memory) | 6 | `memory-prime`, `memory-scope`, `memory-value`, … |
 | [vision](#vision) | 1 | `vision` |
 | [domains](#domains) | 1 | `domain-validate` |
-| [setup](#setup) | 8 | `onboard`, `setup`, `plugin-sync`, … |
+| [setup](#setup) | 9 | `onboard`, `setup`, `plugin-sync`, … |
 
 ---
 
@@ -4614,33 +4614,22 @@ Start local daemon for Chrome extension integration
 - `--reload` — optional · flag
   Enable auto-reload on code changes (development only)
 
----
-
 #### `empirica serve-service`
 
-Install / uninstall / inspect the serve daemon as a persistent OS service
-(systemd-user on Linux/WSL2, launchd on macOS). **Opt-in only** — never installed
-by setup. Supervising the daemon gives it reboot-restart AND drift-triggered
-relaunch, so a code update is picked up. The unit carries a StartLimit circuit
-breaker and a `:port` orphan reaper; `install` backs up any existing unit to
-`<unit>.bak` and leaves a drop-in `override.conf` untouched.
+Install/uninstall/inspect the serve daemon as a persistent OS service (opt-in)
 
 **Arguments:**
 
-- `action` — **required** · choices={install, uninstall, status}
+- `action` — **required** · type=`choice` · choices={install, uninstall, status}
   install (+start), uninstall (+stop), or status
-- `--path` — optional · default=`.`
+- `--path` — optional
   Project root the daemon binds to (WorkingDirectory). Default: current directory.
 - `--port` — optional · type=`int` · default=`8000`
   Port the supervised daemon serves on (default: 8000 or EMPIRICA_SERVE_PORT)
 - `--host` — optional · default=`127.0.0.1`
-  Bind host for the supervised daemon
+  Bind host for the supervised daemon (default: 127.0.0.1)
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
-
-> A long-running **editable** serve daemon does not auto-pick-up new code (editable
-> installs skip the drift self-exit by design). `setup-claude-code --force` restarts
-> the supervised daemon so a code update lands; where no service is installed this
-> is a safe no-op.
+  Output format
 
 ---
 
