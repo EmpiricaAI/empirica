@@ -1541,6 +1541,11 @@ ALL_MIGRATIONS: list[tuple[str, str, Callable]] = [
         "Scope goals stranded with an empty project_id, from session EVIDENCE only. A goal with no project_id is invisible to every project-scoped listing — which is the default one — so it is unaddressable rather than lost. Measured 2026-08-07: 305 of 1520 on the empirica practice, and fleet-wide (cortex 72, one archive 216, autopilot 9). Writes ONLY where the goal's own session row names a project, because a practice db can hold more than one registered project (this one holds two: Empirica and empirica-platform), so assigning the rest to the main project is an inference — and an inference shipped as a migration hardens into a fact on every machine at once. Provenance recorded in goal_data so the write is reversible and distinguishable from a project_id the practitioner set.",
         lambda cursor: migration_065_backfill_goal_project_id_from_session(cursor),
     ),
+    (
+        "066_normalize_text_created_timestamp",
+        "Normalize TEXT created_timestamp to REAL (epoch). Legacy rows stored the epoch as a TEXT string in an otherwise-numeric column, and SQLite sorts TEXT above every number — so those rows are returned as the NEWEST by every `ORDER BY created_timestamp DESC`, including the breadcrumbs queries that build injected session context, surfacing 8-month-old findings as if just written (measured 2026-08-12: 13 rows on the empirica practice). Idempotent + defensive across every table carrying created_timestamp: casts only numeric epoch text (10+ leading digits), leaving REAL rows and any non-epoch text (e.g. an ISO date) untouched rather than mangling it into a wrong year. The write path already stamps REAL; this fixes the legacy pocket only.",
+        lambda cursor: migration_066_normalize_text_created_timestamp(cursor),
+    ),
 ]
 
 
@@ -2702,3 +2707,62 @@ def migration_064_subtask_status_vocabulary(cursor: sqlite3.Cursor):
         logger.info(f"✅ Migration 064 complete: normalized {stale} subtask(s) from 'complete' to 'completed'")
     else:
         logger.info("✅ Migration 064 complete: no 'complete' subtasks to normalize")
+
+
+# Tables carrying a created_timestamp column (schema snapshot at migration 066).
+# A one-time normalization runs against the tables that existed when it shipped;
+# the write path stamps REAL going forward, so a future table cannot regress here.
+_CREATED_TIMESTAMP_TABLES = (
+    "goals",
+    "subtasks",
+    "mistakes_made",
+    "projects",
+    "project_handoffs",
+    "project_findings",
+    "project_unknowns",
+    "project_dead_ends",
+    "investigation_branches",
+    "merge_decisions",
+    "task_decompositions",
+    "lessons",
+    "lesson_corrections",
+    "knowledge_graph",
+    "concept_clusters",
+    "suggestions",
+    "assumptions",
+    "decisions",
+    "project_reference_docs",
+    "beads",
+    "weave_enforce_events",
+    "blindspot_events",
+    "prevention_events",
+)
+
+
+def migration_066_normalize_text_created_timestamp(cursor: sqlite3.Cursor):
+    """Cast TEXT epoch created_timestamp values to REAL so they sort correctly.
+
+    A TEXT value in an otherwise-numeric column sorts above every number in
+    SQLite, so a handful of legacy rows (13 on the empirica practice, measured
+    2026-08-12) were returned as the NEWEST by ``ORDER BY created_timestamp
+    DESC`` — including the breadcrumbs queries that build injected session
+    context, so 8-month-old findings surfaced as if just written.
+
+    Idempotent and defensive: only numeric epoch text (10+ leading digits) is
+    cast; REAL rows and any non-epoch text (e.g. an ISO date, which a naive CAST
+    would mangle into a wrong year) are left untouched. The write path already
+    stamps REAL — this closes the legacy pocket, it is not an ongoing fixup.
+    """
+    epoch_glob = "[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]*"
+    fixed = 0
+    for table in _CREATED_TIMESTAMP_TABLES:
+        try:
+            cursor.execute(
+                f"UPDATE {table} SET created_timestamp = CAST(created_timestamp AS REAL) "
+                f"WHERE typeof(created_timestamp) = 'text' AND created_timestamp GLOB ?",
+                (epoch_glob,),
+            )
+            fixed += cursor.rowcount
+        except sqlite3.OperationalError:
+            continue  # table absent on a partial/older DB — defensive skip
+    logger.info(f"✅ Migration 066 complete: normalized {fixed} TEXT created_timestamp value(s) to REAL")
