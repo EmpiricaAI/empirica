@@ -5,6 +5,23 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.20] - 2026-08-15
+
+### Added
+- **`empirica serve-service install|uninstall|status`** — opt-in supervision of the
+  serve daemon as a persistent OS service (systemd-user / launchd). Until now the
+  daemon was supervised only where an operator hand-built a systemd unit, so a
+  fresh install or another box had no reboot-restart and no way to pick up new
+  code after an update. The codified unit carries the same StartLimit circuit
+  breaker as the listener (the 1849-restart-flap guard) and the `:port`
+  ExecStartPre reaper; `install` backs up any existing unit to `<unit>.bak` and
+  never touches a drop-in `override.conf`. launchd sets `EMPIRICA_SERVE_DRIFT_EXIT=1`
+  (it has no `INVOCATION_ID`) so the supervised drift self-exit works there too.
+- **Restart-on-update.** `setup-claude-code --force` now restarts the serve daemon
+  where the service is installed + active, so a code update actually lands — a
+  long-running editable daemon holds its start-time code (editable installs skip
+  the drift self-exit by design). Safe no-op where no service is installed.
+
 ## [1.13.19] - 2026-08-15
 
 ### Fixed

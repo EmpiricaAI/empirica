@@ -4616,6 +4616,34 @@ Start local daemon for Chrome extension integration
 
 ---
 
+#### `empirica serve-service`
+
+Install / uninstall / inspect the serve daemon as a persistent OS service
+(systemd-user on Linux/WSL2, launchd on macOS). **Opt-in only** — never installed
+by setup. Supervising the daemon gives it reboot-restart AND drift-triggered
+relaunch, so a code update is picked up. The unit carries a StartLimit circuit
+breaker and a `:port` orphan reaper; `install` backs up any existing unit to
+`<unit>.bak` and leaves a drop-in `override.conf` untouched.
+
+**Arguments:**
+
+- `action` — **required** · choices={install, uninstall, status}
+  install (+start), uninstall (+stop), or status
+- `--path` — optional · default=`.`
+  Project root the daemon binds to (WorkingDirectory). Default: current directory.
+- `--port` — optional · type=`int` · default=`8000`
+  Port the supervised daemon serves on (default: 8000 or EMPIRICA_SERVE_PORT)
+- `--host` — optional · default=`127.0.0.1`
+  Bind host for the supervised daemon
+- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
+
+> A long-running **editable** serve daemon does not auto-pick-up new code (editable
+> installs skip the drift self-exit by design). `setup-claude-code --force` restarts
+> the supervised daemon so a code update lands; where no service is installed this
+> is a safe no-op.
+
+---
+
 ## uncategorized
 
 _These commands are registered in the parser but not yet listed in_ `_HELP_CATEGORIES` _in `empirica/cli/cli_core.py`. Add them to a_ _category to make them discoverable via_ `empirica help`.
