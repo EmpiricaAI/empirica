@@ -22,14 +22,26 @@ in a prompt, or not at all — and the README did not mention skills exist.
 
 ---
 
+## Governance and transaction discipline
+
+Core discipline — shipped in this plugin, not Cortex-gated.
+
+| Skill | Fires when | Why it is load-bearing |
+|---|---|---|
+| **`/empirica-constitution`** | First PREFLIGHT of a session; routing a decision you have not met before; the user asks what Empirica can do | Deep governance — phase-aware completion, the cognitive immune system, the practice model. The *why* underneath the operational routing |
+| **`/epistemic-transaction`** | Work spans 3+ files, 2+ goals, or several noetic→praxic cycles | The transaction discipline itself — PREFLIGHT vectors, goal decomposition, task evidence, wire formats for every submission. Largest skill in the set at ~5,800 words, and the depth is the point |
+
+---
+
 ## Mesh (require Cortex)
 
 These need the Cortex mesh configured. Core is fully functional without them.
-The deep protocol skills — `cortex-mailbox-poll`, `cortex-mailbox-send`,
-`empirica-constitution`, `epistemic-transaction` — are distributed with the
-Cortex bundle, not this plugin: installing Cortex provides them alongside its
-MCP tools. (Written without the `/` here deliberately: the index guard treats
-backticked slash-commands as claims that this plugin ships them.)
+The mesh protocol skills — `cortex-mailbox-poll`, `cortex-mailbox-send` — are
+distributed with the Cortex bundle, not this plugin: installing Cortex provides
+them alongside its MCP tools. (Written without the `/` here deliberately: the
+index guard treats backticked slash-commands as claims that this plugin ships
+them.) The governance and transaction-discipline skills below are **core** and
+ship in this plugin — they are not Cortex-gated.
 
 | Skill | Fires when |
 |---|---|
