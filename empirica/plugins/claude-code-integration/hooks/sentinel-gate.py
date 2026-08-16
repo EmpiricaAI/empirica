@@ -1078,6 +1078,11 @@ _RECOVERY_MEASUREMENT_PREFIXES = (
     "empirica source-add",
     "empirica note",
     "empirica unknown-resolve",
+    # The batched noetic primitive — investigation is the REMEDY every gate
+    # prescribes ("investigate and log first"), so the tool that performs it
+    # must be always-open. Belt for the chain-classifier fix: even if a future
+    # command shape defeats classification again, the noetic primitive flows.
+    "empirica noetic-batch",
     # Goal tracking — MEASUREMENT (recording what work exists + its state), same
     # class as *-log. Exempt so a practitioner can defer-as-goal even while gated
     # (the reaction-protocol "log a goal to process this proposal" path).
@@ -2203,10 +2208,27 @@ def _classify_chain(command: str) -> bool | None:
     Newline counts as a separator (a multi-line payload of planning verbs is a
     chain), EXCEPT when a heredoc (`<<`) is present — its body legitimately
     spans lines, and splitting on those newlines would shred it.
+
+    Two over-gates fixed here (both live repros, 2026-08-16):
+
+    - Heredoc detection is QUOTE-AWARE: a ``<<`` inside a quoted argument
+      (e.g. ``grep "a\\|<<\\|b"``) is data, not a heredoc. The naive substring
+      test suppressed newline-splitting for a whole multi-line command of pure
+      reads, which then fell to single-command classification and gated.
+    - A leading ``cd <path>\\n`` before a REAL heredoc command is normalized to
+      ``cd <path> && `` (the same regex the recovery exemption uses), so the
+      chain classifier can split on ``&&`` and judge the heredoc command by its
+      own verb. Without it, ``cd x\\nempirica noetic-batch - <<'EOF'…`` was not
+      a chain (heredoc suppresses ``\\n``, no other op present) and the single-
+      command path saw only the ``cd`` — the dedicated noetic primitive gated.
     """
-    chain_ops: tuple[str, ...] = ("&&", "||", ";")
-    if "<<" not in command:
-        chain_ops = (*chain_ops, "\n")
+    if _contains_outside_quotes(command, "<<"):
+        # Real heredoc: fold ONLY a leading `cd <path>\n` into `&&` form; the
+        # heredoc body's newlines stay untouched.
+        command = re.sub(r"\A(\s*cd\s+[^\n&;|]+)\n", r"\1 && ", command, count=1)
+        chain_ops: tuple[str, ...] = ("&&", "||", ";")
+    else:
+        chain_ops = ("&&", "||", ";", "\n")
     for chain_op in chain_ops:
         if _contains_outside_quotes(command, chain_op):
             segments = [s.strip() for s in _split_outside_quotes(command, chain_op)]

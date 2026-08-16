@@ -205,3 +205,67 @@ def test_config_setting_globals_are_never_stripped(gate, command):
 def test_normalization_is_a_noop_for_non_git(gate):
     assert gate._normalize_git_globals("rg -C 3 pattern") == "rg -C 3 pattern"
     assert gate._normalize_git_globals("git status") == "git status"
+
+
+# --- multi-line chains: quoted << and cd+heredoc (live repros 2026-08-16) -----
+#
+# Two over-gates from one session, both in _classify_chain:
+# 1. `cd <path>\n<heredoc noetic verb>` — heredoc suppressed newline-splitting
+#    (correct) but nothing reassembled the leading cd line, so the whole string
+#    fell to single-command classification, saw `cd`, and gated the DEDICATED
+#    noetic primitive.
+# 2. A QUOTED `<<` inside a grep pattern tripped the naive substring heredoc
+#    test, suppressing newline-splitting for a multi-line command of pure reads.
+# Both repros verbatim — a tidier paraphrase is how the first wedge fix missed.
+
+CD_HEREDOC_NOETIC_REPRO = """cd /home/yogapad/empirical-ai/empirica
+empirica noetic-batch - << 'EOF'
+{"intent":"Map hygiene-signal injection",
+ "reads":[{"path":"empirica/cli/command_handlers/_workflow_preflight.py","lines":"508-620"}],
+ "greps":[{"pattern":"def handle_goals_get_stale|def get_stale","glob":"empirica/**/*.py","context":2}]}
+EOF"""
+
+QUOTED_HEREDOC_MARKER_REPRO = """cd /home/yogapad/empirical-ai/empirica
+echo "=== the sentinel gate hook ==="
+ls empirica/plugins/claude-code-integration/hooks/ | head
+echo ""
+grep -rln "noetic-batch\\|noetic_batch\\|NOETIC" empirica/plugins/claude-code-integration/hooks/sentinel-gate.py | head
+grep -rln "heredoc\\|<<\\|wedge" empirica/plugins/claude-code-integration/hooks/sentinel-gate.py | head"""
+
+
+def test_cd_newline_heredoc_noetic_batch_is_safe(gate):
+    """Repro 1: the dedicated noetic primitive behind cd+newline+heredoc must flow."""
+    assert gate.is_safe_bash_command({"command": CD_HEREDOC_NOETIC_REPRO})
+
+
+def test_quoted_heredoc_marker_does_not_suppress_newline_split(gate):
+    """Repro 2: a quoted << in a grep pattern is data, not a heredoc — the
+    multi-line pure-read command must classify per line and flow."""
+    assert gate.is_safe_bash_command({"command": QUOTED_HEREDOC_MARKER_REPRO})
+
+
+def test_cd_newline_heredoc_praxic_body_still_gates(gate):
+    """The other half: the same cd+heredoc shape wrapping a MUTATING verb must
+    NOT ride the fix — segment classification still judges the verb."""
+    praxic = """cd /tmp
+python3 apply_changes.py << 'EOF'
+{"x": 1}
+EOF"""
+    assert not gate.is_safe_bash_command({"command": praxic})
+
+
+def test_cd_newline_then_praxic_line_still_gates(gate):
+    """Newline-chained praxic after cd (no heredoc) keeps gating."""
+    assert not gate.is_safe_bash_command({"command": "cd /tmp\nrm -rf ./x"})
+
+
+def test_quoted_marker_with_praxic_line_still_gates(gate):
+    """Quote-aware detection must not excuse a mutating line elsewhere in the chain."""
+    cmd = """grep "a\\|<<\\|b" file.txt
+rm -rf ./x"""
+    assert not gate.is_safe_bash_command({"command": cmd})
+
+
+def test_noetic_batch_is_recovery_exempt(gate):
+    """Belt: the noetic primitive is always-open even via the recovery path."""
+    assert gate._is_recovery_or_measurement_action("Bash", {"command": "empirica noetic-batch - << 'EOF'\n{}\nEOF"})
