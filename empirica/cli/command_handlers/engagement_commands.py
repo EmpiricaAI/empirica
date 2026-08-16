@@ -49,6 +49,18 @@ def handle_engagement_create_command(args):
     try:
         output = getattr(args, "output", "human")
         title = args.title
+        # Validate domain/stage BEFORE minting. The mint registers the entity;
+        # hitting the taxonomy ValueError only later (inside create_engagement)
+        # exited mid-sequence with a registered-but-recordless engagement —
+        # visible on every surface, nowhere to store a date (prop_rif7asmh, 82
+        # such orphans measured on one fleet box). Failing here writes nothing.
+        try:
+            with WorkspaceDBRepository.open() as repo:
+                repo.validate_engagement_taxonomy(
+                    domain=getattr(args, "domain", None), stage=getattr(args, "stage", None)
+                )
+        except ValueError as ve:
+            _emit_user_error(output, str(ve))
         result = mint_entity(
             entity_type="engagement",
             name=title,

@@ -38,11 +38,15 @@ def _membership(repo, etype, eid, gtype, gid, role=None):
 
 
 def _registry(repo, etype, eid, name, metadata=None):
+    # Upsert, not bare INSERT: create_engagement registers atomically now
+    # (prop_rif7asmh), so seeding after a create must refresh, not collide.
     now = time.time()
     repo._execute(
         """INSERT INTO entity_registry
            (entity_type, entity_id, display_name, source_db, source_table, created_at, metadata)
-           VALUES (?, ?, ?, 'test', 'test', ?, ?)""",
+           VALUES (?, ?, ?, 'test', 'test', ?, ?)
+           ON CONFLICT(entity_type, entity_id) DO UPDATE SET
+               display_name = excluded.display_name, metadata = excluded.metadata""",
         (etype, eid, name, now, json.dumps(metadata) if metadata else None),
     )
 
@@ -153,7 +157,8 @@ def test_projection_tolerates_garbage_metadata(repo):
     repo._execute(
         """INSERT INTO entity_registry
            (entity_type, entity_id, display_name, source_db, source_table, created_at, metadata)
-           VALUES ('engagement', 'e1', 'Ticket', 'test', 'test', ?, '{not json')""",
+           VALUES ('engagement', 'e1', 'Ticket', 'test', 'test', ?, '{not json')
+           ON CONFLICT(entity_type, entity_id) DO UPDATE SET metadata = excluded.metadata""",
         (time.time(),),
     )
     # must not raise — garbage metadata resolves to an empty bag

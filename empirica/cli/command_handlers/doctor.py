@@ -91,6 +91,47 @@ def _http_get(url: str, headers: dict | None = None, timeout: float = 5.0) -> tu
 # ─── Install presence ──────────────────────────────────────────────────
 
 
+def check_engagement_registry_drift() -> Check:
+    """Engagement dual-write drift — both orphan classes (prop_rif7asmh).
+
+    An engagement needs an entity_registry row (what surfaces render) AND an
+    engagements sidecar row (where dates/warmth/stage live). Nothing used to
+    link the writes, and each entry point dropped a different half: one fleet
+    box measured 82 registry-only (visible, dateless) + 12 sidecar-only
+    (invisible). The write paths are fixed to be atomic; this check makes any
+    REMAINING or future drift loudly visible instead of silently rendering
+    wrong. WARN, not FAIL — pre-fix orphans are repairable, not fatal.
+    """
+    try:
+        from empirica.data.repositories.workspace_db import WorkspaceDBRepository
+
+        with WorkspaceDBRepository.open() as repo:
+            drift = repo.engagement_registry_drift()
+    except Exception as e:
+        return Check(
+            "Engagement registry drift",
+            WARN,
+            "",
+            f"could not read workspace db: {type(e).__name__}: {e}",
+        )
+    reg_only, side_only = drift["registry_only"], drift["sidecar_only"]
+    if not reg_only and not side_only:
+        return Check("Engagement registry drift", PASS, "registry and sidecar in sync")
+    parts = []
+    if reg_only:
+        parts.append(f"{len(reg_only)} registry-only (render everywhere, no date fields)")
+    if side_only:
+        parts.append(f"{len(side_only)} sidecar-only (invisible on every surface)")
+    return Check(
+        "Engagement registry drift",
+        WARN,
+        "; ".join(parts),
+        "registry-only need a sidecar row (create_engagement now writes both); "
+        "sidecar-only need registration (re-run creation, or upsert_entity for each id)",
+        data={"registry_only": reg_only[:20], "sidecar_only": side_only[:20]},
+    )
+
+
 def check_orphaned_presence() -> Check:
     """Live practitioners whose practice has no running listener.
 
@@ -1250,6 +1291,7 @@ def run_all_checks(cwd: Path | None = None) -> list[Check]:
         check_sessions_db(cwd),
         check_git_remote(cwd),
         check_sync_state(cwd),
+        check_engagement_registry_drift(),
         # Cortex connectivity
         check_cortex_creds(),
         check_cortex_reachability(),

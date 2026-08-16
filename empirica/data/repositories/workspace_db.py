@@ -1644,11 +1644,20 @@ class WorkspaceDBRepository(BaseRepository):
         project_id: str | None = None,
         created_by_ai_id: str | None = None,
     ) -> dict[str, Any]:
-        """Create an engagement sidecar row (lifecycle_state='open').
+        """Create an engagement sidecar row (lifecycle_state='open') AND register it.
 
         Validates ``domain`` against domain_definitions and ``stage`` against
         stage_definitions (for that domain) when provided — raises ValueError on
         an unknown domain/stage. Returns the created row.
+
+        Registration is part of the SAME call (prop_rif7asmh, measured on a
+        fleet box: 12 sidecar rows with no registry row rendered on no surface).
+        An engagement needs two rows — the sidecar (dates/warmth/stage live
+        here) and the entity_registry row (what every surface renders) — and
+        nothing linked the writes, so a caller of this method alone created an
+        invisible engagement. Callers that upsert afterwards with richer
+        metadata (the API route) still work: upsert_entity is idempotent and
+        their later call refreshes metadata in place.
         """
         if domain is not None:
             self._require_domain(domain)
@@ -1678,11 +1687,58 @@ class WorkspaceDBRepository(BaseRepository):
                 now,
             ),
         )
+        # Register before commit — upsert_entity's own commit flushes BOTH
+        # writes together, so the record cannot exist unregistered.
+        self.upsert_entity(
+            "engagement",
+            engagement_id,
+            display_name=title,
+            source_db="workspace",
+            source_table="engagements",
+            description=description,
+        )
         self.commit()
         created = self.get_engagement(engagement_id)
         if created is None:  # pragma: no cover — row was just inserted
             raise RuntimeError(f"engagement {engagement_id!r} not found immediately after insert")
         return created
+
+    def validate_engagement_taxonomy(self, domain: str | None = None, stage: str | None = None) -> None:
+        """Raise ValueError on an unknown domain/stage — same checks
+        create_engagement applies, exposed so CALLERS can validate BEFORE any
+        write. The CLI mints the registry entity first and used to hit the
+        taxonomy ValueError only inside create_engagement, exiting mid-sequence
+        with a registered-but-recordless engagement (prop_rif7asmh: 82 such
+        orphans on one fleet box, visible everywhere with nowhere to store a
+        date). Pre-validation makes the failure land before anything is written.
+        """
+        if domain is not None:
+            self._require_domain(domain)
+        if stage is not None:
+            self._require_stage(stage, domain)
+
+    def engagement_registry_drift(self) -> dict[str, list[str]]:
+        """Both engagement orphan classes, for doctor/guard surfaces.
+
+        Returns ``{"registry_only": [...], "sidecar_only": [...]}`` —
+        registry_only rows render on every surface but have no sidecar (no
+        next_action/warmth/dates can be stored); sidecar_only rows are real
+        records that render nowhere. Read-only.
+        """
+        cur = self._execute(
+            "SELECT r.entity_id FROM entity_registry r "
+            "LEFT JOIN engagements e ON e.engagement_id = r.entity_id "
+            "WHERE r.entity_type = 'engagement' AND e.engagement_id IS NULL "
+            "ORDER BY r.entity_id"
+        )
+        registry_only = [row["entity_id"] for row in cur.fetchall()]
+        cur = self._execute(
+            "SELECT e.engagement_id FROM engagements e "
+            "LEFT JOIN entity_registry r ON r.entity_id = e.engagement_id AND r.entity_type = 'engagement' "
+            "WHERE r.entity_id IS NULL ORDER BY e.engagement_id"
+        )
+        sidecar_only = [row["engagement_id"] for row in cur.fetchall()]
+        return {"registry_only": registry_only, "sidecar_only": sidecar_only}
 
     def get_engagement(self, engagement_id: str) -> dict[str, Any] | None:
         """Fetch a single engagement by id. Returns None if not found."""
