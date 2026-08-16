@@ -2727,7 +2727,15 @@ def _gc_resolve_goal(goal_id, output_format):
 
 
 def _gc_mark_completed(goal_id):
-    """Update goal status to completed in the database."""
+    """Update goal status to completed in the database, then mirror to Qdrant.
+
+    The Qdrant mirror is the retrieval-hygiene half: the goal's embedded payload
+    carries ``status``/``is_completed`` frozen at embed time, and PREFLIGHT/CHECK
+    inject goals from that payload. Without this propagation a completed goal
+    keeps resurfacing as ``in_progress`` in every later transaction's injected
+    context (update_goal_status existed for exactly this and had zero callers).
+    Best-effort — Qdrant down must never fail the completion.
+    """
     from empirica.data.session_database import SessionDatabase
 
     db2 = SessionDatabase()
@@ -2736,7 +2744,25 @@ def _gc_mark_completed(goal_id):
         (time.time(), goal_id),
     )
     db2.conn.commit()
+    # Resolve the project for the Qdrant collection before closing the handle.
+    project_id = None
+    try:
+        row = db2.conn.execute(
+            "SELECT s.project_id FROM goals g JOIN sessions s ON g.session_id = s.session_id WHERE g.id = ?",
+            (goal_id,),
+        ).fetchone()
+        project_id = row[0] if row else None
+    except Exception:
+        project_id = None
     db2.close()
+
+    if project_id:
+        try:
+            from empirica.core.qdrant.goals import update_goal_status
+
+            update_goal_status(project_id, goal_id, "completed")
+        except Exception as e:
+            logger.debug(f"goal completion Qdrant mirror skipped (non-fatal): {e}")
 
 
 def _gc_run_postflight(goal, result):

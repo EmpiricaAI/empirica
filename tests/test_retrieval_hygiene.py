@@ -183,3 +183,133 @@ def test_finding_reconcile_fail_open_when_column_absent(tmp_path, monkeypatch):
 
 def test_finding_reconcile_empty_is_noop():
     assert _reconcile_findings_against_sqlite([]) == []
+
+
+# ── type-aware reconciliation + pre-fix text fallback (vacuous-reconciler fix) ─
+#
+# embed_goal never wrote goal_id into the payload, so ids was always empty and
+# the reconciler vacuously passed every goal — the machinery was proven by the
+# hand-built fixtures above (which all carry goal_id) while the live enumerator
+# was empty. These pin the producer contract + the fallback for pre-fix points.
+
+
+def test_subtask_dropped_when_parent_completed():
+    raw = [{"goal_id": "g1", "type": "subtask", "status": "pending"}]
+    assert _apply_goal_reconciliation(raw, {"g1": ("completed", True)}) == []
+
+
+def test_subtask_status_never_rewritten_from_parent():
+    # Parent open with a different status: the subtask keeps ITS OWN status —
+    # an earlier form rewrote pending subtasks to the parent's in_progress.
+    raw = [{"goal_id": "g1", "type": "subtask", "status": "pending"}]
+    out = _apply_goal_reconciliation(raw, {"g1": ("in_progress", False)})
+    assert out == [{"goal_id": "g1", "type": "subtask", "status": "pending"}]
+
+
+def test_goal_without_id_dropped_by_objective_fallback():
+    raw = [{"objective": "Ship the widget", "status": "in_progress"}]  # pre-fix point
+    out = _apply_goal_reconciliation(raw, {}, completed_objectives={"ship the widget"})
+    assert out == []
+
+
+def test_goal_without_id_kept_when_objective_not_completed():
+    raw = [{"objective": "Still open work", "status": "in_progress"}]
+    out = _apply_goal_reconciliation(raw, {}, completed_objectives={"something else"})
+    assert out == raw
+
+
+def test_subtask_without_goal_id_never_text_matched():
+    # The objective fallback is goals-only: a subtask row must not be dropped by
+    # a text collision with a completed goal's objective.
+    raw = [{"type": "subtask", "objective": "Ship the widget", "status": "pending"}]
+    out = _apply_goal_reconciliation(raw, {}, completed_objectives={"ship the widget"})
+    assert out == raw
+
+
+def test_sqlite_wrapper_text_fallback_for_prefix_points(tmp_path, monkeypatch):
+    """End-to-end: a pre-fix point (no goal_id in payload) whose objective matches
+    a completed goal in SQLite is dropped — the empty-ids early return that made
+    the reconciler vacuous is gone."""
+    root = tmp_path / "proj"
+    db_dir = root / ".empirica" / "sessions"
+    db_dir.mkdir(parents=True)
+    conn = sqlite3.connect(str(db_dir / "sessions.db"))
+    conn.execute("CREATE TABLE goals (id TEXT PRIMARY KEY, objective TEXT, status TEXT, is_completed INTEGER)")
+    conn.executemany(
+        "INSERT INTO goals VALUES (?,?,?,?)",
+        [("g1", "Ship the widget", "completed", 1), ("g2", "Open thing", "in_progress", 0)],
+    )
+    conn.commit()
+    conn.close()
+
+    import empirica.data.session_database as sdb
+
+    monkeypatch.setattr(sdb, "_resolve_canonical_project_root", lambda: str(root))
+
+    raw = [
+        {"objective": "Ship the widget", "status": "in_progress"},  # completed → drop
+        {"objective": "Open thing", "status": "in_progress"},  # open → keep
+    ]
+    out = _reconcile_goals_against_sqlite(raw)
+    assert [g["objective"] for g in out] == ["Open thing"]
+
+
+def test_embed_goal_payload_carries_goal_id(monkeypatch):
+    """Producer contract: the payload embed_goal writes MUST carry goal_id —
+    the reconciler keys on it, and the md5 point_id is one-way."""
+
+    import empirica.core.qdrant.goals as qg
+
+    captured = {}
+
+    class _FakeClient:
+        def collection_exists(self, _c):
+            return True
+
+        def upsert(self, collection_name, points):
+            captured["payload"] = points[0].payload
+
+    class _PS:
+        def __init__(self, id, vector, payload):
+            self.id, self.vector, self.payload = id, vector, payload
+
+    monkeypatch.setattr(qg, "_check_qdrant_available", lambda: True)
+    monkeypatch.setattr(qg, "_get_qdrant_client", lambda: _FakeClient())
+    monkeypatch.setattr(qg, "_get_qdrant_imports", lambda: (None, None, None, _PS))
+    monkeypatch.setattr(qg, "_get_embedding_safe", lambda _t: [0.0] * 4)
+    monkeypatch.setattr(qg, "_get_vector_size", lambda: 4)
+
+    assert qg.embed_goal("proj", "goal-abc", "An objective") is True
+    assert captured["payload"]["goal_id"] == "goal-abc"
+
+
+def test_update_goal_status_normalizes_completed(monkeypatch):
+    """'completed' (the SQL layer's spelling) must set is_completed=True — the
+    exact-match on 'complete' silently recorded False for it. Also backfills
+    goal_id into pre-fix payloads."""
+
+    import empirica.core.qdrant.goals as qg
+
+    captured = {}
+
+    class _Point:
+        def __init__(self):
+            self.payload = {"status": "in_progress"}  # pre-fix payload: no goal_id
+            self.vector = [0.0] * 4
+
+    class _FakeClient:
+        def collection_exists(self, _c):
+            return True
+
+        def retrieve(self, collection_name, ids, with_payload, with_vectors):
+            return [_Point()]
+
+        def upsert(self, collection_name, points):
+            captured["payload"] = points[0].payload
+
+    monkeypatch.setattr(qg, "_check_qdrant_available", lambda: True)
+    monkeypatch.setattr(qg, "_get_qdrant_client", lambda: _FakeClient())
+
+    assert qg.update_goal_status("proj", "goal-abc", "completed") is True
+    assert captured["payload"]["is_completed"] is True
+    assert captured["payload"]["goal_id"] == "goal-abc"  # backfilled

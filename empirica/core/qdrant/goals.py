@@ -91,6 +91,11 @@ def embed_goal(
 
         payload = {
             "type": "goal",
+            # The goal's own id. Without it, retrieval hands back goal_id=None and
+            # the PREFLIGHT/CHECK reconciler (_reconcile_goals_against_sqlite) has
+            # nothing to look up — a completed goal keeps surfacing as in_progress
+            # forever. The md5 point_id is one-way, so the id must ride the payload.
+            "goal_id": goal_id,
             "created_at": timestamp or time.time(),
             "objective": objective[:500] if objective else None,
             "objective_full": objective if len(objective) <= 500 else None,
@@ -192,6 +197,10 @@ def embed_subtask(
 
         payload = {
             "type": "subtask",
+            # The subtask's OWN id — distinct from goal_id below, which is the
+            # PARENT's. Reconciliation needs both: subtask_id to correct the
+            # subtask's own status, goal_id to drop subtasks of completed goals.
+            "subtask_id": subtask_id,
             "description": description[:500] if description else None,
             "description_full": description if len(description) <= 500 else None,
             "goal_id": goal_id,
@@ -297,6 +306,7 @@ def search_goals(
                 "objective": (r.payload or {}).get("objective_full") or (r.payload or {}).get("objective"),
                 "description": (r.payload or {}).get("description_full") or (r.payload or {}).get("description"),
                 "goal_id": (r.payload or {}).get("goal_id"),
+                "subtask_id": (r.payload or {}).get("subtask_id"),
                 "session_id": (r.payload or {}).get("session_id"),
                 "ai_id": (r.payload or {}).get("ai_id"),
                 "status": (r.payload or {}).get("status"),
@@ -356,7 +366,14 @@ def update_goal_status(
         point = points[0]
         payload = point.payload or {}
         payload["status"] = status
-        payload["is_completed"] = status == "complete"
+        # Both spellings are live: the SQL layer writes 'completed', this module's
+        # embed default docstring says 'complete'. Normalizing here keeps the flag
+        # true for either — an exact-match on one spelling silently recorded
+        # is_completed=False for the other.
+        payload["is_completed"] = status in ("complete", "completed")
+        # Backfill: points embedded before goal_id rode the payload can gain it
+        # here, so the PREFLIGHT/CHECK reconciler can look them up from now on.
+        payload.setdefault("goal_id", goal_id)
         if completion_evidence:
             payload["completion_evidence"] = completion_evidence
 

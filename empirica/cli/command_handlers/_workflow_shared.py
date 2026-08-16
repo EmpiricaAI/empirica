@@ -1061,18 +1061,48 @@ def _maybe_add_stale_artifacts_note(cursor, session_id: str, transaction_id, ret
             "ORDER BY created_timestamp",
             (*goal_ids, transaction_id),
         ).fetchall()
-        if not rows:
+        # Unverified assumptions under the same goals are the sibling debt: the
+        # pre-blindspot surface says "bank what you're taking for granted so it
+        # stays falsifiable later" — goal close is the LATER. Same three bounds
+        # (goal-scoped, earlier-transaction, lifecycle-typed). Separate try so an
+        # older DB without the assumptions table still surfaces unknowns.
+        assumption_rows = []
+        try:
+            assumption_rows = cursor.execute(
+                f"SELECT id, assumption FROM assumptions "
+                f"WHERE goal_id IN ({placeholders}) "
+                "AND status = 'unverified' "
+                "AND (transaction_id IS NULL OR transaction_id != ?) "
+                "ORDER BY created_timestamp",
+                (*goal_ids, transaction_id),
+            ).fetchall()
+        except Exception:
+            pass
+        if not rows and not assumption_rows:
             return
-        retro["stale_artifacts_in_scope"] = len(rows)
-        listing = "\n".join(f"  - {r[0][:8]}: {(r[1] or '')[:90]}" for r in rows[:8])
-        more = f"\n  ... + {len(rows) - 8} more" if len(rows) > 8 else ""
+        retro["stale_artifacts_in_scope"] = len(rows) + len(assumption_rows)
+        parts = []
+        if rows:
+            listing = "\n".join(f"  - {r[0][:8]}: {(r[1] or '')[:90]}" for r in rows[:8])
+            more = f"\n  ... + {len(rows) - 8} more" if len(rows) > 8 else ""
+            parts.append(
+                f"{len(rows)} open unknown(s) under the goal(s) in play, logged before this "
+                "transaction and still unresolved. If your work answered any, resolve them "
+                '(`empirica unknown-resolve <id> --resolved-by "..."`); if still genuinely '
+                f"open, leave them.\n{listing}{more}"
+            )
+        if assumption_rows:
+            listing = "\n".join(f"  - {r[0][:8]}: {(r[1] or '')[:90]}" for r in assumption_rows[:8])
+            more = f"\n  ... + {len(assumption_rows) - 8} more" if len(assumption_rows) > 8 else ""
+            parts.append(
+                f"{len(assumption_rows)} unverified assumption(s) under the goal(s) in play — "
+                "beliefs the work rested on that nothing checked. Adjudicate them like claims: "
+                "verified or falsified (`empirica resolve-artifacts -`), not silently carried.\n"
+                f"{listing}{more}"
+            )
         retro["stale_artifacts_note"] = (
-            f"{len(rows)} open unknown(s) under the goal(s) in play, logged before this "
-            "transaction and still unresolved. Gardening is one call, not a separate pass: "
-            "if your work answered any, resolve them "
-            '(`empirica unknown-resolve <id> --resolved-by "..."`); if still genuinely open, '
-            "leave them. Scoped to the active goal(s), not the whole graph.\n"
-            f"{listing}{more}"
+            "Gardening is one call, not a separate pass — scoped to the active goal(s), "
+            "not the whole graph.\n" + "\n".join(parts)
         )
     except Exception:
         pass  # unknowns/goals table absent on older DBs — non-fatal

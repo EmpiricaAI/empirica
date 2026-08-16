@@ -353,23 +353,39 @@ def _enrich_memory_types(result, project_id, task_context, limits, include_eidet
         logger.debug(f"Global dead-ends retrieval failed: {e}")
 
 
-def _apply_goal_reconciliation(raw_goals, live_map):
+def _apply_goal_reconciliation(raw_goals, live_map, completed_objectives=None):
     """Reconcile retrieved goals against authoritative live status (retrieval hygiene).
 
     ``live_map`` maps ``goal_id -> (status, is_completed)`` from the local SQLite.
-    Drops goals completed in SQLite (a stale Qdrant payload still reading
-    ``in_progress``), corrects stale status on open goals, and keeps goals absent
-    from the map (cross-project or subtask) unchanged. Pure function — unit-testable.
+    ``completed_objectives`` is an optional set of completed goals' objective texts
+    (lowercased, truncated to the payload's 500-char cap) — the fallback for points
+    embedded before ``goal_id`` rode the goal payload, mirroring the #307 findings
+    text-prefix fallback. Without it, every pre-fix point is invisible to the id
+    lookup and a completed goal resurfaces as ``in_progress`` forever.
+
+    Type-aware: for ``type == 'subtask'`` rows the payload's ``goal_id`` is the
+    PARENT's id, so the parent's completion still drops the row (a completed
+    goal's subtasks are done context), but the parent's status must never be
+    written onto the subtask — an earlier form rewrote ``pending`` subtasks to
+    the parent's ``in_progress``. Pure function — unit-testable.
     """
     out = []
     for g in raw_goals:
         gid = g.get("goal_id")
+        is_subtask = g.get("type") == "subtask"
         if gid and gid in live_map:
             status, is_completed = live_map[gid]
             if is_completed or status == "completed":
-                continue  # drop: completed in SQLite, stale-in_progress in Qdrant
-            if status and status != g.get("status"):
-                g = {**g, "status": status}  # correct stale status in place
+                continue  # drop: completed in SQLite, stale payload in Qdrant
+            if not is_subtask and status and status != g.get("status"):
+                g = {**g, "status": status}  # correct stale status (goals only)
+        elif not gid and not is_subtask and completed_objectives:
+            # Pre-fix goal point (no goal_id in payload): fall back to objective
+            # text against the completed set. Payload objectives are capped at
+            # 500 chars, so compare on the truncated form.
+            obj = (g.get("objective") or "")[:500].strip().lower()
+            if obj and obj in completed_objectives:
+                continue  # drop: matches a completed goal's objective
         out.append(g)
     return out
 
@@ -386,7 +402,13 @@ def _reconcile_goals_against_sqlite(raw_goals):
         return raw_goals
     try:
         ids = [g.get("goal_id") for g in raw_goals if g.get("goal_id")]
-        if not ids:
+        # Pre-fix goal points carry no goal_id in payload — those need the
+        # objective-text fallback, so an empty id list is NOT an early return
+        # (that early return is what made this reconciler vacuous for goals:
+        # embed_goal never wrote goal_id, ids was always [], and every completed
+        # goal sailed through as in_progress).
+        needs_text_fallback = any(not g.get("goal_id") and g.get("type") != "subtask" for g in raw_goals)
+        if not ids and not needs_text_fallback:
             return raw_goals
         import sqlite3
         from pathlib import Path
@@ -401,15 +423,23 @@ def _reconcile_goals_against_sqlite(raw_goals):
             return raw_goals
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
         try:
-            placeholders = ",".join("?" for _ in ids)
-            cur = conn.execute(
-                f"SELECT id, status, COALESCE(is_completed, 0) FROM goals WHERE id IN ({placeholders})",
-                ids,
-            )
-            live_map = {row[0]: (row[1], bool(row[2])) for row in cur.fetchall()}
+            live_map = {}
+            if ids:
+                placeholders = ",".join("?" for _ in ids)
+                cur = conn.execute(
+                    f"SELECT id, status, COALESCE(is_completed, 0) FROM goals WHERE id IN ({placeholders})",
+                    ids,
+                )
+                live_map = {row[0]: (row[1], bool(row[2])) for row in cur.fetchall()}
+            completed_objectives = None
+            if needs_text_fallback:
+                cur = conn.execute(
+                    "SELECT objective FROM goals WHERE COALESCE(is_completed, 0) = 1 OR status = 'completed'"
+                )
+                completed_objectives = {(row[0] or "")[:500].strip().lower() for row in cur.fetchall() if row[0]}
         finally:
             conn.close()
-        return _apply_goal_reconciliation(raw_goals, live_map)
+        return _apply_goal_reconciliation(raw_goals, live_map, completed_objectives)
     except Exception as e:
         logger.debug(f"goal reconciliation skipped (keeping raw): {e}")
         return raw_goals

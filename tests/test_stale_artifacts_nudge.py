@@ -127,3 +127,76 @@ def test_tolerates_missing_tables():
     retro: dict = {}
     _maybe_add_stale_artifacts_note(conn.cursor(), "s1", "t-now", retro)  # must not raise
     assert retro == {}
+
+
+# --- unverified assumptions (the pre-blindspot sibling debt) ---------------- #
+_ASSUMPTIONS_DDL = (
+    "CREATE TABLE assumptions (id TEXT PRIMARY KEY, goal_id TEXT, status TEXT, "
+    "transaction_id TEXT, created_timestamp REAL, assumption TEXT)"
+)
+
+
+def _conn_with_assumptions():
+    conn = _conn()
+    conn.execute(_ASSUMPTIONS_DDL)
+    return conn
+
+
+def _assumption(conn, aid, goal_id, status="unverified", tx="t-old", text="taking X for granted"):
+    conn.execute(
+        "INSERT INTO assumptions VALUES (?,?,?,?,?,?)",
+        (aid, goal_id, status, tx, time.time(), text),
+    )
+    conn.commit()
+
+
+def test_fires_for_unverified_assumption_under_goal_in_play():
+    conn = _conn_with_assumptions()
+    _goal(conn, "G", completed=1, tx="t-now")
+    _assumption(conn, "a1", "G", status="unverified", tx="t-old")
+    retro: dict = {}
+    _maybe_add_stale_artifacts_note(conn.cursor(), "s1", "t-now", retro)
+    assert retro["stale_artifacts_in_scope"] == 1
+    assert "a1" in retro["stale_artifacts_note"]
+    assert "unverified assumption" in retro["stale_artifacts_note"]
+
+
+def test_verified_assumption_excluded():
+    conn = _conn_with_assumptions()
+    _goal(conn, "G", completed=1, tx="t-now")
+    _assumption(conn, "a_ok", "G", status="verified", tx="t-old")
+    retro: dict = {}
+    _maybe_add_stale_artifacts_note(conn.cursor(), "s1", "t-now", retro)
+    assert "stale_artifacts_note" not in retro
+
+
+def test_fresh_assumption_excluded():
+    conn = _conn_with_assumptions()
+    _goal(conn, "G", completed=1, tx="t-now")
+    _assumption(conn, "a_new", "G", status="unverified", tx="t-now")  # this tx
+    retro: dict = {}
+    _maybe_add_stale_artifacts_note(conn.cursor(), "s1", "t-now", retro)
+    assert "stale_artifacts_note" not in retro
+
+
+def test_unknowns_and_assumptions_both_counted():
+    conn = _conn_with_assumptions()
+    _goal(conn, "G", completed=1, tx="t-now")
+    _unknown(conn, "u1", "G", resolved=0, tx="t-old")
+    _assumption(conn, "a1", "G", status="unverified", tx="t-old")
+    retro: dict = {}
+    _maybe_add_stale_artifacts_note(conn.cursor(), "s1", "t-now", retro)
+    assert retro["stale_artifacts_in_scope"] == 2
+    assert "u1" in retro["stale_artifacts_note"]
+    assert "a1" in retro["stale_artifacts_note"]
+
+
+def test_unknowns_still_surface_when_assumptions_table_absent():
+    """Older DB without the assumptions table: the unknowns half still works."""
+    conn = _conn()  # no assumptions table
+    _goal(conn, "G", completed=1, tx="t-now")
+    _unknown(conn, "u1", "G", resolved=0, tx="t-old")
+    retro: dict = {}
+    _maybe_add_stale_artifacts_note(conn.cursor(), "s1", "t-now", retro)
+    assert retro["stale_artifacts_in_scope"] == 1
+    assert "u1" in retro["stale_artifacts_note"]

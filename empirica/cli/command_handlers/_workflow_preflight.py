@@ -523,16 +523,34 @@ def _feedback_collect_suggestions(cursor, session_id, project_id, retro_meta):
         suggestions.append("Commit per task — don't batch to end")
 
     try:
+        # Scoped to unknowns under ACTIVE goals (project-wide), not a bare
+        # session count. The earlier form counted every open unknown in the
+        # session — on a long-lived session that number never changes and the
+        # identical line repeats verbatim every PREFLIGHT until it reads as
+        # furniture. Scoping to in_progress goals + naming ids makes it both
+        # actionable and self-clearing (resolve them, or the goal closes).
         cursor.execute(
             """
-            SELECT COUNT(*) FROM project_unknowns
-            WHERE session_id = ? AND is_resolved = 0
+            SELECT u.id, u.unknown FROM project_unknowns u
+            JOIN goals g ON u.goal_id = g.id
+            WHERE u.is_resolved = 0
+              AND g.status = 'in_progress'
+              AND g.session_id IN (
+                SELECT session_id FROM sessions WHERE project_id = (
+                  SELECT project_id FROM sessions WHERE session_id = ?
+                )
+              )
+            ORDER BY u.created_timestamp
         """,
             (session_id,),
         )
-        open_unknowns = cursor.fetchone()[0]
-        if open_unknowns >= 3:
-            suggestions.append(f"{open_unknowns} unresolved unknowns — run: empirica unknown-list")
+        rows = cursor.fetchall()
+        if len(rows) >= 3:
+            sample = "; ".join(f"{r[0][:8]} '{(r[1] or '')[:50]}'" for r in rows[:3])
+            suggestions.append(
+                f"{len(rows)} open unknowns under active goals (e.g. {sample}) — "
+                "resolve what this work answers, or they resurface at POSTFLIGHT"
+            )
     except Exception:
         pass
 
