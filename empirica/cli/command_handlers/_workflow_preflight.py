@@ -495,6 +495,8 @@ def _feedback_extract_retrospective(cursor, session_id):
         feedback["sources_discipline_warning"] = retro["sources_discipline_note"]
     if retro.get("commit_warning"):
         feedback["commit_discipline"] = retro["commit_warning"]
+    if retro.get("stale_artifacts_note"):
+        feedback["stale_artifacts_warning"] = retro["stale_artifacts_note"]
 
     cs = pf_meta.get("context_shifts")
     if cs and cs.get("unsolicited_prompts", 0) > 0:

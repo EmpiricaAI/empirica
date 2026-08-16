@@ -952,6 +952,7 @@ def _build_retrospective(
         _maybe_add_deferred_proposals_note(cursor, session_id, retro)
         _maybe_add_ser_ack_debt_note(retro)
         _maybe_add_untriaged_notes(cursor, session_id, transaction_id, retro)
+        _maybe_add_stale_artifacts_note(cursor, session_id, transaction_id, retro)
 
         db.close()
         return retro
@@ -998,6 +999,83 @@ def _maybe_add_untriaged_notes(cursor, session_id: str, transaction_id, retro: d
         )
     except Exception:
         pass  # notes table may not exist on older DBs — non-fatal
+
+
+def _maybe_add_stale_artifacts_note(cursor, session_id: str, transaction_id, retro: dict) -> None:
+    """Surface OPEN unknowns under the goal(s) in play — the gardening nudge.
+
+    The gardening reflex ("resolve what's answered as you go") lives only in
+    trigger text an AI has to remember, while the sibling disciplines get
+    STRUCTURAL nudges (weave_gate, deferred_proposals_note, ser_ack_debt). This is
+    the parallel for gardening: when you are working or closing a goal, its still-
+    OPEN unknowns logged in an EARLIER transaction are gardening debt — either the
+    work just answered them (resolve) or they are consciously kept.
+
+    Three deliberate bounds keep it a high-bar signal, not dismissible noise (the
+    "auto-capture into retrieved artifacts needs a high bar" lesson):
+      1. SCOPE — the goal(s) in play only (completed this tx, or carrying this
+         tx's artifacts), never a whole-graph scan. Unscoped is the failure mode
+         the EPISTEMIC FOCUS block already has.
+      2. FRESHNESS — excludes unknowns logged IN this transaction; a just-logged
+         open unknown is not stale, it is current work.
+      3. TYPE — unknowns only. They are the canonical resolve-me artifact
+         ("log an unknown, and RESOLVE it when answered"); an unresolved unknown
+         under a done/active goal is unambiguous debt.
+
+    Report-only (no gating), best-effort, pure local SQL (hot-path safe).
+    Mutates ``retro`` in place.
+    """
+    try:
+        if not transaction_id:
+            return
+        # Goals in play: completed this transaction, or carrying an artifact
+        # logged this transaction.
+        goal_ids: set[str] = set()
+        try:
+            for (gid,) in cursor.execute(
+                "SELECT id FROM goals WHERE is_completed = 1 AND transaction_id = ?",
+                (transaction_id,),
+            ).fetchall():
+                if gid:
+                    goal_ids.add(gid)
+        except Exception:
+            pass
+        for table in ("project_findings", "project_unknowns"):
+            try:
+                for (gid,) in cursor.execute(
+                    f"SELECT DISTINCT goal_id FROM {table} WHERE transaction_id = ? AND goal_id IS NOT NULL",
+                    (transaction_id,),
+                ).fetchall():
+                    if gid:
+                        goal_ids.add(gid)
+            except Exception:
+                pass
+        if not goal_ids:
+            return
+        placeholders = ",".join("?" * len(goal_ids))
+        rows = cursor.execute(
+            f"SELECT id, unknown FROM project_unknowns "
+            f"WHERE goal_id IN ({placeholders}) "
+            "AND (is_resolved = 0 OR is_resolved IS NULL) "
+            "AND (transaction_id IS NULL OR transaction_id != ?) "
+            "ORDER BY created_timestamp",
+            (*goal_ids, transaction_id),
+        ).fetchall()
+        if not rows:
+            return
+        retro["stale_artifacts_in_scope"] = len(rows)
+        listing = "\n".join(f"  - {r[0][:8]}: {(r[1] or '')[:90]}" for r in rows[:8])
+        more = f"\n  ... + {len(rows) - 8} more" if len(rows) > 8 else ""
+        retro["stale_artifacts_note"] = (
+            f"{len(rows)} open unknown(s) under the goal(s) in play, logged before this "
+            "transaction and still unresolved. Gardening is one call, not a separate pass: "
+            "if your work answered any, resolve them "
+            '(`empirica unknown-resolve <id> --resolved-by "..."`); if still genuinely open, '
+            "leave them. Scoped to the active goal(s), not the whole graph.\n"
+            f"{listing}{more}"
+        )
+    except Exception:
+        pass  # unknowns/goals table absent on older DBs — non-fatal
 
 
 def _maybe_add_deferred_proposals_note(cursor, session_id: str, retro: dict) -> None:
