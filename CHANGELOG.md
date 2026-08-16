@@ -5,6 +5,41 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.21] - 2026-08-16
+
+### Fixed
+- **Sentinel chain classifier over-gated multi-line noetic commands** (two live
+  repros). A `cd <path>` on its own line before a heredoc command fell to
+  single-command classification (saw only the `cd`) and gated — including the
+  dedicated noetic primitive `empirica noetic-batch`. And heredoc detection was
+  a naive substring test, so a *quoted* `<<` in a grep pattern suppressed
+  newline-splitting for a multi-line command of pure reads. Both fixed
+  (cd-normalization + quote-aware detection); `noetic-batch` is additionally in
+  the always-open recovery set — investigation is the remedy every gate
+  prescribes, so the tool that performs it can never be blocked by one. Three
+  negative controls pin that mutating shapes still gate.
+- **PREFLIGHT/CHECK injected context served completed goals as live.** The goal
+  reconciler was vacuous: `embed_goal` never wrote `goal_id` into the Qdrant
+  payload, so the id lookup always came up empty and stale `in_progress`
+  payloads sailed through. Payload now carries the id, the reconciler gains an
+  objective-text fallback for pre-fix points (no re-sync needed), subtask rows
+  are type-aware (parent completion drops them; parent status never overwrites
+  theirs), and `goals-complete` now mirrors completion to Qdrant
+  (`update_goal_status` gains its first caller, with `complete`/`completed`
+  normalization). A producer-contract test pins the payload.
+
+### Added
+- **Gardening nudge in the transaction retrospective.** Open unknowns and
+  unverified assumptions under the goal(s) in play — logged in an earlier
+  transaction — surface at CHECK/POSTFLIGHT (and echo into the next PREFLIGHT),
+  giving the gardening reflex the same structural footing as the weave gate and
+  proposal-ack notes. Three bounds keep it high-signal: goal-scoped (never a
+  whole-graph scan), freshness (this transaction's artifacts are current work,
+  not stale), lifecycle-typed (unknowns + unverified assumptions only).
+- **PREFLIGHT unknowns suggestion is scoped + actionable.** Was a session-wide
+  bare count repeating verbatim forever on long sessions; now counts unknowns
+  under in-progress goals and names ids, so it self-clears as goals close.
+
 ## [1.13.20] - 2026-08-15
 
 ### Added

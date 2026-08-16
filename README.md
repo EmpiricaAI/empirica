@@ -2,7 +2,7 @@
 
 > **We Gave AI a Mirror. Now It Measures What It Believes.**
 
-[![Version](https://img.shields.io/badge/version-1.13.20-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.20)
+[![Version](https://img.shields.io/badge/version-1.13.21-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.21)
 [![PyPI](https://img.shields.io/pypi/v/empirica)](https://pypi.org/project/empirica/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -114,13 +114,13 @@ empirica setup
 
 ```bash
 # Security-hardened Alpine image (~276MB, recommended)
-docker pull nubaeon/empirica:1.13.20-alpine
+docker pull nubaeon/empirica:1.13.21-alpine
 
 # Standard image (Debian slim, ~414MB)
-docker pull nubaeon/empirica:1.13.20
+docker pull nubaeon/empirica:1.13.21
 
 # Run
-docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.20 /bin/bash
+docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.21 /bin/bash
 ```
 </details>
 
@@ -387,10 +387,12 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.13.20
+## What's New in 1.13.21
 
-- **`empirica serve-service install|uninstall|status`** — opt-in supervision of the serve daemon as a persistent OS service (systemd-user / launchd). Until now the daemon was supervised only where an operator hand-built a systemd unit, so a fresh install or another box had no reboot-restart and no way to pick up new code after an update. The codified unit carries the same StartLimit circuit breaker as the listener (the 1849-restart-flap guard) and the `:port` ExecStartPre reaper; `install` backs up any existing unit to `<unit>.bak` and never touches a drop-in `override.conf`. launchd sets `EMPIRICA_SERVE_DRIFT_EXIT=1` (it has no `INVOCATION_ID`) so the supervised drift self-exit works there too.
-- **Restart-on-update.** `setup-claude-code --force` now restarts the serve daemon where the service is installed + active, so a code update actually lands — a long-running editable daemon holds its start-time code (editable installs skip the drift self-exit by design). Safe no-op where no service is installed.
+- **Sentinel chain classifier over-gated multi-line noetic commands** (two live repros). A `cd <path>` on its own line before a heredoc command fell to single-command classification (saw only the `cd`) and gated — including the dedicated noetic primitive `empirica noetic-batch`. And heredoc detection was a naive substring test, so a *quoted* `<<` in a grep pattern suppressed newline-splitting for a multi-line command of pure reads. Both fixed (cd-normalization + quote-aware detection); `noetic-batch` is additionally in the always-open recovery set — investigation is the remedy every gate prescribes, so the tool that performs it can never be blocked by one. Three negative controls pin that mutating shapes still gate.
+- **PREFLIGHT/CHECK injected context served completed goals as live.** The goal reconciler was vacuous: `embed_goal` never wrote `goal_id` into the Qdrant payload, so the id lookup always came up empty and stale `in_progress` payloads sailed through. Payload now carries the id, the reconciler gains an objective-text fallback for pre-fix points (no re-sync needed), subtask rows are type-aware (parent completion drops them; parent status never overwrites theirs), and `goals-complete` now mirrors completion to Qdrant (`update_goal_status` gains its first caller, with `complete`/`completed` normalization). A producer-contract test pins the payload.
+- **Gardening nudge in the transaction retrospective.** Open unknowns and unverified assumptions under the goal(s) in play — logged in an earlier transaction — surface at CHECK/POSTFLIGHT (and echo into the next PREFLIGHT), giving the gardening reflex the same structural footing as the weave gate and proposal-ack notes. Three bounds keep it high-signal: goal-scoped (never a whole-graph scan), freshness (this transaction's artifacts are current work, not stale), lifecycle-typed (unknowns + unverified assumptions only).
+- **PREFLIGHT unknowns suggestion is scoped + actionable.** Was a session-wide bare count repeating verbatim forever on long sessions; now counts unknowns under in-progress goals and names ids, so it self-clears as goals close.
 ---
 
 ## What's New in 1.12.35
@@ -432,6 +434,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 **Author:** David S. L. Van Assche
-**Version:** 1.13.20
+**Version:** 1.13.21
 
 *Turtles all the way down — built with its own epistemic framework, measuring what it knows at every step.*
