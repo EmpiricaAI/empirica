@@ -200,11 +200,17 @@ def _preflight_check_session_exists(session_id):
         return None  # Never let a diagnostic block PREFLIGHT.
 
 
-def _preflight_create_checkpoint(session_id, vectors, reasoning, transaction_id):
+def _preflight_create_checkpoint(session_id, vectors, reasoning, transaction_id, task_context=None):
     """Create GitEnhancedReflexLogger checkpoint for PREFLIGHT.
 
     Writes to ALL 3 storage layers (SQLite + Git Notes + JSON).
     Returns checkpoint_id.
+
+    ``task_context`` rides the metadata into ``reflexes.reflex_data`` — until
+    2026-08-16 the practitioner's own statement of the work was never durably
+    persisted anywhere (it flowed through the retrieval query + bus event and
+    evaporated), so the post-compact EPISTEMIC FOCUS relevance query had no
+    task statement to run against and degraded to recency+impact ranking.
     """
     from empirica.core.canonical.git_enhanced_reflex_logger import GitEnhancedReflexLogger
 
@@ -213,14 +219,17 @@ def _preflight_create_checkpoint(session_id, vectors, reasoning, transaction_id)
         enable_git_notes=True,  # Enable git notes for cross-AI features
     )
 
+    metadata = {
+        "reasoning": reasoning,
+        "prompt": reasoning or "Preflight assessment",
+        "transaction_id": transaction_id,
+    }
+    if task_context:
+        metadata["task_context"] = task_context
     return logger_instance.add_checkpoint(
         phase="PREFLIGHT",
         vectors=vectors,
-        metadata={
-            "reasoning": reasoning,
-            "prompt": reasoning or "Preflight assessment",
-            "transaction_id": transaction_id,
-        },
+        metadata=metadata,
     )
 
 
@@ -234,7 +243,7 @@ def _preflight_enrich_transaction_file(resolved_project_path, parsed):
     criticality = parsed["criticality"]
     predicted_check_outcomes = parsed["predicted_check_outcomes"]
 
-    if not (work_context or work_type or domain or criticality):
+    if not (work_context or work_type or domain or criticality or parsed.get("task_context")):
         return
 
     try:
@@ -252,6 +261,9 @@ def _preflight_enrich_transaction_file(resolved_project_path, parsed):
             ("domain", domain),
             ("criticality", criticality),
             ("predicted_check_outcomes", predicted_check_outcomes),
+            # The practitioner's statement of the work — makes the transaction
+            # file self-describing (cockpit, post-compact continue prompt).
+            ("task_context", parsed.get("task_context")),
         ]:
             if val:
                 tx_d[key] = val
@@ -1066,7 +1078,9 @@ def handle_preflight_submit_command(args):
             transaction_id = str(uuid.uuid4())
 
             # Stage 3a: Write checkpoint to 3-layer storage
-            checkpoint_id = _preflight_create_checkpoint(session_id, vectors, reasoning, transaction_id)
+            checkpoint_id = _preflight_create_checkpoint(
+                session_id, vectors, reasoning, transaction_id, task_context=task_context
+            )
 
             # Stage 3a-bis: Epistemic snapshot for PREFLIGHT.
             #

@@ -58,6 +58,7 @@ def isolate_empirica_instance():
         "TERM_SESSION_ID",
         "EMPIRICA_INSTANCE_ID",
         "EMPIRICA_HEADLESS",
+        "EMPIRICA_ENABLE_EMBEDDINGS",
     )
     for var in identity_vars:
         saved_env[var] = os.environ.get(var)
@@ -65,6 +66,24 @@ def isolate_empirica_instance():
     # Set test-specific instance identity (priority 1 in get_instance_id)
     os.environ["EMPIRICA_INSTANCE_ID"] = test_instance_id
     os.environ["EMPIRICA_HEADLESS"] = "true"
+
+    # Disable embeddings for the WHOLE suite — tests must not measure the box.
+    #
+    # Root cause (2026-08-16): tests isolated the SQL side (EMPIRICA_SESSION_DB →
+    # tmp) but not the Qdrant side, so subprocess CLI calls (goals-create etc.)
+    # embedded into the LIVE per-project collections — 38 orphan
+    # "Test AI-first goal creation" points accumulated to 44% of the goals
+    # collection, eternally in_progress, polluting every PREFLIGHT/CHECK
+    # retrieval. _check_qdrant_available() reads this flag (and caches the
+    # answer per-process), and subprocess tests inherit os.environ, so one env
+    # var covers both in-process and CLI-subprocess paths.
+    #
+    # Tests that deliberately exercise embeddings must opt back in explicitly:
+    #   monkeypatch.setenv("EMPIRICA_ENABLE_EMBEDDINGS", "true")
+    #   import empirica.core.qdrant.connection as qc; qc._qdrant_available = None
+    # (the cache reset is required — the first check pins the answer). Tests
+    # that mock _check_qdrant_available / the client are unaffected.
+    os.environ["EMPIRICA_ENABLE_EMBEDDINGS"] = "false"
 
     # Strip terminal vars so subprocesses don't inherit them.
     # CRITICAL: TMUX is included — without it, any test that subshells `tmux`
@@ -133,6 +152,19 @@ def isolate_empirica_instance():
                 f.write(contents)
         except Exception:
             pass
+
+    # Reap the transaction files THIS run created. The backup/restore above
+    # rewrites pre-existing files but never deletes test-created ones, so
+    # `active_transaction_test-<pid>*.json` accumulated in the live ~/.empirica
+    # across suite runs. Scoped precisely to this process's pid-stamped
+    # instance id — never touches a real practitioner's file.
+    for pattern in patterns:
+        test_pattern = str(Path(pattern).parent / f"active_transaction_{test_instance_id}*.json")
+        for filepath in glob.glob(test_pattern):
+            try:
+                os.unlink(filepath)
+            except Exception:
+                pass
 
 
 # =============================================================================

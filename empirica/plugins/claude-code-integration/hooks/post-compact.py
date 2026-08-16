@@ -888,6 +888,27 @@ def _load_dynamic_context(session_id: str, ai_id: str, pre_snapshot: dict) -> di
         # 5. Session context (what was happening)
         context["session_context"] = {"session_id": session_id, "ai_id": ai_id, "project_id": project_id}
 
+        # 6. The session's latest PREFLIGHT task_context — the practitioner's own
+        # statement of what this work IS. Feeds the EPISTEMIC FOCUS relevance
+        # query at the continue/check prompts: without it those blocks degrade to
+        # recency+impact ranking and two sessions doing unrelated work receive
+        # the same artifacts. In the transaction-continue case the session's
+        # latest PREFLIGHT is the OPEN transaction's own, by construction.
+        context["preflight_task_context"] = None
+        try:
+            cursor.execute(
+                "SELECT reflex_data FROM reflexes WHERE session_id = ? AND phase = 'PREFLIGHT' "
+                "ORDER BY timestamp DESC LIMIT 1",
+                (session_id,),
+            )
+            row = cursor.fetchone()
+            if row and row[0]:
+                tc = (json.loads(row[0]) or {}).get("task_context")
+                if isinstance(tc, str) and tc.strip():
+                    context["preflight_task_context"] = tc.strip()
+        except Exception:
+            pass  # older DB without reflexes/reflex_data — relevance degrades, announced
+
         db.close()
         return context
 
@@ -1035,9 +1056,12 @@ def _generate_new_session_prompt(
             max_items=5,
             session_id=new_session_id,
             # Relevance is first-class: without these two the block is a global
-            # top-N and cannot be about the work in progress. last_task is the
-            # best available statement of what this session is doing.
-            task_context=dynamic_context.get("last_task") or None,
+            # top-N and cannot be about the work in progress. The latest
+            # PREFLIGHT task_context is the practitioner's own statement of the
+            # work; last_task is the raw final user message — often a bare
+            # "yes go ahead", useless as a semantic query — so it is only the
+            # fallback.
+            task_context=(dynamic_context.get("preflight_task_context") or dynamic_context.get("last_task") or None),
             project_id=dynamic_context.get("session_context", {}).get("project_id"),
         )
     else:
@@ -1220,6 +1244,13 @@ def _generate_transaction_continue_prompt(pre_vectors: dict, dynamic_context: di
             subtasks=dynamic_context.get("pending_subtasks", []),
             max_items=5,
             session_id=session_id if session_id != "unknown" else None,
+            # Relevance is first-class (see site 1). This is the RICHEST-context
+            # case: the open transaction's own PREFLIGHT task_context states
+            # exactly what the work is — the session's latest PREFLIGHT IS the
+            # open transaction's, by construction. last_task (the last user
+            # message) is the fallback.
+            task_context=(dynamic_context.get("preflight_task_context") or dynamic_context.get("last_task") or None),
+            project_id=dynamic_context.get("session_context", {}).get("project_id"),
         )
     else:
         epistemic_focus = "*No breadcrumbs loaded.*"
@@ -1288,6 +1319,10 @@ def _generate_check_prompt(pre_vectors: dict, pre_reasoning: str, dynamic_contex
             subtasks=dynamic_context.get("pending_subtasks", []),
             max_items=5,
             session_id=session_id if session_id != "unknown" else None,
+            # Same relevance wiring as the continue prompt: latest PREFLIGHT
+            # task_context first, last user message as fallback.
+            task_context=(dynamic_context.get("preflight_task_context") or dynamic_context.get("last_task") or None),
+            project_id=dynamic_context.get("session_context", {}).get("project_id"),
         )
     else:
         # Fallback to legacy formatting if summarizer not available
