@@ -2,7 +2,7 @@
 
 > **We Gave AI a Mirror. Now It Measures What It Believes.**
 
-[![Version](https://img.shields.io/badge/version-1.13.21-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.21)
+[![Version](https://img.shields.io/badge/version-1.13.22-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.22)
 [![PyPI](https://img.shields.io/pypi/v/empirica)](https://pypi.org/project/empirica/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -114,13 +114,13 @@ empirica setup
 
 ```bash
 # Security-hardened Alpine image (~276MB, recommended)
-docker pull nubaeon/empirica:1.13.21-alpine
+docker pull nubaeon/empirica:1.13.22-alpine
 
 # Standard image (Debian slim, ~414MB)
-docker pull nubaeon/empirica:1.13.21
+docker pull nubaeon/empirica:1.13.22
 
 # Run
-docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.21 /bin/bash
+docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.22 /bin/bash
 ```
 </details>
 
@@ -387,12 +387,12 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.13.21
+## What's New in 1.13.22
 
-- **Sentinel chain classifier over-gated multi-line noetic commands** (two live repros). A `cd <path>` on its own line before a heredoc command fell to single-command classification (saw only the `cd`) and gated — including the dedicated noetic primitive `empirica noetic-batch`. And heredoc detection was a naive substring test, so a *quoted* `<<` in a grep pattern suppressed newline-splitting for a multi-line command of pure reads. Both fixed (cd-normalization + quote-aware detection); `noetic-batch` is additionally in the always-open recovery set — investigation is the remedy every gate prescribes, so the tool that performs it can never be blocked by one. Three negative controls pin that mutating shapes still gate.
-- **PREFLIGHT/CHECK injected context served completed goals as live.** The goal reconciler was vacuous: `embed_goal` never wrote `goal_id` into the Qdrant payload, so the id lookup always came up empty and stale `in_progress` payloads sailed through. Payload now carries the id, the reconciler gains an objective-text fallback for pre-fix points (no re-sync needed), subtask rows are type-aware (parent completion drops them; parent status never overwrites theirs), and `goals-complete` now mirrors completion to Qdrant (`update_goal_status` gains its first caller, with `complete`/`completed` normalization). A producer-contract test pins the payload.
-- **Gardening nudge in the transaction retrospective.** Open unknowns and unverified assumptions under the goal(s) in play — logged in an earlier transaction — surface at CHECK/POSTFLIGHT (and echo into the next PREFLIGHT), giving the gardening reflex the same structural footing as the weave gate and proposal-ack notes. Three bounds keep it high-signal: goal-scoped (never a whole-graph scan), freshness (this transaction's artifacts are current work, not stale), lifecycle-typed (unknowns + unverified assumptions only).
-- **PREFLIGHT unknowns suggestion is scoped + actionable.** Was a session-wide bare count repeating verbatim forever on long sessions; now counts unknowns under in-progress goals and names ids, so it self-clears as goals close.
+- **Tests no longer measure the box.** The suite isolated the SQL side but not Qdrant, so subprocess CLI calls embedded goals into the LIVE per-project collections — 38 orphan test goals reached 44% of one goals collection, polluting every retrieval. Embeddings are now disabled suite-wide by the session isolation fixture (tests that need them opt back in explicitly), and teardown reaps the pid-stamped test transaction files that accumulated in the live `~/.empirica`.
+- **EPISTEMIC FOCUS is task-relevant after compaction.** The relevance machinery existed but was starved: `task_context` was never persisted (it now rides the PREFLIGHT checkpoint into `reflex_data` and the transaction file), and the transaction-continue/check prompts passed neither `task_context` nor `project_id` — every mid-transaction compaction served the degraded recency-ranked block. All three post-compact sites now pass both, preferring the PREFLIGHT task statement over the raw last user message. Live-verified Relevance-Ranked against a real store.
+- **Sentinel: arithmetic expansion is not a command substitution** (shape-3, two live repros). The `$((expr))` form tripped the `$(` substitution extractor and operator scan, gating pure reads — a `sed -n` loop, even an `empirica note` whose text mentioned the form. Arithmetic is now recognized and skipped as a unit, with recursion so a nested `$(cmd)` inside it still gates; chain classification splits progressively across ALL operators (a `for …; do…done` loop no longer leaves an unclassifiable blob).
+- **README de-staled**: Upgrade row now points at the 1.13 guide (was 1.11), version stamps dropped from section headers, leftover 1.12.35 What's New removed, command count corrected to 240+ and skill count to 16.
 ---
 
 
@@ -423,6 +423,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 **Author:** David S. L. Van Assche
-**Version:** 1.13.21
+**Version:** 1.13.22
 
 *Turtles all the way down — built with its own epistemic framework, measuring what it knows at every step.*

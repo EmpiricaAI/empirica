@@ -5,6 +5,35 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.22] - 2026-08-16
+
+### Fixed
+- **Tests no longer measure the box.** The suite isolated the SQL side but not
+  Qdrant, so subprocess CLI calls embedded goals into the LIVE per-project
+  collections — 38 orphan test goals reached 44% of one goals collection,
+  polluting every retrieval. Embeddings are now disabled suite-wide by the
+  session isolation fixture (tests that need them opt back in explicitly), and
+  teardown reaps the pid-stamped test transaction files that accumulated in
+  the live `~/.empirica`.
+- **EPISTEMIC FOCUS is task-relevant after compaction.** The relevance
+  machinery existed but was starved: `task_context` was never persisted (it
+  now rides the PREFLIGHT checkpoint into `reflex_data` and the transaction
+  file), and the transaction-continue/check prompts passed neither
+  `task_context` nor `project_id` — every mid-transaction compaction served
+  the degraded recency-ranked block. All three post-compact sites now pass
+  both, preferring the PREFLIGHT task statement over the raw last user
+  message. Live-verified Relevance-Ranked against a real store.
+- **Sentinel: arithmetic expansion is not a command substitution** (shape-3,
+  two live repros). The `$((expr))` form tripped the `$(` substitution
+  extractor and operator scan, gating pure reads — a `sed -n` loop, even an
+  `empirica note` whose text mentioned the form. Arithmetic is now recognized
+  and skipped as a unit, with recursion so a nested `$(cmd)` inside it still
+  gates; chain classification splits progressively across ALL operators (a
+  `for …; do…done` loop no longer leaves an unclassifiable blob).
+- **README de-staled**: Upgrade row now points at the 1.13 guide (was 1.11),
+  version stamps dropped from section headers, leftover 1.12.35 What's New
+  removed, command count corrected to 240+ and skill count to 16.
+
 ## [1.13.21] - 2026-08-16
 
 ### Fixed
