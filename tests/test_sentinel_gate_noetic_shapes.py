@@ -269,3 +269,56 @@ rm -rf ./x"""
 def test_noetic_batch_is_recovery_exempt(gate):
     """Belt: the noetic primitive is always-open even via the recovery path."""
     assert gate._is_recovery_or_measurement_action("Bash", {"command": "empirica noetic-batch - << 'EOF'\n{}\nEOF"})
+
+
+# --- shape 3: arithmetic expansion is not a command substitution (2026-08-16) --
+#
+# The dollar-double-paren arithmetic form starts with the same two characters
+# as a command substitution, so the extractor "validated" arithmetic bodies as
+# commands and the operator scan counted the prefix as dangerous. Two live
+# repros: a pure sed -n read loop, and an `empirica note` whose TEXT merely
+# mentioned the form. Verbatim below.
+
+ARITH_SED_LOOP_REPRO = """for ln in 1029 1215 1283; do
+  echo "=== post-compact.py around $ln ==="
+  sed -n "$((ln-25)),$((ln+18))p" empirica/plugins/claude-code-integration/hooks/post-compact.py
+done"""
+
+ARITH_IN_NOTE_TEXT_REPRO = (
+    'empirica note "Sentinel over-gating shape 3: for-loop with \\$(( )) arithmetic '
+    'expansion around pure sed -n reads gated pre-CHECK" --tag followup'
+)
+
+
+def test_arithmetic_sed_loop_is_noetic(gate):
+    assert gate.is_safe_bash_command({"command": ARITH_SED_LOOP_REPRO})
+
+
+def test_note_mentioning_arithmetic_form_flows(gate):
+    """`empirica note` is Tier-2/recovery; its TEXT mentioning the arithmetic
+    form must not gate the command that records it."""
+    assert gate.is_safe_bash_command({"command": ARITH_IN_NOTE_TEXT_REPRO})
+    assert gate._is_recovery_or_measurement_action("Bash", {"command": ARITH_IN_NOTE_TEXT_REPRO})
+
+
+def test_bare_arithmetic_echo_is_noetic(gate):
+    assert gate.is_safe_bash_command({"command": "echo $((1+2))"})
+
+
+def test_real_substitution_still_extracted(gate):
+    """Negative control: a genuine $(cmd) substitution is still validated —
+    a mutating inner command gates."""
+    assert not gate.is_safe_bash_command({"command": 'echo "$(rm -rf /tmp/x)"'})
+
+
+def test_substitution_nested_inside_arithmetic_still_gates(gate):
+    """The recursion: $(( $(cmd) + 1 )) — the arithmetic wrapper must not
+    launder the nested command substitution."""
+    assert not gate.is_safe_bash_command({"command": "echo $(( $(rm -rf /x) + 1 ))"})
+
+
+def test_arithmetic_extractor_unit(gate):
+    """Unit pins: arithmetic yields no inner commands; nested subs inside it do."""
+    assert gate._extract_command_substitutions('sed -n "$((ln-25)),$((ln+18))p" f') == []
+    inner = gate._extract_command_substitutions("echo $(( $(date +%s) + 1 ))")
+    assert inner == ["date +%s"]

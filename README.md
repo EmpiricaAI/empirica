@@ -57,7 +57,7 @@ You see:  ⚡87% ↕70% │ 🎯1 │ POST 🔍85% │ K:88% C:82% │ Δ +K
 
 **You direct. The AI measures.**
 
-Empirica's CLI has 280 commands spanning investigation, measurement, calibration, and memory — like a cockpit instrument panel. You don't need to learn any of them. The AI reads the instruments, operates the controls, and reports back in natural language. The statusline gives you the flight data at a glance.
+Empirica's CLI has 240+ commands spanning investigation, measurement, calibration, and memory — like a cockpit instrument panel. You don't need to learn any of them. The AI reads the instruments, operates the controls, and reports back in natural language. The statusline gives you the flight data at a glance.
 
 For power users, direct CLI access is always available: `empirica goals-list`, `empirica calibration-report`, `empirica project-search --task "..."`, and more.
 
@@ -239,7 +239,7 @@ Empirica doesn't replace or reinvent anything Claude Code already does. Claude C
 
 The result: Claude Code's native capabilities, enhanced with measurement, gating, and calibration feedback that compounds over time.
 
-**18 skills ship with the plugin** — the transaction discipline, graph gardening,
+**16 skills ship with the plugin** — the transaction discipline, graph gardening,
 the quality sweep, mesh messaging, and more. They are *lazy*: a skill does
 nothing until it loads, so knowing when each fires matters more than knowing
 what it holds. → **[Skills reference](docs/reference/SKILLS.md)**
@@ -271,7 +271,7 @@ The browser-side ECO surface (Accept/Decline, inbox triage, publish review) live
 
 ---
 
-## Mesh + Shared Epistemic Record (1.11.0)
+## Mesh + Shared Epistemic Record
 
 > **Requires [Empirica Cortex](https://getempirica.com) (proprietary).** Everything in this section — mesh proposals, the persistent listener, the Shared Epistemic Record, and the `empirica mesh` command cluster — is a Cortex-served layer. It is **not** available in empirica core on its own; without Cortex, empirica is a single-AI measurement layer.
 
@@ -279,7 +279,7 @@ The cross-AI coordination layer. Practitioners in different practices coordinate
 
 - **Practitioner / practice** framing — practices are calibrated epistemic specializations that persist; practitioners (the LLMs) are fungible. See [MESH_CONCEPTS.md](docs/human/end-users/MESH_CONCEPTS.md).
 - **Shared Epistemic Record (SER)** — cortex-resident shared-state object for coordination across ≥2 practitioners. Goals stay per-practitioner; SER carries the *joint* state (`coordination_state`, role-tiered participants, escalate-on-silence). Three actions: `create_ser` / `transition_ser` / `ser_ack`. Spec at `empirica-cortex/docs/architecture/SHARED_EPISTEMIC_RECORD.md`.
-- **`empirica mesh` command cluster** (1.11.0) — unified diagnostic + control surface across listener instances + the optional cortex bridge:
+- **`empirica mesh` command cluster** — unified diagnostic + control surface across listener instances + the optional cortex bridge:
   ```bash
   empirica mesh status              # per-instance health (local + cortex bridge)
   empirica mesh diagnose <ai_id>    # deep diagnostic + suggested fix command
@@ -294,7 +294,7 @@ The cross-AI coordination layer. Practitioners in different practices coordinate
 
 ---
 
-## Practice Model + Entity Graph (1.10.0)
+## Practice Model + Entity Graph
 
 Empirica's workspace stores entities (projects, contacts, organisations, engagements, users) in `entity_registry` with typed edges in `entity_memberships`. The **Practice Model** frames this consistently:
 
@@ -350,11 +350,11 @@ deliberate choice rather than something you infer from a feature table.
 | **[getempirica.com](https://getempirica.com)** | Training course, interactive guides, deep explanations |
 | **[Natural Language Guide](docs/human/end-users/EMPIRICA_NATURAL_LANGUAGE_GUIDE.md)** | How to collaborate with AI using Empirica |
 | **[Getting Started](docs/human/end-users/01_START_HERE.md)** | First-time setup and concepts |
-| **[CLI Reference](docs/human/developers/CLI_COMMANDS_UNIFIED.md)** | All 280 commands documented |
+| **[CLI Reference](docs/human/developers/CLI_COMMANDS_UNIFIED.md)** | All 240+ commands documented |
 | **[Architecture](docs/architecture/)** | Technical reference for contributors |
 | **[Claude Code Setup](docs/human/developers/CLAUDE_CODE_SETUP.md)** | Install + system prompt + plugin wiring |
 | **[Changelog](CHANGELOG.md)** | Full release history — every version since 1.0 |
-| **[Upgrade to 1.11](docs/guides/UPGRADE_TO_1.11.md)** | Migration guide rolling up 1.10.5+1.10.6+1.11.x — bead v0 → SER, mesh substrate hardening, MESH_CONCEPTS framing |
+| **[Upgrade to 1.13](docs/guides/UPGRADE_TO_1.13.md)** | Migration guide for the 1.12.x → 1.13 jump — two deliberate breaking changes, both fail-safe. Older guides (1.9–1.11) live in [docs/guides/](docs/guides/) |
 
 ---
 
@@ -395,17 +395,6 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 - **PREFLIGHT unknowns suggestion is scoped + actionable.** Was a session-wide bare count repeating verbatim forever on long sessions; now counts unknowns under in-progress goals and names ids, so it self-clears as goals close.
 ---
 
-## What's New in 1.12.35
-
-- **`docs-assess` tech_docs rewarded name-dropping.** `_check_if_documented` counted a feature as documented if its NAME substring-matched the concatenated markdown, so the metric was satisfiable by dumping class names into a `.md` and unmovable by real documentation — inverting the EU AI Act Art. 11 / ISO 7.5 intent it is framed against. Measured by empirica-workspace: 137 accurate docstrings moved coverage **0%**, while a generated file listing 256 names took it to **100%**. A feature now counts when it has a substantive docstring OR the docs carry real prose about it (the mention's line must retain ≥8 words once list/table/heading punctuation and the name are stripped). The OR is deliberate: gating on docstrings alone would penalise practices that document in markdown. `check_docstrings` now also returns `documented_symbols` — it already computed that truth to count `documented_items` but never named them, so the docstring half had nothing to consult.
-- **A listed source could 404 on `/content`.** The sources LIST reads the whole per-practice DB while the content lookup was still scoped to one `project_id`, so a source with a drifted id appeared in the pane and failed the instant it was opened (10 of 50 on one practice). Both are practice-scoped now.
-- **`docs-assess` crashed on a stale project pointer.** `_auto_detect_project_config` called `iterdir()` on a path taken from resolver state without checking it exists — resolver state outlives the directory it names, and a pointer to a deleted project took the whole command down.
-- **Review stamping could break the audit.** The new cadence opened a session DB unconditionally, so an environment without one (CI, a bare checkout) failed the check instead of simply not recording.
-- **`empirica setup`** — harness-neutral name for `setup-claude-code`, which stays as an alias. The old name leaked "claude-code" into model-facing prose (hook errors, skill docs) that other harnesses vendor verbatim; the instruction text is swept too. One parser, one handler, two names — no new capability.
-- **`sources-check` sees LOCAL file rot.** It gated on http(s), so file-backed sources were skipped entirely — one practice reported "all probed source links resolve" while 25 of its 50 sources could not be served. Non-URL sources are now classified `ok` / `missing` / `not_a_locator` (the column holds a title, needing a re-point rather than a file hunt) / `out_of_scope` (a `mailto:`/`ftp:`/`doi:` URI the disk check cannot speak to). Path resolution mirrors the daemon's, pinned by a test.
-- **`source-update --url`** — re-point a source whose file MOVED. Gardening is prune *and* replant, but the CLI could only re-fetch, never re-target, so a moved doc had to be archived and re-added — losing its id and with it every `sourced_from` edge pointing at it. `--url` retargets in place, recomputes content identity, and records a `repointed` event in `lifecycle_audit_log` so the move is traceable.
-- **A review cadence.** `sources-check` now records a timestamped verdict per source (`last_reviewed_at`, `review_verdict`) — previously nothing ever wrote those columns (0 of 63 reviewed), so "unchecked since X" was unanswerable and a source could never be more than an assertion with a date on it.
----
 
 ## Privacy & Data
 

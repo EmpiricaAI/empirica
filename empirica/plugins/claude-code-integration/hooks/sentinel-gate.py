@@ -1879,6 +1879,27 @@ _SHELL_COMPOUND_PREFIXES = (
 )
 
 
+def _span_arithmetic_expansion(segment: str, i: int) -> int | None:
+    """If ``segment[i:]`` starts an arithmetic expansion (the ``$((`` form),
+    return the index just past its closing ``))``; else None.
+
+    Bash parses ``$((`` as arithmetic before command substitution, so matching
+    that rule here mirrors the shell. Walks plain paren depth (arithmetic can
+    contain grouping parens like ``$(( (a+b)*2 ))``).
+    """
+    if segment[i : i + 3] != "$((":
+        return None
+    depth = 2
+    j = i + 3
+    while j < len(segment) and depth > 0:
+        if segment[j] == "(":
+            depth += 1
+        elif segment[j] == ")":
+            depth -= 1
+        j += 1
+    return j if depth == 0 else len(segment)
+
+
 def _extract_command_substitutions(segment: str) -> list[str]:
     """Pull inner commands out of $(...) and `...` substitutions.
 
@@ -1886,11 +1907,24 @@ def _extract_command_substitutions(segment: str) -> list[str]:
     Caller validates each inner command independently via the normal
     pipe/chain rules. Substitutions can nest; the top-level extractor
     walks parens with a depth counter to handle that.
+
+    Arithmetic expansion (``$((expr))``) is NOT a command substitution — it
+    executes no command — so it is skipped as a unit, with the extractor
+    RECURSING over its interior so a nested ``$(cmd)`` inside the arithmetic
+    is still validated. Before this branch existed (shape-3 over-gate,
+    2026-08-16), ``$((`` matched the ``$(`` prefix and the arithmetic body was
+    "validated" as a command — gating pure reads like a ``sed -n`` loop with
+    ``$((ln-25))``, and even an ``empirica note`` whose TEXT mentioned the form.
     """
     extracted: list[str] = []
     i = 0
     while i < len(segment):
-        if segment[i : i + 2] == "$(":
+        arith_end = _span_arithmetic_expansion(segment, i)
+        if arith_end is not None:
+            # Interior may nest a real substitution: $(( $(cmd) + 1 ))
+            extracted.extend(_extract_command_substitutions(segment[i + 3 : max(i + 3, arith_end - 2)]))
+            i = arith_end
+        elif segment[i : i + 2] == "$(":
             depth = 1
             j = i + 2
             while j < len(segment) and depth > 0:
@@ -1924,7 +1958,13 @@ def _strip_command_substitutions(segment: str) -> str:
     out: list[str] = []
     i = 0
     while i < len(segment):
-        if segment[i : i + 2] == "$(":
+        arith_end = _span_arithmetic_expansion(segment, i)
+        if arith_end is not None:
+            # Arithmetic expansion strips to the same placeholder — its residue
+            # (digits, parens, operators) would otherwise confuse shape parsing.
+            out.append("X")
+            i = arith_end
+        elif segment[i : i + 2] == "$(":
             depth = 1
             j = i + 2
             while j < len(segment) and depth > 0:
@@ -2156,16 +2196,38 @@ def _is_command_text_safe(cmd: str) -> bool:
     return _is_segment_safe(cmd)
 
 
+def _mask_arithmetic_expansions(command: str) -> str:
+    """Replace every ``$((expr))`` span with a placeholder so downstream
+    operator scans don't read the arithmetic's ``$(`` prefix as a command
+    substitution. Interiors were already handled by the extractor (which
+    recurses into them), so masking here loses nothing.
+    """
+    out: list[str] = []
+    i = 0
+    while i < len(command):
+        arith_end = _span_arithmetic_expansion(command, i)
+        if arith_end is not None:
+            out.append("ARITH")
+            i = arith_end
+        else:
+            out.append(command[i])
+            i += 1
+    return "".join(out)
+
+
 def _has_dangerous_operators(command: str) -> bool:
     """Check for dangerous shell operators (excluding &&, ||, ; handled in chain check).
 
     Quoted occurrences are ignored — a backtick or `$(` inside a string
-    literal is just text, not command substitution.
+    literal is just text, not command substitution. Arithmetic expansions are
+    masked first: ``$((1+2))`` starts with the ``$(`` operator prefix but
+    executes no command (shape-3 over-gate, 2026-08-16).
     """
+    scan = _mask_arithmetic_expansions(command) if "$((" in command else command
     for operator in DANGEROUS_SHELL_OPERATORS:
         if operator in ("&&", "||", ";"):
             continue
-        if _contains_outside_quotes(command, operator):
+        if _contains_outside_quotes(scan, operator):
             return True
     return False
 
@@ -2229,10 +2291,22 @@ def _classify_chain(command: str) -> bool | None:
         chain_ops: tuple[str, ...] = ("&&", "||", ";")
     else:
         chain_ops = ("&&", "||", ";", "\n")
+    # Split PROGRESSIVELY on every operator, not just the first that appears.
+    # The old form returned after one split, so `for … ; do\n sed …\n done`
+    # split on `;` alone and left a multi-line `do…done` blob that no
+    # single-segment rule could classify — a pure-read loop gated (shape-3
+    # companion, 2026-08-16). Finer splitting is gating-safe by construction:
+    # EVERY piece must still classify safe, so a mutating fragment can only
+    # become MORE visible, never less.
+    segments = [command]
     for chain_op in chain_ops:
-        if _contains_outside_quotes(command, chain_op):
-            segments = [s.strip() for s in _split_outside_quotes(command, chain_op)]
-            return all(_is_segment_safe(s) for s in segments)
+        if any(_contains_outside_quotes(s, chain_op) for s in segments):
+            split_out: list[str] = []
+            for s in segments:
+                split_out.extend(_split_outside_quotes(s, chain_op))
+            segments = split_out
+    if len(segments) > 1:
+        return all(_is_segment_safe(s.strip()) for s in segments)
     return None
 
 

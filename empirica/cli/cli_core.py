@@ -103,7 +103,7 @@ class GroupedHelpFormatter(argparse.RawDescriptionHelpFormatter):
                     "    compliance-report          Release-readiness checks\n",
                     "    profile-status              Artifact counts + drift\n",
                     "\n" + "=" * 60 + "\n",
-                    "\n180+ commands in 26 categories. To explore:\n",
+                    "\n240+ commands in 26 categories. To explore:\n",
                     "  empirica help                  Show all commands by category\n",
                     "  empirica <command> --help      Detailed help for one command\n",
                 ]
