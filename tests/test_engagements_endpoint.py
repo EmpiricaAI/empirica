@@ -187,9 +187,15 @@ def client(tmp_path, monkeypatch):
     conn.commit()
     conn.close()
 
+    from empirica.api.entity_mint_auth import verify_engagement_write_auth
     from empirica.api.serve_app import create_serve_app
 
-    return TestClient(create_serve_app())
+    app = create_serve_app()
+    # These tests exercise ROUTE logic; the cortex-checked write auth has its
+    # own suite (test_engagement_write_cortex_gate.py). Override, don't bypass
+    # in prod code.
+    app.dependency_overrides[verify_engagement_write_auth] = lambda: None
+    return TestClient(app)
 
 
 def test_route_returns_engagement_min(client):

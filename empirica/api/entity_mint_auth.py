@@ -144,3 +144,105 @@ def generate_mint_token() -> str:
     without cortex in the loop.
     """
     return TOKEN_PREFIX + secrets.token_urlsafe(32)
+
+
+# ─── Cortex-checked write auth (engagement writes) ──────────────────────
+#
+# David's ruling 2026-08-17 (option b): engagement WRITES over HTTP are gated
+# by a live cortex check — engagements are CRM-layer records ("not
+# fleet-writable over HTTP" in the ratified model), so authoring them via the
+# daemon requires a cortex-issued credential, verified live. Reads stay on
+# verify_mint_bearer. FAIL-CLOSED: no bearer → 401; cortex unreachable or not
+# configured → 503 (the enforcement IS that engagement HTTP writes need the
+# proprietary layer reachable). The emk_ service-token lane stays honored —
+# those tokens are cortex-minted, and the hosted deployment depends on them.
+
+#: Seconds a successful cortex validation is cached per token (hash-keyed).
+#: Writes are rare; 60s keeps bursts (extension creating a ticket + attaching
+#: sources) to one round-trip without meaningfully extending revocation lag.
+CORTEX_CHECK_TTL_S = 60.0
+
+#: token-sha256 → monotonic expiry. Process-local; the daemon is a singleton.
+_cortex_ok_cache: dict[str, float] = {}
+
+
+def _cortex_url_from_credentials() -> str | None:
+    """The DAEMON's configured cortex URL (never the caller's). None if absent."""
+    try:
+        from empirica.config.credentials_loader import get_credentials_loader
+
+        url = (get_credentials_loader().get_cortex_config().get("url") or "").strip()
+        return url.rstrip("/") or None
+    except Exception:
+        return None
+
+
+def _validate_bearer_with_cortex(token: str, cortex_url: str, timeout_s: float = 5.0) -> bool | None:
+    """One GET /v1/users/me with the CALLER's bearer.
+
+    True → cortex says the credential is a live seat. False → cortex rejected
+    it (401/403). None → the check itself failed (network, 5xx) — the caller
+    maps that to 503, never to allow. /v1/users/me is the verified-in-prod
+    identity call (auth_commands._verify_token uses the same one); endpoint
+    existence is load-bearing here — /v1/tenant/me 404s on prod, so do not
+    "lighten" this to an unverified path.
+    """
+    import urllib.error
+    import urllib.request
+
+    try:
+        req = urllib.request.Request(f"{cortex_url}/v1/users/me", headers={"Authorization": f"Bearer {token}"})
+        with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+            return 200 <= resp.status < 300
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403):
+            return False
+        return None
+    except Exception:
+        return None
+
+
+async def verify_engagement_write_auth(
+    authorization: str | None = Header(default=None),
+) -> None:
+    """FastAPI dependency for engagement WRITE endpoints — cortex-checked.
+
+    Order:
+      1. missing bearer                      → 401
+      2. bearer in the emk_ service set      → allow (hosted lane, unchanged)
+      3. cached cortex-valid                 → allow
+      4. live cortex check: valid            → allow (+cache)
+                            rejected         → 401
+                            check failed / no cortex configured → 503 fail-closed
+    """
+    import hashlib
+    import time as _time
+
+    token = _extract_bearer(authorization)
+    if not token:
+        raise HTTPException(
+            status_code=401,
+            detail="engagement writes require a bearer (cortex OAuth token or emk_ service token)",
+        )
+    if _token_in_set(token, load_valid_tokens()):
+        return
+    key = hashlib.sha256(token.encode()).hexdigest()
+    if _cortex_ok_cache.get(key, 0.0) > _time.monotonic():
+        return
+    cortex_url = _cortex_url_from_credentials()
+    if not cortex_url:
+        raise HTTPException(
+            status_code=503,
+            detail="engagement writes are cortex-gated and this daemon has no cortex configured "
+            "(credentials.yaml cortex.url) — authoring belongs to the workspace/CRM layer",
+        )
+    verdict = _validate_bearer_with_cortex(token, cortex_url)
+    if verdict is True:
+        _cortex_ok_cache[key] = _time.monotonic() + CORTEX_CHECK_TTL_S
+        return
+    if verdict is False:
+        raise HTTPException(status_code=401, detail="cortex rejected the bearer for engagement write")
+    raise HTTPException(
+        status_code=503,
+        detail="cortex unreachable — engagement writes fail closed until the check can run",
+    )

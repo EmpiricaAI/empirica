@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from empirica.api.entity_mint_auth import verify_mint_bearer
+from empirica.api.entity_mint_auth import verify_engagement_write_auth, verify_mint_bearer
 
 router = APIRouter(prefix="/api/v1", tags=["engagements"])
 
@@ -137,7 +137,7 @@ class EngagementCreateRequest(BaseModel):
     assignee_id: str | None = None
 
 
-@router.post("/engagements", dependencies=[Depends(verify_mint_bearer)])
+@router.post("/engagements", dependencies=[Depends(verify_engagement_write_auth)])
 async def create_engagement(req: EngagementCreateRequest):
     """Create a ticket: the engagements sidecar row + the entity_registry row
     (display_name + writable metadata bag) + the ticket_of edge, atomically.
@@ -205,7 +205,7 @@ class EngagementPatchRequest(BaseModel):
     assignee_id: str | None = None
 
 
-@router.patch("/engagements/{engagement_id}", dependencies=[Depends(verify_mint_bearer)])
+@router.patch("/engagements/{engagement_id}", dependencies=[Depends(verify_engagement_write_auth)])
 async def patch_engagement(engagement_id: str, req: EngagementPatchRequest):
     """Triage: transition lifecycle/stage/outcome + merge the metadata bag on an
     existing engagement. 404 if it doesn't exist. This is the metadata-UPDATE
@@ -304,7 +304,7 @@ async def list_engagement_sources(engagement_id: str, limit: int = Query(50, ge=
     return {"ok": True, "engagement_id": engagement_id, "count": len(links), "sources": links}
 
 
-@router.post("/engagements/{engagement_id}/sources", dependencies=[Depends(verify_mint_bearer)])
+@router.post("/engagements/{engagement_id}/sources", dependencies=[Depends(verify_engagement_write_auth)])
 async def attach_engagement_source(engagement_id: str, req: EngagementSourceLinkRequest):
     """Attach a source to an engagement — idempotent per source.
 
