@@ -2,7 +2,7 @@
 
 > **We Gave AI a Mirror. Now It Measures What It Believes.**
 
-[![Version](https://img.shields.io/badge/version-1.13.22-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.22)
+[![Version](https://img.shields.io/badge/version-1.13.23-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.23)
 [![PyPI](https://img.shields.io/pypi/v/empirica)](https://pypi.org/project/empirica/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -114,13 +114,13 @@ empirica setup
 
 ```bash
 # Security-hardened Alpine image (~276MB, recommended)
-docker pull nubaeon/empirica:1.13.22-alpine
+docker pull nubaeon/empirica:1.13.23-alpine
 
 # Standard image (Debian slim, ~414MB)
-docker pull nubaeon/empirica:1.13.22
+docker pull nubaeon/empirica:1.13.23
 
 # Run
-docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.22 /bin/bash
+docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.23 /bin/bash
 ```
 </details>
 
@@ -387,12 +387,11 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.13.22
+## What's New in 1.13.23
 
-- **Tests no longer measure the box.** The suite isolated the SQL side but not Qdrant, so subprocess CLI calls embedded goals into the LIVE per-project collections — 38 orphan test goals reached 44% of one goals collection, polluting every retrieval. Embeddings are now disabled suite-wide by the session isolation fixture (tests that need them opt back in explicitly), and teardown reaps the pid-stamped test transaction files that accumulated in the live `~/.empirica`.
-- **EPISTEMIC FOCUS is task-relevant after compaction.** The relevance machinery existed but was starved: `task_context` was never persisted (it now rides the PREFLIGHT checkpoint into `reflex_data` and the transaction file), and the transaction-continue/check prompts passed neither `task_context` nor `project_id` — every mid-transaction compaction served the degraded recency-ranked block. All three post-compact sites now pass both, preferring the PREFLIGHT task statement over the raw last user message. Live-verified Relevance-Ranked against a real store.
-- **Sentinel: arithmetic expansion is not a command substitution** (shape-3, two live repros). The `$((expr))` form tripped the `$(` substitution extractor and operator scan, gating pure reads — a `sed -n` loop, even an `empirica note` whose text mentioned the form. Arithmetic is now recognized and skipped as a unit, with recursion so a nested `$(cmd)` inside it still gates; chain classification splits progressively across ALL operators (a `for …; do…done` loop no longer leaves an unclassifiable blob).
-- **README de-staled**: Upgrade row now points at the 1.13 guide (was 1.11), version stamps dropped from section headers, leftover 1.12.35 What's New removed, command count corrected to 240+ and skill count to 16.
+- **`engagement-create` removed from the core CLI.** Engagement authoring was deliberately moved to the empirica-workspace CLI (the CRM layer); core's verb was a bypass and is gone — `empirica-workspace engagement create` is the authoring surface. `engagement-list/show/walk/update` remain (the serving lane), as do `repo.create_engagement` and the API route as spine/serving primitives.
+- **Engagement HTTP writes are cortex-gated, fail-closed.** POST/PATCH `/api/v1/engagements` (and sources-attach) require either an `emk_` service token or a bearer validated live against cortex (`GET /v1/users/me`, the documented introspection surface — 60s cache). Rejected → 401; cortex unreachable/unconfigured → 503. Two properties by design: revocation propagates within the cache window, and when cortex is down **reads keep working while writes 503** — that asymmetry is the enforcement, not a bug. The extension attaches the bearer as of v0.10.58 (shipped ahead, windowless).
+- **Engagement dual-write is atomic and drift is doctor-visible.** An engagement needs a registry row (what surfaces render) and a sidecar row (where dates/warmth/stage live); nothing linked the writes and each entry point dropped a different half (one fleet box: 82 visible-but-dateless + 12 invisible). `create_engagement` now registers in the same call, the CLI validated-before-mint path can no longer strand a half-written engagement, and `empirica doctor` gains an "Engagement registry drift" check reporting both orphan classes with per-direction fix hints.
 ---
 
 
@@ -423,6 +422,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 **Author:** David S. L. Van Assche
-**Version:** 1.13.22
+**Version:** 1.13.23
 
 *Turtles all the way down — built with its own epistemic framework, measuring what it knows at every step.*

@@ -1,7 +1,7 @@
 # Empirica MCP Server Reference
 
 **Last Updated:** 2026-05-18
-**Version:** 1.13.22
+**Version:** 1.13.23
 **Total Tools:** 44
 **Architecture:** Table-driven CLI wrapper (no middleware)
 

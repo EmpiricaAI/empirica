@@ -5,6 +5,34 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.23] - 2026-08-17
+
+### Changed
+- **`engagement-create` removed from the core CLI.** Engagement authoring was
+  deliberately moved to the empirica-workspace CLI (the CRM layer); core's verb
+  was a bypass and is gone — `empirica-workspace engagement create` is the
+  authoring surface. `engagement-list/show/walk/update` remain (the serving
+  lane), as do `repo.create_engagement` and the API route as spine/serving
+  primitives.
+- **Engagement HTTP writes are cortex-gated, fail-closed.** POST/PATCH
+  `/api/v1/engagements` (and sources-attach) require either an `emk_` service
+  token or a bearer validated live against cortex (`GET /v1/users/me`, the
+  documented introspection surface — 60s cache). Rejected → 401; cortex
+  unreachable/unconfigured → 503. Two properties by design: revocation
+  propagates within the cache window, and when cortex is down **reads keep
+  working while writes 503** — that asymmetry is the enforcement, not a bug.
+  The extension attaches the bearer as of v0.10.58 (shipped ahead, windowless).
+
+### Fixed
+- **Engagement dual-write is atomic and drift is doctor-visible.** An
+  engagement needs a registry row (what surfaces render) and a sidecar row
+  (where dates/warmth/stage live); nothing linked the writes and each entry
+  point dropped a different half (one fleet box: 82 visible-but-dateless +
+  12 invisible). `create_engagement` now registers in the same call, the CLI
+  validated-before-mint path can no longer strand a half-written engagement,
+  and `empirica doctor` gains an "Engagement registry drift" check reporting
+  both orphan classes with per-direction fix hints.
+
 ## [1.13.22] - 2026-08-16
 
 ### Fixed
