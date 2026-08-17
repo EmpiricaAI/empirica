@@ -692,29 +692,6 @@ def add_checkpoint_parsers(subparsers):
     entity_delete_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
 
     # --- engagement substrate CLI (rides the entities-mint path; operational) ---
-    engagement_create_parser = subparsers.add_parser(
-        "engagement-create",
-        help=(
-            "Create an engagement: mints the engagement entity (the entities-mint "
-            "path) then writes the operational sidecar row. Idempotent by slug. "
-            "Optionally link to an organization with --org (role='ticket_of')."
-        ),
-    )
-    engagement_create_parser.add_argument("--title", required=True, help="Engagement title")
-    engagement_create_parser.add_argument(
-        "--id", dest="id", help="Explicit engagement_id (defaults to an 'e-<title>' slug)"
-    )
-    engagement_create_parser.add_argument(
-        "--domain", help="Engagement domain (outreach|sales|support|security|infra|onboarding|...)"
-    )
-    engagement_create_parser.add_argument("--stage", help="Initial stage_id (must belong to --domain)")
-    engagement_create_parser.add_argument(
-        "--engagement-type", dest="engagement_type", default="outreach", help="Engagement type (default: outreach)"
-    )
-    engagement_create_parser.add_argument("--org", help="Organization entity_id to link as role='ticket_of'")
-    engagement_create_parser.add_argument("--description", help="Free-text context")
-    engagement_create_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
-    engagement_create_parser.add_argument("--verbose", action="store_true", help="Verbose output")
 
     engagement_list_parser = subparsers.add_parser(
         "engagement-list",

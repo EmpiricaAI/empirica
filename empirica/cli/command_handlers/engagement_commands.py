@@ -1,14 +1,17 @@
 """Engagement Commands — CLI surface for the engagement substrate.
 
-engagement-create/list/show/walk/update over the engagements sidecar
-(WorkspaceDBRepository). engagement-create rides the entities-mint path
-(``mint_entity``) and then writes the sidecar row — no parallel writer. The
-engagement is the OPERATIONAL projection (plain SQL, no confidence/epistemic
-fields); diagnostic findings stay epistemic and link in via entity_artifacts.
+engagement-list/show/walk/update over the engagements sidecar
+(WorkspaceDBRepository). The engagement is the OPERATIONAL projection (plain
+SQL, no confidence/epistemic fields); diagnostic findings stay epistemic and
+link in via entity_artifacts.
+
+CREATION is deliberately NOT here (David's ruling, 2026-08-17 — hard removal):
+engagement authoring lives in the empirica-workspace CLI
+(``empirica-workspace engagement create``), the proprietary CRM layer. Core's
+verb was a bypass; the API route + repo.create_engagement remain as the
+serving/spine primitives.
 
 Verbs:
-- engagement-create: mint the engagement entity + create its sidecar row
-                     (+ optional --org link with role='ticket_of')
 - engagement-list:   list engagements, filtered by domain / lifecycle / org
 - engagement-show:   one engagement + its membership edges
 - engagement-walk:   BFS the membership graph from an engagement
@@ -27,7 +30,6 @@ import sys
 
 from ...data.repositories.workspace_db import WorkspaceDBRepository
 from ..cli_utils import handle_cli_error
-from .entity_commands import _embed_entity_row, mint_entity
 
 
 def _emit_user_error(output: str, message: str, error: str = "invalid_argument") -> None:
@@ -38,98 +40,6 @@ def _emit_user_error(output: str, message: str, error: str = "invalid_argument")
     else:
         print(f"❌ {message}", file=sys.stderr)
     sys.exit(1)
-
-
-def handle_engagement_create_command(args):
-    """engagement-create — mint the engagement entity, then create the sidecar row.
-
-    Idempotent end-to-end: re-running returns the existing engagement (the
-    mint dedupes by slug; the sidecar create is skipped if the row exists).
-    """
-    try:
-        output = getattr(args, "output", "human")
-        title = args.title
-        # Validate domain/stage BEFORE minting. The mint registers the entity;
-        # hitting the taxonomy ValueError only later (inside create_engagement)
-        # exited mid-sequence with a registered-but-recordless engagement —
-        # visible on every surface, nowhere to store a date (prop_rif7asmh, 82
-        # such orphans measured on one fleet box). Failing here writes nothing.
-        try:
-            with WorkspaceDBRepository.open() as repo:
-                repo.validate_engagement_taxonomy(
-                    domain=getattr(args, "domain", None), stage=getattr(args, "stage", None)
-                )
-        except ValueError as ve:
-            _emit_user_error(output, str(ve))
-        result = mint_entity(
-            entity_type="engagement",
-            name=title,
-            entity_id=getattr(args, "id", None),
-            description=getattr(args, "description", None),
-        )
-        if not result.get("ok"):
-            print(
-                json.dumps(result, indent=2, default=str) if output == "json" else f"❌ {result.get('error')}",
-                file=sys.stderr if output != "json" else sys.stdout,
-            )
-            sys.exit(1)
-        eid = result["entity_id"]
-        org = getattr(args, "org", None)
-        with WorkspaceDBRepository.open() as repo:
-            engagement = repo.get_engagement(eid)
-            sidecar_created = engagement is None
-            if engagement is None:
-                try:
-                    engagement = repo.create_engagement(
-                        eid,
-                        title,
-                        domain=getattr(args, "domain", None),
-                        stage=getattr(args, "stage", None),
-                        engagement_type=getattr(args, "engagement_type", "outreach"),
-                        description=getattr(args, "description", None),
-                    )
-                except ValueError as ve:
-                    _emit_user_error(output, str(ve))
-            if org:
-                repo.upsert_entity_membership("engagement", eid, "organization", org, role="ticket_of")
-            contact_id = getattr(args, "contact_id", None)
-            if contact_id:
-                repo.upsert_entity_membership("engagement", eid, "contact", contact_id, role="participant")
-        # §6.2: re-embed with domain+stage now that the sidecar carries them (the
-        # bare point mint_entity created is upserted in place — stable id, idempotent).
-        _embed_entity_row(
-            "engagement",
-            eid,
-            title,
-            description=getattr(args, "description", None),
-            domain=getattr(args, "domain", None),
-            stage=getattr(args, "stage", None),
-        )
-        if output == "json":
-            print(
-                json.dumps(
-                    {
-                        "ok": True,
-                        "entity_id": eid,
-                        "entity_created": result["created"],
-                        "sidecar_created": sidecar_created,
-                        "org": org,
-                        "engagement": engagement,
-                    },
-                    indent=2,
-                    default=str,
-                )
-            )
-        else:
-            verb = "created" if (result["created"] or sidecar_created) else "exists"
-            print(f"🤝 Engagement {verb}: {eid}")
-            if org:
-                print(f"   linked to organization:{org} (ticket_of)")
-        sys.exit(0)
-    except SystemExit:
-        raise
-    except Exception as e:
-        handle_cli_error(e, "engagement-create", getattr(args, "verbose", False))
 
 
 def handle_engagement_list_command(args):

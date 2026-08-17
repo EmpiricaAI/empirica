@@ -80,7 +80,6 @@ from .ecosystem_commands import (
     handle_ecosystem_check_command,
 )
 from .engagement_commands import (
-    handle_engagement_create_command,
     handle_engagement_list_command,
     handle_engagement_show_command,
     handle_engagement_update_command,
@@ -536,7 +535,6 @@ __all__ = [  # noqa: RUF022
     "handle_entity_show_command",
     "handle_entity_walk_command",
     # Engagement substrate CLI
-    "handle_engagement_create_command",
     "handle_engagement_list_command",
     "handle_engagement_show_command",
     "handle_engagement_update_command",

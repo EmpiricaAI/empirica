@@ -112,7 +112,7 @@ MUTATING_VERBS = [
     "empirica sources-check",  # writes review stamps — the near-miss `-check` case
     "empirica entity-create --name x",
     "empirica entity-delete e1",
-    "empirica engagement-create --name x",
+    "empirica entity-create --name x",
     "empirica engagement-update eng-1",
     "empirica entity-reindex",
     "empirica qdrant-cleanup",
@@ -151,5 +151,5 @@ def test_workflow_verbs_still_allowed(gate):
 
 
 def test_help_and_version_bypass_survives(gate):
-    for cmd in ("empirica engagement-create --help", "empirica --version"):
+    for cmd in ("empirica entity-create --help", "empirica --version"):
         assert gate.is_safe_empirica_command(cmd) is True

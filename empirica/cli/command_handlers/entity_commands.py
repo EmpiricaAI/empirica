@@ -362,7 +362,7 @@ def mint_entity(
             metadata=json.dumps(metadata),
         )
         # §6.2 searchable point. Engagements re-embed with domain+stage in
-        # engagement-create (written to the sidecar after this mint); the stable
+        # engagement creation (workspace-CLI-authored sidecar after this mint); the stable
         # point id makes that a clean idempotent enrichment.
         _embed_entity_row(entity_type, eid, name, description, metadata)
         # Core mints only the entity_registry SPINE — it does NOT author CRM
