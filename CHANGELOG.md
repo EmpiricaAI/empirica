@@ -5,6 +5,23 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.25] - 2026-08-17
+
+### Fixed
+- **Registering an entity that was already registered wiped its metadata.**
+  `upsert_entity`'s `ON CONFLICT DO UPDATE SET` assigned `description` and
+  `metadata` unconditionally from `excluded`, so a caller that registers an id
+  without supplying those fields NULLed whatever the existing row held. 1.13.23
+  made `create_engagement` register into `entity_registry` atomically — which
+  put the engagement path straight onto that clause. The exposure is precisely
+  the repair case: re-registering a registry-only orphan to attach its detail
+  row destroyed the `description` and `metadata` (severity, assignee, tags) the
+  repair existed to preserve, with no error. `upsert_entity` now takes
+  `preserve_existing`, selecting a `COALESCE(excluded.x, entity_registry.x)`
+  conflict clause, and `create_engagement` passes it. The default is unchanged
+  and still overwrites — the API metadata-refresh and cortex-sync paths rely on
+  clear-by-`None` — with a test pinning both behaviours.
+
 ## [1.13.24] - 2026-08-17
 
 ### Fixed
