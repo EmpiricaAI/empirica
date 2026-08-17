@@ -156,6 +156,17 @@ def generate_mint_token() -> str:
 # configured → 503 (the enforcement IS that engagement HTTP writes need the
 # proprietary layer reachable). The emk_ service-token lane stays honored —
 # those tokens are cortex-minted, and the hosted deployment depends on them.
+#
+# Cortex-confirmed (prop_j6m7je2x): /v1/users/me is the DOCUMENTED intended
+# introspection surface ("load-bearing for downstream MCP servers that
+# validate Bearer via /v1/users/me"), no rate limit, no audit side-effects.
+# Two properties this design carries, stated so they read as intended:
+#   - Revocation propagates in ≤60s (the cache TTL): a revoked credential
+#     stops authorizing daemon writes within the window — strictly better
+#     than local signature checks, which cannot see revocation.
+#   - AVAILABILITY ASYMMETRY, BY DESIGN: when cortex is down, engagement
+#     READS keep working and WRITES return 503. The split is the fail-closed
+#     enforcement, not a bug.
 
 #: Seconds a successful cortex validation is cached per token (hash-keyed).
 #: Writes are rare; 60s keeps bursts (extension creating a ticket + attaching
