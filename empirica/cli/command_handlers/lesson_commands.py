@@ -223,8 +223,16 @@ def handle_lesson_create_command(args: Namespace) -> dict[str, Any]:
             abstract_pattern=input_data.get("abstract_pattern"),
         )
 
-        # Store lesson
+        # Store lesson. AMEND-IN-PLACE IS THE MODEL, and it is not obvious:
+        # the id is DETERMINISTIC from (name, version) and create_lesson upserts
+        # every layer (cold file overwritten, warm INSERT OR REPLACE, hot
+        # reloaded, search point re-upserted). So re-publishing the same
+        # name+version REPLACES the lesson — which is the amend path (no update
+        # verb needed), and equally a way to clobber someone's lesson by reusing
+        # a name. Silence made both invisible; `replaced` names which one
+        # happened. Bump `version` to publish a revision alongside the original.
         storage = get_lesson_storage()
+        replaced = storage.get_lesson(lesson.id) is not None
         result = storage.create_lesson(lesson)
 
         # Return the STORED record, not a message. `ok: true` beside a
@@ -236,6 +244,8 @@ def handle_lesson_create_command(args: Namespace) -> dict[str, Any]:
             "lesson_id": lesson.id,
             "name": lesson.name,
             "version": lesson.version,
+            # True = an existing lesson with this (name, version) was REPLACED.
+            "replaced": replaced,
             "step_count": len(steps),
             "cold_path": result.get("cold_path"),
             "elapsed_ms": result.get("elapsed_ms"),

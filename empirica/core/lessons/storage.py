@@ -484,9 +484,17 @@ class LessonStorageManager:
             # Try hot first (fastest)
             hot_entry = self._hot.get_lesson(lesson_id)
             if hot_entry:
-                # Hot cache hit - but we need full data
-                # Load from cold for complete lesson
-                return self._read_cold(lesson_id)
+                # Hot cache hit - but we need full data, so read cold.
+                # FALL BACK TO WARM when the YAML is missing. The hot cache is
+                # populated from the WARM rows at startup, so a lesson whose
+                # cold file was lost (or never written) lands here, gets a None
+                # from _read_cold, and — before this fallback — was reported as
+                # not-found by every default read path while SQLite still held
+                # the complete record. Measured 2026-08-17: 7 real lessons
+                # (a whole NotebookLM procedure set, steps intact in warm) were
+                # unreachable and unembeddable this way, indistinguishable from
+                # deleted.
+                return self._read_cold(lesson_id) or self._read_warm(lesson_id)
             else:
                 # Try warm
                 return self._read_warm(lesson_id)
@@ -602,15 +610,42 @@ class LessonStorageManager:
         elif query and self._qdrant:
             vector = self._generate_embedding(query)
             try:
-                # Use query_points API (Qdrant 1.7+)
-                response = self._qdrant.query_points(collection_name=self._qdrant_collection, query=vector, limit=limit)
+                # Over-fetch: hits that no longer resolve are dropped below, so
+                # asking for exactly `limit` would return short lists whenever
+                # the collection carries orphans.
+                response = self._qdrant.query_points(
+                    collection_name=self._qdrant_collection, query=vector, limit=max(limit * 4, limit + 20)
+                )
                 for point in response.points:
+                    if len(results) >= limit:
+                        break
+                    payload = point.payload or {}
+                    lid = payload.get("lesson_id")
+                    if not lid:
+                        continue
+                    # RECONCILE against the store. The payload is frozen at embed
+                    # time and the collection outlives deletions, so trusting it
+                    # made semantic search serve lessons that cannot be loaded —
+                    # measured 2026-08-17 on this practice: 43 of 60 embedded
+                    # ids had no store record, 17 payloads carried an empty
+                    # description, and the ghosts OUTRANKED real lessons because
+                    # nothing filtered them. The improves-vector and domain
+                    # branches above already resolve through get_lesson; this
+                    # branch was the one that did not.
+                    lesson = self.get_lesson(lid)
+                    if lesson is None:
+                        logger.debug(f"lesson search: dropping unresolvable hit {lid}")
+                        continue
                     results.append(
                         {
-                            "id": point.payload.get("lesson_id"),
-                            "name": point.payload.get("name"),
-                            "description": point.payload.get("description"),
+                            "id": lid,
+                            # Name/description come from the RECORD, not the
+                            # payload — a stale or empty payload must not be
+                            # what a practitioner reads.
+                            "name": getattr(lesson, "name", None) or payload.get("name"),
+                            "description": getattr(lesson, "description", "") or payload.get("description") or "",
                             "score": point.score,
+                            **_governance(lesson),
                         }
                     )
             except Exception as e:
