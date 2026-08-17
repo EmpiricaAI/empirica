@@ -148,3 +148,83 @@ def test_doctor_check_warns_on_drift(repo, monkeypatch):
     assert check.status == doctor.WARN
     assert "1 registry-only" in check.detail
     assert "1 sidecar-only" in check.detail
+
+
+# ── carry-forward: repairing an orphan must not destroy its metadata ─────────
+#
+# create_engagement registers, and the registry row may ALREADY exist — that is
+# precisely the registry-only orphan being repaired. upsert_entity's conflict
+# clause blind-wrote NULL over description and metadata, so the repair
+# destroyed the severity and assignee it was meant to preserve. Flagged by
+# empirica-autonomy as a constraint on the coming repair verb; it was already
+# live in the create path (shipped 1.13.23).
+
+
+def test_repairing_a_registry_orphan_preserves_description_and_metadata(repo):
+    repo.upsert_entity(
+        "engagement",
+        "e-orphan",
+        display_name="Ticket",
+        source_db="workspace",
+        source_table="engagements",
+        description="original description",
+        metadata='{"severity": "high", "assignee_id": "u-42"}',
+    )
+
+    repo.create_engagement("e-orphan", "Ticket")  # the repair: sidecar + register
+
+    row = _registry_row(repo, "e-orphan")
+    assert row["metadata"] == '{"severity": "high", "assignee_id": "u-42"}', "repair must not wipe metadata"
+    assert row["description"] == "original description", "repair must not wipe the description"
+
+
+def test_carry_forward_still_applies_supplied_values(repo):
+    """Preserve-existing must not become preserve-everything: a value the
+    caller DOES supply still wins."""
+    repo.upsert_entity(
+        "engagement",
+        "e-upd",
+        display_name="Old",
+        source_db="workspace",
+        source_table="engagements",
+        description="old desc",
+        metadata='{"severity": "low"}',
+    )
+    repo.upsert_entity(
+        "engagement",
+        "e-upd",
+        display_name="New",
+        source_db="workspace",
+        source_table="engagements",
+        description="new desc",
+        metadata='{"severity": "high"}',
+        preserve_existing=True,
+    )
+    row = _registry_row(repo, "e-upd")
+    assert row["display_name"] == "New"
+    assert row["description"] == "new desc"
+    assert row["metadata"] == '{"severity": "high"}'
+
+
+def test_default_overwrite_semantics_unchanged(repo):
+    """Existing callers (the API metadata refresh, sync paths) must keep the
+    old behaviour — a None must still clear."""
+    repo.upsert_entity(
+        "engagement",
+        "e-clear",
+        display_name="X",
+        source_db="workspace",
+        source_table="engagements",
+        description="will be cleared",
+        metadata='{"a": 1}',
+    )
+    repo.upsert_entity(
+        "engagement",
+        "e-clear",
+        display_name="X",
+        source_db="workspace",
+        source_table="engagements",
+    )
+    row = _registry_row(repo, "e-clear")
+    assert row["description"] is None
+    assert row["metadata"] is None

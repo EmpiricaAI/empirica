@@ -891,6 +891,7 @@ class WorkspaceDBRepository(BaseRepository):
         emoji_state: str | None = None,
         status: str = "active",
         metadata: str | None = None,
+        preserve_existing: bool = False,
     ) -> None:
         """Insert or update an entity_registry row by (entity_type, entity_id).
 
@@ -898,15 +899,35 @@ class WorkspaceDBRepository(BaseRepository):
         systems (e.g. cortex's mesh_sharing_agreements → entity_registry).
         Idempotent: calling twice with the same values is a no-op on the
         second call other than the updated_at timestamp.
+
+        ``preserve_existing`` (default False — today's overwrite semantics, so
+        every existing caller is unchanged) makes the descriptive columns
+        CARRY FORWARD: a None argument keeps whatever is stored instead of
+        nulling it. Required by any path that registers an entity which may
+        ALREADY be registered — otherwise the conflict clause blind-writes NULL
+        over fields the caller never intended to touch.
+
+        Measured 2026-08-17: repairing a registry-only engagement orphan (create
+        the missing sidecar, which registers) destroyed the registry row's
+        description AND its metadata — severity and assignee — because
+        create_engagement passes no metadata at all. Flagged by
+        empirica-autonomy as a constraint on the coming repair verb; it was
+        already live in the create path.
         """
         now = time.time()
-        self._execute(
+        if preserve_existing:
+            conflict_clause = """
+                display_name = COALESCE(excluded.display_name, entity_registry.display_name),
+                description = COALESCE(excluded.description, entity_registry.description),
+                source_db = excluded.source_db,
+                source_table = excluded.source_table,
+                emoji_state = COALESCE(excluded.emoji_state, entity_registry.emoji_state),
+                status = excluded.status,
+                updated_at = excluded.updated_at,
+                metadata = COALESCE(excluded.metadata, entity_registry.metadata)
             """
-            INSERT INTO entity_registry
-                (entity_type, entity_id, display_name, description, source_db,
-                 source_table, emoji_state, status, created_at, updated_at, metadata)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(entity_type, entity_id) DO UPDATE SET
+        else:
+            conflict_clause = """
                 display_name = excluded.display_name,
                 description = excluded.description,
                 source_db = excluded.source_db,
@@ -915,6 +936,15 @@ class WorkspaceDBRepository(BaseRepository):
                 status = excluded.status,
                 updated_at = excluded.updated_at,
                 metadata = excluded.metadata
+            """
+        self._execute(
+            f"""
+            INSERT INTO entity_registry
+                (entity_type, entity_id, display_name, description, source_db,
+                 source_table, emoji_state, status, created_at, updated_at, metadata)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(entity_type, entity_id) DO UPDATE SET
+                {conflict_clause}
             """,
             (
                 entity_type,
@@ -1696,6 +1726,11 @@ class WorkspaceDBRepository(BaseRepository):
             source_db="workspace",
             source_table="engagements",
             description=description,
+            # CARRY FORWARD: this id may already be registered (that is exactly
+            # the registry-only orphan we are repairing), and we pass no
+            # metadata — without this, repairing an orphan wipes its severity
+            # and assignee.
+            preserve_existing=True,
         )
         self.commit()
         created = self.get_engagement(engagement_id)
