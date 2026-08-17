@@ -465,11 +465,17 @@ def test_run_all_checks_returns_complete_list():
     assert "LLM backend (ollama)" in names
     assert "Empirica extension build" in names
     assert "Outreach project" in names
+    assert "Engagement registry drift" in names
 
 
-def test_run_all_checks_count_is_26():
-    """+1 for check_mcp_version_skew (GH #404, injected-topology skew)."""
-    assert len(run_all_checks()) == 26
+def test_run_all_checks_count_is_27():
+    """+1 for check_mcp_version_skew (GH #404, injected-topology skew).
+    +1 for check_engagement_registry_drift (engagement dual-write, 1.13.23).
+
+    A hardcoded count is a tripwire for "a check was added/removed without
+    thinking about the suite" — when it fires, update it deliberately (and add
+    the name assertion below), never by pasting the new number blind."""
+    assert len(run_all_checks()) == 27
 
 
 # ─── Tailscale (prop_ilf6uy4q) ─────────────────────────────────────────
