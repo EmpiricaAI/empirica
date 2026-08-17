@@ -2,7 +2,7 @@
 
 > **We Gave AI a Mirror. Now It Measures What It Believes.**
 
-[![Version](https://img.shields.io/badge/version-1.13.23-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.23)
+[![Version](https://img.shields.io/badge/version-1.13.24-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.24)
 [![PyPI](https://img.shields.io/pypi/v/empirica)](https://pypi.org/project/empirica/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -114,13 +114,13 @@ empirica setup
 
 ```bash
 # Security-hardened Alpine image (~276MB, recommended)
-docker pull nubaeon/empirica:1.13.23-alpine
+docker pull nubaeon/empirica:1.13.24-alpine
 
 # Standard image (Debian slim, ~414MB)
-docker pull nubaeon/empirica:1.13.23
+docker pull nubaeon/empirica:1.13.24
 
 # Run
-docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.23 /bin/bash
+docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.24 /bin/bash
 ```
 </details>
 
@@ -387,11 +387,12 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.13.23
+## What's New in 1.13.24
 
-- **`engagement-create` removed from the core CLI.** Engagement authoring was deliberately moved to the empirica-workspace CLI (the CRM layer); core's verb was a bypass and is gone — `empirica-workspace engagement create` is the authoring surface. `engagement-list/show/walk/update` remain (the serving lane), as do `repo.create_engagement` and the API route as spine/serving primitives.
-- **Engagement HTTP writes are cortex-gated, fail-closed.** POST/PATCH `/api/v1/engagements` (and sources-attach) require either an `emk_` service token or a bearer validated live against cortex (`GET /v1/users/me`, the documented introspection surface — 60s cache). Rejected → 401; cortex unreachable/unconfigured → 503. Two properties by design: revocation propagates within the cache window, and when cortex is down **reads keep working while writes 503** — that asymmetry is the enforcement, not a bug. The extension attaches the bearer as of v0.10.58 (shipped ahead, windowless).
-- **Engagement dual-write is atomic and drift is doctor-visible.** An engagement needs a registry row (what surfaces render) and a sidecar row (where dates/warmth/stage live); nothing linked the writes and each entry point dropped a different half (one fleet box: 82 visible-but-dateless + 12 invisible). `create_engagement` now registers in the same call, the CLI validated-before-mint path can no longer strand a half-written engagement, and `empirica doctor` gains an "Engagement registry drift" check reporting both orphan classes with per-direction fix hints.
+- **Lesson search served lessons that could not be loaded.** The semantic branch of `search_lessons` built results straight from the Qdrant payload and never consulted the store — while the improves-vector and domain branches both resolve through `get_lesson` and skip misses, so the one branch practitioners query was the unreconciled one. Measured on one practice: 43 of 60 embedded ids had no store record, 17 payloads carried an empty description, and those ghosts outranked real lessons. Hits are now resolved through the store, unloadable ones dropped, and name/description taken from the record rather than a payload frozen at embed time (over-fetches so dropped ghosts don't shorten results).
+- **The default lesson read hid lessons that were not lost.** `get_lesson("auto")` returned `_read_cold(...)` on a hot-cache hit with no warm fallback — but the hot cache is populated *from* warm, so a lesson whose YAML was missing reported not-found while SQLite still held the complete record. Seven real lessons (steps intact) were unreachable and unembeddable, indistinguishable from deleted. Now falls back to warm.
+- **Amending a lesson was real but silent.** The id is deterministic from `(name, version)` and `create_lesson` upserts every layer, so re-publishing the same name+version amends in place — and equally clobbers a lesson by reusing a name. `lesson-create` now reports `replaced`, and the model is documented at the write site (bump `version` to publish a revision alongside). No new verb.
+- **`doctor` check-count test** updated for the engagement-drift check added in 1.13.23, and it now asserts the new check by name as well as by count.
 ---
 
 
@@ -422,6 +423,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 **Author:** David S. L. Van Assche
-**Version:** 1.13.23
+**Version:** 1.13.24
 
 *Turtles all the way down — built with its own epistemic framework, measuring what it knows at every step.*

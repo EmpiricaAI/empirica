@@ -5,6 +5,34 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.24] - 2026-08-17
+
+### Fixed
+- **Lesson search served lessons that could not be loaded.** The semantic
+  branch of `search_lessons` built results straight from the Qdrant payload and
+  never consulted the store — while the improves-vector and domain branches
+  both resolve through `get_lesson` and skip misses, so the one branch
+  practitioners query was the unreconciled one. Measured on one practice: 43 of
+  60 embedded ids had no store record, 17 payloads carried an empty
+  description, and those ghosts outranked real lessons. Hits are now resolved
+  through the store, unloadable ones dropped, and name/description taken from
+  the record rather than a payload frozen at embed time (over-fetches so
+  dropped ghosts don't shorten results).
+- **The default lesson read hid lessons that were not lost.**
+  `get_lesson("auto")` returned `_read_cold(...)` on a hot-cache hit with no
+  warm fallback — but the hot cache is populated *from* warm, so a lesson whose
+  YAML was missing reported not-found while SQLite still held the complete
+  record. Seven real lessons (steps intact) were unreachable and unembeddable,
+  indistinguishable from deleted. Now falls back to warm.
+- **Amending a lesson was real but silent.** The id is deterministic from
+  `(name, version)` and `create_lesson` upserts every layer, so re-publishing
+  the same name+version amends in place — and equally clobbers a lesson by
+  reusing a name. `lesson-create` now reports `replaced`, and the model is
+  documented at the write site (bump `version` to publish a revision
+  alongside). No new verb.
+- **`doctor` check-count test** updated for the engagement-drift check added in
+  1.13.23, and it now asserts the new check by name as well as by count.
+
 ## [1.13.23] - 2026-08-17
 
 ### Changed
