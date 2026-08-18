@@ -106,6 +106,27 @@ def check_engagement_registry_drift() -> Check:
         from empirica.data.repositories.workspace_db import WorkspaceDBRepository
 
         with WorkspaceDBRepository.open() as repo:
+            # Shape FIRST. On a legacy-shaped table the drift query below throws
+            # an opaque OperationalError, which reports a symptom and hides the
+            # cause; and drift numbers are meaningless on a table nothing can
+            # write to anyway.
+            blockers = repo.engagement_schema_blockers()
+            if blockers:
+                cols = ", ".join(f"{b['column']} ({b['type']})" for b in blockers)
+                return Check(
+                    "Engagement registry drift",
+                    FAIL,
+                    f"engagements table is legacy-shaped — every insert is rejected: {cols}",
+                    "This box's workspace.db was seeded from the retired CRM tables rather than "
+                    "created fresh, so `engagements` carries NOT NULL columns no current code "
+                    "path supplies. The additive self-heal cannot fix it (sqlite ALTER cannot "
+                    "drop a NOT NULL, and rebuilding the table would rewrite real engagement "
+                    "history — that needs explicit, backed-up, opt-in repair, not a silent "
+                    "migration on open). Until then engagement creation fails on this box only. "
+                    "Note the negative: `~/.empirica/crm/crm.db` existing does NOT mean you are "
+                    "affected — clean boxes have it too. This check is the detector.",
+                    data={"blocking_columns": blockers},
+                )
             drift = repo.engagement_registry_drift()
     except Exception as e:
         return Check(

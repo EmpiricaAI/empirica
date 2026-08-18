@@ -1775,6 +1775,64 @@ class WorkspaceDBRepository(BaseRepository):
         sidecar_only = [row["engagement_id"] for row in cur.fetchall()]
         return {"registry_only": registry_only, "sidecar_only": sidecar_only}
 
+    #: Columns the current engagements writer supplies. A NOT NULL column with no
+    #: default OUTSIDE this set can never be satisfied by any code path we ship.
+    CANONICAL_ENGAGEMENT_COLUMNS: frozenset[str] = frozenset(
+        {
+            "engagement_id",
+            "contact_id",
+            "project_id",
+            "title",
+            "description",
+            "engagement_type",
+            "started_at",
+            "ended_at",
+            "status",
+            "outcome",
+            "lifecycle_state",
+            "stage",
+            "domain",
+            "created_at",
+            "created_by_ai_id",
+            "updated_at",
+        }
+    )
+
+    def engagement_schema_blockers(self) -> list[dict[str, Any]]:
+        """Legacy columns that make every engagement INSERT impossible. Read-only.
+
+        The additive self-heal at open() handles columns the old shape was
+        MISSING (ALTER ADD). It cannot handle the opposite: a column the old
+        shape had that ours does not write, declared ``NOT NULL`` with no
+        default — sqlite then rejects every insert this codebase can construct,
+        permanently, on that box only.
+
+        Detected by PRAGMA rather than by provenance, deliberately. autonomy
+        established (2026-08-18) that ``~/.empirica/crm/crm.db`` exists on boxes
+        whose workspace.db is perfectly clean — the discriminator is whether the
+        workspace db was SEEDED from the old CRM tables or created fresh by newer
+        code, and nothing anywhere records which happened. So "did this box run
+        the old CRM" cannot answer it and the table's own shape is the only
+        honest source.
+
+        Returns one entry per blocking column; empty list means writable.
+        """
+        blockers: list[dict[str, Any]] = []
+        try:
+            cur = self._execute("PRAGMA table_info(engagements)")
+            rows = cur.fetchall()
+        except Exception:
+            # No engagements table at all is a different (and louder) condition
+            # than a mis-shaped one; report nothing rather than guess.
+            return blockers
+        for row in rows:
+            name, notnull, default, is_pk = row[1], row[3], row[4], row[5]
+            if name in self.CANONICAL_ENGAGEMENT_COLUMNS:
+                continue
+            if notnull and default is None and not is_pk:
+                blockers.append({"column": name, "type": row[2]})
+        return blockers
+
     def get_engagement(self, engagement_id: str) -> dict[str, Any] | None:
         """Fetch a single engagement by id. Returns None if not found."""
         cursor = self._execute("SELECT * FROM engagements WHERE engagement_id = ?", (engagement_id,))
