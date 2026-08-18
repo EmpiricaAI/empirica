@@ -447,7 +447,20 @@ class Lesson:
 
     @classmethod
     def from_dict(cls, d: dict) -> "Lesson":
-        """Deserialize from COLD storage"""
+        """Deserialize from COLD storage.
+
+        Every field `to_dict` writes must be read back here. The migration-037
+        block (sharing/abstraction, EKG links, trigger, output, feedback) was
+        written to YAML and never deserialized, so a lesson published at
+        `sharing_policy='org'` was reconstructed at the dataclass default
+        `'private'` — silently, and on the surface that decides propagation. It
+        did not fail to share loudly; it reported itself unshared. Verified
+        2026-08-18: both storage layers held `org`/`cross_org` while
+        `lesson-load` and `lesson-search` returned `private`/`personal`.
+
+        Round-trip is pinned by a test — the sibling of this defect is a field
+        added to `to_dict` and forgotten here, which looks like nothing at all.
+        """
         return cls(
             id=d["id"],
             name=d["name"],
@@ -466,6 +479,24 @@ class Lesson:
             updated_timestamp=d.get("updated_timestamp", time.time()),
             tags=d.get("tags", []),
             domain=d.get("domain"),
+            # ── migration 037 ── governance first: these decide propagation.
+            abstraction_level=d.get("abstraction_level", "personal"),
+            sharing_policy=d.get("sharing_policy", "private"),
+            abstract_pattern=d.get("abstract_pattern"),
+            parent_lesson_id=d.get("parent_lesson_id"),
+            entity_ids=d.get("entity_ids", []),
+            project_id=d.get("project_id"),
+            org_id=d.get("org_id"),
+            user_id=d.get("user_id"),
+            trigger_type=d.get("trigger_type"),
+            trigger_config=d.get("trigger_config"),
+            output_format=d.get("output_format", "markdown"),
+            output_renderer=d.get("output_renderer", "template"),
+            output_config=d.get("output_config"),
+            execution_count=d.get("execution_count", 0),
+            feedback_score=d.get("feedback_score", 0.0),
+            last_executed=d.get("last_executed"),
+            last_feedback=d.get("last_feedback"),
         )
 
 
