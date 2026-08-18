@@ -45,7 +45,13 @@ ARTIFACT_UPDATABLE_FIELDS: dict[str, set[str]] = {
     "dead_end": {"impact", "subject", "epistemic_source", "visibility", "domain"},
     "mistake": {"prevention", "epistemic_source", "visibility"},
     "assumption": {"confidence", "status", "epistemic_source", "visibility"},
-    "decision": {"outcome", "regret_score", "epistemic_source", "visibility"},
+    # `reversibility` is metadata about the decision (how costly it is to undo), not
+    # the claim — so it belongs here by this file's own rule. It earned the slot the
+    # hard way: a truthy-default bug made `decision-log --reversibility` a no-op, and
+    # the practice that found it had no supported way to correct a single row. The
+    # enum stays enforced by the CHECK constraint on `decisions.reversibility`, so a
+    # bad value fails the UPDATE rather than landing.
+    "decision": {"outcome", "regret_score", "reversibility", "epistemic_source", "visibility"},
     "source": {"confidence", "description"},
     "goal": {"objective", "status"},
 }

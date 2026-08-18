@@ -1903,7 +1903,11 @@ def handle_decision_log_command(args):
             cfg.get("alternatives", "") or getattr(args, "alternatives", "")
         )
         confidence = cfg.get("confidence", 0.7) if config_data else getattr(args, "confidence", 0.7)
-        reversibility = cfg.get("reversibility", "exploratory") or getattr(args, "reversibility", "exploratory")
+        # No DEFAULT on the first .get(): a truthy default short-circuits the `or` and
+        # the flag is never consulted. Reported by outreach 2026-08-18 after a decision
+        # logged --reversibility committal stored as exploratory, silently, across 335
+        # of their 343 rows. Same shape as `choice` two lines up — default goes LAST.
+        reversibility = cfg.get("reversibility") or getattr(args, "reversibility", None) or "exploratory"
         evidence_refs = cfg.get("evidence_refs") or getattr(args, "evidence_refs", None)
         epistemic_source = cfg.get("epistemic_source") or getattr(args, "epistemic_source", None)
         description = cfg.get("description") or getattr(args, "description", None)
