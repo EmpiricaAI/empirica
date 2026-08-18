@@ -509,6 +509,54 @@ def _reconcile_findings_against_sqlite(raw_findings):
         return raw_findings
 
 
+def _annotate_derived_confidence(ranked: list[dict]) -> list[dict]:
+    """Cap each served finding by the weakest premise it rests on.
+
+    Retrieval is where an unmarked inference does its damage: a finding derived
+    from an unverified assumption is served at finding-strength, and the consumer
+    has no signal that a belief sits underneath. The type vocabulary already lets
+    an author separate the two; this is what makes separating them buy something
+    — the edge becomes load-bearing at the moment of consumption rather than only
+    at the moment of authorship.
+
+    Annotates ONLY findings that actually have premise edges, so the key's
+    PRESENCE is the signal. Blanket-annotating would erase the distinction
+    between "rests on nothing recorded" and "rests on something solid".
+
+    Best-effort, same contract as the reconciler above: this runs in the
+    PREFLIGHT/CHECK hot path and must never break retrieval. Findings embedded
+    before #307 carry no ``artifact_id`` and are simply skipped.
+    """
+    if not ranked or not any(f.get("artifact_id") for f in ranked):
+        return ranked
+    try:
+        import sqlite3
+        from pathlib import Path
+
+        from empirica.core.derived_confidence import annotate
+        from empirica.data.session_database import _resolve_canonical_project_root
+
+        root = _resolve_canonical_project_root()
+        if not root:
+            return ranked
+        db_path = Path(root) / ".empirica" / "sessions" / "sessions.db"
+        if not db_path.is_file():
+            return ranked
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        try:
+            if not conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='artifact_edges'"
+            ).fetchone():
+                return ranked
+            annotate(conn.cursor(), ranked, id_key="artifact_id")
+        finally:
+            conn.close()
+        return ranked
+    except Exception as e:
+        logger.debug(f"derived-confidence annotation skipped: {e}")
+        return ranked
+
+
 def _enrich_knowledge_graph(
     result,
     project_id,
@@ -1103,6 +1151,7 @@ def retrieve_task_patterns(
     findings_ranked = _apply_recency_rerank(
         findings_raw, limits["findings"], modulator_key="impact", ts_key="timestamp"
     )
+    findings_ranked = _annotate_derived_confidence(findings_ranked)
     relevant_findings = [
         {
             "finding": f.get("text", ""),
@@ -1110,6 +1159,18 @@ def retrieve_task_patterns(
             "score": f.get("score", 0.0),
             "recency_weight": f.get("recency_weight", 1.0),
             "effective_score": f.get("effective_score", f.get("score", 0.0)),
+            # Emitted only when a premise actually CONSTRAINS the claim. The
+            # computation keeps the finer distinction (no premises → None vs
+            # premises that all hold → 1.0), but a payload entry saying "capped
+            # at 1.0" costs context budget to communicate nothing, and the
+            # commonest edge in a real graph is finding→finding at 1.0. Present
+            # here means: something underneath is weaker than what you are
+            # reading.
+            **(
+                {"derived_confidence": f["derived_confidence"]}
+                if (f.get("derived_confidence") or {}).get("value", 1.0) < 1.0
+                else {}
+            ),
         }
         for f in findings_ranked
     ]
