@@ -434,7 +434,6 @@ _HELP_CATEGORIES = {
         "engagement-list",
         "engagement-show",
         "engagement-walk",
-        "engagement-update",
     ],
     "checkpoint": [
         "checkpoint-create",

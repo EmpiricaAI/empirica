@@ -1,26 +1,19 @@
-"""Engagement Commands — CLI surface for the engagement substrate.
+"""Engagement Commands — core's READ surface over the engagement substrate.
 
-engagement-list/show/walk/update over the engagements sidecar
-(WorkspaceDBRepository). The engagement is the OPERATIONAL projection (plain
-SQL, no confidence/epistemic fields); diagnostic findings stay epistemic and
-link in via entity_artifacts.
-
-CREATION is deliberately NOT here (David's ruling, 2026-08-17 — hard removal):
-engagement authoring lives in the empirica-workspace CLI
-(``empirica-workspace engagement create``), the proprietary CRM layer. Core's
-verb was a bypass; the API route + repo.create_engagement remain as the
-serving/spine primitives.
+Reads the engagements sidecar (``WorkspaceDBRepository``). An engagement is the
+OPERATIONAL projection — plain SQL, no confidence or epistemic fields;
+diagnostic findings stay epistemic and link in via ``entity_artifacts``.
 
 Verbs:
 - engagement-list:   list engagements, filtered by domain / lifecycle / org
 - engagement-show:   one engagement + its membership edges
 - engagement-walk:   BFS the membership graph from an engagement
-- engagement-update: update title/description/stage/domain/lifecycle_state/
-                     outcome on an existing engagement (repo.update_engagement
-                     already existed and was fully validated/tested — this
-                     verb was the missing CLI surface for it, found 2026-07-13
-                     while building a connection-detail note into an
-                     engagement's description had no path at all)
+
+**Authoring is not core's.** Creating or updating an engagement goes through
+the empirica-workspace CLI (``empirica-workspace engagement create|update``),
+the proprietary CRM layer. Core keeps the reads here, and
+``repo.create_engagement`` + the API route as serving/spine primitives — those
+are not an authoring path. Do not add an authoring verb to this module.
 """
 
 from __future__ import annotations

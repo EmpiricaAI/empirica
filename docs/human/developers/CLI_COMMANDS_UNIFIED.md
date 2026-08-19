@@ -23,7 +23,7 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.13.26
-**Generated:** 2026-08-19 11:16:35 UTC
+**Generated:** 2026-08-19 21:53:22 UTC
 **Total commands:** 243 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -67,7 +67,7 @@ require `--session-id` (`project-bootstrap`, `sessions-show`,
 | [goals](#goals) | 16 | `goals-create`, `goals-list`, `goals-search`, … |
 | [logging](#logging) | 26 | `finding-log`, `finding-resolve`, `unknown-log`, … |
 | [project](#project) | 18 | `project-init`, `project-update`, `project-create`, … |
-| [workspace](#workspace) | 19 | `workspace-init`, `workspace-map`, `workspace-list`, … |
+| [workspace](#workspace) | 18 | `workspace-init`, `workspace-map`, `workspace-list`, … |
 | [checkpoint](#checkpoint) | 7 | `checkpoint-create`, `checkpoint-load`, `checkpoint-list`, … |
 | [sync](#sync) | 6 | `sync-config`, `sync-push`, `sync-pull`, … |
 | [profile](#profile) | 4 | `profile-sync`, `profile-prune`, `profile-status`, … |
@@ -2082,10 +2082,6 @@ BFS the membership graph from an engagement (default depth 2).
   Output format
 - `--verbose` — optional · flag
   Verbose output
-
-### `empirica engagement-update`
-
-_Not currently wired through the main parser. Either a planned command or a stale entry in `_HELP_CATEGORIES`._
 
 ---
 
