@@ -663,10 +663,26 @@ def handle_mailbox_poll_command(
 
     fmt = getattr(args, "output", "json")
     if fmt == "human":
+        # The completeness pair belongs in BOTH formats. It was surfaced in the
+        # JSON envelope and nowhere else, so `--output human` went on printing
+        # only the page size — and a page of N is indistinguishable from a
+        # backlog of N, which is the whole defect the `matched` field was added
+        # to remove. Measured on a peer's sweep: they read `--limit 60 -> 60` as
+        # 60 unarchived when the real figure was 154, then burned nine no-op
+        # cleanup passes proving a negative because nothing told them when they
+        # were done. Fixing one format and leaving the other is how a fixed
+        # defect keeps being encountered.
+        header = f"{direction}: {len(proposals)} proposal(s)"
+        matched = _poll_meta.get("matched")
+        if matched is not None and matched != len(proposals):
+            header += f" · {matched} match — SHOWING A PAGE, raise --limit or archive"
+        elif matched is not None:
+            header += f" · {matched} match (complete)"
         if not proposals:
-            sys.stdout.write(f"{direction}: no proposals (status={','.join(statuses)})\n")
+            sys.stdout.write(f"{direction}: no proposals (status={','.join(statuses)})")
+            sys.stdout.write(f" · {matched} match\n" if matched else "\n")
         else:
-            sys.stdout.write(f"{direction}: {len(proposals)} proposal(s)\n")
+            sys.stdout.write(header + "\n")
             for p in proposals:
                 sys.stdout.write(_poll_human_line(p) + "\n")
     else:

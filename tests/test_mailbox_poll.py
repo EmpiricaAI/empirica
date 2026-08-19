@@ -223,3 +223,80 @@ def test_archive_failure_returns_1(capsys):
     )
     assert rc == 1
     assert "failed" in capsys.readouterr().err
+
+
+# ─── completeness in the HUMAN format (prop_sybqhrku) ────────────────────
+
+
+def _fetch_with_meta(proposals, matched, has_more):
+    def fn(cortex_url, api_key, ai_id, *, outbox, statuses, since, limit, related, timeout=10.0, meta_out=None):
+        if meta_out is not None:
+            meta_out["matched"] = matched
+            meta_out["has_more"] = has_more
+        return proposals
+
+    return fn
+
+
+def test_human_output_says_when_it_is_showing_a_page(capsys):
+    """A page of N is indistinguishable from a backlog of N without the count.
+
+    The completeness pair was surfaced in the JSON envelope and nowhere else, so
+    `--output human` went on printing only the page size. Measured cost on a
+    peer's cleanup sweep: they read `--limit 60 -> 60` as 60 unarchived when the
+    real figure was 154, and then ran nine no-op passes because nothing told
+    them when they were done. Fixing one output format and leaving the other is
+    how an already-fixed defect keeps being encountered.
+    """
+    props = [{"id": f"prop_{i}", "status": "accepted", "title": "t", "source_claude": "x"} for i in range(3)]
+    rc = handle_mailbox_poll_command(
+        _poll_args(output="human", limit=3),
+        _resolve_cortex_creds=_CREDS_OK,
+        _fetch_mailbox=_fetch_with_meta(props, matched=154, has_more=True),
+    )
+    assert rc == 0
+    header = capsys.readouterr().out.splitlines()[0]
+    assert "154" in header, "the backlog figure must be visible, not only the page size"
+    assert "SHOWING A PAGE" in header
+
+
+def test_human_output_says_when_the_view_is_complete(capsys):
+    """'Complete' has to be sayable, or cleanup has no stopping condition."""
+    props = [{"id": f"prop_{i}", "status": "accepted", "title": "t", "source_claude": "x"} for i in range(4)]
+    rc = handle_mailbox_poll_command(
+        _poll_args(output="human", limit=50),
+        _resolve_cortex_creds=_CREDS_OK,
+        _fetch_mailbox=_fetch_with_meta(props, matched=4, has_more=False),
+    )
+    assert rc == 0
+    header = capsys.readouterr().out.splitlines()[0]
+    assert "complete" in header.lower()
+    assert "SHOWING A PAGE" not in header
+
+
+def test_human_output_is_unchanged_when_cortex_sends_no_count(capsys):
+    """An older cortex must not gain a fabricated completeness claim."""
+    props = [{"id": "prop_a", "status": "accepted", "title": "t", "source_claude": "x"}]
+    rc = handle_mailbox_poll_command(
+        _poll_args(output="human"),
+        _resolve_cortex_creds=_CREDS_OK,
+        _fetch_mailbox=_fake_fetch(props),
+    )
+    assert rc == 0
+    header = capsys.readouterr().out.splitlines()[0]
+    assert header == "inbox: 1 proposal(s)"
+
+
+def test_an_empty_inbox_still_reports_a_nonzero_backlog(capsys):
+    """The worst case: an under-read inbox looks exactly like an empty one.
+
+    Nobody reconciles an empty inbox, so this is the reading most likely to be
+    trusted and least likely to be checked.
+    """
+    rc = handle_mailbox_poll_command(
+        _poll_args(output="human", status="completed"),
+        _resolve_cortex_creds=_CREDS_OK,
+        _fetch_mailbox=_fetch_with_meta([], matched=87, has_more=True),
+    )
+    assert rc == 0
+    assert "87" in capsys.readouterr().out
