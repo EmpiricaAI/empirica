@@ -301,3 +301,81 @@ def test_annotation_never_breaks_retrieval_when_the_graph_is_unreachable(monkeyp
     )
     ranked = [{"artifact_id": "f-1", "text": "x"}]
     assert pr._annotate_derived_confidence(ranked) == ranked
+
+
+# ── the reverse walk: retraction reaches my own dependents ───────────────────
+
+
+def test_dependents_of_finds_what_rests_on_a_retracted_premise(cur):
+    """Resolving a premise used to be terminal — dependents kept full weight."""
+    from empirica.core.derived_confidence import dependents_of
+
+    _finding(cur, "f-premise")
+    _finding(cur, "f-built-on-it")
+    _assumption(cur, "a-also-built", 0.8)
+    _edge(cur, "f-built-on-it", "f-premise", "evidence")
+    _edge(cur, "a-also-built", "f-premise", "grounded_by")
+
+    deps = dependents_of(cur, "f-premise")
+    assert {d["id"] for d in deps} == {"f-built-on-it", "a-also-built"}
+    assert {d["type"] for d in deps} == {"finding", "assumption"}
+    assert all(d["text"] for d in deps), "a dependent with no label cannot be judged"
+
+
+def test_dependents_are_not_the_same_set_as_premises(cur):
+    """Direction matters: the walk is keyed on to_id, its mirror on from_id."""
+    from empirica.core.derived_confidence import dependents_of
+
+    _finding(cur, "f-top")
+    _finding(cur, "f-bottom")
+    _edge(cur, "f-top", "f-bottom", "evidence")
+
+    assert [d["id"] for d in dependents_of(cur, "f-bottom")] == ["f-top"]
+    assert dependents_of(cur, "f-top") == []
+
+
+def test_association_edges_produce_no_dependents(cur):
+    """Same relation discipline as the forward walk — association is not derivation."""
+    from empirica.core.derived_confidence import dependents_of
+
+    _finding(cur, "f-a")
+    _finding(cur, "f-b")
+    _edge(cur, "f-b", "f-a", "related")
+    _edge(cur, "f-b", "f-a", "attached_to")
+
+    assert dependents_of(cur, "f-a") == []
+
+
+def test_dependents_reporting_mutates_nothing(cur, tmp_path):
+    """Reports, never marks.
+
+    A dependent of a retracted premise is UNSUPPORTED, not false — auto-resolving
+    would destroy true claims whose stated premise was merely the wrong one, and
+    resolution is one-way.
+    """
+    from empirica.core.derived_confidence import dependents_of
+
+    _finding(cur, "f-premise")
+    _finding(cur, "f-dependent")
+    _edge(cur, "f-dependent", "f-premise", "evidence")
+    cur.connection.commit()
+
+    before = (tmp_path / "graph.db").read_bytes()
+    dependents_of(cur, "f-premise")
+    cur.connection.commit()
+    assert (tmp_path / "graph.db").read_bytes() == before
+
+    row = cur.execute("SELECT is_resolved FROM project_findings WHERE id = 'f-dependent'").fetchone()
+    assert not row[0]
+
+
+def test_dependents_is_bounded(cur):
+    """Runs inside an interactive verb; an unbounded fan-out would stall it."""
+    from empirica.core.derived_confidence import dependents_of
+
+    _finding(cur, "f-hub")
+    for i in range(40):
+        _finding(cur, f"f-dep-{i}")
+        _edge(cur, f"f-dep-{i}", "f-hub", "evidence")
+
+    assert len(dependents_of(cur, "f-hub", max_results=25)) == 25

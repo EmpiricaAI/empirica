@@ -1060,6 +1060,23 @@ def _record_source_outcomes(db, artifact_id: str, artifact_type: str, outcome: s
         return 0  # fail-open by design
 
 
+def _dependents_safe(db, artifact_id: str) -> list:
+    """Artifacts in THIS graph resting on ``artifact_id``. Best-effort, read-only.
+
+    Batch sibling of the single-verb path in ``artifact_log_commands``. The
+    batch already holds full ids (it resolves prefixes upstream), so no prefix
+    expansion is needed here. Never raises: the resolution has already been
+    written by the time this runs, and a reporting failure must not turn a
+    completed correction into an error.
+    """
+    try:
+        from empirica.core.derived_confidence import dependents_of
+
+        return dependents_of(db.conn.cursor(), artifact_id)
+    except Exception:
+        return []
+
+
 def handle_resolve_artifacts_command(args):  # noqa: C901 — batch dispatcher fan-out
     """Handle resolve-artifacts command: batch resolution of open artifacts."""
     if getattr(args, "schema", False):
@@ -1129,6 +1146,10 @@ def handle_resolve_artifacts_command(args):  # noqa: C901 — batch dispatcher f
             return 0 if fres.get("ok") else 1
 
         resolved_count = 0
+        # Artifacts in THIS graph resting on what the batch resolves. Collected
+        # per resolved id and REPORTED, never marked — an artifact whose premise
+        # was retracted is unsupported, not false, and resolution is one-way.
+        dependents_seen: dict[str, list] = {}
         resolution_errors: list[str] = []
         items = resolutions.get("resolutions", resolutions.get("items", []))
 
@@ -1183,6 +1204,9 @@ def handle_resolve_artifacts_command(args):  # noqa: C901 — batch dispatcher f
                     )
                     if cursor.rowcount > 0:
                         resolved_count += 1
+                        _deps = _dependents_safe(db, artifact_id)
+                        if _deps:
+                            dependents_seen[artifact_id] = _deps
                         # Findings already had a lifecycle; nothing ever fed it back to
                         # the sources they cite. A superseded finding says something
                         # different about its source than a confirmed one.
@@ -1355,6 +1379,13 @@ def handle_resolve_artifacts_command(args):  # noqa: C901 — batch dispatcher f
             "resolved": resolved_count,
             "errors": resolution_errors,
         }
+        if dependents_seen:
+            result["dependents"] = dependents_seen
+            result["dependents_note"] = (
+                f"{sum(len(v) for v in dependents_seen.values())} artifact(s) in this graph rest on "
+                "what you just resolved. They are NOT automatically wrong — they are now unsupported, "
+                "which is a different thing, and only you can tell which each one is. Nothing was changed."
+            )
         print(json.dumps(result, indent=2))
         return 0
 

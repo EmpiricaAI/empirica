@@ -1348,6 +1348,40 @@ def handle_unknown_resolve_command(args):
         return 1
 
 
+def _resolve_dependents_safe(db, artifact_id: str) -> list:
+    """Artifacts in THIS graph that rest on the one just resolved. Best-effort.
+
+    Resolving a premise used to be terminal: everything built on it kept full
+    retrieval weight and went on being served as though nothing had changed.
+    Surfacing the dependents at the moment of resolution is the cheapest point
+    to catch that — the practitioner still has the reasoning in mind.
+
+    Never fails the resolution. The write already succeeded by the time this
+    runs, and a reporting failure must not turn a completed correction into an
+    error the caller retries.
+    """
+    try:
+        from empirica.core.derived_confidence import dependents_of
+
+        cursor = db.conn.cursor()
+        # `finding-resolve` accepts an 8+ char PREFIX, but artifact_edges stores
+        # full ids — looking up the prefix directly would match no edges and
+        # report "no dependents" for an artifact that has them. Silent, and
+        # exactly the kind of false-clean this whole mechanism exists to stop.
+        if len(artifact_id) < 36:
+            cursor.execute(
+                "SELECT id FROM project_findings WHERE id LIKE ? LIMIT 2",
+                (artifact_id + "%",),
+            )
+            rows = cursor.fetchall()
+            if len(rows) != 1:
+                return []  # ambiguous or gone; the resolution itself already reported
+            artifact_id = rows[0][0]
+        return dependents_of(cursor, artifact_id)
+    except Exception:
+        return []
+
+
 def handle_finding_resolve_command(args):
     """Handle finding-resolve command (#307 — the prune primitive).
 
@@ -1372,6 +1406,7 @@ def handle_finding_resolve_command(args):
         updated = db.resolve_finding(
             finding_id, resolution, superseded_by=superseded_by, resolution_kind=resolution_kind
         )
+        dependents = _resolve_dependents_safe(db, finding_id) if updated else []
         db.close()
 
         if not updated:
@@ -1386,6 +1421,13 @@ def handle_finding_resolve_command(args):
             "superseded_by": superseded_by,
             "message": "Finding resolved (kept for history, dropped from live retrieval)",
         }
+        if dependents:
+            result["dependents"] = dependents
+            result["dependents_note"] = (
+                f"{len(dependents)} artifact(s) in this graph rest on the one you just resolved. "
+                "They are NOT automatically wrong — they are now unsupported, which is a different "
+                "thing, and only you can tell which of the two each one is. Nothing was changed."
+            )
         if output_format == "json":
             print(json.dumps(result, indent=2))
         else:
@@ -1393,6 +1435,11 @@ def handle_finding_resolve_command(args):
             print(f"✅ Finding resolved: {finding_id[:8]}...{kind_note} ({resolution})")
             if superseded_by:
                 print(f"   superseded by: {superseded_by[:8]}...")
+            if dependents:
+                print(f"\n⚠  {len(dependents)} artifact(s) rest on this one — unsupported now, not wrong:")
+                for d in dependents:
+                    print(f"   {d['id'][:8]}  {d['type'] or '?':<10} via {d['relation']:<12} {d['text'] or ''}")
+                print("   Nothing was changed. Judge each one.")
         return 0
 
     except Exception as e:

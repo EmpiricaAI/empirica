@@ -211,3 +211,64 @@ def annotate(cursor, artifacts: list[dict], id_key: str = "id", budget: int = 25
         if cap is not None:
             art["derived_confidence"] = cap
     return artifacts
+
+
+#: Labels for the dependent report — table, id column, text column, per type.
+_DEPENDENT_LABELS: dict[str, tuple[str, str, str]] = {
+    "finding": ("project_findings", "id", "finding"),
+    "unknown": ("project_unknowns", "id", "unknown"),
+    "dead_end": ("project_dead_ends", "id", "approach"),
+    "mistake": ("mistakes_made", "id", "mistake"),
+    "assumption": ("assumptions", "id", "assumption"),
+    "decision": ("decisions", "id", "choice"),
+}
+
+
+def dependents_of(cursor, artifact_id: str, max_results: int = 25) -> list[dict[str, Any]]:
+    """Artifacts in THIS graph that rest on ``artifact_id``. Read-only.
+
+    The mirror of :func:`derived_confidence` — same relations, same table, keyed
+    on ``to_id`` instead of ``from_id`` (``idx_artifact_edges_to`` already covers
+    it). Retracting a premise otherwise leaves everything built on it at full
+    retrieval weight, still being served as though nothing changed.
+
+    **This graph only.** A peer's artifacts are theirs; a correction crossing a
+    practice boundary is testimony they evaluate, never a write we perform. There
+    is deliberately no cross-practice variant of this function.
+
+    **Reports, never marks.** A dependent of a retracted premise is not thereby
+    false — it is UNSUPPORTED, which is a different thing and only the
+    practitioner can tell which of the two it is. Auto-resolving here would
+    destroy true claims whose stated premise was merely the wrong one, and
+    resolution is one-way.
+
+    One hop, not transitive: the immediate dependents are the ones whose
+    reasoning the practitioner still holds in mind. Their own dependents surface
+    when each is judged in turn, which keeps the decision small enough to make.
+    """
+    out: list[dict[str, Any]] = []
+    try:
+        placeholders = ",".join("?" * len(PREMISE_RELATIONS))
+        cursor.execute(
+            f"SELECT from_id, relation FROM artifact_edges WHERE to_id = ? AND relation IN ({placeholders}) LIMIT ?",
+            (artifact_id, *PREMISE_RELATIONS, max_results),
+        )
+        for from_id, relation in cursor.fetchall():
+            entry = {"id": from_id, "relation": relation, "type": None, "text": None}
+            for atype, (table, id_col, text_col) in _DEPENDENT_LABELS.items():
+                try:
+                    cursor.execute(
+                        f"SELECT {text_col} FROM {table} WHERE {id_col} = ?",
+                        (from_id,),
+                    )
+                    row = cursor.fetchone()
+                except Exception:
+                    continue
+                if row is not None:
+                    entry["type"] = atype
+                    entry["text"] = (row[0] or "")[:120]
+                    break
+            out.append(entry)
+    except Exception as e:
+        logger.debug(f"dependents_of({artifact_id[:8]}) skipped: {e}")
+    return out
