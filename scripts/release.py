@@ -2019,21 +2019,36 @@ brew install empirica
             # repo secrets, reusing the existing scoped nubaeon registry token
             # rather than minting a new one.
             #
-            # HOMEBREW + CHOCOLATEY stay local, and Homebrew deliberately so. The
-            # credential that pushes the tap is the `gh` CLI's own OAuth token
-            # (`gho_`, user Nubaeon) carrying repo + workflow + gist + admin:*_key.
-            # Copying that into a repo secret would let any workflow here act as
-            # that user across every repo they can reach, and OAuth tokens rotate
-            # on re-auth so it would break silently. Sharing it is not sharing —
-            # it is widening. A fine-grained PAT scoped to EmpiricaAI/homebrew-tap
-            # with Contents:write is the correct fix and is a deliberate mint.
+            # HOMEBREW MOVED TO CI (2026-08-19, David's call). The comment that
+            # stood here argued Homebrew must stay local because the tap push
+            # used the `gh` CLI's own OAuth token, and copying that into a repo
+            # secret would widen it across every repo that user can reach. The
+            # argument was correct AND its own conclusion has since been acted
+            # on: release.yml's `homebrew` job pushes the tap with
+            # HOMEBREW_TAP_TOKEN, the fine-grained PAT scoped to
+            # EmpiricaAI/homebrew-tap that the comment itself named as the right
+            # fix. The local push simply outlived the reason for it.
             #
-            # Chocolatey no-ops off Windows anyway.
-            self.update_homebrew_tap()
+            # Keeping both was not merely redundant, it was WRONG every time.
+            # The local formula carries the sha256 of the sdist built by
+            # `--prepare` on this machine, while PyPI serves CI's own build --
+            # same source, different bytes, because sdists are not reproducible
+            # across builders. Measured: 1.13.24 pushed 2f2491b6 while PyPI
+            # served 8e94af5f; 1.13.25 pushed cf389073 while PyPI served
+            # b186fa31. CI corrected both a few minutes later, so in between
+            # `brew install empirica` failed on a checksum mismatch -- which is
+            # indistinguishable from a tampered download. The local push was
+            # also what created the tap divergence that had to be reconciled by
+            # hand on nearly every release.
+            #
+            # `update_homebrew_tap()` is kept and still runs under
+            # --local-artifacts, the documented escape hatch for when CI is
+            # unavailable. Chocolatey no-ops off Windows anyway.
             self.build_and_push_chocolatey()
 
             if self.local_artifacts:
                 warning("--local-artifacts: also publishing PyPI + Docker + GitHub locally — these RACE with CI")
+                self.update_homebrew_tap()
                 self.publish_to_pypi()
                 self.publish_mcp_to_pypi()
                 self.build_and_push_docker()
@@ -2137,21 +2152,36 @@ brew install empirica
             # repo secrets, reusing the existing scoped nubaeon registry token
             # rather than minting a new one.
             #
-            # HOMEBREW + CHOCOLATEY stay local, and Homebrew deliberately so. The
-            # credential that pushes the tap is the `gh` CLI's own OAuth token
-            # (`gho_`, user Nubaeon) carrying repo + workflow + gist + admin:*_key.
-            # Copying that into a repo secret would let any workflow here act as
-            # that user across every repo they can reach, and OAuth tokens rotate
-            # on re-auth so it would break silently. Sharing it is not sharing —
-            # it is widening. A fine-grained PAT scoped to EmpiricaAI/homebrew-tap
-            # with Contents:write is the correct fix and is a deliberate mint.
+            # HOMEBREW MOVED TO CI (2026-08-19, David's call). The comment that
+            # stood here argued Homebrew must stay local because the tap push
+            # used the `gh` CLI's own OAuth token, and copying that into a repo
+            # secret would widen it across every repo that user can reach. The
+            # argument was correct AND its own conclusion has since been acted
+            # on: release.yml's `homebrew` job pushes the tap with
+            # HOMEBREW_TAP_TOKEN, the fine-grained PAT scoped to
+            # EmpiricaAI/homebrew-tap that the comment itself named as the right
+            # fix. The local push simply outlived the reason for it.
             #
-            # Chocolatey no-ops off Windows anyway.
-            self.update_homebrew_tap()
+            # Keeping both was not merely redundant, it was WRONG every time.
+            # The local formula carries the sha256 of the sdist built by
+            # `--prepare` on this machine, while PyPI serves CI's own build --
+            # same source, different bytes, because sdists are not reproducible
+            # across builders. Measured: 1.13.24 pushed 2f2491b6 while PyPI
+            # served 8e94af5f; 1.13.25 pushed cf389073 while PyPI served
+            # b186fa31. CI corrected both a few minutes later, so in between
+            # `brew install empirica` failed on a checksum mismatch -- which is
+            # indistinguishable from a tampered download. The local push was
+            # also what created the tap divergence that had to be reconciled by
+            # hand on nearly every release.
+            #
+            # `update_homebrew_tap()` is kept and still runs under
+            # --local-artifacts, the documented escape hatch for when CI is
+            # unavailable. Chocolatey no-ops off Windows anyway.
             self.build_and_push_chocolatey()
 
             if self.local_artifacts:
                 warning("--local-artifacts: also publishing PyPI + Docker + GitHub locally — these RACE with CI")
+                self.update_homebrew_tap()
                 self.publish_to_pypi()
                 self.publish_mcp_to_pypi()
                 self.build_and_push_docker()
