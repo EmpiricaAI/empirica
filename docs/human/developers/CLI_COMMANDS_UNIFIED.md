@@ -22,9 +22,9 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.13.25
-**Generated:** 2026-08-17 21:17:14 UTC
-**Total commands:** 244 (across 24 categories)
+**Framework version:** 1.13.26
+**Generated:** 2026-08-19 11:16:35 UTC
+**Total commands:** 243 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
 `empirica <command> --help` — the generator extracts the same `help`
@@ -2083,44 +2083,9 @@ BFS the membership graph from an engagement (default depth 2).
 - `--verbose` — optional · flag
   Verbose output
 
-#### `empirica engagement-update`
+### `empirica engagement-update`
 
-Update mutable fields (title/description/stage/domain/lifecycle-state/outcome) on an existing engagement. No field flags = no-op read.
-
-**Arguments:**
-
-- `engagement_id` — **required**
-  Engagement id (full value or unambiguous prefix)
-- `--title` — optional
-  New title
-- `--description` — optional
-  New free-text description
-- `--domain` — optional
-  New domain (must have a definition row)
-- `--stage` — optional
-  New stage_id (must belong to --domain, or the engagement's current domain)
-- `--lifecycle-state` — optional · type=`choice` · choices={planned, open, in_progress, blocked, closed}
-  New lifecycle_state
-- `--outcome` — optional · type=`choice` · choices={won, lost, resolved, wont_fix, defer, superseded}
-  Terminal outcome (typically set alongside --lifecycle-state closed)
-- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
-  Output format
-- `--next-action` — optional
-  Next action description (e.g. 'Schedule follow-up call')
-- `--next-action-due` — optional · type=`float`
-  Due date as unix timestamp (float) for --next-action
-- `--last-contact-at` — optional · type=`float`
-  Last contact timestamp (unix epoch float)
-- `--priority` — optional · type=`choice` · choices={low, medium, high, critical}
-  Engagement priority level
-- `--contact-method` — optional
-  Preferred contact method (e.g. email, phone)
-- `--warmth` — optional · type=`choice` · choices={cold, warm, hot}
-  Relationship warmth
-- `--engagement-scope` — optional · type=`choice` · choices={tenant, org}
-  Engagement scope (tenant=default, org=shared/replicated)
-- `--verbose` — optional · flag
-  Verbose output
+_Not currently wired through the main parser. Either a planned command or a stale entry in `_HELP_CATEGORIES`._
 
 ---
 

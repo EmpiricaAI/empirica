@@ -5,6 +5,74 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.26] - 2026-08-19
+
+### Fixed
+- **`decision-log --reversibility` was parsed and never read.**
+  `cfg.get("reversibility", "exploratory")` returns a truthy literal on any
+  pure-flag invocation, so the `or` short-circuited and `getattr(args, ...)` was
+  never evaluated. The flag parsed correctly and was discarded — every CLI-flag
+  decision stored `exploratory`, with no error and no warning. Reported by
+  empirica-outreach with the blast radius measured on their own graph: 335 of
+  343 decisions, the 8 `committal` rows having come through the stdin-JSON path
+  where the key is present. `reversibility` is now also correctable via
+  `update-artifacts`, because a decision caught wrong had no supported repair
+  path at all. The regression test guards the *class* with an AST walk over
+  every command handler — the same shape under any field name fails the same
+  way, succeeding with the wrong value.
+- **Shared lessons reported themselves private.** `Lesson.from_dict` read none
+  of the migration-037 block that `to_dict` writes, so 18 fields reverted to
+  dataclass defaults on every cold read. `sharing_policy` decides whether a
+  lesson propagates past the practice that wrote it, so a lesson published at
+  `org` or `public` was held correctly by **both** storage layers and reported
+  `private` by every read — indistinguishable from one nobody chose to share.
+  No migration and no republish: values read correctly as soon as this lands.
+- **The dependent-walk wrappers swallowed failures silently**, returning an
+  empty list that reads as "no dependents" — the unfalsifiable-success shape
+  the walk exists to prevent, reintroduced by the error handling protecting it.
+
+### Added
+- **A claim is never served stronger than its weakest premise.** Retrieval walks
+  `evidence` / `grounded_by` / `sourced_from` / `caused_by` and caps a finding at
+  the minimum confidence across its premise closure, naming which premise capped
+  it. Minimum, not mean — averaging is how a strong observation hides a weak
+  inference. Association relations (`related`, `attached_to`) never cap: they are
+  72% of a real graph, so capping on them would flag nearly everything. Read-time
+  only, measured at 1.7 ms median on the PREFLIGHT path.
+- **Retracting a premise surfaces what rests on it.** `finding-resolve` and
+  `resolve-artifacts` list the dependents in this practice's graph. Reports and
+  never marks — a dependent of a retracted premise is *unsupported*, not false,
+  and only the practitioner can tell which. This graph only: a peer's artifacts
+  are theirs, and a correction crossing a practice boundary is testimony they
+  evaluate, never a write we perform.
+- **An opposition predicate, so contradiction detection can come back.**
+  `finding-log` now reports what a new finding *contradicts* rather than what it
+  resembles — a polarity flip or closed-set antonym pair on an otherwise shared
+  claim. Warns only; decay stays disabled, because a contradiction means one of
+  two artifacts is wrong *or* their scopes differ, and no confidence arithmetic
+  can tell which. Polarity carries a higher overlap bar than antonyms: parity
+  over a negation list is only correct if the list is complete, and an unlisted
+  negator yields a false positive — the autoimmune direction that got the
+  original mechanism disabled in the first place.
+- **`doctor` detects legacy-shaped `engagements` tables by PRAGMA, per box.** A
+  workspace db seeded from the retired CRM carries `NOT NULL` columns no current
+  code supplies, so every insert is rejected — permanently, on that box only. The
+  additive self-heal cannot fix it: that ALTER-ADDs *missing* columns and this is
+  the opposite, which sqlite cannot ALTER away. Detection only; the repair verb
+  ships in `empirica-workspace`. Note the negative: `~/.empirica/crm/crm.db`
+  existing does **not** mean a box is affected — clean boxes have it too, so
+  there is no fleet shortcut and no substitute for the per-box check.
+
+### Changed
+- **Homebrew is CI-owned.** `release.yml` already pushed the tap with the sha of
+  the artifact PyPI actually serves; `release.py` pushed it too, with the sha of
+  the sdist built on the release machine. Same source, different bytes — so every
+  release published a wrong checksum that a bot corrected minutes later, and in
+  between `brew install` failed on a mismatch indistinguishable from a tampered
+  download. The local push moves behind `--local-artifacts`.
+- **`engagement-update` removed.** Engagement authoring belongs to
+  `empirica-workspace`; core keeps the read verbs and the HTTP API.
+
 ## [1.13.25] - 2026-08-17
 
 ### Fixed
