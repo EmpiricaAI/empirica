@@ -124,58 +124,6 @@ def handle_engagement_show_command(args):
         handle_cli_error(e, "engagement-show", getattr(args, "verbose", False))
 
 
-def handle_engagement_update_command(args):
-    """engagement-update — update mutable fields on an existing engagement.
-
-    Thin CLI wiring over WorkspaceDBRepository.update_engagement, which already
-    validates lifecycle_state/outcome against their enums and stage/domain
-    against the definition tables. Passing no field flags is a no-op read
-    (matches the repo method's own documented behavior). engagement_id accepts
-    an unambiguous prefix, same as engagement-show/-walk.
-    """
-    try:
-        output = getattr(args, "output", "human")
-        eid = args.engagement_id
-        with WorkspaceDBRepository.open() as repo:
-            existing = _resolve_engagement(repo, eid)
-            if existing is None:
-                _emit_user_error(
-                    output,
-                    f"No engagement matches {eid!r} (full id or unambiguous prefix required)",
-                    error="engagement_not_found",
-                )
-            real_id = existing["engagement_id"]
-            try:
-                updated = repo.update_engagement(
-                    real_id,
-                    title=getattr(args, "title", None),
-                    description=getattr(args, "description", None),
-                    stage=getattr(args, "stage", None),
-                    domain=getattr(args, "domain", None),
-                    lifecycle_state=getattr(args, "lifecycle_state", None),
-                    outcome=getattr(args, "outcome", None),
-                    next_action=getattr(args, "next_action", None),
-                    next_action_due=getattr(args, "next_action_due", None),
-                    last_contact_at=getattr(args, "last_contact_at", None),
-                    priority=getattr(args, "priority", None),
-                    contact_method=getattr(args, "contact_method", None),
-                    warmth=getattr(args, "warmth", None),
-                    engagement_scope=getattr(args, "engagement_scope", None),
-                )
-            except ValueError as ve:
-                _emit_user_error(output, str(ve))
-        if output == "json":
-            print(json.dumps({"ok": True, "engagement": updated}, indent=2, default=str))
-            return
-        print(f"🤝 Engagement updated: {real_id}")
-        print(f"  lifecycle_state: {updated.get('lifecycle_state', 'open')}")
-        print(f"  domain / stage:  {updated.get('domain') or '-'} / {updated.get('stage') or '-'}")
-        if updated.get("outcome"):
-            print(f"  outcome:         {updated['outcome']}")
-    except Exception as e:
-        handle_cli_error(e, "engagement-update", getattr(args, "verbose", False))
-
-
 def handle_engagement_walk_command(args):
     """engagement-walk — BFS the membership graph from an engagement."""
     try:

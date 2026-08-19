@@ -881,7 +881,6 @@ def main(args=None):
             "engagement-list": handle_engagement_list_command,
             "engagement-show": handle_engagement_show_command,
             "engagement-walk": handle_engagement_walk_command,
-            "engagement-update": handle_engagement_update_command,
             "engagement-focus": handle_engagement_focus_command,
             "project-search": handle_project_search_command,
             "project-embed": handle_project_embed_command,

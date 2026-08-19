@@ -268,20 +268,53 @@ def test_publish_leaves_ci_only_channels_to_ci():
             )
 
 
-def test_publish_still_does_the_channels_ci_cannot():
-    """Docker and Homebrew gate on repo secrets that do not exist, and a gated
-    skip concludes `success` — so CI has never published them. 1.13.7 shipped
-    without both because the local path had been removed on the strength of that
-    green tick. They stay local until the secrets land."""
+def test_homebrew_is_ci_owned_and_only_ci_owned():
+    """The local tap push was not merely redundant, it was WRONG every time.
+
+    This test used to assert the opposite — that `update_homebrew_tap()` must run
+    unconditionally because CI could not publish it. That was true when written
+    (no HOMEBREW_TAP_TOKEN, and a gated skip concludes `success`, which is how
+    1.13.7 shipped without it). The secret has since landed and release.yml's
+    homebrew job uses it, so the premise expired and the guard outlived it.
+
+    Keeping both writers cost a wrong checksum on every release: the local
+    formula carries the sha of the sdist built by `--prepare` on the release
+    machine, while PyPI serves CI's build — same source, different bytes, since
+    sdists are not reproducible across builders. Measured: 1.13.24 pushed
+    2f2491b6 while PyPI served 8e94af5f; 1.13.25 pushed cf389073 while PyPI
+    served b186fa31. CI corrected both minutes later, so in between
+    `brew install empirica` failed on a checksum mismatch — indistinguishable
+    from a tampered download.
+
+    The precondition is asserted alongside, not assumed: CI may own this channel
+    only because its token gate ERRORS rather than skips. A silent skip would
+    put us back where 1.13.7 was, with nobody publishing and a green tick.
+    """
     src = RELEASE_PY.read_text()
     for flow in ("run_publish", "run(self)"):
         body = _flow_body(src, flow)
-        for channel in ("self.update_homebrew_tap()",):
-            line = next(ln for ln in body.splitlines() if channel in ln)
-            assert line.startswith("            ") and not line.startswith("                "), (
-                f"{flow}: {channel} must run unconditionally — CI cannot publish it "
-                f"(no DOCKERHUB_*/HOMEBREW_TAP_TOKEN secret), and its job still reports success"
-            )
+        line = next(ln for ln in body.splitlines() if "self.update_homebrew_tap()" in ln)
+        assert line.startswith("                "), (
+            f"{flow}: update_homebrew_tap() must sit inside the --local-artifacts branch. "
+            "CI owns the tap; a second writer publishes a knowingly-wrong sha256 every release."
+        )
+
+    wf = (REPO_ROOT / ".github" / "workflows" / "release.yml").read_text()
+    assert "::error::HOMEBREW_TAP_TOKEN not set" in wf, (
+        "the homebrew job must FAIL when its token is missing, not skip — a gated "
+        "skip concludes `success` and is exactly how 1.13.7 shipped with no tap update"
+    )
+
+
+def test_chocolatey_still_runs_locally():
+    """Chocolatey has no CI job at all; it no-ops off Windows rather than skipping green."""
+    src = RELEASE_PY.read_text()
+    for flow in ("run_publish", "run(self)"):
+        body = _flow_body(src, flow)
+        line = next(ln for ln in body.splitlines() if "self.build_and_push_chocolatey()" in ln)
+        assert line.startswith("            ") and not line.startswith("                "), (
+            f"{flow}: build_and_push_chocolatey() must run unconditionally — CI does not publish it"
+        )
 
 
 def test_ci_secret_gates_fail_loudly_rather_than_skip():

@@ -732,52 +732,6 @@ def add_checkpoint_parsers(subparsers):
     engagement_walk_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
     engagement_walk_parser.add_argument("--verbose", action="store_true", help="Verbose output")
 
-    engagement_update_parser = subparsers.add_parser(
-        "engagement-update",
-        help="Update mutable fields (title/description/stage/domain/lifecycle-state/outcome) "
-        "on an existing engagement. No field flags = no-op read.",
-    )
-    engagement_update_parser.add_argument("engagement_id", help="Engagement id (full value or unambiguous prefix)")
-    engagement_update_parser.add_argument("--title", help="New title")
-    engagement_update_parser.add_argument("--description", help="New free-text description")
-    engagement_update_parser.add_argument("--domain", help="New domain (must have a definition row)")
-    engagement_update_parser.add_argument(
-        "--stage", help="New stage_id (must belong to --domain, or the engagement's current domain)"
-    )
-    engagement_update_parser.add_argument(
-        "--lifecycle-state",
-        dest="lifecycle_state",
-        choices=["planned", "open", "in_progress", "blocked", "closed"],
-        help="New lifecycle_state",
-    )
-    engagement_update_parser.add_argument(
-        "--outcome",
-        choices=["won", "lost", "resolved", "wont_fix", "defer", "superseded"],
-        help="Terminal outcome (typically set alongside --lifecycle-state closed)",
-    )
-    engagement_update_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
-    engagement_update_parser.add_argument(
-        "--next-action", help="Next action description (e.g. 'Schedule follow-up call')"
-    )
-    engagement_update_parser.add_argument(
-        "--next-action-due", type=float, help="Due date as unix timestamp (float) for --next-action"
-    )
-    engagement_update_parser.add_argument(
-        "--last-contact-at", type=float, help="Last contact timestamp (unix epoch float)"
-    )
-    engagement_update_parser.add_argument(
-        "--priority", choices=["low", "medium", "high", "critical"], help="Engagement priority level"
-    )
-    engagement_update_parser.add_argument("--contact-method", help="Preferred contact method (e.g. email, phone)")
-    engagement_update_parser.add_argument("--warmth", choices=["cold", "warm", "hot"], help="Relationship warmth")
-    engagement_update_parser.add_argument(
-        "--engagement-scope",
-        dest="engagement_scope",
-        choices=["tenant", "org"],
-        help="Engagement scope (tenant=default, org=shared/replicated)",
-    )
-    engagement_update_parser.add_argument("--verbose", action="store_true", help="Verbose output")
-
     entity_search_parser = subparsers.add_parser(
         "entity-search",
         help=(

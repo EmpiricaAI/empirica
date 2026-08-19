@@ -32,6 +32,60 @@ def _suggest_links_safe(project_id: str | None, text: str, exclude_id: str) -> l
         return []
 
 
+def _print_contradictions(contradictions: list[dict]) -> None:
+    """Human-readable half of the contradiction warning. No-op when there are none.
+
+    Extracted from the finding-log handler purely to hold its complexity under
+    the lint ceiling; the logic is the printing, not a decision.
+    """
+    if not contradictions:
+        return
+    print(f"\n⚠  CONTRADICTS {len(contradictions)} existing artifact(s) — not just similar:")
+    for c in contradictions:
+        print(f"   {(c['id'] or '')[:8]}  {c['type'] or '?':<10} {c['reason']}")
+        print(f"             {c['summary']}")
+    print("   Nothing changed. One of the two is wrong, or their scopes differ.")
+
+
+def _contradictions_safe(text: str, candidates: list[dict]) -> list[dict]:
+    """Which nearby artifacts this one CONTRADICTS, as opposed to resembles.
+
+    Reuses the semantic candidates ``_suggest_links_safe`` already fetched
+    rather than running a second search — they are exactly the set the old
+    decay path drew from, and the whole defect was that it stopped there. High
+    similarity was treated as opposition; a finding that CONFIRMED a fact
+    decayed it.
+
+    WARNS ONLY. Nothing is decayed, nothing is resolved, nothing is written. A
+    contradiction between two artifacts means one of them is wrong or their
+    scopes differ, and no confidence arithmetic can tell which — that is the
+    practitioner's call, and it is why the automated version was switched off
+    rather than tuned.
+    """
+    if not text or not candidates:
+        return []
+    try:
+        from empirica.core.opposition import opposes
+
+        out = []
+        for c in candidates:
+            verdict = opposes(text, c.get("summary") or "")
+            if verdict:
+                out.append(
+                    {
+                        "id": c.get("id"),
+                        "type": c.get("type"),
+                        "summary": c.get("summary"),
+                        "reason": verdict["reason"],
+                        "signal": verdict["signal"],
+                    }
+                )
+        return out
+    except Exception as e:
+        logger.debug(f"_contradictions_safe: {e}")
+        return []
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -1081,6 +1135,7 @@ def handle_finding_log_command(args):
         edges_wired = _persist_edges("finding", finding_id, edges_declared) if edges_declared else 0
 
         suggested_links = _suggest_links_safe(project_id, finding, finding_id)
+        contradictions = _contradictions_safe(finding, suggested_links)
 
         result = {
             "ok": True,
@@ -1100,6 +1155,14 @@ def handle_finding_log_command(args):
             "suggested_links": suggested_links,
             "message": "Finding logged to project scope",
         }
+        if contradictions:
+            result["contradicts"] = contradictions
+            result["contradicts_note"] = (
+                f"This finding appears to CONTRADICT {len(contradictions)} existing artifact(s) — "
+                "not merely resemble them. Nothing was changed: one of the two is wrong, or their "
+                "scopes differ, and only you can tell which. Retract the false one "
+                "(finding-resolve --kind retracted) or edge them if both hold under different conditions."
+            )
 
         # Format output (AI-first = JSON by default)
         if output_format == "json":
@@ -1114,6 +1177,7 @@ def handle_finding_log_command(args):
                 print("   📝 Stored in git notes for sync")
             if embedded:
                 print("   🔍 Auto-embedded for semantic search")
+            _print_contradictions(contradictions)
             if decayed_lessons:
                 print(f"   🛡️ IMMUNE: Decayed {len(decayed_lessons)} related lesson(s)")
                 for dl in decayed_lessons:

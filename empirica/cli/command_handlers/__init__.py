@@ -82,7 +82,6 @@ from .ecosystem_commands import (
 from .engagement_commands import (
     handle_engagement_list_command,
     handle_engagement_show_command,
-    handle_engagement_update_command,
     handle_engagement_walk_command,
 )
 from .enp_commands import handle_enp_setup_command
@@ -537,7 +536,6 @@ __all__ = [  # noqa: RUF022
     # Engagement substrate CLI
     "handle_engagement_list_command",
     "handle_engagement_show_command",
-    "handle_engagement_update_command",
     "handle_engagement_walk_command",
     # Practitioner presence CLI
     "handle_practitioner_group_command",
