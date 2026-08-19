@@ -1073,7 +1073,10 @@ def _dependents_safe(db, artifact_id: str) -> list:
         from empirica.core.derived_confidence import dependents_of
 
         return dependents_of(db.conn.cursor(), artifact_id)
-    except Exception:
+    except Exception as e:
+        # See the sibling in artifact_log_commands: a silent [] reads as
+        # "no dependents", which is the exact false-clean this reports against.
+        logger.debug(f"_dependents_safe({artifact_id[:8]}): {e}")
         return []
 
 

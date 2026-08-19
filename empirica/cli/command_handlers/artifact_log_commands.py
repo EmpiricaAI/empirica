@@ -1442,7 +1442,11 @@ def _resolve_dependents_safe(db, artifact_id: str) -> list:
                 return []  # ambiguous or gone; the resolution itself already reported
             artifact_id = rows[0][0]
         return dependents_of(cursor, artifact_id)
-    except Exception:
+    except Exception as e:
+        # Logged, not swallowed. A silent [] here is indistinguishable from
+        # "this artifact has no dependents" — which is the unfalsifiable-success
+        # shape the whole dependent walk exists to prevent.
+        logger.debug(f"_resolve_dependents_safe({artifact_id[:8]}): {e}")
         return []
 
 
