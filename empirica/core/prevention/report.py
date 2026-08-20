@@ -17,6 +17,7 @@ empty-but-valid report on any error.
 
 from __future__ import annotations
 
+from .anchoring import anchoring_verdict, strip_unanchored_rates
 from .persist import aggregate_prevention_events, read_prevention_events
 
 _ATE_DISCLAIMER = (
@@ -34,7 +35,8 @@ def _empty_report(session_id: str | None) -> dict:
         "shadow_arm": 0,
         "families": [],
         "by_family": {},
-        "overall": aggregate_prevention_events([]),
+        "overall": strip_unanchored_rates(aggregate_prevention_events([])),
+        "anchoring": anchoring_verdict([]),
         "disclaimer": _ATE_DISCLAIMER,
     }
 
@@ -56,14 +58,25 @@ def prevention_report(db, session_id: str | None = None) -> dict:
         rows = read_prevention_events(db, session_id)
         families = sorted({(r.get("outcome_family") or "prevention") for r in rows})
         shadow_arm = sum(1 for r in rows if r.get("shadow"))
+        # Anchoring gate. A rate over verdicts a predicate could not discriminate
+        # is not a smaller number, it is not a number — so the rate keys are
+        # REMOVED rather than nulled, per family and overall alike. Counts stay:
+        # they record what was observed and remain true whatever the predicate did.
+        anchoring = anchoring_verdict(rows)
+        by_family = {fam: aggregate_prevention_events(rows, family=fam) for fam in families}
+        overall = aggregate_prevention_events(rows)
+        if not anchoring["anchored"]:
+            by_family = {fam: strip_unanchored_rates(agg) for fam, agg in by_family.items()}
+            overall = strip_unanchored_rates(overall)
         return {
             "session_id": session_id,
             "total_events": len(rows),
             "exposed_arm": len(rows) - shadow_arm,
             "shadow_arm": shadow_arm,
             "families": families,
-            "by_family": {fam: aggregate_prevention_events(rows, family=fam) for fam in families},
-            "overall": aggregate_prevention_events(rows),
+            "by_family": by_family,
+            "overall": overall,
+            "anchoring": anchoring,
             "disclaimer": _ATE_DISCLAIMER,
         }
     except Exception:
