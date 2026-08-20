@@ -161,6 +161,12 @@ def aggregate_prevention_events(rows: list[dict], family: str | None = None) -> 
             a, b = r.get("author_practice"), r.get("beneficiary_practice")
             if a and b and a != b:
                 prevented_bi += 1
+    # `resolved` is prevented + failed and deliberately EXCLUDES `unmeasurable`.
+    # An unmeasurable row is an exposure that never acquired a subject, so no
+    # verdict was reached — counting it would put rows the predicate declined to
+    # judge into the denominator of a rate about judgements. It is already
+    # excluded here by construction; this comment exists so nobody "completes"
+    # the sum by adding it.
     resolved = by_outcome.get("prevented", 0) + by_outcome.get("failed", 0)
     total = len(rows or [])
     return {

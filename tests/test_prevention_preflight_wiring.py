@@ -73,11 +73,19 @@ def test_reemission_dedupes_within_session():
     assert emit_preflight_exposures(db, "sess2", "tx3", PATTERNS) == 3
 
 
-def test_row_proof_failed_path():
-    """The full pipeline, failure arm: exposure at PREFLIGHT, same-session
-    mistake logged after, oracle marks `failed` at POSTFLIGHT. NULL-goal rows
-    must match session-scoped — under the old goal_id= match they could never
-    fail, a thumb on the experiment's scale."""
+def test_a_session_mistake_no_longer_fails_a_subjectless_treatment_row():
+    """This test used to assert the exact defect, and its docstring said why.
+
+    It reasoned that NULL-goal rows must match session-scoped, because under a
+    strict goal_id match they could never fail — "a thumb on the experiment's
+    scale". The reasoning was right and the remedy was the heavier thumb: for a
+    practitioner logging mistakes at a normal rate, "any failure in this
+    session" is almost always true. Measured across 218 live events, every one
+    NULL-goal: 215 resolved `failed` and `prevented` was recorded zero times
+    ever. The predicate was reading artifact volume as recurrence.
+
+    Both thumbs are answered by declining the verdict rather than choosing one.
+    """
     db = _db()
     emit_preflight_exposures(db, "sess1", "tx1", PATTERNS)
     exposed_at = db.conn.execute("SELECT MIN(exposed_at) FROM prevention_events").fetchone()[0]
@@ -87,14 +95,46 @@ def test_row_proof_failed_path():
     )
     db.conn.commit()
 
-    advanced = apply_prevention_detection(db, "sess1", now=exposed_at + 120)
+    # The window must elapse first, and that ordering is deliberate: a
+    # subjectless row must not be declared unmeasurable while a subject could
+    # still arrive. goals-create binds mid-transaction, so verdict-before-window
+    # would foreclose the very binding that makes the row measurable.
+    window_s = db.conn.execute("SELECT MIN(window_s) FROM prevention_events").fetchone()[0]
+    assert apply_prevention_detection(db, "sess1", now=exposed_at + 120) == 0, "inside the window, nothing resolves"
+
+    advanced = apply_prevention_detection(db, "sess1", now=exposed_at + window_s + 1)
     assert advanced == 3
+    outcomes = {r[0] for r in db.conn.execute("SELECT outcome FROM prevention_events").fetchall()}
+    assert outcomes == {"unmeasurable"}, "an unrelated session mistake is not this exposure's failure"
+
+
+def test_the_failed_path_works_on_the_bound_subject():
+    """The precondition again: a failure ON THE SUBJECT still fails the row."""
+    db = _db()
+    emit_preflight_exposures(db, "sess1", "tx1", PATTERNS)
+    exposed_at = db.conn.execute("SELECT MIN(exposed_at) FROM prevention_events").fetchone()[0]
+    db.conn.execute("UPDATE prevention_events SET goal_id = 'goal_A', subject_key = 'goal:goal_A'")
+    db.conn.execute(
+        "INSERT INTO mistakes_made (session_id, goal_id, created_timestamp) VALUES ('sess1', 'goal_A', ?)",
+        (exposed_at + 60,),
+    )
+    db.conn.commit()
+
+    assert apply_prevention_detection(db, "sess1", now=exposed_at + 120) == 3
     outcomes = {r[0] for r in db.conn.execute("SELECT outcome FROM prevention_events").fetchall()}
     assert outcomes == {"failed"}
 
 
-def test_row_proof_prevented_path():
-    """Prevention arm: exposure, no failure, window elapses → `prevented`."""
+def test_a_subjectless_treatment_row_is_unmeasurable_not_prevented():
+    """These rows used to resolve `prevented` on an absence nobody scoped for.
+
+    This test previously asserted exactly that, and it was the OTHER thumb on
+    the experiment's scale: with no bound subject there was no place to look for
+    the warned-about failure, so "no failure found" carried no information. An
+    absence you never scoped for is not evidence of prevention.
+
+    The treatment arm now declines the verdict instead of guessing either way.
+    """
     db = _db()
     emit_preflight_exposures(db, "sess1", "tx1", PATTERNS)
     exposed_at = db.conn.execute("SELECT MIN(exposed_at) FROM prevention_events").fetchone()[0]
@@ -103,7 +143,27 @@ def test_row_proof_prevented_path():
     advanced = apply_prevention_detection(db, "sess1", now=exposed_at + window_s + 1)
     assert advanced == 3
     outcomes = {r[0] for r in db.conn.execute("SELECT outcome FROM prevention_events").fetchall()}
-    assert outcomes == {"prevented"}
+    assert outcomes == {"unmeasurable"}
+
+
+def test_the_prevented_path_works_once_a_subject_is_bound():
+    """The precondition, asserted alongside — or the test above just records a loss.
+
+    A guard that says "this no longer resolves" without showing what restores it
+    reads as a capability removed. Binding a subject is what `goals-create` does
+    via `bind_prevention_subjects`, and it makes the prevented path reachable
+    again on a real scope.
+    """
+    db = _db()
+    emit_preflight_exposures(db, "sess1", "tx1", PATTERNS)
+    exposed_at = db.conn.execute("SELECT MIN(exposed_at) FROM prevention_events").fetchone()[0]
+    window_s = db.conn.execute("SELECT MIN(window_s) FROM prevention_events").fetchone()[0]
+    db.conn.execute("UPDATE prevention_events SET goal_id = 'goal_A', subject_key = 'goal:goal_A'")
+    db.conn.commit()
+
+    assert apply_prevention_detection(db, "sess1", now=exposed_at + window_s + 1) == 3
+    outcomes = {r[0] for r in db.conn.execute("SELECT outcome FROM prevention_events").fetchall()}
+    assert outcomes == {"prevented"}, "with a subject, no failure on it IS evidence"
 
 
 def test_window_still_open_stays_exposed():
