@@ -514,24 +514,44 @@ def get_active_session_vectors():
         db = SessionDatabase()
         cursor = db.conn.cursor()
 
-        # Get latest epistemic assessment for this session
+        # Latest vectors for this session.
+        #
+        # This read targeted `epistemic_assessments` until 2026-08-21. That table
+        # was dropped by a migration whose own comment reads "epistemic_assessments
+        # → (unused, just drop)" — and this hook was its reader. Because the whole
+        # body is wrapped in a bare `except`, the missing table produced
+        # (None, None), `determine_mode(None)` returned "unknown", and the router
+        # ran inert on EVERY UserPromptSubmit with no signal that anything was
+        # wrong. A dead read and an unused feature are indistinguishable from the
+        # schema side, and dropping the table manufactured the evidence for its
+        # own premise.
+        #
+        # `epistemic_snapshots` is where vectors live, written every
+        # PREFLIGHT/CHECK/POSTFLIGHT, and its payload is the same dict shape
+        # `determine_mode` reads.
         cursor.execute(
             """
-            SELECT vectors FROM epistemic_assessments
+            SELECT vectors FROM epistemic_snapshots
             WHERE session_id = ?
-            ORDER BY created_timestamp DESC LIMIT 1
+            ORDER BY timestamp DESC LIMIT 1
         """,
             (session_id,),
         )
         row = cursor.fetchone()
         db.close()
 
-        if row:
+        if row and row[0]:
             vectors = json.loads(row[0]) if isinstance(row[0], str) else row[0]
             return session_id, vectors
 
         return session_id, None
-    except Exception:
+    except Exception as e:
+        # Was a bare swallow. A router that silently degrades to "unknown" mode
+        # cannot be distinguished from one correctly reporting no-vectors-yet,
+        # which is how the dropped-table read survived unnoticed. Still
+        # non-fatal — this runs on the prompt path and must never block — but no
+        # longer invisible.
+        print(f"[tool-router] vector read failed: {type(e).__name__}: {e}", file=sys.stderr)
         return None, None
 
 
