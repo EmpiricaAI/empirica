@@ -386,6 +386,46 @@ class BreadcrumbRepository(BaseRepository):
             self.commit()
         return attached
 
+    def bind_prevention_subjects(self, goal_id: str, session_id: str, transaction_id: str | None) -> int:
+        """Bind this transaction's prevention_events to the goal that just appeared.
+
+        Prevention exposure is **structurally subjectless**: ``wiring.py`` emits at
+        PREFLIGHT, before any goal exists, so every row is written with
+        ``goal_id`` NULL and ``subject_key`` set to ``f"session:{id}"``. There are
+        only two honest architectures for that — invent a subject at emission
+        (there is none to invent) or bind one later. This is the later.
+
+        Without it the adjudication predicate has nothing to scope to, and
+        ``detection.py`` falls back to *any failure anywhere in the session*,
+        which for a practitioner logging mistakes at a normal rate resolves to
+        ``failed`` almost every time. Measured before this existed: 215 of 218
+        events ``failed``, ``prevented`` recorded zero times ever.
+
+        Binds BOTH columns deliberately. ``goal_id`` is what the detection path
+        scopes on; ``subject_key`` is what the oracle joins through. Fixing one
+        leaves the other session-wide, and a ``subject_key`` that still holds the
+        session makes "scope it to the subject" a rename rather than a fix.
+
+        Only rows still unbound are touched, so a row already bound to another
+        goal is left alone. Idempotent, best-effort, returns the count bound.
+        """
+        if not transaction_id:
+            return 0
+        try:
+            cur = self._execute(
+                "UPDATE prevention_events SET goal_id = ?, subject_key = ? "
+                "WHERE session_id = ? AND transaction_id = ? AND goal_id IS NULL",
+                (goal_id, f"goal:{goal_id}", session_id, transaction_id),
+            )
+            bound = cur.rowcount or 0
+        except Exception as e:
+            # Table absent on an older DB, or a column this build does not have.
+            logger.debug(f"bind_prevention_subjects skipped ({goal_id}): {e}")
+            return 0
+        if bound:
+            self.commit()
+        return bound
+
     def log_unknown(
         self,
         project_id: str,

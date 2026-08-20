@@ -711,6 +711,7 @@ def handle_goals_create_command(args):
             # the weave-gate stops false-blocking. Forward-attach (log under an existing
             # goal) is handled at log time in breadcrumbs. Best-effort — never fails create.
             attached_orphans = 0
+            bound_exposures = 0
             try:
                 from empirica.data.session_database import SessionDatabase
                 from empirica.utils.session_resolver import InstanceResolver as _R
@@ -722,6 +723,12 @@ def handle_goals_create_command(args):
                     # the goal itself lives, which is what the weave-gate counts.
                     _bf_db = SessionDatabase()
                     attached_orphans = _bf_db.breadcrumbs.backfill_goal_attachment(goal.id, session_id, _txid)
+                    # Prevention exposures fire at PREFLIGHT, before any goal
+                    # exists, so they are written subjectless. This is where a
+                    # subject first becomes available — bind them now or their
+                    # verdict falls back to a session-wide predicate that
+                    # cannot discriminate.
+                    bound_exposures = _bf_db.breadcrumbs.bind_prevention_subjects(goal.id, session_id, _txid)
                     _bf_db.close()
             except Exception:
                 pass
@@ -730,6 +737,7 @@ def handle_goals_create_command(args):
                 "goal_id": goal.id,
                 "session_id": session_id,
                 "attached_orphans": attached_orphans,
+                "bound_exposures": bound_exposures,
                 "message": "Goal created successfully",
                 "objective": objective,
                 "description": description,
