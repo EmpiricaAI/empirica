@@ -8,7 +8,9 @@ following patterns from Pydantic AI's testing approach.
 import json
 import os
 import shutil
+import sys
 import tempfile
+import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -31,6 +33,39 @@ from _pytest.monkeypatch import MonkeyPatch
 # identity vars and set EMPIRICA_HEADLESS=true. Tests that need DB access
 # should use EMPIRICA_SESSION_DB (priority 0 in get_session_db_path()) per
 # the pattern in test_ai_agent_workflow.py (11.17 fix).
+
+
+def _restore_untouched_transaction_files(backup: dict) -> list[str]:
+    """Put back only the snapshots nobody else wrote to. Returns what was left alone.
+
+    A file whose mtime moved during the run has a writer that is not this fixture.
+    Restoring it is a last-write-wins clobber of live state — see the snapshot
+    comment for the transaction it ate. Leaving it is the correct outcome, and
+    saying so is what distinguishes "a practitioner was working" from "a test
+    escaped the instance-id pin", which look identical from here.
+    """
+    clobbered = []
+    for filepath, (contents, mtime_ns) in backup.items():
+        try:
+            if os.stat(filepath).st_mtime_ns != mtime_ns:
+                clobbered.append(filepath)
+                continue
+            with open(filepath, "w") as f:
+                f.write(contents)
+        except FileNotFoundError:
+            # Deleted during the run. Recreating it would resurrect state its
+            # owner chose to drop — the same clobber in the other direction.
+            clobbered.append(filepath)
+        except Exception:
+            pass
+
+    if clobbered:
+        print(
+            f"\n[conftest] left {len(clobbered)} active_transaction file(s) as their writer "
+            f"left them, snapshot NOT restored: {', '.join(sorted(clobbered))}",
+            file=sys.stderr,
+        )
+    return clobbered
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -120,7 +155,24 @@ def isolate_empirica_instance():
     except Exception:
         pass
 
-    # Belt-and-suspenders: back up active_transaction files
+    # Belt-and-suspenders: snapshot the live active_transaction files, so a test
+    # that reaches past the isolation above can be UNDONE — but never at the cost
+    # of clobbering a writer who is not us.
+    #
+    # The unconditional version of this restore ate a live transaction. The
+    # release gate runs a ~12-minute suite; a PREFLIGHT submitted inside that
+    # window rewrote `active_transaction_tmux_6.json`, and teardown wrote the
+    # pre-run snapshot back over it. The practitioner's POSTFLIGHT then read the
+    # PREVIOUS, already-closed transaction: its two declared claims kept NULL
+    # verdicts, its artifact counts were reported against the wrong window, and
+    # the only visible trace was a `dropped_adjudications` note that reads like a
+    # payload-shape error. Two writers, one key, last-write-wins — and the writer
+    # who lost was the one doing real work.
+    #
+    # So the snapshot records CONTENT plus the mtime it was read at, and teardown
+    # restores a file only when it is byte-identical to the snapshot (a no-op that
+    # keeps the code honest) or untouched since. A file that CHANGED during the run
+    # is left exactly as its writer left it, and reported — see the teardown below.
     backup = {}
     patterns = [
         str(Path.home() / ".empirica" / "active_transaction*.json"),
@@ -130,7 +182,8 @@ def isolate_empirica_instance():
         for filepath in glob.glob(pattern):
             try:
                 with open(filepath) as f:
-                    backup[filepath] = f.read()
+                    contents = f.read()
+                backup[filepath] = (contents, os.stat(filepath).st_mtime_ns)
             except Exception:
                 pass
 
@@ -145,24 +198,30 @@ def isolate_empirica_instance():
         else:
             os.environ.pop(var, None)
 
-    # Restore backed-up transaction files
-    for filepath, contents in backup.items():
-        try:
-            with open(filepath, "w") as f:
-                f.write(contents)
-        except Exception:
-            pass
+    _restore_untouched_transaction_files(backup)
 
-    # Reap the transaction files THIS run created. The backup/restore above
-    # rewrites pre-existing files but never deletes test-created ones, so
-    # `active_transaction_test-<pid>*.json` accumulated in the live ~/.empirica
-    # across suite runs. Scoped precisely to this process's pid-stamped
-    # instance id — never touches a real practitioner's file.
+    # Reap test-created transaction files. Two passes, because scoping to this
+    # process's pid alone under-collects: a test that shells out to the CLI gets
+    # a SUBPROCESS pid, so its file is stamped `test-<other-pid>` and no run ever
+    # owns it. Measured 2026-08-21: 134 such files in one live project's
+    # `.empirica/`, the oldest months old.
+    #
+    # Pass 2 is bounded by age rather than by pid. A concurrently running suite
+    # touches its own files continuously, so an hour-stale `test-*` file is
+    # abandoned by construction — and the `test-` prefix cannot collide with a
+    # real practitioner id, which is tty/tmux/x11-derived.
+    stale_before = time.time() - 3600
     for pattern in patterns:
-        test_pattern = str(Path(pattern).parent / f"active_transaction_{test_instance_id}*.json")
-        for filepath in glob.glob(test_pattern):
+        parent = Path(pattern).parent
+        for filepath in glob.glob(str(parent / f"active_transaction_{test_instance_id}*.json")):
             try:
                 os.unlink(filepath)
+            except Exception:
+                pass
+        for filepath in glob.glob(str(parent / "active_transaction_test-*.json")):
+            try:
+                if os.stat(filepath).st_mtime < stale_before:
+                    os.unlink(filepath)
             except Exception:
                 pass
 
