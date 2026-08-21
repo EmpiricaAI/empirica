@@ -216,6 +216,47 @@ grep -rn "except:" "$TARGET"
 empirica finding-log --finding "12 bare 'except Exception: pass' handlers — errors silently swallowed" --impact 0.5
 ```
 
+### 3f. Matchers — over a formal grammar, or over natural language?
+
+Any check keyed on **words or phrases** rather than on a grammar. Word lists,
+antonym or negation sets, risk-word scans, `TODO`-alikes, "does this text say
+X" predicates.
+
+**The discriminator is FORMAL vs NATURAL, not keyword-matching-good-or-bad.**
+Both are legitimate shapes and both ship in the same repos:
+
+| | ✅ formal | ❌ natural |
+|---|---|---|
+| grammar | fixed, published (SQL, an AST, an enum, a config schema) | emergent, contested |
+| a token's denotation | fixed — `SELECT` is always `SELECT` | context-dependent, drifts |
+| a miss is | a parser bug — findable, fixable | invisible, and reads as a result |
+
+**The tell:** *can I enumerate the tokens and be done?* Over a published grammar
+the spec is finite. Over natural language it never is, and an unfinishable list
+produces false negatives **by construction** — so zero hits reads as "nothing to
+find" when it means "cannot see".
+
+```bash
+# Word/phrase lists that a checker matches against — audit each one's subject
+rg -n "^_?[A-Z_]+(?:WORDS|MARKERS|TERMS|PAIRS|PATTERNS)\s*[:=]" "$TARGET"
+```
+
+For each: **what is it matching against?** Source code, config, or a wire format
+→ formal, fine. Prose a human or a model wrote → the finding below.
+
+**Before condemning one, measure it.** Run the predicate over the real corpus it
+sees, exhaustively where the gate makes that possible, with a positive control
+proving the instrument is live. A measured zero beats an argument from principle,
+and it is the difference between "I don't like this" and a finding.
+
+```bash
+empirica finding-log --finding "Lexical matcher over artifact prose at core/x.py — fired 0 times across N real pairs; instrument live on constructed input" --impact 0.7
+```
+
+**The counter-move is not a longer list.** Prefer a signal the system already
+produces from **behaviour** — a verdict, a test result, an observed outcome —
+over one that must be inferred by reading text.
+
 ---
 
 ## Phase 4: Triage
