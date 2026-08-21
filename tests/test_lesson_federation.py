@@ -256,6 +256,9 @@ class _Client:
         self._unfiltered, self._lessons = unfiltered, lessons
         self.lesson_queries = 0
 
+    def collection_exists(self, _name) -> bool:
+        return True
+
     @staticmethod
     def _requested_types(query_filter):
         types = set()
@@ -334,7 +337,6 @@ def _search_with(monkeypatch, reserved: list, points, **kw):
         return real(*a, **k)
 
     client = _Client(points, [_Pt(0.58, "lesson", "competitive")])
-    client.collection_exists = lambda _c: True
     monkeypatch.setattr(gs, "_reserve_lesson_slots", _spy)
     monkeypatch.setattr(gs, "_check_qdrant_available", lambda: True)
     monkeypatch.setattr(gs, "_get_embedding_safe", lambda _t: [0.0])
