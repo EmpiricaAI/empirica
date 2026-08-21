@@ -19,6 +19,7 @@ Performance target: < 2 seconds (runs on every prompt).
 """
 
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -314,6 +315,43 @@ PROPORTIONALITY_SCOPE_PATTERNS = [
 PROPORTIONALITY_MIN_LENGTH = 12
 
 
+# ── What the user actually TYPED ─────────────────────────────────────────────
+#
+# Both lexical gates below (proportionality, AAP hedges) matched anywhere in the
+# raw prompt, with no length normalisation. Measured over 12,181 real prompts
+# from this box's transcripts:
+#
+#   proportionality fired on 20.3% of prompts — but 53% of those fires triggered
+#   past the first 200 characters, and on prompts of 10k+ chars, 561 of 563 fires
+#   (99.6%) did. Those are pasted logs, peer messages and command output: the word
+#   "maybe" inside material the user QUOTED was arming a Sentinel investigation
+#   budget that then DENIES tool calls at runtime.
+#
+# Restricting the match to the user's own framing takes those 561 fires to 20.
+# Fenced blocks are dropped, quoted / log-shaped lines are dropped, and only the
+# opening window is considered — a hypothesis the user is handing over arrives at
+# the top of the message, not buried on line 400 of a paste.
+_FENCED_BLOCK = re.compile(r"```.*?```", re.S)
+_QUOTED_OR_LOG_LINE = re.compile(r"^\s*(>|\||\d+[:\t]|[A-Za-z_/.-]+:\d+:)", re.M)
+
+#: How much of the opening counts as the user's framing.
+OWN_WORDS_WINDOW = 600
+
+
+def user_own_words(prompt: str, window: int = OWN_WORDS_WINDOW) -> str:
+    """The user's own framing: fenced blocks and quoted/log lines removed, opening window only.
+
+    Deliberately crude — it only has to separate "the user said this" from "the
+    user pasted this", and over-trimming costs a missed nudge while under-trimming
+    costs a wrongly-armed runtime denial.
+    """
+    if not prompt:
+        return ""
+    text = _FENCED_BLOCK.sub(" ", prompt)
+    text = "\n".join(line for line in text.splitlines() if not _QUOTED_OR_LOG_LINE.match(line))
+    return text[:window]
+
+
 def _proportionality_state_path(session_id: str) -> Path:
     """Where the Sentinel-side investigation budget counter lives.
 
@@ -359,25 +397,54 @@ def build_investigation_proportionality_check(prompt: str) -> str | None:
     """Return the proportionality block for prompts containing hypothesis or
     quick-scope markers, None otherwise.
 
-    Detection is intentionally regex + word-boundary on a small curated list,
-    NOT semantic. Goal: catch the obvious cases without false-positiving on
-    every prompt. The block itself acknowledges nuance ("This is NOT a ban on
-    thorough work") so a false positive only adds 10 lines of context — same
-    cost-of-being-wrong as the existing EPP semantic-pushback block.
-    """
-    import re as _re
+    Regex + word-boundary on a small curated list, matched against the user's
+    OWN WORDS only (see :func:`user_own_words`) — never against pasted material.
+    A hit arms a Sentinel budget that later DENIES tool calls, so the cost of a
+    false positive here is a runtime denial, not ten lines of context.
 
+    **This list is not the detector, it is the trigger for the teeth.** It cannot
+    be completed: measured over 12,181 real prompts, roughly one short prompt in
+    seven that hands over a hypothesis does so in words absent from the list —
+    *"They do exist &lt;path&gt;"*, *"how can we be sure that…"*, *"make sure his box
+    is in line with…"*. Lengthening the list chases that tail forever, which is why
+    the breadth now lives in :data:`PROPORTIONALITY_POINTER`, judged semantically,
+    while these patterns only decide when to arm the budget.
+    """
     if len(prompt) < PROPORTIONALITY_MIN_LENGTH:
         return None
     if prompt.startswith("/"):
         return None
-    lowered = prompt.lower()
-    has_marker = any(_re.search(pat, lowered) for pat in PROPORTIONALITY_HYPOTHESIS_PATTERNS) or any(
-        _re.search(pat, lowered) for pat in PROPORTIONALITY_SCOPE_PATTERNS
+    lowered = user_own_words(prompt).lower()
+    has_marker = any(re.search(pat, lowered) for pat in PROPORTIONALITY_HYPOTHESIS_PATTERNS) or any(
+        re.search(pat, lowered) for pat in PROPORTIONALITY_SCOPE_PATTERNS
     )
     if not has_marker:
         return None
     return INVESTIGATION_PROPORTIONALITY_BLOCK
+
+
+# The semantic half, same shape as SEMANTIC_PUSHBACK_POINTER: no content
+# matching, no vocabulary to complete, judgement delegated to the model. Carries
+# the cases the pattern list structurally cannot reach — a hypothesis handed over
+# as a bare assertion, a scope bounded without any of the listed cue words.
+# Deliberately terse, because it rides on every substantive prompt.
+PROPORTIONALITY_POINTER = (
+    "<probe-first>If this message hands you a hypothesis or bounds the scope — in any words, "
+    "including a bare assertion of fact — name it in one sentence and make your FIRST tool call "
+    "the smallest probe that would disconfirm it. Expand only if the probe fails to settle it.</probe-first>"
+)
+
+
+def build_proportionality_pointer(prompt: str) -> str | None:
+    """The terse semantic pointer, for substantive prompts the pattern list missed.
+
+    Suppressed when the full block fires, so the two never double up.
+    """
+    if len(prompt) < SEMANTIC_CHECK_MIN_LENGTH or prompt.startswith("/"):
+        return None
+    if build_investigation_proportionality_check(prompt):
+        return None
+    return PROPORTIONALITY_POINTER
 
 
 # ============================================================================
@@ -749,7 +816,10 @@ def _build_aap_context(prompt: str) -> str:
     aap_config = load_aap_config()
     if not aap_config.get("enabled") or not prompt or len(prompt) <= 15:
         return ""
-    hedges = detect_hedges(prompt)
+    # Own words only. Measured: 55% of hedge hits triggered past the first 200
+    # characters — the hedging was in material the user PASTED, and telling them
+    # not to mirror their own quoted source is noise. 15.1% -> 10.1% of prompts.
+    hedges = detect_hedges(user_own_words(prompt))
     if not hedges:
         return ""
     hedge_lines = [
@@ -902,6 +972,9 @@ def main():
     # Phase 0 (2026-04-07) verified effect across Opus/Sonnet/Haiku.
     semantic_check = build_semantic_pushback_check(prompt)
 
+    # The semantic half of proportionality — carries what the pattern list cannot.
+    proportionality_pointer = build_proportionality_pointer(prompt)
+
     # Prompt-relevance prior context: top-N artifacts from prior project
     # knowledge that are semantically similar to the prompt. Conditions
     # the AI's first response on external grounding rather than internal
@@ -919,6 +992,8 @@ def main():
         context_parts.append(aap_context)
     if proportionality_check:
         context_parts.append(proportionality_check)
+    elif proportionality_pointer:
+        context_parts.append(proportionality_pointer)
     if prompt_relevance:
         context_parts.append(prompt_relevance)
     if semantic_check:
