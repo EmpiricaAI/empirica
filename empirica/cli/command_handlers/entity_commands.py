@@ -18,7 +18,7 @@ import json
 import sys
 from typing import Any
 
-from ...data.repositories.workspace_db import WorkspaceDBRepository
+from ...data.repositories.workspace_db import SPINE_SOURCE_TABLE, WorkspaceDBRepository
 from ..cli_utils import handle_cli_error
 
 
@@ -283,16 +283,24 @@ def mint_contact(
         if extra_metadata:
             metadata.update(extra_metadata)
 
+        # Core mints the registry SPINE and names no detail table — David's
+        # clean-break ruling. Claiming `contacts` is what left 22 of 49 contacts
+        # unreadable through their own pointer (nle, 2026-08-21), and knowing the
+        # table name well enough to claim it correctly would be core hardcoding
+        # workspace's schema. Workspace repoints the entity when it authors detail.
         repo.upsert_entity(
             entity_type="contact",
             entity_id=entity_id,
             display_name=name,
             source_db="workspace",
-            source_table="contacts",
+            source_table=SPINE_SOURCE_TABLE,
             description=description,
             metadata=json.dumps(metadata),
         )
         _embed_entity_row("contact", entity_id, name, description, metadata)  # §6.2 searchable point
+        # No `detail_row` field: answering it means SELECTing from workspace's
+        # tables, which is the same coupling the pointer ruling removed. A caller
+        # that needs to know whether detail exists asks workspace, whose lane it is.
         return {"ok": True, "entity_id": entity_id, "created": True, "matched_by": None}
 
     if repo is not None:
@@ -352,12 +360,16 @@ def mint_entity(
         metadata = {"minted_at": time.time(), "minted_by": "entity-create"}
         if extra_metadata:
             metadata.update(extra_metadata)
+        # `source_table=entity_type` was the bug: the TYPE is not the TABLE. It
+        # wrote `engagement`/`organization` (singular) against real tables named
+        # `engagements`/`organizations` — 58 live rows pointing at tables that do
+        # not exist. Core now names neither: the spine points at itself.
         repo.upsert_entity(
             entity_type=entity_type,
             entity_id=eid,
             display_name=name,
             source_db="workspace",
-            source_table=entity_type,
+            source_table=SPINE_SOURCE_TABLE,
             description=description,
             metadata=json.dumps(metadata),
         )

@@ -384,6 +384,34 @@ def _apply_engagement_substrate(cursor: sqlite3.Cursor) -> None:
     _seed_engagement_domains(cursor)
 
 
+#: What core writes into `entity_registry.source_table`, always.
+#:
+#: **Core does not know workspace's tables.** David's ruling 2026-08-21, taken as a
+#: clean break rather than a shared map: core owns the registry SPINE, workspace
+#: authors CRM detail, and whoever writes the detail row is the one that repoints
+#: the entity at it. An interim fix here carried a `contact -> contacts.contact_id`
+#: map so core could name the right table — that fixed the defect and made core
+#: hardcode another practice's schema, which is the coupling the boundary exists to
+#: prevent: a column rename over there would silently degrade a pointer over here
+#: with nothing to announce it.
+#:
+#: `entity_registry` is self-referential and TRUE — for a core-minted entity the
+#: registry row IS the record so far. It is not a placeholder: a consumer that
+#: dereferences it finds the row it already has, rather than a table that does not
+#: exist.
+#:
+#: What the old behaviour cost, measured on the live registry 2026-08-21:
+#:
+#:     source_db=workspace  source_table=practitioner_presence   57 rows   never created, anywhere
+#:     source_db=workspace  source_table=engagement              34 rows   real table is `engagements`
+#:     source_db=workspace  source_table=organization            24 rows   real table is `organizations`
+#:
+#: 115 rows naming a table absent from the database they name, from
+#: `source_table=entity_type` in the mint. The type is not the table — and under
+#: this ruling core names neither.
+SPINE_SOURCE_TABLE = "entity_registry"
+
+
 class WorkspaceDBRepository(BaseRepository):
     """Repository for workspace.db — the global project registry."""
 
@@ -1449,7 +1477,10 @@ class WorkspaceDBRepository(BaseRepository):
             claude_session_id,
             display_name=display_name or f"{practice_ai_id} · {claude_session_id[:8]}",
             source_db="workspace",
-            source_table="practitioner_presence",
+            # `practitioner_presence` was a table never created anywhere in this
+            # codebase; 57 rows named it. There is no detail record for a
+            # practitioner at all, so the registry row points at itself.
+            source_table=SPINE_SOURCE_TABLE,
             metadata=json.dumps(meta),
         )
         self.upsert_entity_membership("practitioner", claude_session_id, "practice", practice_ai_id, role="occupies")

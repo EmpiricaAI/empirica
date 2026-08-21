@@ -53,13 +53,26 @@ def test_slugify_basic():
 # ── mint identity resolution ───────────────────────────────────────────
 
 
+def _readable_source_tables(repo) -> set[str]:
+    """Every table a `source_table` may name here: one that exists, or the registry.
+
+    Derived from the database rather than hardcoded, so a rename breaks the test at
+    the rename instead of years later at a dereference.
+    """
+    return {r[0] for r in repo.conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+
+
 def test_mint_creates_readable_slug_id(repo):
     result = mint_contact("Georg Tester", company_name="NLE", repo=repo)
     assert result["ok"] and result["created"] is True
     assert result["entity_id"] == "c-georg-tester-nle"
     row = repo.get_entity("contact", "c-georg-tester-nle")
     assert row["display_name"] == "Georg Tester"
-    assert row["source_table"] == "contacts"
+    # The pointer must name a table that EXISTS in this database, or the registry
+    # itself when there is none — never the entity type. Asserting the literal
+    # "contacts" here was fine; the sibling below asserted "organization", a table
+    # that has never existed, and the green suite pinned that defect for 24 rows.
+    assert row["source_table"] in _readable_source_tables(repo)
 
 
 def test_mint_is_idempotent_on_slug(repo):
@@ -168,7 +181,12 @@ def test_mint_entity_organization_slug(repo):
     assert result["ok"] and result["created"] is True
     assert result["entity_id"] == "o-nle"
     row = repo.get_entity("organization", "o-nle")
-    assert row["display_name"] == "NLE" and row["source_table"] == "organization"
+    assert row["display_name"] == "NLE"
+    assert row["source_table"] in _readable_source_tables(repo), (
+        "this assertion used to read == 'organization' — the entity TYPE, and a table "
+        "that does not exist. 24 live registry rows carried it."
+    )
+    assert row["source_table"] != "organization", "the type is not the table"
 
 
 def test_mint_entity_engagement_slug(repo):
