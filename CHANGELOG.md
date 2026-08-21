@@ -5,6 +5,42 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.27] - 2026-08-21
+
+### Changed
+- **Lexical contradiction detection retired — measured yield zero.** `finding-log`
+  computed a contradiction warning from a negation-marker and antonym-pair matcher
+  over artifact prose. Run over this practice's entire corpus — 6,704 artifacts
+  across seven tables, every pair sharing a content word, 9,064,779 pairs — it
+  fired **zero times**, exhaustively rather than sampled, with the instrument
+  demonstrably live on constructed input. Its own docstring's motivating example
+  does not fire either: *"the gate blocks praxic tools"* vs *"...does NOT block..."*
+  is `blocks` vs `block`, English inflection with no stemmer, overlap 0.75 against
+  a 0.8 threshold. The example lived in prose and the threshold lived in code, so
+  nothing ever compared them. Not a tuning problem — loosening the bar gives back
+  exactly the false-positive direction that caused the original autoimmune disable.
+  The module stays importable and tested for one release, then goes. The
+  discriminator that generalises is **formal vs natural language**, not
+  keyword-matching-good-or-bad: the SQL table extractor and the CLI precedence AST
+  walk are correct and shipped the same day. It is now a pattern-hunt row and a
+  `/code-audit` step.
+
+### Added
+- **A refuted claim now names what it refutes.** Refutation is the strongest
+  signal the claims layer produces and the only one owing nothing to reading text
+  — the practitioner ran the thing and observed a contradiction — and it had no
+  output surface: POSTFLIGHT incremented a counter and returned. Measured here:
+  490 claims, 80 carrying a referent, and of 17 refuted claims exactly **one**
+  named what it contradicted. `adjudicate()` now returns a `refutations` block
+  naming the claim, its grounding, its referent and its evidence; where the claim
+  was `retrieved` and the referent is an artifact, it says so — a refuted
+  retrieved-claim is direct behavioural evidence that its source artifact is
+  wrong, one `finding-resolve --kind retracted` away from a corrected graph.
+  CHECK asks for the referent while the id is still in hand, and asks *narrowly*:
+  only `retrieved`, where the value is definitionally available at declaration
+  time. Reported, never rejected — the layer is advisory by design. No backfill:
+  a referent reconstructed after the fact is a guess about what you were thinking.
+
 ## [1.13.26] - 2026-08-19
 
 ### Fixed
