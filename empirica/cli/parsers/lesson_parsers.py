@@ -10,6 +10,12 @@ def add_lesson_parsers(subparsers):
     lesson_create.add_argument("--input", "-i", help='Input JSON file (use "-" for stdin)')
     lesson_create.add_argument("--json", help="Inline JSON data")
     lesson_create.add_argument(
+        "--from-global",
+        dest="from_global",
+        help="INGEST a peer's shared lesson by id from the cross-practice pool. The copy is "
+        "attributed to its author permanently and can never be re-published from here.",
+    )
+    lesson_create.add_argument(
         "--supersedes",
         help="Id of a lesson this one REPLACES — writes a supersedes edge so the older one stops being served. "
         "Distinct from bumping version, which publishes a revision of the same lesson.",

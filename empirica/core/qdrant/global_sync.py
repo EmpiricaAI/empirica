@@ -19,6 +19,14 @@ from empirica.core.qdrant.connection import (
     logger,
 )
 
+#: Metadata key marking a lesson this practice INGESTED rather than authored.
+#: Permanent: it is what stops the lesson re-entering the pool under our name.
+ORIGIN_KEY = "origin_practice"
+
+#: Preview length for the ranked `text` field. The full string rides in
+#: `text_full` whenever it exceeds this — see the inversion note in the payload.
+_TEXT_PREVIEW = 500
+
 
 def embed_to_global(
     item_id: str,
@@ -30,6 +38,7 @@ def embed_to_global(
     resolved_by: str | None = None,
     timestamp: str | None = None,
     tags: list[str] | None = None,
+    record: dict | None = None,
 ) -> bool:
     """
     Embed a high-impact item to global learnings collection.
@@ -58,14 +67,29 @@ def embed_to_global(
 
         payload = {
             "type": item_type,
-            "text": text[:500] if text else None,
-            "text_full": text if len(text) <= 500 else None,
+            "text": text[:_TEXT_PREVIEW] if text else None,
+            # THE CONDITION WAS INVERTED. `text_full` was set only when the text
+            # already fitted in `text` — so it was None in exactly the case it
+            # exists for, and the overflow was gone. Measured 2026-08-21: 483 of
+            # 991 live points carry a 500-char cut with no full copy, so half this
+            # pool is truncated mid-sentence and nothing says so. A peer reading
+            # them gets a fragment that looks like a whole thought.
+            "text_full": text if text and len(text) > _TEXT_PREVIEW else None,
+            # Say when the preview is a preview. Without this a consumer cannot
+            # tell a short complete text from a long truncated one — the
+            # completeness of a response has to be checkable from the response.
+            "truncated": bool(text and len(text) > _TEXT_PREVIEW),
             "project_id": project_id,
             "session_id": session_id,
             "impact": impact,
             "resolved_by": resolved_by,
             "timestamp": timestamp,
             "tags": tags or [],
+            # The complete artifact, when the caller has one. Present for lessons
+            # so they can be ingested faithfully; absent for findings, which are
+            # local descriptions and are not meant to be copied across a practice
+            # boundary in the first place.
+            "record": record,
         }
 
         # Use hash of item_id for numeric Qdrant point ID
@@ -86,6 +110,41 @@ def embed_to_global(
 #: decision that needs a rights check this layer cannot make, so it stays out
 #: until that check exists rather than being quietly treated as public.
 FEDERATED_POLICIES: tuple[str, ...] = ("org", "public")
+
+
+def _is_ingested(storage, lesson_id: str) -> bool:
+    """Was this lesson authored by a peer and pulled in here?
+
+    Errs toward TRUE on an unreadable record. Wrongly withholding one of our own
+    lessons costs a peer a pattern they can ask for; wrongly republishing a peer's
+    lesson under our name is unrecoverable once it has been retrieved.
+    """
+    try:
+        lesson = storage.get_lesson(lesson_id, layer="warm")
+        if lesson is None:
+            return False
+        # ONLY `origin_practice`. Keying on `created_by` looked equivalent and was
+        # not: all 17 federating lessons here set it, so that version withheld
+        # every lesson this practice publishes. Caught by running it, not reading it.
+        return bool(getattr(lesson, ORIGIN_KEY, None))
+    except Exception as e:
+        logger.debug(f"origin check failed for {lesson_id}, withholding: {e}")
+        return True
+
+
+def _lesson_record(storage, lesson_id: str) -> dict | None:
+    """The full serialised lesson, for a peer to reconstruct rather than paraphrase.
+
+    Read from the WARM layer explicitly: the default `auto` path returns a hot
+    cache entry, which is a summary and would publish a partial record while
+    looking like a whole one.
+    """
+    try:
+        lesson = storage.get_lesson(lesson_id, layer="warm")
+        return lesson.to_dict() if lesson is not None and hasattr(lesson, "to_dict") else None
+    except Exception as e:
+        logger.debug(f"lesson record unavailable for {lesson_id}: {e}")
+        return None
 
 
 def sync_lessons_to_global(project_id: str, db_path: str | None = None) -> dict:
@@ -117,6 +176,7 @@ def sync_lessons_to_global(project_id: str, db_path: str | None = None) -> dict:
         "synced": 0,
         "eligible": 0,
         "withheld_superseded": 0,
+        "withheld_foreign": 0,
         "failed": 0,
         "skipped_reason": None,
     }
@@ -148,6 +208,13 @@ def sync_lessons_to_global(project_id: str, db_path: str | None = None) -> dict:
         if lid in retired:
             out["withheld_superseded"] += 1
             continue
+        # A lesson we INGESTED never goes back out. Republishing it would give it a
+        # new author on every hop, and after two hops nobody can say whose pattern
+        # it was — provenance does not degrade gracefully, it dissolves. The peer
+        # who wrote it is the only one who publishes it.
+        if _is_ingested(storage, lid):
+            out["withheld_foreign"] += 1
+            continue
         # Name AND description: a lesson's name is the pattern's handle and the
         # description is what makes it actionable at the far end. Embedding the
         # description alone would make a peer's search hit a body with no title.
@@ -158,6 +225,11 @@ def sync_lessons_to_global(project_id: str, db_path: str | None = None) -> dict:
             item_type="lesson",
             project_id=project_id,
             tags=[t for t in ("lesson", domain or None, level or None, policy) if t],
+            # The full record, so a peer can INGEST rather than only read. Without
+            # it the pool carries a name and a description — enough to recognise a
+            # pattern, never enough to replay one, because the steps and the
+            # expected deltas are exactly what is missing.
+            record=_lesson_record(storage, lid),
         )
         if ok:
             out["synced"] += 1
@@ -710,3 +782,43 @@ def search_global_dead_ends(query_approach: str, limit: int = 5) -> list[dict]:
         return []
 
     return search_global(query_text=f"Dead end approach: {query_approach}", item_types=["dead_end"], limit=limit)
+
+
+def fetch_global_lesson(lesson_id: str) -> dict | None:
+    """The full record for one shared lesson, by its id, for ingestion.
+
+    Ingestion is ON DEMAND — the practitioner asks for a specific lesson they saw
+    in a cross-practice search. Auto-ingesting everything shared would turn the
+    local store into an unfiltered peer feed, and the store should hold what its
+    practitioner chose to hold.
+
+    Returns None when the point is absent, or when it predates the record-carrying
+    payload: an ingestion built from `text` alone reconstructs a name and a
+    description and silently drops the steps and expected deltas, which is the
+    difference between a lesson you can replay and a paraphrase you cannot. Better
+    to refuse and say so than to mint a plausible stub.
+    """
+    if not _check_qdrant_available():
+        return None
+    try:
+        client = _get_qdrant_client()
+        if client is None:
+            return None
+        coll = _global_learnings_collection()
+        if not client.collection_exists(coll):
+            return None
+
+        import hashlib
+
+        point_id = int(hashlib.md5(f"global_lesson_{lesson_id}".encode()).hexdigest()[:15], 16)
+        points = client.retrieve(collection_name=coll, ids=[point_id], with_payload=True)
+        if not points:
+            return None
+        payload = points[0].payload or {}
+        record = payload.get("record")
+        if not isinstance(record, dict) or not record.get("name"):
+            return None
+        return {"record": record, "origin_project_id": payload.get("project_id"), "tags": payload.get("tags") or []}
+    except Exception as e:
+        logger.debug(f"fetch_global_lesson({lesson_id}) failed: {e}")
+        return None

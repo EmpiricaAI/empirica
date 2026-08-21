@@ -43,6 +43,7 @@ KNOWN_LESSON_KEYS: frozenset[str] = frozenset(
         "abstraction_level",
         "sharing_policy",
         "abstract_pattern",
+        "origin_practice",
         # The id of a lesson THIS ONE replaces. Distinct from bumping `version`:
         # a revision is the same lesson restated, a supersession says the earlier
         # lesson should stop steering work. Writes a `supersedes` graph edge.
@@ -95,6 +96,43 @@ def _wire_supersession(storage, new_id: str, supersedes: str | None) -> tuple[bo
     return False, f"supersedes: edge to {supersedes!r} could not be written"
 
 
+def _ingest_from_global(lesson_id: str) -> tuple[dict | None, str | None]:
+    """Pull a peer's shared lesson into this store, attributed and non-republishable.
+
+    ON DEMAND by design. Auto-ingesting everything shared would make the local store
+    an unfiltered peer feed; a practice's store should hold what its practitioner
+    chose to hold. The pull happens at the moment of relevance — you saw the lesson
+    in a cross-practice search and you want to keep it.
+
+    **This is the one artifact type that may cross a practice boundary.** Findings,
+    unknowns, dead-ends and mistakes are local epistemic state and stay home. A
+    lesson is the transfer unit by definition: if a peer can pick it up and act on
+    it, it is a lesson. The copy carries `origin_practice` permanently, which is
+    what stops it re-entering the pool under our name.
+
+    Refuses rather than approximates: a point published before the record-carrying
+    payload has a name and a description and no steps, and minting a plausible stub
+    from that is worse than saying no.
+    """
+    from empirica.core.qdrant.global_sync import fetch_global_lesson
+
+    fetched = fetch_global_lesson(lesson_id)
+    if not fetched:
+        return None, (
+            f"--from-global {lesson_id!r}: no shared lesson with a full record. Either it is not in "
+            "the pool, or it was published before records were carried — in which case the peer can "
+            "re-publish it. Refusing to reconstruct a lesson from its description alone."
+        )
+
+    record = dict(fetched["record"])
+    origin = fetched.get("origin_project_id") or "unknown-practice"
+    record["origin_practice"] = origin
+    # Ingested at the policy the practitioner chooses later; never inherited as
+    # shared, because re-sharing is precisely what must not happen by default.
+    record["sharing_policy"] = "private"
+    return record, None
+
+
 def handle_lesson_create_command(args: Namespace) -> dict[str, Any]:
     """
     Create a new lesson from JSON input.
@@ -137,8 +175,13 @@ def handle_lesson_create_command(args: Namespace) -> dict[str, Any]:
         # Get input data
         input_data = None
 
+        from_global = getattr(args, "from_global", None)
+        if from_global:
+            input_data, ingest_error = _ingest_from_global(str(from_global).strip())
+            if ingest_error:
+                return {"ok": False, "error": ingest_error}
         # From stdin
-        if getattr(args, "input", None) == "-":
+        elif getattr(args, "input", None) == "-":
             input_data = json.load(sys.stdin)
         # From file
         elif getattr(args, "input", None):
@@ -148,7 +191,10 @@ def handle_lesson_create_command(args: Namespace) -> dict[str, Any]:
         elif getattr(args, "json", None):
             input_data = json.loads(args.json)
         else:
-            return {"ok": False, "error": "No input provided. Use --input FILE, --json JSON, or pipe to stdin"}
+            return {
+                "ok": False,
+                "error": "No input provided. Use --input FILE, --json JSON, --from-global ID, or pipe to stdin",
+            }
 
         # Build lesson object
         name = input_data.get("name", getattr(args, "name", "Unnamed Lesson"))

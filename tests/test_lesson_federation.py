@@ -42,12 +42,26 @@ CREATE TABLE lessons (
 
 
 class _Store:
-    def __init__(self, conn, retired=()):
+    """What the units touch: the connection, the retired map, and ORIGIN.
+
+    `get_lesson` is not optional: the never-republish guard reads it and errs
+    toward WITHHOLDING when the record is unreadable. A fake missing it makes every
+    test look like a republish refusal — the guard working correctly and the fake
+    lying, which are indistinguishable from the failure message.
+    """
+
+    def __init__(self, conn, retired=(), origin=None):
         self._conn = conn
         self._retired = dict.fromkeys(retired, "newer")
+        self._origin = origin
 
     def superseded_ids(self):
         return self._retired
+
+    def get_lesson(self, lesson_id, layer=None):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(origin_practice=self._origin, to_dict=lambda: {"name": "n"})
 
 
 @pytest.fixture
@@ -191,7 +205,14 @@ def test_an_empty_store_reports_zero_eligible_with_no_reason(wired):
     """NEGATIVE CONTROL: nothing to send is a clean zero, and says nothing went wrong."""
     wired()
     out = gs.sync_lessons_to_global("proj-1")
-    assert out == {"synced": 0, "eligible": 0, "withheld_superseded": 0, "failed": 0, "skipped_reason": None}
+    assert out == {
+        "synced": 0,
+        "eligible": 0,
+        "withheld_superseded": 0,
+        "withheld_foreign": 0,
+        "failed": 0,
+        "skipped_reason": None,
+    }
 
 
 # ── what actually gets embedded ──────────────────────────────────────────────
@@ -385,3 +406,181 @@ def test_a_duplicate_lesson_is_not_added_twice():
     out = gs._reserve_lesson_slots(client, "c", [0.0], [gs._global_hit(p) for p in both], 5, None)
 
     assert [h["text"] for h in out].count("same") == 1
+
+
+# ── ingestion: the loop closes, and must not spin ────────────────────────────
+
+
+def test_an_ingested_lesson_is_never_republished(monkeypatch, tmp_path):
+    """The property the whole boundary rests on.
+
+    Republishing a peer's lesson gives it a new author on every hop; after two hops
+    nobody can say whose pattern it was. Provenance does not degrade gracefully — it
+    dissolves. So the peer who wrote it is the only one who publishes it.
+    """
+    import sqlite3
+
+    conn = sqlite3.connect(tmp_path / "l.db")
+    conn.executescript(SCHEMA)
+    conn.execute(
+        "INSERT INTO lessons (id, name, description, domain, sharing_policy, abstraction_level) "
+        "VALUES ('theirs', 'Their pattern', 'body', 'd', 'public', 'cross_org')"
+    )
+    conn.commit()
+
+    class _S:
+        _conn = conn
+
+        def superseded_ids(self):
+            return {}
+
+        def get_lesson(self, lid, layer=None):
+            from types import SimpleNamespace
+
+            return SimpleNamespace(origin_practice="empirica.peer.their-practice", to_dict=lambda: {})
+
+    sent = []
+    monkeypatch.setattr(gs, "_check_qdrant_available", lambda: True)
+    monkeypatch.setattr(gs, "embed_to_global", lambda *, item_id, **_: sent.append(item_id) or True)
+    import empirica.core.lessons.storage as st
+
+    monkeypatch.setattr(st, "get_lesson_storage", lambda: _S())
+
+    out = gs.sync_lessons_to_global("mine")
+
+    assert out["eligible"] == 1
+    assert out["withheld_foreign"] == 1, "an ingested lesson must not leave again"
+    assert out["synced"] == 0 and sent == []
+    conn.close()
+
+
+def test_our_own_lessons_still_publish(tmp_path, monkeypatch):
+    """POSITIVE CONTROL, and it caught a real regression.
+
+    The first version of the origin check also keyed on `created_by` — which ALL 17
+    of this practice's federating lessons set, mostly to `'cli'`. It would have
+    withheld every lesson we publish: a guard whose predicate matches the healthy
+    case. Only `origin_practice` marks a foreign lesson.
+    """
+    import sqlite3
+    from types import SimpleNamespace
+
+    conn = sqlite3.connect(tmp_path / "l.db")
+    conn.executescript(SCHEMA)
+    conn.execute(
+        "INSERT INTO lessons (id, name, description, domain, sharing_policy, abstraction_level) "
+        "VALUES ('ours', 'Our pattern', 'body', 'd', 'public', 'cross_org')"
+    )
+    conn.commit()
+
+    class _S:
+        _conn = conn
+
+        def superseded_ids(self):
+            return {}
+
+        def get_lesson(self, lid, layer=None):
+            # created_by set, origin_practice absent — exactly our own lessons.
+            return SimpleNamespace(origin_practice=None, created_by="cli", to_dict=lambda: {"name": "Our pattern"})
+
+    sent = []
+    monkeypatch.setattr(gs, "_check_qdrant_available", lambda: True)
+    monkeypatch.setattr(gs, "embed_to_global", lambda *, item_id, **_: sent.append(item_id) or True)
+    import empirica.core.lessons.storage as st
+
+    monkeypatch.setattr(st, "get_lesson_storage", lambda: _S())
+
+    out = gs.sync_lessons_to_global("mine")
+    assert out["withheld_foreign"] == 0 and out["synced"] == 1
+    assert sent == ["lesson_ours"]
+    conn.close()
+
+
+def test_an_unreadable_record_is_withheld_not_published(tmp_path, monkeypatch):
+    """Errs toward withholding: a wrongly-withheld lesson costs a peer an ask;
+    a wrongly-republished one is unrecoverable once retrieved."""
+    import sqlite3
+
+    conn = sqlite3.connect(tmp_path / "l.db")
+    conn.executescript(SCHEMA)
+    conn.execute(
+        "INSERT INTO lessons (id, name, description, domain, sharing_policy, abstraction_level) "
+        "VALUES ('x', 'n', 'b', 'd', 'org', 'cross_org')"
+    )
+    conn.commit()
+
+    class _S:
+        _conn = conn
+
+        def superseded_ids(self):
+            return {}
+
+        def get_lesson(self, lid, layer=None):
+            raise RuntimeError("store unreadable")
+
+    monkeypatch.setattr(gs, "_check_qdrant_available", lambda: True)
+    monkeypatch.setattr(gs, "embed_to_global", lambda **_: True)
+    import empirica.core.lessons.storage as st
+
+    monkeypatch.setattr(st, "get_lesson_storage", lambda: _S())
+
+    assert gs.sync_lessons_to_global("mine")["withheld_foreign"] == 1
+    conn.close()
+
+
+# ── the truncation field was inverted ────────────────────────────────────────
+
+
+def test_the_full_text_rides_along_when_the_preview_truncates(monkeypatch):
+    """`text_full` was set only when it DUPLICATED `text` — None in exactly the case
+    it exists for. 483 of 991 live points carry a 500-char cut with no full copy."""
+    captured = {}
+
+    class _C:
+        def collection_exists(self, _n):
+            return True
+
+        def create_collection(self, *a, **k):
+            return None
+
+        def upsert(self, *, collection_name, points):
+            captured.update(points[0].payload)
+
+    monkeypatch.setattr(gs, "_check_qdrant_available", lambda: True)
+    monkeypatch.setattr(gs, "_get_qdrant_client", lambda: _C())
+    monkeypatch.setattr(gs, "_get_embedding_safe", lambda _t: [0.0])
+    monkeypatch.setattr(gs, "_get_qdrant_imports", lambda: (None, None, None, _Point))
+
+    long_text = "x" * 900
+    gs.embed_to_global(item_id="i", text=long_text, item_type="finding", project_id="p")
+
+    assert captured["text_full"] == long_text, "the overflow must survive"
+    assert len(captured["text"]) == gs._TEXT_PREVIEW
+    assert captured["truncated"] is True, "and the response must say it is a preview"
+
+
+def test_a_short_text_is_not_marked_truncated(monkeypatch):
+    """NEGATIVE CONTROL — a flag set on everything tells a consumer nothing."""
+    captured = {}
+
+    class _C:
+        def collection_exists(self, _n):
+            return True
+
+        def upsert(self, *, collection_name, points):
+            captured.update(points[0].payload)
+
+    monkeypatch.setattr(gs, "_check_qdrant_available", lambda: True)
+    monkeypatch.setattr(gs, "_get_qdrant_client", lambda: _C())
+    monkeypatch.setattr(gs, "_get_embedding_safe", lambda _t: [0.0])
+    monkeypatch.setattr(gs, "_get_qdrant_imports", lambda: (None, None, None, _Point))
+
+    gs.embed_to_global(item_id="i", text="short", item_type="finding", project_id="p")
+    assert captured["truncated"] is False
+    assert captured["text_full"] is None
+    assert captured["text"] == "short"
+
+
+class _Point:
+    def __init__(self, id, vector, payload):
+        self.id, self.vector, self.payload = id, vector, payload

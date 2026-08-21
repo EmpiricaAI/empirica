@@ -343,6 +343,18 @@ class Lesson:
     sharing_policy: Literal["private", "project", "org", "public", "licensed"] = "private"
     abstract_pattern: str | None = None  # canonical pattern name for cross-cutting
     parent_lesson_id: str | None = None  # lesson this was abstracted from
+    #: Canonical 3-form of the practice that AUTHORED this lesson, when it was
+    #: INGESTED rather than written here. None means we wrote it.
+    #:
+    #: Its own field on purpose. `created_by` cannot carry this: all 17 of this
+    #: practice's federating lessons already set it (mostly to `'cli'`), so a
+    #: foreign-origin check keyed on it would have withheld every lesson we
+    #: publish — a guard whose predicate matches the healthy case.
+    #:
+    #: Load-bearing for federation: an ingested lesson must never re-enter the
+    #: shared pool from here. Republishing gives it a new author on every hop, and
+    #: after two hops nobody can say whose pattern it was.
+    origin_practice: str | None = None
 
     # EKG connections
     entity_ids: list[str] = field(default_factory=list)  # connected entity IDs
@@ -396,6 +408,7 @@ class Lesson:
             "sharing_policy": self.sharing_policy,
             "abstract_pattern": self.abstract_pattern,
             "parent_lesson_id": self.parent_lesson_id,
+            "origin_practice": self.origin_practice,
             "entity_ids": self.entity_ids,
             "project_id": self.project_id,
             "org_id": self.org_id,
@@ -484,6 +497,7 @@ class Lesson:
             sharing_policy=d.get("sharing_policy", "private"),
             abstract_pattern=d.get("abstract_pattern"),
             parent_lesson_id=d.get("parent_lesson_id"),
+            origin_practice=d.get("origin_practice"),
             entity_ids=d.get("entity_ids", []),
             project_id=d.get("project_id"),
             org_id=d.get("org_id"),
