@@ -296,6 +296,20 @@ def _pipeline_decay_and_global_sync(session_id, project_id):
         except Exception:
             pass
         try:
+            # Lessons federate on the AUTHORED sharing policy, not on impact —
+            # the finding sync above is impact-gated because impact is the right
+            # question about an observation, while sharing is a decision the
+            # practitioner already made. Until this ran, global_learnings held
+            # 954 findings and zero lessons: the one type defined to cross the
+            # practice boundary was the one type that never did.
+            from empirica.core.qdrant.global_sync import sync_lessons_to_global
+
+            _lesson_sync = sync_lessons_to_global(project_id)
+            if _lesson_sync.get("failed") or _lesson_sync.get("skipped_reason"):
+                logger.debug(f"lesson global-sync: {_lesson_sync}")
+        except Exception:
+            pass
+        try:
             apply_staleness_signal(project_id)
         except Exception:
             pass

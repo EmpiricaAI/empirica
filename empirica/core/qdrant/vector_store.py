@@ -98,6 +98,7 @@ from empirica.core.qdrant.global_sync import (  # noqa: F401
     search_global_dead_ends,
     search_similar_dead_ends,
     sync_high_impact_to_global,
+    sync_lessons_to_global,
 )
 
 # --- Goals & subtasks ---

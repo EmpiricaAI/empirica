@@ -81,6 +81,163 @@ def embed_to_global(
         return False
 
 
+#: The sharing policies that AUTHORISE a lesson to leave the practice.
+#: `private` and `project` are deliberate refusals; `licensed` is a commercial
+#: decision that needs a rights check this layer cannot make, so it stays out
+#: until that check exists rather than being quietly treated as public.
+FEDERATED_POLICIES: tuple[str, ...] = ("org", "public")
+
+
+def sync_lessons_to_global(project_id: str, db_path: str | None = None) -> dict:
+    """Publish this practice's shareable lessons into the cross-practice pool.
+
+    **The gap this closes.** The vocabulary says a *finding* describes local state
+    and a *lesson* transfers a pattern across the practice boundary. Measured
+    2026-08-21, `global_learnings` held 954 points — 954 findings and **zero
+    lessons**. The only artifact type defined to federate was the only one that
+    never did, so `project-search --global` could surface a peer's local
+    description and never their transferable pattern.
+
+    **Gated on the AUTHORED policy, not on impact.** The finding sync selects on
+    `impact >= 0.7` because impact is the right question about an observation.
+    Sharing is not a magnitude, it is a decision the practitioner made — and
+    `sharing_policy` was an authored, indexed field that governed nothing: a
+    lesson published `public` propagated exactly as far as one marked `private`.
+
+    **Superseded lessons do not propagate.** Federating a retired lesson is worse
+    than not federating it: it arrives at a peer with no local supersession edge
+    to suppress it, so the one practice that knows it was replaced is the only
+    one that stops serving it.
+
+    Returns a BREAKDOWN, never a bare count. `{"synced": 0}` alone cannot
+    distinguish "nothing was eligible" from "Qdrant is down" from "every write
+    failed", and those need different responses.
+    """
+    out = {
+        "synced": 0,
+        "eligible": 0,
+        "withheld_superseded": 0,
+        "failed": 0,
+        "skipped_reason": None,
+    }
+    if not _check_qdrant_available():
+        out["skipped_reason"] = "qdrant_unavailable"
+        return out
+
+    try:
+        import sqlite3
+
+        from empirica.core.lessons.storage import get_lesson_storage
+
+        storage = get_lesson_storage()
+        retired = set(storage.superseded_ids())
+        conn: sqlite3.Connection = storage._conn
+        placeholders = ", ".join("?" for _ in FEDERATED_POLICIES)
+        rows = conn.execute(
+            f"SELECT id, name, description, domain, sharing_policy, abstraction_level "
+            f"FROM lessons WHERE sharing_policy IN ({placeholders})",
+            FEDERATED_POLICIES,
+        ).fetchall()
+    except Exception as e:
+        logger.warning(f"lesson global-sync could not read the lesson store: {e}")
+        out["skipped_reason"] = f"store_unreadable: {e}"
+        return out
+
+    for lid, name, description, domain, policy, level in rows:
+        out["eligible"] += 1
+        if lid in retired:
+            out["withheld_superseded"] += 1
+            continue
+        # Name AND description: a lesson's name is the pattern's handle and the
+        # description is what makes it actionable at the far end. Embedding the
+        # description alone would make a peer's search hit a body with no title.
+        text = f"{name}\n\n{description or ''}".strip()
+        ok = embed_to_global(
+            item_id=f"lesson_{lid}",
+            text=text,
+            item_type="lesson",
+            project_id=project_id,
+            tags=[t for t in ("lesson", domain or None, level or None, policy) if t],
+        )
+        if ok:
+            out["synced"] += 1
+        else:
+            out["failed"] += 1
+
+    if out["failed"]:
+        logger.warning(
+            f"lesson global-sync: {out['failed']} of {out['eligible']} eligible lesson(s) failed to embed — "
+            "peers will not see them, and nothing else reports this"
+        )
+    return out
+
+
+#: How many extra lesson CANDIDATES a `--global` search pulls in before ranking.
+#: Small on purpose: it buys lessons a place in the candidate set they lose on
+#: volume alone (954 findings to 10 lessons the day this landed), and nothing
+#: more — the merge re-sorts by score, so an uncompetitive lesson still loses.
+_LESSON_SLOTS = 2
+
+
+def _global_hit(r) -> dict:
+    payload = r.payload or {}
+    return {
+        "score": getattr(r, "score", 0.0) or 0.0,
+        "type": payload.get("type"),
+        "text": payload.get("text"),
+        "project_id": payload.get("project_id"),
+        "session_id": payload.get("session_id"),
+        "impact": payload.get("impact"),
+        "tags": payload.get("tags", []),
+    }
+
+
+def _reserve_lesson_slots(client, coll, qvec, hits: list[dict], limit: int, base_filter) -> list[dict]:
+    """Give lessons a fair shot at the result set. NOT a guarantee — read on.
+
+    Runs a second lesson-restricted query for the shortfall, merges, and re-sorts
+    by score. So a lesson that is COMPETITIVE now appears where volume alone would
+    have buried it, and a lesson that is not competitive still does not appear.
+    Verified both ways on the live pool: two lesson-shaped questions each surfaced
+    the right lesson at its true score behind better-matching findings, and a
+    release-process question surfaced none.
+
+    Say it precisely because the tempting phrasing — *ensures N lessons appear* —
+    would be false, and a docstring that overstates a mechanism is how the next
+    reader comes to trust a floor that was never there.
+
+    Fail-open: any error returns the original ranking untouched. A retrieval
+    nicety must never be able to empty a result set.
+    """
+    try:
+        already = sum(1 for h in hits if h.get("type") == "lesson")
+        shortfall = _LESSON_SLOTS - already
+        if shortfall <= 0:
+            return hits
+
+        from qdrant_client.models import FieldCondition, Filter, MatchAny
+
+        cond = [FieldCondition(key="type", match=MatchAny(any=["lesson"]))]
+        if base_filter is not None and getattr(base_filter, "must", None):
+            cond = list(base_filter.must) + cond
+        lesson_res = client.query_points(
+            collection_name=coll, query=qvec, query_filter=Filter(must=cond), limit=shortfall, with_payload=True
+        )
+        seen = {(h.get("type"), h.get("text")) for h in hits}
+        extra = [_global_hit(r) for r in lesson_res.points]
+        extra = [e for e in extra if (e.get("type"), e.get("text")) not in seen]
+        if not extra:
+            return hits
+
+        keep = [h for h in hits if h.get("type") == "lesson"]
+        others = sorted((h for h in hits if h.get("type") != "lesson"), key=lambda h: h["score"], reverse=True)
+        merged = keep + extra + others
+        return sorted(merged, key=lambda h: h["score"], reverse=True)[:limit]
+    except Exception as e:
+        logger.debug(f"lesson slot reservation skipped: {e}")
+        return hits
+
+
 def search_global(
     query_text: str, item_types: list[str] | None = None, min_impact: float | None = None, limit: int = 10
 ) -> list[dict]:
@@ -128,19 +285,23 @@ def search_global(
         results = client.query_points(
             collection_name=coll, query=qvec, query_filter=query_filter, limit=limit, with_payload=True
         )
+        hits = [_global_hit(r) for r in results.points]
 
-        return [
-            {
-                "score": getattr(r, "score", 0.0) or 0.0,
-                "type": (r.payload or {}).get("type"),
-                "text": (r.payload or {}).get("text"),
-                "project_id": (r.payload or {}).get("project_id"),
-                "session_id": (r.payload or {}).get("session_id"),
-                "impact": (r.payload or {}).get("impact"),
-                "tags": (r.payload or {}).get("tags", []),
-            }
-            for r in results.points
-        ]
+        # Reserve slots for LESSONS, unless the caller asked for specific types.
+        #
+        # Publishing lessons into this pool is not enough on its own: measured the
+        # day lessons first landed here, the pool held 954 findings and 10
+        # lessons, so pure-cosine ranking returns three findings for a question a
+        # lesson answers directly. The pool is 95:1 by volume and a lesson loses
+        # on frequency, not on fit — which reproduces the very gap publishing them
+        # was meant to close, one layer down.
+        #
+        # A finding DESCRIBES this practice's local state; a lesson TRANSFERS a
+        # pattern. A cross-practice query wants the second kind and can only be
+        # served it if the ranking is told so.
+        if not item_types and _LESSON_SLOTS:
+            hits = _reserve_lesson_slots(client, coll, qvec, hits, limit, query_filter)
+        return hits
     except Exception as e:
         logger.debug(f"search_global failed: {e}")
         return []
