@@ -81,6 +81,23 @@ def _print_related_connections(lessons, lines):
                 lines.append(f"  {l1} <--related--> {l2}")
 
 
+def _apply_supersession(results: list[dict], superseded: dict[str, str], include: bool) -> list[dict]:
+    """Mark, then optionally drop, lessons a newer lesson replaced.
+
+    ONE exit point for the filter so a new search branch cannot forget it.
+    Marking happens in BOTH modes: a caller that asks for superseded rows still
+    needs to see WHICH ones, or including them just puts retired guidance back in
+    front of the practitioner unlabelled.
+    """
+    for r in results:
+        successor = superseded.get(r.get("id"))
+        if successor:
+            r["superseded_by"] = successor
+    if include:
+        return results
+    return [r for r in results if "superseded_by" not in r]
+
+
 class LessonStorageManager:
     """
     Multi-layer storage manager for lessons.
@@ -538,8 +555,36 @@ class LessonStorageManager:
 
     # ==================== SEARCH ====================
 
+    def superseded_ids(self) -> dict[str, str]:
+        """Lessons a newer lesson replaces: ``{superseded_id: superseding_id}``.
+
+        The ``supersedes`` relation has existed in the schema since the graph
+        landed and had no writer and no reader — so a lesson replaced by a better
+        one kept surfacing in search exactly like the live one, with nothing on
+        the served row to say it had been retired. A store that only ever grows
+        is an archive, not a model of what the practice currently believes.
+
+        ``{}`` on any failure: a suppression list that raises would take search
+        down with it, and over-serving is the safer direction.
+        """
+        try:
+            cursor = self._conn.cursor()
+            cursor.execute(
+                "SELECT source_id, target_id FROM knowledge_graph "
+                "WHERE source_type = 'lesson' AND target_type = 'lesson' AND relation_type = 'supersedes'"
+            )
+            return {target: source for source, target in cursor.fetchall()}
+        except Exception as e:
+            logger.debug(f"superseded_ids unavailable: {e}")
+            return {}
+
     def search_lessons(
-        self, query: str | None = None, domain: str | None = None, improves_vector: str | None = None, limit: int = 10
+        self,
+        query: str | None = None,
+        domain: str | None = None,
+        improves_vector: str | None = None,
+        limit: int = 10,
+        include_superseded: bool = False,
     ) -> list[dict]:
         """
         Search for lessons across layers.
@@ -549,11 +594,18 @@ class LessonStorageManager:
             domain: Filter by domain (uses hot/warm)
             improves_vector: Find lessons that improve this vector (uses hot)
             limit: Max results
+            include_superseded: keep replaced lessons in the results, each
+                carrying ``superseded_by``. Default False — a lesson someone
+                explicitly replaced should stop steering work. The count of what
+                was dropped is reported by the CLI layer, never silently: a
+                filter that hides items without saying so is indistinguishable
+                from having nothing to show.
 
         Returns:
             List of lesson summaries
         """
         results = []
+        superseded = self.superseded_ids()
 
         def _governance(lesson) -> dict:
             """The fields that decide whether a lesson leaves the practice.
@@ -677,7 +729,7 @@ class LessonStorageManager:
                     }
                 )
 
-        return results
+        return _apply_supersession(results, superseded, include_superseded)
 
     # ==================== LEARNING PATH ====================
 

@@ -43,6 +43,10 @@ KNOWN_LESSON_KEYS: frozenset[str] = frozenset(
         "abstraction_level",
         "sharing_policy",
         "abstract_pattern",
+        # The id of a lesson THIS ONE replaces. Distinct from bumping `version`:
+        # a revision is the same lesson restated, a supersession says the earlier
+        # lesson should stop steering work. Writes a `supersedes` graph edge.
+        "supersedes",
     }
 )
 
@@ -54,6 +58,41 @@ LESSON_ENUMS: dict[str, tuple[str, ...]] = {
 }
 
 _PHASE_VALUES: frozenset[str] = frozenset({"noetic", "praxic"})
+
+
+def _supersession_note(storage, include_superseded: bool) -> dict:
+    """How many lessons in the store are retired, and whether they were withheld.
+
+    Reported on every read surface, including when nothing is filtered — a zero
+    here means "nothing is retired", which is a different statement from the key
+    being absent, and only one of the two is checkable.
+    """
+    retired = len(storage.superseded_ids())
+    return {"superseded_in_store": retired, "superseded_withheld": (not include_superseded) and retired > 0}
+
+
+def _wire_supersession(storage, new_id: str, supersedes: str | None) -> tuple[bool | None, str | None]:
+    """Write the ``supersedes`` edge, or say precisely why it was not written.
+
+    Validated against the store FIRST: an edge to a lesson that does not exist
+    suppresses nothing and would report success, which is the shape where a
+    practitioner believes the old guidance is retired and it keeps being served.
+    Returns ``(written, error)`` and the caller echoes both — never just that the
+    lesson itself was created.
+    """
+    # Normalise HERE rather than trusting the caller. The handler already strips,
+    # but a helper whose contract depends on its one caller having done so is a
+    # helper that breaks the moment it acquires a second one.
+    supersedes = (supersedes or "").strip() or None
+    if not supersedes:
+        return None, None
+    if supersedes == new_id:
+        return None, "supersedes: a lesson cannot supersede itself — no edge written"
+    if storage.get_lesson(supersedes) is None:
+        return None, f"supersedes: no lesson with id {supersedes!r} — no edge written"
+    if storage.add_edge(new_id, supersedes, "supersedes"):
+        return True, None
+    return False, f"supersedes: edge to {supersedes!r} could not be written"
 
 
 def handle_lesson_create_command(args: Namespace) -> dict[str, Any]:
@@ -235,6 +274,14 @@ def handle_lesson_create_command(args: Namespace) -> dict[str, Any]:
         replaced = storage.get_lesson(lesson.id) is not None
         result = storage.create_lesson(lesson)
 
+        # Supersession, if declared. Validated against the store FIRST: an edge
+        # to a lesson that does not exist suppresses nothing and reports success,
+        # which is the shape where a practitioner believes the old guidance is
+        # retired and it keeps being served. Reported either way — the receipt
+        # says whether the edge was written, never just that the lesson was.
+        supersedes = str(input_data.get("supersedes") or getattr(args, "supersedes", "") or "").strip() or None
+        superseded_ok, supersede_error = _wire_supersession(storage, lesson.id, supersedes)
+
         # Return the STORED record, not a message. `ok: true` beside a
         # congratulatory string is not checkable; the caller had to read the
         # file back to discover the lesson was an empty shell. Echo what was
@@ -247,6 +294,9 @@ def handle_lesson_create_command(args: Namespace) -> dict[str, Any]:
             # True = an existing lesson with this (name, version) was REPLACED.
             "replaced": replaced,
             "step_count": len(steps),
+            "supersedes": supersedes,
+            "supersedes_edge_written": superseded_ok,
+            "supersedes_error": supersede_error,
             "cold_path": result.get("cold_path"),
             "elapsed_ms": result.get("elapsed_ms"),
             "stored": {
@@ -311,10 +361,15 @@ def handle_lesson_list_command(args: Namespace) -> dict[str, Any]:
     domain = getattr(args, "domain", None)
     limit = getattr(args, "limit", 20)
 
-    storage = get_lesson_storage()
-    lessons = storage.search_lessons(domain=domain, limit=limit)
+    include_superseded = bool(getattr(args, "include_superseded", False))
 
-    return {"ok": True, "count": len(lessons), "lessons": lessons}
+    storage = get_lesson_storage()
+    lessons = storage.search_lessons(domain=domain, limit=limit, include_superseded=include_superseded)
+
+    # Say what was withheld. A filter that drops rows without reporting the count
+    # is indistinguishable from having nothing to show — the same false-clean
+    # shape as a validator that silently skips a case.
+    return {"ok": True, "count": len(lessons), "lessons": lessons, **_supersession_note(storage, include_superseded)}
 
 
 def handle_lesson_search_command(args: Namespace) -> dict[str, Any]:
@@ -333,10 +388,20 @@ def handle_lesson_search_command(args: Namespace) -> dict[str, Any]:
     domain = getattr(args, "domain", None)
     limit = getattr(args, "limit", 10)
 
-    storage = get_lesson_storage()
-    lessons = storage.search_lessons(query=query, domain=domain, improves_vector=improves, limit=limit)
+    include_superseded = bool(getattr(args, "include_superseded", False))
 
-    return {"ok": True, "query": query or improves or domain, "count": len(lessons), "lessons": lessons}
+    storage = get_lesson_storage()
+    lessons = storage.search_lessons(
+        query=query, domain=domain, improves_vector=improves, limit=limit, include_superseded=include_superseded
+    )
+
+    return {
+        "ok": True,
+        "query": query or improves or domain,
+        "count": len(lessons),
+        "lessons": lessons,
+        **_supersession_note(storage, include_superseded),
+    }
 
 
 def handle_lesson_recommend_command(args: Namespace) -> dict[str, Any]:

@@ -9,6 +9,11 @@ def add_lesson_parsers(subparsers):
     lesson_create.add_argument("--name", help="Lesson name")
     lesson_create.add_argument("--input", "-i", help='Input JSON file (use "-" for stdin)')
     lesson_create.add_argument("--json", help="Inline JSON data")
+    lesson_create.add_argument(
+        "--supersedes",
+        help="Id of a lesson this one REPLACES — writes a supersedes edge so the older one stops being served. "
+        "Distinct from bumping version, which publishes a revision of the same lesson.",
+    )
     lesson_create.add_argument("--output", choices=["human", "json"], default="json", help="Output format")
 
     # lesson-load: Load and display a lesson
@@ -21,6 +26,11 @@ def add_lesson_parsers(subparsers):
     lesson_list = subparsers.add_parser("lesson-list", help="List all lessons")
     lesson_list.add_argument("--domain", help="Filter by domain")
     lesson_list.add_argument("--limit", type=int, default=20, help="Maximum results (default: 20)")
+    lesson_list.add_argument(
+        "--include-superseded",
+        action="store_true",
+        help="Also return lessons a newer lesson replaced, each marked with superseded_by.",
+    )
     lesson_list.add_argument("--output", choices=["human", "json"], default="json", help="Output format")
 
     # lesson-search: Search for lessons
@@ -29,6 +39,11 @@ def add_lesson_parsers(subparsers):
     lesson_search.add_argument("--improves", help="Find lessons that improve this vector (know, do, context, etc.)")
     lesson_search.add_argument("--domain", help="Filter by domain")
     lesson_search.add_argument("--limit", type=int, default=10, help="Maximum results (default: 10)")
+    lesson_search.add_argument(
+        "--include-superseded",
+        action="store_true",
+        help="Also return lessons a newer lesson replaced, each marked with superseded_by.",
+    )
     lesson_search.add_argument("--output", choices=["human", "json"], default="json", help="Output format")
 
     # lesson-recommend: Get lesson recommendations based on epistemic state
