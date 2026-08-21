@@ -289,25 +289,15 @@ def adjudicate(
     db.conn.commit()
 
     final = _all_claims(db, session_id, transaction_id)
-    counts = {"held": 0, "refuted": 0, "untested": 0}
-    gaps = []
-    for r in final:
-        v = r.get("verdict") or "untested"
-        if v in counts:
-            counts[v] += 1
-        if v == "untested":
-            gaps.append(
-                {
-                    "claim": r.get("claim"),
-                    "grounding": r.get("grounding"),
-                    "note": (
-                        "declared at CHECK, never adjudicated — acted on, never checked"
-                        if not is_weak(r.get("grounding"))
-                        else f"declared as {r.get('grounding') or 'ungrounded'} and never checked"
-                    ),
-                }
-            )
+    counts, gaps, refutations = _tally(final)
     out = {"declared": len(final), **counts, "gaps": gaps}
+    # A refuted claim was the OUTPUT of this mechanism and had no output surface:
+    # it incremented a counter and stopped. Refutation is the strongest signal the
+    # layer produces — a contradiction established by running the thing, owing
+    # nothing to reading text — so where it points is worth more than that it
+    # happened.
+    if refutations:
+        out["refutations"] = refutations
     if unmatched:
         out["adjudication"] = {
             "applied": applied,
@@ -323,6 +313,63 @@ def adjudicate(
             "the claims they targeted are counted as 'untested' below, which understates what you "
             "actually checked. Fix the entry shape and the untested count will drop."
         )
+    return out
+
+
+def _tally(final: list[dict[str, Any]]) -> tuple[dict[str, int], list[dict], list[dict]]:
+    """Verdict counts, the untested GAPS, and the refutations, in one pass."""
+    counts = {"held": 0, "refuted": 0, "untested": 0}
+    gaps: list[dict[str, Any]] = []
+    refutations: list[dict[str, Any]] = []
+    for r in final:
+        v = r.get("verdict") or "untested"
+        if v in counts:
+            counts[v] += 1
+        if v == "refuted":
+            refutations.append(_refutation(r))
+        elif v == "untested":
+            gaps.append(
+                {
+                    "claim": r.get("claim"),
+                    "grounding": r.get("grounding"),
+                    "note": (
+                        "declared at CHECK, never adjudicated — acted on, never checked"
+                        if not is_weak(r.get("grounding"))
+                        else f"declared as {r.get('grounding') or 'ungrounded'} and never checked"
+                    ),
+                }
+            )
+    return counts, gaps, refutations
+
+
+def _refutation(row: dict[str, Any]) -> dict[str, Any]:
+    """One refuted claim, rendered so it points at what it refutes.
+
+    The `retrieved` case is the one that carries: the claim came FROM a prior
+    artifact, so refuting it is direct behavioural evidence that the artifact is
+    wrong — the practitioner is one `finding-resolve --kind retracted` away from
+    correcting the graph, and every other route to that correction requires
+    noticing the contradiction by reading. Without a `ref` the same refutation is
+    inert, which is why CHECK asks for one while the id is still in hand.
+    """
+    ref = str(row.get("ref") or "").strip() or None
+    grounding = row.get("grounding")
+    out: dict[str, Any] = {"claim": row.get("claim"), "grounding": grounding, "ref": ref}
+    if row.get("verdict_evidence"):
+        out["evidence"] = row["verdict_evidence"]
+    if grounding == "retrieved" and ref:
+        out["note"] = (
+            f"retrieved from {ref} and refuted by what you observed — that artifact asserted "
+            "something this transaction contradicted. If it is wrong rather than merely aged: "
+            f'`empirica finding-resolve {ref} --kind retracted --resolution "<why>"`.'
+        )
+    elif grounding == "retrieved":
+        out["note"] = (
+            "retrieved from a prior artifact that was not named, so the refutation cannot reach "
+            "it. The source stays in retrieval asserting what this transaction just contradicted."
+        )
+    else:
+        out["note"] = "refuted — check whether any artifact still asserts it."
     return out
 
 
@@ -375,7 +422,10 @@ def _all_claims(db, session_id: str, transaction_id: str | None) -> list[dict[st
 
 
 def _query_claims(db, session_id: str, transaction_id: str | None, only_open: bool) -> list[dict[str, Any]]:
-    sql = "SELECT id, claim_index, claim, grounding, ref, verdict FROM transaction_claims WHERE session_id = ?"
+    sql = (
+        "SELECT id, claim_index, claim, grounding, ref, verdict, verdict_evidence "
+        "FROM transaction_claims WHERE session_id = ?"
+    )
     params: list[Any] = [session_id]
     if transaction_id:
         sql += " AND transaction_id = ?"
@@ -401,8 +451,38 @@ def _query_claims(db, session_id: str, transaction_id: str | None, only_open: bo
             "grounding": r[3],
             "ref": r[4],
             "verdict": r[5],
+            # Selected because `_refutation` reads it. A projection that omits a
+            # column its own consumer reads is the shape where every test asserts
+            # on the behaviour the field ENABLES and none reads it back off the row.
+            "verdict_evidence": r[6],
         }
         for r in cur.fetchall()
+    ]
+
+
+#: Groundings whose referent is DEFINITIONALLY available at declaration time.
+#: A `retrieved` claim came from a prior artifact, so the practitioner is holding
+#: its id when they write the claim — an omission there is an oversight, not a
+#: judgement call. `read` and `ran` also have referents (a file, a command) but
+#: those are not artifact ids, so they are encouraged rather than expected.
+REFERENT_EXPECTED: tuple[str, ...] = ("retrieved",)
+
+
+def missing_referents(stored: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Claims whose grounding expects a referent and that carry none.
+
+    A refuted claim is a contradiction established by observation — the strongest
+    signal this layer produces, and the only one that owes nothing to reading
+    text. It is inert without a referent: measured 2026-08-21, of 17 refuted
+    claims exactly ONE named what it refuted, so sixteen contradiction events
+    existed that the graph could not attach to anything.
+
+    `retrieved` is where that costs most and is cheapest to fix: the claim came
+    FROM an artifact, so a refuted retrieved-claim is direct behavioural evidence
+    that its source is wrong. Coverage at the time of writing: 8 of 36.
+    """
+    return [
+        c for c in (stored or []) if (c.get("grounding") in REFERENT_EXPECTED) and not str(c.get("ref") or "").strip()
     ]
 
 
@@ -431,4 +511,16 @@ def summarize_for_check(stored: list[dict[str, Any]]) -> dict[str, Any] | None:
         )
     if ungrounded:
         out["unlabelled"] = len(ungrounded)
+    # Referent coverage, echoed HERE because this is the last moment the
+    # practitioner still holds the id. Reported, never rejected: this module is
+    # advisory by design, and two mechanisms in this codebase died of over-firing.
+    unreferenced = missing_referents(stored)
+    if unreferenced:
+        out["missing_referents"] = len(unreferenced)
+        out["referent_note"] = (
+            f"{len(unreferenced)} claim(s) grounded `retrieved` name no artifact. A retrieved "
+            "claim came FROM a prior artifact, so its id is in your hand right now — and if this "
+            "claim is later refuted, the referent is what turns that into evidence about the "
+            "artifact rather than a verdict about nothing. Add `ref` to each."
+        )
     return out
