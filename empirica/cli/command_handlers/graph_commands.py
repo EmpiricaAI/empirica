@@ -1887,6 +1887,80 @@ def _read_update_input(args) -> dict | None:
     return data
 
 
+def _update_foreign_artifact(atype: str, aid: str, item: dict) -> tuple[int, list[str], dict | None]:
+    """Correct metadata on an artifact whose row is not in `sessions.db`.
+
+    Today that is `lesson`, and `sharing_policy` is why: the lesson store defaults
+    to `private`, so a lesson has to be actively promoted, and there was no verb
+    that promoted one. 7 of this practice's 24 lessons were cross-practice patterns
+    permanently invisible to every peer because the only route was re-authoring.
+
+    Same contract as the sessions.db path — rejected field names are REPORTED, and
+    the store's own warnings (a demotion that cannot recall what peers already
+    retrieved) are surfaced as errors rather than swallowed, because a promotion
+    that reports success while changing nothing is what this whole verb exists to
+    end.
+    """
+    from empirica.data.artifact_fields import filter_updates
+
+    body = {k: v for k, v in item.items() if k not in ("type", "id")}
+    updates, rejected = filter_updates(atype, body)
+    rejected_entry = {"id": aid, "type": atype, "rejected": rejected} if rejected else None
+    if not updates:
+        return 0, [f"{atype} {aid[:8]}: no correctable fields in request"], rejected_entry
+    if atype != "lesson":
+        return 0, [f"{atype}: declared foreign-store but no writer is wired"], rejected_entry
+
+    try:
+        from empirica.core.lessons import get_lesson_storage
+
+        result = get_lesson_storage().update_metadata(aid, updates)
+    except Exception as e:
+        return 0, [f"{atype} {aid[:8]}: {e}"], rejected_entry
+
+    errs = [f"{atype} {aid[:8]}: {w}" for w in result.get("warnings", [])]
+    return (1 if result.get("updated") else 0), errs, rejected_entry
+
+
+def _apply_session_row(cursor, atype: str, aid: str, item: dict, errors: list, rejected_report: list) -> int:
+    """Correct one row in sessions.db. Mirror of `_apply_foreign` for the local store."""
+    from empirica.data.artifact_fields import ARTIFACT_TABLES, filter_updates
+
+    body = {k: v for k, v in item.items() if k not in ("type", "id")}
+    updates, rejected = filter_updates(atype, body)
+    if rejected:
+        rejected_report.append({"id": aid, "type": atype, "rejected": rejected})
+    if not updates:
+        errors.append(f"{atype} {aid[:8]}: no correctable fields in request")
+        return 0
+
+    table, id_col = ARTIFACT_TABLES[atype]
+    sets = ", ".join(f"{k} = ?" for k in updates)
+    try:
+        cursor.execute(f"UPDATE {table} SET {sets} WHERE {id_col} = ?", [*updates.values(), aid])
+    except Exception as e:
+        errors.append(f"{atype} {aid[:8]}: {e}")
+        return 0
+    if cursor.rowcount > 0:
+        return cursor.rowcount
+    errors.append(f"{atype} {aid[:8]}: not found")
+    return 0
+
+
+def _apply_foreign(atype: str, aid: str, item: dict, errors: list, rejected_report: list) -> int:
+    """Route one entry to a store outside sessions.db and fold its result in.
+
+    Dispatched on the declared FOREIGN_STORE_TYPES set rather than on a hardcoded
+    name, so adding a second foreign store is a data change and not a new branch
+    in the main loop.
+    """
+    n, errs, rej = _update_foreign_artifact(atype, aid, item)
+    errors.extend(errs)
+    if rej:
+        rejected_report.append(rej)
+    return n
+
+
 def handle_update_artifacts_command(args):
     """Correct FIELDS on existing artifacts — the gardening verb that was missing.
 
@@ -1899,7 +1973,7 @@ def handle_update_artifacts_command(args):
     Rejected field names are REPORTED, not silently dropped — a correction that says
     success while changing nothing is the failure this whole surface exists to end.
     """
-    from empirica.data.artifact_fields import ARTIFACT_TABLES, filter_updates
+    from empirica.data.artifact_fields import ARTIFACT_TABLES, FOREIGN_STORE_TYPES
     from empirica.data.session_database import SessionDatabase
 
     try:
@@ -1926,6 +2000,9 @@ def handle_update_artifacts_command(args):
                     continue
                 atype = item.get("type")
                 aid = str(item.get("id") or "").strip()
+                if atype in FOREIGN_STORE_TYPES:
+                    updated += _apply_foreign(atype, aid, item, errors, rejected_report)
+                    continue
                 if atype not in ARTIFACT_TABLES:
                     errors.append(f"unknown type {atype!r} (expected one of {sorted(ARTIFACT_TABLES)})")
                     continue
@@ -1939,26 +2016,7 @@ def handle_update_artifacts_command(args):
                     errors.append(f"{atype}: {id_error}")
                     continue
 
-                body = {k: v for k, v in item.items() if k not in ("type", "id")}
-                updates, rejected = filter_updates(atype, body)
-                if rejected:
-                    rejected_report.append({"id": aid, "type": atype, "rejected": rejected})
-                if not updates:
-                    errors.append(f"{atype} {aid[:8]}: no correctable fields in request")
-                    continue
-
-                table, id_col = ARTIFACT_TABLES[atype]
-                sets = ", ".join(f"{k} = ?" for k in updates)
-                params = [*updates.values(), aid]
-                try:
-                    cursor.execute(f"UPDATE {table} SET {sets} WHERE {id_col} = ?", params)
-                except Exception as e:
-                    errors.append(f"{atype} {aid[:8]}: {e}")
-                    continue
-                if cursor.rowcount > 0:
-                    updated += cursor.rowcount
-                else:
-                    errors.append(f"{atype} {aid[:8]}: not found")
+                updated += _apply_session_row(cursor, atype, aid, item, errors, rejected_report)
             db.conn.commit()
         finally:
             db.close()

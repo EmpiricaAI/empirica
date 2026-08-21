@@ -2,9 +2,17 @@
 
 Both previously fired on relatedness (keyword overlap / cosine similarity),
 not actual contradiction, so a confirmatory finding decayed the fact/lesson it
-confirmed (autoimmune). Until a real opposition predicate exists (goal 98055360
-P2, converged w/ cortex on decay thread prop_j7y7f4), finding-log must NOT
-auto-decay. These tests guard against accidental re-enable without the predicate.
+confirmed (autoimmune). Converged w/ cortex on decay thread prop_j7y7f4.
+
+**The lexical predicate that was supposed to unblock this was built, measured and
+retired.** Over the whole corpus — 6,704 artifacts, 9,064,779 pairs — it fired
+ZERO times, and its own motivating example failed its own threshold on English
+inflection (v1.13.26 shipped it, v1.13.27 retired it, v1.13.28 removed it). So
+these tests are not waiting on someone to finish the predicate: matching text
+cannot separate agreement from contradiction, which is what made the original
+decay autoimmune. The behavioural signal that could gate a re-enable is a
+transaction claim adjudicated `refuted` — a contradiction established by running
+the thing, not by reading text.
 
 The helpers early-return before any Qdrant / cold-storage I/O, so inputs that
 would previously have triggered decay must now produce no-ops regardless.

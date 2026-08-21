@@ -555,6 +555,97 @@ class LessonStorageManager:
 
     # ==================== SEARCH ====================
 
+    def update_metadata(self, lesson_id: str, updates: dict) -> dict:
+        """Correct a lesson's governance METADATA. The lesson text stays immutable.
+
+        `sharing_policy` is the field this exists for. The store's default is
+        `private`, so a lesson has to be actively promoted — and until this landed
+        there was no verb that promoted one. Measured 2026-08-21: 7 of 24 lessons
+        here were cross-practice patterns permanently invisible to every peer,
+        because the only route was to re-author the lesson under the same name and
+        version. Federation could publish new knowledge and not promote existing
+        knowledge.
+
+        Writes BOTH layers. The SQLite row is what the sharing query reads; the
+        serialised `lesson_data` blob is what `get_lesson` reconstructs from. Fixing
+        one leaves the other stale, and a promotion that shows up in `lesson-list`
+        while `get_lesson` still reports `private` is the two-sources-of-truth
+        defect that made `sharing_policy` unreadable for its whole prior life.
+
+        Returns `{"updated": [...], "warnings": [...]}`. A demotion is APPLIED and
+        WARNED about, never refused: dropping `public` to `private` stops future
+        propagation and cannot recall what peers already retrieved, and a caller
+        who is not told that will believe they unpublished something.
+        """
+        out: dict = {"updated": [], "warnings": []}
+        if not updates:
+            return out
+
+        # `layer="warm"` deliberately, not the default "auto". Auto returns a
+        # HotLessonEntry on a cache hit, which has no `to_dict` — so the blob
+        # rewrite below would raise on exactly the lessons that are hottest, and
+        # the fail-soft `except` would report a warning instead of the promotion.
+        # pyright caught this before it ran once.
+        lesson = self.get_lesson(lesson_id, layer="warm")
+        if lesson is None:
+            out["warnings"].append(f"no lesson with id {lesson_id!r} — nothing updated")
+            return out
+        if not isinstance(lesson, Lesson):
+            # Not a type nicety: a HotLessonEntry cannot round-trip through
+            # `to_dict`, so rewriting the blob from one would either raise or write
+            # a truncated record over the full one. Refuse and say so.
+            out["warnings"].append(
+                f"lesson {lesson_id!r} resolved to a cache entry rather than a full record — refusing to "
+                "rewrite the stored blob from a partial view"
+            )
+            return out
+
+        prior_policy = getattr(lesson, "sharing_policy", None)
+        new_policy = updates.get("sharing_policy")
+        if new_policy and prior_policy in ("org", "public") and new_policy in ("private", "project"):
+            out["warnings"].append(
+                f"demoted {prior_policy} -> {new_policy}: this stops FUTURE propagation and cannot "
+                "recall copies peers have already retrieved from the shared pool"
+            )
+
+        try:
+            for field, value in updates.items():
+                setattr(lesson, field, value)
+            cursor = self._conn.cursor()
+            sets = ", ".join(f"{k} = ?" for k in updates)
+            cursor.execute(
+                f"UPDATE lessons SET {sets}, lesson_data = ? WHERE id = ?",
+                [*updates.values(), json.dumps(lesson.to_dict()), lesson_id],
+            )
+            if cursor.rowcount == 0:
+                out["warnings"].append(f"lesson {lesson_id!r} matched no row — nothing updated")
+                return out
+            self._conn.commit()
+            # THE COLD FILE IS A READ SOURCE, not an archive. `get_lesson`'s default
+            # `auto` path returns `_read_cold(...) or _read_warm(...)`, so a YAML
+            # left stale is what every default read serves. Writing SQLite's column
+            # and blob and stopping there promoted a lesson everywhere except where
+            # it is read: measured live, the column said `org`, the blob said `org`,
+            # and `get_lesson` said `private`. Four layers, and updating three of
+            # them is still a two-sources-of-truth defect.
+            self._write_cold(lesson)
+        except Exception as e:
+            logger.warning(f"lesson metadata update failed for {lesson_id}: {e}")
+            out["warnings"].append(f"update failed: {e}")
+            return out
+
+        # Refresh the hot layer so this process does not keep serving the old value.
+        # `load_lesson(to_hot_dict())` is the same call `create_lesson` uses — there
+        # is no add_lesson, and reaching for one would have failed silently inside
+        # the except below, leaving a promotion invisible for the rest of the session.
+        try:
+            self._hot.load_lesson(lesson.to_hot_dict())
+        except Exception as e:
+            logger.debug(f"hot-layer refresh after metadata update skipped: {e}")
+
+        out["updated"] = sorted(updates)
+        return out
+
     def superseded_ids(self) -> dict[str, str]:
         """Lessons a newer lesson replaces: ``{superseded_id: superseding_id}``.
 

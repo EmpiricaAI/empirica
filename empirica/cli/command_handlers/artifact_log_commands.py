@@ -959,8 +959,21 @@ def _decay_related_lessons(finding, subject, project_id) -> list:
     # overlap (>=2 shared keywords), not actual contradiction — so a CONFIRMATORY
     # finding decayed the lesson it confirmed (autoimmune erosion of the knowledge
     # it should reinforce). Stop the erosion now; the machinery in storage.py stays
-    # intact and gets re-wired here gated on a real opposition predicate (goal
-    # 98055360 P2). Until then finding-log must NOT auto-decay lessons.
+    # intact.
+    #
+    # STILL DISABLED, and the reason has changed: the LEXICAL predicate that was
+    # supposed to gate the re-enable was built (v1.13.26), measured, and retired
+    # (v1.13.27): over this practice's whole corpus — 6,704 artifacts, 9,064,779
+    # pairs — it fired ZERO times, and its own motivating example failed its own
+    # threshold on English inflection. So the gate is NOT "someone still has to
+    # write the predicate"; it is that lexical matching over artifact prose cannot
+    # separate agreement from contradiction, which is why the original decay was
+    # autoimmune in the first place.
+    #
+    # The behavioural signal that CAN gate it already exists: a transaction claim
+    # adjudicated `refuted` at POSTFLIGHT is a contradiction established by running
+    # the thing (empirica/core/claims.py). Re-enabling decay on THAT is a live
+    # option; re-enabling it on text similarity is a known dead end.
     return []
 
 
@@ -970,9 +983,12 @@ def _decay_eidetic_by_finding(project_id, finding, subject) -> int:
     # qdrant.decay.decay_eidetic_by_finding decays on cosine similarity >= 0.85
     # with no opposition check — a confirmatory finding decayed the fact it
     # confirmed (inverse of confirm->raise). Stop the erosion now; the machinery
-    # in qdrant/decay.py stays intact and gets re-wired here gated on a real
-    # opposition predicate (goal 98055360 P2). Until then finding-log must NOT
-    # auto-decay eidetic facts.
+    # in qdrant/decay.py stays intact.
+    #
+    # STILL DISABLED, same corrected reason as _decay_related_lessons above:
+    # the lexical gate was built, measured at zero yield, and retired in v1.13.27.
+    # Text similarity cannot separate agreement from contradiction; the behavioural
+    # `refuted` verdict in empirica/core/claims.py can.
     return 0
 
 
@@ -1108,7 +1124,8 @@ def handle_finding_log_command(args):
         # under its own threshold. The replacement is behavioural and already
         # running: a claim adjudicated `refuted` at POSTFLIGHT is a contradiction
         # established by observation, and `claims._refutation` names what it
-        # contradicts. See empirica/core/opposition.py for the full retirement note.
+        # contradicts. Retired in v1.13.27 after measuring ZERO fires over 6,704
+        # artifacts / 9,064,779 pairs; the module is gone as of v1.13.28.
 
         # Format output (AI-first = JSON by default)
         if output_format == "json":

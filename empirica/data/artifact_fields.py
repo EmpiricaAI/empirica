@@ -54,11 +54,30 @@ ARTIFACT_UPDATABLE_FIELDS: dict[str, set[str]] = {
     "decision": {"outcome", "regret_score", "reversibility", "epistemic_source", "visibility"},
     "source": {"confidence", "description"},
     "goal": {"objective", "status"},
+    # A lesson's TEXT is immutable by the same rule as a finding's claim — a lesson
+    # that turns out wrong is superseded, not edited. What is correctable is the
+    # governance metadata, and `sharing_policy` is the one that matters: it decides
+    # whether the lesson leaves the practice at all, and until this existed a lesson
+    # authored under the `private` default could never be promoted.
+    "lesson": {"sharing_policy", "abstraction_level", "abstract_pattern", "domain"},
 }
 
 #: Table + id column per type, so a caller can locate the row without duplicating
 #: the mapping that has already caused trouble elsewhere (`project_assumptions`
 #: was referenced for the life of a verb; the real table is `assumptions`).
+#: Types whose rows do NOT live in `sessions.db`. `update-artifacts` resolves the
+#: map above against the session database; anything here needs its own writer, and
+#: the CLI dispatches on membership rather than on a hardcoded name.
+#:
+#: `lesson` is the whole reason this exists. Lessons live in
+#: `.empirica/lessons/lessons.db`, so a lesson authored `private` — the default —
+#: had NO path to become shared: measured 2026-08-21, 7 of this practice's 24
+#: lessons were cross-practice patterns permanently invisible to every peer,
+#: because the only way to change the policy was to re-author the lesson.
+#: Federation can publish new knowledge; without this it cannot promote existing
+#: knowledge.
+FOREIGN_STORE_TYPES: frozenset[str] = frozenset({"lesson"})
+
 ARTIFACT_TABLES: dict[str, tuple[str, str]] = {
     "finding": ("project_findings", "id"),
     "unknown": ("project_unknowns", "id"),
