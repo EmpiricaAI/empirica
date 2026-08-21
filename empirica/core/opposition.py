@@ -1,4 +1,49 @@
-"""Does B *contradict* A, or merely *resemble* it?
+"""RETIRED 2026-08-21 — lexical opposition, measured yield ZERO. Read this first.
+
+**Still importable for one release, then removed.** Nothing in the write path
+calls it: ``finding-log`` computed a contradiction warning from this and no
+longer does.
+
+**Why, measured rather than argued.** Run over this practice's whole corpus —
+6,704 artifacts across findings, unknowns, dead-ends, decisions, assumptions,
+mistakes and lessons — every pair sharing at least one content word, 9,064,779
+pairs: **it fired zero times.** Not rarely. Never. The instrument was live
+throughout (it fires on constructed input, and the tests below pin both signals),
+so this is an absence observed through a working instrument.
+
+Worse, and this is the part that generalises: **its own motivating example does
+not fire.** The docstring below argued from *"the gate blocks praxic tools"* vs
+*"the gate does NOT block praxic tools"*. Those are ``blocks`` and ``block`` —
+English inflection, no stemmer — so the content overlap is 0.75 against a 0.8
+polarity bar. The canonical case it was written to catch is a false negative of
+its own predicate, and nobody noticed because the example lived in prose and the
+threshold lived in code.
+
+**The lesson is not "tune the thresholds".** Loosening them buys recall on the
+inflection case and gives back exactly the false-positive direction the original
+autoimmune bug came from. Lexical matching over natural-language artifact text
+cannot separate agreement from contradiction, because the thing that differs
+between agreeing and contradicting text is semantic and the thing this measures
+is spelling.
+
+**The replacement was already running and its signal was being discarded.**
+``transaction_claims`` records a verdict per declared claim, and ``refuted``
+means the practitioner acted on a claim and *observed* it to be false — a
+contradiction established by running the thing, owing nothing to reading text,
+produced at no extra token cost by a judge that understands meaning. That signal
+existed for the whole life of this module. What it lacked was a referent: of 17
+refuted claims, one named what it refuted. ``claims._refutation`` now surfaces
+where a refutation points, which is the capability this module was reaching for
+and could not have.
+
+Kept importable, and kept tested, so the measurement above has something to be a
+measurement OF. Delete after 1.13.27.
+
+---
+
+Original docstring follows.
+
+Does B *contradict* A, or merely *resemble* it?
 
 Core had write-time contradiction detection and switched it off. ``decay.py``
 still carries ``decay_eidetic_by_finding`` and ``decay_related_lessons``; both

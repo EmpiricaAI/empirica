@@ -1,4 +1,23 @@
-"""The predicate that had to exist before contradiction detection could come back.
+"""RETIRED — kept so the measurement that retired it has something to measure.
+
+The tests below still pass: the predicate does what it was written to do. That is
+precisely the finding. **Measured 2026-08-21 over this practice's whole corpus —
+6,704 artifacts, every pair sharing a content word, 9,064,779 pairs — it fired
+zero times.** A working instrument, pointed at real data, for its entire life,
+yielding nothing.
+
+And the case it was written for is a false negative of itself: the original
+docstring argued from *"the gate blocks praxic tools"* vs *"...does NOT block..."*,
+which is ``blocks`` vs ``block``, overlap 0.75 against a 0.8 bar. Pinned below, so
+the next reader meets the limit before the thresholds.
+
+The write path no longer calls it (also pinned below). The behavioural replacement
+— a claim adjudicated ``refuted``, which is a contradiction established by running
+the thing — lives in ``empirica/core/claims.py``.
+
+Original docstring follows.
+
+The predicate that had to exist before contradiction detection could come back.
 
 Core's write-time contradiction detection was switched off on 2026-05-28 because
 it fired on cosine similarity ≥ 0.85, and similarity cannot separate agreement
@@ -125,3 +144,47 @@ def test_polarity_needs_a_higher_bar_than_antonyms_and_the_asymmetry_is_delibera
     a = "the listener forwards presence records for its own practice"
     b = "the listener scarcely forwards presence records for another practice today"
     assert opposes(a, b) is None
+
+
+# ── the retirement, pinned ───────────────────────────────────────────────────
+
+
+def test_its_own_motivating_example_does_not_fire():
+    """`blocks` vs `block`. English inflection, no stemmer, and the bar is 0.8.
+
+    NOT a bug to fix by loosening the threshold — that buys this one case and
+    gives back the false-positive direction the autoimmune disable came from.
+    It is the limit of lexical matching over natural-language text, which is why
+    the replacement is behavioural rather than better-tuned.
+    """
+    assert opposes("the gate blocks praxic tools", "the gate does not block praxic tools") is None
+    # POSITIVE CONTROL: identical but for the inflection, it fires. So the miss is
+    # the stemming, measured — not the instrument being dead.
+    assert opposes("the gate blocks praxic tools", "the gate does not blocks praxic tools") is not None
+
+
+def test_the_write_path_no_longer_calls_it():
+    """Retirement means detached, not merely deprecated in a docstring."""
+    from pathlib import Path
+
+    handler = (
+        Path(__file__).resolve().parent.parent / "empirica" / "cli" / "command_handlers" / "artifact_log_commands.py"
+    )
+    src = handler.read_text()
+    assert "from empirica.core.opposition import" not in src
+    assert "_contradictions_safe" not in src
+
+    # POSITIVE CONTROL for the grep: the same probe finds the import where it
+    # genuinely lives, so the absence above is measured through a live instrument.
+    ours = Path(__file__).read_text()
+    assert "from empirica.core.opposition import" in ours
+
+
+def test_the_behavioural_replacement_exists_and_names_its_referent():
+    """The signal this module reached for, produced by observation instead of spelling."""
+    from empirica.core import claims as C
+
+    row = {"claim": "storage dedupes on hash", "grounding": "retrieved", "ref": "f-9c1", "verdict": "refuted"}
+    out = C._refutation(row)
+    assert out["ref"] == "f-9c1"
+    assert "retracted" in out["note"]
