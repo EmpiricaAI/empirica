@@ -400,7 +400,13 @@ def _artifact_exists(db, artifact_id: str) -> bool:
             cursor.execute(f"SELECT 1 FROM {table} WHERE {id_col} = ? LIMIT 1", (artifact_id,))
             if cursor.fetchone():
                 return True
-        except Exception:
+        except Exception as e:
+            # SAY IT. This loop now includes `epistemic_sources`, and a False from
+            # here makes `prune_dangling` judge an edge dangling and DELETE it —
+            # which is the incident documented below. A table erroring on every
+            # call would otherwise be indistinguishable from "the id is not there",
+            # and the difference is whether a citation survives.
+            logger.debug(f"_artifact_exists: {table} unreadable, treating as not-found: {e}")
             continue
     # `epistemic_sources` is in the loop above via the canonical registry, so the
     # hand-written special case that used to live here is gone. An ARCHIVED source
