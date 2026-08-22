@@ -5,6 +5,90 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.28] - 2026-08-22
+
+### Added
+- **Lessons federate — the type defined to cross the practice boundary finally
+  does.** Measured before the fix: the shared pool held 954 points, **954
+  findings and zero lessons**, while every lesson embedding carried a null
+  project id. The vocabulary is explicit — a finding *describes* local state, a
+  lesson *transfers* a pattern — so the pipeline was moving the local
+  descriptions and leaving the transferable patterns at home. `sharing_policy`
+  was authored, indexed, four-valued, and consulted by nothing: a lesson
+  published `public` propagated exactly as far as one marked `private`. Lessons
+  now publish on the **authored policy** rather than on impact (impact is the
+  right question about an observation; sharing is a decision the practitioner
+  already made), carry their origin, and withhold anything superseded — a retired
+  lesson arriving at a peer has no local supersession edge to suppress it.
+- **Publishing was not enough.** At 10 lessons beside 954 findings the pool is
+  95:1, and pure-cosine ranking returned three findings and no lesson for
+  questions a lesson answers directly — losing on frequency, not on fit. Global
+  search now pulls a small number of extra lesson candidates before ranking and
+  re-sorts by score: a candidate floor, not a rank thumb. An uncompetitive lesson
+  still loses.
+- **Ingestion, so federation is a loop rather than a broadcast.**
+  `lesson-create --from-global <id>` pulls a peer's shared lesson into the local
+  store, on demand — auto-ingesting everything shared would make the store an
+  unfiltered peer feed. The copy is attributed permanently, lands `private`
+  (re-sharing is never inherited), and **can never re-enter the pool from here**:
+  republishing gives a lesson a new author on every hop, and after two hops
+  nobody can say whose pattern it was. It refuses rather than approximating when
+  the full record is absent — a lesson you cannot replay looks identical to one
+  you can.
+- **`supersedes` had a schema, a reader, and no writer.** The relation has been in
+  the graph since it landed and nothing ever created one, so no lesson was ever
+  retired and search served a replaced lesson identically to its replacement.
+  `lesson-create --supersedes` now writes the edge (validating the target exists
+  first — an edge to nothing suppresses nothing while reporting success), and
+  search withholds retired lessons while reporting how many it withheld.
+- **Lesson promotion.** The store defaults to `private`, so sharing is an act and
+  no verb performed it: 7 of 24 lessons here were cross-practice patterns
+  permanently invisible to every peer, because the only route to a different
+  policy was re-authoring. `update-artifacts` now corrects a lesson's governance
+  metadata. The lesson text stays immutable — a wrong lesson is superseded, not
+  edited — and a demotion is applied *and warned about*, because it stops future
+  propagation and cannot recall what peers already retrieved.
+- **A refuted claim names what it refutes.** Refutation is the strongest signal
+  the claims layer produces and the only one owing nothing to reading text, and it
+  had no output surface. Of 17 refuted claims exactly one named its referent.
+  POSTFLIGHT now returns where each refutation points; CHECK asks for the referent
+  while the id is still in hand, and asks only where it is definitionally
+  available.
+
+### Fixed
+- **The isolation fixture reverted a live transaction mid-suite.** The test
+  harness snapshotted every active-transaction pointer at session start and
+  restored them unconditionally at teardown — so a PREFLIGHT submitted inside the
+  release gate's 12-minute run was reverted to the previous closed transaction,
+  and the POSTFLIGHT adjudicated the wrong window. Two writers, one key, and the
+  writer that lost was the one doing real work. Restores now skip any file
+  another writer touched, and say which.
+- **The prompt gates matched pasted text.** Measured over 12,181 real prompts: the
+  investigation-proportionality gate fired on 20.3%, but **53% of those fires
+  triggered past the first 200 characters** — and on prompts over 10k characters,
+  561 of 563 did. Those are pasted logs. A hit arms a budget that *denies* tool
+  calls, so the word "maybe" inside quoted material was buying a runtime denial.
+  Both gates now match only the user's own framing (10k+ case: 561 fires → 20),
+  and the detection breadth moved to a non-lexical pointer, because roughly one
+  short prompt in seven hands over a hypothesis in words no list contains.
+- **Lexical contradiction detection retired.** Run over the whole corpus — 6,704
+  artifacts, 9,064,779 pairs — it fired **zero times**, and its own docstring's
+  motivating example failed its own threshold on English inflection. The module is
+  removed; the replacement is behavioural.
+- **The entity registry's find-then-read contract was broken by its own writer.**
+  115 rows named a table absent from the database they named, from
+  `source_table=entity_type` in the mint — the type is not the table. Core now
+  writes the registry spine and names no detail table at all: whoever writes the
+  detail row repoints the entity at it.
+- **An OAuth-only seat could not join the mesh, and nothing said why.** The
+  credentials layer returned empty *silently* on a missing api key, so the
+  listener's error branch never fired and the message that did print pointed at
+  cortex and at topics while the true cause was a local credential. Its remedy
+  cleared only the first of two independent gates. The layer stays fail-soft — a
+  cockpit that hard-fails on an optional integration takes down more than it fixes
+  — but now says why, and the refusal reports every unmet precondition at once,
+  cause first.
+
 ## [1.13.27] - 2026-08-21
 
 ### Changed

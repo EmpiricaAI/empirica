@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.13.27
-**Generated:** 2026-08-21 12:11:17 UTC
+**Framework version:** 1.13.28
+**Generated:** 2026-08-22 09:15:23 UTC
 **Total commands:** 243 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -4188,6 +4188,10 @@ Create a new lesson from JSON input
   Input JSON file (use "-" for stdin)
 - `--json` — optional
   Inline JSON data
+- `--from-global` — optional
+  INGEST a peer's shared lesson by id from the cross-practice pool. The copy is attributed to its author permanently and can never be re-published from here.
+- `--supersedes` — optional
+  Id of a lesson this one REPLACES — writes a supersedes edge so the older one stops being served. Distinct from bumping version, which publishes a revision of the same lesson.
 - `--output` — optional · type=`choice` · choices={human, json} · default=`json`
   Output format
 
@@ -4214,6 +4218,8 @@ List all lessons
   Filter by domain
 - `--limit` — optional · type=`int` · default=`20`
   Maximum results (default: 20)
+- `--include-superseded` — optional · flag
+  Also return lessons a newer lesson replaced, each marked with superseded_by.
 - `--output` — optional · type=`choice` · choices={human, json} · default=`json`
   Output format
 
@@ -4231,6 +4237,8 @@ Search for lessons by query, vector, or domain
   Filter by domain
 - `--limit` — optional · type=`int` · default=`10`
   Maximum results (default: 10)
+- `--include-superseded` — optional · flag
+  Also return lessons a newer lesson replaced, each marked with superseded_by.
 - `--output` — optional · type=`choice` · choices={human, json} · default=`json`
   Output format
 
