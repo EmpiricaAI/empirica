@@ -48,7 +48,13 @@ def classify_sources(
     for s in sources:
         sid = s.get("id")
         chash = s.get("content_hash")
-        cpath = s.get("canonical_path")
+        # Resolve BOTH shapes: the column holds legacy absolutes alongside the new
+        # repo-relative form, and a checker that understood only one would report
+        # every row of the other shape as a dead file.
+        from empirica.core.sources.canonical_path import resolve as _resolve_cpath
+
+        cpath = _resolve_cpath(s.get("canonical_path"))
+        cpath = str(cpath) if cpath else None
         if cpath and cpath in missing_paths:
             verdict = "dead"
         elif chash and hash_counts.get(chash, 0) > 1:

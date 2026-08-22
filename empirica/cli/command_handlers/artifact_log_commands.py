@@ -2159,6 +2159,9 @@ def _compute_content_identity(doc_path: str | None) -> dict:
     """
     identity: dict = {
         "canonical_path": None,
+        # PORTABLE / NON_PORTABLE / None. Separate from the path so a consumer that
+        # ignores it still gets something usable rather than a mangled string.
+        "path_portability": None,
         "content_hash": None,
         "size_bytes": None,
         "mime_type": None,
@@ -2170,11 +2173,21 @@ def _compute_content_identity(doc_path: str | None) -> dict:
         import mimetypes
         from pathlib import Path
 
+        from empirica.core.sources.canonical_path import normalise
+
+        # REPO-RELATIVE when the file is inside the project, absolute (and flagged)
+        # when it is not. The old line stored `str(p.resolve())` unconditionally,
+        # which is why 18 of 20 populated rows named a directory on one laptop —
+        # a locator that resolves on exactly one box is not a locator. content_hash
+        # remains the identity; this is only where to find it.
+        stored, portability = normalise(doc_path)
+        identity["canonical_path"] = stored
+        identity["path_portability"] = portability
+
         p = Path(doc_path).expanduser()
         if not p.is_absolute():
             p = Path.cwd() / p
         p = p.resolve()
-        identity["canonical_path"] = str(p)
         if p.is_file():
             data = p.read_bytes()
             identity["content_hash"] = f"sha256:{hashlib.sha256(data).hexdigest()}"

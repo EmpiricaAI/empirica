@@ -35,7 +35,14 @@ def _fetch_content(
     ``source_url``. ``(None, reason)`` on any failure — the caller must NOT touch
     the stored hash when the fetch fails.
     """
-    for candidate in (canonical_path, source_url):
+    # `canonical_path` may be repo-relative now, so resolve it against the project
+    # root before opening. Without this the re-fetch would fail on every normalised
+    # row while continuing to work on the legacy absolutes — a half-migrated column
+    # where the rows that still work hide the rows that do not.
+    from empirica.core.sources.canonical_path import resolve as _resolve_cpath
+
+    resolved_local = _resolve_cpath(canonical_path)
+    for candidate in (str(resolved_local) if resolved_local else None, source_url):
         if candidate and not candidate.startswith(("http://", "https://")):
             p = Path(candidate.replace("file://", ""))
             try:
