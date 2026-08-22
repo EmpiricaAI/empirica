@@ -5,6 +5,42 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.29] - 2026-08-23
+
+### Fixed
+- **One artifact-type registry, and a destructive verb that nearly got wider.**
+  `delete-artifacts` answered *Unknown artifact type* for `lesson` — a type the
+  canonical registry names on purpose. Four copies of the type map existed, not
+  one; `update-artifacts`, in the same file, had already been migrated. But one
+  divergence was **deliberate**: `source` was left out of the delete map because
+  sources are archived, never deleted — while that same map also answered *"what
+  exists?"* for edge validation, so every `sourced_from` edge read as dangling and
+  a routine gardening pass destroyed a practice's only two citations. Unifying
+  blindly would have made a destructive verb able to delete sources. So the tables
+  are unified and the deletion **policy** is now explicit: `DELETABLE_TYPES` with a
+  stated reason per exclusion, and refusals that name the alternative instead of
+  reading like a typo.
+- **`canonical_path` is a locator, and one that resolves on a single machine is
+  not one.** It was written as `str(Path(p).resolve())` unconditionally, so 18 of
+  20 populated rows named a directory on one laptop — a peer who clones the repo
+  can verify the bytes via `content_hash` and has no way to *find* the file. Paths
+  inside the project root are now stored repo-relative with POSIX separators; paths
+  outside stay absolute and are flagged non-portable, because pretending otherwise
+  is what produced the mess. Writer, both readers and the backfill land together: a
+  half-migrated column is worse than an un-migrated one, since the rows that still
+  work hide the rows that do not. 12 rows normalised, each gated on resolving to
+  the same real file first.
+- **Two release-script committers reported success for a commit git never made.**
+  Both ran `git commit` with `check=False` — which swallows a no-op — and then
+  announced success unconditionally. The version bump did it when the version had
+  already been swept; the homebrew tap did it when the formula was unchanged, on
+  the channel that has historically needed hand-reconciliation. Both now assert
+  HEAD moved, and the no-op message names the cause.
+- **The existence probe swallowed a table error where the cost is a deleted
+  citation.** `_artifact_exists` caught every per-table failure silently, so a
+  table erroring on every call was indistinguishable from "that id is not there" —
+  and a False there is what makes `prune_dangling` delete an edge.
+
 ## [1.13.28] - 2026-08-22
 
 ### Added
