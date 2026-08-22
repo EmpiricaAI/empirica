@@ -148,6 +148,36 @@ def _build_subscribe_url(
     return base
 
 
+def _unmet_preconditions(ntfy: dict, creds_error: str | None) -> list[str]:
+    """Every precondition this listener needs and does not have, in one list.
+
+    The two gates are INDEPENDENT — cortex credentials decide whether a per-org
+    topic can be resolved, ntfy credentials decide whether the subscription can
+    authenticate — and reporting them serially is what makes the failure feel like
+    a moving target. An operator who clears the first and hits a different message
+    at the second reasonably concludes the tool does not know what is wrong.
+
+    Ordered cause-first: the credential comes before the topic, because on an
+    OAuth-only seat the missing api_key is what produced the topic symptom.
+    """
+    unmet = []
+    if creds_error:
+        unmet.append(
+            f"cortex: {creds_error} — this is the CAUSE of the unresolved topic above, not a separate problem. "
+            "Run `empirica auth login`, or add `cortex.api_key` to ~/.empirica/credentials.yaml."
+        )
+    if not (ntfy.get("user") and ntfy.get("password")) and not ntfy.get("token"):
+        unmet.append(
+            "ntfy: no credentials configured (token, or user+password). This gate is INDEPENDENT of the topic — "
+            "setting ORCHESTRATION_NTFY_TOPIC will not clear it."
+        )
+    if not unmet:
+        unmet.append(
+            "no missing credentials detected — the topic itself is the problem; set ORCHESTRATION_NTFY_TOPIC to override."
+        )
+    return unmet
+
+
 def _ntfy_auth_header(
     user: str | None,
     password: str | None,
@@ -690,6 +720,7 @@ def run_listener(  # noqa: C901 — held-connection loop; clarity beats decompos
         # offline fallback for when cortex is unreachable and the field is
         # unavailable (which is exactly the refuse path below).
         retired = {_RETIRED_BARE_TOPIC}
+        creds_error: str | None = None
         try:
             from empirica.core.cockpit.notification_channels import (
                 _resolve_base_topic,
@@ -700,6 +731,16 @@ def run_listener(  # noqa: C901 — held-connection loop; clarity beats decompos
             body = fetch_notification_channels()
             resolved = _resolve_base_topic(body)
             retired |= retired_topic_names(body)
+            if body is None:
+                # `fetch_notification_channels` is fail-soft and returns None
+                # WITHOUT raising, so this except never fired and nothing was ever
+                # printed. That silence is what sent an OAuth-only seat chasing a
+                # topic problem that was really a missing local credential.
+                from empirica.core.cockpit.notification_channels import last_credentials_error
+
+                creds_error = last_credentials_error()
+                if creds_error:
+                    err_stream.write(f"listener: per-org topic resolve unavailable: {creds_error}\n")
         except Exception as e:
             err_stream.write(f"listener: per-org topic resolve errored: {e}\n")
 
@@ -718,12 +759,20 @@ def run_listener(  # noqa: C901 — held-connection loop; clarity beats decompos
                 # No usable cache and the only candidate is a retired topic.
                 # Refuse to subscribe (a 403 storm is worse than an exit) and
                 # return non-zero so the supervisor retries when cortex is back.
+                # Report EVERY unmet precondition, not just this one. The old
+                # message named a single remedy (`ORCHESTRATION_NTFY_TOPIC`) that
+                # clears this gate and dies at the independent ntfy-credentials
+                # gate below with a different message — walking an operator one
+                # gate at a time toward a cause neither message states. Measured
+                # on a real client box: both gates were unmet and the true cause
+                # (no api_key on an OAuth-only seat) was named by neither.
                 err_stream.write(
                     "listener: per-org topic unresolved and no usable last-good cache; "
                     f"REFUSING to subscribe to retired topic {base_topic!r} "
-                    "(no ACL → 403 storm). Exiting for supervisor retry; set "
-                    "ORCHESTRATION_NTFY_TOPIC to override.\n"
+                    "(no ACL → 403 storm). Exiting for supervisor retry.\n"
                 )
+                for line in _unmet_preconditions(ntfy, creds_error):
+                    err_stream.write(f"listener:   {line}\n")
                 _emit_fail_heartbeat(instance_id, loop_name, reason="topic_unresolved_403_guard")
                 return 2
             else:
@@ -736,6 +785,10 @@ def run_listener(  # noqa: C901 — held-connection loop; clarity beats decompos
         ntfy.get("token"),
     )
     if not headers:
+        # Same rule as the topic gate: name the full set. Reached alone, this is
+        # the only unmet precondition; reached after an operator cleared the topic
+        # gate, it is the second of two and saying so is what stops the
+        # one-gate-at-a-time march.
         err_stream.write(
             "listener: no ntfy credentials configured. Add an `ntfy:` block to "
             "~/.empirica/credentials.yaml with one of:\n"

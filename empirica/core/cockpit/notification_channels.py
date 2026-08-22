@@ -75,6 +75,12 @@ _cache_value: dict | None = None
 _cache_at: float = 0.0
 
 
+#: Why the last `_cortex_creds()` call came back empty. Read via
+#: :func:`last_credentials_error` — see the note there on why this is not an
+#: exception.
+_last_creds_error: str | None = None
+
+
 def _cortex_creds() -> tuple[str, str] | None:
     """Resolve (url, api_key) via the standard CLI loader. None when missing."""
     try:
@@ -86,8 +92,33 @@ def _cortex_creds() -> tuple[str, str] | None:
         return None
     url, key = cfg.get("url"), cfg.get("api_key")
     if not url or not key:
+        # SAY WHICH. Returning a bare None here sent an OAuth-only seat on a
+        # false trail: with no api_key this function returned None, so
+        # fetch_notification_channels returned None with no exception, so the
+        # listener's `except` never fired, so nothing printed — and topic
+        # resolution failed onward into a message about cortex and topics while
+        # the true cause was a missing local credential. Measured on a real client
+        # box (facundo-wsl, 1.13.27) by mesh-support.
+        #
+        # The reason is EXPOSED rather than logged, because the consumer that
+        # needs it is a listener writing to stderr, not a log reader.
+        global _last_creds_error
+        _last_creds_error = "no cortex url configured" if not url else "no cortex api_key configured"
+        logger.debug(f"notification-channels: {_last_creds_error}")
         return None
+    _last_creds_error = None
     return url, key
+
+
+def last_credentials_error() -> str | None:
+    """Why the last credentials read failed, or None if it succeeded.
+
+    Deliberately a module-level readback rather than a raised exception: this
+    module is fail-soft by design (a cockpit that raises on a missing credential
+    is worse than one that degrades), and the caller that needs the reason is a
+    listener deciding what to print to an operator. Fail soft AND say why.
+    """
+    return _last_creds_error
 
 
 def _request(url: str, key: str) -> dict | None:
