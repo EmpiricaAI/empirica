@@ -59,3 +59,77 @@ def test_commit_flag_stored_on_manager():
     assert mgr.commit_bump is True
     mgr_default = mod.ReleaseManager(dry_run=True)
     assert mgr_default.commit_bump is False
+
+
+# ── the commit must be PROVED, not attempted ─────────────────────────────────
+
+
+def test_the_version_bump_asserts_head_moved_before_reporting_success():
+    """`git commit` runs with check=False so a no-op cannot fail the release — and
+    that swallow printed the full success banner while HEAD had not moved.
+
+    Hit live cutting 1.13.27: `--version-only` ran before the pyproject bump, so
+    every file already read the current version, nothing staged, and the script
+    announced a commit that git never made. A false "committed" is expensive here
+    specifically — the next step builds and TAGS whatever is actually on disk.
+    """
+    import ast
+    from pathlib import Path
+
+    src = (Path(__file__).resolve().parent.parent / "scripts" / "release.py").read_text()
+    tree = ast.parse(src)
+
+    fn = next(
+        (n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "_git_head"),
+        None,
+    )
+    assert fn is not None, "no HEAD reader — the outcome cannot be asserted without one"
+
+    # Discriminate on whether the function actually RUNS `git commit`, not on
+    # whether it mentions one. Two looser versions failed here first: matching the
+    # words "version bump" found `verify_docs_ready`, and matching the commit
+    # message found `run_docs`, which only PRINTS the command as advice. A probe
+    # that finds something is not a probe that found the right thing.
+    def _runs_git_commit(fn: ast.FunctionDef) -> bool:
+        for node in ast.walk(fn):
+            if not isinstance(node, ast.List):
+                continue
+            literals = [e.value for e in node.elts if isinstance(e, ast.Constant) and isinstance(e.value, str)]
+            if literals[:2] == ["git", "commit"]:
+                return True
+        return False
+
+    # NARROW, NAMED EXEMPTION. `create_git_tag`'s commit is legitimately optional
+    # — the TAG is the deliverable, its success message says "Created and pushed
+    # tag", and the tag's existence is verified independently by `--verify`. A
+    # guard broad enough to catch it would demand a warning about something
+    # harmless, and a guard that fires on correct code gets disabled rather than
+    # obeyed. The exemption is by name and with the reason attached, so removing
+    # it is a decision rather than an omission.
+    EXEMPT_COMMIT_IS_NOT_THE_DELIVERABLE = {"create_git_tag"}
+
+    committers = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and _runs_git_commit(n)]
+    assert committers, "no function runs `git commit` — the probe is looking in the wrong place"
+    checked = [n.name for n in committers if n.name not in EXEMPT_COMMIT_IS_NOT_THE_DELIVERABLE]
+    assert len(checked) >= 2, (
+        f"the probe checked {checked} — it must reach both the version bump and the homebrew tap, "
+        "which are the two paths that report success ABOUT the commit"
+    )
+
+    for fn in committers:
+        if fn.name in EXEMPT_COMMIT_IS_NOT_THE_DELIVERABLE:
+            continue
+        body = ast.dump(fn)
+        assert "head_before" in body and "head_after" in body, (
+            f"{fn.name} runs `git commit` without comparing HEAD before and after — "
+            "check=False swallows a no-op, so success would be reported for a commit git never made"
+        )
+
+
+def test_the_no_op_case_is_reported_as_a_warning_not_a_success():
+    """The message must name the cause the operator can act on: bump pyproject FIRST."""
+    from pathlib import Path
+
+    src = (Path(__file__).resolve().parent.parent / "scripts" / "release.py").read_text()
+    assert "NO COMMIT WAS CREATED" in src
+    assert "pyproject.toml" in src and "FIRST" in src, "and say what to do about it"

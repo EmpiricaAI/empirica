@@ -294,17 +294,21 @@ def _write_prune_receipt(artifact_id: str, artifact_type: str, reason: str, arti
 
 def _prune_artifact(db, artifact_id: str, artifact_type: str, reason: str) -> dict[str, Any]:
     """Remove a single artifact from SQLite and write prune receipt."""
-    table_map = {
-        "finding": "project_findings",
-        "unknown": "project_unknowns",
-        "dead_end": "project_dead_ends",
-        "mistake": "mistakes_made",
-        "goal": "goals",
-    }
+    # THIRD private copy of the type map, now removed. It knew five types and was
+    # missing `assumption`, `decision` and `source` — so pruning silently refused
+    # three artifact types the registry declares, and refused them with the same
+    # message a typo gets.
+    from empirica.data.artifact_fields import DELETABLE_TYPES, NON_DELETABLE_REASON, artifact_table
 
-    table = table_map.get(artifact_type)
-    if not table:
+    if artifact_type in NON_DELETABLE_REASON and artifact_type not in DELETABLE_TYPES:
+        # Pruning is a deletion, so the same policy applies: a source is archived,
+        # never destroyed, and saying so beats an unknown-type error.
+        return {"ok": False, "error": f"'{artifact_type}' cannot be pruned: {NON_DELETABLE_REASON[artifact_type]}"}
+
+    resolved = artifact_table(artifact_type)
+    if resolved is None or artifact_type not in DELETABLE_TYPES:
         return {"ok": False, "error": f"Unknown artifact type: {artifact_type}"}
+    table, _id_col, _ = resolved
 
     # Fetch artifact summary before deletion
     cursor = db.conn.cursor()

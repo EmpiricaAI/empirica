@@ -238,13 +238,27 @@ class ReleaseManager:
             shutil.copy2(local_formula, tap_formula)
             success(f"Copied formula to {tap_formula}")
 
-            # Commit and push
+            # Commit and push. Same outcome-assertion as the version bump: the
+            # commit runs with check=False, so an unchanged formula is a silent
+            # no-op and `git push` then pushes nothing — while this reported the
+            # tap "updated and pushed". This is the channel that has historically
+            # needed hand-reconciliation, so a false success here is the expensive
+            # kind.
+            head_before = self._git_head(tap_repo)
             self.run_command(["git", "add", self.TAP_FORMULA_RELPATH], cwd=str(tap_repo))
             self.run_command(
                 ["git", "commit", "-m", f"Update empirica to {self.version}"], cwd=str(tap_repo), check=False
             )
+            head_after = self._git_head(tap_repo)
+            if head_after == head_before:
+                warning(
+                    f"Homebrew tap NOT updated — no commit was created in {tap_repo} (HEAD still "
+                    f"{head_before[:8]}). The formula there already matches this build, or the copy "
+                    "did not change it. Nothing was pushed."
+                )
+                return
             self.run_command(["git", "push"], cwd=str(tap_repo))
-            success(f"Homebrew tap updated and pushed: {tap_repo}")
+            success(f"Homebrew tap updated and pushed: {tap_repo} ({head_after[:8]})")
         else:
             info(f"Would copy {local_formula} → {tap_formula}")
             info(f"Would commit and push in {tap_repo}")
@@ -1231,6 +1245,25 @@ class ReleaseManager:
         "docs/human/developers/CLI_COMMANDS_UNIFIED.md",
     )
 
+    def _git_head(self, cwd=None) -> str:
+        """Current HEAD sha in ``cwd`` (default: this repo), or "" if unavailable.
+
+        Takes a cwd because the tap is a DIFFERENT repository and has the same
+        false-success shape — a guard that only covered this repo would close the
+        instance and leave the class open.
+        """
+        try:
+            out = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=str(cwd) if cwd else self.repo_root,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            return (out.stdout or "").strip()
+        except Exception:
+            return ""
+
     def _staged_release_paths(self, *extra: str) -> list[str]:
         """The allowlist paths (plus any extras) that actually exist on disk.
 
@@ -1256,11 +1289,29 @@ class ReleaseManager:
             info(f"Would: git commit -m 'chore(release): bump version to {self.version}'")
             return
         self.run_command(["git", "add", *paths])
+        head_before = self._git_head()
         self.run_command(
             ["git", "commit", "-m", f"chore(release): bump version to {self.version}"],
             check=False,  # no-op if nothing to commit
         )
-        success(f"Committed version bump to {self.version} ({len(paths)} allowlisted paths, no `git add -A`)")
+        # ASSERT THE OUTCOME, not the attempt. `check=False` swallows git's
+        # "nothing to commit", so this printed the full success banner while HEAD
+        # had not moved — hit live cutting 1.13.27, when `--version-only` ran
+        # before the pyproject bump and re-swept the CURRENT version onto itself.
+        # A false "committed" is expensive here specifically: the next step builds
+        # and TAGS whatever is actually on disk.
+        head_after = self._git_head()
+        if head_after == head_before:
+            warning(
+                f"NO COMMIT WAS CREATED — HEAD is still {head_before[:8]}. Nothing was staged, which almost "
+                f"always means every file already reads {self.version}. Bump the version in pyproject.toml "
+                "FIRST (release.py takes the TARGET version from there), then re-run."
+            )
+            return
+        success(
+            f"Committed version bump to {self.version} as {head_after[:8]} "
+            f"({len(paths)} allowlisted paths, no `git add -A`)"
+        )
 
     def create_git_tag(self):
         """Create and push git tag"""

@@ -380,39 +380,32 @@ def _create_node(db, node: dict, context: dict) -> str | None:
 def _artifact_exists(db, artifact_id: str) -> bool:
     """True iff ``artifact_id`` is a known artifact (any type) or goal id.
 
-    Checks every table in ``_ARTIFACT_TABLES`` (findings / unknowns / dead_ends /
-    mistakes / assumptions / decisions / goals — all keyed by ``id``). Used to
-    reject an edge pointing at a non-existent UUID before it lands as a dangling
-    row. Best-effort: a missing table degrades to "not found" for that table.
+    Checks every table in the CANONICAL registry — which includes
+    ``epistemic_sources``, and that inclusion is the whole point. This predicate
+    answers *what exists?*; the deletion policy answers *what may I destroy?* They
+    agree everywhere except on archived things, and a private map that answered
+    both by omitting `source` made this function return False for every source id.
+    A routine prune then judged every `sourced_from` edge dangling and destroyed a
+    practice's only two citations while both endpoints sat on disk.
+
+    Best-effort: a missing table degrades to "not found" for that table.
     """
     if not db.conn or not artifact_id:
         return False
+    from empirica.data.artifact_fields import ARTIFACT_TABLES
+
     cursor = db.conn.cursor()
-    for table, id_col, _data_col in _ARTIFACT_TABLES.values():
+    for table, id_col in ARTIFACT_TABLES.values():
         try:
             cursor.execute(f"SELECT 1 FROM {table} WHERE {id_col} = ? LIMIT 1", (artifact_id,))
             if cursor.fetchone():
                 return True
         except Exception:
             continue
-    # SOURCES ARE EDGE ENDPOINTS TOO. `epistemic_sources` is deliberately absent from
-    # `_ARTIFACT_TABLES` (that map also drives what `delete-artifacts` may DELETE, and
-    # sources are archived, not deleted) — but omitting it here meant `_artifact_exists`
-    # returned False for every source id, so `prune_dangling` judged EVERY
-    # `sourced_from` edge dangling and removed it.
-    #
-    # Not hypothetical: a routine prune during a gardening pass silently destroyed the
-    # practice's only two citation edges while both endpoints were present on disk. It
-    # would have wiped every citation the artifact verbs now write.
-    #
-    # An ARCHIVED source still exists — archiving preserves the audit chain by design
-    # (`source-archive` says so explicitly), so it must not read as a missing endpoint.
-    try:
-        cursor.execute("SELECT 1 FROM epistemic_sources WHERE id = ? LIMIT 1", (artifact_id,))
-        if cursor.fetchone():
-            return True
-    except Exception:
-        pass
+    # `epistemic_sources` is in the loop above via the canonical registry, so the
+    # hand-written special case that used to live here is gone. An ARCHIVED source
+    # still EXISTS — archiving preserves the audit chain by design — and must never
+    # read as a missing endpoint.
     return False
 
 
@@ -533,7 +526,10 @@ def _store_edge(db, from_id: str, to_id: str, relation: str, metadata: dict | No
     # Legacy compat: also update data.edges JSON for tables that have a data column,
     # so existing readers (e.g. UIs reading directly from finding_data) keep seeing
     # the edge until they migrate to the edge table.
-    for _atype, (table, id_col, data_col) in _ARTIFACT_TABLES.items():
+    from empirica.data.artifact_fields import ARTIFACT_EDGE_DATA_COLUMNS, ARTIFACT_TABLES
+
+    for _atype, (table, id_col) in ARTIFACT_TABLES.items():
+        data_col = ARTIFACT_EDGE_DATA_COLUMNS.get(_atype)
         if not data_col:
             continue
         cursor.execute(f"SELECT {data_col} FROM {table} WHERE {id_col} = ?", (from_id,))
@@ -860,12 +856,33 @@ def handle_log_artifacts_command(args):
 # deliberately — a dead-end is never "done", it is either still-constraining or
 # wrong. Collapsing the two would let a gardening pass mark constraints "resolved"
 # and quietly return dead approaches to the option space.
+# Table names are NOT repeated here — they come from the canonical registry via
+# `artifact_table()`. What IS here is the pair the registry has no opinion about:
+# the text column to match on, and the open-state column, which genuinely differs
+# per type for the reason above.
 _FILTER_TYPES = {
-    "finding": ("project_findings", "finding", "is_resolved"),
-    "unknown": ("project_unknowns", "unknown", "is_resolved"),
-    "dead_end": ("project_dead_ends", "approach", "is_invalidated"),
-    "mistake": ("mistakes_made", "mistake", "is_invalidated"),
+    "finding": ("finding", "is_resolved"),
+    "unknown": ("unknown", "is_resolved"),
+    "dead_end": ("approach", "is_invalidated"),
+    "mistake": ("mistake", "is_invalidated"),
 }
+
+
+def _filter_spec(artifact_type: str) -> tuple[str, str, str] | None:
+    """(table, text column, open-state column) for a filterable type, or None.
+
+    The table comes from the canonical registry; only the two columns this module
+    genuinely owns are declared locally. Keeps one name for each table in the
+    codebase without flattening a distinction that matters.
+    """
+    from empirica.data.artifact_fields import artifact_table
+
+    cols = _FILTER_TYPES.get(artifact_type)
+    resolved = artifact_table(artifact_type)
+    if cols is None or resolved is None:
+        return None
+    text_col, open_col = cols
+    return resolved[0], text_col, open_col
 
 
 def _resolve_by_filter(db, filt: dict, resolution: str, apply: bool) -> dict:
@@ -879,9 +896,10 @@ def _resolve_by_filter(db, filt: dict, resolution: str, apply: bool) -> dict:
     from datetime import datetime
 
     atype = filt.get("type")
-    if atype not in _FILTER_TYPES:
+    spec = _filter_spec(atype)
+    if spec is None:
         return {"ok": False, "error": f"filter.type must be one of {sorted(_FILTER_TYPES)}"}
-    table, textcol, openflag = _FILTER_TYPES[atype]
+    table, textcol, openflag = spec
 
     where = [f"({openflag} IS NOT 1)"]
     params: list = []
@@ -1171,8 +1189,11 @@ def handle_resolve_artifacts_command(args):  # noqa: C901 — batch dispatcher f
             # `resolved_count += 1` reported a single one. Addressing rows by
             # exact id makes each branch single-row by construction, which fixes
             # the mass-mutation and the undercount together.
-            if artifact_type in _ARTIFACT_TABLES:
-                _table, _id_col, _ = _ARTIFACT_TABLES[artifact_type]
+            from empirica.data.artifact_fields import artifact_table as _artifact_table
+
+            _resolved_tbl = _artifact_table(artifact_type)
+            if _resolved_tbl is not None:
+                _table, _id_col, _ = _resolved_tbl
                 artifact_id, _id_error = resolve_id_prefix(db.conn.cursor(), _table, _id_col, artifact_id)
                 if _id_error:
                     resolution_errors.append(f"{artifact_type}: {_id_error}")
@@ -1397,17 +1418,15 @@ def handle_resolve_artifacts_command(args):  # noqa: C901 — batch dispatcher f
         return 1
 
 
-# Table → ID column mapping for deletion
-# Table → (table_name, id_column, data_column_for_edges)
-_ARTIFACT_TABLES = {
-    "finding": ("project_findings", "id", "finding_data"),
-    "unknown": ("project_unknowns", "id", "unknown_data"),
-    "dead_end": ("project_dead_ends", "id", "dead_end_data"),
-    "mistake": ("mistakes_made", "id", "mistake_data"),
-    "assumption": ("assumptions", "id", None),
-    "decision": ("decisions", "id", None),
-    "goal": ("goals", "id", "goal_data"),
-}
+# The type map lives in `empirica/data/artifact_fields.py` and nowhere else.
+#
+# A private seven-entry copy stood here — missing `source`, which the canonical
+# registry has carried for as long as the verb has existed — while
+# `update-artifacts`, IN THIS FILE, already imported the canonical one. So
+# `delete-artifacts` refused `source` outright and answered *Unknown artifact
+# type* for `lesson`, a type the registry names on purpose. Reported by
+# mesh-support, measured on installed 1.13.27; David's read is the right frame:
+# a knowledge graph should already know its types.
 
 
 def _delete_from_qdrant(artifact_id: str, project_id: str):
@@ -1526,10 +1545,42 @@ def _delete_single_artifact(
     if not artifact_id or not artifact_type:
         return {"error": "Missing 'id' or 'type' in deletion item"}
 
-    if artifact_type not in _ARTIFACT_TABLES:
-        return {"error": f"Unknown artifact type: '{artifact_type}'"}
+    from empirica.data.artifact_fields import (
+        ARTIFACT_TABLES,
+        DELETABLE_TYPES,
+        FOREIGN_STORE_TYPES,
+        NON_DELETABLE_REASON,
+        artifact_table,
+    )
 
-    table, id_col, _data_col = _ARTIFACT_TABLES[artifact_type]
+    if artifact_type in ARTIFACT_TABLES and artifact_type not in DELETABLE_TYPES:
+        # Known, stored here, and deliberately not destroyable. The old code
+        # expressed this by leaving the type out of a private map, which made the
+        # refusal indistinguishable from a typo — and made the same map answer
+        # "what exists?" wrongly, which cost a practice its citation edges.
+        return {"error": f"'{artifact_type}' cannot be deleted: {NON_DELETABLE_REASON[artifact_type]}"}
+
+    resolved = artifact_table(artifact_type)
+    if resolved is None:
+        # Distinguish "we do not keep that here" from "we have never heard of
+        # it". Answering the first with the second is what sent a practitioner
+        # looking for a typo in a type the registry declares.
+        if artifact_type in FOREIGN_STORE_TYPES:
+            return {
+                "error": (
+                    f"'{artifact_type}' is not stored in this database and cannot be deleted here. "
+                    "A lesson that is wrong is SUPERSEDED, not deleted — "
+                    "`lesson-create --supersedes <id>` retires it while keeping the record."
+                )
+            }
+        return {
+            "error": (
+                f"Unknown artifact type: '{artifact_type}'. Known: {', '.join(sorted(ARTIFACT_TABLES))}"
+                f"; stored elsewhere: {', '.join(sorted(FOREIGN_STORE_TYPES))}"
+            )
+        }
+
+    table, id_col, _data_col = resolved
 
     # Deletion is the one lever with no history to recover from, so an ambiguous
     # or too-short prefix must refuse rather than take whichever row came first.

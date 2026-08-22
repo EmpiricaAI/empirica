@@ -90,6 +90,69 @@ ARTIFACT_TABLES: dict[str, tuple[str, str]] = {
 }
 
 
+#: The JSON blob column an artifact's edges live in, per type. Separate from
+#: :data:`ARTIFACT_TABLES` because only the deletion path needs it — but IN THIS
+#: FILE, because a private copy of a type map is exactly what this change removes.
+#: `None` means the type stores no edge blob.
+ARTIFACT_EDGE_DATA_COLUMNS: dict[str, str | None] = {
+    "finding": "finding_data",
+    "unknown": "unknown_data",
+    "dead_end": "dead_end_data",
+    "mistake": "mistake_data",
+    "assumption": None,
+    "decision": None,
+    "source": None,
+    "goal": "goal_data",
+}
+
+
+#: Types `delete-artifacts` may destroy. NOT the same set as the tables above, and
+#: the difference is load-bearing rather than an oversight.
+#:
+#: `source` is excluded ON PURPOSE: sources are ARCHIVED, not deleted, because
+#: archiving preserves the audit chain by design (`source-archive` says so). A
+#: private seven-entry copy of the table map encoded this exclusion by OMITTING
+#: source — which then made `_artifact_exists` answer False for every source id,
+#: so `prune_dangling` judged every `sourced_from` edge dangling and a routine
+#: gardening pass destroyed the practice's only two citation edges while both
+#: endpoints sat on disk.
+#:
+#: That is one predicate answering two questions — *what may I delete?* and *what
+#: exists?* — which agree everywhere except on things that are archived. They are
+#: separate here for that reason: unify the TABLES, keep the POLICY explicit.
+DELETABLE_TYPES: frozenset[str] = frozenset(ARTIFACT_TABLES) - {"source"}
+
+#: Why a non-deletable type is refused, so the message names the alternative
+#: rather than reading as an unknown type.
+NON_DELETABLE_REASON: dict[str, str] = {
+    "source": ("sources are ARCHIVED, not deleted — archiving preserves the audit chain. Use `source-archive <id>`."),
+}
+
+
+def artifact_table(artifact_type: str) -> tuple[str, str, str | None] | None:
+    """(table, id column, edge-data column) for a type, or None if not a local type.
+
+    ONE lookup for every consumer. Three divergent copies of this mapping existed
+    — the canonical eight here, a private seven in `graph_commands` missing
+    `source`, and a private five in `profile_commands` missing `assumption`,
+    `decision` and `source` — while `update-artifacts`, in the same file as the
+    seven-entry copy, already imported the canonical one. `delete-artifacts` on a
+    `lesson` returned *Unknown artifact type* for a type this registry names on
+    purpose. Reported by mesh-support, measured on installed 1.13.27.
+
+    Returns None for a type stored outside `sessions.db` (see
+    :data:`FOREIGN_STORE_TYPES`) as well as for a genuinely unknown one — callers
+    that need to tell those apart check `FOREIGN_STORE_TYPES` and say so, because
+    *we do not keep that here* and *we have never heard of it* deserve different
+    messages.
+    """
+    spec = ARTIFACT_TABLES.get(artifact_type)
+    if spec is None:
+        return None
+    table, id_col = spec
+    return table, id_col, ARTIFACT_EDGE_DATA_COLUMNS.get(artifact_type)
+
+
 def updatable_fields(artifact_type: str) -> set[str]:
     """Correctable fields for a type; empty set for an unknown type."""
     return ARTIFACT_UPDATABLE_FIELDS.get(artifact_type, set())
