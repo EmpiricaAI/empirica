@@ -153,3 +153,88 @@ def test_workflow_verbs_still_allowed(gate):
 def test_help_and_version_bypass_survives(gate):
     for cmd in ("empirica entity-create --help", "empirica --version"):
         assert gate.is_safe_empirica_command(cmd) is True
+
+
+def _gate():
+    """Load the hook module by path — it is a plugin script, not an importable package."""
+    import importlib.util
+    from pathlib import Path as _P
+
+    path = _P(__file__).resolve().parent.parent / "empirica/plugins/claude-code-integration/hooks/sentinel-gate.py"
+    spec = importlib.util.spec_from_file_location("sentinel_gate_under_test", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+# ── nvidia-smi: one binary, and the write side resets hardware ────────────────
+
+
+NVIDIA_READS = [
+    "nvidia-smi",
+    "nvidia-smi -L",
+    "nvidia-smi --query-gpu=name,memory.used,temperature.gpu --format=csv",
+    "nvidia-smi -i 0 --query-gpu=temperature.gpu --format=csv",
+    "nvidia-smi -q -d MEMORY",
+    "nvidia-smi -q -x",
+    "nvidia-smi -l 5",
+]
+
+NVIDIA_WRITES = [
+    "nvidia-smi -r",
+    "nvidia-smi --gpu-reset",
+    "nvidia-smi -pm 1",
+    "nvidia-smi -pl 250",
+    "nvidia-smi -lgc 1000",
+    "nvidia-smi -c 3",
+    "nvidia-smi -e 0",
+    "nvidia-smi drain -p 0000:01:00.0 -m 1",
+]
+
+
+@pytest.mark.parametrize("cmd", NVIDIA_READS)
+def test_nvidia_smi_read_forms_are_noetic(cmd):
+    """The ask: a GPU diagnosis was stopped mid-incident by the gate.
+
+    `--query-gpu=... --format=csv` prints CSV and mutates nothing, and no /proc
+    or /sys path cheaply gives memory + utilisation + temperature together — so
+    the workaround lost real information during an incident.
+    """
+    assert _gate()._matches_safe_prefix(cmd), f"read form gated: {cmd}"
+
+
+@pytest.mark.parametrize("cmd", NVIDIA_WRITES)
+def test_nvidia_smi_write_forms_stay_gated(cmd):
+    """Same binary, and one of these resets the GPU."""
+    assert not _gate()._matches_safe_prefix(cmd), f"WRITE FORM LEAKED: {cmd}"
+
+
+def test_an_unrecognised_flag_fails_closed():
+    """THE design choice, pinned.
+
+    This is an allowlist of read forms, not a denylist of writes — the inverse of
+    `_TOOL_DANGEROUS_FLAGS`. For find/fd/yq the mutating flags are few and a miss
+    costs a written file; here the mutating set is large and a miss costs
+    `--gpu-reset` on a live box. An unfinished denylist fails OPEN; this fails
+    CLOSED, so the day nvidia ships an option nobody has enumerated, the gate asks.
+    """
+    assert not _gate()._matches_safe_prefix("nvidia-smi --some-future-flag")
+
+
+def test_a_selector_does_not_launder_a_write():
+    """`-i 0` is a device selector, so a naive 'starts with a read flag' check
+    would wave through everything after it."""
+    assert not _gate()._matches_safe_prefix("nvidia-smi -i 0 -pl 250")
+
+
+def test_the_output_file_flag_is_a_write_despite_looking_like_a_query():
+    """`-f` writes results to a file. It sits next to `-q` in the help text and
+    reads as inert; it is not."""
+    assert not _gate()._matches_safe_prefix("nvidia-smi -f /tmp/out.txt")
+
+
+def test_the_id_flag_is_not_yq_in_place():
+    """NEGATIVE CONTROL against the obvious cross-tool confusion: `-i` means
+    in-place for yq and DEVICE ID here. Gating it would refuse the exact form the
+    incident needed."""
+    assert _gate()._matches_safe_prefix("nvidia-smi -i 0 -L")
