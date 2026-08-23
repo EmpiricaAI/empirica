@@ -29,6 +29,7 @@ Actions (mouse OR keyboard):
 from __future__ import annotations
 
 import textwrap
+import time
 from argparse import Namespace
 from typing import Any, ClassVar
 
@@ -72,7 +73,41 @@ from empirica.core.cockpit.project_cockpit_config import (
     project_loops,
 )
 
+#: Floor on the gap between refreshes. NOT the period — see `_schedule_refresh`.
 REFRESH_SECONDS = 2.0
+
+#: The largest share of one core the auto-refresh may consume. `aggregate_all`
+#: walks the process table, shells out to tmux and systemd, and reads every
+#: instance's state; its cost grows with the number of instances on the box, and
+#: it was scheduled on a fixed 2.0 s period that nobody had measured it against.
+#: On David's machine it cost 1.7–2.0 s, so the cockpit re-entered the scan
+#: roughly as fast as it finished one: `empirica tui` held **54.3% of a core for
+#: 17.8 days** — a busy loop wearing a timer's clothes.
+#:
+#: The period is now derived from the measured duration instead of asserted, so
+#: this bound holds on a slower box or with ten times the instances. Caching the
+#: repeated YAML and fires-log parses cut the scan to ~0.4 s; that made the
+#: symptom smaller and did not touch the defect, which is that a fixed period
+#: shorter than its own work can never idle.
+_MAX_REFRESH_DUTY = 0.15
+
+
+def refresh_gap(last_refresh_seconds: float) -> float:
+    """Seconds to wait before the next auto-refresh, given the last one's cost.
+
+    A free function so the pacing rule can be tested without standing up a
+    Textual app — the property that matters (the scan can never exceed
+    `_MAX_REFRESH_DUTY` of a core) is arithmetic, and burying it in a method
+    would leave it verified only by running the TUI and watching `top`.
+
+    Never below `REFRESH_SECONDS`: on an idle box the floor is what makes the
+    cockpit feel live, and a duty bound alone would let a 5 ms scan re-run at
+    30 Hz.
+    """
+    if not last_refresh_seconds or last_refresh_seconds < 0:
+        return REFRESH_SECONDS
+    return max(REFRESH_SECONDS, last_refresh_seconds / _MAX_REFRESH_DUTY)
+
 
 # Wrap width for the goals + notifications strips (portrait-friendly).
 # Items longer than this wrap onto continuation lines indented under
@@ -141,6 +176,10 @@ class CockpitApp(App):
         # can drill in but never hide problems.
         self.compliance_expanded: bool = False
         self.services_expanded: bool = False
+        # Cost of the last aggregate_all, in seconds. Drives the auto-refresh
+        # spacing so the cadence is derived from what the scan actually costs
+        # on THIS box rather than from a constant someone guessed once.
+        self._last_refresh_seconds: float = 0.0
 
     # ─── lifecycle ────────────────────────────────────────────────────────
 
@@ -195,20 +234,46 @@ class CockpitApp(App):
     def on_mount(self) -> None:
         self.title = "empirica cockpit"
         self.refresh_payload()
-        self.set_interval(REFRESH_SECONDS, self.refresh_payload)
+        self._schedule_refresh()
 
     # ─── data + rendering ─────────────────────────────────────────────────
 
+    def _schedule_refresh(self) -> None:
+        """Arm the NEXT auto-refresh, spaced off the last one's measured cost.
+
+        A one-shot timer re-armed on completion, not `set_interval`: a fixed
+        period says how often to START the work, which is only a cadence while
+        the work fits inside it. When it stops fitting — a slower box, more
+        instances — a fixed period degrades into continuous execution, and it
+        does so silently, because a pegged core is not an error anyone reports.
+
+        `_last_refresh_seconds` is the duration actually observed, so the gap
+        adapts on the very next tick rather than waiting for someone to notice.
+        """
+        self.set_timer(refresh_gap(self._last_refresh_seconds), self._auto_refresh)
+
+    def _auto_refresh(self) -> None:
+        """Timer callback: refresh, then re-arm. Re-arms even when the refresh
+        raised — a scheduler that stops on one bad scan leaves a frozen cockpit
+        that still looks live, which is worse than a slow one."""
+        try:
+            self.refresh_payload()
+        finally:
+            self._schedule_refresh()
+
     def refresh_payload(self) -> None:
+        started = time.perf_counter()
         try:
             self.payload = aggregate_all(include_dead=self.include_dead)
         except Exception as e:
+            self._last_refresh_seconds = time.perf_counter() - started
             self._log_status(f"refresh failed: {e}")
             return
         self._render_summary()
         self._render_table()
         self._render_selected_widgets()
         self._render_dispatcher()
+        self._last_refresh_seconds = time.perf_counter() - started
 
     def action_toggle_dead(self) -> None:
         self.include_dead = not self.include_dead

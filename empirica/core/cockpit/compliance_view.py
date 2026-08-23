@@ -41,21 +41,9 @@ def last_compliance_path(project_id: str | None) -> Path | None:
 def _project_id_from_path(project_path: str | None) -> str | None:
     """Read project_id from <project>/.empirica/project.yaml. Non-raising —
     returns None on missing file / malformed yaml / missing key."""
-    if not project_path:
-        return None
-    yaml_path = Path(project_path) / ".empirica" / "project.yaml"
-    if not yaml_path.exists():
-        return None
-    try:
-        import yaml
+    from empirica.utils.yaml_cache import load_project_yaml
 
-        with open(yaml_path, encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
-    except Exception:
-        return None
-    if not isinstance(data, dict):
-        return None
-    pid = data.get("project_id")
+    pid = load_project_yaml(project_path).get("project_id")
     return str(pid) if pid else None
 
 

@@ -368,29 +368,32 @@ def _newest_instance_file_mtime(instance_id: str) -> float | None:
     return _newest_mtime(candidates)
 
 
-def _read_recent_events_for_instance(instance_id: str, limit: int = 5) -> list[dict]:
-    """Tail ~/.empirica/loop_fires.log filtered to `instance_id`, return the
-    last `limit` events parsed as dicts.
+def _read_events_by_instance(limit: int = 5) -> dict[str, list[dict]]:
+    """One pass over ~/.empirica/loop_fires.log, bucketed by instance_id.
 
     T9 (goal f718156c): the cockpit's per-instance pane shows these as the
     "latest 5" — the single human-readable surface for ECO-decided AI work
     arriving via the listener push or content-poll catch-up. Lines that
-    don't parse are skipped silently.
+    don't parse are skipped silently. Values are most-recent-first.
 
-    Returns most-recent-first ordering."""
+    **This used to be per-instance, and the per-instance form could not be made
+    cheap.** An instance with no events in the log had to parse EVERY line to
+    establish that, so the cost was `instances × lines` no matter how small the
+    tail actually was — 110 candidate instances × 444 lines was 58,246
+    `json.loads` calls per cockpit refresh, twice a second. The old comment
+    said the log "stays small in practice", which was true and beside the point:
+    the multiplier was the instance count, not the line count.
+    """
     log = Path.home() / ".empirica" / "loop_fires.log"
     if not log.exists():
-        return []
+        return {}
     try:
-        # Read tail — modest log size expected (one line per emission); for
-        # very large files this could be optimized to seek-from-end, but
-        # T6/T7 emission is content-only so the log stays small in practice.
         with open(log, encoding="utf-8") as f:
             lines = f.readlines()
     except OSError:
-        return []
+        return {}
 
-    out: list[dict] = []
+    out: dict[str, list[dict]] = {}
     for ln in reversed(lines):
         ln = ln.strip()
         if not ln:
@@ -399,11 +402,12 @@ def _read_recent_events_for_instance(instance_id: str, limit: int = 5) -> list[d
             event = json.loads(ln)
         except json.JSONDecodeError:
             continue
-        if event.get("instance_id") != instance_id:
+        iid = event.get("instance_id")
+        if not isinstance(iid, str):
             continue
-        out.append(event)
-        if len(out) >= limit:
-            break
+        bucket = out.setdefault(iid, [])
+        if len(bucket) < limit:
+            bucket.append(event)
     return out
 
 
@@ -463,6 +467,7 @@ def aggregate_instance_state(
     live_claude_instance_ids: set[str] | None = None,
     live_claude_cwds: set[str] | None = None,
     tmux_windows: dict[str, int] | None = None,
+    events_by_instance: dict[str, list[dict]] | None = None,
 ) -> dict[str, Any]:
     """Read all state for one instance and return a serializable dict.
 
@@ -475,6 +480,10 @@ def aggregate_instance_state(
     (EMPIRICA_INSTANCE_ID env per live proc) is the exact, resume-proof
     liveness signal; `live_claude_cwds` is the coarse cwd fallback. Pass None
     to skip either.
+
+    `events_by_instance` is the fires-log bucketed once by the sweep. Passing
+    None reads it here instead — same answer, same function, just not shared;
+    a one-off caller stays correct without knowing the sweep exists.
     """
     project_path = _instance_project_path(instance_id)
     label = _instance_label(instance_id, project_path)
@@ -615,7 +624,17 @@ def aggregate_instance_state(
         # ECO-decided proposal events surface here (one row per inbox-act
         # or outbox-ack), making "notifications" the unified surface that
         # subsumes the older separate loops/listeners columns.
-        "recent_events": _read_recent_events_for_instance(instance_id, limit=5),
+        #
+        # Keyed on `loop_key` (the PRACTICE ai_id), NOT the seat. The listener
+        # writes loop_fires.log with instance_id=<ai_id> — `empirica`,
+        # `empirica-cortex` — while a cockpit row is discovered as `tmux_6`.
+        # Matching the seat against the practice could never succeed, so this
+        # pane rendered empty for every tmux-discovered instance, and an
+        # unsatisfiable match looks exactly like "no events have fired". Same
+        # key `loops_{ai_id}.json` is read under, twenty lines above.
+        "recent_events": (
+            events_by_instance if events_by_instance is not None else _read_events_by_instance(limit=5)
+        ).get(loop_key, []),
     }
 
 
@@ -686,6 +705,11 @@ def aggregate_all(include_dead: bool = False) -> dict[str, Any]:
     # when tmux/psutil absent.
     tmux_windows, owned_panes = claude_pane_bindings()
 
+    # One pass over the fires log for the whole sweep. Per-instance, an instance
+    # with no events had to read every line to prove it, so the cost scaled with
+    # the instance count rather than the tail length.
+    events_by_instance = _read_events_by_instance(limit=5)
+
     # Resolve the current instance lazily — exempts the running cockpit
     # from liveness checks (it's alive by definition, even if PID/PPID
     # weren't captured by an old session-init).
@@ -704,6 +728,7 @@ def aggregate_all(include_dead: bool = False) -> dict[str, Any]:
             live_claude_instance_ids=live_iids,
             live_claude_cwds=live_cwds,
             tmux_windows=tmux_windows,
+            events_by_instance=events_by_instance,
         )
         for i in discover_instances(owned_panes=owned_panes)
     ]

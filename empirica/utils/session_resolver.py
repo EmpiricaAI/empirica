@@ -263,16 +263,16 @@ class InstanceResolver:
         resolved_path = str(project_path) if project_path is not None else get_active_project_path(claude_session_id)
         if not resolved_path:
             return None
-        # Priority: explicit ai_id in project.yaml
+        # Priority: explicit ai_id in project.yaml.
+        # Cached on (mtime_ns, size): the cockpit resolves this per instance per
+        # refresh, and re-parsing an unchanged file at 2 Hz was 79% of the TUI's
+        # CPU. See empirica/utils/yaml_cache.py for the measurement.
         try:
-            import yaml
+            from empirica.utils.yaml_cache import load_project_yaml
 
-            proj_yaml = Path(resolved_path) / ".empirica" / "project.yaml"
-            if proj_yaml.exists():
-                data = yaml.safe_load(proj_yaml.read_text()) or {}
-                aid = data.get("ai_id")
-                if aid:
-                    return str(aid)
+            aid = load_project_yaml(resolved_path).get("ai_id")
+            if aid:
+                return str(aid)
         except Exception:
             pass
         # Fallback: exact basename, prefix kept.

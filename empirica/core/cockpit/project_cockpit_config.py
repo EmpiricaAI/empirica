@@ -46,21 +46,11 @@ def _load_cockpit_block(project_path: str | Path | None) -> dict[str, Any]:
     no cockpit key). Intentionally non-raising — callers want a clean
     list-or-empty contract, not exceptions to handle.
     """
+    from empirica.utils.yaml_cache import load_yaml_cached
+
     if not project_path:
         return {}
-    path = project_yaml_path(project_path)
-    if not path.exists():
-        return {}
-    try:
-        import yaml
-
-        with open(path, encoding="utf-8") as f:
-            data = yaml.safe_load(f) or {}
-    except Exception:
-        return {}
-    if not isinstance(data, dict):
-        return {}
-    cockpit = data.get("cockpit")
+    cockpit = load_yaml_cached(project_yaml_path(project_path)).get("cockpit")
     if not isinstance(cockpit, dict):
         return {}
     return cockpit
