@@ -855,6 +855,49 @@ EMPIRICA_TIER2_PREFIXES = (
 )
 
 
+_STATEMENT_SEPARATORS = ("\n", ";", "&&", "||", "|", "&")
+
+
+def _is_single_statement(command: str) -> bool:
+    """True when `command` is ONE statement, heredoc body included.
+
+    Needed because a verb-prefix allowlist only ever inspects the leading verb, so
+    anything after the first statement is unexamined — the shape that let
+    `empirica goals-list\\nrm -rf …` through.
+
+    **A heredoc is one statement spanning many lines, and that is the whole
+    difficulty.** Every JSON payload in this system arrives that way —
+    `empirica check-submit - <<'EOF' … EOF` — so a guard that treats the body's
+    newlines as separators does not tighten anything, it disables PREFLIGHT.
+    (It did: the first version of this broke five heredoc tests.)
+
+    So the body is skipped and the text AFTER the terminator is checked instead,
+    which is where a second statement would actually hide. Only the delimiter's
+    own line closes it — the terminator must be alone on its line, exactly as the
+    shell requires — so a `EOF` appearing inside JSON text cannot end the scan
+    early and expose the rest of the body to separator matching.
+    """
+    if "<<" not in command:
+        return not any(_contains_outside_quotes(command, sep) for sep in _STATEMENT_SEPARATORS)
+
+    head, _, rest = command.partition("<<")
+    if any(_contains_outside_quotes(head, sep) for sep in _STATEMENT_SEPARATORS):
+        return False  # a chain BEFORE the heredoc — `foo | empirica x <<EOF`
+
+    # `<<-'EOF'`, `<<"EOF"`, `<<EOF` all name the same delimiter.
+    delim_line, _, body = rest.partition("\n")
+    delim = delim_line.strip().lstrip("-").strip("'\"")
+    if not delim:
+        return False  # unparseable heredoc — conservative deny
+
+    lines = body.split("\n")
+    for i, line in enumerate(lines):
+        if line.strip() == delim:
+            trailing = "\n".join(lines[i + 1 :]).strip()
+            return not trailing  # anything after the terminator is a 2nd statement
+    return True  # unterminated heredoc: the body runs to the end, nothing follows
+
+
 def is_safe_empirica_command(command: str) -> bool:
     """Tiered whitelist for empirica CLI commands.
 
@@ -867,6 +910,11 @@ def is_safe_empirica_command(command: str) -> bool:
     cmd = command.lstrip()
     if not cmd.startswith("empirica "):
         return False
+
+    # NOTE: this answers "is this VERB safe?", not "is this whole command safe?".
+    # It matches on the leading verb, so anything after the first statement is
+    # unexamined. Callers holding a whole command must use
+    # `is_safe_empirica_statement` — see the note there for what that costs.
 
     # Help / version queries are inert regardless of verb — they print usage and
     # never execute the verb's action. A non-tiered (or future) verb like
@@ -913,6 +961,36 @@ def is_safe_empirica_command(command: str) -> bool:
 
     # Tier 2: State-changing - allowed (these enable the workflow)
     return any(cmd.startswith(prefix) for prefix in EMPIRICA_TIER2_PREFIXES)
+
+
+def is_safe_empirica_statement(command: str) -> bool:
+    """`is_safe_empirica_command` for a caller holding a WHOLE command.
+
+    The verb allowlist above inspects only the leading verb, so on a whole command
+    everything after the first statement goes unexamined. Measured, and it is a
+    bypass rather than an over-gate:
+
+        empirica goals-list
+        rm -rf /some/path
+
+    was ALLOWED between transactions — line 1 is a Tier-1 read, line 2 was never
+    looked at, and this predicate sits LAST in that branch, so it rescued exactly
+    what the chain-aware classifier had already rejected.
+
+    **Kept as a separate function rather than folded into the predicate, because
+    folding it there broke five heredoc tests and the reason is instructive.** The
+    segment-level callers do NOT hand over clean single statements: the pipe
+    splitter strips `<<` from the segment that carries it, so the RECEIVING
+    segment of `cat <<'JSON' | empirica log-artifacts -` arrives as
+    `empirica log-artifacts -\\n{}\\nJSON` — verb plus orphaned heredoc body. That
+    is a legitimate single statement wearing a multi-statement shape, and a guard
+    inside the predicate cannot tell it from the bypass.
+
+    So the distinction is in the NAME: *command* is a verb question, *statement*
+    is a whole-input question. A caller that reaches for the wrong one is now
+    making a visible choice rather than an invisible omission.
+    """
+    return _is_single_statement(command) and is_safe_empirica_command(command)
 
 
 # Verb suffixes that denote a pure read in empirica's CLI naming convention.
@@ -2441,7 +2519,7 @@ def is_safe_bash_command(tool_input: dict) -> bool:
     # Single command. A trailing pipe can smuggle an executor
     # (`empirica goals-list | sh`), so a piped command is NOT safe on the bare
     # empirica-prefix match — it goes through the pipe-chain check below.
-    if not _contains_outside_quotes(command, "|") and is_safe_empirica_command(command):
+    if not _contains_outside_quotes(command, "|") and is_safe_empirica_statement(command):
         return True
 
     # Work-type expansion: infra/config/debug/remote-ops get broader safe
@@ -2532,7 +2610,20 @@ def is_safe_sqlite_command(command: str) -> bool:
         return False
 
     # Walk the flags. Value-taking flags consume the next token too.
-    value_flags = {"-separator", "-nullvalue", "-newline", "-cmd", "-init", "-mode", "-column"}
+    #
+    # `-column` is NOT one of them and listing it here was a measured over-gate.
+    # It is a bare output-mode flag, exactly like `-header`, `-box` and `-json` —
+    # it is `-mode column` that takes a value, not `-column`. Listed as
+    # value-taking it swallowed the token after it, which is the DB PATH, leaving
+    # a single positional; the shape check reads one positional as an interactive
+    # REPL and denies. So `sqlite3 -header -column db "SELECT …"` — a pure read —
+    # was refused, while `sqlite3 -header db "SELECT …"` passed.
+    #
+    # The failure direction is safe (a mis-listed flag always denies, never
+    # allows) which is why it survived: it costs a read, and a denied read teaches
+    # the practitioner to rubber-stamp a CHECK to get at information, which
+    # corrupts the gate's meaning far more than it protects anything.
+    value_flags = {"-separator", "-nullvalue", "-newline", "-cmd", "-init", "-mode", "-lookaside", "-vfs"}
     positionals: list[str] = []
     args = tokens[1:]
     i = 0
@@ -3422,7 +3513,7 @@ def _check_postflight_loop_closed(
                 # "goals-list, goals-complete, unknown-resolve, finding-log, etc." —
                 # but the prior code only checked is_safe_bash_command, which doesn't
                 # cover `empirica help`, `empirica goals-list`, etc. Honor the intent.
-                if is_safe_empirica_command(command):
+                if is_safe_empirica_statement(command):
                     return ("allow", "Empirica command between transactions (artifact lifecycle / read-only)")
 
             return (
@@ -3510,7 +3601,7 @@ def _validate_check_record(
         or (
             tool_name == "Bash"
             and tool_input
-            and (is_safe_bash_command(tool_input) or is_safe_empirica_command(tool_input.get("command", "")))
+            and (is_safe_bash_command(tool_input) or is_safe_empirica_statement(tool_input.get("command", "")))
         )
     ):
         return None
@@ -3555,7 +3646,7 @@ def _validate_check_record(
             return None
         if tool_name == "Bash" and is_safe_bash_command(tool_input):
             return None
-        if tool_name == "Bash" and is_safe_empirica_command(tool_input.get("command", "")):
+        if tool_name == "Bash" and is_safe_empirica_statement(tool_input.get("command", "")):
             return None
 
         # GROUNDED AT OPEN — claims declared at PREFLIGHT certify the transaction.
