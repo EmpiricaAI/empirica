@@ -2,10 +2,10 @@
 
 `project-search` returned a full top-k with plausible scores for ANY input, so
 every query looked answered. The obvious fix is a score floor. It does not work,
-and that is not an opinion — cortex measured it, and core reproduced it
-independently on a different graph:
+and that is not an opinion — it was measured once elsewhere and reproduced here
+independently, on a different graph:
 
-                          cortex      core
+                          graph A   graph B
     memory noise floor    0.8148    0.8201
     weakest TRUE hit      0.6988    0.6828
     margin                -0.116   -0.1373     NEGATIVE, both times
@@ -47,7 +47,7 @@ It does not rerank. That was the original design and **measurement killed it.**
 
 The second defect is that recall collapses under paraphrase — core measured 10/10
 verbatim against 2/10 off-phrasing — and lexical rescue was the obvious fix, since
-cortex's sharpest miss turned on a rare literal (`extra=allow`) that BM25 matches
+the sharpest miss on the other graph turned on a rare literal (`extra=allow`) that BM25 matches
 and a dense embedding smears. Swept over core's graph: multiplicative fusion at
 w ∈ {0.2, 0.5, 1.0} and reciprocal-rank fusion at w ∈ {0.5, 1.0, 2.0}, each at
 candidate depths 50 / 100 / 200 / 400. **Dense alone scored 2/10; every hybrid

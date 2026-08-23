@@ -1,9 +1,9 @@
 """`project-search` could not say "nothing here matched", and the obvious fix is
 provably impossible.
 
-Cortex measured it and core reproduced it independently on a different graph:
+Measured once elsewhere and reproduced here independently, on a different graph:
 
-                          cortex      core
+                          graph A   graph B
     memory noise floor    0.8148    0.8201
     weakest TRUE hit      0.6988    0.6828
     margin                -0.116   -0.1373      NEGATIVE, both times

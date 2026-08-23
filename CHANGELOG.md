@@ -36,7 +36,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   quarterly harmonica logistics` came back with five memory results — so every
   query looked answered. A score cut cannot fix it, and that is measured on two
   independent graphs rather than argued: the weakest TRUE hit scores *below* the
-  worst gibberish (margin −0.116 on cortex's graph, −0.1373 on core's). The signal
+  worst gibberish: margin −0.1373 here, and −0.116 when the same probe was run
+  independently against a second, unrelated graph. The signal
   that does work is lexical agreement, weighted by rarity within the candidate set —
   no corpus statistics, no second index, nothing to go stale. Every result now
   carries `lexical` and `confirmed`; unconfirmed sets print a banner and set
@@ -45,7 +46,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   sets, with recall unchanged.
 - **`scripts/retrieval_calibration.py`** — noise floor, verbatim-vs-paraphrase
   recall and separation in one pass, so retrieval changes stop being vibes.
-  Adopted from empirica-cortex, who measured the defect and offered the harness.
+  Every retrieval change should carry a before/after on both numbers rather
+  than an opinion.
 
 ### Changed
 - Reranking retrieval on the lexical signal was **built and then removed**, because

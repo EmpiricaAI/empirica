@@ -48,18 +48,17 @@ cannot tell those apart and they have different fixes.
 
 PROVENANCE
 ----------
-Written by empirica-cortex (`scripts/retrieval_calibration.py` @ 255f79af), who
-measured the two defects above and offered the harness with the report. Adopted
-into core unchanged in structure — core owns `memory.py` and had no way to show a
-before/after without it. Core's fixture keeps cortex's `nonsense` queries VERBATIM
-so floors stay comparable across both graphs; only `probes` differ, because they
-have to name artifacts that exist here.
+Adapted from a harness written alongside the original measurement, unchanged in
+structure — this repo owns `memory.py` and had no way to show a before/after
+without it. The `nonsense` queries are kept VERBATIM from that original so floors
+stay comparable across both graphs and across time; only `probes` differ, because
+they have to name artifacts that exist here.
 
 CONFIRMATION
 ------------
 Core added `confirmed` / `lexical` reporting, because the fix for A is a lexical
-confirmation pass rather than a score cut — cortex's own measurement ruled a score
-cut out, with true hits sitting BELOW the noise floor. A harness that only reports
+confirmation pass rather than a score cut, and the score cut is ruled OUT by the
+measurement above: true hits sit BELOW the noise floor. A harness that only reports
 scores cannot see whether that fix worked.
 
 USAGE
