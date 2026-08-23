@@ -5,6 +5,57 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.30] - 2026-08-23
+
+### Fixed
+- **The cockpit refresh was a busy loop wearing a timer's clothes — 54.3% of a
+  core for 17.8 days.** `empirica tui` scheduled `aggregate_all` on a fixed 2.0 s
+  `set_interval` while the scan itself cost 1.7–2.0 s, so it re-entered the work
+  about as fast as it finished. Nothing local surfaced it: a pegged core is not
+  something the running process complains about, and it took a peer reading the
+  process table from outside. Three defects, and only the third is the one that
+  mattered. Four call sites each re-parsed the same `project.yaml`, per instance,
+  per refresh, for a file unchanged in days — 417 `yaml.safe_load` calls per scan,
+  79% of the CPU — now one cache keyed on `(mtime_ns, size)`, so an edit is visible
+  on the very next call and an untouched file is never parsed twice. The fires log
+  was re-read per instance, where an instance with *no* events had to parse every
+  line to prove it. And the timer is now one-shot, re-armed on completion and
+  spaced off the **measured** duration, so the auto-refresh cannot exceed 15% of a
+  core whatever the scan costs on a given box. Raising the constant would have
+  fixed this machine and re-broken on the next one.
+- **The cockpit's "latest 5 events" pane had rendered empty since it shipped.**
+  `loop_fires.log` is written keyed by practice `ai_id` (`empirica-cortex`) and the
+  lookup passed the seat (`tmux_6`) — a match that could never succeed, and an
+  unsatisfiable match is indistinguishable from a quiet mesh. Measured live: 11
+  instances, 0 events rendered, 43 events sitting in the log. Now keyed on the same
+  practice id the loop registry is read under, twenty lines above.
+
+### Added
+- **`project-search` can say "nothing here matched".** It used to return a full
+  top-k with plausible scores for *any* input — `purple giraffe tessellation
+  quarterly harmonica logistics` came back with five memory results — so every
+  query looked answered. A score cut cannot fix it, and that is measured on two
+  independent graphs rather than argued: the weakest TRUE hit scores *below* the
+  worst gibberish (margin −0.116 on cortex's graph, −0.1373 on core's). The signal
+  that does work is lexical agreement, weighted by rarity within the candidate set —
+  no corpus statistics, no second index, nothing to go stale. Every result now
+  carries `lexical` and `confirmed`; unconfirmed sets print a banner and set
+  `matched: false` in JSON, while still showing the rows captioned as neighbours
+  rather than answers. Measured 0/8 nonsense sets confirmed against 11/12 true-hit
+  sets, with recall unchanged.
+- **`scripts/retrieval_calibration.py`** — noise floor, verbatim-vs-paraphrase
+  recall and separation in one pass, so retrieval changes stop being vibes.
+  Adopted from empirica-cortex, who measured the defect and offered the harness.
+
+### Changed
+- Reranking retrieval on the lexical signal was **built and then removed**, because
+  measurement killed it: swept over multiplicative fusion and reciprocal-rank
+  fusion at three weights and four candidate depths, plain dense scored 2/10 on
+  paraphrase and every hybrid variant scored 1/10. Those paraphrases share zero
+  content tokens with their targets, so a lexical method cannot rank them — it can
+  only confirm that the query is about *something* present. Dense order ships
+  untouched, with a test guarding against the rerank returning.
+
 ## [1.13.29] - 2026-08-23
 
 ### Fixed
