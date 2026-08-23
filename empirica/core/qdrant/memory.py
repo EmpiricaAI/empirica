@@ -235,6 +235,54 @@ def upsert_memory(project_id: str, items: list[dict], qdrant_url: str | None = N
         return 0
 
 
+#: How many neighbours to fetch per collection to CALIBRATE the lexical check.
+#:
+#: Not for reranking — reranking on the lexical signal was measured to cost recall
+#: and was dropped (see `lexical.py`). The depth exists because the confirmation
+#: metric weights each query token by how rare it is *among the candidates*, and
+#: that estimate from five documents is noise. Fifty gives it something to measure
+#: against; the returned rows are still the dense top-`limit`, unreordered.
+#:
+#: It is emphatically NOT the same move as raising `limit`. Cortex measured that
+#: raising the RETURNED count makes the confabulation bigger, not smaller, and core
+#: measured what it would buy: off-phrasing recall goes 2/10 at limit=5 to 4/10 at
+#: limit=30 to 6/10 at limit=100 — nobody reads a hundred results for four more
+#: answers.
+_CANDIDATE_DEPTH = 50
+
+#: Which payload field carries the human-meaningful text of each band, for lexical
+#: confirmation. A band absent here is reranked on dense score alone rather than
+#: silently scoring zero lexical — an unlisted band would otherwise become
+#: permanently unconfirmable, which reads as "nothing here matched" forever.
+_TEXT_FIELDS = {
+    "docs": ("doc_path", "concepts", "tags"),
+    "memory": ("text",),
+    "eidetic": ("content", "domain"),
+    "episodic": ("narrative", "outcome"),
+    "assumptions": ("assumption", "domain"),
+    "decisions": ("choice", "rationale"),
+    "goals": ("objective",),
+}
+
+
+def _band_text(fields: tuple[str, ...]):
+    """Build the text extractor for one band. Joins because several bands carry
+    their meaning across two fields — a decision is its choice AND its rationale,
+    and matching only the title would miss the half that explains it."""
+
+    def extract(item: dict) -> str:
+        parts = []
+        for f in fields:
+            v = item.get(f)
+            if isinstance(v, str):
+                parts.append(v)
+            elif isinstance(v, (list, tuple)):
+                parts.extend(str(x) for x in v)
+        return " ".join(parts)
+
+    return extract
+
+
 def search(
     project_id: str, query_text: str, kind: str = "focused", limit: int = 5, qdrant_url: str | None = None
 ) -> dict[str, list[dict]]:
@@ -349,16 +397,17 @@ def search(
         coll_fn, fields = _SEARCH_COLLECTIONS[kind_name]
         boost = _COLLECTION_BOOST.get(kind_name, 1.0)
         query_filter = _intelligence_filter if (kind_name == "eidetic" and _intelligence_filter) else None
-        results[kind_name] = _search_single_collection(
+        candidates = _search_single_collection(
             client,
             coll_fn,
             project_id,
             query_text,
             fields,
             boost,
-            limit,
+            max(limit, _CANDIDATE_DEPTH),
             query_filter,
         )
+        results[kind_name] = _confirm_band(kind_name, query_text, candidates, limit)
 
     if results:
         return results
@@ -370,19 +419,51 @@ def search(
             if kind_name not in _SEARCH_COLLECTIONS:
                 continue
             coll_fn, fields = _SEARCH_COLLECTIONS[kind_name]
-            results[kind_name] = _rest_search_collection(
+            candidates = _rest_search_collection(
                 client,
                 coll_fn,
                 project_id,
                 query_text,
                 fields,
-                limit,
+                max(limit, _CANDIDATE_DEPTH),
                 qdrant_url=qdrant_url,
             )
+            # Same rerank as the client path. A fallback that quietly returns
+            # unconfirmed rows would make the confirmation signal depend on which
+            # transport happened to answer — and the transport is invisible to the
+            # caller, so the inconsistency would be unattributable.
+            results[kind_name] = _confirm_band(kind_name, query_text, candidates, limit)
         return results
     except Exception as e:
         logger.debug(f"REST search also failed: {e}")
         return empty_result
+
+
+def _confirm_band(kind_name: str, query_text: str, candidates: list[dict], limit: int) -> list[dict]:
+    """Annotate the dense top-`limit` with lexical confirmation, calibrated on the
+    full candidate pool. Dense order is preserved.
+
+    Non-raising by design: retrieval that returned five rows must not start
+    returning an error because the annotator hit something unexpected. The
+    degradation is LOGGED and the rows are left WITHOUT a `confirmed` field rather
+    than stamped `False` — "the signal is unavailable" and "the signal says nothing
+    matched" are opposite instructions to a caller, and collapsing them would
+    reintroduce the defect one layer up.
+    """
+    text_fields = _TEXT_FIELDS.get(kind_name)
+    if not text_fields:
+        return candidates[:limit]
+    try:
+        from empirica.core.qdrant.lexical import annotate
+
+        # Calibrate over the whole pool, return the dense top-`limit`. Annotating
+        # only the five returned rows would compute rarity from five documents,
+        # which is the estimate this depth exists to avoid.
+        annotate(query_text, candidates, _band_text(text_fields))
+        return candidates[:limit]
+    except Exception as e:
+        logger.warning(f"lexical confirmation unavailable for band {kind_name}: {e}")
+        return candidates[:limit]
 
 
 def _search_single_collection(client, coll_fn, project_id, query_text, fields, boost, limit, query_filter):

@@ -32,9 +32,45 @@ import os
 from ..cli_utils import handle_cli_error
 
 
+def _unconfirmed_banner(results) -> str | None:
+    """The sentence this command could not previously say.
+
+    Retrieval returned a full top-k with plausible scores for ANY input, so every
+    query looked answered — `purple giraffe tessellation quarterly harmonica
+    logistics` came back with five memory results. A score floor cannot fix that:
+    measured on two graphs, the weakest TRUE hit scores BELOW the worst gibberish.
+
+    So the banner keys on lexical confirmation, and it is a BANNER rather than a
+    filter on purpose. The rows still print. A reader can see what almost-matched
+    and judge for themselves, which is the difference between saying "nothing here
+    matched" and silently deciding on their behalf.
+
+    Returns None when the signal is unavailable — an old server, a degraded
+    rerank. Printing "nothing matched" because the checker did not run is the same
+    defect one layer along.
+    """
+    saw_signal = False
+    for items in results.values():
+        for item in items or []:
+            if isinstance(item, dict) and item.get("confirmed") is not None:
+                saw_signal = True
+                if item.get("confirmed"):
+                    return None
+    if not saw_signal:
+        return None
+    return (
+        "⚠ nothing here matched — no result shares meaningful terms with the query.\n"
+        "  Ranked neighbours are shown below; they are the closest points in the "
+        "embedding, not answers."
+    )
+
+
 def _print_search_results_human(task, results, use_global):
     """Print search results in human-readable format."""
     print(f"🔎 Semantic search for: {task}")
+    banner = _unconfirmed_banner(results)
+    if banner:
+        print(f"\n{banner}")
     if "docs" in results:
         print("\n📄 Docs:")
         for i, d in enumerate(results["docs"], 1):
@@ -130,7 +166,23 @@ def handle_project_search_command(args):
                 results["cross_project"] = cross_results
 
         if getattr(args, "output", "default") == "json":
-            print(json.dumps({"ok": True, "results": results}, indent=2))
+            # `matched` is the set-level answer to *did anything here match?* — the
+            # question the JSON shape previously had no field for, so a programmatic
+            # consumer could not distinguish an answer from a nearest neighbour.
+            # None when the signal is unavailable, never False, because a consumer
+            # reading False would act on "nothing matched" that was never checked.
+            payload = {"ok": True, "results": results}
+            banner = _unconfirmed_banner(results)
+            if banner is not None:
+                payload["matched"] = False
+                payload["note"] = "no result shares meaningful terms with the query"
+            elif any(
+                isinstance(i, dict) and i.get("confirmed") is not None
+                for items in results.values()
+                for i in items or []
+            ):
+                payload["matched"] = True
+            print(json.dumps(payload, indent=2))
         else:
             _print_search_results_human(task, results, use_global)
 

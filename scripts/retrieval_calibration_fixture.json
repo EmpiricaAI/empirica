@@ -1,0 +1,90 @@
+{
+  "_README": [
+    "Fixture for scripts/retrieval_calibration.py, measuring THIS project's graph.",
+    "",
+    "`nonsense` is copied VERBATIM from empirica-cortex's fixture (commit 255f79af) and",
+    "must stay that way. A regenerated floor jitters, and the whole point is that a run",
+    "today is comparable with a run last month — and with cortex's run on their graph.",
+    "Changing a nonsense query silently invalidates every prior number.",
+    "",
+    "`probes` are artifacts of CERTAIN presence in core's own graph, matched on EXACT",
+    "artifact_id, never substring. `verbatim` reuses the finding's own distinctive",
+    "wording; `off` is how the question would actually arrive — deliberately sharing as",
+    "few content tokens with the artifact as the meaning allows, because that is the",
+    "case the measurement exists to expose.",
+    "",
+    "To re-point at a different graph: keep `nonsense` untouched, replace `probes`."
+  ],
+  "nonsense": [
+    "purple giraffe tessellation quarterly harmonica logistics",
+    "brindled cartography of unhurried tin whistle municipalities",
+    "sixteen lukewarm parabolas negotiating with a filing cabinet",
+    "the vestibular opinions of laminated weekday furniture",
+    "corrugated marmalade indexing for equestrian sundials",
+    "flotsam trigonometry beneath a wholesale accordion registry",
+    "unbuttoned meridians auditing the porcelain of last Tuesday",
+    "gelatinous semaphore franchise for reversible mountain paperwork"
+  ],
+  "probes": [
+    {
+      "id": "listener-silent-none",
+      "expect": "13db7589-16f1-465b-8c86-07ad29338d50",
+      "verbatim": "_cortex_creds returns None silently on a missing api_key so the listener crash-loops with the cause named nowhere",
+      "off": "a new seat keeps restarting its background watcher and nothing useful is ever printed about why"
+    },
+    {
+      "id": "text-full-inverted",
+      "expect": "9a4bb7ab-c96b-4a1e-9db5-e9557ef57b75",
+      "verbatim": "global_learnings text_full was inverted, set only when it duplicated text",
+      "off": "the field that keeps the untruncated copy is empty in exactly the case it exists for"
+    },
+    {
+      "id": "registry-absent-table",
+      "expect": "3c7ce043-af76-4406-8e82-1319cb4c1016",
+      "verbatim": "entity_registry rows name a table absent from the database they point at, breaking find-then-read",
+      "off": "an index says where a record lives and the place it names is not there"
+    },
+    {
+      "id": "cold-yaml-is-a-read",
+      "expect": "02d1941d-6e9c-44f2-9031-5f8805220af4",
+      "verbatim": "get_lesson auto path returns cold yaml before warm sqlite, so a writer that updates only sqlite is invisible",
+      "off": "I changed the record and readers still hand back the old value"
+    },
+    {
+      "id": "commit-check-false",
+      "expect": "915e3975-42ee-4d55-8031-6c2e0457b839",
+      "verbatim": "two release-script committers ran git commit with check=False and reported success without one",
+      "off": "a step reported that it worked when in fact nothing was recorded at all"
+    },
+    {
+      "id": "type-map-divergence",
+      "expect": "8700762a-7742-47d5-8b70-af65551dbcdc",
+      "verbatim": "four divergent artifact-type maps and one divergence was deliberate, source omitted from the delete map",
+      "off": "one lookup answering both what may be destroyed and what exists, and the two disagree on archived things"
+    },
+    {
+      "id": "path-only-on-one-box",
+      "expect": "0a510fb8-33a8-4fdf-8886-e3987570e451",
+      "verbatim": "canonical_path stored the resolved absolute unconditionally so rows name a directory on one laptop",
+      "off": "a saved location that resolves for whoever wrote it and for nobody else"
+    },
+    {
+      "id": "timer-never-idles",
+      "expect": "f727aaac-aeb6-4a99-80d1-40a58cac42e7",
+      "verbatim": "the cockpit auto-refresh set_interval 2.0 scheduled an aggregate_all costing 1.7 to 2.0 seconds",
+      "off": "a repeating background job that never gets a chance to sit still"
+    },
+    {
+      "id": "pattern-without-application",
+      "expect": "ca6cdbb9-7718-44e6-bbc6-069d4000ae98",
+      "verbatim": "the shared pool carried no steps and no epistemic block so ingestion could only recover a lesson's text",
+      "off": "enough to recognise what happened, never enough to know how to do it yourself"
+    },
+    {
+      "id": "two-clients-disagree",
+      "expect": "09912587-1559-4394-817c-0917cfdfe1b8",
+      "verbatim": "polled both simple indexes with curl until both showed the version and release verify still failed",
+      "off": "one tool says the thing is published and a second tool asking the same service says it is not"
+    }
+  ]
+}
