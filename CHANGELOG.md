@@ -5,6 +5,40 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.31] - 2026-08-24
+
+### Fixed
+- **A destructive command could ride behind a safe `empirica` verb.** Between
+  transactions the Sentinel allows the artifact lifecycle through — closing goals,
+  resolving unknowns, logging findings — via a predicate that matches on the
+  *leading verb*. It was consulted on whole commands and sat **last** in that
+  branch, so it rescued exactly what the chain-aware classifier had already
+  rejected: `empirica goals-list` followed by a newline and anything at all was
+  allowed, through newline, `;`, `&&`, `||`, `|` or `&`. Split into two predicates
+  whose names carry the distinction — one asks *is this VERB safe?*, the other
+  *is this INPUT safe?* — because folding the guard into one broke every heredoc
+  form, and heredocs are how every JSON payload in this system arrives. The
+  statement check understands them: it skips the body and checks after the
+  terminator, which is where a second statement would actually hide.
+- **`sqlite3 -header -column <db> "SELECT …"` was refused as praxic.** `-column`
+  sat in the value-taking flag set, but it is a bare output-mode flag like
+  `-header` and `-box`; it is `-mode column` that takes a value. Listed as
+  value-taking it swallowed the token after it — the DB path — leaving one
+  positional, which the shape check correctly reads as a writable REPL. So
+  `-header <db> "SELECT"` passed and `-header -column <db> "SELECT"` did not, and
+  the refusal named the loop state rather than the flag. A denied read is not
+  harmless conservatism: it teaches rubber-stamping a CHECK to get at
+  information, which costs more than it protects.
+
+### Changed
+- **The always-loaded artifact-type vocabulary now names a third confusion.** It
+  had two — finding-vs-mistake, assumption-vs-unknown — and the missing one is the
+  expensive one: an *inference sitting inside an observation* is **two artifacts**.
+  What you observed is the finding, what you supplied is an assumption, edged to
+  it. An artifact is read as a unit, so a tag on the whole of it cannot mark part
+  of it; `epistemic_source`, a confidence or a caveat in the prose are all honest
+  and none stops a reader lifting a proper noun out of the sentence.
+
 ## [1.13.30] - 2026-08-23
 
 ### Fixed
