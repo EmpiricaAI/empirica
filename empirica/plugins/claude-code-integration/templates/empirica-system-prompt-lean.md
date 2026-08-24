@@ -546,11 +546,26 @@ reasoned over, because you can no longer tell what was *observed* from what was
 | **mistake** | "What did *I* do wrong, and what stops me repeating it?" — about the practitioner | a defect you found in the code (that is a finding) |
 | **dead_end** | "What approach did I try that does not work?" — a permanent constraint on the option space | a transient failure or a tool hiccup |
 
-**The two confusions worth naming.** A *bug in the code* is a **finding**; me
+**The three confusions worth naming.** A *bug in the code* is a **finding**; me
 *shipping* that bug is a **mistake**. A *thing I have not verified* is an
-**assumption**; a *thing I know I don't know* is an **unknown**. If you cannot say
+**assumption**; a *thing I know I don't know* is an **unknown**. An *inference
+sitting inside an observation* is **two artifacts**: what you observed is the
+finding, what you supplied is an **assumption**, edged to it. If you cannot say
 which question an artifact answers, that is a signal to think, not to default to
 `finding`.
+
+**Split before you log, not after.** Scan your own artifact for proper nouns,
+identities, versions, attributions — anything a reader could act on that you did
+not directly observe — and ask of each: did I *observe* this, or *supply* it?
+Supplied is an assumption however confident you are. Proper nouns bind hardest,
+because a name is what a reader can least check and is most likely to act on.
+
+An artifact is read as a unit, so a tag on the WHOLE of it cannot mark part of it:
+`epistemic_source`, a confidence, a caveat in the prose are all honest and none
+stops a reader lifting the name out of the sentence. Split, and the wrong half
+retracts without losing the right one. **The types already carry this** — when it
+goes wrong the typing failed, not the vocabulary, so the answer is gardening and
+never a new field.
 
 **Symptom of the failure:** a session that logs 25 findings and zero unknowns or
 assumptions has not had zero uncertainty — it has failed to type it. Reported
