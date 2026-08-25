@@ -1270,11 +1270,22 @@ def run_compliance_report(
         # detector self-update (CI-friendly). --json emits per-finding
         # objects line-delimited. We don't pass --only-verified so the
         # parser sees both verified (hard fail) and unverified (warn).
-        trufflehog_raw = _run_check(
-            "trufflehog",
-            ["trufflehog", "filesystem", str(project_root), "--json", "--no-update"],
-            timeout=180,
-        )
+        #
+        # --config carries detectors for OUR OWN credential formats, and it is
+        # load-bearing rather than a refinement. Measured: a LIVE cortex admin key
+        # (`ctx_empirica_adm_<hex>`, verified HTTP 200) scored ZERO findings against
+        # the stock detector set — the format is invisible to every built-in rule.
+        # Without this the check reports PASS over a live credential, which is
+        # strictly worse than the `unavailable` it reported when the tool was
+        # missing: a pass reads as "no secrets" and means "none I can detect".
+        #
+        # Absent config file → run stock rather than fail, so a fork or a partial
+        # checkout still gets the built-in detectors instead of no scan at all.
+        detector_config = project_root / "security" / "trufflehog-detectors.yaml"
+        trufflehog_cmd = ["trufflehog", "filesystem", str(project_root), "--json", "--no-update"]
+        if detector_config.exists():
+            trufflehog_cmd += ["--config", str(detector_config)]
+        trufflehog_raw = _run_check("trufflehog", trufflehog_cmd, timeout=180)
         results.append(_parse_trufflehog_result(trufflehog_raw))
 
     # Technical documentation — runner selection in priority order:

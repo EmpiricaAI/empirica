@@ -1,0 +1,47 @@
+# Custom secret detectors for Empirica's own credential formats.
+#
+# WHY THIS FILE EXISTS, AND IT IS NOT A NICETY.
+#
+# `compliance-report --security` runs trufflehog. Before this file, that check
+# reported `unavailable — tool not installed`. Installing the tool alone would
+# have made it report **PASS** — and that is strictly worse than unavailable,
+# because a pass reads as "no secrets" when it means "no secrets I have a
+# detector for".
+#
+# Measured: a LIVE cortex admin key (`ctx_empirica_adm_<32 hex>`, verified HTTP
+# 200) sat in 9 artifacts of this practice's graph, and the stock detector set
+# scored it **0 findings** — the format is invisible to every built-in detector.
+# So the check that is mapped to EU AI Act Art. 15(4) and GDPR Art. 32 would have
+# gone green over a live credential.
+#
+# An exemption that can never fire is training, not feedback, and what it trains
+# is dismissal of the whole report.
+#
+# ADDING A FORMAT: add the regex, then add a case to
+# tests/test_secret_detectors.py — the positive control is what stops this file
+# becoming a list of patterns nobody has ever seen match.
+
+detectors:
+  - name: empirica_cortex_api_key
+    keywords:
+      - ctx_empirica
+    regex:
+      # ctx_empirica_adm_<hex>, ctx_empirica_usr_<hex>, and any future role slug.
+      # Kept deliberately loose on the role and strict on the payload: a new role
+      # ships without touching this file, while ordinary prose cannot match.
+      key: \bctx_empirica_[a-z]{2,8}_[a-f0-9]{24,64}\b
+
+  - name: empirica_cortex_bearer_env
+    keywords:
+      - CORTEX_API_KEY
+    regex:
+      # The env-var form, which is how it reaches CI and shell history.
+      key: CORTEX_API_KEY\s*[=:]\s*["']?(ctx_[A-Za-z0-9_]{16,})["']?
+
+  - name: empirica_ntfy_token
+    keywords:
+      - tk_
+    regex:
+      # ntfy access tokens — the other credential in credentials.yaml, and the one
+      # a listener seat carries.
+      key: \btk_[A-Za-z0-9]{24,}\b

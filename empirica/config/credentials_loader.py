@@ -665,6 +665,19 @@ class CredentialsLoader:
             # Say which half is missing. "no token" and "cannot renew the token I
             # have" need different fixes, and collapsing them sends the operator
             # to re-auth when the real problem is a missing refresh hook.
+            # FALSE POSITIVE, suppressed at the line rather than by widening the
+            # gate. The rule fires on the word "token" appearing in a logger
+            # message near credential-handling code; both interpolated values here
+            # are LITERAL diagnostic strings chosen by the branch above, and no
+            # token, key or secret is reachable from this call. Audited alongside
+            # every other logger call in this module — none interpolates a
+            # credential value.
+            #
+            # Scoped to this line and this rule on purpose: a genuine credential
+            # leak introduced anywhere else, including elsewhere in this function,
+            # still fires. The directive must sit directly above the match —
+            # placed at the top of this comment block it is silently ignored.
+            # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
             logger.debug(
                 "cortex access token unavailable: %s",
                 "no refresh_token stored" if refresh else "no refresh callable supplied",
