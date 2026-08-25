@@ -272,11 +272,27 @@ def default_refresh(loader, *, http=_http_json) -> Callable[[str, str | None], d
 
 
 def cortex_bearer(loader=None, *, http=_http_json) -> dict[str, Any]:
-    """{url, bearer, source} — OAuth-first, api_key fallback.
+    """{url, bearer, source} — OAuth-first, api_key fallback, dead credentials skipped.
 
     source: 'oauth' | 'api_key' | 'none'. Never returns a stale token
-    (cortex_access_token's contract); a failed refresh falls back to the
-    api_key rather than sending a dead credential.
+    (cortex_access_token's contract).
+
+    **The api_key fallback used to fire unconditionally, and that is what minted
+    unfixable 401 storms** — measured elsewhere at 25h and ~10k requests. The old
+    docstring said the fallback avoided "sending a dead credential", which was true
+    of the TOKEN and false of the KEY: `cortex_access_token` correctly returns None
+    on expiry-without-refresh, and the fallback then handed back an api_key that
+    might itself be revoked, forever, with zero `/v1/oauth/token` attempts. The
+    guard named the wrong credential.
+
+    So a key recorded as terminally dead is now skipped, and the result says WHY
+    via `reason` — a suppressed credential that looks identical to an absent one
+    would reintroduce the silence the whole 401 contract exists to remove.
+
+    The api_key fallback itself stays. David's ruling is that keys retire as a
+    DIRECTION, once clients handle credential death cleanly — not a same-day
+    revocation — and a browser closed past the token's 24h life still leaves a seat
+    with nothing else to present.
     """
     if loader is None:
         from empirica.config.credentials_loader import get_credentials_loader
@@ -298,9 +314,30 @@ def cortex_bearer(loader=None, *, http=_http_json) -> dict[str, Any]:
         logger.warning(f"oauth token resolution failed, falling back to api_key: {e}")
     if token:
         return {"url": cfg.get("url"), "bearer": token, "source": "oauth"}
-    if cfg.get("api_key"):
-        return {"url": cfg.get("url"), "bearer": cfg.get("api_key"), "source": "api_key"}
-    return {"url": cfg.get("url"), "bearer": None, "source": "none"}
+
+    api_key = cfg.get("api_key")
+    if api_key:
+        from empirica.core.auth.credential_health import dead_reason
+
+        reason = dead_reason(api_key)
+        if reason:
+            # Suppressed, and SAID so. Returning a bare None here would look
+            # exactly like a seat with no api_key configured, which sends the
+            # operator to provision a credential they already have.
+            return {
+                "url": cfg.get("url"),
+                "bearer": None,
+                "source": "none",
+                "reason": f"api_key unusable ({reason}) — re-authenticate with `empirica auth login`",
+            }
+        return {"url": cfg.get("url"), "bearer": api_key, "source": "api_key"}
+
+    return {
+        "url": cfg.get("url"),
+        "bearer": None,
+        "source": "none",
+        "reason": "no cortex credential configured (no OAuth token, no api_key)",
+    }
 
 
 def login(

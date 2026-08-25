@@ -16,14 +16,24 @@ from .cortex_oauth import (
     refresh_access_token,
     register_client,
 )
+from .credential_health import (
+    dead_reason,
+    parse_unauthorized,
+)
+from .credential_health import (
+    mark as mark_credential_dead,
+)
 
 __all__ = [
     "build_pkce",
     "cortex_bearer",
+    "dead_reason",
     "default_refresh",
     "exchange_code",
     "fetch_discovery",
     "login",
+    "mark_credential_dead",
+    "parse_unauthorized",
     "refresh_access_token",
     "register_client",
 ]
