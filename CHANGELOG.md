@@ -5,6 +5,56 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.32] - 2026-08-25
+
+### Fixed
+- **The api_key fallback presented credentials already known to be dead.** A
+  stale-credential device elsewhere 401-stormed for 25h across ~10k requests
+  because a bare 401 is indistinguishable from a transient failure. Cortex now
+  states on the wire whether retrying can ever work (`credential_status` +
+  `retry`); `expired_token → refresh` is the only retry-with-hope state. Core's
+  side: `cortex_bearer`'s docstring claimed the fallback avoided "sending a dead
+  credential" — true of the TOKEN and false of the KEY. `cortex_access_token`
+  correctly returns `None` on expiry-without-refresh, and the fallback then handed
+  back an api_key that might itself be revoked, forever, with zero
+  `/v1/oauth/token` attempts. **The guard named the wrong credential.** Terminal
+  verdicts are now recorded and such a key is skipped.
+
+  Three properties carry the design, each with a test: the **escape path is always
+  open** — a mark clears the moment `credentials.yaml` changes, so `auth login`
+  un-brickes a seat by writing the file, with no reset command to discover;
+  **absent fields fail open** — an older server or a proxy that ate the body marks
+  nothing; and **suppression is legible** — a skipped credential returns a reason,
+  never a bare `None`, so it cannot be mistaken for a seat with none configured.
+  Credentials are identified by truncated SHA-256, never stored.
+
+  The api_key fallback itself is unchanged: keys retire as a direction, once
+  clients handle credential death cleanly, not as a revocation.
+
+### Security
+- **The secret scanner could not see this project's own credential format.** The
+  `secret_scan` compliance check reported `unavailable — tool not installed`,
+  which is honest. Installing the scanner alone would have made it report **pass**
+  — and that is strictly worse, because a pass reads as *no secrets* and means *no
+  secrets I have a detector for*. Measured: a credential in this project's own
+  format scored **zero findings** against the stock detector set, so a check mapped
+  to EU AI Act Art. 15(4) and GDPR Art. 32 would have gone green over it.
+  `security/trufflehog-detectors.yaml` adds detectors for the formats this project
+  actually issues, wired via `--config` and degrading to a stock scan when absent.
+  Negative controls included, because a detector that fires on prose about
+  credentials gets disabled rather than obeyed.
+- One OWASP finding suppressed at the line with its reason stated — a logger rule
+  firing on the word "token" near credential-handling code, where every
+  interpolated value is a literal diagnostic string. Scoped to that rule and that
+  line, so a genuine leak anywhere else still fires. Blanket suppression to reach
+  a green report makes every future run worthless while looking better than today.
+
+### Changed
+- A corrupt `credential_health.json` was indistinguishable from no file at all —
+  both fail open, but only one is a problem, and marks silently never applying is
+  the failure this module exists to prevent. A missing file stays silent; an
+  unreadable one warns.
+
 ## [1.13.31] - 2026-08-24
 
 ### Fixed
