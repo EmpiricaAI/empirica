@@ -119,11 +119,22 @@ def _read() -> dict[str, Any]:
     mark. There is no reset command to discover, because a seat that is bricked and
     told to run a command it cannot find is bricked twice.
     """
+    path = _health_path()
     try:
-        raw = json.loads(_health_path().read_text(encoding="utf-8"))
-    except Exception:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}  # first run, or cleared — the normal empty case
+    except Exception as e:
+        # A file that EXISTS and will not parse is a different fact from no file,
+        # and the two were indistinguishable in the first version of this. Both
+        # fail open to {}, which is right — but a health file that has been
+        # unreadable for weeks would mean marks never stick, storms never stop,
+        # and nothing anywhere says why. Silence about a persistent failure is the
+        # exact shape this module exists to remove, so it does not get to live here.
+        logger.warning(f"credential_health: {path} unreadable, credential-death marks are not being applied: {e}")
         return {}
     if not isinstance(raw, dict):
+        logger.warning(f"credential_health: {path} is not an object, ignoring it")
         return {}
     try:
         creds_mtime = _credentials_path().stat().st_mtime

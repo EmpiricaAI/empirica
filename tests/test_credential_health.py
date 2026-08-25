@@ -217,3 +217,33 @@ def test_suppression_says_why_and_does_not_look_like_absence():
     assert "auth login" in suppressed["reason"]
     assert suppressed["reason"] != absent["reason"], "suppressed and absent must be distinguishable"
     assert "no cortex credential" in absent["reason"]
+
+
+def test_an_unreadable_health_file_is_distinguishable_from_no_file(isolated_home, caplog):
+    """Both fail open to no-marks, which is right — but a health file that has been
+    unparseable for weeks would mean marks never stick, storms never stop, and
+    nothing anywhere says why.
+
+    Found by a broccoli pass over code written hours earlier: the first version
+    caught bare `Exception` and returned `{}` with no log, so a corrupt file and a
+    fresh install produced identical behaviour and identical silence.
+    """
+    import logging
+
+    ch.mark("secret-key", ch.parse_unauthorized(TERMINAL_BODY))
+    (isolated_home / ".empirica" / "credential_health.json").write_text("{not json")
+
+    with caplog.at_level(logging.WARNING):
+        assert ch.dead_reason("secret-key") is None, "still fails open"
+    assert any("unreadable" in r.message for r in caplog.records), "and says so"
+
+
+def test_no_health_file_at_all_is_silent(isolated_home, caplog):
+    """NEGATIVE CONTROL. A fresh install is the common case and must not warn —
+    a warning on every first run trains people to ignore the channel that carries
+    the real one."""
+    import logging
+
+    with caplog.at_level(logging.WARNING):
+        assert ch.dead_reason("never-marked") is None
+    assert not caplog.records, "a missing file is normal, not a warning"

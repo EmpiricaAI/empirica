@@ -64,6 +64,38 @@ family** (`owner == "cli"` on the CLI path); otherwise it reads the current toke
 without refreshing, so a non-owner can never trigger a rotation that
 reuse-detection would punish.
 
+### Dead credentials are suppressed, and the result says so
+
+The api_key fallback does **not** fire for a key already known to be dead. Cortex's
+401 bodies carry `credential_status` and `retry`; a terminal status
+(`invalid_key` / `invalid_token` / `missing_credential`) is recorded by
+`empirica/core/auth/credential_health.py`, and `cortex_bearer()` then skips that
+key rather than presenting it again.
+
+This exists because the fallback used to fire unconditionally: `cortex_access_token`
+correctly returns `None` on expiry-without-refresh, and the fallback handed back an
+api_key that might itself be revoked — forever, with zero `/v1/oauth/token`
+attempts. Measured elsewhere at 25h and ~10k requests.
+
+Two things a reader debugging an unauthenticated seat needs:
+
+- **A suppressed credential is not an absent one.** The result carries `reason`
+  (`api_key unusable (invalid_key) — re-authenticate with 'empirica auth login'`),
+  distinct from `no cortex credential configured`. If you see the first, the seat
+  HAS a key and it is dead; provisioning another will not help.
+- **`auth login` is the escape path and needs no reset step.** Marks clear the
+  moment `credentials.yaml` changes, so re-authenticating un-brickes the seat by
+  writing the file.
+
+Absent `credential_status` fields fail **open** — an older cortex, or a proxy that
+ate the body, produces no verdict and nothing is marked. `expired_token` is never
+marked; that path refreshes.
+
+> The recording side is shipped and **not yet wired to a caller** — no request path
+> currently reports its 401s into it, so no credential is marked in practice. It
+> fails open, so behaviour is unchanged until a shared cortex request helper exists
+> to route 401s through it.
+
 ---
 
 ## `auth login` flow
