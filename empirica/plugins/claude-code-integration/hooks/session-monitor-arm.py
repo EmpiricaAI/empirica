@@ -170,7 +170,33 @@ def _build_monitor_block_from_cli(payload: dict | None, instance_id: str) -> str
     # same auto-relaunch semantics on hosts without an OS service. sleep 3
     # keeps a crash-loop from pinning CPU; reconnect/backoff is handled
     # internally by the listener loop itself. (cortex prop_6kevxb63 finding.)
-    _standalone_supervised = f"while true; do empirica loop listen --instance {instance_id}; sleep 3; done"
+    # DUPLICATED FROM empirica/core/loop_scheduler/supervisor_wrapper.py.
+    # Hooks are standalone — no package import is available here — so the string
+    # is copied and tests/test_supervisor_backoff.py asserts the two are byte
+    # identical. An equality assertion is the substitute for a single home when a
+    # single home is not reachable.
+    #
+    # The delay was a flat `sleep 3`, and that was the cadence of a measured
+    # storm: a present-but-wrong api key made the listener refuse and exit, and
+    # this wrapper respawned it 5,982 times in a day. No in-process backoff can
+    # fix that — a 3-second respawn resets in-process state forever — so the
+    # backoff has to live in the supervisor.
+    _standalone_supervised = (
+        "d=3; "
+        "while true; do "
+        "s=$(date +%s); "
+        f"empirica loop listen --instance {instance_id}; "
+        "e=$(date +%s); "
+        "if [ $((e-s)) -lt 30 ]; then "
+        'echo "[empirica] listener exited after $((e-s))s — backing off ${d}s '
+        'before respawn (repeat crash; see ~/.empirica/loop_fires.log)" >&2; '
+        "sleep $d; "
+        "d=$((d*2)); [ $d -gt 300 ] && d=300; "
+        "else "
+        "d=3; "
+        "fi; "
+        "done"
+    )
     if monitor_args:
         description = monitor_args.get("description", f"Cortex orchestration push listener for {instance_id}")
         command = monitor_args.get("command", _standalone_supervised)

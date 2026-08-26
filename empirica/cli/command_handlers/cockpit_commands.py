@@ -2084,13 +2084,19 @@ def handle_listener_on_command(args) -> int:
         # like silent death from the Monitor's perspective.
         #
         # Wrap in a while-true loop so the listener auto-relaunches after any
-        # exit. `sleep 3` keeps a crash-loop from pinning CPU; the listener
-        # itself does ntfy stream reconnect with backoff internally, so this
-        # only fires on a process-level exit (signal / drift / crash) — which
-        # is the original supervisor case the design assumed. Found by cortex
-        # (prop_6kevxb63: SIGTERM during reconnect under Claude Code Monitor,
-        # exit-144 wrapper encoding masked the underlying sig 15).
-        monitor_cmd = f"while true; do empirica loop listen --instance {ai_id}; sleep 3; done"
+        # exit. The listener itself does ntfy stream reconnect with backoff
+        # internally, so this only fires on a process-level exit (signal /
+        # drift / crash) — the original supervisor case the design assumed.
+        #
+        # The delay used to be a flat `sleep 3`, and that was the storm's
+        # cadence: a present-but-wrong api key made the listener refuse and
+        # exit, and this wrapper respawned it 5,982 times in a day. `sleep 3`
+        # bounds CPU, which is what it was written for, and does nothing about
+        # request rate — and no in-process backoff can, because a 3-second
+        # respawn resets in-process state forever.
+        from empirica.core.loop_scheduler.supervisor_wrapper import supervisor_command
+
+        monitor_cmd = supervisor_command(ai_id)
         description = f"Cortex orchestration push listener for {ai_id} (supervised)"
         status = "awaiting_arm"
         mode_note = (

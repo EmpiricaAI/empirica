@@ -259,7 +259,16 @@ def test_on_emits_monitor_next_step_with_correct_command(tmp_path, monkeypatch, 
     # on drift); Claude Code's Monitor isn't a supervisor, so the wrapper
     # provides those semantics by default. cf. cockpit_commands.py L1647+
     # + cortex prop_6kevxb63 (the SIGTERM-during-reconnect finding).
-    assert ns["args"]["command"] == ("while true; do empirica loop listen --instance myai; sleep 3; done")
+    # Asserted as PROPERTIES, not as a literal string. The literal used to be
+    # `...; sleep 3; done` and this assertion pinned it — a fixed 3s respawn that
+    # produced a measured 5,982 requests/day when a wrong credential made the
+    # listener exit on start. A test that encodes the surface form defends the
+    # defect; one that encodes the contract catches it.
+    _cmd = ns["args"]["command"]
+    assert "empirica loop listen --instance myai" in _cmd
+    assert "; sleep 3; done" not in _cmd, "the flat respawn interval is back"
+    assert "d=$((d*2))" in _cmd, "respawn delay must grow on repeated fast exits"
+    assert "-gt 300" in _cmd, "and must be capped"
     assert ns["args"]["persistent"] is True
     assert "after_arm" in ns
     assert "empirica listener arm" in ns["after_arm"]

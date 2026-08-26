@@ -149,14 +149,33 @@ _SYSTEMD_LISTENER_TEMPLATE = """\
 Description=Empirica persistent listener — {ai_id}
 After=network-online.target
 Wants=network-online.target
-StartLimitIntervalSec=60
-StartLimitBurst=5
+# Rate limiter DISABLED on purpose — see the Restart block below. With capped
+# exponential backoff the unit slows itself, and a hard stop on top of that would
+# fire during the fast early steps and leave the listener silently dead. For a
+# listener people depend on, degrading loudly beats stopping quietly.
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
 ExecStart={empirica_bin} loop listen --instance {ai_id}
 Restart=always
+# RestartSec is the FLOOR, not the policy. A fixed 5s here is a respawn wrapper by
+# another name: a present-but-wrong credential makes the listener refuse and exit,
+# and a fixed interval then produces a fresh process every 5 seconds forever.
+# Measured on the shell-wrapper form of the same defect: 5,982 requests/day.
+#
+# `StartLimitBurst` does NOT save this, which is where the first reading of it
+# went wrong. The default window is 10s, so at RestartSec=5 that is 2 starts per
+# window against a burst of 5 — it never trips. Widening the window does not help
+# either once the listener runs for a few seconds before exiting.
+#
+# RestartSteps + RestartMaxDelaySec (systemd 254+) interpolate 5s → 300s over ten
+# restarts, so a crash-loop decays to one attempt per five minutes and recovers
+# immediately once the cause is fixed. Older systemd ignores both and degrades to
+# the previous fixed-interval behaviour rather than failing to load.
 RestartSec=5
+RestartSteps=10
+RestartMaxDelaySec=300
 StandardOutput=append:{log_path}
 StandardError=append:{log_path}
 
@@ -185,6 +204,12 @@ _LAUNCHD_LISTENER_TEMPLATE = """\
   <true/>
   <key>KeepAlive</key>
   <true/>
+  <!-- launchd has no exponential backoff, so the floor is the whole policy.
+       The default ThrottleInterval is 10s: a listener refusing a wrong
+       credential would respawn 8,640 times a day. 60s is the most this shape
+       can offer — the systemd side gets real backoff via RestartSteps. -->
+  <key>ThrottleInterval</key>
+  <integer>60</integer>
   <key>StandardOutPath</key>
   <string>{log_path}</string>
   <key>StandardErrorPath</key>

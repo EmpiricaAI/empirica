@@ -178,15 +178,24 @@ def test_this_repo_is_editable_and_therefore_quiet():
 
 
 def test_generated_listener_unit_bounds_restarts():
-    """`Restart=always` with no limit is what turned one false positive into four
-    days of flapping. The breaker bounds any self-exit guard, including ones not
-    yet written."""
+    """`Restart=always` with a FIXED interval is a respawn wrapper by another name.
+
+    This test used to assert `StartLimitBurst=` and was green while the fleet
+    stormed — it is named for the property and asserted a mechanism that does not
+    deliver it. At the default 10s window and RestartSec=5 that is 2 starts per
+    window against a burst of 5: it never trips. Units deployed on a live box
+    carried no StartLimit lines at all.
+
+    So the assertion is now on the property — the interval GROWS and is capped —
+    rather than on the presence of a line that reads like protection.
+    """
     from empirica.core.loop_scheduler.persistent_listener import _SYSTEMD_LISTENER_TEMPLATE as unit
 
     assert "Restart=always" in unit
-    assert "StartLimitIntervalSec=" in unit
-    assert "StartLimitBurst=" in unit
-    # StartLimit* belongs to [Unit]; systemd ignores it under [Service].
+    assert "RestartSteps=" in unit, "a fixed RestartSec is the storm cadence"
+    assert "RestartMaxDelaySec=" in unit, "backoff without a cap is unbounded delay"
+
+    # The rate limiter is disabled ON PURPOSE — layered on top of backoff it fires
+    # during the fast early steps and leaves the listener silently dead.
     unit_section = unit.split("[Service]")[0]
-    assert "StartLimitIntervalSec=" in unit_section, "StartLimit* must be in [Unit] to take effect"
-    assert "StartLimitBurst=" in unit_section
+    assert "StartLimitIntervalSec=0" in unit_section
