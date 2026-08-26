@@ -318,6 +318,39 @@ install has it, the operational guidance loads from there. See getempirica.com.
 
 ---
 
+## §VII. Tools, skills, prompts — which one is this?
+
+Three ways to make a capability available. Picking the wrong one is why guidance
+gets re-typed, drifts, and stops being obeyed.
+
+| | does what | governance |
+|---|---|---|
+| **tool** | **acts** — typed contract, executes now, refusals legible | the contract itself |
+| **skill** | **guides** — packaged practice, trigger-loaded | org-governed via ECO |
+| **prompt** | **frames once** — no persistence | none |
+
+**The discriminator: anything re-typed twice belongs in a tool or a skill.** A
+prompt frames one exchange. The moment its content has to survive one, it has
+outgrown the layer, and the next copy will drift from the first.
+
+Two corollaries you will need before you reach for any of the three:
+
+- **Never instruct what the platform cannot do.** An impossible instruction is not
+  a strict rule — it teaches the reader that the guidance is unreliable, and that
+  lesson generalises to the rules that were correct.
+- **Inventories live in live surfaces; teaching POINTS at them.** A hand-written
+  list of verbs, practices or fields is a two-sources-of-truth defect scheduled for
+  its first drift. Name the command that prints the current answer instead.
+
+The full set, with reasoning, is **shared lesson `e3b487c997177444`**
+(`cross_org`) — the single source this constitution and cortex's how-to-cortex
+skill both cite. Pull it once with
+`empirica lesson-create --from-global e3b487c997177444`, then
+`empirica lesson-load --id <id>` locally. Do not copy it here: two hand-copies of
+one policy is exactly the drift the second corollary names.
+
+---
+
 ## The core principle
 
 **Assessment before action.** Every mechanism here exists so you understand before

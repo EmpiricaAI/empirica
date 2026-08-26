@@ -124,7 +124,23 @@ def _ingest_from_global(lesson_id: str) -> tuple[dict | None, str | None]:
             "re-publish it. Refusing to reconstruct a lesson from its description alone."
         )
 
-    record = dict(fetched["record"])
+    # Filter to the AUTHORING shape before handing this to the create path.
+    #
+    # Without this, --from-global has never worked for any lesson that was ever
+    # stored: the pool returns the STORED record (id, created_timestamp, org_id,
+    # user_id, relations, execution_count …) and the create validator accepts only
+    # the fields an author may set, so ingest died on
+    # `Unknown field(s): corrections, created_timestamp, entity_ids, …`.
+    #
+    # A producer/consumer mismatch, and the failure mode is the giveaway: it
+    # refused LOUDLY and named twenty fields, which reads like a malformed lesson
+    # rather than a broken verb — so the natural response is to blame the peer's
+    # record instead of the ingester.
+    #
+    # Filtered against KNOWN_LESSON_KEYS rather than a hand-list of fields to drop:
+    # a drop-list needs editing every time the stored shape grows a column, and
+    # would silently start failing again on the first one nobody remembered.
+    record = {k: v for k, v in dict(fetched["record"]).items() if k in KNOWN_LESSON_KEYS}
     origin = fetched.get("origin_project_id") or "unknown-practice"
     record["origin_practice"] = origin
     # Ingested at the policy the practitioner chooses later; never inherited as
