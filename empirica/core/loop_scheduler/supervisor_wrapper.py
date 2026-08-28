@@ -16,11 +16,15 @@ respawn resets all of it, forever. The very shape that makes the storm makes the
 standard remedy a no-op. From the server it looks like a poll loop, which backoff
 DOES fix, so the diagnosis lands on the wrong layer.
 
-**We already had the right design, in one surface out of three.** The systemd unit
-carries `StartLimitBurst=5` / `StartLimitIntervalSec=60` and a comment arguing the
-principle: *a service stopped loudly is more recoverable than one flapping
-silently, because only the first gets looked at.* The launchd plist has no
-`ThrottleInterval` (10s default, no give-up). The shell wrapper had neither.
+**All three surfaces had the defect, and the first reading of one of them was
+wrong.** The systemd unit carried `StartLimitBurst=5` / `StartLimitIntervalSec=60`,
+which reads like protection and is not: at `RestartSec=5` in a 10s window that is 2
+starts against a burst of 5, so it never trips — and the units deployed on a live
+box carried no `StartLimit` lines at all, predating the template that has them. The
+launchd plist had no `ThrottleInterval` (10s default, no give-up). The shell wrapper
+had neither. Reading a directive and inferring protection from its NAME, without
+computing what it bounds or checking what is deployed, is how a storm ships under a
+line that looks like a rate limiter.
 
 This module is the shell wrapper's version of that protection. It cannot use
 systemd's give-up semantics — a Monitor-armed session with a dead listener and no

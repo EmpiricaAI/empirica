@@ -316,6 +316,15 @@ section-order = ["future", "standard-library", "third-party", "first-party", "lo
 "scripts/*.py" = ["S108"]  # scripts use temp paths
 
 [tool.pyright]
+# DECLARED SCOPE != ENFORCED SCOPE, and the gap is deliberate but was invisible.
+# CI (.github/workflows/ci.yml) and `compliance-report` both run
+# `pyright empirica/ empirica-mcp/`. `tests` is included here so an editor
+# type-checks test files as you write them — it is NOT gated, and it currently
+# carries ~88 errors. So a bare `pyright` at the repo root reports ~88 while both
+# gates report 0, and without this note there is no way to tell a regression you
+# just caused from the standing backlog. Clearing that backlog is tracked
+# separately; do not "fix" the divergence by dropping `tests` from this list,
+# which would hide the backlog instead of retiring it.
 include = ["empirica", "empirica-mcp", "tests"]
 exclude = [
     "_archive",

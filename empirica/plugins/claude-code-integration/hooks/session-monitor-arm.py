@@ -167,14 +167,17 @@ def _build_monitor_block_from_cli(payload: dict | None, instance_id: str) -> str
     # loop — the listener's design assumes a relauncher (systemd/launchd) on
     # clean exits (SIGTERM during reconnect, ListenerUpgraded on pip-version
     # drift), but Claude Code's Monitor isn't one. Wrapping here gives the
-    # same auto-relaunch semantics on hosts without an OS service. sleep 3
-    # keeps a crash-loop from pinning CPU; reconnect/backoff is handled
-    # internally by the listener loop itself. (cortex prop_6kevxb63 finding.)
+    # same auto-relaunch semantics on hosts without an OS service. Stream-level
+    # reconnect/backoff is handled internally by the listener loop; this wrapper
+    # only sees PROCESS-level exits. (cortex prop_6kevxb63 finding.)
+    #
     # DUPLICATED FROM empirica/core/loop_scheduler/supervisor_wrapper.py.
     # Hooks are standalone — no package import is available here — so the string
-    # is copied and tests/test_supervisor_backoff.py asserts the two are byte
-    # identical. An equality assertion is the substitute for a single home when a
-    # single home is not reachable.
+    # is copied, and tests/test_supervisor_backoff.py asserts the copy is
+    # character-identical to `supervisor_command()` by rendering both. An equality
+    # assertion is the substitute for a single home when a single home is not
+    # reachable; a fragment check is NOT that substitute, because the two can
+    # diverge in every part it does not name.
     #
     # The delay was a flat `sleep 3`, and that was the cadence of a measured
     # storm: a present-but-wrong api key made the listener refuse and exit, and

@@ -87,6 +87,46 @@ def test_the_filter_is_derived_not_hand_listed():
     assert "if k in KNOWN_LESSON_KEYS" in src
 
 
+def test_a_stepless_pool_record_refuses_rather_than_ingesting_a_husk(monkeypatch):
+    """The fix's own cost, paid back.
+
+    Filtering to the authoring shape turns "unknown field" from a LOUD refusal
+    into a SILENT drop. That is right for `org_id` and `execution_count`, and
+    wrong for teaching content — and this is the one path whose producer is a
+    system we do not control, so it is exactly where a rename would land. Without
+    this guard a stepless record stores fine and returns `ok: true` with
+    `step_count: 0`: a lesson that teaches nothing, reported as created.
+
+    Both docstrings already promised this refusal. Nothing enforced it.
+    """
+    import empirica.core.qdrant.global_sync as gs
+
+    husk = {k: v for k, v in STORED_RECORD.items() if k != "steps"}
+    monkeypatch.setattr(gs, "fetch_global_lesson", lambda _id: {"record": husk, "origin_project_id": "peer"})
+
+    record, err = _ingest_from_global("e3b487c997177444")
+    assert record is None
+    assert err and "no replayable steps" in err
+
+
+def test_the_stepless_refusal_names_what_it_dropped(monkeypatch):
+    """A refusal that only says "no steps" points the reader at the peer's record,
+    which is the accusation shape that hid the original bug for the verb's whole
+    life. The message has to say which side expected what — so it names the fields
+    OUR filter discarded, making a pool-schema rename diagnosable from the error
+    alone instead of looking like a malformed lesson.
+    """
+    import empirica.core.qdrant.global_sync as gs
+
+    drifted = {k: v for k, v in STORED_RECORD.items() if k != "steps"}
+    drifted["procedure"] = [{"action": "renamed upstream"}]
+    monkeypatch.setattr(gs, "fetch_global_lesson", lambda _id: {"record": drifted, "origin_project_id": "peer"})
+
+    _, err = _ingest_from_global("e3b487c997177444")
+    assert err and "procedure" in err, "the dropped field carrying the content must be named"
+    assert "not the record being malformed" in err
+
+
 def test_a_missing_pool_record_still_refuses(monkeypatch):
     """NEGATIVE CONTROL. The refusal path must survive the fix — minting a stub
     from a description alone is worse than saying no."""

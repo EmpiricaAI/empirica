@@ -98,13 +98,35 @@ def test_the_command_is_posix_sh():
         assert bashism not in cmd, f"bashism in a POSIX-sh context: {bashism}"
 
 
+def _load_hook_module():
+    """Import the standalone hook. Safe: it guards `main()` behind `__main__` and
+    does nothing at import beyond stdlib imports."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("_session_monitor_arm", HOOK)
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def test_the_hook_copy_has_not_drifted():
     """The hook is standalone — no package import — so the string is duplicated
-    there. An equality assertion is the substitute for a single home when a single
-    home is not reachable, and drift here would be invisible."""
-    hook_src = HOOK.read_text()
-    for fragment in ("d=3; ", "-lt 30", "d=$((d*2))", "-gt 300", "backing off"):
-        assert fragment in hook_src, f"hook copy missing {fragment!r} — the two have drifted"
+    there, and the ONLY thing keeping the copies honest is this assertion.
+
+    It used to check that five fragments were present, which is not the same
+    claim: fragments say nothing about the parts they do not name, so the copies
+    could diverge in the echo text, the ordering, or the reset branch and stay
+    green. The comment at both sites promised an equality assertion; this is it.
+    Rendered rather than grepped, because the package side builds the string from
+    constants and only the rendered form is comparable.
+    """
+    mod = _load_hook_module()
+    block = mod._build_monitor_block_from_cli(None, "myai")
+    assert supervisor_command("myai") in block, (
+        "the hook's copy of the supervisor command has drifted from "
+        "supervisor_wrapper.supervisor_command() — update both, they have no single home"
+    )
 
 
 # ── systemd, where the first reading was wrong ───────────────────────────────

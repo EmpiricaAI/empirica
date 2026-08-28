@@ -140,7 +140,30 @@ def _ingest_from_global(lesson_id: str) -> tuple[dict | None, str | None]:
     # Filtered against KNOWN_LESSON_KEYS rather than a hand-list of fields to drop:
     # a drop-list needs editing every time the stored shape grows a column, and
     # would silently start failing again on the first one nobody remembered.
-    record = {k: v for k, v in dict(fetched["record"]).items() if k in KNOWN_LESSON_KEYS}
+    raw = dict(fetched["record"])
+    record = {k: v for k, v in raw.items() if k in KNOWN_LESSON_KEYS}
+
+    # The filter above turns "unknown field" from a LOUD refusal into a silent
+    # drop, which is right for bookkeeping columns and wrong for teaching content
+    # — and this is the one path whose producer is a system we do not control, so
+    # it is exactly where a schema rename would land. A stepless lesson stores
+    # fine and returns ok with `step_count: 0`; the docstrings on both sides of
+    # this call already promise a refusal there, and nothing enforced it.
+    #
+    # `fetch_global_lesson` only requires `record.name`, so the check belongs
+    # here, after filtering, where a dropped-vs-absent distinction can be drawn.
+    if not record.get("steps"):
+        dropped = sorted(set(raw) - KNOWN_LESSON_KEYS)
+        return None, (
+            f"--from-global {lesson_id!r}: the pool record carries no replayable steps, so there is "
+            "nothing to ingest but a name and a description. This is OUR authoring shape rejecting the "
+            "record, not the record being malformed: fields outside the authoring set are dropped here, "
+            f"and these were dropped — {', '.join(dropped) or 'none'}. If the teaching content is under "
+            "one of those names, the pool schema has drifted from the authoring shape and the ingester "
+            "needs updating; if not, the lesson predates the record-carrying payload and the peer can "
+            "re-publish it."
+        )
+
     origin = fetched.get("origin_project_id") or "unknown-practice"
     record["origin_practice"] = origin
     # Ingested at the policy the practitioner chooses later; never inherited as

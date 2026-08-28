@@ -792,11 +792,16 @@ def fetch_global_lesson(lesson_id: str) -> dict | None:
     local store into an unfiltered peer feed, and the store should hold what its
     practitioner chose to hold.
 
-    Returns None when the point is absent, or when it predates the record-carrying
-    payload: an ingestion built from `text` alone reconstructs a name and a
-    description and silently drops the steps and expected deltas, which is the
-    difference between a lesson you can replay and a paraphrase you cannot. Better
-    to refuse and say so than to mint a plausible stub.
+    Returns None when the point is absent or carries no named record. That is the
+    whole of the check HERE — it deliberately does not judge whether the record is
+    replayable, because "has steps" has to be decided against the AUTHORING shape
+    and this layer does not know it. `_ingest_from_global` applies that filter and
+    refuses a stepless record there; do not re-derive the rule in this function, or
+    the two copies will disagree about what a usable lesson is.
+
+    The refusal matters because an ingestion built from `text` alone reconstructs a
+    name and a description and silently drops the steps and expected deltas — the
+    difference between a lesson you can replay and a paraphrase you cannot.
     """
     if not _check_qdrant_available():
         return None
