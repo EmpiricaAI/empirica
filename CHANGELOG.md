@@ -5,6 +5,62 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.33] - 2026-08-28
+
+### Fixed
+- **A fixed respawn interval is a storm generator, and it was our own canonical
+  advice.** The arming pattern we prescribe — `while true; do empirica loop
+  listen …; sleep 3; done` — produced a measured **5,982 requests in one day** on
+  a seat where a present-but-wrong credential made the listener refuse and exit.
+  No in-process mitigation can fix that shape: backoff counters, mute windows and
+  strike caches all live in the process, and a three-second respawn resets them
+  forever. From the server it looks like a poll loop, which backoff *does* fix, so
+  the diagnosis lands on the wrong layer. **The backoff has to live in the
+  supervisor**, and all three of ours lacked it.
+
+  The shell wrapper now backs off exponentially on fast exits (3s → 300s, reset by
+  a run that lasts, POSIX sh only), and **announces every backoff on stderr** —
+  the Monitor tails that stream, and a silent slowdown is just a slower silence.
+  systemd gets `RestartSteps` + `RestartMaxDelaySec`; launchd gets
+  `ThrottleInterval=60`, which is the whole policy there because launchd has no
+  backoff primitive.
+
+  `StartLimitBurst=5` was recorded as protecting the systemd units. It does not:
+  at `RestartSec=5` in the default 10s window that is **2 starts against a burst
+  of 5**, so it never trips — and the units deployed on a live box carried no
+  `StartLimit` lines at all. The limiter is now disabled deliberately, because a
+  hard stop layered on backoff fires during the fast early steps and leaves the
+  listener silently dead; for something people depend on, degrading loudly beats
+  stopping quietly. Two of our own tests were defending the defect — one *named*
+  for the property while asserting a mechanism that does not deliver it, the other
+  pinning the literal `sleep 3` as expected. Both now assert the contract.
+
+- **`lesson-create --from-global` had never worked for any lesson that was ever
+  stored.** The pool returns the stored record — `id`, `created_timestamp`,
+  `org_id`, `relations`, `execution_count` and a dozen more — and the create path
+  validates against the authoring shape, so every ingest died on `Unknown
+  field(s): …`. Cross-practice lesson propagation is the only sanctioned path for
+  an artifact to cross a practice boundary, so the verb being inert meant the
+  mechanism for sharing a pattern from one source did not exist.
+
+  It survived its whole life because it **failed loudly and named the producer's
+  twenty fields**, which reads as a malformed record rather than a broken verb —
+  so the natural response is to copy the lesson inline, the exact anti-pattern
+  such a lesson warns about. Error text that names its input is an accusation; a
+  producer/consumer shape mismatch has to say which side expected what. Fixed by
+  projecting onto the accepted set (derived, not a hand-maintained drop-list).
+
+  That projection trades a loud failure for a silent one, so it carries its own
+  guard: a record whose *teaching* content is missing or renamed now refuses
+  rather than storing a husk and reporting `ok: true` with `step_count: 0`, and
+  the refusal names the fields the filter discarded so upstream drift is
+  diagnosable from the message alone.
+
+### Changed
+- The constitution gains **§VII — Tools, skills, prompts: which one is this?**
+  A tool *acts*, a skill *guides*, a prompt *frames*. Wired from a shared lesson
+  rather than restated, so the discriminator has one home.
+
 ## [1.13.32] - 2026-08-25
 
 ### Fixed
