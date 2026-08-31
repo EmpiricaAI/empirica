@@ -88,7 +88,23 @@ def _walk_for_empirica(root: Path, max_depth: int, include_hidden: bool) -> list
         current, depth = stack.pop()
 
         # Real project: .empirica/project.yaml present
-        if (current / ".empirica" / "project.yaml").is_file():
+        #
+        # GUARDED because `Path.is_file()` is not version-stable on a permission
+        # error: up to CPython 3.12 it RAISES on EACCES, and from 3.13 it swallows
+        # the OSError and returns False. So one unreadable directory anywhere in the
+        # tree aborted the entire walk on 3.12 and was invisible on 3.13+ — the walk
+        # below already caught this for `iterdir()`, and this call was left bare.
+        #
+        # That is why the same command, same version of empirica, aborted on one
+        # practitioner's box and could not be reproduced on another. A defect whose
+        # trigger is the INTERPRETER version reads as environmental flakiness, and
+        # two people correctly concluded the other's environment was at fault.
+        try:
+            is_project = (current / ".empirica" / "project.yaml").is_file()
+        except OSError as e:
+            logger.debug(f"projects-discover: unreadable {current} ({e})")
+            is_project = False
+        if is_project:
             found.append(current)
             # Still recurse — nested projects exist (rare but valid)
 
@@ -662,7 +678,7 @@ def _emit_grant_error(message: str, output_format: str) -> None:
         sys.stderr.write(f"error: {message}\n")
 
 
-def handle_projects_sync_command(args) -> None:
+def handle_projects_sync_command(args) -> int | None:
     """Master sync verb: discover → registry → Cortex POST, one shot.
 
     Closes prop_ncitlxqewrabzheagvdkra5ahi. Collapses the discover →
@@ -679,6 +695,13 @@ def handle_projects_sync_command(args) -> None:
 
     All composition delegates to existing helpers — no logic duplication.
     """
+    # Read OUTSIDE the try. These used to be set after the walk, so a walk that raised
+    # left `output_format` unbound and the error handler — the one branch whose whole
+    # job is to report the failure — raised UnboundLocalError on top of it. An error
+    # path that depends on state the error prevented from being set is not an error
+    # path.
+    output_format = getattr(args, "output", "human")
+
     try:
         # ── Phase 1: filesystem walk (always) ─────────────────────
         roots = [Path(r).expanduser() for r in (args.roots or [str(Path.home())])]
@@ -689,7 +712,6 @@ def handle_projects_sync_command(args) -> None:
         )
         n_discovered = len(manifest.get("projects", []))
 
-        output_format = getattr(args, "output", "human")
         dry_run = bool(getattr(args, "dry_run", False))
         no_write = bool(getattr(args, "no_write", False))
         no_cortex = bool(getattr(args, "no_cortex", False))
@@ -726,7 +748,10 @@ def handle_projects_sync_command(args) -> None:
             print(f"⚠ Registry upsert failed: {e}", file=sys.stderr)
             outcome["phases_skipped"].append("cortex_post")
             _emit_sync_summary(outcome, output_format, dry_run=False)
-            return
+            # A phase failed, so the run failed. Emitting a summary is not the same as
+            # succeeding: the rollup has to be AND-of-all, or a partial failure is
+            # indistinguishable from a clean run to anything reading the status.
+            return 1
 
         # ── Phase 3: Cortex POST (unless --no-cortex) ──────────────
         if no_cortex:
@@ -737,7 +762,23 @@ def handle_projects_sync_command(args) -> None:
         outcome["cortex"] = _sync_phase3_cortex_post(args, output_format)
         _emit_sync_summary(outcome, output_format, dry_run=False)
     except Exception as e:
-        handle_cli_error(e, "projects-sync")
+        # EXIT NON-ZERO, and honour the output contract while failing.
+        #
+        # This branch used to call handle_cli_error and fall off the end returning
+        # None, which `_handle_command_result` maps to exit 0. So the verb printed an
+        # error, discovered nothing, and reported success — and under `--output json`
+        # it printed human text, so a caller parsing the output got neither valid JSON
+        # nor a failing status.
+        #
+        # The consumer this matters for is not a human reading the error: it is every
+        # cron job, hook and CI step that trusts the exit code. Those recorded a silent
+        # no-op as a successful sync, indefinitely, and nothing downstream could ever
+        # surface the absence.
+        if output_format == "json":
+            print(json.dumps({"ok": False, "error": str(e), "command": "projects-sync"}, indent=2))
+        else:
+            handle_cli_error(e, "projects-sync")
+        return 1
 
 
 def _sync_phase3_cortex_post(args, output_format: str) -> dict[str, Any] | None:
