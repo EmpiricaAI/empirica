@@ -1,11 +1,45 @@
 """Lesson management command parsers for Epistemic Procedural Knowledge."""
 
+import argparse
+
 
 def add_lesson_parsers(subparsers):
     """Add lesson management command parsers"""
 
     # lesson-create: Create a new lesson
-    lesson_create = subparsers.add_parser("lesson-create", help="Create a new lesson from JSON input")
+    #
+    # The payload schema is undiscoverable from the CLI otherwise: the flags describe
+    # HOW to pass JSON and say nothing about what may be in it, so a first-time author
+    # learns the shape by submitting wrong payloads until one is accepted. Measured on
+    # a peer seat: five sequential failures, each correct and legible, each surfacing
+    # exactly one field — a schema learned by bisection.
+    #
+    # DERIVED from the same constants the validator enforces, never hand-listed. A
+    # hand-written copy is a second source of truth for a schema that already has one,
+    # and it rots the first time a field is added by someone who did not know the help
+    # text existed.
+    from empirica.cli.command_handlers.lesson_commands import KNOWN_LESSON_KEYS, LESSON_ENUMS
+
+    _enums = "\n".join(f"    {field}: {' | '.join(allowed)}" for field, allowed in sorted(LESSON_ENUMS.items()))
+    lesson_create = subparsers.add_parser(
+        "lesson-create",
+        help="Create a new lesson from JSON input",
+        epilog=(
+            "Payload fields (--input / --json / stdin). Anything else is rejected by name:\n"
+            f"    {', '.join(sorted(KNOWN_LESSON_KEYS))}\n\n"
+            "The body is `description`. `steps` is a list of OBJECTS, each with an `action` "
+            "key and an optional `phase` of noetic|praxic — not a list of strings.\n\n"
+            "Closed vocabularies (out-of-vocabulary values are rejected, never defaulted):\n"
+            f"{_enums}\n\n"
+            "`sharing_policy` is the lesson store's own axis and is deliberately NOT the "
+            "`visibility` flag used by finding-log and its siblings — a lesson carries "
+            "marketplace tiers the artifact layer has no concept of. Nearest equivalents: "
+            "local~private, shared~org, public~public.\n\n"
+            'Example:\n  empirica lesson-create --json \'{"name": "x", "description": "what it '
+            'teaches", "steps": [{"order": 1, "phase": "praxic", "action": "do the thing"}]}\''
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     lesson_create.add_argument("--name", help="Lesson name")
     lesson_create.add_argument("--input", "-i", help='Input JSON file (use "-" for stdin)')
     lesson_create.add_argument("--json", help="Inline JSON data")
