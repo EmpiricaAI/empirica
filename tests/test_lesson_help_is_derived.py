@@ -66,7 +66,15 @@ def test_the_worked_example_actually_works(tmp_path, monkeypatch):
     prevention is mechanical, not intentional — so the example is parsed out of the
     help text and executed rather than eyeballed.
     """
+    # Build the state rather than inheriting it. `chdir(tmp_path)` alone passed here
+    # and failed on every CI runner: the resolver found context on a developer box
+    # (env, ~/.empirica) and had none outside a git repo, so the test was measuring
+    # the machine it ran on. Point every path at tmp_path explicitly.
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("EMPIRICA_SESSION_DB", str(tmp_path / "sessions.db"))
+    monkeypatch.setenv("EMPIRICA_PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setenv("HOME", str(tmp_path))
+
     parser = create_argument_parser()
     sub = next(a for a in parser._actions if hasattr(a, "choices") and a.choices and "lesson-create" in a.choices)
     epilog = sub.choices["lesson-create"].epilog or ""
