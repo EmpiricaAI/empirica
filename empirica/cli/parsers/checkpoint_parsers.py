@@ -566,6 +566,16 @@ def add_checkpoint_parsers(subparsers):
         help="Mint a fresh access token (revokes the prior) — also the way to re-push an already-published project.",
     )
     forgejo_publish_parser.add_argument("--description", help="Optional Forgejo repo description.")
+    forgejo_publish_parser.add_argument(
+        "--dry-run",
+        dest="dry_run",
+        action="store_true",
+        help=(
+            "PREVIEW: resolve the project and credentials, name what would be provisioned, and stop "
+            "before the mint. Creates nothing. Repo creation is irreversible, so this is how you review "
+            "a run — and the only way to inspect this path without provisioning to find out."
+        ),
+    )
     forgejo_publish_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
 
     # Workspace overview command

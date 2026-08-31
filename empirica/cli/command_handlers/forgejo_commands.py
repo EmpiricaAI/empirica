@@ -194,6 +194,46 @@ def _push_refspec(project_path: Path, push_url: str, spec: str) -> tuple[bool, s
     return ok, last_err
 
 
+def _render_publish_human(payload: dict[str, Any]) -> None:
+    """Human rendering for forgejo-publish, extracted so the handler stays readable.
+
+    ORDER IS LOAD-BEARING. The already-published branch keys on `note` present and
+    `push_results` absent — which a PREVIEW payload also satisfies. Rendered in the
+    wrong order, a dry run prints "already provisioned" for a run that checked
+    nothing and provisioned nothing. Adding a probe mode to a renderer that reports
+    state by inference is how the probe starts asserting the very thing it exists to
+    avoid asserting.
+    """
+    if not payload.get("ok"):
+        print(f"❌ forgejo-publish: {payload.get('error') or payload.get('reason')}")
+        return
+
+    if payload.get("dry_run"):
+        w = payload.get("would_provision") or {}
+        print("🔎 [DRY RUN] nothing created. Would provision:")
+        print(f"   project: {w.get('project_id')}")
+        print(f"   path:    {w.get('project_path')}")
+        print(f"   via:     {w.get('cortex_url')}")
+        if w.get("rotate_token"):
+            print("   token:   would MINT A FRESH ONE, revoking the prior (--rotate)")
+        print(f"   {payload.get('note')}")
+        return
+
+    # Already-published re-call returns no token → nothing was pushed. Don't print a
+    # clean "✅ provisioned" (the false-success bug): the repo exists but this run
+    # pushed nothing, and the push path stays unauthenticated until `--rotate` mints.
+    if payload.get("note") and not payload.get("push_results"):
+        print(f"⚠️  Forgejo already provisioned — nothing pushed: {payload.get('forgejo_repo_url')}")
+        print(f"   {payload['note']}")
+        return
+
+    print(f"✅ Forgejo provisioned: {payload.get('forgejo_repo_url')}")
+    for ref, ok in (payload.get("push_results") or {}).items():
+        print(f"   {'✓' if ok else '✗'} {ref}")
+    if payload.get("token_path"):
+        print(f"   token: {payload['token_path']} (0600)")
+
+
 def handle_forgejo_publish_command(args) -> int:
     """Provision a managed Forgejo remote + push the project to it."""
     output_json = getattr(args, "output", "human") == "json"
@@ -203,22 +243,7 @@ def handle_forgejo_publish_command(args) -> int:
         if output_json:
             print(json.dumps(payload, indent=2))
         else:
-            if payload.get("ok"):
-                # Already-published re-call returns no token → nothing was
-                # pushed. Don't print a clean "✅ provisioned" (the false-success
-                # bug): the repo exists but this run pushed nothing, and the push
-                # path is still unauthenticated until `--rotate` mints a token.
-                if payload.get("note") and not payload.get("push_results"):
-                    print(f"⚠️  Forgejo already provisioned — nothing pushed: {payload.get('forgejo_repo_url')}")
-                    print(f"   {payload['note']}")
-                else:
-                    print(f"✅ Forgejo provisioned: {payload.get('forgejo_repo_url')}")
-                    for ref, ok in (payload.get("push_results") or {}).items():
-                        print(f"   {'✓' if ok else '✗'} {ref}")
-                    if payload.get("token_path"):
-                        print(f"   token: {payload['token_path']} (0600)")
-            else:
-                print(f"❌ forgejo-publish: {payload.get('error') or payload.get('reason')}")
+            _render_publish_human(payload)
         return code
 
     project_id, _ = _resolve_project(project_path)
@@ -228,6 +253,38 @@ def handle_forgejo_publish_command(args) -> int:
     cortex_url, api_key = _resolve_cortex_config()
     if not (cortex_url and api_key):
         return _emit({"ok": False, "reason": "no cortex url/api_key (configure ~/.empirica/credentials.yaml)"}, 1)
+
+    # PREVIEW, and it returns before the POST — the POST is the mint.
+    #
+    # This verb had no non-mutating mode, so the only way to learn what it would do
+    # was to let it do it. That blocks two separate things: a caller cannot review a
+    # provisioning run before accepting it, and nobody can DIAGNOSE the mint path
+    # without creating a real repository on shared infrastructure to answer the
+    # question. A verb with no probe mode can be used but not investigated.
+    #
+    # Names the project and its target rather than reporting that one repo would be
+    # created. A count is unreviewable; the value of a preview is seeing that the
+    # thing about to be published is a scratch directory nobody meant to publish,
+    # and only the name carries that.
+    if getattr(args, "dry_run", False):
+        return _emit(
+            {
+                "ok": True,
+                "dry_run": True,
+                "would_provision": {
+                    "project_id": project_id,
+                    "project_path": str(project_path),
+                    "cortex_url": cortex_url,
+                    "rotate_token": bool(getattr(args, "rotate", False)),
+                },
+                "note": (
+                    "PREVIEW — nothing was created. The repository URL and refspecs are assigned by "
+                    "cortex at provision time, so they are absent here rather than guessed: a preview "
+                    "that invented them would be the false-success shape this verb already guards."
+                ),
+            },
+            0,
+        )
 
     status, body = _forgejo_publish_post(
         cortex_url,
