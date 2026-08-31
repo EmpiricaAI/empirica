@@ -151,3 +151,36 @@ def test_the_interpreter_difference_this_guard_exists_for(tmp_path):
             (locked / ".empirica" / "project.yaml").is_file()
     finally:
         os.chmod(locked, 0o700)
+
+
+def test_help_text_carries_no_peer_proposal_ids():
+    """`--help` ships. A proposal id and a peer practice's name are internal mesh
+    state, and this one rendered to every user of the verb for months.
+
+    Asserted on the RENDERED help rather than the source, because that is the surface
+    a user sees — a source grep would pass on an id that lives in a comment and fail
+    on one that does not reach the screen.
+    """
+    import re
+
+    from empirica.cli.cli_core import create_argument_parser
+
+    parser = create_argument_parser()
+    sub = next(a for a in parser._actions if hasattr(a, "choices") and a.choices and "projects-sync" in a.choices)
+    rendered = sub.choices["projects-sync"].format_help()
+
+    assert "projects-sync" in rendered, "positive control: the help actually rendered"
+    assert not re.search(r"prop_[a-z0-9]{10,}", rendered), "a mesh proposal id is showing in user-facing help"
+
+
+def test_help_states_the_exit_contract_it_now_honours():
+    """The contract is only useful if a caller knows it exists. It was silently 0 for
+    everything before, so nobody had reason to check the status at all."""
+    from empirica.cli.cli_core import create_argument_parser
+
+    parser = create_argument_parser()
+    sub = next(a for a in parser._actions if hasattr(a, "choices") and a.choices and "projects-sync" in a.choices)
+    rendered = sub.choices["projects-sync"].format_help()
+
+    assert "Exit status" in rendered
+    assert "1 on any failure" in rendered

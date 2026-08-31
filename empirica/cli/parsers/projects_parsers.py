@@ -209,10 +209,13 @@ def add_projects_parsers(subparsers) -> None:
             "But in one verb with one set of flags. Default: full pipeline "
             "(walk filesystem, write manifest cache, upsert registry.yaml, "
             "POST each to Cortex). Phase-skip flags peel off as needed. "
-            "Closes prop_ncitlxqewrabzheagvdkra5ahi from the extension AI — "
-            "AI-as-primary-CLI-user, single verb hides multi-step protocol. "
-            "The individual `projects-discover` / `projects-bulk-register` "
-            "verbs remain as the power-user surface for fine-grained control."
+            "One verb hides the multi-step protocol; the individual "
+            "`projects-discover` / `projects-bulk-register` verbs remain as the "
+            "power-user surface for fine-grained control.\n\n"
+            "Exit status is meaningful: 0 only when every phase that ran "
+            "succeeded, 1 on any failure or partial failure. Under "
+            "`--output json` the failure path emits JSON too, so a caller never "
+            "has to parse human text to find out what went wrong."
         ),
     )
     sync.add_argument(
