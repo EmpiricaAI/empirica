@@ -311,9 +311,20 @@ def handle_sync_config_command(args):
             notes_remote = sync_config.get("notes_remote", current_remote)
             code_remote = sync_config.get("code_remote", "origin")
             if notes_remote != code_remote:
+                # `Code: <remote> (public)` used to sit beside the notes line as though
+                # both were synced. NOTHING IN EMPIRICA PUSHES CODE: sync-push's only
+                # refspecs are the two notes refs, projects-sync performs no git
+                # operation, and forgejo-publish creates a repo and sets a remote
+                # rather than delivering to it.
+                #
+                # A label with no behaviour behind it is worse than an absent feature,
+                # because it answers the exact question the reader came to ask. Someone
+                # auditing their sync config saw code listed as configured and stopped
+                # looking — a plausible reason ~765 commits accumulated unpushed on one
+                # laptop without anyone noticing.
                 print("\n   Dual-remote mode:")
-                print(f"      Code:  {code_remote} (public)")
-                print(f"      Notes: {notes_remote} (private)")
+                print(f"      Code:  {code_remote} (public) — configured only; empirica never pushes code")
+                print(f"      Notes: {notes_remote} (private) — synced by `empirica sync-push`")
 
             # Show private sync hint if notes remote is a public provider
             if detected_provider in ("github", "gitlab", "bitbucket"):

@@ -828,6 +828,21 @@ def _emit_sync_summary(outcome: dict[str, Any], output_format: str, *, dry_run: 
     if outcome["cortex"]:
         c = outcome["cortex"]
         print(f"☁️  Cortex: {c['registered']} registered, {c['failed']} failed ({c['cortex_url']})", file=sys.stderr)
+        # Name the failures. `results` carries name + status + reason per project and
+        # this line used to print only the counts, so a practitioner was told a fifth
+        # of the operation failed and given nothing to act on — while the actionable
+        # detail sat in the same dict, one key away.
+        #
+        # Worth stating precisely because it is the cheap kind of defect to
+        # misdiagnose: nothing was lost or unrecorded. `--output json` has always
+        # carried it. Only the HUMAN renderer dropped it, which means the people most
+        # likely to hit it are the ones least likely to be piping to jq.
+        for item in c.get("results") or []:
+            if item.get("outcome") == "failed":
+                detail = item.get("reason") or "no reason reported"
+                status = item.get("status")
+                status_part = f" [HTTP {status}]" if status else ""
+                print(f"      ✗ {item.get('name', '<unnamed>')}{status_part}: {detail}", file=sys.stderr)
     elif "cortex_post" in outcome["phases_skipped"]:
         reason = "(--no-cortex)" if not dry_run else "(dry-run)"
         print(f"⏭  Cortex POST skipped {reason}", file=sys.stderr)
