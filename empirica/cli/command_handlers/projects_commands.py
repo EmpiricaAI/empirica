@@ -118,7 +118,24 @@ def _walk_for_empirica(root: Path, max_depth: int, include_hidden: bool) -> list
             continue
 
         for child in children:
-            if not child.is_dir():
+            # THIRD stat call in this loop, and the third to need the same guard.
+            # `iterdir()` was guarded from the start, `is_file()` above was not, and
+            # neither was this — so the hazard was known here and applied to one call
+            # out of three.
+            #
+            # `is_dir()` follows symlinks, and EACCES is NOT in pre-3.13 pathlib's
+            # ignored-error set (ENOENT, ENOTDIR, EBADF, ELOOP). So a symlink pointing
+            # into a directory the user cannot traverse raises on 3.12 and returns
+            # False from 3.13 — and a $HOME walk at depth 5 meets such symlinks on any
+            # real machine. Succeeding at `iterdir()` does not make the children safe
+            # to stat: the parent's mode grants the listing, the TARGET's mode governs
+            # the stat.
+            try:
+                child_is_dir = child.is_dir()
+            except OSError as e:
+                logger.debug(f"projects-discover: unstattable child {child} ({e})")
+                continue
+            if not child_is_dir:
                 continue
             if _should_skip_dir(child.name, include_hidden):
                 continue

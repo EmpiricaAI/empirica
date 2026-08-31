@@ -67,6 +67,35 @@ def test_one_unreadable_directory_does_not_abort_the_walk(tree_with_unreadable_d
     assert "good-project" in names, "the readable project was lost to an unreadable sibling"
 
 
+def test_a_symlink_into_an_unreadable_directory_does_not_abort_the_walk(tmp_path):
+    """The THIRD stat call in the same loop, found by sweeping for the class rather
+    than waiting for a second report.
+
+    `is_dir()` follows symlinks, and EACCES is not in pre-3.13 pathlib's ignored-error
+    set — so a symlink into a directory the user cannot traverse raises on 3.12 and
+    returns False from 3.13. Succeeding at `iterdir()` does not make the children safe
+    to stat: the parent's mode grants the listing, the target's mode governs the stat.
+    A $HOME walk at depth 5 meets such symlinks on any real machine.
+    """
+    good = tmp_path / "good-project" / ".empirica"
+    good.mkdir(parents=True)
+    (good / "project.yaml").write_text("ai_id: good-project\n")
+
+    locked = tmp_path / "locked"
+    (locked / "inner").mkdir(parents=True)
+    (tmp_path / "link").symlink_to(locked / "inner")
+    os.chmod(locked, 0o000)
+
+    try:
+        if os.access(locked, os.R_OK):
+            pytest.skip("mode bits not enforced here (running as root?)")
+        manifest = discover_projects(roots=[tmp_path], max_depth=4)
+        names = {Path(p["path"]).name for p in manifest.get("projects", [])}
+        assert "good-project" in names, "a symlink into an unreadable tree killed the whole walk"
+    finally:
+        os.chmod(locked, 0o700)
+
+
 def test_the_walk_still_finds_nothing_in_an_empty_tree(tmp_path):
     """NEGATIVE CONTROL. A walk that returned a project unconditionally would satisfy
     the test above while discovering nothing real."""
