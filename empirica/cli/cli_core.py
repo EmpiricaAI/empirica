@@ -257,9 +257,52 @@ def _get_version():
         return "1.0.5 (version info unavailable)"
 
 
+#: Longer than this and an unrecognised argument's VALUE is elided from the error.
+#: Generous enough that ordinary values still print in full — the target is bodies,
+#: not identifiers.
+_MAX_ECHOED_VALUE_CHARS = 120
+
+
+def _unrecognized_message(extras: list[str]) -> str:
+    """Name the unrecognised FLAGS; elide their values.
+
+    argparse's own message is `unrecognized arguments: <every token, verbatim>`,
+    and that degrades with argument length on exactly the verbs whose arguments are
+    long. Pass a multi-paragraph body to a flag that does not exist and the message
+    becomes a two-line prefix followed by thousands of characters of your own text —
+    so the tail, which is where the eye lands and where a truncated tool result
+    cuts, is indistinguishable from the command having echoed your input back.
+
+    Reported from a seat that concluded the verb had silently no-oped and created
+    nothing. It had errored, on stderr, with exit 2. The diagnosis went to the
+    wrong layer because the error was unreadable, not because it was absent.
+
+    Which flag was rejected is the actionable part; the value is the caller's own
+    text and they already have it.
+    """
+    parts = []
+    for token in extras:
+        if token.startswith("-") or len(token) <= _MAX_ECHOED_VALUE_CHARS:
+            parts.append(token)
+        else:
+            parts.append(f"<value elided, {len(token)} chars>")
+    return f"unrecognized arguments: {' '.join(parts)}"
+
+
+class _LegibleErrorParser(argparse.ArgumentParser):
+    """`parse_args` is `parse_known_args` plus an error — so overriding it here is
+    the whole behaviour change, and every other parser method is untouched."""
+
+    def parse_args(self, args=None, namespace=None):  # type: ignore[override]
+        parsed, extras = self.parse_known_args(args, namespace)
+        if extras:
+            self.error(_unrecognized_message(extras))
+        return parsed
+
+
 def create_argument_parser():
     """Create and configure the main argument parser"""
-    parser = argparse.ArgumentParser(
+    parser = _LegibleErrorParser(
         prog="empirica",
         usage="empirica [--version] [--verbose] <command> [args]",
         description="Empirica - Measurement and calibration layer for AI",
