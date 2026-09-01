@@ -100,21 +100,31 @@ def test_an_all_clean_run_prints_no_failure_lines(capsys):
     assert "2 registered" in out, "positive control: the renderer ran and produced its summary line"
 
 
-def test_sync_status_no_longer_claims_code_is_synced():
-    """The false claim, asserted absent — and the true one asserted PRESENT, so this
-    cannot pass by the dual-remote block having been deleted."""
+def test_sync_status_label_tracks_whether_code_is_actually_pushed():
+    """This test caught its own subject changing, which is what it was for.
+
+    Its first form asserted the literal string "empirica never pushes code" — true
+    when written and false the moment auto-push shipped. **A test that pins the
+    surface WORDING breaks on a truthful change and stays green on an untruthful
+    one**, which is backwards. So it now asserts the contract: the code line is
+    rendered from `auto_push_on`, and both states are distinguishable.
+    """
     src = SYNC.read_text()
-    assert "empirica never pushes code" in src, "the code line must say it is configuration only"
-    assert "sync-push" in src, "and the notes line must name the verb that DOES deliver"
+
+    assert 'sync_config.get("auto_push_on")' in src, "the code label must be derived from config, not hardcoded"
+    assert "auto-pushed on postflight" in src, "the ON state must say pushing happens"
+    assert "auto-push is OFF" in src, "the OFF state must say it does not"
+    assert "sync-push" in src, "positive control: the notes line still names the verb that delivers notes"
 
 
-def test_nothing_has_started_pushing_code_without_updating_that_label():
-    """The label is only honest while it stays true. If a branch refspec ever appears
-    in sync-push, this fails and forces the label to be revisited rather than left
-    contradicting the code."""
+def test_sync_push_still_carries_only_notes_refspecs():
+    """`sync-push` remains notes-only; code goes through auto_push, a separate path
+    with its own dirty-tree refusal and verified-push check. If a branch refspec ever
+    appears here, the two paths have merged and the whole safety argument needs
+    revisiting rather than silently inheriting sync-push's semantics."""
     src = SYNC.read_text()
     assert "refs/notes/empirica" in src, "positive control: the notes refspecs are still here"
-    assert "refs/heads/" not in src, "sync-push now pushes branches — update the sync-status label"
+    assert "refs/heads/" not in src, "sync-push now pushes branches — revisit the auto-push safety split"
 
 
 def test_the_renderer_reads_results_not_just_counts():

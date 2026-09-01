@@ -17,6 +17,8 @@ from typing import Any
 
 import yaml
 
+from empirica.core.auto_push import SUPPORTED_TRIGGERS
+
 from ..cli_utils import handle_cli_error
 
 logger = logging.getLogger(__name__)
@@ -28,7 +30,10 @@ DEFAULT_SYNC_CONFIG = {
     "remote": "forgejo",
     "visibility": "private",  # 'private' or 'public' - determines warnings
     "provider": "forgejo",  # 'github', 'gitlab', 'forgejo', 'bitbucket', 'auto'
-    "auto_push_on": [],  # ['postflight', 'session_end'] - future auto-push triggers
+    # Empty = off. Set via `empirica sync-config --set auto_push_on=postflight`, which
+    # validates; a hand-edit of an unsupported value is rejected at read time rather
+    # than silently ignored. `session_end` is deliberately unimplemented.
+    "auto_push_on": [],
     "code_remote": "origin",  # remote for code pushes (public)
     "notes_remote": "forgejo",  # remote for epistemic notes (private)
 }
@@ -211,15 +216,51 @@ def _count_local_notes() -> dict[str, int]:
 def _handle_sync_config_command_helper(key, output_format, sync_config, value):
     """Extracted from handle_sync_config_command to reduce complexity."""
     if key and value is not None:
-        valid_keys = ["enabled", "remote", "visibility", "provider", "code_remote", "notes_remote"]
+        valid_keys = ["enabled", "remote", "visibility", "provider", "code_remote", "notes_remote", "auto_push_on"]
         if key not in valid_keys:
             result = {"ok": False, "error": f"Unknown config key: {key}", "valid_keys": valid_keys}
             print(json.dumps(result, indent=2))
             return 1
 
+        # `value` arrives as a string and each branch below narrows it to that key's
+        # own type. Keep the raw string so later branches read it rather than
+        # whatever an earlier branch coerced — the branches are exclusive, but
+        # reassigning the shared name makes that an assumption rather than a fact.
+        raw_value = value
+
         # Parse boolean values
         if key == "enabled":
-            value = value.lower() in ("true", "1", "yes", "on")
+            value = raw_value.lower() in ("true", "1", "yes", "on")
+
+        # auto_push_on is the one key that makes empirica push CODE, so enabling it
+        # goes through a validating path rather than a hand-edit of config.yaml.
+        # It was absent from valid_keys before, which sounds like a safety property
+        # and is the opposite: the CLI refused it while a hand-edit set a key nothing
+        # read, so the deliberate act produced silence and the accidental one produced
+        # a value with no effect.
+        #
+        # `session_end` is rejected BY NAME rather than accepted-and-ignored. A trigger
+        # that fires when a session crashes fires when state is least trustworthy, and
+        # silently dropping it would be the advertised-no-op shape again.
+        if key == "auto_push_on":
+            requested = (
+                [v.strip() for v in raw_value.split(",") if v.strip()] if raw_value.lower() not in ("", "none") else []
+            )
+            unsupported = [t for t in requested if t not in SUPPORTED_TRIGGERS]
+            if unsupported:
+                result = {
+                    "ok": False,
+                    "error": (
+                        f"Unsupported trigger(s): {', '.join(unsupported)}. "
+                        f"Supported: {', '.join(sorted(SUPPORTED_TRIGGERS))}. "
+                        "`session_end` is deliberately not implemented — sessions end by crashing too, "
+                        "so a trigger that fires on abnormal termination fires when state is least trustworthy."
+                    ),
+                    "supported": sorted(SUPPORTED_TRIGGERS),
+                }
+                print(json.dumps(result, indent=2))
+                return 1
+            value = requested
 
         # Validate visibility
         if key == "visibility" and value not in ("public", "private"):
@@ -323,7 +364,14 @@ def handle_sync_config_command(args):
                 # looking — a plausible reason ~765 commits accumulated unpushed on one
                 # laptop without anyone noticing.
                 print("\n   Dual-remote mode:")
-                print(f"      Code:  {code_remote} (public) — configured only; empirica never pushes code")
+                _auto = sync_config.get("auto_push_on") or []
+                if "postflight" in _auto:
+                    print(f"      Code:  {code_remote} (public) — auto-pushed on postflight")
+                else:
+                    print(
+                        f"      Code:  {code_remote} (public) — configured only; auto-push is OFF "
+                        f"(enable: empirica sync-config --set auto_push_on=postflight)"
+                    )
                 print(f"      Notes: {notes_remote} (private) — synced by `empirica sync-push`")
 
             # Show private sync hint if notes remote is a public provider

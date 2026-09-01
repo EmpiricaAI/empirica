@@ -2221,6 +2221,30 @@ def handle_postflight_submit_command(args):
                 "error": str(e),
             }
 
+        # Auto-push CODE, if this project opted in. A closed transaction is a coherent
+        # unit, which is what a backup boundary wants — see empirica/core/auto_push.py
+        # for why session_end is deliberately not a trigger.
+        #
+        # Wrapped because a backup convenience must never be able to fail a POSTFLIGHT:
+        # the measurement is the point and the push is the extra. But the failure is
+        # REPORTED rather than swallowed, because a trigger that fires and pushes
+        # nothing in silence is the exact defect this feature exists to remove.
+        try:
+            from empirica.cli.command_handlers.sync_commands import _get_workspace_root, _load_sync_config
+            from empirica.core.auto_push import auto_push
+            from empirica.core.auto_push import render as _render_push
+
+            _push_outcome = auto_push(Path(_get_workspace_root()), _load_sync_config(), "postflight")
+            result["auto_push"] = _push_outcome
+            _line = _render_push(_push_outcome)
+            if _line and output_format != "json":
+                print(_line, file=sys.stderr)
+        except Exception as e:
+            logger.warning(f"auto-push skipped: {e}")
+            result["auto_push"] = {"outcome": "error", "pushed": False, "reason": str(e)[:200]}
+            if output_format != "json":
+                print(f"⚠️  auto-push errored (POSTFLIGHT unaffected): {e}", file=sys.stderr)
+
         if output_format == "json":
             print(json.dumps(result, indent=2))
         else:
