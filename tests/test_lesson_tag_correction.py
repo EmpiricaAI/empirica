@@ -56,6 +56,19 @@ def stored(tmp_path, monkeypatch):
     # live lesson store.
     (tmp_path / ".empirica" / "lessons").mkdir(parents=True, exist_ok=True)
 
+    # `get_lesson_storage()` is a module-level SINGLETON. Without resetting it this
+    # fixture binds the store to tmp_path and leaves it bound after the directory is
+    # gone — so a later test in the same process gets a manager pointing at a deleted
+    # path and fails for a reason that has nothing to do with it. Caught exactly that
+    # way: the worked-example test passed alone and failed beside this file.
+    #
+    # Reset both before and after, because the leak runs in both directions: an
+    # already-initialised singleton from an earlier test would otherwise make THIS
+    # fixture silently write into whatever store that test bound.
+    import empirica.core.lessons.storage as _store_mod
+
+    monkeypatch.setattr(_store_mod, "_storage", None)
+
     storage = get_lesson_storage()
     lesson = Lesson(
         id=Lesson.generate_id("tag-probe", "1.0"),
