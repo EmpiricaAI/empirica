@@ -167,10 +167,16 @@ class TestSubscribe:
     def test_receives_new_messages(self, store):
         received = []
         stop = threading.Event()
+        # Readiness and completion are SEPARATE signals. Folding them into one
+        # counter is what made the original fragile: `len(received) >= 2` had to
+        # serve as both "the subscriber is alive" and "the messages under test
+        # arrived", and any message at all advanced it.
+        alive = threading.Event()
 
         def callback(msg):
             received.append(msg)
-            if len(received) >= 2:
+            alive.set()
+            if msg.get("subject") in ("first", "second"):
                 stop.set()
 
         subscriber = threading.Thread(
@@ -187,29 +193,32 @@ class TestSubscribe:
         )
         subscriber.start()
         try:
-            # Give subscriber time to start
-            time.sleep(0.3)
+            # WAIT FOR THE SUBSCRIBER, do not guess how long it takes to start.
+            #
+            # This was `time.sleep(0.3)`, which is a bet on scheduler latency rather
+            # than an observation about the subscriber. It held locally and lost on a
+            # loaded CI runner under `-n auto`: the thread had not begun polling, both
+            # messages landed before its first poll, and the assertion read `0 >= 1`.
+            #
+            # The test then reports on machine load rather than on the code, and it
+            # fails on the busiest runs — which is when a real regression is most
+            # expensive to have masked by noise. Send until it is observably alive,
+            # bounded, so a genuinely dead subscriber still fails rather than hanging.
+            deadline = time.monotonic() + 15.0
+            while not alive.is_set() and time.monotonic() < deadline:
+                store.send_message(from_ai_id="bob", to_ai_id="alice", channel="test", subject="ping", body="x")
+                alive.wait(timeout=0.25)
+            assert alive.is_set(), "subscriber never delivered anything in 15s — genuinely dead, not slow"
 
-            store.send_message(
-                from_ai_id="bob",
-                to_ai_id="alice",
-                channel="test",
-                subject="first",
-                body="x",
-            )
-            time.sleep(0.3)
-            store.send_message(
-                from_ai_id="bob",
-                to_ai_id="alice",
-                channel="test",
-                subject="second",
-                body="x",
-            )
+            store.send_message(from_ai_id="bob", to_ai_id="alice", channel="test", subject="first", body="x")
+            store.send_message(from_ai_id="bob", to_ai_id="alice", channel="test", subject="second", body="x")
 
-            # Wait for callbacks
-            subscriber.join(timeout=3.0)
+            # Bounded wait on the CONDITION rather than a fixed join: the subscriber
+            # sets `stop` when it sees one of the target subjects, so this returns as
+            # soon as the thing under test happened and fails only if it never did.
+            assert stop.wait(timeout=15.0), "target messages never delivered"
+            subscriber.join(timeout=5.0)
 
-            assert len(received) >= 1
             subjects = [m.get("subject") for m in received]
             assert "first" in subjects or "second" in subjects
         finally:
