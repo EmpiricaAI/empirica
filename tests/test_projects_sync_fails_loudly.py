@@ -105,6 +105,29 @@ def test_the_walk_still_finds_nothing_in_an_empty_tree(tmp_path):
 # ── the exit contract ────────────────────────────────────────────────────────
 
 
+@pytest.fixture(autouse=True)
+def _isolate_issue_capture(tmp_path, monkeypatch):
+    """Keep the failure tests out of the LIVE practice database.
+
+    `handle_cli_error` auto-captures every command failure as a high-severity
+    issue. These tests raise on purpose, so without isolation each run writes real
+    issues into the practitioner's store — and the release gate blocks on
+    unresolved high-severity issues, so the suite quietly accumulated a release
+    blocker out of its own fixtures. Eight had built up before `--prepare` refused.
+
+    Autouse rather than opt-in: the exposure is a property of raising inside a
+    handler, so any test added to this module inherits it, and an opt-in guard
+    protects only the tests someone remembered to mark.
+
+    This is the same isolation applied to the worked-example test in
+    tests/test_lesson_help_is_derived.py. It was applied there and not here, in
+    files written the same day — a guard on one call and not its sibling.
+    """
+    monkeypatch.setenv("EMPIRICA_SESSION_DB", str(tmp_path / "sessions.db"))
+    monkeypatch.setenv("EMPIRICA_PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+
 def _failing_args(output: str) -> Namespace:
     return Namespace(
         roots=["/nonexistent-zz"],
