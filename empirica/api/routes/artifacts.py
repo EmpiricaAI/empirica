@@ -900,6 +900,34 @@ _SOURCE_PATH_PREFIXES = ("", ".empirica/sources", "docs", "docs/sources")
 _MAX_SOURCE_CONTENT_BYTES = 10 * 1024 * 1024
 
 
+def _read_source_content(resolved, raw: str) -> tuple[str, str]:
+    """Read a resolved source as text, falling back to base64. Returns (content, encoding).
+
+    Extracted so BOTH reads sit at the same level and neither can be guarded while
+    its sibling is not — which is what happened on the first attempt: `read_bytes()`
+    lived inside the `except UnicodeDecodeError` handler, where an `except OSError`
+    on the same try cannot reach it, because an exception raised in an except block
+    propagates past its own try.
+
+    Every OSError becomes a 404 rather than an unhandled 500. This route has careful
+    404/422 semantics for the cases it anticipated, and a caller cannot tell a crashed
+    handler from a broken server.
+    """
+    import base64
+
+    try:
+        return resolved.read_text(encoding="utf-8"), "utf-8"
+    except UnicodeDecodeError:
+        pass  # binary or unknown encoding — fall through to base64
+    except OSError as e:
+        raise HTTPException(status_code=404, detail=f"file source {raw!r} could not be read: {e}") from None
+
+    try:
+        return base64.b64encode(resolved.read_bytes()).decode("ascii"), "base64"
+    except OSError as e:
+        raise HTTPException(status_code=404, detail=f"file source {raw!r} could not be read as binary: {e}") from None
+
+
 def _resolve_file_source(
     source_id: str,
     row: dict,
@@ -933,9 +961,16 @@ def _resolve_file_source(
                 status_code=422,
                 detail=(f"source path {raw!r} resolves outside project root {str(root)!r} — refusing to serve"),
             ) from None
-        if candidate_resolved.is_file():
-            resolved = candidate_resolved
-            break
+        # Guarded like the `.resolve()` above. `is_file()` raises on EACCES up to
+        # CPython 3.12 and swallows it from 3.13, so an unreadable directory anywhere
+        # in the candidate path turns a clean "not found" into an unhandled 500 on
+        # older interpreters and works silently on newer ones.
+        try:
+            if candidate_resolved.is_file():
+                resolved = candidate_resolved
+                break
+        except OSError:
+            continue
 
     # Also accept an absolute path that lands inside the project tree.
     if resolved is None and raw.startswith("/"):
@@ -956,7 +991,17 @@ def _resolve_file_source(
             ),
         )
 
-    size = resolved.stat().st_size
+    # The remaining stat-family calls, guarded for the same reason. Between the
+    # `is_file()` above and this line the file can vanish or lose permissions, and an
+    # API route with careful 404/422 semantics should not answer that with a 500 —
+    # the caller cannot tell a crashed handler from a broken server.
+    try:
+        size = resolved.stat().st_size
+    except OSError as e:
+        raise HTTPException(
+            status_code=404,
+            detail=f"file source {raw!r} became unreadable while being served: {e}",
+        ) from None
     if size > _MAX_SOURCE_CONTENT_BYTES:
         return {
             "source_id": source_id,
@@ -970,16 +1015,7 @@ def _resolve_file_source(
             "hint": (f"file exceeds {_MAX_SOURCE_CONTENT_BYTES} byte cap; open it directly in an editor"),
         }
 
-    try:
-        content = resolved.read_text(encoding="utf-8")
-        encoding = "utf-8"
-    except UnicodeDecodeError:
-        # Binary or unknown encoding — return base64 so the viewer can
-        # branch on encoding to render or download.
-        import base64
-
-        content = base64.b64encode(resolved.read_bytes()).decode("ascii")
-        encoding = "base64"
+    content, encoding = _read_source_content(resolved, raw)
 
     return {
         "source_id": source_id,
