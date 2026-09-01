@@ -13,6 +13,7 @@ from empirica.core.qdrant.connection import (
     _get_vector_size,
     logger,
 )
+from empirica.core.qdrant.point_ids import artifact_point_id
 
 
 def embed_eidetic(
@@ -76,7 +77,7 @@ def embed_eidetic(
             "tags": tags or [],
         }
 
-        point_id = int(hashlib.md5(fact_id.encode()).hexdigest()[:15], 16)
+        point_id = artifact_point_id(fact_id)
         point = PointStruct(id=point_id, vector=vector, payload=payload)
         client.upsert(collection_name=coll, points=[point])
         return True
