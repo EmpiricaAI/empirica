@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.13.33
-**Generated:** 2026-08-28 13:59:24 UTC
+**Framework version:** 1.13.34
+**Generated:** 2026-09-01 10:20:16 UTC
 **Total commands:** 243 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -4890,6 +4890,8 @@ Provision a managed Forgejo remote for a project (operator / self-hosting power-
   Mint a fresh access token (revokes the prior) — also the way to re-push an already-published project.
 - `--description` — optional
   Optional Forgejo repo description.
+- `--dry-run` — optional · flag
+  PREVIEW: resolve the project and credentials, name what would be provisioned, and stop before the mint. Creates nothing. Repo creation is irreversible, so this is how you review a run — and the only way to inspect this path without provisioning to find out.
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
 

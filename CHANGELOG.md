@@ -5,6 +5,77 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.34] - 2026-09-01
+
+Eight fixes with one shape: **a surface that reported success on the axis it
+measured while silent on the axis the user cared about.** Three were reported by
+practitioners whose stated mechanism was wrong and whose symptom was real — in
+every case the defect sat one layer from where it appeared.
+
+### Fixed
+- **`projects-sync` printed an error, discovered nothing, and exited 0.** Four
+  defects on one path, each hiding the next. The trigger is the **interpreter
+  version**: `Path.is_file()` raises on `EACCES` up to CPython 3.12 and swallows
+  it from 3.13, so a single unreadable directory aborted the whole walk on older
+  interpreters and was invisible on newer ones. The same walk already guarded
+  `iterdir()` and left two sibling `stat` calls bare.
+
+  Then it reported success anyway — the handler returned `None`, which maps to
+  exit 0, so the verb crashed and told its caller everything was fine. **The
+  consumer that matters is not the human reading the error but every cron job,
+  hook and CI step that trusts the status**; those recorded silent no-ops as
+  successful syncs for as long as the verb has existed. A history of green runs
+  from it carries no information. Under `--output json` the failure path emitted
+  human text, so a caller got unparseable output *and* a success code. And the
+  error handler itself raised `UnboundLocalError`, because `output_format` was
+  read after the walk that failed — an error path depending on state the error
+  prevented from being set is not an error path.
+
+  A defect gated on the interpreter version presents as environmental flakiness,
+  and the honest conclusion available to each party individually is that the
+  other's environment is at fault. Both were measuring correctly.
+
+- **Partial-failure detail was collected and then dropped.** `projects-sync`
+  builds `{name, outcome, status, reason}` per project; the human renderer
+  printed only the counts, so *"19 registered, 3 failed"* named nothing to act
+  on while the data sat in the same dict. `--output json` carried it all along —
+  which means the people who hit this are the ones least likely to be piping to
+  `jq`. Failures are now named with status and reason.
+
+- **`sync-status` advertised a code remote nothing pushes to.** In dual-remote
+  mode it rendered `Code: <remote> (public)` beside the notes line as though both
+  were synced. Nothing in empirica pushes code — `sync-push` carries two refspecs,
+  both notes. **A false label does not merely fail to inform, it terminates the
+  enquiry**: someone auditing their config saw code listed as configured and
+  stopped looking. Both lines now name the verb that actually moves them.
+
+- **Unrecognized-flag errors echoed argument *values* verbatim**, so passing a
+  long body to a flag that does not exist buried the `error:` prefix thousands of
+  characters upstream and the visible tail was the caller's own text. Legibility
+  that degrades with argument length degrades hardest on authoring verbs, and the
+  result is not a worse error but a *misdiagnosis with a direction* — a seat
+  concluded the verb had silently created nothing. Flags now print in full;
+  values past 120 characters become a length marker.
+
+- **`lesson-create`'s payload schema was reachable only by failing.** The
+  unknown-field rejection enumerated all fifteen accepted fields; `--help` listed
+  none, so the schema was learned by submitting wrong payloads. **When an error
+  message is more informative than the help text, the help text is the defect.**
+  Now derived from the same constants the validator enforces, with the closed
+  vocabularies and a worked example that a test executes rather than eyeballs.
+
+- **`forgejo-publish` gained `--dry-run`.** It provisions a repository and had no
+  preview, so the only way to learn what it would do was to let it do it — which
+  blocks both reviewing a run and *diagnosing* the mint path without creating a
+  real repository to answer the question. **A verb with no probe mode can be used
+  but not investigated.** The preview names the project and stops before the
+  mint; it does not invent the repository URL, which cortex assigns at provision
+  time.
+
+- `--help` for `projects-sync` no longer leaks an internal proposal id, and now
+  states its exit contract — worth saying explicitly, since the verb returned 0
+  for everything before and no caller had reason to check.
+
 ## [1.13.33] - 2026-08-28
 
 ### Fixed
