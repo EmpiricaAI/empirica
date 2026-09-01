@@ -59,7 +59,16 @@ ARTIFACT_UPDATABLE_FIELDS: dict[str, set[str]] = {
     # governance metadata, and `sharing_policy` is the one that matters: it decides
     # whether the lesson leaves the practice at all, and until this existed a lesson
     # authored under the `private` default could never be promoted.
-    "lesson": {"sharing_policy", "abstraction_level", "abstract_pattern", "domain"},
+    # `tags` added 2026-09-01. A peer needed to tag lesson FAMILIES — to test whether
+    # people actually retrieve by family, before a lessons knowledge-graph earns its
+    # keep — and found no path. Correct: tags were rejected here. They proposed a new
+    # `lesson-update` verb; the mechanism already existed and wanted one entry.
+    #
+    # Safe on the same grounds as the rest of this set: tags are governance metadata,
+    # not the claim. Editing them cannot make a lesson say something it did not say,
+    # which is the line this allowlist draws — a lesson whose CONTENT turns out wrong
+    # is superseded, never edited.
+    "lesson": {"sharing_policy", "abstraction_level", "abstract_pattern", "domain", "tags"},
 }
 
 #: Table + id column per type, so a caller can locate the row without duplicating

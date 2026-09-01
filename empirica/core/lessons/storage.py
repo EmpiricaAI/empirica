@@ -613,9 +613,22 @@ class LessonStorageManager:
                 setattr(lesson, field, value)
             cursor = self._conn.cursor()
             sets = ", ".join(f"{k} = ?" for k in updates)
+            # Bind the WARM serialisation, not the raw Python value. Every field
+            # correctable before this was a string, so `[*updates.values()]` worked
+            # by coincidence — the first list-valued one (`tags`) raised
+            # "Error binding parameter: type 'list' is not supported" the moment it
+            # was allowed through, because sqlite3 cannot bind a list.
+            #
+            # Taken from `to_warm_dict()` rather than special-cased here, so the
+            # column format has ONE definition. That serialiser is what `create_lesson`
+            # writes through (`","` for tags), so an update now produces a byte-identical
+            # shape to a create — and any future list-valued column inherits it without
+            # this line being revisited.
+            warm = lesson.to_warm_dict()
+            params = [warm.get(k, updates[k]) for k in updates]
             cursor.execute(
                 f"UPDATE lessons SET {sets}, lesson_data = ? WHERE id = ?",
-                [*updates.values(), json.dumps(lesson.to_dict()), lesson_id],
+                [*params, json.dumps(lesson.to_dict()), lesson_id],
             )
             if cursor.rowcount == 0:
                 out["warnings"].append(f"lesson {lesson_id!r} matched no row — nothing updated")
