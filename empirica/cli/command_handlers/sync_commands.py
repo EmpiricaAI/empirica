@@ -832,7 +832,14 @@ def _replication_verdict(local: int, remote_count: int | None, unreachable: str 
     if local == 0:
         return {"state": "nothing_to_replicate", "reason": "no local note refs", "behind": 0}
     if behind > 0:
-        pct = round(100 * behind / local)
+        # `<1%` rather than a rounded `0%`. A real one-ref gap rendering as
+        # "1 of 970 (0%) are NOT on the remote" puts the prose in contradiction with
+        # the categorical state beside it, and the predictable repair is to soften the
+        # STATE to match the number — fixing the honest half. The integer `behind` is
+        # what consumers should threshold on; this only stops the string arguing
+        # against it.
+        raw = 100 * behind / local
+        pct = "<1" if raw < 0.5 else str(round(raw))
         return {
             "state": "not_replicating" if remote_count == 0 else "behind",
             "reason": (

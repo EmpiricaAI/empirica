@@ -46,6 +46,29 @@ def test_partial_replication_is_behind_not_replicated():
     assert "5620 of 17637" in v["reason"], "the reader needs the magnitude, not a boolean"
 
 
+def test_a_tiny_gap_never_renders_as_zero_percent():
+    """A real one-ref gap used to read `1 of 970 local note refs (0%) are NOT on the
+    remote` — prose in contradiction with the categorical state beside it.
+
+    The integer `behind` is what a consumer should threshold on and it was always
+    right. The risk is a later "fix" that softens the STATE to match the number,
+    repairing the honest half. `<1%` removes the contradiction instead.
+    """
+    v = _replication_verdict(local=970, remote_count=969, unreachable=None)
+
+    assert v["state"] == "behind"
+    assert v["behind"] == 1
+    assert "(<1%)" in v["reason"]
+    assert "(0%)" not in v["reason"]
+
+
+def test_ordinary_percentages_still_round_normally():
+    """POSITIVE CONTROL. A `<1` that leaked into every reason would make the magnitude
+    useless — the thing this field exists to carry."""
+    assert "(32%)" in _replication_verdict(17639, 12017, None)["reason"]
+    assert "(100%)" in _replication_verdict(3617, 0, None)["reason"]
+
+
 def test_a_replicated_seat_says_so():
     """POSITIVE CONTROL. A verdict that only ever reported problems would satisfy the
     tests above while telling a healthy seat nothing — and a check that cries wolf gets
