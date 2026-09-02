@@ -179,7 +179,9 @@ settings:
 # Sync Policy
 sync:
   enabled: true
-  remote: origin
+  notes_remote: <remote>    # no default — unset means every verb refuses
+  code_remote: <remote>     # no default; only used when auto_push_on is set
+  auto_push_on: []          # empty = off
 
   # What syncs via git notes
   layers:
@@ -443,11 +445,16 @@ empirica rebuild --from-notes --qdrant
 
 ### Configure sync settings
 ```bash
-# Show current configuration
+# Show current configuration — including both destinations, set or not
 empirica sync-config
 
-# Set default remote (for push/pull)
-empirica sync-config remote origin
+# Where NOTES go. There is no default: until you set this, sync-push and
+# sync-pull REFUSE and name the git remotes this repo actually has.
+empirica sync-config notes_remote <remote>
+
+# Where CODE goes, if you opt into auto-push. Also no default.
+empirica sync-config code_remote <remote>
+empirica sync-config auto_push_on postflight   # opt in; empty = off
 
 # Set visibility (affects warnings)
 empirica sync-config visibility private
@@ -455,6 +462,22 @@ empirica sync-config visibility private
 # Set provider (for provider-specific hints)
 empirica sync-config provider github
 ```
+
+**No remote has a default, deliberately.** `remote`, `notes_remote` and
+`code_remote` are all unset until a human sets them. The defaults used to be
+`forgejo` for notes and `origin` for code, and both read as safe while producing
+*opposite* invisible failures: on a seat where `origin` is a public GitHub repo the
+code default pointed at publication, and on a seat with no `origin` at all notes
+synced nowhere for weeks. Same literal, and in neither case did anything say which
+case you were in.
+
+A wrong guess about a remote is a publication decision made by a default. So an
+unset destination is an absent answer, not a cautious one — every verb refuses, and
+the refusal names the remotes this repo has plus the exact command.
+
+> **Upgrading from ≤1.13.34:** if you relied on the old implicit defaults, sync-push
+> will now refuse once until you make the choice explicit
+> (`empirica sync-config notes_remote <remote>`). The refusal carries the command.
 
 ---
 
@@ -476,11 +499,13 @@ empirica sync-config provider github
 git remote add notes-private git@github.com:youruser/project-notes-private.git
 
 # 3. Configure Empirica to use it
-empirica sync-config remote notes-private
+empirica sync-config notes_remote notes-private
 
 # 4. Verify
 empirica sync-config --output human
-# Should show: remote: notes-private
+# Destinations:
+#    Notes: notes-private — synced by `empirica sync-push`
+#    Code:  NOT SET — empirica pushes no code
 
 # 5. Sync uses the private remote
 empirica sync-push    # → pushes to notes-private

@@ -12,7 +12,7 @@ ever said so.
 is why the honest label shipped first and this shipped second: the gap had to stop
 being invisible before it was worth automating away.
 
-THE FOUR CONSTRAINTS, EACH FROM A DEFECT
+THE FIVE CONSTRAINTS, EACH FROM A DEFECT
 ----------------------------------------
 1. **Opt-in per project.** Auto-pushing work-in-progress publishes things nobody
    chose to publish — half-finished branches, client names in commit messages,
@@ -30,6 +30,9 @@ THE FOUR CONSTRAINTS, EACH FROM A DEFECT
    the push and compared to local HEAD. "I ran git push and it exited 0" is a
    claim about a subprocess; "the remote ref now equals my HEAD" is a claim about
    the world, and only the second is what the label promises.
+5. **No default destination.** `code_remote` has no fallback. `origin` is a public
+   GitHub repo on some seats and absent on others, so the same literal publishes
+   on one box and no-ops on another — and neither says which. Unset means refuse.
 
 WHY POSTFLIGHT AND NOT SESSION_END
 ----------------------------------
@@ -92,7 +95,25 @@ def auto_push(root: Path, sync_config: dict[str, Any], trigger: str) -> dict[str
     if trigger not in enabled:
         return {"outcome": NOT_ENABLED, "pushed": False, "reason": f"auto_push_on does not include {trigger!r}"}
 
-    remote = sync_config.get("code_remote") or "origin"
+    # CONSTRAINT 5. No default destination. This read used to end in `or "origin"`,
+    # which is the single most consequential guess in the codebase: on at least one
+    # seat `origin` is a PUBLIC GitHub repo, so a practitioner who enabled auto-push
+    # for a private backup would have published every commit instead. An unset
+    # code_remote is an absent answer, not a cautious one — refuse and say so.
+    remote = sync_config.get("code_remote")
+    if not remote:
+        available = sorted(_remotes(root))
+        return {
+            "outcome": NO_REMOTE,
+            "pushed": False,
+            "remote": None,
+            "available_remotes": available,
+            "reason": (
+                "code_remote is not set — refusing to guess where to push code. "
+                "Set it deliberately: `empirica sync-config code_remote <remote>` "
+                f"(configured here: {', '.join(available) or 'none'})"
+            ),
+        }
     if remote not in _remotes(root):
         return {
             "outcome": NO_REMOTE,

@@ -5,6 +5,57 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed — BREAKING (sync configuration)
+
+- **No remote has a default any more. Unset means refuse.** `remote`,
+  `notes_remote` and `code_remote` all ship as unset, and `sync-push`,
+  `sync-pull`, `profile-sync` and auto-push now REFUSE rather than guess a
+  destination — naming the git remotes the repo actually has and the exact
+  `empirica sync-config <key> <remote>` that fixes it.
+
+  The old defaults were `forgejo` for notes and `origin` for code. Both read as
+  safe and produced **opposite invisible failures from the same literal**: on a
+  seat where `origin` is a public GitHub repo the code default pointed at
+  publication and would have *succeeded*; on a seat with no `origin` at all,
+  notes synced nowhere for weeks. In neither case did anything say which case you
+  were in. A default that is usually right is the worst possible shape for a
+  destination, because a wrong guess here is a publication decision made by a
+  literal.
+
+  **Upgrading:** a seat that relied on the implicit default will see one refusal
+  from `sync-push` until the choice is made explicit. The refusal carries the
+  command. Nothing is lost — this makes an existing implicit target explicit.
+
+### Fixed
+
+- **`notes_remote` retargeted one verb and not the other.** `profile-sync`
+  resolved `notes_remote → remote → "forgejo"` while `sync-push`/`sync-pull` read
+  `remote` alone, so `sync-config notes_remote X` moved profile-sync's destination
+  and left sync-push pointing elsewhere. One key, two verbs, two destinations.
+  All four now resolve through one shared resolver (`empirica.core.sync_remotes`).
+- **`sync-status` ignored the configured remote.** It took its remote from args
+  with a literal default and never read the config, so a correctly-configured seat
+  was told it was unconfigured — sending the reader to re-do a write that had
+  already succeeded. The status verb is what someone consults to decide whether a
+  thing is working; when it is the wrong one it does not merely fail to inform.
+- **`sync-status` now distinguishes *unset* from *misconfigured*.** `remote: null`
+  (nobody chose one) and `remote: <name>, remote_configured: false` (chosen, but
+  not a git remote here) used to render identically and have opposite fixes. Code
+  and notes are also reported separately and never folded into one availability
+  flag — `sync-push` moves notes only.
+- **`sync-config <key> <value> --output human` raised `UnboundLocalError` on every
+  invocation.** The single-key path never computed the remote locals the human
+  renderer read unconditionally. Invisible because the default output is JSON, and
+  `--output human` is what a person reaches for exactly when they are unsure
+  whether the write landed.
+- **`sync-config` printed four valid keys while validating seven** —
+  `code_remote`, `notes_remote` and `auto_push_on` were settable and undocumented
+  at the point of use. The printed list is now derived from the validated one.
+- **Two hints advertised `empirica sync-config --set key=value`, a flag no parser
+  reads.** The verb takes positional `key value`.
+
 ## [1.13.34] - 2026-09-01
 
 Eight fixes with one shape: **a surface that reported success on the axis it
