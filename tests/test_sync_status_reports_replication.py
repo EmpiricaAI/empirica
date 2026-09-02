@@ -16,6 +16,13 @@ one asserting both sides count the SAME ref set.
 
 from __future__ import annotations
 
+import json
+import subprocess
+from types import SimpleNamespace
+
+import pytest
+
+from empirica.cli.command_handlers import sync_commands
 from empirica.cli.command_handlers.sync_commands import _replication_verdict
 
 
@@ -80,6 +87,66 @@ def test_an_empty_local_graph_is_not_a_replication_failure():
     v = _replication_verdict(local=0, remote_count=0, unreachable=None)
 
     assert v["state"] == "nothing_to_replicate"
+
+
+@pytest.mark.parametrize(
+    ("config", "expect_in_reason"),
+    [
+        ("sync: {}\n", "no notes remote configured"),
+        ("sync:\n  notes_remote: nosuch\n", "not a git remote here"),
+    ],
+    ids=["no-remote", "remote-not-in-repo"],
+)
+def test_the_replication_key_is_present_even_when_nothing_could_be_computed(
+    tmp_path, monkeypatch, capsys, config, expect_in_reason
+):
+    """THE gap, reported by a peer against the first version.
+
+    The key used to be OMITTED when no remote was configured — which is the default
+    state of every seat after the no-default change, so it was the common case at
+    rollout, not an edge. A consumer cannot tell an absent key apart from *computed
+    and fine* or *this build predates the field*: absence defaults to whatever the
+    reader assumes.
+
+    Same collapse as PASS-vs-SKIP in doctor and unset-vs-misconfigured in this very
+    verb — third instance in one command, one layer down, applied to a JSON key.
+    """
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, capture_output=True)
+    (tmp_path / ".empirica").mkdir()
+    (tmp_path / ".empirica" / "config.yaml").write_text(f'version: "2.0"\n{config}')
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sync_commands, "_get_workspace_root", lambda: str(tmp_path))
+
+    args = SimpleNamespace(remote=None, output="json", verbose=False, local=False)
+    assert sync_commands.handle_sync_status_command(args) == 0
+    result = json.loads(capsys.readouterr().out)
+
+    assert "replication" in result, "the key must be present, not omitted"
+    assert result["replication"]["state"] == "unknown"
+    assert expect_in_reason in result["replication"]["reason"]
+    assert result["replication"]["behind"] is None
+    assert result["remote_notes"] is None
+
+
+def test_local_flag_says_it_skipped_rather_than_reporting_nothing(tmp_path, monkeypatch, capsys):
+    """`--local` is a deliberate opt-out of the network call, and it must SAY so.
+    Silently returning no verdict would make the fast path indistinguishable from a
+    healthy one — which is the defect this whole field exists to remove."""
+    subprocess.run(["git", "init", "-q", "-b", "main", str(tmp_path)], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "remote", "add", "forgejo", str(tmp_path / "x.git")], cwd=tmp_path, check=True, capture_output=True
+    )
+    (tmp_path / ".empirica").mkdir()
+    (tmp_path / ".empirica" / "config.yaml").write_text('version: "2.0"\nsync:\n  notes_remote: forgejo\n')
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sync_commands, "_get_workspace_root", lambda: str(tmp_path))
+
+    args = SimpleNamespace(remote=None, output="json", verbose=False, local=True)
+    assert sync_commands.handle_sync_status_command(args) == 0
+    result = json.loads(capsys.readouterr().out)
+
+    assert result["replication"]["state"] == "unknown"
+    assert "--local" in result["replication"]["reason"]
 
 
 def test_both_sides_must_count_the_same_ref_set():

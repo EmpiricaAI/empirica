@@ -50,7 +50,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   left the machine they were written on while `sync-status` reported healthy for
   every one. An unreachable remote degrades to `unknown` *carrying the reason* —
   never to zero (which would report a healthy seat as catastrophic) and never to
-  silence (which is the original defect). `--local` skips the network call.
+  silence (which is the original defect). **The `replication` key is always
+  present**, including when nothing could be computed — an absent key cannot be
+  told apart from *computed and fine*, and an unconfigured remote is the default
+  state of every seat after the change above, so that was the common case at
+  rollout rather than an edge. `--local` skips the network call and says so.
 
 - **`doctor`: "CLI matches checkout"** — the `empirica` on PATH can be a snapshot
   copy while you stand in a checkout, and **both report the same version**, so

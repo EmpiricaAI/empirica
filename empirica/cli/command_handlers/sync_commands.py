@@ -844,6 +844,47 @@ def _replication_verdict(local: int, remote_count: int | None, unreachable: str 
     return {"state": "replicated", "reason": f"all {local} local note refs are on the remote", "behind": 0}
 
 
+def _replication_block(remote: str | None, remote_configured: bool, local_only: bool) -> dict[str, Any]:
+    """The `replication` fields for `sync-status`. **Always present, never omitted.**
+
+    Costs one ``git ls-remote``; `--local` opts out. Default-on deliberately — a signal
+    nobody turns on is a signal nobody sees, and every seat this was built for would
+    have had to know to ask.
+
+    The key is emitted even when nothing could be computed. It used to be omitted when
+    no remote was configured — which is the DEFAULT state of every seat after the
+    no-default change, so it was the common case at rollout, not an edge. An absent key
+    cannot be told apart from *computed and fine* or *this build predates the field*:
+    absence defaults to whatever the reader assumes. That is the same collapse as
+    PASS-vs-SKIP and unset-vs-misconfigured, one layer down and applied to a JSON key.
+
+    ``sync_available`` is deliberately NOT touched here. "The remote is configured" and
+    "the notes are there" are different facts, and the whole defect was one field
+    answering both.
+    """
+    if not remote:
+        skipped = "no notes remote configured — nothing to compare against"
+    elif not remote_configured:
+        skipped = f"'{remote}' is configured but is not a git remote here"
+    elif local_only:
+        skipped = "skipped by --local (no network call was made)"
+    else:
+        skipped = ""
+
+    if skipped:
+        return {"remote_notes": None, "replication": {"state": "unknown", "reason": skipped, "behind": None}}
+
+    remote_count, unreachable = _count_remote_notes(str(remote))
+    # BOTH SIDES OVER THE SAME REF SET. `total_notes` covers the enumerated namespaces
+    # only, and comparing it here reported REPLICATED while 5,622 refs were missing.
+    all_local = _count_all_local_note_refs()
+    return {
+        "local_note_refs": all_local,
+        "remote_notes": remote_count,
+        "replication": _replication_verdict(all_local, remote_count, unreachable),
+    }
+
+
 def handle_sync_status_command(args):
     """Handle sync status command - show sync status"""
     try:
@@ -897,24 +938,7 @@ def handle_sync_status_command(args):
         if not remote:
             result["hint"] = _remote_refusal(NOTES)["hint"]
 
-        # DOES IT ACTUALLY REPLICATE? Costs one `git ls-remote`; skip with --local.
-        # Default-on deliberately: a signal nobody turns on is a signal nobody sees,
-        # and every one of the four seats this was built for would have had to know to
-        # ask. Unreachable degrades to `state: unknown` with the reason, never to zero
-        # and never to silence.
-        if remote and remote_configured and not getattr(args, "local", False):
-            remote_count, unreachable = _count_remote_notes(remote)
-            # BOTH SIDES OVER THE SAME REF SET. `total_notes` is the enumerated
-            # namespaces only and comparing it here reported REPLICATED while 5,620
-            # refs were missing — see _count_all_local_note_refs.
-            all_local = _count_all_local_note_refs()
-            result["local_note_refs"] = all_local
-            result["remote_notes"] = remote_count
-            result["replication"] = _replication_verdict(all_local, remote_count, unreachable)
-            # `sync_available` keeps its meaning — the remote is configured and present.
-            # It is deliberately NOT overwritten: "the remote works" and "the notes are
-            # there" are different facts, and the whole defect was one field answering
-            # both. `replication.state` is the second answer, in its own field.
+        result.update(_replication_block(remote, remote_configured, getattr(args, "local", False)))
 
         if output_format == "json":
             print(json.dumps(result, indent=2))
@@ -939,7 +963,10 @@ def handle_sync_status_command(args):
             if rep:
                 state = str(rep["state"])
                 icon = {"replicated": "✅", "behind": "⚠️", "not_replicating": "❌", "unknown": "❓"}.get(state, "•")
-                print(f"   All note refs: {result.get('local_note_refs')} local / {result.get('remote_notes')} remote")
+                if result.get("remote_notes") is not None:
+                    print(
+                        f"   All note refs: {result.get('local_note_refs')} local / {result.get('remote_notes')} remote"
+                    )
                 print(f"   {icon} Replication: {state.upper()} — {rep['reason']}")
                 if state in ("behind", "not_replicating"):
                     print("      Fix: empirica sync-push")
