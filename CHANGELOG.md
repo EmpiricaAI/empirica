@@ -28,6 +28,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from `sync-push` until the choice is made explicit. The refusal carries the
   command. Nothing is lost — this makes an existing implicit target explicit.
 
+### Added
+
+- **`declined` — module manifests can express a DELIBERATELY refused layer.**
+  `requires.declined.prompts` / `.skills` map a layer name to the reason it is
+  refused, and `declaration_state(manifest, layer, kind)` is the reader, returning
+  `consumes` / `declined` / `undeclared`. Without a third state a declaration gate
+  sees two — declared, and nothing — and a considered refusal and a practice that
+  forgot land in the same place, so the gate fires on the best-declared seat in the
+  fleet. The reason is **required**: a bare declined name relocates the silence
+  rather than removing it. A layer listed as both consumed and declined is rejected.
+  `module validate --output text` prints declined layers with their reasons, and
+  `validate_manifest_file` returns a `declarations` block. Backward compatible.
+  New `docs/architecture/MODULE_MANIFEST.md` is core's canonical schema reference.
+
+- **`doctor`: "CLI matches checkout"** — the `empirica` on PATH can be a snapshot
+  copy while you stand in a checkout, and **both report the same version**, so
+  `--version` matching is not evidence and never was. The cost is not a stale binary
+  but a *misattributed test result*: a practitioner ran a shipped fix against a copy
+  predating it, got pre-fix behaviour, and was one message from reporting the fix
+  broken. WARN, never FAIL — running a released copy on purpose is normal; not
+  knowing is not. `empirica --version` now also prints `Mode: editable/source` or
+  `copy (snapshot …)`.
+
 ### Fixed
 
 - **`notes_remote` retargeted one verb and not the other.** `profile-sync`

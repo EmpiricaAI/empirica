@@ -300,6 +300,85 @@ def check_empirica_mcp() -> Check:
     return Check("empirica-mcp on PATH", PASS, f"{path} (empirica {bundled})", data=data)
 
 
+def _cli_package_dir() -> Path | None:
+    """Where the `empirica` on PATH actually loads its package from, or None.
+
+    Asks the CLI, deliberately, and NOT this process's own ``empirica.__file__``.
+    An interpreter invoked from inside a checkout puts the cwd on ``sys.path``, so
+    ``import empirica`` resolves to the checkout while the console script — whose
+    ``sys.path[0]`` is its own script dir — loads the installed copy. Two people hit
+    exactly that trap on the same day, one of them me, an hour after reading the
+    other's warning about it.
+    """
+    rc, out, _ = _run(["empirica", "--version"], timeout=15.0)
+    if rc != 0:
+        return None
+    for line in out.splitlines():
+        if line.startswith("Install:"):
+            return Path(line.split(":", 1)[1].strip())
+    return None
+
+
+def _nearest_checkout(start: Path | None = None) -> Path | None:
+    """The empirica source checkout containing `start`, or None.
+
+    Identified by a ``pyproject.toml`` naming this project beside an ``empirica/``
+    package — not by directory name, which any clone can shadow.
+    """
+    here = (start or Path.cwd()).resolve()
+    for d in (here, *here.parents):
+        pyproject = d / "pyproject.toml"
+        if not (d / "empirica" / "__init__.py").is_file() or not pyproject.is_file():
+            continue
+        try:
+            head = pyproject.read_text()[:2000]
+        except OSError:
+            continue
+        if 'name = "empirica"' in head or "name = 'empirica'" in head:
+            return d
+    return None
+
+
+def check_cli_matches_checkout(cwd: Path | None = None) -> Check:
+    """Is the `empirica` you would run the code you are standing in?
+
+    **The version cannot answer this**, which is the whole point. A pipx copy and a
+    working tree both report the same number while the code differs by any number of
+    unreleased commits, so `--version` matching is not evidence and never was. This
+    practice has recorded the same defect three times; twice the remediation was
+    "reinstall", which is a fix for an instance and not for a class.
+
+    The cost is not a stale binary — it is a **misattributed test result**. A peer ran
+    a shipped fix against a copy predating it, got pre-fix behaviour, and was one
+    message from reporting the fix broken. Absent this check that report is
+    indistinguishable from a real regression, and the fix is what gets re-opened.
+
+    WARN, never FAIL: running a released copy while sitting in a checkout is a normal
+    thing to do on purpose. What is not normal is not knowing.
+    """
+    checkout = _nearest_checkout(cwd)
+    if checkout is None:
+        return Check("CLI matches checkout", PASS, "not inside an empirica checkout — nothing to compare")
+
+    pkg = _cli_package_dir()
+    if pkg is None:
+        return Check("CLI matches checkout", WARN, f"checkout {checkout} — could not resolve what `empirica` loads")
+
+    data = {"checkout": str(checkout), "cli_package_dir": str(pkg)}
+    if pkg.resolve() == checkout.resolve():
+        return Check("CLI matches checkout", PASS, f"editable — `empirica` runs {checkout}", data=data)
+
+    return Check(
+        "CLI matches checkout",
+        WARN,
+        f"`empirica` loads {pkg}, NOT the checkout at {checkout} — same version number either way",
+        f"pipx install --force --editable {checkout}   (or run `python -m empirica.cli.cli_core` "
+        "to exercise the tree). Until then a test of uncommitted or unreleased work is testing the "
+        "installed copy, and a passing or failing result says nothing about your code.",
+        data=data,
+    )
+
+
 def check_claude_code_cli() -> Check:
     """`claude` CLI presence (optional — only needed for Claude Code users)."""
     path = _which("claude")
@@ -1302,6 +1381,7 @@ def run_all_checks(cwd: Path | None = None) -> list[Check]:
         # Install presence
         check_python(),
         check_empirica_cli(),
+        check_cli_matches_checkout(cwd),
         check_empirica_mcp(),
         check_claude_code_cli(),
         check_git_present(),

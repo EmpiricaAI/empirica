@@ -252,7 +252,16 @@ def _get_version():
         python_version = f"Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
         install_path = empirica.__file__.rsplit("/", 2)[0] if "/" in empirica.__file__ else empirica.__file__
 
-        return f"{version}\n{python_version}\nInstall: {install_path}"
+        # WHICH copy, said out loud. A pipx snapshot and a working tree report the
+        # SAME version number while the code differs by any number of unreleased
+        # commits, so the number is not evidence about what is running — and the path
+        # alone does not say whether it is a copy or the tree, which is the question
+        # someone testing a fix is actually asking.
+        mode = "copy (snapshot — unreleased commits in a checkout are NOT here)"
+        if "site-packages" not in install_path and "dist-packages" not in install_path:
+            mode = "editable/source"
+
+        return f"{version}\n{python_version}\nInstall: {install_path}\nMode: {mode}"
     except Exception:
         return "1.0.5 (version info unavailable)"
 
