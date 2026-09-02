@@ -319,23 +319,54 @@ def _cli_package_dir() -> Path | None:
     return None
 
 
-def _nearest_checkout(start: Path | None = None) -> Path | None:
-    """The empirica source checkout containing `start`, or None.
+def _is_checkout(d: Path) -> bool:
+    """Is `d` an empirica source checkout?
 
-    Identified by a ``pyproject.toml`` naming this project beside an ``empirica/``
-    package — not by directory name, which any clone can shadow.
+    By CONTENT — a ``pyproject.toml`` naming this project beside an ``empirica/``
+    package — not by directory name, which any clone, backup or docs folder shadows.
+    """
+    pyproject = d / "pyproject.toml"
+    if not (d / "empirica" / "__init__.py").is_file() or not pyproject.is_file():
+        return False
+    try:
+        head = pyproject.read_text()[:2000]
+    except OSError:
+        return False
+    return 'name = "empirica"' in head or "name = 'empirica'" in head
+
+
+def _find_checkout(start: Path | None = None) -> Path | None:
+    """An empirica checkout on this box, or None. **Not cwd-only.**
+
+    The first version walked up from cwd and nothing else, which made the answer a
+    property of where you were standing rather than of the install — so a developer
+    running `doctor` from any other repo was told PASS while the skew was live. Every
+    practitioner not sitting in core's tree, which is most of the fleet, got the
+    reassuring answer.
+
+    So: cwd's ancestors first (cheapest, and the most likely intent), then the
+    daemon's project registry, which is a cwd-independent list of real paths on this
+    machine. Registry entries can be stale; a path that no longer looks like a
+    checkout is simply skipped.
     """
     here = (start or Path.cwd()).resolve()
     for d in (here, *here.parents):
-        pyproject = d / "pyproject.toml"
-        if not (d / "empirica" / "__init__.py").is_file() or not pyproject.is_file():
-            continue
-        try:
-            head = pyproject.read_text()[:2000]
-        except OSError:
-            continue
-        if 'name = "empirica"' in head or "name = 'empirica'" in head:
+        if _is_checkout(d):
             return d
+
+    registry = Path.home() / ".empirica" / "registry.yaml"
+    if not registry.is_file():
+        return None
+    try:
+        import yaml
+
+        entries = (yaml.safe_load(registry.read_text()) or {}).get("projects") or []
+    except Exception:
+        return None
+    for entry in entries:
+        path = (entry or {}).get("path")
+        if path and _is_checkout(Path(path)):
+            return Path(path)
     return None
 
 
@@ -355,14 +386,27 @@ def check_cli_matches_checkout(cwd: Path | None = None) -> Check:
 
     WARN, never FAIL: running a released copy while sitting in a checkout is a normal
     thing to do on purpose. What is not normal is not knowing.
-    """
-    checkout = _nearest_checkout(cwd)
-    if checkout is None:
-        return Check("CLI matches checkout", PASS, "not inside an empirica checkout — nothing to compare")
 
+    And it never returns PASS for a comparison it did not make. Folding *not checked*
+    into *passed* is how an exemption reports clean forever — SKIP is the honest verdict
+    and doctor already uses it elsewhere in the same output.
+    """
     pkg = _cli_package_dir()
+    checkout = _find_checkout(cwd)
+
     if pkg is None:
-        return Check("CLI matches checkout", WARN, f"checkout {checkout} — could not resolve what `empirica` loads")
+        detail = f"could not resolve what `empirica` loads{f' (checkout at {checkout})' if checkout else ''}"
+        return Check("CLI matches checkout", WARN, detail)
+
+    if checkout is None:
+        # No checkout anywhere on this box — a released copy is CORRECT here, but the
+        # comparison was not performed, so say that rather than claiming agreement.
+        return Check(
+            "CLI matches checkout",
+            SKIP,
+            f"`empirica` loads {pkg} — no empirica checkout found on this box, nothing to compare against",
+            data={"cli_package_dir": str(pkg), "checkout": None},
+        )
 
     data = {"checkout": str(checkout), "cli_package_dir": str(pkg)}
     if pkg.resolve() == checkout.resolve():

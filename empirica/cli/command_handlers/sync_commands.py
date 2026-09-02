@@ -759,6 +759,91 @@ def handle_sync_pull_command(args):
         return 1
 
 
+def _count_all_local_note_refs() -> int:
+    """EVERY ref under ``refs/notes/``, not just the enumerated namespaces.
+
+    ``_count_local_notes()`` walks ``EMPIRICA_NOTES_REFS`` and is the right function
+    for the per-namespace breakdown. It is the WRONG one to compare against a remote,
+    because the remote side counts ``refs/notes/*`` wholesale — and on this repo those
+    differ by 11,232 refs (``breadcrumbs`` and ``empirica-precompact`` live outside the
+    enumerated list).
+
+    Caught by running it: the first version of the replication check reported
+    ``REPLICATED — all 6405 local note refs are on the remote`` while 5,620 refs were
+    missing. **Two counts over two different sets is not a comparison**, and the
+    direction of the error was the reassuring one.
+    """
+    try:
+        proc = subprocess.run(
+            ["git", "for-each-ref", "--format=%(refname)", "refs/notes/"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except Exception:
+        return 0
+    if proc.returncode != 0:
+        return 0
+    return len([ln for ln in proc.stdout.splitlines() if ln.strip()])
+
+
+def _count_remote_notes(remote: str, timeout: int = 20) -> tuple[int | None, str | None]:
+    """Note refs present on `remote` — ``(count, unreachable_reason)``.
+
+    Exactly one of the two is None. **An unreachable remote must not read as zero and
+    must not read as fine**: a network failure and an empty remote are opposite facts
+    and only one of them is a sync problem, so the reason is carried rather than
+    swallowed into a number.
+    """
+    try:
+        proc = subprocess.run(
+            ["git", "ls-remote", remote, "refs/notes/*"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return None, f"timed out after {timeout}s reaching {remote}"
+    except Exception as e:  # broad by design — the reason is REPORTED, never swallowed
+        return None, f"{type(e).__name__}: {e}"
+    if proc.returncode != 0:
+        return None, (proc.stderr.strip().splitlines() or ["git ls-remote failed"])[-1][:200]
+    return len([ln for ln in proc.stdout.splitlines() if ln.strip()]), None
+
+
+def _replication_verdict(local: int, remote_count: int | None, unreachable: str | None) -> dict[str, Any]:
+    """Are local notes actually reaching the remote? Say it in words.
+
+    THE GAP THIS CLOSES. Across four practices measured 2026-09-02, ~9,500 epistemic
+    artifact refs had never left the machine they were written on — and `sync-status`
+    reported healthy for every one, because "a remote is configured" was the only
+    question it could answer. Configuration is not replication. A verb consulted to
+    decide whether a thing is working must be able to say *it is not*.
+
+    `local > remote` is the detectable signature and it is deliberately cheap: it
+    needs no history walk, only two counts.
+    """
+    if unreachable or remote_count is None:
+        reason = unreachable or "remote ref count unavailable"
+        return {"state": "unknown", "reason": f"remote not reachable — {reason}", "behind": None}
+    behind = local - remote_count
+    if local == 0:
+        return {"state": "nothing_to_replicate", "reason": "no local note refs", "behind": 0}
+    if behind > 0:
+        pct = round(100 * behind / local)
+        return {
+            "state": "not_replicating" if remote_count == 0 else "behind",
+            "reason": (
+                f"{behind} of {local} local note refs ({pct}%) are NOT on the remote"
+                + (" — nothing has ever been pushed" if remote_count == 0 else "")
+            ),
+            "behind": behind,
+        }
+    return {"state": "replicated", "reason": f"all {local} local note refs are on the remote", "behind": 0}
+
+
 def handle_sync_status_command(args):
     """Handle sync status command - show sync status"""
     try:
@@ -812,6 +897,25 @@ def handle_sync_status_command(args):
         if not remote:
             result["hint"] = _remote_refusal(NOTES)["hint"]
 
+        # DOES IT ACTUALLY REPLICATE? Costs one `git ls-remote`; skip with --local.
+        # Default-on deliberately: a signal nobody turns on is a signal nobody sees,
+        # and every one of the four seats this was built for would have had to know to
+        # ask. Unreachable degrades to `state: unknown` with the reason, never to zero
+        # and never to silence.
+        if remote and remote_configured and not getattr(args, "local", False):
+            remote_count, unreachable = _count_remote_notes(remote)
+            # BOTH SIDES OVER THE SAME REF SET. `total_notes` is the enumerated
+            # namespaces only and comparing it here reported REPLICATED while 5,620
+            # refs were missing — see _count_all_local_note_refs.
+            all_local = _count_all_local_note_refs()
+            result["local_note_refs"] = all_local
+            result["remote_notes"] = remote_count
+            result["replication"] = _replication_verdict(all_local, remote_count, unreachable)
+            # `sync_available` keeps its meaning — the remote is configured and present.
+            # It is deliberately NOT overwritten: "the remote works" and "the notes are
+            # there" are different facts, and the whole defect was one field answering
+            # both. `replication.state` is the second answer, in its own field.
+
         if output_format == "json":
             print(json.dumps(result, indent=2))
         else:
@@ -827,6 +931,19 @@ def handle_sync_status_command(args):
                 print("   Code remote:  NOT SET — empirica pushes no code")
             print(f"   Local refs with data: {refs_with_data}")
             print(f"   Total notes: {total_notes}")
+
+            # The replication verdict, in words, ABOVE the per-ref counts. It is the
+            # thing the reader came for; four seats read a healthy-looking status while
+            # thousands of refs had never left the machine.
+            rep = result.get("replication")
+            if rep:
+                state = str(rep["state"])
+                icon = {"replicated": "✅", "behind": "⚠️", "not_replicating": "❌", "unknown": "❓"}.get(state, "•")
+                print(f"   All note refs: {result.get('local_note_refs')} local / {result.get('remote_notes')} remote")
+                print(f"   {icon} Replication: {state.upper()} — {rep['reason']}")
+                if state in ("behind", "not_replicating"):
+                    print("      Fix: empirica sync-push")
+
             if local_counts:
                 print("\n   Note counts:")
                 for ref, count in sorted(local_counts.items()):

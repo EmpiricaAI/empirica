@@ -42,6 +42,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `validate_manifest_file` returns a `declarations` block. Backward compatible.
   New `docs/architecture/MODULE_MANIFEST.md` is core's canonical schema reference.
 
+- **`sync-status` can now say "notes are NOT replicating".** It counts note refs on
+  the remote and reports a `replication` verdict — `replicated` / `behind` /
+  `not_replicating` / `unknown` / `nothing_to_replicate` — with the magnitude, not a
+  boolean. **Configuration is not replication, and only the first was answerable
+  before.** Measured across four practices: ~9,500 epistemic artifact refs had never
+  left the machine they were written on while `sync-status` reported healthy for
+  every one. An unreachable remote degrades to `unknown` *carrying the reason* —
+  never to zero (which would report a healthy seat as catastrophic) and never to
+  silence (which is the original defect). `--local` skips the network call.
+
 - **`doctor`: "CLI matches checkout"** — the `empirica` on PATH can be a snapshot
   copy while you stand in a checkout, and **both report the same version**, so
   `--version` matching is not evidence and never was. The cost is not a stale binary
