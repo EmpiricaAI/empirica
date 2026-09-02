@@ -56,6 +56,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   state of every seat after the change above, so that was the common case at
   rollout rather than an edge. `--local` skips the network call and says so.
 
+- **`trajectory_path` now has one spelling.** `global_projects.trajectory_path` is
+  declared `TEXT NOT NULL UNIQUE`, and callers walked past that by spelling the same
+  directory two ways — `str(project_path / ".empirica")` and `str(git_root)`. SQLite
+  compares strings, so a project registered by both routes produced **two rows** and
+  the constraint never fired. Normalised at both write sites via
+  `empirica.config.path_resolver.canonical_trajectory_path`. **The contract was
+  already documented** in the registration helper's own docstring — a docstring
+  stating a contract is not enforcement. Found by a peer auditing an unrelated orphan
+  report; a structural test now fails if any future writer of that table skips the
+  normaliser, which is how the second writer was caught.
+
 - **`doctor`: "CLI matches checkout"** — the `empirica` on PATH can be a snapshot
   copy while you stand in a checkout, and **both report the same version**, so
   `--version` matching is not evidence and never was. The cost is not a stale binary

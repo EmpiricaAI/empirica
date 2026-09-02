@@ -619,6 +619,38 @@ def debug_paths() -> dict:
     }
 
 
+def canonical_trajectory_path(path: str | Path) -> str:
+    """The one spelling of a project's trajectory path: ``<project_root>/.empirica``.
+
+    ``global_projects.trajectory_path`` is declared ``TEXT NOT NULL UNIQUE`` — and
+    callers walked straight past that by spelling the same directory two ways: one
+    passed ``str(project_path / ".empirica")``, another ``str(git_root)``. SQLite
+    compares strings, so a project registered by both routes produced TWO rows and
+    the UNIQUE constraint never fired.
+
+    **The contract was already written down**, in the registration helper's own
+    docstring: *trajectory_path: Path to project's .empirica directory.* A docstring
+    stating a contract is not enforcement, which is how both forms coexisted for as
+    long as both callers have existed.
+
+    Found from the outside by a peer auditing an unrelated orphan report — one project
+    with two rows differing only by a trailing ``/.empirica`` — with the warning that
+    any dedup keyed on the raw column would treat the pair as distinct forever. True,
+    and a symptom: the fix belongs at the WRITE side so no dedup has to know about the
+    spelling at all.
+
+    Lives here rather than beside either writer because there are TWO of them in
+    different layers (a CLI helper and a data repository), and a normaliser only one
+    of them imports is the same defect with an extra step.
+
+    Idempotent — a path already canonical is returned unchanged.
+    """
+    p = Path(path).expanduser()
+    if p.name != ".empirica":
+        p = p / ".empirica"
+    return str(p)
+
+
 if __name__ == "__main__":
     # Test/debug mode
     import json
