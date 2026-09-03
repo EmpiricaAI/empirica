@@ -783,10 +783,18 @@ def handle_goals_create_command(args):
         _format_goal_output(output_format, result, objective, scope, estimated_complexity, beads_issue_id, use_beads)
 
         goal_repo.close()
-        return None
+        # `return None` here discarded the ok:False built four lines up — the
+        # handler correctly decided FAILURE, printed it, and then returned the
+        # dispatcher's word for success. Observed: a UNIQUE-constraint violation
+        # on success_criteria.id printed "Error saving goal ..." and exited 0.
+        #
+        # Returning the int rather than the dict because `_format_goal_output`
+        # has already printed; handing the dict back would print it twice.
+        return None if success else 1
 
     except Exception as e:
         handle_cli_error(e, "Create goal", getattr(args, "verbose", False))
+        return 1
 
 
 def handle_goals_add_task_command(args):

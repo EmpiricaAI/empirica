@@ -600,6 +600,23 @@ def _handle_command_result(result, parsed_args) -> int:
         return 0 if result.get("ok", True) else 1
     elif result is not None and result != 0:
         return result
+
+    # FAIL CLOSED on a reported-but-unreturned error.
+    #
+    # A handler that called `handle_cli_error` and then fell off the end of its
+    # except block reaches here as `None`, which used to mean success — so the
+    # command printed "❌ ... error: ..." and exited 0. Measured by AST walk:
+    # 107 of 152 call sites have exactly that shape, and `goals-create` was
+    # observed rejecting an invalid criterion with rc=0.
+    #
+    # An explicit non-zero return from a handler still wins (handled above); this
+    # only catches the silent fall-through. Broccoli:
+    # decision-downgraded-across-a-boundary — a deny must degrade to the floor,
+    # never to allow.
+    from .cli_utils import errors_reported
+
+    if errors_reported():
+        return 1
     return 0
 
 

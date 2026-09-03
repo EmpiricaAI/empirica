@@ -65,11 +65,17 @@ def dispatch(ctx: CriterionContext) -> CriterionResult:
             f"— required input absent (e.g. metric not in evidence bundle)"
         )
 
+    # `passed=False` on a skipped result, deliberately. It used to be True, and
+    # while the one in-tree consumer branches on `skipped` first (so nothing was
+    # wrong today), a nothing-happened outcome carrying `passed: True` is a
+    # landmine for the next reader — and it ships in `to_dict()`, so it reaches
+    # dashboards and peers who never see this branch. An unchecked criterion is
+    # not a met one; the honest encoding is skipped=True, passed=False.
     return CriterionResult(
         criterion_id=ctx.criterion.id,
         goal_id=ctx.goal.id,
         validation_method=method,
-        passed=True,
+        passed=False,
         skipped=True,
         summary=summary,
     )

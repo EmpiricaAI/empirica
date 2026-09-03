@@ -94,6 +94,34 @@ def format_uncertainty_output(uncertainty_scores: dict[str, float], verbose: boo
     return "\n".join(output)
 
 
+# Errors reported through `handle_cli_error` during this process.
+#
+# `handle_cli_error` returns None, and `_handle_command_result` maps a None
+# return to exit 0. Measured by AST walk 2026-09-03: **107 of 152** call sites
+# report an error and then fall off the end of their except block, so the command
+# prints "❌ ... error: ..." and EXITS SUCCESSFULLY. A scripted caller checking
+# the exit code records a goal or artifact that does not exist — observed with
+# `goals-create` rejecting a criterion and returning rc=0.
+#
+# Patching 107 handlers to `return 1` would fix them and leave the 108th to be
+# written wrong. The defect is at the BOUNDARY: the handler's deny is downgraded
+# to allow because the dispatcher's vocabulary (None) cannot express it. So the
+# fix lives here — the report is recorded, and the dispatcher fails closed on it.
+#
+# A list rather than a bool so the exit code can be explained, not just returned.
+_ERROR_REPORTED: list[str] = []
+
+
+def errors_reported() -> list[str]:
+    """Errors surfaced via `handle_cli_error` so far in this process."""
+    return list(_ERROR_REPORTED)
+
+
+def reset_reported_errors() -> None:
+    """Clear the record. For tests, and for hosts running >1 command per process."""
+    _ERROR_REPORTED.clear()
+
+
 def handle_cli_error(error: Exception, command: str, verbose: bool = False, session_id: str | None = None) -> None:
     """
     Standardized error handling for CLI commands with auto-capture integration.
@@ -113,6 +141,8 @@ def handle_cli_error(error: Exception, command: str, verbose: bool = False, sess
         return
     if "Broken pipe" in str(error):
         return
+
+    _ERROR_REPORTED.append(f"{command}: {error}")
 
     safe_print(f"❌ {command} error: {error}")
 

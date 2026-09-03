@@ -13,6 +13,35 @@ from .types import Goal, ScopeVector, SuccessCriterion
 
 logger = logging.getLogger(__name__)
 
+# The criterion vocabulary. ONE definition — this list was hand-maintained in two
+# places (the CLI validator and the MCP validator), which is the two-sources-of-
+# truth shape that has bitten this repo repeatedly; widening one and not the
+# other would have made a criterion legal over one surface and rejected over the
+# other.
+#
+# `prose` and `undetermined` exist so an UNCHECKABLE done-condition can be
+# recorded honestly. Without them the set forced a lie: measured 2026-09-03
+# across 59 practice databases, 5,462 of 5,484 criteria (99.6%) carried
+# `completion` — including 2,473 authored conditions like "SSH password auth
+# disabled" that no subtask ratio can judge. That is not laziness, it is an empty
+# option set. A practitioner obeying *never re-emit the default* had two moves:
+# stamp `completion` (a lie the evaluator acts on) or `metric_threshold` (a lie
+# that validates and silently reports a pass, having no registered evaluator).
+#
+#   prose        — deliberately not machine-checkable; a human reads it
+#   undetermined — checkability not yet decided; revisit rather than assume
+#
+# Both dispatch to ProseCriterionEvaluator, which SKIPS with an explicit summary
+# instead of passing. Unasked and unanswerable must not look the same, and
+# neither may look like verified.
+VALID_VALIDATION_METHODS: tuple[str, ...] = (
+    "completion",
+    "quality_gate",
+    "metric_threshold",
+    "prose",
+    "undetermined",
+)
+
 
 class ValidationError(Exception):
     """Custom exception for validation errors"""
@@ -66,7 +95,7 @@ def validate_success_criteria(success_criteria: list[SuccessCriterion]) -> None:
     if not success_criteria:
         raise ValidationError("At least one success criterion is required")
 
-    valid_methods = ["completion", "quality_gate", "metric_threshold"]
+    valid_methods = list(VALID_VALIDATION_METHODS)
 
     for idx, sc in enumerate(success_criteria):
         # Validate description
@@ -169,7 +198,7 @@ def _validate_mcp_success_criteria(success_criteria_data: Any) -> None:
     if not isinstance(success_criteria_data, list):
         raise ValidationError("success_criteria must be an array")
 
-    valid_methods = ["completion", "quality_gate", "metric_threshold"]
+    valid_methods = list(VALID_VALIDATION_METHODS)
 
     for idx, sc_data in enumerate(success_criteria_data):
         if not isinstance(sc_data, dict):
