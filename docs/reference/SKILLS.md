@@ -30,6 +30,7 @@ Core discipline — shipped in this plugin, not Cortex-gated.
 |---|---|---|
 | **`/empirica-constitution`** | First PREFLIGHT of a session; routing a decision you have not met before; the user asks what Empirica can do | Deep governance — phase-aware completion, the cognitive immune system, the practice model. The *why* underneath the operational routing |
 | **`/epistemic-transaction`** | Work spans 3+ files, 2+ goals, or several noetic→praxic cycles | The transaction discipline itself — PREFLIGHT vectors, goal decomposition, task evidence, wire formats for every submission. Largest skill in the set at ~5,800 words, and the depth is the point |
+| **`/pre-action-grounding`** | A task arrives without its *why* or a checkable done-condition — especially unstructured requests from non-devs | Investigate first, ask last (0–2 questions), bank the ungrounded residue as assumptions, and emit a goal whose criteria are typed where an evaluator reaches and honestly prose where none can. Exists because 79% of goals said "done when done" |
 
 ---
 
