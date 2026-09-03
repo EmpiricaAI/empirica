@@ -88,6 +88,34 @@ error naming the entry.
   worse than one that does not, because a gate would answer whichever branch it
   checked first.
 
+### `provides` has the same three states, and its wrong answer costs more
+
+```yaml
+provides:
+  domains: [remote-ops, provisioning, fleet-sync]
+  declined:
+    domains:
+      governance: "not a governance practice — escalations here sit looking coordinated"
+      commercial: "no commercial surface"
+```
+
+`requires.declined` answers *what does this practice not consume* — wrong, and you get
+a missing file, which fails at first use. `provides.declined` answers *what is this
+practice not FOR* — wrong, and you get a **misroute**, which fails silently for as long
+as the sender is patient, because the work lands somewhere that looks like it is
+handling it.
+
+A standards-submission deadline was once escalated to a practice whose whole scope is
+remote-ops: correctly addressed, entirely misrouted, and it sat for a day looking
+coordinated. The exclusion existed the whole time — as a YAML comment.
+
+Same rules as the requires block: the reason is required, and an axis may not be both
+provided and declined.
+
+**The positive state is named for its block.** A domain a practice offers reads back as
+`provides`, not `consumes` — `skills` appears on both blocks meaning different things,
+so pass `side="requires"` or `side="provides"` to disambiguate it.
+
 ### Read declarations through the reader, not the lists
 
 ```python

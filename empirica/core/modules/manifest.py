@@ -96,6 +96,53 @@ class Automation(BaseModel):
         return self
 
 
+class _DeclinedBase(BaseModel):
+    """Shared rule for every declined block: a name without a reason is not a
+    declaration, it is the silence it replaces wearing a key."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def _reasons_required(self):
+        blank = sorted(
+            f"{axis}.{name}"
+            for axis in type(self).model_fields
+            for name, reason in (getattr(self, axis) or {}).items()
+            if not (reason or "").strip()
+        )
+        if blank:
+            raise ValueError(
+                f"declined entries need a non-empty reason: {', '.join(blank)} — "
+                "a declined name without a reason says no more than the silence it replaces"
+            )
+        return self
+
+
+class ProvidesDeclined(_DeclinedBase):
+    """What this practice is explicitly NOT for, each with its reason.
+
+    `requires.declined` answers *what does this practice not consume* — a question
+    whose wrong answer produces a missing file, which fails at first use.
+    `provides.declined` answers *what is this practice not for* — a question whose
+    wrong answer produces a MISROUTE, which fails silently for as long as the sender
+    is patient, because the work lands somewhere that looks like it is handling it.
+
+    A standards-submission deadline was escalated to a practice whose whole scope is
+    remote-ops, correctly addressed and entirely misrouted, and sat for a day looking
+    coordinated — because nothing anywhere said what that practice is *for*. The
+    exclusion existed, as a YAML comment.
+
+    Same vocabulary word as `requires.declined` deliberately: one concept, one key,
+    one reader. A practitioner who learns it on one block knows it on the other.
+    """
+
+    domains: dict[str, str] = Field(default_factory=dict)
+    skills: dict[str, str] = Field(default_factory=dict)
+    agents: dict[str, str] = Field(default_factory=dict)
+    mcp: dict[str, str] = Field(default_factory=dict)
+    services: dict[str, str] = Field(default_factory=dict)
+
+
 class Provides(BaseModel):
     """What a module contributes — plugin payload AND hosted surfaces.
 
@@ -135,6 +182,20 @@ class Provides(BaseModel):
         default_factory=list,
         description="Engagement domain ids this module's practice joins (→ practice_domains at provision)",
     )
+    #: What this practice is explicitly NOT for. See ProvidesDeclined — the
+    #: misroute this prevents is more expensive than the missing file that
+    #: requires.declined prevents, because it fails silently rather than at use.
+    declined: ProvidesDeclined = Field(default_factory=ProvidesDeclined)
+
+    @model_validator(mode="after")
+    def _no_axis_both_provided_and_declined(self) -> Provides:
+        for axis in ("domains", "skills", "agents", "mcp", "services"):
+            both = sorted(set(getattr(self, axis)) & set(getattr(self.declined, axis)))
+            if both:
+                raise ValueError(
+                    f"declined.{axis} contradicts {axis}: {', '.join(both)} is listed as both provided and declined"
+                )
+        return self
 
 
 class RequiresRuntime(BaseModel):
@@ -167,7 +228,7 @@ class RequiresRuntime(BaseModel):
         return v
 
 
-class Declined(BaseModel):
+class Declined(_DeclinedBase):
     """Layers this practice DELIBERATELY does not consume, each with its reason.
 
     The third state. Without it a declaration gate sees two: declared-consumed, and
@@ -187,21 +248,8 @@ class Declined(BaseModel):
     shape, hoisted to where it validates.
     """
 
-    model_config = ConfigDict(extra="forbid")
-
     prompts: dict[str, str] = Field(default_factory=dict)
     skills: dict[str, str] = Field(default_factory=dict)
-
-    @field_validator("prompts", "skills")
-    @classmethod
-    def _reason_required(cls, v: dict[str, str]) -> dict[str, str]:
-        blank = sorted(name for name, reason in v.items() if not (reason or "").strip())
-        if blank:
-            raise ValueError(
-                f"declined entries need a non-empty reason: {', '.join(blank)} — "
-                "a declined name without a reason says no more than the silence it replaces"
-            )
-        return v
 
 
 class Requires(BaseModel):
@@ -235,13 +283,19 @@ class Requires(BaseModel):
         return self
 
 
-#: The three states a declaration gate must be able to tell apart.
+#: The three states a declaration gate must be able to tell apart. The positive
+#: state is named for the BLOCK it came from — a domain a practice offers is
+#: `provides`, not `consumes`. One word answering two questions is the collapse
+#: this whole field exists to remove; it would be perverse to ship it in the reader.
 CONSUMES = "consumes"
+PROVIDES = "provides"
 DECLINED = "declined"
 UNDECLARED = "undeclared"
 
 
-def declaration_state(manifest: ModuleManifest, layer: str, kind: str = "prompts") -> tuple[str, str | None]:
+def declaration_state(
+    manifest: ModuleManifest, layer: str, kind: str = "prompts", side: str | None = None
+) -> tuple[str, str | None]:
     """How this manifest declares `layer` — ``(state, reason)``.
 
     THE READER. A field with no reader is what let this drift persist unnoticed:
@@ -254,11 +308,25 @@ def declaration_state(manifest: ModuleManifest, layer: str, kind: str = "prompts
     the fleet asks the same question the same way. ``reason`` is non-None only for
     ``DECLINED``.
     """
-    if kind not in ("prompts", "skills"):
-        raise ValueError(f"kind must be 'prompts' or 'skills', got {kind!r}")
-    if layer in getattr(manifest.requires, kind):
-        return CONSUMES, None
-    declined = getattr(manifest.requires.declined, kind)
+    requires_axes = ("prompts", "skills")
+    provides_axes = ("domains", "agents", "mcp", "services")
+    # `skills` exists on BOTH blocks and means different things — consumed vs offered.
+    # `side` disambiguates rather than letting one word answer two questions.
+    if kind in requires_axes and side in (None, "requires"):
+        block, declined_block = manifest.requires, manifest.requires.declined
+    elif kind in provides_axes or side == "provides":
+        if kind not in (*provides_axes, "skills"):
+            raise ValueError(f"kind {kind!r} is not a provides axis")
+        block, declined_block = manifest.provides, manifest.provides.declined
+    else:
+        raise ValueError(
+            f"kind must be one of {requires_axes + provides_axes}, got {kind!r} "
+            f"(pass side='provides' for the provides block)"
+        )
+
+    if layer in getattr(block, kind):
+        return (PROVIDES if block is manifest.provides else CONSUMES), None
+    declined = getattr(declined_block, kind)
     if layer in declined:
         return DECLINED, declined[layer]
     return UNDECLARED, None

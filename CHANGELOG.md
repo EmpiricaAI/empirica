@@ -7,7 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`provides.declined` — a practice can say what it is NOT for.** `requires` got a
+  third state; `provides` did not, so an exclusion could only be a YAML comment.
+  **The wrong answer costs more here:** a wrong `requires` produces a missing file
+  that fails at first use, a wrong `provides` produces a **misroute** that fails
+  silently for as long as the sender is patient. A standards-submission deadline was
+  escalated to a remote-ops practice, correctly addressed and entirely misrouted, and
+  sat for a day looking coordinated. Same rules as the requires block — reason
+  required, an axis cannot be both provided and declined — and the positive state now
+  reads back as `provides` rather than `consumes`, with `side=` to disambiguate
+  `skills`, which exists on both blocks meaning different things.
+
 ### Fixed
+
+- **`--project-id <unresolvable>` wrote the artifact anyway, under the unresolved
+  string, and exited 0.** The log line said *"using local DB"* and was wrong twice:
+  the row did not land in the local project, it landed in the local database file
+  under a foreign key — invisible to every project view, the caller's included. A typo
+  in a project name silently stranded an artifact. Now refuses, names the registered
+  projects, and exits non-zero. **Two sites, not one** — `goals-create` carried the
+  identical `if cross_db:`-with-no-else shape and the reporter had only hit the
+  artifact path. (Reported with a live repro by empirica.david.ecodex, found because
+  their side does keyed read-back verification after every cross-project write.)
+
+- **Every artifact-log error path returned success.** Eleven handlers ended their
+  `except` with `return None`, which the dispatcher maps to exit 0 — so `finding-log`
+  failing for *any* reason reported success to its caller, and every hook, cron and
+  script that logs an artifact recorded a success it never got.
 
 - **The release gate reported `1 failed` and never named the test.**
   `compliance-report`'s pytest check emitted counts only, so a failure that blocked a

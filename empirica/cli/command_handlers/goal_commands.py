@@ -472,15 +472,23 @@ def _build_and_save_goal(
     # Resolve cross-project DB path
     goal_repo_db_path = None
     if is_cross_project and target_project_id:
-        from empirica.cli.command_handlers.artifact_log_commands import _get_db_for_project
+        from empirica.cli.command_handlers.artifact_log_commands import UnresolvableProjectError, _get_db_for_project
 
+        # SIBLING of the artifact fail-open. `if cross_db:` with no else meant an
+        # unresolvable target fell through to the LOCAL repository with
+        # target_project_id still the unresolved string — a goal stranded under an
+        # unregistered key, exit 0. Fixing only the artifact site would have left
+        # this one: same shape, different file, and the reporter only hit the first.
         cross_db = _get_db_for_project(target_project_id)
-        if cross_db:
-            resolved_pid = cross_db.resolve_project_id(target_project_id)
-            if resolved_pid:
-                target_project_id = resolved_pid
-                goal_repo_db_path = cross_db.db_path
+        if cross_db is None:
+            raise UnresolvableProjectError(target_project_id)
+        resolved_pid = cross_db.resolve_project_id(target_project_id)
+        if not resolved_pid:
             cross_db.close()
+            raise UnresolvableProjectError(target_project_id)
+        target_project_id = resolved_pid
+        goal_repo_db_path = cross_db.db_path
+        cross_db.close()
     goal_repo = GoalRepository(db_path=goal_repo_db_path)
 
     # Create SuccessCriterion objects.

@@ -623,25 +623,76 @@ def _resolve_artifact_context(config_data, args, required_fields=None) -> dict[s
     }
 
 
+class UnresolvableProjectError(Exception):
+    """`--project-id <name>` named a project that does not resolve. Never fall back.
+
+    The old behaviour logged *"Could not resolve project X, using local DB"* and then
+    wrote the row to the local database **still carrying the unresolved string as its
+    project_id**. The message was wrong twice over: it did not use the local project
+    (the row landed under a foreign key), and it reported a fallback as though a
+    fallback were safe.
+
+    The row is then invisible to every project view — not the caller's, not any
+    registered one — and the command exits 0. **A typo in a project name silently
+    strands an artifact.**
+
+    Decision-downgraded-across-a-boundary: an inability to resolve is a DENY, and it
+    was degrading to a silent ALLOW that wrote somewhere. Reported with a live repro
+    by a peer whose side does keyed read-back verification after every cross-project
+    write — which is the only reason it was ever seen.
+    """
+
+
+def project_refusal(name: str) -> dict[str, Any]:
+    """Refusal payload naming what was asked for and which projects actually exist."""
+    available: list[str] = []
+    try:
+        import sqlite3
+        from pathlib import Path as _P
+
+        ws = _P.home() / ".empirica" / "workspace" / "workspace.db"
+        if ws.is_file():
+            with sqlite3.connect(str(ws)) as conn:
+                available = sorted(r[0] for r in conn.execute("SELECT name FROM global_projects") if r[0])
+    except Exception:
+        available = []
+    return {
+        "ok": False,
+        "error": (
+            f"Could not resolve project {name!r} — REFUSING to write. Falling back would strand "
+            "the artifact under an unregistered key, invisible to every project view."
+        ),
+        "requested": name,
+        "available_projects": available,
+        "hint": (
+            f"Registered projects: {', '.join(available) if available else 'none'}. "
+            "Use an exact name or a project UUID, or omit --project-id to write locally."
+        ),
+    }
+
+
 def _resolve_db_for_artifact(project_id: str | None):
     """Resolve the correct SessionDatabase for artifact writing.
 
-    If project_id is a project name (not UUID), attempts cross-project
-    write by resolving the target project's DB. Falls back to local DB.
+    If project_id is a project NAME (not a UUID), resolves the target project's DB.
+    **Raises UnresolvableProjectError rather than falling back** — see that class.
 
-    Returns (db, resolved_project_id) tuple.
+    Returns (db, resolved_project_id).
     """
     from empirica.data.session_database import SessionDatabase
 
     if project_id and not _is_uuid(project_id):
         cross_db = _get_db_for_project(project_id)
-        if cross_db:
-            # Resolve the name to UUID in the target DB
-            resolved = cross_db.resolve_project_id(project_id)
-            logger.info(f"Cross-project write: targeting '{project_id}' → {resolved[:8] if resolved else '?'}...")
-            return cross_db, resolved
-        else:
-            logger.warning(f"Could not resolve project '{project_id}' for cross-project write, using local DB")
+        if cross_db is None:
+            raise UnresolvableProjectError(project_id)
+        resolved = cross_db.resolve_project_id(project_id)
+        if not resolved:
+            # The DB opened but the name is not a project in it. Same refusal: a
+            # half-resolution is still an unresolved target.
+            cross_db.close()
+            raise UnresolvableProjectError(project_id)
+        logger.info(f"Cross-project write: targeting '{project_id}' → {resolved[:8]}...")
+        return cross_db, resolved
 
     return SessionDatabase(), project_id
 
@@ -1147,9 +1198,15 @@ def handle_finding_log_command(args):
 
         return 0  # Success
 
+    except UnresolvableProjectError as e:
+        # Refuse LOUDLY and legibly rather than through the generic handler: the
+        # caller needs the list of projects that DO exist, which a stringified
+        # exception cannot carry.
+        print(json.dumps(project_refusal(str(e)), indent=2))
+        return 1
     except Exception as e:
         handle_cli_error(e, "Finding log", getattr(args, "verbose", False))
-        return None
+        return 1
     finally:
         if db is not None:
             db.close()
@@ -1302,9 +1359,12 @@ def handle_unknown_log_command(args):
 
         return 0  # Success
 
+    except UnresolvableProjectError as e:
+        print(json.dumps(project_refusal(str(e)), indent=2))
+        return 1
     except Exception as e:
         handle_cli_error(e, "Unknown log", getattr(args, "verbose", False))
-        return None
+        return 1
     finally:
         if db is not None:
             db.close()
@@ -1369,6 +1429,9 @@ def handle_unknown_resolve_command(args):
 
         return 0
 
+    except UnresolvableProjectError as e:
+        print(json.dumps(project_refusal(str(e)), indent=2))
+        return 1
     except Exception as e:
         handle_cli_error(e, "Unknown resolve", getattr(args, "verbose", False))
         return 1
@@ -1472,6 +1535,9 @@ def handle_finding_resolve_command(args):
                 print("   Nothing was changed. Judge each one.")
         return 0
 
+    except UnresolvableProjectError as e:
+        print(json.dumps(project_refusal(str(e)), indent=2))
+        return 1
     except Exception as e:
         handle_cli_error(e, "Finding resolve", getattr(args, "verbose", False))
         return 1
@@ -1616,6 +1682,9 @@ def handle_unknown_list_command(args):
         _print_unknowns_pretty(unknowns, status_desc, filter_desc)
         return None
 
+    except UnresolvableProjectError as e:
+        print(json.dumps(project_refusal(str(e)), indent=2))
+        return 1
     except Exception as e:
         handle_cli_error(e, "Unknown list", getattr(args, "verbose", False))
         return 1
@@ -1760,9 +1829,12 @@ def handle_deadend_log_command(args):
 
         return 0  # Success
 
+    except UnresolvableProjectError as e:
+        print(json.dumps(project_refusal(str(e)), indent=2))
+        return 1
     except Exception as e:
         handle_cli_error(e, "Dead end log", getattr(args, "verbose", False))
-        return None
+        return 1
     finally:
         if db is not None:
             db.close()
@@ -1893,9 +1965,12 @@ def handle_assumption_log_command(args):
 
         return 0
 
+    except UnresolvableProjectError as e:
+        print(json.dumps(project_refusal(str(e)), indent=2))
+        return 1
     except Exception as e:
         handle_cli_error(e, "Assumption log", getattr(args, "verbose", False))
-        return None
+        return 1
     finally:
         if db is not None:
             db.close()
@@ -2081,9 +2156,12 @@ def handle_decision_log_command(args):
 
         return 0
 
+    except UnresolvableProjectError as e:
+        print(json.dumps(project_refusal(str(e)), indent=2))
+        return 1
     except Exception as e:
         handle_cli_error(e, "Decision log", getattr(args, "verbose", False))
-        return None
+        return 1
     finally:
         if db is not None:
             db.close()
@@ -2418,9 +2496,12 @@ def handle_source_add_command(args):
 
         return 1 if media_failed else 0
 
+    except UnresolvableProjectError as e:
+        print(json.dumps(project_refusal(str(e)), indent=2))
+        return 1
     except Exception as e:
         handle_cli_error(e, "Source add", getattr(args, "verbose", False))
-        return None
+        return 1
 
 
 def _normalize_hash(h: str | None) -> str | None:
@@ -2813,9 +2894,12 @@ def handle_source_get_command(args):
             print(f"   {len(content)} bytes · {body.get('mime') or 'application/octet-stream'} · {verified}")
         return 0
 
+    except UnresolvableProjectError as e:
+        print(json.dumps(project_refusal(str(e)), indent=2))
+        return 1
     except Exception as e:
         handle_cli_error(e, "Source get", getattr(args, "verbose", False))
-        return None
+        return 1
 
 
 def _query_epistemic_sources(
@@ -3221,9 +3305,12 @@ def handle_source_archive_command(args):
             print("   Edges + citing findings/decisions untouched (audit chain preserved)")
         return 0
 
+    except UnresolvableProjectError as e:
+        print(json.dumps(project_refusal(str(e)), indent=2))
+        return 1
     except Exception as e:
         handle_cli_error(e, "Source archive", getattr(args, "verbose", False))
-        return None
+        return 1
     finally:
         if db is not None:
             db.close()
@@ -3312,9 +3399,12 @@ def handle_sources_map_command(args):
             _print_sources_map_pretty(payload)
         return 0
 
+    except UnresolvableProjectError as e:
+        print(json.dumps(project_refusal(str(e)), indent=2))
+        return 1
     except Exception as e:
         handle_cli_error(e, "Sources map", getattr(args, "verbose", False))
-        return None
+        return 1
     finally:
         if db is not None:
             db.close()
@@ -3449,9 +3539,12 @@ def handle_source_list_command(args):
 
         return 0
 
+    except UnresolvableProjectError as e:
+        print(json.dumps(project_refusal(str(e)), indent=2))
+        return 1
     except Exception as e:
         handle_cli_error(e, "Source list", getattr(args, "verbose", False))
-        return None
+        return 1
     finally:
         if db is not None:
             db.close()
@@ -3663,4 +3756,4 @@ def handle_mistake_log_command(args):
         from ..cli_utils import handle_cli_error
 
         handle_cli_error(e, "Mistake log", getattr(args, "verbose", False))
-        return None
+        return 1
