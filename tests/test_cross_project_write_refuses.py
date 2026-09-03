@@ -136,3 +136,87 @@ def test_the_class_check_is_live():
     )
 
     assert call_sites >= 2, f"expected both known cross-project call sites, found {call_sites}"
+
+
+# ── the UUID hole (third trap in the same family) ────────────────────────────
+
+
+def test_a_foreign_uuid_routes_instead_of_writing_locally(monkeypatch):
+    """THE third regression, and the sharpest of the three.
+
+    The guard was `not _is_uuid(project_id)`, so passing a project's canonical UUID —
+    the MOST precise identifier, the one you reach for when you want certainty —
+    skipped routing entirely and wrote to the LOCAL database with the target's
+    project_id stamped on the row.
+
+    The write succeeded and a caller-side read-back keyed on project_id PASSED, while
+    a session inside the target project read its own sessions.db and never saw the
+    artifact. A peer's prevention experiment ran cold because the primed subject was
+    never exposed to a prior they had verified was there.
+    """
+    import empirica.cli.command_handlers.artifact_log_commands as mod
+
+    foreign = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    routed = {}
+
+    class _Target:
+        db_path = "/target/.empirica/sessions/sessions.db"
+
+        def resolve_project_id(self, pid):
+            routed["asked"] = pid
+            return foreign
+
+        def close(self):
+            pass
+
+    import empirica.data.session_database as sdb
+
+    monkeypatch.setattr(sdb, "SessionDatabase", lambda *a, **k: type("S", (), {"close": lambda s: None})())
+    monkeypatch.setattr(mod, "_project_exists_locally", lambda db, pid: False)
+    monkeypatch.setattr(mod, "_get_db_for_project", lambda pid: _Target())
+
+    db, resolved = _resolve_db_for_artifact(foreign)
+
+    assert routed["asked"] == foreign, "a UUID must reach the cross-project resolver"
+    assert resolved == foreign
+    assert db.db_path.startswith("/target/"), "and the write must land in the TARGET db"
+
+
+def test_the_local_uuid_does_not_become_a_refusal(monkeypatch):
+    """NEGATIVE CONTROL, and the regression this fix could plausibly have caused.
+
+    Routing every UUID would refuse a write that works today on any box whose own
+    project has no `global_projects` row — an unregistered local project is a normal
+    state. The local id is answered from the local database, before the registry is
+    consulted at all.
+    """
+    import empirica.cli.command_handlers.artifact_log_commands as mod
+
+    local = "11111111-2222-3333-4444-555555555555"
+
+    def _boom(pid):
+        raise AssertionError("the registry must not be consulted for the local project")
+
+    monkeypatch.setattr(mod, "_project_exists_locally", lambda db, pid: True)
+    monkeypatch.setattr(mod, "_get_db_for_project", _boom)
+    import empirica.data.session_database as sdb
+
+    monkeypatch.setattr(sdb, "SessionDatabase", lambda *a, **k: type("S", (), {"close": lambda s: None})())
+
+    _db, resolved = _resolve_db_for_artifact(local)
+
+    assert resolved == local
+
+
+def test_an_unresolvable_UUID_refuses_like_an_unresolvable_name(monkeypatch):
+    """The refusal must not be name-only. A UUID that resolves nowhere is the same
+    stranded-row risk as a typo'd name."""
+    import empirica.cli.command_handlers.artifact_log_commands as mod
+    import empirica.data.session_database as sdb
+
+    monkeypatch.setattr(sdb, "SessionDatabase", lambda *a, **k: type("S", (), {"close": lambda s: None})())
+    monkeypatch.setattr(mod, "_project_exists_locally", lambda db, pid: False)
+    monkeypatch.setattr(mod, "_get_db_for_project", lambda pid: None)
+
+    with pytest.raises(UnresolvableProjectError):
+        _resolve_db_for_artifact("99999999-9999-9999-9999-999999999999")

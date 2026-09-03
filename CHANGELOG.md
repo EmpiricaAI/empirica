@@ -22,6 +22,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A project UUID skipped cross-project routing entirely.** The guard was
+  `not _is_uuid(project_id)`, so passing a project's canonical UUID — the most
+  precise identifier, the one you reach for when you want certainty — was the single
+  form that got no routing. The row was written to the CALLER's database, correctly
+  stamped with the target's `project_id`, so a caller-side read-back keyed on
+  project_id **passed** while a session inside the target project read its own
+  `sessions.db` and never saw the artifact. A peer's prevention experiment ran cold
+  because the primed subject was never exposed to a prior they had verified. A UUID
+  now routes exactly like a name; a UUID that IS the local project's own id stays
+  local, since an unregistered local project is a normal state.
+
+- **A write whose session-project differs from the cwd-project now says so.** A naked
+  `finding-log` from inside a different registered project writes to the *session's*
+  project while the stale-mapping guard logs *"trusting cwd"* — two ground truths, and
+  a peer got a real foreign-context row in their graph. **Which should win is a design
+  question and is deliberately not settled here**; what changed is that the divergence
+  is no longer silent.
+
 - **`--project-id <unresolvable>` wrote the artifact anyway, under the unresolved
   string, and exited 0.** The log line said *"using local DB"* and was wrong twice:
   the row did not land in the local project, it landed in the local database file

@@ -528,7 +528,48 @@ def _resolve_project_id_for_artifact(project_id, session_id, db):
 
         project_id = hashlib.md5(f"session-{session_id}".encode()).hexdigest()
 
+    _warn_if_cwd_project_differs(project_id)
     return project_id
+
+
+def _warn_if_cwd_project_differs(project_id: str | None) -> None:
+    """Say so when the SESSION's project and the CWD's project disagree.
+
+    A naked `finding-log` run from inside a different registered project writes to the
+    session's project, not the directory's — while `get_active_project_path`'s
+    stale-mapping guard simultaneously logs *"trusting cwd"*. Two ground truths, and a
+    peer got a real foreign-context row in their graph because of it.
+
+    **Which one SHOULD win is a design question** — are artifacts bound to the practice
+    or to the directory? — and it is not settled here. What is settled is that the
+    divergence stops being silent: a practitioner standing in project B whose row lands
+    in project A now learns it at the moment of the write, rather than finding it in
+    someone else's graph later.
+
+    The guard's own docstring already records this exact class happening once before,
+    between identity and db-path resolution: *"the warning came from the half that
+    recovered, the data from the half that did not."* This is a third consumer of the
+    same disagreement, so it warns rather than picking a side.
+    """
+    if not project_id:
+        return
+    try:
+        import yaml
+
+        cwd_yaml = Path.cwd() / ".empirica" / "project.yaml"
+        if not cwd_yaml.is_file():
+            return
+        cwd_pid = (yaml.safe_load(cwd_yaml.read_text()) or {}).get("project_id")
+        if cwd_pid and str(cwd_pid) != str(project_id):
+            logger.warning(
+                "artifact project MISMATCH: writing to %s (from the session), but cwd is "
+                "project %s. The row will NOT appear in this directory's graph — pass "
+                "--project-id explicitly if you meant the directory.",
+                str(project_id)[:8],
+                str(cwd_pid)[:8],
+            )
+    except Exception:
+        return  # a diagnostic must never break the write it is describing
 
 
 def _resolve_goal_for_artifact(goal_id, session_id, db):
@@ -674,27 +715,70 @@ def project_refusal(name: str) -> dict[str, Any]:
 def _resolve_db_for_artifact(project_id: str | None):
     """Resolve the correct SessionDatabase for artifact writing.
 
-    If project_id is a project NAME (not a UUID), resolves the target project's DB.
-    **Raises UnresolvableProjectError rather than falling back** — see that class.
+    Routes on a project NAME **or a UUID** — see below. Raises
+    UnresolvableProjectError rather than falling back.
 
     Returns (db, resolved_project_id).
     """
     from empirica.data.session_database import SessionDatabase
 
-    if project_id and not _is_uuid(project_id):
-        cross_db = _get_db_for_project(project_id)
-        if cross_db is None:
-            raise UnresolvableProjectError(project_id)
-        resolved = cross_db.resolve_project_id(project_id)
-        if not resolved:
-            # The DB opened but the name is not a project in it. Same refusal: a
-            # half-resolution is still an unresolved target.
-            cross_db.close()
-            raise UnresolvableProjectError(project_id)
-        logger.info(f"Cross-project write: targeting '{project_id}' → {resolved[:8]}...")
-        return cross_db, resolved
+    if not project_id:
+        return SessionDatabase(), project_id
 
-    return SessionDatabase(), project_id
+    # A UUID USED TO SKIP ROUTING ENTIRELY. The guard was `not _is_uuid(project_id)`,
+    # so passing a project's canonical UUID — the MOST precise identifier, the one you
+    # reach for when you want certainty — fell straight through to the local database
+    # with the target's project_id stamped on the row.
+    #
+    # The write then succeeded, and a caller-side read-back keyed on project_id
+    # PASSED, while a session inside the target project read its own sessions.db and
+    # never saw the artifact. Reported by a peer whose prevention experiment ran cold
+    # because the primed subject was never exposed to the prior they had verified.
+    #
+    # A name resolves; a UUID resolves; only the exclusion was arbitrary.
+    #
+    # The local database is opened ONLY on the paths that need it. An earlier draft
+    # constructed it up front, which broke every cross-project write launched from a
+    # directory with no resolvable local project — a regression the isolated-env run
+    # caught before it shipped. Routing to a target must not depend on the caller
+    # having a local project at all.
+    if _is_uuid(project_id):
+        local_db = SessionDatabase()
+        if _project_exists_locally(local_db, project_id):
+            # The local project's own id. Routing it would be a no-op that could
+            # refuse a write which works today on any box whose project has no
+            # global_projects row, so this is answered before the registry.
+            return local_db, project_id
+        local_db.close()
+
+    cross_db = _get_db_for_project(project_id)
+    if cross_db is None:
+        raise UnresolvableProjectError(project_id)
+    resolved = cross_db.resolve_project_id(project_id)
+    if not resolved:
+        # The DB opened but the target is not a project in it. Same refusal: a
+        # half-resolution is still an unresolved target.
+        cross_db.close()
+        raise UnresolvableProjectError(project_id)
+    logger.info(f"Cross-project write: targeting '{project_id}' → {resolved[:8]}...")
+    return cross_db, resolved
+
+
+def _project_exists_locally(db, project_id: str) -> bool:
+    """Is `project_id` the project this database already holds?
+
+    Answered from the local db rather than the registry, because an unregistered
+    local project is a normal state and must not become a refusal.
+    """
+    try:
+        cur = db.conn.cursor()
+        cur.execute("SELECT 1 FROM projects WHERE id = ? LIMIT 1", (project_id,))
+        return cur.fetchone() is not None
+    except Exception:
+        # Unknown rather than false: if we cannot tell, treat it as local and let the
+        # write proceed as it did before this change. A resolution failure must not
+        # silently convert into a cross-project route.
+        return True
 
 
 def _get_db_for_project(project_name_or_id: str):
