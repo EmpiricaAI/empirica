@@ -37,27 +37,44 @@ def test_an_unresolvable_name_raises_instead_of_falling_back():
         _resolve_db_for_artifact("definitely-not-a-registered-project-xyz")
 
 
-def test_a_uuid_is_passed_through_untouched():
+@pytest.fixture
+def no_real_db(monkeypatch):
+    """Stub SessionDatabase so these assert the ROUTING DECISION, not that a database
+    opens.
+
+    The first version of these two tests constructed a real `SessionDatabase()`, which
+    resolves a live sessions.db path — so they passed on a developer laptop for exactly
+    the reason they could never pass in CI, and put the trunk red. The property under
+    test was never "a database exists"; it was "this input is not treated as a
+    cross-project name lookup".
+    """
+    import empirica.data.session_database as sdb
+
+    class _Stub:
+        db_path = ":memory:"
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(sdb, "SessionDatabase", lambda *a, **k: _Stub())
+    return _Stub
+
+
+def test_a_uuid_is_passed_through_untouched(no_real_db):
     """POSITIVE CONTROL. A UUID is not a name lookup — refusing it would break every
     ordinary local write, which is the failure mode worse than the bug."""
     uuid = "748a81a2-ac14-45b8-a185-994997b76828"
-    db, resolved = _resolve_db_for_artifact(uuid)
+    _db, resolved = _resolve_db_for_artifact(uuid)
 
-    try:
-        assert resolved == uuid
-    finally:
-        db.close()
+    assert resolved == uuid
 
 
-def test_no_project_id_still_resolves_locally():
+def test_no_project_id_still_resolves_locally(no_real_db):
     """NEGATIVE CONTROL. The overwhelmingly common call passes no --project-id at all
     and must be untouched by a cross-project guard."""
-    db, resolved = _resolve_db_for_artifact(None)
+    _db, resolved = _resolve_db_for_artifact(None)
 
-    try:
-        assert resolved is None
-    finally:
-        db.close()
+    assert resolved is None
 
 
 def test_the_refusal_names_what_actually_exists():
