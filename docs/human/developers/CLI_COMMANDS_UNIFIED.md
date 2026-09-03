@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.13.34
-**Generated:** 2026-09-01 10:20:16 UTC
+**Framework version:** 1.13.35
+**Generated:** 2026-09-03 10:42:15 UTC
 **Total commands:** 243 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -2272,7 +2272,9 @@ Show sync status (local note counts, remote availability)
 **Arguments:**
 
 - `--remote` — optional
-  Git remote name (uses config default if not specified)
+  Git remote name (uses the configured notes remote if omitted)
+- `--local` — optional · flag
+  Skip the remote ref count (no network). Faster, but cannot tell you whether notes actually replicate.
 - `--output` — optional · type=`choice` · choices={human, json} · default=`json`
   Output format
 - `--verbose` — optional · flag
