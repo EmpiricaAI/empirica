@@ -8,6 +8,8 @@ Nodes are typed artifacts, edges are relationships between them.
 import json
 import logging
 import sys
+import time
+import uuid
 
 from empirica.data.id_guard import resolve_id_prefix
 
@@ -1435,30 +1437,92 @@ def handle_resolve_artifacts_command(args):  # noqa: C901 — batch dispatcher f
 # a knowledge graph should already know its types.
 
 
-def _delete_from_qdrant(artifact_id: str, project_id: str):
-    """Remove an artifact from Qdrant memory collections (non-fatal)."""
+def _delete_from_qdrant(artifact_id: str, project_id: str) -> dict[str, str]:
+    """Remove an artifact's vector from every collection that mirrors it.
+
+    Returns a per-collection report — ``deleted``, ``absent``, ``unavailable``
+    or ``error: ...`` — so a failure degrades the caller's receipt instead of
+    disappearing. It used to return nothing and swallow everything, which is how
+    a delete that removed no vector at all still reported success (#412).
+
+    An artifact is mirrored in BOTH ``_memory`` and ``_eidetic``; deleting only
+    the former left the fact semantically retrievable after the operator had
+    been told it was gone.
+    """
     try:
-        from empirica.core.qdrant.collections import _memory_collection
+        from empirica.core.qdrant.collections import _eidetic_collection, _memory_collection
         from empirica.core.qdrant.connection import _get_qdrant_client
+        from empirica.core.qdrant.point_ids import artifact_point_id
+    except ImportError as e:
+        return {"memory": f"error: {e}", "eidetic": f"error: {e}"}
 
-        client = _get_qdrant_client()
-        if not client:
-            return
+    mirrors = {
+        "memory": _memory_collection(project_id),
+        "eidetic": _eidetic_collection(project_id),
+    }
 
-        import hashlib
+    client = _get_qdrant_client()
+    if not client:
+        return dict.fromkeys(mirrors, "unavailable")
 
-        collection = _memory_collection(project_id)
-        # Try to delete by point ID (md5 hash of artifact UUID, matching embed scheme)
-        point_id = int(hashlib.md5(artifact_id.encode()).hexdigest()[:16], 16) % (2**63)
+    point_id = artifact_point_id(artifact_id)
+    report: dict[str, str] = {}
+
+    for label, collection in mirrors.items():
+        # Qdrant answers a delete of a point that was never there with
+        # `status: completed`, so "the call succeeded" proves nothing. Read
+        # first and report `absent` honestly — that distinction is the whole
+        # reason the original defect was invisible.
         try:
-            client.delete(
-                collection_name=collection,
-                points_selector=[point_id],
-            )
-        except Exception:
-            pass  # Collection may not exist or point not found
-    except ImportError:
-        pass
+            existing = client.retrieve(collection_name=collection, ids=[point_id])
+        except Exception as e:
+            logger.warning(f"_delete_from_qdrant: retrieve failed for {collection}: {e}")
+            report[label] = f"error: {e}"
+            continue
+
+        if not existing:
+            report[label] = "absent"
+            continue
+
+        try:
+            client.delete(collection_name=collection, points_selector=[point_id])
+            report[label] = "deleted"
+        except Exception as e:
+            logger.warning(f"_delete_from_qdrant: delete failed for {collection}: {e}")
+            report[label] = f"error: {e}"
+
+    return report
+
+
+def _log_deletion_decision(cursor, project_id: str, session_id: str, choice: str, rationale: str) -> str:
+    """Write the audit row `delete-artifacts` has always promised.
+
+    The previous statement inserted into ``project_decisions`` — a table name
+    that appears nowhere else in the schema — using a ``decision_id`` column and
+    a ``datetime('now')`` string. The real table is ``decisions`` (``id``,
+    ``created_timestamp REAL``), so every insert raised and was swallowed.
+
+    Returns ``recorded`` or ``error: ...``; never raises.
+    """
+    try:
+        cursor.execute(
+            "INSERT INTO decisions "
+            "(id, project_id, session_id, choice, rationale, reversibility, created_timestamp) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                str(uuid.uuid4()),
+                project_id,
+                session_id,
+                choice,
+                rationale,
+                "committal",
+                time.time(),
+            ),
+        )
+        return "recorded"
+    except Exception as e:
+        logger.warning(f"_log_deletion_decision: audit row not written: {e}")
+        return f"error: {e}"
 
 
 def _read_deletion_input(args) -> dict | None:
@@ -1601,9 +1665,8 @@ def _delete_single_artifact(
     cursor.execute(f"DELETE FROM {table} WHERE {id_col} = ?", (full_id,))
     # Layer 1b: sqlite — cascade-clean dangling edges in artifact_edges
     edges_removed = _delete_artifact_edges(cursor, full_id)
-    # Layer 2: Qdrant — vector point
-    if project_id:
-        _delete_from_qdrant(full_id, project_id)
+    # Layer 2: Qdrant — vector points (memory + eidetic mirrors)
+    qdrant_report = _delete_from_qdrant(full_id, project_id) if project_id else {}
     # Layer 3: git notes — breadcrumb ref (closes the documented gap)
     git_notes_cleaned = _delete_artifact_git_notes(artifact_type, full_id, project_path)
 
@@ -1613,6 +1676,9 @@ def _delete_single_artifact(
         "action": "deleted",
         "edges_removed": edges_removed,
         "git_notes_cleaned": git_notes_cleaned,
+        # Per-collection outcome. The receipt used to claim a three-layer delete
+        # while reporting only on the sqlite one (#412).
+        "qdrant": qdrant_report,
     }
 
 
@@ -1798,6 +1864,7 @@ def handle_delete_artifacts_command(args):  # noqa: C901 — batch dispatcher fa
             return 1
 
         cursor = db.conn.cursor()
+        audit_status = "not_applicable"
         deleted_count = 0
         delete_errors: list[str] = []
         deleted_items: list[dict] = []
@@ -1847,38 +1914,56 @@ def handle_delete_artifacts_command(args):  # noqa: C901 — batch dispatcher fa
 
             # Log the deletion as a decision (audit trail)
             if deleted_count > 0 or edge_removed > 0 or edge_repaired > 0:
+                sid = None
                 try:
                     from empirica.utils.session_resolver import InstanceResolver as R
 
-                    ctx = R.context()
-                    sid = ctx.get("empirica_session_id")
-                    if sid and project_id:
-                        cursor.execute(
-                            "INSERT INTO project_decisions "
-                            "(decision_id, project_id, session_id, choice, rationale, reversibility, created_timestamp) "
-                            "VALUES (?, ?, ?, ?, ?, ?, datetime('now'))",
-                            (
-                                str(__import__("uuid").uuid4()),
-                                project_id,
-                                sid,
-                                f"Deleted {deleted_count} artifact(s) + {edge_removed} edge(s) + repaired {edge_repaired}",
-                                reason,
-                                "committal",
-                            ),
-                        )
+                    sid = R.context().get("empirica_session_id")
+                except Exception as e:
+                    logger.warning(f"delete-artifacts: session resolution failed for audit row: {e}")
+
+                if sid and project_id:
+                    audit_status = _log_deletion_decision(
+                        cursor,
+                        project_id=project_id,
+                        session_id=sid,
+                        choice=(
+                            f"Deleted {deleted_count} artifact(s) + {edge_removed} edge(s) + repaired {edge_repaired}"
+                        ),
+                        rationale=reason,
+                    )
+                    if audit_status == "recorded":
                         db.conn.commit()
-                except Exception:
-                    pass
+                else:
+                    audit_status = "skipped: no session or project context"
 
         db.close()
 
+        # A vector left behind or an unwritten audit row is a real failure of the
+        # documented contract, so it belongs in `errors` where callers already
+        # look — not hidden behind a bare `ok: true` (#412).
+        #
+        # `ok` turns on CONTRACT failures only. Per-item validation errors
+        # (unknown type, ambiguous prefix) have always reported `ok: true` with
+        # a populated `errors` list; changing that is a separate call for the
+        # maintainers, not a side effect of this fix.
+        contract_failures: list[str] = []
+        for it in deleted_items:
+            for label, status in (it.get("qdrant") or {}).items():
+                if status.startswith(("error:", "unavailable")):
+                    contract_failures.append(f"{it.get('id')}: qdrant {label}: {status}")
+        if audit_status.startswith("error:"):
+            contract_failures.append(f"audit decision not recorded: {audit_status}")
+        delete_errors.extend(contract_failures)
+
         result = {
-            "ok": True,
+            "ok": not contract_failures,
             "deleted": deleted_count,
             "edges_removed": edge_removed,
             "edges_repaired": edge_repaired,
             "dry_run": dry_run,
             "items": deleted_items,
+            "audit": audit_status,
             "errors": delete_errors,
         }
         print(json.dumps(result, indent=2))

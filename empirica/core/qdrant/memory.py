@@ -22,6 +22,7 @@ from empirica.core.qdrant.connection import (
     _rest_search,
     logger,
 )
+from empirica.core.qdrant.point_ids import artifact_point_id
 
 
 def embed_single_memory_item(
@@ -78,10 +79,7 @@ def embed_single_memory_item(
             "timestamp": timestamp,
         }
 
-        # Use hash of item_id for numeric Qdrant point ID
-        import hashlib
-
-        point_id = int(hashlib.md5(item_id.encode()).hexdigest()[:15], 16)
+        point_id = artifact_point_id(item_id)
 
         point = PointStruct(id=point_id, vector=vector, payload=payload)
         client.upsert(collection_name=coll, points=[point])
@@ -169,7 +167,6 @@ def upsert_memory(project_id: str, items: list[dict], qdrant_url: str | None = N
         coll = _memory_collection(project_id)
 
         # Batch embed texts (chunked to avoid API payload limits)
-        import hashlib
         import os
 
         texts = [it.get("text", "") for it in items]
@@ -219,7 +216,7 @@ def upsert_memory(project_id: str, items: list[dict], qdrant_url: str | None = N
             }
             raw_id = it["id"]
             if isinstance(raw_id, str):
-                point_id = int(hashlib.md5(raw_id.encode()).hexdigest()[:15], 16)
+                point_id = artifact_point_id(raw_id)
             else:
                 point_id = raw_id
             points.append(PointStruct(id=point_id, vector=vector, payload=payload))
