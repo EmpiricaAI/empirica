@@ -300,6 +300,204 @@ def check_empirica_mcp() -> Check:
     return Check("empirica-mcp on PATH", PASS, f"{path} (empirica {bundled})", data=data)
 
 
+def _cli_package_dir() -> Path | None:
+    """Where the `empirica` on PATH actually loads its package from, or None.
+
+    Asks the CLI, deliberately, and NOT this process's own ``empirica.__file__``.
+    An interpreter invoked from inside a checkout puts the cwd on ``sys.path``, so
+    ``import empirica`` resolves to the checkout while the console script — whose
+    ``sys.path[0]`` is its own script dir — loads the installed copy. Two people hit
+    exactly that trap on the same day, one of them me, an hour after reading the
+    other's warning about it.
+    """
+    rc, out, _ = _run(["empirica", "--version"], timeout=15.0)
+    if rc != 0:
+        return None
+    for line in out.splitlines():
+        if line.startswith("Install:"):
+            return Path(line.split(":", 1)[1].strip())
+    return None
+
+
+def _is_checkout(d: Path) -> bool:
+    """Is `d` an empirica source checkout?
+
+    By CONTENT — a ``pyproject.toml`` naming this project beside an ``empirica/``
+    package — not by directory name, which any clone, backup or docs folder shadows.
+    """
+    pyproject = d / "pyproject.toml"
+    if not (d / "empirica" / "__init__.py").is_file() or not pyproject.is_file():
+        return False
+    try:
+        head = pyproject.read_text()[:2000]
+    except OSError:
+        return False
+    return 'name = "empirica"' in head or "name = 'empirica'" in head
+
+
+def _find_checkout(start: Path | None = None) -> Path | None:
+    """An empirica checkout on this box, or None. **Not cwd-only.**
+
+    The first version walked up from cwd and nothing else, which made the answer a
+    property of where you were standing rather than of the install — so a developer
+    running `doctor` from any other repo was told PASS while the skew was live. Every
+    practitioner not sitting in core's tree, which is most of the fleet, got the
+    reassuring answer.
+
+    So: cwd's ancestors first (cheapest, and the most likely intent), then the
+    daemon's project registry, which is a cwd-independent list of real paths on this
+    machine. Registry entries can be stale; a path that no longer looks like a
+    checkout is simply skipped.
+    """
+    here = (start or Path.cwd()).resolve()
+    for d in (here, *here.parents):
+        if _is_checkout(d):
+            return d
+
+    registry = Path.home() / ".empirica" / "registry.yaml"
+    if not registry.is_file():
+        return None
+    try:
+        import yaml
+
+        entries = (yaml.safe_load(registry.read_text()) or {}).get("projects") or []
+    except Exception:
+        return None
+    for entry in entries:
+        path = (entry or {}).get("path")
+        if path and _is_checkout(Path(path)):
+            return Path(path)
+    return None
+
+
+def check_cli_matches_checkout(cwd: Path | None = None) -> Check:
+    """Is the `empirica` you would run the code you are standing in?
+
+    **The version cannot answer this**, which is the whole point. A pipx copy and a
+    working tree both report the same number while the code differs by any number of
+    unreleased commits, so `--version` matching is not evidence and never was. This
+    practice has recorded the same defect three times; twice the remediation was
+    "reinstall", which is a fix for an instance and not for a class.
+
+    The cost is not a stale binary — it is a **misattributed test result**. A peer ran
+    a shipped fix against a copy predating it, got pre-fix behaviour, and was one
+    message from reporting the fix broken. Absent this check that report is
+    indistinguishable from a real regression, and the fix is what gets re-opened.
+
+    WARN, never FAIL: running a released copy while sitting in a checkout is a normal
+    thing to do on purpose. What is not normal is not knowing.
+
+    And it never returns PASS for a comparison it did not make. Folding *not checked*
+    into *passed* is how an exemption reports clean forever — SKIP is the honest verdict
+    and doctor already uses it elsewhere in the same output.
+    """
+    pkg = _cli_package_dir()
+    checkout = _find_checkout(cwd)
+
+    if pkg is None:
+        detail = f"could not resolve what `empirica` loads{f' (checkout at {checkout})' if checkout else ''}"
+        return Check("CLI matches checkout", WARN, detail)
+
+    if checkout is None:
+        # No checkout anywhere on this box — a released copy is CORRECT here, but the
+        # comparison was not performed, so say that rather than claiming agreement.
+        return Check(
+            "CLI matches checkout",
+            SKIP,
+            f"`empirica` loads {pkg} — no empirica checkout found on this box, nothing to compare against",
+            data={"cli_package_dir": str(pkg), "checkout": None},
+        )
+
+    data = {"checkout": str(checkout), "cli_package_dir": str(pkg)}
+    if pkg.resolve() == checkout.resolve():
+        return Check("CLI matches checkout", PASS, f"editable — `empirica` runs {checkout}", data=data)
+
+    return Check(
+        "CLI matches checkout",
+        WARN,
+        f"`empirica` loads {pkg}, NOT the checkout at {checkout} — same version number either way",
+        f"pipx install --force --editable {checkout}   (or run `python -m empirica.cli.cli_core` "
+        "to exercise the tree). Until then a test of uncommitted or unreleased work is testing the "
+        "installed copy, and a passing or failing result says nothing about your code.",
+        data=data,
+    )
+
+
+def check_plugin_freshness() -> Check:
+    """Is the DEPLOYED Claude Code plugin the same version as the package?
+
+    The deployed plugin is a COPY. `pip install -U` refreshes the package and leaves
+    the copy untouched, so a box runs old hooks while every version surface reports
+    the new number. The supervisor backoff, the sentinel gate and the arming block all
+    live in that copy — a release that fixes them fixes nothing until it is synced.
+
+    **`doctor` is deliberately exempt from the CLI's plugin auto-heal** (it would
+    re-enter), which means the one verb a practitioner runs to check install health is
+    the one that neither heals this nor, until now, reported it. `diagnose` checks the
+    plugin files EXIST — presence only, so a plugin several minor versions behind
+    passes. Same presence-vs-freshness gap `check_empirica_mcp` closed above.
+
+    Also surfaces `.plugin_autosync_failed`. `cli_core` writes that breadcrumb
+    specifically so *"doctor/diagnose (and a human) surface this"* — and nothing did.
+    A failing self-heal is worse than an absent one: the debounce marker reads
+    "checked" while the box keeps running stale hooks.
+
+    Reports, never heals — a diagnostic that repairs what it measures cannot tell you
+    what it found.
+    """
+    plugin_dir = Path.home() / ".claude" / "plugins" / "local" / "empirica"
+    if not plugin_dir.exists():
+        return Check("Deployed plugin fresh", SKIP, "no Claude Code plugin installed — nothing to compare")
+
+    stamp_file = plugin_dir / ".plugin-version"
+    stamp = stamp_file.read_text().strip() if stamp_file.is_file() else None
+    try:
+        import empirica
+
+        pkg = empirica.__version__
+    except Exception:
+        pkg = None
+
+    failed = Path.home() / ".empirica" / ".plugin_autosync_failed"
+    data = {"plugin_dir": str(plugin_dir), "deployed": stamp, "package": pkg, "autosync_failed": failed.is_file()}
+
+    if failed.is_file():
+        return Check(
+            "Deployed plugin fresh",
+            WARN,
+            f"auto-sync FAILED: {failed.read_text().strip()[:180]}",
+            "empirica plugin-sync   — the self-heal errored, so the box is still on the old hooks "
+            "while the debounce marker reads 'checked'",
+            data=data,
+        )
+
+    if pkg is None:
+        return Check(
+            "Deployed plugin fresh", WARN, f"deployed {stamp or 'unstamped'}; package version unreadable", data=data
+        )
+
+    if stamp is None:
+        return Check(
+            "Deployed plugin fresh",
+            WARN,
+            f"deployed plugin carries NO version stamp (package {pkg}) — predates stamping, so it is old",
+            "empirica plugin-sync",
+            data=data,
+        )
+
+    if stamp != pkg:
+        return Check(
+            "Deployed plugin fresh",
+            WARN,
+            f"deployed {stamp}, package {pkg} — hooks, sentinel gate and arming block are the OLD copy",
+            "empirica plugin-sync   (or `empirica setup-claude-code --force`) — upgrading the package "
+            "does not refresh the deployed copy",
+            data=data,
+        )
+
+    return Check("Deployed plugin fresh", PASS, f"deployed {stamp} == package {pkg}", data=data)
+
+
 def check_claude_code_cli() -> Check:
     """`claude` CLI presence (optional — only needed for Claude Code users)."""
     path = _which("claude")
@@ -1302,7 +1500,9 @@ def run_all_checks(cwd: Path | None = None) -> list[Check]:
         # Install presence
         check_python(),
         check_empirica_cli(),
+        check_cli_matches_checkout(cwd),
         check_empirica_mcp(),
+        check_plugin_freshness(),
         check_claude_code_cli(),
         check_git_present(),
         check_noetic_tools(),

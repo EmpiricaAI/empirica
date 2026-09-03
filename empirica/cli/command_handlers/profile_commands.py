@@ -48,6 +48,25 @@ def _load_sync_config() -> dict[str, Any]:
     return load_config()
 
 
+def _resolve_notes_remote(sync_config: dict[str, Any], explicit: str | None = None) -> str | None:
+    """The notes remote, or None — the same resolution the sync verbs use.
+
+    Shared deliberately: this file used to resolve `notes_remote -> remote -> "forgejo"`
+    while `sync-push` read `remote` alone, so `sync-config notes_remote X` retargeted
+    profile-sync and not sync-push. One key, two verbs, two destinations.
+    """
+    from empirica.core.sync_remotes import NOTES, resolve
+
+    return resolve(NOTES, sync_config, explicit)
+
+
+def _notes_remote_refusal() -> dict[str, Any]:
+    """Refusal payload naming the configured git remotes and the exact fix."""
+    from empirica.core.sync_remotes import NOTES, refusal
+
+    return refusal(NOTES)
+
+
 def _fetch_notes(remote: str) -> dict[str, Any]:
     """Fetch all empirica git notes refs from remote.
 
@@ -187,7 +206,10 @@ def handle_profile_sync_command(args):
     """Handle profile-sync command — full sync pipeline."""
     try:
         sync_config = _load_sync_config()
-        remote = getattr(args, "remote", None) or sync_config.get("notes_remote", sync_config.get("remote", "forgejo"))
+        # No literal tail. This used to end in `"forgejo"`, a remote most seats do not
+        # have — so on those seats every fetch failed against a name nobody chose, and
+        # the error blamed git rather than the missing configuration.
+        remote = _resolve_notes_remote(sync_config, getattr(args, "remote", None))
         output_format = getattr(args, "output", "json")
         do_push = getattr(args, "push", False)
         do_qdrant = getattr(args, "qdrant", False)
@@ -205,6 +227,12 @@ def handle_profile_sync_command(args):
                     indent=2,
                 )
             )
+            return 1
+
+        # A remote is needed for fetch and for push, and for nothing else — so
+        # `--import-only` still works on a seat that has chosen no destination.
+        if not remote and (not import_only or do_push):
+            print(json.dumps(_notes_remote_refusal(), indent=2))
             return 1
 
         result: dict[str, Any] = {"ok": True, "pipeline": []}
@@ -794,7 +822,9 @@ def _get_git_notes_counts(workspace) -> dict:
 
 
 def _check_sync_available(workspace, remote) -> bool:
-    """Check if git remote is available for sync."""
+    """Check if git remote is available for sync. No remote chosen → not available."""
+    if not remote:
+        return False
     try:
         result = subprocess.run(
             ["git", "remote", "get-url", remote], capture_output=True, text=True, timeout=5, cwd=workspace
@@ -975,7 +1005,11 @@ def handle_profile_status_command(args):
     try:
         output_format = getattr(args, "output", "json")
         sync_config = _load_sync_config()
-        remote = getattr(args, "remote", None) or sync_config.get("notes_remote", sync_config.get("remote", "forgejo"))
+        # Status REPORTS rather than refusing, but `remote: null` and
+        # `remote: forgejo, available: false` are different facts and must not render
+        # the same: the first is a destination nobody chose, the second is one that no
+        # longer matches the repo.
+        remote = _resolve_notes_remote(sync_config, getattr(args, "remote", None))
 
         artifact_counts = _get_artifact_counts()
         correction = _get_correction_record()

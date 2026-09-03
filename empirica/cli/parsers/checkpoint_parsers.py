@@ -2511,7 +2511,12 @@ written to git notes (breadcrumbs ref) for audit trail.
     sync_status_parser = subparsers.add_parser(
         "sync-status", help="Show sync status (local note counts, remote availability)"
     )
-    sync_status_parser.add_argument("--remote", help="Git remote name (uses config default if not specified)")
+    sync_status_parser.add_argument("--remote", help="Git remote name (uses the configured notes remote if omitted)")
+    sync_status_parser.add_argument(
+        "--local",
+        action="store_true",
+        help="Skip the remote ref count (no network). Faster, but cannot tell you whether notes actually replicate.",
+    )
     sync_status_parser.add_argument("--output", choices=["human", "json"], default="json", help="Output format")
     sync_status_parser.add_argument("--verbose", action="store_true", help="Show detailed operation info")
 

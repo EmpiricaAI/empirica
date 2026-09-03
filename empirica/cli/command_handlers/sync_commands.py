@@ -18,6 +18,10 @@ from typing import Any
 import yaml
 
 from empirica.core.auto_push import SUPPORTED_TRIGGERS
+from empirica.core.sync_remotes import CODE, NOTES
+from empirica.core.sync_remotes import refusal as _remote_refusal
+from empirica.core.sync_remotes import render_refusal as _render_remote_refusal
+from empirica.core.sync_remotes import resolve as _resolve_remote
 
 from ..cli_utils import handle_cli_error
 
@@ -25,18 +29,38 @@ logger = logging.getLogger(__name__)
 
 
 # Default sync configuration
+#
+# NO REMOTE HAS A DEFAULT. `remote`, `notes_remote` and `code_remote` are all None
+# until a human sets them, and every verb REFUSES rather than guessing.
+#
+# The defaults used to be `forgejo` for notes and `origin` for code, and both were
+# guesses that read as safe. Measured consequence: on one box `origin` was a PUBLIC
+# GitHub repo, so the code default pointed at publication; on another there was no
+# `origin` at all, so notes silently synced nowhere for weeks. Same default, opposite
+# invisible failures, and in neither case did anything say which remote was in use.
+#
+# **Guessing wrong here is publishing.** A default that is usually right is the worst
+# shape for that, because it works until the seat where it does not and never
+# announces which case you are in. David's ruling, 2026-09-02: no guessing anywhere —
+# earned confidence, not most-likely prediction.
 DEFAULT_SYNC_CONFIG = {
     "enabled": True,
-    "remote": "forgejo",
+    "remote": None,
     "visibility": "private",  # 'private' or 'public' - determines warnings
     "provider": "forgejo",  # 'github', 'gitlab', 'forgejo', 'bitbucket', 'auto'
-    # Empty = off. Set via `empirica sync-config --set auto_push_on=postflight`, which
+    # Empty = off. Set via `empirica sync-config auto_push_on postflight`, which
     # validates; a hand-edit of an unsupported value is rejected at read time rather
     # than silently ignored. `session_end` is deliberately unimplemented.
     "auto_push_on": [],
-    "code_remote": "origin",  # remote for code pushes (public)
-    "notes_remote": "forgejo",  # remote for epistemic notes (private)
+    "code_remote": None,  # where CODE goes. Unset = refuse; see empirica.core.sync_remotes
+    "notes_remote": None,  # where NOTES go. Unset = fall through to `remote`, then refuse
 }
+
+#: What `sync-config` accepts — and what its own help prints. These were two lists,
+#: and the printed one was four keys short of the validated one, so `code_remote`,
+#: `notes_remote` and `auto_push_on` were settable and undocumented at the point of
+#: use. A key list is exactly the thing that must be derived, not restated.
+VALID_CONFIG_KEYS: tuple[str, ...] = tuple(DEFAULT_SYNC_CONFIG)
 
 
 def _get_config_path() -> Path:
@@ -216,9 +240,8 @@ def _count_local_notes() -> dict[str, int]:
 def _handle_sync_config_command_helper(key, output_format, sync_config, value):
     """Extracted from handle_sync_config_command to reduce complexity."""
     if key and value is not None:
-        valid_keys = ["enabled", "remote", "visibility", "provider", "code_remote", "notes_remote", "auto_push_on"]
-        if key not in valid_keys:
-            result = {"ok": False, "error": f"Unknown config key: {key}", "valid_keys": valid_keys}
+        if key not in VALID_CONFIG_KEYS:
+            result = {"ok": False, "error": f"Unknown config key: {key}", "valid_keys": list(VALID_CONFIG_KEYS)}
             print(json.dumps(result, indent=2))
             return 1
 
@@ -311,10 +334,21 @@ def handle_sync_config_command(args):
                 result = {"ok": True, "key": key, "value": sync_config[key]}
             else:
                 result = {"ok": False, "error": f"Unknown config key: {key}"}
+            # The single-key path never computed the remote locals, and the human
+            # renderer below read them unconditionally — so `sync-config <key> <value>
+            # --output human` raised UnboundLocalError on every invocation. Invisible
+            # because the default output is json, and `--output human` is what a person
+            # reaches for exactly when they are unsure whether the write landed.
+            if output_format == "json":
+                print(json.dumps(result, indent=2))
+            else:
+                shown = result.get("value")
+                print(f"   {key}: {shown if shown not in (None, []) else '(not set)'}")
+            return 0 if result["ok"] else 1
         else:
             # Get remote info for context
-            current_remote = sync_config.get("remote", "origin")
-            remote_url = _get_remote_url(current_remote)
+            current_remote = _resolve_remote(NOTES, sync_config)
+            remote_url = _get_remote_url(current_remote) if current_remote else None
             detected_provider = _detect_provider(remote_url) if remote_url else "unknown"
             all_remotes = _list_remotes()
 
@@ -332,7 +366,7 @@ def handle_sync_config_command(args):
         else:
             print("📋 Sync Configuration")
             print(f"   enabled: {sync_config.get('enabled', True)}")
-            print(f"   remote: {sync_config.get('remote', 'origin')}")
+            print(f"   remote: {sync_config.get('remote') or '(not set)'}")
             print(f"   visibility: {sync_config.get('visibility', 'private')}")
             print(f"   provider: {sync_config.get('provider', 'auto')}")
             if remote_url:
@@ -348,48 +382,99 @@ def handle_sync_config_command(args):
 
             print(f"\n   Config file: {_get_config_path()}")
 
-            # Show dual-remote config
-            notes_remote = sync_config.get("notes_remote", current_remote)
-            code_remote = sync_config.get("code_remote", "origin")
-            if notes_remote != code_remote:
-                # `Code: <remote> (public)` used to sit beside the notes line as though
-                # both were synced. NOTHING IN EMPIRICA PUSHES CODE: sync-push's only
-                # refspecs are the two notes refs, projects-sync performs no git
-                # operation, and forgejo-publish creates a repo and sets a remote
-                # rather than delivering to it.
-                #
-                # A label with no behaviour behind it is worse than an absent feature,
-                # because it answers the exact question the reader came to ask. Someone
-                # auditing their sync config saw code listed as configured and stopped
-                # looking — a plausible reason ~765 commits accumulated unpushed on one
-                # laptop without anyone noticing.
-                print("\n   Dual-remote mode:")
-                _auto = sync_config.get("auto_push_on") or []
-                if "postflight" in _auto:
-                    print(f"      Code:  {code_remote} (public) — auto-pushed on postflight")
-                else:
-                    print(
-                        f"      Code:  {code_remote} (public) — configured only; auto-push is OFF "
-                        f"(enable: empirica sync-config --set auto_push_on=postflight)"
-                    )
-                print(f"      Notes: {notes_remote} (private) — synced by `empirica sync-push`")
+            # Both destinations, ALWAYS — including when unset.
+            #
+            # `Code: <remote> (public)` used to sit beside the notes line as though both
+            # were synced while NOTHING IN EMPIRICA PUSHED CODE, and a practitioner
+            # auditing their config saw code listed as configured and stopped looking
+            # (~765 commits lived on one laptop). auto_push now makes that label real
+            # when it is on, so the line has to say WHICH of the two states it is in.
+            #
+            # And the block used to be gated on `notes_remote != code_remote`, which
+            # hid it in exactly the case that matters most: with both unset they are
+            # equal, so a seat that had chosen no destination at all was told nothing.
+            code_remote = _resolve_remote(CODE, sync_config)
+            _auto = sync_config.get("auto_push_on") or []
+            print("\n   Destinations:")
+            if current_remote:
+                print(f"      Notes: {current_remote} — synced by `empirica sync-push`")
+            else:
+                print("      Notes: NOT SET — sync-push refuses rather than guessing")
+            if code_remote and "postflight" in _auto:
+                print(f"      Code:  {code_remote} — auto-pushed on postflight")
+            elif code_remote:
+                print(
+                    f"      Code:  {code_remote} — configured only; auto-push is OFF "
+                    f"(enable: empirica sync-config auto_push_on postflight)"
+                )
+            else:
+                print("      Code:  NOT SET — empirica pushes no code")
 
             # Show private sync hint if notes remote is a public provider
             if detected_provider in ("github", "gitlab", "bitbucket"):
                 print("\n   WARNING: Notes remote points to a public provider!")
                 print("      Epistemic notes contain private data (findings, mistakes, messages).")
                 print("      Switch to a private remote:")
-                print("      empirica sync-config remote forgejo")
                 print("      empirica sync-config notes_remote <private-remote>")
 
             print("\n   Set with: empirica sync-config <key> <value>")
-            print("   Keys: enabled, remote, visibility, provider")
+            print(f"   Keys: {', '.join(VALID_CONFIG_KEYS)}")
 
         return 0 if result["ok"] else 1
 
     except Exception as e:
         handle_cli_error(e, "Sync config", getattr(args, "verbose", False))
         return 1
+
+
+def _resolve_or_refuse(kind: str, sync_config: dict[str, Any], explicit: str | None, output_format: str) -> str | None:
+    """The remote for `kind`, or None having already PRINTED the refusal.
+
+    Shared by push and pull so the two cannot drift into refusing differently — the
+    original defect in this file was two verbs resolving the same destination by two
+    different rules.
+    """
+    remote = _resolve_remote(kind, sync_config, explicit)
+    if remote:
+        return remote
+    payload = _remote_refusal(kind)
+    print(json.dumps(payload, indent=2) if output_format == "json" else _render_remote_refusal(payload))
+    return None
+
+
+def _refuse_public_notes_remote(remote: str, force: bool, output_format: str) -> bool:
+    """True (having printed) when `remote` is a public host and `--force` was not given.
+
+    Notes carry findings, mistakes and mesh messages. `--force` is the override — the
+    point is that publishing them has to be an explicit act, not the result of a
+    remote whose provider nobody looked at.
+    """
+    remote_url = _get_remote_url(remote)
+    detected = _detect_provider(remote_url) if remote_url else "unknown"
+    if detected not in ("github", "gitlab", "bitbucket") or force:
+        return False
+
+    configured = ", ".join(_list_remotes()) or "none"
+    result = {
+        "ok": False,
+        "error": f"Refusing to push epistemic notes to public provider ({detected})",
+        "remote": remote,
+        "remote_url": remote_url,
+        "hint": (
+            "Notes contain private epistemic data (findings, mistakes, messages). "
+            "Point notes at a private remote: 'empirica sync-config notes_remote <remote>'. "
+            f"Configured here: {configured}. Use --force to override."
+        ),
+    }
+    if output_format == "json":
+        print(json.dumps(result, indent=2))
+    else:
+        print(f"BLOCKED: Won't push notes to {detected} ({remote_url})")
+        print("   Notes contain private epistemic data.")
+        print("   Set a private remote: empirica sync-config notes_remote <remote>")
+        print(f"   Configured here: {configured}")
+        print("   Or use --force to override.")
+    return True
 
 
 def _handle_sync_push_command_helper(errors, output_format, push_results, remote, result, success):
@@ -414,8 +499,6 @@ def handle_sync_push_command(args):
         # Load config
         sync_config = _load_sync_config()
 
-        # Use CLI arg if provided, otherwise use config
-        remote = getattr(args, "remote", None) or sync_config.get("remote", "origin")
         output_format = getattr(args, "output", "json")
         dry_run = getattr(args, "dry_run", False)
         getattr(args, "verbose", False)
@@ -431,6 +514,13 @@ def handle_sync_push_command(args):
             print(json.dumps(result, indent=2))
             return 1
 
+        # Explicit flag, else config, else REFUSE. `--force` overrides the private-provider
+        # block below; it does NOT invent a destination, because there is nothing to
+        # override here — an unset remote is an absent answer, not a cautious one.
+        remote = _resolve_or_refuse(NOTES, sync_config, getattr(args, "remote", None), output_format)
+        if not remote:
+            return 1
+
         # Check remote exists
         if not _check_remote(remote):
             result = {
@@ -442,29 +532,7 @@ def handle_sync_push_command(args):
             return 1
 
         # Safety check: block pushing notes to public providers unless forced
-        remote_url = _get_remote_url(remote)
-        detected = _detect_provider(remote_url) if remote_url else "unknown"
-        public_providers = ("github", "gitlab", "bitbucket")
-        if detected in public_providers and not force:
-            result = {
-                "ok": False,
-                "error": f"Refusing to push epistemic notes to public provider ({detected})",
-                "remote": remote,
-                "remote_url": remote_url,
-                "hint": (
-                    "Notes contain private epistemic data (findings, mistakes, messages). "
-                    "Use a private remote: 'empirica sync-config remote forgejo' or "
-                    "'empirica sync-config notes_remote <private-remote>'. "
-                    "Use --force to override."
-                ),
-            }
-            if output_format == "json":
-                print(json.dumps(result, indent=2))
-            else:
-                print(f"BLOCKED: Won't push notes to {detected} ({remote_url})")
-                print("   Notes contain private epistemic data.")
-                print("   Set a private remote: empirica sync-config remote forgejo")
-                print("   Or use --force to override.")
+        if _refuse_public_notes_remote(remote, force, output_format):
             return 1
 
         # Count local notes
@@ -578,8 +646,6 @@ def handle_sync_pull_command(args):
         # Load config
         sync_config = _load_sync_config()
 
-        # Use CLI arg if provided, otherwise use config
-        remote = getattr(args, "remote", None) or sync_config.get("remote", "origin")
         output_format = getattr(args, "output", "json")
         rebuild = getattr(args, "rebuild", False)
         getattr(args, "verbose", False)
@@ -593,6 +659,13 @@ def handle_sync_pull_command(args):
                 "hint": "Run 'empirica sync-config enabled true' to enable or use --force",
             }
             print(json.dumps(result, indent=2))
+            return 1
+
+        # Explicit flag, else config, else REFUSE. Pulling from the wrong remote is
+        # cheaper than pushing to it, but it is the same guess and it imports a
+        # stranger's graph into yours.
+        remote = _resolve_or_refuse(NOTES, sync_config, getattr(args, "remote", None), output_format)
+        if not remote:
             return 1
 
         # Check remote exists
@@ -686,14 +759,168 @@ def handle_sync_pull_command(args):
         return 1
 
 
+def _count_all_local_note_refs() -> int:
+    """EVERY ref under ``refs/notes/``, not just the enumerated namespaces.
+
+    ``_count_local_notes()`` walks ``EMPIRICA_NOTES_REFS`` and is the right function
+    for the per-namespace breakdown. It is the WRONG one to compare against a remote,
+    because the remote side counts ``refs/notes/*`` wholesale — and on this repo those
+    differ by 11,232 refs (``breadcrumbs`` and ``empirica-precompact`` live outside the
+    enumerated list).
+
+    Caught by running it: the first version of the replication check reported
+    ``REPLICATED — all 6405 local note refs are on the remote`` while 5,620 refs were
+    missing. **Two counts over two different sets is not a comparison**, and the
+    direction of the error was the reassuring one.
+    """
+    try:
+        proc = subprocess.run(
+            ["git", "for-each-ref", "--format=%(refname)", "refs/notes/"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except Exception:
+        return 0
+    if proc.returncode != 0:
+        return 0
+    return len([ln for ln in proc.stdout.splitlines() if ln.strip()])
+
+
+def _count_remote_notes(remote: str, timeout: int = 20) -> tuple[int | None, str | None]:
+    """Note refs present on `remote` — ``(count, unreachable_reason)``.
+
+    Exactly one of the two is None. **An unreachable remote must not read as zero and
+    must not read as fine**: a network failure and an empty remote are opposite facts
+    and only one of them is a sync problem, so the reason is carried rather than
+    swallowed into a number.
+    """
+    try:
+        proc = subprocess.run(
+            ["git", "ls-remote", remote, "refs/notes/*"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return None, f"timed out after {timeout}s reaching {remote}"
+    except Exception as e:  # broad by design — the reason is REPORTED, never swallowed
+        return None, f"{type(e).__name__}: {e}"
+    if proc.returncode != 0:
+        return None, (proc.stderr.strip().splitlines() or ["git ls-remote failed"])[-1][:200]
+    return len([ln for ln in proc.stdout.splitlines() if ln.strip()]), None
+
+
+def _replication_verdict(local: int, remote_count: int | None, unreachable: str | None) -> dict[str, Any]:
+    """Are local notes actually reaching the remote? Say it in words.
+
+    THE GAP THIS CLOSES. Across four practices measured 2026-09-02, ~9,500 epistemic
+    artifact refs had never left the machine they were written on — and `sync-status`
+    reported healthy for every one, because "a remote is configured" was the only
+    question it could answer. Configuration is not replication. A verb consulted to
+    decide whether a thing is working must be able to say *it is not*.
+
+    `local > remote` is the detectable signature and it is deliberately cheap: it
+    needs no history walk, only two counts.
+    """
+    if unreachable or remote_count is None:
+        reason = unreachable or "remote ref count unavailable"
+        return {"state": "unknown", "reason": f"remote not reachable — {reason}", "behind": None}
+    behind = local - remote_count
+    if local == 0:
+        return {"state": "nothing_to_replicate", "reason": "no local note refs", "behind": 0}
+    if behind > 0:
+        # `<1%` rather than a rounded `0%`. A real one-ref gap rendering as
+        # "1 of 970 (0%) are NOT on the remote" puts the prose in contradiction with
+        # the categorical state beside it, and the predictable repair is to soften the
+        # STATE to match the number — fixing the honest half. The integer `behind` is
+        # what consumers should threshold on; this only stops the string arguing
+        # against it.
+        raw = 100 * behind / local
+        pct = "<1" if raw < 0.5 else str(round(raw))
+        return {
+            "state": "not_replicating" if remote_count == 0 else "behind",
+            "reason": (
+                f"{behind} of {local} local note refs ({pct}%) are NOT on the remote"
+                + (" — nothing has ever been pushed" if remote_count == 0 else "")
+            ),
+            "behind": behind,
+        }
+    return {"state": "replicated", "reason": f"all {local} local note refs are on the remote", "behind": 0}
+
+
+def _replication_block(remote: str | None, remote_configured: bool, local_only: bool) -> dict[str, Any]:
+    """The `replication` fields for `sync-status`. **Always present, never omitted.**
+
+    Costs one ``git ls-remote``; `--local` opts out. Default-on deliberately — a signal
+    nobody turns on is a signal nobody sees, and every seat this was built for would
+    have had to know to ask.
+
+    The key is emitted even when nothing could be computed. It used to be omitted when
+    no remote was configured — which is the DEFAULT state of every seat after the
+    no-default change, so it was the common case at rollout, not an edge. An absent key
+    cannot be told apart from *computed and fine* or *this build predates the field*:
+    absence defaults to whatever the reader assumes. That is the same collapse as
+    PASS-vs-SKIP and unset-vs-misconfigured, one layer down and applied to a JSON key.
+
+    ``sync_available`` is deliberately NOT touched here. "The remote is configured" and
+    "the notes are there" are different facts, and the whole defect was one field
+    answering both.
+    """
+    if not remote:
+        skipped = "no notes remote configured — nothing to compare against"
+    elif not remote_configured:
+        skipped = f"'{remote}' is configured but is not a git remote here"
+    elif local_only:
+        skipped = "skipped by --local (no network call was made)"
+    else:
+        skipped = ""
+
+    if skipped:
+        return {"remote_notes": None, "replication": {"state": "unknown", "reason": skipped, "behind": None}}
+
+    remote_count, unreachable = _count_remote_notes(str(remote))
+    # BOTH SIDES OVER THE SAME REF SET. `total_notes` covers the enumerated namespaces
+    # only, and comparing it here reported REPLICATED while 5,622 refs were missing.
+    all_local = _count_all_local_note_refs()
+    return {
+        "local_note_refs": all_local,
+        "remote_notes": remote_count,
+        "replication": _replication_verdict(all_local, remote_count, unreachable),
+    }
+
+
 def handle_sync_status_command(args):
     """Handle sync status command - show sync status"""
     try:
-        remote = getattr(args, "remote", "origin") or "origin"
+        # RESOLVE THROUGH THE SHARED RESOLVER, like every other sync verb.
+        #
+        # This verb used to take its remote from args with a literal default and never
+        # read sync_config at all, so on any seat whose remote was not named origin it
+        # reported on a remote nothing else used. A practitioner set the remote
+        # correctly, ran this, was told the remote was unconfigured, and concluded the
+        # write had failed. It had not.
+        #
+        # That is the expensive direction of this defect: the STATUS verb is what
+        # someone consults to decide whether a thing is working, so when it is the one
+        # that is wrong it does not merely fail to inform, it sends the reader to fix
+        # something that was not broken — or to trust something that is.
+        # STATUS REPORTS, it does not refuse — but it must distinguish the two ways a
+        # remote can be absent, because they used to render identically. `remote: null`
+        # means nobody chose one; `remote: forgejo, remote_configured: false` means
+        # someone chose a remote this repo does not have. The first is a decision not
+        # taken, the second is a decision that no longer matches the repo, and the fix
+        # differs.
+        sync_config = _load_sync_config()
+        remote = _resolve_remote(NOTES, sync_config, getattr(args, "remote", None))
+        code_remote = _resolve_remote(CODE, sync_config)
         output_format = getattr(args, "output", "json")
 
         # Check remote exists
-        remote_configured = _check_remote(remote)
+        remote_configured = bool(remote) and _check_remote(remote)
+        auto_push_on = sync_config.get("auto_push_on") or []
 
         # Count local notes
         local_counts = _count_local_notes()
@@ -708,23 +935,62 @@ def handle_sync_status_command(args):
             "total_notes": total_notes,
             "note_counts": {k: v for k, v in local_counts.items() if v > 0},
             "sync_available": remote_configured,
+            # CODE is reported separately and never folded into `sync_available` —
+            # `sync-push` moves notes only, so a configured code remote says nothing
+            # about whether notes reach anywhere.
+            "code_remote": code_remote,
+            "code_auto_push_on": auto_push_on,
+            "available_remotes": _list_remotes(),
         }
+        if not remote:
+            result["hint"] = _remote_refusal(NOTES)["hint"]
+
+        result.update(_replication_block(remote, remote_configured, getattr(args, "local", False)))
 
         if output_format == "json":
             print(json.dumps(result, indent=2))
         else:
             print("📊 Empirica Sync Status")
-            print(f"   Remote: {remote} ({'configured' if remote_configured else 'NOT configured'})")
+            if remote:
+                print(f"   Notes remote: {remote} ({'configured' if remote_configured else 'NOT a git remote here'})")
+            else:
+                print("   Notes remote: NOT SET — nothing pushes notes anywhere")
+            if code_remote:
+                fires = "auto-pushed on postflight" if "postflight" in auto_push_on else "auto-push OFF"
+                print(f"   Code remote:  {code_remote} ({fires})")
+            else:
+                print("   Code remote:  NOT SET — empirica pushes no code")
             print(f"   Local refs with data: {refs_with_data}")
             print(f"   Total notes: {total_notes}")
+
+            # The replication verdict, in words, ABOVE the per-ref counts. It is the
+            # thing the reader came for; four seats read a healthy-looking status while
+            # thousands of refs had never left the machine.
+            rep = result.get("replication")
+            if rep:
+                state = str(rep["state"])
+                icon = {"replicated": "✅", "behind": "⚠️", "not_replicating": "❌", "unknown": "❓"}.get(state, "•")
+                if result.get("remote_notes") is not None:
+                    print(
+                        f"   All note refs: {result.get('local_note_refs')} local / {result.get('remote_notes')} remote"
+                    )
+                print(f"   {icon} Replication: {state.upper()} — {rep['reason']}")
+                if state in ("behind", "not_replicating"):
+                    print("      Fix: empirica sync-push")
+
             if local_counts:
                 print("\n   Note counts:")
                 for ref, count in sorted(local_counts.items()):
                     if count > 0:
                         print(f"      refs/notes/{ref}: {count}")
 
-            if not remote_configured:
-                print("\n   ⚠️ No remote configured. Run 'git remote add origin <url>' to enable sync.")
+            if not remote:
+                print(f"\n   ⚠️ {_remote_refusal(NOTES)['hint']}")
+            elif not remote_configured:
+                print(
+                    f"\n   ⚠️ '{remote}' is configured in .empirica but is not a git remote here. "
+                    f"Present: {', '.join(_list_remotes()) or 'none'}"
+                )
 
         return 0
 

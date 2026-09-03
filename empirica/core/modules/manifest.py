@@ -167,8 +167,50 @@ class RequiresRuntime(BaseModel):
         return v
 
 
+class Declined(BaseModel):
+    """Layers this practice DELIBERATELY does not consume, each with its reason.
+
+    The third state. Without it a declaration gate sees two: declared-consumed, and
+    nothing — and *nothing* is where a considered refusal and a practice that simply
+    forgot become the same bytes. Every manifest in the fleet already carried its
+    refusals as YAML comments, which is a note to the next human and invisible to
+    every reader.
+
+    **The reason is REQUIRED and must be non-empty**, because a bare list of declined
+    names reproduces the original silence one level up: you would know a layer was
+    refused and not why, so the gate could report the fact and nothing actionable. The
+    reason is the entire value of the third state.
+
+    Both practices that hit this independently invented a `declined:` mapping within
+    an hour of each other, and both wrote it in a position `extra="forbid"` rejects.
+    Independent reinvention of a shape the schema lacks is the signal; this is that
+    shape, hoisted to where it validates.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    prompts: dict[str, str] = Field(default_factory=dict)
+    skills: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("prompts", "skills")
+    @classmethod
+    def _reason_required(cls, v: dict[str, str]) -> dict[str, str]:
+        blank = sorted(name for name, reason in v.items() if not (reason or "").strip())
+        if blank:
+            raise ValueError(
+                f"declined entries need a non-empty reason: {', '.join(blank)} — "
+                "a declined name without a reason says no more than the silence it replaces"
+            )
+        return v
+
+
 class Requires(BaseModel):
-    """Compatibility constraints checked before install."""
+    """What this practice CONSUMES, and what it deliberately does not.
+
+    ``skills`` / ``prompts`` name the layers this seat needs present — every manifest
+    in the fleet writes them as "what this practice consumes", so that is what they
+    mean here. ``declined`` names what it refuses, and why.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -180,6 +222,46 @@ class Requires(BaseModel):
     # because a skill it assumed was never there.
     skills: list[str] = Field(default_factory=list)
     prompts: list[str] = Field(default_factory=list)
+    declined: Declined = Field(default_factory=Declined)
+
+    @model_validator(mode="after")
+    def _no_layer_both_consumed_and_declined(self) -> Requires:
+        for kind in ("prompts", "skills"):
+            both = sorted(set(getattr(self, kind)) & set(getattr(self.declined, kind)))
+            if both:
+                raise ValueError(
+                    f"declined.{kind} contradicts {kind}: {', '.join(both)} is listed as both consumed and declined"
+                )
+        return self
+
+
+#: The three states a declaration gate must be able to tell apart.
+CONSUMES = "consumes"
+DECLINED = "declined"
+UNDECLARED = "undeclared"
+
+
+def declaration_state(manifest: ModuleManifest, layer: str, kind: str = "prompts") -> tuple[str, str | None]:
+    """How this manifest declares `layer` — ``(state, reason)``.
+
+    THE READER. A field with no reader is what let this drift persist unnoticed:
+    nothing ever compared declared intent to reality, so nobody could see that the
+    intent had nowhere to live. Shipping the shape without the reader would repeat
+    that exactly.
+
+    Consumers gating on declarations (ecosystem-update's report, provisioners, audits)
+    should ask through here rather than reading the lists themselves, so every gate in
+    the fleet asks the same question the same way. ``reason`` is non-None only for
+    ``DECLINED``.
+    """
+    if kind not in ("prompts", "skills"):
+        raise ValueError(f"kind must be 'prompts' or 'skills', got {kind!r}")
+    if layer in getattr(manifest.requires, kind):
+        return CONSUMES, None
+    declined = getattr(manifest.requires.declined, kind)
+    if layer in declined:
+        return DECLINED, declined[layer]
+    return UNDECLARED, None
 
 
 class ModuleManifest(BaseModel):
@@ -260,4 +342,14 @@ def validate_manifest_file(path: str | Path) -> dict:
         "path": str(p),
         "errors": [],
         "manifest": manifest.model_dump(by_alias=True),
+        # Surfaced in the receipt so `module-validate` shows the three states rather
+        # than only whether the file parses. A declared refusal that no surface ever
+        # renders is a comment with extra steps.
+        "declarations": {
+            kind: {
+                CONSUMES: sorted(getattr(manifest.requires, kind)),
+                DECLINED: dict(sorted(getattr(manifest.requires.declined, kind).items())),
+            }
+            for kind in ("prompts", "skills")
+        },
     }

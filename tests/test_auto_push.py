@@ -131,6 +131,41 @@ def test_only_the_disabled_path_is_quiet(repo):
     assert ap.render(out) == ""
 
 
+# ── constraint 5: no default destination ─────────────────────────────────────
+
+
+def test_an_unset_code_remote_refuses_and_does_not_fall_back_to_origin(repo):
+    """THE constraint, and the highest-consequence guess in the codebase.
+
+    This read used to end in `or "origin"`. `origin` is a PUBLIC GitHub repo on some
+    seats, so a practitioner enabling auto-push for a private backup would have
+    published every commit instead — and `origin` exists here, so the push would have
+    SUCCEEDED and reported success.
+
+    Note the fixture repo HAS an `origin`: if the fallback returned, this test fails
+    by pushing, not by erroring. That is deliberate — a guard whose negative case
+    cannot happen in the fixture proves nothing.
+    """
+    before = ap._rev(repo, "origin/main")
+
+    out = ap.auto_push(repo, {"auto_push_on": ["postflight"]}, "postflight")
+
+    assert out["outcome"] == ap.NO_REMOTE
+    assert out["pushed"] is False
+    assert out["remote"] is None, "an unset remote must not be reported as a name"
+    assert "sync-config code_remote" in out["reason"], "the refusal must name the fix"
+    assert ap._rev(repo, "origin/main") == before, "it pushed to origin anyway"
+
+
+def test_the_refusal_names_the_remotes_that_exist(repo):
+    """Refusing without saying what may be chosen moves the invisibility one step
+    along — the reader still has to go find out what this repo has."""
+    out = ap.auto_push(repo, {"auto_push_on": ["postflight"]}, "postflight")
+
+    assert "origin" in out["available_remotes"]
+    assert "origin" in out["reason"]
+
+
 # ── constraint 4: report VERIFIED-pushed, never attempted ────────────────────
 
 

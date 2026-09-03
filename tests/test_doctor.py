@@ -466,16 +466,20 @@ def test_run_all_checks_returns_complete_list():
     assert "Empirica extension build" in names
     assert "Outreach project" in names
     assert "Engagement registry drift" in names
+    assert "CLI matches checkout" in names
+    assert "Deployed plugin fresh" in names
 
 
-def test_run_all_checks_count_is_27():
+def test_run_all_checks_count_is_29():
     """+1 for check_mcp_version_skew (GH #404, injected-topology skew).
     +1 for check_engagement_registry_drift (engagement dual-write, 1.13.23).
+    +1 for check_cli_matches_checkout (CLI/checkout skew the version cannot see).
+    +1 for check_plugin_freshness (deployed plugin copy vs package version).
 
     A hardcoded count is a tripwire for "a check was added/removed without
     thinking about the suite" — when it fires, update it deliberately (and add
     the name assertion below), never by pasting the new number blind."""
-    assert len(run_all_checks()) == 27
+    assert len(run_all_checks()) == 29
 
 
 # ─── Tailscale (prop_ilf6uy4q) ─────────────────────────────────────────

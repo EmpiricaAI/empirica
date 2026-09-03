@@ -75,7 +75,27 @@ NOETIC_MCP_CHROME = {
 }
 # Praxic Chrome MCP tools (require CHECK): form_input, javascript_tool, computer
 
-# Cortex MCP tools (all read-only search/investigate)
+# Cortex MCP tools that flow free. NOT all read-only — and the header used to say
+# they were, which is the expensive kind of wrong: this set is what someone auditing
+# the noetic firewall reads, and a reader who believes the label stops looking.
+#
+# Three kinds live here, and only the first is inert:
+#
+#   1. PURE READS — investigate, search_knowledge, get_entity_context, cortex_stats,
+#      session_init, the *_poll family, get_proposal. Noetic by effect.
+#   2. WRITES ADMITTED BY POLICY — the *_log family, goal_create, log_artifacts,
+#      ingest_file/ingest_batch, the bus family, cortex_collab. These DO mutate
+#      cortex-side state. They are here because they are the epistemic workflow
+#      itself: gating the act of recording what you learned behind a CHECK would
+#      make the measurement layer cost more than the work it measures.
+#   3. SOFT FLIPS ON YOUR OWN VIEW — archive_proposal (hide-from-my-view),
+#      complete_proposal (the closing bracket of a wake→act→ack loop already
+#      authorized by the accepted proposal).
+#
+# Membership here is a DECISION, not an observation about read-onlyness. Anything
+# added must say which of the three it is, in its own comment — a bare entry under a
+# blanket label is how a praxic tool joins a noetic set without anyone deciding to
+# admit it. `cortex_propose` and `cortex_publish` are deliberately absent.
 NOETIC_MCP_CORTEX = {
     "mcp__cortex__investigate",  # Query knowledge base
     "mcp__cortex__search_knowledge",  # Semantic search

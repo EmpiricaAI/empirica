@@ -495,6 +495,14 @@ class WorkspaceDBRepository(BaseRepository):
         metadata: str | None = None,
     ) -> None:
         """Insert or update a project in the global registry."""
+        from empirica.config.path_resolver import canonical_trajectory_path
+
+        # SECOND writer of this table. `ON CONFLICT(id)` dedupes on the UUID, so this
+        # path cannot duplicate a row for one project — but it can store a
+        # non-canonical spelling, which makes the row a landmine for the OTHER writer
+        # (whose lookup is a string equality on this column) and for any future dedup.
+        # One spelling, enforced at both write sites.
+        trajectory_path = canonical_trajectory_path(trajectory_path)
         now = time.time()
         self._execute(
             """INSERT INTO global_projects

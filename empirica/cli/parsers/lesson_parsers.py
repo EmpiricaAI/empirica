@@ -25,6 +25,15 @@ def add_lesson_parsers(subparsers):
         "lesson-create",
         help="Create a new lesson from JSON input",
         epilog=(
+            "PERMANENT. A lesson cannot be deleted — `delete-artifacts` refuses the type on "
+            "purpose, because a lesson that turns out wrong is SUPERSEDED (`--supersedes <id>`) "
+            "rather than erased, which keeps the record of having been wrong. That is a good "
+            "property for real lessons and it also means a throwaway probe is permanent: two "
+            "practitioners created test rows on the same day without considering it, because "
+            "nothing said so before the write.\n\n"
+            "Re-using an existing (name, version) REPLACES the stored lesson in place — the "
+            "receipt reports `replaced: true` and echoes `stored`, so check both rather than "
+            "assuming a create was a create.\n\n"
             "Payload fields (--input / --json / stdin). Anything else is rejected by name:\n"
             f"    {', '.join(sorted(KNOWN_LESSON_KEYS))}\n\n"
             "The body is `description`. `steps` is a list of OBJECTS, each with an `action` "

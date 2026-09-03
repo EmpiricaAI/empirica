@@ -24,6 +24,12 @@ def handle_module_validate_command(args) -> int:
         sys.stdout.write(
             f"ok: {receipt['path']} — module '{m.get('name')}' v{m.get('version')} ({m.get('visibility')}) valid\n"
         )
+        # Render declined layers WITH their reasons. A deliberate refusal that no
+        # surface ever shows is a YAML comment with extra steps — which is exactly
+        # the state this field was added to replace.
+        for kind, states in receipt.get("declarations", {}).items():
+            for layer, reason in states.get("declined", {}).items():
+                sys.stdout.write(f"  declined {kind[:-1]}: {layer} — {reason}\n")
     else:
         sys.stdout.write(f"INVALID: {receipt['path']}\n")
         for err in receipt["errors"]:

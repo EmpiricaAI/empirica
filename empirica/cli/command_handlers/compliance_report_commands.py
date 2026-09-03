@@ -1462,8 +1462,35 @@ def _print_human_report(report: dict[str, Any]) -> None:
             req = mapping.get("requirement", "")
             print(f"       -> {framework}: {ref} — {req}")
 
+    # REPEAT THE VERDICT AT THE END. It was header-only, and the last thing printed
+    # was a frameworks banner that LOOKS like a summary and carries no outcome — so
+    # `compliance-report | tail` showed a legal footer plus whatever rows landed in
+    # the window, all of which can be passing while the header says FAIL.
+    #
+    # A practitioner did exactly that: read `tail -45`, saw only passing rows,
+    # reported "all 14 controls pass", and tagged a release on it while lint and
+    # complexity were failing above the fold. Tail is how long CLI output actually
+    # gets read; a verdict reachable only by scrolling up is one most readers never
+    # see.
+    #
+    # Failures are NAMED rather than counted, because they are interleaved with
+    # passes above and a count sends the reader back to scan for them. The tail
+    # alone should answer "did this pass, and if not what failed".
+    failed = [c.get("check", "?") for c in report["checks"] if c.get("status") == "fail"]
+    unavailable = [c.get("check", "?") for c in report["checks"] if c.get("status") == "unavailable"]
+
     print(f"\n{'=' * 60}")
     print(f"  Frameworks: {', '.join(report['regulatory_frameworks'])}")
+    print(f"{'-' * 60}")
+    print(f"  RESULT: [{icon}]  {overall['score']:.0%} ({overall['checks_passed']}/{overall['checks_total']})")
+    if failed:
+        print(f"  FAILED: {', '.join(failed)}")
+    if unavailable:
+        # Listed separately and never folded into the pass count. A skipped check
+        # cannot fail, so counting it as a pass is how an exemption reports clean
+        # forever — and the reader needs to know the difference between "checked and
+        # good" and "not checked".
+        print(f"  UNAVAILABLE (not run, not passed): {', '.join(unavailable)}")
     print(f"{'=' * 60}\n")
 
 

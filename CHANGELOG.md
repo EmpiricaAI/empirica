@@ -5,6 +5,116 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed — BREAKING (sync configuration)
+
+- **No remote has a default any more. Unset means refuse.** `remote`,
+  `notes_remote` and `code_remote` all ship as unset, and `sync-push`,
+  `sync-pull`, `profile-sync` and auto-push now REFUSE rather than guess a
+  destination — naming the git remotes the repo actually has and the exact
+  `empirica sync-config <key> <remote>` that fixes it.
+
+  The old defaults were `forgejo` for notes and `origin` for code. Both read as
+  safe and produced **opposite invisible failures from the same literal**: on a
+  seat where `origin` is a public GitHub repo the code default pointed at
+  publication and would have *succeeded*; on a seat with no `origin` at all,
+  notes synced nowhere for weeks. In neither case did anything say which case you
+  were in. A default that is usually right is the worst possible shape for a
+  destination, because a wrong guess here is a publication decision made by a
+  literal.
+
+  **Upgrading:** a seat that relied on the implicit default will see one refusal
+  from `sync-push` until the choice is made explicit. The refusal carries the
+  command. Nothing is lost — this makes an existing implicit target explicit.
+
+### Added
+
+- **`declined` — module manifests can express a DELIBERATELY refused layer.**
+  `requires.declined.prompts` / `.skills` map a layer name to the reason it is
+  refused, and `declaration_state(manifest, layer, kind)` is the reader, returning
+  `consumes` / `declined` / `undeclared`. Without a third state a declaration gate
+  sees two — declared, and nothing — and a considered refusal and a practice that
+  forgot land in the same place, so the gate fires on the best-declared seat in the
+  fleet. The reason is **required**: a bare declined name relocates the silence
+  rather than removing it. A layer listed as both consumed and declined is rejected.
+  `module validate --output text` prints declined layers with their reasons, and
+  `validate_manifest_file` returns a `declarations` block. Backward compatible.
+  New `docs/architecture/MODULE_MANIFEST.md` is core's canonical schema reference.
+
+- **`sync-status` can now say "notes are NOT replicating".** It counts note refs on
+  the remote and reports a `replication` verdict — `replicated` / `behind` /
+  `not_replicating` / `unknown` / `nothing_to_replicate` — with the magnitude, not a
+  boolean. **Configuration is not replication, and only the first was answerable
+  before.** Measured across four practices: ~9,500 epistemic artifact refs had never
+  left the machine they were written on while `sync-status` reported healthy for
+  every one. An unreachable remote degrades to `unknown` *carrying the reason* —
+  never to zero (which would report a healthy seat as catastrophic) and never to
+  silence (which is the original defect). **The `replication` key is always
+  present**, including when nothing could be computed — an absent key cannot be
+  told apart from *computed and fine*, and an unconfigured remote is the default
+  state of every seat after the change above, so that was the common case at
+  rollout rather than an edge. `--local` skips the network call and says so.
+
+- **`doctor`: "Deployed plugin fresh"** — the Claude Code plugin is a COPY, so
+  `pip install -U` refreshes the package and leaves it untouched. The supervisor
+  backoff, the sentinel gate and the arming block all live in that copy: a release
+  that fixes them fixes nothing until it is synced, while every version surface
+  reports the new number. **`doctor` is deliberately exempt from the CLI's plugin
+  auto-heal** (it would re-enter), so the one verb you run to check install health
+  neither healed this nor reported it — and `diagnose` checks only that the plugin
+  files *exist*. It also surfaces the `.plugin_autosync_failed` breadcrumb, which
+  `cli_core` writes specifically so doctor can show it and nothing did. Reports,
+  never heals.
+
+- **`trajectory_path` now has one spelling.** `global_projects.trajectory_path` is
+  declared `TEXT NOT NULL UNIQUE`, and callers walked past that by spelling the same
+  directory two ways — `str(project_path / ".empirica")` and `str(git_root)`. SQLite
+  compares strings, so a project registered by both routes produced **two rows** and
+  the constraint never fired. Normalised at both write sites via
+  `empirica.config.path_resolver.canonical_trajectory_path`. **The contract was
+  already documented** in the registration helper's own docstring — a docstring
+  stating a contract is not enforcement. Found by a peer auditing an unrelated orphan
+  report; a structural test now fails if any future writer of that table skips the
+  normaliser, which is how the second writer was caught.
+
+- **`doctor`: "CLI matches checkout"** — the `empirica` on PATH can be a snapshot
+  copy while you stand in a checkout, and **both report the same version**, so
+  `--version` matching is not evidence and never was. The cost is not a stale binary
+  but a *misattributed test result*: a practitioner ran a shipped fix against a copy
+  predating it, got pre-fix behaviour, and was one message from reporting the fix
+  broken. WARN, never FAIL — running a released copy on purpose is normal; not
+  knowing is not. `empirica --version` now also prints `Mode: editable/source` or
+  `copy (snapshot …)`.
+
+### Fixed
+
+- **`notes_remote` retargeted one verb and not the other.** `profile-sync`
+  resolved `notes_remote → remote → "forgejo"` while `sync-push`/`sync-pull` read
+  `remote` alone, so `sync-config notes_remote X` moved profile-sync's destination
+  and left sync-push pointing elsewhere. One key, two verbs, two destinations.
+  All four now resolve through one shared resolver (`empirica.core.sync_remotes`).
+- **`sync-status` ignored the configured remote.** It took its remote from args
+  with a literal default and never read the config, so a correctly-configured seat
+  was told it was unconfigured — sending the reader to re-do a write that had
+  already succeeded. The status verb is what someone consults to decide whether a
+  thing is working; when it is the wrong one it does not merely fail to inform.
+- **`sync-status` now distinguishes *unset* from *misconfigured*.** `remote: null`
+  (nobody chose one) and `remote: <name>, remote_configured: false` (chosen, but
+  not a git remote here) used to render identically and have opposite fixes. Code
+  and notes are also reported separately and never folded into one availability
+  flag — `sync-push` moves notes only.
+- **`sync-config <key> <value> --output human` raised `UnboundLocalError` on every
+  invocation.** The single-key path never computed the remote locals the human
+  renderer read unconditionally. Invisible because the default output is JSON, and
+  `--output human` is what a person reaches for exactly when they are unsure
+  whether the write landed.
+- **`sync-config` printed four valid keys while validating seven** —
+  `code_remote`, `notes_remote` and `auto_push_on` were settable and undocumented
+  at the point of use. The printed list is now derived from the validated one.
+- **Two hints advertised `empirica sync-config --set key=value`, a flag no parser
+  reads.** The verb takes positional `key value`.
+
 ## [1.13.34] - 2026-09-01
 
 Eight fixes with one shape: **a surface that reported success on the axis it

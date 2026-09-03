@@ -657,6 +657,13 @@ def _infer_project_name(repo_info: dict, strategy: str) -> str:
     return Path(repo_info["path"]).name
 
 
+#: Re-exported so this module's callers and tests keep one import site. The
+#: definition lives in `empirica.config.path_resolver` because the OTHER writer of
+#: `global_projects` is a data repository, and a normaliser only the CLI layer can
+#: import is the same defect with an extra step.
+from empirica.config.path_resolver import canonical_trajectory_path  # noqa: E402
+
+
 def _register_in_workspace_db(
     project_id: str,
     name: str,
@@ -694,6 +701,12 @@ def _register_in_workspace_db(
     """
     import sqlite3
     import time
+
+    # ONE SPELLING, normalised here rather than at each caller. The lookup below is a
+    # string equality on this column, so a caller passing the project root instead of
+    # its .empirica dir did not find the existing row and inserted a second one —
+    # past a UNIQUE constraint that only ever saw two different strings.
+    trajectory_path = canonical_trajectory_path(trajectory_path)
 
     workspace_db = Path.home() / ".empirica" / "workspace" / "workspace.db"
     if not workspace_db.parent.exists():
