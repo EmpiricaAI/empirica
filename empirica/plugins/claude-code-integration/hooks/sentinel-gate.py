@@ -918,6 +918,48 @@ def _is_single_statement(command: str) -> bool:
     return True  # unterminated heredoc: the body runs to the end, nothing follows
 
 
+# empirica's global options, which argparse requires BEFORE the subcommand
+# (cli_core.py: usage="empirica [--version] [--verbose] <command> [args]").
+# All three are value-less — `--version` is action="version", `--verbose`/`-v`
+# are store_true — so removing them can never swallow a following token the way
+# stripping a value-taking flag would.
+EMPIRICA_GLOBAL_FLAGS = ("--version", "--verbose", "-v")
+
+
+def _strip_empirica_global_flags(command: str) -> str:
+    """Normalize `empirica --verbose <verb> …` to `empirica <verb> …`.
+
+    The tier lists below are literal prefixes (`"empirica preflight-submit"`),
+    matched with `str.startswith`. A legal global flag between the binary and the
+    verb therefore fails EVERY prefix, and the command is judged unrecognized.
+
+    That is not a cosmetic miss. Measured while the firewall was wedged:
+
+        empirica --verbose preflight-submit -   → DENIED
+        empirica preflight-submit -             → ALLOWED   (identical payload)
+
+    The deny that fires in that state *names* `empirica preflight-submit -` as
+    the remedy, so the gate was refusing its own escape hatch — and `--verbose`
+    is precisely what someone adds when a command is behaving strangely, so the
+    failure selected against the person debugging it. Broccoli
+    *gate-gates-its-own-escape*: a recovery action must be reachable BEFORE the
+    gate, not only in its unadorned spelling.
+
+    Only the three known global flags are removed, and only in the leading run
+    before the verb. An unknown `--foo` is left in place, so this cannot be used
+    to smuggle an unrecognized option past the tier match.
+    """
+    parts = command.split()
+    if not parts or parts[0] != "empirica":
+        return command
+    i = 1
+    while i < len(parts) and parts[i] in EMPIRICA_GLOBAL_FLAGS:
+        i += 1
+    if i == 1:
+        return command  # nothing stripped — preserve original spacing exactly
+    return " ".join(["empirica", *parts[i:]])
+
+
 def is_safe_empirica_command(command: str) -> bool:
     """Tiered whitelist for empirica CLI commands.
 
@@ -927,7 +969,7 @@ def is_safe_empirica_command(command: str) -> bool:
     Toggle operations are NOT whitelisted here - they use self-exemption
     in the main gate logic to prevent prompt injection bypass.
     """
-    cmd = command.lstrip()
+    cmd = _strip_empirica_global_flags(command.lstrip())
     if not cmd.startswith("empirica "):
         return False
 

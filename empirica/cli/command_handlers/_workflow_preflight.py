@@ -297,11 +297,47 @@ def _preflight_promote_pending_calibration(resolved_project_path):
         logger.debug("calibration pending-promote skipped: %s", e)
 
 
+def _transaction_file_visible(project_path, transaction_id) -> bool:
+    """Is this transaction findable the way the Sentinel finds it?
+
+    The firewall does not read one known filename — it globs
+    ``active_transaction*.json`` and ranks candidates, because the instance
+    suffix rotates. So the honest check is "does any of those files carry my
+    transaction_id", not "does the file I expected to write exist".
+    """
+    try:
+        empirica_dir = Path(project_path) / ".empirica"
+        for tx_file in empirica_dir.glob("active_transaction*.json"):
+            try:
+                with open(tx_file) as f:
+                    if json.load(f).get("transaction_id") == transaction_id:
+                        return True
+            except Exception:
+                continue
+    except Exception:
+        return False
+    return False
+
+
+class TransactionFileNotWritten(Exception):
+    """The active_transaction file — the Sentinel firewall's ONLY input — was not written.
+
+    Raised rather than returned so the caller cannot mistake it for an ordinary
+    "no path resolved" and continue reporting success.
+    """
+
+
 def _preflight_write_transaction_file(session_id, transaction_id, parsed):
     """Persist active transaction file and enrich with work parameters.
 
     Includes session_id and project_path so operations work regardless of CWD.
-    Returns resolved_project_path or None.
+    Returns resolved_project_path.
+
+    Raises:
+        TransactionFileNotWritten: when no project_path can be resolved. This
+            used to `return None` behind a `logger.warning`, which is invisible
+            in normal CLI output — so PREFLIGHT printed ``ok: true`` with a
+            transaction_id while the firewall's only input did not exist.
     """
 
     from empirica.utils.session_resolver import update_active_context
@@ -310,8 +346,10 @@ def _preflight_write_transaction_file(session_id, transaction_id, parsed):
     claude_session_id = context.get("claude_session_id")
     resolved_project_path = context.get("project_path") or R.project_path(claude_session_id)
     if not resolved_project_path:
-        logger.warning("Cannot determine project_path for transaction file - no context found")
-        return None
+        raise TransactionFileNotWritten(
+            "cannot determine project_path (no claude_session_id in context and no registered "
+            "active work) — nowhere to write active_transaction.json"
+        )
 
     # Defer-to-boundary: promote any calibration override queued while a PRIOR
     # transaction was open (the extension's Sentinel-tuning pane queues rather
@@ -327,6 +365,18 @@ def _preflight_write_transaction_file(session_id, transaction_id, parsed):
         project_path=resolved_project_path,
         claude_session_id=claude_session_id,
     )
+
+    # Verify through the surface the CONSUMER reads, not the producer's receipt.
+    # `transaction_write` returns None and swallows its own IO errors, so a
+    # successful call is not evidence that a file exists. The Sentinel resolves
+    # by scanning `active_transaction*.json` for this transaction, so that is
+    # what gets checked here — a write that landed under an unexpected instance
+    # suffix still satisfies the firewall and must not be reported as a failure.
+    if not _transaction_file_visible(resolved_project_path, transaction_id):
+        raise TransactionFileNotWritten(
+            f"transaction_write reported no error but no active_transaction*.json under "
+            f"{resolved_project_path}/.empirica carries transaction_id={transaction_id}"
+        )
 
     _preflight_enrich_transaction_file(resolved_project_path, parsed)
 
@@ -1109,12 +1159,29 @@ def handle_preflight_submit_command(args):
             # and how you know it.
             preflight_claims = _preflight_declare_claims(session_id, transaction_id, parsed.get("claims"))
 
-            # Stage 3b: Persist transaction file
+            # Stage 3b: Persist transaction file.
+            #
+            # This was `except Exception -> logger.debug(...non-fatal...)`, and it
+            # is the opposite of non-fatal: this file is the ONLY input the
+            # Sentinel firewall reads. When the write failed, PREFLIGHT still
+            # printed ok:true with a transaction_id and a full patterns payload,
+            # while the gate stayed pinned to whatever stale transaction the file
+            # held — then denied every praxic call with "Epistemic loop closed.
+            # Run new PREFLIGHT", i.e. blamed the practitioner for not doing the
+            # thing they had just done. Observed: transaction fb91ce0b existed
+            # only in sessions.db-wal, with no active_transaction*.json anywhere.
+            #
+            # Still non-blocking — the DB transaction is real and callers without
+            # a firewall (CI, the API) must not be broken by a missing hook file.
+            # But it is now IMPOSSIBLE for it to fail invisibly: the failure rides
+            # out on the response as `firewall_warning`.
             resolved_project_path = None
+            transaction_file_error = None
             try:
                 resolved_project_path = _preflight_write_transaction_file(session_id, transaction_id, parsed)
             except Exception as e:
-                logger.debug(f"Active transaction file write failed (non-fatal): {e}")
+                transaction_file_error = f"{type(e).__name__}: {e}"
+                logger.warning("Active transaction file NOT written: %s", transaction_file_error)
 
             # Stage 4: Sentinel hook
             sentinel_decision = _invoke_sentinel_hook(
@@ -1189,6 +1256,27 @@ def handle_preflight_submit_command(args):
             # threaded through the builder's ten parameters.
             if preflight_claims:
                 result["claims"] = preflight_claims
+
+            # The firewall's only input did not land. Say so ON THE RESPONSE —
+            # a warning that exists solely in a debug log is the same silence
+            # with extra steps, and this one strands the practitioner in a deny
+            # whose stated remedy is the command that just "succeeded".
+            if transaction_file_error:
+                result["firewall_warning"] = {
+                    "transaction_file_written": False,
+                    "error": transaction_file_error,
+                    "impact": (
+                        "The Sentinel resolves the active transaction from "
+                        ".empirica/active_transaction*.json, not from the database. "
+                        "This transaction is open in the DB but INVISIBLE to the firewall, "
+                        "so praxic tool calls will be denied with 'Epistemic loop closed'."
+                    ),
+                    "recovery": (
+                        "Re-run PREFLIGHT from the project root. If it recurs, the transaction "
+                        "is still valid — pause the gate (empirica sentinel off) rather than "
+                        "abandoning the measurement window."
+                    ),
+                }
 
             # NOTE: Statusline cache was removed (2026-02-06). Statusline reads directly from DB.
         except Exception as e:
