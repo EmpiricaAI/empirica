@@ -5,7 +5,13 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.13.35] - 2026-09-03
+
+### Documentation
+
+- **A lesson is PERMANENT — said before someone writes one, not after.** The store
+  has no delete verb and four layers; authoring guidance now leads with that rather
+  than leaving it to be discovered.
 
 ### Changed — BREAKING (sync configuration)
 
@@ -88,6 +94,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `copy (snapshot …)`.
 
 ### Fixed
+
+- **`delete-artifacts` reported success while leaving the fact retrievable.** It
+  deleted the `_memory` vector and left the `_eidetic` mirror, so an artifact an
+  operator had been told was gone stayed semantically searchable — and Qdrant answers
+  a delete of a point that was never there with `completed`, so the call succeeding
+  proved nothing. It now reads before deleting and reports `deleted` / `absent` /
+  `unavailable` / `error` per collection. Its audit row was worse: the insert targeted
+  `project_decisions`, **a table that has never existed in the schema**, so every
+  write raised and was swallowed — a verb whose audit trail was empty for its entire
+  life. (#412, #413 — thanks @kars85)
+
+- **`NOETIC_MCP_CORTEX` was labelled "all read-only search/investigate"** above
+  `ingest_file`, `ingest_batch`, the artifact-log family and bus dispatch — all of
+  which write. The entries were honest; the header was not, and that set is what
+  someone auditing the noetic firewall reads. No membership changed: the header now
+  names the three kinds that live there and says membership is a **decision**, and a
+  test requires every entry to carry its own justification.
+
+- **A one-ref replication gap rendered as `(0%)`**, putting the prose in
+  contradiction with the categorical `behind` beside it. Now `<1%` — the integer
+  `behind` was always right and is what consumers should threshold on.
+
+- **`compliance-report`'s verdict was header-only**, so `| tail` showed a frameworks
+  banner that looks like a summary and carries no outcome. A practitioner read the
+  tail, saw only passing rows, and reported "all controls pass" while lint and
+  complexity were failing above the fold. The footer now repeats the verdict, **names**
+  the failures rather than counting them, and lists `unavailable` separately so a
+  skipped check is never folded into the pass count.
+
+- **Lesson `tags` were uncorrectable**, and enabling them exposed a bind that had
+  worked by coincidence: `update_metadata` bound raw values, which sqlite3 cannot do
+  for a list.
+
+- **The file-source API route guarded `.resolve()` and left four sibling calls bare**,
+  and the `read_bytes()` fallback sat *inside* an except handler where no sibling
+  `except OSError` could reach it.
+
+- **A subscribe test bet on scheduler latency** and failed on a loaded machine.
 
 - **`notes_remote` retargeted one verb and not the other.** `profile-sync`
   resolved `notes_remote → remote → "forgejo"` while `sync-push`/`sync-pull` read
