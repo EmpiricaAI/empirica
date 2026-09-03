@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The criterion vocabulary can finally say what practitioners were already trying
+  to say.** Measured across 59 practice databases: 5,462 of 5,484 success criteria
+  (99.6%) carried `validation_method: completion` — including 2,473 authored
+  conditions like *SSH password auth disabled* that no subtask ratio can judge. The
+  field was degenerate, not unused: one value because there was one choice. New
+  methods, derived from a corpus pass rather than invented: `tests_pass`
+  (`test_pass_rate` ≥ threshold), `committed` (`commit_count` ≥ threshold — a count,
+  not a ratio), `artifact_exists` (the description IS a path), and `prose` /
+  `undetermined` so an uncheckable done-condition is *declared* rather than stamped
+  with a lie. Two derived axes deliberately absent, pinned by test: `count_threshold`
+  is `quality_gate` under another name, and `no_regression` needs baseline machinery
+  that does not exist. Every new evaluator is observed both passing and FAILING in
+  tests, and absent evidence (no pytest report, work outside git) skips with a
+  reason — never a pass, never a confident wrong answer.
+
+- **`/pre-action-grounding` skill — the protocol's core-side surface.** Decompose →
+  investigate → grade (`read`/`ran`/`retrieved`/`assumed`, the CHECK vocabulary
+  reused) → ask only the load-bearing assumed residue (0–2 questions) → bank the rest
+  as `assumption-log` → emit a goal whose criteria are typed where an evaluator
+  reaches and honestly prose where none can. Built for requesters who don't volunteer
+  the *why* or the done-condition; the Cowork half ships from cortex on the same
+  substrate.
+
 - **`provides.declined` — a practice can say what it is NOT for.** `requires` got a
   third state; `provides` did not, so an exclusion could only be a YAML comment.
   **The wrong answer costs more here:** a wrong `requires` produces a missing file
@@ -21,6 +44,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `skills`, which exists on both blocks meaning different things.
 
 ### Fixed
+
+- **The Sentinel firewall could wedge with its own remedy denied.** Two halves of one
+  observed incident. PREFLIGHT returned `ok: true` with a transaction_id while the
+  `active_transaction*.json` — the firewall's ONLY input — was never written: the
+  write sat behind `except → logger.debug("…non-fatal…")`, so the gate stayed pinned
+  to a stale closed transaction and denied every praxic call with *run new
+  PREFLIGHT*, blaming the practitioner for the thing they had just done. The write
+  now raises on an unresolvable path, is verified through the surface the firewall
+  actually reads, and a failure rides out on the response as `firewall_warning` with
+  impact and recovery. And the deny's named remedy was itself denied: the allow-list
+  matched literal prefixes, so `empirica --verbose preflight-submit -` — the exact
+  escape hatch, with the flag someone debugging adds — failed every prefix. Global
+  flags are now stripped before the tier match (only the three real ones, only
+  leading, with a negative control so `--wat` still fails).
+
+- **A command that printed an error could exit 0.** `handle_cli_error` returns None
+  and the dispatcher mapped None to success; an AST walk found **107 of 152** call
+  sites reporting an error and then falling off the end of their except block.
+  Observed twice on `goals-create` alone: a rejected criterion and a
+  UNIQUE-constraint save failure, both `❌`-printed, both rc 0 — a scripted caller
+  records a goal that does not exist. Fixed at the boundary (the report is recorded;
+  the dispatcher fails closed on it), not per-handler — patching 107 leaves the
+  108th to be written wrong. Explicit returns still win, `ok: true` still wins,
+  broken pipes stay exempt, and the record scopes to one dispatch so residue from an
+  earlier in-process command cannot fail a later clean one.
+
+- **`completion` criteria stopped over-claiming.** `SubtaskCompletionEvaluator.
+  applies()` was `return True`, so every authored prose criterion was scored as a
+  subtask ratio — the mechanical cause of the *task completion 0% vs threshold 100%*
+  nudge that fired on ~15 consecutive POSTFLIGHTs and was rightly ignored: it was
+  structurally incapable of saying anything else. It now claims only the auto-filled
+  sentinel, metric-named descriptions, and explicit thresholds; an unmatched
+  dispatch reports `passed: false, skipped: true` instead of `passed: true`, because
+  an unchecked criterion is not a met one. The vocabulary itself is now ONE constant
+  consumed by both validators (CLI and MCP) with a test against a second literal
+  copy reappearing.
 
 - **A project UUID skipped cross-project routing entirely.** The guard was
   `not _is_uuid(project_id)`, so passing a project's canonical UUID — the most
