@@ -56,6 +56,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   state of every seat after the change above, so that was the common case at
   rollout rather than an edge. `--local` skips the network call and says so.
 
+- **`doctor`: "Deployed plugin fresh"** — the Claude Code plugin is a COPY, so
+  `pip install -U` refreshes the package and leaves it untouched. The supervisor
+  backoff, the sentinel gate and the arming block all live in that copy: a release
+  that fixes them fixes nothing until it is synced, while every version surface
+  reports the new number. **`doctor` is deliberately exempt from the CLI's plugin
+  auto-heal** (it would re-enter), so the one verb you run to check install health
+  neither healed this nor reported it — and `diagnose` checks only that the plugin
+  files *exist*. It also surfaces the `.plugin_autosync_failed` breadcrumb, which
+  `cli_core` writes specifically so doctor can show it and nothing did. Reports,
+  never heals.
+
 - **`trajectory_path` now has one spelling.** `global_projects.trajectory_path` is
   declared `TEXT NOT NULL UNIQUE`, and callers walked past that by spelling the same
   directory two ways — `str(project_path / ".empirica")` and `str(git_root)`. SQLite

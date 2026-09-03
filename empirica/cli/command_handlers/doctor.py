@@ -423,6 +423,81 @@ def check_cli_matches_checkout(cwd: Path | None = None) -> Check:
     )
 
 
+def check_plugin_freshness() -> Check:
+    """Is the DEPLOYED Claude Code plugin the same version as the package?
+
+    The deployed plugin is a COPY. `pip install -U` refreshes the package and leaves
+    the copy untouched, so a box runs old hooks while every version surface reports
+    the new number. The supervisor backoff, the sentinel gate and the arming block all
+    live in that copy — a release that fixes them fixes nothing until it is synced.
+
+    **`doctor` is deliberately exempt from the CLI's plugin auto-heal** (it would
+    re-enter), which means the one verb a practitioner runs to check install health is
+    the one that neither heals this nor, until now, reported it. `diagnose` checks the
+    plugin files EXIST — presence only, so a plugin several minor versions behind
+    passes. Same presence-vs-freshness gap `check_empirica_mcp` closed above.
+
+    Also surfaces `.plugin_autosync_failed`. `cli_core` writes that breadcrumb
+    specifically so *"doctor/diagnose (and a human) surface this"* — and nothing did.
+    A failing self-heal is worse than an absent one: the debounce marker reads
+    "checked" while the box keeps running stale hooks.
+
+    Reports, never heals — a diagnostic that repairs what it measures cannot tell you
+    what it found.
+    """
+    plugin_dir = Path.home() / ".claude" / "plugins" / "local" / "empirica"
+    if not plugin_dir.exists():
+        return Check("Deployed plugin fresh", SKIP, "no Claude Code plugin installed — nothing to compare")
+
+    stamp_file = plugin_dir / ".plugin-version"
+    stamp = stamp_file.read_text().strip() if stamp_file.is_file() else None
+    try:
+        import empirica
+
+        pkg = empirica.__version__
+    except Exception:
+        pkg = None
+
+    failed = Path.home() / ".empirica" / ".plugin_autosync_failed"
+    data = {"plugin_dir": str(plugin_dir), "deployed": stamp, "package": pkg, "autosync_failed": failed.is_file()}
+
+    if failed.is_file():
+        return Check(
+            "Deployed plugin fresh",
+            WARN,
+            f"auto-sync FAILED: {failed.read_text().strip()[:180]}",
+            "empirica plugin-sync   — the self-heal errored, so the box is still on the old hooks "
+            "while the debounce marker reads 'checked'",
+            data=data,
+        )
+
+    if pkg is None:
+        return Check(
+            "Deployed plugin fresh", WARN, f"deployed {stamp or 'unstamped'}; package version unreadable", data=data
+        )
+
+    if stamp is None:
+        return Check(
+            "Deployed plugin fresh",
+            WARN,
+            f"deployed plugin carries NO version stamp (package {pkg}) — predates stamping, so it is old",
+            "empirica plugin-sync",
+            data=data,
+        )
+
+    if stamp != pkg:
+        return Check(
+            "Deployed plugin fresh",
+            WARN,
+            f"deployed {stamp}, package {pkg} — hooks, sentinel gate and arming block are the OLD copy",
+            "empirica plugin-sync   (or `empirica setup-claude-code --force`) — upgrading the package "
+            "does not refresh the deployed copy",
+            data=data,
+        )
+
+    return Check("Deployed plugin fresh", PASS, f"deployed {stamp} == package {pkg}", data=data)
+
+
 def check_claude_code_cli() -> Check:
     """`claude` CLI presence (optional — only needed for Claude Code users)."""
     path = _which("claude")
@@ -1427,6 +1502,7 @@ def run_all_checks(cwd: Path | None = None) -> list[Check]:
         check_empirica_cli(),
         check_cli_matches_checkout(cwd),
         check_empirica_mcp(),
+        check_plugin_freshness(),
         check_claude_code_cli(),
         check_git_present(),
         check_noetic_tools(),
