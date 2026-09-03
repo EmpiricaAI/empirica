@@ -969,8 +969,8 @@ def is_safe_empirica_command(command: str) -> bool:
     Toggle operations are NOT whitelisted here - they use self-exemption
     in the main gate logic to prevent prompt injection bypass.
     """
-    cmd = _strip_empirica_global_flags(command.lstrip())
-    if not cmd.startswith("empirica "):
+    raw = command.lstrip()
+    if not raw.startswith("empirica"):
         return False
 
     # NOTE: this answers "is this VERB safe?", not "is this whole command safe?".
@@ -985,14 +985,31 @@ def is_safe_empirica_command(command: str) -> bool:
     # quoted argument (e.g. `goals-archive --apply --reason "see --help"`) is part
     # of a larger token and does NOT false-match — that would wave a mutating
     # command through. On malformed quoting, skip this shortcut and fall through.
+    #
+    # ORDER MATTERS: this runs on the RAW command, before global-flag stripping.
+    # The first cut of the stripper ran first and ate `--version` out of the bare
+    # `empirica --version`, leaving `empirica` with no trailing space — so the
+    # version query, inert by definition, was DENIED. The token check must see
+    # what the user typed; the stripper exists only for the prefix tiers below.
     import shlex as _shlex
 
     try:
-        _toks = _shlex.split(cmd)
+        _toks = _shlex.split(raw)
     except ValueError:
         _toks = []
-    if {"--help", "-h", "--version"} & set(_toks):
+    # First token must be exactly `empirica` — the loose startswith above admits
+    # `empiricafoo`, and running the token check on that would bless a different
+    # binary's --version. The old order got this for free from the trailing-space
+    # prefix; the reorder has to say it explicitly.
+    if _toks and _toks[0] == "empirica" and {"--help", "-h", "--version"} & set(_toks):
         return True
+
+    # Prefix tiers match `empirica <verb> ...` literally, so normalize the legal
+    # global flags (`--verbose`, `-v`) out of the way first — see
+    # `_strip_empirica_global_flags` for the wedge this prevents.
+    cmd = _strip_empirica_global_flags(raw)
+    if not cmd.startswith("empirica "):
+        return False
 
     # Tier 1: Read-only - always safe
     for prefix in EMPIRICA_TIER1_PREFIXES:

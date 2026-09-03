@@ -134,9 +134,20 @@ class TestHandoffCommands:
 class TestSessionCommands:
     """Test Session commands (4 commands)"""
 
-    def test_sessions_list_execution(self):
-        """Sessions-list runs without args (lists all sessions)"""
-        result = subprocess.run(["empirica", "sessions-list"], capture_output=True, timeout=5)
+    def test_sessions_list_execution(self, tmp_path):
+        """Sessions-list runs without args (lists all sessions).
+
+        Builds its database state under tmp_path instead of measuring the box.
+        The first version ran bare: green wherever a ~/.empirica existed, red in
+        CI where none does — and once error exit codes were fixed (a command
+        printing "no .empirica root found" used to exit 0), the difference
+        became visible as a CI-only failure. An empty registry IS a valid listing
+        (exit 0, zero rows); a missing database is not.
+        """
+        import os
+
+        env = {**os.environ, "HOME": str(tmp_path), "EMPIRICA_SESSION_DB": str(tmp_path / "sessions.db")}
+        result = subprocess.run(["empirica", "sessions-list"], capture_output=True, timeout=15, env=env)
         assert result.returncode == 0
 
     def test_sessions_show_help(self):
@@ -149,9 +160,15 @@ class TestSessionCommands:
         result = subprocess.run(["empirica", "sessions-export", "--help"], capture_output=True)
         assert result.returncode == 0
 
-    def test_sessions_resume_execution(self):
-        """Sessions-resume runs without args (shows available sessions)"""
-        result = subprocess.run(["empirica", "sessions-resume"], capture_output=True, timeout=5)
+    def test_sessions_resume_execution(self, tmp_path):
+        """Sessions-resume runs without args (shows available sessions).
+
+        Same box-independence fix as test_sessions_list_execution above.
+        """
+        import os
+
+        env = {**os.environ, "HOME": str(tmp_path), "EMPIRICA_SESSION_DB": str(tmp_path / "sessions.db")}
+        result = subprocess.run(["empirica", "sessions-resume"], capture_output=True, timeout=15, env=env)
         assert result.returncode == 0
 
 

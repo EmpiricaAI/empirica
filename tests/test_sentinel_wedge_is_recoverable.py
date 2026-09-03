@@ -102,6 +102,24 @@ def test_the_normalizer_preserves_a_command_it_does_not_touch(gate):
     assert gate._strip_empirica_global_flags(original) == original
 
 
+def test_bare_version_query_survives_the_stripping(gate):
+    """THE second regression — the fix's own CI failure. The first cut of the
+    stripper ran before the help/version token check and ate `--version` out of
+    `empirica --version`, leaving bare `empirica` — so the most inert command in
+    the CLI was DENIED. The token check must see what the user typed."""
+    assert gate.is_safe_empirica_command("empirica --version")
+    assert gate.is_safe_empirica_command("empirica goals-archive --help")
+
+
+def test_the_version_bypass_does_not_bless_other_binaries(gate):
+    """NEGATIVE CONTROL on the reorder. Checking tokens on the raw command sits
+    behind a loose startswith('empirica'), which admits `empiricafoo` — the old
+    order excluded that for free via the trailing-space prefix, so the reorder
+    must exclude it explicitly."""
+    assert not gate.is_safe_empirica_command("empiricafoo --version")
+    assert not gate.is_safe_empirica_command("empirica-evil --help")
+
+
 # ── half 1: a failed transaction-file write must be visible ──────────────────
 
 
