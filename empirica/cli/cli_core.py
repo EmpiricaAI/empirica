@@ -754,6 +754,17 @@ def main(args=None):
     """Main CLI entry point"""
     start_time = time.time()
 
+    # The reported-errors record scopes to ONE dispatch, so reset it here. It is
+    # process-global, and in-process callers (the test suite runs main() many
+    # times per worker; a future API/MCP host could too) otherwise accumulate
+    # residue: an error reported by an EARLIER command made a later, clean
+    # command exit 1 — green locally where each test forked, red in CI where
+    # the suite shares a process. The fail-closed guard in
+    # _handle_command_result must judge this command, not the process history.
+    from .cli_utils import reset_reported_errors
+
+    reset_reported_errors()
+
     _install_default_qdrant_resolver()
 
     parser = create_argument_parser()

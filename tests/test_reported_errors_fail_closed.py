@@ -51,6 +51,34 @@ def test_a_clean_none_return_still_exits_zero():
     assert _handle_command_result(None, _Args()) == 0
 
 
+def test_the_record_scopes_to_one_dispatch_not_the_process(monkeypatch):
+    """THE second regression — this guard's own CI failure. _ERROR_REPORTED is
+    process-global; the suite runs main() many times per worker, so an error
+    reported by an EARLIER command made a later, clean life-support dispatch
+    exit 1 (test_dispatch_survives_feature_verb_nameerror). Green locally where
+    tests forked, red in CI where the process is shared. main() must reset the
+    record at dispatch start: the guard judges THIS command, not history."""
+    from empirica.cli import cli_core
+
+    handle_cli_error(ValueError("residue from an earlier command"), "Earlier")
+
+    called = {}
+
+    def stub_doctor(_args):
+        called["doctor"] = True
+        return 0
+
+    monkeypatch.setattr(cli_core, "handle_doctor_command", stub_doctor)
+
+    import pytest as _pytest
+
+    with _pytest.raises(SystemExit) as exc:
+        cli_core.main(["doctor"])
+
+    assert called.get("doctor") is True
+    assert exc.value.code == 0, "residue from a previous dispatch leaked into this one"
+
+
 def test_an_explicit_nonzero_return_still_wins():
     handle_cli_error(ValueError("boom"), "x")
     assert _handle_command_result(3, _Args()) == 3
