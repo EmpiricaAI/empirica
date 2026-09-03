@@ -28,20 +28,67 @@ import sys
 _FORBIDDEN_AT_CLI_IMPORT = ("httpx", "git")
 
 
+#: Generous, because this is a cold interpreter start on a possibly-loaded box and
+#: the number is not what the test is about. One retry on top, since transient
+#: contention is legitimately retryable and a real eager import is not.
+_IMPORT_TIMEOUT_S = 300
+
+
 def _modules_after(import_target: str) -> set[str]:
-    """Return sys.modules keys after importing ``import_target`` in a fresh
-    interpreter. Isolated so the parent test process can't contaminate it."""
-    code = f"import {import_target}\nimport sys, json\nprint(json.dumps(sorted(sys.modules)))\n"
-    proc = subprocess.run(
-        [sys.executable, "-c", code],
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    assert proc.returncode == 0, f"importing {import_target} failed:\n{proc.stderr}"
+    """`sys.modules` keys after importing `import_target` in a fresh interpreter.
+
+    **A HARNESS failure must never render as a regression in the code under test.**
+
+    These two tests failed twice inside a concurrent full-suite run and blocked a
+    release cut. The import was never eager — verified nine times, standalone and
+    under load — so what failed was the measurement: a subprocess that could not
+    finish inside the timeout while two ~6,900-test suites competed for the box.
+
+    The old harness let that surface through assertions worded *"empirica.cli
+    eagerly imported httpx"*, so a resource failure accused the code of a
+    regression it had not made. That is the instrument-indistinguishable-from-the-
+    subject shape: the reader cannot tell "we could not measure" from "we measured
+    and it is broken", and only one of those is about the code.
+
+    So: retry once, then fail with a message that names the HARNESS and says the
+    result is inconclusive. Not a skip — a skip would let a genuine regression hide
+    behind a loaded machine, which is the opposite error and the more expensive one.
+    """
     import json
 
-    return set(json.loads(proc.stdout.strip().splitlines()[-1]))
+    code = f"import {import_target}\nimport sys, json\nprint(json.dumps(sorted(sys.modules)))\n"
+    last_exc: Exception | None = None
+    for attempt in (1, 2):
+        try:
+            proc = subprocess.run(
+                [sys.executable, "-c", code],
+                capture_output=True,
+                text=True,
+                timeout=_IMPORT_TIMEOUT_S,
+            )
+        except subprocess.TimeoutExpired as e:
+            last_exc = e
+            continue
+        if proc.returncode != 0:
+            raise AssertionError(
+                f"HARNESS FAILURE (attempt {attempt}), not an eager-import regression: the "
+                f"subprocess importing {import_target} exited {proc.returncode}. This says "
+                f"nothing about whether the import is lazy.\nstderr:\n{proc.stderr[-2000:]}"
+            )
+        try:
+            return set(json.loads(proc.stdout.strip().splitlines()[-1]))
+        except (ValueError, IndexError) as e:
+            raise AssertionError(
+                f"HARNESS FAILURE, not an eager-import regression: could not parse the module "
+                f"list for {import_target} ({e}).\nstdout tail:\n{proc.stdout[-800:]}"
+            ) from None
+
+    raise AssertionError(
+        f"HARNESS FAILURE, not an eager-import regression: importing {import_target} in a "
+        f"fresh interpreter exceeded {_IMPORT_TIMEOUT_S}s on BOTH attempts, so the lazy-import "
+        f"invariant could not be measured. This is a loaded machine, not a code change — "
+        f"re-run when the box is quiet. ({last_exc})"
+    )
 
 
 def test_cli_import_does_not_pull_httpx():

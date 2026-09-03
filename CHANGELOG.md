@@ -5,6 +5,27 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **The release gate reported `1 failed` and never named the test.**
+  `compliance-report`'s pytest check emitted counts only, so a failure that blocked a
+  cut took a full manual re-run of a ~6,900-test suite to identify — **while the id
+  was in the pytest output the parser was reading and discarding.** Receipts now carry
+  `failed_tests`, the human tail prints them under the FAILED line, and a truncated
+  list says it was truncated.
+
+- **A lazy-import test blamed the code for the harness's own failure.**
+  `test_cli_lazy_imports` measures an ABSENCE by importing in a subprocess; under a
+  concurrent full-suite run the subprocess could not finish, and the failure surfaced
+  through an assertion worded *"empirica.cli eagerly imported httpx"*. The import was
+  never eager — verified nine times, standalone and under load. A resource failure
+  accused the code of a regression it had not made. The harness now retries once and,
+  if it still cannot measure, fails saying **HARNESS FAILURE, not an eager-import
+  regression** — not a skip, which would let a genuine regression hide behind a loaded
+  machine. A positive control asserts the instrument is still live.
+
 ## [1.13.35] - 2026-09-03
 
 ### Documentation

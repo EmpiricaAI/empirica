@@ -10,6 +10,7 @@ Machine-readable JSON + human-readable summary.
 import json
 import logging
 import os
+import re
 import subprocess
 import time
 from pathlib import Path
@@ -357,6 +358,25 @@ def _parse_pyright_result(raw: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+#: pytest's `FAILED path::test - reason` summary line, and the `--tb=line`
+#: `path:lineno: message` form. The gate runs with `--tb=line`, so both appear.
+_FAILED_RE = re.compile(r"^(?:FAILED\s+|ERROR\s+)(\S+)", re.M)
+
+
+def _failed_test_ids(output: str, limit: int = 25) -> list[str]:
+    """The failing test ids pytest already printed, which the parser used to drop.
+
+    Counting a failure and naming it are different products: a gate that says
+    `1 failed` sends the reader to re-run the suite to learn what the gate had in
+    hand. Truncated at `limit` with an explicit marker rather than silently — a
+    cut list that does not say it was cut is the same defect one layer down.
+    """
+    ids = list(dict.fromkeys(_FAILED_RE.findall(output or "")))
+    if len(ids) > limit:
+        return [*ids[:limit], f"... and {len(ids) - limit} more (truncated at {limit})"]
+    return ids
+
+
 def _parse_pytest_result(raw: dict[str, Any]) -> dict[str, Any]:
     """Parse pytest output."""
     if raw.get("error"):
@@ -391,6 +411,13 @@ def _parse_pytest_result(raw: dict[str, Any]) -> dict[str, Any]:
         "passed_count": passed_count,
         "failed_count": failed_count,
         "skipped_count": skipped_count,
+        # WHICH tests failed, not just how many. A release gate that reports
+        # `failed_count: 1` and nothing else is a number you cannot act on: the
+        # reader has to re-run the whole suite to learn what the gate already
+        # knew and discarded. Measured 2026-09-03 — a concurrency-coupled failure
+        # blocked a cut and identifying it needed a full manual re-run, because
+        # the id was in the output this parser was reading and threw away.
+        "failed_tests": _failed_test_ids(output),
         "status": "pass" if raw["passed"] else "fail",
         "duration_seconds": raw["duration_seconds"],
     }
@@ -1485,6 +1512,12 @@ def _print_human_report(report: dict[str, Any]) -> None:
     print(f"  RESULT: [{icon}]  {overall['score']:.0%} ({overall['checks_passed']}/{overall['checks_total']})")
     if failed:
         print(f"  FAILED: {', '.join(failed)}")
+        # And WHICH ones, where the check knows. Naming the failing check is the
+        # first hop; a `tests` failure still leaves the reader re-running the suite
+        # unless the ids come with it.
+        for check in report["checks"]:
+            for name in check.get("failed_tests") or []:
+                print(f"          ↳ {name}")
     if unavailable:
         # Listed separately and never folded into the pass count. A skipped check
         # cannot fail, so counting it as a pass is how an exemption reports clean
