@@ -40,6 +40,16 @@ VALID_VALIDATION_METHODS: tuple[str, ...] = (
     "metric_threshold",
     "prose",
     "undetermined",
+    # Corpus-derived (a regex pass over the 2,473 authored criteria found people
+    # already trying to say these): each maps onto evidence the collector
+    # already gathers, so the evaluators are lookups, not new machinery.
+    "tests_pass",  # test_pass_rate >= threshold (default 1.0)
+    "committed",  # commit_count >= threshold (default 1)
+    "artifact_exists",  # description IS a path; passes iff it exists
+    # Deliberately absent: `count_threshold` (that IS quality_gate — a synonym
+    # would be one question wearing two names) and `no_regression` (means "no
+    # worse than BASELINE", and no baseline machinery exists — an absolute
+    # threshold would answer a different question under the criterion's name).
 )
 
 

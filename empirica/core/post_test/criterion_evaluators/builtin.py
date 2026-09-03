@@ -242,6 +242,111 @@ class EvidenceMetricEvaluator:
         )
 
 
+class BundleMetricThresholdEvaluator:
+    """Shared engine for methods that are one named bundle metric vs a threshold.
+
+    `tests_pass` and `committed` are corpus-derived: a regex pass over the 2,473
+    authored criteria found test/suite language in 18% and commit/ship language
+    in 4% — people were already trying to SAY these, with no method to say them
+    in. Each maps onto evidence the collector already gathers, so the evaluator
+    is a lookup, not new measurement machinery.
+
+    Two derived axes were deliberately NOT added:
+    - `count_threshold` IS `quality_gate` (a named metric vs a threshold) — a
+      synonym would be one question wearing two names, the inverse of the
+      one-predicate-two-questions defect this widening fixes.
+    - `no_regression` means "no worse than BASELINE", and no baseline machinery
+      exists. Mapping it onto an absolute threshold would answer a different
+      question under the criterion's name — the exact over-claiming applies()
+      was just narrowed to remove.
+
+    `applies()` requires the metric to be present in the bundle, so an absent
+    evidence source (pytest report not configured, work outside a git repo)
+    surfaces as SKIPPED with the registry's did-not-apply reason — never as a
+    pass, never as a confident wrong answer.
+    """
+
+    def __init__(self, validation_method: str, metric: str, default_threshold: float, direction: str):
+        self.validation_method = validation_method
+        self._metric = metric
+        self._default_threshold = default_threshold
+        self._direction = direction
+
+    def applies(self, ctx: CriterionContext) -> bool:
+        return ctx.evidence.has(self._metric)
+
+    def evaluate(self, ctx: CriterionContext) -> CriterionResult:
+        threshold = ctx.criterion.threshold if ctx.criterion.threshold is not None else self._default_threshold
+        value = ctx.evidence.get(self._metric)
+        if value is None:  # has() raced or returned a non-scalar — skip honestly
+            return CriterionResult(
+                criterion_id=ctx.criterion.id,
+                goal_id=ctx.goal.id,
+                validation_method=self.validation_method,
+                passed=False,
+                skipped=True,
+                threshold=threshold,
+                summary=f"metric {self._metric!r} present but carries no scalar value",
+            )
+        if self._direction == "lower_is_better":
+            passed = value <= threshold
+            op = "<="
+        else:
+            passed = value >= threshold
+            op = ">="
+        return CriterionResult(
+            criterion_id=ctx.criterion.id,
+            goal_id=ctx.goal.id,
+            validation_method=self.validation_method,
+            passed=passed,
+            value=value,
+            threshold=threshold,
+            summary=f"{self._metric}={value:g} {op} {threshold:g}",
+            iteration_needed=(not passed and ctx.criterion.is_required),
+            next_transaction=f"{self.validation_method} criterion unmet ({self._metric}={value:g})"
+            if not passed
+            else None,
+        )
+
+
+class ArtifactExistsEvaluator:
+    """Evaluate `artifact_exists` criteria: the description IS a file path.
+
+    Same contract shape as `quality_gate` (whose description IS a metric name):
+    the description carries the operand, not prose about it. Relative paths
+    resolve against the current working directory — POSTFLIGHT runs at the
+    project root.
+
+    3% of authored criteria were file/artifact-existence claims with no way to
+    check them. This is the only new evaluator that measures something the
+    evidence bundle does not carry, and the measurement is a stat call.
+    """
+
+    validation_method = "artifact_exists"
+
+    def applies(self, ctx: CriterionContext) -> bool:
+        # A path has no spaces-with-sentence shape; a prose sentence stuffed in
+        # here should skip, not be stat()ed as a filename.
+        desc = (ctx.criterion.description or "").strip()
+        return bool(desc) and "\n" not in desc and len(desc.split()) == 1
+
+    def evaluate(self, ctx: CriterionContext) -> CriterionResult:
+        from pathlib import Path
+
+        target = Path((ctx.criterion.description or "").strip())
+        exists = target.exists()
+        return CriterionResult(
+            criterion_id=ctx.criterion.id,
+            goal_id=ctx.goal.id,
+            validation_method=self.validation_method,
+            passed=exists,
+            value=1.0 if exists else 0.0,
+            summary=f"{target} {'exists' if exists else 'MISSING'}",
+            iteration_needed=(not exists and ctx.criterion.is_required),
+            next_transaction=f"Produce {target}" if not exists else None,
+        )
+
+
 # Auto-register on import. New built-ins: append register() calls below.
 register(SubtaskCompletionEvaluator())
 register(EvidenceMetricEvaluator())
@@ -254,3 +359,9 @@ register(ProseCriterionEvaluator())
 _undetermined = ProseCriterionEvaluator()
 _undetermined.validation_method = "undetermined"
 register(_undetermined)
+
+# Corpus-derived methods over existing evidence. Metric names verified against
+# the collector's emitted metric_name= set, not assumed.
+register(BundleMetricThresholdEvaluator("tests_pass", "test_pass_rate", 1.0, "higher_is_better"))
+register(BundleMetricThresholdEvaluator("committed", "commit_count", 1.0, "higher_is_better"))
+register(ArtifactExistsEvaluator())
