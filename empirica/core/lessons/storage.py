@@ -741,17 +741,13 @@ class LessonStorageManager:
         except Exception as e:
             layers["cold"] = f"unavailable: {e}"
 
-        # HOT (in-memory)
+        # HOT (in-memory) — the cache has no removal API, so reload it from the
+        # surviving layers. Stale-serving after a reported delete is the failure
+        # mode that matters here, not the missing method: a process that keeps
+        # recommending a lesson whose row is gone is this verb lying to itself.
         try:
-            removed = self._hot.remove_lesson(lesson_id) if hasattr(self._hot, "remove_lesson") else None
-            if removed is None:
-                # No removal API — reload from surviving layers so this process
-                # stops serving the deleted lesson. Stale-serving after a
-                # reported delete is the failure mode, not the missing method.
-                self._load_hot_cache()
-                layers["hot"] = "reloaded"
-            else:
-                layers["hot"] = "deleted" if removed else "absent"
+            self._load_hot_cache()
+            layers["hot"] = "reloaded"
         except Exception as e:
             layers["hot"] = f"unavailable: {e}"
 
