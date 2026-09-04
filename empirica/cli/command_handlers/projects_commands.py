@@ -20,6 +20,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import yaml
@@ -746,6 +747,17 @@ def handle_projects_sync_command(args) -> int | None:
             outcome["phases_skipped"].append("manifest_write")
             outcome["phases_skipped"].append("registry_upsert")
             outcome["phases_skipped"].append("cortex_post")
+            # `--publish --dry-run` must still PREVIEW. This early return is the
+            # whole dry-run path, so leaving phase 4 below it would make the
+            # flag's own help text — "honours --dry-run, previews by NAME" — an
+            # advertised no-op: documented, accepted, and silently discarded,
+            # which is worse than a missing feature because it fails quietly.
+            # forgejo-publish's own --dry-run returns before its POST, so this
+            # provisions nothing.
+            if getattr(args, "publish", False):
+                outcome["publish"] = _sync_phase4_forgejo_publish(args)
+            else:
+                outcome["phases_skipped"].append("forgejo_publish")
             _emit_sync_summary(outcome, output_format, dry_run=True)
             return
 
@@ -773,11 +785,21 @@ def handle_projects_sync_command(args) -> int | None:
         # ── Phase 3: Cortex POST (unless --no-cortex) ──────────────
         if no_cortex:
             outcome["phases_skipped"].append("cortex_post")
-            _emit_sync_summary(outcome, output_format, dry_run=False)
-            return
+        else:
+            outcome["cortex"] = _sync_phase3_cortex_post(args, output_format)
 
-        outcome["cortex"] = _sync_phase3_cortex_post(args, output_format)
+        # ── Phase 4: Forgejo publish (OPT-IN via --publish) ────────
+        if getattr(args, "publish", False):
+            outcome["publish"] = _sync_phase4_forgejo_publish(args)
+        else:
+            outcome["phases_skipped"].append("forgejo_publish")
+
         _emit_sync_summary(outcome, output_format, dry_run=False)
+        if outcome.get("publish", {}).get("failed"):
+            # AND-of-all, same rule the registry phase already follows: a
+            # provisioning failure inside a rollup that reports OK is a partial
+            # success wearing a clean status.
+            return 1
     except Exception as e:
         # EXIT NON-ZERO, and honour the output contract while failing.
         #
@@ -796,6 +818,69 @@ def handle_projects_sync_command(args) -> int | None:
         else:
             handle_cli_error(e, "projects-sync")
         return 1
+
+
+def _sync_phase4_forgejo_publish(args) -> dict[str, Any]:
+    """Provision a managed Forgejo remote per registered project and push it.
+
+    David's ask: practitioners get their projects onto forgejo via
+    `projects-sync`, with the remotes created and push wired — but only where
+    the user has a cortex account and the remotes exist.
+
+    **A loop over `forgejo-publish`, not new provisioning code.** That verb
+    already mints the remote, wires the push, gates on cortex credentials and
+    carries a `--dry-run` that names the target. Reimplementing any of it here
+    would be a second source of truth for how a repo gets provisioned, and the
+    two would drift in the direction where a fix lands in one.
+
+    OPT-IN, and the reason is not ceremony: creating repositories on shared
+    infrastructure is irreversible from the CLI's side, so it must never be a
+    side effect of a routine sync. `--dry-run` previews by NAME — a count is
+    unreviewable, and the value of the preview is seeing the scratch directory
+    nobody meant to publish.
+    """
+    from empirica.cli.command_handlers.forgejo_commands import handle_forgejo_publish_command
+
+    dry_run = bool(getattr(args, "dry_run", False))
+    projects = _load_projects_for_register(None, from_discovered=False) or []
+
+    includes = getattr(args, "includes", None) or []
+    excludes = getattr(args, "excludes", None) or []
+    if includes or excludes:
+        try:
+            projects = filter_projects(projects, includes=includes, excludes=excludes)
+        except re.error as e:
+            print(f"⚠ Invalid filter regex: {e}", file=sys.stderr)
+            return {"published": 0, "failed": 0, "results": [], "error": f"invalid filter regex: {e}"}
+
+    results: list[dict[str, Any]] = []
+    for proj in projects:
+        path = proj.get("path") or proj.get("project_path")
+        name = proj.get("name") or proj.get("project_id") or path
+        if not path:
+            # A registry row with no path cannot be published, and skipping it
+            # silently would make the count disagree with the registry.
+            results.append({"project": name, "ok": False, "reason": "registry row carries no path"})
+            continue
+
+        pub = SimpleNamespace(path=path, output="json", dry_run=dry_run)
+
+        try:
+            code = handle_forgejo_publish_command(pub)
+            results.append({"project": name, "path": path, "ok": code == 0, "dry_run": dry_run})
+        except Exception as e:
+            # One project's failure must not abandon the rest, and must not
+            # vanish either — the rollup below is AND-of-all.
+            results.append({"project": name, "path": path, "ok": False, "reason": str(e)})
+
+    published = sum(1 for r in results if r.get("ok"))
+    return {
+        "dry_run": dry_run,
+        "considered": len(projects),
+        "published": published,
+        "failed": len(results) - published,
+        "results": results,
+    }
 
 
 def _sync_phase3_cortex_post(args, output_format: str) -> dict[str, Any] | None:
@@ -865,6 +950,12 @@ def _emit_sync_summary(outcome: dict[str, Any], output_format: str, *, dry_run: 
             "cortex": outcome["cortex"],
             "phases_skipped": outcome["phases_skipped"],
         }
+        # Surfaced, not merely computed. Phase 4 ran, filled `outcome["publish"]`
+        # and the summary dropped it on the floor — a result the caller cannot
+        # see is a result that did not happen, which is the defect this file's
+        # own error branch was already fixed for once.
+        if outcome.get("publish") is not None:
+            payload["publish"] = outcome["publish"]
         sys.stdout.write(json.dumps(payload, indent=2) + "\n")
         return
 
@@ -904,6 +995,27 @@ def _emit_sync_summary(outcome: dict[str, Any], output_format: str, *, dry_run: 
     elif "cortex_post" in outcome["phases_skipped"]:
         reason = "(--no-cortex)" if not dry_run else "(dry-run)"
         print(f"⏭  Cortex POST skipped {reason}", file=sys.stderr)
+
+    pub = outcome.get("publish")
+    if pub:
+        verb = "would publish" if pub.get("dry_run") else "published"
+        print(
+            f"🌲 Forgejo: {verb} {pub['published']}/{pub['considered']}, {pub['failed']} failed",
+            file=sys.stderr,
+        )
+        # NAME the projects, both directions. On a dry run the name is the entire
+        # value of the preview — a count cannot show you the scratch directory
+        # nobody meant to publish. On a real run the failures are what someone
+        # acts on, and the cortex block above had to be fixed for exactly this.
+        for item in pub.get("results") or []:
+            if item.get("ok"):
+                if pub.get("dry_run"):
+                    print(f"      · {item.get('project', '<unnamed>')}", file=sys.stderr)
+            else:
+                detail = item.get("reason") or "no reason reported"
+                print(f"      ✗ {item.get('project', '<unnamed>')}: {detail}", file=sys.stderr)
+    elif "forgejo_publish" in outcome["phases_skipped"]:
+        print("⏭  Forgejo publish skipped (opt in with --publish)", file=sys.stderr)
 
 
 def handle_projects_list_command(args) -> None:

@@ -294,6 +294,18 @@ def add_projects_parsers(subparsers) -> None:
         ),
     )
     sync.add_argument(
+        "--publish",
+        action="store_true",
+        help=(
+            "Phase 4: provision a managed Forgejo remote for each registered "
+            "project and push it, via the same machinery as `forgejo-publish`. "
+            "OPT-IN — creating repositories on shared infrastructure is never a "
+            "side effect of a sync. Honours --dry-run, which previews the "
+            "projects by NAME so a scratch directory nobody meant to publish is "
+            "visible before it is."
+        ),
+    )
+    sync.add_argument(
         "--cortex-url",
         default=None,
         help="Override Cortex base URL (default: $CORTEX_REMOTE_URL).",
