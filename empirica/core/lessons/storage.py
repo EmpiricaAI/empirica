@@ -234,8 +234,37 @@ class LessonStorageManager:
         Create a new lesson across all layers.
 
         Returns dict with status and IDs.
+
+        REFUSES an existing id rather than replacing in place. The id is
+        md5(name + version), so re-creating under a used name+version used to
+        overwrite the original body silently — same id, same version, no history,
+        no recovery — on a store whose whole contract is that a lesson is
+        PERMANENT. A peer measured it before anyone was bitten across practices;
+        David ruled refuse. The two designed paths are named in the refusal:
+        bump `version` (new id; wire `--supersedes` so the old one stops
+        steering), or supersede under a new name.
         """
         start = time.time()
+
+        # 0. Refuse a silent replace. Warm layer is the existence oracle — the
+        # cold YAML can be hand-deleted, but a warm row means the store believes
+        # this lesson exists, and belief is what replacement would corrupt.
+        cursor = self._conn.cursor()
+        cursor.execute("SELECT name, version FROM lessons WHERE id = ?", (lesson.id,))
+        existing = cursor.fetchone()
+        if existing:
+            return {
+                "ok": False,
+                "lesson_id": lesson.id,
+                "error": (
+                    f"REFUSING to replace existing lesson {lesson.id} "
+                    f"({existing[0]!r} v{existing[1]}). Lessons are permanent; a re-create "
+                    "under the same name+version would overwrite the body in place with no "
+                    "history. If the content is WRONG, bump `version` and pass "
+                    "--supersedes <this id> so the old lesson stops steering work. "
+                    "If this is a different lesson, use a different name."
+                ),
+            }
 
         # 1. COLD layer - YAML file (full content)
         cold_path = self._write_cold(lesson)
@@ -658,6 +687,93 @@ class LessonStorageManager:
 
         out["updated"] = sorted(updates)
         return out
+
+    def delete_lesson(self, lesson_id: str) -> dict:
+        """Remove a lesson from every layer, reporting per-layer honestly.
+
+        Exists for TEST NOISE — probe rows that never carried a claim (David's
+        ruling 2026-09-04). A lesson that is WRONG is superseded, never deleted:
+        `--supersedes` retires it while keeping the record. This is the one
+        destructive path, and it mirrors the delete-artifacts lesson learned the
+        hard way (#413): a backend answers deletion of a point that was never
+        there with success, so each layer is READ before it is deleted and the
+        receipt says deleted / absent / unavailable per layer — a caller can see
+        exactly what existed, and a delete of nothing cannot report as a
+        cleanup.
+        """
+        layers: dict[str, str] = {}
+
+        # WARM (SQLite) — parent row + child tables. Read-back first.
+        try:
+            cursor = self._conn.cursor()
+            cursor.execute("SELECT 1 FROM lessons WHERE id = ?", (lesson_id,))
+            if cursor.fetchone():
+                for table in (
+                    "lesson_steps",
+                    "lesson_epistemic_deltas",
+                    "lesson_prerequisites",
+                    "lesson_corrections",
+                    "lesson_replays",
+                ):
+                    try:
+                        cursor.execute(f"DELETE FROM {table} WHERE lesson_id = ?", (lesson_id,))
+                    except Exception as child_err:
+                        # Older schema without the table is expected; anything
+                        # else must reach the receipt — an orphaned child row
+                        # after a "deleted" report is this verb lying.
+                        logger.debug("lesson child-table sweep skipped %s: %s", table, child_err)
+                cursor.execute("DELETE FROM lessons WHERE id = ?", (lesson_id,))
+                self._conn.commit()
+                layers["warm"] = "deleted"
+            else:
+                layers["warm"] = "absent"
+        except Exception as e:
+            layers["warm"] = f"unavailable: {e}"
+
+        # COLD (YAML)
+        try:
+            cold = self._cold_path / f"{lesson_id}.yaml"
+            if cold.exists():
+                cold.unlink()
+                layers["cold"] = "deleted"
+            else:
+                layers["cold"] = "absent"
+        except Exception as e:
+            layers["cold"] = f"unavailable: {e}"
+
+        # HOT (in-memory)
+        try:
+            removed = self._hot.remove_lesson(lesson_id) if hasattr(self._hot, "remove_lesson") else None
+            if removed is None:
+                # No removal API — reload from surviving layers so this process
+                # stops serving the deleted lesson. Stale-serving after a
+                # reported delete is the failure mode, not the missing method.
+                self._load_hot_cache()
+                layers["hot"] = "reloaded"
+            else:
+                layers["hot"] = "deleted" if removed else "absent"
+        except Exception as e:
+            layers["hot"] = f"unavailable: {e}"
+
+        # SEARCH (Qdrant) — read before delete; success on a no-op proves nothing.
+        if self._qdrant:
+            try:
+                import hashlib as _h
+
+                point_id = _h.md5(lesson_id.encode()).hexdigest()
+                found = self._qdrant.retrieve(collection_name=self._qdrant_collection, ids=[point_id])
+                if found:
+                    self._qdrant.delete(collection_name=self._qdrant_collection, points_selector=[point_id])
+                    layers["search"] = "deleted"
+                else:
+                    layers["search"] = "absent"
+            except Exception as e:
+                layers["search"] = f"unavailable: {e}"
+        else:
+            layers["search"] = "unavailable: no qdrant client"
+
+        existed = any(v == "deleted" for v in layers.values())
+        return {"ok": True, "lesson_id": lesson_id, "existed": existed, "layers": layers}
 
     def superseded_ids(self) -> dict[str, str]:
         """Lessons a newer lesson replaces: ``{superseded_id: superseding_id}``.

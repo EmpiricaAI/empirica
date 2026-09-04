@@ -1599,6 +1599,29 @@ def _delete_artifact_edges(cursor, artifact_id: str) -> int:
         return 0
 
 
+def _delete_foreign_lesson(lesson_id: str, dry_run: bool) -> dict:
+    """Delete one lesson through its own store, honoring dry-run.
+
+    The store's `delete_lesson` reads each layer before deleting and reports
+    deleted / absent / unavailable per layer — a delete of nothing cannot report
+    as a cleanup (#413's lesson, applied to lessons themselves).
+    """
+    try:
+        from empirica.core.lessons import get_lesson_storage
+
+        storage = get_lesson_storage()
+        existing = storage.get_lesson(lesson_id, layer="warm")
+        if existing is None:
+            return {"error": f"lesson: no lesson with id {lesson_id!r} in the warm layer"}
+        name = getattr(existing, "name", None) or "<unnamed>"
+        if dry_run:
+            return {"type": "lesson", "id": lesson_id, "action": "would_delete", "name": name}
+        result = storage.delete_lesson(lesson_id)
+        return {"type": "lesson", "id": lesson_id, "action": "deleted", "name": name, "layers": result["layers"]}
+    except Exception as e:
+        return {"error": f"lesson {lesson_id[:8]}: {e}"}
+
+
 def _delete_single_artifact(
     cursor, item: dict, project_id: str | None, dry_run: bool, project_path: str | None = None
 ) -> dict | None:
@@ -1636,13 +1659,15 @@ def _delete_single_artifact(
         # it". Answering the first with the second is what sent a practitioner
         # looking for a typo in a type the registry declares.
         if artifact_type in FOREIGN_STORE_TYPES:
-            return {
-                "error": (
-                    f"'{artifact_type}' is not stored in this database and cannot be deleted here. "
-                    "A lesson that is wrong is SUPERSEDED, not deleted — "
-                    "`lesson-create --supersedes <id>` retires it while keeping the record."
-                )
-            }
+            # `lesson` routes to the lesson store — for TEST NOISE only (David's
+            # ruling 2026-09-04: rows that never carried a claim may be deleted).
+            # A lesson that is WRONG is still SUPERSEDED, never deleted —
+            # `lesson-create --supersedes <id>` retires it while keeping the
+            # record — and the dry-run receipt is where an operator makes that
+            # judgment, same safety model as every other delete.
+            if artifact_type == "lesson":
+                return _delete_foreign_lesson(artifact_id, dry_run)
+            return {"error": (f"'{artifact_type}' is not stored in this database and no deleter is wired for it.")}
         return {
             "error": (
                 f"Unknown artifact type: '{artifact_type}'. Known: {', '.join(sorted(ARTIFACT_TABLES))}"
