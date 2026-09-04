@@ -493,6 +493,101 @@ def _handle_sync_push_command_helper(errors, output_format, push_results, remote
                 print(f"   Error: {err}")
 
 
+#: The note namespaces `sync-push` replicates, with their timeouts. This IS the
+#: replication contract — a namespace absent here never leaves the machine no
+#: matter how the remote is configured, which is why `session/*` questions get
+#: answered by reading this tuple rather than from memory (they live under
+#: `refs/notes/empirica/session/*`, so the wildcard already carries them).
+_PUSH_REFSPECS: tuple[tuple[str, str, int], ...] = (
+    ("empirica/*", "refs/notes/empirica/*:refs/notes/empirica/*", 60),
+    ("breadcrumbs", "refs/notes/breadcrumbs:refs/notes/breadcrumbs", 30),
+    ("empirica-precompact", "refs/notes/empirica-precompact:refs/notes/empirica-precompact", 30),
+)
+
+
+def _push_note_namespaces(remote: str) -> tuple[dict[str, bool], list[str]]:
+    """Push each note namespace. Returns (per-namespace exit-code result, errors).
+
+    Exit codes only — whether anything REPLICATED is `_verify_push_landed`'s
+    question, deliberately kept separate so the two are not confused again.
+
+    Errors from the secondary namespaces used to be swallowed entirely
+    (`except Exception: push_results[...] = False`), so a breadcrumbs push that
+    failed for a nameable reason reported the same as one that was never tried.
+    """
+    results: dict[str, bool] = {}
+    errors: list[str] = []
+    for name, refspec, timeout in _PUSH_REFSPECS:
+        try:
+            proc = subprocess.run(
+                ["git", "push", remote, refspec],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+            results[name] = proc.returncode == 0
+            if proc.returncode != 0 and proc.stderr:
+                errors.append(f"{name}: {proc.stderr.strip()}")
+        except subprocess.TimeoutExpired:
+            results[name] = False
+            errors.append(f"{name}: push timed out after {timeout}s")
+        except Exception as e:
+            results[name] = False
+            errors.append(f"{name}: {e}")
+    return results, errors
+
+
+def _verify_push_landed(remote: str, remote_before: int | None) -> tuple[dict[str, Any], bool]:
+    """Did the remote actually MOVE? Returns (verification, push_refuted).
+
+    `git push <remote> 'refs/notes/empirica/*:refs/notes/empirica/*'` with a
+    refspec matching nothing exits **0** and pushes **nothing** — from the exit
+    code alone, indistinguishable from replicating the whole graph. Two
+    practices carried five-figure local-only counts while every push had
+    "succeeded" (5,622 here, 3,617 on a peer's box — 69% of their graph).
+
+    So the verdict comes from counting the remote, not from git's mood.
+    `push_refuted` is True only for the case the exit code cannot express:
+    it returned success and the remote did not move.
+    """
+    local_total = _count_all_local_note_refs()
+    remote_after, after_err = _count_remote_notes(remote)
+    verification: dict[str, Any] = {
+        "local_refs": local_total,
+        "remote_before": remote_before,
+        "remote_after": remote_after,
+    }
+
+    if remote_after is None:
+        # Unreachable AFTER a push that reported success: unknown, carrying the
+        # reason. Degrading to zero would report a healthy seat as catastrophic;
+        # degrading to silence is the original defect.
+        verification["verdict"] = "unknown"
+        verification["reason"] = after_err or "remote unreachable after push"
+        return verification, False
+
+    verification["pushed"] = remote_after - remote_before if remote_before is not None else None
+
+    if remote_after >= local_total:
+        verification["verdict"] = "replicated"
+        return verification, False
+
+    if remote_before is not None and remote_after > remote_before:
+        verification["verdict"] = "partial"
+        verification["missing"] = local_total - remote_after
+        return verification, False
+
+    verification["verdict"] = "not_replicating"
+    verification["missing"] = local_total - remote_after
+    verification["error"] = (
+        f"git push reported success but the remote did not move: "
+        f"{local_total} local refs, {remote_after} on {remote}. "
+        f"A refspec matching nothing exits 0 — check that local refs exist under "
+        f"refs/notes/empirica/* and that {remote} accepts note refs."
+    )
+    return verification, True
+
+
 def handle_sync_push_command(args):
     """Handle sync push command - push all epistemic notes to remote"""
     try:
@@ -557,56 +652,34 @@ def handle_sync_push_command(args):
                         print(f"   refs/notes/{ref}: {count} notes")
             return 0
 
-        # Execute push
-        push_results = {}
-        errors = []
+        # Count the remote BEFORE, so success can be judged by whether the remote
+        # MOVED rather than by git's exit code. `git push <remote> 'refs/notes/
+        # empirica/*:refs/notes/empirica/*'` with a refspec that matches nothing
+        # local exits 0 and pushes nothing — indistinguishable, from the exit
+        # code alone, from a push that replicated the whole graph. Two practices
+        # measured five-figure local-only ref counts while every push had
+        # "succeeded": 5,622 here, 3,617 on a peer's box.
+        remote_before, _before_err = _count_remote_notes(str(remote))
 
-        # Push all empirica notes at once
-        try:
-            result = subprocess.run(
-                ["git", "push", remote, "refs/notes/empirica/*:refs/notes/empirica/*"],
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
-            push_results["empirica/*"] = result.returncode == 0
-            if result.returncode != 0 and result.stderr:
-                errors.append(f"empirica/*: {result.stderr.strip()}")
-        except subprocess.TimeoutExpired:
-            errors.append("Push timed out")
-        except Exception as e:
-            errors.append(str(e))
-
-        # Push breadcrumbs separately (different namespace)
-        try:
-            result = subprocess.run(
-                ["git", "push", remote, "refs/notes/breadcrumbs:refs/notes/breadcrumbs"],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            push_results["breadcrumbs"] = result.returncode == 0
-        except Exception:
-            push_results["breadcrumbs"] = False
-
-        # Push empirica-precompact separately
-        try:
-            result = subprocess.run(
-                ["git", "push", remote, "refs/notes/empirica-precompact:refs/notes/empirica-precompact"],
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            push_results["empirica-precompact"] = result.returncode == 0
-        except Exception:
-            push_results["empirica-precompact"] = False
-
+        push_results, errors = _push_note_namespaces(str(remote))
         success = push_results.get("empirica/*", False)
+
+        # VERIFY THROUGH THE REMOTE, not through the exit code. git having
+        # returned 0 says the command ran, not that anything replicated — so
+        # re-count and report what actually landed. `local` is every local note
+        # ref (the same counter sync-status uses); comparing against a
+        # namespace-scoped count is how an earlier version of this reporting
+        # printed REPLICATED while 5,622 refs were missing.
+        verification, push_refuted = _verify_push_landed(str(remote), remote_before)
+        if push_refuted and success:
+            errors.append(verification["error"])
+            success = False
 
         result = {
             "ok": success,
             "remote": remote,
             "push_results": push_results,
+            "verification": verification,
             "errors": errors if errors else None,
             "message": f"Pushed epistemic notes to {remote}" if success else "Push failed",
         }
