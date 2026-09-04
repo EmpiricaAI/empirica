@@ -56,7 +56,16 @@ ENVELOPE_VERSION = 1
 #: Every field a reader needs before it can route the packet at all.
 REQUIRED_FIELDS = ("envelope_version", "sender_seat", "table", "row", "updated_at")
 
+#: Where THIS seat's emissions live. Rides `refs/notes/empirica/*`, so outgoing
+#: CRM notes replicate through the refspec that already exists.
 NOTES_PREFIX = "empirica/crm"
+
+#: Where a PEER's fetched notes land. Deliberately outside `empirica/*`: fetching
+#: a peer's copy over the outgoing namespace would destroy the record of what
+#: this seat emitted, which is exactly what the sender's sync state reconciles
+#: against. Two namespaces, two questions — "what did I send" and "what arrived"
+#: — and collapsing them loses the first.
+INCOMING_PREFIX = "incoming/crm"
 
 
 class CrmEnvelopeError(ValueError):
@@ -134,20 +143,37 @@ def validate_envelope(payload: Any) -> dict[str, Any]:
     return payload
 
 
-def note_ref(table: str, row_id: str) -> str:
-    """`empirica/crm/<table>/<id>` — table is a PATH SEGMENT from the envelope.
+def note_ref(table: str, row_id: str, namespace: str = NOTES_PREFIX) -> str:
+    """`<namespace>/<table>/<id>` — BOTH segments are data, not literals.
 
-    Hardcoding `engagements` here is the mistake workspace warned about: it
-    would silently drop two of three tables while every push reported success.
+    Table is a path segment from the envelope: hardcoding `engagements` would
+    silently drop two of three tables while every push reported success.
+
+    Namespace is a parameter for the same reason one level up, and I got that
+    one wrong first. The original baked in `empirica/crm`, so a peer's fetched
+    notes — which must land OUTSIDE the outgoing namespace to avoid destroying
+    the record of what this seat emitted — were unaddressable through this API.
+    Workspace's pull path therefore bypassed core's transport entirely and read
+    notes via raw git, not by preference but because `read()` had no way to say
+    where to look. Same defect as the table literal, one level up: I avoided
+    hardcoding the value and hardcoded the container.
     """
-    return f"{NOTES_PREFIX}/{table}/{row_id}"
+    return f"{namespace}/{table}/{row_id}"
 
 
 class CrmNoteStore:
-    """Read/write CRM envelopes as git notes. No CRM knowledge beyond routing."""
+    """Read/write CRM envelopes as git notes. No CRM knowledge beyond routing.
 
-    def __init__(self, workspace_root: str | Path):
+    `namespace` selects WHICH side of the exchange this store addresses:
+    `NOTES_PREFIX` for this seat's emissions (the default, and what replicates),
+    `INCOMING_PREFIX` for a peer's fetched notes. One transport, both
+    directions — a store that could only address its own outgoing namespace
+    forced the receive side to reimplement note reading.
+    """
+
+    def __init__(self, workspace_root: str | Path, namespace: str = NOTES_PREFIX):
         self.workspace_root = Path(workspace_root)
+        self.namespace = namespace
 
     def _git(self, *args: str, check: bool = True) -> subprocess.CompletedProcess:
         return subprocess.run(
@@ -165,14 +191,14 @@ class CrmNoteStore:
     def write(self, envelope: dict[str, Any], row_id: str) -> str:
         """Persist one envelope. Returns the note ref written."""
         validate_envelope(envelope)
-        ref = note_ref(envelope["table"], row_id)
+        ref = note_ref(envelope["table"], row_id, self.namespace)
         self._git("notes", f"--ref={ref}", "add", "-f", "-m", json.dumps(envelope, indent=2), self._head())
         logger.info("CRM envelope written to %s", ref)
         return ref
 
     def read(self, table: str, row_id: str) -> dict[str, Any] | None:
         """Read one envelope back, or None when the ref does not exist."""
-        ref = note_ref(table, row_id)
+        ref = note_ref(table, row_id, self.namespace)
         proc = self._git("notes", f"--ref={ref}", "show", "HEAD", check=False)
         if proc.returncode != 0:
             return None
@@ -187,7 +213,7 @@ class CrmNoteStore:
 
     def list_refs(self, table: str | None = None) -> list[str]:
         """Every CRM note ref, optionally scoped to one table."""
-        prefix = f"refs/notes/{NOTES_PREFIX}/{table}/" if table else f"refs/notes/{NOTES_PREFIX}/"
+        prefix = f"refs/notes/{self.namespace}/{table}/" if table else f"refs/notes/{self.namespace}/"
         proc = self._git("for-each-ref", "--format=%(refname)", prefix, check=False)
         if proc.returncode != 0:
             return []

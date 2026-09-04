@@ -260,3 +260,61 @@ def test_list_refs_scopes_by_table(repo):
 
     assert len(store.list_refs()) == 2
     assert store.list_refs("contacts") == ["refs/notes/empirica/crm/contacts/c-1"]
+
+
+# ── both namespaces, one transport ───────────────────────────────────────────
+
+
+def test_incoming_notes_are_addressable():
+    """THE gap workspace hit. `read()` baked in `empirica/crm`, so a peer's
+    fetched notes — which must live OUTSIDE the outgoing namespace — could not
+    be addressed at all, and their pull path bypassed core's transport and read
+    notes via raw git. Not preference: the API had no way to say where to look."""
+    from empirica.core.canonical.empirica_git.crm_store import INCOMING_PREFIX
+
+    assert note_ref("contacts", "c-1", INCOMING_PREFIX) == "incoming/crm/contacts/c-1"
+
+
+def test_the_default_namespace_is_unchanged():
+    """NEGATIVE CONTROL: parameterizing must not move where emissions land, or
+    every already-written note becomes unreadable."""
+    assert note_ref("contacts", "c-1") == "empirica/crm/contacts/c-1"
+
+
+def test_incoming_is_OUTSIDE_the_replicating_wildcard():
+    """Deliberate and load-bearing. `incoming/crm/*` must NOT ride
+    `refs/notes/empirica/*`, or fetching a peer's notes would re-push them as
+    this seat's own emissions — laundering a peer's rows into our provenance."""
+    from empirica.core.canonical.empirica_git.crm_store import INCOMING_PREFIX, NOTES_PREFIX
+
+    assert not INCOMING_PREFIX.startswith("empirica/")
+    assert NOTES_PREFIX.startswith("empirica/")
+
+
+def test_one_store_serves_both_directions(repo):
+    """The point of the fix: the receive side no longer has to reimplement note
+    reading to address its own namespace."""
+    from empirica.core.canonical.empirica_git.crm_store import INCOMING_PREFIX
+
+    outgoing = CrmNoteStore(repo)
+    incoming = CrmNoteStore(repo, namespace=INCOMING_PREFIX)
+
+    outgoing.write(_env(table="contacts"), "c-mine")
+    incoming.write(_env(table="contacts"), "c-theirs")
+
+    assert outgoing.read("contacts", "c-mine") is not None
+    assert incoming.read("contacts", "c-theirs") is not None
+    # And they do NOT see each other — that separation is the whole reason the
+    # incoming namespace exists.
+    assert outgoing.read("contacts", "c-theirs") is None
+    assert incoming.read("contacts", "c-mine") is None
+
+
+def test_list_refs_is_namespace_scoped(repo):
+    from empirica.core.canonical.empirica_git.crm_store import INCOMING_PREFIX
+
+    CrmNoteStore(repo).write(_env(table="contacts"), "c-mine")
+    CrmNoteStore(repo, namespace=INCOMING_PREFIX).write(_env(table="contacts"), "c-theirs")
+
+    assert CrmNoteStore(repo).list_refs() == ["refs/notes/empirica/crm/contacts/c-mine"]
+    assert CrmNoteStore(repo, namespace=INCOMING_PREFIX).list_refs() == ["refs/notes/incoming/crm/contacts/c-theirs"]
