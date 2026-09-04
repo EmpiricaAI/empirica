@@ -82,32 +82,47 @@ _last_creds_error: str | None = None
 
 
 def _cortex_creds() -> tuple[str, str] | None:
-    """Resolve (url, api_key) via the standard CLI loader. None when missing."""
-    try:
-        from empirica.config.credentials_loader import get_credentials_loader
+    """Resolve (url, bearer) through the shared cortex credential contract.
 
-        cfg = get_credentials_loader().get_cortex_config()
+    Goes through :func:`cortex_bearer` rather than reading ``api_key`` off the
+    config, and that is the whole fix: the old form required an api_key, so an
+    **OAuth-only seat resolved no topic at all** and `empirica listener on`
+    failed with a message about cortex and topics while the seat was correctly
+    authenticated the whole time. Reported by mesh-support after the api_key
+    retirement moved seats onto daemon-brokered OAuth — this module was a
+    straggler on the old path.
+
+    `cortex_bearer` is OAuth-first with an api_key fallback, and it also skips a
+    key recorded as terminally dead, which this function could never see. The
+    previous version's own comment was about saying WHICH credential was
+    missing; it named the two states it knew (`no url`, `no api_key`) and could
+    not name the one that mattered.
+    """
+    global _last_creds_error
+    try:
+        from empirica.core.auth import cortex_bearer
+
+        creds = cortex_bearer()
     except Exception as e:
         logger.debug(f"notification-channels: cortex creds load failed: {e}")
+        _last_creds_error = f"cortex credential resolution failed: {e}"
         return None
-    url, key = cfg.get("url"), cfg.get("api_key")
-    if not url or not key:
-        # SAY WHICH. Returning a bare None here sent an OAuth-only seat on a
-        # false trail: with no api_key this function returned None, so
-        # fetch_notification_channels returned None with no exception, so the
-        # listener's `except` never fired, so nothing printed — and topic
-        # resolution failed onward into a message about cortex and topics while
-        # the true cause was a missing local credential. Measured on a real client
-        # box (facundo-wsl, 1.13.27) by mesh-support.
-        #
-        # The reason is EXPOSED rather than logged, because the consumer that
-        # needs it is a listener writing to stderr, not a log reader.
-        global _last_creds_error
-        _last_creds_error = "no cortex url configured" if not url else "no cortex api_key configured"
+
+    url, bearer = creds.get("url"), creds.get("bearer")
+    if not url or not bearer:
+        # SAY WHICH, and keep saying it — the reason is EXPOSED rather than
+        # logged because the consumer that needs it is a listener writing to
+        # stderr, not a log reader. `cortex_bearer` supplies `reason` when it
+        # SUPPRESSED a credential (a key recorded dead), which is a different
+        # state from having none and must not print as "not configured".
+        if not url:
+            _last_creds_error = "no cortex url configured"
+        else:
+            _last_creds_error = creds.get("reason") or "no cortex credential configured (no OAuth token, no api_key)"
         logger.debug(f"notification-channels: {_last_creds_error}")
         return None
     _last_creds_error = None
-    return url, key
+    return url, bearer
 
 
 def last_credentials_error() -> str | None:

@@ -105,14 +105,28 @@ def test_the_credentials_layer_reports_why_it_returned_nothing(monkeypatch):
         def get_cortex_config(self):
             return {"url": "https://cortex.example", "api_key": None}
 
+        def get_cortex_oauth(self):
+            return {}
+
+        def cortex_access_token(self, refresh=None):
+            return None
+
     # Patch the SOURCE module: `_cortex_creds` imports the loader inside the
     # function body, so the name never exists on `nc` and patching there is a
     # no-op that leaves the real loader in place — a fake aimed at the wrong
     # target, which fails identically to the feature being broken.
+    #
+    # The fake grew two OAuth methods because `_cortex_creds` now resolves via
+    # `cortex_bearer` — an api_key-only stub made the real resolver log a
+    # fallback warning while still producing the right answer, which is a fake
+    # too narrow for the contract it stands in for.
     monkeypatch.setattr(cl, "get_credentials_loader", lambda: _Loader())
 
     assert nc._cortex_creds() is None
-    assert nc.last_credentials_error() == "no cortex api_key configured"
+    # Message widened deliberately with the OAuth fix: a seat with neither an
+    # OAuth token nor an api_key used to be told only about the api_key, which
+    # is exactly what sent an OAuth-only seat to provision the wrong credential.
+    assert nc.last_credentials_error() == "no cortex credential configured (no OAuth token, no api_key)"
 
 
 def test_a_missing_url_is_distinguished_from_a_missing_key(monkeypatch):
