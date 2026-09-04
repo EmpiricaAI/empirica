@@ -499,11 +499,13 @@ def _handle_sync_push_command_helper(errors, output_format, push_results, remote
 #: answered by reading this tuple rather than from memory (they live under
 #: `refs/notes/empirica/session/*`, so the wildcard already carries them).
 _PUSH_REFSPECS: tuple[tuple[str, str, int], ...] = (
-    # `empirica/*` already carries `empirica/crm/<table>/<id>` — CRM envelopes
-    # ride the existing wildcard rather than earning their own refspec, which is
-    # what makes the transport free of a table vocabulary. A dedicated
-    # `crm/<table>` entry per table would put the table list in core, i.e. exactly
-    # the drift workspace asked me to avoid.
+    # This wildcard carries EPISTEMIC artifacts only. CRM rows are deliberately
+    # NOT here: a CRM-over-git-notes transport briefly rode this refspec and was
+    # ripped out on 2026-09-04, because notes are shaped for append-only
+    # per-practice claims and CRM rows are mutable shared state with one identity
+    # per real-world thing. Shared CRM identity lives in cortex postgres; what
+    # stays local is per-practice KNOWLEDGE about those entities, which is an
+    # epistemic artifact and does belong here.
     ("empirica/*", "refs/notes/empirica/*:refs/notes/empirica/*", 60),
     ("breadcrumbs", "refs/notes/breadcrumbs:refs/notes/breadcrumbs", 30),
     ("empirica-precompact", "refs/notes/empirica-precompact:refs/notes/empirica-precompact", 30),
