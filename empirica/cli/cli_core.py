@@ -261,9 +261,67 @@ def _get_version():
         if "site-packages" not in install_path and "dist-packages" not in install_path:
             mode = "editable/source"
 
-        return f"{version}\n{python_version}\nInstall: {install_path}\nMode: {mode}"
+        out = f"{version}\n{python_version}\nInstall: {install_path}\nMode: {mode}"
+        divergence = _import_path_divergence(install_path)
+        if divergence:
+            out += f"\n{divergence}"
+        return out
     except Exception:
         return "1.0.5 (version info unavailable)"
+
+
+def _import_path_divergence(cli_install_path: str) -> str | None:
+    """Warn when the ambient `python3` imports a DIFFERENT empirica than this CLI.
+
+    The Mode line above answers "what is this binary?" and cannot answer "what
+    does `import empirica` get?", because it runs inside the binary's own
+    interpreter. On a box with both a pipx snapshot and an editable checkout
+    those are two different codebases under one name, same shell, same PATH:
+
+        empirica --version           -> Mode: copy (pipx snapshot)
+        python3 -c "import empirica" -> the checkout on develop
+
+    Every python-level verification — a pytest run, a subprocess probe, an MCP
+    server importing empirica — can then silently exercise the OTHER codebase
+    from the one the Mode line just described. Two practitioners hit this from
+    opposite sides within days: one verified uncommitted fixes through the
+    snapshot CLI and read pre-fix behaviour as the fix failing; the other
+    diagnosed against the checkout while the CLI ran the release.
+
+    WARN, never fail: editable-import beside snapshot-CLI is a normal dev state.
+    Not knowing is the defect. Same posture as doctor's CLI-matches-checkout.
+
+    Fail-soft and bounded — a diagnostic that hangs on a slow interpreter is
+    worse than one that stays quiet.
+    """
+    import shutil
+    import subprocess
+    import sys
+
+    try:
+        ambient = shutil.which("python3") or shutil.which("python")
+        if not ambient or ambient == sys.executable:
+            return None  # nothing else to disagree with
+        probe = subprocess.run(
+            [ambient, "-c", "import empirica,sys; sys.stdout.write(empirica.__file__)"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if probe.returncode != 0 or not probe.stdout.strip():
+            return None  # ambient python cannot import empirica at all — not a divergence
+        other = probe.stdout.strip()
+        other_root = other.rsplit("/", 2)[0] if "/" in other else other
+        if other_root == cli_install_path:
+            return None
+        return (
+            f"⚠ import path DIVERGES: `{ambient} -c 'import empirica'` resolves\n"
+            f"  {other_root}\n"
+            f"  — a different codebase from this CLI. Python-level checks (pytest, "
+            f"subprocess probes, MCP servers) exercise THAT one."
+        )
+    except Exception:
+        return None
 
 
 #: Longer than this and an unrecognised argument's VALUE is elided from the error.
