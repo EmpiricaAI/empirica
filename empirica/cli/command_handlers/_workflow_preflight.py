@@ -971,8 +971,63 @@ def _preflight_retrieve_patterns(
 
         return patterns
     except Exception as e:
+        # RETRIEVAL BROKE. Do not return None — None is what an EMPTY graph
+        # returns, and collapsing the two lets a practice run with no retrieval
+        # at all and never learn it. Raising the reason to the caller is what
+        # makes `unavailable` distinguishable from `nothing to report`.
         logger.debug(f"Pattern retrieval failed (optional): {e}")
-        return None
+        return {"__retrieval_error__": f"{type(e).__name__}: {e}"}
+
+
+def _patterns_block(patterns) -> dict:
+    """ALWAYS a dict with an explicit `state`. Never None.
+
+    `patterns: null` meant three different things — retrieval raised, no
+    project/context to search on, or the graph genuinely had nothing — and a
+    practice could therefore run with **no retrieval at all and never learn it**.
+    The broken state and the healthy-but-empty state rendered identically, and
+    the broken one looked like the healthy one.
+
+    Unlike the write-side defects fixed this week, this one leaves NO RESIDUE:
+    nothing accumulates, so nothing can be enumerated afterwards to discover it
+    happened. A whole session of ungrounded work is indistinguishable from a
+    session that was correctly told the graph was empty.
+
+    Same shape already shipped three times here — sync's replication verdict,
+    doctor's SKIP-not-PASS, the compliance gate naming its failing tests: emit
+    the key always, carry an explicit state, and say WHY when degraded.
+
+    States:
+      ok          — retrieval ran and returned content
+      empty       — retrieval ran and the graph had nothing for this context
+      unavailable — retrieval could not run; `reason` says what failed
+    """
+    if isinstance(patterns, dict) and patterns.get("__retrieval_error__"):
+        return {
+            "state": "unavailable",
+            "reason": patterns["__retrieval_error__"],
+            "impact": (
+                "PREFLIGHT surfaced NO prior findings, dead-ends, mistakes or lessons — "
+                "not because none exist, but because retrieval failed. Treat this transaction "
+                "as ungrounded in the practice's history and re-run once the embedding "
+                "backend is reachable (check EMPIRICA_QDRANT_URL)."
+            ),
+        }
+
+    if patterns is None:
+        # No project_id or no search context — retrieval was never attempted.
+        # Distinct from both `empty` (it ran, found nothing) and `unavailable`
+        # (it ran and broke), because the remedy is different: supply context.
+        return {
+            "state": "not_attempted",
+            "reason": "no project_id or no task_context/reasoning to search on",
+        }
+
+    substantive = {k: v for k, v in patterns.items() if k not in ("time_gap", "retrieved_from", "_context_budget")}
+    if not any(substantive.values()):
+        return {"state": "empty", **patterns}
+
+    return {"state": "ok", **patterns}
 
 
 def _preflight_build_result(
@@ -1005,7 +1060,7 @@ def _preflight_build_result(
         else None,
         "previous_transaction_feedback": previous_transaction_feedback,
         "sentinel": sentinel_decision.value if sentinel_decision else None,
-        "patterns": patterns if patterns and any(patterns.values()) else None,
+        "patterns": _patterns_block(patterns),
         "unclosed_transaction_warning": unclosed_transaction_warning,
     }
     # Surfaced, not merely computed. A warning built and dropped is the defect

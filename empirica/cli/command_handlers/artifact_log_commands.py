@@ -34,6 +34,15 @@ def _suggest_links_safe(project_id: str | None, text: str, exclude_id: str) -> l
 
 logger = logging.getLogger(__name__)
 
+#: Where an artifact goes when NO resolver could name its project.
+#:
+#: A fixed, well-known id — deliberately not a hash of anything. Everything that
+#: cannot be placed lands in ONE bucket that an operator can list and a repair
+#: path can reattach, instead of a per-session collection nobody can find.
+#: Losing the artifact would be worse; losing track of where it went is what
+#: this constant prevents.
+UNRESOLVED_PROJECT_ID = "unresolved-project"
+
 
 _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
 _URL_RE = re.compile(r"https?://\S+", re.I)
@@ -524,9 +533,26 @@ def _resolve_project_id_for_artifact(project_id, session_id, db):
             pass
 
     if not project_id and session_id:
-        import hashlib
-
-        project_id = hashlib.md5(f"session-{session_id}".encode()).hexdigest()
+        # ONE sentinel, not a per-session hash.
+        #
+        # This was `md5(f"session-{session_id}")`, which INVENTED a project id.
+        # The fallback's purpose is sound — a session with no resolvable project
+        # should still be able to log something rather than lose the artifact —
+        # but a UNIQUE key per session means N unresolved sessions mint N Qdrant
+        # collections (`project_<md5>_eidetic`) that no reader can ever query,
+        # because no reader knows those ids. Measured: 6 such collections holding
+        # 45 points of real findings and dead-ends, growing from 3 the week
+        # before. Each was individually invisible.
+        #
+        # The harm was the UNIQUENESS, not the fallback. One well-known sentinel
+        # keeps the safety property and makes the residue a single queryable
+        # bucket an operator can audit and a repair path can reattach.
+        project_id = UNRESOLVED_PROJECT_ID
+        logger.warning(
+            "Artifact has no resolvable project — filing under %r. It is retrievable there, "
+            "but will NOT surface in any project's retrieval until reattached.",
+            UNRESOLVED_PROJECT_ID,
+        )
 
     _warn_if_cwd_project_differs(project_id)
     return project_id
