@@ -1,6 +1,6 @@
 # Empirica Documentation
 
-**Version:** 1.13.36 | **Status:** Production Ready
+**Version:** 1.13.37 | **Status:** Production Ready
 
 ---
 
