@@ -698,6 +698,21 @@ def add_checkpoint_parsers(subparsers):
         "--hard", action="store_true", help="Irreversible dependent-order cascade delete (requires --confirm)"
     )
     entity_delete_parser.add_argument("--confirm", action="store_true", help="Confirm an irreversible --hard delete")
+    # The project-delete refusal names `force` as the way through, and the
+    # handler reads `args.force` — but nothing put it on the parser, so
+    # `getattr(args, "force", False)` was permanently False and the escape the
+    # error message advertised could not be taken from the CLI at all. A deny
+    # whose stated remedy is unreachable is worse than one with no remedy: it
+    # reads as operator error rather than a missing flag.
+    entity_delete_parser.add_argument(
+        "--force",
+        action="store_true",
+        help=(
+            "Project deletes only: proceed despite remaining references or an unreachable "
+            "backend. The residue (orphaned Qdrant collections, dangling rows) becomes yours; "
+            "the refusal names exactly what you are overriding."
+        ),
+    )
     entity_delete_parser.add_argument("--dry-run", action="store_true", help="Preview the effect without mutating")
     entity_delete_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
 

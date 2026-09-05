@@ -168,3 +168,103 @@ def test_entity_delete_ROUTES_rather_than_reaching():
                     f"line {node.lineno}: entity_commands executes SQL against global_projects — "
                     "it must ROUTE to the project store, not REACH into its table"
                 )
+
+
+def test_an_UNREADABLE_SQL_TABLE_refuses_too_not_only_qdrant(repo, monkeypatch):
+    """The asymmetry that shipped: `unknown is not zero` held for ONE backend.
+
+    `project_references` catches a missing `entity_registry` (older schema) and
+    records the string "unavailable: OperationalError". The first refusal filter
+    scored anything that was not an int-or-list as 0, so that string read as "no
+    rows point here" and the delete PROCEEDED — while the Qdrant half of the same
+    function correctly refused on None.
+
+    A safety principle applied to the backend whose failure mode was in mind, and
+    not to the one that wasn't. Asserted per-backend rather than once, because a
+    single case would have passed against the broken version.
+    """
+    _no_qdrant(monkeypatch)
+    monkeypatch.setattr(
+        type(repo),
+        "project_references",
+        lambda self, pid: {
+            "entity_registry": "unavailable: OperationalError",
+            "entity_memberships": 0,
+            "qdrant_collections": [],
+        },
+    )
+
+    result = repo.delete_project("p-doomed")
+
+    assert result["ok"] is False, "an unreadable reference table must refuse, exactly as an unreachable Qdrant does"
+    assert result["deleted"] is False
+    assert "entity_registry" in result["unchecked"]
+    assert "unknown is not zero" in result["error"]
+    assert repo.get_project_by_id("p-doomed") is not None
+
+
+def test_the_refusal_names_BOTH_causes_when_both_apply(repo, monkeypatch):
+    """An if/else reported only the first cause, so resolving it hit the same
+    refusal again with no new information about why."""
+    _no_qdrant(monkeypatch)
+    monkeypatch.setattr(
+        type(repo),
+        "project_references",
+        lambda self, pid: {
+            "entity_registry": 2,
+            "entity_memberships": "unavailable: OperationalError",
+            "qdrant_collections": [],
+        },
+    )
+
+    err = repo.delete_project("p-doomed")["error"]
+
+    assert "entity_registry" in err, "the existing references must be named"
+    assert "entity_memberships" in err, "the UNCHECKED reference must be named in the same message"
+
+
+def test_a_clean_check_still_deletes(repo, monkeypatch):
+    """Positive control for the two refusals above.
+
+    Both assert that a delete is REFUSED. Against a delete_project that refused
+    unconditionally they would both pass, and the verb would be dead. Show the
+    same call succeeding on clean input before trusting either refusal.
+    """
+    _no_qdrant(monkeypatch)
+    monkeypatch.setattr(
+        type(repo),
+        "project_references",
+        lambda self, pid: {"entity_registry": 0, "entity_memberships": 0, "qdrant_collections": []},
+    )
+
+    result = repo.delete_project("p-doomed")
+
+    assert result["ok"] is True and result["deleted"] is True
+    assert repo.get_project_by_id("p-doomed") is None
+
+
+def test_the_force_escape_the_refusal_ADVERTISES_is_reachable_from_the_CLI():
+    """A deny whose stated remedy cannot be taken reads as operator error.
+
+    `delete_project` refuses and says "pass force to proceed"; the handler reads
+    `getattr(args, "force", False)`. Nothing added `--force` to the parser, so it
+    was permanently False and the advertised escape did not exist on the surface
+    the message was written for.
+
+    Asserted against the built parser rather than by grepping the source, because
+    the question is what the CLI ACCEPTS, not what a file mentions.
+    """
+    import argparse
+
+    from empirica.cli.parsers.checkpoint_parsers import add_checkpoint_parsers
+
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(dest="command")
+    add_checkpoint_parsers(subparsers)
+
+    args = parser.parse_args(["entity-delete", "project:p1", "--hard", "--confirm", "--force"])
+    assert args.force is True, "--force must reach the handler, not fall through to the getattr default"
+
+    # Positive control: the flag defaults off, so its presence is a real signal
+    # rather than a parser that accepts anything.
+    assert parser.parse_args(["entity-delete", "project:p1", "--hard", "--confirm"]).force is False

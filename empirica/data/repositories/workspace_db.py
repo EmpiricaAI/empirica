@@ -590,24 +590,49 @@ class WorkspaceDBRepository(BaseRepository):
         unknown is not zero.
         """
         refs = self.project_references(project_id)
-        blocking = {k: v for k, v in refs.items() if k != "qdrant_error" and (v if isinstance(v, (int, list)) else 0)}
-        qdrant_unknown = refs.get("qdrant_collections") is None
 
-        if (blocking or qdrant_unknown) and not force:
+        # Two things block, and they are DIFFERENT questions: a reference that
+        # exists, and a reference we could not ask about. Both must refuse.
+        #
+        # The first cut asked only the first question. It filtered on
+        # `v if isinstance(v, (int, list)) else 0`, so a SQL table that could not
+        # be read came back as the string "unavailable: OperationalError", failed
+        # the isinstance test, and was scored 0 — indistinguishable from "no rows
+        # point here". The Qdrant half of the very same function got this right
+        # and refused on None. So a box on an older schema, where
+        # `entity_registry` does not exist, would have deleted the project row
+        # with its references never checked, and reported a clean success.
+        #
+        # `unknown is not zero` has to hold for EVERY backend the check consults,
+        # not the one whose failure mode was in mind when it was written.
+        unknown = [k for k, v in refs.items() if k != "qdrant_error" and (v is None or isinstance(v, str))]
+        blocking = {k: v for k, v in refs.items() if isinstance(v, (int, list)) and v}
+
+        if (blocking or unknown) and not force:
+            # Name BOTH causes when both apply. The first cut used if/else, so a
+            # refusal that was partly "references exist" and partly "could not
+            # check" reported only the first — and an operator resolving the
+            # named references would hit the same refusal again with no new
+            # information about why.
+            reasons = []
+            if blocking:
+                reasons.append(f"references remain ({blocking})")
+            if unknown:
+                reasons.append(
+                    f"could not check {', '.join(unknown)} "
+                    f"({refs.get('qdrant_error') or 'see the references block'}) — unknown is not zero, "
+                    "and deleting on an unchecked reference is how orphans are made"
+                )
             return {
                 "ok": False,
                 "deleted": False,
                 "project_id": project_id,
                 "references": refs,
+                "unchecked": unknown,
                 "error": (
                     f"REFUSING to delete project {project_id}: "
-                    + (
-                        f"references remain ({blocking}). "
-                        if blocking
-                        else "Qdrant is unreachable so its collections could not be checked, and "
-                        "unknown is not zero — deleting now is how orphaned collections are made. "
-                    )
-                    + "Resolve them, or pass force to proceed and accept the residue."
+                    + "; ".join(reasons)
+                    + ". Resolve them, or pass force to proceed and accept the residue."
                 ),
             }
 
