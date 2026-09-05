@@ -96,6 +96,90 @@ def _wire_supersession(storage, new_id: str, supersedes: str | None) -> tuple[bo
     return False, f"supersedes: edge to {supersedes!r} could not be written"
 
 
+def _federate_now(lesson) -> dict:
+    """Push a just-authored lesson to the shared pool, and REPORT what happened.
+
+    Federation ran only in the POSTFLIGHT sweep. Between `lesson-create` and the
+    next POSTFLIGHT the lesson existed, carried `sharing_policy: org`, read as
+    shared in every local surface, and was invisible to every peer — with a
+    receipt that returned an id and said nothing about the pool. Handing that id
+    to a peer is the obvious next move and it failed for a window that closed at
+    POSTFLIGHT, or never, if the session ended without one. A peer's ingest of an
+    id published minutes earlier was correctly refused on 2026-09-05.
+
+    Three outcomes, all named, because the point of this block is that a caller
+    can tell them apart:
+
+      `not_requested`  private/project policy — nothing to publish, not a failure
+      `published`      in the pool now; the id is safe to hand to a peer
+      `deferred`       could NOT publish (Qdrant down, project unresolvable).
+                       The lesson is stored and the POSTFLIGHT sweep will retry.
+                       Reported, never swallowed — a silent failure here is
+                       indistinguishable from success to the one caller who
+                       cares, which is the practitioner about to share the id.
+    """
+    from empirica.core.qdrant.global_sync import FEDERATED_POLICIES
+
+    policy = getattr(lesson, "sharing_policy", None)
+    if policy not in FEDERATED_POLICIES:
+        return {
+            "state": "not_requested",
+            "sharing_policy": policy,
+            "detail": "policy is not federated — the lesson stays in this practice",
+        }
+
+    project_id = None
+    try:
+        from empirica.utils.session_resolver import InstanceResolver as R
+
+        ctx = R.context()
+        if ctx:
+            project_id = ctx.get("project_id")
+    except Exception as e:  # pragma: no cover - resolution failure is reported, not raised
+        return {
+            "state": "deferred",
+            "sharing_policy": policy,
+            "detail": f"could not resolve the current project ({type(e).__name__}: {e}) — POSTFLIGHT will retry",
+        }
+    if not project_id:
+        return {
+            "state": "deferred",
+            "sharing_policy": policy,
+            "detail": "no current project id — POSTFLIGHT will retry",
+        }
+
+    try:
+        from empirica.core.qdrant.global_sync import sync_lessons_to_global
+
+        out = sync_lessons_to_global(project_id)
+    except Exception as e:
+        return {
+            "state": "deferred",
+            "sharing_policy": policy,
+            "detail": f"pool sync failed ({type(e).__name__}: {e}) — POSTFLIGHT will retry",
+        }
+
+    if out.get("skipped_reason") or out.get("failed"):
+        return {
+            "state": "deferred",
+            "sharing_policy": policy,
+            "detail": (
+                "pool sync did not complete: "
+                + (
+                    out.get("skipped_reason")
+                    or f"{out.get('failed')} of {out.get('eligible')} lesson(s) failed to embed"
+                )
+            ),
+            "sync": out,
+        }
+    return {
+        "state": "published",
+        "sharing_policy": policy,
+        "detail": "in the shared pool — the id can be handed to a peer for --from-global",
+        "sync": out,
+    }
+
+
 def _ingest_from_global(lesson_id: str) -> tuple[dict | None, str | None]:
     """Pull a peer's shared lesson into this store, attributed and non-republishable.
 
@@ -367,6 +451,20 @@ def handle_lesson_create_command(args: Namespace) -> dict[str, Any]:
         supersedes = str(input_data.get("supersedes") or getattr(args, "supersedes", "") or "").strip() or None
         superseded_ok, supersede_error = _wire_supersession(storage, lesson.id, supersedes)
 
+        # Federate NOW when the author asked for it, and say what happened.
+        #
+        # Federation used to run only in the POSTFLIGHT sweep. Between create and
+        # POSTFLIGHT the lesson existed, carried `sharing_policy: org`, read as
+        # shared in every local surface, and was invisible to every peer — and
+        # the receipt handed back an id with nothing to indicate that. Sharing
+        # the id is the obvious next move and it was wrong for a window ending
+        # whenever the practitioner happened to POSTFLIGHT, or never. A peer
+        # ingesting an id I had just published got a correct refusal (2026-09-05).
+        #
+        # The sweep stays as the backstop: it also catches promotions made
+        # through `lesson-share`, and re-publishing is idempotent.
+        federation = _federate_now(lesson)
+
         # Return the STORED record, not a message. `ok: true` beside a
         # congratulatory string is not checkable; the caller had to read the
         # file back to discover the lesson was an empty shell. Echo what was
@@ -374,6 +472,7 @@ def handle_lesson_create_command(args: Namespace) -> dict[str, Any]:
         return {
             "ok": True,
             "lesson_id": lesson.id,
+            "federation": federation,
             "name": lesson.name,
             "version": lesson.version,
             # True = an existing lesson with this (name, version) was REPLACED.
