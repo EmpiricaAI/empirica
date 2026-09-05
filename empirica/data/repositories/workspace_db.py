@@ -536,6 +536,91 @@ class WorkspaceDBRepository(BaseRepository):
         )
         self.commit()
 
+    def project_references(self, project_id: str) -> dict[str, Any]:
+        """What still points at this project — SQL rows AND Qdrant collections.
+
+        The Qdrant half is not thoroughness for its own sake. Deleting a project
+        row while leaving its collections is precisely how orphaned collections
+        are minted: 13 of them, holding 264 points, were removed from this box on
+        2026-09-05, every one created by a registry row disappearing out from
+        under its vectors. A reference check that asks SQL and ignores Qdrant
+        would manufacture that residue deliberately, and report success.
+
+        Returns counts only — the caller decides what refusing means.
+        """
+        refs: dict[str, Any] = {"entity_registry": 0, "entity_memberships": 0, "qdrant_collections": []}
+
+        for table, column in (("entity_registry", "entity_id"), ("entity_memberships", "group_id")):
+            try:
+                row = self._execute(f"SELECT COUNT(*) FROM {table} WHERE {column} = ?", (project_id,)).fetchone()
+                refs[table] = row[0] if row else 0
+            except Exception as e:  # table may not exist on an older schema
+                refs[table] = f"unavailable: {type(e).__name__}"
+
+        # Qdrant is optional infrastructure — an unreachable backend must report
+        # UNKNOWN rather than zero, or "no collections found" becomes a licence
+        # to delete issued by a service that was never asked.
+        try:
+            import json as _json
+            import os as _os
+            import urllib.request as _url
+
+            base = _os.environ.get("EMPIRICA_QDRANT_URL", "http://localhost:6333")
+            with _url.urlopen(f"{base}/collections", timeout=5) as resp:
+                names = [c["name"] for c in _json.loads(resp.read())["result"]["collections"]]
+            refs["qdrant_collections"] = [n for n in names if n.startswith(f"project_{project_id}_")]
+        except Exception as e:
+            refs["qdrant_collections"] = None
+            refs["qdrant_error"] = f"{type(e).__name__}: {e}"
+
+        return refs
+
+    def delete_project(self, project_id: str, *, force: bool = False) -> dict[str, Any]:
+        """Remove a project from the global registry. REFUSES on live references.
+
+        This is the DELETE half of `upsert_project`, and it lives here for that
+        reason: whoever owns the write owns the delete. `entity-delete` routes to
+        this rather than reaching into `global_projects` itself — an index verb
+        that mutates a detail table has made itself an owner, which is the
+        boundary violation rather than the fix (ecodex, 2026-09-05).
+
+        Refusing NAMES what was found. `force=True` proceeds anyway but still
+        reports, because an operator who overrides a refusal should see exactly
+        what they overrode. An unreachable Qdrant always refuses without force:
+        unknown is not zero.
+        """
+        refs = self.project_references(project_id)
+        blocking = {k: v for k, v in refs.items() if k != "qdrant_error" and (v if isinstance(v, (int, list)) else 0)}
+        qdrant_unknown = refs.get("qdrant_collections") is None
+
+        if (blocking or qdrant_unknown) and not force:
+            return {
+                "ok": False,
+                "deleted": False,
+                "project_id": project_id,
+                "references": refs,
+                "error": (
+                    f"REFUSING to delete project {project_id}: "
+                    + (
+                        f"references remain ({blocking}). "
+                        if blocking
+                        else "Qdrant is unreachable so its collections could not be checked, and "
+                        "unknown is not zero — deleting now is how orphaned collections are made. "
+                    )
+                    + "Resolve them, or pass force to proceed and accept the residue."
+                ),
+            }
+
+        row = self._execute("SELECT COUNT(*) FROM global_projects WHERE id = ?", (project_id,)).fetchone()
+        if not row or not row[0]:
+            # Absent is not deleted. Reporting a no-op as a cleanup is the class
+            # this repo has removed repeatedly.
+            return {"ok": True, "deleted": False, "project_id": project_id, "reason": "no such project row"}
+
+        self._execute("DELETE FROM global_projects WHERE id = ?", (project_id,))
+        self.commit()
+        return {"ok": True, "deleted": True, "project_id": project_id, "references": refs, "forced": force}
+
     def update_project_stats(
         self,
         project_id: str,

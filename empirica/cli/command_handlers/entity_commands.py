@@ -653,6 +653,42 @@ def _parse_ref(ref: str | None) -> tuple[str | None, str | None]:
     return (t.strip() or None), (i.strip() or None)
 
 
+def _emit_delete_refusal(output: str, msg: str):
+    """Refuse a destructive op loudly and exit non-zero."""
+    print(
+        json.dumps({"ok": False, "error": msg}, indent=2) if output == "json" else f"❌ {msg}",
+        file=sys.stdout if output == "json" else sys.stderr,
+    )
+    sys.exit(2)
+
+
+def _render_project_delete(result: dict) -> None:
+    """Human view of a project delete. NAMES what blocked it, never just a count.
+
+    A refusal reading only "references remain" sends the operator hunting; the
+    whole value of the check is saying which lane still points at the project,
+    because SQL rows and Qdrant collections have different remedies.
+    """
+    refs = result.get("references") or {}
+    if result.get("dry_run"):
+        print(f"🔍 [DRY RUN] would delete project {result['project_id']}")
+    elif result.get("deleted"):
+        print(f"🗑  Deleted project {result['project_id']}" + (" (forced)" if result.get("forced") else ""))
+    elif result.get("ok"):
+        print(f"·  Nothing to delete: {result.get('reason', 'no row')}")
+    else:
+        print(f"❌ {result.get('error')}")
+
+    for lane in ("entity_registry", "entity_memberships"):
+        if refs.get(lane):
+            print(f"   {lane}: {refs[lane]} row(s) still referencing")
+    cols = refs.get("qdrant_collections")
+    if cols is None:
+        print(f"   qdrant: UNCHECKED — {refs.get('qdrant_error', 'unreachable')}")
+    elif cols:
+        print(f"   qdrant: {len(cols)} collection(s) — {', '.join(cols[:3])}{' …' if len(cols) > 3 else ''}")
+
+
 def handle_entity_delete_command(args):
     """Handle entity-delete — soft-archive (default) or hard-delete (--hard) an entity.
 
@@ -688,6 +724,32 @@ def handle_entity_delete_command(args):
                 )
                 sys.exit(1)
             et, eid = entity["entity_type"], entity["entity_id"]  # resolve any prefix match
+
+            # ROUTE, do not REACH. A project's record of truth is `global_projects`,
+            # whose writer is the project store — so deleting one is the project
+            # store's operation and this verb delegates to it. Reaching in here to
+            # DELETE FROM global_projects would make an INDEX verb an owner of a
+            # detail table, which is the boundary violation rather than the fix
+            # (ecodex, 2026-09-05: whoever owns the write owns the delete).
+            #
+            # Without this, removing a practice left its `global_projects` row
+            # behind and had to be cleaned up by id — measured during EXP-SHADOW
+            # arm teardown.
+            if et == "project" and hard:
+                if not confirm and not dry_run:
+                    _emit_delete_refusal(output, "project deletion is irreversible — pass --confirm")
+                result = (
+                    repo.delete_project(eid, force=bool(getattr(args, "force", False)))
+                    if not dry_run
+                    else {
+                        "ok": True,
+                        "dry_run": True,
+                        "project_id": eid,
+                        "references": repo.project_references(eid),
+                    }
+                )
+                print(json.dumps(result, indent=2)) if output == "json" else _render_project_delete(result)
+                return 0 if result.get("ok") else 1
 
             try:
                 mem = repo.get_entity_memberships(et, eid)
