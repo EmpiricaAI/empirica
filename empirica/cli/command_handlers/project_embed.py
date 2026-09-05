@@ -9,7 +9,6 @@ import logging
 import os
 
 from empirica.core.mistake_text import build_mistake_text
-from empirica.core.qdrant.text_preview import preview_fields
 
 from ..cli_utils import handle_cli_error
 
@@ -355,6 +354,12 @@ def _rehydrate_eidetic(project_id, findings, embed_eidetic_fn, check_fn):
     """
     import hashlib
     import time
+
+    # Lazy: `empirica.core.qdrant.__init__` pulls PersonaRegistry, and with it
+    # qdrant_client / numpy / httpx. At module scope this handler put all three
+    # on the `empirica.cli` import path and breached the hot-path import budget
+    # — caught by CI, not by any local run.
+    from empirica.core.qdrant.text_preview import preview_fields
 
     eidetic_count = 0
     if not (check_fn() and findings):
