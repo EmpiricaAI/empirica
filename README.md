@@ -2,7 +2,7 @@
 
 > **We Gave AI a Mirror. Now It Measures What It Believes.**
 
-[![Version](https://img.shields.io/badge/version-1.13.37-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.37)
+[![Version](https://img.shields.io/badge/version-1.13.38-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.38)
 [![PyPI](https://img.shields.io/pypi/v/empirica)](https://pypi.org/project/empirica/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -114,13 +114,13 @@ empirica setup
 
 ```bash
 # Security-hardened Alpine image (~276MB, recommended)
-docker pull nubaeon/empirica:1.13.37-alpine
+docker pull nubaeon/empirica:1.13.38-alpine
 
 # Standard image (Debian slim, ~414MB)
-docker pull nubaeon/empirica:1.13.37
+docker pull nubaeon/empirica:1.13.38
 
 # Run
-docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.37 /bin/bash
+docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.38 /bin/bash
 ```
 </details>
 
@@ -387,16 +387,15 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.13.37
+## What's New in 1.13.38
 
-- **PREFLIGHT could report a BROKEN retrieval as an empty graph.** `patterns` returned `null` whether retrieval raised, was never attempted, or the graph genuinely had nothing — so a practice could run with **no retrieval at all and never learn it**. Unlike the write-side defects, this one leaves *no residue*: nothing accumulates, so nothing can be enumerated afterwards to discover it happened, and a whole session of ungrounded work is indistinguishable from one correctly told the graph was empty. `patterns` is now always a dict with an explicit state — `ok` / `empty` / `not_attempted` / `unavailable` — and `unavailable` carries the exception plus an instruction to treat the transaction as ungrounded and re-run once the embedding backend is reachable.
-- **An unresolvable project INVENTED an id rather than refusing.** The fallback minted `md5(f"session-{id}")` as a project_id, so every unresolved session created a Qdrant collection no reader could ever query. Measured 6 such collections holding 45 points of real findings and dead-ends, up from 3 the week before. The fallback's *purpose* is sound — do not lose the artifact — but the **uniqueness** was the harm. Now one well-known sentinel, `unresolved-project`, so everything unplaceable lands in a single queryable bucket an operator can audit and a repair path can reattach, and the write warns instead of being silent.
-- **The Sentinel firewall could wedge with its own remedy denied.** PREFLIGHT returned `ok: true` while the `active_transaction*.json` the firewall reads was never written (the write sat behind `except → logger.debug("…non-fatal…")`), so the gate stayed pinned to a stale closed transaction and denied every praxic call with *run new PREFLIGHT* — blaming the practitioner for what they had just done. And the deny's named remedy was itself denied, because the allow-list matched literal prefixes and `empirica --verbose preflight-submit -` failed every one.
-- **`empirica listener on` could not see an OAuth-only seat.** The ntfy topic resolver read `api_key` straight off the config, so after the api_key retirement an OAuth-only seat resolved no topic and arming failed while the seat was correctly authenticated. Now routed through `cortex_bearer` (OAuth-first, api_key fallback, dead-key suppression). Also measured and pinned: 18 modules resolve `api_key` inline while never calling the shared helper; 5 legitimately own the credential, the rest are recorded with a guard that fails when a new one joins.
-- **`git push` exiting 0 is not evidence that anything replicated.** A refspec matching nothing exits zero and pushes nothing — indistinguishable from replicating the whole graph. Two practices carried five-figure local-only ref counts while every push had "succeeded". `sync-push` now judges by whether the remote MOVED, with verdicts `replicated` / `partial` (with magnitude) / `not_replicating` / `unknown`.
-- **A command that printed an error could exit 0.** An AST walk found **107 of 152** `handle_cli_error` call sites reporting an error then falling off the end of their except block. Fixed at the boundary rather than per-handler.
-- **`completion` criteria stopped over-claiming**, and an unchecked criterion no longer reports as a met one. `SubtaskCompletionEvaluator.applies()` was `return True`, so every authored prose criterion was scored as a subtask ratio — the mechanical cause of the *task completion 0% vs threshold 100%* nudge that fired on ~15 consecutive POSTFLIGHTs and was rightly ignored.
-- **`lesson-create` silently replaced an existing lesson in place** — same id, same version, body gone, no history — on a store whose contract is that a lesson is permanent. It now refuses, naming both designed paths (version bump + `--supersedes`, or a new name). Test-noise lessons became deletable via `delete-artifacts` with its existing dry-run, which names the lesson rather than counting it.
+- **Eleven payload builders discarded the text they were storing to preserve.** Every long string in a Qdrant payload is kept twice: a capped `<field>` for ranking and display, and a `<field>_full` holding the whole thing. The condition was inverted — `text_full: text if len(text) <= 500 else None` — so the full copy was populated only when the preview already held it, and `None` in exactly the case it exists for. Every reader in the tree is written correctly as `x_full or x`, so all of them silently received a 500-character fragment with nothing saying it was one. Measured on one practice: **2,507 of 5,833 memory points (43%)** carry a cut with no full copy — episodic 2,028, finding 261, mistake 151, decision 48 — plus 119 of 1,409 `code_api` points at a different cap. **The vectors were never affected**: every caller embeds the full text before building the payload, so similarity search always ranked on complete content, which is why this was invisible to search quality and shows up only when a human or peer reads a result and it stops mid-sentence. Three variants, not one: ten inverted; `project_decisions` had **no `rationale_full` at all**, losing a decision's reasoning outright in the collection that looked like the good copy; and one that populated `_full` *always* but capped it too, so the fragment looked whole and could not be detected. Now one `preview_fields` helper plus a `<field>_truncated` flag — a preview that does not declare itself a preview is indistinguishable from a whole thought. Existing points keep their truncated payloads until re-embedded; the SQLite rows are intact, so nothing is unrecoverable.
+- **`delete_project` applied "unknown is not zero" to one backend of two.** An unreachable Qdrant correctly refused. An unreadable SQL reference table — an older schema without `entity_registry` — recorded a string, failed an `isinstance` filter, scored 0, and read as *no references*, so the delete **proceeded with its references never checked and reported a clean success**. The safety rule was stated in prose in the docstring and implemented for the one backend whose failure mode had actually bitten. The check now iterates the backends rather than naming one, and a refusal names **both** causes when both apply, instead of sending an operator to fix the first and hit the same wall.
+- **`entity-delete --force` was advertised by the refusal and absent from the CLI.** The handler read `getattr(args, "force", False)` and nothing ever added the flag, so the escape the error message named could not be taken. Failing closed meant nothing was destroyed — it would have surfaced as an operator believing they mistyped a flag that never existed.
+- **`lesson-create` returned an id for a lesson no peer could fetch.** Federation ran only in the POSTFLIGHT sweep, so between create and POSTFLIGHT a lesson carried `sharing_policy: org`, read as shared on every local surface, and was invisible to the mesh — while the receipt said nothing about the pool. Handing that id to a peer is the obvious next move and it failed for a window closing at POSTFLIGHT, **or never**, if the session ended without one, leaving the lesson permanently private while every local read said `org`. Found by a peer practice consuming the artifact within the hour of publication; no local test could have caught it, because every read on the authoring side resolves locally and passes. `lesson-create` now federates immediately and reports one of three named states — `not_requested` / `published` / `deferred` — so a policy that never asked to publish is distinguishable from a publish that failed. The sweep remains the backstop.
+- **Three more private credential readers onto the shared contract.** `system_event`, `mesh-agreements` and cockpit auto-accept each hand-parsed `~/.empirica/credentials.yaml`, which is blind twice over: to OAuth-only seats (no `api_key` to find) and to the loader's own precedence, so a repo-local credentials file was invisible to a reader that only opened `HOME`. Every private resolver is its own 401 contract.
+- **The adoption contract for shared goal criteria.** Cortex is the registry and transport for criteria and never the evaluator, because the evidence a criterion is graded against is seat-local by nature. Adoption now translates a shared goal's criteria into the locally-evaluated vocabulary and **never maps an unparsed criterion to `completion`** — that was the defect the vocabulary widening removed, where one method applied to everything and so produced a verdict on every criterion. Two distinct labels, deliberately: `undetermined` means *the author never graded it*, `untranslated` means *the author graded it checkably and our parser could not map it*. Collapsing them would hide translator gaps inside author gaps permanently, since nobody sweeps `undetermined` asking which of these are their own parser's fault. `untranslated_backlog()` makes that remediation triggerable.
+- **A project deletion owner, and `entity-delete` routes to it.** Whoever owns the write owns the delete: `global_projects` is the project store's table, so removing a row is its operation and the index verb delegates rather than reaching in. The check consults SQL *and* Qdrant, because deleting a project row while leaving its collections is precisely how orphaned collections are minted — 13 of them, holding 264 points, were cleaned from one box the same week.
 ---
 
 
@@ -427,6 +426,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 **Author:** David S. L. Van Assche
-**Version:** 1.13.37
+**Version:** 1.13.38
 
 *Turtles all the way down — built with its own epistemic framework, measuring what it knows at every step.*

@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.13.37
-**Generated:** 2026-09-05 11:39:48 UTC
+**Framework version:** 1.13.38
+**Generated:** 2026-09-05 18:59:27 UTC
 **Total commands:** 243 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -2018,6 +2018,8 @@ Delete an entity. Default is a reversible soft-archive (status='archived' + clos
   Irreversible dependent-order cascade delete (requires --confirm)
 - `--confirm` — optional · flag
   Confirm an irreversible --hard delete
+- `--force` — optional · flag
+  Project deletes only: proceed despite remaining references or an unreachable backend. The residue (orphaned Qdrant collections, dangling rows) becomes yours; the refusal names exactly what you are overriding.
 - `--dry-run` — optional · flag
   Preview the effect without mutating
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
