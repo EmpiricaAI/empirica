@@ -32,10 +32,37 @@ class _Args:
 
 
 @pytest.fixture(autouse=True)
-def _clean():
+def reset_error_record():
     reset_reported_errors()
     yield
     reset_reported_errors()
+
+
+@pytest.fixture(autouse=True)
+def isolate_issue_capture(tmp_path, monkeypatch):
+    """Keep this file's synthetic errors out of the practitioner's issue store.
+
+    `handle_cli_error` auto-captures into the live store, so every `boom` /
+    `recovered` / `residue` raised here becomes a real HIGH-severity issue — and
+    `release.py --prepare` REFUSES to publish while unresolved high-severity
+    issues exist. Measured: 13 blocking rows at the 1.13.36 cut, 10 more at
+    1.13.37, all of them this suite's own fixtures.
+
+    The pattern is lifted from `test_projects_sync_fails_loudly.py` (740d6db84),
+    which fixed exactly this for a different file. **That it recurred is the
+    point**: the exposure is a property of raising through `handle_cli_error`,
+    not of any one test, so it will keep recurring in every new file that does
+    it. Autouse for the same reason — opt-in isolation is a decision each future
+    author has to remember, and the release gate is where they find out they
+    did not.
+
+    Note the irony worth preserving: this file tests the exit-code boundary that
+    made `handle_cli_error` record into the shared store in the first place. The
+    fix and its side effect shipped together in 1.13.37.
+    """
+    monkeypatch.setenv("EMPIRICA_SESSION_DB", str(tmp_path / "sessions.db"))
+    monkeypatch.setenv("EMPIRICA_PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setenv("HOME", str(tmp_path))
 
 
 def test_a_reported_error_makes_a_none_return_exit_nonzero():
