@@ -15,6 +15,7 @@ from empirica.core.qdrant.connection import (
     _get_vector_size,
     logger,
 )
+from empirica.core.qdrant.text_preview import preview_fields
 
 
 def embed_goal(
@@ -97,10 +98,8 @@ def embed_goal(
             # forever. The md5 point_id is one-way, so the id must ride the payload.
             "goal_id": goal_id,
             "created_at": timestamp or time.time(),
-            "objective": objective[:500] if objective else None,
-            "objective_full": objective if len(objective) <= 500 else None,
-            "description": description[:500] if description else None,
-            "description_full": description if (description and len(description) <= 500) else None,
+            **preview_fields("objective", objective),
+            **preview_fields("description", description),
             "session_id": session_id,
             "ai_id": ai_id,
             "scope": {
@@ -201,8 +200,7 @@ def embed_subtask(
             # PARENT's. Reconciliation needs both: subtask_id to correct the
             # subtask's own status, goal_id to drop subtasks of completed goals.
             "subtask_id": subtask_id,
-            "description": description[:500] if description else None,
-            "description_full": description if len(description) <= 500 else None,
+            **preview_fields("description", description),
             "goal_id": goal_id,
             "goal_objective": goal_objective[:200] if goal_objective else None,
             "session_id": session_id,

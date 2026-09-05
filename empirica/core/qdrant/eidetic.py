@@ -14,6 +14,7 @@ from empirica.core.qdrant.connection import (
     logger,
 )
 from empirica.core.qdrant.point_ids import artifact_point_id
+from empirica.core.qdrant.text_preview import preview_fields
 
 
 def embed_eidetic(
@@ -63,8 +64,7 @@ def embed_eidetic(
 
         payload = {
             "type": fact_type,  # fact, pattern, signature, behavior, constraint
-            "content": content[:500] if content else None,
-            "content_full": content if len(content) <= 500 else None,
+            **preview_fields("content", content),
             "content_hash": hashlib.md5(content.encode()).hexdigest(),
             "domain": domain,
             "confidence": confidence,

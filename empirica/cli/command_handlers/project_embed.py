@@ -9,6 +9,7 @@ import logging
 import os
 
 from empirica.core.mistake_text import build_mistake_text
+from empirica.core.qdrant.text_preview import preview_fields
 
 from ..cli_utils import handle_cli_error
 
@@ -412,8 +413,7 @@ def _rehydrate_eidetic(project_id, findings, embed_eidetic_fn, check_fn):
             base_confidence = float(impact) if impact else 0.6
             payload = {
                 "type": "fact",
-                "content": finding_text[:500] if finding_text else None,
-                "content_full": finding_text if len(finding_text) <= 500 else None,
+                **preview_fields("content", finding_text),
                 "content_hash": content_hash,
                 "domain": f.get("subject"),
                 "confidence": base_confidence,

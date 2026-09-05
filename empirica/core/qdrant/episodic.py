@@ -13,6 +13,7 @@ from empirica.core.qdrant.connection import (
     _get_vector_size,
     logger,
 )
+from empirica.core.qdrant.text_preview import preview_fields
 
 
 def embed_episodic(
@@ -64,8 +65,7 @@ def embed_episodic(
 
         payload = {
             "type": episode_type,  # session_arc, decision, investigation, discovery, mistake
-            "narrative": narrative[:1000] if narrative else None,
-            "narrative_full": narrative if len(narrative) <= 1000 else None,
+            **preview_fields("narrative", narrative, limit=1000),
             "session_id": session_id,
             "ai_id": ai_id,
             "goal_id": goal_id,

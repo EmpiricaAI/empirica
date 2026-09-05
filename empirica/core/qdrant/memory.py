@@ -23,6 +23,7 @@ from empirica.core.qdrant.connection import (
     logger,
 )
 from empirica.core.qdrant.point_ids import artifact_point_id
+from empirica.core.qdrant.text_preview import preview_fields
 
 
 def embed_single_memory_item(
@@ -67,8 +68,7 @@ def embed_single_memory_item(
         payload = {
             "artifact_id": item_id,
             "type": item_type,
-            "text": text[:500] if text else None,
-            "text_full": text if len(text) <= 500 else None,
+            **preview_fields("text", text),
             "session_id": session_id,
             "goal_id": goal_id,
             "subtask_id": subtask_id,
@@ -202,8 +202,7 @@ def upsert_memory(project_id: str, items: list[dict], qdrant_url: str | None = N
             payload = {
                 "artifact_id": it.get("id"),
                 "type": it.get("type", "unknown"),
-                "text": text[:500] if text else None,
-                "text_full": text if len(text) <= 500 else None,
+                **preview_fields("text", text),
                 "goal_id": it.get("goal_id"),
                 "subtask_id": it.get("subtask_id"),
                 "session_id": it.get("session_id"),

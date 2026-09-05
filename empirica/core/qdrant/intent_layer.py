@@ -18,6 +18,7 @@ from empirica.core.qdrant.connection import (
     _get_vector_size,
     logger,
 )
+from empirica.core.qdrant.text_preview import preview_fields
 
 
 def embed_assumption(
@@ -75,8 +76,7 @@ def embed_assumption(
         payload = {
             "artifact_id": assumption_id,
             "type": "assumption",
-            "assumption": assumption[:500],
-            "assumption_full": assumption if len(assumption) <= 500 else None,
+            **preview_fields("assumption", assumption),
             "confidence": confidence,
             "status": status,
             "resolution_finding_id": resolution_finding_id,
@@ -151,9 +151,11 @@ def embed_decision(
         payload = {
             "artifact_id": decision_id,
             "type": "decision",
-            "choice": choice[:500],
-            "choice_full": choice if len(choice) <= 500 else None,
-            "rationale": rationale[:500] if rationale else None,
+            **preview_fields("choice", choice),
+            # `rationale` had no `_full` companion at ALL, so a decision's
+            # reasoning past 500 chars was lost outright — the one field a
+            # peer needs to retrieve a decision BY its reasoning.
+            **preview_fields("rationale", rationale),
             "alternatives": alternatives,
             "confidence_at_decision": confidence_at_decision,
             "reversibility": reversibility,

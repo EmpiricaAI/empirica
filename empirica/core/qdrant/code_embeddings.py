@@ -24,6 +24,7 @@ from empirica.core.qdrant.connection import (
     _get_vector_size,
     logger,
 )
+from empirica.core.qdrant.text_preview import preview_fields
 
 # Code embeddings go into the eidetic collection with fact_type="code_api"
 # This avoids collection bloat while keeping code searchable alongside facts.
@@ -228,8 +229,12 @@ def embed_code_api(
         # Structured payload for rich retrieval
         payload = {
             "type": "code_api",
-            "content": search_text[:500],
-            "content_full": search_text if len(search_text) <= 2000 else search_text[:2000],
+            # Third variant of the same defect: `content_full` was ALWAYS set but
+            # itself capped at 2000, so `_full or content` returned a cut that
+            # looked whole — undetectable, unlike the null form. It bit ~8% of
+            # points (119/1409 here) and used a different cap from eidetic.py,
+            # the other writer of this same collection.
+            **preview_fields("content", search_text),
             "content_hash": content_hash,
             "domain": module_path,
             "confidence": 0.9,  # Code structure is objective
