@@ -48,18 +48,26 @@ _cache_at: float = 0.0
 
 
 def _cortex_creds() -> tuple[str, str] | None:
-    """Resolve (url, api_key) via the standard CLI loader. None when missing."""
-    try:
-        from empirica.config.credentials_loader import get_credentials_loader
+    """Resolve (url, bearer) through the SHARED cortex credential contract.
 
-        cfg = get_credentials_loader().get_cortex_config()
+    Was a private `(url, api_key)` read off the loader — the same shape, with the
+    same docstring, as the one that made `empirica listener on` fail on an
+    OAuth-only seat. `cortex_bearer` is OAuth-first with an api_key fallback and
+    skips a key recorded as terminally dead; a direct `cfg["api_key"]` read can
+    see neither, so every private resolver is its own 401 contract.
+    """
+    try:
+        from empirica.core.auth import cortex_bearer
+
+        creds = cortex_bearer()
     except Exception as e:
         logger.debug(f"auto-accept: cortex creds load failed: {e}")
         return None
-    url, key = cfg.get("url"), cfg.get("api_key")
-    if not url or not key:
+    url, bearer = creds.get("url"), creds.get("bearer")
+    if not url or not bearer:
+        logger.debug("auto-accept: no cortex credential (%s)", creds.get("reason") or creds.get("source"))
         return None
-    return url, key
+    return url, bearer
 
 
 def _request(method: str, url: str, key: str, body: dict | None = None) -> dict | None:

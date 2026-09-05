@@ -12,10 +12,7 @@ from __future__ import annotations
 import json
 import urllib.error
 import urllib.request
-from pathlib import Path
 from typing import Any
-
-import yaml
 
 SYSTEM_EVENT_PATH = "/v1/system/event"
 CATEGORY = "diagnostics"
@@ -25,14 +22,18 @@ _SEVERITY_BY_OVERALL = {"pass": "info", "warn": "warn", "fail": "critical"}
 
 
 def resolve_cortex_config() -> tuple[str | None, str | None]:
-    """(cortex_url, api_key) from ~/.empirica/credentials.yaml `cortex.*`."""
+    """(cortex_url, bearer) through the SHARED cortex credential contract.
+
+    Hand-parsed `~/.empirica/credentials.yaml` before this, which was blind
+    twice over: to OAuth (an OAuth-only seat has no api_key to find) and to the
+    loader's own precedence — a repo-local `.empirica/credentials.yaml`, which
+    the loader honours, was invisible to a reader that only ever opened HOME.
+    """
     try:
-        cred = Path.home() / ".empirica" / "credentials.yaml"
-        if not cred.exists():
-            return None, None
-        cfg = yaml.safe_load(cred.read_text()) or {}
-        cortex = cfg.get("cortex") or {}
-        return cortex.get("url"), cortex.get("api_key")
+        from empirica.core.auth import cortex_bearer
+
+        creds = cortex_bearer()
+        return creds.get("url"), creds.get("bearer")
     except Exception:
         return None, None
 

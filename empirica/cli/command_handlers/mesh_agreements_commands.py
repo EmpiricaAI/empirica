@@ -19,21 +19,20 @@ from empirica.core.mesh_sharing import (
 
 
 def _load_cortex_credentials() -> tuple[str | None, str | None]:
-    """Read cortex URL + api_key from ~/.empirica/credentials.yaml.
+    """Read cortex URL + bearer through the SHARED credential contract.
 
     Returns (None, None) if either is missing — caller surfaces the error.
+
+    Hand-parsed `~/.empirica/credentials.yaml` before this, which was blind
+    twice: to OAuth (an OAuth-only seat has no api_key to find) and to the
+    loader's precedence — a repo-local credentials file, which the loader
+    honours, was invisible to a reader that only opened HOME.
     """
     try:
-        from pathlib import Path
+        from empirica.core.auth import cortex_bearer
 
-        import yaml
-
-        creds_path = Path.home() / ".empirica" / "credentials.yaml"
-        if not creds_path.exists():
-            return None, None
-        data = yaml.safe_load(creds_path.read_text()) or {}
-        cortex_cfg = data.get("cortex") or {}
-        return cortex_cfg.get("url"), cortex_cfg.get("api_key")
+        creds = cortex_bearer()
+        return creds.get("url"), creds.get("bearer")
     except Exception:
         return None, None
 

@@ -157,16 +157,18 @@ def test_the_remaining_scatter_is_recorded_not_forgotten():
     forcing the author to either use the helper or add themselves deliberately.
     """
     offenders = {f for f in _inline_api_key_readers() if f not in CREDENTIAL_OWNERS}
+    # Shrinking is the point: three converted 2026-09-05 (auto_accept,
+    # system_event, mesh_agreements — the last two hand-parsed
+    # ~/.empirica/credentials.yaml, blind to OAuth AND to the loader's own
+    # precedence). Remove entries as they convert; the assertion below only
+    # fails on ADDITIONS, so a shrinking list never breaks the build.
     known_remaining = {
         "api/serve_app.py",
         "cli/command_handlers/_workflow_postflight.py",
         "cli/command_handlers/artifact_log_commands.py",
         "cli/command_handlers/doctor.py",
-        "cli/command_handlers/mesh_agreements_commands.py",
         "cli/command_handlers/mesh_commands.py",
         "cli/command_handlers/project_bootstrap.py",
-        "cli/command_handlers/system_event.py",
-        "core/cockpit/auto_accept.py",
         "core/loop_scheduler/listener.py",
         "core/loop_scheduler/liveness_probe.py",
         "core/loop_scheduler/systemd.py",
