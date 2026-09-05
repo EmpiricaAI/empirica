@@ -5,6 +5,101 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.37] - 2026-09-05
+
+### Fixed
+
+- **PREFLIGHT could report a BROKEN retrieval as an empty graph.** `patterns` returned
+  `null` whether retrieval raised, was never attempted, or the graph genuinely had
+  nothing — so a practice could run with **no retrieval at all and never learn it**.
+  Unlike the write-side defects, this one leaves *no residue*: nothing accumulates, so
+  nothing can be enumerated afterwards to discover it happened, and a whole session of
+  ungrounded work is indistinguishable from one correctly told the graph was empty.
+  `patterns` is now always a dict with an explicit state — `ok` / `empty` /
+  `not_attempted` / `unavailable` — and `unavailable` carries the exception plus an
+  instruction to treat the transaction as ungrounded and re-run once the embedding
+  backend is reachable.
+
+- **An unresolvable project INVENTED an id rather than refusing.** The fallback minted
+  `md5(f"session-{id}")` as a project_id, so every unresolved session created a Qdrant
+  collection no reader could ever query. Measured 6 such collections holding 45 points
+  of real findings and dead-ends, up from 3 the week before. The fallback's *purpose*
+  is sound — do not lose the artifact — but the **uniqueness** was the harm. Now one
+  well-known sentinel, `unresolved-project`, so everything unplaceable lands in a
+  single queryable bucket an operator can audit and a repair path can reattach, and
+  the write warns instead of being silent.
+
+- **The Sentinel firewall could wedge with its own remedy denied.** PREFLIGHT returned
+  `ok: true` while the `active_transaction*.json` the firewall reads was never written
+  (the write sat behind `except → logger.debug("…non-fatal…")`), so the gate stayed
+  pinned to a stale closed transaction and denied every praxic call with *run new
+  PREFLIGHT* — blaming the practitioner for what they had just done. And the deny's
+  named remedy was itself denied, because the allow-list matched literal prefixes and
+  `empirica --verbose preflight-submit -` failed every one.
+
+- **`empirica listener on` could not see an OAuth-only seat.** The ntfy topic resolver
+  read `api_key` straight off the config, so after the api_key retirement an OAuth-only
+  seat resolved no topic and arming failed while the seat was correctly authenticated.
+  Now routed through `cortex_bearer` (OAuth-first, api_key fallback, dead-key
+  suppression). Also measured and pinned: 18 modules resolve `api_key` inline while
+  never calling the shared helper; 5 legitimately own the credential, the rest are
+  recorded with a guard that fails when a new one joins.
+
+- **`git push` exiting 0 is not evidence that anything replicated.** A refspec matching
+  nothing exits zero and pushes nothing — indistinguishable from replicating the whole
+  graph. Two practices carried five-figure local-only ref counts while every push had
+  "succeeded". `sync-push` now judges by whether the remote MOVED, with verdicts
+  `replicated` / `partial` (with magnitude) / `not_replicating` / `unknown`.
+
+- **A command that printed an error could exit 0.** An AST walk found **107 of 152**
+  `handle_cli_error` call sites reporting an error then falling off the end of their
+  except block. Fixed at the boundary rather than per-handler.
+
+- **`completion` criteria stopped over-claiming**, and an unchecked criterion no longer
+  reports as a met one. `SubtaskCompletionEvaluator.applies()` was `return True`, so
+  every authored prose criterion was scored as a subtask ratio — the mechanical cause
+  of the *task completion 0% vs threshold 100%* nudge that fired on ~15 consecutive
+  POSTFLIGHTs and was rightly ignored.
+
+- **`lesson-create` silently replaced an existing lesson in place** — same id, same
+  version, body gone, no history — on a store whose contract is that a lesson is
+  permanent. It now refuses, naming both designed paths (version bump + `--supersedes`,
+  or a new name). Test-noise lessons became deletable via `delete-artifacts` with its
+  existing dry-run, which names the lesson rather than counting it.
+
+### Added
+
+- **The criterion vocabulary can say what practitioners were already trying to say.**
+  Measured across 59 practice databases: 5,462 of 5,484 success criteria (99.6%)
+  carried `completion` — including 2,473 authored conditions no subtask ratio can
+  judge. The field was degenerate, not unused: one value because there was one choice.
+  New, derived from a corpus pass rather than invented: `tests_pass`, `committed`,
+  `artifact_exists`, and `prose` / `undetermined` so an uncheckable done-condition is
+  *declared* rather than stamped with a lie. Every new evaluator is observed both
+  passing and FAILING in tests; absent evidence skips with a reason.
+
+- **`/pre-action-grounding` skill.** Decompose → investigate → grade
+  (`read`/`ran`/`retrieved`/`assumed`) → ask only the load-bearing residue → bank the
+  rest as assumptions → emit a goal whose criteria are typed where an evaluator reaches
+  and honestly prose where none can.
+
+- **`projects-sync --publish`** — opt-in phase provisioning Forgejo remotes per
+  registered project via the existing `forgejo-publish` machinery. Never a side effect
+  of a routine sync.
+
+- **`--version` warns when the ambient `python3` imports a DIFFERENT empirica** than the
+  CLI. Two codebases under one name is a normal dev state; not knowing is the defect.
+
+### Removed
+
+- **The CRM-over-git-notes transport, built and ripped out the same day.** Git notes are
+  shaped for append-only per-practice claims; CRM rows are mutable shared state with one
+  identity per real-world thing. Every piece of machinery it needed — LWW merge, an
+  `incoming/` namespace, refused deletes, reconciliation state — was compensating for
+  the substrate. Shared CRM identity moves to cortex-hosted postgres; per-practice
+  knowledge about entities stays local. Removed rather than deprecated, so no past
+  assumption survives to mislead.
+
 ## [1.13.36] - 2026-09-03
 
 ### Added

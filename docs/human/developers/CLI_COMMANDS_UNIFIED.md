@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.13.36
-**Generated:** 2026-09-03 21:37:16 UTC
+**Framework version:** 1.13.37
+**Generated:** 2026-09-05 11:39:48 UTC
 **Total commands:** 243 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -1666,6 +1666,8 @@ One-shot: walk filesystem → upsert ~/.empirica/registry.yaml → register on C
   Remove stale entries from registry.yaml (projects no longer present on disk). Off by default — keeps the registry additive-only unless explicitly asked.
 - `--dry-run` — optional · flag
   Full pipeline preview: walk, show what would be written/registered, but make no changes (no manifest write, no registry upsert, no Cortex POST). Strongest no-op flag.
+- `--publish` — optional · flag
+  Phase 4: provision a managed Forgejo remote for each registered project and push it, via the same machinery as `forgejo-publish`. OPT-IN — creating repositories on shared infrastructure is never a side effect of a sync. Honours --dry-run, which previews the projects by NAME so a scratch directory nobody meant to publish is visible before it is.
 - `--cortex-url` — optional
   Override Cortex base URL (default: $CORTEX_REMOTE_URL).
 - `--api-key` — optional
