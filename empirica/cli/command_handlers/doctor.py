@@ -694,6 +694,83 @@ def check_sessions_db(cwd: Path | None = None) -> Check:
     )
 
 
+def check_retrieval_telemetry(cwd: Path | None = None) -> Check:
+    """Are retrieval counters actually being written?
+
+    This check exists because its absence let a real defect run for a month.
+    Migration 063 added `retrieval_count` to findings; it then acquired exactly
+    one writer, on the narrowest query in the system, while the three highest-
+    volume surfacing paths wrote nothing. The counter read `0` — which is also
+    precisely what "never surfaced" reads as. **Broken and healthy rendered
+    identically**, so nothing here noticed; a peer practice counting from the
+    outside did.
+
+    The signal is deliberately *relative*, not a raw count. "0 stamped rows" on
+    a fresh practice is correct and must not warn. What cannot be right is a
+    practice with a substantial artifact corpus and session history where
+    nothing has EVER been stamped — that is the wiring failing silently again.
+    """
+    cwd = cwd or Path.cwd()
+    db_path = cwd / ".empirica" / "sessions" / "sessions.db"
+    name = "retrieval telemetry written"
+    if not db_path.exists():
+        return Check(name, WARN, "no sessions DB", "run from a project root", data={"path": str(db_path)})
+    try:
+        with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as conn:
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(project_findings)")}
+            if "retrieval_count" not in cols:
+                return Check(
+                    name,
+                    WARN,
+                    "project_findings has no retrieval_count",
+                    "run any empirica command to apply pending migrations",
+                )
+            total = conn.execute("SELECT COUNT(*) FROM project_findings").fetchone()[0]
+            stamped = conn.execute(
+                "SELECT COUNT(*) FROM project_findings WHERE COALESCE(retrieval_count, 0) > 0"
+            ).fetchone()[0]
+            triggers = [
+                r[0]
+                for r in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'trg_%_retrieval_snapshot'"
+                )
+            ]
+    except sqlite3.Error as e:
+        return Check(name, WARN, f"sqlite error: {e}", "DB may be mid-write; re-run")
+
+    data = {"findings": total, "stamped": stamped, "snapshot_triggers": len(triggers)}
+
+    # Columns present but triggers absent = a PARTIALLY applied migration. The
+    # ledger records 067 as done, so it will never re-run, and the missing half
+    # is invisible: resolution silently writes no snapshot and every artifact
+    # closes looking like it was never retrieved before it closed. Caught here
+    # rather than never, because a once-applied migration whose definition later
+    # changed leaves exactly this state and nothing else looks at it.
+    if "retrieval_count_at_resolution" in cols and not triggers:
+        return Check(
+            name,
+            WARN,
+            "snapshot columns exist but the snapshot triggers do not",
+            "migration 067 is recorded as applied but only half ran — "
+            "DELETE FROM schema_migrations WHERE migration_id LIKE '067%' and re-run any empirica command",
+            data=data,
+        )
+    if total < 50:
+        # Too small to conclude anything. Say that, rather than passing — a
+        # check that cannot fail on this input should not report as if it ran.
+        return Check(name, PASS, f"{stamped}/{total} findings stamped (corpus too small to judge)", data=data)
+    if stamped == 0:
+        return Check(
+            name,
+            WARN,
+            f"0 of {total} findings have ever been retrieved",
+            "no surfacing path is stamping — PREFLIGHT/search/bootstrap should all write "
+            "`retrieval_count`; check empirica.core.retrieval_telemetry is reachable",
+            data=data,
+        )
+    return Check(name, PASS, f"{stamped}/{total} findings carry a retrieval stamp", data=data)
+
+
 # ─── Cortex connectivity ───────────────────────────────────────────────
 
 
@@ -1608,6 +1685,7 @@ def run_all_checks(cwd: Path | None = None) -> list[Check]:
         check_empirica_folder(cwd),
         check_project_yaml(cwd),
         check_sessions_db(cwd),
+        check_retrieval_telemetry(cwd),
         check_notes_sqlite_divergence(cwd),
         check_git_remote(cwd),
         check_sync_state(cwd),

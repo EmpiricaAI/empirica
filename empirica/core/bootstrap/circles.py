@@ -708,40 +708,26 @@ def _default_cap(key: str, limits: dict) -> int:
     return int(limits.get(key, defaults.get(key, 5)))
 
 
-def _stamp_retrieval(cur, finding_ids: list[str]) -> None:
+def _stamp_retrieval(cur, finding_ids: list[str]) -> int:
     """Record that these findings were actually SURFACED into context.
 
-    Age says when an artifact was written; it cannot say whether anyone still
-    uses it, and those diverge in both directions. outreach's sweep of 636
-    findings made the case concretely: their most valuable artifact was from
-    May and matched a live log line, while one written four days earlier was
-    wrong on arrival. Any TTL would have destroyed the first and kept the
-    second.
+    Thin adapter over ``empirica.core.retrieval_telemetry``. This used to be the
+    implementation AND the only one in the system, which is how the signal ended
+    up meaning "surfaced by bootstrap's 7-day active-goal query" while reading
+    like "surfaced". Three other paths surface artifacts and stamped nothing.
 
-    Stamped on RETRIEVAL, deliberately — `project_dead_ends.last_revisited_at`
-    is written by gardening instead, so on outreach it is populated on 173 of
-    186 rows and those are exactly the 173 a sweep had just walked. It records
-    the gardener, not the readers, which is the opposite of a relevance signal.
-
-    Best-effort: a bootstrap must never fail because a bookkeeping write did.
+    ``commit=True`` is not incidental: the cursor comes from a READ path that
+    closes without committing, so an uncommitted UPDATE here is silently
+    discarded — 0 stamped rows before and after a real bootstrap, with nothing
+    raised. The shared helper makes that a decision the caller states.
     """
-    if not finding_ids:
-        return
-    try:
-        now = time.time()
-        cur.executemany(
-            "UPDATE project_findings SET last_retrieved_at = ?, "
-            "retrieval_count = COALESCE(retrieval_count, 0) + 1 WHERE id = ?",
-            [(now, fid) for fid in finding_ids],
-        )
-        # COMMIT. This function is called from a read path that closes its
-        # connection without committing, so the UPDATE was discarded and the
-        # stamp silently recorded nothing — verified by counting stamped rows
-        # across a real bootstrap: 0 before, 0 after. A write inside a read
-        # path is exactly where this is easy to miss.
-        cur.connection.commit()
-    except Exception as e:  # column may predate the migration on an old DB
-        logger.debug(f"retrieval stamp skipped: {e}")
+    from empirica.core.retrieval_telemetry import stamp_retrieval
+
+    return stamp_retrieval(
+        [(fid, "finding") for fid in finding_ids],
+        conn=cur.connection,
+        commit=True,
+    )
 
 
 def _pack_topic_match(art_id: str, atype: str, fields: dict, similarity: float) -> dict:

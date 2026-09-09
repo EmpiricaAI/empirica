@@ -108,6 +108,26 @@ def _print_search_results_human(task, results, use_global):
             print(f"  {i}. [{coll}] {text}... (proj: {proj}, score: {score:.3f})")
 
 
+def _stamp_surfaced(results) -> int:
+    """Record that this search surfaced these artifacts. Returns rows stamped.
+
+    LOCAL `memory` only, deliberately. `global` and `cross_project` results come
+    from other projects' collections, and their ids do not name rows in this
+    database — stamping them would at best match nothing (firing the helper's
+    "0 matched" warning on every `--global` search) and at worst collide with an
+    unrelated local row that happens to share an id. A practice's retrieval
+    counters should count ITS artifacts being read, not its reads of others'.
+
+    Best-effort: a search must not fail because bookkeeping did.
+    """
+    try:
+        from empirica.core.retrieval_telemetry import stamp_items
+
+        return stamp_items((results or {}).get("memory") or [])
+    except Exception:
+        return 0
+
+
 def handle_project_search_command(args):
     """Run project-search: this project's docs + memory, plus (``--global``) a
     LOCAL cross-project pull. See the module docstring for when to use this vs
@@ -150,6 +170,7 @@ def handle_project_search_command(args):
 
         init_collections(project_id)
         results = search(project_id, task, kind=kind, limit=limit)
+        _stamp_surfaced(results)
 
         if use_global:
             # --global stays LOCAL: global_learnings pool + other local projects'

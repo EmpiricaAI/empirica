@@ -4,7 +4,7 @@ import logging
 import sqlite3
 from collections.abc import Callable
 
-from .migration_runner import add_column_if_missing
+from .migration_runner import add_column_if_missing, column_exists, table_exists
 
 logger = logging.getLogger(__name__)
 
@@ -1546,6 +1546,11 @@ ALL_MIGRATIONS: list[tuple[str, str, Callable]] = [
         "Normalize TEXT created_timestamp to REAL (epoch). Legacy rows stored the epoch as a TEXT string in an otherwise-numeric column, and SQLite sorts TEXT above every number — so those rows are returned as the NEWEST by every `ORDER BY created_timestamp DESC`, including the breadcrumbs queries that build injected session context, surfacing 8-month-old findings as if just written (measured 2026-08-12: 13 rows on the empirica practice). Idempotent + defensive across every table carrying created_timestamp: casts only numeric epoch text (10+ leading digits), leaving REAL rows and any non-epoch text (e.g. an ISO date) untouched rather than mangling it into a wrong year. The write path already stamps REAL; this fixes the legacy pocket only.",
         lambda cursor: migration_066_normalize_text_created_timestamp(cursor),
     ),
+    (
+        "067_retrieval_telemetry_all_types",
+        "Extend the retrieval signal from migration 063 to every artifact type, and make the before/after split answerable. 063 gave last_retrieved_at + retrieval_count to project_findings ONLY, and the column then acquired exactly one writer — bootstrap's circle 1, on the narrowest query in the system (findings inside an active goal, 7-day window). PREFLIGHT/CHECK context injection, project-search and investigate stamped nothing, so a finding surfaced dozens of times still read 0, which is also what 'never surfaced' looks like: the two states a reader must distinguish rendered identically and the broken one looked healthy. Found from outside by empirica-paper counting 9 retrievals across 444 later-resolved findings over 46 stores, not by anything here. Adds the pair to project_unknowns, project_dead_ends, decisions, assumptions and mistakes_made, plus retrieval_count_at_resolution on every resolvable type. That last column is the point: a cumulative counter cannot answer 'how often was this surfaced BEFORE it was resolved' — count is lifetime and last_retrieved_at is only the most recent — so the counter is snapshotted at resolution and the split becomes exact at counter cost, without a retrieval-event table. The post-resolution delta is independently load-bearing for core: a resolved artifact that keeps being retrieved means a retrieval filter is leaking, which is a bug that actually existed (a findings query in bootstrap that never honoured is_resolved). NOT backfilled — inventing retrieval history would poison the signal it exists to provide — and the instrumentation epoch is already recoverable from schema_migrations.applied_at, so a 0 written before this ran stays distinguishable from a 0 measured after it.",
+        lambda cursor: migration_067_retrieval_telemetry_all_types(cursor),
+    ),
 ]
 
 
@@ -2625,6 +2630,132 @@ def migration_063_finding_retrieval_signal(cursor: sqlite3.Cursor):
     add_column_if_missing(cursor, "project_findings", "last_retrieved_at", "REAL", "NULL")
     add_column_if_missing(cursor, "project_findings", "retrieval_count", "INTEGER", "0")
     logger.info("✅ Migration 063 complete: findings carry a retrieval signal, not just an age")
+
+
+#: Every artifact type that is SURFACED into context and lives in its own table.
+#: `mistakes_made` and `decisions` are the two whose table name does not follow
+#: from the artifact name — `mistakes` and `project_decisions` do not exist, and
+#: a migration against either would silently do nothing.
+_RETRIEVAL_TELEMETRY_TABLES = (
+    "project_unknowns",
+    "project_dead_ends",
+    "decisions",
+    "assumptions",
+    "mistakes_made",
+)
+
+#: Types that can be resolved/invalidated, and therefore have a "before" and an
+#: "after" worth separating. `decisions` is absent deliberately: a decision is
+#: superseded rather than resolved, and it carries no is_resolved column.
+_RETRIEVAL_SNAPSHOT_TABLES = (
+    "project_findings",
+    "project_unknowns",
+    "project_dead_ends",
+    "assumptions",
+    "mistakes_made",
+)
+
+
+#: When each type CROSSES from live to closed, expressed in SQL over OLD/NEW.
+#:
+#: Three different vocabularies, because the tables genuinely differ: findings
+#: and unknowns are *resolved*, dead-ends and mistakes are *invalidated* (they
+#: are permanent negative guidance — migration 060), and assumptions carry a
+#: free `status` whose vocabulary is not fixed, so they key off the timestamp
+#: instead of guessing which strings count as closed.
+_RETRIEVAL_SNAPSHOT_PREDICATES: dict[str, str] = {
+    "project_findings": "NEW.is_resolved = 1 AND (OLD.is_resolved IS NULL OR OLD.is_resolved != 1)",
+    "project_unknowns": "NEW.is_resolved = 1 AND (OLD.is_resolved IS NULL OR OLD.is_resolved != 1)",
+    "project_dead_ends": "NEW.is_invalidated = 1 AND (OLD.is_invalidated IS NULL OR OLD.is_invalidated != 1)",
+    "mistakes_made": "NEW.is_invalidated = 1 AND (OLD.is_invalidated IS NULL OR OLD.is_invalidated != 1)",
+    "assumptions": "NEW.resolved_timestamp IS NOT NULL AND OLD.resolved_timestamp IS NULL",
+}
+
+
+def _create_retrieval_snapshot_trigger(cursor: sqlite3.Cursor, table: str, became_resolved: str) -> None:
+    """Snapshot ``retrieval_count`` at the moment a row closes — in the DB, not the callers.
+
+    This is a trigger and not eleven edits on purpose. Resolution is written from
+    **11 sites across 4 modules** (``graph_commands``, ``breadcrumbs``,
+    ``api/routes/artifacts``, ``sync_commands``), several of them batch paths,
+    plus whatever a future verb adds and whatever a practitioner runs by hand.
+    Patching each one is the shape that reliably leaves three unpatched, and a
+    missed site here does not fail loudly — it writes NULL, which is exactly
+    what "closed before this column existed" looks like.
+
+    The invariant is a property of the ROW, so it belongs where the row is.
+
+    Guarded on ``retrieval_count_at_resolution IS NULL`` so it fires once and is
+    idempotent under repeated UPDATEs. That guard also terminates the inner
+    UPDATE-on-same-table even if recursive triggers are ever switched on (they
+    are off by default in SQLite), rather than relying on that default holding.
+    A reopen-then-re-resolve therefore keeps the FIRST snapshot, which is the
+    boundary the number is asking about.
+    """
+    if not table_exists(cursor, table):
+        return
+    # Every column the predicate touches must exist, or CREATE TRIGGER raises
+    # and takes the whole migration down with it.
+    if not column_exists(cursor, table, "retrieval_count_at_resolution"):
+        return
+    if not column_exists(cursor, table, "retrieval_count"):
+        return
+    required = [c for c in ("is_resolved", "is_invalidated", "resolved_timestamp") if f".{c}" in became_resolved]
+    if any(not column_exists(cursor, table, c) for c in required):
+        logger.debug(f"retrieval snapshot trigger skipped for {table}: predicate column missing")
+        return
+
+    cursor.execute(
+        f"""
+        CREATE TRIGGER IF NOT EXISTS trg_{table}_retrieval_snapshot
+        AFTER UPDATE ON {table}
+        FOR EACH ROW
+        WHEN {became_resolved} AND NEW.retrieval_count_at_resolution IS NULL
+        BEGIN
+            UPDATE {table}
+               SET retrieval_count_at_resolution = COALESCE(NEW.retrieval_count, 0)
+             WHERE id = NEW.id;
+        END;
+        """
+    )
+
+
+def migration_067_retrieval_telemetry_all_types(cursor: sqlite3.Cursor):
+    """One artifact type had a retrieval signal; the rest had none.
+
+    Migration 063 reasoned that age is the wrong axis for relevance and added
+    ``last_retrieved_at`` + ``retrieval_count`` — to ``project_findings`` alone.
+    The argument was never findings-specific. An unknown nobody has surfaced in
+    three months and a dead-end that steers every week are exactly the same
+    question, and neither table could answer it.
+
+    Then the column acquired one writer, on the narrowest query in the system.
+    A finding surfaced repeatedly through PREFLIGHT still read ``0``, and ``0``
+    is what "never surfaced" reads as too — so the signal was not merely absent,
+    it was *misleading*, and a reader could not tell which.
+
+    ``retrieval_count_at_resolution`` is the column that makes the data answer
+    the question people actually ask of it. A cumulative counter says how often
+    an artifact was ever surfaced; it cannot say how much of that happened while
+    the claim was still believed. Snapshotting the counter at resolution splits
+    it exactly, and costs one integer instead of a retrieval-event table.
+
+    Not backfilled, on the same principle as 063: inventing retrieval history
+    would poison the signal. The epoch is recoverable — ``schema_migrations``
+    records ``applied_at`` — so a zero written before instrumentation stays
+    distinguishable from a zero measured after it.
+    """
+    for table in _RETRIEVAL_TELEMETRY_TABLES:
+        add_column_if_missing(cursor, table, "last_retrieved_at", "REAL", "NULL")
+        add_column_if_missing(cursor, table, "retrieval_count", "INTEGER", "0")
+
+    for table in _RETRIEVAL_SNAPSHOT_TABLES:
+        add_column_if_missing(cursor, table, "retrieval_count_at_resolution", "INTEGER", "NULL")
+
+    for table, became_resolved in _RETRIEVAL_SNAPSHOT_PREDICATES.items():
+        _create_retrieval_snapshot_trigger(cursor, table, became_resolved)
+
+    logger.info("✅ Migration 067 complete: every surfaced artifact type carries a retrieval signal")
 
 
 def migration_065_backfill_goal_project_id_from_session(cursor: sqlite3.Cursor):

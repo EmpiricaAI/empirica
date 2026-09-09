@@ -509,6 +509,31 @@ def _reconcile_findings_against_sqlite(raw_findings):
         return raw_findings
 
 
+def _stamp_surfaced(*lists) -> int:
+    """Record that these artifacts were surfaced into an injected context block.
+
+    Returns rows stamped so a test can assert the channel is LIVE. A retrieval
+    stamp that silently matches nothing is indistinguishable from one that was
+    never called, and that is not hypothetical here: this path existed for a
+    month writing nothing at all, and the column it should have been writing
+    read `0` — the same value that means "never surfaced".
+
+    Best-effort and never raises: PREFLIGHT must not fail because bookkeeping
+    did. The import is function-local to keep the Qdrant hot path's module-scope
+    import budget flat.
+    """
+    try:
+        from empirica.core.retrieval_telemetry import collect_ids, stamp_retrieval
+
+        pairs: list[tuple[str, str]] = []
+        for items in lists:
+            pairs.extend(collect_ids(items))
+        return stamp_retrieval(pairs)
+    except Exception as e:
+        logger.debug(f"retrieval stamp skipped: {e}")
+        return 0
+
+
 def _annotate_derived_confidence(ranked: list[dict]) -> list[dict]:
     """Cap each served finding by the weakest premise it rests on.
 
@@ -1152,6 +1177,23 @@ def retrieve_task_patterns(
         findings_raw, limits["findings"], modulator_key="impact", ts_key="timestamp"
     )
     findings_ranked = _annotate_derived_confidence(findings_ranked)
+
+    # Stamp what this injection actually SURFACED.
+    #
+    # Two deliberate choices. FROM THE RAW LISTS, because the projections below
+    # drop `artifact_id` — by the time a block is built there is nothing left to
+    # key the write on. And from `findings_RANKED` rather than `findings_raw`,
+    # because the raw list is an over-fetch (`_RECENCY_OVERFETCH`) that is then
+    # cut to the limit: counting the discarded tail would inflate the signal
+    # with artifacts the practitioner never saw, which is the failure mode this
+    # column exists to avoid rather than reproduce.
+    #
+    # This is the highest-volume surfacing path in the system and it recorded
+    # nothing until 2026-09-09, while bootstrap's far narrower query was the
+    # sole writer. `retrieval_count` therefore meant "surfaced by bootstrap",
+    # not "surfaced" — and read 0 for artifacts injected here constantly.
+    _stamp_surfaced(findings_ranked, dead_ends_raw, mistakes_raw)
+
     relevant_findings = [
         {
             "finding": f.get("text", ""),
