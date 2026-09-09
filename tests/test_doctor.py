@@ -777,3 +777,66 @@ def test_check_project_drift_warns_when_pid_missing(tmp_path, monkeypatch):
     assert result.status == WARN
     assert "NOT in user.project_ids" in result.detail
     assert "uuid-x" in result.data["local_project_id"]
+
+
+# ─── CLI/checkout skew: the version string points the WRONG way ─────────
+
+
+def test_cli_checkout_skew_reports_both_versions_when_they_differ(tmp_path, monkeypatch):
+    """The reassuring half of the old message was not reliably true.
+
+    It read "same version number either way". Measured 2026-09-09 across two
+    seats, the INSTALLED copy reported 1.13.41 while the checkout's metadata
+    read 1.13.40 — so the stale code carried the HIGHER number. Anyone
+    reconciling the two by version string concludes the installed copy is ahead,
+    which is backwards, and a release bump alone reproduces it on every
+    developer box at once.
+
+    Forced here rather than waited for: on the box this was written, both sides
+    happened to read 1.13.41, so the branch could not fire on real data. A
+    detector nobody has watched fire is a hypothesis.
+    """
+    from empirica.cli.command_handlers import doctor as d
+
+    checkout = tmp_path / "empirica"
+    (checkout / "empirica").mkdir(parents=True)
+    (checkout / "pyproject.toml").write_text('[project]\nname = "empirica"\n')
+    (checkout / "empirica" / "__init__.py").write_text('__version__ = "1.13.40"\n')
+
+    monkeypatch.setattr(d, "_cli_package_dir", lambda: tmp_path / "elsewhere" / "site-packages")
+    monkeypatch.setattr(d, "_find_checkout", lambda cwd=None: checkout)
+    monkeypatch.setattr(d, "_cli_version", lambda: "1.13.41")
+
+    result = d.check_cli_matches_checkout(checkout)
+    assert result.status == WARN
+    assert "versions DIFFER" in result.detail
+    assert "1.13.41" in result.detail and "1.13.40" in result.detail
+    assert "HIGHER while being older" in result.detail, (
+        "the warning must say which direction the version string misleads in — "
+        "that it can read higher while being older is the whole hazard"
+    )
+    assert result.data["cli_version"] == "1.13.41"
+    assert result.data["checkout_version"] == "1.13.40"
+
+
+def test_cli_checkout_skew_keeps_the_old_wording_when_versions_agree(tmp_path, monkeypatch):
+    """The common case, and the negative control for the test above.
+
+    Without this, "versions DIFFER" appearing unconditionally would still pass
+    the assertion above while being wrong on every ordinary box.
+    """
+    from empirica.cli.command_handlers import doctor as d
+
+    checkout = tmp_path / "empirica"
+    (checkout / "empirica").mkdir(parents=True)
+    (checkout / "pyproject.toml").write_text('[project]\nname = "empirica"\n')
+    (checkout / "empirica" / "__init__.py").write_text('__version__ = "1.13.41"\n')
+
+    monkeypatch.setattr(d, "_cli_package_dir", lambda: tmp_path / "elsewhere" / "site-packages")
+    monkeypatch.setattr(d, "_find_checkout", lambda cwd=None: checkout)
+    monkeypatch.setattr(d, "_cli_version", lambda: "1.13.41")
+
+    result = d.check_cli_matches_checkout(checkout)
+    assert result.status == WARN
+    assert "same version number either way" in result.detail
+    assert "versions DIFFER" not in result.detail

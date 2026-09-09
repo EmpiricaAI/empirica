@@ -412,15 +412,60 @@ def check_cli_matches_checkout(cwd: Path | None = None) -> Check:
     if pkg.resolve() == checkout.resolve():
         return Check("CLI matches checkout", PASS, f"editable — `empirica` runs {checkout}", data=data)
 
+    # Report BOTH versions, because the reassuring half of the old message —
+    # "same version number either way" — is not reliably true, and its failure
+    # mode points the wrong way. Measured 2026-09-09 across two seats: the
+    # installed copy read 1.13.41 while the checkout's metadata read 1.13.40, so
+    # the STALE code carried the HIGHER number. Anyone reconciling the two by
+    # version string concludes the installed copy is ahead, which is backwards,
+    # and a release bump alone reproduces it on every developer box at once.
+    installed_v, checkout_v = _cli_version(), _checkout_version(checkout)
+    data.update({"cli_version": installed_v, "checkout_version": checkout_v})
+    if installed_v and checkout_v and installed_v != checkout_v:
+        version_note = (
+            f" — versions DIFFER (installed {installed_v}, checkout {checkout_v}); "
+            "do not reconcile these by version string, the installed copy can read HIGHER while being older"
+        )
+    else:
+        version_note = " — same version number either way"
+
     return Check(
         "CLI matches checkout",
         WARN,
-        f"`empirica` loads {pkg}, NOT the checkout at {checkout} — same version number either way",
+        f"`empirica` loads {pkg}, NOT the checkout at {checkout}{version_note}",
         f"pipx install --force --editable {checkout}   (or run `python -m empirica.cli.cli_core` "
         "to exercise the tree). Until then a test of uncommitted or unreleased work is testing the "
         "installed copy, and a passing or failing result says nothing about your code.",
         data=data,
     )
+
+
+def _cli_version() -> str | None:
+    """The version the `empirica` on PATH reports — the INSTALLED copy's."""
+    rc, out, _ = _run(["empirica", "--version"], timeout=15.0)
+    if rc != 0:
+        return None
+    first = out.strip().splitlines()[0] if out.strip() else ""
+    parts = first.split()
+    return parts[1] if len(parts) > 1 and parts[0] == "empirica" else None
+
+
+def _checkout_version(checkout: Path) -> str | None:
+    """The version declared by the CHECKOUT's own metadata.
+
+    Read from the source rather than by importing: importing resolves through
+    `sys.path` and would hand back whichever copy this interpreter happens to
+    load, which is the confusion the whole check exists to settle.
+    """
+    init = checkout / "empirica" / "__init__.py"
+    try:
+        for line in init.read_text().splitlines():
+            stripped = line.strip()
+            if stripped.startswith("__version__"):
+                return stripped.split("=", 1)[1].strip().strip("\"'")
+    except OSError:
+        return None
+    return None
 
 
 def check_plugin_freshness() -> Check:
