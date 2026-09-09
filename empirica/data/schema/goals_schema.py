@@ -19,7 +19,13 @@ SCHEMAS = [
                     completed_timestamp REAL,
                     is_completed BOOLEAN DEFAULT 0,
                     goal_data TEXT NOT NULL,
-                    status TEXT DEFAULT 'in_progress',  -- 'planned' | 'in_progress' | 'blocked' | 'completed'
+                    -- 'planned' | 'in_progress' | 'blocked' | 'completed' | 'abandoned'
+                    -- Open vocabulary, NOT a CHECK constraint: readers must filter on the
+                    -- value literally rather than enumerating this list. `abandoned` was
+                    -- stored (9 rows here) while absent from this comment, and the listing
+                    -- filter enumerated only two values, so every status outside the
+                    -- enumeration fell through and returned the whole open backlog.
+                    status TEXT DEFAULT 'in_progress',
                     beads_issue_id TEXT,  -- Optional: Link to BEADS issue tracker (e.g., bd-a1b2)
                     project_id TEXT,
                     transaction_id TEXT,

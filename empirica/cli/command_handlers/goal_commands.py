@@ -1238,15 +1238,84 @@ def _count_goal_drift(cursor, project_id, status_filter, show_completed) -> int:
         return 0
 
 
+#: Filters that are AGGREGATES rather than literal status values — they answer a
+#: question about completion state, not "which status string does this row hold".
+_GOAL_STATUS_AGGREGATES = frozenset({"all", "completed", "drift"})
+
+
+def _explain_empty_status_filter(cursor, goals, status_filter) -> str | None:
+    """Name the statuses that DO exist when a literal status filter matches nothing.
+
+    An empty set is the correct answer to "which goals are blocked?" when none
+    are — and on its own it is indistinguishable from a filter that did not
+    work, which is the failure this whole change is about, inverted. Listing the
+    statuses actually present makes the vocabulary visible from the tool instead
+    of only from a schema comment that had itself drifted.
+
+    Annotation only: never fails the listing.
+    """
+    if goals or not status_filter or status_filter in _GOAL_STATUS_AGGREGATES:
+        return None
+    try:
+        present = [
+            f"{r[0]}={r[1]}"
+            for r in cursor.execute(
+                "SELECT COALESCE(status,'<null>'), COUNT(*) FROM goals "
+                "WHERE COALESCE(archived,0)=0 GROUP BY 1 ORDER BY 2 DESC"
+            ).fetchall()
+        ]
+    except Exception:
+        return None
+    return f"no goals carry status={status_filter!r}. Statuses present: " + ", ".join(present)
+
+
+def _annotate_goals_result(result, empty_status_note, drift_count) -> None:
+    """Attach the notes that make a listing's SHAPE legible. Mutates ``result``.
+
+    Takes the note ALREADY COMPUTED rather than a cursor, deliberately. The
+    first version queried here, and this runs after the caller has closed the
+    connection — so it raised on a dead cursor every time and its own `except`
+    turned that into a silent None. Taking a plain string removes the failure
+    mode instead of guarding against it: there is no connection left to be
+    wrong about.
+    """
+    if empty_status_note:
+        result["note"] = empty_status_note
+    if drift_count:
+        result["drift_count"] = drift_count
+        result["drift_hint"] = (
+            f"{drift_count} goal(s) have status/is_completed mismatch — "
+            "run `empirica goals-list --status drift` to inspect."
+        )
+
+
 def _build_goals_status_filter(status_filter, show_completed):
-    """Return (sql_fragment, extra_params) for the chosen status filter."""
+    """Return (sql_fragment, extra_params) for the chosen status filter.
+
+    The literal branch is an ALLOW-ANY, not an enumeration, and that is the fix.
+    It used to read ``if status_filter in ("in_progress", "planned")``, so every
+    other status fell through to the not-completed default and
+    ``goals-list --status blocked`` returned **the entire open backlog** —
+    confidently, where an empty set was the correct and instructive answer.
+
+    Enumerating was right for the two statuses that existed when it was written
+    and silently mis-files each one added since. Measured on this practice:
+    ``abandoned`` holds 9 rows and was mis-filed exactly like ``blocked``, so
+    fixing the reported value alone would have left a live one broken — which is
+    why this branch stopped enumerating rather than gaining a third case.
+
+    Unknown values now filter literally and return nothing, which is honest: a
+    status no row carries SHOULD produce an empty set. The caller annotates that
+    empty set with the statuses actually present, so "none are blocked" cannot be
+    mistaken for "the filter did not work".
+    """
     if status_filter == "all":
         return "", []
     if status_filter == "completed":
         return " AND g.is_completed = 1", []
     if status_filter == "drift":
         return f" AND {_DRIFT_PREDICATE}", []
-    if status_filter in ("in_progress", "planned"):
+    if status_filter and status_filter not in _GOAL_STATUS_AGGREGATES:
         return " AND g.status = ? AND g.is_completed = 0", [status_filter]
     if show_completed:
         return " AND g.is_completed = 1", []
@@ -1423,7 +1492,7 @@ def handle_goals_list_command(args):
                    g.created_timestamp, g.session_id, s.ai_id,
                    (SELECT COUNT(*) FROM subtasks WHERE goal_id = g.id) as total_subtasks,
                    (SELECT COUNT(*) FROM subtasks WHERE goal_id = g.id AND status = 'completed') as completed_subtasks,
-                   g.project_id, g.description
+                   g.project_id, g.description, g.completion_reason
             FROM goals g
             LEFT JOIN sessions s ON g.session_id = s.session_id
             WHERE 1=1
@@ -1505,8 +1574,23 @@ def handle_goals_list_command(args):
                     "progress": f"{completed}/{total}",
                     "progress_pct": progress_pct,
                     "project_id": row[9],
+                    # WHY it closed. Emitted only when present, so a NULL reads
+                    # as "no reason was recorded" rather than as a field the
+                    # projection forgot — the exact confusion the `description`
+                    # note above documents one line up.
+                    **({"completion_reason": row[11]} if len(row) > 11 and row[11] else {}),
                 }
             )
+
+        # Computed HERE: after `goals` exists, and BEFORE the connection closes.
+        # The first version ran it from the annotator further down, which is past
+        # `db.close()`, so every call raised on a dead cursor and the helper's own
+        # `except` turned that into a silent None — the note never appeared and
+        # nothing said why. A swallowed failure indistinguishable from "nothing to
+        # report" is the exact defect this change fixes, so it does not get to
+        # live inside the fix. Live verification caught it; the unit tests did
+        # not, because they call the helper with an open connection.
+        empty_status_note = _explain_empty_status_filter(cursor, goals, status_filter)
 
         db.close()
 
@@ -1517,7 +1601,11 @@ def handle_goals_list_command(args):
         if ai_id:
             filters_applied.append(f"ai={ai_id}")
         filter_desc = "ALL project_ids (cross-project)" if all_projects else (", ".join(filters_applied) or "all")
-        status_desc = "completed" if show_completed else "active"
+        # Echo the filter that was APPLIED, not a two-way guess. This read
+        # "completed" or "active" whatever `--status` carried, so a request for
+        # `blocked` was answered by a payload announcing `active` — the response
+        # described a filter that had not been used.
+        status_desc = status_filter or ("completed" if show_completed else "active")
 
         result = {
             "ok": True,
@@ -1534,12 +1622,7 @@ def handle_goals_list_command(args):
             },
             "timestamp": time.time(),
         }
-        if drift_count:
-            result["drift_count"] = drift_count
-            result["drift_hint"] = (
-                f"{drift_count} goal(s) have status/is_completed mismatch — "
-                "run `empirica goals-list --status drift` to inspect."
-            )
+        _annotate_goals_result(result, empty_status_note, drift_count)
 
         if output_format == "json":
             # Return result - CLI core will print as JSON
@@ -2750,8 +2833,19 @@ def _gc_resolve_goal(goal_id, output_format):
     return goal, goal_id, beads_issue_id
 
 
-def _gc_mark_completed(goal_id):
+def _gc_mark_completed(goal_id, close_reason=None):
     """Update goal status to completed in the database, then mirror to Qdrant.
+
+    ``close_reason`` is persisted here because it previously was not persisted
+    anywhere. It reached exactly one consumer — ``_gc_close_beads``, guarded by
+    ``if beads_issue_id`` — so for any goal not linked to BEADS the flag was
+    accepted, documented and discarded with no error. What is lost is the only
+    thing separating *achieved* from *abandoned* from *superseded* on a closed
+    goal, which is precisely what carries work into the next session.
+
+    Written on the column rather than into ``goal_data`` JSON so it is queryable
+    and mirrors ``subtasks.completion_evidence``, the sibling that has been
+    persisting its rationale correctly for 1197 rows.
 
     The Qdrant mirror is the retrieval-hygiene half: the goal's embedded payload
     carries ``status``/``is_completed`` frozen at embed time, and PREFLIGHT/CHECK
@@ -2759,14 +2853,34 @@ def _gc_mark_completed(goal_id):
     keeps resurfacing as ``in_progress`` in every later transaction's injected
     context (update_goal_status existed for exactly this and had zero callers).
     Best-effort — Qdrant down must never fail the completion.
+
+    Returns whether the reason was actually stored, so the caller can report it
+    rather than assert it. A completion that silently fails to record its reason
+    is the bug this function is fixing; reporting an unverified success would
+    reproduce it one layer up.
     """
     from empirica.data.session_database import SessionDatabase
 
     db2 = SessionDatabase()
-    db2.conn.execute(
-        "UPDATE goals SET status = 'completed', is_completed = 1, completed_timestamp = ? WHERE id = ?",
-        (time.time(), goal_id),
-    )
+    reason_stored = False
+    has_column = False
+    try:
+        has_column = any(r[1] == "completion_reason" for r in db2.conn.execute("PRAGMA table_info(goals)"))
+    except Exception:
+        has_column = False
+
+    if has_column and close_reason:
+        db2.conn.execute(
+            "UPDATE goals SET status = 'completed', is_completed = 1, completed_timestamp = ?, "
+            "completion_reason = ? WHERE id = ?",
+            (time.time(), close_reason, goal_id),
+        )
+        reason_stored = True
+    else:
+        db2.conn.execute(
+            "UPDATE goals SET status = 'completed', is_completed = 1, completed_timestamp = ? WHERE id = ?",
+            (time.time(), goal_id),
+        )
     db2.conn.commit()
     # Resolve the project for the Qdrant collection before closing the handle.
     project_id = None
@@ -2787,6 +2901,8 @@ def _gc_mark_completed(goal_id):
             update_goal_status(project_id, goal_id, "completed")
         except Exception as e:
             logger.debug(f"goal completion Qdrant mirror skipped (non-fatal): {e}")
+
+    return reason_stored
 
 
 def _gc_run_postflight(goal, result):
@@ -2961,7 +3077,7 @@ def handle_goals_complete_command(args):
 
         goal, goal_id, beads_issue_id = _gc_resolve_goal(goal_id, output_format)
 
-        _gc_mark_completed(goal_id)
+        reason_stored = _gc_mark_completed(goal_id, close_reason)
 
         result = {
             "ok": True,
@@ -2970,7 +3086,22 @@ def handle_goals_complete_command(args):
             "session_id": goal["session_id"],
             "beads_issue_id": beads_issue_id,
             "status_updated": True,
+            # Reported from what the WRITE returned, never from what the flag
+            # carried. The bug being fixed here is a value accepted and silently
+            # dropped; echoing the input would say "reason recorded" with equal
+            # confidence whether or not anything was written, which is the same
+            # defect wearing the fix's clothes.
+            "reason_stored": reason_stored,
+            "completion_reason": close_reason if reason_stored else None,
         }
+        if close_reason and not reason_stored:
+            # Only reachable on a DB predating migration 068. Say so out loud:
+            # a dropped reason that announces itself is recoverable, and the
+            # entire history of this bug is that it never did.
+            result["reason_not_stored"] = (
+                "goals.completion_reason is missing on this database (pre-migration-068) — "
+                "the reason was NOT saved; run any empirica command to apply pending migrations"
+            )
 
         if run_postflight:
             _gc_run_postflight(goal, result)

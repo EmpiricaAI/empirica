@@ -1551,6 +1551,11 @@ ALL_MIGRATIONS: list[tuple[str, str, Callable]] = [
         "Extend the retrieval signal from migration 063 to every artifact type, and make the before/after split answerable. 063 gave last_retrieved_at + retrieval_count to project_findings ONLY, and the column then acquired exactly one writer — bootstrap's circle 1, on the narrowest query in the system (findings inside an active goal, 7-day window). PREFLIGHT/CHECK context injection, project-search and investigate stamped nothing, so a finding surfaced dozens of times still read 0, which is also what 'never surfaced' looks like: the two states a reader must distinguish rendered identically and the broken one looked healthy. Found from outside by empirica-paper counting 9 retrievals across 444 later-resolved findings over 46 stores, not by anything here. Adds the pair to project_unknowns, project_dead_ends, decisions, assumptions and mistakes_made, plus retrieval_count_at_resolution on every resolvable type. That last column is the point: a cumulative counter cannot answer 'how often was this surfaced BEFORE it was resolved' — count is lifetime and last_retrieved_at is only the most recent — so the counter is snapshotted at resolution and the split becomes exact at counter cost, without a retrieval-event table. The post-resolution delta is independently load-bearing for core: a resolved artifact that keeps being retrieved means a retrieval filter is leaking, which is a bug that actually existed (a findings query in bootstrap that never honoured is_resolved). NOT backfilled — inventing retrieval history would poison the signal it exists to provide — and the instrumentation epoch is already recoverable from schema_migrations.applied_at, so a 0 written before this ran stays distinguishable from a 0 measured after it.",
         lambda cursor: migration_067_retrieval_telemetry_all_types(cursor),
     ),
+    (
+        "068_goal_completion_reason",
+        "Add completion_reason to goals — the account of WHY a goal closed, which the CLI accepted and threw away. `goals-complete --reason` read the flag into `close_reason` and passed it to exactly one consumer, `_gc_close_beads`, which is guarded by `if beads_issue_id` and does nothing for a goal not linked to BEADS. Most goals are not, so for them the flag was an ADVERTISED NO-OP: accepted, documented, discarded, no error. Reported by empirica-workspace (prop_t5upgjxwijdjhpwcfe72ow23vq) after searching every TEXT column of every table for a submitted reason and finding zero hits; confirmed here against two closures written the same hour, both gone. It survived because a closure reason is written and never read back in the same session — there is no moment where its absence becomes visible, and the CLI's 'Completed goal' says nothing to contradict the assumption that it landed. The fix has precedent in this schema rather than being a new idea: subtasks.completion_evidence already exists and holds 1197 populated rows, so the SUBTASK verb persists its rationale while the GOAL verb did not. Load-bearing because a closed goal without it cannot distinguish achieved from abandoned from superseded, and superseded-not-achieved is exactly what a closure reason exists to carry into the next session. Additive and nullable; NOT backfilled, since 'completed' is the default the flag falls back to and writing it everywhere would fabricate rationale for goals that never supplied one.",
+        lambda cursor: migration_068_goal_completion_reason(cursor),
+    ),
 ]
 
 
@@ -2756,6 +2761,32 @@ def migration_067_retrieval_telemetry_all_types(cursor: sqlite3.Cursor):
         _create_retrieval_snapshot_trigger(cursor, table, became_resolved)
 
     logger.info("✅ Migration 067 complete: every surfaced artifact type carries a retrieval signal")
+
+
+def migration_068_goal_completion_reason(cursor: sqlite3.Cursor):
+    """WHY a goal closed — accepted by the CLI, then thrown away.
+
+    ``goals-complete --reason`` read the flag and handed it to a single
+    consumer: ``_gc_close_beads``, guarded by ``if beads_issue_id``. A goal not
+    linked to BEADS — most goals — dropped it on the floor. Accepted,
+    documented, discarded, no error: an **advertised no-op**, which is worse
+    than a missing feature because the missing one fails loudly and teaches.
+
+    It survived because a closure reason is written and never read back in the
+    same session. There is no moment where its absence becomes visible, and
+    "Completed goal" says nothing that contradicts the assumption it landed.
+
+    The fix is not a new idea in this schema. ``subtasks.completion_evidence``
+    already exists with 1197 populated rows, so the SUBTASK verb has persisted
+    its rationale all along while the GOAL verb did not.
+
+    Nullable and NOT backfilled. ``"completed"`` is the flag's own fallback, so
+    writing it across the history would fabricate rationale for goals that never
+    supplied any — and the whole point of the column is telling achieved from
+    abandoned from superseded.
+    """
+    add_column_if_missing(cursor, "goals", "completion_reason", "TEXT", "NULL")
+    logger.info("✅ Migration 068 complete: a closed goal can say why it closed")
 
 
 def migration_065_backfill_goal_project_id_from_session(cursor: sqlite3.Cursor):
