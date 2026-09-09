@@ -2227,10 +2227,38 @@ def _refuse_unsupported_harness(harness: str, output_format: str):
     return 1
 
 
+def _handle_uninstall(apply_it: bool) -> int:
+    """`setup --uninstall` — plan by default, remove with --apply.
+
+    Plan-first is not politeness. Six of the eleven locations are inside files
+    Claude Code owns and writes continuously, and a delete has no merge to soften
+    it: install could fold its entry into whatever it found, uninstall removes.
+    An operator who cannot read what would go cannot disagree with it — and this
+    is the one command where disagreeing matters most.
+    """
+    from empirica.cli.command_handlers.claude_code_uninstall import apply_uninstall, plan_uninstall
+
+    the_plan = plan_uninstall()
+    if not apply_it:
+        the_plan["dry_run"] = True
+        the_plan["next"] = "empirica setup --uninstall --apply"
+        print(json.dumps(the_plan, indent=2, default=str))
+        return 0
+
+    receipt = apply_uninstall(the_plan=the_plan)
+    receipt["dry_run"] = False
+    print(json.dumps(receipt, indent=2, default=str))
+    # Exit 2 on a refusal: something was left behind ON PURPOSE and the caller
+    # should learn that without parsing the payload.
+    return 2 if receipt["refused"] else 0
+
+
 def handle_setup_claude_code_command(args):
     """Handle the setup command (harness integration)."""
     try:
         output_format = getattr(args, "output", "human")
+        if getattr(args, "uninstall", False):
+            return _handle_uninstall(bool(getattr(args, "apply", False)))
 
         harness = resolve_harness(args)
         if harness not in SUPPORTED_HARNESSES:

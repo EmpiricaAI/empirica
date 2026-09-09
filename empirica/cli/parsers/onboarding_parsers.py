@@ -248,6 +248,21 @@ Exit codes:
         default="json",
         help="Output format (default: json — Desktop calls expect machine-readable)",
     )
+    setup_cc_parser.add_argument(
+        "--uninstall",
+        action="store_true",
+        help=(
+            "Undo what setup wrote: remove the plugin dir and our own files, strip our keys from "
+            "the configs Claude Code owns. PLAN ONLY unless --apply. The @include line in your own "
+            "~/.claude/CLAUDE.md is reported, never removed."
+        ),
+    )
+    setup_cc_parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="With --uninstall, actually remove. Without it you get the plan and nothing is touched.",
+    )
+
     doctor_parser.add_argument(
         "--strict-warn",
         action="store_true",
