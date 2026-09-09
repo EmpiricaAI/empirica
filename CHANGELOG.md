@@ -5,6 +5,98 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.42] - 2026-09-09
+
+### Added
+
+- **Retrieval telemetry on every artifact type, from every surfacing path.**
+  Migration 063 gave findings a retrieval counter and it acquired exactly one
+  writer — bootstrap's 7-day active-goal query — while PREFLIGHT/CHECK context
+  injection (the highest-volume path), `project-search` and the noetic-batch
+  investigate leg wrote nothing. So `retrieval_count` meant "surfaced by
+  bootstrap" while reading as "surfaced", and `0` was indistinguishable from
+  "never used". Found from outside by a peer practice counting independently
+  (9 recorded retrievals across 444 later-resolved findings over 46 stores).
+  Now: one shared writer (`empirica.core.retrieval_telemetry`) that returns the
+  rows it wrote — so a stamp that matches nothing is a test failure, not a green
+  no-op — wired into all four paths; migration 067 extends the columns to
+  unknowns, dead-ends, decisions, assumptions and mistakes; and
+  `retrieval_count_at_resolution` is snapshotted by trigger at the moment an
+  artifact closes, so "how often was this surfaced while still believed" is
+  exactly answerable — and a resolved artifact that keeps being retrieved now
+  exposes a leaking retrieval filter. Decisions and assumptions stamp too: their
+  payloads had stored `artifact_id` all along and both search projections
+  dropped it. Not backfilled; the instrumentation epoch is recoverable from
+  `schema_migrations.applied_at`, so a pre-instrumentation `0` stays
+  distinguishable from a measured one.
+- **`goals-complete --reason` is now stored** (migration 068,
+  `goals.completion_reason`) instead of accepted and discarded. The flag reached
+  exactly one consumer — the BEADS close, guarded by `if beads_issue_id` — so
+  for most goals it was an advertised no-op, and the only record of whether a
+  goal was *achieved*, *abandoned* or *superseded* was lost. The output echoes
+  `reason_stored` from what the write returned, never from what the flag
+  carried, and on a pre-068 database it says loudly that the reason was NOT
+  saved instead of dropping it silently again. Surfaced in `goals-list` when
+  present.
+- **`doctor` checks that retrieval telemetry is actually written** — a large
+  corpus where nothing has ever been stamped is the wiring failing silently, and
+  it warns on a half-applied migration (snapshot columns present, triggers
+  absent), which is the state left behind when a migration's definition changes
+  after it has run.
+
+### Fixed
+
+- **`mailbox archive` could not say whose mailbox, so broadcast threads were
+  unarchivable.** Cortex rightly refuses an ambiguous archive when several of
+  your practices participate and names the fix in the error — pass `ai_id` —
+  but the CLI had no such flag and never sent the field, so the instruction
+  could not be followed by the tool that produced it. Measured live: 8 of 9
+  inbox proposals stuck. Now `--ai-id`, defaulting to the practice's canonical
+  3-form resolved from the roster; `reply`'s auto-archive carries it too
+  (previously it returned `parent_archived: false` with no reason on every
+  broadcast thread). Unresolvable id is omitted, not sent as null, so
+  single-participant archives keep working offline.
+- **`goals-list --status blocked` returned the entire open backlog.** The filter
+  enumerated two statuses and everything else fell through to the not-completed
+  default — `abandoned` (9 real rows) was mis-filed identically, so the branch
+  stopped enumerating: any literal status now filters literally, an unknown one
+  returns an honest empty set annotated with the statuses that DO exist, and
+  `filters.status` echoes the filter that was applied rather than announcing
+  `active` regardless.
+- **Migration-added columns no longer break `goals-list` on databases that lack
+  them.** Naming `completion_reason` (068) unconditionally in the SELECT made
+  the verb fail outright on any unmigrated database — and building test fixtures
+  from the REAL base schema immediately exposed that `archived` (056) had the
+  same latent break, invisible for months because every hand-rolled test schema
+  had helpfully included the column. `--all-projects` reads other practices'
+  databases, which migrate themselves on their own schedule, so both shapes are
+  permanent contract, probed per-database.
+- **`doctor` no longer claims "same version number either way"** when the CLI
+  and the checkout diverge: the installed copy can read HIGHER while being older
+  (measured: pipx 1.13.41 vs checkout 1.13.40 — every release bump reproduces
+  this on every developer box until they pull). Both versions are reported with
+  the direction of the hazard named.
+
+### Internal
+
+- **Test fixtures can now build BOTH schema generations from production code**
+  (`tests/schema_shapes.py`): `base` executes the real `ALL_SCHEMAS`, `current`
+  adds the real migration registry, and the builder asserts which world it
+  produced. A hand-rolled test schema is a transcription of the author's
+  assumptions, and it is precisely the author's assumptions that need testing —
+  this is what exposed the `archived` break above within a minute of existing.
+- **Assertion audit** (`scripts/audit_test_assertions.py`) with the honest
+  numbers: seven idempotency tests upgraded from "ran twice without raising" to
+  fingerprint-unchanged (a backfill that double-INSERTs on re-run does not
+  raise); two silent placeholders converted to loud skips; one test deleted
+  that computed its data, discarded it and printed "verified"; and a three-test
+  class deleted whose asserts referenced undefined names inside
+  `except Exception: pass` — unreachable asserts are invisible to any AST
+  audit, recorded as such.
+- **The doc-drift temporal gate now runs in CI** — the test job fetches full
+  history; on a shallow clone the gate could only skip, and it had skipped in
+  every CI run since it shipped.
+
 ## [1.13.41] - 2026-09-09
 
 ### Added

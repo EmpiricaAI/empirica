@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.13.41
-**Generated:** 2026-09-09 11:11:05 UTC
+**Framework version:** 1.13.42
+**Generated:** 2026-09-09 16:18:26 UTC
 **Total commands:** 243 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -3773,6 +3773,8 @@ Archive a proposal (soft-delete from inbox view) — POST /v1/orchestration/<id>
   Proposal id (prop_…) to archive
 - `--reason` — optional
   Optional archive reason (audit trail)
+- `--ai-id` — optional
+  WHOSE mailbox to archive from, as the canonical 3-form. Required by cortex when more than one of your practices participates in the proposal — it refuses to guess, because archiving all of them hides the thread from practitioners that never acted. Defaults to this practice's canonical id.
 - `--output` — optional · type=`choice` · choices={human, json} · default=`json`
   Output format (default: json)
 
