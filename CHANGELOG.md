@@ -5,12 +5,31 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.13.40] - 2026-09-08
+## [1.13.40] - 2026-09-09
 
-**A message-loss regression introduced in 1.13.39 and closed on both sides**, plus
-gardening finally reaching the canonical log.
+**A message-loss regression introduced in 1.13.39 and closed on both sides**, a
+read-modify-write that could replace Claude Code's live state, and gardening
+finally reaching the canonical log.
 
 ### Fixed
+
+- **`empirica setup` could replace Claude Code's live state with a partial read.**
+  `~/.claude.json` carries project history, costs and session state (115KB, 100
+  top-level keys, 21 tracked projects on one box) and Claude Code writes it
+  continuously. Setup did read-modify-write of the whole file with an atomic
+  rename — and the rename is what makes that LOSSY rather than merely racy, since
+  the replacement is total. Running setup from inside a Claude Code session, the
+  obvious thing to do, is exactly that window. Worse: the reader swallowed a
+  JSONDecodeError and returned an empty default, so a read that caught the file
+  mid-write replaced all of it with a file containing only Empirica's own MCP
+  entry. Absent and corrupt were conflated, and the caller's next act is always to
+  write the whole file back. Now: a missing file returns the default, an
+  unparseable one refuses; reads carry an `(mtime_ns, size)` stamp that the write
+  re-checks before renaming; and the temp file is per-process rather than a fixed
+  name two concurrent setups raced on. The same protection covers
+  `settings.json` (where tool permissions accumulate during a session) and the
+  plugin registries. Reported by a remote user outside issues/PRs — correct, and
+  understated.
 
 - **The idempotency key collapsed EVERY mailbox reply to one value, and the ledger
   swallowed genuinely new messages as replays.** `parent_id` and `summary` are both
