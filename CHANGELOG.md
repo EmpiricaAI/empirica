@@ -5,6 +5,73 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.40] - 2026-09-08
+
+**A message-loss regression introduced in 1.13.39 and closed on both sides**, plus
+gardening finally reaching the canonical log.
+
+### Fixed
+
+- **The idempotency key collapsed EVERY mailbox reply to one value, and the ledger
+  swallowed genuinely new messages as replays.** `parent_id` and `summary` are both
+  in `_VOLATILE_PARAM_KEYS` — stripped as per-emission ids and free-text prose,
+  which is correct for a generic propose. 1.13.39 passed exactly those two as the
+  key's params, so the dict reduced to `{}` and every reply of one type to one peer
+  computed the identical key. The applied-keys ledger then did its job against
+  meaningless input: it treated a new reply as a replay, discarded it, returned
+  `ok: true`, and echoed the caller's own fields back as if stored. A distinct mesh
+  message lost, reported as success. For a REPLY the parent IS the action identity,
+  so the same semantics now ride non-volatile names — `reply_to` and a digest of
+  the body rather than the prose, because the volatile list is right that free text
+  should not key anything directly.
+
+- **A legitimate replay and a fresh write rendered identically.** A correct key
+  stops collisions; it cannot make a designed replay distinguishable from a new
+  store — and on the retry path that is exactly the operator's question. Cortex was
+  already sending the answer (`status='idempotent_replay'`, `replay_caught`) and
+  the client read neither field. `idempotent_replay` now rides the reply payload
+  with three states: `true` (the ledger returned your earlier attempt), `false`
+  (newly stored), `null` (the server did not say). The null matters — an older
+  cortex does not emit the flag, and reporting `false` on its silence would invent
+  the answer.
+
+- **A 409 key-conflict is not an ordinary refusal.** Cortex's server guard stores a
+  request fingerprint and returns `409 idempotency_key_conflict` when a key hit's
+  content differs — nothing sent, nothing replayed. Reported as a generic rejection
+  that sends an operator to look at permissions; a 403 means "you may not do this"
+  and this 409 means "your client's key derivation is colliding". Now distinguished
+  with its own exit code and a message naming the remedy.
+
+### Added
+
+- **Gardening reaches git notes.** Notes are the canonical log and `rebuild
+  --qdrant` imports them back INTO sqlite, so a note that disagrees is a PENDING
+  REVERT rather than a stale copy. Gardening operated on sqlite alone. The two
+  halves needed opposite fixes: `delete-artifacts` DID reach notes but destroyed
+  the ref, and now moves it to `refs/notes/empirica-archive/` so the journey
+  survives; `*-resolve` reached notes not at all, and now stamps the resolution
+  into a note that stays ACTIVE — because sqlite keeps resolved rows, and archiving
+  them would be a second divergence in the opposite direction.
+
+- **`doctor` reports notes/sqlite divergence, and `--reconcile-notes` repairs it.**
+  Measured on one practice the moment it shipped: 129 orphaned notes and 973
+  unstamped resolutions — a rebuild today would resurrect 129 deleted artifacts and
+  un-resolve 973. Dry-run by default, naming every artifact id; `--apply` writes and
+  logs a receipt as a decision. Keyed on the notes ROOT (`git common-dir`), so N
+  worktrees sharing one notes history reconcile exactly once — and the collapse is
+  reported, because a run that quietly skips 21 paths is indistinguishable from one
+  that had a single path. WARN rather than FAIL: this is true of every practice on
+  the day it ships, and a fleet-wide red trains people to ignore doctor.
+
+- **`--verify` distinguishes "could not reach" from "absent".** A fetch failure was
+  reported as a missing artifact, and the failure summary named `--publish
+  --local-artifacts` as the remedy — which races the GitHub release to fix a channel
+  that was never broken. Observed on the 1.13.39 cut: four consecutive verifies
+  disagreed with each other and with a direct curl, while `pip download` fetched the
+  new wheel every time. The install-closure check now says which reading applies —
+  re-run, and a flip means propagation while a stale answer that persists means the
+  release really is self-reverting.
+
 ## [1.13.39] - 2026-09-06
 
 **Three data-loss and data-integrity fixes.** The largest destroyed 4,781 points

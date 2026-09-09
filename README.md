@@ -2,7 +2,7 @@
 
 > **We Gave AI a Mirror. Now It Measures What It Believes.**
 
-[![Version](https://img.shields.io/badge/version-1.13.39-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.39)
+[![Version](https://img.shields.io/badge/version-1.13.40-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.40)
 [![PyPI](https://img.shields.io/pypi/v/empirica)](https://pypi.org/project/empirica/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -114,13 +114,13 @@ empirica setup
 
 ```bash
 # Security-hardened Alpine image (~276MB, recommended)
-docker pull nubaeon/empirica:1.13.39-alpine
+docker pull nubaeon/empirica:1.13.40-alpine
 
 # Standard image (Debian slim, ~414MB)
-docker pull nubaeon/empirica:1.13.39
+docker pull nubaeon/empirica:1.13.40
 
 # Run
-docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.39 /bin/bash
+docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.40 /bin/bash
 ```
 </details>
 
@@ -387,16 +387,14 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.13.39
+## What's New in 1.13.40
 
-- **`rebuild` dropped seven collections nothing could refill.** `recreate_project_collections` deleted TEN collections; the re-embed step covered THREE. `rebuild.py` contained zero references to decisions or assumptions. So `empirica rebuild --qdrant` and `--qdrant-only` emptied calibration, episodic, goals, decisions, assumptions, epistemics and intents, recreated them empty, and **reported success**. Measured on one box before the fix: calibration 1,960 · episodic 1,688 · goals 1,036 · decisions 92 · assumptions 5 — **4,781 points across up to 24 practices**, unrecoverable because nothing re-embedded them. A rebuild is precisely what someone runs when they already suspect their index is wrong, and `--qdrant-only` was named in the epistemic-gardening guidance as the way to refresh embedded payloads: **the documented remedy was the loss.** Root cause was two hand-maintained lists in different files, neither wrong alone. The drop set is now DERIVED from the refill set, and preserved collections are named in the receipt with their point counts. Two shipped code paths that told operators to run the destructive verb were corrected — one printed it immediately after an identity rekey that `--qdrant` would itself have reverted.
-- **Decisions and assumptions had no re-embed path at all** — and 584 of them had never been embedded in the first place. `_embed_project_from_db` covered six artifact types and named neither, which is what made the rebuild destructive for them. Wiring it up took this practice from 11 decisions to 595 and 2 assumptions to 81: the collections a rebuild would have destroyed were already 98% empty. Both callers share one reader rather than a copy each.
-- **One destination per artifact type.** `decision-log` wrote the typed collections while `log-artifacts` wrote `memory`, so where an artifact landed depended on which verb was used — and the documented default is the batch verb. Retrieval searches both, so the split never lost retrievability; it produced two half-populated buckets and a duplicate for anything in both. Both verbs now route decisions and assumptions to the typed collections, which carry the richer payload (choice, rationale, alternatives, reversibility, confidence) and the higher search boost.
-- **`mailbox reply` treated a timeout as a rejection and stranded the parent.** `status = -1` comes only from the transport layer — no HTTP response arrived — while a 4xx/5xx returns its real code. The handler called it `failed` and returned before closing the parent, so a propose that HAD committed left the peer holding the reply and the sender's handshake open, which is the exact failure the verb exists to prevent. A second practice hit the mirror image and double-sent after a "failed" reply that had succeeded. Now attaches a stable idempotency key, retries once (the applied-keys ledger returns the original proposal rather than minting a second), and on a second silence reports UNRESOLVED with exit 2 — distinct from the 1 a real refusal returns — naming how to check and that re-running is safe.
-- **`log-artifacts` accepted an invalid `epistemic_source` and stored NULL.** The single `*-log` verbs refuse an out-of-vocabulary value at the parser; the batch path passed it to a writer that discarded anything unrecognised and returned `ok`. A full session of batch-logged artifacts lost their provenance label silently. Validated up front now, with an error that names the confusion that causes it: `ran`/`read`/`retrieved` are CHECK-grounding values, not epistemic sources.
-- **Scoped list endpoints did not say what they filtered.** `/api/v1/engagements` and `/api/v1/entities?type=engagement` apply different default scopes on different columns, returning 44 and 41 against a store of 52. Both correct; neither said so. From outside the serving layer that is indistinguishable from data loss, and it cost a peer practice an investigation and blocked a deletion decision. Both responses now carry `total_unfiltered` and a `scope` block naming the exact field — and each names the sibling endpoint's different field, so the two are reconcilable from the responses alone.
-- **`lesson-create` returned an id for a lesson no peer could fetch**, then promised a retry that shared the failure. Federation ran only in the POSTFLIGHT sweep, so a lesson could carry `sharing_policy: org`, read as shared everywhere locally, and be invisible to the mesh — permanently, if the session ended without a POSTFLIGHT. Now federates at write time and reports `not_requested` / `published` / `deferred`. The first cut of that fix resolved the project one way only and told the caller "POSTFLIGHT will retry" when the sweep resolves identically: **a retry is only worth promising if it uses a different path than the one that just failed.**
-- **The plugin backup was invisible under `--output json`** — files were backed up and nothing said so, in the mode scripts and CI consume.
+- **The idempotency key collapsed EVERY mailbox reply to one value, and the ledger swallowed genuinely new messages as replays.** `parent_id` and `summary` are both in `_VOLATILE_PARAM_KEYS` — stripped as per-emission ids and free-text prose, which is correct for a generic propose. 1.13.39 passed exactly those two as the key's params, so the dict reduced to `{}` and every reply of one type to one peer computed the identical key. The applied-keys ledger then did its job against meaningless input: it treated a new reply as a replay, discarded it, returned `ok: true`, and echoed the caller's own fields back as if stored. A distinct mesh message lost, reported as success. For a REPLY the parent IS the action identity, so the same semantics now ride non-volatile names — `reply_to` and a digest of the body rather than the prose, because the volatile list is right that free text should not key anything directly.
+- **A legitimate replay and a fresh write rendered identically.** A correct key stops collisions; it cannot make a designed replay distinguishable from a new store — and on the retry path that is exactly the operator's question. Cortex was already sending the answer (`status='idempotent_replay'`, `replay_caught`) and the client read neither field. `idempotent_replay` now rides the reply payload with three states: `true` (the ledger returned your earlier attempt), `false` (newly stored), `null` (the server did not say). The null matters — an older cortex does not emit the flag, and reporting `false` on its silence would invent the answer.
+- **A 409 key-conflict is not an ordinary refusal.** Cortex's server guard stores a request fingerprint and returns `409 idempotency_key_conflict` when a key hit's content differs — nothing sent, nothing replayed. Reported as a generic rejection that sends an operator to look at permissions; a 403 means "you may not do this" and this 409 means "your client's key derivation is colliding". Now distinguished with its own exit code and a message naming the remedy.
+- **Gardening reaches git notes.** Notes are the canonical log and `rebuild --qdrant` imports them back INTO sqlite, so a note that disagrees is a PENDING REVERT rather than a stale copy. Gardening operated on sqlite alone. The two halves needed opposite fixes: `delete-artifacts` DID reach notes but destroyed the ref, and now moves it to `refs/notes/empirica-archive/` so the journey survives; `*-resolve` reached notes not at all, and now stamps the resolution into a note that stays ACTIVE — because sqlite keeps resolved rows, and archiving them would be a second divergence in the opposite direction.
+- **`doctor` reports notes/sqlite divergence, and `--reconcile-notes` repairs it.** Measured on one practice the moment it shipped: 129 orphaned notes and 973 unstamped resolutions — a rebuild today would resurrect 129 deleted artifacts and un-resolve 973. Dry-run by default, naming every artifact id; `--apply` writes and logs a receipt as a decision. Keyed on the notes ROOT (`git common-dir`), so N worktrees sharing one notes history reconcile exactly once — and the collapse is reported, because a run that quietly skips 21 paths is indistinguishable from one that had a single path. WARN rather than FAIL: this is true of every practice on the day it ships, and a fleet-wide red trains people to ignore doctor.
+- **`--verify` distinguishes "could not reach" from "absent".** A fetch failure was reported as a missing artifact, and the failure summary named `--publish --local-artifacts` as the remedy — which races the GitHub release to fix a channel that was never broken. Observed on the 1.13.39 cut: four consecutive verifies disagreed with each other and with a direct curl, while `pip download` fetched the new wheel every time. The install-closure check now says which reading applies — re-run, and a flip means propagation while a stale answer that persists means the release really is self-reverting.
 ---
 
 
@@ -427,6 +425,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 **Author:** David S. L. Van Assche
-**Version:** 1.13.39
+**Version:** 1.13.40
 
 *Turtles all the way down — built with its own epistemic framework, measuring what it knows at every step.*

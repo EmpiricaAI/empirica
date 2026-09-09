@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.13.39
-**Generated:** 2026-09-06 13:03:21 UTC
+**Framework version:** 1.13.40
+**Generated:** 2026-09-08 15:40:13 UTC
 **Total commands:** 243 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -4533,6 +4533,10 @@ Check Empirica install health (Desktop + general — empirica-mcp, .empirica/, g
   Output format (default: json — Desktop calls expect machine-readable)
 - `--strict-warn` — optional · flag
   Exit code 2 when any WARN check fires (default: only FAIL fires non-zero exit)
+- `--reconcile-notes` — optional · flag
+  Repair historical notes/sqlite divergence: archive notes for artifacts sqlite no longer has, stamp resolutions notes never received. DRY-RUN unless --apply.
+- `--apply` — optional · flag
+  With --reconcile-notes, actually write. Without it you get the plan and nothing moves.
 
 #### `empirica release`
 

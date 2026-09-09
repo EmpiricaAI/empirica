@@ -30,7 +30,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 PLUGIN_NAME = "empirica"
-PLUGIN_VERSION = "1.13.39"
+PLUGIN_VERSION = "1.13.40"
 # Written into the installed plugin dir; the empirica version its files came
 # from. Drives drift-sync (empirica plugin-sync / session-init auto-heal).
 PLUGIN_VERSION_STAMP = ".plugin-version"
@@ -235,23 +235,73 @@ def _get_plugin_source_dir() -> Path | None:
     return None
 
 
+class ConcurrentlyModified(Exception):
+    """The file changed between our read and our write. Refuse rather than clobber."""
+
+
 def _ensure_json_file(path: Path, default: dict) -> dict:
-    """Ensure JSON file exists and return its contents"""
-    if path.exists():
-        try:
-            with open(path) as f:
-                return json.load(f)
-        except (OSError, json.JSONDecodeError):
-            pass
-    return default.copy()
+    """Return the file's contents, or `default` when it does not exist.
+
+    ABSENT and CORRUPT are different, and conflating them was catastrophic here.
+    This used to swallow a JSONDecodeError and return the default — so a read
+    that caught `~/.claude.json` MID-WRITE (Claude Code writes it continuously:
+    115KB, 100 top-level keys, 21 tracked projects on one box) parsed as garbage,
+    fell back to an empty dict, and the caller then atomically wrote a file
+    containing only its own entry. The whole of Claude Code's state, replaced,
+    silently, by a partial read.
+
+    A missing file genuinely means "start from default". A file that exists and
+    will not parse means "I do not know what is in here", and the only safe act
+    on that is to refuse.
+    """
+    if not path.exists():
+        return default.copy()
+    with open(path) as f:
+        return json.load(f)  # OSError / JSONDecodeError propagate — see docstring
 
 
-def _write_json_file(path: Path, data: dict):
-    """Write JSON file atomically"""
-    temp_path = path.with_suffix(".tmp")
-    with open(temp_path, "w") as f:
-        json.dump(data, f, indent=2)
-    temp_path.rename(path)
+def _read_json_with_stamp(path: Path, default: dict) -> tuple[dict, tuple | None]:
+    """Contents plus a change-stamp for optimistic-concurrency on write."""
+    data = _ensure_json_file(path, default)
+    try:
+        st = path.stat()
+        return data, (st.st_mtime_ns, st.st_size)
+    except OSError:
+        return data, None
+
+
+def _write_json_file(path: Path, data: dict, expect_stamp: tuple | None = None):
+    """Write atomically, refusing if the file moved under us.
+
+    Atomic rename is what makes a read-modify-write LOSSY rather than merely
+    racy: the replacement is total, so anything another process wrote between
+    our read and our rename is gone with no trace. Running `empirica setup` from
+    inside a Claude Code session — the obvious thing to do — is exactly that
+    window. Reported by a remote user 2026-09-09; verified.
+
+    `expect_stamp` closes it the only way a single process can: re-stat before
+    the rename and refuse when the file has changed. Not a lock — a detector.
+    The caller decides whether to re-read and merge again or to tell the human.
+
+    The temp name is per-process. `path.with_suffix('.tmp')` is a FIXED name, so
+    two concurrent setups raced on one temp file.
+    """
+    if expect_stamp is not None and path.exists():
+        st = path.stat()
+        if (st.st_mtime_ns, st.st_size) != expect_stamp:
+            raise ConcurrentlyModified(
+                f"{path} changed while setup was preparing its write. Nothing was written. "
+                "Claude Code writes this file continuously — re-run `empirica setup-claude-code` "
+                "from OUTSIDE a running Claude Code session, or re-run to retry the merge."
+            )
+    temp_path = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    try:
+        with open(temp_path, "w") as f:
+            json.dump(data, f, indent=2)
+        temp_path.replace(path)
+    finally:
+        if temp_path.exists():
+            temp_path.unlink(missing_ok=True)
 
 
 def _hook_exists(hooks_list: list, pattern: str) -> bool:
@@ -1258,6 +1308,65 @@ def _register_marketplace(marketplace_dir, plugins_dir, claude_dir, plugin_dir, 
             print("   ✓ Local marketplace registered")
 
 
+def _merge_mcp_entry_into(
+    path: Path, label: str, entry: dict, force: bool, output_format: str
+) -> tuple[bool, str | None]:
+    """Merge our MCP entry into one config file. Returns (wrote, previous_command).
+
+    Extracted so `_configure_mcp_server` stays readable — but the reason this is
+    its own function is the concurrency handling below, which is the whole point
+    of the change and does not belong inlined in a loop.
+    """
+    # Stamped read: `~/.claude.json` is Claude Code's LIVE store (project
+    # history, costs, session state) and it writes there continuously. A
+    # read-modify-write with an atomic rename replaces the WHOLE file, so
+    # anything written in between is gone — and running setup from inside a
+    # Claude Code session is precisely that window.
+    try:
+        config, stamp = _read_json_with_stamp(path, {"mcpServers": {}})
+    except (OSError, json.JSONDecodeError) as e:
+        # Existing-but-unparseable. This used to fall back to an empty default
+        # and the write replaced the entire file with just our entry. Refuse: a
+        # partial read is not an empty file.
+        print(
+            f"   ⚠ SKIPPED {label} config ({path}): could not be read ({type(e).__name__}). "
+            "Not overwriting a file whose contents are unknown — if Claude Code was "
+            "mid-write, re-run; if it is genuinely corrupt, repair or move it first.",
+            file=sys.stderr,
+        )
+        return False, None
+
+    existing = config.get("mcpServers", {}).get("empirica") or {}
+    previous_cmd = existing.get("command") if existing.get("command") != entry.get("command") else None
+
+    merged = {**existing, **entry}
+    if merged == existing and not force:
+        return False, previous_cmd
+
+    config.setdefault("mcpServers", {})["empirica"] = merged
+    try:
+        _write_json_file(path, config, expect_stamp=stamp)
+    except ConcurrentlyModified as e:
+        # One retry: re-read, re-merge, write again. A single racing write is the
+        # common case and re-merging is correct. A second conflict means the file
+        # is being written continuously and there is no safe moment — say so
+        # rather than spinning.
+        try:
+            config, stamp = _read_json_with_stamp(path, {"mcpServers": {}})
+            config.setdefault("mcpServers", {})["empirica"] = {
+                **(config.get("mcpServers", {}).get("empirica") or {}),
+                **entry,
+            }
+            _write_json_file(path, config, expect_stamp=stamp)
+        except (ConcurrentlyModified, OSError, json.JSONDecodeError):
+            print(f"   ⚠ SKIPPED {label} config: {e}", file=sys.stderr)
+            return False, previous_cmd
+
+    if output_format != "json":
+        print(f"   ✓ MCP server written to {label} config: {path}")
+    return True, previous_cmd
+
+
 def _configure_mcp_server(claude_dir, home, force, output_format):
     """Find and configure the empirica-mcp MCP server. Returns (mcp_installed, mcp_cmd)."""
     if output_format != "json":
@@ -1317,27 +1426,12 @@ def _configure_mcp_server(claude_dir, home, force, output_format):
 
     wrote_any = False
     previous_cmd = None
+    wrote_any = False
+    previous_cmd = None
     for path, label in targets:
-        config = _ensure_json_file(path, {"mcpServers": {}})
-        existing = config.get("mcpServers", {}).get("empirica") or {}
-        if existing.get("command") and existing.get("command") != mcp_cmd:
-            previous_cmd = existing.get("command")
-
-        # MERGE, do not replace. Setup owns the keys it writes and nothing else:
-        # the live config on a working box carries an `env` block
-        # (EMPIRICA_EPISTEMIC_MODE, EMPIRICA_PERSONALITY) that setup has never
-        # written, and replacing the entry wholesale would silently delete it.
-        # "Repair the drifted entry" is the right instinct and the wrong verb —
-        # setup cannot tell a broken env from a deliberate one, so it must not
-        # adjudicate. `doctor` now tests whether the entry can actually launch
-        # and names the failure; that is where that judgement belongs.
-        merged = {**existing, **entry}
-        if merged != existing or force:
-            config.setdefault("mcpServers", {})["empirica"] = merged
-            _write_json_file(path, config)
-            wrote_any = True
-            if output_format != "json":
-                print(f"   ✓ MCP server written to {label} config: {path}")
+        wrote, prev = _merge_mcp_entry_into(path, label, entry, force, output_format)
+        wrote_any = wrote_any or wrote
+        previous_cmd = previous_cmd or prev
 
     if output_format != "json":
         if not wrote_any:
