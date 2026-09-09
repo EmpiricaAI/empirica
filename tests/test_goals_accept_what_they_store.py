@@ -263,3 +263,68 @@ def test_reported_filter_is_the_one_applied():
     assert 'status_desc = status_filter or ("completed" if show_completed else "active")' in src, (
         "filters.status does not reflect the status that was actually requested"
     )
+
+
+# ─── 3. the new column must not break databases that lack it ───────────
+
+
+def test_listing_works_on_a_database_without_completion_reason(tmp_path, monkeypatch):
+    """Adding the field must not break listing goals where the field is absent.
+
+    Naming `g.completion_reason` unconditionally in the SELECT made the whole
+    verb fail with `no such column` on any pre-068 database — and `--all-projects`
+    opens OTHER practices' sessions.db files, which this process cannot migrate;
+    they apply their own migrations when their own practitioner next runs. So
+    both shapes have to work indefinitely, not just until everyone upgrades.
+
+    This is the regression my own tests could not catch: their fixture runs the
+    migration, so the column always existed for them. It surfaced only in the
+    full suite, from tests written for something else entirely.
+    """
+    import sqlite3 as _sq
+
+    from empirica.cli.command_handlers import goal_commands
+
+    dbp = tmp_path / "unmigrated.db"
+    conn = _sq.connect(dbp)
+    conn.executescript(_SCHEMA)  # deliberately NOT migrated — no completion_reason
+    conn.execute("CREATE TABLE sessions (session_id TEXT, ai_id TEXT, project_id TEXT)")
+    conn.execute("CREATE TABLE subtasks (goal_id TEXT, status TEXT)")
+    conn.execute("INSERT INTO goals (id, objective, goal_data, status) VALUES ('g1','still listable','{}','planned')")
+    conn.commit()
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(goals)")}
+    conn.close()
+    assert "completion_reason" not in cols, "fixture must be UNMIGRATED or it proves nothing"
+
+    class _FakeDB:
+        def __init__(self):
+            self.conn = _sq.connect(dbp)
+
+        def close(self):
+            self.conn.close()
+
+    monkeypatch.setattr(goal_commands, "SessionDatabase", _FakeDB, raising=False)
+    monkeypatch.setattr("empirica.data.session_database.SessionDatabase", _FakeDB, raising=False)
+
+    args = Namespace(
+        status=None,
+        output="json",
+        project_id=None,
+        session_id=None,
+        ai_id=None,
+        transaction_id=None,
+        limit=50,
+        all_projects=False,
+        scope=None,
+        include_archived=False,
+        show_completed=False,
+        uncapped=False,
+    )
+    result = goal_commands.handle_goals_list_command(args)
+
+    assert isinstance(result, dict), "listing returned None — the SELECT raised on the missing column"
+    assert result["goals_count"] == 1
+    assert result["goals"][0]["objective"] == "still listable"
+    assert "completion_reason" not in result["goals"][0], (
+        "a database without the column must not report the field at all"
+    )

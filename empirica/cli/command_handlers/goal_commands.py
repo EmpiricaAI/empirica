@@ -1269,6 +1269,20 @@ def _explain_empty_status_filter(cursor, goals, status_filter) -> str | None:
     return f"no goals carry status={status_filter!r}. Statuses present: " + ", ".join(present)
 
 
+def _goals_has_completion_reason(cursor) -> bool:
+    """Does THIS database's goals table carry the migration-068 column?
+
+    Asked per-database rather than assumed, because `--all-projects` opens other
+    practices' `sessions.db` files, and this process cannot migrate them — they
+    apply their own migrations when their own practitioner next runs a command.
+    So a listing verb has to work against both shapes, indefinitely.
+    """
+    try:
+        return any(r[1] == "completion_reason" for r in cursor.execute("PRAGMA table_info(goals)"))
+    except Exception:
+        return False
+
+
 def _annotate_goals_result(result, empty_status_note, drift_count) -> None:
     """Attach the notes that make a listing's SHAPE legible. Mutates ``result``.
 
@@ -1486,13 +1500,23 @@ def handle_goals_list_command(args):
         # which deliberately shows every project's goals.
         project_id = None if all_projects else _handle_goals_list_command_helper(cursor, project_id, session_id)
 
+        # `completion_reason` is migration-068 and MUST be optional in the SELECT.
+        # Naming it unconditionally makes the whole verb fail with
+        # `no such column: g.completion_reason` on any database that has not run
+        # 068 — which includes every OTHER practice's db reached by
+        # `--all-projects`, since this reads their files and cannot migrate them.
+        # Adding a field that surfaces WHY a goal closed must not break listing
+        # goals on the databases that do not have the field.
+        has_reason = _goals_has_completion_reason(cursor)
+        reason_col = ", g.completion_reason" if has_reason else ""
+
         # Build query based on filters
-        base_query = """
+        base_query = f"""
             SELECT g.id, g.objective, g.status, g.is_completed,
                    g.created_timestamp, g.session_id, s.ai_id,
                    (SELECT COUNT(*) FROM subtasks WHERE goal_id = g.id) as total_subtasks,
                    (SELECT COUNT(*) FROM subtasks WHERE goal_id = g.id AND status = 'completed') as completed_subtasks,
-                   g.project_id, g.description, g.completion_reason
+                   g.project_id, g.description{reason_col}
             FROM goals g
             LEFT JOIN sessions s ON g.session_id = s.session_id
             WHERE 1=1
