@@ -2,7 +2,7 @@
 
 > **We Gave AI a Mirror. Now It Measures What It Believes.**
 
-[![Version](https://img.shields.io/badge/version-1.13.40-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.40)
+[![Version](https://img.shields.io/badge/version-1.13.41-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.41)
 [![PyPI](https://img.shields.io/pypi/v/empirica)](https://pypi.org/project/empirica/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -114,13 +114,13 @@ empirica setup
 
 ```bash
 # Security-hardened Alpine image (~276MB, recommended)
-docker pull nubaeon/empirica:1.13.40-alpine
+docker pull nubaeon/empirica:1.13.41-alpine
 
 # Standard image (Debian slim, ~414MB)
-docker pull nubaeon/empirica:1.13.40
+docker pull nubaeon/empirica:1.13.41
 
 # Run
-docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.40 /bin/bash
+docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.41 /bin/bash
 ```
 </details>
 
@@ -414,15 +414,10 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.13.40
+## What's New in 1.13.41
 
-- **`empirica setup` could replace Claude Code's live state with a partial read.** `~/.claude.json` carries project history, costs and session state (115KB, 100 top-level keys, 21 tracked projects on one box) and Claude Code writes it continuously. Setup did read-modify-write of the whole file with an atomic rename — and the rename is what makes that LOSSY rather than merely racy, since the replacement is total. Running setup from inside a Claude Code session, the obvious thing to do, is exactly that window. Worse: the reader swallowed a JSONDecodeError and returned an empty default, so a read that caught the file mid-write replaced all of it with a file containing only Empirica's own MCP entry. Absent and corrupt were conflated, and the caller's next act is always to write the whole file back. Now: a missing file returns the default, an unparseable one refuses; reads carry an `(mtime_ns, size)` stamp that the write re-checks before renaming; and the temp file is per-process rather than a fixed name two concurrent setups raced on. The same protection covers `settings.json` (where tool permissions accumulate during a session) and the plugin registries. Reported by a remote user outside issues/PRs — correct, and understated.
-- **The idempotency key collapsed EVERY mailbox reply to one value, and the ledger swallowed genuinely new messages as replays.** `parent_id` and `summary` are both in `_VOLATILE_PARAM_KEYS` — stripped as per-emission ids and free-text prose, which is correct for a generic propose. 1.13.39 passed exactly those two as the key's params, so the dict reduced to `{}` and every reply of one type to one peer computed the identical key. The applied-keys ledger then did its job against meaningless input: it treated a new reply as a replay, discarded it, returned `ok: true`, and echoed the caller's own fields back as if stored. A distinct mesh message lost, reported as success. For a REPLY the parent IS the action identity, so the same semantics now ride non-volatile names — `reply_to` and a digest of the body rather than the prose, because the volatile list is right that free text should not key anything directly.
-- **A legitimate replay and a fresh write rendered identically.** A correct key stops collisions; it cannot make a designed replay distinguishable from a new store — and on the retry path that is exactly the operator's question. Cortex was already sending the answer (`status='idempotent_replay'`, `replay_caught`) and the client read neither field. `idempotent_replay` now rides the reply payload with three states: `true` (the ledger returned your earlier attempt), `false` (newly stored), `null` (the server did not say). The null matters — an older cortex does not emit the flag, and reporting `false` on its silence would invent the answer.
-- **A 409 key-conflict is not an ordinary refusal.** Cortex's server guard stores a request fingerprint and returns `409 idempotency_key_conflict` when a key hit's content differs — nothing sent, nothing replayed. Reported as a generic rejection that sends an operator to look at permissions; a 403 means "you may not do this" and this 409 means "your client's key derivation is colliding". Now distinguished with its own exit code and a message naming the remedy.
-- **Gardening reaches git notes.** Notes are the canonical log and `rebuild --qdrant` imports them back INTO sqlite, so a note that disagrees is a PENDING REVERT rather than a stale copy. Gardening operated on sqlite alone. The two halves needed opposite fixes: `delete-artifacts` DID reach notes but destroyed the ref, and now moves it to `refs/notes/empirica-archive/` so the journey survives; `*-resolve` reached notes not at all, and now stamps the resolution into a note that stays ACTIVE — because sqlite keeps resolved rows, and archiving them would be a second divergence in the opposite direction.
-- **`doctor` reports notes/sqlite divergence, and `--reconcile-notes` repairs it.** Measured on one practice the moment it shipped: 129 orphaned notes and 973 unstamped resolutions — a rebuild today would resurrect 129 deleted artifacts and un-resolve 973. Dry-run by default, naming every artifact id; `--apply` writes and logs a receipt as a decision. Keyed on the notes ROOT (`git common-dir`), so N worktrees sharing one notes history reconcile exactly once — and the collapse is reported, because a run that quietly skips 21 paths is indistinguishable from one that had a single path. WARN rather than FAIL: this is true of every practice on the day it ships, and a fleet-wide red trains people to ignore doctor.
-- **`--verify` distinguishes "could not reach" from "absent".** A fetch failure was reported as a missing artifact, and the failure summary named `--publish --local-artifacts` as the remedy — which races the GitHub release to fix a channel that was never broken. Observed on the 1.13.39 cut: four consecutive verifies disagreed with each other and with a direct curl, while `pip download` fetched the new wheel every time. The install-closure check now says which reading applies — re-run, and a flip means propagation while a stale answer that persists means the release really is self-reverting.
+- **`empirica setup --uninstall`.** Setup wrote to eleven locations and had no teardown, so removing Empirica meant hand-editing six JSON files Claude Code owns and knowing which line to delete from your own `CLAUDE.md`. Plan by default, `--apply` to remove, and three categories kept deliberately distinct: **ours** (plugin dir, system-prompt file, `active_work.json`, the listener service) are deleted; **shared** configs (`settings.json`, `~/.claude.json`, the plugin registries) have *our keys only* stripped; and the `@include` line in your own `CLAUDE.md` plus the `.bak` holding your modified copies of our files are **reported and never touched** — those are your edits, and the backup exists to keep them. A delete has no merge to soften it, so every write uses the stamped path from 1.13.40: it refuses rather than clobbering a file Claude Code changed under it, and refuses rather than rewriting a shared config it could not parse.
+- **Four restraint failures in that uninstaller, found before release**, each by a test asserting what must SURVIVE rather than what must go. An unparseable shared file read as "no keys of ours" — the absent-vs-corrupt conflation from 1.13.39 recurring in the code written to clean up after it. `hooks.<Event>` popped a whole list a user can share (a real home carries 12 events). `installed_plugins` keys plugins `name@marketplace`, so an exact-match silently left the registry entry behind while the same file's `enabledPlugins` was matched correctly. And the listener service was enumerated in the eleven-location survey and never implemented — an uninstalled Empirica with a live daemon still polling the mesh.
 ---
 
 
@@ -453,6 +448,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 **Author:** David S. L. Van Assche
-**Version:** 1.13.40
+**Version:** 1.13.41
 
 *Turtles all the way down — built with its own epistemic framework, measuring what it knows at every step.*

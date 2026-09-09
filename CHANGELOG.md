@@ -5,6 +5,36 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.41] - 2026-09-09
+
+### Added
+
+- **`empirica setup --uninstall`.** Setup wrote to eleven locations and had no
+  teardown, so removing Empirica meant hand-editing six JSON files Claude Code
+  owns and knowing which line to delete from your own `CLAUDE.md`. Plan by
+  default, `--apply` to remove, and three categories kept deliberately distinct:
+  **ours** (plugin dir, system-prompt file, `active_work.json`, the listener
+  service) are deleted; **shared** configs (`settings.json`, `~/.claude.json`,
+  the plugin registries) have *our keys only* stripped; and the `@include` line
+  in your own `CLAUDE.md` plus the `.bak` holding your modified copies of our
+  files are **reported and never touched** — those are your edits, and the backup
+  exists to keep them. A delete has no merge to soften it, so every write uses the
+  stamped path from 1.13.40: it refuses rather than clobbering a file Claude Code
+  changed under it, and refuses rather than rewriting a shared config it could not
+  parse.
+
+### Fixed
+
+- **Four restraint failures in that uninstaller, found before release**, each by a
+  test asserting what must SURVIVE rather than what must go. An unparseable shared
+  file read as "no keys of ours" — the absent-vs-corrupt conflation from 1.13.39
+  recurring in the code written to clean up after it. `hooks.<Event>` popped a
+  whole list a user can share (a real home carries 12 events). `installed_plugins`
+  keys plugins `name@marketplace`, so an exact-match silently left the registry
+  entry behind while the same file's `enabledPlugins` was matched correctly. And
+  the listener service was enumerated in the eleven-location survey and never
+  implemented — an uninstalled Empirica with a live daemon still polling the mesh.
+
 ## [1.13.40] - 2026-09-09
 
 **A message-loss regression introduced in 1.13.39 and closed on both sides**, a

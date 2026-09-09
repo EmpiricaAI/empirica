@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.13.40
-**Generated:** 2026-09-09 10:22:31 UTC
+**Framework version:** 1.13.41
+**Generated:** 2026-09-09 11:11:05 UTC
 **Total commands:** 243 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -4487,6 +4487,10 @@ Configure harness integration (hooks, system prompt, MCP server)
   Output format (default: human)
 - `--verbose` — optional · flag
   Show detailed output
+- `--uninstall` — optional · flag
+  Undo what setup wrote: remove the plugin dir and our own files, strip our keys from the configs Claude Code owns. PLAN ONLY unless --apply. The @include line in your own ~/.claude/CLAUDE.md is reported, never removed.
+- `--apply` — optional · flag
+  With --uninstall, actually remove. Without it you get the plan and nothing is touched.
 
 #### `empirica plugin-sync`
 
