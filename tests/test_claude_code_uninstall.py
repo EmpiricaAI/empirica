@@ -146,12 +146,19 @@ def test_an_UNREADABLE_shared_file_is_refused_not_rewritten(home):
     assert (home / ".claude.json").read_text().startswith('{"projects"'), "left exactly as found"
 
 
-def test_a_clean_machine_plans_NOTHING(tmp_path):
+def test_a_clean_machine_plans_NOTHING(tmp_path, monkeypatch):
     """Second control: on a home with no empirica install the plan is empty
-    rather than erroring or inventing work."""
+    rather than erroring or inventing work.
+
+    `monkeypatch.chdir` is load-bearing — the listener resolver reads
+    `Path.cwd()/.empirica/project.yaml`, so run from the empirica repo this test
+    would find a real ai_id and fail. A test that reads the working directory is
+    measuring the box, not the code.
+    """
     (tmp_path / ".claude").mkdir()
+    monkeypatch.chdir(tmp_path)
     p = plan_uninstall(tmp_path)
-    assert p["totals"] == {"remove": 0, "edit": 0, "report_only": 0, "unreadable": 0}
+    assert p["totals"] == {"remove": 0, "edit": 0, "report_only": 0, "unreadable": 0, "services": 0}
 
 
 def test_a_users_OWN_hook_under_a_shared_event_survives(home):
@@ -181,3 +188,101 @@ def test_an_event_holding_ONLY_our_hooks_is_removed_entirely(home):
     apply_uninstall(home)
     after = json.loads((home / ".claude" / "settings.json").read_text())
     assert "UserPromptSubmit" not in after.get("hooks", {}), "an event with only our entries goes"
+
+
+def test_installed_plugins_is_keyed_name_AT_marketplace(home):
+    """`plugins` is keyed `empirica@local`, not `empirica`.
+
+    An exact-key check found nothing and left the registry entry behind — while
+    the SAME FILE's `enabledPlugins` used a substring match and worked. Two key
+    shapes in one file, one of them handled. A real home also carries the legacy
+    `empirica-integration@local`.
+    """
+    reg = home / ".claude" / "plugins" / "installed_plugins.json"
+    reg.write_text(
+        json.dumps(
+            {
+                "version": 2,
+                "plugins": {
+                    "empirica@local": [{"scope": "user"}],
+                    "empirica-integration@local": [{"scope": "user"}],
+                    "someone-else@local": [{"scope": "user"}],
+                },
+            }
+        )
+    )
+
+    keys = next(e["remove_keys"] for e in plan_uninstall(home)["edit_shared"] if e["path"] == str(reg))
+    assert "plugins.empirica@local" in keys
+    assert "plugins.empirica-integration@local" in keys, "the legacy key must go too"
+
+    apply_uninstall(home)
+    after = json.loads(reg.read_text())["plugins"]
+    assert "empirica@local" not in after and "empirica-integration@local" not in after
+    assert "someone-else@local" in after, "another plugin's registration must survive"
+
+
+def test_a_SHARED_marketplace_name_is_never_removed(home):
+    """`known_marketplaces` is keyed by marketplace — ours lives under `local`,
+    which other plugins share. Removing `local` would unregister them all."""
+    km = home / ".claude" / "plugins" / "known_marketplaces.json"
+    km.write_text(json.dumps({"local": {"source": "x"}, "claude-plugins-official": {"source": "y"}}))
+
+    plan = plan_uninstall(home)
+    touched = [e["path"] for e in plan["edit_shared"]]
+    assert str(km) not in touched, "'local' is not ours to remove — other plugins live there"
+
+    apply_uninstall(home)
+    assert json.loads(km.read_text()) == {"local": {"source": "x"}, "claude-plugins-official": {"source": "y"}}
+
+
+def test_the_listener_SERVICE_is_planned_and_torn_down(home, tmp_path, monkeypatch):
+    """The gap that mattered most: enumerated in the survey, then not implemented.
+
+    An uninstalled empirica with a live systemd/launchd unit still polling the
+    mesh is worse than either a clean uninstall or no uninstall at all — the
+    plugin is gone, so nothing surfaces that the daemon is still running.
+    """
+    proj = tmp_path / "proj"
+    (proj / ".empirica").mkdir(parents=True)
+    (proj / ".empirica" / "project.yaml").write_text("ai_id: empirica\n")
+    monkeypatch.chdir(proj)
+
+    plan = plan_uninstall(home)
+    assert plan["services"] == [{"kind": "listener", "ai_id": "empirica"}]
+
+    called = {}
+    import empirica.core.loop_scheduler.persistent_listener as pl
+
+    monkeypatch.setattr(pl, "uninstall_listener_for", lambda a: called.setdefault("ai_id", a) or True)
+    receipt = apply_uninstall(home, plan)
+    assert called["ai_id"] == "empirica"
+    assert any("listener service" in r for r in receipt["removed"])
+
+
+def test_no_project_means_no_service_in_the_plan(home, tmp_path, monkeypatch):
+    """Positive control: the service entry must depend on there BEING one, not
+    appear unconditionally."""
+    monkeypatch.chdir(tmp_path)
+    assert plan_uninstall(home)["services"] == []
+
+
+def test_the_plugin_BACKUP_dir_is_reported_not_deleted(home):
+    """`<plugin_dir>.bak` holds the USER's modified copies of our files, saved by
+    every `setup --force`, and nothing prunes it — 536K / 20 files on one box.
+
+    Reported for the same reason as CLAUDE.md: the contents are their edits. We
+    put them there precisely because they were worth keeping, so deleting them
+    during uninstall discards the thing the backup existed to save.
+    """
+    bak = home / ".claude" / "plugins" / "local" / "empirica.bak"
+    (bak / "hooks").mkdir(parents=True)
+    (bak / "hooks" / "patched.py").write_text("their local patch")
+
+    plan = plan_uninstall(home)
+    reported = [r["path"] for r in plan["report_only"]]
+    assert str(bak) in reported, "the backup must be surfaced, not silently left"
+    assert str(bak) not in plan["remove_ours"], "and never scheduled for deletion"
+
+    apply_uninstall(home, plan)
+    assert (bak / "hooks" / "patched.py").read_text() == "their local patch", "their edits survive uninstall"

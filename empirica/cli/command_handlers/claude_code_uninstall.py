@@ -51,6 +51,7 @@ def _claude_paths(home: Path) -> dict[str, Path]:
         "system_prompt": claude / "empirica-system-prompt.md",
         "claude_md": claude / "CLAUDE.md",
         "active_work": home / ".empirica" / "active_work.json",
+        "plugin_backup": claude / "plugins" / "local" / f"{PLUGIN_NAME}.bak",
     }
 
 
@@ -71,8 +72,14 @@ def _json_keys_we_own(path: Path) -> list[str] | None:
         found.append(f"mcpServers.{PLUGIN_NAME}")
     if isinstance(data.get("enabledPlugins"), dict):
         found += [f"enabledPlugins.{k}" for k in data["enabledPlugins"] if PLUGIN_NAME in k]
-    if isinstance(data.get("plugins"), dict) and PLUGIN_NAME in data["plugins"]:
-        found.append(f"plugins.{PLUGIN_NAME}")
+    if isinstance(data.get("plugins"), dict):
+        # Keyed `<name>@<marketplace>` — `empirica@local`, not `empirica`. An
+        # exact-key check found nothing and silently left the registry entry
+        # behind, while the same file's `enabledPlugins` used a substring match
+        # and worked. Two shapes, one file, and only one of them was handled.
+        # Measured on a real home: `empirica@local` AND the legacy
+        # `empirica-integration@local`.
+        found += [f"plugins.{k}" for k in data["plugins"] if PLUGIN_NAME in k]
     if isinstance(data.get("statusLine"), dict) and PLUGIN_NAME in json.dumps(data["statusLine"]):
         found.append("statusLine")
     hooks = data.get("hooks")
@@ -86,6 +93,19 @@ def _json_keys_we_own(path: Path) -> list[str] | None:
     return sorted(set(found))
 
 
+def _resolve_ai_id_for_listener() -> str | None:
+    """The ai_id whose listener service would be removed, or None if none applies."""
+    try:
+        import yaml
+
+        cfg = Path.cwd() / ".empirica" / "project.yaml"
+        if cfg.exists():
+            return (yaml.safe_load(cfg.read_text()) or {}).get("ai_id")
+    except Exception:
+        return None
+    return None
+
+
 def plan_uninstall(home: Path | None = None) -> dict:
     """What uninstall WOULD do. Pure read — nothing is removed.
 
@@ -94,7 +114,14 @@ def plan_uninstall(home: Path | None = None) -> dict:
     """
     home = home or Path.home()
     p = _claude_paths(home)
-    out: dict = {"remove_ours": [], "edit_shared": [], "report_only": [], "absent": [], "unreadable": []}
+    out: dict = {
+        "remove_ours": [],
+        "edit_shared": [],
+        "report_only": [],
+        "absent": [],
+        "unreadable": [],
+        "services": [],
+    }
 
     for label in ("plugin_dir", "system_prompt", "active_work"):
         path = p[label]
@@ -122,6 +149,32 @@ def plan_uninstall(home: Path | None = None) -> dict:
     # it is a judgement we are not positioned to make — and unlike every other
     # entry here, getting it wrong damages something they wrote. Report the
     # location and let a human delete it.
+    # `<plugin_dir>.bak` holds YOUR modified copies of our files, preserved by
+    # every `setup --force`. Nothing prunes it — 536K / 20 files on one box.
+    #
+    # REPORTED, not removed, and for the same reason as CLAUDE.md: the contents
+    # are your edits, not ours. We put them there precisely because they were
+    # worth keeping; deleting them during uninstall would discard the thing the
+    # backup existed to save. (An unattributed vendor patch to a shipped skill
+    # lived in exactly this directory on 2026-09-06.)
+    bak = p["plugin_backup"]
+    if bak.exists():
+        try:
+            n = sum(1 for _ in bak.rglob("*") if _.is_file())
+        except OSError:
+            n = 0
+        out["report_only"].append(
+            {
+                "path": str(bak),
+                "files": n,
+                "why": (
+                    "your modified copies of our files, saved by `setup --force`. Uninstall does "
+                    "not delete these — they are your edits, and the backup exists to keep them. "
+                    "Remove the directory yourself once you are sure you do not want them."
+                ),
+            }
+        )
+
     cmd = p["claude_md"]
     if cmd.exists():
         try:
@@ -143,11 +196,22 @@ def plan_uninstall(home: Path | None = None) -> dict:
                 }
             )
 
+    # The listener SERVICE — a systemd/launchd unit that outlives the plugin.
+    #
+    # Enumerated in the original survey and then not implemented, which is the
+    # worst of both: an uninstalled empirica with a live daemon still polling the
+    # mesh. It gets its own category because removing it is a service operation,
+    # not a file edit, and `uninstall_listener_for` already exists.
+    ai_id = _resolve_ai_id_for_listener()
+    if ai_id:
+        out["services"].append({"kind": "listener", "ai_id": ai_id})
+
     out["totals"] = {
         "remove": len(out["remove_ours"]),
         "edit": len(out["edit_shared"]),
         "report_only": len(out["report_only"]),
         "unreadable": len(out["unreadable"]),
+        "services": len(out["services"]),
     }
     return out
 
@@ -196,6 +260,17 @@ def apply_uninstall(home: Path | None = None, the_plan: dict | None = None) -> d
     home = home or Path.home()
     the_plan = the_plan or plan_uninstall(home)
     receipt: dict = {"removed": [], "edited": [], "refused": [], "left_for_you": the_plan["report_only"]}
+
+    for svc in the_plan.get("services", []):
+        try:
+            from empirica.core.loop_scheduler.persistent_listener import uninstall_listener_for
+
+            ok = uninstall_listener_for(svc["ai_id"])
+            (receipt["removed"] if ok else receipt["refused"]).append(
+                f"listener service for {svc['ai_id']}" + ("" if ok else ": uninstall returned False")
+            )
+        except Exception as e:
+            receipt["refused"].append(f"listener service for {svc['ai_id']}: {type(e).__name__}: {e}")
 
     for path_str in the_plan.get("unreadable", []):
         receipt["refused"].append(f"{path_str}: unreadable — NOT modified, contents unknown")

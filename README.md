@@ -144,6 +144,33 @@ empirica onboard   # Interactive walkthrough of the full workflow
 
 Or just start working — with Claude Code hooks active, the AI manages the epistemic workflow automatically.
 
+### Removing it
+
+`empirica setup` writes to eleven locations, and six of them are files Claude Code
+owns and writes continuously. So uninstall shows you the plan first and only
+removes what is actually ours:
+
+```bash
+empirica setup --uninstall           # the plan — names every location, changes nothing
+empirica setup --uninstall --apply   # remove, reporting anything it refused
+```
+
+| | |
+|---|---|
+| **Removed** | the plugin directory, our system-prompt file, `active_work.json`, the listener service |
+| **Edited** | `settings.json`, `~/.claude.json`, the plugin registries — **our keys only**, yours untouched |
+| **Reported, never touched** | the `@include` line in your own `~/.claude/CLAUDE.md` |
+
+That last row is deliberate. Setup appended one line to a file **you** author. If
+you have reorganised around it, we cannot tell which edit is safe — so uninstall
+tells you the line number and leaves the decision to you.
+
+Two more things it will not do: it refuses rather than writing a shared config it
+could not parse, and it refuses if Claude Code modified the file while uninstall
+was preparing its write. In both cases nothing is removed and it says why. Your
+`.empirica/` project data — findings, goals, git notes — is never touched; this
+removes the *integration*, not your epistemic record.
+
 ---
 
 ## The Measurement Architecture
