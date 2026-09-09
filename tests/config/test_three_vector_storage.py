@@ -190,10 +190,20 @@ class TestMigration035:
         assert cursor.fetchone() is not None
 
     def test_migration_idempotent(self):
-        """Running migration twice doesn't crash."""
+        """A second run must not raise AND must not change anything.
+
+        "Ran twice without raising" misses the failure mode that matters: a
+        backfill that INSERTs again on the second run does not raise. The
+        fingerprint (columns + row counts, every table) is the actual no-op
+        claim, asserted instead of implied.
+        """
+        from tests.schema_shapes import db_fingerprint
+
         conn = self._setup_pre_migration_db()
         self._run_migration(conn)
-        self._run_migration(conn)  # second run — no-op
+        before = db_fingerprint(conn)
+        self._run_migration(conn)  # second run — must be a REAL no-op
+        assert db_fingerprint(conn) == before, "second migration run changed schema or data"
 
     def test_legacy_rows_readable_after_migration(self):
         """Pre-migration data is still readable with NULL new columns."""

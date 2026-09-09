@@ -35,8 +35,14 @@ def test_migration_creates_table_with_columns():
 
 
 def test_migration_idempotent():
+    """Second run must not raise AND must not change anything — a backfill that
+    double-INSERTs on re-run does not raise, so 'no crash' alone proves too little."""
+    from tests.schema_shapes import db_fingerprint
+
     db = _db()
-    migration_053_blindspot_events(db.conn.cursor())  # second run must not raise
+    before = db_fingerprint(db.conn)
+    migration_053_blindspot_events(db.conn.cursor())  # second run — must be a REAL no-op
+    assert db_fingerprint(db.conn) == before, "second migration run changed schema or data"
 
 
 def test_persist_writes_rows_as_surfaced():

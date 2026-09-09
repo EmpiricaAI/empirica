@@ -509,6 +509,24 @@ def _reconcile_findings_against_sqlite(raw_findings):
         return raw_findings
 
 
+def _stamp_surfaced_typed(items, artifact_type: str) -> int:
+    """Stamp a typed-collection result whose items carry no `type` key.
+
+    The typed searches (decisions, assumptions) return projections without a
+    `type` field — the collection IS the type — so the generic collector needs
+    it supplied. Points embedded before `artifact_id` reached those payloads
+    project it as None and are skipped by collect_ids: old points simply do not
+    stamp, which is the honest degradation (no guessing, no misattribution).
+    """
+    try:
+        from empirica.core.retrieval_telemetry import stamp_items
+
+        return stamp_items(items, default_type=artifact_type)
+    except Exception as e:
+        logger.debug(f"retrieval stamp ({artifact_type}) skipped: {e}")
+        return 0
+
+
 def _stamp_surfaced(*lists) -> int:
     """Record that these artifacts were surfaced into an injected context block.
 
@@ -619,6 +637,9 @@ def _enrich_knowledge_graph(
 
             raw = search_assumptions(project_id, task_context, status="unverified", limit=limits["assumptions"])
             if raw:
+                # From RAW, before the projection below drops artifact_id —
+                # same rule as the findings stamp in retrieve_task_patterns.
+                _stamp_surfaced_typed(raw, "assumption")
                 result["unverified_assumptions"] = [
                     {
                         "assumption": a.get("assumption", ""),
@@ -637,6 +658,7 @@ def _enrich_knowledge_graph(
 
             raw = search_decisions(project_id, task_context, limit=limits["decisions"])
             if raw:
+                _stamp_surfaced_typed(raw, "decision")
                 result["prior_decisions"] = [
                     {
                         "choice": d.get("choice", ""),

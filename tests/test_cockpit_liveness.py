@@ -95,10 +95,12 @@ def test_tmux_with_dead_ppid_overrides_pane_alive(fake_home, monkeypatch):
     than the pane being a 'claude' pane (the captured PPID was Claude;
     if it died, this instance is gone — even if a NEW Claude started in
     the same pane, it's a different instance for our purposes)."""
-    # Actually, current implementation: pane-with-claude wins over PID check.
-    # That's fine for the user's stated need (don't show dead Claudes), but
-    # documents the precedence ordering.
-    pass  # Behavioural assertion — kept as documentation, not a hard test.
+    # Current implementation: pane-with-claude wins over PID check. That's fine
+    # for the user's stated need (don't show dead Claudes) — this records the
+    # precedence ordering as a deliberate non-implementation. A SKIP says so in
+    # every run; the previous `pass` reported PASSED, which claimed a
+    # verification that never ran.
+    pytest.skip("documents precedence only: pane-with-claude deliberately wins over the dead-PPID signal")
 
 
 def test_tmux_bash_but_captured_pid_alive_is_alive(fake_home, monkeypatch):

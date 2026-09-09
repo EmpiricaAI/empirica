@@ -349,13 +349,17 @@ def test_migration_047_drops_legacy_table_when_present(db):
 
 
 def test_migration_047_is_idempotent_when_table_absent(db):
-    """Re-running on a DB that doesn't have the table is a clean no-op."""
-    # Run twice on a fresh DB (table never existed)
+    """Re-running on a DB that doesn't have the table is a clean no-op —
+    asserted on the fingerprint, since a drop-migration that touched anything
+    ELSE on re-run would not raise either."""
+    from tests.schema_shapes import db_fingerprint
+
     migration_047_drop_project_reference_docs(db.conn.cursor())
     db.conn.commit()
+    before = db_fingerprint(db.conn)
     migration_047_drop_project_reference_docs(db.conn.cursor())
     db.conn.commit()
-    # No exception → idempotent
+    assert db_fingerprint(db.conn) == before, "re-run on an absent table changed something else"
 
 
 def test_writer_still_works_after_phase3(db):

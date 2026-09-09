@@ -119,3 +119,25 @@ def _assert_generation(conn: sqlite3.Connection, generation: str) -> None:
                 f"asked for 'base' but {table}.{column} exists — the base fixture has silently become "
                 f"migrated, and every unmigrated-compat test using it now proves nothing"
             )
+
+
+def db_fingerprint(conn: sqlite3.Connection) -> dict[str, tuple[tuple[str, ...], int]]:
+    """Every table's (columns, row_count) — the cheap idempotency oracle.
+
+    "Ran twice without raising" is the weakest true statement about an
+    idempotent operation, and it misses the failure mode that matters: a
+    migration whose backfill INSERTs again on the second run does not raise.
+    Comparing fingerprints before and after the second run catches double
+    writes, dropped rows, and schema mutation in one assert, for the cost of a
+    dict compare. (`schema_migrations` is excluded — the ledger legitimately
+    grows when a re-run records itself.)
+    """
+    fp: dict[str, tuple[tuple[str, ...], int]] = {}
+    tables = [
+        r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name != 'schema_migrations'")
+    ]
+    for t in tables:
+        cols = tuple(r[1] for r in conn.execute(f"PRAGMA table_info({t})"))
+        count = conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+        fp[t] = (cols, count)
+    return fp

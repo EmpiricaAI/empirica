@@ -322,6 +322,12 @@ def search_assumptions(
 
         items = [
             {
+                # The stored payload has carried this since the typed embed
+                # landed; the projection dropped it, so retrieval telemetry had
+                # nothing to key a stamp on and assumptions could never count as
+                # retrieved. Dropping a field here is not neutral — it decides
+                # what every consumer can do.
+                "artifact_id": r.payload.get("artifact_id"),
                 "assumption": r.payload.get("assumption", ""),
                 "confidence": r.payload.get("confidence", 0.5),
                 "status": r.payload.get("status", "unverified"),
@@ -398,6 +404,10 @@ def search_decisions(
 
         return [
             {
+                # Same one-line omission as search_assumptions, same cost: the
+                # payload stores artifact_id, the projection dropped it, and so
+                # decisions could never be stamped as retrieved.
+                "artifact_id": r.payload.get("artifact_id"),
                 "choice": r.payload.get("choice", ""),
                 "rationale": r.payload.get("rationale", ""),
                 "alternatives": r.payload.get("alternatives"),

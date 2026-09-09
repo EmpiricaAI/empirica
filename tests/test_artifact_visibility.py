@@ -313,10 +313,15 @@ class TestMigration:
 
         db = SessionDatabase(db_path=str(db_path))
 
-        # Run migration_039 again on a raw connection — should not raise
+        # Run migration_039 again on a raw connection — must be a REAL no-op,
+        # asserted on the fingerprint: a backfill that re-INSERTs would not raise.
+        from tests.schema_shapes import db_fingerprint
+
         conn = sqlite3.connect(str(db_path))
         cursor = conn.cursor()
-        migration_039_artifact_visibility(cursor)  # should be silent no-op
+        before = db_fingerprint(conn)
+        migration_039_artifact_visibility(cursor)
         conn.commit()
+        assert db_fingerprint(conn) == before, "second migration run changed schema or data"
         conn.close()
         db.close()

@@ -403,3 +403,62 @@ def test_stamp_items_handles_the_shape_search_actually_returns(db):
         {"artifact_id": "bogus", "type": "finding"},
     ]
     assert stamp_items(items, db_path=db) == 3
+
+
+# ─── decisions + assumptions: the two types that could not stamp at launch ──
+
+
+def test_decisions_stamp_once_the_projection_carries_the_id(db):
+    """Decisions/assumptions got columns in 067 but could not stamp: their
+    typed Qdrant payloads STORED artifact_id while both search projections
+    dropped it — a one-line omission that decided what every consumer could do.
+    Stated as a known gap at ship time; this closes it."""
+    conn = sqlite3.connect(db)
+    conn.execute("INSERT INTO decisions (id, choice) VALUES ('dec1', 'chose the thing')")
+    conn.commit()
+    conn.close()
+    # The shape search_decisions now returns: artifact_id present, no `type`
+    # key — the collection IS the type, so the caller supplies it.
+    items = [{"artifact_id": "dec1", "choice": "chose the thing", "score": 0.9}]
+    assert stamp_items(items, default_type="decision", db_path=db) == 1
+    assert _count(db, "decisions", "dec1") == 1
+
+
+def test_pre_artifact_id_points_skip_rather_than_guess(db):
+    """Points embedded before artifact_id reached the typed payloads project it
+    as None. They must SKIP — a stamp against a guessed id is wrong data that
+    reads as measurement, worse than the gap it fills."""
+    items = [{"artifact_id": None, "choice": "old point", "score": 0.5}]
+    assert stamp_items(items, default_type="decision", db_path=db) == 0
+
+
+def test_path_enrich_stamps_decisions_and_assumptions_from_raw():
+    """Wiring guard: the enrich must stamp BOTH typed blocks, from the raw
+    lists — the projections it builds afterwards drop artifact_id, so a stamp
+    placed after them has nothing to key on. That exact ordering mistake is how
+    the findings path silently stamped nothing for a month."""
+    import inspect
+
+    from empirica.core.qdrant import pattern_retrieval
+
+    src = inspect.getsource(pattern_retrieval._enrich_knowledge_graph)
+    assert '_stamp_surfaced_typed(raw, "decision")' in src, "decisions enrich stamps nothing"
+    assert '_stamp_surfaced_typed(raw, "assumption")' in src, "assumptions enrich stamps nothing"
+    for block, needle in (("prior_decisions", '"decision"'), ("unverified_assumptions", '"assumption"')):
+        stamp_at = src.index(f"_stamp_surfaced_typed(raw, {needle})")
+        project_at = src.index(f'result["{block}"]')
+        assert stamp_at < project_at, f"{block}: stamp placed after the projection that drops artifact_id"
+
+
+def test_search_projections_carry_artifact_id():
+    """The one-line omission itself, pinned: both typed search projections must
+    keep artifact_id from the stored payload."""
+    import inspect
+
+    from empirica.core.qdrant import intent_layer
+
+    for fn in (intent_layer.search_decisions, intent_layer.search_assumptions):
+        src = inspect.getsource(fn)
+        assert '"artifact_id": r.payload.get("artifact_id")' in src, (
+            f"{fn.__name__} drops artifact_id — decisions/assumptions can never stamp again"
+        )

@@ -62,11 +62,14 @@ def test_ensure_workspace_schema_idempotent(tmp_path):
     from empirica.cli.command_handlers.project_commands import (
         ensure_workspace_schema,
     )
+    from tests.schema_shapes import db_fingerprint
 
     db = tmp_path / "workspace.db"
     conn = sqlite3.connect(str(db))
     ensure_workspace_schema(conn)
+    before = db_fingerprint(conn)
     ensure_workspace_schema(conn)
+    assert db_fingerprint(conn) == before, "second ensure_workspace_schema changed schema or data"
     conn.close()
 
 

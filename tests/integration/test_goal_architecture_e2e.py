@@ -324,10 +324,16 @@ class TestMCPIntegration:
     """Test MCP tool integration (requires running MCP server)"""
 
     def test_mcp_tool_schemas(self):
-        """Verify MCP tool schemas are valid"""
-        # This would test actual MCP calls - placeholder for now
-        # Minimax can implement full MCP integration tests
-        pass
+        """Superseded placeholder, converted from a silent lie to a loud skip.
+
+        The body was `pass` under a docstring claiming "Verify MCP tool schemas
+        are valid" — reported PASSED forever while verifying nothing. Real MCP
+        schema coverage now lives in empirica-mcp/tests/test_tool_schema.py, so
+        this skips by name rather than passing by silence. Kept (not deleted)
+        so the skip count records that this suite defers MCP schema coverage
+        elsewhere, instead of the gap being invisible.
+        """
+        pytest.skip("MCP tool schema coverage lives in empirica-mcp/tests/test_tool_schema.py")
 
 
 if __name__ == "__main__":

@@ -71,6 +71,15 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          # Full history so the doc-drift temporal gate (test_docs_temporal_drift)
+          # actually RUNS here: it git-dates each doc against the code it cites,
+          # and on a shallow clone it can only skip. It skipped in every CI run
+          # since it shipped — a gate that self-exempts on the runner guards
+          # nothing where it matters most. (Same reason the compliance job
+          # already fetches full history.)
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Set up Python ${{ matrix.python }}
         uses: actions/setup-python@v7

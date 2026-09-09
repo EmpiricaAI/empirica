@@ -42,9 +42,15 @@ def test_migration_creates_table_with_expected_columns():
 
 
 def test_migration_is_idempotent():
+    """Second run must not raise AND must not change anything — a backfill that
+    double-INSERTs on re-run does not raise, so 'no crash' alone proves too little."""
+    from tests.schema_shapes import db_fingerprint
+
     conn = _migrated_conn()
-    migration_052_weave_enforce_events(conn.cursor())  # second run must not raise
+    before = db_fingerprint(conn)
+    migration_052_weave_enforce_events(conn.cursor())  # second run — must be a REAL no-op
     conn.commit()
+    assert db_fingerprint(conn) == before, "second migration run changed schema or data"
 
 
 def test_persist_weave_event_inserts_row(monkeypatch):

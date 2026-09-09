@@ -121,9 +121,15 @@ def test_migration_tolerates_pre_existing_impact_column():
             )
         """)
         conn.commit()
-        # Should not raise
+        # Must be a REAL no-op: asserted on the fingerprint, because "did not
+        # raise" also describes a migration that added a duplicate column type
+        # or re-wrote defaults.
+        from tests.schema_shapes import db_fingerprint
+
+        before = db_fingerprint(conn)
         migration_042_impact_on_dead_ends_and_mistakes(cursor)
         conn.commit()
+        assert db_fingerprint(conn) == before, "no-op migration changed schema or data"
     finally:
         conn.close()
 
