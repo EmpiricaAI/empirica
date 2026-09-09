@@ -504,6 +504,12 @@ def handle_mailbox_reply_command(  # noqa: C901 — CLI handler with 7 validatio
         archive_body = {
             "api_key": api_key,
             "reason": f"auto-archived after mailbox reply (replied via {new_proposal_id})",
+            # Same requirement the standalone `archive` verb hit: cortex refuses
+            # to guess WHOSE mailbox to clear when several of the caller's
+            # practices participate. Without it a reply to any broadcast thread
+            # closes the parent and then silently fails to archive it, reporting
+            # parent_archived=false with no reason a reader could act on.
+            "ai_id": source_claude,
         }
         a_status, archive_resp = _http_post(archive_url, archive_body, api_key, 10.0)
         archive_ok = (
@@ -842,10 +848,24 @@ def handle_mailbox_archive_command(
     *,
     _resolve_cortex_creds: Callable[[], tuple] = _default_resolve_cortex_creds,
     _http_post: Callable[[str, dict, str, float], tuple] = _default_http_post,
+    _http_get: Callable[[str, str, float], tuple] = _default_http_get,
+    _resolve_ai_id: Callable[[], str | None] = _default_resolve_ai_id,
 ) -> int:
     """`empirica mailbox archive <proposal_id>` — POST /v1/orchestration/{id}/archive.
 
     Soft-delete from the inbox view (same primitive `reply` auto-invokes on close).
+
+    Sends `ai_id` because cortex REQUIRES it whenever more than one of the
+    caller's practices participates in the proposal, and refuses rather than
+    guessing — archiving all of them would hide the thread from practitioners
+    that never acted. That refusal is correct and the client had no way to
+    satisfy it: the flag did not exist and the body never carried the field, so
+    every broadcast thread (the normal shape for cortex and mesh-support
+    announcements) was permanently unarchivable, with the error telling the
+    operator to pass something nothing could pass.
+
+    Resolved from the roster rather than assembled locally: `project.yaml` holds
+    the bare slug and cortex keys mailboxes by the canonical 3-form.
     """
     proposal_id = getattr(args, "proposal_id", None)
     if not proposal_id:
@@ -860,9 +880,17 @@ def handle_mailbox_archive_command(
         )
         return 1
 
+    ai_id = getattr(args, "ai_id", None) or _resolve_canonical_ai_id(cortex_url, api_key, _resolve_ai_id(), _http_get)
+
     archive_url = f"{cortex_url.rstrip('/')}/v1/orchestration/{proposal_id}/archive"
     reason = getattr(args, "reason", None) or "archived via empirica mailbox archive"
-    status, resp = _http_post(archive_url, {"api_key": api_key, "reason": reason}, api_key, 10.0)
+    body: dict = {"api_key": api_key, "reason": reason}
+    # Omitted rather than sent as None when unresolvable: a null ai_id is not the
+    # same request as an absent one, and single-participant archives must keep
+    # working on a box that cannot reach the roster.
+    if ai_id:
+        body["ai_id"] = ai_id
+    status, resp = _http_post(archive_url, body, api_key, 10.0)
     # Archiving is idempotent, so an already-archived proposal is the desired state,
     # not an error. Cortex says so precisely — HTTP 200 with `is_archived: true` —
     # and the old check still failed it, because `error` was set. A caller archiving

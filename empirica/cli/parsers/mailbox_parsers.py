@@ -198,6 +198,16 @@ def add_mailbox_parsers(subparsers):
         help="Optional archive reason (audit trail)",
     )
     archive.add_argument(
+        "--ai-id",
+        dest="ai_id",
+        help=(
+            "WHOSE mailbox to archive from, as the canonical 3-form. Required by cortex "
+            "when more than one of your practices participates in the proposal — it "
+            "refuses to guess, because archiving all of them hides the thread from "
+            "practitioners that never acted. Defaults to this practice's canonical id."
+        ),
+    )
+    archive.add_argument(
         "--output",
         choices=["human", "json"],
         default="json",
