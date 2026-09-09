@@ -160,6 +160,22 @@ def _auto_bootstrap(session_id: str) -> dict:
         return {"ok": False, "error": str(e)}
 
 
+#: Flags that carry the workflow payload. If any is present the caller has
+#: already supplied the input, so there is nothing on stdin to wait for.
+_INPUT_FLAGS = ("vectors", "reasoning", "task_context", "work_type", "current_phase", "claims", "notes")
+
+
+def _explicit_input_given(args) -> bool:
+    """Did the caller supply the payload through flags rather than a pipe?
+
+    Named as its own predicate because the bug it prevents came from ONE
+    predicate answering TWO questions — `not isatty()` was doing duty for both
+    "am I non-interactive" and "is JSON coming". Keeping the second question
+    separate is the fix; folding it back into the isatty check would restore it.
+    """
+    return any(getattr(args, flag, None) for flag in _INPUT_FLAGS)
+
+
 def _parse_workflow_input(args, phase: str):
     """Parse and validate workflow input from config file, stdin, or CLI flags.
 
@@ -181,7 +197,22 @@ def _parse_workflow_input(args, phase: str):
                 sys.exit(1)
             with open(args.config) as f:
                 config_data = parse_json_safely(f.read())
-    elif not sys.stdin.isatty():
+    elif not sys.stdin.isatty() and not _explicit_input_given(args):
+        # `not isatty()` was standing in for "the caller intends to pipe me
+        # JSON". Those are DIFFERENT QUESTIONS, and they diverge on every
+        # non-interactive host that hands the CLI an open pipe it never closes:
+        # CI runners, cron, `subprocess.Popen` with inherited stdin, agent
+        # harnesses backgrounding a shell script. `sys.stdin.read()` then blocks
+        # until EOF that never comes — and under a `timeout` wrapper it surfaces
+        # as a silent rc 124 with the transaction simply skipped.
+        #
+        # Reported by kars85 (GH #414) with a repro:
+        #   (sleep 200) | timeout 75 empirica preflight-submit --session-id X --vectors '{...}'
+        # hangs, while the same command with `</dev/null` completes in ~1.7s.
+        #
+        # The discriminator is INTENT, not the terminal: if the caller supplied
+        # the input through flags, there is nothing on stdin to wait for. An
+        # explicit `--config -` still reads stdin, because that says so.
         config_data = parse_json_safely(sys.stdin.read())
 
     if config_data:

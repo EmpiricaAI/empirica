@@ -25,6 +25,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Workflow commands hung forever on a non-TTY pipe, even with every input given
+  as a flag** (GH #414, kars85). `preflight-submit` / `check-submit` /
+  `postflight-submit` fell back to `sys.stdin.read()` whenever stdin was not a
+  TTY — using "am I non-interactive" as a proxy for "is JSON coming". Those agree
+  in a terminal and diverge on every automated host that hands the CLI an open
+  pipe it never closes: CI runners, cron, `subprocess.Popen` with inherited
+  stdin, agent harnesses backgrounding a shell script. The read blocked on an EOF
+  that never came, and under a `timeout` wrapper it surfaced as a silent rc 124
+  with the transaction simply skipped rather than as an error. Now stdin is only
+  read when the caller did not supply the payload through flags; an explicit
+  `--config -` still reads stdin, because that says so. Not platform-specific —
+  reported on Linux, and it affects any non-interactive host.
+
 - **Four restraint failures in that uninstaller, found before release**, each by a
   test asserting what must SURVIVE rather than what must go. An unparseable shared
   file read as "no keys of ours" — the absent-vs-corrupt conflation from 1.13.39
