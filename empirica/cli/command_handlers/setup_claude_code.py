@@ -270,6 +270,20 @@ def _read_json_with_stamp(path: Path, default: dict) -> tuple[dict, tuple | None
         return data, None
 
 
+def _write_json_file_soft(path: Path, data: dict, stamp: tuple | None, label: str) -> bool:
+    """Stamped write that REPORTS a conflict instead of raising.
+
+    For the registries setup shares with Claude Code but does not own: losing our
+    write is recoverable (re-run setup); clobbering theirs is not.
+    """
+    try:
+        _write_json_file(path, data, expect_stamp=stamp)
+        return True
+    except ConcurrentlyModified as e:
+        sys.stderr.write(f"   ⚠ {label} changed under setup — NOT written, nothing clobbered. {e}\n")
+        return False
+
+
 def _write_json_file(path: Path, data: dict, expect_stamp: tuple | None = None):
     """Write atomically, refusing if the file moved under us.
 
@@ -752,7 +766,10 @@ def _configure_settings(settings, settings_file, plugin_dir, python_cmd, force, 
     if output_format != "json":
         print("\n⚙️  Configuring settings.json...")
 
-    settings = _ensure_json_file(settings_file, {})
+    # Stamped: Claude Code writes settings.json during a session (tool
+    # permissions accumulate as the user approves them), so the same
+    # read-modify-write window applies here as to ~/.claude.json.
+    settings, _settings_stamp = _read_json_with_stamp(settings_file, {})
 
     # Ensure enabledPlugins exists and enable the plugin
     if "enabledPlugins" not in settings:
@@ -770,7 +787,10 @@ def _configure_settings(settings, settings_file, plugin_dir, python_cmd, force, 
     _register_all_hooks(settings, plugin_dir, python_cmd, output_format)
 
     # Write settings.json
-    _write_json_file(settings_file, settings)
+    try:
+        _write_json_file(settings_file, settings, expect_stamp=_settings_stamp)
+    except ConcurrentlyModified as e:
+        sys.stderr.write(f"   ⚠ settings.json changed while setup was preparing its write — NOT written. {e}\n")
 
 
 def _setup_directories(output_format):
@@ -1276,7 +1296,7 @@ def _register_marketplace(marketplace_dir, plugins_dir, claude_dir, plugin_dir, 
 
     # Installed plugins registration
     installed_plugins_file = claude_dir / "plugins" / "installed_plugins.json"
-    installed_plugins = _ensure_json_file(installed_plugins_file, {"version": 2, "plugins": {}})
+    installed_plugins, _ip_stamp = _read_json_with_stamp(installed_plugins_file, {"version": 2, "plugins": {}})
 
     install_date = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
     installed_plugins["plugins"][plugin_key] = [
@@ -1289,13 +1309,13 @@ def _register_marketplace(marketplace_dir, plugins_dir, claude_dir, plugin_dir, 
             "isLocal": True,
         }
     ]
-    _write_json_file(installed_plugins_file, installed_plugins)
+    _write_json_file_soft(installed_plugins_file, installed_plugins, _ip_stamp, "installed_plugins.json")
     if output_format != "json":
         print("   ✓ Added to installed_plugins.json")
 
     # Known marketplaces
     known_marketplaces_file = claude_dir / "plugins" / "known_marketplaces.json"
-    known_marketplaces = _ensure_json_file(known_marketplaces_file, {})
+    known_marketplaces, _km_stamp = _read_json_with_stamp(known_marketplaces_file, {})
 
     if "local" not in known_marketplaces:
         known_marketplaces["local"] = {
@@ -1303,7 +1323,7 @@ def _register_marketplace(marketplace_dir, plugins_dir, claude_dir, plugin_dir, 
             "installLocation": str(plugins_dir),
             "lastUpdated": install_date,
         }
-        _write_json_file(known_marketplaces_file, known_marketplaces)
+        _write_json_file_soft(known_marketplaces_file, known_marketplaces, _km_stamp, "known_marketplaces.json")
         if output_format != "json":
             print("   ✓ Local marketplace registered")
 
