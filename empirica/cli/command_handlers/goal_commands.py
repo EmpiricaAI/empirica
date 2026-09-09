@@ -1257,11 +1257,16 @@ def _explain_empty_status_filter(cursor, goals, status_filter) -> str | None:
     if goals or not status_filter or status_filter in _GOAL_STATUS_AGGREGATES:
         return None
     try:
+        # `archived` is migration-added; referencing it unconditionally here
+        # would raise on a pre-056 database — and this function's own `except`
+        # would turn that into a silent None, making the note vanish on exactly
+        # the databases where the vocabulary question is most open. That is the
+        # swallowed-detector shape again, one layer down.
+        where = " WHERE COALESCE(archived,0)=0" if "archived" in _goals_columns(cursor) else ""
         present = [
             f"{r[0]}={r[1]}"
             for r in cursor.execute(
-                "SELECT COALESCE(status,'<null>'), COUNT(*) FROM goals "
-                "WHERE COALESCE(archived,0)=0 GROUP BY 1 ORDER BY 2 DESC"
+                f"SELECT COALESCE(status,'<null>'), COUNT(*) FROM goals{where} GROUP BY 1 ORDER BY 2 DESC"
             ).fetchall()
         ]
     except Exception:
@@ -1269,18 +1274,23 @@ def _explain_empty_status_filter(cursor, goals, status_filter) -> str | None:
     return f"no goals carry status={status_filter!r}. Statuses present: " + ", ".join(present)
 
 
-def _goals_has_completion_reason(cursor) -> bool:
-    """Does THIS database's goals table carry the migration-068 column?
+def _goals_columns(cursor) -> set[str]:
+    """The columns THIS database's goals table actually has.
 
     Asked per-database rather than assumed, because `--all-projects` opens other
     practices' `sessions.db` files, and this process cannot migrate them — they
     apply their own migrations when their own practitioner next runs a command.
     So a listing verb has to work against both shapes, indefinitely.
+
+    A set rather than a per-column predicate, because the per-column form
+    (`_goals_has_completion_reason`) invited exactly one check — and `archived`
+    (migration 056) had the same latent break in the same query, found the
+    moment a fixture built the true base schema instead of a hand-rolled one.
     """
     try:
-        return any(r[1] == "completion_reason" for r in cursor.execute("PRAGMA table_info(goals)"))
+        return {r[1] for r in cursor.execute("PRAGMA table_info(goals)")}
     except Exception:
-        return False
+        return set()
 
 
 def _annotate_goals_result(result, empty_status_note, drift_count) -> None:
@@ -1500,15 +1510,18 @@ def handle_goals_list_command(args):
         # which deliberately shows every project's goals.
         project_id = None if all_projects else _handle_goals_list_command_helper(cursor, project_id, session_id)
 
-        # `completion_reason` is migration-068 and MUST be optional in the SELECT.
-        # Naming it unconditionally makes the whole verb fail with
-        # `no such column: g.completion_reason` on any database that has not run
-        # 068 — which includes every OTHER practice's db reached by
-        # `--all-projects`, since this reads their files and cannot migrate them.
-        # Adding a field that surfaces WHY a goal closed must not break listing
-        # goals on the databases that do not have the field.
-        has_reason = _goals_has_completion_reason(cursor)
-        reason_col = ", g.completion_reason" if has_reason else ""
+        # Migration-added columns MUST be optional in this query. Naming one
+        # unconditionally makes the whole verb fail with `no such column` on any
+        # database that has not run that migration — which includes every OTHER
+        # practice's db reached by `--all-projects`, since this reads their
+        # files and cannot migrate them. Found twice, a week apart in origin and
+        # an hour apart in discovery: `completion_reason` (068) broke the verb
+        # in review, and the moment a fixture built the TRUE base schema instead
+        # of a hand-rolled one, `archived` (056) turned out to have the same
+        # latent break — invisible until then because every hand-written test
+        # schema had helpfully included the column.
+        goal_cols = _goals_columns(cursor)
+        reason_col = ", g.completion_reason" if "completion_reason" in goal_cols else ""
 
         # Build query based on filters
         base_query = f"""
@@ -1542,10 +1555,13 @@ def handle_goals_list_command(args):
         base_query += status_sql
         params.extend(status_params)
 
+        # `archived` is migration-056: filter on it only where it exists. A world
+        # without the column has no archived goals, so skipping the clause IS the
+        # correct filter there, not a degraded one.
         # Hide archived goals by default (archive-after-X hygiene); --include-archived
         # surfaces them. Placed BEFORE the count_query so the "N of M" total also
         # excludes archived. COALESCE handles pre-migration-056 NULLs.
-        if not getattr(args, "include_archived", False):
+        if not getattr(args, "include_archived", False) and "archived" in goal_cols:
             base_query += " AND COALESCE(g.archived, 0) = 0"
 
         # Full match count (pre-LIMIT) for "N of M" truncation transparency.

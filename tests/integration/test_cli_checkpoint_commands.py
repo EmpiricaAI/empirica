@@ -92,14 +92,23 @@ def test_checkpoint_load_missing_args():
 
 
 def test_checkpoint_commands_exist():
-    """Verify all checkpoint commands are registered"""
-    result = run_cli_command(["--help"])
+    """Verify the checkpoint commands are actually registered.
 
-    result.stdout + result.stderr
+    The previous body computed `result.stdout + result.stderr`, DISCARDED the
+    result, and printed "✅ verified". It could not fail on any behaviour —
+    every checkpoint command could be deleted and this stayed green while
+    claiming verification. Found by the assertion audit
+    (scripts/audit_test_assertions.py); the print saying "verified" is what
+    made it the worst of that audit's findings rather than a harmless stub.
 
-    # Check if commands appear in help (may be in different formats)
-    # This is a loose check since help format may vary
-    print("✅ CLI commands registered (verified via --help)")
+    Checked via each command's OWN --help exit code, not membership in the
+    top-level help: `empirica --help` is a curated summary that legitimately
+    omits these, so the first revival of this test asserted against the wrong
+    surface and failed on correctly-registered commands.
+    """
+    for cmd in ("checkpoint-create", "checkpoint-load", "checkpoint-list"):
+        result = run_cli_command([cmd, "--help"])
+        assert result.returncode == 0, f"{cmd} is not a registered CLI command"
 
 
 @pytest.mark.integration
