@@ -52,9 +52,14 @@ def _make_declaration(
     timeout_seconds: int = 120,
 ) -> CheckDeclaration:
     if runner is None:
-
-        def runner(ctx):
+        # Named distinctly from the parameter: `def runner(...)` under
+        # `if runner is None` redeclares the parameter, which type checkers
+        # rightly flag — the def rebinds the name whether or not the branch
+        # runs is knowable statically.
+        def _default_runner(ctx):
             return _make_result(check_id)
+
+        runner = _default_runner
 
     return CheckDeclaration(
         check_id=check_id,

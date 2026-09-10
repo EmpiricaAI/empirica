@@ -1,6 +1,7 @@
 """Tests for empirica.core.dispatch_bus — typed cross-instance dispatch."""
 
 import time
+from typing import cast
 from unittest.mock import MagicMock
 
 from empirica.core.dispatch_bus import (
@@ -250,6 +251,18 @@ class TestInstanceRegistry:
 
 
 class TestDispatchBus:
+    @staticmethod
+    def _store(bus) -> MagicMock:
+        """The bus's store, typed as what it IS in these tests.
+
+        `DispatchBus.store` is annotated as the real GitMessageStore, so
+        `self._store(bus).send_message.called` type-checks against a bound METHOD —
+        which has no Mock attributes — while at runtime every one of these
+        buses carries the MagicMock from `_bus`. The cast localises that fact
+        in one line instead of scattering ignores over fifteen call sites.
+        """
+        return cast(MagicMock, bus.store)
+
     def _bus(self, tmp_path):
         """Create a bus with mocked message store + temp registry."""
         mock_store = MagicMock()
@@ -283,10 +296,10 @@ class TestDispatchBus:
         )
         assert corr_id is not None
         assert "schedule_cron" in corr_id
-        assert bus.store.send_message.called
+        assert self._store(bus).send_message.called
 
         # Verify the body was properly encoded
-        call_args = bus.store.send_message.call_args
+        call_args = self._store(bus).send_message.call_args
         body = call_args.kwargs["body"]
         parsed = DispatchMessage.from_message_body(body)
         assert parsed.action == "schedule_cron"
@@ -299,7 +312,7 @@ class TestDispatchBus:
             action="quick_task",
             deadline_seconds=60,
         )
-        call_args = bus.store.send_message.call_args
+        call_args = self._store(bus).send_message.call_args
         body = call_args.kwargs["body"]
         parsed = DispatchMessage.from_message_body(body)
         assert parsed.deadline is not None
@@ -319,7 +332,7 @@ class TestDispatchBus:
         assert corr_id is not None
 
         # Should have routed to web-1 (the one with gmail)
-        call_args = bus.store.send_message.call_args
+        call_args = self._store(bus).send_message.call_args
         assert call_args.kwargs["to_ai_id"] == "web-1"
 
     def test_dispatch_capability_no_match(self, tmp_path):
@@ -342,10 +355,10 @@ class TestDispatchBus:
             duration_ms=500,
         )
         assert result_id is not None
-        assert bus.store.reply.called
+        assert self._store(bus).reply.called
 
         # Verify result body
-        call_args = bus.store.reply.call_args
+        call_args = self._store(bus).reply.call_args
         body = call_args.kwargs["body"]
         parsed = DispatchResult.from_message_body(body)
         assert parsed.correlation_id == "corr-123"
@@ -353,7 +366,7 @@ class TestDispatchBus:
 
     def test_poll_inbox_empty(self, tmp_path):
         bus = self._bus(tmp_path)
-        bus.store.get_inbox.return_value = []
+        self._store(bus).get_inbox.return_value = []
         dispatches = bus.poll_inbox()
         assert dispatches == []
 
@@ -367,7 +380,7 @@ class TestDispatchBus:
             payload={"key": "val"},
             correlation_id="test-corr",
         )
-        bus.store.get_inbox.return_value = [
+        self._store(bus).get_inbox.return_value = [
             {
                 "message_id": "m-1",
                 "channel": "dispatch",
@@ -389,7 +402,7 @@ class TestDispatchBus:
             to_instance="terminal-1",
             deadline=time.time() - 100,
         )
-        bus.store.get_inbox.return_value = [
+        self._store(bus).get_inbox.return_value = [
             {
                 "message_id": "m-1",
                 "channel": "dispatch",
@@ -403,7 +416,7 @@ class TestDispatchBus:
 
     def test_poll_inbox_skips_malformed(self, tmp_path):
         bus = self._bus(tmp_path)
-        bus.store.get_inbox.return_value = [
+        self._store(bus).get_inbox.return_value = [
             {
                 "message_id": "m-1",
                 "channel": "dispatch",
@@ -422,7 +435,7 @@ class TestDispatchBus:
             from_instance="worker",
             payload={"data": 1},
         )
-        bus.store.get_inbox.return_value = [
+        self._store(bus).get_inbox.return_value = [
             {
                 "message_id": "r-1",
                 "body": result.to_message_body(),
@@ -438,7 +451,7 @@ class TestDispatchBus:
         bus = self._bus(tmp_path)
         r1 = DispatchResult(correlation_id="a", status=DispatchStatus.COMPLETED, from_instance="w")
         r2 = DispatchResult(correlation_id="b", status=DispatchStatus.COMPLETED, from_instance="w")
-        bus.store.get_inbox.return_value = [
+        self._store(bus).get_inbox.return_value = [
             {"message_id": "r-1", "body": r1.to_message_body(), "type": "response"},
             {"message_id": "r-2", "body": r2.to_message_body(), "type": "response"},
         ]
@@ -451,7 +464,7 @@ class TestDispatchBus:
         bus = self._bus(tmp_path)
         # Only requests in the inbox, not responses
         d = DispatchMessage(action="x", from_instance="s", to_instance="terminal-1")
-        bus.store.get_inbox.return_value = [
+        self._store(bus).get_inbox.return_value = [
             {
                 "message_id": "m-1",
                 "body": d.to_message_body(),
@@ -476,7 +489,7 @@ class TestDispatchBus:
 
         reply_id = bus.handle_dispatch(dispatch, handler)
         assert reply_id is not None
-        assert bus.store.reply.called
+        assert self._store(bus).reply.called
 
     def test_handle_dispatch_failure(self, tmp_path):
         bus = self._bus(tmp_path)
@@ -494,7 +507,7 @@ class TestDispatchBus:
         reply_id = bus.handle_dispatch(dispatch, handler)
         assert reply_id is not None
         # Should have sent a FAILED result
-        call_args = bus.store.reply.call_args
+        call_args = self._store(bus).reply.call_args
         body = call_args.kwargs["body"]
         parsed = DispatchResult.from_message_body(body)
         assert parsed.status == DispatchStatus.FAILED

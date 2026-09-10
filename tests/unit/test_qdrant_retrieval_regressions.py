@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 from empirica.cli.command_handlers.project_embed import (
@@ -72,8 +73,27 @@ def test_has_indexed_python_files_only_when_python_entries_exist():
     assert _has_indexed_python_files({"docs/guide.md": {}, "scripts/tool.py": {}})
 
 
+class _DummyQdrantClient:
+    """Attribute-complete Qdrant stand-in.
+
+    The previous shape was `type("DummyClient", (), {})()` with attributes
+    bolted on per test — invisible to the type checker, so every access was an
+    error and the whole file sat in the unGATED backlog. A declared class costs
+    six lines and makes the stub's contract readable in one place. `Any` on the
+    callables is deliberate: tests re-point them per scenario.
+    """
+
+    def __init__(self) -> None:
+        self.created: Any = None
+        self.upsert_calls: list[Any] = []
+        self.collection_exists: Any = lambda name: False
+        self.get_collection: Any = None
+        self.create_collection: Any = None
+        self.upsert: Any = None
+
+
 def test_upsert_docs_creates_collection_before_upsert():
-    client = type("DummyClient", (), {})()
+    client = _DummyQdrantClient()
     client.created = None
     client.upsert_calls = []
     client.collection_exists = lambda name: False
@@ -124,7 +144,7 @@ def test_dimension_guard_raises_before_mismatched_qdrant_write():
 
         config = Config()
 
-    client = type("DummyClient", (), {})()
+    client = _DummyQdrantClient()
     client.collection_exists = lambda name: True
     client.get_collection = lambda name: DummyCollectionInfo()
 

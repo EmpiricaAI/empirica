@@ -20,12 +20,14 @@ import pytest
 # Add empirica src to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from collections.abc import Iterator
+
 from empirica.data.migrations.migrations import migration_034_subagent_sessions
 from empirica.data.schema.sessions_schema import SCHEMAS
 
 
 @pytest.fixture
-def fresh_db(tmp_path) -> sqlite3.Connection:
+def fresh_db(tmp_path) -> Iterator[sqlite3.Connection]:
     """An in-memory style scratch DB with the sessions schema applied."""
     db_path = tmp_path / "test_sessions.db"
     conn = sqlite3.connect(str(db_path))

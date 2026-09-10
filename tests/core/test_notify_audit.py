@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from empirica.core.notify.audit import (
     append_audit,
@@ -131,7 +131,7 @@ class TestFellBackCount:
     def test_excludes_outside_window(self, tmp_path):
         path = tmp_path / "audit.jsonl"
         # Manually craft a row with old ts.
-        old_ts = (datetime.now(tz=UTC) - timedelta(hours=48)).isoformat()
+        old_ts = (datetime.now(tz=timezone.utc) - timedelta(hours=48)).isoformat()
         with open(path, "w") as f:
             f.write(json.dumps({**_row(fell_back=True), "ts": old_ts}) + "\n")
         # Plus a recent one.

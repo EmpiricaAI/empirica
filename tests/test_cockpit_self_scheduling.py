@@ -13,7 +13,7 @@ Covers:
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 import pytest
 
@@ -34,13 +34,13 @@ def fake_home(tmp_path, monkeypatch):
 class TestCronPinOneShot:
     def test_matches_proposal_example(self):
         # Proposal example: 2026-04-28T03:30:00Z → '30 3 28 4 *'
-        t = datetime(2026, 4, 28, 3, 30, 0, tzinfo=UTC)
+        t = datetime(2026, 4, 28, 3, 30, 0, tzinfo=timezone.utc)
         assert lr.cron_pin_one_shot(t) == "30 3 28 4 *"
 
     def test_day_of_week_is_wildcard(self):
         # One-shot — DOW must be wildcarded so the scheduler doesn't
         # accidentally match a future occurrence.
-        t = datetime(2026, 12, 31, 23, 59, tzinfo=UTC)
+        t = datetime(2026, 12, 31, 23, 59, tzinfo=timezone.utc)
         assert lr.cron_pin_one_shot(t).endswith(" *")
 
 

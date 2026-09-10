@@ -268,7 +268,7 @@ def test_retrieval_emits_the_cap_only_when_it_constrains(cur, monkeypatch, tmp_p
     _edge(cur, "f-uncapped", "f-solid", "evidence")
     cur.connection.commit()
 
-    ranked = [
+    ranked: list[dict] = [
         {"artifact_id": "f-capped", "text": "capped", "derived_confidence": derived_confidence(cur, "f-capped")},
         {"artifact_id": "f-uncapped", "text": "uncapped", "derived_confidence": derived_confidence(cur, "f-uncapped")},
     ]

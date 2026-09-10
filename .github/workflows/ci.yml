@@ -46,7 +46,10 @@ jobs:
         run: ruff format --check empirica/ empirica-mcp/ tests/
 
       - name: pyright
-        run: pyright empirica/ empirica-mcp/
+        # tests/ included since the 89-error backlog was retired (goal 481b8a9b):
+        # declared scope (pyproject include list) and enforced scope now agree,
+        # so a bare `pyright` locally and this gate report the same number.
+        run: pyright empirica/ empirica-mcp/ tests/
 
       - name: prompt↔parser drift
         # Fails if a skill / prompt template references `empirica <verb>` for a

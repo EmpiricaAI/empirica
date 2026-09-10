@@ -57,7 +57,7 @@ def service(tmp_path, monkeypatch):
     svc = AutoIssueCaptureService.__new__(AutoIssueCaptureService)
     svc.session_id = "s1"
     svc._get_connection = lambda: sqlite3.connect(db)  # type: ignore[method-assign]
-    svc._db_path = db
+    setattr(svc, "_db_path", db)  # noqa: B010 - bare __new__ object; the checker sees the class contract, the test builds a stub
     return svc
 
 

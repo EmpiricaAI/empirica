@@ -7,7 +7,7 @@ gate, poke clear, backwards-compat (loops without policy default to none).
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -199,7 +199,7 @@ def test_threshold_set_after_heartbeat(fake_home):
         base_interval="15m",
         max_interval="4h",
     )
-    before = datetime.now(tz=UTC)
+    before = datetime.now(tz=timezone.utc)
     reg.heartbeat("poll", status="ok", result="empty")
     entry = reg.get("poll")
     threshold = datetime.fromisoformat(entry.backoff.next_fire_threshold)
@@ -256,7 +256,7 @@ def test_should_fire_allows_when_past_threshold(fake_home):
     reg.heartbeat("poll", status="ok", result="empty")
     # Rewrite threshold to 1 hour ago.
     data = reg._read()
-    past = (datetime.now(tz=UTC) - timedelta(hours=1)).isoformat()
+    past = (datetime.now(tz=timezone.utc) - timedelta(hours=1)).isoformat()
     data["loops"]["poll"]["backoff"]["next_fire_threshold"] = past
     reg._write(data)
 

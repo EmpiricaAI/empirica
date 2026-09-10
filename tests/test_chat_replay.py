@@ -7,6 +7,7 @@ by manual smoke (`empirica chat --replay <session-id>`).
 
 from __future__ import annotations
 
+from typing import cast
 from unittest.mock import MagicMock
 
 from empirica.cli.tui.chat_app import ChatApp
@@ -40,17 +41,17 @@ class TestReplayInputDispatch:
         evt = MagicMock()
         evt.text = "hello can you help"
         self.app.on_chat_input_submitted(evt)
-        msg = self.app._emit_system.call_args[0][0]
+        msg = cast(MagicMock, self.app._emit_system).call_args[0][0]
         assert "replay mode is read-only" in msg
         # No LLM dispatch
-        self.app._handle_slash.assert_not_called()
+        cast(MagicMock, self.app._handle_slash).assert_not_called()
 
     def test_slash_commands_still_dispatch_in_replay(self):
         evt = MagicMock()
         evt.text = "/help"
         self.app.on_chat_input_submitted(evt)
         # Should dispatch to slash handler, NOT emit the read-only warning
-        self.app._handle_slash.assert_called_once_with("/help")
+        cast(MagicMock, self.app._handle_slash).assert_called_once_with("/help")
 
     def test_non_replay_app_does_not_have_replay_mode_set(self):
         # The replay-mode early-return only fires when self.replay_mode is True.

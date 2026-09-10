@@ -179,7 +179,7 @@ def test_a_foreign_uuid_routes_instead_of_writing_locally(monkeypatch):
 
     assert routed["asked"] == foreign, "a UUID must reach the cross-project resolver"
     assert resolved == foreign
-    assert db.db_path.startswith("/target/"), "and the write must land in the TARGET db"
+    assert str(db.db_path).startswith("/target/"), "and the write must land in the TARGET db"
 
 
 def test_the_local_uuid_does_not_become_a_refusal(monkeypatch):

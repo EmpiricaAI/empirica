@@ -186,7 +186,15 @@ def test_login_end_to_end_persists_the_full_token_set(loader):
     def _fake_browser(url):
         # Simulate the user completing authorize: cortex redirects to the
         # loopback with code + the state the CLI put in the URL.
+        # BOTH imports, deliberately: the local `import urllib.parse` binds the
+        # name `urllib` in FUNCTION scope, shadowing the module-level import —
+        # so `urllib.request` below resolves against the local binding, where
+        # only the parse submodule is statically known. It works at runtime
+        # solely because the module-level import already loaded `request` onto
+        # the shared package object: an import-order dependency wearing a
+        # working test's clothes.
         import urllib.parse
+        import urllib.request
 
         q = dict(urllib.parse.parse_qsl(urllib.parse.urlparse(url).query))
         urllib.request.urlopen(f"{q['redirect_uri']}?code=authcode&state={q['state']}", timeout=5)
@@ -225,7 +233,15 @@ def test_login_prints_authorize_url_to_stderr_not_stdout(loader, capsys):
     )
 
     def _fake_browser(url):
+        # BOTH imports, deliberately: the local `import urllib.parse` binds the
+        # name `urllib` in FUNCTION scope, shadowing the module-level import —
+        # so `urllib.request` below resolves against the local binding, where
+        # only the parse submodule is statically known. It works at runtime
+        # solely because the module-level import already loaded `request` onto
+        # the shared package object: an import-order dependency wearing a
+        # working test's clothes.
         import urllib.parse
+        import urllib.request
 
         q = dict(urllib.parse.parse_qsl(urllib.parse.urlparse(url).query))
         urllib.request.urlopen(f"{q['redirect_uri']}?code=authcode&state={q['state']}", timeout=5)
@@ -254,7 +270,15 @@ def test_login_survives_a_browser_opener_that_raises(loader, capsys):
     def _raising_browser(url):
         # Complete the callback out-of-band first (as a real user pasting the
         # printed URL would), then blow up like a browserless resolver does.
+        # BOTH imports, deliberately: the local `import urllib.parse` binds the
+        # name `urllib` in FUNCTION scope, shadowing the module-level import —
+        # so `urllib.request` below resolves against the local binding, where
+        # only the parse submodule is statically known. It works at runtime
+        # solely because the module-level import already loaded `request` onto
+        # the shared package object: an import-order dependency wearing a
+        # working test's clothes.
         import urllib.parse
+        import urllib.request
 
         q = dict(urllib.parse.parse_qsl(urllib.parse.urlparse(url).query))
         urllib.request.urlopen(f"{q['redirect_uri']}?code=authcode&state={q['state']}", timeout=5)
@@ -281,7 +305,15 @@ def test_login_reuses_stored_client(loader):
     )
 
     def _fake_browser(url):
+        # BOTH imports, deliberately: the local `import urllib.parse` binds the
+        # name `urllib` in FUNCTION scope, shadowing the module-level import —
+        # so `urllib.request` below resolves against the local binding, where
+        # only the parse submodule is statically known. It works at runtime
+        # solely because the module-level import already loaded `request` onto
+        # the shared package object: an import-order dependency wearing a
+        # working test's clothes.
         import urllib.parse
+        import urllib.request
 
         q = dict(urllib.parse.parse_qsl(urllib.parse.urlparse(url).query))
         urllib.request.urlopen(f"{q['redirect_uri']}?code=c2&state={q['state']}", timeout=5)
@@ -340,6 +372,13 @@ def _run_login(loader):
     )
 
     def _fake_browser(url):
+        # BOTH imports, deliberately: the local `import urllib.parse` binds the
+        # name `urllib` in FUNCTION scope, shadowing the module-level import —
+        # so `urllib.request` below resolves against the local binding, where
+        # only the parse submodule is statically known. It works at runtime
+        # solely because the module-level import already loaded `request` onto
+        # the shared package object: an import-order dependency wearing a
+        # working test's clothes.
         import urllib.parse
         import urllib.request
 
@@ -375,6 +414,13 @@ def test_login_does_not_inherit_a_foreign_familys_client_id(loader, monkeypatch)
     )
 
     def _fake_browser(url):
+        # BOTH imports, deliberately: the local `import urllib.parse` binds the
+        # name `urllib` in FUNCTION scope, shadowing the module-level import —
+        # so `urllib.request` below resolves against the local binding, where
+        # only the parse submodule is statically known. It works at runtime
+        # solely because the module-level import already loaded `request` onto
+        # the shared package object: an import-order dependency wearing a
+        # working test's clothes.
         import urllib.parse
         import urllib.request
 
@@ -406,6 +452,13 @@ def test_login_reuses_our_own_stored_client(loader, monkeypatch):
     )
 
     def _fake_browser(url):
+        # BOTH imports, deliberately: the local `import urllib.parse` binds the
+        # name `urllib` in FUNCTION scope, shadowing the module-level import —
+        # so `urllib.request` below resolves against the local binding, where
+        # only the parse submodule is statically known. It works at runtime
+        # solely because the module-level import already loaded `request` onto
+        # the shared package object: an import-order dependency wearing a
+        # working test's clothes.
         import urllib.parse
         import urllib.request
 

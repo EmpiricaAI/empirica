@@ -86,8 +86,10 @@ def test_glob_dict_shorthand():
         intent="x",
         globs=[{"pattern": "src/**/*.py", "root": "/tmp"}],  # type: ignore[list-item]
     )
-    assert batch.globs[0].pattern == "src/**/*.py"
-    assert batch.globs[0].root == "/tmp"
+    normalized = batch.globs[0]
+    assert not isinstance(normalized, str), "the validator should have normalized the dict to a GlobOperation"
+    assert normalized.pattern == "src/**/*.py"
+    assert normalized.root == "/tmp"
 
 
 def test_investigate_scope_validated():

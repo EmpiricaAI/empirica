@@ -4,7 +4,7 @@ cockpit-facing view onto dispatcher state + audit telemetry.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 from empirica.core.cockpit.notify_dispatcher_view import (
@@ -80,7 +80,7 @@ class TestBuildBlock:
 
     def test_banner_failure_set_when_recent(self):
         cfg = NotifyConfig(default_backend="stdout")
-        recent_ts = datetime.now(tz=UTC).isoformat()
+        recent_ts = datetime.now(tz=timezone.utc).isoformat()
         with (
             patch("empirica.core.cockpit.notify_dispatcher_view.read_recent", return_value=[]),
             patch(
@@ -97,7 +97,7 @@ class TestBuildBlock:
 
     def test_banner_failure_none_when_old(self):
         cfg = NotifyConfig(default_backend="stdout")
-        old_ts = (datetime.now(tz=UTC) - timedelta(hours=4)).isoformat()
+        old_ts = (datetime.now(tz=timezone.utc) - timedelta(hours=4)).isoformat()
         with (
             patch("empirica.core.cockpit.notify_dispatcher_view.read_recent", return_value=[]),
             patch(

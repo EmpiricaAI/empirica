@@ -1258,7 +1258,11 @@ def run_compliance_report(
     complexity_raw = _run_check("ruff-c901", ["ruff", "check", "--select", "C901"], timeout=30)
     results.append(_parse_c901_result(complexity_raw))
 
-    pyright_raw = _run_check("pyright", ["pyright", "empirica/"], timeout=120)
+    # tests/ included since the backlog retirement (goal 481b8a9b) — this and
+    # CI's invocation must stay in agreement with pyproject's include list, or
+    # a bare `pyright` and the gates report different numbers and nobody can
+    # tell a fresh regression from standing noise.
+    pyright_raw = _run_check("pyright", ["pyright", "empirica/", "empirica-mcp/", "tests/"], timeout=180)
     results.append(_parse_pyright_result(pyright_raw))
 
     # Optional checks (slow)

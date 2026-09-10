@@ -221,6 +221,7 @@ def test_empty_result_is_annotated_END_TO_END(db, monkeypatch):
 
     result = _run_listing(db, monkeypatch, status="blocked")
 
+    assert isinstance(result, dict), "listing returned a non-dict (error path)"
     assert result["goals_count"] == 0, "blocked must not return the backlog"
     assert result["filters"]["status"] == "blocked"
     assert result.get("note"), (
@@ -305,6 +306,7 @@ def test_empty_status_note_survives_the_base_generation(tmp_path, monkeypatch):
     conn.close()
 
     result = _run_listing(dbp, monkeypatch, status="blocked")
+    assert isinstance(result, dict), "listing returned a non-dict (error path)"
     assert result["goals_count"] == 0
     assert result.get("note"), "the empty-status note vanished on the base generation"
     assert "planned=1" in result["note"]

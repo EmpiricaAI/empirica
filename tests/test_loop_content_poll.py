@@ -28,6 +28,24 @@ from empirica.core.loop_scheduler.content_poll import (
     save_state,
 )
 
+
+def poll_proposals(*args, **kwargs) -> list[ProposalEvent]:
+    """poll_and_diff, narrowed: these scenarios inject proposals only, no SERs.
+
+    poll_and_diff returns ``list[ProposalEvent | EscalationEvent]`` and every
+    test below reads proposal-only attributes off the result. The narrowing is
+    asserted rather than assumed, so if a scenario ever starts producing
+    escalation events the failure names the actual problem HERE instead of an
+    AttributeError three asserts later.
+    """
+    events = poll_and_diff(*args, **kwargs)
+    out: list[ProposalEvent] = []
+    for e in events:
+        assert isinstance(e, ProposalEvent), f"unexpected event type in a proposal-only scenario: {type(e).__name__}"
+        out.append(e)
+    return out
+
+
 # ── EMISSION_STATUSES — the security/auth boundary ───────────────────────
 
 
@@ -245,7 +263,7 @@ def test_first_run_emits_pending_inbox_items(tmp_path):
             {"id": "prop_pending2", "status": "changed"},
         ]
 
-    events = poll_and_diff(
+    events = poll_proposals(
         "cortex",
         "cortex-mailbox-poll",
         "https://cortex.test",
@@ -279,7 +297,7 @@ def test_first_run_filters_out_eco_review_even_on_bootstrap(tmp_path):
             {"id": "prop_undecided", "status": "eco_review"},
         ]
 
-    events = poll_and_diff(
+    events = poll_proposals(
         "cortex",
         "cortex-mailbox-poll",
         "https://cortex.test",
@@ -318,7 +336,7 @@ def test_subsequent_run_emits_only_new_proposals(tmp_path):
             {"id": "prop_c", "status": "accepted", "title": "C"},
         ]
 
-    events = poll_and_diff(
+    events = poll_proposals(
         "cortex",
         "mailbox",
         "https://c.test",
@@ -343,7 +361,7 @@ def test_poll_returns_empty_when_both_endpoints_fail(tmp_path):
     def failing(url, key, ai_id):
         raise urllib.error.URLError("network down")
 
-    events = poll_and_diff(
+    events = poll_proposals(
         "cortex",
         "mailbox",
         "https://c.test",
@@ -387,7 +405,7 @@ def test_partial_failure_one_endpoint_down_other_succeeds(tmp_path):
             }
         ]
 
-    events = poll_and_diff(
+    events = poll_proposals(
         "cortex",
         "mailbox",
         "https://c.test",
@@ -423,7 +441,7 @@ def test_eco_review_status_never_emits(tmp_path):
             {"id": "prop_decided", "status": "accepted", "title": "Decided"},
         ]
 
-    events = poll_and_diff(
+    events = poll_proposals(
         "cortex",
         "mailbox",
         "https://c.test",
@@ -470,7 +488,7 @@ def test_outbox_completed_event_carries_commit_sha(tmp_path):
             }
         ]
 
-    events = poll_and_diff(
+    events = poll_proposals(
         "cortex",
         "mailbox",
         "https://c.test",
@@ -524,7 +542,7 @@ def test_outbox_changed_emits_for_eco_refinement_request(tmp_path):
             }
         ]
 
-    events = poll_and_diff(
+    events = poll_proposals(
         "cortex",
         "mailbox",
         "https://c.test",
@@ -598,7 +616,7 @@ def test_both_fetches_fail_default_returns_empty_and_preserves_state(tmp_path):
     )
     before = state_path.read_text()
 
-    events = poll_and_diff(
+    events = poll_proposals(
         "empirica",
         "cortex-mailbox-poll",
         "https://cortex.test",
@@ -637,7 +655,7 @@ def test_one_fetch_fails_other_succeeds_still_processes(tmp_path):
     raise_on_unreachable — the surviving direction still produces events
     and state advances. Only a TOTAL failure is 'unreachable'."""
     state_path = tmp_path / "state.json"
-    events = poll_and_diff(
+    events = poll_proposals(
         "empirica",
         "cortex-mailbox-poll",
         "https://cortex.test",
@@ -912,7 +930,7 @@ def test_state_merges_across_polls_does_not_lose_old_proposals(tmp_path):
         return []
 
     # First poll: A is new
-    events1 = poll_and_diff(
+    events1 = poll_proposals(
         "empirica",
         "cortex-mailbox-poll",
         "https://c.test",
@@ -925,7 +943,7 @@ def test_state_merges_across_polls_does_not_lose_old_proposals(tmp_path):
     assert events1[0].proposal_id == "propA"
 
     # Second poll: A + B. Only B should emit.
-    events2 = poll_and_diff(
+    events2 = poll_proposals(
         "empirica",
         "cortex-mailbox-poll",
         "https://c.test",
@@ -972,7 +990,7 @@ def test_transient_empty_response_does_not_wipe_state(tmp_path):
 
     # Second poll: cortex returns empty for both directions (transient).
     # State must NOT be wiped.
-    events_empty = poll_and_diff(
+    events_empty = poll_proposals(
         "empirica",
         "cortex-mailbox-poll",
         "https://c.test",
@@ -989,7 +1007,7 @@ def test_transient_empty_response_does_not_wipe_state(tmp_path):
     # Third poll: A is still in inbox (cortex isn't filtering archived,
     # or A's status hasn't changed). With merge: NO emit because last_seen
     # still has A. Without merge: A would re-emit as "new".
-    events_third = poll_and_diff(
+    events_third = poll_proposals(
         "empirica",
         "cortex-mailbox-poll",
         "https://c.test",
@@ -1044,7 +1062,7 @@ def test_old_proposal_dropped_from_response_is_still_remembered(tmp_path):
     assert "propA" in load_state(state_path)["proposals"]
 
     # Poll 3: cortex returns A again. Must NOT emit (already seen).
-    events = poll_and_diff(
+    events = poll_proposals(
         "empirica",
         "cortex-mailbox-poll",
         "https://c.test",
@@ -1090,7 +1108,7 @@ def test_status_change_still_emits_after_merge(tmp_path):
     )
 
     # Poll 2: same proposal now completed on outbox.
-    events = poll_and_diff(
+    events = poll_proposals(
         "empirica",
         "cortex-mailbox-poll",
         "https://c.test",

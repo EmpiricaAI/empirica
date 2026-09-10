@@ -316,15 +316,13 @@ section-order = ["future", "standard-library", "third-party", "first-party", "lo
 "scripts/*.py" = ["S108"]  # scripts use temp paths
 
 [tool.pyright]
-# DECLARED SCOPE != ENFORCED SCOPE, and the gap is deliberate but was invisible.
-# CI (.github/workflows/ci.yml) and `compliance-report` both run
-# `pyright empirica/ empirica-mcp/`. `tests` is included here so an editor
-# type-checks test files as you write them — it is NOT gated, and it currently
-# carries ~88 errors. So a bare `pyright` at the repo root reports ~88 while both
-# gates report 0, and without this note there is no way to tell a regression you
-# just caused from the standing backlog. Clearing that backlog is tracked
-# separately; do not "fix" the divergence by dropping `tests` from this list,
-# which would hide the backlog instead of retiring it.
+# Declared scope == enforced scope, as of goal 481b8a9b: CI and
+# `compliance-report` both run `pyright empirica/ empirica-mcp/ tests/`, matching
+# this include list, so a bare `pyright` at the repo root and the gates report
+# the same number. (It was not always so — tests/ carried an ungated 89-error
+# backlog for months, during which a regression was indistinguishable from
+# standing noise. If you narrow either side of this agreement, put the warning
+# back.)
 include = ["empirica", "empirica-mcp", "tests"]
 exclude = [
     "_archive",
@@ -338,6 +336,7 @@ extraPaths = [
     "empirica-mcp",  # so `from empirica_mcp.server import ...` resolves to the source tree
 ]
 pythonVersion = "3.10"
+
 typeCheckingMode = "basic"
 reportMissingImports = true
 reportMissingTypeStubs = false
@@ -364,6 +363,27 @@ reportGeneralTypeIssues = true      # general type safety
 
 [tool.pyright.defineConstant]
 TESTING = true
+
+# tests/: one rule off, deliberately and narrowly. `reportUnusedFunction` flags
+# underscore-named `@pytest.fixture` functions (mostly autouse isolation
+# fixtures) as dead — pytest wires them at runtime by name, which is
+# structurally invisible to static analysis. Renaming fixtures to satisfy the
+# type checker would invert the authority relationship. Everything else stays
+# on: this scope carried 89 real errors when the gate arrived, and the OTHER 74
+# were genuine (union narrowing, shadowed imports, stale annotations).
+# NOTE: an executionEnvironment does NOT inherit top-level extraPaths — omitting
+# them here silently broke import resolution for the whole tests/ scope (608
+# phantom errors), which is exactly the kind of config edge this comment exists
+# to spare the next reader.
+[[tool.pyright.executionEnvironments]]
+root = "tests"
+reportUnusedFunction = false
+extraPaths = [
+    ".",  # the PROJECT ROOT itself — an env resolves imports from its own root + extraPaths only, so without this `import empirica` fails
+    "empirica/plugins/claude-code-integration/lib",
+    "empirica-mcp",
+]
+
 
 [tool.empirica.docs-assess]
 # "Colors" is a cosmetic enum. The Cortex*/Ntfy* credential models are
