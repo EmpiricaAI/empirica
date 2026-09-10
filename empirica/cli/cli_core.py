@@ -298,25 +298,69 @@ def _import_path_divergence(cli_install_path: str) -> str | None:
     import subprocess
     import sys
 
+    def _probe_root(interpreter: str, cwd: str | None) -> str | None:
+        """Where `import empirica` lands for this interpreter FROM this cwd."""
+        try:
+            probe = subprocess.run(
+                [interpreter, "-c", "import empirica,sys; sys.stdout.write(empirica.__file__)"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                cwd=cwd,
+            )
+        except Exception:
+            return None
+        if probe.returncode != 0 or not probe.stdout.strip():
+            return None
+        other = probe.stdout.strip()
+        return other.rsplit("/", 2)[0] if "/" in other else other
+
     try:
         ambient = shutil.which("python3") or shutil.which("python")
         if not ambient or ambient == sys.executable:
             return None  # nothing else to disagree with
-        probe = subprocess.run(
-            [ambient, "-c", "import empirica,sys; sys.stdout.write(empirica.__file__)"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if probe.returncode != 0 or not probe.stdout.strip():
-            return None  # ambient python cannot import empirica at all — not a divergence
-        other = probe.stdout.strip()
-        other_root = other.rsplit("/", 2)[0] if "/" in other else other
-        if other_root == cli_install_path:
+
+        # TWO probes, because one cannot answer the question. The original
+        # single probe ran in the CURRENT cwd, where `''` on sys.path makes a
+        # checkout shadow site-packages — so standing in a checkout, the check
+        # compared the CLI against the checkout and reported an agreement that
+        # holds only from that directory. Found by a practitioner contaminating
+        # their own verification of a peer's contamination retraction: the same
+        # interpreter imported the checkout from the repo root and a vendored
+        # copy from /tmp.
+        #
+        # NEUTRAL ("/") answers "what does this box's python resolve, anywhere?"
+        # — the stable truth the divergence warning should be judged against.
+        # LOCAL answers "what does it resolve HERE?" — and when the two differ,
+        # THAT is the actionable, currently-silent state: every probe you run
+        # from this directory exercises a different codebase than the same probe
+        # run from anywhere else.
+        neutral_root = _probe_root(ambient, "/")
+        local_root = _probe_root(ambient, None)
+
+        if local_root and neutral_root and local_root != neutral_root:
+            return (
+                f"⚠ import resolution is CWD-DEPENDENT: `{ambient} -c 'import empirica'`\n"
+                f"  from here      -> {local_root}\n"
+                f"  from elsewhere -> {neutral_root}\n"
+                f"  — probes run in this directory exercise a different codebase than the "
+                f"same probe anywhere else. Verify from a neutral cwd, or note which one "
+                f"you measured."
+            )
+        if local_root and not neutral_root:
+            return (
+                f"⚠ import works ONLY from this directory: `{ambient} -c 'import empirica'`\n"
+                f"  resolves {local_root} here and nothing from a neutral cwd — the "
+                f"checkout is shadowing an uninstalled package. Python-level checks pass "
+                f"here and fail everywhere else."
+            )
+
+        stable_root = neutral_root or local_root
+        if not stable_root or stable_root == cli_install_path:
             return None
         return (
             f"⚠ import path DIVERGES: `{ambient} -c 'import empirica'` resolves\n"
-            f"  {other_root}\n"
+            f"  {stable_root}\n"
             f"  — a different codebase from this CLI. Python-level checks (pytest, "
             f"subprocess probes, MCP servers) exercise THAT one."
         )

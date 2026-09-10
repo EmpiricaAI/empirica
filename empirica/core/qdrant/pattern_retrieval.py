@@ -20,6 +20,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import time
 from typing import Any
 
 from empirica.core.mistake_text import parse_mistake_text
@@ -1134,6 +1135,26 @@ def retrieve_task_patterns(
     # Compute time gap metadata (signal for Claude, not retrieval control)
     time_gap_info = compute_time_gap_info(last_session_timestamp)
 
+    # Wall-clock deadline over the WHOLE retrieval, checked between phases.
+    # This function runs a dozen sequential network calls (per-collection Qdrant
+    # queries, each preceded by an embed), and its callers sit on the PREFLIGHT
+    # hot path AFTER the transaction row has committed — so a degraded backend
+    # does not fail preflight, it makes preflight lie to whoever wrapped it in a
+    # timeout (measured: MCP reporting failure on an open transaction at 128s on
+    # a win32 install; a 120s+ stall reproduced locally twice the same week,
+    # intermittent, every component fast when probed alone). No single phase is
+    # entitled to the whole window: when the deadline passes, remaining phases
+    # are SKIPPED and named in `_retrieval_budget` — a partial injection that
+    # says it is partial, per the no-silent-caps rule.
+    _deadline = time.time() + float(os.getenv("EMPIRICA_RETRIEVAL_BUDGET_S", "30"))
+    _skipped_phases: list[str] = []
+
+    def _budget_left(phase: str) -> bool:
+        if time.time() < _deadline:
+            return True
+        _skipped_phases.append(phase)
+        return False
+
     if not _retrieval_available():
         return {
             "lessons": [],
@@ -1191,8 +1212,12 @@ def retrieve_task_patterns(
 
     # Search for relevant findings (high-impact facts). Over-fetch, then re-rank
     # by recency at read-time so stale findings sink below fresh relevant ones.
-    findings_raw = _search_memory_by_type(
-        project_id, task_context, "finding", limits["findings"] * _RECENCY_OVERFETCH, threshold
+    findings_raw = (
+        []
+        if not _budget_left("relevant_findings")
+        else _search_memory_by_type(
+            project_id, task_context, "finding", limits["findings"] * _RECENCY_OVERFETCH, threshold
+        )
     )
     findings_raw = _reconcile_findings_against_sqlite(findings_raw)  # #307: drop resolved/superseded
     findings_ranked = _apply_recency_rerank(
@@ -1261,20 +1286,34 @@ def retrieve_task_patterns(
         "time_gap": time_gap_info,
     }
 
-    # Enrich with optional retrieval types
-    _enrich_task_patterns(
-        result,
-        project_id,
-        task_context,
-        threshold,
-        limits,
-        include_eidetic,
-        include_episodic,
-        include_related_docs,
-        include_goals,
-        include_assumptions,
-        include_decisions,
-    )
+    # Enrich with optional retrieval types — the bulk of the sequential
+    # network calls, gated as ONE phase: past the deadline, none of them run.
+    if _budget_left("enrichment"):
+        _enrich_task_patterns(
+            result,
+            project_id,
+            task_context,
+            threshold,
+            limits,
+            include_eidetic,
+            include_episodic,
+            include_related_docs,
+            include_goals,
+            include_assumptions,
+            include_decisions,
+        )
+
+    if _skipped_phases:
+        result["_retrieval_budget"] = {
+            "budget_s": float(os.getenv("EMPIRICA_RETRIEVAL_BUDGET_S", "30")),
+            "skipped": _skipped_phases,
+            "note": (
+                "retrieval exceeded its wall-clock budget; the phases listed were SKIPPED. "
+                "This injection is partial and says so — a degraded backend must not stall "
+                "PREFLIGHT past the window where callers time out and misreport committed "
+                "transactions as failures."
+            ),
+        }
     return _apply_context_budget(result, apply_budget)
 
 

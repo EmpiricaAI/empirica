@@ -114,3 +114,87 @@ def test_version_output_survives_the_probe():
 
     assert "Install:" in out
     assert "Mode:" in out
+
+
+# ─── the cwd axis (goal f922bd13) ──────────────────────────────────────
+
+
+class _CwdAwareProbe:
+    """subprocess.run stand-in that answers BY the probe's cwd.
+
+    The single-probe version of this check ran in the CURRENT cwd, where `''`
+    on sys.path makes a checkout shadow site-packages — so standing in a
+    checkout it compared the CLI against the checkout and reported an
+    agreement that holds only from that directory. Measured on a real box: the
+    same interpreter imported the checkout from the repo root and a vendored
+    copy from /tmp.
+    """
+
+    def __init__(self, by_cwd: dict):
+        self.by_cwd = by_cwd  # cwd -> stdout ('' = import fails)
+
+    def __call__(self, *a, **k):
+        out = self.by_cwd.get(k.get("cwd"), "")
+        return subprocess.CompletedProcess(a[0] if a else [], 0 if out else 1, out, "")
+
+
+def test_cwd_dependent_resolution_warns_with_both_paths(ambient, monkeypatch):
+    """The actionable, previously-silent state: HERE resolves differently
+    than ANYWHERE ELSE. The warning must show both, or the reader cannot
+    know which of their measurements to distrust."""
+    monkeypatch.setattr(
+        "subprocess.run",
+        _CwdAwareProbe(
+            {
+                None: "/home/dev/checkout/empirica/__init__.py",  # from here
+                "/": "/opt/venv/site-packages/empirica/__init__.py",  # from anywhere
+            }
+        ),
+    )
+    msg = ambient._import_path_divergence("/opt/venv/site-packages")
+    assert msg is not None, "cwd-dependent resolution reported as agreement — the original bug"
+    assert "CWD-DEPENDENT" in msg
+    assert "/home/dev/checkout" in msg and "/opt/venv/site-packages" in msg
+
+
+def test_shadow_only_import_warns(ambient, monkeypatch):
+    """Importable HERE and nowhere else — the classic standing-in-a-checkout
+    state. Every python-level check passes in this directory and fails on any
+    other box or cwd."""
+    monkeypatch.setattr(
+        "subprocess.run",
+        _CwdAwareProbe({None: "/home/dev/checkout/empirica/__init__.py", "/": ""}),
+    )
+    msg = ambient._import_path_divergence("/opt/venv/site-packages")
+    assert msg is not None
+    assert "ONLY from this directory" in msg
+
+
+def test_agreeing_resolutions_judge_divergence_from_the_neutral_probe(ambient, monkeypatch):
+    """When both cwds resolve the SAME root, behaviour must match the original
+    check: warn iff that stable root differs from the CLI's install path. The
+    neutral probe is the judge — not the cwd-relative one."""
+    same = {"None": None}  # noqa: F841 — clarity only
+    monkeypatch.setattr(
+        "subprocess.run",
+        _CwdAwareProbe(
+            {
+                None: "/opt/venv/site-packages/empirica/__init__.py",
+                "/": "/opt/venv/site-packages/empirica/__init__.py",
+            }
+        ),
+    )
+    assert ambient._import_path_divergence("/opt/venv/site-packages") is None
+    msg = ambient._import_path_divergence("/different/install/site-packages")
+    assert msg is not None and "DIVERGES" in msg
+
+
+def test_neutral_only_import_is_not_cwd_dependent(ambient, monkeypatch):
+    """Resolving from a neutral cwd but not from here (e.g. probing from a
+    directory whose name shadows a stdlib module) is unusual but not the
+    cwd-shadowing defect — judged against the neutral truth as usual."""
+    monkeypatch.setattr(
+        "subprocess.run",
+        _CwdAwareProbe({None: "", "/": "/opt/venv/site-packages/empirica/__init__.py"}),
+    )
+    assert ambient._import_path_divergence("/opt/venv/site-packages") is None
