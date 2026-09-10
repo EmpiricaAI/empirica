@@ -296,7 +296,7 @@ def _apply_engagement_substrate(cursor: sqlite3.Cursor) -> None:
             domain_id TEXT PRIMARY KEY,
             display_name TEXT NOT NULL,
             description TEXT,
-            visibility TEXT DEFAULT 'shared' CHECK (visibility IN ('local', 'shared', 'public')),
+            visibility TEXT DEFAULT 'local' CHECK (visibility IN ('local', 'shared', 'public')),
             created_at REAL NOT NULL,
             created_by_ai_id TEXT
         )

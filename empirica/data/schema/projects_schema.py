@@ -190,7 +190,7 @@ SCHEMAS = [
                     -- Visibility (added in migration 049 — sources joined the artifact_visibility ladder
                     -- late because source-add uses hand-rolled INSERT, not the breadcrumbs repo path
                     -- that took the migration 039 default).
-                    visibility TEXT DEFAULT 'shared',
+                    visibility TEXT DEFAULT 'local',
 
                     -- Content identity (added in migration 050 — unified source identity:
                     -- catalogue dedupe + reconcile key on (canonical_path, content_hash);

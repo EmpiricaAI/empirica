@@ -134,7 +134,7 @@ def test_fresh_schema_includes_visibility():
 
     sources_ddl = next((ddl for ddl in SCHEMAS if "epistemic_sources" in ddl), None)
     assert sources_ddl is not None, "epistemic_sources DDL missing"
-    assert "visibility TEXT DEFAULT 'shared'" in sources_ddl
+    assert "visibility TEXT DEFAULT 'local'" in sources_ddl
 
 
 # ── visibility_commands._ARTIFACT_TABLES ───────────────────────────────
@@ -283,8 +283,8 @@ def test_handler_defaults_to_shared(fake_db, capsys):
     rc, payload = _run_handler(args, capsys, fake_db)
     assert rc == 0
     assert payload["ok"] is True
-    assert payload["visibility"] == "shared"
-    assert _read_visibility(fake_db, payload["source_id"]) == "shared"
+    assert payload["visibility"] == "local"
+    assert _read_visibility(fake_db, payload["source_id"]) == "local"
 
 
 @pytest.mark.parametrize("tier", VISIBILITY_TIERS)
@@ -304,8 +304,8 @@ def test_handler_bogus_tier_falls_back_to_shared(fake_db, capsys):
     args = _make_args(visibility="top-secret")
     rc, payload = _run_handler(args, capsys, fake_db)
     assert rc == 0
-    assert payload["visibility"] == "shared"
-    assert _read_visibility(fake_db, payload["source_id"]) == "shared"
+    assert payload["visibility"] == "local"
+    assert _read_visibility(fake_db, payload["source_id"]) == "local"
 
 
 def test_handler_case_insensitive(fake_db, capsys):
@@ -342,9 +342,9 @@ def test_handler_human_output_surfaces_tier(fake_db, capsys):
 def test_normalize_visibility_invariants():
     """Sanity-check that the imported normaliser has the safety contract
     we rely on at the CLI boundary."""
-    assert normalize_visibility(None) == "shared"
-    assert normalize_visibility("") == "shared"
-    assert normalize_visibility("bogus") == "shared"
+    assert normalize_visibility(None) == "local"
+    assert normalize_visibility("") == "local"
+    assert normalize_visibility("bogus") == "local"
     assert normalize_visibility("PUBLIC") == "public"
     assert normalize_visibility("  Local  ") == "local"
     # Critical: bogus must NOT promote to 'public'

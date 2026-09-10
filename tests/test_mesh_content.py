@@ -222,7 +222,7 @@ def test_from_row_normalizes_bogus_visibility():
         bogus_row,
         practice_canonical="empirica.david.empirica",
     )
-    assert mcs.visibility == "shared"  # the safe default per normalize_visibility
+    assert mcs.visibility == "local"  # the safe default per normalize_visibility
 
 
 def test_from_row_handles_missing_optional_fields():

@@ -44,7 +44,7 @@ SESSION_ID = str(uuid.uuid4())
 class TestNormalize:
     def test_default_when_none(self):
         assert normalize_visibility(None) == DEFAULT_VISIBILITY
-        assert DEFAULT_VISIBILITY == "shared"
+        assert DEFAULT_VISIBILITY == "local"
 
     def test_each_valid_tier_passes_through(self):
         for tier in VISIBILITY_TIERS:
@@ -75,18 +75,18 @@ def _column_value(db, table: str, artifact_id: str, column: str = "visibility"):
 
 
 class TestRepositoryPersistence:
-    def test_finding_default_is_shared(self, fresh_db):
+    def test_finding_default_is_local(self, fresh_db):
         fid = fresh_db.log_finding(PROJECT_ID, SESSION_ID, "default tier finding")
-        assert _column_value(fresh_db, "project_findings", fid) == "shared"
+        assert _column_value(fresh_db, "project_findings", fid) == "local"
 
     @pytest.mark.parametrize("tier", VISIBILITY_TIERS)
     def test_finding_explicit_tier(self, fresh_db, tier):
         fid = fresh_db.log_finding(PROJECT_ID, SESSION_ID, f"explicit {tier} finding", visibility=tier)
         assert _column_value(fresh_db, "project_findings", fid) == tier
 
-    def test_unknown_default_is_shared(self, fresh_db):
+    def test_unknown_default_is_local(self, fresh_db):
         uid = fresh_db.log_unknown(PROJECT_ID, SESSION_ID, "default tier unknown")
-        assert _column_value(fresh_db, "project_unknowns", uid) == "shared"
+        assert _column_value(fresh_db, "project_unknowns", uid) == "local"
 
     @pytest.mark.parametrize("tier", VISIBILITY_TIERS)
     def test_unknown_explicit_tier(self, fresh_db, tier):
@@ -98,41 +98,41 @@ class TestRepositoryPersistence:
         did = fresh_db.log_dead_end(PROJECT_ID, SESSION_ID, f"approach {tier}", "why_failed", visibility=tier)
         assert _column_value(fresh_db, "project_dead_ends", did) == tier
 
-    def test_dead_end_default_is_shared(self, fresh_db):
+    def test_dead_end_default_is_local(self, fresh_db):
         did = fresh_db.log_dead_end(PROJECT_ID, SESSION_ID, "approach default", "why_failed")
-        assert _column_value(fresh_db, "project_dead_ends", did) == "shared"
+        assert _column_value(fresh_db, "project_dead_ends", did) == "local"
 
     @pytest.mark.parametrize("tier", VISIBILITY_TIERS)
     def test_mistake_explicit_tier(self, fresh_db, tier):
         mid = fresh_db.log_mistake(SESSION_ID, f"mistake {tier}", "why_wrong", project_id=PROJECT_ID, visibility=tier)
         assert _column_value(fresh_db, "mistakes_made", mid) == tier
 
-    def test_mistake_default_is_shared(self, fresh_db):
+    def test_mistake_default_is_local(self, fresh_db):
         mid = fresh_db.log_mistake(SESSION_ID, "mistake default", "why_wrong", project_id=PROJECT_ID)
-        assert _column_value(fresh_db, "mistakes_made", mid) == "shared"
+        assert _column_value(fresh_db, "mistakes_made", mid) == "local"
 
     @pytest.mark.parametrize("tier", VISIBILITY_TIERS)
     def test_assumption_explicit_tier(self, fresh_db, tier):
         aid = fresh_db.log_assumption(PROJECT_ID, SESSION_ID, f"assumption {tier}", visibility=tier)
         assert _column_value(fresh_db, "assumptions", aid) == tier
 
-    def test_assumption_default_is_shared(self, fresh_db):
+    def test_assumption_default_is_local(self, fresh_db):
         aid = fresh_db.log_assumption(PROJECT_ID, SESSION_ID, "assumption default")
-        assert _column_value(fresh_db, "assumptions", aid) == "shared"
+        assert _column_value(fresh_db, "assumptions", aid) == "local"
 
     @pytest.mark.parametrize("tier", VISIBILITY_TIERS)
     def test_decision_explicit_tier(self, fresh_db, tier):
         did = fresh_db.log_decision(PROJECT_ID, SESSION_ID, f"choice {tier}", "rationale", visibility=tier)
         assert _column_value(fresh_db, "decisions", did) == tier
 
-    def test_decision_default_is_shared(self, fresh_db):
+    def test_decision_default_is_local(self, fresh_db):
         did = fresh_db.log_decision(PROJECT_ID, SESSION_ID, "choice default", "rationale")
-        assert _column_value(fresh_db, "decisions", did) == "shared"
+        assert _column_value(fresh_db, "decisions", did) == "local"
 
     def test_invalid_tier_falls_back_to_default(self, fresh_db):
         """Defense-in-depth: bad value at the repo layer becomes 'shared'."""
         fid = fresh_db.log_finding(PROJECT_ID, SESSION_ID, "bogus tier finding", visibility="top-secret")
-        assert _column_value(fresh_db, "project_findings", fid) == "shared"
+        assert _column_value(fresh_db, "project_findings", fid) == "local"
 
 
 # ── log-artifacts batch handler ─────────────────────────────────────────────
@@ -170,7 +170,7 @@ class TestBatchHandler:
         assert _column_value(fresh_db, "project_findings", fid) == "public"
         assert _column_value(fresh_db, "decisions", did) == "local"
 
-    def test_node_without_visibility_defaults_to_shared(self, fresh_db):
+    def test_node_without_visibility_defaults_to_local(self, fresh_db):
         from empirica.cli.command_handlers.graph_commands import _create_node
 
         ctx = {
@@ -185,7 +185,7 @@ class TestBatchHandler:
             "data": {"finding": "batch default"},
         }
         fid = _create_node(fresh_db, node, ctx)
-        assert _column_value(fresh_db, "project_findings", fid) == "shared"
+        assert _column_value(fresh_db, "project_findings", fid) == "local"
 
 
 # ── CLI visibility list/show ────────────────────────────────────────────────
