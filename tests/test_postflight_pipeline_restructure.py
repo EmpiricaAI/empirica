@@ -316,8 +316,16 @@ class TestCortexExtractTransactionGraph:
     def test_graph_covers_full_set_with_goal_and_artifact_edges(self, tmp_path, monkeypatch):
         db = self._build_db_with_tx(tmp_path)
         PID, SID, TX, GID = "proj", "sess", "tx-graph-1", "goal-xyz"
-        fid = db.log_finding(PID, SID, "a real finding", impact=0.8, goal_id=GID, transaction_id=TX)
-        did = db.log_decision(PID, SID, choice="chose X", rationale="grounded", goal_id=GID, transaction_id=TX)
+        # visibility EXPLICIT: these tests exercise cortex egress, and local is the
+        # no-egress tier - under the doctrine default (local) an unflagged artifact
+        # correctly never reaches this graph. The old tests rode the defective
+        # shared default into egress eligibility without saying so.
+        fid = db.log_finding(
+            PID, SID, "a real finding", impact=0.8, goal_id=GID, transaction_id=TX, visibility="shared"
+        )
+        did = db.log_decision(
+            PID, SID, choice="chose X", rationale="grounded", goal_id=GID, transaction_id=TX, visibility="shared"
+        )
         # an inter-artifact edge
         from empirica.cli.command_handlers.graph_commands import _store_edge
 
@@ -360,7 +368,7 @@ class TestCortexExtractTransactionGraph:
     def test_goal_edge_omitted_when_artifact_has_no_goal(self, tmp_path, monkeypatch):
         db = self._build_db_with_tx(tmp_path)
         PID, SID, TX = "proj", "sess", "tx-nogoal"
-        db.log_finding(PID, SID, "goalless finding", impact=0.5, transaction_id=TX)
+        db.log_finding(PID, SID, "goalless finding", impact=0.5, transaction_id=TX, visibility="shared")
         wp = self._patch_tx(monkeypatch, db, TX)
         graph = wp._cortex_extract_transaction_graph(SID)
         assert len(graph["nodes"]) == 1
