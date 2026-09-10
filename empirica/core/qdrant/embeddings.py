@@ -33,7 +33,14 @@ _ollama_available: bool | None = None
 # Default models and their vector dimensions per provider
 DEFAULT_MODELS = {
     "openai": "text-embedding-3-small",
-    "ollama": "qwen3-embedding",  # 1024-dim, MTEB 64.3 (upgraded from nomic-embed-text 768d)
+    # The tag is EXPLICIT on purpose. Ollama's registry resolves the bare
+    # `qwen3-embedding` name to the largest build (7.6B, 4096d), while our
+    # dimension table assumes the 0.6B/1024d one — so a fresh install that
+    # pulled by the bare name got 4096d vectors against 1024d collections.
+    # The mismatch raises loudly at embed time now, but the right fix is to
+    # never invite it: name the exact model. (Reported from a win32 install
+    # whose workaround was setting EMPIRICA_EMBEDDINGS_MODEL to this value.)
+    "ollama": "qwen3-embedding:0.6b",  # 1024-dim, MTEB 64.3
     "jina": "jina-embeddings-v3",  # 1024-dim, multilingual, late-interaction
     "voyage": "voyage-3-lite",  # 512-dim, fast and cheap
     "local": "hash-1536",

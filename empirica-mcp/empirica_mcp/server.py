@@ -1232,12 +1232,25 @@ async def _call_tool_impl(name: str, arguments: dict) -> list[types.TextContent]
             ),
         )
     except subprocess.TimeoutExpired:
-        return _err_text(
-            {
-                "ok": False,
-                "error": f"Command timed out ({timeout}s): {entry['cli']}",
-            }
-        )
+        payload = {
+            "ok": False,
+            "error": f"Command timed out ({timeout}s): {entry['cli']}",
+        }
+        # Transaction-opening/closing verbs COMMIT their row before the slow
+        # tail (pattern retrieval, embeddings), so a timeout here routinely
+        # reports failure on work that succeeded — measured on a win32 install:
+        # the transaction was open at age 128s while this tool had already
+        # said it failed, and the natural retry DOUBLE-OPENED. The error must
+        # carry the recovery protocol, not just the bad news.
+        if entry["cli"] in ("preflight-submit", "check-submit", "postflight-submit"):
+            payload["hint"] = (
+                "The transaction row commits BEFORE the slow retrieval tail, so this "
+                "timeout does not mean the submit failed. Run `empirica status` and check "
+                "for an open transaction before resubmitting — resubmitting double-opens. "
+                "If it is open, continue working; the timeout cost you the response body, "
+                "not the transaction."
+            )
+        return _err_text(payload)
 
     if result.returncode == 0:
         # A zero-output command exited 0, so it DID succeed — but say that, don't

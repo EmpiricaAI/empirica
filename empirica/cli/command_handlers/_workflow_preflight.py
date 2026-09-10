@@ -1276,7 +1276,14 @@ def handle_preflight_submit_command(args):
                 retrospective_reason=parsed.get("retrospective_reason"),
             )
 
-            # Stage 9: Retrieve patterns for task context
+            # Stage 9: Retrieve patterns for task context — TIMED, because this
+            # is the stage that runs after the transaction row has committed.
+            # A win32 install measured MCP preflight timing out at 120s while
+            # the row was already open, and nothing in the response could say
+            # where the time went — the reporter explicitly declined to guess a
+            # number, and so had to eliminate causes one external probe at a
+            # time. The timing turns any affected box into the instrument.
+            _retrieval_started = time.time()
             patterns = _preflight_retrieve_patterns(
                 db,
                 session_id,
@@ -1287,6 +1294,7 @@ def handle_preflight_submit_command(args):
                 resolved_project_path,
                 transaction_id=transaction_id,
             )
+            _retrieval_seconds = round(time.time() - _retrieval_started, 2)
 
             db.close()
 
@@ -1311,6 +1319,22 @@ def handle_preflight_submit_command(args):
             # threaded through the builder's ten parameters.
             if preflight_claims:
                 result["claims"] = preflight_claims
+
+            # Emitted only when the tail is SLOW: at normal speed (<5s) the field
+            # is noise, and at 60-120s it is the diagnostic — the transaction is
+            # already committed by then, so a caller-side timeout misreports
+            # success as failure and this number is what says so.
+            if _retrieval_seconds >= 5.0:
+                result["timings"] = {
+                    "pattern_retrieval_s": _retrieval_seconds,
+                    "note": (
+                        "pattern retrieval dominated this PREFLIGHT; the transaction was "
+                        "committed before it began. If a caller (e.g. MCP) timed out, the "
+                        "transaction is still open — check `empirica status` before resubmitting. "
+                        "A stall here usually means the vector store or embeddings endpoint is "
+                        "slow or unreachable from this host."
+                    ),
+                }
 
             # The firewall's only input did not land. Say so ON THE RESPONSE —
             # a warning that exists solely in a debug log is the same silence

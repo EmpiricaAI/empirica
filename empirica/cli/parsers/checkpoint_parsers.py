@@ -1169,7 +1169,17 @@ def add_checkpoint_parsers(subparsers):
         ),
     )
     unknown_resolve_parser.add_argument("--unknown-id", required=True, help="Unknown UUID")
-    unknown_resolve_parser.add_argument("--resolved-by", required=True, help="How was this unknown resolved?")
+    # `--resolution` accepted as an alias: every sibling resolve verb calls this
+    # field "resolution" (finding-resolve --resolution, resolve-artifacts'
+    # `resolution` key), so guessing it here is the NATURAL first attempt — and
+    # the failure mode was a bare usage dump. Measured cost on a win32 install:
+    # a corrupted artifact, because the retry under time pressure hand-quoted
+    # prose containing backticks and bash executed them (issues.md #3). The
+    # ergonomic gap and the corruption are one incident: friction at the right
+    # spelling is what pushes people into fragile quoting.
+    unknown_resolve_parser.add_argument(
+        "--resolved-by", "--resolution", dest="resolved_by", required=True, help="How was this unknown resolved?"
+    )
     unknown_resolve_parser.add_argument(
         "--finding", dest="resolution_finding_id", help="Finding ID that answered this unknown (provenance link)"
     )

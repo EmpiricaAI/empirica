@@ -1063,6 +1063,24 @@ def _resolve_physical_location() -> str | None:
     tty_key = get_tty_key()
     if tty_key:
         return f"term_{tty_key}"
+    # win32: nothing above exists — no TMUX_PANE, no TERM_SESSION_ID, no
+    # WINDOWID, no TTY device — so every Windows install resolved to None,
+    # PREFLIGHT could not resolve project_path, and the Sentinel firewall was
+    # silently blind (reported from a 1.13.41 win32 install; the workaround was
+    # a global EMPIRICA_INSTANCE_ID, which the override branch still honours
+    # first). Windows Terminal exports a per-window GUID; use it when present.
+    # Otherwise a CONSTANT fallback: one shared instance is a real trade — two
+    # concurrent Windows terminals collapse into one namespace — but resolution
+    # beating isolation is the right default on a platform where the
+    # alternative is nothing working at all. Multi-instance win32 users set
+    # EMPIRICA_INSTANCE_ID per terminal, exactly as before.
+    import sys as _sys
+
+    if _sys.platform == "win32":
+        wt_session = os.environ.get("WT_SESSION")
+        if wt_session:
+            return f"wt_{wt_session[:16]}"
+        return "win32_default"
     return None
 
 

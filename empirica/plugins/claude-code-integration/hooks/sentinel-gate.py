@@ -1182,30 +1182,50 @@ def is_transition_command(command: str) -> bool:
     """
     cmd = command.lstrip()
 
-    # Direct match
-    for prefix in TRANSITION_COMMANDS:
-        if cmd.startswith(prefix):
-            return True
+    # Single statement (heredoc-tolerant): match the leading prefix. This is the
+    # common case and the quote-aware one — _is_single_statement already knows a
+    # heredoc body is one statement and that separators inside quotes don't split.
+    if _is_single_statement(cmd):
+        head = cmd.split("<<")[0].strip() if "<<" in cmd else cmd
+        return any(head.startswith(prefix) for prefix in TRANSITION_COMMANDS)
 
-    # Check pipe segments: echo '...' | empirica preflight-submit -
-    if "|" in cmd:
-        for segment in cmd.split("|"):
-            segment = segment.strip()
-            for prefix in TRANSITION_COMMANDS:
-                if segment.startswith(prefix):
-                    return True
+    # Multi-statement: EVERY segment must independently be a transition command
+    # or a benign pipe producer — not ANY. The previous version matched any
+    # segment (and the direct-prefix check above it never looked past the first
+    # statement at all), so all of these were ALLOWED after POSTFLIGHT:
+    #
+    #     empirica preflight-submit payload.json\nrm -rf /tmp/x   (prefix match)
+    #     cd /tmp && rm -rf /important                            (any-segment, &&)
+    #     rm -rf x | empirica preflight-submit -                  (any-segment, |)
+    #
+    # — the same chain-blind rescue this file's own history documents at two
+    # other sites, found at a third by a negative-control test. The documented
+    # legitimate multi-statement shapes all survive the all-segments rule:
+    # `echo '…' | empirica preflight-submit -` (producer + transition) and
+    # `cd /path && empirica preflight-submit - <<'EOF'` (two transitions).
+    if "<<" in cmd:
+        # A chain that also carries a heredoc: verify the heredoc CLOSES with
+        # nothing after it, then judge the head. An unterminated body or trailing
+        # text is where a second command hides.
+        head_part, _, rest = cmd.partition("<<")
+        delim_line, _, body = rest.partition("\n")
+        delim = delim_line.strip().lstrip("-").strip("'\"")
+        if not delim:
+            return False
+        body_lines = body.split("\n")
+        terminator = next((i for i, ln in enumerate(body_lines) if ln.strip() == delim), None)
+        if terminator is None or "\n".join(body_lines[terminator + 1 :]).strip():
+            return False
+        cmd = head_part
 
-    # Check && chain segments: cd /path && empirica preflight-submit -
-    if "&&" in cmd:
-        for segment in cmd.split("&&"):
-            segment = segment.strip()
-            # Strip heredoc suffix for matching
-            segment_clean = segment.split("<<")[0].strip() if "<<" in segment else segment
-            for prefix in TRANSITION_COMMANDS:
-                if segment_clean.startswith(prefix):
-                    return True
-
-    return False
+    _BENIGN_PRODUCERS = ("echo ", "echo", "cat ", "printf ")
+    segments = [s.strip() for s in re.split(r"\n|;|&&|\|\||\||&", cmd) if s.strip()]
+    if not segments:
+        return False
+    return all(
+        any(seg.startswith(p) for p in TRANSITION_COMMANDS) or any(seg.startswith(p) for p in _BENIGN_PRODUCERS)
+        for seg in segments
+    )
 
 
 # Recovery + measurement verbs that must be ALWAYS-OPEN, before every gate.
@@ -4327,6 +4347,18 @@ def _handle_closed_transaction(tool_name: str, tool_input: dict) -> None:
         command = tool_input.get("command", "")
         if is_transition_command(command):
             respond("allow", "Transition command (starting new cycle)")
+            sys.exit(0)
+        # Empirica workflow commands — the SAME rescue the sibling loop-closed
+        # branch has had all along. This handler is a second implementation of
+        # one policy and it drifted: the other branch rescues via
+        # is_safe_empirica_statement, this one did not, so in the states routed
+        # HERE `empirica preflight-submit payload.json` — the exact form the
+        # CLI's own error hint recommends — was denied with "Run new PREFLIGHT",
+        # a gate refusing the only command that could satisfy it. Reported from
+        # a win32 install (issues.md #2): bare stdin form accepted, file-arg
+        # form rejected, three failed attempts to open a loop.
+        if is_safe_empirica_statement(command):
+            respond("allow", "Empirica command (transaction closed, artifact lifecycle / loop-opening)")
             sys.exit(0)
     elif (
         tool_name in NOETIC_TOOLS

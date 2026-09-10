@@ -808,9 +808,31 @@ def _install_default_qdrant_resolver() -> None:
         pass  # Never let this crash the CLI.
 
 
+def _reconfigure_win32_streams() -> None:
+    """win32: force UTF-8 on stdout/stderr regardless of the console codepage.
+
+    Without it the HUMAN RENDERER dies on cp1252 (every ✅/❌/— in our output)
+    AFTER the DB write has committed — so successful operations look failed,
+    which is the worst polarity of failure this codebase knows. The documented
+    workaround was `setx PYTHONIOENCODING utf-8`, but an env var the install
+    forgets is a landmine (and setx is invisible to already-running processes,
+    which cost the reporting win32 user three sessions of a "broken" install).
+    Fixing it at the entry point makes the env var unnecessary.
+    """
+    if sys.platform != "win32":
+        return
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8")
+        except Exception:  # a console we cannot reconfigure still gets ASCII-safe JSON
+            pass
+
+
 def main(args=None):
     """Main CLI entry point"""
     start_time = time.time()
+
+    _reconfigure_win32_streams()
 
     # The reported-errors record scopes to ONE dispatch, so reset it here. It is
     # process-global, and in-process callers (the test suite runs main() many
