@@ -264,6 +264,15 @@ Exit codes:
     )
 
     doctor_parser.add_argument(
+        "--deploy-gaps",
+        action="store_true",
+        help=(
+            "Only the deploy-gap checks: unreleased commits, CLI-vs-checkout, plugin "
+            "freshness, MCP skew - one readable answer to 'what is committed but not "
+            "live on this box'"
+        ),
+    )
+    doctor_parser.add_argument(
         "--strict-warn",
         action="store_true",
         help="Exit code 2 when any WARN check fires (default: only FAIL fires non-zero exit)",

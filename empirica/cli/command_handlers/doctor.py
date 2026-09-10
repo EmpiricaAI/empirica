@@ -739,6 +739,54 @@ def check_sessions_db(cwd: Path | None = None) -> Check:
     )
 
 
+def check_unreleased_commits(cwd: Path | None = None) -> Check:
+    """What is committed but not yet in any release — the queue, readable.
+
+    The deploy-gap ask (goal 96e3874e, David verbatim relayed via mesh-support):
+    six defects in one week shared one shape — producer-side success reported as
+    consumer-side outcome — and the human relaying "everything works" to a
+    client had no surface answering "what exists only on develop?". This check
+    is the committed-not-released lane of that answer; the sibling skew checks
+    (CLI-vs-checkout, plugin freshness, MCP skew) cover released-not-running.
+
+    PASS with data, never WARN on a non-zero count: unreleased commits on
+    develop is the NORMAL state of a working repo, and a check that warns on
+    the normal state trains dismissal. The value is the NUMBER and the
+    subjects, hoisted where a human reads them before a client call.
+    """
+    cwd = cwd or Path.cwd()
+    name = "unreleased commits"
+    rc, tag, _ = _run(["git", "-C", str(cwd), "describe", "--tags", "--abbrev=0"], timeout=10.0)
+    if rc != 0 or not tag.strip():
+        return Check(name, SKIP, "no release tag reachable — nothing to diff against", data={})
+    tag = tag.strip()
+    rc, log, _ = _run(["git", "-C", str(cwd), "log", "--oneline", f"{tag}..HEAD"], timeout=10.0)
+    if rc != 0:
+        return Check(name, WARN, f"git log {tag}..HEAD failed", "run from the repo root")
+    subjects = [ln for ln in log.strip().splitlines() if ln.strip()]
+    if not subjects:
+        return Check(name, PASS, f"none — HEAD is {tag}", data={"last_tag": tag, "count": 0})
+    return Check(
+        name,
+        PASS,
+        f"{len(subjects)} commit(s) since {tag}: " + "; ".join(s.split(" ", 1)[1][:60] for s in subjects[:5]),
+        data={"last_tag": tag, "count": len(subjects), "subjects": subjects[:20]},
+    )
+
+
+#: The deploy-gap subset: one readable answer to "what is committed but not
+#: live on this box", assembled from the checks that each cover one lane.
+#: `doctor --deploy-gaps` runs exactly these.
+def deploy_gap_checks(cwd: Path | None = None) -> list[Check]:
+    cwd = cwd or Path.cwd()
+    return [
+        check_unreleased_commits(cwd),  # committed, not released
+        check_cli_matches_checkout(cwd),  # released, not what this shell runs
+        check_plugin_freshness(),  # released, not what the deployed plugin runs
+        check_mcp_version_skew(),  # released, not what the MCP host serves
+    ]
+
+
 def check_retrieval_telemetry(cwd: Path | None = None) -> Check:
     """Are retrieval counters actually being written?
 
@@ -1730,6 +1778,7 @@ def run_all_checks(cwd: Path | None = None) -> list[Check]:
         check_empirica_folder(cwd),
         check_project_yaml(cwd),
         check_sessions_db(cwd),
+        check_unreleased_commits(cwd),
         check_retrieval_telemetry(cwd),
         check_notes_sqlite_divergence(cwd),
         check_git_remote(cwd),
@@ -1787,7 +1836,10 @@ def handle_doctor_command(args: Any) -> int:
     cwd = Path.cwd()
     if getattr(args, "reconcile_notes", False):
         return _handle_reconcile_notes(cwd, apply_it=bool(getattr(args, "apply", False)))
-    checks = run_all_checks(cwd)
+    # --deploy-gaps: the focused "what is committed but not live" view. Same
+    # renderers, same exit-code semantics — a FILTER, not a different report,
+    # so nothing here can drift from the full run.
+    checks = deploy_gap_checks(cwd) if getattr(args, "deploy_gaps", False) else run_all_checks(cwd)
     fails = sum(1 for c in checks if c.status == FAIL)
     warns = sum(1 for c in checks if c.status == WARN)
     skips = sum(1 for c in checks if c.status == SKIP)

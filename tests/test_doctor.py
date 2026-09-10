@@ -470,7 +470,7 @@ def test_run_all_checks_returns_complete_list():
     assert "Deployed plugin fresh" in names
 
 
-def test_run_all_checks_count_is_31():
+def test_run_all_checks_count_is_32():
     """+1 for check_mcp_version_skew (GH #404, injected-topology skew).
     +1 for check_engagement_registry_drift (engagement dual-write, 1.13.23).
     +1 for check_cli_matches_checkout (CLI/checkout skew the version cannot see).
@@ -487,11 +487,12 @@ def test_run_all_checks_count_is_31():
     thinking about the suite" — when it fires, update it deliberately (and add
     the name assertion below), never by pasting the new number blind."""
     checks = run_all_checks()
-    assert len(checks) == 31
+    assert len(checks) == 32
     # The tripwire earns its keep only if the NEW check is named. A bumped
     # number alone records that something changed, not what.
     assert any(c.name == "notes/sqlite divergence" for c in checks)
     assert any(c.name == "retrieval telemetry written" for c in checks)
+    assert any(c.name == "unreleased commits" for c in checks)
 
 
 # ─── Tailscale (prop_ilf6uy4q) ─────────────────────────────────────────
@@ -840,3 +841,74 @@ def test_cli_checkout_skew_keeps_the_old_wording_when_versions_agree(tmp_path, m
     assert result.status == WARN
     assert "same version number either way" in result.detail
     assert "versions DIFFER" not in result.detail
+
+
+# ─── deploy gaps: one readable answer to "committed but not live" ──────
+
+
+def test_unreleased_commits_reports_count_and_subjects(tmp_path):
+    """PASS with data, never WARN on a non-zero count — unreleased commits on
+    develop is the NORMAL state, and warning on the normal state trains
+    dismissal. The value is the number and the subjects."""
+    import subprocess as sp
+
+    from empirica.cli.command_handlers.doctor import check_unreleased_commits
+
+    repo = tmp_path / "r"
+    repo.mkdir()
+    for cmd in (
+        ["git", "init", "-q"],
+        ["git", "config", "user.email", "t@t"],
+        ["git", "config", "user.name", "t"],
+    ):
+        sp.run(cmd, cwd=repo, check=True, capture_output=True)
+    (repo / "a").write_text("1")
+    sp.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
+    sp.run(["git", "commit", "-qm", "first"], cwd=repo, check=True, capture_output=True)
+    sp.run(["git", "tag", "v1.0.0"], cwd=repo, check=True, capture_output=True)
+
+    at_tag = check_unreleased_commits(repo)
+    assert at_tag.status == PASS and at_tag.data["count"] == 0
+
+    (repo / "b").write_text("2")
+    sp.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
+    sp.run(["git", "commit", "-qm", "fix: the thing users hit"], cwd=repo, check=True, capture_output=True)
+
+    ahead = check_unreleased_commits(repo)
+    assert ahead.status == PASS, "a non-zero queue must not WARN — it is the normal state"
+    assert ahead.data["count"] == 1
+    assert "the thing users hit" in ahead.detail, "the SUBJECTS are the readable half of the answer"
+
+
+def test_unreleased_commits_skips_without_a_tag(tmp_path):
+    """No tag reachable = nothing to diff against. SKIP says the comparison was
+    not made; PASS would claim an agreement never checked."""
+    import subprocess as sp
+
+    from empirica.cli.command_handlers.doctor import check_unreleased_commits
+
+    repo = tmp_path / "r"
+    repo.mkdir()
+    sp.run(["git", "init", "-q"], cwd=repo, check=True, capture_output=True)
+    assert check_unreleased_commits(repo).status == SKIP
+
+
+def test_deploy_gap_subset_is_exactly_the_four_lanes():
+    """--deploy-gaps is a FILTER over the same checks, not a different report —
+    each entry covers one lane of 'committed but not live'. Pinned by name so a
+    lane cannot silently drop out of the focused view."""
+    import inspect
+
+    from empirica.cli.command_handlers import doctor as d
+
+    src = inspect.getsource(d.deploy_gap_checks)
+    for lane in (
+        "check_unreleased_commits",  # committed, not released
+        "check_cli_matches_checkout",  # released, not what this shell runs
+        "check_plugin_freshness",  # released, not the deployed plugin
+        "check_mcp_version_skew",  # released, not what the MCP host serves
+    ):
+        assert lane in src, f"deploy-gap lane missing: {lane}"
+
+    handler = inspect.getsource(d.handle_doctor_command)
+    assert "deploy_gap_checks(cwd)" in handler, "the flag no longer routes to the subset"
