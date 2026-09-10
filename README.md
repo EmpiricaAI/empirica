@@ -2,7 +2,7 @@
 
 > **We Gave AI a Mirror. Now It Measures What It Believes.**
 
-[![Version](https://img.shields.io/badge/version-1.13.42-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.42)
+[![Version](https://img.shields.io/badge/version-1.13.43-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.43)
 [![PyPI](https://img.shields.io/pypi/v/empirica)](https://pypi.org/project/empirica/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -114,13 +114,13 @@ empirica setup
 
 ```bash
 # Security-hardened Alpine image (~276MB, recommended)
-docker pull nubaeon/empirica:1.13.42-alpine
+docker pull nubaeon/empirica:1.13.43-alpine
 
 # Standard image (Debian slim, ~414MB)
-docker pull nubaeon/empirica:1.13.42
+docker pull nubaeon/empirica:1.13.43
 
 # Run
-docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.42 /bin/bash
+docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.43 /bin/bash
 ```
 </details>
 
@@ -414,16 +414,16 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.13.42
+## What's New in 1.13.43
 
-- **Retrieval telemetry on every artifact type, from every surfacing path.** Migration 063 gave findings a retrieval counter and it acquired exactly one writer — bootstrap's 7-day active-goal query — while PREFLIGHT/CHECK context injection (the highest-volume path), `project-search` and the noetic-batch investigate leg wrote nothing. So `retrieval_count` meant "surfaced by bootstrap" while reading as "surfaced", and `0` was indistinguishable from "never used". Found from outside by a peer practice counting independently (9 recorded retrievals across 444 later-resolved findings over 46 stores). Now: one shared writer (`empirica.core.retrieval_telemetry`) that returns the rows it wrote — so a stamp that matches nothing is a test failure, not a green no-op — wired into all four paths; migration 067 extends the columns to unknowns, dead-ends, decisions, assumptions and mistakes; and `retrieval_count_at_resolution` is snapshotted by trigger at the moment an artifact closes, so "how often was this surfaced while still believed" is exactly answerable — and a resolved artifact that keeps being retrieved now exposes a leaking retrieval filter. Decisions and assumptions stamp too: their payloads had stored `artifact_id` all along and both search projections dropped it. Not backfilled; the instrumentation epoch is recoverable from `schema_migrations.applied_at`, so a pre-instrumentation `0` stays distinguishable from a measured one.
-- **`goals-complete --reason` is now stored** (migration 068, `goals.completion_reason`) instead of accepted and discarded. The flag reached exactly one consumer — the BEADS close, guarded by `if beads_issue_id` — so for most goals it was an advertised no-op, and the only record of whether a goal was *achieved*, *abandoned* or *superseded* was lost. The output echoes `reason_stored` from what the write returned, never from what the flag carried, and on a pre-068 database it says loudly that the reason was NOT saved instead of dropping it silently again. Surfaced in `goals-list` when present.
-- **`doctor` checks that retrieval telemetry is actually written** — a large corpus where nothing has ever been stamped is the wiring failing silently, and it warns on a half-applied migration (snapshot columns present, triggers absent), which is the state left behind when a migration's definition changes after it has run.
-- **`mailbox archive` could not say whose mailbox, so broadcast threads were unarchivable.** Cortex rightly refuses an ambiguous archive when several of your practices participate and names the fix in the error — pass `ai_id` — but the CLI had no such flag and never sent the field, so the instruction could not be followed by the tool that produced it. Measured live: 8 of 9 inbox proposals stuck. Now `--ai-id`, defaulting to the practice's canonical 3-form resolved from the roster; `reply`'s auto-archive carries it too (previously it returned `parent_archived: false` with no reason on every broadcast thread). Unresolvable id is omitted, not sent as null, so single-participant archives keep working offline.
-- **`goals-list --status blocked` returned the entire open backlog.** The filter enumerated two statuses and everything else fell through to the not-completed default — `abandoned` (9 real rows) was mis-filed identically, so the branch stopped enumerating: any literal status now filters literally, an unknown one returns an honest empty set annotated with the statuses that DO exist, and `filters.status` echoes the filter that was applied rather than announcing `active` regardless.
-- **Migration-added columns no longer break `goals-list` on databases that lack them.** Naming `completion_reason` (068) unconditionally in the SELECT made the verb fail outright on any unmigrated database — and building test fixtures from the REAL base schema immediately exposed that `archived` (056) had the same latent break, invisible for months because every hand-rolled test schema had helpfully included the column. `--all-projects` reads other practices' databases, which migrate themselves on their own schedule, so both shapes are permanent contract, probed per-database.
-- **`doctor` no longer claims "same version number either way"** when the CLI and the checkout diverge: the installed copy can read HIGHER while being older (measured: pipx 1.13.41 vs checkout 1.13.40 — every release bump reproduces this on every developer box until they pull). Both versions are reported with the direction of the hazard named.
-- **Test fixtures can now build BOTH schema generations from production code** (`tests/schema_shapes.py`): `base` executes the real `ALL_SCHEMAS`, `current` adds the real migration registry, and the builder asserts which world it produced. A hand-rolled test schema is a transcription of the author's assumptions, and it is precisely the author's assumptions that need testing — this is what exposed the `archived` break above within a minute of existing.
+- **`doctor --deploy-gaps`** — one readable answer to "what is committed but not live on this box", four lanes: unreleased commits (NEW check — count + headline subjects since the last tag; PASS with data, never WARN, because a non-zero queue is the normal state of a working repo), CLI-vs-checkout, deployed-plugin freshness, and core/MCP version match. A filter over the same checks doctor always runs, so the focused view cannot drift from the full one. Its first live run surfaced a real three-environment version skew on the development box itself.
+- **`EMPIRICA_RETRIEVAL_BUDGET_S`** (default 30s) — a wall-clock budget over PREFLIGHT pattern retrieval, checked between phases. The retrieval chain runs a dozen sequential network calls *after* the transaction row commits, so a degraded backend never failed preflight — it made preflight lie to whoever wrapped it in a timeout (measured: MCP reporting failure on an open transaction at 128s; a 120s+ stall reproduced twice locally, every component fast when probed alone). Past the deadline, remaining phases are skipped **and named** in `_retrieval_budget` — a partial injection that says it is partial.
+- **`preflight-submit` reports a `timings` block** when pattern retrieval takes ≥5s, so a stalled box names where the time went instead of needing a bisect.
+- **`unknown-resolve` accepts `--resolution`** as an alias for `--resolved-by` — every sibling verb calls the field "resolution", so guessing it was the natural first attempt, and the friction at the right spelling is what pushed a reporter into fragile hand-quoting that corrupted an artifact.
+- **win32: the CLI now works without any environment variables.** UTF-8 is forced on stdout/stderr at the entry point (cp1252 killed the human renderer *after* the DB write committed, so successful operations looked failed); instance resolution falls back to the Windows Terminal session GUID and then a stable constant instead of `None` (which left PREFLIGHT unable to resolve the project and the Sentinel silently blind); and the default Ollama embedding tag is the explicit `qwen3-embedding:0.6b` (the registry resolves the bare name to the 4096-dim build against our 1024-dim collections).
+- **Sentinel: the loop-closed handler refused the file-argument preflight form its own error hint recommends** — a second implementation of one policy that drifted. Fixing it exposed a third chain-blind site: transition matching accepted ANY segment of a chained command, so `cd /tmp && rm -rf /x` rode through after POSTFLIGHT. Transition commands now require EVERY segment to be a transition or benign producer.
+- **`empirica` CLI import-divergence warning is cwd-honest**: it probes from a neutral directory AND the current one, distinguishing cwd-dependent resolution (a checkout shadowing site-packages), importable-only-here, and true install divergence — the old single probe reported agreement from exactly the directory where it was wrong.
+- **MCP timeouts on transaction verbs carry the recovery protocol**: the row commits before the slow tail, so a timeout does not mean the submit failed — the error now says to check `empirica status` before resubmitting, because resubmitting double-opens.
 ---
 
 
@@ -454,6 +454,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 **Author:** David S. L. Van Assche
-**Version:** 1.13.42
+**Version:** 1.13.43
 
 *Turtles all the way down — built with its own epistemic framework, measuring what it knows at every step.*

@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.13.42
-**Generated:** 2026-09-09 16:18:26 UTC
+**Framework version:** 1.13.43
+**Generated:** 2026-09-10 14:50:00 UTC
 **Total commands:** 243 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -799,7 +799,7 @@ Close an open unknown — pass the answer as --resolved-by and optionally link t
 
 - `--unknown-id` — **required**
   Unknown UUID
-- `--resolved-by` — **required**
+- `--resolved-by` / `--resolution` — **required**
   How was this unknown resolved?
 - `--finding` — optional
   Finding ID that answered this unknown (provenance link)
@@ -4537,6 +4537,8 @@ Check Empirica install health (Desktop + general — empirica-mcp, .empirica/, g
 
 - `--output` — optional · type=`choice` · choices={human, json} · default=`json`
   Output format (default: json — Desktop calls expect machine-readable)
+- `--deploy-gaps` — optional · flag
+  Only the deploy-gap checks: unreleased commits, CLI-vs-checkout, plugin freshness, MCP skew - one readable answer to 'what is committed but not live on this box'
 - `--strict-warn` — optional · flag
   Exit code 2 when any WARN check fires (default: only FAIL fires non-zero exit)
 - `--reconcile-notes` — optional · flag

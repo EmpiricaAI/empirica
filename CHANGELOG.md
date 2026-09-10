@@ -5,6 +5,68 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.43] - 2026-09-10
+
+### Added
+
+- **`doctor --deploy-gaps`** — one readable answer to "what is committed but
+  not live on this box", four lanes: unreleased commits (NEW check — count +
+  headline subjects since the last tag; PASS with data, never WARN, because a
+  non-zero queue is the normal state of a working repo), CLI-vs-checkout,
+  deployed-plugin freshness, and core/MCP version match. A filter over the same
+  checks doctor always runs, so the focused view cannot drift from the full
+  one. Its first live run surfaced a real three-environment version skew on the
+  development box itself.
+- **`EMPIRICA_RETRIEVAL_BUDGET_S`** (default 30s) — a wall-clock budget over
+  PREFLIGHT pattern retrieval, checked between phases. The retrieval chain runs
+  a dozen sequential network calls *after* the transaction row commits, so a
+  degraded backend never failed preflight — it made preflight lie to whoever
+  wrapped it in a timeout (measured: MCP reporting failure on an open
+  transaction at 128s; a 120s+ stall reproduced twice locally, every component
+  fast when probed alone). Past the deadline, remaining phases are skipped
+  **and named** in `_retrieval_budget` — a partial injection that says it is
+  partial.
+- **`preflight-submit` reports a `timings` block** when pattern retrieval takes
+  ≥5s, so a stalled box names where the time went instead of needing a bisect.
+- **`unknown-resolve` accepts `--resolution`** as an alias for `--resolved-by` —
+  every sibling verb calls the field "resolution", so guessing it was the
+  natural first attempt, and the friction at the right spelling is what pushed
+  a reporter into fragile hand-quoting that corrupted an artifact.
+
+### Fixed
+
+- **win32: the CLI now works without any environment variables.** UTF-8 is
+  forced on stdout/stderr at the entry point (cp1252 killed the human renderer
+  *after* the DB write committed, so successful operations looked failed);
+  instance resolution falls back to the Windows Terminal session GUID and then
+  a stable constant instead of `None` (which left PREFLIGHT unable to resolve
+  the project and the Sentinel silently blind); and the default Ollama
+  embedding tag is the explicit `qwen3-embedding:0.6b` (the registry resolves
+  the bare name to the 4096-dim build against our 1024-dim collections).
+- **Sentinel: the loop-closed handler refused the file-argument preflight form
+  its own error hint recommends** — a second implementation of one policy that
+  drifted. Fixing it exposed a third chain-blind site: transition matching
+  accepted ANY segment of a chained command, so `cd /tmp && rm -rf /x` rode
+  through after POSTFLIGHT. Transition commands now require EVERY segment to be
+  a transition or benign producer.
+- **`empirica` CLI import-divergence warning is cwd-honest**: it probes from a
+  neutral directory AND the current one, distinguishing cwd-dependent
+  resolution (a checkout shadowing site-packages), importable-only-here, and
+  true install divergence — the old single probe reported agreement from
+  exactly the directory where it was wrong.
+- **MCP timeouts on transaction verbs carry the recovery protocol**: the row
+  commits before the slow tail, so a timeout does not mean the submit failed —
+  the error now says to check `empirica status` before resubmitting, because
+  resubmitting double-opens.
+
+### Internal
+
+- pyright now gates `tests/` in CI and compliance (89-error backlog retired:
+  74 genuine — unstated union narrowing, mocks wearing real annotations,
+  anonymous stubs, 3.11-only tests on a 3.10-floor package, shadowed imports —
+  and 15 pytest-fixture false positives, exempted narrowly with the config
+  edges documented).
+
 ## [1.13.42] - 2026-09-09
 
 ### Added
