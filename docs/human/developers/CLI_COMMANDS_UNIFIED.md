@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.13.43
-**Generated:** 2026-09-10 14:50:00 UTC
+**Framework version:** 1.13.44
+**Generated:** 2026-09-11 10:01:46 UTC
 **Total commands:** 243 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -686,7 +686,7 @@ Log a discovery — something concrete you NOW know that wasn't obvious before. 
 - `--related-to` — optional · default=`[]`
   Anchor this artifact to another (relation=related). Repeatable.
 - `--visibility` — optional · type=`choice` · choices={public, shared, local}
-  Visibility tier (default: shared). public=world-shareable, shared=team-private, local=machine-only.
+  Visibility tier (default: local — sharing is opt-in). public=world-shareable, shared=org-visible, local=this project only.
 - `--epistemic-source` — optional · type=`choice` · choices={intuition, search, mixed}
   How this artifact was arrived at: intuition (training data + loaded context, no external retrieval since goal opened), search (external retrieval this session), or mixed.
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
@@ -758,7 +758,7 @@ Log an open question — something you'd need to know before acting confidently,
 - `--related-to` — optional · default=`[]`
   Anchor this artifact to another (relation=related). Repeatable.
 - `--visibility` — optional · type=`choice` · choices={public, shared, local}
-  Visibility tier (default: shared). public=world-shareable, shared=team-private, local=machine-only.
+  Visibility tier (default: local — sharing is opt-in). public=world-shareable, shared=org-visible, local=this project only.
 - `--epistemic-source` — optional · type=`choice` · choices={intuition, search, mixed}
   How this artifact was arrived at: intuition (training data + loaded context, no external retrieval since goal opened), search (external retrieval this session), or mixed.
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
@@ -855,7 +855,7 @@ Log an approach that didn't work. Use when you tried something and the result ru
 - `--related-to` — optional · default=`[]`
   Anchor this artifact to another (relation=related). Repeatable.
 - `--visibility` — optional · type=`choice` · choices={public, shared, local}
-  Visibility tier (default: shared). public=world-shareable, shared=team-private, local=machine-only.
+  Visibility tier (default: local — sharing is opt-in). public=world-shareable, shared=org-visible, local=this project only.
 - `--epistemic-source` — optional · type=`choice` · choices={intuition, search, mixed}
   How this artifact was arrived at: intuition (training data + loaded context, no external retrieval since goal opened), search (external retrieval this session), or mixed.
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
@@ -904,7 +904,7 @@ Log a belief you're acting on without verification. Use when proceeding requires
 - `--cite-type` — optional · default=`reference`
   Source type for --cite (reference, doc, paper, url, design, …). Default: reference.
 - `--visibility` — optional · type=`choice` · choices={public, shared, local}
-  Visibility tier (default: shared). public=world-shareable, shared=team-private, local=machine-only.
+  Visibility tier (default: local — sharing is opt-in). public=world-shareable, shared=org-visible, local=this project only.
 - `--epistemic-source` — optional · type=`choice` · choices={intuition, search, mixed}
   How this artifact was arrived at: intuition (training data + loaded context, no external retrieval since goal opened), search (external retrieval this session), or mixed.
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
@@ -961,7 +961,7 @@ Log a deliberate choice between alternatives. Use at every fork: which library, 
 - `--evidence-from` — optional · default=`[]`
   Finding/source IDs that ground this decision (relation=evidence). Repeatable.
 - `--visibility` — optional · type=`choice` · choices={public, shared, local}
-  Visibility tier (default: shared). public=world-shareable, shared=team-private, local=machine-only.
+  Visibility tier (default: local — sharing is opt-in). public=world-shareable, shared=org-visible, local=this project only.
 - `--epistemic-source` — optional · type=`choice` · choices={intuition, search, mixed}
   How this artifact was arrived at: intuition (training data + loaded context, no external retrieval since goal opened), search (external retrieval this session), or mixed.
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
@@ -1012,7 +1012,7 @@ Log an error YOU made + how to prevent it. Use when you introduced a bug, mis-ap
 - `--cite-type` — optional · default=`reference`
   Source type for --cite (reference, doc, paper, url, design, …). Default: reference.
 - `--visibility` — optional · type=`choice` · choices={public, shared, local}
-  Visibility tier (default: shared). public=world-shareable, shared=team-private, local=machine-only.
+  Visibility tier (default: local — sharing is opt-in). public=world-shareable, shared=org-visible, local=this project only.
 - `--epistemic-source` — optional · type=`choice` · choices={intuition, search, mixed}
   How this artifact was arrived at: intuition (training data + loaded context, no external retrieval since goal opened), search (external retrieval this session), or mixed.
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
@@ -1072,7 +1072,7 @@ Register external material as a citable source. Use for any evidence outside the
 - `--confidence` — optional · type=`float` · default=`0.7`
   Confidence in source quality (0.0-1.0, default: 0.7)
 - `--visibility` — optional · type=`choice` · choices={public, shared, local}
-  Visibility tier (default: shared). public=world-shareable, shared=team-private, local=machine-only. Required for cross-mesh source-map participation.
+  Visibility tier (default: local — sharing is opt-in). public=world-shareable, shared=org-visible, local=this project only. Required for cross-mesh source-map participation.
 - `--session-id` — optional
   Session ID (auto-derived from transaction)
 - `--project-id` — optional

@@ -4,7 +4,7 @@
 $ErrorActionPreference = 'Stop'
 
 $packageName = 'empirica'
-$packageVersion = '1.13.43'
+$packageVersion = '1.13.44'
 $url = "https://files.pythonhosted.org/packages/source/e/empirica/empirica-$packageVersion.tar.gz"
 $checksum = '616d48bba8bdda76ebf06a840494c169dfcbddf812b204f78dd7906290e8d5fa'  # TODO: Update sha256 after PyPI publish
 $checksumType = 'sha256'

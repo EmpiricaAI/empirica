@@ -5,6 +5,36 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.44] - 2026-09-11
+
+### Changed
+
+- **The default visibility is `local` — sharing is an opt-in act, and a default
+  cannot perform it.** Doctrine has said "local (default) — stays in this
+  project only" from the start; the shipped code said `shared` at every origin
+  (the `DEFAULT_VISIBILITY` constant every unflagged write funnels through,
+  both schema `DEFAULT` clauses, and seven `--visibility` help strings). Under
+  an active L2 agreement, `shared` IS cross-tenant exposure — measured before
+  the fix on one tenant's stores alone: ~5,300 artifacts org-shared by default
+  rather than by decision, CRM rows among them. Unknown tiers also fall to
+  `local` now: an unrecognised value must not resolve to MORE exposure than
+  none at all. Explicit choices are untouched, and **historical rows are
+  deliberately untouched** — their adjudication is a separate pending ruling,
+  and a mass change here would have conflated the defect fix with it. Fourteen
+  tests had been *pinning* the defect (green assertions that the default is
+  `shared`); they now assert the doctrine, plus a guard that the SQL defaults
+  agree with the constant — the agreement whose silent absence let this
+  survive. Note the behavioural consequence: unflagged artifacts no longer
+  egress to cortex, which is the doctrine working as written.
+
+### Added
+
+- **The CHECK retrieval chain shares `EMPIRICA_RETRIEVAL_BUDGET_S`** with the
+  PREFLIGHT side — the second measured 120s+ stall was a `check-submit`, and
+  the CHECK chain ran unbudgeted. Skipped phases are named in
+  `_retrieval_budget` on the warnings; one env var governs both sides so no
+  second knob exists mid-incident.
+
 ## [1.13.43] - 2026-09-10
 
 ### Added
