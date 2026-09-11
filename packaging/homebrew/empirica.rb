@@ -13,8 +13,8 @@ class Empirica < Formula
 
   desc "Epistemic self-assessment framework for AI agents"
   homepage "https://github.com/EmpiricaAI/empirica"
-  url "https://files.pythonhosted.org/packages/source/e/empirica/empirica-1.13.44.tar.gz"
-  sha256 "fdb663a3697854d556a8db2efd9663362a2a9fe16bbb9cc63ec6768092a1d2f0"
+  url "https://files.pythonhosted.org/packages/source/e/empirica/empirica-1.13.45.tar.gz"
+  sha256 "d9af9ba26f8b6517224ff939ec82ba6804aba80727b9ea30c43ded1b5e814a57"
   license "MIT"
 
   depends_on "python@3.11"
@@ -49,7 +49,7 @@ class Empirica < Formula
 
   test do
     # Test that the CLI works
-    assert_match "1.13.44", shell_output("#{bin}/empirica --version")
+    assert_match "1.13.45", shell_output("#{bin}/empirica --version")
 
     # Test that key commands exist
     system "#{bin}/empirica", "session-create", "--help"
