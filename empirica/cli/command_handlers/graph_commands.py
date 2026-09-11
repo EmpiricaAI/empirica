@@ -1962,6 +1962,50 @@ def handle_delete_artifacts_command(args):  # noqa: C901 — batch dispatcher fa
         if not data:
             return 1
 
+        # Unknown top-level keys are REFUSED, as in resolve-artifacts. Without
+        # this the sibling verbs disagree on their own safety switch and the
+        # disagreement is silent: `resolve-artifacts` takes `apply: true` in the
+        # PAYLOAD, while deletion takes `--apply` as a FLAG (or `dry_run: false`
+        # — inverted polarity, different name). A practitioner who learned the
+        # resolve payload writes `"apply": true` here, the key is dropped, and
+        # the receipt is a dry-run that reads exactly like a successful preview.
+        # Nothing was deleted and nothing said so. Observed 2026-09-11 during a
+        # gardening pass; the safe direction of a destructive verb, but the
+        # caller cannot tell preview-because-I-asked from preview-because-you-
+        # ignored-me, and repeating the call reproduces it forever.
+        _KNOWN_TOP_KEYS = {
+            "deletions",
+            "items",
+            "edges",
+            "prune_dangling",
+            "repair",
+            "reason",
+            "dry_run",
+            "project_id",
+        }
+        _unknown_keys = sorted(set(data) - _KNOWN_TOP_KEYS)
+        if _unknown_keys:
+            _hint = (
+                "To actually delete, pass the --apply FLAG (or `dry_run: false` in the body). "
+                "`apply` is a payload key on resolve-artifacts, NOT here."
+                if "apply" in _unknown_keys
+                else ""
+            )
+            print(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": (
+                            f"Unrecognised top-level key(s): {', '.join(_unknown_keys)}. "
+                            f"Accepted keys: {', '.join(sorted(_KNOWN_TOP_KEYS))}."
+                        ),
+                        "unknown_keys": _unknown_keys,
+                        **({"hint": _hint} if _hint else {}),
+                    }
+                )
+            )
+            return 1
+
         items = data.get("deletions", data.get("items", []))
         reason = data.get("reason", "Batch deletion — non-pertinent")
         # Preview unless --apply. The JSON body still wins when it says so

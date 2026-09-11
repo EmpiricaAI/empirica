@@ -295,3 +295,62 @@ class TestUnrecognisedTopLevelKeyIsRejected:
         the unknown-key guard must only fire on genuinely unrecognised keys."""
         _rc, out = self._run('{"resolutions": []}')
         assert "unknown_keys" not in out
+
+
+class TestDeleteArtifactsRejectsUnknownKeys:
+    """The same guard on the sibling verb, where the confusion is predictable.
+
+    `resolve-artifacts` takes `apply: true` in the PAYLOAD. `delete-artifacts`
+    takes `--apply` as a FLAG (or `dry_run: false` — inverted polarity, other
+    name). So the natural transfer from one verb to the other silently produced
+    a dry-run receipt indistinguishable from a successful preview: nothing
+    deleted, `ok: true`, no signal. Safe direction for a destructive verb, but
+    the caller cannot tell preview-because-asked from preview-because-ignored,
+    and repeating the call reproduces it forever.
+    """
+
+    import pytest as _pytest
+
+    @_pytest.fixture(autouse=True)
+    def _isolated_db(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("EMPIRICA_SESSION_DB", str(tmp_path / "iso.db"))
+
+    def _run(self, payload: str, apply: bool = False):
+        import io
+        import json as _json
+        from argparse import Namespace
+        from contextlib import redirect_stdout
+        from unittest.mock import patch
+
+        from empirica.cli.command_handlers.graph_commands import handle_delete_artifacts_command
+
+        buf = io.StringIO()
+        args = Namespace(config="-", output="json", schema=False, apply=apply, dry_run=False, verbose=False)
+        with patch("sys.stdin", io.StringIO(payload)), redirect_stdout(buf):
+            rc = handle_delete_artifacts_command(args)
+        # Parse from the first brace to the end: the reject path prints compact
+        # single-line JSON, the success path pretty-prints multi-line. Reading
+        # only the last line passes on the former and yields "}" on the latter.
+        out = buf.getvalue().strip()
+        start = out.find("{")
+        return rc, (_json.loads(out[start:]) if start >= 0 else {})
+
+    def test_sibling_verbs_apply_key_is_refused_with_the_mapping(self):
+        rc, out = self._run('{"deletions":[{"type":"finding","id":"deadbeef"}],"apply":true}')
+        assert out.get("ok") is False, "an ignored safety switch must not report success"
+        assert rc == 1
+        assert out.get("unknown_keys") == ["apply"]
+        assert "--apply" in out.get("hint", ""), "the error must teach where the switch actually lives"
+
+    def test_documented_payload_still_previews(self):
+        """Positive control: the guard must not reject the documented shape.
+
+        Without this, a guard that rejected everything would pass the test
+        above and the absence-assertion would prove nothing."""
+        _rc, out = self._run('{"deletions":[{"type":"finding","id":"no-such-id"}],"reason":"probe"}')
+        assert "unknown_keys" not in out
+        assert out.get("dry_run") is True
+
+    def test_edge_keys_are_documented_and_accepted(self):
+        _rc, out = self._run('{"prune_dangling":true,"repair":false,"reason":"probe"}')
+        assert "unknown_keys" not in out
