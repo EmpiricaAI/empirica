@@ -268,9 +268,11 @@ def _preflight_enrich_transaction_file(resolved_project_path, parsed):
             # The practitioner's statement of the work — makes the transaction
             # file self-describing (cockpit, post-compact continue prompt).
             ("task_context", parsed.get("task_context")),
-            # Billing key for the window: goals-create inherits it when the goal
-            # carries none of its own, so one field at PREFLIGHT replaces a
-            # separate stamping command that measurement showed nobody runs.
+            # Opaque engagement reference for the window: goals-create inherits
+            # it when the goal carries none of its own, so one field at
+            # PREFLIGHT replaces a separate stamping command that measurement
+            # showed nobody runs. Core never interprets the id — engagement
+            # semantics live in the workspace layer.
             ("engagement_id", engagement_id),
         ]:
             if val:

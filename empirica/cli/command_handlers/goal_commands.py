@@ -365,18 +365,22 @@ def _parse_goal_config(args):
 
 
 def _inherit_engagement_from_transaction():
-    """Engagement key declared at PREFLIGHT, inherited by the window's goals.
+    """Engagement reference declared at PREFLIGHT, inherited by the window's goals.
 
     `preflight-submit` accepts `engagement_id` and persists it on the active
     transaction file; a goal created inside that window without its own
-    `--engagement-id` books to the same engagement. This is the habit-path fix
+    `--engagement-id` carries the same reference. This is the habit-path fix
     autonomy asked for (prop_764q2pdzgzfo5hzn4v6xxopywm): `goals-create
     --engagement-id` existed and was populated 0 of 186 times, because a
     separate stamping step after work starts is a chore that gets skipped.
 
+    Core treats the id as an opaque foreign key — engagement entities, their
+    types, and what those types mean are the workspace layer's (David's
+    boundary ruling, 2026-09-11: no business semantics in the open core).
+
     Only an OPEN transaction donates — POSTFLIGHT preserves enrichment fields
     on the closed file, and a goal created between transactions must not
-    inherit the previous window's billing key.
+    inherit the previous window's engagement.
     """
     try:
         tx = R.transaction_read()
