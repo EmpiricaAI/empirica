@@ -386,8 +386,11 @@ def _inherit_engagement_from_transaction():
         tx = R.transaction_read()
         if tx and tx.get("status") == "open":
             return tx.get("engagement_id")
-    except Exception:
-        pass
+    except Exception as e:
+        # Debug-visible, not silent: an unreadable transaction file otherwise
+        # renders identically to "no transaction open", and the goal quietly
+        # files as engagement-less.
+        logger.debug(f"engagement inheritance skipped (transaction file unreadable): {e}")
     return None
 
 
