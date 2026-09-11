@@ -57,3 +57,19 @@ def test_early_phases_still_run_on_a_tight_budget(monkeypatch):
     pr.retrieve_task_patterns("proj-x", "budget probe")
     assert "lesson" in calls, "phases before the first checkpoint must still run"
     assert "finding" not in calls, "the gated phase ran despite an exhausted budget"
+
+
+def test_check_side_shares_the_same_budget(monkeypatch):
+    """The second measured stall WAS a check-submit — the CHECK chain needs the
+    identical cap, governed by the SAME env var: an operator tuning the budget
+    mid-incident must not discover a second knob."""
+    monkeypatch.setattr(pr, "_retrieval_available", lambda: True)
+    monkeypatch.setattr(pr, "_search_memory_by_type", lambda *a, **k: [])
+    monkeypatch.setenv("EMPIRICA_RETRIEVAL_BUDGET_S", "0")
+    w = pr.check_against_patterns("proj-x", "an approach", include_findings=True)
+    budget = w.get("_retrieval_budget")
+    assert budget and "check_enrichment" in budget["skipped"]
+
+    monkeypatch.setenv("EMPIRICA_RETRIEVAL_BUDGET_S", "30")
+    w2 = pr.check_against_patterns("proj-x", "an approach", include_findings=True)
+    assert "_retrieval_budget" not in w2

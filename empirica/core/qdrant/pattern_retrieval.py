@@ -1427,6 +1427,20 @@ def check_against_patterns(
         include_goals: Include active goals for alignment check
         include_assumptions: Include unverified assumptions as risk signal
     """
+    # Same wall-clock budget as the PREFLIGHT side, same reason: the CHECK
+    # chain (dead-end match + up to four enrich retrievals) runs sequential
+    # network calls, and the second measured 120s+ stall on this box WAS a
+    # check-submit. One env var governs both, deliberately - an operator
+    # tuning the budget should not discover a second knob mid-incident.
+    _deadline = time.time() + float(os.getenv("EMPIRICA_RETRIEVAL_BUDGET_S", "30"))
+    _skipped_phases: list[str] = []
+
+    def _budget_left(phase: str) -> bool:
+        if time.time() < _deadline:
+            return True
+        _skipped_phases.append(phase)
+        return False
+
     if not _retrieval_available():
         return {"dead_end_matches": [], "mistake_matches": [], "mistake_risk": None, "has_warnings": False}
 
@@ -1479,18 +1493,27 @@ def check_against_patterns(
     # The Sentinel uses this data internally for threshold inflation (dynamic_thresholds.py)
     # but does not expose specifics to the AI.
 
-    # Enrich with optional retrieval types
-    _enrich_check_warnings(
-        warnings,
-        project_id,
-        current_approach,
-        threshold,
-        limit,
-        include_findings,
-        include_eidetic,
-        include_goals,
-        include_assumptions,
-    )
+    # Enrich with optional retrieval types - the bulk of the sequential
+    # calls, gated as ONE phase like the PREFLIGHT side.
+    if _budget_left("check_enrichment"):
+        _enrich_check_warnings(
+            warnings,
+            project_id,
+            current_approach,
+            threshold,
+            limit,
+            include_findings,
+            include_eidetic,
+            include_goals,
+            include_assumptions,
+        )
+
+    if _skipped_phases:
+        warnings["_retrieval_budget"] = {
+            "budget_s": float(os.getenv("EMPIRICA_RETRIEVAL_BUDGET_S", "30")),
+            "skipped": _skipped_phases,
+            "note": "CHECK retrieval exceeded its wall-clock budget; the phases listed were SKIPPED - this validation is partial and says so.",
+        }
 
     # Set has_warnings flag
     warnings["has_warnings"] = (
