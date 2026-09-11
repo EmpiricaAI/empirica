@@ -50,7 +50,11 @@ Pruning removes what's dead; weaving connects what's live. Most connecting is au
 
 - **Goal attachment is automatic, both orders.** Log under an active goal and it attaches;
   create the goal after and `goals-create` back-wires the transaction's orphans. So the rule
-  is just: every transaction has a goal.
+  is just: every transaction has a goal. Forward-attach resolves the goal in tiers — the one
+  bound to the current transaction, then the session's latest open goal, then the project's
+  latest open `in_progress` goal. That last tier is what makes the promise hold across
+  sessions; before 1.13.45 resolution was session-only, and 53% of artifacts logged inside a
+  transaction carried no goal because their goal had been created in an earlier session.
 - **Sources auto-connect.** `finding-log --source <id>` writes a real `sourced_from` edge.
   Cite as you log.
 - **Semantic edges are the manual move worth making.** `evidence`, `grounded_by`,

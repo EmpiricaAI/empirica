@@ -46,6 +46,13 @@ PREFLIGHT opens an epistemic measurement transaction. The AI declares
 its baseline state across the 13 vectors plus optional `work_context`
 and `work_type` metadata that adjust grounded calibration normalization.
 
+The payload is `extra="forbid"`: an unknown key is a hard error, not a
+silent drop. That makes the field list below load-bearing rather than
+informational — but a hand-maintained list drifts, so treat
+**`empirica preflight-submit --schema`** as authoritative. It prints the
+model's own JSON schema, which cannot disagree with what validation
+accepts.
+
 **Fields:**
 - `session_id: str` — UUID of the active Empirica session (required, 1–100 chars)
 - `vectors: dict[str, float]` — Vector name → 0.0–1.0 value. Must include
@@ -54,7 +61,26 @@ and `work_type` metadata that adjust grounded calibration normalization.
 - `task_context: str` — Brief task description for pattern retrieval (optional, max 2000 chars)
 - `work_context: str` — One of `greenfield`, `iteration`, `investigation`, `refactor`
 - `work_type: str` — One of `code`, `infra`, `research`, `release`, `debug`,
-  `config`, `docs`, `data`, `comms`, `design`, `audit`
+  `config`, `docs`, `data`, `comms`, `design`, `audit`, `remote-ops`
+- `domain: str` — Domain classification for compliance check selection
+  (e.g. `cybersec`, `payments`, `default`)
+- `criticality: str` — One of `low`, `medium`, `high`, `critical`
+- `claims: list[dict]` — The 2–3 load-bearing claims the work rests on, each
+  `{claim, grounding: read|ran|retrieved|assumed, ref}`. Declaring one grounded
+  by `read` or `ran` certifies the transaction, so praxic may proceed without a
+  separate CHECK.
+- `engagement_id: str` — Opaque reference to the engagement this work belongs
+  to. Core never resolves or interprets it; engagement entities and their types
+  live in the workspace layer. A goal created inside this transaction without
+  its own `--engagement-id` inherits it.
+- `predicted_check_outcomes: dict[str, float]` — Predicted pass-probability per
+  compliance `check_id`, for Brier scoring
+- `voice: str` — Voice profile to load for outreach drafting
+- `retrospective_reason: str` — Acknowledgment clearing the retrospective
+  soft-gate (previous transaction made praxic calls and logged no artifacts)
+- `current_phase: str` — `noetic` or `praxic`; accepted, not acted on at PREFLIGHT
+- `notes: str` — Free-form scratch text; accepted, not acted on (does NOT drive
+  pattern retrieval — use `task_context` for that)
 
 **Raises** `ValueError` via field validators when `session_id` is empty,
 `vectors` dict is empty, an unknown vector key is used, a value is

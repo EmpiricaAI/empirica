@@ -1,6 +1,18 @@
 # Empirica Database Schema (Unified)
 
-**Total Tables:** 36 (active)
+> ⚠️ **This file is a hand-maintained snapshot and it has drifted. Verify
+> against the database before relying on it.** Measured 2026-09-11 against a
+> live practice db: the schema has **82 tables**, this file documents 33, and
+> **16 of those 33 state the wrong column count** (e.g. `goals` documented at
+> 14 columns, actually 22). Nothing regenerates it, so every migration since
+> 2026-02-11 has widened the gap silently.
+>
+> Authoritative instead: `sqlite3 <db> ".schema <table>"` /
+> `PRAGMA table_info(<table>)` for shape, and
+> `empirica/data/schema/*.py` + `empirica/data/migrations/migrations.py` for
+> the definitions. Generating this file from those is a logged goal.
+
+**Total Tables:** 36 (active) — *stale, see banner above*
 **Database Type:** SQLite (with PostgreSQL adapter support)
 **Architecture:** Modular with unified goal/task system, transaction-first tracking
 **Every project (mapped to git repo) has its own SQLite database**
