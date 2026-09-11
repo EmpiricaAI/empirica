@@ -5,6 +5,91 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.45] - 2026-09-11
+
+### Fixed
+
+- **`lesson-create` reported a replace, performed a refusal, and stored
+  nothing.** Storage has refused to overwrite an existing `(name, version)`
+  since `1f6ce64a4` — correctly, per the no-force-replace ruling — but the CLI
+  handler computed its own `replaced` flag and never read `result["ok"]`, so the
+  refusal was swallowed and the caller got a success receipt for a write that
+  did not happen. A falsified receipt is worse than a failure: three parties
+  reasoned correctly from contradictory evidence for a week, and the help text
+  plus a pinning test both documented the *bug* as the contract. The refusal now
+  surfaces as `ok: false` with `code: "exists"` — a branchable distinguisher, so
+  a caller can tell "already published" from a real error — and the help and the
+  test now describe what the code does.
+
+- **`mailbox reply`'s auto-archive sent the raw project slug where cortex
+  matches canonical participants**, so the reply landed, the parent closed, and
+  the archive alone failed with `ai_id ... is not a participant`. The propose leg
+  masks it: cortex canonicalises the *source* for routing but matches `ai_id`
+  strictly for archiving, so the same wrong value succeeds on one endpoint and
+  400s on the next. Now roster-resolves like the standalone `archive` verb — a
+  3-form passes through untouched, a slug is resolved, and an unresolvable id
+  omits the key rather than sending a known-wrong one.
+
+- **`delete-artifacts` silently dropped unknown top-level payload keys** while
+  its sibling `resolve-artifacts` refuses them by name. The confusion is
+  predictable rather than hypothetical: `apply: true` is a valid *payload* key on
+  resolve, while deletion takes `--apply` as a *flag* (or `dry_run: false` —
+  inverted polarity, different name). Transferring the sibling's idiom produced a
+  dry-run receipt indistinguishable from a successful preview: nothing deleted,
+  `ok: true`, no signal. The safe direction for a destructive verb, but
+  preview-because-asked and preview-because-ignored rendered identically and
+  repeating the call reproduced it forever. Unknown keys are now refused, and the
+  error names where the switch actually lives.
+
+### Added
+
+- **Timesheet substrate — four measured wirings** requested by
+  `empirica-autonomy`, each of which had schema or interface space reserved for a
+  value the write path never delivered:
+  - **POSTFLIGHT closes the cascade row.** `completed_at` and `duration_ms` were
+    NULL on 888 of 888 rows: PREFLIGHT inserted, POSTFLIGHT read the id and
+    closed nothing, and the repository's own `complete_cascade` writer had no
+    caller on that path. Every open row for the session is now closed, so a row
+    orphaned by a POSTFLIGHT that died mid-flight is swept by the next one.
+    Duration parses both historical `started_at` formats (epoch float from the
+    PREFLIGHT insert, ISO-8601 from the repository), and row selection avoids
+    `ORDER BY started_at`, which is unreliable across them — SQLite sorts TEXT
+    above every number.
+  - **`cascades.work_type`** (migration 069). Declared at PREFLIGHT, validated
+    against a controlled vocabulary, used to weight calibration — and stored
+    nowhere, while `calibration_trajectory.domain` read `'default'` on all 12,105
+    rows. Written by the same INSERT that opens the row. Not backfilled: the
+    transaction file that carried the history is overwritten per transaction, so
+    a backfill would be invention.
+  - **Goal auto-attach resolves past the session boundary.** 53% of artifacts
+    logged inside a transaction carried no `goal_id`, because resolution scoped to
+    `session_id` alone and a goal created in a prior session — the normal shape of
+    multi-session work — never matched. Three tiers now: the goal bound to the
+    current transaction, the session's latest open goal, then the project's
+    latest open `in_progress` non-archived goal. `planned` and archived goals are
+    excluded so a stale backlog entry cannot claim unrelated artifacts.
+  - **`engagement_id` at `preflight-submit`**, inherited by goals created inside
+    that window. `goals.engagement_id` was populated 0 of 186 times because the
+    only path was a separate command *after* work started. Core treats the id as
+    an **opaque reference and never interprets it** — engagement entities, their
+    types, and what those types carry belong to the workspace layer, not the
+    open-source core.
+
+- **`preflight-submit --schema`** prints the accepted payload shape. The flag did
+  not exist, so the contract was discoverable only by reading the Pydantic model
+  — and on an `extra="forbid"` model an undocumented field is indistinguishable
+  from an unsupported one. The reference doc now points at it rather than
+  restating it.
+
+### Documentation
+
+- `DATABASE_SCHEMA_UNIFIED.md` carries a staleness banner with measured numbers:
+  it documents 33 of 82 tables and 16 of those state the wrong column count
+  (`goals` says 14, actually 22). Nothing regenerates it, so every migration
+  since 2026-02-11 widened the gap while "Last Updated" kept it looking
+  maintained. Patching only the tables this release touched would have faked
+  currency; generating the file is a logged goal.
+
 ## [1.13.44] - 2026-09-11
 
 ### Changed

@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.13.44
-**Generated:** 2026-09-11 10:01:46 UTC
+**Framework version:** 1.13.45
+**Generated:** 2026-09-11 17:51:31 UTC
 **Total commands:** 243 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -229,6 +229,8 @@ Open an epistemic transaction. Records baseline vectors + task context as the st
 
 - `config` — **required**
   JSON config file path, or "-" to read JSON from stdin (AI-first mode). Required unless using --vectors / --reasoning flags. The JSON object holds the full assessment payload — `vectors`, `reasoning`, optional `session_id`, plus PREFLIGHT-only `task_context` / `work_type` / `domain` / `criticality`. Example: `empirica preflight-submit - <<EOF\n{"vectors":{...}, "reasoning":"..."}\nEOF`
+- `--schema` — optional · flag
+  Print the accepted input JSON schema and exit (use this to learn the payload shape)
 - `--session-id` — optional
   Session UUID (legacy flag-based mode). Normally auto-derived from the active transaction file; only needed when running outside a transaction or against a specific session_id.
 - `--vectors` — optional
