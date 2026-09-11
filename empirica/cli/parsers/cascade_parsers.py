@@ -64,6 +64,11 @@ def add_cascade_parsers(subparsers):
         nargs="?",
         help=_HELP_CONFIG,
     )
+    preflight_submit_parser.add_argument(
+        "--schema",
+        action="store_true",
+        help="Print the accepted input JSON schema and exit (use this to learn the payload shape)",
+    )
 
     # Legacy flag-based mode (backward compatible)
     preflight_submit_parser.add_argument(

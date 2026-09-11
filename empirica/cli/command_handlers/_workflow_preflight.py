@@ -64,6 +64,7 @@ def _preflight_parse_and_validate(args):
         voice = getattr(validated, "voice", None)
         retrospective_reason = getattr(validated, "retrospective_reason", None)
         claims = getattr(validated, "claims", None) or []
+        engagement_id = getattr(validated, "engagement_id", None)
     else:
         session_id = args.session_id
         vectors = parse_json_safely(args.vectors) if isinstance(args.vectors, str) else args.vectors
@@ -77,6 +78,7 @@ def _preflight_parse_and_validate(args):
         voice = getattr(args, "voice", None)
         retrospective_reason = getattr(args, "retrospective_reason", None)
         claims = []
+        engagement_id = None
 
         if not session_id or not vectors:
             print(
@@ -121,6 +123,7 @@ def _preflight_parse_and_validate(args):
         "voice": voice,
         "retrospective_reason": retrospective_reason,
         "claims": claims if isinstance(claims, list) else [],
+        "engagement_id": engagement_id,
         "output_format": output_format,
     }
 
@@ -242,8 +245,9 @@ def _preflight_enrich_transaction_file(resolved_project_path, parsed):
     domain = parsed["domain"]
     criticality = parsed["criticality"]
     predicted_check_outcomes = parsed["predicted_check_outcomes"]
+    engagement_id = parsed.get("engagement_id")
 
-    if not (work_context or work_type or domain or criticality or parsed.get("task_context")):
+    if not (work_context or work_type or domain or criticality or engagement_id or parsed.get("task_context")):
         return
 
     try:
@@ -264,6 +268,10 @@ def _preflight_enrich_transaction_file(resolved_project_path, parsed):
             # The practitioner's statement of the work — makes the transaction
             # file self-describing (cockpit, post-compact continue prompt).
             ("task_context", parsed.get("task_context")),
+            # Billing key for the window: goals-create inherits it when the goal
+            # carries none of its own, so one field at PREFLIGHT replaces a
+            # separate stamping command that measurement showed nobody runs.
+            ("engagement_id", engagement_id),
         ]:
             if val:
                 tx_d[key] = val
@@ -1164,6 +1172,16 @@ def handle_preflight_submit_command(args):
         import time
         import uuid
 
+        # Stage 0: --schema prints the accepted payload shape and exits. This
+        # flag did not exist until a peer probed for it (autonomy,
+        # prop_764q2pdzgzfo5hzn4v6xxopywm) — the payload contract was only
+        # discoverable by reading PreflightInput's source.
+        if getattr(args, "schema", False):
+            from empirica.cli.validation import PreflightInput
+
+            print(json.dumps(PreflightInput.model_json_schema(), indent=2))
+            return 0
+
         # Stage 1: Parse input, validate, resolve session
         parsed = _preflight_parse_and_validate(args)
         session_id = parsed["session_id"]
@@ -1248,13 +1266,16 @@ def handle_preflight_submit_command(args):
             cascade_id = str(uuid.uuid4())
             now = time.time()
 
+            # work_type rides the row (migration 069): it is validated and in-hand
+            # right here, and this INSERT is the only moment it touches the store —
+            # the transaction file that also carries it is overwritten per-transaction.
             db.conn.execute(
                 """
                 INSERT INTO cascades
-                (cascade_id, session_id, task, started_at)
-                VALUES (?, ?, ?, ?)
+                (cascade_id, session_id, task, started_at, work_type)
+                VALUES (?, ?, ?, ?, ?)
             """,
-                (cascade_id, session_id, "PREFLIGHT assessment", now),
+                (cascade_id, session_id, "PREFLIGHT assessment", now, parsed.get("work_type")),
             )
 
             db.conn.commit()

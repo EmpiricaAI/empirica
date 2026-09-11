@@ -964,6 +964,7 @@ def _postflight_close_and_capture_counters(result, resolved_project_path, suffix
         "work_context",
         "cascade_profile",
         "predicted_check_outcomes",
+        "engagement_id",
     )
     _saved_enrichment = {k: tx_data[k] for k in _enrichment_keys if tx_data.get(k)}
 
@@ -988,6 +989,65 @@ def _postflight_close_and_capture_counters(result, resolved_project_path, suffix
             logger.warning(f"Failed to preserve enrichment on close: {e}")
 
     R.counters_clear()
+
+
+def _cascade_elapsed_ms(started_at, now: float) -> int | None:
+    """Elapsed ms from a cascades.started_at value of either historical format.
+
+    The PREFLIGHT insert writes epoch floats; CascadeRepository.create_cascade
+    writes ISO-8601 strings. Both live in the same column, so per-row arithmetic
+    must accept both rather than assuming the format this code path writes.
+    """
+    from datetime import datetime, timezone
+
+    try:
+        return int((now - float(started_at)) * 1000)
+    except (TypeError, ValueError):
+        pass
+    try:
+        parsed = datetime.fromisoformat(str(started_at))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return int((now - parsed.timestamp()) * 1000)
+    except (TypeError, ValueError):
+        return None
+
+
+def _postflight_close_cascade_row(session_id) -> int:
+    """Close the session's open cascade rows: completed_at + duration_ms + flag.
+
+    PREFLIGHT reserved these columns at insert and nothing ever wrote them —
+    measured by empirica-autonomy at 888/888 NULL (prop_764q2pdzgzfo5hzn4v6xxopywm),
+    so native transaction duration was only recoverable by pairing snapshot
+    timestamps. completed_at is written as an epoch float to match the
+    PREFLIGHT insert's started_at, keeping per-row arithmetic in one format.
+
+    Closes every open row for the session, newest first, so a row orphaned by a
+    POSTFLIGHT that died mid-flight is swept by the next one rather than
+    accumulating as permanently-open. Returns the number of rows closed.
+    """
+    db = _get_db_for_session(session_id)
+    now = time.time()
+    cursor = db.conn.cursor()
+    # rowid order, not started_at order: started_at holds mixed epoch/ISO
+    # formats and SQLite sorts TEXT above every number.
+    cursor.execute(
+        "SELECT rowid, started_at FROM cascades WHERE session_id = ? AND completed_at IS NULL",
+        (session_id,),
+    )
+    rows = cursor.fetchall()
+    closed = 0
+    for row in rows:
+        rowid = row["rowid"] if hasattr(row, "keys") else row[0]
+        started_at = row["started_at"] if hasattr(row, "keys") else row[1]
+        cursor.execute(
+            "UPDATE cascades SET completed_at = ?, duration_ms = ?, postflight_completed = 1 WHERE rowid = ?",
+            (now, _cascade_elapsed_ms(started_at, now), rowid),
+        )
+        closed += 1
+    if closed:
+        db.conn.commit()
+    return closed
 
 
 def _close_postflight_transaction(session_id):
@@ -2067,6 +2127,10 @@ def handle_postflight_submit_command(args):
             )
 
             # ─── SOFT MUTATION (stages 5-7) — failures become warnings ───
+            # Stage 5-pre: close the cascade row (completed_at + duration_ms) —
+            # the DB-side counterpart of the Stage 3 transaction-file close.
+            _soft_run("cascade_close", warnings, _postflight_close_cascade_row, session_id)
+
             # Stage 5: Bus + Sentinel
             _soft_run(
                 "bus_publish",

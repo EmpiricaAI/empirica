@@ -1556,6 +1556,11 @@ ALL_MIGRATIONS: list[tuple[str, str, Callable]] = [
         "Add completion_reason to goals — the account of WHY a goal closed, which the CLI accepted and threw away. `goals-complete --reason` read the flag into `close_reason` and passed it to exactly one consumer, `_gc_close_beads`, which is guarded by `if beads_issue_id` and does nothing for a goal not linked to BEADS. Most goals are not, so for them the flag was an ADVERTISED NO-OP: accepted, documented, discarded, no error. Reported by empirica-workspace (prop_t5upgjxwijdjhpwcfe72ow23vq) after searching every TEXT column of every table for a submitted reason and finding zero hits; confirmed here against two closures written the same hour, both gone. It survived because a closure reason is written and never read back in the same session — there is no moment where its absence becomes visible, and the CLI's 'Completed goal' says nothing to contradict the assumption that it landed. The fix has precedent in this schema rather than being a new idea: subtasks.completion_evidence already exists and holds 1197 populated rows, so the SUBTASK verb persists its rationale while the GOAL verb did not. Load-bearing because a closed goal without it cannot distinguish achieved from abandoned from superseded, and superseded-not-achieved is exactly what a closure reason exists to carry into the next session. Additive and nullable; NOT backfilled, since 'completed' is the default the flag falls back to and writing it everywhere would fabricate rationale for goals that never supplied one.",
         lambda cursor: migration_068_goal_completion_reason(cursor),
     ),
+    (
+        "069_cascade_work_type",
+        "Add work_type to cascades — the category axis of the transaction record, accepted at PREFLIGHT, used to weight calibration categories, and then discarded. Measured by empirica-autonomy (prop_764q2pdzgzfo5hzn4v6xxopywm, 2026-09-11): no work_type column on cascades, epistemic_snapshots, goals, calibration_trajectory or compliance_checks, and calibration_trajectory.domain reads 'default' on all 12,105 rows — so the one dimension every transaction declares about itself is unrecoverable from the store. The vocabulary is already controlled at input (PreflightInput pattern-validates 12 values), so this is a column for a value that is validated and in-hand at the moment the cascade row is INSERTed, one line upstream. Nullable, NOT backfilled: the transaction file that carried work_type is overwritten per-transaction, so history cannot be reconstructed without inventing it.",
+        lambda cursor: migration_069_cascade_work_type(cursor),
+    ),
 ]
 
 
@@ -2787,6 +2792,24 @@ def migration_068_goal_completion_reason(cursor: sqlite3.Cursor):
     """
     add_column_if_missing(cursor, "goals", "completion_reason", "TEXT", "NULL")
     logger.info("✅ Migration 068 complete: a closed goal can say why it closed")
+
+
+def migration_069_cascade_work_type(cursor: sqlite3.Cursor):
+    """The category axis of the transaction record, declared and then discarded.
+
+    Every PREFLIGHT may declare ``work_type`` from a controlled vocabulary of 12
+    values. It scales calibration weights, selects the cascade profile — and was
+    never written to any table, so no per-transaction category exists in the
+    store. ``calibration_trajectory.domain`` looks like it carries this and
+    reads ``'default'`` on all 12,105 rows (empirica-autonomy's measurement,
+    2026-09-11).
+
+    One nullable column on ``cascades``, written at the same INSERT that opens
+    the row. NOT backfilled: the transaction file that held historical values is
+    overwritten per-transaction, so a backfill would be invention.
+    """
+    add_column_if_missing(cursor, "cascades", "work_type", "TEXT", "NULL")
+    logger.info("✅ Migration 069 complete: cascades carry their declared work_type")
 
 
 def migration_065_backfill_goal_project_id_from_session(cursor: sqlite3.Cursor):

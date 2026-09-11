@@ -754,7 +754,9 @@ def _resolve_graph_context(graph: dict, args, db) -> dict | None:
         try:
             from empirica.cli.command_handlers.artifact_log_commands import _resolve_goal_for_artifact
 
-            goal_id = _resolve_goal_for_artifact(None, session_id, db)
+            goal_id = _resolve_goal_for_artifact(
+                None, session_id, db, transaction_id=transaction_id, project_id=project_id
+            )
         except Exception as e:
             logger.debug(f"goal auto-link skipped: {e}")
 

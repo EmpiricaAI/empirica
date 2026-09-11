@@ -598,21 +598,61 @@ def _warn_if_cwd_project_differs(project_id: str | None) -> None:
         return  # a diagnostic must never break the write it is describing
 
 
-def _resolve_goal_for_artifact(goal_id, session_id, db):
-    """Auto-link to the most recent open goal for this session."""
-    if not goal_id and session_id:
-        try:
-            cursor = db.conn.cursor()
-            cursor.execute(
-                "SELECT id FROM goals WHERE session_id = ? AND is_completed = 0 ORDER BY created_timestamp DESC LIMIT 1",
+def _resolve_goal_for_artifact(goal_id, session_id, db, transaction_id=None, project_id=None):
+    """Auto-link an artifact to the goal that owns the current work.
+
+    Three tiers, most precise first. Session-only resolution was the 53%
+    failure autonomy measured (655/1237 findings with a transaction_id had no
+    goal_id, prop_764q2pdzgzfo5hzn4v6xxopywm): sessions are compaction
+    boundaries, not lifecycle scopes, so a goal created in a PRIOR session —
+    the normal shape for multi-session work — never matched the session tier
+    and the artifact stayed orphaned.
+
+    1. The open goal bound to the CURRENT transaction (created or activated in
+       this window — goals-create/goals-claim stamp transaction_id).
+    2. The session's most recent open goal (original behavior).
+    3. The project's most recent open in_progress goal — the cross-session
+       tier. Excludes planned (queued, not being worked) and archived goals so
+       a stale backlog entry cannot claim unrelated artifacts.
+    """
+    if goal_id:
+        return goal_id
+    tiers = []
+    if transaction_id:
+        tiers.append(
+            (
+                "SELECT id FROM goals WHERE transaction_id = ? AND is_completed = 0 "
+                "ORDER BY created_timestamp DESC LIMIT 1",
+                (transaction_id,),
+            )
+        )
+    if session_id:
+        tiers.append(
+            (
+                "SELECT id FROM goals WHERE session_id = ? AND is_completed = 0 "
+                "ORDER BY created_timestamp DESC LIMIT 1",
                 (session_id,),
             )
+        )
+    if project_id:
+        tiers.append(
+            (
+                "SELECT id FROM goals WHERE project_id = ? AND is_completed = 0 "
+                "AND status = 'in_progress' AND COALESCE(archived, 0) = 0 "
+                "ORDER BY created_timestamp DESC LIMIT 1",
+                (project_id,),
+            )
+        )
+    for query, params in tiers:
+        try:
+            cursor = db.conn.cursor()
+            cursor.execute(query, params)
             row = cursor.fetchone()
             if row:
-                goal_id = row["id"] if hasattr(row, "keys") else row[0]
-        except Exception:
-            pass
-    return goal_id
+                return row["id"] if hasattr(row, "keys") else row[0]
+        except Exception as e:
+            logger.debug(f"goal auto-attach tier failed ({query[:40]}...): {e}")
+    return None
 
 
 def _resolve_transaction_id_for_artifact():
@@ -666,8 +706,8 @@ def _resolve_artifact_context(config_data, args, required_fields=None) -> dict[s
     subject = _resolve_subject_for_artifact(config_data, args)
     db, project_id = _resolve_db_for_artifact(project_id)
     project_id = _resolve_project_id_for_artifact(project_id, session_id, db)
-    goal_id = _resolve_goal_for_artifact(goal_id, session_id, db)
     transaction_id = _resolve_transaction_id_for_artifact()
+    goal_id = _resolve_goal_for_artifact(goal_id, session_id, db, transaction_id=transaction_id, project_id=project_id)
     ai_id = _resolve_ai_id_for_artifact(session_id, db)
     resolved_entity_type, resolved_entity_id = _resolve_entity_defaults(entity_type, entity_id, project_id)
 

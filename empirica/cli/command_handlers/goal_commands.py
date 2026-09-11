@@ -344,6 +344,9 @@ def _parse_goal_config(args):
 
         success_criteria_list = _parse_legacy_success_criteria(args)
 
+    if not engagement_id:
+        engagement_id = _inherit_engagement_from_transaction()
+
     return {
         "session_id": session_id,
         "objective": objective,
@@ -359,6 +362,29 @@ def _parse_goal_config(args):
         "output_format": output_format,
         "config_data": config_data,
     }
+
+
+def _inherit_engagement_from_transaction():
+    """Engagement key declared at PREFLIGHT, inherited by the window's goals.
+
+    `preflight-submit` accepts `engagement_id` and persists it on the active
+    transaction file; a goal created inside that window without its own
+    `--engagement-id` books to the same engagement. This is the habit-path fix
+    autonomy asked for (prop_764q2pdzgzfo5hzn4v6xxopywm): `goals-create
+    --engagement-id` existed and was populated 0 of 186 times, because a
+    separate stamping step after work starts is a chore that gets skipped.
+
+    Only an OPEN transaction donates — POSTFLIGHT preserves enrichment fields
+    on the closed file, and a goal created between transactions must not
+    inherit the previous window's billing key.
+    """
+    try:
+        tx = R.transaction_read()
+        if tx and tx.get("status") == "open":
+            return tx.get("engagement_id")
+    except Exception:
+        pass
+    return None
 
 
 def _parse_legacy_success_criteria(args):

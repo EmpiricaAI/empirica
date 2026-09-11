@@ -185,6 +185,19 @@ class PreflightInput(BaseModel):
             "which clears the gate on the next transaction's POSTFLIGHT."
         ),
     )
+    engagement_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=100,
+        description=(
+            "Engagement (billing/relationship key) this transaction's work is "
+            "booked against. Persisted on the transaction file; a goal created "
+            "inside this transaction without its own --engagement-id inherits "
+            "it, which is what makes time-by-engagement real at the moment work "
+            "starts instead of a backfill afterwards. Omit for overhead work — "
+            "overhead is defined as whatever carries no engagement."
+        ),
+    )
     current_phase: str | None = Field(
         default=None,
         description=(
