@@ -504,13 +504,24 @@ def handle_mailbox_reply_command(  # noqa: C901 — CLI handler with 7 validatio
         archive_body = {
             "api_key": api_key,
             "reason": f"auto-archived after mailbox reply (replied via {new_proposal_id})",
-            # Same requirement the standalone `archive` verb hit: cortex refuses
-            # to guess WHOSE mailbox to clear when several of the caller's
-            # practices participate. Without it a reply to any broadcast thread
-            # closes the parent and then silently fails to archive it, reporting
-            # parent_archived=false with no reason a reader could act on.
-            "ai_id": source_claude,
         }
+        # Same requirement the standalone `archive` verb hit: cortex refuses to
+        # guess WHOSE mailbox to clear when several of the caller's practices
+        # participate — and it matches the CANONICAL 3-form, not the bare slug.
+        # `source_claude` defaults from project.yaml, which carries only the
+        # slug; sending that raw form is a guaranteed participant-mismatch 400
+        # (the propose leg succeeds because cortex canonicalizes the SOURCE for
+        # routing, so the reply lands and only the archive silently fails —
+        # observed live on prop_764q2pdzgzfo5hzn4v6xxopywm). Roster-resolve the
+        # slug like the archive verb does; a value already in 3-form passes
+        # through; unresolvable omits the key rather than sending a wrong one.
+        archive_ai_id = (
+            source_claude
+            if source_claude.count(".") >= 2
+            else _resolve_canonical_ai_id(cortex_url, api_key, source_claude, _default_http_get)
+        )
+        if archive_ai_id:
+            archive_body["ai_id"] = archive_ai_id
         a_status, archive_resp = _http_post(archive_url, archive_body, api_key, 10.0)
         archive_ok = (
             isinstance(archive_resp, dict)

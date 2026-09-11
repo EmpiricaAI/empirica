@@ -137,3 +137,92 @@ def test_reply_autoarchive_also_names_the_mailbox():
     # nothing. Same class of defect as the one this file is about.
     body = src.split("archive_body = {")[1].split("a_status")[0]
     assert '"ai_id"' in body, "reply's auto-archive omits ai_id and silently no-ops on broadcast threads"
+
+
+def _reply_args(**kw):
+    base = {
+        "parent_id": "prop_parent",
+        "summary": "done",
+        "title": None,
+        "type": None,
+        "target_claudes": None,
+        "source_claude": None,
+        "payload": None,
+        "result": "shipped",
+        "commit_sha": None,
+        "no_close": False,
+        "no_archive": False,
+        "output": "json",
+    }
+    base.update(kw)
+    return Namespace(**base)
+
+
+def _run_reply(monkeypatch, roster_get, **argkw):
+    """Run the reply handler with all three HTTP legs captured."""
+    from empirica.cli.command_handlers import mailbox_commands
+    from empirica.cli.command_handlers.mailbox_commands import handle_mailbox_reply_command
+
+    posts: list[tuple[str, dict]] = []
+
+    def _post(url, body, api_key, timeout):
+        posts.append((url, body))
+        if url.endswith("/propose"):
+            return 200, {"ok": True, "proposal_id": "prop_new"}
+        return 200, {"ok": True}
+
+    monkeypatch.setattr(mailbox_commands, "_default_http_get", roster_get)
+    rc = handle_mailbox_reply_command(
+        _reply_args(**argkw),
+        _resolve_cortex_creds=lambda: CREDS,
+        _resolve_ai_id=lambda: "empirica",
+        _http_post=_post,
+        _fetch_parent=lambda u, k, pid: {
+            "id": pid,
+            "title": "T",
+            "source_claude": "empirica.philipp.empirica-autonomy",
+        },
+    )
+    return rc, posts
+
+
+def test_reply_autoarchive_sends_the_CANONICAL_ai_id_not_the_slug(monkeypatch, capsys):
+    """Sending the bare project.yaml slug is a guaranteed participant-mismatch.
+
+    Cortex matches archive `ai_id` against canonical participants, so the raw
+    `source_claude` default ('empirica') 400s on every thread — observed live:
+    reply lands, parent closes, archive alone fails. The archive leg must
+    roster-resolve exactly like the standalone verb.
+    """
+    rc, posts = _run_reply(monkeypatch, lambda url, key, timeout: (200, ROSTER))
+    capsys.readouterr()
+    assert rc == 0
+    archive_posts = [b for u, b in posts if u.endswith("/archive")]
+    assert archive_posts, "reply never attempted the auto-archive leg"
+    assert archive_posts[0].get("ai_id") == "empirica.david.empirica"
+
+
+def test_reply_autoarchive_passes_an_already_canonical_source_through(monkeypatch, capsys):
+    """A --source-claude in 3-form needs no roster round-trip."""
+
+    def _roster_must_not_be_called(url, key, timeout):
+        raise AssertionError("roster was fetched for an already-canonical source_claude")
+
+    rc, posts = _run_reply(
+        monkeypatch, _roster_must_not_be_called, source_claude="empirica.david.empirica-mesh-support"
+    )
+    capsys.readouterr()
+    assert rc == 0
+    archive_posts = [b for u, b in posts if u.endswith("/archive")]
+    assert archive_posts[0].get("ai_id") == "empirica.david.empirica-mesh-support"
+
+
+def test_reply_autoarchive_omits_ai_id_when_the_roster_is_unreachable(monkeypatch, capsys):
+    """Same contract as the standalone verb: unresolvable → omit, never null,
+    never the known-wrong slug."""
+    rc, posts = _run_reply(monkeypatch, lambda url, key, timeout: (500, {}))
+    capsys.readouterr()
+    assert rc == 0
+    archive_posts = [b for u, b in posts if u.endswith("/archive")]
+    assert archive_posts, "reply never attempted the auto-archive leg"
+    assert "ai_id" not in archive_posts[0]
