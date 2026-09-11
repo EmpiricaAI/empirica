@@ -456,17 +456,32 @@ def handle_lesson_create_command(args: Namespace) -> dict[str, Any]:
             abstract_pattern=input_data.get("abstract_pattern"),
         )
 
-        # Store lesson. AMEND-IN-PLACE IS THE MODEL, and it is not obvious:
-        # the id is DETERMINISTIC from (name, version) and create_lesson upserts
-        # every layer (cold file overwritten, warm INSERT OR REPLACE, hot
-        # reloaded, search point re-upserted). So re-publishing the same
-        # name+version REPLACES the lesson — which is the amend path (no update
-        # verb needed), and equally a way to clobber someone's lesson by reusing
-        # a name. Silence made both invisible; `replaced` names which one
-        # happened. Bump `version` to publish a revision alongside the original.
+        # Store lesson. The storage layer REFUSES an existing (name, version) —
+        # David's ruling 1f6ce64a4: lessons are permanent, and a re-create under
+        # a used id would overwrite the body in place with no history. This
+        # handler previously described amend-in-place as "the model" and then
+        # DISCARDED the refusal: it never read result["ok"], hardcoded ok: true,
+        # reported replaced: true from its own pre-check, and computed
+        # step_count from the INPUT — so a refused rewrite returned a receipt
+        # claiming the new content had landed while the store kept the old body.
+        # Reports replace, performs refuse, stores nothing: the swallowed-
+        # detector shape, sitting directly on top of the ruling that created
+        # the detector. Found because two practices held contradictory receipts
+        # from this one function — one told the fix shipped (it had), one shown
+        # a "replace" (that never happened).
         storage = get_lesson_storage()
-        replaced = storage.get_lesson(lesson.id) is not None
         result = storage.create_lesson(lesson)
+        if result.get("ok") is False:
+            # Surface the refusal EXACTLY as storage states it (both designed
+            # paths named), plus a machine-branchable code so idempotent
+            # callers (scheduled skills, provisioning re-runs) can distinguish
+            # "already exists" from genuine failure without parsing prose.
+            return {
+                "ok": False,
+                "code": "exists",
+                "lesson_id": result.get("lesson_id"),
+                "error": result.get("error"),
+            }
 
         # Supersession, if declared. Validated against the store FIRST: an edge
         # to a lesson that does not exist suppresses nothing and reports success,
@@ -500,8 +515,10 @@ def handle_lesson_create_command(args: Namespace) -> dict[str, Any]:
             "federation": federation,
             "name": lesson.name,
             "version": lesson.version,
-            # True = an existing lesson with this (name, version) was REPLACED.
-            "replaced": replaced,
+            # Kept for consumer compatibility; always False now that an existing
+            # (name, version) REFUSES instead of replacing. A True can no longer
+            # occur, and consumers that branched on it keep working.
+            "replaced": False,
             "step_count": len(steps),
             "supersedes": supersedes,
             "supersedes_edge_written": superseded_ok,

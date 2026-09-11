@@ -179,3 +179,30 @@ def test_delete_artifacts_refuses_an_unknown_lesson_id(monkeypatch, store):
 
     result = gc._delete_foreign_lesson("feedfacefeedface", dry_run=True)
     assert "error" in result
+
+
+# ─── the handler must not swallow the refusal it sits on ───────────────
+
+
+def test_cli_handler_surfaces_the_refusal_instead_of_swallowing_it():
+    """The storage refusal shipped (1f6ce64a4) and the CLI handler DISCARDED it:
+    never read result["ok"], hardcoded ok: true, reported replaced: true from
+    its own pre-check, computed step_count from the INPUT — so a refused
+    rewrite returned a receipt claiming the new content landed while the store
+    kept the old body. Reports replace, performs refuse, stores nothing.
+
+    Found because two practices held contradictory receipts from this one
+    function: one had been told the fix shipped (true), one was shown a
+    "replace" (never happened). Both were right about their evidence.
+    """
+    import inspect
+
+    from empirica.cli.command_handlers import lesson_commands
+
+    src = inspect.getsource(lesson_commands.handle_lesson_create_command)
+    assert 'result.get("ok") is False' in src, "the handler no longer checks the storage verdict"
+    assert '"code": "exists"' in src, (
+        "the refusal must be machine-branchable — idempotent callers (scheduled skills, "
+        "provisioning re-runs) need to tell 'already exists' from genuine failure without prose"
+    )
+    assert '"replaced": replaced' not in src, "the pre-check replaced flag is dead; reporting it revives the lie"

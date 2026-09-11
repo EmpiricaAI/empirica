@@ -155,15 +155,24 @@ def test_first_publish_reports_not_replaced(tmp_path, monkeypatch):
     assert out["replaced"] is False
 
 
-def test_republishing_same_name_and_version_amends_in_place(tmp_path, monkeypatch):
+def test_republishing_same_name_and_version_is_refused_with_a_branchable_code(tmp_path, monkeypatch):
+    """This test previously asserted amend-in-place ("must be reported as a
+    replacement") — pinning the HANDLER BUG as the contract. The storage layer
+    had refused since 1f6ce64a4 (David's ruling: lessons are permanent); the
+    handler swallowed the refusal, and this green assertion guarded the swallow.
+    Same suite-pins-the-defect shape as the visibility default, found the same
+    week. The contract is: refuse, name both designed paths, and carry a
+    machine-branchable code so idempotent re-runs can tell 'exists' from
+    failure."""
     _create({"name": "Amendable", "version": "1.0", "description": "first"}, monkeypatch, tmp_path)
     out = _create(
         {"name": "Amendable", "version": "1.0", "description": "amended with a cross-reference"},
         monkeypatch,
         tmp_path,
     )
-    assert out["replaced"] is True, "same name+version must be reported as a replacement, not a silent clobber"
-    assert out["stored"]["description_chars"] == len("amended with a cross-reference")
+    assert out["ok"] is False, "the refusal was swallowed again — reports replace, performs refuse, stores nothing"
+    assert out["code"] == "exists"
+    assert "version" in out["error"] and "supersedes" in out["error"], "the refusal must name both designed paths"
 
 
 def test_bumping_version_publishes_alongside(tmp_path, monkeypatch):
