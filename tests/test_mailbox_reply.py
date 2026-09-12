@@ -509,3 +509,77 @@ def test_a_first_time_archive_reports_not_already(capsys):
     handle_mailbox_archive_command(_archive_args(), _resolve_cortex_creds=_creds(), _http_post=post)
 
     assert json.loads(capsys.readouterr().out)["already_archived"] is False
+
+
+# ─── Retry safety: the key is what makes retrying legitimate ──────────────
+
+
+def test_transport_unknown_retries_with_the_same_idempotency_key():
+    """A retry after "I never heard back" is correct ONLY because the ledger
+    can recognise the replay. That requires the SAME key on both attempts —
+    a freshly-computed one would make the retry a second message."""
+    from empirica.cli.command_handlers.mailbox_commands import handle_mailbox_reply_command
+
+    calls = []
+
+    def post(url, body, api_key, timeout):
+        calls.append((url, json.loads(json.dumps(body))))
+        if "/propose" in url and len([c for c in calls if "/propose" in c[0]]) == 1:
+            return -1, {"error": "timed out"}  # transport unknown, server may have committed
+        if "/propose" in url:
+            return 200, {"ok": True, "proposal_id": "prop_new_xyz"}
+        return 200, {"ok": True}
+
+    handle_mailbox_reply_command(
+        _make_args(),
+        _resolve_cortex_creds=_creds(),
+        _resolve_ai_id=_ai_id(),
+        _http_post=post,
+        _fetch_parent=_fetch_parent(),
+    )
+
+    proposes = [body for url, body in calls if "/propose" in url]
+    assert len(proposes) == 2, "transport-unknown did not retry"
+    keys = [p.get("payload", {}).get("idempotency_key") for p in proposes]
+    assert keys[0] and keys[0] == keys[1], f"retry sent a different key — it is a second message: {keys}"
+
+
+def test_no_idempotency_key_means_no_retry(monkeypatch, capsys):
+    """The load-bearing one.
+
+    The retry is safe only because of the key. When the key cannot be
+    computed, retrying an unknown outcome is exactly how one reply becomes
+    two — observed live in the mesh (mesh-support, 2026-09-12: two proposals
+    18.7s apart from one invocation). This previously printed "retry
+    disabled" and then retried anyway: the message changed, the behaviour did
+    not, and a message that rules out the failure which just happened is
+    worse than silence.
+    """
+    import empirica.core.mesh_content as mc
+    from empirica.cli.command_handlers.mailbox_commands import handle_mailbox_reply_command
+
+    def _boom(*a, **k):
+        raise RuntimeError("key helper unavailable")
+
+    monkeypatch.setattr(mc, "idempotency_key", _boom)
+
+    calls = []
+
+    def post(url, body, api_key, timeout):
+        calls.append(url)
+        return -1, {"error": "timed out"}
+
+    rc = handle_mailbox_reply_command(
+        _make_args(),
+        _resolve_cortex_creds=_creds(),
+        _resolve_ai_id=_ai_id(),
+        _http_post=post,
+        _fetch_parent=_fetch_parent(),
+    )
+
+    proposes = [u for u in calls if "/propose" in u]
+    assert len(proposes) == 1, f"retried without a key — this is the double-post path: {len(proposes)} attempts"
+    err = capsys.readouterr().err
+    assert "could not compute idempotency_key" in err
+    assert "genuinely skipped" in err, "the message must not claim a skip the code does not perform"
+    assert rc != 0

@@ -395,8 +395,20 @@ def handle_mailbox_reply_command(  # noqa: C901 — CLI handler with 7 validatio
                 "body_digest": _hl.sha256((summary or "").encode()).hexdigest()[:16],
             },
         )
+        retry_is_safe = True
     except Exception as e:  # never block a reply on the key helper
-        sys.stderr.write(f"mailbox reply: could not compute idempotency_key ({e}) — retry disabled\n")
+        # The retry below is safe ONLY because the ledger can recognise a
+        # replay. Without a key it cannot, so a retry after an unknown
+        # outcome is exactly how one reply becomes two. This used to SAY
+        # "retry disabled" and then retry anyway — the message was the only
+        # thing that changed, which is worse than saying nothing, because an
+        # operator reading it rules out the double-post that just happened.
+        retry_is_safe = False
+        sys.stderr.write(
+            f"mailbox reply: could not compute idempotency_key ({e}) — a retry after an unknown "
+            "outcome could double-post, so the retry is genuinely skipped. If this call reports no "
+            "response, check the outbox before re-sending by hand.\n"
+        )
 
     status, propose_resp = _http_post(propose_url, propose_body, api_key, 10.0)
 
@@ -411,7 +423,11 @@ def handle_mailbox_reply_command(  # noqa: C901 — CLI handler with 7 validatio
     # Note the asymmetry this corrects: the step-2 failure below was ALREADY
     # handled gracefully with a precise message. Whoever wrote it thought about a
     # partial apply BETWEEN the steps and not about an unknown outcome WITHIN one.
-    if status == -1:
+    #
+    # The retry is gated on actually HOLDING a key, because the key is the
+    # entire reason it is safe: without one the ledger cannot recognise a
+    # replay, and retrying an unknown outcome is how one reply becomes two.
+    if status == -1 and retry_is_safe:
         sys.stderr.write(
             f"mailbox reply: no response from cortex ({propose_resp.get('error')}) — "
             "UNKNOWN, not failed. Retrying with the idempotency key; if the first "
