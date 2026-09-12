@@ -106,14 +106,19 @@ async def test_tui_has_no_kill_button(cockpit_env):
 
 
 @pytest.mark.asyncio
-async def test_table_has_seven_columns(cockpit_env):
+async def test_table_columns(cockpit_env):
     """T9 (2026-05-15, David): collapsed separate loops + listeners +
     notifications columns into a unified 'N' (events). The listener (T8)
     is the single wake mechanism now — three columns for the same concept
     was noise.
 
     2026-07-22 (Philipp): a '#' tmux-window column was inserted between 's'
-    and 'name' so rows sort by the operator's tmux window layout."""
+    and 'name' so rows sort by the operator's tmux window layout.
+
+    2026-09-11 (David): 'model' + 'eff' added between 'dom' and 'S' — which
+    model and reasoning-effort tier a seat runs is the one fleet fact no
+    structured surface reports. Populated only for practices that set
+    cockpit.read_transcripts; see tests/test_cockpit_model_effort.py."""
     from textual.widgets import DataTable
 
     from empirica.cli.tui import CockpitApp
@@ -124,7 +129,7 @@ async def test_table_has_seven_columns(cockpit_env):
         await pilot.pause()
         table = app.query_one("#inst-table", DataTable)
         col_labels = [c.label.plain for c in table.columns.values()]
-        assert col_labels == ["s", "#", "name", "ph", "dom", "S", "N"]
+        assert col_labels == ["s", "#", "name", "ph", "dom", "model", "eff", "S", "N"]
 
 
 # ─── data loading ─────────────────────────────────────────────────────────

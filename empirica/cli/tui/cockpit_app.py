@@ -68,10 +68,22 @@ from empirica.core.cockpit import (
     stop_instance,
     wake_instance,
 )
+from empirica.core.cockpit.model_effort import read_model_effort, short_model
 from empirica.core.cockpit.project_cockpit_config import (
     project_listeners,
     project_loops,
 )
+
+#: Effort tiers, abbreviated for the narrow column. `high` and `xhigh` must
+#: stay visually distinct — collapsing both to "hi" would report a seat as
+#: less deliberate than it is.
+_EFFORT_SHORT = {
+    "low": "low",
+    "medium": "med",
+    "high": "hi",
+    "xhigh": "xhi",
+    "max": "max",
+}
 
 #: Floor on the gap between refreshes. NOT the period — see `_schedule_refresh`.
 REFRESH_SECONDS = 2.0
@@ -124,7 +136,9 @@ class CockpitApp(App):
     Screen { layout: vertical; }
 
     #summary  { padding: 0 1; height: 1; color: $text-muted; }
-    #inst-table { height: auto; min-height: 7; max-height: 12; }
+    /* No max-height: the row count sets the height (see _render_table), so
+       no practice hides behind a scrollbar on a fleet larger than 12. */
+    #inst-table { height: auto; min-height: 7; }
 
     #action-bar {
         height: 3;
@@ -202,7 +216,11 @@ class CockpitApp(App):
         # '#' = tmux window index the seat lives in (Philipp 2026-07-22): rows
         # sort ascending by it so cockpit order mirrors the tmux window layout,
         # making an off/missing seat quick to spot. Blank when unresolvable.
-        table.add_columns("s", "#", "name", "ph", "dom", "S", "N")
+        # 'model'/'eff' carry which model and reasoning-effort tier each seat
+        # runs — the one fleet fact no structured surface reports. Populated
+        # only for practices that opted in via cockpit.read_transcripts; an
+        # unobserved value renders as a dot, never a guessed model name.
+        table.add_columns("s", "#", "name", "ph", "dom", "model", "eff", "S", "N")
         yield table
 
         with Horizontal(id="action-bar"):
@@ -387,7 +405,14 @@ class CockpitApp(App):
             # falling back to the loops glyph if no events yet. listeners
             # are subsumed (they're loops with held connections now).
             events_cell = self._events_cell(inst)
-            table.add_row(stat, win_cell, name, phase, dom, sentinel, events_cell, key=iid)
+            model, effort = read_model_effort(inst.get("project_path"))
+            model_cell = short_model(model) or "·"
+            eff_cell = _EFFORT_SHORT.get(effort or "", "·")
+            table.add_row(stat, win_cell, name, phase, dom, model_cell, eff_cell, sentinel, events_cell, key=iid)
+
+        # Fit every row rather than capping: a scrollbar on the instance table
+        # hides practices, and a hidden practice reads as an absent one.
+        table.styles.max_height = max(len(rows) + 1, 7)
 
         if rows:
             target = previously_selected or rows[0]["instance_id"]

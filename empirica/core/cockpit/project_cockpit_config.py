@@ -76,8 +76,29 @@ def project_listeners(project_path: str | Path | None) -> list[dict[str, Any]]:
     return [item for item in raw if isinstance(item, dict) and item.get("name") and item.get("topic")]
 
 
+def transcript_reading_enabled(project_path: str | Path | None) -> bool:
+    """Whether this practice permits its Claude Code transcript to be read.
+
+    Governs the cockpit's model/effort columns, which are sourced from the
+    seat's own transcript. **Defaults to False**, and the flag is read from
+    the project whose transcript would be opened — not from the operator's
+    project — so consent is granted by the subject rather than on its behalf
+    (David's ruling, 2026-09-11: acceptable in the open-source core, but
+    opt-in, so nothing reads conversation logs without having been asked).
+
+        cockpit:
+          read_transcripts: true
+
+    Any non-``True`` value, a missing key, an unreadable file or a
+    non-boolean leaves it off — an ambiguous config must not resolve to MORE
+    access than no config at all.
+    """
+    return _load_cockpit_block(project_path).get("read_transcripts") is True
+
+
 __all__ = [
     "project_listeners",
     "project_loops",
     "project_yaml_path",
+    "transcript_reading_enabled",
 ]
