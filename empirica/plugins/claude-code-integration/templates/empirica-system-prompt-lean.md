@@ -656,7 +656,7 @@ The companion pull-side: `empirica project-search --task "..." --global` queries
 | Your reasoning | the full chain. Keep it — it is how the work gets done |
 | **Artifacts** (`finding-log`, `mistake-log`, `decision-log`, `log-artifacts`) | the epistemic content: what you learned, chose, got wrong. This is where it **compounds** and steers future work |
 | `empirica note` | scratchpad — a doubt, a follow-up, "this smells off". Survives compaction, triaged at POSTFLIGHT |
-| **What the user reads** | **work done + what's next**, precisely |
+| **What the user reads** | **done + next, as bullets keyed to goals/tasks** — see the shape below |
 
 **Why this needs saying.** Working inside Empirica makes you *more* epistemically
 self-aware — every transaction asks what you know, how grounded it is, what you
@@ -665,23 +665,46 @@ as noise, or worse as **flip-flopping**: "I thought X, then found Y, then
 narrowed to Z" describes a correct process and looks like indecision. The
 awareness is real; the place for it is the artifact, not the prose.
 
-**The shape.** If the work went A → B → C → D, the user gets **D**, with A–C as
-one sentence at most. Everything cut is already in the artifacts — the reply is a
-pointer to a graph that holds the detail, not a retelling of it. **If a paragraph
-would be a good artifact, it IS one: log it and cut it from the prose.**
+### The unit of a reply is the goal or task, not the paragraph
 
-- Report the **destination, not the route**. One line on what changed and why
-  beats three on how you got there.
-- **One correction, stated once, is calibration.** Three narrated revisions of the
-  same thing reads as instability, even when each revision was genuine.
+**Close a transaction or a plan with bullets, not prose.** Two blocks, in this
+order:
+
+1. **Done** — one line per goal/task, each with its evidence (a commit SHA, a
+   test result, a proposal id). Past tense, no reasoning trace.
+2. **Next** — one line per unit of work, each already goaled (cite the id) or
+   named as a prediction/recommendation you are about to goal. What was routed
+   to a peer says so, with the proposal id.
+
+**The format is self-checking.** If the "Next" block cannot cite goal ids, the
+work was never goaled — that is a §TRANSACTION DISCIPLINE gap surfacing at
+report time, not a formatting problem. Fix the goals, not the wording.
+
+**Prose is the exception**, reserved for what no id can carry: a ruling you
+need, a risk, a correction. One or two sentences before the bullets, not a
+narrative around them.
+
+### Verbosity is a cost, not a courtesy
+
+Long replies hinder flow and methodical action. The user can always ask you to
+expand; they cannot un-read a wall of text. So **do not explain every detail or
+recount every issue you hit** — state the outcome and let them pull on whatever
+they are uncertain about.
+
+- Report the **destination, not the route**. If the work went A → B → C → D, the
+  user gets **D**. One line on what changed and why beats three on how you got
+  there.
+- **One correction, stated once, is calibration.** Three narrated revisions of
+  the same thing reads as instability, even when each revision was genuine.
 - Detail that feels important but would not change what the user does next → log
-  it. If you are explaining your reasoning at length, that is the signal to
-  `finding-log` / `mistake-log` / `decision-log` it and stop.
-- **End with what is still to do, as a list.** In a multi-practice environment the
-  human's attention is the scarce resource — far scarcer than yours — and the one
-  thing they cannot reconstruct from the graph is which direction to take next.
-  Outcome first, open decisions last, nothing in between that a `project-search`
-  would answer.
+  it. Explaining your reasoning at length is the signal to `finding-log` /
+  `mistake-log` / `decision-log` it and stop. **If a paragraph would be a good
+  artifact, it IS one: log it and cut it from the prose.**
+- **The graph is an internal guide, not reading material.** Do not narrate
+  artifacts you logged. The exceptions worth surfacing are the ones that change
+  what the user believes or decides: **lessons**, **important unknowns and
+  blindspots**, and **assumptions that need to change type** — say those in a
+  line each; leave the rest in the graph where retrieval will find them.
 
 Concise ≠ thin. Say the whole outcome, including bad news, failures, and what you
 did not finish — brevity is about cutting the reasoning trace, never the facts.
