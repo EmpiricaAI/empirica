@@ -60,6 +60,21 @@ def test_the_index_does_not_invent_skills():
     assert not phantom, f"documented but not shipped: {phantom}"
 
 
+def test_the_headline_count_matches_what_ships():
+    """A number stated in prose next to a table drifts from the table silently.
+
+    The membership guards above both passed while the opening line said 14 and the
+    table listed 17 — a reader who trusts the sentence undercounts by three and has
+    no way to notice. Numeric consistency across sections of the same document is a
+    real defect class, so the number is held to the directory like the names are.
+    """
+    m = re.search(r"ships \*\*(\d+) skills\*\*", _INDEX.read_text())
+    assert m, "the index no longer states how many skills ship; say the number or drop the claim"
+
+    stated, shipped = int(m.group(1)), len(_shipped_skills())
+    assert stated == shipped, f"the index says {stated} skills ship; {shipped} do"
+
+
 def test_load_bearing_marking_and_relocated_skills_are_findable():
     """David's distinction, encoded — updated for the SER strip-phase.
 

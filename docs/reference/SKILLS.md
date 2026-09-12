@@ -1,6 +1,6 @@
 # Skills — what ships, when each fires, which are load-bearing
 
-Empirica ships **14 skills** with the Claude Code plugin. They are *lazy*: a
+Empirica ships **18 skills** with the Claude Code plugin. They are *lazy*: a
 skill does nothing until it is loaded, so knowing when each one fires matters
 more than knowing what it contains.
 
@@ -59,6 +59,7 @@ ship in this plugin — they are not Cortex-gated.
 | **`/code-docs-align`** | "check if docs match code", "verify docstrings", "find stale comments", "audit TODOs" — purely noetic, finds mismatches and fixes nothing |
 | **`/architecture-review`** | Stress-testing a proposed or existing architecture — bottlenecks, single points of failure, security and cost gaps |
 | **`/services-auditor`** | `empirica scan --explain`, or auditing running AI services from the scanner snapshot |
+| **`/epistemic-editing`** | "review this document", "fact-check my draft", "does this hold up", before publishing anything whose claims must survive a reader checking them. Sweeps the claim classes that fail *silently* — universal quantifiers, absence claims, numbers that drift between sections, quotations that are really paraphrase — and renders a galley where each flag carries its grounding and the author decides. Maintained by empirica-paper; edit upstream, not here |
 
 ---
 

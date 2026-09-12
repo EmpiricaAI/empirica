@@ -245,6 +245,13 @@ exclude = [
     "venv",
     "__pycache__",
     ".pytest_cache",
+    # Skill payload scripts are DISTRIBUTION CONTENT vendored from the practice that
+    # maintains them (epistemic-editing ← empirica-paper), not core source: nothing here
+    # is imported by empirica, and `ruff format` would rewrite another practice's file so
+    # every upstream sync conflicts. An exclude is a silent hole, so the coverage it drops
+    # is replaced — not abandoned — by tests/test_skill_payload_scripts.py, which asserts
+    # these scripts parse, import stdlib only, and actually run.
+    "empirica/plugins/claude-code-integration/skills/**",
 ]
 
 [tool.ruff.lint]

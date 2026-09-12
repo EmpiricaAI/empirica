@@ -1,0 +1,13 @@
+{
+  "title": "Draft Galley",
+  "heading": "Your document — draft 1, for review",
+  "eyebrow": "Epistemic editing pass · built",
+  "subtitle": "The document in full with review flags spliced in where they apply. Each flag carries its severity, how it was grounded, its evidence and a proposed edit. Decide with the buttons; decisions are saved as you go.",
+  "governance": "<b>Consequence model.</b> Accepted flags are applied in the next commit and named in its message; rejected and deferred flags stay on record with the note. For a published record, replace this with: accepted flags produce a versioned update with a changelog entry — the record readers have cited is never edited in place.",
+  "verified": [
+    "State here what you checked and found clean — the numbers that agreed, the citations that were accurate, the figures that matched their data.",
+    "A reader needs to know what was verified, not only what was flagged."
+  ],
+  "method": "<b>Method.</b> Markdown rendered with per-paragraph source-line markers; flags anchored by phrase and spliced after the paragraph they concern. Grounding: <b>ran</b> (executed and observed), <b>read</b> (opened the source), <b>fetched</b> (retrieved the cited work), <b>assumed</b> (not checked — recorded as such).",
+  "lskey": "epistemic-editing-decisions"
+}
