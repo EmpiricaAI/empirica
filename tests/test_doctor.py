@@ -912,3 +912,77 @@ def test_deploy_gap_subset_is_exactly_the_four_lanes():
 
     handler = inspect.getsource(d.handle_doctor_command)
     assert "deploy_gap_checks(cwd)" in handler, "the flag no longer routes to the subset"
+
+
+# ─── version oracles: what RUNS, not what was recorded ────────────────────
+
+
+class TestVersionOracles:
+    """Two defects in the same family, both found in the wild.
+
+    1. `_mcp_bundled_empirica_version` asked `importlib.metadata`, which is the
+       stamp written at INSTALL time. On an editable install the stamp does not
+       move when the source does, so doctor reported drift against a module that
+       was already newer (mesh-support, prop_3cybzdvc3jgurejwg2ap2m7twy).
+    2. The core/MCP remedy was unpinned, so running it verbatim resolved a stale
+       sibling whose dependency pin dragged core BACKWARDS — and the check then
+       reported PASS, "both at <older>". An equality check is satisfiable by
+       regressing the good half.
+    """
+
+    def test_bundled_version_asks_what_is_imported(self, monkeypatch, tmp_path):
+        from empirica.cli.command_handlers import doctor as d
+
+        # The interpreter must sit BESIDE the empirica-mcp binary — that is how
+        # the function locates the env it is measuring.
+        (tmp_path / "bin").mkdir()
+        (tmp_path / "bin" / "python").write_text("")
+        calls = []
+
+        def fake_run(args, timeout=5.0, cwd=None):
+            calls.append((args, cwd))
+            if "import empirica; print(empirica.__version__)" in args:
+                return 0, "1.13.45", ""
+            return 0, "1.13.40", ""  # the stale metadata stamp
+
+        monkeypatch.setattr(d, "_run", fake_run)
+        got = d._mcp_bundled_empirica_version(str(tmp_path / "bin" / "empirica-mcp"))
+
+        assert got == "1.13.45", "read the install-time stamp instead of the imported module"
+        assert calls and calls[0][1] == "/", "probe ran from the ambient cwd — it can pick a checkout off sys.path"
+
+    def test_falls_back_to_metadata_when_import_fails(self, monkeypatch, tmp_path):
+        """Positive control for the assertion above: the fallback must still
+        work, or 'asks the module' could be satisfied by a probe that never
+        answers at all."""
+        from empirica.cli.command_handlers import doctor as d
+
+        (tmp_path / "bin").mkdir()
+        (tmp_path / "bin" / "python").write_text("")
+
+        def fake_run(args, timeout=5.0, cwd=None):
+            if "import empirica; print(empirica.__version__)" in args:
+                return 1, "", "ImportError"
+            return 0, "1.13.40", ""
+
+        monkeypatch.setattr(d, "_run", fake_run)
+        assert d._mcp_bundled_empirica_version(str(tmp_path / "bin" / "empirica-mcp")) == "1.13.40"
+
+    def test_skew_remedy_pins_the_higher_version(self, monkeypatch):
+        import importlib.metadata as im
+
+        from empirica.cli.command_handlers import doctor as d
+
+        monkeypatch.setattr(im, "version", lambda p: "1.13.45" if p == "empirica" else "1.13.44")
+        check = d.check_mcp_version_skew()
+
+        assert check.status == d.WARN
+        assert "empirica-mcp==1.13.45" in check.hint, f"unpinned remedy can drag core backwards: {check.hint}"
+        assert "1.13.44" not in check.hint.split("==")[1][:10], "pinned the STALE side"
+
+    def test_version_key_orders_and_survives_junk(self):
+        from empirica.cli.command_handlers.doctor import _version_key
+
+        assert _version_key("1.13.45") > _version_key("1.13.44")
+        assert _version_key("1.14.0") > _version_key("1.13.99")
+        _version_key("1.13.45rc1")  # must not raise

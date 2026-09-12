@@ -61,9 +61,16 @@ def _which(cmd: str, path: str | None = None) -> str | None:
     return shutil.which(cmd, path=path) if path else shutil.which(cmd)
 
 
-def _run(args: list[str], timeout: float = 5.0) -> tuple[int, str, str]:
+def _run(args: list[str], timeout: float = 5.0, cwd: str | None = None) -> tuple[int, str, str]:
+    """Run a command and capture it.
+
+    ``cwd`` matters for interpreter probes: python puts the working directory
+    first on ``sys.path`` for ``-c``, so an ``import empirica`` run from a
+    checkout root resolves the CHECKOUT rather than the environment being
+    measured. Pass ``cwd="/"`` for anything asking "what does THIS env have".
+    """
     try:
-        proc = subprocess.run(args, capture_output=True, text=True, timeout=timeout, check=False)
+        proc = subprocess.run(args, capture_output=True, text=True, timeout=timeout, check=False, cwd=cwd)
         return proc.returncode, proc.stdout.strip(), proc.stderr.strip()
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
         return -1, "", str(e)
@@ -243,6 +250,19 @@ def _mcp_bundled_empirica_version(mcp_path: str) -> str | None:
     bundles its own `empirica` — which can be arbitrarily older than the one on
     PATH. Reads that env's interpreter rather than the ambient one.
 
+    Asks the interpreter what it IMPORTS, not what was recorded when the package
+    was installed. `importlib.metadata.version()` reads the dist-info stamp, which
+    is written once at install time and does not move when an editable install's
+    source does — so on an editable box this reported drift against a module that
+    was already newer. Reported by empirica-mesh-support
+    (prop_3cybzdvc3jgurejwg2ap2m7twy) from a live symptom on another seat.
+
+    `empirica.__version__` is a literal in ``empirica/__init__.py``, so it is
+    whatever the imported source says right now: it tracks the tree on an editable
+    install and equals the metadata on a copy install, which makes it strictly the
+    better instrument for "what would actually run". Metadata remains the
+    fallback for the case where import fails but the distribution is registered.
+
     Best-effort by design: an env whose interpreter cannot be located or queried
     returns None, and the caller degrades to the presence-only verdict rather than
     failing a health check over introspection trouble.
@@ -250,9 +270,24 @@ def _mcp_bundled_empirica_version(mcp_path: str) -> str | None:
     interp = Path(mcp_path).resolve().parent / "python"
     if not interp.is_file():
         return None
+    # cwd="/" so the probe cannot pick a checkout off sys.path: python puts the
+    # working directory first for `-c`, so running this from a project root
+    # measures the project rather than the environment.
+    rc, out, _ = _run(
+        [
+            str(interp),
+            "-c",
+            "import empirica; print(empirica.__version__)",
+        ],
+        timeout=8.0,
+        cwd="/",
+    )
+    if rc == 0 and out.strip():
+        return out.strip()
     rc, out, _ = _run(
         [str(interp), "-c", "import importlib.metadata as m; print(m.version('empirica'))"],
         timeout=8.0,
+        cwd="/",
     )
     return out.strip() if rc == 0 and out.strip() else None
 
@@ -1198,6 +1233,16 @@ def _mcp_entry_command_resolves(entry: dict) -> tuple[bool, str | None]:
     return False, f"`{command}` does not resolve on the entry's own env.PATH"
 
 
+def _version_key(v: str) -> tuple:
+    """Sort key for a dotted version. Non-numeric segments sort as 0 rather
+    than raising — a health check must not crash on an odd version string."""
+    parts = []
+    for seg in str(v).split("."):
+        digits = "".join(c for c in seg if c.isdigit())
+        parts.append(int(digits) if digits else 0)
+    return tuple(parts)
+
+
 def check_mcp_version_skew() -> Check:
     """Core and empirica-mcp must move together — pipx upgrade splits them.
 
@@ -1238,13 +1283,23 @@ def check_mcp_version_skew() -> Check:
             data={"core": core_v, "mcp": None},
         )
     if core_v != mcp_v:
+        # The remedy PINS the version it is reaching for. Unpinned, this hint
+        # downgraded a box: `pipx inject empirica empirica-mcp --force` resolved
+        # a stale empirica-mcp whose dependency pin is `empirica==<older>`, so
+        # pip took core DOWN to match, and this check then reported PASS —
+        # "both at <older>". Equality is satisfiable by regressing the good
+        # half, so a remedy that does not name a target can satisfy the check
+        # while making the box worse. Observed 2026-09-11 on the 1.13.45
+        # refresh.
+        target = max(core_v, mcp_v, key=_version_key)
         return Check(
             "core/MCP version match",
             WARN,
             f"empirica {core_v} but empirica-mcp {mcp_v} — the MCP server is serving a different release",
-            "pipx users: `pipx inject empirica empirica-mcp --force` (pipx upgrade does NOT "
-            "upgrade injected packages). pip users: `pip install -U empirica-mcp`.",
-            data={"core": core_v, "mcp": mcp_v},
+            f"pipx users: `pipx inject empirica empirica-mcp=={target} --force` (pipx upgrade does NOT "
+            f"upgrade injected packages; PIN the version — unpinned, a stale sibling's dependency pin "
+            f"can drag core backwards instead). pip users: `pip install -U empirica-mcp=={target}`.",
+            data={"core": core_v, "mcp": mcp_v, "target": target},
         )
     return Check("core/MCP version match", PASS, f"both at {core_v}", data={"core": core_v, "mcp": mcp_v})
 
