@@ -233,6 +233,13 @@ skip_covered = false
 [tool.ruff]
 line-length = 120
 target-version = "py310"
+# Without this, `exclude` below holds only when ruff is given DIRECTORIES. Any caller that
+# passes changed files by path — pre-commit, our own compliance checker — lints the excluded
+# file anyway. That is not a quiet no-op: the POSTFLIGHT after the skill payload landed
+# reported "52 ruff violations" against a file the config had just excluded, and the obvious
+# way to silence that signal is to reformat another practice's source, which is the exact
+# outcome the exclude exists to prevent.
+force-exclude = true
 include = [
     "empirica/**/*.py",
     "empirica-mcp/**/*.py",
