@@ -7,8 +7,7 @@ A walkthrough for a real document, end to end. Fifteen minutes for a short piece
 ## What you need
 
 - **Claude Code**, and a document in markdown (LaTeX and HTML work too — they convert first).
-- **`galley.py`**, in this directory. Stdlib Python 3, no install. Invoke it by the skill's base
-  directory (the loader prints it) — a bare relative path resolves against your document, not the skill.
+- **`galley.py`**, in this directory. Stdlib Python 3, no install.
 - **Somewhere to publish the galley** so decisions persist — a claude.ai artifact with the `db` capability. Without it the galley still renders and decisions fall back to browser storage, which is fine for reviewing alone and useless for reviewing with someone else.
 - **Optional: [Empirica](https://github.com/EmpiricaAI/empirica)**, if you want the pass measured and the flags kept.
 
@@ -75,7 +74,7 @@ Then run step 2 again on the changed text. Stop when a pass yields no new flags.
 
 ## What it finds, from a real pass
 
-The first document this was run on was a published paper with a DOI, reviewed by its own authors' practice:
+The first document this was run on was a paper of the practice's own — its PDF publicly downloadable under a DOI since March 2026, though not peer-reviewed and not on a preprint server:
 
 | | |
 |---|---|
@@ -103,4 +102,4 @@ Every one of these reads fine in prose. That is the point: this pass targets the
 
 ## Where this came from
 
-The mechanism emerged in `empirica-paper` on 2026-09-06, reviewing its own practice's published Paper 1. Full spec, including the graph-integrated design: `paper2/tools/GROUNDED-REVIEW.md`. It is the noetic→praxic loop — investigate, gate, act, adjudicate — pointed at a document instead of a codebase. A paper turns out to be gardenable.
+The mechanism emerged in `empirica-paper` on 2026-09-06, reviewing its own practice's first paper — publicly released under a DOI, not peer-reviewed. Full spec, including the graph-integrated design: `paper2/tools/GROUNDED-REVIEW.md`. It is the noetic→praxic loop — investigate, gate, act, adjudicate — pointed at a document instead of a codebase. A paper turns out to be gardenable.

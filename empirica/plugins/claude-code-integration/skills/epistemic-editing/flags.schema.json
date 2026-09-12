@@ -4,19 +4,99 @@
   "type": "array",
   "items": {
     "type": "object",
-    "required": ["id", "severity", "target", "grounding", "title", "issue", "evidence", "edit"],
+    "required": [
+      "id",
+      "severity",
+      "target",
+      "grounding",
+      "title",
+      "issue",
+      "evidence",
+      "edit"
+    ],
     "properties": {
-      "id": {"type": "string", "description": "Stable across passes; the decision store keys on it."},
-      "severity": {"enum": ["blocker", "should-fix", "note"], "description": "Consequence if unfixed, not confidence that it is wrong."},
-      "target": {"type": "string", "description": "Which pass target produced it, e.g. 'citation framing', 'numeric consistency'."},
-      "anchor": {"type": "string", "description": "Verbatim phrase from the paragraph this concerns; resolved to a line at build. Preferred over 'line'."},
-      "line": {"type": "integer", "description": "1-based line in the source; fallback when no anchor is given."},
-      "grounding": {"enum": ["ran", "read", "fetched", "retrieved", "assumed"], "description": "ran=executed and observed; read=opened the source; fetched=retrieved the cited external work; retrieved=from our own prior record (testimony, not observation); assumed=not checked."},
-      "title": {"type": "string", "description": "One line: the claim, not the rationale."},
-      "issue": {"type": "string", "description": "What is wrong, stated so the author can check it."},
-      "evidence": {"type": "string", "description": "The command, URL, or file:line — what was actually done."},
-      "edit": {"type": "string", "description": "Proposed replacement text, or the decision to be made."},
-      "artifact": {"type": "string", "description": "Optional id of the record holding this finding in a knowledge graph (Empirica tier)."}
-    }
+      "id": {
+        "type": "string",
+        "description": "Stable across passes; the decision store keys on it."
+      },
+      "severity": {
+        "enum": [
+          "blocker",
+          "should-fix",
+          "note"
+        ],
+        "description": "Consequence if unfixed, not confidence that it is wrong."
+      },
+      "target": {
+        "type": "string",
+        "description": "Which pass target produced it, e.g. 'citation framing', 'numeric consistency'."
+      },
+      "anchor": {
+        "type": "string",
+        "description": "Verbatim phrase from the paragraph this concerns; resolved to a line at build. Preferred over 'line'. Omit BOTH anchor and line to make the flag document-level — it renders at the end and the build reports it."
+      },
+      "line": {
+        "type": "integer",
+        "description": "1-based line in the source; fallback when no anchor is given. Omit both this and 'anchor' for a document-level flag."
+      },
+      "grounding": {
+        "enum": [
+          "ran",
+          "read",
+          "fetched",
+          "retrieved",
+          "assumed"
+        ],
+        "description": "ran=executed and observed; read=opened the source; fetched=retrieved the cited external work; retrieved=from our own prior record (testimony, not observation); assumed=not checked."
+      },
+      "title": {
+        "type": "string",
+        "description": "One line: the claim, not the rationale."
+      },
+      "issue": {
+        "type": "string",
+        "description": "What is wrong, stated so the author can check it."
+      },
+      "evidence": {
+        "type": "string",
+        "description": "The command, URL, or file:line — what was actually done."
+      },
+      "edit": {
+        "type": "string",
+        "description": "Proposed replacement text, or the decision to be made."
+      },
+      "artifact": {
+        "type": "string",
+        "description": "Optional id of the record holding this finding in a knowledge graph (Empirica tier)."
+      }
+    },
+    "anyOf": [
+      {
+        "required": [
+          "anchor"
+        ]
+      },
+      {
+        "required": [
+          "line"
+        ]
+      },
+      {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "anchor"
+              ]
+            },
+            {
+              "required": [
+                "line"
+              ]
+            }
+          ]
+        }
+      }
+    ]
   }
 }

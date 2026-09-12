@@ -148,3 +148,48 @@ def test_galley_renders_a_document_it_did_not_ship_with(tmp_path: Path):
     assert 'id="F01"' in html, "the flag never reached the page"
     assert "Thirteen-column claim" in html, "the flag rendered without its title"
     assert "A second paragraph." in html, "the document itself did not render"
+
+
+def test_galley_survives_a_flag_with_neither_anchor_nor_line(tmp_path: Path):
+    """This shape used to crash at render — after the whole pass was already done.
+
+    A flag with neither field is schema-valid and meaningful (a document-level claim
+    like "this has no date"), so it must reach the page rather than kill the build.
+    Asserted on the OUTCOME, not on the label upstream chose for it: pinning their
+    wording here would turn every upstream rewording into a red build in our repo.
+    """
+    galley = _SKILLS_DIR / "epistemic-editing" / "galley.py"
+    if not galley.exists():
+        pytest.skip("epistemic-editing is not installed in this tree")
+
+    doc = tmp_path / "draft.md"
+    doc.write_text("# Doc\n\nA paragraph with no date anywhere.\n", encoding="utf-8")
+    flags = tmp_path / "flags.json"
+    flags.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "F01",
+                    "severity": "note",
+                    "target": "absence and staleness",
+                    "grounding": "assumed",
+                    "title": "This document has no date",
+                    "issue": "Nothing dates the claims.",
+                    "evidence": "read",
+                    "edit": "Add a date line.",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    out = tmp_path / "galley.html"
+
+    proc = subprocess.run(
+        [sys.executable, str(galley), "--md", str(doc), "--flags", str(flags), "--out", str(out)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert proc.returncode == 0, f"an anchorless flag killed the build: {proc.stderr}"
+    assert 'id="F01"' in out.read_text(encoding="utf-8"), "the anchorless flag was swallowed instead of rendered"

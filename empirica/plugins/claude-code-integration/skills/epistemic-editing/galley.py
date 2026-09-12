@@ -2,7 +2,8 @@
 """Chapter galley harness — render a markdown draft as a review galley with an inline flag layer
 and a per-flag decision store (Artifact `db` capability).
 
-usage: galley.py --md DRAFT.md --flags FLAGS.json --out OUT.html [--config CONFIG.json]
+usage: python3 <skill-dir>/galley.py --md DRAFT.md --flags FLAGS.json --out OUT.html [--config CONFIG.json]
+       (the harness runs from wherever it lives; a bare "galley.py" resolves against YOUR project, not the skill)
 
 FLAGS.json: [{"id","severity" (blocker|should-fix|note),"target","line" (1-based line in DRAFT.md),
              "grounding" (ran|read|fetched|assumed),"title","issue","evidence","edit","artifact"?}, ...]
@@ -77,7 +78,7 @@ def flag_html(f):
     <span class="flag-id">{f["id"]}</span>
     <span class="sev-pill">{SEV[f["severity"]]}</span>
     <span class="flag-target">{esc(f["target"])}</span>
-    <span class="flag-anchor"><code>line {f["line"]}</code></span>
+    <span class="flag-anchor"><code>{("line " + str(f["line"])) if f.get("line") else "document-level"}</code></span>
     <span class="flag-ground" title="How this flag was grounded">grounding: <b>{GRD[f["grounding"]]}</b></span>
   </header>
   <h4 class="flag-title">{esc(f["title"])}</h4>
@@ -100,7 +101,9 @@ def splice(body, flags):
     marker = re.compile(r"<!--\s*L:(\d+)\s*-->")
     marks = [(m.start(), int(m.group(1))) for m in marker.finditer(body)]
     inserts = {}
-    for f in sorted(flags, key=lambda f: f["line"]):
+    # A flag with no line is document-level: it lands at the end rather than crashing the build.
+    for f in sorted(flags, key=lambda f: f.get("line") or 10**9):
+        if not f.get("line"): inserts.setdefault(len(body), []).append(flag_html(f)); continue
         cands = [(pos, ln) for pos, ln in marks if ln <= f["line"]]
         if not cands: inserts.setdefault(len(body), []).append(flag_html(f)); continue
         apos = max(cands, key=lambda t: t[1])[0]
@@ -200,12 +203,14 @@ def render(md_text, flags, cfg):
     built = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%MZ")
     index_rows = "\n".join(
         f'<tr data-flag="{f["id"]}"><td><a href="#{f["id"]}">{f["id"]}</a></td><td><span class="sev-dot sev-{f["severity"]}"></span>{SEV[f["severity"]]}</td>'
-        f'<td>{esc(f["target"])}</td><td>{esc(f["title"])}</td><td class="num"><code>line {f["line"]}</code></td><td class="idx-state" data-state>undecided</td></tr>' for f in flags)
+        f'<td>{esc(f["target"])}</td><td>{esc(f["title"])}</td><td class="num"><code>{("line " + str(f["line"])) if f.get("line") else "document"}</code></td><td class="idx-state" data-state>undecided</td></tr>' for f in flags)
     verified = "".join(f"<li>{v}</li>" for v in cfg.get("verified", []))
     vblock = f'<section class="verified"><h3>Checked and consistent — no flag raised</h3><ul>{verified}</ul></section>' if verified else ""
     return f'''<title>{esc(cfg["title"])}</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono&display=swap">
+<!-- No webfont link by design. Whether the Artifact CSP admits fonts.googleapis.com is contested
+     between two contract versions and was not observable from either practice; a self-contained page
+     renders identically under both readings. The stacks below name Source Serif 4 and IBM Plex first,
+     so a reader who has them installed still gets them, and everyone else gets the designed fallback. -->
 <style>{CSS}</style>
 <div class="wrap">
 <header class="galley-head">
@@ -239,11 +244,14 @@ if __name__ == "__main__":
     cfg = json.load(open(a.config)) if a.config else {"title": "Galley"}
     flags = json.load(open(a.flags)); md = open(a.md, encoding="utf-8").read()
     # Anchor by phrase: a flag with "anchor" has its line resolved here, never typed from memory.
-    lines = md.split("\n"); unresolved = []
+    lines = md.split("\n"); unresolved = []; doclevel = []
     for f in flags:
         if f.get("anchor"):
             hits = [i + 1 for i, l in enumerate(lines) if f["anchor"] in l]
             if hits: f["line"] = hits[0]
-            else: unresolved.append(f["id"]); f["line"] = f.get("line", len(lines))
+            else: unresolved.append(f["id"]); f["line"] = f.get("line") or len(lines)
+        elif not f.get("line"):
+            doclevel.append(f["id"])   # neither anchor nor line: a flag about the document as a whole
     page = render(md, flags, cfg); open(a.out, "w", encoding="utf-8").write(page)
-    print("built", a.out, "flags", len(flags), "bytes", len(page), "unresolved anchors:", unresolved or "none")
+    print("built", a.out, "flags", len(flags), "bytes", len(page),
+          "unresolved anchors:", unresolved or "none", "| document-level:", doclevel or "none")
