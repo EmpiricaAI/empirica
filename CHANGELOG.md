@@ -5,6 +5,91 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.46] - 2026-09-13
+
+### Fixed
+
+- **The calibration instrument penalised the behaviour the system prompt
+  mandates.** `unknown_resolution_rate` counted every unknown in the session,
+  unfloored and ungated, into `do`, `completion` and `impact` — so banking a
+  question you could not yet answer emitted a hard `0.0` into three vectors,
+  while the prompt calls a session reporting uncertainty with no unknown
+  artifacts behind it an unsupported claim. Structural rather than a diligence
+  failure: an unknown logged late in a session cannot be resolved inside it. The
+  block eight lines below rewards the *same* class of act (`assumptions logged =
+  epistemic honesty`), so one file treated banking uncertainty as a virtue and as
+  absent impact at once — which is the strongest evidence the unknown side was
+  never a deliberate judgment. Fixed **without a floor**, deliberately: a floor
+  preserves an incentive under a friendlier number, which is what
+  `issue_resolution_ratio`'s `0.2` does to its own zero. The metric is now a
+  saturating **count of standing unknowns closed inside the window**, so neither
+  banking uncertainty nor carrying a backlog can move it. Traced by
+  empirica-mesh-support over three rounds, from an origin measurement by Carly R.
+  Anderson's foundation seat across 17 practices.
+
+- **A grounded calibration value carried no provenance, so `0.0` could not be
+  told from an observation of a different scope.** `calibration_trajectory` stored
+  `grounded` and `gap` and nothing else — not the transaction, not the evidence
+  count, not the raw counts behind the number. Migration **070** adds
+  `transaction_id`, `evidence_count`, `primary_source` and `grounded_raw`. Every
+  value was already computed and discarded (`GroundedVectorEstimate` carried
+  `evidence_count` and `primary_source`; every `EvidenceItem` carried
+  `raw_value`), so this is persistence, not new measurement. Nullable and **not
+  backfilled** — the provenance of a historical row is exactly what was never
+  recorded, and inventing it would manufacture the confidence the columns exist to
+  make checkable.
+
+- **The completion evidence downgraded its own scope silently.** The collector is
+  transaction-scoped when a transaction is in hand and session-cumulative when not,
+  and both branches emitted the same bare float under the same metric name. The
+  fallback now records `scope: transaction|session` beside its counts: it may
+  still emit, it may not emit anonymously.
+
+- **A mixed-timestamp normalisation filed every ISO row under January 1970.**
+  `'2026-09-13 01:15:52' GLOB '[0-9]*'` matches — an ISO date starts with a digit
+  — so the numeric branch took it and `CAST` returned `2026.0`. Discriminated on
+  `typeof()` instead, which answers the question being asked rather than inferring
+  it from string shape.
+
+- **The `ruff` exclude protecting vendored skill payload only held for directory
+  invocations.** Callers that pass changed files by path — pre-commit, and the
+  POSTFLIGHT compliance checker — linted the excluded file anyway: 52 violations
+  by path, 0 by directory, same file, same config. Worse than a no-op, because the
+  obvious way to silence those violations is to reformat another practice's
+  source, which is what the exclude exists to prevent. Pinned with
+  `force-exclude`.
+
+- **`doctor`'s version oracle and its own remedy.** It asked the wrong question
+  about what is running, and the remedy it printed could downgrade the box while
+  satisfying the check that printed it.
+
+- **The mailbox retry is now gated on holding the key that makes it safe**, and
+  the archive leg resolves the canonical `ai_id` from the roster.
+
+### Added
+
+- **`/epistemic-editing`** ships with the Claude Code plugin — a grounded
+  document-review pass (seven targets, a four-word grounding vocabulary, a galley
+  with a per-flag decision store). Maintained by `empirica-paper`, hosted here
+  because the other `/epistemic-*` skills live here. It is the first skill to ship
+  executable payload, so it also brings `tests/test_skill_payload_scripts.py`:
+  payload must parse, import stdlib only (the skill's "no install" promise, made
+  checkable), ship the scripts it documents, and render a document it did not ship
+  with.
+
+- **Cockpit**: fit-all table height, and model/effort columns behind an opt-in
+  config gate.
+
+### Changed
+
+- **§REPORTING in the system prompt**: replies are goal/task bullets ending in
+  what is still to do, and verbosity is stated as a cost. Detail belongs in
+  artifacts, where it compounds and is retrievable.
+
+- The skills index states how many skills ship and is now held to the directory
+  by a test. It said 14 while shipping 17: two membership guards were green
+  throughout because they check names, never the number.
+
 ## [1.13.45] - 2026-09-11
 
 ### Fixed

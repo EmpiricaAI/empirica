@@ -2,7 +2,7 @@
 
 > **We Gave AI a Mirror. Now It Measures What It Believes.**
 
-[![Version](https://img.shields.io/badge/version-1.13.45-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.45)
+[![Version](https://img.shields.io/badge/version-1.13.46-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.46)
 [![PyPI](https://img.shields.io/pypi/v/empirica)](https://pypi.org/project/empirica/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -114,13 +114,13 @@ empirica setup
 
 ```bash
 # Security-hardened Alpine image (~276MB, recommended)
-docker pull nubaeon/empirica:1.13.45-alpine
+docker pull nubaeon/empirica:1.13.46-alpine
 
 # Standard image (Debian slim, ~414MB)
-docker pull nubaeon/empirica:1.13.45
+docker pull nubaeon/empirica:1.13.46
 
 # Run
-docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.45 /bin/bash
+docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.46 /bin/bash
 ```
 </details>
 
@@ -414,16 +414,16 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.13.45
+## What's New in 1.13.46
 
-- **`lesson-create` reported a replace, performed a refusal, and stored nothing.** Storage has refused to overwrite an existing `(name, version)` since `1f6ce64a4` — correctly, per the no-force-replace ruling — but the CLI handler computed its own `replaced` flag and never read `result["ok"]`, so the refusal was swallowed and the caller got a success receipt for a write that did not happen. A falsified receipt is worse than a failure: three parties reasoned correctly from contradictory evidence for a week, and the help text plus a pinning test both documented the *bug* as the contract. The refusal now surfaces as `ok: false` with `code: "exists"` — a branchable distinguisher, so a caller can tell "already published" from a real error — and the help and the test now describe what the code does.
-- **`mailbox reply`'s auto-archive sent the raw project slug where cortex matches canonical participants**, so the reply landed, the parent closed, and the archive alone failed with `ai_id ... is not a participant`. The propose leg masks it: cortex canonicalises the *source* for routing but matches `ai_id` strictly for archiving, so the same wrong value succeeds on one endpoint and 400s on the next. Now roster-resolves like the standalone `archive` verb — a 3-form passes through untouched, a slug is resolved, and an unresolvable id omits the key rather than sending a known-wrong one.
-- **`delete-artifacts` silently dropped unknown top-level payload keys** while its sibling `resolve-artifacts` refuses them by name. The confusion is predictable rather than hypothetical: `apply: true` is a valid *payload* key on resolve, while deletion takes `--apply` as a *flag* (or `dry_run: false` — inverted polarity, different name). Transferring the sibling's idiom produced a dry-run receipt indistinguishable from a successful preview: nothing deleted, `ok: true`, no signal. The safe direction for a destructive verb, but preview-because-asked and preview-because-ignored rendered identically and repeating the call reproduced it forever. Unknown keys are now refused, and the error names where the switch actually lives.
-- **Timesheet substrate — four measured wirings** requested by `empirica-autonomy`, each of which had schema or interface space reserved for a value the write path never delivered:
-- **POSTFLIGHT closes the cascade row.** `completed_at` and `duration_ms` were NULL on 888 of 888 rows: PREFLIGHT inserted, POSTFLIGHT read the id and closed nothing, and the repository's own `complete_cascade` writer had no caller on that path. Every open row for the session is now closed, so a row orphaned by a POSTFLIGHT that died mid-flight is swept by the next one. Duration parses both historical `started_at` formats (epoch float from the PREFLIGHT insert, ISO-8601 from the repository), and row selection avoids `ORDER BY started_at`, which is unreliable across them — SQLite sorts TEXT above every number.
-- **`cascades.work_type`** (migration 069). Declared at PREFLIGHT, validated against a controlled vocabulary, used to weight calibration — and stored nowhere, while `calibration_trajectory.domain` read `'default'` on all 12,105 rows. Written by the same INSERT that opens the row. Not backfilled: the transaction file that carried the history is overwritten per transaction, so a backfill would be invention.
-- **Goal auto-attach resolves past the session boundary.** 53% of artifacts logged inside a transaction carried no `goal_id`, because resolution scoped to `session_id` alone and a goal created in a prior session — the normal shape of multi-session work — never matched. Three tiers now: the goal bound to the current transaction, the session's latest open goal, then the project's latest open `in_progress` non-archived goal. `planned` and archived goals are excluded so a stale backlog entry cannot claim unrelated artifacts.
-- **`engagement_id` at `preflight-submit`**, inherited by goals created inside that window. `goals.engagement_id` was populated 0 of 186 times because the only path was a separate command *after* work started. Core treats the id as an **opaque reference and never interprets it** — engagement entities, their types, and what those types carry belong to the workspace layer, not the open-source core.
+- **The calibration instrument penalised the behaviour the system prompt mandates.** `unknown_resolution_rate` counted every unknown in the session, unfloored and ungated, into `do`, `completion` and `impact` — so banking a question you could not yet answer emitted a hard `0.0` into three vectors, while the prompt calls a session reporting uncertainty with no unknown artifacts behind it an unsupported claim. Structural rather than a diligence failure: an unknown logged late in a session cannot be resolved inside it. The block eight lines below rewards the *same* class of act (`assumptions logged = epistemic honesty`), so one file treated banking uncertainty as a virtue and as absent impact at once — which is the strongest evidence the unknown side was never a deliberate judgment. Fixed **without a floor**, deliberately: a floor preserves an incentive under a friendlier number, which is what `issue_resolution_ratio`'s `0.2` does to its own zero. The metric is now a saturating **count of standing unknowns closed inside the window**, so neither banking uncertainty nor carrying a backlog can move it. Traced by empirica-mesh-support over three rounds, from an origin measurement by Carly R. Anderson's foundation seat across 17 practices.
+- **A grounded calibration value carried no provenance, so `0.0` could not be told from an observation of a different scope.** `calibration_trajectory` stored `grounded` and `gap` and nothing else — not the transaction, not the evidence count, not the raw counts behind the number. Migration **070** adds `transaction_id`, `evidence_count`, `primary_source` and `grounded_raw`. Every value was already computed and discarded (`GroundedVectorEstimate` carried `evidence_count` and `primary_source`; every `EvidenceItem` carried `raw_value`), so this is persistence, not new measurement. Nullable and **not backfilled** — the provenance of a historical row is exactly what was never recorded, and inventing it would manufacture the confidence the columns exist to make checkable.
+- **The completion evidence downgraded its own scope silently.** The collector is transaction-scoped when a transaction is in hand and session-cumulative when not, and both branches emitted the same bare float under the same metric name. The fallback now records `scope: transaction|session` beside its counts: it may still emit, it may not emit anonymously.
+- **A mixed-timestamp normalisation filed every ISO row under January 1970.** `'2026-09-13 01:15:52' GLOB '[0-9]*'` matches — an ISO date starts with a digit — so the numeric branch took it and `CAST` returned `2026.0`. Discriminated on `typeof()` instead, which answers the question being asked rather than inferring it from string shape.
+- **The `ruff` exclude protecting vendored skill payload only held for directory invocations.** Callers that pass changed files by path — pre-commit, and the POSTFLIGHT compliance checker — linted the excluded file anyway: 52 violations by path, 0 by directory, same file, same config. Worse than a no-op, because the obvious way to silence those violations is to reformat another practice's source, which is what the exclude exists to prevent. Pinned with `force-exclude`.
+- **`doctor`'s version oracle and its own remedy.** It asked the wrong question about what is running, and the remedy it printed could downgrade the box while satisfying the check that printed it.
+- **The mailbox retry is now gated on holding the key that makes it safe**, and the archive leg resolves the canonical `ai_id` from the roster.
+- **`/epistemic-editing`** ships with the Claude Code plugin — a grounded document-review pass (seven targets, a four-word grounding vocabulary, a galley with a per-flag decision store). Maintained by `empirica-paper`, hosted here because the other `/epistemic-*` skills live here. It is the first skill to ship executable payload, so it also brings `tests/test_skill_payload_scripts.py`: payload must parse, import stdlib only (the skill's "no install" promise, made checkable), ship the scripts it documents, and render a document it did not ship with.
 ---
 
 
@@ -454,6 +454,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 **Author:** David S. L. Van Assche
-**Version:** 1.13.45
+**Version:** 1.13.46
 
 *Turtles all the way down — built with its own epistemic framework, measuring what it knows at every step.*
