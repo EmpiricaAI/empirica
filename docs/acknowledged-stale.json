@@ -53,10 +53,22 @@
       "decided_by": "empirica (2026-09-06 pre-1.13.39 sweep)",
       "review_by": "2026-12-01"
     },
+    "docs/reference/MEMORY_MANAGEMENT_COMMANDS.md": {
+      "status": "pending_review",
+      "reason": "Stamped 'Version: 1.6.6' (current is 1.13.45), but the subject is verifiably live: all 8 commands it documents — memory-prime, memory-report, memory-scope, memory-value, pattern-check, qdrant-cleanup, qdrant-status, session-rollup — answer --help today. Existence checked, content unread: flags and output shapes are not verified.",
+      "decided_by": "empirica (2026-09-13, crossed 180d)",
+      "review_by": "2026-12-01"
+    },
     "docs/reference/PERSONA_PROFILE.md": {
       "status": "pending_review",
       "reason": "empirica/core/persona/persona_profile.py exists and PersonaRegistry is the only export of the qdrant package init, so the subject is load-bearing and live. Content unread.",
       "decided_by": "empirica (2026-09-06 pre-1.13.39 sweep)",
+      "review_by": "2026-12-01"
+    },
+    "docs/reference/WORKSPACE_DATABASE_SCHEMA.md": {
+      "status": "pending_review",
+      "reason": "Stamped 1.6.6. The tables it documents still exist in ~/.empirica/workspace/workspace.db, so it is not describing a dead store — but its AUTHORITY claim is the risk: since David's 2026-09-11 ruling, organizations/contacts/engagements are canonical in crm-mcp and the local registry rows are stale by design. A reader taking this page as the source of truth for CRM entities would be wrong in exactly the way the ruling exists to prevent. Content unread; the boundary question is what a reviewer should settle first.",
+      "decided_by": "empirica (2026-09-13, crossed 180d)",
       "review_by": "2026-12-01"
     },
     "docs/reference/api/architecture_assessment.md": {
@@ -82,6 +94,12 @@
       "reason": "Module-level API reference for the persona/identity surface, which exists. Hand-written, so same drift risk as its api/ siblings.",
       "decided_by": "empirica (2026-09-06 pre-1.13.39 sweep)",
       "review_by": "2026-11-01"
+    },
+    "docs/reference/api/qdrant.md": {
+      "status": "pending_review",
+      "reason": "Subject live but the page has at least two phantom symbols: of 8 functions checked, delete_memory and rank_items have no definition anywhere under empirica/core/qdrant/. The other 6 do exist. NOTE for whoever reviews: a top-level hasattr on the package reports ALL 11 missing because the __init__ does not re-export them — that reading is an artifact, not absence. Start from the two named above.",
+      "decided_by": "empirica (2026-09-13, crossed 180d)",
+      "review_by": "2026-12-01"
     },
     "docs/reference/api/signaling.md": {
       "status": "pending_review",
