@@ -34,11 +34,17 @@ class ProseEvidenceCollector:
         phase: str = "combined",
         check_timestamp: float | None = None,
         transaction_id: str | None = None,
+        preflight_timestamp: float | None = None,
     ):
         self.session_id = session_id
         self.project_id = project_id
         self.phase = phase
         self.check_timestamp = check_timestamp
+        #: Start of the measurement window. Without it, closure done EARLIER is
+        #: indistinguishable from closure done NOW, so unknown_resolution_rate
+        #: withholds its observation rather than reporting a cumulative count
+        #: under a work-done label.
+        self.preflight_timestamp = preflight_timestamp
         #: Identifies the current window so evidence can tell what this
         #: transaction INHERITED from what it created — the distinction that
         #: keeps unknown_resolution_rate from penalising newly banked uncertainty.
@@ -620,44 +626,88 @@ class ProseEvidenceCollector:
         # uncertainty as a virtue and as absent impact at the same time.
         # Traced by empirica-mesh-support, 2026-09-13.
         #
-        # Two changes, and NEITHER is a floor. A floor would hide this the way
-        # issue_resolution's 0.2 hides its own zero, leaving the incentive intact
-        # underneath a friendlier number:
+        # MEASURE WORK DONE, NOT STOCK REMAINING. A first fix here excluded the
+        # transaction's own unknowns and kept `resolved / standing`, which stops
+        # charging you for banking uncertainty and starts charging you for having
+        # banked it BEFORE. mesh-support's arithmetic: closing 3 of 200 standing
+        # scores 0.015, closing 3 of 3 scores 1.000 — same three closures, a
+        # sixty-six-fold difference in measured impact decided by inherited
+        # backlog. Worse in practice than in principle: this project carries 505
+        # unknowns of which 475 are resolved, so that ratio sat near 0.94 on every
+        # transaction whatever the practitioner did. A near-constant is not an
+        # observation.
         #
-        #   1. Unknowns opened in THIS transaction are excluded from both counts,
-        #      so banking new uncertainty is incentive-NEUTRAL rather than
-        #      penalised. What remains is standing debt — questions that were
-        #      already open when this window began.
-        #   2. The item is emitted only when at least one was closed. Not working
-        #      on old unknowns is an ABSENCE OF SIGNAL for this metric, not
-        #      evidence of zero impact, and the honest expression of no signal is
-        #      no evidence item. Same gate, same reason, as goal_completion_impact.
-        exclude_current_tx = "AND (transaction_id IS NULL OR transaction_id != ?)" if self.transaction_id else ""
-        params = (self.session_id, self.transaction_id) if self.transaction_id else (self.session_id,)
+        # So the quantity is the number of STANDING unknowns closed INSIDE this
+        # window, saturating — three closures is a full signal, the same constant
+        # the assumption block below already uses for "enough of this act to count
+        # fully". Backlog size cannot move it.
+        #
+        # Emission is gated on that count being non-zero. Not working on old
+        # unknowns is an ABSENCE OF SIGNAL, not evidence of zero impact, and the
+        # honest expression of no signal is no evidence item — same gate and
+        # reason as goal_completion_impact. No floor anywhere: a floor preserves
+        # an incentive and hides it under a friendlier number, which is what
+        # issue_resolution's 0.2 does to its own zero.
+        #
+        # Traced by empirica-mesh-support, 2026-09-13, over two rounds.
+        standing = closed_in_window = 0
+        if self.preflight_timestamp is not None:
+            # resolved_timestamp is MIXED STORAGE — REAL epoch on older rows, TEXT
+            # ISO on newer. A bare `>= ?` against an epoch matches EVERY text row
+            # regardless of its actual time, because SQLite orders TEXT above REAL
+            # by storage class, so every recent resolution would silently count as
+            # in-window.
+            #
+            # Discriminate on STORAGE CLASS, not on string shape. The obvious
+            # shape test is wrong in a way that looks right: `'2026-09-13 01:15:52'
+            # GLOB '[0-9]*'` MATCHES — an ISO date starts with a digit — so the
+            # numeric branch takes it and CAST returns 2026.0, placing every ISO
+            # row in January 1970. typeof() answers the question being asked.
+            resolved_epoch = """
+                CASE
+                    WHEN typeof(resolved_timestamp) IN ('real', 'integer')
+                    THEN CAST(resolved_timestamp AS REAL)
+                    WHEN resolved_timestamp NOT GLOB '*[^0-9.]*'
+                    THEN CAST(resolved_timestamp AS REAL)
+                    ELSE CAST(strftime('%s', resolved_timestamp) AS REAL)
+                END
+            """
+            exclude_current_tx = "AND (transaction_id IS NULL OR transaction_id != ?)" if self.transaction_id else ""
+            # Binding order follows CLAUSE order, not reading order: the window
+            # placeholder sits inside SELECT and binds BEFORE the one in WHERE.
+            params: list = [self.preflight_timestamp, self.session_id]
+            if self.transaction_id:
+                params.append(self.transaction_id)
 
-        cursor.execute(
-            f"""
-            SELECT
-                COUNT(*) AS standing,
-                SUM(CASE WHEN is_resolved = 1 THEN 1 ELSE 0 END) AS closed
-            FROM project_unknowns
-            WHERE session_id = ? {exclude_current_tx}
-        """,
-            params,
-        )
-        row = cursor.fetchone()
-        standing, closed = (row[0] or 0), (row[1] or 0)
+            cursor.execute(
+                f"""
+                SELECT
+                    COUNT(*) AS standing,
+                    SUM(CASE
+                        WHEN is_resolved = 1
+                         AND resolved_timestamp IS NOT NULL
+                         AND {resolved_epoch} >= ?
+                        THEN 1 ELSE 0
+                    END) AS closed_in_window
+                FROM project_unknowns
+                WHERE session_id = ? {exclude_current_tx}
+            """,
+                tuple(params),
+            )
+            row = cursor.fetchone()
+            standing, closed_in_window = (row[0] or 0), (row[1] or 0)
 
-        if closed > 0:
+        if closed_in_window > 0:
             items.append(
                 EvidenceItem(
                     source="action_verification",
                     metric_name="unknown_resolution_rate",
-                    value=closed / standing,
+                    value=min(1.0, closed_in_window / 3.0),
                     raw_value={
-                        "resolved": closed,
-                        "total": standing,
-                        "scope": "standing" if self.transaction_id else "session",
+                        "closed_in_window": closed_in_window,
+                        "standing": standing,
+                        "saturates_at": 3,
+                        "scope": "transaction" if self.transaction_id else "session",
                         "excludes_current_transaction": bool(self.transaction_id),
                     },
                     quality=EvidenceQuality.SEMI_OBJECTIVE,

@@ -419,6 +419,7 @@ class PostTestCollector:
             phase=self.phase,
             check_timestamp=self.check_timestamp,
             transaction_id=self.transaction_id,
+            preflight_timestamp=self.preflight_timestamp,
         )
         return [
             ("prose_quality", prose._collect_prose_quality),
