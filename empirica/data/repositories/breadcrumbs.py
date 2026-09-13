@@ -890,9 +890,11 @@ class BreadcrumbRepository(BaseRepository):
                 FROM project_findings
                 WHERE project_id = ? AND subject = ?
                 ORDER BY CASE
-                    WHEN created_timestamp GLOB '[0-9]*.[0-9]*' OR created_timestamp GLOB '[0-9]*'
+                    WHEN typeof(created_timestamp) IN ('real', 'integer')
                     THEN CAST(created_timestamp AS REAL)
-                    ELSE strftime('%s', created_timestamp)
+                    WHEN created_timestamp NOT GLOB '*[^0-9.]*'
+                    THEN CAST(created_timestamp AS REAL)
+                    ELSE CAST(strftime('%s', created_timestamp) AS REAL)
                 END DESC
             """
             params = (project_id, subject)
@@ -903,9 +905,11 @@ class BreadcrumbRepository(BaseRepository):
                 FROM project_findings
                 WHERE project_id = ?
                 ORDER BY CASE
-                    WHEN created_timestamp GLOB '[0-9]*.[0-9]*' OR created_timestamp GLOB '[0-9]*'
+                    WHEN typeof(created_timestamp) IN ('real', 'integer')
                     THEN CAST(created_timestamp AS REAL)
-                    ELSE strftime('%s', created_timestamp)
+                    WHEN created_timestamp NOT GLOB '*[^0-9.]*'
+                    THEN CAST(created_timestamp AS REAL)
+                    ELSE CAST(strftime('%s', created_timestamp) AS REAL)
                 END DESC
             """
             params = (project_id,)
