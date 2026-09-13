@@ -418,6 +418,7 @@ class PostTestCollector:
             db=self._get_db(),
             phase=self.phase,
             check_timestamp=self.check_timestamp,
+            transaction_id=self.transaction_id,
         )
         return [
             ("prose_quality", prose._collect_prose_quality),

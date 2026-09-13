@@ -33,11 +33,16 @@ class ProseEvidenceCollector:
         db=None,
         phase: str = "combined",
         check_timestamp: float | None = None,
+        transaction_id: str | None = None,
     ):
         self.session_id = session_id
         self.project_id = project_id
         self.phase = phase
         self.check_timestamp = check_timestamp
+        #: Identifies the current window so evidence can tell what this
+        #: transaction INHERITED from what it created — the distinction that
+        #: keeps unknown_resolution_rate from penalising newly banked uncertainty.
+        self.transaction_id = transaction_id
         self._db = db
         self._owns_db = False
 
@@ -600,33 +605,61 @@ class ProseEvidenceCollector:
         db = self._get_db()
         cursor = db.conn.cursor()
 
-        # Unknowns resolved this session
-        cursor.execute(
-            """
-            SELECT COUNT(*) FROM project_unknowns
-            WHERE session_id = ? AND is_resolved = 1
-        """,
-            (self.session_id,),
-        )
-        resolved = cursor.fetchone()[0]
+        # Closure of STANDING unknowns — deliberately not "unknowns this session".
+        #
+        # This metric used to count every unknown in the session, unfloored and
+        # ungated, into do + completion + impact. So logging an unknown and not
+        # resolving it emitted a hard 0.0 into three vectors — and the system
+        # prompt REQUIRES logging it: a session reporting uncertainty with no
+        # unknown artifacts behind it is called an unsupported claim. The
+        # instrument therefore penalised the exact behaviour the practice
+        # mandates, and structurally: an unknown logged late in a session cannot
+        # be resolved inside it, so no amount of diligence avoided the zero.
+        # The block below rewards the same class of act (assumptions logged =
+        # "epistemic honesty"), which is how one file came to treat banking
+        # uncertainty as a virtue and as absent impact at the same time.
+        # Traced by empirica-mesh-support, 2026-09-13.
+        #
+        # Two changes, and NEITHER is a floor. A floor would hide this the way
+        # issue_resolution's 0.2 hides its own zero, leaving the incentive intact
+        # underneath a friendlier number:
+        #
+        #   1. Unknowns opened in THIS transaction are excluded from both counts,
+        #      so banking new uncertainty is incentive-NEUTRAL rather than
+        #      penalised. What remains is standing debt — questions that were
+        #      already open when this window began.
+        #   2. The item is emitted only when at least one was closed. Not working
+        #      on old unknowns is an ABSENCE OF SIGNAL for this metric, not
+        #      evidence of zero impact, and the honest expression of no signal is
+        #      no evidence item. Same gate, same reason, as goal_completion_impact.
+        exclude_current_tx = "AND (transaction_id IS NULL OR transaction_id != ?)" if self.transaction_id else ""
+        params = (self.session_id, self.transaction_id) if self.transaction_id else (self.session_id,)
 
         cursor.execute(
-            """
-            SELECT COUNT(*) FROM project_unknowns
-            WHERE session_id = ?
+            f"""
+            SELECT
+                COUNT(*) AS standing,
+                SUM(CASE WHEN is_resolved = 1 THEN 1 ELSE 0 END) AS closed
+            FROM project_unknowns
+            WHERE session_id = ? {exclude_current_tx}
         """,
-            (self.session_id,),
+            params,
         )
-        total_unknowns = cursor.fetchone()[0]
+        row = cursor.fetchone()
+        standing, closed = (row[0] or 0), (row[1] or 0)
 
-        if total_unknowns > 0:
-            resolution_rate = resolved / total_unknowns
+        if closed > 0:
             items.append(
                 EvidenceItem(
                     source="action_verification",
                     metric_name="unknown_resolution_rate",
-                    value=resolution_rate,
-                    raw_value={"resolved": resolved, "total": total_unknowns},
+                    value=closed / standing,
+                    raw_value={
+                        "resolved": closed,
+                        "total": standing,
+                        "scope": "standing" if self.transaction_id else "session",
+                        "excludes_current_transaction": bool(self.transaction_id),
+                    },
                     quality=EvidenceQuality.SEMI_OBJECTIVE,
                     supports_vectors=["do", "completion", "impact"],
                 )
