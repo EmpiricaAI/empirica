@@ -874,6 +874,7 @@ def _run_single_phase_verification(
         domain=domain,
         goal_id=goal_id,
         phase=phase,
+        transaction_id=transaction_id,
     )
 
     return {

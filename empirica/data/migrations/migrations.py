@@ -1561,6 +1561,11 @@ ALL_MIGRATIONS: list[tuple[str, str, Callable]] = [
         "Add work_type to cascades — the category axis of the transaction record, accepted at PREFLIGHT, used to weight calibration categories, and then discarded. Measured by empirica-autonomy (prop_764q2pdzgzfo5hzn4v6xxopywm, 2026-09-11): no work_type column on cascades, epistemic_snapshots, goals, calibration_trajectory or compliance_checks, and calibration_trajectory.domain reads 'default' on all 12,105 rows — so the one dimension every transaction declares about itself is unrecoverable from the store. The vocabulary is already controlled at input (PreflightInput pattern-validates 12 values), so this is a column for a value that is validated and in-hand at the moment the cascade row is INSERTed, one line upstream. Nullable, NOT backfilled: the transaction file that carried work_type is overwritten per-transaction, so history cannot be reconstructed without inventing it.",
         lambda cursor: migration_069_cascade_work_type(cursor),
     ),
+    (
+        "070_calibration_trajectory_provenance",
+        "Add transaction_id, evidence_count, primary_source and grounded_raw to calibration_trajectory — the provenance of a grounded observation, computed on every POSTFLIGHT and then thrown away. The row stored `grounded` and `gap` and nothing about where the number came from, so a `grounded=0.0` was indistinguishable from an observation of a different SCOPE, and downstream reads the difference as calibration error either way. Reported by empirica-mesh-support (prop_hdksdjjfdna2firhwsmsfkefka, 2026-09-13) replicating Carly R. Anderson's foundation measurement across 17 practices: they traced completion-zeros to a session-cumulative subtask ratio and reported it as the live defect. It was not — the transaction-scoping fix shipped 756141190 on 2026-03-27 and the session query survives only as the else-branch when no active transaction file exists — but NO ROW COULD SAY WHICH QUERY PRODUCED IT, so the correct reading was not available from the data, and two practices plus a source read plus one wrong mechanism went into recovering it. Their own framing is the specification: a row carrying completed=0, total=29 would have shown this on sight. Every value here is already computed — GroundedVectorEstimate carries evidence_count and primary_source, EvidenceItem carries raw_value — so this is persistence, not new measurement. Nullable and NOT backfilled: the provenance of a historical row is precisely what was never recorded, and inventing it would manufacture the confidence this column exists to make checkable.",
+        lambda cursor: migration_070_calibration_trajectory_provenance(cursor),
+    ),
 ]
 
 
@@ -2810,6 +2815,39 @@ def migration_069_cascade_work_type(cursor: sqlite3.Cursor):
     """
     add_column_if_missing(cursor, "cascades", "work_type", "TEXT", "NULL")
     logger.info("✅ Migration 069 complete: cascades carry their declared work_type")
+
+
+def migration_070_calibration_trajectory_provenance(cursor: sqlite3.Cursor):
+    """A grounded value with no provenance cannot be told from a wrong one.
+
+    ``calibration_trajectory`` stored ``grounded`` and ``gap`` and nothing about
+    where the number came from — no transaction, no evidence count, no raw
+    counts. So a row reading ``grounded=0.0`` is indistinguishable from an
+    observation of a DIFFERENT SCOPE, and downstream reads the difference as
+    calibration error either way.
+
+    That ambiguity is not hypothetical. It cost two practices a diagnosis:
+    empirica-mesh-support, replicating Carly's foundation measurement across 17
+    practices, traced completion-zeros to a session-cumulative subtask ratio and
+    reported it as the live defect. The scope fix had in fact shipped months
+    earlier (756141190, 2026-03-27) and the session query survives only as a
+    fallback — but no row could say which query had produced it, so the correct
+    reading was unavailable from the data. Their own words: a row carrying
+    ``completed=0, total=29`` would have shown this on sight.
+
+    Four nullable columns, all from values the pipeline ALREADY computes and
+    then discards: ``GroundedVectorEstimate`` carries ``evidence_count`` and
+    ``primary_source``, and every ``EvidenceItem`` carries ``raw_value``.
+
+    NOT backfilled. The provenance of a historical row is exactly what was never
+    recorded; inventing it would manufacture the confidence this migration exists
+    to make checkable.
+    """
+    add_column_if_missing(cursor, "calibration_trajectory", "transaction_id", "TEXT", "NULL")
+    add_column_if_missing(cursor, "calibration_trajectory", "evidence_count", "INTEGER", "NULL")
+    add_column_if_missing(cursor, "calibration_trajectory", "primary_source", "TEXT", "NULL")
+    add_column_if_missing(cursor, "calibration_trajectory", "grounded_raw", "TEXT", "NULL")
+    logger.info("✅ Migration 070 complete: a grounded value carries where it came from")
 
 
 def migration_065_backfill_goal_project_id_from_session(cursor: sqlite3.Cursor):

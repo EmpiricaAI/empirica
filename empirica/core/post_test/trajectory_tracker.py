@@ -9,6 +9,7 @@ Key question: Is the gap between self-assessment and objective evidence
 closing, widening, or stable over time?
 """
 
+import json
 import logging
 import uuid
 from dataclasses import dataclass
@@ -61,6 +62,7 @@ class TrajectoryTracker:
         domain: str | None = None,
         goal_id: str | None = None,
         phase: str = "combined",
+        transaction_id: str | None = None,
     ) -> int:
         """
         Record a trajectory point for each vector in the assessment.
@@ -68,6 +70,14 @@ class TrajectoryTracker:
         Called after each POSTFLIGHT + grounded verification.
         Phase can be "noetic", "praxic", or "combined".
         Returns number of points recorded.
+
+        Each row also carries the PROVENANCE of its grounded value — which
+        transaction, how many evidence items, which source dominated, and the
+        raw counts behind them. A bare number cannot say whether it measured the
+        thing the self-assessment was describing, and that ambiguity is not
+        theoretical: a session-cumulative subtask ratio and a transaction-scoped
+        one both write a plain 0.0 here, and downstream reads either as
+        calibration error (mesh-support / Carly R. Anderson, 2026-09-13).
         """
         cursor = self.conn.cursor()
 
@@ -101,14 +111,28 @@ class TrajectoryTracker:
             grounded_val = grounded_est.estimated_value if grounded_est else None
             gap = assessment.calibration_gaps.get(vector_name)
 
+            # Provenance travels with the number or it is not recoverable later.
+            # Serialisation must never cost a trajectory row: a value that cannot
+            # be JSON-encoded loses its raw counts, not its observation.
+            evidence_count = grounded_est.evidence_count if grounded_est else None
+            primary_source = grounded_est.primary_source if grounded_est else None
+            grounded_raw = None
+            contributing = getattr(grounded_est, "contributing", None) if grounded_est else None
+            if contributing:
+                try:
+                    grounded_raw = json.dumps(contributing, default=str)
+                except (TypeError, ValueError) as exc:
+                    logger.debug("trajectory: raw evidence for %s not serialisable (%s)", vector_name, exc)
+
             point_id = str(uuid.uuid4())
             cursor.execute(
                 """
                 INSERT INTO calibration_trajectory (
                     point_id, session_id, ai_id, vector_name,
                     self_assessed, grounded, gap,
-                    domain, goal_id, timestamp, phase
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    domain, goal_id, timestamp, phase,
+                    transaction_id, evidence_count, primary_source, grounded_raw
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     point_id,
@@ -122,6 +146,10 @@ class TrajectoryTracker:
                     goal_id,
                     timestamp,
                     phase,
+                    transaction_id,
+                    evidence_count,
+                    primary_source,
+                    grounded_raw,
                 ),
             )
             recorded += 1

@@ -748,15 +748,25 @@ class PostTestCollector:
         if row and row[0] > 0:
             total, completed = row[0], row[1]
             ratio = completed / total
+            # WHICH question this ratio answers depends on the branch above, and
+            # the two are not the same quantity: `completion` is defined as
+            # progress toward the CURRENT phase goal, while the session fallback
+            # counts every subtask opened in the session. Early in a long session
+            # the denominator is already large and the numerator is still zero, so
+            # the fallback emits a truthful 0.0 about something the self-assessment
+            # was never describing. Recording the scope is what makes the two
+            # distinguishable afterwards — without it the row is just a number, and
+            # a reader cannot tell a real gap from a changed referent.
+            scope = "transaction" if self.transaction_id else "session"
             items.append(
                 EvidenceItem(
                     source="goals",
                     metric_name="subtask_completion_ratio",
                     value=ratio,
-                    raw_value={"completed": completed, "total": total},
+                    raw_value={"completed": completed, "total": total, "scope": scope},
                     quality=EvidenceQuality.SEMI_OBJECTIVE,
                     supports_vectors=["completion", "do"],
-                    metadata={"session_id": self.session_id},
+                    metadata={"session_id": self.session_id, "scope": scope},
                 )
             )
 

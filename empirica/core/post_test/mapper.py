@@ -233,6 +233,12 @@ class GroundedVectorEstimate:
     evidence_count: int
     primary_source: str
     is_grounded: bool = True
+    #: ``metric_name -> raw_value`` for the items that produced ``estimated_value``.
+    #: Without it a 0.0 is indistinguishable from an observation of a different
+    #: scope, which is exactly the ambiguity that cost two practices a diagnosis
+    #: (mesh-support, 2026-09-13): ``completed=0, total=29`` would have shown the
+    #: answer on sight. The values are already computed on every EvidenceItem.
+    contributing: dict[str, Any] | None = None
 
 
 @dataclass
@@ -775,6 +781,10 @@ class EvidenceMapper:
                 confidence=min(1.0, total_weight / len(evidence_list)),
                 evidence_count=len(evidence_list),
                 primary_source=primary_source,
+                contributing={
+                    item.metric_name: item.raw_value for item, _ in evidence_list if item.raw_value is not None
+                }
+                or None,
             )
 
         # Compute insufficient_evidence_vectors: vectors that had evidence
