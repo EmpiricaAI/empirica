@@ -61,6 +61,7 @@ docs/
 | [Separation of Concerns](architecture/separation-of-concerns.md) | What goes where |
 | [Storage Architecture](architecture/STORAGE_ARCHITECTURE_COMPLETE.md) | Four-layer data flow |
 | [CLI Reference](human/developers/CLI_COMMANDS_UNIFIED.md) | All commands |
+| [Test Quality Tools](human/developers/TEST_QUALITY_TOOLS.md) | What coverage cannot ask — could this test have failed? |
 
 ---
 
