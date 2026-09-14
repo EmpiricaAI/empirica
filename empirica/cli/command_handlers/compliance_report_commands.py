@@ -226,7 +226,7 @@ def _run_extra_check(check_def: dict[str, Any], project_root: Path) -> dict[str,
     if cmd and cmd[0].endswith(".py") and not cmd[0].startswith("python"):
         cmd = ["python3", *cmd]
 
-    raw = _run_check(check_id, [*cmd, "--output", "json"], timeout=timeout)
+    raw = _run_check(check_id, [*cmd, "--output", "json"], cwd=project_root, timeout=timeout)
     if raw.get("error"):
         return {"check": check_id, "passed": None, "status": "unavailable", "error": raw["error"]}
 
@@ -259,11 +259,19 @@ def _run_extra_check(check_def: dict[str, Any], project_root: Path) -> dict[str,
     return result
 
 
-def _run_check(name: str, cmd: list[str], timeout: int = 120) -> dict[str, Any]:
-    """Run a single compliance check and return structured result."""
+def _run_check(name: str, cmd: list[str], cwd: Path, timeout: int = 120) -> dict[str, Any]:
+    """Run a single compliance check and return structured result.
+
+    ``cwd`` is REQUIRED and deliberately not defaulted. Every tool here resolves
+    its own configuration by walking up from the directory it runs in, so an
+    inherited process cwd makes the report mean something different depending on
+    where the operator was standing — a fork's ruff excludes apply or do not,
+    and nothing in the output records which. A default would let a new call site
+    silently reintroduce that; a required argument makes it a TypeError.
+    """
     start = time.time()
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=str(cwd))
         duration = round(time.time() - start, 2)
         return {
             "check": name,
@@ -1252,17 +1260,19 @@ def run_compliance_report(
     results: list[dict[str, Any]] = []
 
     # Always-run checks (fast)
-    ruff_raw = _run_check("ruff", ["ruff", "check"], timeout=30)
+    ruff_raw = _run_check("ruff", ["ruff", "check"], cwd=project_root, timeout=30)
     results.append(_parse_ruff_result(ruff_raw))
 
-    complexity_raw = _run_check("ruff-c901", ["ruff", "check", "--select", "C901"], timeout=30)
+    complexity_raw = _run_check("ruff-c901", ["ruff", "check", "--select", "C901"], cwd=project_root, timeout=30)
     results.append(_parse_c901_result(complexity_raw))
 
     # tests/ included since the backlog retirement (goal 481b8a9b) — this and
     # CI's invocation must stay in agreement with pyproject's include list, or
     # a bare `pyright` and the gates report different numbers and nobody can
     # tell a fresh regression from standing noise.
-    pyright_raw = _run_check("pyright", ["pyright", "empirica/", "empirica-mcp/", "tests/"], timeout=180)
+    pyright_raw = _run_check(
+        "pyright", ["pyright", "empirica/", "empirica-mcp/", "tests/"], cwd=project_root, timeout=180
+    )
     results.append(_parse_pyright_result(pyright_raw))
 
     # Optional checks (slow)
@@ -1282,17 +1292,18 @@ def run_compliance_report(
         if importlib.util.find_spec("xdist") is not None:
             pytest_cmd += ["-n", "auto"]  # pytest-xdist installed → parallelize
         pytest_timeout = int(os.environ.get("EMPIRICA_COMPLIANCE_PYTEST_TIMEOUT", "1200"))
-        pytest_raw = _run_check("pytest", pytest_cmd, timeout=pytest_timeout)
+        pytest_raw = _run_check("pytest", pytest_cmd, cwd=project_root, timeout=pytest_timeout)
         results.append(_parse_pytest_result(pytest_raw))
 
     if include_dep_audit:
-        audit_raw = _run_check("pip-audit", ["pip-audit"], timeout=120)
+        audit_raw = _run_check("pip-audit", ["pip-audit"], cwd=project_root, timeout=120)
         results.append(_parse_pip_audit_result(audit_raw))
 
     if include_security:
         semgrep_raw = _run_check(
             "semgrep",
             ["semgrep", "--config", "p/owasp-top-ten", "empirica/", "--json", "--quiet"],
+            cwd=project_root,
             timeout=180,
         )
         results.append(_parse_semgrep_result(semgrep_raw))
@@ -1316,7 +1327,7 @@ def run_compliance_report(
         trufflehog_cmd = ["trufflehog", "filesystem", str(project_root), "--json", "--no-update"]
         if detector_config.exists():
             trufflehog_cmd += ["--config", str(detector_config)]
-        trufflehog_raw = _run_check("trufflehog", trufflehog_cmd, timeout=180)
+        trufflehog_raw = _run_check("trufflehog", trufflehog_cmd, cwd=project_root, timeout=180)
         results.append(_parse_trufflehog_result(trufflehog_raw))
 
     # Technical documentation — runner selection in priority order:
@@ -1339,6 +1350,7 @@ def run_compliance_report(
         docs_raw = _run_check(
             "rust-docs-assess",
             ["empirica", "rust-docs-assess", "--project-root", str(project_root), "--output", "json"],
+            cwd=project_root,
             timeout=60,
         )
         results.append(_parse_docpistemic_result(docs_raw))
@@ -1346,6 +1358,7 @@ def run_compliance_report(
         docs_raw = _run_check(
             "docs-assess",
             ["empirica", "docs-assess", "--output", "json"],
+            cwd=project_root,
             timeout=60,
         )
         results.append(_parse_docs_result(docs_raw))
@@ -1353,6 +1366,7 @@ def run_compliance_report(
         docs_raw = _run_check(
             "docpistemic",
             ["docpistemic", "assess", str(project_root), "--output", "json"],
+            cwd=project_root,
             timeout=60,
         )
         results.append(_parse_docpistemic_result(docs_raw))
@@ -1360,6 +1374,7 @@ def run_compliance_report(
         docs_raw = _run_check(
             "docs-assess",
             ["empirica", "docs-assess", "--output", "json"],
+            cwd=project_root,
             timeout=60,
         )
         results.append(_parse_docs_result(docs_raw))
@@ -1370,6 +1385,7 @@ def run_compliance_report(
     link_raw = _run_check(
         "docs-link-check",
         ["empirica", "docs-link-check", "--root", str(project_root), "--output", "json"],
+        cwd=project_root,
         timeout=30,
     )
     results.append(_parse_docs_link_check_result(link_raw))
