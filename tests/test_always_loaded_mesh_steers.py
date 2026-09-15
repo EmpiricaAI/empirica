@@ -22,6 +22,19 @@ Found by empirica-mesh-support, who noted the check "does not exist today —
 each practice verified its own file". This is that check, as a mechanism rather
 than a review step, because a review step is an instruction and an instruction
 is not a mechanism.
+
+WHAT THIS GUARDS, and why the warning lives here and not there. The template
+carried a 9-line HTML comment making this same argument to whoever next edited
+it — and that comment SHIPPED: it survived rendering into every seat's installed
+prompt, so every session paid for an instruction addressed to a maintainer who
+was never in the room. A prompt audit (2026-09-15, procedure from
+anthropics/skills shared/prompt-audit.md) classified it as patch accretion and it
+was removed.
+
+The argument was right; the delivery was wrong. An editor who cuts the mesh
+bullet from `templates/empirica-system-prompt-lean.md` gets a red test, which is
+a mechanism. A comment beside the line is a second copy of a guard that already
+fires, paid for at runtime by everyone.
 """
 
 from __future__ import annotations
@@ -113,13 +126,32 @@ def test_the_template_is_actually_the_always_loaded_one():
     assert "empirica-system-prompt-lean.md" in setup, "this template must be the one setup installs"
 
 
-def test_the_do_not_cut_marker_survives():
-    """The comment is the only thing telling a future trimmer why this looks free.
+def test_the_reason_reaches_the_trimmer_without_shipping_it_to_every_seat():
+    """This used to assert a marker comment in the template, on the grounds that
+    "the comment is the only thing telling a future trimmer why this looks free".
 
-    Without it the next pass re-derives "duplicate of §V" from the same table
-    and makes the same locally-correct cut.
+    That was true of the EXPLANATION and false of the ENFORCEMENT — and the
+    enforcement is what stops the cut. `test_every_mesh_obligation_has_an_always_
+    loaded_steer` is parameterised over all five obligations, so removing the
+    bullet turns five tests red whether or not any comment exists.
+
+    So the comment was a second copy of a guard that already fires, and it SHIPPED
+    — surviving rendering into every seat's installed prompt, an instruction
+    addressed to a maintainer who is never in the room. A prompt audit removed it
+    (2026-09-15).
+
+    What remains is the property that actually mattered: a trimmer must be able to
+    learn WHY. They now learn it from this file's docstring, which is what they are
+    looking at the moment the test goes red — better placement than a comment
+    beside the line they already decided to cut.
     """
-    text = _TEMPLATE.read_text()
+    reason = Path(__file__).read_text()
 
-    assert "DO NOT CUT THE MESH BULLET" in text
-    assert "LAZY" in text, "the reason must name the load-tier distinction, not just forbid the cut"
+    assert "always-loaded" in reason.lower() and "lazy" in reason.lower(), (
+        "this file must keep explaining the load-tier distinction — it is the only "
+        "place the reason now lives, and a red test without a reason invites "
+        "deleting the test instead of restoring the bullet"
+    )
+    assert "empirica-system-prompt-lean.md" in reason, (
+        "and it must name the file it guards, or the reason is orphaned from its subject"
+    )

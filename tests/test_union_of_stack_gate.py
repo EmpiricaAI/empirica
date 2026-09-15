@@ -99,5 +99,16 @@ def test_the_protected_mesh_bullet_survives():
     gap this gate exists for, which is why the marker comment is in the file."""
     text = _TEMPLATE.read_text()
 
-    assert "DO NOT CUT THE MESH BULLET" in text
-    assert "LAZY" in text, "the reason must name the load-tier distinction, not just forbid the cut"
+    # Asserts the BULLET, not a marker comment about it. The comment this used to
+    # check shipped into every seat's rendered prompt and was removed by a prompt
+    # audit (2026-09-15); the reasoning lives in
+    # tests/test_always_loaded_mesh_steers.py, which is what a trimmer is reading
+    # when this goes red. Checking the thing rather than the note about the thing
+    # also means a reworded bullet still passes and a deleted one still fails.
+    assert "Pull your weight in the mesh" in text, (
+        "the always-loaded mesh steer is gone — cortex-prompt already deferred to it, "
+        "so cutting it here empties the union (see test_always_loaded_mesh_steers.py)"
+    )
+    assert "pull when uncertain" in text and "don't drop threads" in text.lower(), (
+        "the bullet survives but its obligations do not — a trim that kept the heading"
+    )
