@@ -1797,9 +1797,16 @@ def _run_postflight_cortex_sync(session_id, reasoning, resolved_project_path):
     try:
         from empirica.config.credentials_loader import get_credentials_loader
 
-        _cfg = get_credentials_loader().get_cortex_config()
-        _cortex_url = _cfg.get("url") or ""
-        _cortex_key = _cfg.get("api_key") or ""
+        # EITHER credential. Gating on api_key silently skipped this sync for a
+        # seat authenticated by `empirica auth login` — the request below already
+        # sends the value as a Bearer, so a token is a drop-in. Resolving here is
+        # safe on the POSTFLIGHT path because the HTTP call is the next thing it
+        # does; the refresh cost lands where the network cost already is.
+        from empirica.core.auth.cortex_oauth import cortex_bearer
+
+        _resolved = cortex_bearer(get_credentials_loader())
+        _cortex_url = _resolved.get("url") or ""
+        _cortex_key = _resolved.get("bearer") or ""
         if not (_cortex_url and _cortex_key):
             return
 

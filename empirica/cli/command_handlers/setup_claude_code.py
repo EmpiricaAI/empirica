@@ -89,18 +89,30 @@ def _resolve_empirica_version() -> str:
 
 
 def _is_cortex_configured() -> bool:
-    """True iff `cortex:` block in credentials.yaml carries usable url+api_key.
+    """True iff this seat is cortex-capable by EITHER credential — OAuth or api_key.
 
-    Used to decide whether to inject cortex-specific guidance (mesh
-    addressing, mailbox skills, ECO routing) into the rendered system
-    prompt. Base empirica users without cortex shouldn't see guidance
-    for primitives that will return 'cortex config missing' errors.
+    Decides whether the rendered system prompt keeps its cortex guidance: mesh
+    addressing, mailbox skills, ECO routing. Base empirica users without cortex
+    should not see guidance for primitives that will answer 'cortex config
+    missing'.
+
+    It used to test `url and api_key`, which has no OAuth path — so a seat
+    authenticated purely by `empirica auth login` installed cleanly, reported no
+    error anywhere, and received a prompt that never mentioned the mesh exists.
+    That is the worst shape this bug takes: the absence of guidance is
+    indistinguishable from the product not having the capability, and nobody
+    files a bug about a feature they were never told about. Reported by
+    empirica-mesh-support as the fourth instance of the 1.13.19 class and the
+    first that degrades silently.
+
+    `cortex_configured` is presence-only and makes no network call — this runs on
+    every session auto-heal, so resolving (or refreshing) a token here would put
+    an HTTP round-trip in front of every session start.
     """
     try:
-        from empirica.config.credentials_loader import get_credentials_loader
+        from empirica.core.auth.cortex_oauth import cortex_configured
 
-        cfg = get_credentials_loader().get_cortex_config()
-        return bool(cfg.get("url") and cfg.get("api_key"))
+        return cortex_configured()
     except Exception:
         return False
 
@@ -1961,13 +1973,19 @@ def _check_credentials_state() -> dict:
         }
 
     issues: list[str] = []
-    cortex_ok = bool(cortex.get("url") and cortex.get("api_key"))
+    # EITHER credential counts. Reporting `cortex_ok: False` to a seat that
+    # authenticated with `empirica auth login` sends the operator to provision a
+    # credential they already have — the same class as the prompt-stripping above,
+    # one surface out.
+    from empirica.core.auth.cortex_oauth import cortex_configured
+
+    cortex_ok = cortex_configured(loader)
     if not cortex_ok:
         missing = []
         if not cortex.get("url"):
             missing.append("url")
         if not cortex.get("api_key"):
-            missing.append("api_key")
+            missing.append("api_key or an `empirica auth login` session")
         issues.append(f"cortex: missing {', '.join(missing)}")
 
     ntfy_url_ok = bool(ntfy.get("url"))

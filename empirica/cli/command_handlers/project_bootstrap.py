@@ -206,17 +206,24 @@ def _sync_mesh_sharing_agreements() -> None:
     """
     try:
         from empirica.config.credentials_loader import get_credentials_loader
+
+        # RESOLVE, not merely test: this is about to make an HTTP call, so the
+        # refresh cost lands in the right place. Gating on api_key alone skipped
+        # the sync entirely for an OAuth-authenticated seat, and said so only at
+        # debug level. The fetcher already sends `Authorization: Bearer {...}`,
+        # so a token is a drop-in for the key.
+        from empirica.core.auth.cortex_oauth import cortex_bearer
         from empirica.core.mesh_sharing import sync_from_cortex
         from empirica.data.repositories.workspace_db import WorkspaceDBRepository
 
-        creds = get_credentials_loader().get_cortex_config()
-        url, key = creds.get("url"), creds.get("api_key")
-        if not (url and key):
-            logger.debug("mesh-agreements sync skipped — cortex creds missing")
+        resolved = cortex_bearer(get_credentials_loader())
+        url, bearer = resolved.get("url"), resolved.get("bearer")
+        if not (url and bearer):
+            logger.debug(f"mesh-agreements sync skipped — {resolved.get('reason') or 'no cortex credential'}")
             return
 
         with WorkspaceDBRepository.open(ensure_schema=True) as repo:
-            result = sync_from_cortex(repo, url, key)
+            result = sync_from_cortex(repo, url, bearer)
         if result.error:
             logger.debug(f"mesh-agreements bootstrap sync: {result.error}")
         else:

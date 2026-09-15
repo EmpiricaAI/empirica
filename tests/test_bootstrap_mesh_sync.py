@@ -54,10 +54,15 @@ def test_sync_runs_when_creds_present(caplog):
             "url": "https://example.com",
             "api_key": "ctx_test_key",
         }
+        # A MagicMock would hand back a truthy token from cortex_access_token and
+        # the api_key path would never run — the mock has to model a seat with no
+        # OAuth session, not merely a seat.
+        cred_loader.return_value.get_cortex_oauth.return_value = {}
+        cred_loader.return_value.cortex_access_token.return_value = None
         _sync_mesh_sharing_agreements()
 
     mock_sync.assert_called_once()
-    # Repo + url + key passed through
+    # Repo + url + credential passed through
     args, _kwargs = mock_sync.call_args
     assert args[0] is fake_repo
     assert args[1] == "https://example.com"
@@ -80,10 +85,55 @@ def test_sync_skips_when_creds_missing(caplog):
         caplog.at_level(logging.DEBUG, logger="empirica.cli.command_handlers.project_bootstrap"),
     ):
         cred_loader.return_value.get_cortex_config.return_value = {}
+        cred_loader.return_value.get_cortex_oauth.return_value = {}
+        cred_loader.return_value.cortex_access_token.return_value = None
         _sync_mesh_sharing_agreements()
 
     mock_sync.assert_not_called()
-    assert any("creds missing" in r.message for r in caplog.records)
+    # Asserts that a REASON was logged, not its exact wording — the previous
+    # version pinned the string "creds missing" and broke on a message that says
+    # the same thing better.
+    assert any("skipped" in r.message for r in caplog.records)
+
+
+def test_sync_runs_for_an_oauth_only_seat(caplog):
+    """The capability this gate used to deny.
+
+    A seat authenticated by `empirica auth login` has no api_key at all. The old
+    gate read `url and api_key` and skipped the sync entirely, at debug level —
+    so the mirror silently never refreshed and nothing said why. The fetcher
+    already sends `Authorization: Bearer {...}`, so the token is a drop-in.
+    """
+    from empirica.cli.command_handlers.project_bootstrap import (
+        _sync_mesh_sharing_agreements,
+    )
+
+    mock_result = MagicMock()
+    mock_result.error = None
+    mock_result.added = mock_result.updated = mock_result.marked_revoked = 0
+
+    fake_repo = MagicMock()
+    fake_repo.__enter__ = MagicMock(return_value=fake_repo)
+    fake_repo.__exit__ = MagicMock(return_value=False)
+
+    with (
+        patch("empirica.config.credentials_loader.get_credentials_loader") as cred_loader,
+        patch(
+            "empirica.data.repositories.workspace_db.WorkspaceDBRepository.open",
+            return_value=fake_repo,
+        ),
+        patch("empirica.core.mesh_sharing.sync_from_cortex", return_value=mock_result) as mock_sync,
+        caplog.at_level(logging.DEBUG, logger="empirica.cli.command_handlers.project_bootstrap"),
+    ):
+        cred_loader.return_value.get_cortex_config.return_value = {"url": "https://example.com"}
+        cred_loader.return_value.get_cortex_oauth.return_value = {"refresh_owner": "cli"}
+        cred_loader.return_value.cortex_access_token.return_value = "oauth_access_token"
+        _sync_mesh_sharing_agreements()
+
+    mock_sync.assert_called_once()
+    args, _ = mock_sync.call_args
+    assert args[1] == "https://example.com"
+    assert args[2] == "oauth_access_token", "the OAuth token must reach the fetcher, not an absent api_key"
 
 
 def test_sync_transport_error_is_non_fatal(caplog):

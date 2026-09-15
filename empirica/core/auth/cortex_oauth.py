@@ -340,6 +340,49 @@ def cortex_bearer(loader=None, *, http=_http_json) -> dict[str, Any]:
     }
 
 
+def cortex_configured(loader=None) -> bool:
+    """Is this seat cortex-capable? — PRESENCE, deliberately not resolution.
+
+    Answers a different question from `cortex_bearer` and must not be confused
+    with it. This one asks *could* this seat talk to cortex; that one asks *give
+    me a credential to send*. Two consequences follow, and both matter:
+
+    **It makes no network call.** `cortex_bearer` may refresh a token, and the
+    callers of this predicate are on paths that run constantly —
+    `setup-claude-code` fires on every session auto-heal. A refresh there would
+    put an HTTP round-trip in front of every session start.
+
+    **It does not care whether the credential still works.** A revoked key or an
+    expired token still means the seat was SET UP for cortex, and the honest
+    response to a dead credential is an auth error the operator can act on — not
+    silently rendering a product that never mentions the mesh.
+
+    Why it exists at all: `get_cortex_config()` returns `{url, api_key}` and has
+    no OAuth path, so every gate written as `url and api_key` reads an
+    OAuth-authenticated seat as unconfigured. That shape was fixed in 1.13.19 at
+    the three sites that threw stack traces, and survived at the ones that fail
+    SILENTLY — reported by empirica-mesh-support as a seat installing cleanly and
+    receiving a system prompt with every mesh block stripped. One home for the
+    question means the next fix is a grep for this function rather than for the
+    traces that happened to surface it.
+    """
+    if loader is None:
+        from empirica.config.credentials_loader import get_credentials_loader
+
+        loader = get_credentials_loader()
+    try:
+        cfg = loader.get_cortex_config()
+        if not cfg.get("url"):
+            return False
+        if cfg.get("api_key"):
+            return True
+        # `oauth` is file-only by design; presence of the stored block is the
+        # signal, not its liveness.
+        return bool(loader.get_cortex_oauth())
+    except Exception:  # a credentials file we cannot read is not a configured seat
+        return False
+
+
 def login(
     *,
     loader=None,
