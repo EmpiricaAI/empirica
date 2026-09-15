@@ -349,25 +349,30 @@ def migrate_project_to_uuid(
 
 
 def _cortex_installed() -> bool:
-    """True when Cortex is configured locally (a cortex api_key in
-    ~/.empirica/credentials.yaml). Mirrors the codebase convention
-    (liveness_probe / loop_scheduler read the same shape).
+    """True when Cortex is configured locally, by EITHER credential.
 
-    The signal matters for the migration's mint policy: registering a project
-    in Cortex always requires this key, so its presence means the project may
-    already have a canonical Cortex UUID — minting a fresh one would *fork* the
-    identity. Its absence (public-facing / no-mesh) means the project is purely
-    local, so minting is safe.
+    The signal matters for the migration's mint policy: a seat registered in
+    Cortex may already have a canonical Cortex UUID, so minting a fresh one would
+    *fork* the identity. Only genuine absence (public-facing / no-mesh) makes
+    minting safe.
+
+    It used to test `cortex.api_key` alone, reading credentials.yaml by hand —
+    the docstring said it "mirrors the codebase convention (liveness_probe /
+    loop_scheduler read the same shape)", and that shape has no OAuth path. So a
+    seat authenticated by `empirica auth login` answered False here and the
+    migration minted, forking a practice from its own artifacts and roster row.
+    The convention was the bug, and copying it propagated the blast radius to the
+    one place where the consequence is a split identity rather than a quiet skip.
+
+    Delegates to `cortex_configured`, which is presence-only and makes no network
+    call: whether the credential still WORKS is irrelevant here. A revoked key
+    still means this seat was registered, and the safe answer to "might this
+    project already have a UUID" is yes.
     """
     try:
-        import yaml
+        from empirica.core.auth.cortex_oauth import cortex_configured
 
-        cred = Path.home() / ".empirica" / "credentials.yaml"
-        if not cred.exists():
-            return False
-        data = yaml.safe_load(cred.read_text(encoding="utf-8")) or {}
-        cortex = data.get("cortex") or {}
-        return bool(cortex.get("api_key"))
+        return cortex_configured()
     except Exception:
         return False
 

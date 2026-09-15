@@ -903,17 +903,30 @@ def check_retrieval_telemetry(cwd: Path | None = None) -> Check:
 
 
 def _resolve_cortex_creds() -> tuple[str | None, str | None]:
-    """Cortex URL + api_key from env vars or credentials.yaml."""
+    """Cortex URL + a bearer credential — OAuth token or api_key, either counts.
+
+    Three checks read this one helper, so the api_key-only version cost more than
+    a wrong line: an OAuth-authenticated seat got a false WARN ("missing:
+    api_key"), and the auth and project-drift checks below SKIPPED on the
+    strength of it. Doctor therefore under-reported on exactly the seats that
+    most needed diagnosing, and said "no creds configured" to an operator holding
+    a working session.
+
+    Resolution rather than presence is right here: the callers make real requests
+    (`GET /v1/users/me`), a refresh is acceptable on an on-demand diagnostic, and
+    a token that cannot be refreshed SHOULD read as a credential problem — that
+    is the thing doctor exists to surface.
+    """
     url = os.environ.get("CORTEX_REMOTE_URL") or os.environ.get("CORTEX_URL")
     api_key = os.environ.get("CORTEX_API_KEY")
     if url and api_key:
         return url.rstrip("/"), api_key
     try:
-        from empirica.config.credentials_loader import get_credentials_loader
+        from empirica.core.auth.cortex_oauth import cortex_bearer
 
-        cfg = get_credentials_loader().get_cortex_config()
-        url = url or cfg.get("url")
-        api_key = api_key or cfg.get("api_key")
+        resolved = cortex_bearer()
+        url = url or resolved.get("url")
+        api_key = api_key or resolved.get("bearer")
     except Exception:
         pass
     return (url.rstrip("/") if url else None, api_key)

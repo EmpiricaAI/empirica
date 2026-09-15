@@ -529,10 +529,14 @@ def provision_module(
         # credentials absent/unreadable → topics simply report unconfigured
         with contextlib.suppress(Exception):
             from empirica.config.credentials_loader import CredentialsLoader
+            from empirica.core.auth.cortex_oauth import cortex_bearer
 
-            cfg = CredentialsLoader().get_cortex_config()
-            cortex_url = cortex_url or cfg.get("url")
-            cortex_api_key = cortex_api_key or cfg.get("api_key")
+            # Either credential. Gating on api_key reported every topic grant as
+            # "unconfigured" on an OAuth seat — a status that reads as a setup
+            # problem the operator has already solved.
+            resolved = cortex_bearer(CredentialsLoader())
+            cortex_url = cortex_url or resolved.get("url")
+            cortex_api_key = cortex_api_key or resolved.get("bearer")
 
     steps: list[dict] = [_place_plugin_artifact(manifest, staging_root, plugin_root, dry_run)]
     if manifest.artifacts.plugin_archive:

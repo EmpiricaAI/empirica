@@ -148,6 +148,47 @@ def _build_subscribe_url(
     return base
 
 
+def resolve_tag_filter(instance_id: str, err_stream) -> str:
+    """The canonical 3-form to subscribe with, or the basename as a last resort.
+
+    Extracted so it can be tested. It was inline, and the only tests anyone could
+    write against it reconstructed the logic in the test — which passes whether or
+    not the code is right. The seam is the point.
+
+    **Falling back is never silent.** The canonical 3-form is what cortex
+    addresses live pushes to; subscribing as the bare basename means every push is
+    dropped while catch-up polling keeps working, so the seat looks functional and
+    merely quiet. The `except` path below has always said so. The credential gate
+    used to reach the same fallback without a word, on every OAuth-authenticated
+    seat — the code knew the danger and the gate walked around the warning.
+    """
+    try:
+        from empirica.config.credentials_loader import get_credentials_loader as _gc
+        from empirica.core.auth.cortex_oauth import cortex_bearer
+        from empirica.core.loop_scheduler.content_poll import _resolve_canonical_ai_id
+
+        # RESOLVE a credential, do not test for one: `get_cortex_config` has no
+        # OAuth path, so `url and api_key` reads an authenticated seat as bare.
+        resolved = cortex_bearer(_gc())
+        url, key = resolved.get("url"), resolved.get("bearer")
+        if not (url and key):
+            err_stream.write(
+                f"listener: no cortex credential "
+                f"({resolved.get('reason') or 'none configured'}); "
+                f"falling back to basename {instance_id!r} — live "
+                f"pushes will be silently dropped\n"
+            )
+            return instance_id
+        return _resolve_canonical_ai_id(url, key, instance_id)
+    except Exception as e:
+        err_stream.write(
+            f"listener: canonical tag resolution failed ({e}); "
+            f"falling back to basename {instance_id!r} — live "
+            f"pushes will be silently dropped\n"
+        )
+        return instance_id
+
+
 def _unmet_preconditions(ntfy: dict, creds_error: str | None) -> list[str]:
     """Every precondition this listener needs and does not have, in one list.
 
@@ -680,25 +721,7 @@ def run_listener(  # noqa: C901 — held-connection loop; clarity beats decompos
     if _os.getenv("EMPIRICA_NTFY_TAG_FILTER", "true").lower() == "false":
         tag_filter = None
     else:
-        # Resolve canonical 3-form for the subscription tag. Without
-        # this the subscribe filter never matches cortex's published
-        # tag set → live pushes silently dropped, only catch-up works.
-        try:
-            from empirica.config.credentials_loader import get_credentials_loader as _gc
-            from empirica.core.loop_scheduler.content_poll import (
-                _resolve_canonical_ai_id,
-            )
-
-            _cfg = _gc().get_cortex_config()
-            _curl, _ckey = _cfg.get("url"), _cfg.get("api_key")
-            tag_filter = _resolve_canonical_ai_id(_curl, _ckey, instance_id) if _curl and _ckey else instance_id
-        except Exception as e:
-            err_stream.write(
-                f"listener: canonical tag resolution failed ({e}); "
-                f"falling back to basename {instance_id!r} — live "
-                f"pushes will be silently dropped\n"
-            )
-            tag_filter = instance_id
+        tag_filter = resolve_tag_filter(instance_id, err_stream)
     # Per-tenant wake topic. The credentials_loader default is the retired
     # bare `orchestration-events` topic, which has no ntfy ACL grant for
     # non-admin users → every poll 403s. Resolve the canonical org-prefixed

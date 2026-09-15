@@ -3274,9 +3274,14 @@ def _push_source_archive_to_cortex(full_id: str, reason: str, target_id: str | N
 
     from empirica.config.credentials_loader import get_credentials_loader
 
-    cfg = get_credentials_loader().get_cortex_config()
-    url = cfg.get("url")
-    key = cfg.get("api_key")
+    # Either credential — gating on api_key meant a source deletion never
+    # propagated to cortex from an OAuth seat, returning None indistinguishably
+    # from "no cortex configured".
+    from empirica.core.auth.cortex_oauth import cortex_bearer
+
+    _resolved = cortex_bearer(get_credentials_loader())
+    url = _resolved.get("url")
+    key = _resolved.get("bearer")
     if not url or not key:
         return None
     body = json.dumps({"reason": reason, "target_id": target_id}).encode("utf-8")

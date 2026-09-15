@@ -532,8 +532,13 @@ def _resolve_cortex_creds() -> tuple[str, str]:
         sys.path.insert(0, str(Path.home() / "empirical-ai" / "empirica"))
         from empirica.config.credentials_loader import get_credentials_loader
 
-        cfg = get_credentials_loader().get_cortex_config() or {}
-        key, url = cfg.get("api_key") or "", cfg.get("url") or ""
+        # Either credential. An api_key-only read meant this never ran on a seat
+        # authenticated by `empirica auth login` — silently, since the caller
+        # returns early with no log.
+        from empirica.core.auth.cortex_oauth import cortex_bearer
+
+        resolved = cortex_bearer(get_credentials_loader())
+        key, url = resolved.get("bearer") or "", resolved.get("url") or ""
         if key and url:
             return key, url
     except Exception:

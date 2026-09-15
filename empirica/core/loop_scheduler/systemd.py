@@ -526,9 +526,13 @@ class SystemdLoopScheduler:
             return None
 
         try:
-            cfg = get_credentials_loader().get_cortex_config()
-            cortex_url = cfg.get("url")
-            api_key = cfg.get("api_key")
+            # Either credential — an api_key-only read skipped the content poll
+            # entirely on an OAuth seat, and said so at debug level only.
+            from empirica.core.auth.cortex_oauth import cortex_bearer
+
+            _resolved = cortex_bearer(get_credentials_loader())
+            cortex_url = _resolved.get("url")
+            api_key = _resolved.get("bearer")
         except Exception as e:
             logger.debug(f"cortex credentials load failed: {e}")
             return None
