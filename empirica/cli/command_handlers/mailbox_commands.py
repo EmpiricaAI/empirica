@@ -77,8 +77,41 @@ def _default_http_post(url: str, body: dict, api_key: str, timeout: float = 10.0
         return -1, {"error": f"{type(e).__name__}: {e}"}
 
 
+class ParentFetchError(Exception):
+    """The fetch did not complete — as distinct from completing and finding nothing.
+
+    Raised for every outcome that is NOT "the server looked and there is no such
+    proposal": timeouts, DNS/TLS failures, 401/403, 5xx, malformed bodies. `None`
+    is reserved for a real 404.
+
+    Why an exception rather than a richer return type: `_fetch_parent` is injected
+    (lines ~289, ~835) and every test double is a lambda returning a dict or None.
+    A tuple return would break all of them at once and pressure the next author
+    into `[0]`-indexing at the call site, which is how the distinction gets lost
+    again. Raising leaves the happy path's type alone.
+    """
+
+    def __init__(self, reason: str, *, retryable: bool = False):
+        super().__init__(reason)
+        self.reason = reason
+        self.retryable = retryable
+
+
 def _default_fetch_parent(cortex_url: str, api_key: str, parent_id: str, timeout: float = 5.0) -> dict | None:
-    """GET /v1/orchestration/<id> for parent body. Response is the proposal object directly."""
+    """GET /v1/orchestration/<id> for parent body. Response is the proposal object directly.
+
+    Returns the proposal, or None when cortex answers 404. Raises `ParentFetchError`
+    for anything else.
+
+    This used to `except Exception: return None`, so a 5-second timeout reached the
+    user as "not found or inaccessible. Check the id and your Cortex tenant scope."
+    — a sentence that is wrong twice over: it asserts an outcome the code never
+    observed, and it names two innocent suspects. Cortex's nginx logs show the real
+    shape: `499` (client closed the connection) at 21:14:43 under a 3-5x request
+    spike, then `200` for the same id 25 seconds later. Two peer practices each
+    burned an investigation hunting a lookup/visibility defect that did not exist,
+    because the message named one.
+    """
     url = f"{cortex_url.rstrip('/')}/v1/orchestration/{parent_id}"
     req = urllib.request.Request(
         url,
@@ -87,15 +120,34 @@ def _default_fetch_parent(cortex_url: str, api_key: str, parent_id: str, timeout
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
-            if isinstance(body, dict) and (body.get("id") or body.get("title")):
-                return body
-            # Fallback for wrapped response shape (future-compat)
-            if isinstance(body, dict) and body.get("proposal"):
-                return body["proposal"]
-            return None
-    except Exception:
-        return None
+            raw = resp.read().decode("utf-8")
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return None  # the one case that genuinely means "no such proposal"
+        if e.code in (401, 403):
+            raise ParentFetchError(f"cortex refused the request (HTTP {e.code}) — credentials or tenant scope") from e
+        raise ParentFetchError(f"cortex returned HTTP {e.code}", retryable=e.code >= 500) from e
+    except TimeoutError as e:
+        # socket.timeout is an alias of TimeoutError on py3.10+; urlopen raises it
+        # directly on read timeout and wraps it in URLError on connect timeout.
+        raise ParentFetchError(f"request timed out after {timeout}s", retryable=True) from e
+    except urllib.error.URLError as e:
+        inner = e.reason
+        if isinstance(inner, TimeoutError):
+            raise ParentFetchError(f"request timed out after {timeout}s", retryable=True) from e
+        raise ParentFetchError(f"could not reach cortex: {inner}", retryable=True) from e
+
+    try:
+        body = json.loads(raw)
+    except ValueError as e:
+        raise ParentFetchError("cortex returned a body that is not JSON") from e
+
+    if isinstance(body, dict) and (body.get("id") or body.get("title")):
+        return body
+    # Fallback for wrapped response shape (future-compat)
+    if isinstance(body, dict) and body.get("proposal"):
+        return body["proposal"]
+    raise ParentFetchError("cortex returned 200 with no proposal in the body")
 
 
 def _default_http_get(url: str, api_key: str, timeout: float = 10.0) -> tuple[int, object]:
@@ -320,10 +372,18 @@ def handle_mailbox_reply_command(  # noqa: C901 — CLI handler with 7 validatio
         return 1
 
     # Fetch parent for smart defaults (title prefix, target_claudes)
-    parent = _fetch_parent(cortex_url, api_key, parent_id)
+    try:
+        parent = _fetch_parent(cortex_url, api_key, parent_id)
+    except ParentFetchError as e:
+        # NOT "not found" — the lookup never completed, so the id and the tenant
+        # scope are not suspects and must not be named as if they were.
+        retry = " Re-run once cortex is reachable." if e.retryable else ""
+        sys.stderr.write(f"mailbox reply: could not fetch parent {parent_id} — {e.reason}.{retry}\n")
+        return 1
     if parent is None:
         sys.stderr.write(
-            f"mailbox reply: parent {parent_id} not found or inaccessible. Check the id and your Cortex tenant scope.\n"
+            f"mailbox reply: parent {parent_id} not found (cortex answered 404). "
+            "Check the id and your Cortex tenant scope.\n"
         )
         return 1
 
@@ -852,10 +912,15 @@ def handle_mailbox_show_command(
         )
         return 1
 
-    proposal = _fetch_parent(cortex_url, api_key, proposal_id)
+    try:
+        proposal = _fetch_parent(cortex_url, api_key, proposal_id)
+    except ParentFetchError as e:
+        retry = " Re-run once cortex is reachable." if e.retryable else ""
+        sys.stderr.write(f"mailbox show: could not fetch {proposal_id} — {e.reason}.{retry}\n")
+        return 1
     if proposal is None:
         sys.stderr.write(
-            f"mailbox show: {proposal_id} not found or inaccessible. Check the id and your Cortex tenant scope.\n"
+            f"mailbox show: {proposal_id} not found (cortex answered 404). Check the id and your Cortex tenant scope.\n"
         )
         return 1
 
