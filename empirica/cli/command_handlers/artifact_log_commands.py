@@ -1664,6 +1664,24 @@ def handle_finding_resolve_command(args):
             "superseded_by": superseded_by,
             "message": "Finding resolved (kept for history, dropped from live retrieval)",
         }
+        if not resolution_kind:
+            # An omitted --kind stores NULL and used to render identically to a
+            # classified resolution, so nothing ever surfaced the choice. The
+            # cost is measurable: 1344 of 1604 resolutions in this practice carry
+            # no kind, and `mistyped` has zero uses across two practices — a
+            # vocabulary that shipped without the behaviour.
+            #
+            # NOT made required (breaks every existing caller) and NOT defaulted
+            # (defaulting is how a ledger ends up reading 1267 `stale` to 1
+            # `retracted` — the practice looks as though it was never wrong).
+            # Named at the one moment the practitioner still holds the judgement.
+            result["resolution_kind_note"] = (
+                "unclassified — this resolution records THAT it closed, not WHY. "
+                "stale: true when written, since aged out · superseded: replaced by a named "
+                "newer artifact (--superseded-by) · retracted: was WRONG · mistyped: was never "
+                "this artifact type. Re-run with --kind to make it queryable; a ledger that "
+                "cannot distinguish its ageing from its errors cannot calibrate on either."
+            )
         if dependents:
             result["dependents"] = dependents
             result["dependents_note"] = (
