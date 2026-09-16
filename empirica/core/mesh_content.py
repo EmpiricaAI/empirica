@@ -205,6 +205,21 @@ def idempotency_key(action_type: str, target: str, params: dict | None = None) -
     action is genuinely un-dedupable one-shot, do NOT fabricate a key —
     declare ``payload.idempotent = False`` instead (honesty flag).
 
+    **Scope: only ``empirica mailbox reply`` stamps this automatically.**
+    ``cortex_propose`` and ``cortex_collab`` are MCP tools owned by cortex, not
+    by core, so an emission through them carries no key unless the caller sets
+    one. That asymmetry is deliberate but was invisible, and it produced a
+    genuinely confusing measurement: peers found 220 emitter-supplied keys in
+    cortex's applied-keys ledger and could not account for setting any. They had
+    not — the CLI ack path stamps silently, and their MCP emissions stamp
+    nothing. Behaviour shipping without vocabulary, which is harder to spot than
+    the reverse: the protected path gives no signal that it is protecting
+    anything, and the unprotected paths give no signal that they are not.
+
+    So the protection is real and partial, and this is the note that says which
+    is which. Extending it to the MCP tools is cortex's call to make on its own
+    surface; nothing in core can stamp a payload core never builds.
+
     Args:
         action_type: the proposal type (e.g. ``"code_change_request"``).
         target: the target practice's canonical id
