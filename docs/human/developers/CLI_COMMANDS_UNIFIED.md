@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.13.46
-**Generated:** 2026-09-13 09:23:05 UTC
+**Framework version:** 1.13.47
+**Generated:** 2026-09-16 17:37:40 UTC
 **Total commands:** 243 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -3742,7 +3742,7 @@ Poll your cortex mesh inbox (or --outbox) — a CLI receive path so tool-aggrega
 - `--outbox` — optional · flag
   Poll your OUTBOX (status changes on proposals YOU sent) instead of the inbox
 - `--status` — optional
-  Comma-separated status filter (default: 'accepted,changed' for inbox, 'completed,changed,declined' for outbox). Choices: eco_review, accepted, accepted_pending_dispatch, changed, declined, completed, expired, or 'all' for every status. An unrecognised value is an error, not an empty result.
+  Comma-separated status filter (default: 'accepted,changed' for inbox, 'accepted,accepted_pending_dispatch,changed,declined,completed' for outbox). 'all' sends NO filter, so it means every status cortex stores — including any this CLI has not heard of. Known to this CLI: eco_review, accepted, accepted_pending_dispatch, targets_pending, changed, declined, completed, failed, wont_fix, expired. A value outside that list is passed through for cortex to validate, with a note — it is not rejected here, because this list has twice gone stale against cortex's vocabulary and blocked real work.
 - `--since` — optional
   ISO-8601 timestamp — only proposals created_at >= since (incremental polling)
 - `--limit` — optional · type=`int` · default=`20`
