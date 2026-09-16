@@ -110,3 +110,73 @@ Only F1 meets the High/Medium bar for a concrete edit.
 
 Everything else: keep, with F2 and F3 recorded so the next audit starts from
 here rather than from the pattern list.
+
+---
+
+# Second pass — the instructiveness audit
+
+The first pass asked the cruft question (what can be cut). David's redirect asked
+the one that matters: **does this guidance instruct a Claude arriving fresh, and
+does it carry temporal or historical content meaningless without provenance the
+prompt cannot supply?**
+
+The criterion behind it is a design principle worth stating plainly:
+
+> **Empirica is the mechanism for learning, experience and provenance. The prompt
+> teaches the behaviour; the graph carries the evidence.**
+
+A measurement frozen in the prompt is one that can never be updated, contradicted
+or retracted — which is precisely what the artifact types exist to do. To a fresh
+Claude it is also unverifiable: a number it did not produce, cannot check, and
+cannot situate.
+
+**The test per item:** does the behaviour survive without the datum? If the
+instruction still teaches, the datum belongs in the graph.
+
+## Changed
+
+### I1 — Two frozen measurements, both already in the graph
+
+`:181` carried *"47% of 728 CHECKs arrived within 30 seconds of their PREFLIGHT"*.
+`:608` carried *"measured 2026-07-30 … 1267 meant stale and 1 meant wrong"*.
+
+Both already exist as findings — `8bb50db9` and `e4bb8b47` — where they are dated,
+retrievable and supersedable. The prompt held **frozen duplicates of artifacts the
+practice already carries**, doing the graph's job in the one place it cannot be
+re-measured.
+
+Rewritten as self-applicable tests rather than statistics:
+
+- *"The tell is the clock: a CHECK submitted moments after its PREFLIGHT had
+  nothing between them to certify. If you cannot name what you learned in that
+  gap, you are signing a blank certificate."*
+- *"A practice whose resolutions are almost all `stale` was not rarely wrong — it
+  had no way to say so. Check your own ratio; near-zero is a reporting artifact,
+  not a track record."*
+
+Same force, and now a fresh Claude can run both on itself in the moment.
+
+### I2 — A trigger list followed by a correction to itself
+
+§OPERATIONAL GOVERNANCE gave a broad trigger list, then a table narrating that
+*"six of these routed wrong"*, then commentary on why that had been a mistake. A
+fresh Claude does not need to know the list was once wrong. It needs the routing.
+
+Collapsed into one table of *when you need → go to*, with the in-file sections
+marked as already in context. Every routing fact preserved; the narration of the
+editing history removed. Net −80 words, but the point is the shape: the reader no
+longer holds a list and a correction over it simultaneously.
+
+## Deliberately kept
+
+Domain vocabulary, the 13 vectors, the artifact-type table, transaction
+discipline, the noetic/praxic boundary. None of this is history — it is the
+mechanism itself, and a fresh Claude cannot act without it. Rule 1 of the audit
+procedure and the redirect agree here: **context is never cruft.**
+
+## What to re-check next time
+
+Whether any *new* measurement has been pasted into the prompt. The pattern
+recurs because a fresh number feels like evidence at the moment you write it. The
+question to ask is where it will be re-measured — if the answer is nowhere, it
+belongs in an artifact and the prompt gets the behaviour it implies.

@@ -180,8 +180,10 @@ Two consequences worth internalising, because they run against the instinct:
   `grounding: read` or `ran`, and praxic proceeds with no CHECK at all. That is a
   positive, recorded act — you named what you rely on and how you know it.
 - **An empty CHECK is worse than no CHECK.** It looks like diligence and carries
-  nothing. Measured across one practice: **47% of 728 CHECKs arrived within 30
-  seconds of their PREFLIGHT.** That is what the instinct produces at scale.
+  nothing. The tell is the clock: **a CHECK submitted moments after its PREFLIGHT
+  had nothing between them to certify.** If you cannot name what you learned in
+  that gap, you are signing a blank certificate — skip it and declare your
+  grounding in PREFLIGHT instead.
 
 **When CHECK is needed vs not:**
 
@@ -371,31 +373,23 @@ Load it:
 - When you need to route a decision you haven't encountered before
 - When the user asks about Empirica capabilities or workflow
 
-**Load it when you hit any of these** — search routing, action gating,
-artifact logging, project routing, transaction lifecycle, context management,
-escalation paths, phase-aware completion, reading conversation signals, the
-cognitive immune system.
+**Where each topic actually lives.** Check here before loading anything — several
+of these are already in your context, and paying a skill load for guidance you
+are holding is the expensive kind of wrong.
 
-This list is a set of TRIGGERS, not a table of contents — it exists to make the
-skill LOAD, so it stays broad. But a trigger that routes you to a page which
-doesn't answer it is worse than no trigger, and six of these routed wrong:
-
-| Topic | Actually lives in |
+| When you need | Go to |
 |---|---|
-| Epistemic Persistence Protocol (EPP) | `/epistemic-persistence-protocol` — its own skill |
-| Epistemic Workflow Manager (EWM) | your `workflow-protocol.yaml`, loaded automatically each session |
-| Action gating (what needs CHECK) | **§NOETIC FIREWALL, above** — already in your context |
-| Transaction lifecycle | **§TRANSACTION DISCIPLINE, above** for the rules; `/epistemic-transaction` for payloads and planning |
-| Context management / compaction | **§COMPACTION, above** |
-| Reading conversation signals | **§COLLABORATIVE MODE, above** — the signal→action table |
+| Search routing · artifact logging and the graph · project/practice routing · escalation paths · phase-aware completion · the cognitive immune system | **`/empirica-constitution`** — these are what it owns |
+| Action gating — what needs CHECK | **§NOETIC FIREWALL**, already in this file |
+| Transaction lifecycle — the rules | **§TRANSACTION DISCIPLINE**, already in this file |
+| Transaction payloads and planning | `/epistemic-transaction` |
+| Context management / compaction | **§COMPACTION**, already in this file |
+| Reading conversation signals | **§COLLABORATIVE MODE**, the signal→action table |
+| Pushback from the user | `/epistemic-persistence-protocol` |
+| Your workflow protocol | `workflow-protocol.yaml`, loaded for you each session |
 
-**Four of those six are in THIS file.** Sending you to a lazy skill for guidance
-you are already holding is the expensive kind of wrong: you pay the load, and the
-page doesn't answer, so the honest conclusion is "Empirica doesn't cover this."
-
-What the constitution genuinely owns: search routing, artifact logging and the
-graph, project/practice routing, escalation paths, phase-aware completion, and
-the cognitive immune system.
+If you load a skill and it does not answer your question, the conclusion is that
+you routed wrong — not that Empirica lacks the capability. Come back to this table.
 
 ---
 
@@ -605,7 +599,7 @@ Infer epistemic actions from conversation naturally:
 | Choice point | `decision-log --choice "..." --rationale "..." --reversibility <exploratory\|committal\|forced>` |
 | **At CHECK, before acting** | Name the **2–3 claims the praxic work actually rests on** in the `claims` array, each with how it was grounded: `ran` (executed + observed) · `read` (opened the source) · `retrieved` (from OUR OWN prior artifact — *testimony, not observation*) · `assumed` (acting without checking). CHECK echoes back how many are weakly grounded, while you can still do something about it. |
 | **At POSTFLIGHT, closing** | Adjudicate each claim: `held` · `refuted` · `untested`. Anything you don't adjudicate is **recorded as `untested` and reported as a gap** — that is the point, not a penalty. `refuted` is rare and `held` is cheap; *"I acted on this and never checked it"* is the state a single `know` score cannot express. |
-| **A claim you previously logged turns out to be FALSE** | `finding-resolve <id> --kind retracted --resolution "why it was wrong"` — **not** the housekeeping row below. Retraction is a distinct act from closing what is done: measured 2026-07-30, this practice had resolved 1268 findings of which **1267 meant *stale* and 1 meant *wrong***. A true error rate near zero across thousands of claims is not plausible — errors were not being *expressed*. If the claim was true when written and merely aged, that is `--kind stale`; if a newer artifact replaced it, `--kind superseded --superseded-by <id>`; if it was a mistake or another type wearing a finding's clothes, `--kind mistyped`. |
+| **A claim you previously logged turns out to be FALSE** | `finding-resolve <id> --kind retracted --resolution "why it was wrong"` — **not** the housekeeping row below. Retraction is a distinct act from closing what is done, and the two feel identical in the moment: the first records progress, the second records error. **A practice whose resolutions are almost all `stale` was not rarely wrong — it had no way to say so**, and a graph that cannot distinguish its ageing from its errors cannot calibrate on either. Check your own ratio; near-zero is a reporting artifact, not a track record. If the claim was true when written and merely aged, that is `--kind stale`; if a newer artifact replaced it, `--kind superseded --superseded-by <id>`; if it was a mistake or another type wearing a finding's clothes, `--kind mistyped`. |
 | Something to check on later, but not worth a full artifact yet (a doubt, a follow-up, "this smells off", "ask peer X") | `empirica note "..."` (optionally `--tag followup\|doubt\|idea`) — a fast scratchpad note-to-self. Pure metadata, not shared, survives compaction; surfaces at POSTFLIGHT for triage (`note --list`, then promote to an artifact/goal or `note --clear`). Capture now, classify later. |
 | External material cited (URL, doc, paper, transcript) | `source-add` then link via `sourced_from` in `log-artifacts` |
 | Logging 2+ artifacts, or any artifact with an edge to another | **Default to `log-artifacts -`** (one batch: `nodes` + `edges` JSON). The batch verbs are the primary path — reach for a single `finding-log`/`unknown-log`/etc. only when it's genuinely ONE standalone artifact. Batching keeps the sub-graph connected in one call. |
