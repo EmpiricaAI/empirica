@@ -1,10 +1,10 @@
 ---
 name: epistemic-editing
-description: Use when reviewing a document whose claims must hold up — a paper, a report, a spec, a post, release notes, a proposal. Runs a grounded review pass: sweeps the document for claim classes that fail silently (universal quantifiers, absence claims, numbers that drift between sections, citations that outrun their source, figures that disagree with their data), raises each finding as a flag carrying its severity, how it was grounded, its evidence and a proposed edit, renders the document with the flags spliced in at the paragraphs they concern, and records the reader's accept/reject/defer so the accepted set drives a versioned change. Triggers on "review this document", "check this paper", "fact-check my draft", "does this hold up", "epistemic editing", "grounded review", "before I publish this".
-version: 1.1.0
+description: Use when reviewing a document whose claims must hold up — a paper, a report, a spec, a post, release notes, a proposal. Runs a grounded review pass — sweeps the document for claim classes that fail silently (universal quantifiers, absence claims, numbers that drift between sections, citations that outrun their source, figures that disagree with their data), raises each finding as a flag carrying its severity, how it was grounded, its evidence and a proposed edit, renders the document with the flags spliced in at the paragraphs they concern, and records the reader's accept/reject/defer so the accepted set drives a versioned change. What it does not do is grow new targets from your own mistakes — the seven are a frozen distillate of one practice's recorded defects, and compounding needs a persistent record. Triggers on "review this document", "check this paper", "fact-check my draft", "does this hold up", "epistemic editing", "grounded review", "before I publish this".
+version: 1.2.0
 ---
 
-<!-- Vendored from `epistemic-editing/` in david/empirica-paper (forgejo, c7e2b87) — edit upstream, not here.
+<!-- Vendored from `epistemic-editing/` in david/empirica-paper (forgejo, fb34ef6) — edit upstream, not here.
      Ownership ratified 2026-09-12: empirica-paper MAINTAINS the mechanism and the seven targets;
      empirica core HOSTS the shipped skill because the other /epistemic-* skills live here.
      VENDOR ADAPTATIONS (re-apply on every sync — upstream does not carry them):
@@ -77,7 +77,7 @@ One JSON record per flag:
  "edit": "the proposed replacement, or the decision to be made"}
 ```
 
-**Anchor by phrase, never by line number.** Line numbers written from memory are wrong roughly eight times in ten; the builder resolves the phrase to a line at render time and fails loudly if it cannot find it.
+**Anchor by phrase, never by line number.** A line number written from memory is a claim about a file you are not reading, and it rots the moment the file is edited; the builder resolves the phrase to a line at render time and fails loudly if it cannot find it. Check your own: write the numbers, then diff them against the file.
 
 **Severity means consequence, not confidence.** `blocker` = a reader acting on this would be misled (a fabricated quote, a number that is simply wrong). `should-fix` = a real defect with a clear edit. `note` = a judgment call that is the author's to make.
 
@@ -87,7 +87,8 @@ One JSON record per flag:
 python3 <skill-dir>/galley.py --md DRAFT.md --flags flags.json --config config.json --out galley.html
 ```
 
-Stdlib Python, no dependencies. It emits a source-line marker before every block, splices each flag after the paragraph its anchor resolves to, and builds the decision layer. Publish `galley.html` as an artifact with `capabilities: {db: {}}` so accept/reject/defer persists and the author's decisions can be read back with `read_db`.
+Stdlib Python, no dependencies. If you are reading this from a catalog and have no `galley.py` beside it, all five files are public under MIT at
+`github.com/EmpiricaAI/empirica/tree/main/empirica/plugins/claude-code-integration/skills/epistemic-editing`, and ship with the `empirica` package. It emits a source-line marker before every block, splices each flag after the paragraph its anchor resolves to, and builds the decision layer. Publish `galley.html` as an artifact with `capabilities: {db: {}}` so accept/reject/defer persists and the author's decisions can be read back with `read_db`.
 
 Then: read the decisions, apply the accepted set, name the applied flags in the commit message, leave rejected and deferred flags on record with the author's note. **A record that is already public is never edited in place** — accepted flags produce a versioned update with a changelog entry, because anyone may already hold or cite the version you would overwrite.
 
