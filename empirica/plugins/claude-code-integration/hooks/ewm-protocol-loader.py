@@ -399,13 +399,22 @@ def _build_pending_inbox_lead() -> str:
         )
         if r.returncode != 0 or not r.stdout.strip():
             return ""
-        proposals = (json.loads(r.stdout) or {}).get("proposals") or []
+        payload = json.loads(r.stdout) or {}
+        proposals = payload.get("proposals") or []
+        # `matched` is how many exist; len(proposals) is how many this page carried.
+        # Reading the second as the first is what made this block understate a real
+        # backlog — measured: it announced 20 against a true 28, and a peer measured
+        # 20 against matched=118. The CLI puts `matched`, `has_more` and a
+        # `truncated_hint` in this very object; the old code parsed it and dropped
+        # all three. `matched` is absent against an older cortex, so fall back.
+        matched = payload.get("matched")
+        has_more = bool(payload.get("has_more"))
     except Exception:
         return ""
     if not proposals:
         return ""
 
-    total = len(proposals)
+    total = matched if isinstance(matched, int) and matched >= len(proposals) else len(proposals)
     shown = proposals[:8]
     lines = [f"## 📬 Pending mesh messages ({total}) — handle these FIRST", ""]
     for p in shown:
@@ -425,9 +434,16 @@ def _build_pending_inbox_lead() -> str:
             lines.append(f"  {summary}")
     if total > len(shown):
         lines.append("")
-        lines.append(
-            f"…and {total - len(shown)} more — run `empirica mailbox poll --status accepted` for the full list."
+        # When the POLL itself was truncated, "the full list" is not one command
+        # away — the naive command reproduces the same partial page. Say so, or
+        # the instruction quietly under-delivers exactly like the count used to.
+        more = (
+            f"…and {total - len(shown)} more — run "
+            f"`empirica mailbox poll --status accepted --limit {total}` for the full list."
+            if has_more
+            else f"…and {total - len(shown)} more — run `empirica mailbox poll --status accepted` for the full list."
         )
+        lines.append(more)
     lines.append("")
     lines.append(
         "React per the mailbox protocol (`empirica mailbox show <id>`, "
