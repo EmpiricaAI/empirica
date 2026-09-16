@@ -371,9 +371,15 @@ def _fetch_orch(
     canonical = _resolve_canonical_ai_id(cortex_url, api_key, ai_id)
     query: dict[str, str] = {
         "ai_id": canonical,
-        "status": ",".join(statuses),
         "related": "true" if related else "false",  # off → skip per-proposal Qdrant scroll
     }
+    # An EMPTY statuses tuple means "no filter" and the key is omitted entirely.
+    # `",".join(())` is `""`, which is a filter matching nothing, not the absence
+    # of one — the difference between "every status" and "no results", sent on the
+    # wire as almost the same thing. Listener callers always pass a non-empty
+    # default, so their query is byte-for-byte unchanged.
+    if statuses:
+        query["status"] = ",".join(statuses)
     if since:
         query["since"] = since
     if limit is not None:

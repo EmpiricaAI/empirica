@@ -9,32 +9,49 @@ Implements prop_rau4ymp62fhenavyolejadahtq.
 
 from __future__ import annotations
 
-# The proposal statuses cortex actually stores. ONE definition, read by both the
-# --status help text and the validator in mailbox_commands — they used to be two
-# things, with only the help text knowing the truth and nothing enforcing it.
+# Statuses this CLI KNOWS ABOUT. A hint, no longer a gate — see below.
+#
+# This was an allowlist that REJECTED anything absent from it, and the comment
+# that sat here predicted its own next failure: "a hand-maintained allowlist over
+# ANOTHER system's vocabulary diverges the moment they add a value... the honest
+# fix would be cortex publishing its status vocabulary as data." The allowlist was
+# kept anyway. It then diverged again, exactly as described — outreach could not
+# enumerate `targets_pending`, and `failed`/`wont_fix` were unreachable while the
+# mailbox protocol instructs practitioners to act on precisely those states.
+#
+# A comment naming a future failure is a record that someone saw it coming, not a
+# guard against it. So the gate is gone: cortex is the authority on its own
+# vocabulary and validates it server-side, returning 400 with the valid set. An
+# unrecognised value now produces a NOTE and is passed through, because the two
+# failure modes are not symmetric — rejecting a real status blocks work outright,
+# while passing a typo costs one round-trip and a clear error.
+#
+# Kept for the help text, and for the note that stops a typo being silent against
+# an older cortex that does not validate. Being incomplete is now cosmetic.
 VALID_POLL_STATUSES = (
     "eco_review",
     "accepted",
-    # A publish proposal parked awaiting dispatch. MISSING from the first
-    # version of this tuple, which I built by hand from the old help text —
-    # so `--status accepted_pending_dispatch` was rejected as unknown. A
-    # hand-maintained allowlist over ANOTHER system's vocabulary diverges the
-    # moment they add a value; this one diverged before it was ever committed.
-    # Kept as an explicit list anyway (rejecting a typo is worth more than
-    # accepting every string), but the divergence risk is real and the honest
-    # fix would be cortex publishing its status vocabulary as data.
     "accepted_pending_dispatch",
+    "targets_pending",
     "changed",
     "declined",
     "completed",
+    "failed",
+    "wont_fix",
     "expired",
 )
 
-# `all` is not a stored status; it means "no filter". Accepted because it is the
-# obvious word to type — I typed it — and because passing it through as a
-# literal matched nothing and returned an empty mailbox indistinguishable from
-# a genuinely empty one.
+# `all` means NO FILTER — it is not a stored status and is no longer expanded to
+# the tuple above. Expanding it was the defect: `--status all` answered with the
+# statuses this CLI happened to know while its own help promised "every status",
+# so a caller asking for everything got a silent subset. Passing it through as a
+# literal is not the answer either — it matches nothing and returns an empty
+# mailbox indistinguishable from a genuinely empty one.
 POLL_STATUS_ALL = "all"
+
+# What `_resolve_poll_statuses` returns for `all`: send no status filter at all.
+# Distinct from None, which means "rejected, already reported to the user".
+POLL_NO_FILTER: tuple[str, ...] = ()
 
 
 def add_mailbox_parsers(subparsers):
@@ -146,10 +163,13 @@ def add_mailbox_parsers(subparsers):
         "--status",
         help=(
             "Comma-separated status filter (default: 'accepted,changed' for "
-            "inbox, 'completed,changed,declined' for outbox). Choices: "
-            + ", ".join(VALID_POLL_STATUSES)
-            + f", or '{POLL_STATUS_ALL}' for every status. An unrecognised value is "
-            "an error, not an empty result."
+            "inbox, 'accepted,accepted_pending_dispatch,changed,declined,completed' "
+            f"for outbox). '{POLL_STATUS_ALL}' sends NO filter, so it means every "
+            "status cortex stores — including any this CLI has not heard of. Known "
+            "to this CLI: " + ", ".join(VALID_POLL_STATUSES) + ". A value outside "
+            "that list is passed through for cortex to validate, with a note — it "
+            "is not rejected here, because this list has twice gone stale against "
+            "cortex's vocabulary and blocked real work."
         ),
     )
     poll.add_argument(

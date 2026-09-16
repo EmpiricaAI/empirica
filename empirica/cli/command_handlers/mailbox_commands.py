@@ -338,6 +338,7 @@ def handle_mailbox_reply_command(  # noqa: C901 — CLI handler with 7 validatio
     _resolve_cortex_creds: Callable[[], tuple] = _default_resolve_cortex_creds,
     _resolve_ai_id: Callable[[], str | None] = _default_resolve_ai_id,
     _http_post: Callable[[str, dict, str, float], tuple] = _default_http_post,
+    _http_get: Callable[[str, str, float], tuple] = _default_http_get,
     _fetch_parent: Callable[[str, str, str], dict | None] = _default_fetch_parent,
 ) -> int:
     """`empirica mailbox reply` — atomic propose + complete.
@@ -364,7 +365,20 @@ def handle_mailbox_reply_command(  # noqa: C901 — CLI handler with 7 validatio
         )
         return 1
 
-    source_claude = getattr(args, "source_claude", None) or _resolve_ai_id()
+    # Canonicalize like `poll` (which carries the comment "a basename query lies
+    # rather than fails") and `archive` do. This verb was the only one of the three
+    # taking the raw `.empirica/project.yaml` slug, and the justification for not
+    # doing so was already in this file, attached to a different verb.
+    #
+    # Measured: today a bare-but-RESOLVABLE slug is canonicalized server-side on
+    # receipt, so this was not emitting bouncing addresses — a causal chain I built
+    # on it and had to withdraw. The reason to fix it anyway is that the safety is
+    # a server-side behaviour no comment here records, so it is invisible to the
+    # next reader; and a slug that is NOT resolvable would bounce with no local
+    # signal at all. An explicit local `--source-claude` is honoured as given.
+    source_claude = getattr(args, "source_claude", None)
+    if not source_claude:
+        source_claude = _resolve_canonical_ai_id(cortex_url, api_key, _resolve_ai_id(), _http_get) or _resolve_ai_id()
     if not source_claude:
         sys.stderr.write(
             "mailbox reply: source_claude unresolved — set --source-claude or add ai_id to .empirica/project.yaml.\n"
@@ -742,31 +756,59 @@ def _default_poll_statuses(outbox: bool) -> tuple[str, ...]:
 
 
 def _resolve_poll_statuses(status_arg: str | None, *, outbox: bool) -> tuple[str, ...] | None:
-    """Resolve --status into the tuple to query. None means "reject, already reported".
+    """Resolve --status into the statuses to query.
 
-    An unrecognised status used to be passed straight through to cortex, match
-    nothing, and return an empty mailbox — indistinguishable from having no
-    mail. `--status all` was the case that bit: a reasonable thing to type,
-    silently answering "you have nothing" while 80 proposals sat there. A filter
-    that selects nothing because the FILTER is wrong must not look like a filter
-    that selects nothing because there IS nothing.
+    Returns the tuple to filter on, `POLL_NO_FILTER` (empty) to send no filter at
+    all, or None meaning "rejected, already reported" — which now happens only for
+    an empty `--status` value, never for an unrecognised one.
+
+    Two defects lived here and they pulled in opposite directions.
+
+    A filter that selects nothing because the FILTER is wrong must not look like a
+    filter that selects nothing because there IS nothing. That is why unrecognised
+    values were rejected rather than passed through.
+
+    But the list they were checked against is hand-maintained over cortex's
+    vocabulary, so it went stale and the rejection blocked real work: outreach
+    could not enumerate `targets_pending`, and `failed`/`wont_fix` were unreachable
+    by any means while the mailbox protocol instructs practitioners to act on
+    exactly those states — so an emitter could not count their own undelivered
+    sends, and "sender owns delivery" had no client-side mechanism.
+
+    Both are now satisfied without a local gate. Cortex validates its own
+    vocabulary and answers an unknown value with a 400 naming the valid set, so a
+    typo is loud at the authority. Against an OLDER cortex that does not validate,
+    the note below is what keeps it from being silent. The client no longer
+    arbitrates a vocabulary it does not own.
     """
-    from empirica.cli.parsers.mailbox_parsers import POLL_STATUS_ALL, VALID_POLL_STATUSES
+    from empirica.cli.parsers.mailbox_parsers import (
+        POLL_NO_FILTER,
+        POLL_STATUS_ALL,
+        VALID_POLL_STATUSES,
+    )
 
     if not status_arg or not tuple(s.strip() for s in status_arg.split(",") if s.strip()):
         return _default_poll_statuses(outbox)
 
     requested = tuple(s.strip() for s in status_arg.split(",") if s.strip())
 
-    unknown = [s for s in requested if s != POLL_STATUS_ALL and s not in VALID_POLL_STATUSES]
-    if unknown:
-        sys.stderr.write(
-            f"mailbox poll: unknown --status value(s): {', '.join(unknown)}\n"
-            f"  valid: {', '.join(VALID_POLL_STATUSES)}, or '{POLL_STATUS_ALL}' for every status\n"
-        )
-        return None
     if POLL_STATUS_ALL in requested:
-        return VALID_POLL_STATUSES
+        # NO filter — not an expansion of the known list. Expanding it is what made
+        # `--status all` answer with 7 of 13 while promising "every status".
+        return POLL_NO_FILTER
+
+    unrecognised = [s for s in requested if s not in VALID_POLL_STATUSES]
+    if unrecognised:
+        # A NOTE, not a rejection. Passing through is what lets a status newer than
+        # this CLI work at all; the note is what stops a typo returning a confident
+        # empty set on a cortex too old to validate.
+        sys.stderr.write(
+            f"mailbox poll: note — {', '.join(unrecognised)} "
+            f"{'is' if len(unrecognised) == 1 else 'are'} not in this CLI's known "
+            "status list, which may simply be out of date. Passing through; cortex "
+            "will reject it if it is not a real status. An empty result here may "
+            "mean the value is wrong rather than that nothing matched.\n"
+        )
     return requested
 
 
@@ -842,7 +884,9 @@ def handle_mailbox_poll_command(
         "ok": True,
         "ai_id": ai_id,
         "direction": direction,
-        "statuses": list(statuses),
+        # An empty tuple means no filter was sent. Echoing `[]` would read as
+        # "filtered to nothing" — the opposite of what happened — so say so.
+        "statuses": list(statuses) if statuses else "all (no filter sent)",
         "count": len(proposals),
         "proposals": proposals,
     }

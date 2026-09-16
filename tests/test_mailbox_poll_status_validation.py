@@ -1,16 +1,32 @@
-"""An unrecognised --status must be an error, never an empty mailbox.
+"""An unrecognised --status must never produce a silent empty mailbox.
 
-`--status` was free text: split on commas and passed straight through. A value
-cortex does not store matched nothing, so the poll returned zero proposals with
-`matched: 0` — **indistinguishable from having no mail**.
+That requirement has not changed. How it is met has, twice, and the second change
+is the interesting one.
 
-`--status all` was the case that bit. It is a reasonable thing to type; I typed
-it, got an empty result, and reported the outbox as broken. The outbox was fine
-— 80 proposals sat behind a filter that silently selected nothing.
+**Round one.** `--status` was free text passed straight through. A value cortex
+does not store matched nothing, so the poll returned zero proposals with
+`matched: 0` — indistinguishable from having no mail. `--status all` was the case
+that bit: a reasonable thing to type, answering "you have nothing" while 80
+proposals sat behind it. The fix was a client-side allowlist that REJECTED
+anything outside it.
 
-A filter selecting nothing because the FILTER is wrong must not look like a
-filter selecting nothing because there IS nothing. The help text already listed
-the valid set, so the knowledge existed and nothing enforced it.
+**Round two.** The allowlist was hand-maintained over cortex's vocabulary, and its
+own comment predicted what happened next — it went stale and the rejection began
+blocking real work. `targets_pending` could not be enumerated. `failed` and
+`wont_fix` were unreachable by any means, while the mailbox protocol instructs
+practitioners to act on exactly those states, so no emitter could count their own
+undelivered sends. And `--status all` expanded to the known list while its own
+help promised "every status" — a caller asking for everything got a silent subset,
+which is round one's defect wearing round one's fix.
+
+So the gate is gone and the requirement is met differently: cortex validates its
+own vocabulary and answers an unknown value with a 400 naming the valid set, and
+this CLI emits a note for anything it does not recognise so a typo is loud even
+against an older cortex that does not validate. `all` now sends NO filter.
+
+The tests below were rewritten, not deleted. Each one still asserts the original
+requirement — *a wrong filter must not look like an empty mailbox* — against the
+new mechanism.
 """
 
 from __future__ import annotations
@@ -19,7 +35,7 @@ import argparse
 
 import pytest
 
-from empirica.cli.parsers.mailbox_parsers import POLL_STATUS_ALL, VALID_POLL_STATUSES
+from empirica.cli.parsers.mailbox_parsers import POLL_NO_FILTER, POLL_STATUS_ALL, VALID_POLL_STATUSES
 
 
 def _args(status=None, outbox=False):
@@ -51,48 +67,192 @@ def _statuses_for(args):
     return rc, captured.get("statuses")
 
 
-def test_all_is_expanded_to_every_status():
-    """'all' is not a stored status — it has to be translated, not forwarded."""
+def test_all_is_not_itself_a_status():
+    """'all' is not stored — it has to be translated, never forwarded as a literal."""
     assert POLL_STATUS_ALL not in VALID_POLL_STATUSES
 
 
-@pytest.mark.parametrize("bad", ["acceptd", "all,bogus", "ACCEPTED", "done", ""])
-def test_unknown_status_is_rejected_not_silently_empty(capsys, bad):
-    from empirica.cli.command_handlers import mailbox_commands as mc
+@pytest.mark.parametrize("unrecognised", ["acceptd", "ACCEPTED", "done"])
+def test_an_unrecognised_status_is_noted_loudly_and_passed_through(unrecognised):
+    """The original requirement, against the new mechanism.
 
-    if not bad:
-        pytest.skip("empty string falls through to the default filter, which is correct")
+    Passed through rather than rejected — the list this CLI checks against has
+    gone stale twice, and a false reject blocks work outright where a passed-through
+    typo costs one round-trip and a clear 400. The NOTE is what keeps it from being
+    silent on a cortex too old to validate.
+    """
+    rc, statuses = _statuses_for(_args(status=unrecognised))
 
-    rc = mc.handle_mailbox_poll_command(_args(status=bad))
+    assert rc != 1, "an unrecognised value is cortex's to judge, not ours"
+    assert statuses == (unrecognised,), "the value must reach cortex to be validated there"
+
+
+@pytest.mark.parametrize("unrecognised", ["acceptd", "ACCEPTED", "done"])
+def test_the_note_warns_that_an_empty_result_may_mean_a_wrong_value(capsys, unrecognised):
+    """A note that does not say WHY it matters is decoration.
+
+    The whole point is the reader knowing that zero rows might mean "wrong filter"
+    rather than "no mail" — the confusion that started this file.
+    """
+    _statuses_for(_args(status=unrecognised))
     err = capsys.readouterr().err
 
-    assert rc == 1, "an unusable filter must not exit 0"
-    assert "unknown --status" in err
-    assert "valid:" in err, "name the alternatives — a rejection with no menu is a dead end"
+    assert unrecognised in err, "the note must name the offending value"
+    assert "empty result" in err, "the note must connect itself to the failure mode it prevents"
 
 
-def test_the_error_names_the_offending_value(capsys):
-    from empirica.cli.command_handlers import mailbox_commands as mc
-
-    mc.handle_mailbox_poll_command(_args(status="accepted,acceptd,changed"))
+def test_the_note_blames_only_the_unrecognised_value(capsys):
+    _statuses_for(_args(status="accepted,acceptd,changed"))
     err = capsys.readouterr().err
 
     assert "acceptd" in err
-    assert "accepted," not in err.split("valid:")[0].replace("acceptd", ""), "only the BAD value is blamed"
+    assert "changed" not in err, "a known value must not be swept into the note"
 
 
-def test_every_valid_status_is_accepted():
+def test_a_recognised_status_produces_no_note(capsys):
+    """The positive control.
+
+    Without it, a note attached to every poll would satisfy every assertion above
+    while training readers to ignore the one that matters.
+    """
+    _statuses_for(_args(status="accepted"))
+
+    assert capsys.readouterr().err == ""
+
+
+def test_every_known_status_is_passed_through_unchanged():
     for status in VALID_POLL_STATUSES:
         rc, statuses = _statuses_for(_args(status=status))
         assert rc != 1, f"{status} must be accepted"
         assert statuses == (status,)
 
 
-def test_all_expands_to_the_full_set():
+def test_the_statuses_the_protocol_acts_on_are_reachable():
+    """`failed` and `wont_fix` are what the mailbox protocol tells you to act on.
+
+    The poll skill's reaction table says an outbox `failed`/`wont_fix` means the
+    leg is dead and must not be chained as if it shipped. While the allowlist
+    omitted them they could not be queried by default, by name, or via `all` — so
+    a practitioner saw silence, and silence reads as awaiting-reply. The one signal
+    that says stop waiting was the one the tool filtered out.
+    """
+    for status in ("failed", "wont_fix", "targets_pending"):
+        rc, statuses = _statuses_for(_args(status=status, outbox=True))
+        assert rc != 1
+        assert statuses == (status,)
+
+
+def test_all_sends_no_filter_rather_than_an_enumeration():
+    """`all` expanded to the known list, while the help promised "every status".
+
+    Measured: 7 of 13. A caller asking for everything got a silent subset — the
+    exact defect this file was opened for, reintroduced by its own first fix.
+    Sending no filter is the only form that cannot go stale.
+    """
     rc, statuses = _statuses_for(_args(status=POLL_STATUS_ALL))
 
     assert rc != 1
-    assert set(statuses) == set(VALID_POLL_STATUSES), "'all' must mean every status, not the literal string"
+    assert statuses == POLL_NO_FILTER, "'all' must send NO filter, not the statuses we happen to know"
+
+
+def test_no_filter_omits_the_query_key_entirely():
+    """An empty tuple must not become `status=` on the wire.
+
+    `",".join(())` is `""` — a filter matching nothing, not the absence of one.
+    "Every status" and "no results" would go out as almost the same request.
+    """
+    import urllib.parse
+
+    from empirica.core.loop_scheduler import content_poll as cp
+
+    seen = {}
+
+    def _fake_get(req, *_a, **_kw):
+        # urlopen is called with a Request, not a URL string — the full URL
+        # lives on .full_url. Reading the first positional as a str gives a
+        # Request object and an AttributeError three frames down in urllib.
+        url = getattr(req, "full_url", req)
+        # keep_blank_values=True is LOAD-BEARING. By default parse_qs DROPS a blank
+        # value, so `status=` reads as absent and this assertion passes against
+        # the very bug it guards. The negative control caught it: reverting the
+        # fix left this test green.
+        seen["query"] = urllib.parse.parse_qs(urllib.parse.urlparse(url).query, keep_blank_values=True)
+
+        class _R:
+            def read(self):
+                return b'{"proposals": []}'
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                return False
+
+        return _R()
+
+    import urllib.request
+
+    orig = urllib.request.urlopen
+    cp_resolve = cp._resolve_canonical_ai_id
+    try:
+        urllib.request.urlopen = _fake_get  # type: ignore[assignment]
+        cp._resolve_canonical_ai_id = lambda *_a, **_kw: "org.tenant.proj"  # type: ignore[assignment]
+        cp.fetch_cortex_outbox("http://c", "k", "empirica", statuses=())
+    finally:
+        urllib.request.urlopen = orig  # type: ignore[assignment]
+        cp._resolve_canonical_ai_id = cp_resolve  # type: ignore[assignment]
+
+    assert "status" not in seen["query"], "an empty filter must be ABSENT, not empty"
+
+
+def test_a_non_empty_filter_still_sends_the_key():
+    """Positive control for the omission above — and a guard for every listener.
+
+    The listener callers always pass a non-empty default, so their query must be
+    byte-for-byte what it was. If omission leaked into that path, every wake filter
+    would silently widen to everything.
+    """
+    import urllib.parse
+    import urllib.request
+
+    from empirica.core.loop_scheduler import content_poll as cp
+
+    seen = {}
+
+    def _fake_get(req, *_a, **_kw):
+        # urlopen is called with a Request, not a URL string — the full URL
+        # lives on .full_url. Reading the first positional as a str gives a
+        # Request object and an AttributeError three frames down in urllib.
+        url = getattr(req, "full_url", req)
+        # keep_blank_values=True is LOAD-BEARING. By default parse_qs DROPS a blank
+        # value, so `status=` reads as absent and this assertion passes against
+        # the very bug it guards. The negative control caught it: reverting the
+        # fix left this test green.
+        seen["query"] = urllib.parse.parse_qs(urllib.parse.urlparse(url).query, keep_blank_values=True)
+
+        class _R:
+            def read(self):
+                return b'{"proposals": []}'
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                return False
+
+        return _R()
+
+    orig = urllib.request.urlopen
+    cp_resolve = cp._resolve_canonical_ai_id
+    try:
+        urllib.request.urlopen = _fake_get  # type: ignore[assignment]
+        cp._resolve_canonical_ai_id = lambda *_a, **_kw: "org.tenant.proj"  # type: ignore[assignment]
+        cp.fetch_cortex_outbox("http://c", "k", "empirica", statuses=("accepted", "changed"))
+    finally:
+        urllib.request.urlopen = orig  # type: ignore[assignment]
+        cp._resolve_canonical_ai_id = cp_resolve  # type: ignore[assignment]
+
+    assert seen["query"]["status"] == ["accepted,changed"]
 
 
 def test_defaults_are_applied_when_no_status_given():
@@ -112,11 +272,11 @@ def test_defaults_are_applied_when_no_status_given():
     assert "accepted" in outbox
 
 
-def test_help_text_and_validator_read_the_same_definition():
+def test_help_text_and_the_known_list_read_the_same_definition():
     """They were two sources of truth, and only the help text knew the answer.
 
-    The help string listed the valid statuses while the code accepted anything.
-    Building the help FROM the constant makes drift between them impossible.
+    Still built from the constant. The constant is a hint now rather than a gate,
+    but a help text that hand-lists statuses would drift from it just as before.
     """
     import inspect
 
@@ -124,6 +284,21 @@ def test_help_text_and_validator_read_the_same_definition():
 
     src = inspect.getsource(mailbox_parsers.add_mailbox_parsers)
     assert "VALID_POLL_STATUSES" in src, "help text must be built from the constant, not hand-listed"
+
+
+def test_the_help_no_longer_claims_an_unrecognised_value_is_an_error():
+    """The help promised a rejection this CLI no longer performs.
+
+    A help text describing the previous contract is the two-sources-of-truth
+    defect again, one layer out — and this one is read by a human deciding what
+    to type.
+    """
+    import inspect
+
+    from empirica.cli.parsers import mailbox_parsers
+
+    src = inspect.getsource(mailbox_parsers.add_mailbox_parsers)
+    assert "an error, not an empty result" not in src
 
 
 # --- the defaults are a REPORT, not a wake filter -----------------------------
@@ -176,10 +351,11 @@ def test_apd_is_wakeable_because_it_is_actionable():
     assert "accepted_pending_dispatch" in EMISSION_STATUSES_OUTBOX
 
 
-def test_apd_is_an_accepted_status_value():
+def test_apd_is_a_known_status_value():
     """I hardcoded VALID_POLL_STATUSES from the help text and missed this one.
 
     `--status accepted_pending_dispatch` was rejected as unknown — my fix for a
-    silent-empty had become a false-reject on a real status.
+    silent-empty had become a false-reject on a real status. That is the pattern
+    the gate removal above is the answer to.
     """
     assert "accepted_pending_dispatch" in VALID_POLL_STATUSES
