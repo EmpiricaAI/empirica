@@ -5,6 +5,67 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.47] - 2026-09-16
+
+### Fixed
+
+Five defects of one shape, found in a day across four practices: an incomplete or
+failed operation rendering identically to a complete successful one.
+
+- **A request timeout reported itself as "not found", and named two innocent
+  suspects.** `_default_fetch_parent` caught bare `Exception` and returned `None`,
+  so a 5s timeout, a DNS failure, a 401 and a 500 all reached the user as *"parent
+  `<id>` not found or inaccessible. Check the id and your Cortex tenant scope."* —
+  a sentence asserting an outcome the code never observed. Cortex's nginx logs
+  carry the real shape: `499` under a 3-5× request spike, then `200` for the same
+  id 25 seconds later. It cost two peer practices a retracted diagnosis each, both
+  hunting a lookup defect that did not exist because the message named one. `None`
+  now means a real 404; everything else raises `ParentFetchError` with the actual
+  cause and a `retryable` flag. The sibling helper twenty lines below already did
+  this properly and its docstring says it is deliberately *not* modelled on the
+  broken one — the right pattern was adjacent the whole time.
+
+- **The SessionStart mesh block stated a page size as the inbox total.** It renders
+  *"Pending mesh messages (N) — handle these FIRST"*, so N governs behaviour: work
+  the page to zero and the block agrees you are done. N was `len(proposals)`. The
+  CLI puts `matched`, `has_more` and a `truncated_hint` in the very object the hook
+  parses, and the hook dropped all three. Measured: this practice's own session
+  announced 20 against a true backlog of 28; a peer measured 20 against
+  `matched=118`. The producer was already correct and had been fixed from an
+  earlier incident of this exact shape — one consumer discarded the fields, which
+  is why a producer-side fix could not reach it. The overflow line now carries
+  `--limit` when the poll itself was truncated, instead of advertising a command
+  that reproduces the same partial page.
+
+- **`--status all` returned 7 of 13 statuses while its own help promised "every
+  status".** The hand-maintained allowlist went stale against cortex's vocabulary
+  — and the comment sitting on it had predicted exactly that, naming the fix, two
+  divergences earlier. A comment naming a future failure is a record that someone
+  saw it coming, not a guard against it. `failed` and `wont_fix` were unreachable
+  by default, by name, or via `all`, while the mailbox protocol instructs
+  practitioners to act on precisely those states — so an emitter could not count
+  their own undelivered sends and *"sender owns delivery"* had no client-side
+  mechanism. `all` now sends **no filter** (the query key is omitted, not sent
+  blank — `",".join(())` is a filter matching nothing, not the absence of one), and
+  an unrecognised value is passed through with a note rather than rejected. Cortex
+  validates its own vocabulary; the note keeps a typo loud against an older cortex
+  that does not.
+
+- **`mailbox reply` was the only verb in its file resolving identity the raw way.**
+  `poll` and `archive` both canonicalize, and `poll` carries the comment explaining
+  why. A resolvable slug is canonicalized server-side today, so this emitted
+  nothing broken — but that safety is invisible to the next reader, and an
+  unresolvable slug would bounce with no local signal.
+
+- **W1a's idempotency protection shipped as code and was deleted as teaching.**
+  `mailbox reply` stamps `payload.idempotency_key` and is the only emission path
+  that does; peers found 220 emitter-supplied keys in cortex's ledger and could not
+  account for setting any. Behaviour shipping without vocabulary is harder to spot
+  than the reverse: the protected path gives no signal that it is protecting
+  anything. The boundary is now recorded where a reader looks for it, plus a test
+  that scans for the propose endpoint so a second core emitter cannot ship
+  unprotected by omission.
+
 ## [1.13.46] - 2026-09-13
 
 ### Fixed

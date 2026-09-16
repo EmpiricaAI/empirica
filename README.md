@@ -2,7 +2,7 @@
 
 > **We Gave AI a Mirror. Now It Measures What It Believes.**
 
-[![Version](https://img.shields.io/badge/version-1.13.46-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.46)
+[![Version](https://img.shields.io/badge/version-1.13.47-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.47)
 [![PyPI](https://img.shields.io/pypi/v/empirica)](https://pypi.org/project/empirica/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -114,13 +114,13 @@ empirica setup
 
 ```bash
 # Security-hardened Alpine image (~276MB, recommended)
-docker pull nubaeon/empirica:1.13.46-alpine
+docker pull nubaeon/empirica:1.13.47-alpine
 
 # Standard image (Debian slim, ~414MB)
-docker pull nubaeon/empirica:1.13.46
+docker pull nubaeon/empirica:1.13.47
 
 # Run
-docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.46 /bin/bash
+docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.47 /bin/bash
 ```
 </details>
 
@@ -414,6 +414,16 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
+## What's New in 1.13.47
+
+Five defects of one shape, found in a day across four practices: an incomplete or failed operation rendering identically to a complete successful one.
+
+- **A request timeout reported itself as "not found", and named two innocent suspects.** `_default_fetch_parent` caught bare `Exception` and returned `None`, so a 5s timeout, a DNS failure, a 401 and a 500 all reached the user as *"parent `<id>` not found or inaccessible. Check the id and your Cortex tenant scope."* — a sentence asserting an outcome the code never observed. It cost two peer practices a retracted diagnosis each, both hunting a lookup defect that did not exist because the message named one. `None` now means a real 404; everything else raises with the actual cause and a `retryable` flag.
+- **The SessionStart mesh block stated a page size as the inbox total.** It renders *"Pending mesh messages (N) — handle these FIRST"*, so N governs behaviour. N was the length of the returned page, while `matched` and `has_more` sat unused in the same object the hook parsed. Measured: 20 announced against a true 28 here, and a peer at 20 against `matched=118`.
+- **`--status all` returned 7 of 13 statuses while its own help promised "every status".** The hand-maintained allowlist went stale against cortex's vocabulary — and the comment on it had predicted exactly that, naming the fix, two divergences earlier. `failed` and `wont_fix` were unreachable while the mailbox protocol instructs practitioners to act on those states. `all` now sends no filter; unrecognised values pass through with a note for cortex to validate.
+- **`mailbox reply` was the only verb in its file resolving identity the raw way**, while its two siblings canonicalize and one of them carries the comment explaining why.
+- **W1a's idempotency protection shipped as code and was deleted as teaching.** Only the ack path stamps a key; the boundary is now recorded where a reader looks for it, with a test so a second core emitter cannot ship unprotected by omission.
+
 ## What's New in 1.13.46
 
 - **The calibration instrument penalised the behaviour the system prompt mandates.** `unknown_resolution_rate` counted every unknown in the session, unfloored and ungated, into `do`, `completion` and `impact` — so banking a question you could not yet answer emitted a hard `0.0` into three vectors, while the prompt calls a session reporting uncertainty with no unknown artifacts behind it an unsupported claim. Structural rather than a diligence failure: an unknown logged late in a session cannot be resolved inside it. The block eight lines below rewards the *same* class of act (`assumptions logged = epistemic honesty`), so one file treated banking uncertainty as a virtue and as absent impact at once — which is the strongest evidence the unknown side was never a deliberate judgment. Fixed **without a floor**, deliberately: a floor preserves an incentive under a friendlier number, which is what `issue_resolution_ratio`'s `0.2` does to its own zero. The metric is now a saturating **count of standing unknowns closed inside the window**, so neither banking uncertainty nor carrying a backlog can move it. Traced by empirica-mesh-support over three rounds, from an origin measurement by Carly R. Anderson's foundation seat across 17 practices.
@@ -454,6 +464,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 **Author:** David S. L. Van Assche
-**Version:** 1.13.46
+**Version:** 1.13.47
 
 *Turtles all the way down — built with its own epistemic framework, measuring what it knows at every step.*
