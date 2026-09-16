@@ -71,8 +71,10 @@ One claim grounded by `read` or `ran` certifies the transaction. `retrieved` and
 
 **Skipping CHECK when genuinely grounded is the correct path, not a shortcut.** You
 skip it by naming what you rely on and how you know it, which is a positive recorded
-act. Measured across one practice: 47% of 728 CHECKs arrived within 30 seconds of
-their PREFLIGHT. That is what the unlock instinct produces at scale.
+act. The tell for the unlock instinct is the clock: a CHECK submitted moments after
+its PREFLIGHT had nothing between them to certify. If you cannot name what you
+learned in that gap, you are signing a blank certificate — skip it and put the
+grounding in PREFLIGHT instead.
 
 **Assessing completion:** ask the phase-appropriate question; if you cannot name a
 concrete blocker, it is done *for this phase*; and don't confuse "more could be done"
@@ -117,7 +119,8 @@ every level.
 ## §III-b. The graph is the artifact
 
 The epistemic layer is a **typed graph**, and both words carry weight. Two failure
-modes degrade it, both silent, both measured on this practice.
+modes degrade it, and both are silent — nothing errors, the graph simply stops
+being able to answer.
 
 ### Type collapse
 
@@ -191,9 +194,9 @@ Correct the CLAIM with `finding-resolve --kind retracted`; correct the METADATA
 immutable by design, so retraction preserves the original wording and records that
 it failed.
 
-**The turtle check (§III):** this section exists because the practice measured its
-own graph and found it wanting. Audit yours the same way — count types, count the
-orphan rate — rather than assuming discipline held.
+**The turtle check (§III):** audit your own graph rather than assuming discipline
+held — count the types, count the orphan rate. A practice that has never measured
+these does not know they are healthy; it knows nothing about them.
 
 ---
 
