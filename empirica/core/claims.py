@@ -184,9 +184,24 @@ def declare(
                 "VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (cid, session_id, transaction_id, idx, text, grounding, ref, scope, measured_count, now),
             )
-        except Exception:
+        except Exception as wide_err:
             # Older DB without the 071 columns — fall back rather than losing the
             # claim. A claim recorded without its scope is worth more than no claim.
+            #
+            # SAID OUT LOUD, because the first version of this fallback was silent
+            # and it hid a live defect for hours: scope and count were accepted,
+            # echoed back as stored, and written as NULL on every real CLI call.
+            # The echo below is built from the INPUT, so a swallowed failure here
+            # reported success with the very fields it had just dropped. A fallback
+            # that degrades quietly is how "accepted and discarded" gets built.
+            logger.warning(
+                "claims: could not store scope/measured_count (%s: %s) — falling back to the "
+                "pre-071 row shape. The claim is recorded WITHOUT its scope.",
+                type(wide_err).__name__,
+                wide_err,
+            )
+            scope = None
+            measured_count = None
             try:
                 db.conn.execute(
                     "INSERT INTO transaction_claims "

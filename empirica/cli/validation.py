@@ -494,6 +494,131 @@ def safe_validate(data: dict[str, Any], model: type[T]) -> tuple[T | None, str |
     """
     try:
         validated = model.model_validate(data)
-        return validated, None
     except Exception as e:
         return None, str(e)
+    _announce_ignored_keys(data, model)
+    return validated, None
+
+
+#: Every key `empirica.core.claims` actually reads off a claim dict, for BOTH
+#: declaration (claim/grounding/ref/scope/count) and adjudication
+#: (index/claim_id/verdict/evidence/note). Enumerated from the `raw.get(...)` calls
+#: in that module rather than from memory — anything outside this set is dropped.
+_CLAIM_KEYS: frozenset[str] = frozenset(
+    {
+        "claim",
+        "claim_id",
+        "count",
+        "evidence",
+        "grounding",
+        "index",
+        "measured_count",
+        "note",
+        "ref",
+        "scope",
+        "verdict",
+    }
+)
+
+
+#: Keys each workflow handler reads straight off the RAW payload, bypassing the
+#: model. The model is therefore NOT the full truth about what is consumed, and a
+#: detector built from `model_fields` alone reports `claims` as dropped on every
+#: CHECK. Kept honest mechanically: `tests/test_ignored_keys_are_announced.py`
+#: re-greps the handlers' `config_data.get("...")` calls and fails if this drifts.
+RAW_CONSUMED: dict[str, frozenset[str]] = {
+    "CheckInput": frozenset(
+        {
+            "approach",
+            "claims",
+            "confidence",
+            "cycle",
+            "decision",
+            "reasoning",
+            "round",
+            "session_id",
+            "vectors",
+            "verbose",
+        }
+    ),
+    "PostflightInput": frozenset(
+        {"claims", "coverage", "grounded_rationale", "grounded_vectors", "reasoning", "session_id", "vectors"}
+    ),
+}
+
+
+def ignored_keys(data: dict[str, Any], model: type[BaseModel]) -> list[str]:
+    """Dropped keys that look like a MISSPELLING of one the handler reads.
+
+    Two layers, because the absorption happens at both:
+
+    * **top level** — a model at pydantic's default `extra='ignore'` discards any
+      key it does not declare. `PreflightInput` was switched to `forbid` after a
+      payload keyed `task_description` was accepted and lost; its siblings
+      `CheckInput` and `PostflightInput` never were, so a POSTFLIGHT sending
+      `"claim"` for `"claims"` drops every adjudication, forces them all to
+      `untested`, and reports ok. The fix went to the model that bit, not the class.
+    * **inside `claims`** — typed `list[dict]`, so any key validates. That is the
+      permissiveness that let a newer schema and an older writer disagree in
+      silence on 2026-09-17: `scope` and `count` accepted on every call, stored on
+      none.
+
+    **Near-misses only, on purpose.** The first draft flagged every undeclared key
+    and would have fired on every CHECK: handlers read `claims` off the raw payload,
+    and the system prompt's own CHECK example carries `current_phase`, which no
+    handler consumes. A benign extra is not a defect, and a note on every call is
+    the over-firing that has already killed two mechanisms here. What is dangerous
+    is a key one edit away from something that IS read — so that, and only that, is
+    what this returns. No allowlist of "harmless" keys to go stale.
+
+    Returned rather than raised: flipping the siblings to `forbid` would hard-fail
+    CHECK and POSTFLIGHT fleet-wide for any caller carrying a stray key. Report,
+    do not reject.
+    """
+    import difflib
+
+    out: list[str] = []
+    if not isinstance(data, dict):
+        return out
+
+    if model.model_config.get("extra", "ignore") == "ignore":
+        consumed = set(model.model_fields) | set(RAW_CONSUMED.get(model.__name__, ()))
+        for info in model.model_fields.values():
+            if info.alias:
+                consumed.add(info.alias)
+        for k in sorted(data):
+            if k not in consumed:
+                near = difflib.get_close_matches(k, consumed, n=1, cutoff=0.8)
+                if near:
+                    out.append(f"{k} (did you mean {near[0]!r}?)")
+
+    claims = data.get("claims")
+    if isinstance(claims, list):
+        for i, c in enumerate(claims, start=1):
+            if not isinstance(c, dict):
+                continue
+            for k in sorted(c):
+                if k not in _CLAIM_KEYS:
+                    near = difflib.get_close_matches(k, _CLAIM_KEYS, n=1, cutoff=0.75)
+                    if near:
+                        out.append(f"claims[{i}].{k} (did you mean {near[0]!r}?)")
+    return out
+
+
+def _announce_ignored_keys(data: dict[str, Any], model: type[BaseModel]) -> None:
+    """stderr, never the JSON envelope — no consumer's parse can break on it.
+
+    Best-effort: a note about dropped keys must not be able to fail a submission.
+    """
+    try:
+        dropped = ignored_keys(data, model)
+        if dropped:
+            import sys
+
+            sys.stderr.write(
+                f"  note: {model.__name__} ACCEPTED and IGNORED {len(dropped)} key(s): "
+                f"{', '.join(dropped)}. Nothing was stored for them, and the command will "
+                "still report ok — check the spelling against the schema.\n"
+            )
+    except Exception:  # noqa: S110 — advisory only; never block a submission on it
+        pass
