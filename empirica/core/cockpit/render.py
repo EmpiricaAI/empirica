@@ -10,8 +10,22 @@ import json
 import os
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
+
+# Staleness lives in `loop_registry`, not here — state computation belongs with
+# the state, not with the drawing. These were DEFINED in this module and their
+# only two call sites were both rendering, so the detector drew a warning into a
+# TUI nobody watched while a loop sat at 70x its interval for ten weeks. `doctor`
+# now reports it too. Aliased to the old private names so the call sites below
+# read unchanged, and imported rather than copied: two implementations of one
+# staleness rule is worse than the bug.
+from empirica.core.cockpit.loop_registry import (
+    loop_age_seconds as _loop_age_seconds,
+)
+from empirica.core.cockpit.loop_registry import (
+    loop_is_stale as _loop_is_stale,
+)
 
 _ANSI_RE = re.compile(r"\033\[[0-9;]*m")
 
@@ -53,7 +67,8 @@ _STATE_GLYPH = {
     "no-claude": ("⊗", _GRAY, "no-claude"),
 }
 
-_STALE_LOOP_FACTOR = 2.0  # last_run age > 2× interval → stale warning
+# _STALE_LOOP_FACTOR moved to loop_registry.STALE_LOOP_FACTOR with the detector
+# that used it — a second copy here would be two sources of truth for one rule.
 
 
 def _color_enabled() -> bool:
@@ -91,49 +106,6 @@ def _short_id(uid: str | None, n: int = 8) -> str:
 def render_json(payload: dict[str, Any]) -> str:
     """Serialize the cockpit payload as a JSON string."""
     return json.dumps(payload, indent=2, sort_keys=False)
-
-
-def _interval_to_seconds(interval: str | None) -> float | None:
-    """Parse '5m' / '30s' / '2h' / '1d' to seconds. Returns None on failure."""
-    if not interval or not isinstance(interval, str):
-        return None
-    interval = interval.strip().lower()
-    if not interval:
-        return None
-    suffix_map = {"s": 1, "m": 60, "h": 3600, "d": 86_400}
-    suffix = interval[-1]
-    if suffix in suffix_map:
-        try:
-            return float(interval[:-1]) * suffix_map[suffix]
-        except ValueError:
-            return None
-    try:
-        return float(interval) * 60  # bare number → minutes
-    except ValueError:
-        return None
-
-
-def _loop_age_seconds(loop: dict[str, Any]) -> float | None:
-    last_run = loop.get("last_run")
-    if not last_run:
-        return None
-    try:
-        dt = datetime.fromisoformat(last_run.replace("Z", "+00:00"))
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return (datetime.now(tz=timezone.utc) - dt).total_seconds()
-    except (ValueError, TypeError):
-        return None
-
-
-def _loop_is_stale(loop: dict[str, Any]) -> bool:
-    interval_s = _interval_to_seconds(loop.get("interval"))
-    if interval_s is None or interval_s <= 0:
-        return False
-    age = _loop_age_seconds(loop)
-    if age is None:
-        return False
-    return age > interval_s * _STALE_LOOP_FACTOR
 
 
 def _loops_summary(loops: dict[str, Any], color: bool) -> str:

@@ -806,3 +806,78 @@ class LoopRegistry:
 
     def to_dict(self) -> dict[str, Any]:
         return self._read()
+
+
+# ---------------------------------------------------------------------------
+# Staleness — state computation, deliberately NOT in the render layer
+# ---------------------------------------------------------------------------
+#
+# These three helpers and the factor lived in `core/cockpit/render.py`, whose
+# only two call sites were both drawing. The detector worked and reached a TUI
+# nobody was watching: a loop sat at 70x its interval for ten weeks.
+#
+# It is the sibling of the pause-guard defect (fixed 1761911a7), where
+# `is_loop_paused` was display-only and nothing ENFORCED it. This was
+# display-only and nothing REPORTED it. One was a control that only printed;
+# this was an alarm that only drew.
+#
+# So they move to where loops actually live. A non-visual consumer importing
+# staleness from a render module is the dependency pointing the wrong way, and
+# re-deriving the rule beside it would be two sources of truth for one
+# question. `render.py` now imports these.
+
+STALE_LOOP_FACTOR = 2.0  # last_run age > 2x interval → stale
+
+
+def interval_to_seconds(interval: Any) -> float | None:
+    """Parse an interval like '30s', '5m', '2h', '1d', or a bare number (minutes)."""
+    if interval is None:
+        return None
+    if isinstance(interval, (int, float)):
+        return float(interval) * 60
+    if not isinstance(interval, str):
+        return None
+    interval = interval.strip().lower()
+    if not interval:
+        return None
+    suffix_map = {"s": 1, "m": 60, "h": 3600, "d": 86_400}
+    suffix = interval[-1]
+    if suffix in suffix_map:
+        try:
+            return float(interval[:-1]) * suffix_map[suffix]
+        except ValueError:
+            return None
+    try:
+        return float(interval) * 60  # bare number → minutes
+    except ValueError:
+        return None
+
+
+def loop_age_seconds(loop: dict[str, Any]) -> float | None:
+    """Seconds since the loop's `last_run`, or None when it has never run."""
+    last_run = loop.get("last_run")
+    if not last_run:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(last_run).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return (datetime.now(tz=timezone.utc) - dt).total_seconds()
+    except (ValueError, TypeError):
+        return None
+
+
+def loop_is_stale(loop: dict[str, Any]) -> bool:
+    """True when a loop's last run is more than STALE_LOOP_FACTOR x its interval ago.
+
+    False for a loop with no interval, a non-positive interval, or one that has
+    never run — none of those is staleness, and reporting them as such would make
+    the signal unreadable.
+    """
+    interval_s = interval_to_seconds(loop.get("interval"))
+    if interval_s is None or interval_s <= 0:
+        return False
+    age = loop_age_seconds(loop)
+    if age is None:
+        return False
+    return age > interval_s * STALE_LOOP_FACTOR

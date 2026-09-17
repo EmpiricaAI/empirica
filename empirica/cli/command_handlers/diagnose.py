@@ -76,6 +76,79 @@ class CheckResult:
 # ---------------------------------------------------------------------------
 
 
+def check_loops_not_stale() -> CheckResult:
+    """Report loops whose last run is far past their interval.
+
+    The staleness detector already existed and was display-only: its two call
+    sites were both in the render layer, so it drew a warning into a TUI nobody
+    was watching while `amex-belege` sat at 70x its interval for ten weeks.
+
+    It is the sibling of the pause-guard defect (fixed 1761911a7) — `is_loop_paused`
+    was display-only and nothing ENFORCED it; this was display-only and nothing
+    REPORTED it. A control that only prints, and an alarm that only draws.
+
+    WARN rather than FAIL deliberately. A stale loop is a real signal and not a
+    broken install, and doctor's exit code gates other things; a FAIL here would
+    make a legitimately-paused-by-neglect loop look like a failed setup.
+    """
+    try:
+        from empirica.core.cockpit.loop_registry import (
+            EMPIRICA_DIR,
+            loop_age_seconds,
+            loop_is_stale,
+        )
+    except Exception as e:
+        return CheckResult("Loops not stale", SKIP, f"loop registry unavailable: {type(e).__name__}")
+
+    try:
+        registries = sorted(Path(EMPIRICA_DIR).glob("loops_*.json"))
+    except Exception as e:
+        return CheckResult("Loops not stale", SKIP, f"could not list loop registries: {type(e).__name__}")
+
+    if not registries:
+        # No registry is not "no stale loops" — it is a different answer, and
+        # SKIP says so rather than reporting a pass nothing verified.
+        return CheckResult("Loops not stale", SKIP, "no loop registries found")
+
+    stale: list[dict[str, Any]] = []
+    total = 0
+    for reg in registries:
+        try:
+            loops = (json.loads(reg.read_text(encoding="utf-8")) or {}).get("loops") or {}
+        except Exception:
+            continue  # a malformed registry is the cockpit's problem, not this check's
+        for name, loop in loops.items():
+            if not isinstance(loop, dict):
+                continue
+            total += 1
+            if loop.get("paused"):
+                continue  # paused is intentional; only neglect is the signal
+            if loop_is_stale(loop):
+                age = loop_age_seconds(loop) or 0.0
+                stale.append(
+                    {
+                        "instance": reg.stem.removeprefix("loops_"),
+                        "loop": name,
+                        "interval": loop.get("interval"),
+                        "hours_since_last_run": round(age / 3600.0, 1),
+                    }
+                )
+
+    if not stale:
+        return CheckResult("Loops not stale", PASS, f"{total} loop(s) within interval")
+
+    worst = max(stale, key=lambda s: s["hours_since_last_run"])
+    return CheckResult(
+        "Loops not stale",
+        WARN,
+        f"{len(stale)} of {total} loop(s) past interval — worst: "
+        f"{worst['instance']}/{worst['loop']} at {worst['hours_since_last_run']}h "
+        f"(interval {worst['interval']})",
+        hint="Check the loop runner is alive: `empirica loop list`, then `empirica listener on` if the listener is down.",
+        data={"stale": stale, "total": total},
+    )
+
+
 def check_python_version() -> CheckResult:
     """Verify Python is recent enough for Empirica."""
     major, minor = sys.version_info[:2]
@@ -575,6 +648,7 @@ def run_all_checks() -> list[CheckResult]:
     results.append(check_statusline_runnable(claude_dir_path))
     results.append(check_project_initialized())
     results.append(check_active_session())
+    results.append(check_loops_not_stale())
 
     return results
 
