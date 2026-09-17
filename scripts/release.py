@@ -454,6 +454,17 @@ class ReleaseManager:
                 r'__version__\s*=\s*"[^"]+"',
                 f'__version__ = "{self.version}"',
             ),
+            # empirica_mcp's own __version__. MISSING from this sweep until 1.13.48:
+            # it sat at "1.8.14" for roughly five minors while pyproject beside it
+            # read the current release — wrong in the repo AND in every install, so
+            # no reinstall could fix it. One package, three version surfaces, all
+            # disagreeing, on the evening a fleet was trying to work out which
+            # code it was running.
+            (
+                self.repo_root / "empirica-mcp" / "empirica_mcp" / "__init__.py",
+                r'__version__\s*=\s*"[^"]+"',
+                f'__version__ = "{self.version}"',
+            ),
             (
                 self.repo_root / "empirica-mcp" / "pyproject.toml",
                 r'^version\s*=\s*"[^"]+"',
