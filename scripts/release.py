@@ -1382,6 +1382,22 @@ class ReleaseManager:
         self.run_command(["git", "push", "origin", "main", "--tags"])
         success(f"Created and pushed tag: {tag}")
 
+        # Capture the tagged SHA so the post-release "watch CI" line can be keyed
+        # to THIS commit. Printing a runnable command matters more than it sounds:
+        # the line it replaced was `gh run list --limit 1`, which answers "what is
+        # the newest run" rather than "did my commit pass", and those diverge the
+        # moment anything else pushes. Best-effort — a missing SHA degrades the
+        # hint to a <sha> placeholder rather than failing a published release.
+        try:
+            self.release_sha = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+        except Exception:
+            self.release_sha = None
+
     def build_and_push_docker(self):
         """Build and push Docker images (Debian + Alpine)"""
         log("\n" + "=" * 60)
@@ -2153,7 +2169,19 @@ brew install empirica
             log("╚════════════════════════════════════════════════════════════╝\n")
 
             success(f"Tagged v{self.version} — CI (release.yml) publishes every channel from here")
-            info("Watch: gh run list --branch main --limit 1")
+            info(
+                # By SHA, never by list position. `--limit 1` returns the NEWEST
+                # run, which is a different query: if any push starts a run in
+                # between, it reports that run's (empty, in_progress) conclusion
+                # for the commit you meant to check. Observed printing an empty
+                # verdict for a commit that was green.
+                "Watch this SHA, not the newest run: "
+                "gh run list --branch main --json headSha,status,conclusion "
+                f"--jq '.[] | select(.headSha|startswith(\"{self.release_sha[:9]}\"))'"
+                if getattr(self, "release_sha", None)
+                else "Watch this SHA, not the newest run: gh run list --branch main "
+                "--json headSha,status,conclusion --jq '.[] | select(.headSha|startswith(\"<sha>\"))'"
+            )
             info(
                 f"Verify PyPI on the SIMPLE INDEX — both JSON fields lag: "
                 f"curl -s https://pypi.org/simple/empirica/ | grep {self.version}"
@@ -2286,7 +2314,19 @@ brew install empirica
             log("╚════════════════════════════════════════════════════════════╝\n")
 
             success(f"Tagged v{self.version} — CI (release.yml) publishes every channel from here")
-            info("Watch: gh run list --branch main --limit 1")
+            info(
+                # By SHA, never by list position. `--limit 1` returns the NEWEST
+                # run, which is a different query: if any push starts a run in
+                # between, it reports that run's (empty, in_progress) conclusion
+                # for the commit you meant to check. Observed printing an empty
+                # verdict for a commit that was green.
+                "Watch this SHA, not the newest run: "
+                "gh run list --branch main --json headSha,status,conclusion "
+                f"--jq '.[] | select(.headSha|startswith(\"{self.release_sha[:9]}\"))'"
+                if getattr(self, "release_sha", None)
+                else "Watch this SHA, not the newest run: gh run list --branch main "
+                "--json headSha,status,conclusion --jq '.[] | select(.headSha|startswith(\"<sha>\"))'"
+            )
             info(
                 f"Verify PyPI on the SIMPLE INDEX — both JSON fields lag: "
                 f"curl -s https://pypi.org/simple/empirica/ | grep {self.version}"
