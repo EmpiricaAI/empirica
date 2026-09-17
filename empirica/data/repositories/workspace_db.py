@@ -870,13 +870,40 @@ class WorkspaceDBRepository(BaseRepository):
         )
         return [dict(row) for row in cursor.fetchall()]
 
+    def get_entity_types(self, entity_id: str) -> list[str]:
+        """EVERY type registered for this id, sorted. Empty list when absent.
+
+        The plural is the point. This replaced `get_entity_type`, which ran the
+        same query with `LIMIT 1` and no `ORDER BY`, documented itself as
+        returning the "first match", and had exactly one caller that echoed the
+        result back to the client as the entity's type.
+
+        Under a colliding id that asserted a guess as fact, and it did so
+        undetectably: the artifacts returned alongside ARE correctly scoped to
+        whichever type got picked, so the response is internally consistent. A
+        consumer has nothing to compare against. "Arbitrary but coherent" is the
+        hardest kind of wrong answer to notice.
+
+        Returning the set moves the decision to the caller, who is the only one
+        who knows whether ambiguity is tolerable — and makes it possible to SAY
+        the id is ambiguous instead of silently picking.
+        """
+        rows = self._execute(
+            "SELECT DISTINCT entity_type FROM entity_registry WHERE entity_id = ? ORDER BY entity_type",
+            (entity_id,),
+        ).fetchall()
+        return [row["entity_type"] for row in rows]
+
     def get_entity_type(self, entity_id: str) -> str | None:
-        """Resolve an entity's type from the registry (first match); None if absent.
-        Used to pick the §5b membership-transitive junction for scoped artifacts."""
-        row = self._execute(
-            "SELECT entity_type FROM entity_registry WHERE entity_id = ? LIMIT 1", (entity_id,)
-        ).fetchone()
-        return row["entity_type"] if row else None
+        """Single type for an id, or None when absent OR AMBIGUOUS.
+
+        Kept for callers that genuinely want "the type, if there is exactly one".
+        The change from the old behaviour: a collision now yields None rather than
+        an arbitrary pick, so the caller cannot mistake a guess for a fact. Use
+        `get_entity_types` when you need to tell absent from ambiguous.
+        """
+        types = self.get_entity_types(entity_id)
+        return types[0] if len(types) == 1 else None
 
     def get_scoped_artifacts(
         self,

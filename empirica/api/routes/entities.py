@@ -351,15 +351,35 @@ async def list_entity_artifacts(
     from empirica.data.repositories.workspace_db import WorkspaceDBRepository
 
     with WorkspaceDBRepository.open() as repo:
-        entity_type = type or repo.get_entity_type(entity_id)
+        # Ambiguity is REPORTED, not resolved. The old code took the registry's
+        # first match under LIMIT 1 with no ORDER BY and echoed it back as
+        # `entity_type` — and the artifacts alongside it were correctly scoped to
+        # whichever type got picked, so the response was internally consistent and
+        # a consumer had nothing to compare against. An arbitrary-but-coherent
+        # answer is the hardest kind to notice.
+        candidate_types = [] if type else repo.get_entity_types(entity_id)
+        ambiguous = len(candidate_types) > 1
+        entity_type = type or (candidate_types[0] if len(candidate_types) == 1 else None)
         artifacts = repo.get_scoped_artifacts(entity_id, entity_type, limit=limit)
     # Join each source-type edge to its content so the knowledge pane renders
     # titles/descriptions, not opaque UUIDs (prop_tu3o343). Best-effort.
     _enrich_source_artifacts(artifacts)
-    return {
+    payload = {
         "ok": True,
         "entity_id": entity_id,
         "entity_type": entity_type,
         "count": len(artifacts),
         "artifacts": artifacts,
     }
+    if ambiguous:
+        # Named keys rather than a bare null: `entity_type: null` alone reads as
+        # "no type" — the same answer an absent id gives — so the caller must be
+        # able to tell a collision from a miss and act on it (pass ?type=).
+        payload["entity_type_ambiguous"] = True
+        payload["entity_type_candidates"] = candidate_types
+        payload["hint"] = (
+            f"{entity_id} is registered under {len(candidate_types)} types "
+            f"({', '.join(candidate_types)}); pass ?type= to disambiguate. "
+            "Artifacts are unscoped by type until you do."
+        )
+    return payload
