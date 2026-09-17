@@ -25,7 +25,23 @@ from pathlib import Path
 
 
 def _default_resolve_cortex_creds() -> tuple[str | None, str | None]:
-    """Resolve Cortex URL + api_key from credentials_loader."""
+    """Resolve Cortex URL + api_key from credentials_loader.
+
+    `(None, None)` means NOT CONFIGURED. A resolution that FAILED — expired
+    refresh token, unreadable credentials file, network error reaching the token
+    endpoint — now says so on stderr before returning the same tuple.
+
+    Why it matters that these were identical: every caller answers `(None, None)`
+    with *"Cortex creds missing — configure cortex.url + cortex.api_key…"*. So a
+    transient OAuth failure told the user to configure something already
+    configured, and the advice was unfollowable because nothing was missing. Same
+    shape as the timeout reported as "not found" that this file's
+    `_default_fetch_parent` carried until today, one function below.
+
+    The tuple is unchanged deliberately: `_resolve_cortex_creds` is injected into
+    every handler and every test double returns a 2-tuple. The cause reaches the
+    user beside the caller's own message rather than through a new return type.
+    """
     try:
         # OAuth-first with api_key fallback (empirica auth login) — the
         # resolver never returns a stale token and never raises past here.
@@ -33,12 +49,23 @@ def _default_resolve_cortex_creds() -> tuple[str | None, str | None]:
 
         creds = cortex_bearer()
         return creds.get("url"), creds.get("bearer")
-    except Exception:
+    except Exception as e:
+        sys.stderr.write(
+            f"  note: credential resolution FAILED ({type(e).__name__}: {e}) — "
+            "this is not the same as 'not configured'. Try `empirica auth login`.\n"
+        )
         return None, None
 
 
 def _default_resolve_ai_id() -> str | None:
-    """Read ai_id from .empirica/project.yaml in current project root."""
+    """Read ai_id from .empirica/project.yaml in current project root.
+
+    `None` means no project.yaml was found, or it carries no `ai_id`. A file that
+    exists and cannot be PARSED is a different thing and now announces itself:
+    callers answer `None` with *"set --ai-id or add ai_id to
+    .empirica/project.yaml"*, which on malformed YAML points the reader at a key
+    that is already there.
+    """
     try:
         import yaml
 
@@ -50,7 +77,11 @@ def _default_resolve_ai_id() -> str | None:
                 cfg = yaml.safe_load(proj_yaml.read_text()) or {}
                 return cfg.get("ai_id")
         return None
-    except Exception:
+    except Exception as e:
+        sys.stderr.write(
+            f"  note: found .empirica/project.yaml but could not read ai_id from it "
+            f"({type(e).__name__}: {e}) — the key may be present but the file unparseable.\n"
+        )
         return None
 
 
