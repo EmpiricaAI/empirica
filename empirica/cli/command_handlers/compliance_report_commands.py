@@ -1190,6 +1190,29 @@ def _parse_trufflehog_result(raw: dict[str, Any]) -> dict[str, Any]:
         pass
 
     total = verified + unverified
+    # `passed` stays `verified == 0` deliberately. "Verified" means trufflehog called
+    # the issuing service and got a 200 — it can do that for AWS, GitHub, Datadog, and
+    # CANNOT for our own `ctx_empirica_*` custom detector. So every custom-detector hit
+    # is permanently unverified, and hard-failing on unverified would fail on noise
+    # forever, which trains people to ignore the check.
+    #
+    # What was wrong is not the threshold, it is that `pass` was reported ALONE. This
+    # check once printed PASS over 177 matches of a key that was verified live by hand
+    # (HTTP 200). Adding the detector fixed visibility and not the verdict: 0 findings
+    # before (blind), 177 after (unverifiable) — the count became true while the
+    # pass/fail stayed incapable of going red.
+    #
+    # So the fix is SCOPE. A consumer must be able to see, from the response alone,
+    # that this pass covers only what could be verified. `undecidable` is never elided
+    # and `verdict_scope` says in words what the pass does not cover.
+    scope = (
+        "verified detectors only"
+        if unverified == 0
+        else (
+            f"verified detectors only — {unverified} finding(s) come from detectors whose "
+            "issuing service cannot be called, so this result neither clears nor condemns them"
+        )
+    )
     return {
         "check": "secret_scan",
         "tool": "trufflehog (filesystem)",
@@ -1197,6 +1220,8 @@ def _parse_trufflehog_result(raw: dict[str, Any]) -> dict[str, Any]:
         "findings_total": total,
         "findings_verified": verified,
         "findings_unverified": unverified,
+        "undecidable": unverified,
+        "verdict_scope": scope,
         "verified_detectors": detector_breakdown,
         "status": "pass" if verified == 0 else "fail",
         "duration_seconds": raw["duration_seconds"],
@@ -1444,7 +1469,17 @@ def _format_check_detail(name: str, check: dict[str, Any]) -> str:
         "tests": f"  {c.get('passed_count', '?')} passed, {c.get('failed_count', '?')} failed",
         "dep_audit": f"  {c.get('vulnerabilities', '?')} known CVEs",
         "security_scan": f"  {c.get('findings_critical', '?')} critical, {c.get('findings_total', '?')} total",
-        "secret_scan": f"  {c.get('findings_verified', '?')} verified, {c.get('findings_unverified', '?')} unverified",
+        # Says UNDECIDABLE rather than "unverified". The old wording read as a
+        # weaker grade of clean — "unverified" sounds like "probably fine" — when it
+        # means this check cannot form a verdict on those findings at all. That
+        # reading is how a PASS over 177 live-verified matches went unchallenged.
+        "secret_scan": (
+            f"  {c.get('findings_verified', '?')} verified, "
+            f"{c.get('findings_unverified', '?')} UNDECIDABLE (not cleared — the issuing "
+            "service cannot be called for these detectors)"
+            if c.get("findings_unverified")
+            else f"  {c.get('findings_verified', '?')} verified, 0 undecidable"
+        ),
         "release_chain": f"  v{c.get('version', '?')}: {c.get('published', '?')}/{c.get('total', '?')} channels",
         "ai_transparency": f"  {c.get('ai_attributed_commits', '?')}/{c.get('sample_size', '?')} commits attributed",
         "decision_transparency": f"  {c.get('rationale_coverage', '?')}% with rationale ({c.get('decisions_with_rationale', '?')}/{c.get('decisions_total', '?')})",

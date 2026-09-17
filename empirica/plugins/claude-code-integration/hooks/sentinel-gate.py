@@ -165,6 +165,23 @@ SAFE_BASH_PREFIXES = (
     "file ",
     "stat ",
     "wc ",
+    # Hashing — read-only, and the gate was actively discouraging the safer move.
+    # A bare `sha256sum <path>` was denied as praxic during mesh patch intake: one
+    # command, no redirect, no chain, while `rg` and Read on the same file flowed.
+    # Hashing is THE integrity check for bytes a peer sent, so gating it pushes the
+    # practitioner toward trusting the SENDER instead of the bytes — the gate
+    # discouraged the safer behaviour.
+    #
+    # None of these has a write mode, so unlike find/sort/sed they need no entry in
+    # the write-flag inspection below: there is no --output form to guard. They read
+    # a file (or stdin) and print a digest.
+    "sha256sum ",
+    "sha1sum ",
+    "sha512sum ",
+    "md5sum ",
+    "b2sum ",
+    "cksum ",
+    "shasum ",
     "find ",
     "locate ",
     "which ",
