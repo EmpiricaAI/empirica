@@ -111,12 +111,22 @@ def check_loops_not_stale() -> CheckResult:
         return CheckResult("Loops not stale", SKIP, "no loop registries found")
 
     stale: list[dict[str, Any]] = []
+    unreadable: list[str] = []
     total = 0
     for reg in registries:
         try:
             loops = (json.loads(reg.read_text(encoding="utf-8")) or {}).get("loops") or {}
         except Exception:
-            continue  # a malformed registry is the cockpit's problem, not this check's
+            # COUNTED, not swallowed. The first version wrote `continue` with the
+            # comment "a malformed registry is the cockpit's problem, not this
+            # check's" — which is the rationalisation, not the reasoning. Whose
+            # problem the corruption is has nothing to do with whether this check
+            # may report a verdict over fewer registries than exist without
+            # saying so. A silent skip is an exemption that reports clean forever:
+            # the loops inside an unreadable file can never be found stale, and
+            # nothing distinguishes "no stale loops" from "did not look".
+            unreadable.append(reg.stem.removeprefix("loops_"))
+            continue
         for name, loop in loops.items():
             if not isinstance(loop, dict):
                 continue
@@ -134,8 +144,19 @@ def check_loops_not_stale() -> CheckResult:
                     }
                 )
 
+    unread_note = f"; {len(unreadable)} registry(ies) unreadable ({', '.join(unreadable)})" if unreadable else ""
+
     if not stale:
-        return CheckResult("Loops not stale", PASS, f"{total} loop(s) within interval")
+        # An unreadable registry cannot yield a clean PASS. The loops inside it were
+        # never examined, so "within interval" would be a claim about rows nobody read.
+        status = WARN if unreadable else PASS
+        return CheckResult(
+            "Loops not stale",
+            status,
+            f"{total} loop(s) within interval{unread_note}",
+            hint=("Repair or remove the unreadable registry — its loops are unchecked." if unreadable else ""),
+            data={"stale": [], "total": total, "unreadable": unreadable},
+        )
 
     worst = max(stale, key=lambda s: s["hours_since_last_run"])
     return CheckResult(
@@ -143,9 +164,9 @@ def check_loops_not_stale() -> CheckResult:
         WARN,
         f"{len(stale)} of {total} loop(s) past interval — worst: "
         f"{worst['instance']}/{worst['loop']} at {worst['hours_since_last_run']}h "
-        f"(interval {worst['interval']})",
+        f"(interval {worst['interval']}){unread_note}",
         hint="Check the loop runner is alive: `empirica loop list`, then `empirica listener on` if the listener is down.",
-        data={"stale": stale, "total": total},
+        data={"stale": stale, "total": total, "unreadable": unreadable},
     )
 
 

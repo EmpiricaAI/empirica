@@ -32,6 +32,12 @@ from empirica.cli.command_handlers.diagnose import PASS, SKIP, WARN, check_loops
 from empirica.core.cockpit.loop_registry import interval_to_seconds, loop_is_stale
 
 
+def _now() -> str:
+    from datetime import datetime, timezone
+
+    return datetime.now(tz=timezone.utc).isoformat()
+
+
 def _registry(tmp_path, monkeypatch, loops: dict, name: str = "loops_probe.json"):
     """Point the check at a throwaway registry dir, never the real ~/.empirica."""
     (tmp_path / name).write_text(json.dumps({"instance_id": "probe", "loops": loops}))
@@ -140,9 +146,9 @@ def test_no_registry_skips_rather_than_passing(tmp_path, monkeypatch):
 def test_a_malformed_registry_does_not_hide_a_stale_loop_elsewhere(tmp_path, monkeypatch):
     """One unreadable file must not take the whole check down.
 
-    The registries are per-instance, so a single corrupt one should cost its own
-    loops and nothing else. Returning SKIP for the lot would let one bad file
-    silence every instance.
+    Registries are per-instance, so a corrupt one should cost its own loops and
+    nothing else. Returning SKIP for the lot would let one bad file silence every
+    instance.
     """
     (tmp_path / "loops_broken.json").write_text("{not json")
     _registry(tmp_path, monkeypatch, {"late": {"interval": "30s", "last_run": "2020-01-01T00:00:00Z"}})
@@ -151,6 +157,46 @@ def test_a_malformed_registry_does_not_hide_a_stale_loop_elsewhere(tmp_path, mon
 
     assert r.status == WARN
     assert "late" in r.detail
+
+
+def test_an_unreadable_registry_is_REPORTED_not_skipped(tmp_path, monkeypatch):
+    """Found by a broccoli sweep of my own commit, an hour after shipping it.
+
+    The first version wrote `continue` with the comment "a malformed registry is
+    the cockpit's problem, not this check's". That is the rationalisation rather
+    than the reasoning: whose problem the corruption is has nothing to do with
+    whether this check may report a verdict over fewer registries than exist
+    without saying so.
+
+    It is the exemption-reports-clean-forever shape. The loops inside an unreadable
+    file can never be found stale, so nothing distinguishes "no stale loops" from
+    "did not look".
+    """
+    (tmp_path / "loops_broken.json").write_text("{not json")
+    _registry(tmp_path, monkeypatch, {"fine": {"interval": "1d", "last_run": _now()}})
+
+    r = check_loops_not_stale()
+
+    assert r.status == WARN, "an unexamined registry cannot yield a clean PASS"
+    assert "unreadable" in r.detail
+    assert "broken" in r.detail, "name it — an unnamed count cannot be acted on"
+    assert r.data["unreadable"] == ["broken"]
+    assert r.hint
+
+
+def test_no_unreadable_registries_means_no_caveat(tmp_path, monkeypatch):
+    """Positive control for the report above.
+
+    An unconditional caveat would satisfy it while making every healthy box carry
+    a warning about a file that reads fine.
+    """
+    _registry(tmp_path, monkeypatch, {"fine": {"interval": "1d", "last_run": _now()}})
+
+    r = check_loops_not_stale()
+
+    assert r.status == PASS
+    assert "unreadable" not in r.detail
+    assert r.data["unreadable"] == []
 
 
 def test_the_check_is_wired_into_the_run(tmp_path, monkeypatch):
