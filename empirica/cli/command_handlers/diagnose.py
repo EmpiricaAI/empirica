@@ -208,6 +208,145 @@ def check_empirica_cli_on_path() -> CheckResult:
     )
 
 
+def _binary_interpreter(cli: str) -> str | None:
+    """The interpreter named on the CLI's shebang line, or None if it has none."""
+    try:
+        with open(cli, "rb") as f:
+            first = f.readline(512).decode("utf-8", errors="ignore").strip()
+    except OSError:
+        return None
+    if not first.startswith("#!"):
+        return None
+    parts = first[2:].split()
+    if not parts:
+        return None
+    # `#!/usr/bin/env python3` names env, not the interpreter.
+    if Path(parts[0]).name == "env" and len(parts) > 1:
+        return shutil.which(parts[1])
+    return parts[0]
+
+
+def _probe_interpreter(python: str) -> dict[str, str] | None:
+    """Ask `python` where IT imports empirica from, and at what version.
+
+    Runs from a NEUTRAL directory, and that is load-bearing. `python -c` puts `''`
+    on `sys.path`, so a probe launched from inside the repo imports `./empirica`
+    no matter what is installed — it reports the working tree and clears a split
+    box. That is precisely how the incident's first diagnosis ruled staleness out,
+    and the first draft of this function inherited the caller's cwd and would have
+    repeated it: `empirica doctor` run from the repo would PASS on the very box it
+    exists to flag.
+    """
+    import tempfile
+
+    try:
+        r = subprocess.run(
+            [
+                python,
+                "-c",
+                "import empirica, pathlib, json;"
+                "print(json.dumps({'path': str(pathlib.Path(empirica.__file__).resolve().parent),"
+                "'version': getattr(empirica, '__version__', '?')}))",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+            cwd=tempfile.gettempdir(),
+        )
+    except Exception:
+        return None
+    if r.returncode != 0:
+        return None
+    try:
+        return json.loads(r.stdout.strip().splitlines()[-1])
+    except Exception:
+        return None
+
+
+def check_single_install(claude_dir: Path | None = None) -> CheckResult:
+    """Detect a SPLIT install: several copies of core live on one box.
+
+    Incident 2026-09-17. A change shipped, and within minutes four practices
+    measured it as broken — "accepts the keys, returns ok, stores NULL" — and half
+    the mesh woke on it. The code was correct and had never executed. After a
+    release this box ran THREE cores at once: the source tree at HEAD, a
+    NON-editable pipx CLI frozen one version back, and a deployed plugin also one
+    version back. Nothing anywhere said so.
+
+    Why it hides: every obvious check lies. `python3 -c "import empirica"` shows
+    the working tree. `pip show` shows the editable install. Only the interpreter
+    named on the BINARY'S OWN SHEBANG tells the truth, because that is what runs
+    when someone types `empirica`. The first diagnosis of the incident tested the
+    wrong interpreter and wrongly ruled staleness out.
+
+    So this asks the binary's interpreter directly, in a subprocess, and compares
+    its answer with this process and with the deployed plugin. The discriminator is
+    the import PATH, not the version string: a non-editable copy at the right
+    version is still a copy, and goes stale at the next commit.
+    """
+    name = "Single core install"
+    cli = shutil.which("empirica")
+    if not cli:
+        return CheckResult(name, SKIP, "no `empirica` binary on PATH to compare")
+
+    interp = _binary_interpreter(cli)
+    if not interp:
+        return CheckResult(name, SKIP, f"{cli} has no readable shebang — cannot tell what it runs")
+
+    binary = _probe_interpreter(interp)
+    if not binary:
+        return CheckResult(
+            name,
+            WARN,
+            f"could not ask the binary's interpreter ({interp}) what it imports",
+            hint="Run that interpreter with `-c 'import empirica; print(empirica.__file__)'`.",
+        )
+
+    try:
+        import empirica as _here
+
+        here = {
+            "path": str(Path(_here.__file__).resolve().parent),
+            "version": getattr(_here, "__version__", "?"),
+        }
+    except Exception:
+        here = {"path": "?", "version": "?"}
+
+    plugin_version = None
+    if claude_dir is not None:
+        manifest = claude_dir / "plugins" / "local" / "empirica" / ".claude-plugin" / "plugin.json"
+        try:
+            plugin_version = (json.loads(manifest.read_text(encoding="utf-8")) or {}).get("version")
+        except Exception:
+            plugin_version = None  # absent plugin is another check's business
+
+    data = {"binary": binary, "this_process": here, "plugin_version": plugin_version, "interpreter": interp}
+    problems: list[str] = []
+    if here["path"] != "?" and binary["path"] != here["path"]:
+        problems.append(
+            f"the `empirica` binary imports {binary['path']} (v{binary['version']}) while this "
+            f"process imports {here['path']} (v{here['version']})"
+        )
+    if plugin_version and plugin_version != binary["version"]:
+        problems.append(f"the deployed plugin is v{plugin_version} while the binary is v{binary['version']}")
+
+    if not problems:
+        return CheckResult(name, PASS, f"binary, process and plugin agree (v{binary['version']})", data=data)
+
+    return CheckResult(
+        name,
+        WARN,
+        "SPLIT INSTALL — " + "; ".join(problems),
+        hint=(
+            "Changes you make may never execute through the CLI. Reinstall editable: "
+            "`pipx install --force --editable <repo>`; redeploy the plugin via your "
+            "ecosystem update (or `empirica setup-claude-code`)."
+        ),
+        data=data,
+    )
+
+
 def check_claude_dir() -> CheckResult:
     """Verify ~/.claude/ exists (Claude Code's config dir)."""
     config_dir = os.environ.get("CLAUDE_CONFIG_DIR")
@@ -659,6 +798,7 @@ def run_all_checks() -> list[CheckResult]:
     claude_dir_path = Path(claude_check.data.get("path", ""))
 
     # Plugin and config checks
+    results.append(check_single_install(claude_dir_path))
     results.append(check_plugin_files(claude_dir_path))
     results.append(check_settings_json(claude_dir_path))
     results.append(check_statusline_configured(claude_dir_path))
