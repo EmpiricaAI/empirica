@@ -407,6 +407,7 @@ compound — every "I'll just do it from memory" call is a calibration gap.
 {% if cortex %}| `/cortex-mailbox-poll` | A `<task-notification>` arrives carrying `proposal_event` — the receive-side reaction protocol (per `direction` × `status`) lives there |
 | `/cortex-mailbox-send` | You want to send to a peer AI — FYI, question, request work, OR ack a proposal a peer made of YOU (completion handshake). Covers the collab vs ECO-gated flavor split. |
 {% endif %}
+| `/reporting-discipline` | **Before writing a reply that reports finished work, a correction, a release or a mesh outcome** — not after the user says it was too long. The drift is invisible from the inside: this practice held three memory entries on it and still had to be told. |
 | `/empirica-commands` | Need a specific CLI flag and `--help` isn't enough |
 | `/code-audit`, `/code-docs-align` | Pre-release pass OR after a refactor sweep that may have left drift |
 | `/epistemic-gardening` | **Not only a pre-release ceremony.** Load it (a) the moment PREFLIGHT/CHECK surfaces an artifact you can see is stale, superseded or FALSE — that is gardening *inside* the transaction, one `finding-resolve` away, not a separate pass; (b) before a release or periodically, for the full sweep; (c) when a peer's report makes you doubt a chunk of your graph. **Correcting one artifact you just noticed is the common case; the full pass is the rare one.** |

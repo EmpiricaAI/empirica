@@ -1,6 +1,6 @@
 # Skills — what ships, when each fires, which are load-bearing
 
-Empirica ships **18 skills** with the Claude Code plugin. They are *lazy*: a
+Empirica ships **19 skills** with the Claude Code plugin. They are *lazy*: a
 skill does nothing until it is loaded, so knowing when each one fires matters
 more than knowing what it contains.
 
@@ -67,6 +67,7 @@ ship in this plugin — they are not Cortex-gated.
 
 | Skill | Fires when |
 |---|---|
+| **`/reporting-discipline`** | Before writing a reply that reports finished work, a correction, a release or a mesh outcome — *not* after the user says it was too long. Converts a finished chunk into done/next bullets keyed to goal ids, and names the four ways replies grow back: narrated reasoning, narrated self-correction, narrated artifacts, and the per-notification status reply |
 | **`/epistemic-persistence-protocol`** | The user pushes back on a position. Load it **before** responding, to classify the pushback type. Its five-way vocabulary is contracted on by the `UserPromptSubmit` hook — it is not decorative |
 | **`/ewm-interview`** | "set up my workflow", "create workflow protocol". Guided multi-choice interview producing `workflow-protocol.yaml`, and it provisions the practices the answers imply rather than describing them |
 | **`/dispatch-agent`** | Spawning subagents that would benefit from inherited findings and dead-ends |
