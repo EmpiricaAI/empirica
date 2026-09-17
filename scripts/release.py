@@ -18,6 +18,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -2193,9 +2194,63 @@ brew install empirica
             info(f"GitHub: https://github.com/EmpiricaAI/empirica/releases/tag/v{self.version}")
             info("Homebrew: brew upgrade empirica")
             info("Chocolatey: choco upgrade empirica")
+            self.report_install_surfaces()
 
         except Exception as e:
             error(f"Publish failed: {e}")
+
+    def report_install_surfaces(self):
+        """Run the deploy-gap detector at the moment a gap is created.
+
+        This script verifies six PUBLISH channels and, until now, zero INSTALL
+        surfaces — so a release read as complete while the box that cut it kept
+        running the previous version through its CLI, its plugin and its MCP server.
+        After 1.13.47 that cost an evening: a correct feature was measured as broken
+        by four practices within minutes of shipping, because no local executor
+        carried it.
+
+        The detector already existed. `empirica doctor --deploy-gaps` checks exactly
+        the axes that failed, and a grep across hooks, settings, loops and crons
+        found nothing that had ever invoked it. An alarm nobody runs. So it runs
+        HERE, because publishing is what makes this box stale: the tag moves, the
+        local installs do not.
+
+        Best-effort and never fatal — the release is already out. A failure to run
+        the detector is reported as such rather than swallowed, since "could not
+        check" and "nothing to report" must not read alike.
+        """
+        log("\n" + "=" * 60)
+        log("🔎 Install surfaces on THIS box (empirica doctor --deploy-gaps)")
+        log("=" * 60)
+        try:
+            r = subprocess.run(
+                ["empirica", "doctor", "--deploy-gaps", "--output", "json"],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=False,
+                cwd=tempfile.gettempdir(),  # from inside the repo, cwd can masquerade as the install
+            )
+            raw = r.stdout
+            checks = (json.loads(raw[raw.find("{") :]) or {}).get("checks") or []
+        except Exception as e:
+            warning(f"Could not run the deploy-gap detector ({type(e).__name__}: {e}) — install surfaces UNCHECKED")
+            return
+
+        if not checks:
+            warning("Deploy-gap detector returned no checks — install surfaces UNCHECKED")
+            return
+
+        gaps = [c for c in checks if c.get("status") in ("WARN", "FAIL")]
+        for c in checks:
+            line = f"{c.get('status', '?'):5} {c.get('name', '?')}: {c.get('detail', '')}"
+            (warning if c in gaps else info)(line)
+        if gaps:
+            warning(
+                "This box is now running OLDER code than it just released. Refresh: "
+                "`pipx install --force --editable .` then your ecosystem update "
+                "(or `empirica setup-claude-code`)."
+            )
 
     def run(self):
         """Execute full release process (prepare + publish in one shot).
