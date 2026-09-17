@@ -1335,85 +1335,21 @@ class WorkspaceDBRepository(BaseRepository):
         )
         return cursor.fetchone() is not None
 
-    def get_contact_detail_map(self) -> dict[str, dict[str, Any]]:
-        """Map contact_id → the richer CRM projection fields from the ``contacts``
-        table (email/phone/title/tags/notes/contact_type/lifecycle_stage). One
-        query; ``tags`` is JSON-parsed to a list (honest-empty on malformed).
-        Returns ``{}`` when the ``contacts`` table is absent.
-        """
-        if not self._table_exists("contacts"):
-            return {}
-
-        # `linkedin_url` is column-guarded rather than assumed: it postdates the
-        # original contacts schema, so selecting it unconditionally would break the
-        # whole projection on an older workspace.db instead of just omitting one
-        # field. Absent column -> the key is simply missing, which is the same
-        # honest-empty shape the rest of this map uses.
-        cols = {r[1] for r in self._execute("PRAGMA table_info(contacts)").fetchall()}
-        has_linkedin = "linkedin_url" in cols
-
-        cursor = self._execute(
-            """SELECT contact_id, email_primary, phone_primary, organization_title,
-                      tags, notes, contact_type, lifecycle_stage"""
-            + (", linkedin_url" if has_linkedin else "")
-            + " FROM contacts"
-        )
-        out: dict[str, dict[str, Any]] = {}
-        for row in cursor.fetchall():
-            tags = row["tags"]
-            if isinstance(tags, str):
-                try:
-                    tags = json.loads(tags)
-                except (ValueError, TypeError):
-                    tags = []
-            out[row["contact_id"]] = {
-                "email": row["email_primary"],
-                "phone": row["phone_primary"],
-                "title": row["organization_title"],
-                "tags": tags if isinstance(tags, list) else [],
-                "notes": row["notes"],
-                "contact_type": row["contact_type"],
-                "lifecycle_stage": row["lifecycle_stage"],
-            }
-            if has_linkedin:
-                out[row["contact_id"]]["linkedin_url"] = row["linkedin_url"]
-        return out
-
-    def get_org_detail_map(self) -> dict[str, dict[str, Any]]:
-        """Map org_id → the org detail projection fields from the ``organizations``
-        table (industry/description/domain/org_type/tags). One query; ``tags`` is
-        JSON-parsed to a list (honest-empty on malformed). Returns ``{}`` when the
-        ``organizations`` table is absent.
-
-        The org-side peer to ``get_contact_detail_map`` — closes the projection
-        asymmetry where the contact list surfaced rich detail but the org list did
-        not (workspace prop_2yfn3ok). ``organizations`` is a workspace-owned detail
-        table (not vendored into core), so the ``_table_exists`` guard lets a
-        minimal workspace DB / test fixture degrade to {} rather than raise.
-        """
-        if not self._table_exists("organizations"):
-            return {}
-
-        cursor = self._execute(
-            """SELECT org_id, industry, description, domain, org_type, tags
-               FROM organizations"""
-        )
-        out: dict[str, dict[str, Any]] = {}
-        for row in cursor.fetchall():
-            tags = row["tags"]
-            if isinstance(tags, str):
-                try:
-                    tags = json.loads(tags)
-                except (ValueError, TypeError):
-                    tags = []
-            out[row["org_id"]] = {
-                "industry": row["industry"],
-                "description": row["description"],
-                "domain": row["domain"],
-                "org_type": row["org_type"],
-                "tags": tags if isinstance(tags, list) else [],
-            }
-        return out
+    # get_contact_detail_map / get_org_detail_map REMOVED 2026-09-17.
+    #
+    # They read CRM identity columns (email/phone/title/notes/contact_type/
+    # lifecycle_stage; industry/domain/org_type/tags) out of core's LOCAL mirror
+    # of the contacts and organizations tables, to be projected onto
+    # /api/v1/entities. David's 2026-09-17 ruling puts CRM and ERM outside core:
+    # empirica-workspace owns our implementation, empirica-nle the client one.
+    #
+    # The canonical rows live in crm-mcp, so this mirror could serve silently
+    # stale identity data — and extension confirmed by call graph that it reads
+    # none of it (crm-mcp direct since v0.10.84). Removing dead code that could
+    # only be wrong.
+    #
+    # get_contact_org_details_map SURVIVES: it resolves entity_memberships, which
+    # is core's spine, and the ?parent_org= filter keys off the same source.
 
     def get_engagement_tasks(self, engagement_id: str) -> list[dict[str, Any]]:
         """List an engagement's tasks from workspace ``engagement_tasks`` (task_id,

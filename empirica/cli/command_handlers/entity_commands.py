@@ -377,12 +377,12 @@ def mint_entity(
         # engagement creation (workspace-CLI-authored sidecar after this mint); the stable
         # point id makes that a clean idempotent enrichment.
         _embed_entity_row(entity_type, eid, name, description, metadata)
-        # Core mints only the entity_registry SPINE — it does NOT author CRM
-        # detail. Writing the organizations detail table is empirica-workspace's
-        # lane (its org create/update owns that row); core authoring it crosses
-        # the ratified core/workspace boundary (David 2026-08-13). The daemon
-        # still SURFACES org detail via get_org_detail_map — surfacing is core's
-        # role, authoring is not.
+        # Core mints only the entity_registry SPINE — it does not author CRM detail,
+        # and as of 2026-09-17 it does not SURFACE it either. The 2026-08-13 boundary
+        # drew the line at authoring and left surfacing to core; David's 2026-09-17
+        # ruling moved the whole concern out — empirica-workspace owns our CRM/ERM
+        # implementation, empirica-nle the client one with cortex. The
+        # /api/v1/entities projection and its repo methods were removed with it.
         return {"ok": True, "entity_id": eid, "created": created, "matched_by": None if created else "id"}
 
     if repo is not None:

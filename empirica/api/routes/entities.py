@@ -182,15 +182,22 @@ async def list_entities(
         # the whole org set (small: umbrella + brands), not per-row — preserves
         # the single-query intent that deferred the broader v1.1 enrichment.
         org_parents = repo.get_org_parent_map()
-        # Org detail (industry/description/domain/org_type/tags) from the
-        # workspace organizations table — the org-side peer to the contact
-        # detail map below, closing the projection asymmetry (prop_2yfn3ok).
-        org_details = repo.get_org_detail_map()
-        # Contact→org affiliation (id + name + role) + richer CRM detail fields.
-        # Same entity_memberships source as the parent_org filter, so filter and
-        # enrichment agree.
+        # CRM DETAIL IS NO LONGER PROJECTED HERE. David's 2026-09-17 ruling: CRM and
+        # ERM are not an empirica-core concern — empirica-workspace owns our
+        # implementation, empirica-nle the client one with cortex. This supersedes
+        # the 2026-08-13 boundary, which drew the line at authoring and left
+        # SURFACING to core.
+        #
+        # It had no consumer either. Extension answered with its call graph: identity
+        # has been crm-mcp direct since v0.10.84, canonical-only, and it reads none of
+        # industry/description/domain/org_type/tags/status/email/phone/title/notes off
+        # this response.
+        #
+        # Worth stating plainly because it is the stronger argument for removal than
+        # the lane rule: what was projected here came from core's LOCAL mirror while
+        # the canonical rows live in crm-mcp, so any consumer that did read it was
+        # being served identity data that could be silently stale.
         contact_org_details = repo.get_contact_org_details_map()
-        contact_details = repo.get_contact_detail_map()
         # Manager (reports_to edge) → the extension Profile's "Reports-to" row.
         contact_reports_to = repo.get_contact_reports_to_map()
         for row in repo.list_entities(entity_type=type, status=status, parent_org=parent_org, limit=limit):
@@ -212,37 +219,24 @@ async def list_entities(
             # entity_memberships; other types omit the field.
             if et == "organization":
                 entry["parent_org_id"] = org_parents.get(eid)
-                # Surface the organizations-table detail (mirrors how the contact
-                # branch surfaces contact detail) so extension/practices see
-                # industry/description/domain/org_type/tags, not just name/status.
-                od = org_details.get(eid) or {}
-                entry["industry"] = od.get("industry")
-                entry["description"] = od.get("description")
-                entry["domain"] = od.get("domain")
-                entry["org_type"] = od.get("org_type")
-                entry["tags"] = od.get("tags")
             elif et == "contact":
+                # parent_org_id/name stay: they come from `entity_memberships`,
+                # which is core's spine, and the filter above keys off the same
+                # source — so dropping them would leave `?parent_org=` filtering on
+                # a relation the response no longer shows. The CRM detail that used
+                # to ride alongside (role/email/phone/title/tags/notes) is gone;
+                # crm-mcp is where those live.
                 cod = contact_org_details.get(eid) or {}
-                cd = contact_details.get(eid) or {}
                 entry["parent_org_id"] = cod.get("org_id")
                 entry["parent_org_name"] = cod.get("org_name")
-                entry["role"] = cod.get("role")
-                entry["email"] = cd.get("email")
-                entry["phone"] = cd.get("phone")
-                entry["title"] = cd.get("title")
-                entry["tags"] = cd.get("tags")
-                entry["notes"] = cd.get("notes")
-                entry["contact_type"] = cd.get("contact_type")
-                entry["lifecycle_stage"] = cd.get("lifecycle_stage")
-                # linkedin_url was populated in the contacts table (8 rows) but
-                # absent from this projection entirely — not empty, ABSENT — so the
-                # extension's LinkedIn chip could never render and it read as a
-                # population failure rather than a projection gap (extension
-                # prop_pqcicqi). Omitted when the column predates the schema.
-                if "linkedin_url" in cd:
-                    entry["linkedin_url"] = cd.get("linkedin_url")
-                # tier lives in the registry metadata (already parsed into meta);
-                # reporting_to_name resolves the reports_to edge → manager's name.
+                # contact_type / lifecycle_stage / linkedin_url removed with the rest
+                # of the CRM detail — all three are crm-mcp's columns. linkedin_url in
+                # particular was a projection gap that cost extension a wrong diagnosis
+                # (it read as a population failure), which is a good argument for the
+                # field living in ONE place rather than being mirrored into a second.
+                #
+                # tier and reporting_to_name stay: tier is registry metadata and
+                # reporting_to_name resolves a reports_to EDGE — both core spine.
                 entry["tier"] = meta.get("tier")
                 entry["reporting_to_name"] = contact_reports_to.get(eid)
                 # Pass the WHOLE registry metadata bag through too (parallel to the

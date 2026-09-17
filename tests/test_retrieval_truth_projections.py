@@ -26,8 +26,6 @@ from __future__ import annotations
 
 import inspect
 
-import pytest
-
 from empirica.data.session_database import SessionDatabase
 
 # ── A1: resolved unknowns must not be embedded ────────────────────────
@@ -88,82 +86,6 @@ def test_resolved_filter_actually_excludes_resolved(tmp_path):
 # ── A2: the contact projection must carry populated columns ───────────
 
 
-def test_contact_detail_map_carries_linkedin_url(tmp_path, monkeypatch):
-    """A populated column must reach the projection, or it reads as missing data."""
-    import sqlite3
-
-    from empirica.data.repositories import workspace_db as wdb
-
-    db_file = tmp_path / "workspace.db"
-    conn = sqlite3.connect(db_file)
-    conn.execute(
-        "CREATE TABLE contacts (contact_id TEXT PRIMARY KEY, email_primary TEXT, phone_primary TEXT, "
-        "organization_title TEXT, tags TEXT, notes TEXT, contact_type TEXT, lifecycle_stage TEXT, linkedin_url TEXT)"
-    )
-    conn.execute(
-        "INSERT INTO contacts VALUES ('c1','a@b.c',NULL,'CEO','[]',NULL,'person','active','https://linkedin.com/in/x')"
-    )
-    conn.commit()
-    conn.close()
-    monkeypatch.setattr(wdb, "_get_workspace_db_path", lambda: db_file)
-
-    with wdb.WorkspaceDBRepository.open() as repo:
-        detail = repo.get_contact_detail_map()
-
-    assert "c1" in detail
-    assert detail["c1"]["linkedin_url"] == "https://linkedin.com/in/x"
-
-
-def test_contact_detail_map_survives_a_schema_without_linkedin_url(tmp_path, monkeypatch):
-    """Older workspace DBs predate the column. Selecting it unconditionally would
-    break the WHOLE projection instead of omitting one field — the key is simply
-    absent, matching the honest-empty shape used elsewhere in this map."""
-    import sqlite3
-
-    from empirica.data.repositories import workspace_db as wdb
-
-    db_file = tmp_path / "workspace.db"
-    conn = sqlite3.connect(db_file)
-    conn.execute(
-        "CREATE TABLE contacts (contact_id TEXT PRIMARY KEY, email_primary TEXT, phone_primary TEXT, "
-        "organization_title TEXT, tags TEXT, notes TEXT, contact_type TEXT, lifecycle_stage TEXT)"
-    )
-    conn.execute("INSERT INTO contacts VALUES ('c1','a@b.c',NULL,'CEO','[]',NULL,'person','active')")
-    conn.commit()
-    conn.close()
-    monkeypatch.setattr(wdb, "_get_workspace_db_path", lambda: db_file)
-
-    with wdb.WorkspaceDBRepository.open() as repo:
-        detail = repo.get_contact_detail_map()
-
-    assert detail["c1"]["email"] == "a@b.c", "the rest of the projection must still work"
-    assert "linkedin_url" not in detail["c1"]
-
-
-@pytest.mark.parametrize("field", ["email", "phone", "title", "contact_type", "lifecycle_stage"])
-def test_existing_projection_fields_are_unchanged(tmp_path, monkeypatch, field):
-    """Guard against the fix quietly dropping a sibling field."""
-    import sqlite3
-
-    from empirica.data.repositories import workspace_db as wdb
-
-    db_file = tmp_path / "workspace.db"
-    conn = sqlite3.connect(db_file)
-    conn.execute(
-        "CREATE TABLE contacts (contact_id TEXT PRIMARY KEY, email_primary TEXT, phone_primary TEXT, "
-        "organization_title TEXT, tags TEXT, notes TEXT, contact_type TEXT, lifecycle_stage TEXT, linkedin_url TEXT)"
-    )
-    conn.execute("INSERT INTO contacts VALUES ('c1','a@b.c','+1','CEO','[]','n','person','active','u')")
-    conn.commit()
-    conn.close()
-    monkeypatch.setattr(wdb, "_get_workspace_db_path", lambda: db_file)
-
-    with wdb.WorkspaceDBRepository.open() as repo:
-        detail = repo.get_contact_detail_map()
-
-    assert field in detail["c1"]
-
-
 # ── prune_dangling must not treat sources as missing endpoints ─────────
 
 
@@ -201,3 +123,8 @@ def test_a_source_counts_as_an_existing_edge_endpoint(tmp_path):
         assert _artifact_exists(db, "not-a-real-id") is False, "a genuine unknown id must still read missing"
     finally:
         db.close()
+
+
+# NOTE: contact-detail projection tests removed 2026-09-17 with the methods they
+# covered — CRM identity is crm-mcp's, per David's ruling. Retrieval-truth tests
+# above (unknowns filtering, edge endpoints) are unaffected and stay.
