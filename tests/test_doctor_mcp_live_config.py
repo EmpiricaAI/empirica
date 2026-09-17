@@ -183,6 +183,12 @@ class TestVersionSkew:
             return val
 
         monkeypatch.setattr(im, "version", _v)
+        # These tests cover the STRING FALLBACK — a released-copy seat with no checkout
+        # to compare against. The check now compares content first, so without this pin
+        # it would consult the real box: on a developer machine whose installed
+        # empirica_mcp matches its checkout, every skew case here reads PASS. A test
+        # that measures the box passes locally for the reason it fails elsewhere.
+        monkeypatch.setattr("empirica.cli.command_handlers.doctor._mcp_content_state", lambda: (None, {}))
         return check_mcp_version_skew()
 
     def test_skew_warns_naming_both_versions_and_the_recovery(self, monkeypatch):

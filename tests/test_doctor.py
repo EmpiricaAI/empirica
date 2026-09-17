@@ -974,6 +974,9 @@ class TestVersionOracles:
         from empirica.cli.command_handlers import doctor as d
 
         monkeypatch.setattr(im, "version", lambda p: "1.13.45" if p == "empirica" else "1.13.44")
+        # Pin the string-fallback path: content comparison would otherwise read THIS
+        # box's installed package and decide the verdict from it.
+        monkeypatch.setattr(d, "_mcp_content_state", lambda: (None, {}))
         check = d.check_mcp_version_skew()
 
         assert check.status == d.WARN

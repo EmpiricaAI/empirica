@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -1256,6 +1257,88 @@ def _version_key(v: str) -> tuple:
     return tuple(parts)
 
 
+_VERSION_LINE = re.compile(rb"^__version__\s*=.*$", re.MULTILINE)
+
+
+def package_content_digest(pkg_dir: Path) -> str | None:
+    """sha256 over a package's `.py` sources — WHAT the code is, not what it is called.
+
+    The first digest definition for the version-truth work (David-directed
+    2026-09-17). Two rules learned the same evening:
+
+    * **An identical version string is not evidence of identical code, and a
+      differing one is not evidence of different code.** Measured on one box for one
+      package: `__version__` 1.8.14, dist-info 1.13.46, pyproject 1.13.47 — over
+      `.py` trees that were byte-identical. Every string misstated the code, each in
+      a different direction. Content is the only authority.
+    * **The digest must not smuggle the string back in.** `__version__ = "..."` lines
+      are normalised before hashing. Without that, correcting a stale version string
+      flips the digest of otherwise identical code — which is exactly what happened
+      between cortex's measurement ("byte-identical") and mine an hour later (one
+      file differing, by one line, because I had fixed the string).
+
+    Relative paths are part of the hash, so a moved or renamed module counts as a
+    change. `__pycache__` and non-`.py` files are ignored. Returns None when the
+    directory cannot be read — "could not compare" must never read as "same".
+    """
+    import hashlib
+
+    try:
+        files = sorted(p for p in pkg_dir.rglob("*.py") if "__pycache__" not in p.parts)
+    except OSError:
+        return None
+    if not files:
+        return None
+    h = hashlib.sha256()
+    for f in files:
+        try:
+            body = f.read_bytes()
+        except OSError:
+            return None
+        h.update(str(f.relative_to(pkg_dir)).encode())
+        h.update(b"\0")
+        h.update(_VERSION_LINE.sub(b"__version__ = <normalised>", body))
+        h.update(b"\0")
+    return h.hexdigest()
+
+
+def _mcp_content_state() -> tuple[str | None, dict[str, Any]]:
+    """Compare the INSTALLED empirica_mcp against a checkout's, by content.
+
+    Returns ("identical" | "different" | None, data). None means no comparison was
+    possible — no checkout on this box, or the package is not importable here — and
+    the caller must fall back rather than treat it as agreement.
+    """
+    import importlib.util as _iu
+
+    data: dict[str, Any] = {}
+    try:
+        spec = _iu.find_spec("empirica_mcp")
+    except Exception:
+        spec = None
+    locs = list(getattr(spec, "submodule_search_locations", None) or [])
+    if not locs:
+        return None, data
+    installed = Path(locs[0]).resolve()
+
+    checkout = _find_checkout()
+    source = (checkout / "empirica-mcp" / "empirica_mcp").resolve() if checkout else None
+    if not source or not source.is_dir():
+        return None, data
+
+    data["installed_path"], data["source_path"] = str(installed), str(source)
+    if installed == source:
+        # Editable: the installed package IS the checkout. Nothing can differ.
+        data["editable"] = True
+        return "identical", data
+
+    a, b = package_content_digest(installed), package_content_digest(source)
+    data["installed_digest"], data["source_digest"] = a, b
+    if a is None or b is None:
+        return None, data
+    return ("identical" if a == b else "different"), data
+
+
 def check_mcp_version_skew() -> Check:
     """Core and empirica-mcp must move together — pipx upgrade splits them.
 
@@ -1295,6 +1378,38 @@ def check_mcp_version_skew() -> Check:
             "empirica-mcp not installed in this environment",
             data={"core": core_v, "mcp": None},
         )
+
+    # CONTENT FIRST, where a checkout makes the comparison possible. Deciding on the
+    # strings alone fails in both directions: it WARNs whenever core bumps and the MCP
+    # package does not change — the common case, and the state that told an operator to
+    # force-inject a package already holding the current code — and it would PASS two
+    # matching strings over genuinely different code. This check is about to run on
+    # every seat, and a WARN that fires by construction trains people to skip the block
+    # the real one sits in.
+    state, cdata = _mcp_content_state()
+    base = {"core": core_v, "mcp": mcp_v, **cdata}
+    if state == "identical":
+        note = "" if core_v == mcp_v else f" (metadata says {mcp_v} vs core {core_v} — a label, not a code difference)"
+        return Check(
+            "core/MCP version match",
+            PASS,
+            f"installed empirica_mcp is content-identical to the checkout{note}",
+            data={**base, "compared": "content"},
+        )
+    if state == "different":
+        return Check(
+            "core/MCP version match",
+            WARN,
+            f"installed empirica_mcp DIFFERS in content from the checkout (metadata: mcp {mcp_v}, core {core_v}) "
+            "— the MCP server is serving different code",
+            f"pipx users: `pipx inject empirica empirica-mcp=={max(core_v, mcp_v, key=_version_key)} --force`, "
+            "or inject the checkout editable. PIN the version — unpinned, a stale sibling's dependency pin can "
+            "drag core backwards instead.",
+            data={**base, "compared": "content"},
+        )
+
+    # No checkout to compare against (a released-copy seat). Strings are all there is,
+    # and the verdict says so rather than implying content was examined.
     if core_v != mcp_v:
         # The remedy PINS the version it is reaching for. Unpinned, this hint
         # downgraded a box: `pipx inject empirica empirica-mcp --force` resolved
