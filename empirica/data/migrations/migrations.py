@@ -1566,6 +1566,11 @@ ALL_MIGRATIONS: list[tuple[str, str, Callable]] = [
         "Add transaction_id, evidence_count, primary_source and grounded_raw to calibration_trajectory — the provenance of a grounded observation, computed on every POSTFLIGHT and then thrown away. The row stored `grounded` and `gap` and nothing about where the number came from, so a `grounded=0.0` was indistinguishable from an observation of a different SCOPE, and downstream reads the difference as calibration error either way. Reported by empirica-mesh-support (prop_hdksdjjfdna2firhwsmsfkefka, 2026-09-13) replicating Carly R. Anderson's foundation measurement across 17 practices: they traced completion-zeros to a session-cumulative subtask ratio and reported it as the live defect. It was not — the transaction-scoping fix shipped 756141190 on 2026-03-27 and the session query survives only as the else-branch when no active transaction file exists — but NO ROW COULD SAY WHICH QUERY PRODUCED IT, so the correct reading was not available from the data, and two practices plus a source read plus one wrong mechanism went into recovering it. Their own framing is the specification: a row carrying completed=0, total=29 would have shown this on sight. Every value here is already computed — GroundedVectorEstimate carries evidence_count and primary_source, EvidenceItem carries raw_value — so this is persistence, not new measurement. Nullable and NOT backfilled: the provenance of a historical row is precisely what was never recorded, and inventing it would manufacture the confidence this column exists to make checkable.",
         lambda cursor: migration_070_calibration_trajectory_provenance(cursor),
     ),
+    (
+        "071_claim_scope_and_count",
+        "Add `scope` and `measured_count` to transaction_claims — the population a claim was measured over, and how many things the measurement actually returned. David-directed 2026-09-17 (\"better scope management and measurement thereof would help then, let core know\"), relayed by empirica-cortex with the evidence that the obvious lever is wrong: David offered to raise the confidence gate and it would have caught NOTHING — their week's failures were all high-confidence claims that were TRUE and all adjudicated `held`. TWO columns rather than one because empirica-mesh-support refined the ask BEFORE it shipped: scope alone would have caught none of their three cases, since they would have written the scope they INTENDED and believed they had measured. Their cases had EMPTY populations rather than narrow ones — a SQLite count claimed as git-notes artifacts, a glob that cannot cross path components matching 0 of 34,890 real refs and printing 0 across 21 practices, and a notes-remote config key read as 'no repo exists' while 17 did. `measured_count` is what makes those absurd on sight: you cannot walk 21 practices and return nothing. Zero is the answer that most often means 'I measured nothing' rather than 'the answer is zero'. Both nullable and NOT backfilled — the scope and count of a historical claim are precisely what was never recorded.",
+        lambda cursor: migration_071_claim_scope_and_count(cursor),
+    ),
 ]
 
 
@@ -2989,3 +2994,50 @@ def migration_066_normalize_text_created_timestamp(cursor: sqlite3.Cursor):
         except sqlite3.OperationalError:
             continue  # table absent on a partial/older DB — defensive skip
     logger.info(f"✅ Migration 066 complete: normalized {fixed} TEXT created_timestamp value(s) to REAL")
+
+
+def migration_071_claim_scope_and_count(cursor: sqlite3.Cursor):
+    """`grounding` says HOW I know. It says nothing about OVER WHAT, or HOW MANY.
+
+    David-directed 2026-09-17: *"better scope management and measurement thereof
+    would help then, let core know along with everything else you are doing."*
+
+    Relayed by empirica-cortex with the argument for why the obvious lever is the
+    wrong one. David had offered to raise the confidence gate; it would have caught
+    nothing. Their week's failures were all HIGH confidence on claims that were
+    TRUE and whose verdicts all `held` — "the status filter answers typos with a
+    zero" (ran, held, never asked WHO currently sends invalid values, 400'd a live
+    pane); "source_user_id is unspoofable" (read, held, never asked HOW MANY THINGS
+    IT NAMES, collapsed 7 practices into one outbox). The gate asks *how sure am I*
+    and the defect was *is that the right question*.
+
+    Then refined by empirica-mesh-support BEFORE this shipped, which is why there
+    are two columns rather than one. Scope alone would have caught none of their
+    three cases, because they would have written the scope they INTENDED and
+    believed they had measured:
+
+      claimed                              what the command actually walked
+      "5,783 artifacts across practices"   a SQLite count, while artifacts are git notes
+      "every practice has 0 note refs"     a glob that cannot cross path components,
+                                           matching 0 of 34,890 real refs
+      "no repo exists on the forge"        the notes-remote config key; 17 existed
+
+    `measured_count` is what makes those visible on sight. A claim reading
+    *scope: "all 21 practices", count: 0* against a store holding 34,890 refs is
+    absurd on its face — you cannot walk 21 practices and return nothing. Zero is
+    the answer that most often means "I measured nothing" rather than "the answer
+    is zero", which is this codebase's recurring defect class stated in one field.
+
+    Corroborated independently the same day in this practice: three retractions,
+    each a true claim whose conclusion outran its scope — an outbox count measured
+    through a filter and reported as "my emissions", a causal chain whose links were
+    each verified and whose JOINS were not, and a lane boundary asserted without
+    measuring core's own exposure.
+
+    Both nullable and NOT backfilled. The scope and count of a historical claim are
+    exactly what was never recorded, and inferring them would manufacture the
+    precision these columns exist to make checkable.
+    """
+    add_column_if_missing(cursor, "transaction_claims", "scope", "TEXT", "NULL")
+    add_column_if_missing(cursor, "transaction_claims", "measured_count", "INTEGER", "NULL")
+    logger.info("✅ Migration 071 complete: claims can name the population measured and how many it returned")

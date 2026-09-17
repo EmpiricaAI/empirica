@@ -97,6 +97,46 @@ def is_weak(grounding: str | None) -> bool:
     return normalize_grounding(grounding) in ("retrieved", "assumed")
 
 
+def _normalize_count(value: Any) -> int | None:
+    """Coerce a declared `count` to an int, or None when it is not a count.
+
+    None and 0 must stay distinct: None is "this claim is not a measurement over
+    a population", 0 is "I measured and found nothing" — and 0 is the interesting
+    one, because it is the answer that most often means the enumerator walked the
+    wrong thing. Collapsing them would remove the only signal the field adds.
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return None
+    return n if n >= 0 else None
+
+
+def scope_is_suspect(scope: str | None, measured_count: int | None) -> str | None:
+    """Name the mismatch between a claimed population and what it returned.
+
+    Advisory, and cheap on purpose — a regex-free reading of two fields at the one
+    moment the practitioner can still act. Returns a short reason, or None.
+
+    The zero case is the load-bearing one. empirica-mesh-support's three failures
+    were all `grounding: ran`, would all have adjudicated `held`, and two measured
+    NOTHING: a glob that cannot cross path components matched 0 of 34,890 real refs
+    and printed 0 across 21 practices. They would have written the scope they
+    INTENDED, so scope alone catches none of it — but *scope: "all 21 practices",
+    count: 0* is absurd on sight.
+    """
+    if measured_count == 0 and scope:
+        return (
+            f"count=0 over scope {scope!r} — did the measurement walk the wrong thing? "
+            "Zero more often means 'I measured nothing' than 'the answer is zero'"
+        )
+    if scope and measured_count is None:
+        return f"scope {scope!r} names a population but no count — how many did it return?"
+    return None
+
+
 def declare(
     db,
     *,
@@ -134,16 +174,39 @@ def declare(
         cid = str(uuid.uuid4())
         grounding = normalize_grounding(raw.get("grounding"))
         ref = str(raw.get("ref") or "").strip() or None
+        scope = str(raw.get("scope") or "").strip() or None
+        measured_count = _normalize_count(raw.get("count", raw.get("measured_count")))
         try:
             db.conn.execute(
                 "INSERT INTO transaction_claims "
-                "(id, session_id, transaction_id, claim_index, claim, grounding, ref, declared_timestamp) "
-                "VALUES (?,?,?,?,?,?,?,?)",
-                (cid, session_id, transaction_id, idx, text, grounding, ref, now),
+                "(id, session_id, transaction_id, claim_index, claim, grounding, ref, "
+                "scope, measured_count, declared_timestamp) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (cid, session_id, transaction_id, idx, text, grounding, ref, scope, measured_count, now),
             )
         except Exception:
-            continue
-        stored.append({"id": cid, "index": idx, "claim": text, "grounding": grounding, "ref": ref})
+            # Older DB without the 071 columns — fall back rather than losing the
+            # claim. A claim recorded without its scope is worth more than no claim.
+            try:
+                db.conn.execute(
+                    "INSERT INTO transaction_claims "
+                    "(id, session_id, transaction_id, claim_index, claim, grounding, ref, declared_timestamp) "
+                    "VALUES (?,?,?,?,?,?,?,?)",
+                    (cid, session_id, transaction_id, idx, text, grounding, ref, now),
+                )
+            except Exception:
+                continue
+        stored.append(
+            {
+                "id": cid,
+                "index": idx,
+                "claim": text,
+                "grounding": grounding,
+                "ref": ref,
+                "scope": scope,
+                "measured_count": measured_count,
+            }
+        )
     if stored:
         db.conn.commit()
     return stored
@@ -423,7 +486,8 @@ def _all_claims(db, session_id: str, transaction_id: str | None) -> list[dict[st
 
 def _query_claims(db, session_id: str, transaction_id: str | None, only_open: bool) -> list[dict[str, Any]]:
     sql = (
-        "SELECT id, claim_index, claim, grounding, ref, verdict, verdict_evidence "
+        "SELECT id, claim_index, claim, grounding, ref, verdict, verdict_evidence, "
+        "scope, measured_count "
         "FROM transaction_claims WHERE session_id = ?"
     )
     params: list[Any] = [session_id]
@@ -433,16 +497,35 @@ def _query_claims(db, session_id: str, transaction_id: str | None, only_open: bo
     if only_open:
         sql += " AND verdict IS NULL"
     sql += " ORDER BY claim_index"
+
+    def _rows(query: str) -> list:
+        return db.conn.execute(query, params).fetchall()
+
+    wide = True
     try:
-        cur = db.conn.execute(sql, params)
-    except Exception as e:
-        # `[]` here is indistinguishable from "no claims were declared", so a
-        # schema drift (a missing migration 062, a renamed column) disables the
-        # whole claims mechanism and reports a clean zero forever. Degrading is
-        # right — claims must never break POSTFLIGHT — but degrading QUIETLY is
-        # what turns a fixable error into an invisible one. Say it, then degrade.
-        logger.warning(f"claims query failed — reporting 0 claims, which is NOT the same as none declared: {e}")
-        return []
+        rows = _rows(sql)
+    except Exception:
+        # The 071 columns may not exist yet. Retry WITHOUT them rather than
+        # reporting zero claims. Widening this SELECT with no fallback reproduced
+        # precisely the defect the comment below warns about: every adjudication
+        # returned held=0, because the query raised before it could match
+        # anything, and "0 claims" reads as "none declared" everywhere.
+        wide = False
+        narrow = (
+            "SELECT id, claim_index, claim, grounding, ref, verdict, verdict_evidence "
+            "FROM transaction_claims WHERE session_id = ?" + sql.split("WHERE session_id = ?", 1)[1]
+        )
+        try:
+            rows = _rows(narrow)
+        except Exception as e:
+            # `[]` here is indistinguishable from "no claims were declared", so a
+            # schema drift (a missing migration 062, a renamed column) disables the
+            # whole claims mechanism and reports a clean zero forever. Degrading is
+            # right — claims must never break POSTFLIGHT — but degrading QUIETLY is
+            # what turns a fixable error into an invisible one. Say it, then degrade.
+            logger.warning(f"claims query failed — reporting 0 claims, which is NOT the same as none declared: {e}")
+            return []
+
     return [
         {
             "id": r[0],
@@ -451,12 +534,11 @@ def _query_claims(db, session_id: str, transaction_id: str | None, only_open: bo
             "grounding": r[3],
             "ref": r[4],
             "verdict": r[5],
-            # Selected because `_refutation` reads it. A projection that omits a
-            # column its own consumer reads is the shape where every test asserts
-            # on the behaviour the field ENABLES and none reads it back off the row.
             "verdict_evidence": r[6],
+            "scope": r[7] if wide else None,
+            "measured_count": r[8] if wide else None,
         }
-        for r in cur.fetchall()
+        for r in rows
     ]
 
 
@@ -522,5 +604,35 @@ def summarize_for_check(stored: list[dict[str, Any]]) -> dict[str, Any] | None:
             "claim came FROM a prior artifact, so its id is in your hand right now — and if this "
             "claim is later refuted, the referent is what turns that into evidence about the "
             "artifact rather than a verdict about nothing. Add `ref` to each."
+        )
+
+    # SCOPE, echoed here for the same reason as referents: this is the last moment
+    # the practitioner can re-run the measurement. `grounding` says HOW I know and
+    # not OVER WHAT, so a claim measured over one population and applied to a wider
+    # one is indistinguishable in the record. David-directed 2026-09-17.
+    #
+    # Deliberately NOT a gate, and deliberately not required. A claim can be a
+    # statement about one file, where a scope would be noise — this reports on the
+    # ones that ARE measurements and left the population unnamed.
+    unscoped = [c for c in stored if not str(c.get("scope") or "").strip()]
+    if unscoped:
+        out["unscoped"] = len(unscoped)
+        out["scope_note"] = (
+            f"{len(unscoped)} of {len(stored)} claim(s) name no scope. `grounding` says how you "
+            "know, not OVER WHAT — a true claim applied wider than it was measured is the failure "
+            "mode a confidence gate cannot see, because such claims are true and adjudicate `held`. "
+            "If the claim is a measurement, add `scope` (the population) and `count` (what it "
+            "returned)."
+        )
+
+    suspect = [(c, scope_is_suspect(c.get("scope"), c.get("measured_count"))) for c in stored]
+    suspect = [(c, why) for c, why in suspect if why]
+    if suspect:
+        out["suspect_scopes"] = [{"index": c.get("index"), "why": why} for c, why in suspect]
+        out["suspect_scope_note"] = (
+            "A declared scope and count disagree in a way worth a second look before acting. "
+            "Two of empirica-mesh-support's three scope failures measured NOTHING while reading "
+            "as a real answer — a glob that cannot cross path components returned 0 of 34,890 "
+            "refs and printed 0 across 21 practices."
         )
     return out

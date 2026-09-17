@@ -69,9 +69,13 @@ class MigrationRunner:
             self.run_migration(migration_id, description, migration_func)
 
 
-def column_exists(cursor: sqlite3.Cursor, table: str, column: str) -> bool:
-    """Check if a column exists in a table"""
-    VALID_TABLES = {
+#: Tables a migration may ALTER. One definition, read by both `column_exists` and
+#: `add_column_if_missing` — it used to be two hand-maintained copies of the same
+#: set, so adding a table to one and not the other half-worked: the existence
+#: check passed and the ALTER raised `Invalid table name`, which reads as a bad
+#: migration rather than an incomplete allowlist. Migration 071 hit exactly that.
+MIGRATABLE_TABLES: frozenset[str] = frozenset(
+    {
         "sessions",
         "reflexes",
         "cascades",
@@ -113,7 +117,15 @@ def column_exists(cursor: sqlite3.Cursor, table: str, column: str) -> bool:
         # Prevention-currency measurement (migration 058/059)
         "prevention_events",
         "blindspot_events",
+        # Per-claim grounding (062) + scope and measured_count (071)
+        "transaction_claims",
     }
+)
+
+
+def column_exists(cursor: sqlite3.Cursor, table: str, column: str) -> bool:
+    """Check if a column exists in a table"""
+    VALID_TABLES = MIGRATABLE_TABLES
 
     if table not in VALID_TABLES:
         raise ValueError(f"Invalid table name: {table}")
@@ -133,49 +145,7 @@ def add_column_if_missing(cursor: sqlite3.Cursor, table: str, column: str, colum
 
     Silently skips if the table doesn't exist (schema will create it later).
     """
-    VALID_TABLES = {
-        "sessions",
-        "reflexes",
-        "cascades",
-        "findings",
-        "unknowns",
-        "dead_ends",
-        "reference_docs",
-        "mistakes",
-        "goals",
-        "subtasks",
-        "checkpoints",
-        "handoffs",
-        "schema_migrations",
-        "epistemic_snapshots",
-        "bayesian_beliefs",
-        "projects",
-        "project_findings",
-        "project_unknowns",
-        "project_dead_ends",
-        "mistakes_made",
-        "clients",
-        "engagements",
-        "client_interactions",
-        "client_projects",
-        "investigation_branches",
-        "epistemic_sources",
-        "assumptions",
-        "decisions",
-        # Post-test grounded calibration tables
-        "grounded_beliefs",
-        "verification_evidence",
-        "grounded_verifications",
-        "calibration_trajectory",
-        # Subagent isolation (migration 034)
-        "subagent_sessions",
-        # Composable epistemic patterns (migration 037)
-        "lessons",
-        "lesson_steps",
-        # Prevention-currency measurement (migration 058/059)
-        "prevention_events",
-        "blindspot_events",
-    }
+    VALID_TABLES = MIGRATABLE_TABLES
     VALID_COLUMN_TYPES = {"TEXT", "INTEGER", "REAL", "BLOB", "NULL", "TIMESTAMP", "BOOLEAN", "JSON"}
 
     if table not in VALID_TABLES:
