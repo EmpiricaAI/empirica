@@ -1180,6 +1180,41 @@ def is_toggle_command(command: str) -> str | None:
     return None
 
 
+# Consumers a heredoc trailer may pipe into BETWEEN TRANSACTIONS. Deliberately NOT
+# SAFE_PIPE_TARGETS: that list serves the noetic-read context and includes
+# `python3 -c`, `awk`, `sed` and `xargs echo` — arbitrary execution, `system()`,
+# `w file`. A must-stay-denied test caught the first draft of the helper below
+# waving `| python3 -c` through on the strength of that list. Nothing here can
+# execute or write: no `sort` (-o), no `uniq` (output operand), no interpreters.
+_INERT_TRAILER_TARGETS = ("head", "tail", "wc", "grep", "rg", "cut", "tr", "cat", "jq")
+
+
+def _heredoc_trailer_is_inert(trailer: str) -> bool:
+    """Is the text after a heredoc delimiter, on the same line, provably harmless?
+
+    `empirica preflight-submit - << 'EOF' 2>&1 | tail -2` carries a trailer of
+    `2>&1 | tail -2`. That is the everyday way to read a JSON response and must be
+    allowed; `| python3 -c "..."` and `> /etc/hosts` must not, because a trailer is
+    a place a second command can ride in on a transition command's coat-tails.
+
+    Inert means: after removing the known-safe stderr/null redirects, nothing is
+    left but pipes into the strict consumers in _INERT_TRAILER_TARGETS. Any other
+    redirect, any chain operator, any substitution → not inert. Deliberately an
+    allowlist: an unrecognised trailer is refused, not guessed at.
+    """
+    rest = SAFE_REDIRECT_PATTERN.sub(" ", trailer).strip()
+    if not rest:
+        return True
+    if any(tok in rest for tok in (";", "&&", "||", "`", "$(", ">", "<")) or re.search(r"(?<!\|)&(?!&)", rest):
+        return False
+    if not rest.startswith("|"):
+        return False
+    stages = [s.strip() for s in rest.split("|")[1:]]
+    if not stages or any(not s for s in stages):
+        return False
+    return all(any(s == t or s.startswith(t + " ") for t in _INERT_TRAILER_TARGETS) for s in stages)
+
+
 def is_transition_command(command: str) -> bool:
     """Check if command is a transition command (allowed after POSTFLIGHT).
 
@@ -1226,12 +1261,29 @@ def is_transition_command(command: str) -> bool:
         # text is where a second command hides.
         head_part, _, rest = cmd.partition("<<")
         delim_line, _, body = rest.partition("\n")
-        delim = delim_line.strip().lstrip("-").strip("'\"")
+        # The delimiter is the FIRST TOKEN after `<<`, not the rest of the line.
+        # This used to take the whole remainder, so `<< 'EOF' 2>&1 | tail -2` parsed
+        # its delimiter as `EOF' 2>&1 | tail -2`, never found a terminator, and
+        # DENIED — while the single-statement branch above accepted the identical
+        # trailer. `cd /x && empirica preflight-submit - << 'EOF'` was allowed and
+        # the same command with `| tail -2` was not, and the deny told the operator
+        # to run the command they were already running.
+        tokens = delim_line.strip().split(None, 1)
+        if not tokens:
+            return False
+        delim = tokens[0].lstrip("-").strip("'\"")
+        trailer = tokens[1] if len(tokens) > 1 else ""
         if not delim:
             return False
         body_lines = body.split("\n")
         terminator = next((i for i, ln in enumerate(body_lines) if ln.strip() == delim), None)
         if terminator is None or "\n".join(body_lines[terminator + 1 :]).strip():
+            return False
+        # What rides the heredoc line after the delimiter must be INERT: safe
+        # stderr/null redirects, and pipes into read-only consumers only. A pipe
+        # into `python3 -c` or a redirect to a real file is a second command, which
+        # is exactly what this branch exists to refuse.
+        if trailer and not _heredoc_trailer_is_inert(trailer):
             return False
         cmd = head_part
 
@@ -3631,6 +3683,23 @@ def _check_postflight_loop_closed(
                 # cover `empirica help`, `empirica goals-list`, etc. Honor the intent.
                 if is_safe_empirica_statement(command):
                     return ("allow", "Empirica command between transactions (artifact lifecycle / read-only)")
+
+                # The refused command CONTAINS a transition command. Telling this
+                # operator to "run preflight-submit" prescribes the command they
+                # just ran — there is no path out, and a verbatim retry fails
+                # identically. A peer hit exactly that three times and then tried a
+                # fresh session. Say what is actually wrong instead: the preflight
+                # shares its call with something the gate will not wave through.
+                if any(p in command for p in TRANSITION_COMMANDS if p.startswith("empirica ")):
+                    return (
+                        "deny",
+                        "Epistemic loop closed, and this call was refused even though it contains a "
+                        "transition command — because it ALSO contains something else. Between "
+                        "transactions a PREFLIGHT must be the only thing in its Bash call: nothing "
+                        "after the heredoc terminator, no chained command, and only an inert "
+                        "trailer on the heredoc line (2>&1, then pipes into head/tail/wc/grep/jq "
+                        "only). Re-run `empirica preflight-submit -` ALONE, then run the rest.",
+                    )
 
             return (
                 "deny",
