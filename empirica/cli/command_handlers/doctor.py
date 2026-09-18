@@ -187,7 +187,17 @@ def check_orphaned_presence() -> Check:
 
     rc, out, _ = _run(["systemctl", "--user", "list-units", "--type=service", "--no-pager"], timeout=6.0)
     if rc != 0:
-        return Check("Presence coverage", PASS, f"{len(live)} live (listener units not enumerable here)")
+        # The comparison was not made, so it did not pass. SKIP is the honest
+        # verdict for a box without user systemd (macOS, containers): folding
+        # "not checked" into the pass count is how an exemption reports clean
+        # forever, and this one would do so on exactly the boxes where a
+        # listener is most likely to be missing.
+        return Check(
+            "Presence coverage",
+            SKIP,
+            f"{len(live)} live practitioner(s) — listener units not enumerable here (systemctl --user rc={rc}), coverage NOT checked",
+            data={"live": len(live)},
+        )
     listeners = {
         ln.split("empirica-listener-", 1)[1].split(".service", 1)[0]
         for ln in out.splitlines()
