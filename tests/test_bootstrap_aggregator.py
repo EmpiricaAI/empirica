@@ -163,7 +163,8 @@ def _build_test_project(tmp_path: Path, name: str = "test-proj") -> tuple[Path, 
             source_type TEXT, source_url TEXT, title TEXT,
             description TEXT, confidence REAL DEFAULT 0.5,
             epistemic_layer TEXT, discovered_by_ai TEXT,
-            discovered_at TIMESTAMP NOT NULL
+            discovered_at TIMESTAMP NOT NULL,
+            source_metadata TEXT, archived BOOLEAN DEFAULT 0
         );
         CREATE TABLE goals (
             id TEXT PRIMARY KEY, project_id TEXT, session_id TEXT,

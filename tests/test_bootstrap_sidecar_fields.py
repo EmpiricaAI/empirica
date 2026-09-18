@@ -65,12 +65,10 @@ def _build_full_project(tmp_path: Path, name: str = "sidecar-proj") -> tuple[Pat
             session_id TEXT PRIMARY KEY, project_id TEXT, ai_id TEXT,
             created_timestamp REAL
         );
-        CREATE TABLE IF NOT EXISTS project_reference_docs (
-            id TEXT PRIMARY KEY, project_id TEXT NOT NULL, doc_path TEXT NOT NULL,
-            doc_type TEXT, description TEXT,
-            created_timestamp REAL NOT NULL DEFAULT 0,
-            doc_data TEXT NOT NULL DEFAULT '{}'
-        );
+        -- Reference docs live in epistemic_sources as source_type='pointer'
+        -- (migration 046; the base fixture builds that table). This fixture
+        -- used to build project_reference_docs, dropped by 047 and 072, which
+        -- is why it kept passing while every real store reported 0.
     """)
     conn.execute(
         "INSERT INTO projects (id, name, description, status, project_data) VALUES (?, ?, ?, 'active', '{}')",
@@ -93,8 +91,9 @@ def _add_reference_doc(db_path: Path, project_id: str, path: str) -> str:
     rid = str(uuid.uuid4())
     conn = sqlite3.connect(str(db_path))
     conn.execute(
-        "INSERT INTO project_reference_docs (id, project_id, doc_path, created_timestamp) VALUES (?, ?, ?, ?)",
-        (rid, project_id, path, time.time()),
+        "INSERT INTO epistemic_sources (id, project_id, source_type, source_url, title, discovered_at) "
+        "VALUES (?, ?, 'pointer', ?, ?, ?)",
+        (rid, project_id, path, Path(path).name, str(time.time())),
     )
     conn.commit()
     conn.close()
