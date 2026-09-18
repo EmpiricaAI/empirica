@@ -685,6 +685,28 @@ def _format_goal_output(output_format, result, objective, scope, estimated_compl
             print(f"❌ {result.get('message', 'Failed to create goal')}")
 
 
+_RULING_PREFIXES = ("DECISION NEEDED", "RULING NEEDED", "RULING:")
+
+
+def _ruling_prediction_warning(objective: str | None, description: str | None) -> str | None:
+    """A goal that waits on a ruling should carry the predicted answer.
+
+    Rulings are asked as predictions — question, predicted answer and reason,
+    room to override (David, 2026-09-18). The prediction belongs in the goal
+    body so it survives compaction and whoever raises it next inherits it.
+    Returns a warning when a ruling goal's description has no ``Predicted:``
+    line, else None. Advisory only: the goal is created either way.
+    """
+    if not objective or not objective.strip().upper().startswith(_RULING_PREFIXES):
+        return None
+    if description and "predicted:" in description.lower():
+        return None
+    return (
+        "ruling goal has no 'Predicted:' line in its description — add your predicted answer "
+        "and the reason it rests on, so the ruling can be answered with one word"
+    )
+
+
 def handle_goals_create_command(args):
     """Handle goals-create command - AI-first with legacy flag support"""
     try:
@@ -811,6 +833,11 @@ def handle_goals_create_command(args):
                 "objective": objective,
                 "scope": scope.to_dict(),
             }
+
+        ruling_warning = _ruling_prediction_warning(objective, description)
+        if ruling_warning:
+            result["ruling_warning"] = ruling_warning
+            print(f"⚠️  {ruling_warning}", file=sys.stderr)
 
         # Stage 6: Format output
         _format_goal_output(output_format, result, objective, scope, estimated_complexity, beads_issue_id, use_beads)
