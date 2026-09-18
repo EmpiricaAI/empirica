@@ -74,9 +74,18 @@ tty_sessions/pts-6.json         tty_sessions/pts-7.json
 
 ### Limitations
 
-- **No TTY in non-interactive contexts** (cron, some Docker setups)
+- **No TTY in non-interactive contexts** (cron, some Docker setups) — set
+  `EMPIRICA_INSTANCE_ID` (below) or pass `--session-id` explicitly
 - **TTY can be reused** after terminal closes (staleness detection helps)
 - **No cross-terminal isolation** without tmux
+
+### Explicit instance id (CI, containers, cron)
+
+`EMPIRICA_INSTANCE_ID=<name>` is the first thing `get_instance_id()` checks,
+ahead of `TMUX_PANE`, `TERM_SESSION_ID`, `WINDOWID` and the TTY device. Set it
+where no terminal identity exists, or where two processes share one and must
+not share a session. It overrides `TMUX_PANE` when both are set, so leave it
+unset in interactive tmux.
 
 ---
 
@@ -188,12 +197,19 @@ cat ~/.empirica/instance_projects/tmux_4.json
 
 ### Resolution Chain
 
-Commands resolve project context in this order:
+Two chains, both in `empirica/utils/session_resolver.py` (`InstanceResolver`):
 
-1. `--session-id` flag (explicit)
-2. `instance_projects/{instance_id}.json` (tmux, X11, macOS Terminal, TTY)
-3. `active_work_{uuid}.json` (if claude_session_id available)
-4. `active_work.json` (headless fallback, no CWD)
+**Project path** — `instance_projects/{instance_id}.json` →
+`active_work_{claude_session_id}.json` → `active_work.json`. Returns None (not
+CWD) when nothing resolves.
+
+**Session id** — `--session-id` flag → the open transaction's file
+(`active_transaction_{instance_id}.json`) → `active_work_{claude_session_id}.json`
+→ `instance_projects/{instance_id}.json` → `tty_sessions/{tty}.json` →
+`active_work.json` → most recent session in the DB.
+
+`instance_id` itself comes from `EMPIRICA_INSTANCE_ID` → `TMUX_PANE` →
+`TERM_SESSION_ID` → `WINDOWID` → TTY device.
 
 ---
 
@@ -203,7 +219,8 @@ Commands resolve project context in this order:
 
 You're in a context without a TTY (cron, Docker without `-t`, etc.).
 
-**Fix:** Use explicit `--session-id` flag on all commands, or ensure TTY is available.
+**Fix:** Set `EMPIRICA_INSTANCE_ID` for the process, or pass `--session-id`
+explicitly on every command.
 
 ### Wrong Project After Switching
 
