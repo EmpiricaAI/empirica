@@ -27,7 +27,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `/reporting-discipline` say so; `goals-create` warns when a ruling goal has
   no `Predicted:` line; a context-only hook reminds on `AskUserQuestion`.
 - **empirica-mcp depends on `empirica>=<release>,<2`**, not `==`. The pin rolled
-  core back whenever the wrapper was upgraded on its own.
+  core back whenever the wrapper was upgraded on its own. **Upgrading from below
+  1.13.48:** the installed empirica-mcp still carries the old `==` pin, so a bare
+  `pip install -U empirica` resolves it backwards and returns core to the old
+  version while reporting success. Upgrade both together
+  (`pip install -U empirica empirica-mcp`), or reinstall empirica-mcp after core.
 - **Migration 072 drops nine empty legacy tables.** Reference docs are read from
   `epistemic_sources`.
 - **Removed:** `identity-verify`, `performance` and `monitor` (placeholders that
