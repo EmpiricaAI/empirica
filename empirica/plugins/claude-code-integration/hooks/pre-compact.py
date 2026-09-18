@@ -35,8 +35,36 @@ _SKIP_PATTERNS = [
 ]
 
 
+#: How much of the transcript's tail to scan for the last human message. The
+#: message is always near the end; the whole file is not needed and cannot be
+#: afforded: this session's transcript reached 1.94 GB and `read_text()` on it
+#: took 27.9 s of the hook's 30 s budget, so the harness killed pre-compact
+#: before its snapshot write on every compaction for 48 days. 4 MB covers
+#: thousands of entries, including the multi-hundred-KB tool results that sit
+#: between human turns.
+TRANSCRIPT_TAIL_BYTES = 4 * 1024 * 1024
+
+
+def _read_transcript_tail(transcript_path: str, tail_bytes: int = TRANSCRIPT_TAIL_BYTES) -> list[str]:
+    """The last ``tail_bytes`` of the transcript as complete lines (a partial
+    first line from cutting mid-record is dropped)."""
+    path = Path(transcript_path)
+    size = path.stat().st_size
+    with open(path, "rb") as f:
+        if size > tail_bytes:
+            f.seek(size - tail_bytes)
+            chunk = f.read()
+            # The first line is almost certainly cut mid-record; drop it.
+            chunk = chunk.split(b"\n", 1)[1] if b"\n" in chunk else b""
+        else:
+            chunk = f.read()
+    return chunk.decode("utf-8", errors="replace").strip().split("\n")
+
+
 def _extract_last_task(transcript_path: str, max_chars: int = 500) -> str:
     """Extract the last human task message from the JSONL transcript.
+
+    Reads only the tail of the file — see TRANSCRIPT_TAIL_BYTES for why.
 
     Filters out:
     - Tool results (content is array, not string)
@@ -48,7 +76,7 @@ def _extract_last_task(transcript_path: str, max_chars: int = 500) -> str:
         return ""
 
     try:
-        lines = Path(transcript_path).read_text().strip().split("\n")
+        lines = _read_transcript_tail(transcript_path)
         for line in reversed(lines):
             if not line.strip():
                 continue

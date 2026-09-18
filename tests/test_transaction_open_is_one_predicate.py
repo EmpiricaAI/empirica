@@ -219,3 +219,79 @@ def test_pre_compact_trace_appends_one_json_line(tmp_path, monkeypatch):
     assert first["outcome"] == "no_empirica_session" and first["claude_session_id"] == "cc-1"
     assert second["outcome"] == "snapshot_written" and second["path"].endswith("pre_summary_1.json")
     assert "ts" in first and "cwd" in first
+
+
+# ─── pre-compact reads the transcript tail, not the file ──────────────────
+
+
+@pytest.fixture
+def pre_compact(tmp_path, monkeypatch):
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path / "home"))
+    spec = importlib.util.spec_from_file_location("pre_compact_tail_test", HOOKS / "pre-compact.py")
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _user(text):
+    return json.dumps({"type": "user", "message": {"content": text}})
+
+
+def _tool_result():
+    return json.dumps({"type": "user", "message": {"content": [{"type": "tool_result", "content": "x" * 50_000}]}})
+
+
+def test_last_task_comes_from_the_tail_of_a_large_transcript(pre_compact, tmp_path):
+    """A transcript far larger than the tail window: the answer is still the
+    last human message, and only the tail is read. The whole-file read this
+    replaces cost 27.9 s on a 1.94 GB transcript and was killed by the harness
+    before the snapshot write, every compaction, for 48 days."""
+    path = tmp_path / "t.jsonl"
+    filler = [_user(f"old task {i}") for i in range(200)] + [_tool_result() for _ in range(200)]
+    body = "\n".join(filler) + "\n" + _user("the real last task") + "\n" + _tool_result() + "\n"
+    path.write_text(body)
+    assert path.stat().st_size > pre_compact.TRANSCRIPT_TAIL_BYTES
+
+    reads: list[int] = []
+    real_open = open
+
+    def counting_open(p, mode="r", *a, **k):
+        f = real_open(p, mode, *a, **k)
+        if "b" in mode:
+            orig = f.read
+
+            def read(n=-1):
+                data = orig(n)
+                reads.append(len(data))
+                return data
+
+            f.read = read
+        return f
+
+    import builtins
+
+    original = builtins.open
+    builtins.open = counting_open
+    try:
+        out = pre_compact._extract_last_task(str(path))
+    finally:
+        builtins.open = original
+
+    assert out == "the real last task"
+    assert sum(reads) <= pre_compact.TRANSCRIPT_TAIL_BYTES
+
+
+def test_small_transcript_is_read_whole(pre_compact, tmp_path):
+    path = tmp_path / "t.jsonl"
+    path.write_text(_user("first") + "\n" + _user("second") + "\n")
+    assert pre_compact._extract_last_task(str(path)) == "second"
+
+
+def test_cut_first_line_of_the_tail_is_dropped_not_parsed(pre_compact, tmp_path, monkeypatch):
+    monkeypatch.setattr(pre_compact, "TRANSCRIPT_TAIL_BYTES", 80)
+    path = tmp_path / "t.jsonl"
+    path.write_text(_user("a" * 100) + "\n" + _user("tail task") + "\n")
+    lines = pre_compact._read_transcript_tail(str(path), tail_bytes=80)
+    assert all(json.loads(ln) for ln in lines)  # every returned line is a complete record
+    assert pre_compact._extract_last_task(str(path)) == "tail task"
