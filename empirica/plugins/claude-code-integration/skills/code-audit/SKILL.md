@@ -204,17 +204,49 @@ Spot check:
 - Inconsistent patterns (some files use `handle_X_command`, others use `X_handler`)
 - Magic strings/numbers without constants
 
-### 3e. Error Handling
+### 3e. Error Handling — success-shaped nothing
+
+The count of `except: pass` is the least of it. The defect that survives lint,
+types, coverage and a green suite is a **failure that returns the value meaning
+"measured" or "done"**: `return 0` on a COUNT that raised, `return []` on a
+timeout, `passed=True` on a skipped check, a stub rendering constants as a
+grade, a verb printing ✅ then ❌ and exiting 0. Lesson `b329fdbb1d6ddacb`
+(org pool, `lesson-create --from-global`) carries the five shapes and a worked
+day; the probe is:
 
 ```bash
-# Find bare exception handlers
-grep -rn "except Exception" "$TARGET" | grep "pass"
-grep -rn "except:" "$TARGET"
+# 1. Every handler / fallback / default. For EACH: what does the CALLER do with the value?
+#    Failure returning the same value as an honest empty (0, [], None, False) with no
+#    separate signal is the finding.
+rg -n "except .*:\s*$" -A 2 "$TARGET" | rg "return (0|\[\]|\{\}|None|False)|pass$"
+
+# 2. Lazily imported modules that do not exist — a verb that has never worked.
+#    `# pyright: ignore[reportMissingImports]` on an import is a confession.
+#    -N, not -n: a line-number prefix makes every module read MISSING (the probe's own
+#    first run did exactly that). Positive control: run it on a file known to import a
+#    module that is gone, and see that one name, only.
+rg -N "^\s+from (empirica[\w.]*) import" -o -r '$1' "$TARGET" | sort -u \
+  | while read m; do python3 -c "import importlib,sys; importlib.import_module(sys.argv[1])" "$m" 2>/dev/null || echo "MISSING $m"; done
+git log --diff-filter=D --oneline -- "<path>"   # never existed vs deleted
+
+# 3. Stubs rendering numbers: honesty in the docstring, a scorecard on the CLI.
+rg -n -i "stub|placeholder|not (yet |fully )?implemented|baseline" "$TARGET"
+
+# 4. Flags the parser accepts and nothing reads — an advertised no-op.
+rg -n 'add_argument\("--([\w-]+)"' -o -r '$1' "$TARGET"/../parsers | sort -u   # then rg each dest in the handler
 ```
 
+Then **run each verb live** and read exit code against banner. A parser, a doc
+page and a passing test do not prove a verb works — `investigate` had all three
+and zero working paths for its whole life.
+
 ```bash
-empirica finding-log --finding "12 bare 'except Exception: pass' handlers — errors silently swallowed" --impact 0.5
+empirica finding-log --finding "<verb> exits 0 with an error line: <path>:<line> returns [] on timeout, caller renders 'no results'" --impact 0.6
 ```
+
+**When the defect survived a green suite, the test is a suspect.** A test that
+asserts the defective surface (`returncode == 0` on the stub) is green exactly
+where it is blind — rewrite it to the contract and let it go red first.
 
 ### 3f. Matchers — over a formal grammar, or over natural language?
 
