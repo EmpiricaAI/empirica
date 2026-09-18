@@ -128,6 +128,35 @@ def test_an_unresolvable_project_id_is_404_not_an_empty_composition(client):
     assert r.status_code == 404
 
 
+def test_a_registered_project_id_resolves_to_its_tree(client, tmp_path, monkeypatch):
+    """POSITIVE CONTROL for the 404 above. Without it the negative test was
+    satisfied by a branch that could never succeed: the route imported
+    resolve_project_path from empirica.config.registry, a module that never
+    existed, so every ?project_id= request raised, logged at INFO and 404'd.
+    The route now uses resolve_for_request like every other route; a registered
+    id must come back 200 with the tree's own project-scoped units."""
+    from empirica.api import daemon_project
+
+    root = tmp_path / "proj"
+    (root / ".empirica").mkdir(parents=True)
+    (root / ".empirica" / "project.yaml").write_text("project_id: abc\nname: proj\n", encoding="utf-8")
+    (root / ".claude" / "skills" / "local-skill").mkdir(parents=True)
+    (root / ".claude" / "skills" / "local-skill" / "SKILL.md").write_text("x", encoding="utf-8")
+    monkeypatch.setattr(practice, "_PLUGIN_ROOT", tmp_path / "no-plugin")
+    monkeypatch.setattr(
+        daemon_project,
+        "resolve_for_request",
+        lambda project_id=None, project_path_override=None: (
+            {"project_id": "abc", "project_path": str(root)} if project_id == "abc" else None
+        ),
+    )
+
+    r = client.get("/api/v1/practice/composition", params={"project_id": "abc"})
+
+    assert r.status_code == 200, r.text
+    assert {"name": "local-skill", "source": "project"} in r.json()["skills"]
+
+
 def test_a_populated_tree_reports_lists_rather_than_nulls(client, tmp_path, monkeypatch):
     """End-to-end: the collectors must actually reach the route's output — otherwise
     every null-vs-empty test above passes while the route reports nothing useful.

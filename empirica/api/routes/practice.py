@@ -186,16 +186,21 @@ def _resolve_root(project_id: str | None, path: str | None) -> Path:
     if path:
         return Path(os.path.expanduser(path))
     if project_id:
-        try:
-            from empirica.config.registry import resolve_project_path  # type: ignore
+        # Same resolver as every other route (registry lookup, None when
+        # unregistered or when the registered path has lost its .empirica/).
+        # This used to import resolve_project_path from empirica.config.registry,
+        # a module that never existed: every ?project_id= request raised
+        # ImportError, logged it at INFO, and 404'd as "not resolvable" — the
+        # route's only test asserted that 404, so the dead branch stayed green.
+        from empirica.api.daemon_project import resolve_for_request
 
-            resolved = resolve_project_path(project_id)
-            if resolved:
-                return Path(resolved)
+        try:
+            project = resolve_for_request(project_id=project_id)
         except Exception as exc:
-            # Log rather than swallow — an unresolvable id and a broken resolver both
-            # end in the same 404 for the caller, but only one of them is a bug here.
-            logger.info(f"project_id resolution failed for {project_id!r}: {exc}")
+            logger.warning(f"project_id resolution FAILED for {project_id!r}: {exc}")
+            raise HTTPException(status_code=500, detail=f"project resolver failed: {exc}") from exc
+        if project and project.get("project_path"):
+            return Path(project["project_path"])
         raise HTTPException(status_code=404, detail=f"project_id {project_id!r} not resolvable to a path")
     return Path.cwd()
 
