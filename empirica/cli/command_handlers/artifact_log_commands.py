@@ -79,7 +79,12 @@ def _resolve_source_ids(args, ctx, db, config_data=None) -> list[str]:
             )
             source_ids.insert(0, new_sid)
         except Exception as e:
-            logger.debug(f"inline --cite create_source failed (non-fatal): {e}")
+            # The caller ASKED for a citation. At debug level the artifact went
+            # out unsourced and the POSTFLIGHT "0 source_refs" nag then read as
+            # the practitioner's omission. Non-fatal stays; silent does not.
+            logger.warning(
+                f"inline --cite: source was NOT created ({type(e).__name__}: {e}); artifact logged without it"
+            )
     return source_ids
 
 
@@ -651,7 +656,12 @@ def _resolve_goal_for_artifact(goal_id, session_id, db, transaction_id=None, pro
             if row:
                 return row["id"] if hasattr(row, "keys") else row[0]
         except Exception as e:
-            logger.debug(f"goal auto-attach tier failed ({query[:40]}...): {e}")
+            # A tier RAISING is not a tier finding nothing: the artifact ships
+            # unattached either way, but only one of those is a defect, and at
+            # debug level they were indistinguishable (the 53%-orphaned finding).
+            logger.warning(
+                f"goal auto-attach: tier query FAILED ({type(e).__name__}: {e}); artifact may log without a goal"
+            )
     return None
 
 
@@ -1230,7 +1240,9 @@ def handle_finding_log_command(args):
                 )
                 source_ids.insert(0, new_sid)
             except Exception as e:
-                logger.debug(f"inline --cite create_source failed (non-fatal): {e}")
+                logger.warning(
+                    f"inline --cite: source was NOT created ({type(e).__name__}: {e}); finding logged without it"
+                )
         # Source-aware Sentinel substrate: optional intuition|search|mixed tag
         epistemic_source = (config_data or {}).get("epistemic_source") or getattr(args, "epistemic_source", None)
 
