@@ -67,7 +67,6 @@ from .module_parsers import add_module_parsers
 from .monitor_parsers import add_monitor_parsers
 from .notify_parsers import add_notify_parsers
 from .onboarding_parsers import add_onboarding_parsers
-from .performance_parsers import add_performance_parsers
 from .profile_parsers import add_profile_parsers
 from .projects_parsers import add_projects_parsers
 from .provision_practice_parsers import add_provision_practice_parsers
@@ -111,7 +110,6 @@ __all__ = [
     "add_monitor_parsers",
     "add_notify_parsers",
     "add_onboarding_parsers",
-    "add_performance_parsers",
     "add_profile_parsers",
     "add_projects_parsers",
     "add_provision_practice_parsers",

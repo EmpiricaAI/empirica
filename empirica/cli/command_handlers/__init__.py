@@ -181,7 +181,6 @@ from .notify_commands import (
     handle_notify_test_command,
 )
 from .onboard import handle_onboard_command
-from .performance_commands import handle_benchmark_command, handle_performance_command
 from .practitioner_commands import handle_practitioner_group_command
 from .profile_commands import (
     handle_profile_import_command,
@@ -297,7 +296,6 @@ __all__ = [  # noqa: RUF022
     "handle_assess_state_command",
     "handle_assumption_log_command",
     # Performance commands
-    "handle_benchmark_command",
     "handle_calibration_dispute_command",
     "handle_calibration_report_command",
     "handle_grounding_export_command",
@@ -417,7 +415,6 @@ __all__ = [  # noqa: RUF022
     "handle_notify_test_command",
     # Onboarding commands
     "handle_onboard_command",
-    "handle_performance_command",
     "handle_postflight_submit_command",
     # NEW: MCP v2 Workflow Commands (Critical Priority)
     "handle_preflight_submit_command",

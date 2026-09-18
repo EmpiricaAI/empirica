@@ -222,10 +222,12 @@ class TestInvestigationCommands:
 class TestPerformanceCommands:
     """Test Performance commands (2 commands)"""
 
-    def test_performance_execution(self):
-        """Performance runs without args (shows performance stats)"""
+    def test_performance_verb_is_gone(self):
+        """`empirica performance` rendered a graded scorecard (score 0.75, Grade B,
+        green/yellow dimensions) from constants in a self-declared stub, exit 0.
+        The verb, the stub and the parser were removed; this pins that."""
         result = subprocess.run(["empirica", "performance"], capture_output=True, timeout=5)
-        assert result.returncode == 0
+        assert result.returncode != 0
 
     def test_efficiency_report_help(self):
         """Efficiency-report command has working --help"""

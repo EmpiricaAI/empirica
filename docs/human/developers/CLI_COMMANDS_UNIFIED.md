@@ -23,8 +23,8 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.13.47
-**Generated:** 2026-09-18 13:44:49 UTC
-**Total commands:** 243 (across 24 categories)
+**Generated:** 2026-09-18 13:50:00 UTC
+**Total commands:** 242 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
 `empirica <command> --help` — the generator extracts the same `help`
@@ -5345,29 +5345,6 @@ Plugin layer: place files, register automations, grant ntfy topics, check env
 - `--output` — optional · type=`choice` · choices={json, text} · default=`json`
   Output format (default: json)
 
-
-#### `empirica performance`
-
-Analyze performance or run benchmarks
-
-**Arguments:**
-
-- `--benchmark` — optional · flag
-  Run performance benchmarks (replaces benchmark command)
-- `--target` — optional · default=`system`
-  Performance analysis target
-- `--type` — optional · default=`comprehensive`
-  Benchmark/analysis type
-- `--iterations` — optional · type=`int` · default=`10`
-  Number of iterations (for benchmarks)
-- `--memory` — optional · flag · default=`True`
-  Include memory analysis
-- `--context` — optional
-  JSON context data
-- `--detailed` — optional · flag
-  Show detailed metrics
-- `--verbose` — optional · flag
-  Show detailed results
 
 #### `empirica project-register`
 

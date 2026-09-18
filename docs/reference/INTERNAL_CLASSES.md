@@ -183,13 +183,11 @@ either be properly documented or moved to a less prominent home.
 - `UniversalConstraints` — config-merge layer combining defaults,
   project overrides, and per-instance overrides.
 
-## Vision + performance
+## Vision
 
 - `SlideProcessor` — vision-module helper that walks a slide deck
   artifact, extracts per-slide image + alt-text, and emits a structured
   doc body (`empirica/core/vision/`).
-- `EmpiricalPerformanceAnalyzer` — benchmark harness used by
-  `empirica benchmark` and the components/ self-test paths.
 
 ## Workflow + structure
 

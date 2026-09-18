@@ -218,7 +218,6 @@ from .parsers import (
     add_monitor_parsers,
     add_notify_parsers,
     add_onboarding_parsers,
-    add_performance_parsers,
     add_profile_parsers,
     add_projects_parsers,
     add_provision_practice_parsers,
@@ -438,7 +437,6 @@ def create_argument_parser():
     add_session_parsers(subparsers)
     add_cascade_parsers(subparsers)
     add_investigation_parsers(subparsers)
-    add_performance_parsers(subparsers)
     add_skill_parsers(subparsers)
     add_utility_parsers(subparsers)
     add_config_parsers(subparsers)
@@ -970,8 +968,6 @@ def main(args=None):
             "investigate-checkpoint-branch": handle_investigate_checkpoint_branch_command,
             "investigate-merge-branches": handle_investigate_merge_branches_command,
             "investigate-multi": handle_investigate_multi_command,
-            # Performance commands
-            "performance": handle_performance_command,
             # Skill commands
             "skill-suggest": handle_skill_suggest_command,
             "skill-fetch": handle_skill_fetch_command,
