@@ -34,17 +34,38 @@ def test_false_when_version_absent():
         assert _pypi_has_version("empirica", "1.12.30") is False
 
 
-def test_false_on_network_error():
-    # A transient failure must not crash the compliance report — just "missing".
+def test_none_on_network_error_and_check_failed_in_the_chain():
+    """A transient failure must not crash the report — and must not read as
+    "missing" either. This test used to pin the defect: it asserted False,
+    which the release chain rendered as NOT PUBLISHED on any offline box."""
+    from empirica.cli.command_handlers.compliance_report_commands import _pypi_channel_status
+
     with patch("urllib.request.urlopen", side_effect=OSError("network down")):
-        assert _pypi_has_version("empirica", "1.12.30") is False
+        assert _pypi_has_version("empirica", "1.12.30") is None
+        assert _pypi_channel_status("empirica", "1.12.30") == "check_failed"
 
 
-def test_false_on_malformed_json():
+def test_http_404_is_a_genuine_false():
+    import urllib.error
+
+    err = urllib.error.HTTPError("https://pypi.org/pypi/x/json", 404, "Not Found", {}, None)  # type: ignore[arg-type]
+    with patch("urllib.request.urlopen", side_effect=err):
+        assert _pypi_has_version("nonexistent-pkg", "1.0.0") is False
+
+
+def test_http_5xx_is_check_failed_not_missing():
+    import urllib.error
+
+    err = urllib.error.HTTPError("https://pypi.org/pypi/x/json", 503, "Unavailable", {}, None)  # type: ignore[arg-type]
+    with patch("urllib.request.urlopen", side_effect=err):
+        assert _pypi_has_version("empirica", "1.12.30") is None
+
+
+def test_none_on_malformed_json():
     resp = MagicMock()
     resp.read.return_value = b"not json"
     cm = MagicMock()
     cm.__enter__.return_value = resp
     cm.__exit__.return_value = False
     with patch("urllib.request.urlopen", return_value=cm):
-        assert _pypi_has_version("empirica", "1.12.30") is False
+        assert _pypi_has_version("empirica", "1.12.30") is None

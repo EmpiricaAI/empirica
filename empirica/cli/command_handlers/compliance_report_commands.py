@@ -634,21 +634,43 @@ def _build_release_chain_check(project_root: Path) -> dict[str, Any]:
     }
 
 
-def _pypi_has_version(pkg: str, version: str) -> bool:
+def _pypi_has_version(pkg: str, version: str) -> bool | None:
     """Query PyPI's live JSON API for whether ``version`` of ``pkg`` is published.
 
     Uses the live API rather than ``pip index versions`` — pip reads its local
     HTTP cache, which lags minutes behind a fresh publish and produced a
     false-negative in ``release_chain`` right after ``release.py --publish``.
+
+    Tri-state: True / False are answers; None means the question could not be
+    asked (timeout, DNS, 5xx). It used to return False for all of those, so an
+    offline box reported the release as NOT PUBLISHED — the timeout-as-404
+    shape, in the report whose job is to say whether a release shipped. A 404
+    on the package itself is a genuine False: the package does not exist there.
     """
+    import urllib.error
     import urllib.request
 
     try:
         with urllib.request.urlopen(f"https://pypi.org/pypi/{pkg}/json", timeout=10) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         return version in data.get("releases", {})
-    except Exception:
-        return False
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return False
+        logger.warning("release_chain: PyPI answered HTTP %s for %s — check_failed, not missing", e.code, pkg)
+        return None
+    except Exception as e:
+        logger.warning(
+            "release_chain: PyPI unreachable for %s (%s: %s) — check_failed, not missing", pkg, type(e).__name__, e
+        )
+        return None
+
+
+def _pypi_channel_status(pkg: str, version: str) -> str:
+    verdict = _pypi_has_version(pkg, version)
+    if verdict is None:
+        return "check_failed"
+    return "published" if verdict else "missing"
 
 
 def _check_channel(channel: str, version: str, project_root: Path) -> str:
@@ -674,10 +696,10 @@ def _check_channel(channel: str, version: str, project_root: Path) -> str:
             return "published" if result.returncode == 0 else "missing"
 
         if channel == "pypi":
-            return "published" if _pypi_has_version("empirica", version) else "missing"
+            return _pypi_channel_status("empirica", version)
 
         if channel == "pypi_mcp":
-            return "published" if _pypi_has_version("empirica-mcp", version) else "missing"
+            return _pypi_channel_status("empirica-mcp", version)
 
         if channel == "docker":
             # Check Docker Hub tag existence via API
