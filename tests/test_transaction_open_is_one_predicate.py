@@ -295,3 +295,31 @@ def test_cut_first_line_of_the_tail_is_dropped_not_parsed(pre_compact, tmp_path,
     lines = pre_compact._read_transcript_tail(str(path), tail_bytes=80)
     assert all(json.loads(ln) for ln in lines)  # every returned line is a complete record
     assert pre_compact._extract_last_task(str(path)) == "tail task"
+
+
+# ─── post-compact's CRITICAL writers report a failed write ────────────────
+
+
+def test_failed_pointer_write_is_reported_on_stderr(post_compact, tmp_path, monkeypatch, capsys):
+    """Both writers' docstrings say CRITICAL and every caller discards the
+    return; a failed write used to leave the new conversation without its
+    pointers and nothing saying so."""
+    monkeypatch.setattr(post_compact, "_get_instance_suffix", lambda: "_tmux_1")
+    ro = tmp_path / "proj"
+    ro.mkdir()
+    (ro / ".empirica").write_text("not a directory")  # the mkdir/open below must fail
+    ok = post_compact._write_active_transaction_for_new_conversation(
+        {"transaction_id": "tx", "status": "open"}, str(ro), "inst", "cc"
+    )
+    assert ok is False
+    assert "could NOT write the transaction pointer" in capsys.readouterr().err
+
+
+def test_failed_active_work_write_is_reported_on_stderr(post_compact, tmp_path, monkeypatch, capsys):
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / ".empirica").write_text("not a directory")
+    monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
+    ok = post_compact._write_active_work_for_new_conversation("cc-1", str(tmp_path), "sess", "inst")
+    assert ok is False
+    assert "could NOT write active_work" in capsys.readouterr().err

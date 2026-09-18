@@ -119,7 +119,15 @@ def _write_active_transaction_for_new_conversation(
             json.dump(tx_data, f, indent=2)
 
         return True
-    except Exception:
+    except Exception as e:
+        # The docstring says CRITICAL and every caller discards the return, so
+        # a failed write used to leave the new conversation with no transaction
+        # pointer and nothing saying so. stderr is the post-compact banner.
+        print(
+            f"post-compact: could NOT write the transaction pointer for this instance "
+            f"({type(e).__name__}: {e}) — Sentinel and statusline will not find the open transaction",
+            file=sys.stderr,
+        )
         return False
 
 
@@ -176,7 +184,12 @@ def _write_active_work_for_new_conversation(
             os.chmod(instance_file, 0o600)
 
         return True
-    except Exception:
+    except Exception as e:
+        print(
+            f"post-compact: could NOT write active_work / instance_projects for this conversation "
+            f"({type(e).__name__}: {e}) — CLI commands may resolve the WRONG project until session-init runs again",
+            file=sys.stderr,
+        )
         return False
 
 
