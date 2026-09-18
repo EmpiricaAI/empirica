@@ -88,7 +88,7 @@ PREFLIGHT ─────► CHECK ───┼─────────► PO
 
 **Computes:**
 - Readiness gate: `corrected_know >= 0.70 AND corrected_uncertainty <= 0.35`
-- Corrections from: `load_grounded_corrections()` (NOT learning trajectory!)
+- Thresholds from: `_check_load_dynamic_thresholds()` in `_workflow_check.py` — Brier-score calibration moves the defaults (NOT learning trajectory!)
 - Returns: `proceed` or `investigate`
 
 **Stores:** Nothing (validation phase, no persistence)
@@ -159,7 +159,7 @@ POSTFLIGHT self-assessment ──────────► Objective evidence
 ```
 
 **Measures:** Belief calibration (divergence from service observations)
-**Used for:** Sentinel bias correction via `load_grounded_corrections()`
+**Used for:** CHECK's dynamic readiness thresholds and PREFLIGHT's `calibration_adjustments` (`BayesianBeliefManager.get_calibration_adjustments`)
 **Sources:** Test results, git metrics, artifact counts, goal completion
 
 ---

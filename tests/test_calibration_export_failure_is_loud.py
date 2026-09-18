@@ -10,7 +10,6 @@ cause; the nothing-to-export path stays quiet.
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
 from empirica.core import bayesian_beliefs as bb
 
@@ -79,22 +78,10 @@ def test_an_unwritable_breadcrumbs_file_warns(tmp_path, monkeypatch, caplog):
     assert "writing" in caplog.text and "FAILED" in caplog.text
 
 
-def test_the_two_corrections_loaders_have_no_caller():
-    """Pins a measured fact: load_bias_corrections and load_grounded_corrections
-    are referenced nowhere outside their module. Removing them later is then a
-    known act, and so is adding a caller (this test would name the file).
-
-    Pure-Python walk: the first version shelled out to `rg`, which this box has
-    and the CI runner does not - a test that measured the box."""
-    import re
-
-    repo = Path(bb.__file__).resolve().parents[2]
-    needle = re.compile(r"load_bias_corrections|load_grounded_corrections")
-    others = []
-    for root in (repo / "empirica", repo / "tests"):
-        for path in root.rglob("*.py"):
-            if path.name in ("bayesian_beliefs.py", Path(__file__).name):
-                continue
-            if needle.search(path.read_text(encoding="utf-8", errors="replace")):
-                others.append(str(path.relative_to(repo)))
-    assert others == [], others
+def test_the_two_dead_corrections_loaders_stay_removed():
+    """load_bias_corrections / load_grounded_corrections had no caller anywhere
+    (pinned here first, then removed); the architecture doc credited CHECK's
+    readiness gate to one of them. CHECK reads Brier-derived thresholds instead.
+    A returning name should come back with a caller, not as dead code."""
+    assert not hasattr(bb, "load_bias_corrections")
+    assert not hasattr(bb, "load_grounded_corrections")
