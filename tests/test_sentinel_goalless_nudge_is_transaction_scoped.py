@@ -10,7 +10,6 @@ having a goal in play must silence it.
 from __future__ import annotations
 
 import importlib.util
-import json
 import sqlite3
 import sys
 from pathlib import Path
@@ -52,34 +51,33 @@ def cursor():
     return conn.cursor()
 
 
-def _check(gate, cursor, tmp_path, monkeypatch, calls=6, counters=True):
-    """Real layout: the transaction file carries NO count (it is workflow-owned);
-    the count lives in the hook counters file at the writer's own path helper.
-    The first version of this test put tool_call_count in the transaction file,
-    so it passed while the deployed hook read 0 forever (mesh-support,
-    prop_jqoi4xy3izelnl6vhctdykdtju)."""
-    suffix = "_tmux_9"
-    tx_file = tmp_path / f"active_transaction{suffix}.json"
-    tx_file.write_text(json.dumps({"status": "open", "transaction_id": TX, "preflight_timestamp": PREFLIGHT_TS}))
-    if counters:
-        gate._hook_counters_path(tx_file, suffix).write_text(json.dumps({"tool_call_count": calls}))
-    monkeypatch.setattr(gate, "_find_transaction_file", lambda *_a, **_k: tx_file)
-    monkeypatch.setattr(gate, "_resolve_empirica_session_id", lambda *_: "s")
-    return gate._check_goalless_work(cursor, "s", TX, PREFLIGHT_TS, "c", tmp_path, suffix)
+def _check(gate, cursor, tmp_path, monkeypatch, calls=6):
+    """The check reads the count THIS invocation's tracker wrote (_tool_call_count),
+    not a second lookup of a file. Two earlier shapes of this test passed while
+    the deployed hook read 0: first a count planted in the transaction file, then
+    a counters file found by a reader whose locator could resolve a different
+    transaction than the writer's (mesh-support, 2026-09-18)."""
+    monkeypatch.setattr(gate, "_tool_call_count", calls)
+    return gate._check_goalless_work(cursor, "s", TX, PREFLIGHT_TS)
 
 
-def test_a_count_in_the_transaction_file_is_not_read(gate, cursor, tmp_path, monkeypatch):
-    """Negative control on the channel: only the counters file counts."""
-    suffix = "_tmux_9"
-    tx_file = tmp_path / f"active_transaction{suffix}.json"
-    tx_file.write_text(json.dumps({"status": "open", "tool_call_count": 50}))
-    monkeypatch.setattr(gate, "_find_transaction_file", lambda *_a, **_k: tx_file)
-    monkeypatch.setattr(gate, "_resolve_empirica_session_id", lambda *_: "s")
-    assert gate._check_goalless_work(cursor, "s", TX, PREFLIGHT_TS, "c", tmp_path, suffix) == ""
+def test_no_counted_session_means_no_nudge(gate, cursor, monkeypatch):
+    monkeypatch.setattr(gate, "_tool_call_count", None)
+    assert gate._check_goalless_work(cursor, "s", TX, PREFLIGHT_TS) == ""
+
+
+def test_the_tracker_hands_its_own_count_to_the_check(gate, tmp_path, monkeypatch):
+    """The writer's result, same invocation: no second locator to diverge."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / ".empirica").mkdir()
+    (tmp_path / ".empirica" / "active_work_cs.json").write_text("{}")
+    monkeypatch.setattr(gate, "_try_increment_tool_count", lambda *_a, **_k: (7, 0))
+    monkeypatch.setattr(gate, "_tool_call_count", None)
+    gate._track_tool_usage({"session_id": "cs"}, "Bash", {"command": "ls"})
+    assert gate._tool_call_count == 7
 
 
 def test_the_writer_uses_the_same_path_helper(gate):
-    """Reader and writer cannot drift: the incrementer resolves its file via the helper."""
     import inspect
 
     assert "_hook_counters_path(tx_path, suffix)" in inspect.getsource(gate._try_increment_tool_count)

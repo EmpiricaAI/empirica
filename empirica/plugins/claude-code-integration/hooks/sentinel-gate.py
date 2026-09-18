@@ -1441,6 +1441,11 @@ def _is_recovery_or_measurement_action(tool_name: str, tool_input: dict | None) 
 
 _autonomy_nudge = ""  # Module-level: set during increment, read by respond
 _goalless_nudge = ""  # Module-level: set when no goals detected, read by respond
+# The tool-call count this invocation just wrote (None: not a counted parent
+# session, or the increment failed). The goalless check reads THIS, not a
+# second lookup of the file: a reader with its own locator resolved a
+# different transaction file on some calls and read 0 (mesh-support, 2026-09-18).
+_tool_call_count: int | None = None
 _reread_nudge = ""  # Module-level: set when Read tool targets already-read file
 _file_relevance_nudge = ""  # Module-level: set when artifacts reference an Edit/Write target
 _last_read_count = 0  # Module-level: how many times current file was read this tx
@@ -4046,9 +4051,7 @@ def _check_prior_investigate(
     return ("ask", "Previous CHECK returned INVESTIGATE. Consider running CHECK with proceed before praxic actions.")
 
 
-def _check_goalless_work(
-    cursor, session_id: str, transaction_id, preflight_timestamp, claude_session_id, empirica_root, suffix
-) -> str:
+def _check_goalless_work(cursor, session_id: str, transaction_id, preflight_timestamp) -> str:
     """Nudge when THIS transaction has done >=5 tool calls with no goal in play.
 
     "A goal in play" means any of: a goal created in this transaction
@@ -4063,13 +4066,7 @@ def _check_goalless_work(
     live work, so tidying goals could not have fixed it.
     """
     try:
-        count = 0
-        if empirica_root:
-            tx_file = _find_transaction_file(empirica_root, suffix, _resolve_empirica_session_id(claude_session_id))
-            counters_file = _hook_counters_path(Path(tx_file), suffix) if tx_file else None
-            if counters_file and counters_file.exists():
-                with open(counters_file) as f:
-                    count = json.load(f).get("tool_call_count", 0)
+        count = _tool_call_count or 0
         if count < 5 or not transaction_id:
             return ""
 
@@ -4274,7 +4271,7 @@ def _track_tool_usage(hook_input: dict, tool_name: str, tool_input: dict) -> Non
     Nudge thresholds are informational — Claude decides when to POSTFLIGHT.
     Also sets re-read advisory when Read tool targets already-read file.
     """
-    global _autonomy_nudge, _reread_nudge
+    global _autonomy_nudge, _reread_nudge, _tool_call_count
     try:
         _claude_sid = hook_input.get("session_id")
         # Only increment for sessions with active_work (parent sessions).
@@ -4283,6 +4280,7 @@ def _track_tool_usage(hook_input: dict, tool_name: str, tool_input: dict) -> Non
         _aw_check = Path.home() / ".empirica" / f"active_work_{_claude_sid}.json"
         if _claude_sid and _aw_check.exists():
             _count, _avg = _try_increment_tool_count(_claude_sid, tool_name, tool_input)
+            _tool_call_count = _count
             _autonomy_nudge = _compute_nudge(_count, _avg)
     except Exception:
         pass  # Counter failure is non-fatal
@@ -4732,9 +4730,7 @@ def _run_authorization_pipeline(hook_input: dict, tool_name: str, tool_input: di
 
         # Goalless-work advisory nudge
         global _goalless_nudge
-        _goalless_nudge = _check_goalless_work(
-            cursor, session_id, current_transaction_id, preflight_timestamp, claude_session_id, empirica_root, suffix
-        )
+        _goalless_nudge = _check_goalless_work(cursor, session_id, current_transaction_id, preflight_timestamp)
 
         # Sequential pre-CHECK validations
         for check in (
