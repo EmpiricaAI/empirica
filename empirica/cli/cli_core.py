@@ -687,6 +687,9 @@ def _handle_help_command(parsed_args) -> None:
 def _handle_command_result(result, parsed_args) -> int:
     """Handle command result: print output and return exit code."""
     if isinstance(result, dict):
+        from empirica.utils import partial_view
+
+        partial_view.record(str(getattr(parsed_args, "command", "") or ""), result)
         output_format = getattr(parsed_args, "output", "json")
         if output_format == "json":
             print(json.dumps(result, indent=2, default=str))

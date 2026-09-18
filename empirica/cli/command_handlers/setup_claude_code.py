@@ -732,6 +732,30 @@ def _register_all_hooks(settings, plugin_dir, python_cmd, output_format):
         output_format,
     )
 
+    # Own detect pattern, so an install that already has entity-extractor
+    # still gains it on the next setup (goal 7f7ccb9f).
+    truncation_script = f"{python_cmd} {plugin_dir}/hooks/truncation-legibility.py"
+    _register_hook(
+        settings,
+        "PostToolUse",
+        "truncation-legibility",
+        [
+            {
+                "matcher": "Bash",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": truncation_script,
+                        "timeout": LIGHT_HOOK_TIMEOUT,
+                        "allowFailure": True,
+                    }
+                ],
+            },
+        ],
+        "PostToolUse (truncation legibility) hook",
+        output_format,
+    )
+
     task_script = f"{python_cmd} {plugin_dir}/hooks/task-completed.py"
     _register_hook(
         settings,

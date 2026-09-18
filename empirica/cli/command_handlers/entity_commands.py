@@ -558,6 +558,9 @@ def handle_entity_walk_command(args):
                 print(f"❌ {err['message']}", file=sys.stderr)
                 print(f"   {err['hint']}", file=sys.stderr)
             sys.exit(1)
+        from empirica.utils import partial_view
+
+        partial_view.record("entity walk", {"truncated": result["truncated"], "count": len(result["nodes"])})
         if output == "json":
             print(
                 json.dumps(

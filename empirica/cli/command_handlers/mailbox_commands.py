@@ -972,6 +972,11 @@ def handle_mailbox_poll_command(
         result["has_more"] = _poll_meta["has_more"]
         if _poll_meta["has_more"]:
             result["truncated_hint"] = "more proposals match than were returned — raise --limit or page with --since"
+    # Printed here, not returned, so the CLI core never sees it: record the
+    # partial page for the truncation hook ourselves.
+    from empirica.utils import partial_view
+
+    partial_view.record("mailbox poll", result)
 
     fmt = getattr(args, "output", "json")
     if fmt == "human":
