@@ -988,7 +988,6 @@ def main(args=None):
             # Unified resolve command
             "resolve": handle_resolve_command,
             # Monitor commands
-            "monitor": handle_monitor_command,
             "system-status": handle_system_status_command,
             "assess-state": handle_assess_state_command,
             "mco-load": handle_mco_load_command,

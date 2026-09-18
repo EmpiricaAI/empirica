@@ -423,7 +423,9 @@ def handle_project_bootstrap_command(args):
         if err is not None:
             return err
 
-        check_integrity = False  # Disabled: naive parser has false positives. Use pattern matcher instead.
+        # --check-integrity was accepted and ignored here (naive parser, false
+        # positives); the flag is gone. Kept False for the SessionDatabase signature.
+        check_integrity = False
         context_to_inject = getattr(args, "context_to_inject", False)
         task_description = getattr(args, "task_description", None)
 

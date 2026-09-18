@@ -455,9 +455,6 @@ def add_checkpoint_parsers(subparsers):
         "--subject", help="Subject/workstream to filter by (auto-detected from directory if omitted)"
     )
     project_bootstrap_parser.add_argument(
-        "--check-integrity", action="store_true", help="Analyze doc-code integrity (adds ~2s)"
-    )
-    project_bootstrap_parser.add_argument(
         "--context-to-inject", action="store_true", help="Generate markdown context for AI prompt injection"
     )
     project_bootstrap_parser.add_argument("--task-description", help="Task description for context load balancing")
@@ -647,9 +644,6 @@ def add_checkpoint_parsers(subparsers):
     entity_create_parser.add_argument("--role", help="Role/title at their organization (contact)")
     entity_create_parser.add_argument("--company", help="Company/organization name (contact — folded into the slug)")
     entity_create_parser.add_argument("--description", help="Free-text context for the entity")
-    entity_create_parser.add_argument(
-        "--contact-id", help="Contact id to link the engagement to (entity_memberships member_of edge)"
-    )
     entity_create_parser.add_argument("--metadata", help="Extra metadata as a JSON object string")
     entity_create_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
     entity_create_parser.add_argument("--verbose", action="store_true", help="Verbose output")
@@ -2120,16 +2114,6 @@ Example:
         help="Show this project's FULL backlog — no 20-goal cap, project scope unchanged. "
         "The header's truncation notice used to point at --all-projects, which also widens "
         "the project scope: the advertised remedy did something other than what was wanted.",
-    )
-    goals_list_parser.add_argument("--scope-breadth-min", type=float, help="Filter by minimum breadth (0.0-1.0)")
-    goals_list_parser.add_argument("--scope-breadth-max", type=float, help="Filter by maximum breadth (0.0-1.0)")
-    goals_list_parser.add_argument("--scope-duration-min", type=float, help="Filter by minimum duration (0.0-1.0)")
-    goals_list_parser.add_argument("--scope-duration-max", type=float, help="Filter by maximum duration (0.0-1.0)")
-    goals_list_parser.add_argument(
-        "--scope-coordination-min", type=float, help="Filter by minimum coordination (0.0-1.0)"
-    )
-    goals_list_parser.add_argument(
-        "--scope-coordination-max", type=float, help="Filter by maximum coordination (0.0-1.0)"
     )
     goals_list_parser.add_argument(
         "--completed",

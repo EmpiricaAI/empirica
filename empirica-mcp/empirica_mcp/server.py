@@ -696,13 +696,6 @@ TOOL_REGISTRY: dict[str, dict] = {
         "required": [],
         "desc": "Show knowledge map across projects",
     },
-    # --- Monitor ---
-    "monitor": {
-        "cli": "monitor",
-        "params": {"turtle": "--turtle", "cost": "--cost", "health": "--health"},
-        "required": [],
-        "desc": "Show session monitoring (epistemic health, cost, adapter health)",
-    },
     # --- Checkpoint ---
     "checkpoint_create": {
         "cli": "checkpoint-create",

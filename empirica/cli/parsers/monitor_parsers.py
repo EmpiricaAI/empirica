@@ -3,25 +3,6 @@
 
 def add_monitor_parsers(subparsers):
     """Add monitoring command parsers"""
-    # Unified monitor command (consolidates monitor, monitor-export, monitor-reset, monitor-cost)
-    monitor_parser = subparsers.add_parser("monitor", help="Monitoring dashboard and statistics")
-    monitor_parser.add_argument("--export", metavar="FILE", help="Export data to file (replaces monitor-export)")
-    monitor_parser.add_argument("--reset", action="store_true", help="Reset statistics (replaces monitor-reset)")
-    monitor_parser.add_argument("--cost", action="store_true", help="Show cost analysis (replaces monitor-cost)")
-    monitor_parser.add_argument("--history", action="store_true", help="Show recent request history")
-    monitor_parser.add_argument("--health", action="store_true", help="Include adapter health checks")
-    monitor_parser.add_argument(
-        "--turtle",
-        action="store_true",
-        help="Show epistemic health: flow state, transaction completeness, unknowns/findings",
-    )
-    monitor_parser.add_argument("--project", action="store_true", help="Show cost projections (with --cost)")
-    monitor_parser.add_argument(
-        "--output", choices=["json", "csv"], default="json", help="Export format (with --export)"
-    )
-    monitor_parser.add_argument("--yes", "-y", action="store_true", help="Skip confirmation (with --reset)")
-    monitor_parser.add_argument("--verbose", action="store_true", help="Show detailed stats")
-
     # MCO load command - load Meta-Agent Configuration Object
     mco_load_parser = subparsers.add_parser("mco-load", help="Load MCO (Meta-Agent Configuration Object) configuration")
     mco_load_parser.add_argument("--session-id", help="Session UUID (optional, for inference)")

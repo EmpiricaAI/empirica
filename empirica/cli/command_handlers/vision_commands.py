@@ -126,9 +126,17 @@ def handle_vision_analyze(args):
     """Handle vision-analyze command"""
     from empirica.data.session_database import SessionDatabase
 
+    # The parser used to give `image_path` while this read `args.image` and
+    # `args.pattern`: every call raised AttributeError once Pillow was present,
+    # and without Pillow printed the install hint and exited 0.
+    if not HAS_PIL:
+        print("❌ vision: PIL/Pillow is required. Install: pip install pillow")
+        return 1
+    if not args.pattern and not args.image:
+        print("❌ vision: give an image path or --pattern <glob>")
+        return 1
     analyzer = VisionAnalyzer()
 
-    # Analyze image(s)
     if args.pattern:
         assessments = analyzer.analyze_deck(args.pattern)
     else:

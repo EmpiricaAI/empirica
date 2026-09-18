@@ -1,18 +1,16 @@
 """
-Monitoring Commands - CLI commands for usage monitoring and cost tracking
+Monitoring Commands - assess-state, mco-load and the turtle/trajectory views.
 
-NOTE: Modality switcher (adapter monitoring) is deprecated.
-This module provides basic session monitoring via Empirica core.
+The `monitor` verb and its UsageMonitor lived here until 1.13.47: the adapter
+monitoring they reported on was removed long before, so the verb printed a
+deprecation notice and three recent sessions, and accepted nine flags none of
+which it read.
 """
 
 import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any
-
-# Modality switcher is DEPRECATED and no longer available
-MODALITY_AVAILABLE = False
 
 from empirica.utils.session_resolver import InstanceResolver as R
 
@@ -20,324 +18,6 @@ from ..cli_utils import handle_cli_error
 
 # Set up logging for monitor commands
 logger = logging.getLogger(__name__)
-
-
-class UsageMonitor:
-    """Track and display adapter usage statistics for CLI monitoring commands.
-
-    Persists usage stats to disk (default `~/.empirica/usage_stats.json`)
-    and exposes a small API for incrementing counters and querying
-    aggregated metrics. Used by the `empirica usage-stats` and related
-    monitoring CLI commands.
-
-    Tracks per adapter:
-        * Request counts (total and by call type)
-        * Total cost in USD
-        * Average latency in milliseconds
-        * Success / failure rates and recent error log
-
-    Attributes:
-        stats_file (Path): Filesystem path where the JSON stats blob is
-            persisted. Created on demand if it doesn't exist.
-        stats (dict): In-memory copy of the persisted stats, loaded on
-            __init__ and rewritten by record_request / save_stats.
-
-    Example:
-        >>> mon = UsageMonitor()
-        >>> mon.record_request("anthropic", success=True, latency_ms=420)
-        >>> summary = mon.get_summary()
-    """
-
-    def __init__(self, stats_file: Path | None = None):
-        """
-        Initialize UsageMonitor.
-
-        Args:
-            stats_file: Path to stats file (default from config)
-        """
-        if stats_file is None:
-            default_path = "~/.empirica/usage_stats.json"
-            self.stats_file = Path(default_path).expanduser()
-        else:
-            self.stats_file = stats_file
-
-        self.stats_file.parent.mkdir(parents=True, exist_ok=True)
-
-        self.stats: dict[str, Any] = self._load_stats()
-
-    def _load_stats(self) -> dict[str, Any]:
-        """Load existing stats or create new."""
-        if self.stats_file.exists():
-            try:
-                with open(self.stats_file) as f:
-                    return json.load(f)
-            except Exception as e:
-                logger.warning(f"Could not load stats from {self.stats_file}: {e}")
-                pass
-
-        # Initialize new stats
-        return {
-            "session_start": datetime.now().isoformat(),
-            "adapters": {
-                "minimax": {"requests": 0, "tokens": 0, "cost": 0.0, "errors": 0},
-                "qwen": {"requests": 0, "tokens": 0, "cost": 0.0, "errors": 0},
-                "local": {"requests": 0, "tokens": 0, "cost": 0.0, "errors": 0},
-            },
-            "total_requests": 0,
-            "total_cost": 0.0,
-            "fallbacks": 0,
-            "history": [],
-        }
-
-    def _save_stats(self):
-        """Save stats to file."""
-        with open(self.stats_file, "w") as f:
-            json.dump(self.stats, f, indent=2)
-
-    def record_request(self, adapter: str, success: bool, tokens: int = 0, cost: float = 0.0, latency: float = 0.0):
-        """Record a request."""
-        if adapter not in self.stats["adapters"]:
-            logger.debug(f"Creating new stats entry for adapter: {adapter}")
-            self.stats["adapters"][adapter] = {"requests": 0, "tokens": 0, "cost": 0.0, "errors": 0}
-
-        self.stats["adapters"][adapter]["requests"] += 1
-        self.stats["adapters"][adapter]["tokens"] += tokens
-        self.stats["adapters"][adapter]["cost"] += cost
-
-        if not success:
-            self.stats["adapters"][adapter]["errors"] += 1
-            logger.warning(f"Request error recorded for adapter: {adapter}")
-
-        self.stats["total_requests"] += 1
-        self.stats["total_cost"] += cost
-
-        logger.debug(f"Recorded request: adapter={adapter}, success={success}, tokens={tokens}, cost=${cost:.4f}")
-
-        # Add to history
-        self.stats["history"].append(
-            {
-                "timestamp": datetime.now().isoformat(),
-                "adapter": adapter,
-                "success": success,
-                "tokens": tokens,
-                "cost": cost,
-                "latency": latency,
-            }
-        )
-
-        # Keep only last 1000 records
-        if len(self.stats["history"]) > 1000:
-            logger.debug("Trimming history to last 1000 records")
-            self.stats["history"] = self.stats["history"][-1000:]
-
-        self._save_stats()
-
-    def get_stats(self) -> dict[str, Any]:
-        """Get current statistics."""
-        return self.stats
-
-    def reset_stats(self):
-        """Reset all statistics."""
-        logger.info("Resetting all monitoring statistics")
-        self.stats = {
-            "session_start": datetime.now().isoformat(),
-            "adapters": {
-                "minimax": {"requests": 0, "tokens": 0, "cost": 0.0, "errors": 0},
-                "qwen": {"requests": 0, "tokens": 0, "cost": 0.0, "errors": 0},
-                "local": {"requests": 0, "tokens": 0, "cost": 0.0, "errors": 0},
-            },
-            "total_requests": 0,
-            "total_cost": 0.0,
-            "fallbacks": 0,
-            "history": [],
-        }
-        self._save_stats()
-
-
-def handle_monitor_command(args):
-    """
-    Unified monitor handler (consolidates all 4 monitor commands).
-
-    NOTE: Adapter usage monitoring (modality switcher) is deprecated.
-    Use session and project commands for Empirica monitoring.
-    """
-    try:
-        print("\n📊 Empirica Usage Monitor")
-        print("=" * 70)
-
-        print("\n⚠️  Adapter Monitoring Deprecated")
-        print("-" * 70)
-        print("The modality switcher (adapter routing) feature has been deprecated.")
-        print("Adapter usage statistics are no longer tracked.")
-
-        print("\n💡 Alternative Monitoring Commands:")
-        print("-" * 70)
-        print("   empirica sessions-list          - View session history")
-        print("   empirica project-bootstrap      - View project state")
-        print("   empirica efficiency-report      - View token efficiency")
-        print("   empirica query findings         - View learnings")
-        print("   empirica query issues           - View auto-captured issues")
-
-        print("\n📈 Session Statistics:")
-        print("-" * 70)
-
-        # Try to show basic session stats from Empirica core
-        try:
-            from empirica.data.session_database import SessionDatabase
-
-            db = SessionDatabase()
-            sessions = db.get_all_sessions(limit=5)
-            db.close()
-
-            if sessions:
-                print(f"   Recent sessions: {len(sessions)}")
-                for s in sessions[:3]:
-                    print(f"     • {s.get('session_id', 'N/A')[:8]}... ({s.get('ai_id', 'unknown')})")
-            else:
-                print("   No sessions recorded yet")
-        except Exception:
-            print("   Session data unavailable")
-
-        print("=" * 70)
-
-    except Exception as e:
-        handle_cli_error(e, "Monitor", getattr(args, "verbose", False))
-
-
-def handle_monitor_export_command(args):
-    """
-    Export monitoring data to file.
-
-    Supports JSON and CSV formats.
-    """
-    try:
-        print("\n📤 Exporting Monitoring Data")
-        print("=" * 70)
-
-        monitor = UsageMonitor()
-        stats = monitor.get_stats()
-
-        output_format = getattr(args, "format", "json")
-        output_file = getattr(args, "output", None) or getattr(args, "export", None)
-
-        if output_format == "json":
-            # Export as JSON
-            with open(output_file, "w") as f:
-                json.dump(stats, f, indent=2)
-
-            print(f"\n✅ Exported to JSON: {output_file}")
-
-        elif output_format == "csv":
-            # Export history as CSV
-            import csv
-
-            history = stats.get("history", [])
-
-            if not history:
-                print("⚠️  No history to export")
-                return
-
-            with open(output_file, "w", newline="") as f:
-                fieldnames = ["timestamp", "adapter", "success", "tokens", "cost", "latency"]
-                writer = csv.DictWriter(f, fieldnames=fieldnames)
-
-                writer.writeheader()
-                for record in history:
-                    writer.writerow({k: record.get(k, "") for k in fieldnames})
-
-            print(f"\n✅ Exported to CSV: {output_file}")
-            print(f"   Records: {len(history)}")
-
-        print("=" * 70)
-
-    except Exception as e:
-        handle_cli_error(e, "Monitor Export", getattr(args, "verbose", False))
-
-
-def handle_monitor_reset_command(args):
-    """
-    Reset monitoring statistics.
-
-    Clears all recorded data.
-    """
-    try:
-        print("\n🔄 Resetting Monitoring Statistics")
-        print("=" * 70)
-
-        # Confirm unless --yes flag
-        if not getattr(args, "yes", False):
-            confirm = input("\n⚠️  This will clear all monitoring data. Continue? [y/N]: ").strip().lower()
-            if confirm not in ["y", "yes"]:
-                print("❌ Reset cancelled")
-                return
-
-        monitor = UsageMonitor()
-        monitor.reset_stats()
-
-        print("\n✅ Statistics reset")
-        print(f"   Stats file: {monitor.stats_file}")
-        print("=" * 70)
-
-    except Exception as e:
-        handle_cli_error(e, "Monitor Reset", getattr(args, "verbose", False))
-
-
-def handle_monitor_cost_command(args):
-    """
-    Display cost analysis.
-
-    Shows detailed cost breakdown by adapter and time period.
-    """
-    try:
-        print("\n💰 Cost Analysis")
-        print("=" * 70)
-
-        monitor = UsageMonitor()
-        stats = monitor.get_stats()
-
-        total_cost = stats.get("total_cost", 0.0)
-        adapters_stats = stats.get("adapters", {})
-
-        print(f"\n📊 Total Cost: ${total_cost:.4f}")
-
-        print("\n" + "=" * 70)
-        print("Cost by Adapter:")
-        print("=" * 70)
-
-        for adapter, data in sorted(adapters_stats.items(), key=lambda x: x[1].get("cost", 0.0), reverse=True):
-            cost = data.get("cost", 0.0)
-            requests = data.get("requests", 0)
-
-            if cost > 0:
-                percentage = (cost / total_cost * 100) if total_cost > 0 else 0
-                avg_cost = cost / requests if requests > 0 else 0
-
-                print(f"\n🔹 {adapter.upper()}")
-                print(f"   Total:       ${cost:.4f} ({percentage:.1f}%)")
-                print(f"   Avg/Request: ${avg_cost:.6f}")
-                print(f"   Requests:    {requests:,}")
-
-        # Project costs
-        if getattr(args, "project", False):
-            print("\n" + "=" * 70)
-            print("📈 Cost Projections")
-            print("=" * 70)
-
-            total_requests = stats.get("total_requests", 0)
-
-            if total_requests > 0:
-                avg_cost_per_request = total_cost / total_requests
-
-                print(f"\n   Average cost per request: ${avg_cost_per_request:.6f}")
-                print("\n   Projected costs:")
-                print(f"      100 requests:   ${avg_cost_per_request * 100:.2f}")
-                print(f"      1,000 requests: ${avg_cost_per_request * 1000:.2f}")
-                print(f"      10,000 requests: ${avg_cost_per_request * 10000:.2f}")
-
-        print("\n" + "=" * 70)
-
-    except Exception as e:
-        handle_cli_error(e, "Cost Analysis", getattr(args, "verbose", False))
 
 
 # NOTE: handle_pre_summary_snapshot, handle_post_summary_drift_check, and
@@ -1209,7 +889,6 @@ def _get_open_disputes(db) -> dict:
 def _show_disputes(output_format: str):
     """Show all calibration disputes (open and resolved)."""
     import json
-    from datetime import datetime
 
     from empirica.data.session_database import SessionDatabase
 
@@ -1568,7 +1247,7 @@ def _fetch_trajectory_rows(weeks, include_tests):
     Returns (rows, cutoff_str) or raises if no DB found.
     """
     import sqlite3
-    from datetime import datetime, timedelta
+    from datetime import timedelta
 
     from empirica.config.path_resolver import get_session_db_path
 
@@ -1614,7 +1293,6 @@ def _collect_vector_data(rows):
     """
     import json
     from collections import defaultdict
-    from datetime import datetime
 
     vector_data = defaultdict(list)
     weekly_data = defaultdict(lambda: defaultdict(list))

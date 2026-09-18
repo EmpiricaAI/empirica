@@ -23,8 +23,8 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.13.47
-**Generated:** 2026-09-18 14:01:22 UTC
-**Total commands:** 241 (across 24 categories)
+**Generated:** 2026-09-18 14:10:48 UTC
+**Total commands:** 240 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
 `empirica <command> --help` — the generator extracts the same `help`
@@ -384,18 +384,6 @@ List goals in the current project. Default: active (in_progress). Use --status {
   project (default): active project_id. practice: this db, ALL project_ids — same as --all-projects. fleet: a per-practice SUMMARY of open goals across every registered practice (read-only; a peer's graph is never gardened from here). `shared` is deliberately absent until its membership source is settled.
 - `--uncapped` — optional · flag
   Show this project's FULL backlog — no 20-goal cap, project scope unchanged. The header's truncation notice used to point at --all-projects, which also widens the project scope: the advertised remedy did something other than what was wanted.
-- `--scope-breadth-min` — optional · type=`float`
-  Filter by minimum breadth (0.0-1.0)
-- `--scope-breadth-max` — optional · type=`float`
-  Filter by maximum breadth (0.0-1.0)
-- `--scope-duration-min` — optional · type=`float`
-  Filter by minimum duration (0.0-1.0)
-- `--scope-duration-max` — optional · type=`float`
-  Filter by maximum duration (0.0-1.0)
-- `--scope-coordination-min` — optional · type=`float`
-  Filter by minimum coordination (0.0-1.0)
-- `--scope-coordination-max` — optional · type=`float`
-  Filter by maximum coordination (0.0-1.0)
 - `--completed` — optional · flag
   Show completed goals (default: active). Use --status for finer filtering.
 - `--status` — optional · type=`choice` · choices={planned, in_progress, blocked, completed, all, drift}
@@ -1502,8 +1490,6 @@ Show epistemic breadcrumbs for project
   AI identifier to load epistemic handoff for (e.g., empirica, cortex; derives from project basename if omitted)
 - `--subject` — optional
   Subject/workstream to filter by (auto-detected from directory if omitted)
-- `--check-integrity` — optional · flag
-  Analyze doc-code integrity (adds ~2s)
 - `--context-to-inject` — optional · flag
   Generate markdown context for AI prompt injection
 - `--task-description` — optional
@@ -1904,8 +1890,6 @@ Idempotent mint of a contact, engagement, or organization into the workspace ent
   Company/organization name (contact — folded into the slug)
 - `--description` — optional
   Free-text context for the entity
-- `--contact-id` — optional
-  Contact id to link the engagement to (entity_memberships member_of edge)
 - `--metadata` — optional
   Extra metadata as a JSON object string
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
@@ -2682,32 +2666,9 @@ Multi-persona parallel investigation with epistemic auto-merge
 
 ## monitoring
 
-#### `empirica monitor`
+### `empirica monitor`
 
-Monitoring dashboard and statistics
-
-**Arguments:**
-
-- `--export` — optional
-  Export data to file (replaces monitor-export)
-- `--reset` — optional · flag
-  Reset statistics (replaces monitor-reset)
-- `--cost` — optional · flag
-  Show cost analysis (replaces monitor-cost)
-- `--history` — optional · flag
-  Show recent request history
-- `--health` — optional · flag
-  Include adapter health checks
-- `--turtle` — optional · flag
-  Show epistemic health: flow state, transaction completeness, unknowns/findings
-- `--project` — optional · flag
-  Show cost projections (with --cost)
-- `--output` — optional · type=`choice` · choices={json, csv} · default=`json`
-  Export format (with --export)
-- `--yes` / `-y` — optional · flag
-  Skip confirmation (with --reset)
-- `--verbose` — optional · flag
-  Show detailed stats
+_Not currently wired through the main parser. Either a planned command or a stale entry in `_HELP_CATEGORIES`._
 
 #### `empirica assess-state`
 
@@ -4412,12 +4373,16 @@ Get context budget report (token usage by zone)
 
 #### `empirica vision`
 
-Process visual information
+Image metadata assessment (PIL, no models) for one image or a deck
 
 **Arguments:**
 
-- `image_path` — **required**
-  Path to image file
+- `image` — **required**
+  Path to one image file
+- `--pattern` — optional
+  Glob of slide images to assess as a deck (instead of one image)
+- `--session-id` — optional
+  Log one finding per image to this session
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
 

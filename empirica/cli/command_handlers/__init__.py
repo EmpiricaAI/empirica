@@ -163,10 +163,6 @@ from .monitor_commands import (
     handle_calibration_report_command,
     handle_grounding_export_command,
     handle_mco_load_command,
-    handle_monitor_command,
-    handle_monitor_cost_command,
-    handle_monitor_export_command,
-    handle_monitor_reset_command,
     handle_system_status_command,
     handle_trajectory_project_command,
 )
@@ -400,10 +396,6 @@ __all__ = [  # noqa: RUF022
     # Mistake Logging commands (Learning from Failures)
     "handle_mistake_log_command",
     # Monitor commands
-    "handle_monitor_command",
-    "handle_monitor_cost_command",
-    "handle_monitor_export_command",
-    "handle_monitor_reset_command",
     "handle_noetic_batch_command",
     # Notify dispatcher commands
     "handle_notify_backends_command",

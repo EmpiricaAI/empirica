@@ -239,10 +239,11 @@ class TestPerformanceCommands:
 class TestMonitoringCommands:
     """Test Monitoring commands (1 command)"""
 
-    def test_monitor_execution(self):
-        """Monitor runs without args (shows monitoring dashboard)"""
+    def test_monitor_verb_is_gone(self):
+        """`empirica monitor` printed a deprecation notice for adapter monitoring
+        removed long before, accepted nine flags it never read, exit 0. Removed."""
         result = subprocess.run(["empirica", "monitor"], capture_output=True, timeout=5)
-        assert result.returncode == 0
+        assert result.returncode != 0
 
 
 # Summary test
