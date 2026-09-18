@@ -207,3 +207,78 @@ class TestRunComplianceChecks:
         assert result is not None
         assert result.checks_failed >= 1
         assert any("not registered" in r["summary"] for r in result.check_results)
+
+
+class TestSkippedIsNotPassed:
+    """A check that could not answer is counted as skipped, never as passed.
+
+    The registry's checks return passed=True with details {"skipped": True}
+    (tool absent) or {"error": ...} (raised, non-blocking) in 27 places. The
+    loop counted every passed=True as a pass, so a POSTFLIGHT block read
+    "3 run, 3 passed, 0 failed" over one pass, one skip and one error. The
+    status stays complete - they do not block - but the numbers say what
+    happened.
+    """
+
+    @staticmethod
+    def _register(check_id, passed, details):
+        import time
+
+        def runner(ctx):
+            return CheckResult(check_id, passed, details, "x", 1, time.time())
+
+        ServiceRegistry.register(
+            CheckDeclaration(
+                check_id=check_id,
+                tool="t",
+                applies_to=(("code", "*"),),
+                criterion_description="d",
+                runner=runner,
+            )
+        )
+
+    def test_skipped_and_errored_checks_are_not_passes(self, clean_registry):
+        self._register("tests", True, {"skipped": True})
+        result = run_compliance_checks(
+            session_id="s1",
+            transaction_id="t1",
+            work_type="code",
+            domain="default",
+            criticality="low",
+            execution_tier="goal_completion",
+        )
+        assert result is not None
+        assert result.is_complete  # non-blocking, as before
+        assert result.checks_run == 1
+        assert result.checks_passed == 0
+        assert result.checks_skipped == 1
+        assert result.checks_failed == 0
+        assert result.check_results[0]["skipped"] is True
+        assert result.to_dict()["checks_skipped"] == 1
+
+    def test_an_errored_non_blocking_check_is_skipped_not_passed(self, clean_registry):
+        self._register("tests", True, {"error": "pytest exploded"})
+        result = run_compliance_checks(
+            session_id="s1",
+            transaction_id="t1",
+            work_type="code",
+            domain="default",
+            criticality="low",
+            execution_tier="goal_completion",
+        )
+        assert result is not None
+        assert result.checks_passed == 0 and result.checks_skipped == 1 and result.checks_failed == 0
+
+    def test_a_real_pass_is_still_a_pass(self, clean_registry):
+        self._register("tests", True, {"tests_run": 12})
+        result = run_compliance_checks(
+            session_id="s1",
+            transaction_id="t1",
+            work_type="code",
+            domain="default",
+            criticality="low",
+            execution_tier="goal_completion",
+        )
+        assert result is not None
+        assert result.checks_passed == 1 and result.checks_skipped == 0
+        assert "skipped" not in result.check_results[0]

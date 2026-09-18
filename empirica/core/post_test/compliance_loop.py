@@ -35,6 +35,12 @@ class ComplianceResult:
     check_results: list[dict[str, Any]]
     next_transaction: dict[str, Any] | None = None  # advisory for iteration
     iteration_number: int = 1
+    #: Checks that did not answer: skipped (tool absent), deferred to a later
+    #: tier, or errored non-blocking. They are NOT failures and do not block,
+    #: but they are not passes either. Before this field every one of them was
+    #: counted in checks_passed, so "3 run, 3 passed" was the rendering of one
+    #: pass, one skip and one error.
+    checks_skipped: int = 0
 
     @property
     def is_complete(self) -> bool:
@@ -48,6 +54,7 @@ class ComplianceResult:
             "checks_run": self.checks_run,
             "checks_passed": self.checks_passed,
             "checks_failed": self.checks_failed,
+            "checks_skipped": self.checks_skipped,
             "check_results": self.check_results,
         }
         if self.next_transaction:
@@ -116,6 +123,7 @@ def run_compliance_checks(
 
         check_results = []
         passed_count = 0
+        skipped_count = 0
         failed_checks = []
 
         for check_id in checklist.required:
@@ -134,9 +142,18 @@ def run_compliance_checks(
                 if result.deferred:
                     result_dict["deferred"] = True
                     result_dict["tier"] = result.tier
+                # A check that could not answer says so in its details:
+                # {"skipped": True} when the tool is absent, {"error": ...} when
+                # it raised and chose not to block. Neither is a pass.
+                details = result.details if isinstance(result.details, dict) else {}
+                did_not_answer = bool(result.deferred or details.get("skipped") or details.get("error"))
+                if did_not_answer and result.passed:
+                    result_dict["skipped"] = True
                 check_results.append(result_dict)
 
-                if result.passed:
+                if result.passed and did_not_answer:
+                    skipped_count += 1
+                elif result.passed:
                     passed_count += 1
                 else:
                     failed_checks.append(result)
@@ -164,7 +181,7 @@ def run_compliance_checks(
                 failed_checks.append(None)
 
         checks_run = len(check_results)
-        checks_failed = checks_run - passed_count
+        checks_failed = checks_run - passed_count - skipped_count
 
         # Determine status
         if checks_failed == 0:
@@ -194,6 +211,7 @@ def run_compliance_checks(
             check_results=check_results,
             next_transaction=next_tx,
             iteration_number=iteration_number,
+            checks_skipped=skipped_count,
         )
 
     except Exception as e:
