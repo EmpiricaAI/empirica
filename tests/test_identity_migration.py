@@ -300,3 +300,47 @@ def test_cortex_slug_resolver_parses_200_and_404(tmp_path, monkeypatch):
     assert resolver("found-slug", "david") == _UUID_B
     assert resolver("missing-slug", "david") is None  # 404 → None, no raise
     assert resolver("", "david") is None  # empty slug short-circuits
+
+
+# ─── the "is Cortex installed" check fails toward NOT minting ─────────────
+
+
+def test_cortex_installed_check_that_cannot_run_answers_yes(monkeypatch, caplog):
+    """The question is "might this project already have a Cortex UUID". A check
+    that cannot run must answer YES: True routes to the resolver/register path
+    (worst case an actionable 'unresolved'); False routes to MINT (worst case
+    the identity fork this module exists to prevent, reached through a broken
+    auth import instead of a missing key)."""
+    import logging
+    import sys
+
+    from empirica.core import identity_migration as im
+
+    monkeypatch.setitem(sys.modules, "empirica.core.auth.cortex_oauth", None)  # import raises ImportError
+    with caplog.at_level(logging.WARNING, logger=im.logger.name):
+        assert im._cortex_installed() is True
+    assert "assuming INSTALLED" in caplog.text
+
+
+def test_a_broken_installed_check_never_mints(tmp_path, monkeypatch):
+    """End to end through run_force_migration: with the check broken, no mint
+    function is wired, so a slug project resolves to 'unresolved', not a fresh
+    UUID."""
+    import sys
+
+    from empirica.core import identity_migration as im
+
+    root = tmp_path / "proj"
+    (root / ".empirica").mkdir(parents=True)
+    (root / ".empirica" / "project.yaml").write_text("ai_id: proj\nproject_id: proj\n")
+    monkeypatch.setitem(sys.modules, "empirica.core.auth.cortex_oauth", None)
+
+    minted = []
+    result = im.run_force_migration(
+        root,
+        cortex_resolver=lambda slug, tenant: None,
+        mint=lambda: minted.append("x") or "11111111-2222-4333-8444-555555555555",
+    )
+    assert result["cortex_installed"] is True
+    assert minted == []
+    assert result.get("source") != "minted"

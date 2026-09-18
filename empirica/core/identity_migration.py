@@ -31,10 +31,13 @@ is handled by its own session-init heal, not re-keyed here.
 
 from __future__ import annotations
 
+import logging
 import re
 import sqlite3
 from collections.abc import Callable
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # Same shape the session-init healer uses (session-init.py:_PROJECT_ID_UUID_RE).
 _UUID_RE = re.compile(
@@ -373,8 +376,18 @@ def _cortex_installed() -> bool:
         from empirica.core.auth.cortex_oauth import cortex_configured
 
         return cortex_configured()
-    except Exception:
-        return False
+    except Exception as e:
+        # The question this answers is "might this project already have a
+        # Cortex UUID". When the check itself cannot run, the safe answer is
+        # YES: True routes the migration to the resolver / project-register
+        # path, where the worst case is an actionable "unresolved"; False
+        # routes it to MINT, where the worst case is the identity fork this
+        # docstring describes, reached through a different door (a broken
+        # auth import). A refusal to answer must not read as "not installed".
+        logger.warning(
+            f"_cortex_installed: check failed ({type(e).__name__}: {e}); assuming INSTALLED so no UUID is minted"
+        )
+        return True
 
 
 def _make_cortex_slug_resolver(timeout: float = 8.0) -> CortexResolver:
