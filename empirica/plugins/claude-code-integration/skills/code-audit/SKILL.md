@@ -232,8 +232,10 @@ git log --diff-filter=D --oneline -- "<path>"   # never existed vs deleted
 # 3. Stubs rendering numbers: honesty in the docstring, a scorecard on the CLI.
 rg -n -i "stub|placeholder|not (yet |fully )?implemented|baseline" "$TARGET"
 
-# 4. Flags the parser accepts and nothing reads — an advertised no-op.
-rg -n 'add_argument\("--([\w-]+)"' -o -r '$1' "$TARGET"/../parsers | sort -u   # then rg each dest in the handler
+# 4. Flags the parser accepts and nothing reads — an advertised no-op. Builds the
+#    live argparse tree and looks for a reader of every dest in the handler modules;
+#    tests/test_cli_flags_have_readers.py holds it at zero with a positive control.
+python3 scripts/cli_unread_flags.py          # --all adds dests read only via a shared helper
 ```
 
 Then **run each verb live** and read exit code against banner. A parser, a doc

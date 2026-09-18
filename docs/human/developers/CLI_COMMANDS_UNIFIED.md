@@ -23,7 +23,7 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.13.47
-**Generated:** 2026-09-18 14:10:48 UTC
+**Generated:** 2026-09-18 14:17:19 UTC
 **Total commands:** 240 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -4748,8 +4748,6 @@ Configuration management
   Show specific section (e.g., routing, adapters)
 - `--output` — optional · type=`choice` · choices={yaml, json} · default=`yaml`
   Output format
-- `--force` — optional · flag
-  Overwrite existing config (with --init)
 - `--verbose` — optional · flag
   Show detailed output
 

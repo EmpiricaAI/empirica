@@ -15,7 +15,6 @@ def add_config_parsers(subparsers):
     )
     config_parser.add_argument("--section", help="Show specific section (e.g., routing, adapters)")
     config_parser.add_argument("--output", choices=["yaml", "json"], default="yaml", help="Output format")
-    config_parser.add_argument("--force", action="store_true", help="Overwrite existing config (with --init)")
     config_parser.add_argument("--verbose", action="store_true", help="Show detailed output")
 
     # REMOVED: config-init, config-show, config-validate, config-get, config-set

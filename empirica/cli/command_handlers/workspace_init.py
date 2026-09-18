@@ -347,7 +347,7 @@ def _wsinit_run_investigation(db, session_id, scanner, initial_state, output_for
     return investigation_state
 
 
-def _wsinit_ask_user(db, session_id, investigation_state, output_format):
+def _wsinit_ask_user(db, session_id, investigation_state, output_format, non_interactive=False):
     """Run CHECK #2: ask user preferences or use defaults.
 
     Returns (user_preferences, current_know, current_context, current_uncertainty).
@@ -386,8 +386,10 @@ def _wsinit_ask_user(db, session_id, investigation_state, output_format):
     )
 
     questions = _generate_context_aware_questions(investigation_state)
+    # --non-interactive was accepted and never read: only --output json skipped
+    # the prompts, so a scripted human-format run blocked on input().
     for q in questions:
-        if output_format != "json":
+        if output_format != "json" and not non_interactive:
             print(f"❓ {q['question']}")
             answer = input(f"   {q['prompt']}: ").strip().lower()
             user_preferences[q["key"]] = answer
@@ -553,7 +555,7 @@ def handle_workspace_init_command(args):
 
         # Stage 3: CHECK #2 + User questions
         user_preferences, _current_know, _current_context, current_uncertainty = _wsinit_ask_user(
-            db, session_id, investigation_state, output_format
+            db, session_id, investigation_state, output_format, getattr(args, "non_interactive", False)
         )
 
         # Stage 4: CHECK #3
