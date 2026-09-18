@@ -120,7 +120,10 @@ RESOLVE_ARTIFACTS_SCHEMA = {
 DELETE_ARTIFACTS_SCHEMA = {
     "deletions": [
         {
-            "type": "finding | unknown | dead_end | mistake | assumption | decision",
+            "type": (
+                "finding | unknown | dead_end | mistake | assumption | decision | lesson "
+                "(lesson: TEST NOISE only — a wrong lesson is superseded via lesson-create --supersedes, never deleted)"
+            ),
             "id": "<UUID of the artifact to delete>",
         },
     ],
