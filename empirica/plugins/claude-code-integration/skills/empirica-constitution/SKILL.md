@@ -66,8 +66,10 @@ Two routes into praxic, **both correct**:
 | Still need to investigate | investigate → `check-submit` with `claims` → praxic |
 | **Already grounded before the window opened** — you read the files first, the normal order, since noetic work is ungated | declare `claims` in **PREFLIGHT** → praxic directly, **no CHECK** |
 
-One claim grounded by `read` or `ran` certifies the transaction. `retrieved` and
-`assumed` do not — our own artifacts are testimony, not observation.
+One claim grounded by `read`, or by `ran` with a `scope` and a `count`, certifies
+the transaction. `retrieved` and `assumed` do not — our own artifacts are testimony,
+not observation — and an unscoped `ran` does not, because a true measurement applied
+past the population it covered adjudicates `held` and no confidence gate sees it.
 
 **Skipping CHECK when genuinely grounded is the correct path, not a shortcut.** You
 skip it by naming what you rely on and how you know it, which is a positive recorded

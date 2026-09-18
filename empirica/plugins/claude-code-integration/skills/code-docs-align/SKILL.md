@@ -56,7 +56,7 @@ Assess where you genuinely are. If you have already read the docs you are about
 to audit, `know` is not 0.2, and saying so is the point.
 
 If you were already grounded before opening — you read the target first — declare
-`claims` in PREFLIGHT with grounding `read` or `ran` and proceed straight to
+`claims` in PREFLIGHT with grounding `read` (or `ran` with scope and count) and proceed straight to
 praxic. **No CHECK needed**; see `/epistemic-transaction`.
 
 ---

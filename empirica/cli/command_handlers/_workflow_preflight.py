@@ -1122,13 +1122,13 @@ def _preflight_declare_claims(session_id, transaction_id, claims):
             db.close()
         summary = _claims.summarize_for_check(stored)
         if summary:
-            certified = [c for c in stored if not _claims.is_weak(c.get("grounding"))]
+            certified = [c for c in stored if _claims.certifies(c)]
             summary["certifies_transaction"] = bool(certified)
             summary["note_skip"] = (
                 "Grounded at open — praxic may proceed without a separate CHECK."
                 if certified
-                else "All claims are retrieved-or-assumed, which does not certify. "
-                "Investigate, or submit a CHECK once you have."
+                else "No claim certifies: retrieved and assumed never do, and a `ran` claim needs "
+                "a scope and a count. Name them, or submit a CHECK."
             )
         return summary
     except Exception as e:

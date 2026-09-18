@@ -90,9 +90,10 @@ EOF
 open a new transaction — not to quietly widen this one.
 
 **If you were already grounded before opening** — you read the files first, which is
-the normal order — declare `claims` here with grounding `read` or `ran`. One such
-claim certifies the transaction and praxic proceeds with **no CHECK at all**. That is
-the correct path, not a shortcut.
+the normal order — declare `claims` here with grounding `read`, or `ran` with the
+`scope` it measured over and the `count` it returned (a number: `"count": 48`). One
+such claim certifies the transaction and praxic proceeds with **no CHECK at all**.
+That is the correct path, not a shortcut.
 
 ## Noetic phase — investigate
 

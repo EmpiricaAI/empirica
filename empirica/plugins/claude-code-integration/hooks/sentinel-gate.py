@@ -3754,7 +3754,8 @@ def _has_grounded_claims(cursor, session_id, current_transaction_id) -> bool:
     queries `transaction_claims` directly on the cursor already in hand — the same
     way the rush guard reads project_findings/project_unknowns.
 
-    Only `read` and `ran` certify. `retrieved` and `assumed` deliberately do not:
+    Only `read`, and `ran` with a scope AND a count, certify - the same rule as
+    empirica.core.claims.certifies (hooks cannot import it; a test pins both). `retrieved` and `assumed` deliberately do not:
     our own prior artifacts are testimony rather than observation, and `assumed`
     is by definition the absence of grounding. That asymmetry is what stops this
     from becoming a new rubber stamp — you cannot certify by declaring confidence,
@@ -3776,12 +3777,12 @@ def _has_grounded_claims(cursor, session_id, current_transaction_id) -> bool:
         if current_transaction_id:
             cursor.execute(
                 "SELECT COUNT(*) FROM transaction_claims "
-                "WHERE session_id = ? AND transaction_id = ? AND grounding IN ('read','ran')",
+                "WHERE session_id = ? AND transaction_id = ? AND (grounding = 'read' OR (grounding = 'ran' AND TRIM(COALESCE(scope,'')) <> '' AND measured_count IS NOT NULL))",
                 (session_id, current_transaction_id),
             )
         else:
             cursor.execute(
-                "SELECT COUNT(*) FROM transaction_claims WHERE session_id = ? AND grounding IN ('read','ran')",
+                "SELECT COUNT(*) FROM transaction_claims WHERE session_id = ? AND (grounding = 'read' OR (grounding = 'ran' AND TRIM(COALESCE(scope,'')) <> '' AND measured_count IS NOT NULL))",
                 (session_id,),
             )
         row = cursor.fetchone()
@@ -3818,7 +3819,8 @@ def _deny_no_check_no_claims() -> tuple[str, str]:
         "  → If you still need to investigate: do that, then submit CHECK.\n"
         "  → If you were ALREADY grounded before opening (you read the files first — "
         "the normal order), re-run PREFLIGHT with `claims`: 2-3 load-bearing claims, "
-        "each with grounding read|ran|retrieved|assumed. One grounded by read or ran "
+        "each with grounding read|ran|retrieved|assumed. One grounded by read, or by ran "
+        "WITH a scope and a count (what you measured over, what it returned), "
         "certifies the transaction and praxic proceeds — no CHECK needed.\n"
         "  Skipping CHECK when genuinely grounded is the CORRECT path, not a shortcut.",
     )

@@ -177,8 +177,9 @@ Two consequences worth internalising, because they run against the instinct:
 - **Skipping CHECK when you're already grounded is the CORRECT path, not a
   shortcut.** Noetic work is ungated, so reading the files *before* opening the
   window is the normal order. Say so: put your `claims` in PREFLIGHT with
-  `grounding: read` or `ran`, and praxic proceeds with no CHECK at all. That is a
-  positive, recorded act — you named what you rely on and how you know it.
+  `grounding: read`, or `ran` plus the `scope` you measured over and the `count`
+  it returned, and praxic proceeds with no CHECK at all. That is a positive,
+  recorded act — you named what you rely on, how you know it, and over what.
 - **An empty CHECK is worse than no CHECK.** It looks like diligence and carries
   nothing. The tell is the clock: **a CHECK submitted moments after its PREFLIGHT
   had nothing between them to certify.** If you cannot name what you learned in

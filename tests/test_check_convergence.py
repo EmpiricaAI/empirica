@@ -183,7 +183,9 @@ def _load_gate():
 
 
 class _Cursor:
-    """Minimal cursor over an in-memory transaction_claims table."""
+    """Minimal cursor over an in-memory transaction_claims table, with the 071
+    columns the real table has (scope, measured_count). Rows are
+    (session, tx, grounding) or (session, tx, grounding, scope, count)."""
 
     def __init__(self, rows):
         import sqlite3
@@ -191,12 +193,14 @@ class _Cursor:
         self.conn = sqlite3.connect(":memory:")
         self.conn.execute(
             "CREATE TABLE transaction_claims (id TEXT, session_id TEXT, transaction_id TEXT, "
-            "claim_index INT, claim TEXT, grounding TEXT, declared_timestamp REAL)"
+            "claim_index INT, claim TEXT, grounding TEXT, declared_timestamp REAL, "
+            "scope TEXT, measured_count INTEGER)"
         )
-        for i, (sid, tx, grounding) in enumerate(rows):
+        for i, row in enumerate(rows):
+            sid, tx, grounding, scope, count = (*row, None, None)[:5]
             self.conn.execute(
-                "INSERT INTO transaction_claims VALUES (?,?,?,?,?,?,?)",
-                (f"c{i}", sid, tx, i, "a claim", grounding, 0.0),
+                "INSERT INTO transaction_claims VALUES (?,?,?,?,?,?,?,?,?)",
+                (f"c{i}", sid, tx, i, "a claim", grounding, 0.0, scope, count),
             )
         self.conn.commit()
         self._cur = self.conn.cursor()
@@ -208,15 +212,53 @@ class _Cursor:
         return self._cur.fetchone()
 
 
-@pytest.mark.parametrize("grounding", ["read", "ran"])
-def test_a_claim_grounded_by_read_or_ran_certifies_the_transaction(grounding):
+@pytest.mark.parametrize(
+    "row",
+    [("s-1", "tx-1", "read"), ("s-1", "tx-1", "ran", "transaction_claims since 071", 48)],
+)
+def test_a_read_claim_or_a_scoped_ran_claim_certifies_the_transaction(row):
     """THE T3 regression. Grounding happens BEFORE the window opens routinely —
     noetic work is ungated — and until now that could not be stated, so the
     practitioner either filed an empty CHECK or got denied."""
     gate = _load_gate()
-    cur = _Cursor([("s-1", "tx-1", grounding)])
+    assert gate._has_grounded_claims(_Cursor([row]), "s-1", "tx-1") is True
 
-    assert gate._has_grounded_claims(cur, "s-1", "tx-1") is True
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        ("s-1", "tx-1", "ran"),  # no scope, no count
+        ("s-1", "tx-1", "ran", "all 21 practices", None),  # scope, no count
+        ("s-1", "tx-1", "ran", "   ", 3),  # blank scope
+    ],
+)
+def test_a_ran_claim_without_scope_and_count_does_not_certify(row):
+    """David-directed 2026-09-18: a TRUE claim applied past the population it was
+    measured over adjudicates `held` and no confidence gate can see it. `ran`
+    means a measurement, so it buys the CHECK skip only with what it measured over
+    and what it returned. Same rule as empirica.core.claims.certifies."""
+    gate = _load_gate()
+    assert gate._has_grounded_claims(_Cursor([row]), "s-1", "tx-1") is False
+
+
+def test_the_hook_rule_and_the_package_rule_agree():
+    """Hooks cannot import the package, so the rule exists twice. Pin them together."""
+    from empirica.core.claims import certifies
+
+    gate = _load_gate()
+    cases = [
+        ("read", None, None),
+        ("ran", None, None),
+        ("ran", "x", None),
+        ("ran", "x", 0),
+        ("ran", "  ", 2),
+        ("retrieved", "x", 2),
+        ("assumed", None, None),
+    ]
+    for grounding, scope, count in cases:
+        pkg = certifies({"grounding": grounding, "scope": scope, "measured_count": count})
+        hook = gate._has_grounded_claims(_Cursor([("s", "t", grounding, scope, count)]), "s", "t")
+        assert pkg == hook, (grounding, scope, count)
 
 
 @pytest.mark.parametrize("grounding", ["assumed", "retrieved"])
@@ -275,7 +317,7 @@ def test_the_no_check_deny_names_the_grounded_at_open_path():
     msg = match.group(1)
 
     assert "claims" in msg, "it must name the alternative path"
-    assert "read or ran" in msg, "and what actually certifies"
+    assert "by read, or by ran" in msg and "scope and a count" in msg, "and what actually certifies"
     assert "CORRECT path, not a shortcut" in msg, "and that skipping when grounded is correct"
 
 

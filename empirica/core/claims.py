@@ -33,6 +33,7 @@ the data earns it.
 from __future__ import annotations
 
 import logging
+import re
 import time
 import uuid
 from typing import Any, Literal
@@ -107,11 +108,50 @@ def _normalize_count(value: Any) -> int | None:
     """
     if value is None or isinstance(value, bool):
         return None
+    if isinstance(value, str):
+        # Practitioners write counts the way they say them: "4 sites",
+        # "46 of 46", "0 readers". int() refused all of those, so every such
+        # count was stored as NULL - and summarize_for_check then asked "how
+        # many did it return?" of a claim that had said. Take the leading
+        # integer; anything without one is reported by declare(), not dropped.
+        m = re.match(r"\s*(\d+)", value)
+        return int(m.group(1)) if m else None
     try:
         n = int(value)
     except (TypeError, ValueError):
         return None
     return n if n >= 0 else None
+
+
+def certifies(claim: dict[str, Any]) -> bool:
+    """Whether one declared claim can certify a transaction (skip CHECK).
+
+    `read` certifies as before. `ran` certifies only when it names the population
+    it measured (scope) AND what the measurement returned (count). Everything
+    else does not certify.
+
+    Why `ran` and not a detector for quantities in the claim text: a matcher over
+    natural language misses by construction, and measured on this practice it
+    does not separate anything - claims containing numbers or universal words
+    were scoped 62% of the time, the rest 68%. `ran` IS the structural signal
+    that a claim is a measurement: executed and observed. The failure this
+    guards is a TRUE claim applied past the population it was measured over,
+    which adjudicates `held` and which no confidence gate can see (David-directed
+    2026-09-18, via empirica-autonomy).
+
+    Not a new required field: nothing is refused. An unscoped `ran` claim is
+    still recorded; it just no longer buys the skip, so the practitioner either
+    names the scope or submits a CHECK.
+
+    Keep in step with sentinel-gate.py _has_grounded_claims (hooks cannot import
+    the package), pinned by tests/test_claims_scope_enforcement.py.
+    """
+    g = claim.get("grounding")
+    if g == "read":
+        return True
+    if g == "ran":
+        return bool(str(claim.get("scope") or "").strip()) and claim.get("measured_count") is not None
+    return False
 
 
 def scope_is_suspect(scope: str | None, measured_count: int | None) -> str | None:
@@ -175,7 +215,9 @@ def declare(
         grounding = normalize_grounding(raw.get("grounding"))
         ref = str(raw.get("ref") or "").strip() or None
         scope = str(raw.get("scope") or "").strip() or None
-        measured_count = _normalize_count(raw.get("count", raw.get("measured_count")))
+        raw_count = raw.get("count", raw.get("measured_count"))
+        measured_count = _normalize_count(raw_count)
+        count_ignored = raw_count if (raw_count not in (None, "") and measured_count is None) else None
         try:
             db.conn.execute(
                 "INSERT INTO transaction_claims "
@@ -220,6 +262,7 @@ def declare(
                 "ref": ref,
                 "scope": scope,
                 "measured_count": measured_count,
+                **({"count_ignored": raw_count} if count_ignored is not None else {}),
             }
         )
     if stored:
@@ -638,6 +681,23 @@ def summarize_for_check(stored: list[dict[str, Any]]) -> dict[str, Any] | None:
             "mode a confidence gate cannot see, because such claims are true and adjudicate `held`. "
             "If the claim is a measurement, add `scope` (the population) and `count` (what it "
             "returned)."
+        )
+
+    ignored = [c for c in stored if c.get("count_ignored") is not None]
+    if ignored:
+        out["count_ignored"] = [{"index": c.get("index"), "given": c.get("count_ignored")} for c in ignored]
+        out["count_ignored_note"] = (
+            "These counts had no leading number and were NOT stored. `count` is how many things "
+            'the measurement returned - give it as a number ("46", "46 of 48").'
+        )
+
+    unscoped_ran = [c for c in stored if c.get("grounding") == "ran" and not certifies(c)]
+    if unscoped_ran:
+        out["uncertified_ran"] = [c.get("index") for c in unscoped_ran]
+        out["uncertified_ran_note"] = (
+            f"{len(unscoped_ran)} `ran` claim(s) lack a scope or a count, so they do not certify this "
+            "transaction. `ran` means you measured something: name the population (scope) and what it "
+            "returned (count) to skip CHECK, or submit a CHECK."
         )
 
     suspect = [(c, scope_is_suspect(c.get("scope"), c.get("measured_count"))) for c in stored]
