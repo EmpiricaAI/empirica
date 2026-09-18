@@ -1046,8 +1046,17 @@ def _adopt_orphaned_transaction(project_root: Path) -> dict:
                 f"Adopted orphaned transaction {tx_data.get('transaction_id', '?')[:8]}... -> new instance",
                 file=sys.stderr,
             )
-        except Exception:
-            pass  # Adoption failure is non-fatal
+        except Exception as e:
+            # Non-fatal, but not silent: the banner above already said
+            # "Adopted", and without this line a failed move leaves the
+            # transaction under the OLD suffix while the new instance is told
+            # it holds one - partial success reported as success. stderr is the
+            # channel the human reads at session start.
+            print(
+                f"  adoption of that transaction FAILED ({type(e).__name__}: {e}) - "
+                f"it stays at {tx_file.name}; CHECK/POSTFLIGHT may not find it under this instance",
+                file=sys.stderr,
+            )
     return {"session_id": session_id, "source": "orphaned_transaction"}
 
 
