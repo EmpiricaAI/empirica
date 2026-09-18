@@ -598,7 +598,7 @@ _HELP_CATEGORIES = {
     ],
     "sync": ["sync-config", "sync-push", "sync-pull", "sync-status", "rebuild", "artifacts-generate"],
     "profile": ["profile-sync", "profile-prune", "profile-status", "profile-import"],
-    "identity": ["identity-create", "identity-export", "identity-list", "identity-verify"],
+    "identity": ["identity-create", "identity-export", "identity-list"],
     "handoff": ["handoff-create", "handoff-query"],
     "issue": ["issue-list", "issue-show", "issue-handoff", "issue-resolve", "issue-export", "issue-stats"],
     "investigation": [
@@ -1048,7 +1048,6 @@ def main(args=None):
             "identity-create": handle_identity_create_command,
             "identity-export": handle_identity_export_command,
             "identity-list": handle_identity_list_command,
-            "identity-verify": handle_identity_verify_command,
             # Handoff commands
             "handoff-create": handle_handoff_create_command,
             "handoff-query": handle_handoff_query_command,

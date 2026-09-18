@@ -23,8 +23,8 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.13.47
-**Generated:** 2026-09-18 13:50:00 UTC
-**Total commands:** 242 (across 24 categories)
+**Generated:** 2026-09-18 14:01:22 UTC
+**Total commands:** 241 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
 `empirica <command> --help` — the generator extracts the same `help`
@@ -71,7 +71,7 @@ require `--session-id` (`project-bootstrap`, `sessions-show`,
 | [checkpoint](#checkpoint) | 7 | `checkpoint-create`, `checkpoint-load`, `checkpoint-list`, … |
 | [sync](#sync) | 6 | `sync-config`, `sync-push`, `sync-pull`, … |
 | [profile](#profile) | 4 | `profile-sync`, `profile-prune`, `profile-status`, … |
-| [identity](#identity) | 4 | `identity-create`, `identity-export`, `identity-list`, … |
+| [identity](#identity) | 3 | `identity-create`, `identity-export`, `identity-list` |
 | [handoff](#handoff) | 2 | `handoff-create`, `handoff-query` |
 | [issue](#issue) | 6 | `issue-list`, `issue-show`, `issue-handoff`, … |
 | [investigation](#investigation) | 5 | `investigate`, `investigate-create-branch`, `investigate-checkpoint-branch`, … |
@@ -2436,19 +2436,6 @@ List all AI identities
 
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
-
-#### `empirica identity-verify`
-
-Verify signed session
-
-**Arguments:**
-
-- `session_id` — **required**
-  Session ID to verify
-- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
-  Output format
-- `--verbose` — optional · flag
-  Show detailed operation info
 
 ---
 

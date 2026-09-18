@@ -51,7 +51,6 @@ PREVIOUSLY_GATED_READS = [
     "empirica sources-map",
     "empirica projects-list",
     "empirica identity-list",
-    "empirica identity-verify sess-1",
     "empirica checkpoint-list",
     "empirica checkpoint-diff a b",
     "empirica checkpoint-verify s",

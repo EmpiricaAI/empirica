@@ -138,7 +138,6 @@ from .identity_commands import (
     handle_identity_create_command,
     handle_identity_export_command,
     handle_identity_list_command,
-    handle_identity_verify_command,
 )
 from .investigation_commands import (
     handle_investigate_checkpoint_branch_command,
@@ -375,7 +374,6 @@ __all__ = [  # noqa: RUF022
     "handle_identity_create_command",
     "handle_identity_export_command",
     "handle_identity_list_command",
-    "handle_identity_verify_command",
     "handle_investigate_checkpoint_branch_command",
     # Investigation commands
     "handle_investigate_command",

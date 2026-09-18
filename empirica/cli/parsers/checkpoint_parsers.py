@@ -2453,11 +2453,6 @@ written to git notes (breadcrumbs ref) for audit trail.
     identity_export_parser.add_argument("--ai-id", required=True, help="AI identifier")
     identity_export_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
 
-    identity_verify_parser = subparsers.add_parser("identity-verify", help="Verify signed session")
-    identity_verify_parser.add_argument("session_id", help="Session ID to verify")
-    identity_verify_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
-    identity_verify_parser.add_argument("--verbose", action="store_true", help="Show detailed operation info")
-
     # Sessions resume command
     sessions_resume_parser = subparsers.add_parser(
         "sessions-resume", aliases=["session-resume", "sr"], help="Resume previous sessions"

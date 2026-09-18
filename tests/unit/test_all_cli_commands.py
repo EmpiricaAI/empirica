@@ -190,10 +190,11 @@ class TestIdentityCommands:
         result = subprocess.run(["empirica", "identity-export", "--help"], capture_output=True)
         assert result.returncode == 0
 
-    def test_identity_verify_help(self):
-        """Identity-verify command has working --help"""
-        result = subprocess.run(["empirica", "identity-verify", "--help"], capture_output=True)
-        assert result.returncode == 0
+    def test_identity_verify_is_gone(self):
+        """identity-verify answered every session with ok:false 'not yet implemented'
+        and exit 0; signature verification lives in checkpoint-verify. Pins the removal."""
+        result = subprocess.run(["empirica", "identity-verify", "sess-1"], capture_output=True, timeout=5)
+        assert result.returncode != 0
 
 
 class TestConfigurationCommands:

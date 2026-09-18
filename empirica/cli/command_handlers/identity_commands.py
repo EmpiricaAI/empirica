@@ -3,7 +3,6 @@ Identity Management CLI Commands
 
 Handles cryptographic identity operations for AI agents:
 - identity-create: Generate new keypair
-- identity-verify: Verify signed sessions
 - identity-list: List all identities
 - identity-export: Export public key for sharing
 
@@ -75,8 +74,10 @@ def handle_identity_create_command(args):
             print("   • Keep private key secure!")
             print("   • Share public key freely")
             print("\n💡 Next steps:")
-            print(f'   1. Sign assessments: empirica preflight "task" --ai-id {ai_id} --sign')
-            print("   2. Verify sessions: empirica identity-verify <session-id>")
+            print(
+                f"   1. Sign a checkpoint: empirica checkpoint-sign --session-id <id> --phase PREFLIGHT --round 1 --ai-id {ai_id}"
+            )
+            print("   2. Verify it: empirica checkpoint-verify --session-id <id> --phase PREFLIGHT --round 1")
             print(f"   3. Share public key: empirica identity-export --ai-id {ai_id}")
 
         # Return None to avoid exit code issues and duplicate output
@@ -189,60 +190,5 @@ def handle_identity_export_command(args):
 
     except Exception as e:
         handle_cli_error(e, "Identity export", getattr(args, "verbose", False))
-        # Error handler already manages output, return None to avoid duplicate output
-        return None
-
-
-def handle_identity_verify_command(args):
-    """Verify signed session"""
-    try:
-        from empirica.data.session_database import SessionDatabase
-
-        session_id = args.session_id
-
-        # Load session from database
-        db = SessionDatabase()
-
-        session = db.get_session(session_id)
-
-        if not session:
-            result = {"ok": False, "error": f"Session '{session_id}' not found"}
-
-            if hasattr(args, "output") and args.output == "json":
-                print(json.dumps(result, indent=2))
-            else:
-                print(f"❌ Session '{session_id}' not found")
-
-            # Return None to avoid exit code issues and duplicate output
-            db.close()
-            return None
-
-        # Check if session has signature
-        result = {
-            "ok": False,
-            "error": "Signature verification not yet implemented",
-            "message": "Session exists but signature storage not yet complete",
-            "session_id": session_id,
-            "note": "This will be completed when --sign flag is integrated into CASCADE",
-        }
-
-        if hasattr(args, "output") and args.output == "json":
-            print(json.dumps(result, indent=2))
-        else:
-            print("⚠️  Signature verification not yet implemented")
-            print(f"\n   Session: {session_id}")
-            print("   Status: Exists in database")
-            print("\n💡 Coming soon:")
-            print("   • Store signatures in database")
-            print("   • Verify cryptographic integrity")
-            print("   • Check cascade trace hash")
-
-        db.close()
-        # Return None to avoid exit code issues and duplicate output
-        return None
-
-    except Exception as e:
-        db.close()  # Make sure to close db in exception case too
-        handle_cli_error(e, "Identity verify", getattr(args, "verbose", False))
         # Error handler already manages output, return None to avoid duplicate output
         return None

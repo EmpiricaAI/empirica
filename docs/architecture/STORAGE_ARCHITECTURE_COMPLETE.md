@@ -633,11 +633,9 @@ Signature Output:
 # Get checkpoint
 NOTE_SHA=$(git rev-parse refs/notes/empirica/session/abc-123/PREFLIGHT/1)
 
-# Get signature
-SIG=$(git notes --ref empirica/signatures/abc-123/PREFLIGHT/1 show HEAD)
-
-# Verify
-empirica identity-verify --sha $NOTE_SHA --signature $SIG --ai-id copilot
+# Verify — reads the signature note for the checkpoint and checks it against
+# the AI's public key (identity-verify never did this; it was a placeholder)
+empirica checkpoint-verify --session-id abc-123 --phase PREFLIGHT --round 1 --ai-id copilot
 ```
 
 ---## Goal Storage System
