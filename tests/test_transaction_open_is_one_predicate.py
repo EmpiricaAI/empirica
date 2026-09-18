@@ -111,7 +111,7 @@ def test_preflight_still_warns_when_the_table_agrees_it_is_open(db_path, monkeyp
     )
     warning = wp._preflight_check_unclosed_transaction()
     assert warning is not None
-    assert warning["previous_transaction_id"].startswith("tx-open")
+    assert str(warning["previous_transaction_id"]).startswith("tx-open")
     assert 9 <= warning["age_minutes"] <= 11
 
 
