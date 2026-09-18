@@ -150,7 +150,9 @@ def _attach_sidecar_blocks(payload: dict[str, Any], project_path: Path, project_
         logger.debug(f"sidecar git_status skipped: {e}")
 
     try:
-        payload["reference_docs_count"] = _count_reference_docs(db_path, project_id)
+        ref_count = _count_reference_docs(db_path, project_id)
+        if ref_count is not None:
+            payload["reference_docs_count"] = ref_count
     except Exception as e:
         logger.debug(f"sidecar reference_docs_count skipped: {e}")
 
@@ -330,19 +332,28 @@ def _build_git_status(project_path: Path) -> dict | None:
         return None
 
 
-def _count_reference_docs(db_path: Path, project_id: str) -> int:
-    """Direct SQL count of project-scoped reference docs."""
+def _count_reference_docs(db_path: Path, project_id: str) -> int | None:
+    """Count project-scoped reference docs: live epistemic_sources pointer rows.
+
+    It counted project_reference_docs, which migration 047 drops (rows moved to
+    epistemic_sources as 'pointer' by 046), and returned 0 on the resulting
+    error — so the bootstrap payload reported 0 reference docs on every
+    migrated store, and the extension's "N ref docs" chip (shown only when > 0)
+    never appeared. None now means the count could not be taken; the caller
+    leaves the key out rather than publishing a false zero.
+    """
     import sqlite3 as _sq
 
     conn = _sq.connect(str(db_path))
     try:
-        try:
-            return conn.execute(
-                "SELECT COUNT(*) FROM project_reference_docs WHERE project_id = ?",
-                (project_id,),
-            ).fetchone()[0]
-        except Exception:
-            return 0
+        return conn.execute(
+            "SELECT COUNT(*) FROM epistemic_sources "
+            "WHERE project_id = ? AND source_type = 'pointer' AND COALESCE(archived, 0) = 0",
+            (project_id,),
+        ).fetchone()[0]
+    except Exception as e:
+        logger.warning(f"reference_docs_count could not be taken: {e}")
+        return None
     finally:
         conn.close()
 

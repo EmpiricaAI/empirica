@@ -1571,6 +1571,11 @@ ALL_MIGRATIONS: list[tuple[str, str, Callable]] = [
         "Add `scope` and `measured_count` to transaction_claims — the population a claim was measured over, and how many things the measurement actually returned. David-directed 2026-09-17 (\"better scope management and measurement thereof would help then, let core know\"), relayed by empirica-cortex with the evidence that the obvious lever is wrong: David offered to raise the confidence gate and it would have caught NOTHING — their week's failures were all high-confidence claims that were TRUE and all adjudicated `held`. TWO columns rather than one because empirica-mesh-support refined the ask BEFORE it shipped: scope alone would have caught none of their three cases, since they would have written the scope they INTENDED and believed they had measured. Their cases had EMPTY populations rather than narrow ones — a SQLite count claimed as git-notes artifacts, a glob that cannot cross path components matching 0 of 34,890 real refs and printing 0 across 21 practices, and a notes-remote config key read as 'no repo exists' while 17 did. `measured_count` is what makes those absurd on sight: you cannot walk 21 practices and return nothing. Zero is the answer that most often means 'I measured nothing' rather than 'the answer is zero'. Both nullable and NOT backfilled — the scope and count of a historical claim are precisely what was never recorded.",
         lambda cursor: migration_071_claim_scope_and_count(cursor),
     ),
+    (
+        "072_drop_empty_legacy_tables",
+        "Drop nine legacy tables that current code neither creates nor reads (act_logs, investigation_logs, investigation_tools, client_findings, client_interactions, client_unknowns, divergence_tracking, drift_monitoring, project_reference_docs) — each ONLY when it is empty in this database. A table holding rows is left in place and logged, so the migration cannot lose data. `clients` (holds a row on long-lived stores) and `engagements` (empirica-workspace's) are deliberately not in the set. David's ruling 2026-09-18. project_reference_docs' last two readers were moved to epistemic_sources(source_type='pointer') in the same change; 047 had recorded them as switched and they were not.",
+        lambda cursor: migration_072_drop_empty_legacy_tables(cursor),
+    ),
 ]
 
 
@@ -3041,3 +3046,43 @@ def migration_071_claim_scope_and_count(cursor: sqlite3.Cursor):
     add_column_if_missing(cursor, "transaction_claims", "scope", "TEXT", "NULL")
     add_column_if_missing(cursor, "transaction_claims", "measured_count", "INTEGER", "NULL")
     logger.info("✅ Migration 071 complete: claims can name the population measured and how many it returned")
+
+
+#: Unread by current code, created by none of it; dropped only when empty.
+LEGACY_TABLES_072 = (
+    "act_logs",
+    "investigation_logs",
+    "investigation_tools",
+    "client_findings",
+    "client_interactions",
+    "client_unknowns",
+    "divergence_tracking",
+    "drift_monitoring",
+    "project_reference_docs",
+)
+
+
+def migration_072_drop_empty_legacy_tables(cursor: sqlite3.Cursor):
+    """Drop each legacy table that exists and holds no rows; keep and log the rest.
+
+    Idempotent: an absent table is skipped, and a table with rows is never
+    touched, so re-running on any store is safe.
+    """
+    dropped, kept = [], []
+    for table in LEGACY_TABLES_072:
+        exists = cursor.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?", (table,)).fetchone()
+        if not exists:
+            continue
+        rows = cursor.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[
+            0
+        ]  # table names come from the fixed allow-list above
+        if rows:
+            kept.append(f"{table}({rows})")
+            continue
+        cursor.execute(f"DROP TABLE {table}")
+        dropped.append(table)
+    if kept:
+        logger.warning(f"Migration 072: kept legacy tables that hold rows (not dropped): {', '.join(kept)}")
+    logger.info(
+        f"✅ Migration 072 complete: dropped {len(dropped)} empty legacy table(s): {', '.join(dropped) or 'none'}"
+    )

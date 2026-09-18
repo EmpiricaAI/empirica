@@ -128,13 +128,19 @@ def compute_doc_plan(project_id: str, session_id: str | None = None, goal_id: st
             }
         )
 
-    # Also include any reference docs explicitly added to project
+    # Also include any reference docs explicitly added to project. They live in
+    # epistemic_sources as source_type='pointer' since migration 046; this read
+    # stayed on project_reference_docs, which 047 drops, so on a migrated store
+    # the planner raised "no such table" (and on a store an older binary had
+    # recreated it in, it silently returned none).
     cur.execute(
         """
-        SELECT doc_path, doc_type, description
-        FROM project_reference_docs
-        WHERE project_id = ?
-        ORDER BY created_timestamp DESC
+        SELECT source_url AS doc_path,
+               json_extract(source_metadata, '$.doc_type') AS doc_type,
+               description
+        FROM epistemic_sources
+        WHERE project_id = ? AND source_type = 'pointer' AND COALESCE(archived, 0) = 0
+        ORDER BY discovered_at DESC
         """,
         (project_id,),
     )

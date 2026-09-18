@@ -1340,21 +1340,20 @@ Alphabetical. Column lines read `name TYPE [PRIMARY KEY|NOT NULL] [DEFAULT x] [(
 
 Not in the registry, not created by current code, not read by current code.
 `python3 scripts/gen_schema_doc.py --diff-db <sessions.db>` names them for a
-given store. Measured 2026-09-18 on a practice database that dates from the
-first release:
+given store.
 
-| table | why it is there | rows here | safe to drop? |
-|---|---|---|---|
-| `act_logs`, `investigation_logs`, `investigation_tools` | early cascade logging, schema removed | 0 | yes when empty |
-| `client_findings`, `client_interactions`, `client_unknowns`, `clients` | CRM prototype, moved to empirica-workspace (`o-<slug>` organizations) | 0 / 0 / 0 / 1 | needs a ruling — `clients` holds a row |
-| `divergence_tracking`, `drift_monitoring` | removed in v1.2.0 (drift now uses the signaling system) | 0 | yes when empty |
-| `project_reference_docs` | dropped by migration 047 (data moved to `epistemic_sources`); recreated empty by an older binary's `ALL_SCHEMAS` opening the same store | 0 | yes when empty |
-| `engagements` | vendored by `data/repositories/workspace_db.py`; workspace's lane, not core's | 0 | not core's call |
+**Migration 072** (David's ruling, 2026-09-18) drops nine of them — each only
+when it is empty in that database. A legacy table that holds rows is left in
+place and named in a WARNING, so the migration cannot lose data.
 
-No migration drops these. A drop is a destructive operation on someone's
-history and takes an explicit ruling per table; the empty ones can go in one
-migration once that ruling exists. Until then they cost nothing but a line
-in `--diff-db`.
+| table | why it is there | 072 |
+|---|---|---|
+| `act_logs`, `investigation_logs`, `investigation_tools` | early cascade logging, schema removed | dropped when empty |
+| `client_findings`, `client_interactions`, `client_unknowns` | CRM prototype, moved to empirica-workspace | dropped when empty |
+| `divergence_tracking`, `drift_monitoring` | removed in v1.2.0 (drift now uses the signaling system) | dropped when empty |
+| `project_reference_docs` | rows moved to `epistemic_sources` (`source_type='pointer'`) by 046, dropped by 047, recreated empty by older binaries; its last two readers moved to `epistemic_sources` alongside 072 | dropped when empty |
+| `clients` | CRM prototype; holds a row on long-lived stores | **kept** — not in 072 |
+| `engagements` | vendored by `data/repositories/workspace_db.py`; workspace's lane | **kept** — not core's call |
 
 ## Key Foreign Key Relationships
 
