@@ -755,13 +755,46 @@ def _default_fetch_mailbox(
     )
 
 
+_GATED = ("TACTICAL", "STRATEGIC")
+_ACTED_STATUSES = ("accepted", "accepted_pending_dispatch", "changed", "completed")
+
+
+def _decision_gap(p: dict) -> str | None:
+    """Warning when gated work reads as accepted but no ECO decision is recorded.
+
+    ``status=accepted`` is not evidence a human accepted: autonomy triage can
+    accept TACTICAL/STRATEGIC work with eco_decision null (measured 2026-09-18:
+    two code changes to core, trail triage -> handler_on_accept/system). The
+    discriminator is ``eco_decision``, NOT ``decided_by_kind``: cortex showed
+    the latter reads "system" for publish rows a human decided in the pane,
+    because the publish lane's action names are outside its vocabulary. And
+    ``actor=David`` proves nothing either (it defaults to the credential's
+    user). So the flag says what the record shows — no ECO decision recorded —
+    and not that no human was involved. None when the item is ungated, not yet
+    acted on, or carries an ECO decision.
+    """
+    if p.get("type") == "collab_brief":
+        return None  # collab is auto-accepted by design and cannot carry a praxic act
+    tier = str(p.get("trust_required") or p.get("action_category") or "").upper()
+    if tier not in _GATED or p.get("status") not in _ACTED_STATUSES:
+        return None
+    if p.get("eco_decision") is not None:
+        return None
+    return (
+        f"{tier} work reads as {p.get('status')} with NO ECO decision recorded (eco_decision null). "
+        "Before acting, check the audit trail for a human decision, or ask David as a predicted answer "
+        "unless he has ruled this trust tier auto-accepts."
+    )
+
+
 def _poll_human_line(p: dict) -> str:
     """One compact line per proposal for `--output human`."""
     pid = str(p.get("id", ""))[:24]
     status = p.get("status", "?")
     title = str(p.get("title", ""))[:68]
     src = p.get("source_claude", "?")
-    return f"  {pid}… [{status}] {title}  <from {src}>"
+    flag = "  ⚠ NOT HUMAN-DECIDED" if _decision_gap(p) else ""
+    return f"  {pid}… [{status}] {title}  <from {src}>{flag}"
 
 
 def _default_poll_statuses(outbox: bool) -> tuple[str, ...]:
@@ -924,6 +957,9 @@ def handle_mailbox_poll_command(
         "count": len(proposals),
         "proposals": proposals,
     }
+    ungated = [str(p.get("id")) for p in proposals if isinstance(p, dict) and _decision_gap(p)]
+    if ungated:
+        result["not_human_decided"] = ungated
     # Completeness, when cortex reports it. `count` is what THIS poll returned;
     # `matched` is how many exist. Without the pair, a truncated poll is
     # indistinguishable from a complete one — which is what made "have I replied
@@ -1002,14 +1038,22 @@ def handle_mailbox_show_command(
         )
         return 1
 
+    gap = _decision_gap(proposal)
+    if gap:
+        sys.stderr.write(f"⚠ mailbox show {proposal_id}: {gap}\n")
     fmt = getattr(args, "output", "json")
     if fmt == "human":
         sys.stdout.write(f"{proposal.get('id', '?')} [{proposal.get('status', '?')}]\n")
+        if gap:
+            sys.stdout.write(f"  ⚠ {gap}\n")
         sys.stdout.write(f"  {proposal.get('title', '')}\n")
         sys.stdout.write(f"  from {proposal.get('source_claude', '?')} → {proposal.get('target_claudes', [])}\n\n")
         sys.stdout.write(f"{proposal.get('summary', '')}\n")
     else:
-        sys.stdout.write(json.dumps({"ok": True, "proposal": proposal}, indent=2) + "\n")
+        out = {"ok": True, "proposal": proposal}
+        if gap:
+            out["decision_warning"] = gap
+        sys.stdout.write(json.dumps(out, indent=2) + "\n")
     return 0
 
 
