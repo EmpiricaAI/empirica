@@ -21,7 +21,9 @@ from datetime import datetime, timezone
 from typing import Any
 
 from empirica.core.notify.audit import (
+    FAILURE_WINDOW_SECONDS,
     emit_count,
+    failure_within_window,
     fell_back_count,
     last_emit_by_source,
     last_failure,
@@ -31,30 +33,7 @@ from empirica.core.notify.backends import backends_status_snapshot
 from empirica.core.notify.config import NotifyConfig, load_config
 
 # How long after a failure the cockpit header should banner it.
-FAILURE_BANNER_WINDOW_SECONDS = 3600  # 1 hour
-
-
-def _failure_within_window(
-    failure_row: dict[str, Any] | None,
-    now: datetime,
-    window_seconds: int,
-) -> dict[str, Any] | None:
-    """Return failure row if it's within the alert window, else None."""
-    if not failure_row:
-        return None
-    ts_raw = failure_row.get("ts")
-    if not ts_raw:
-        return None
-    try:
-        ts = datetime.fromisoformat(ts_raw)
-    except ValueError:
-        return None
-    age = (now - ts).total_seconds()
-    if age > window_seconds:
-        return None
-    out = dict(failure_row)
-    out["age_seconds"] = int(age)
-    return out
+FAILURE_BANNER_WINDOW_SECONDS = FAILURE_WINDOW_SECONDS  # kept as the view's name for its callers
 
 
 _EMPTY_BLOCK: dict[str, Any] = {
@@ -95,11 +74,7 @@ def build_notify_dispatcher_block(
             "backends": backends_status_snapshot(cfg),
             "recent": read_recent(limit=recent_limit),
             "last_failure": failure,
-            "banner_failure": _failure_within_window(
-                failure,
-                now,
-                FAILURE_BANNER_WINDOW_SECONDS,
-            ),
+            "banner_failure": failure_within_window(failure, now, FAILURE_BANNER_WINDOW_SECONDS),
             "fell_back_count_24h": fell_back_count(window_hours=24.0),
             "emit_count_24h": emit_count(window_hours=24.0),
         }

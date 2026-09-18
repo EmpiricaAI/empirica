@@ -148,6 +148,37 @@ def last_failure(path: Path | None = None) -> dict[str, Any] | None:
     return last
 
 
+#: A backend failure younger than this is "recent": the cockpit banners it and
+#: doctor reports it. One number, one home — the view used to own it.
+FAILURE_WINDOW_SECONDS = 3600
+
+
+def failure_within_window(
+    failure_row: dict[str, Any] | None,
+    now: datetime,
+    window_seconds: int = FAILURE_WINDOW_SECONDS,
+) -> dict[str, Any] | None:
+    """The failure row with its age attached if it is younger than the window,
+    else None. Lives beside the audit readers rather than in the cockpit view
+    so a non-visual consumer (doctor) can ask the same question the banner
+    asks, without importing a drawing module or re-deriving the rule."""
+    if not failure_row:
+        return None
+    ts_raw = failure_row.get("ts")
+    if not ts_raw:
+        return None
+    try:
+        ts = datetime.fromisoformat(ts_raw)
+    except ValueError:
+        return None
+    age = (now - ts).total_seconds()
+    if age > window_seconds:
+        return None
+    out = dict(failure_row)
+    out["age_seconds"] = int(age)
+    return out
+
+
 def fell_back_count(window_hours: float = 24.0, path: Path | None = None) -> int:
     """Count audit rows where fell_back==True within the last N hours."""
     p = path or AUDIT_PATH

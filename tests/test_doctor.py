@@ -470,7 +470,7 @@ def test_run_all_checks_returns_complete_list():
     assert "Deployed plugin fresh" in names
 
 
-def test_run_all_checks_count_is_32():
+def test_run_all_checks_count_is_33():
     """+1 for check_mcp_version_skew (GH #404, injected-topology skew).
     +1 for check_engagement_registry_drift (engagement dual-write, 1.13.23).
     +1 for check_cli_matches_checkout (CLI/checkout skew the version cannot see).
@@ -482,17 +482,21 @@ def test_run_all_checks_count_is_32():
        writer and three dark paths; `retrieval_count = 0` reads identically to
        "never surfaced", so nothing local noticed and a peer practice counting
        from outside found it. This check is that missing control).
+    +1 for check_notify_dispatcher (the recent-backend-failure judgement lived
+       in the cockpit view with the banner as its only consumer; doctor now
+       asks the same question through empirica.core.notify.audit).
 
     A hardcoded count is a tripwire for "a check was added/removed without
     thinking about the suite" — when it fires, update it deliberately (and add
     the name assertion below), never by pasting the new number blind."""
     checks = run_all_checks()
-    assert len(checks) == 32
+    assert len(checks) == 33
     # The tripwire earns its keep only if the NEW check is named. A bumped
     # number alone records that something changed, not what.
     assert any(c.name == "notes/sqlite divergence" for c in checks)
     assert any(c.name == "retrieval telemetry written" for c in checks)
     assert any(c.name == "unreleased commits" for c in checks)
+    assert any(c.name == "Notify dispatcher" for c in checks)
 
 
 # ─── Tailscale (prop_ilf6uy4q) ─────────────────────────────────────────

@@ -220,6 +220,75 @@ def check_orphaned_presence() -> Check:
     )
 
 
+def check_notify_dispatcher() -> Check:
+    """Did a notification backend fail recently, or keep falling back?
+
+    The cockpit has bannered this since the dispatcher shipped — and only the
+    cockpit. The judgement lived in the view module, so nothing that runs
+    without a screen could ask it, and a notify backend dying at 03:00 was
+    visible to whoever next opened the TUI. Same window, same readers as the
+    banner (`empirica.core.notify.audit`), reported where health is reported.
+
+    SKIP when there is no audit yet (nothing emitted, nothing to judge); WARN
+    when the audit exists but cannot be read — an unreadable log must not read
+    as "no failures".
+    """
+    name = "Notify dispatcher"
+    try:
+        from empirica.core.notify.audit import (
+            AUDIT_PATH,
+            FAILURE_WINDOW_SECONDS,
+            emit_count,
+            failure_within_window,
+            fell_back_count,
+            last_failure,
+        )
+    except Exception as e:
+        return Check(name, WARN, "", f"notify audit module unavailable: {type(e).__name__}: {e}")
+
+    if not AUDIT_PATH.exists():
+        return Check(name, SKIP, f"no dispatcher audit at {AUDIT_PATH} — nothing emitted yet, nothing to judge")
+    try:
+        with open(AUDIT_PATH, encoding="utf-8"):
+            pass
+    except OSError as e:
+        return Check(name, WARN, f"audit exists but cannot be read: {e}", "fix permissions on the audit file")
+
+    from datetime import datetime, timezone
+
+    now = datetime.now(tz=timezone.utc)
+    recent_failure = failure_within_window(last_failure(), now, FAILURE_WINDOW_SECONDS)
+    fell_back = fell_back_count(window_hours=24.0)
+    emitted = emit_count(window_hours=24.0)
+    data = {
+        "emit_count_24h": emitted,
+        "fell_back_count_24h": fell_back,
+        "recent_failure": recent_failure,
+        "window_seconds": FAILURE_WINDOW_SECONDS,
+    }
+    if recent_failure:
+        backend = recent_failure.get("resolved_backend") or "?"
+        err = str(recent_failure.get("detail") or "")[:120]
+        return Check(
+            name,
+            WARN,
+            f"backend {backend} failed {recent_failure.get('age_seconds')}s ago: {err}",
+            "empirica notify test <backend>; check the backend's credentials/network",
+            data=data,
+        )
+    if fell_back:
+        return Check(
+            name,
+            WARN,
+            f"{fell_back} of {emitted} emission(s) in 24h fell back to another backend — the default is not delivering",
+            "empirica notify test <default backend>",
+            data=data,
+        )
+    return Check(
+        name, PASS, f"{emitted} emission(s) in 24h, no failures in the last {FAILURE_WINDOW_SECONDS // 60}m", data=data
+    )
+
+
 def check_python() -> Check:
     v = sys.version_info
     if v >= (3, 10):
@@ -1993,6 +2062,7 @@ def run_all_checks(cwd: Path | None = None) -> list[Check]:
         check_outreach(),
         # Listener / loops + MCP config
         check_loops_registered(),
+        check_notify_dispatcher(),
         check_orphaned_presence(),
         check_listener_service(cwd),
         check_mcp_config(),
