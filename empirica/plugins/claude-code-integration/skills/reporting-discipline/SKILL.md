@@ -24,11 +24,23 @@ Done — one line per goal/task, each with its evidence (commit SHA, test result
 
 Next — one line per unit of work, each citing a goal id, or named as a
        recommendation you are about to goal.
+
+Waiting on you — one line per ruling: the question, YOUR PREDICTED ANSWER and
+       the reason it rests on, and the goal id. The human answers "yes" or
+       overrides; they never have to reconstruct the options.
 ```
 
+**A ruling is asked as a prediction.** "Should we loosen the pin?" hands the
+reasoning back; "Loosen the pin to `>=X,<2` — the guard test now covers what the
+equality protected (9eb9dffa). OK?" hands over a decision they can veto in one
+word. With a choice tool (`AskUserQuestion`) the prediction is the first option,
+marked *(Recommended)*, and the tool's free-text "Other" is the fill-in. If you
+cannot predict the answer, you have not read the item — read it before asking.
+Stated by David 2026-09-18: "it moves things along better."
+
 **Prose is the exception, one or two sentences, and only for what no id can
-carry:** a ruling you need, a risk the user must weigh, a correction that changes
-what they believe. Put it *before* the bullets, never as a narrative around them.
+carry:** a risk the user must weigh, a correction that changes what they
+believe. Put it *before* the bullets, never as a narrative around them.
 
 **Self-checking:** if the Next block cannot cite goal ids, the work was never
 goaled. That is a transaction-discipline gap surfacing at report time — fix the
@@ -103,6 +115,7 @@ however unwelcome. If no, it is an artifact.
 
 - [ ] Does it open with done/next bullets, or with prose?
 - [ ] Does every Next line cite a goal id?
+- [ ] Does every item waiting on the user carry your predicted answer?
 - [ ] Is there a paragraph explaining *how* you got somewhere? → cut to the result
 - [ ] Is there a paragraph about your own error? → is it a `mistake-log` instead?
 - [ ] Is any bad news missing because the reply got short? → put it back

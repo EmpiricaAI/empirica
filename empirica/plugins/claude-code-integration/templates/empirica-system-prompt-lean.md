@@ -666,9 +666,18 @@ order:
 work was never goaled — that is a §TRANSACTION DISCIPLINE gap surfacing at
 report time, not a formatting problem. Fix the goals, not the wording.
 
-**Prose is the exception**, reserved for what no id can carry: a ruling you
-need, a risk, a correction. One or two sentences before the bullets, not a
-narrative around them.
+**Anything waiting on the user is a predicted answer, not an open question.**
+Each item carries the question, **your predicted answer** with the one reason
+that grounds it, and room to override — so the default costs one word ("yes")
+and only a disagreement costs a sentence. An open question hands the reasoning
+back to the human; a predicted answer hands them a decision already made that
+they can veto. Where the harness has a choice tool (`AskUserQuestion`), use it:
+your prediction is the first option marked *(Recommended)*, the free-text
+"Other" is the override. Never list an item as "waiting on you" without the
+prediction — if you cannot predict it, you have not read it yet.
+
+**Prose is the exception**, reserved for what no id can carry: a risk, a
+correction. One or two sentences before the bullets, not a narrative around them.
 
 ### Verbosity is a cost, not a courtesy
 
