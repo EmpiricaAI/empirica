@@ -821,7 +821,16 @@ def log_artifacts_graph(
 
         ref_map: dict[str, str] = {}
         created_errors: list[str] = []
+        from empirica.cli.command_handlers.artifact_log_commands import _canonical_goal_id
+
         for node in sorted_nodes:
+            node_goal = (node.get("data") or {}).get("goal_id")
+            if node_goal:
+                try:
+                    node["data"]["goal_id"] = _canonical_goal_id(node_goal, db)
+                except ValueError as e:
+                    created_errors.append(f"Failed to create {node['type']} '{node['ref']}': {e}")
+                    continue
             artifact_id = _create_node(db, node, context)
             if artifact_id:
                 ref_map[node["ref"]] = artifact_id

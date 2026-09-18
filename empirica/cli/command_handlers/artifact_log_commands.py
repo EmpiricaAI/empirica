@@ -603,6 +603,27 @@ def _warn_if_cwd_project_differs(project_id: str | None) -> None:
         return  # a diagnostic must never break the write it is describing
 
 
+def _canonical_goal_id(goal_id: str, db) -> str:
+    """The full id of the goal a caller named, by exact id or unique prefix.
+
+    A caller-supplied goal_id was used verbatim, so a short or mistyped id wrote
+    an attached_to edge to a goal that does not exist; only a later dangling-edge
+    prune noticed. The goal verbs already accept a unique prefix, so this does
+    the same, and refuses rather than guess when nothing or several match.
+    """
+    cursor = db.conn.cursor()
+    cursor.execute("SELECT id FROM goals WHERE id = ?", (goal_id,))
+    if cursor.fetchone():
+        return goal_id
+    cursor.execute("SELECT id FROM goals WHERE id LIKE ? LIMIT 4", (f"{goal_id}%",))
+    matches = [r["id"] if hasattr(r, "keys") else r[0] for r in cursor.fetchall()]
+    if len(matches) == 1:
+        return matches[0]
+    if not matches:
+        raise ValueError(f"goal_id '{goal_id}' matches no goal (full id or unique prefix required)")
+    raise ValueError(f"goal_id '{goal_id}' is ambiguous: matches {', '.join(m[:13] for m in matches)}")
+
+
 def _resolve_goal_for_artifact(goal_id, session_id, db, transaction_id=None, project_id=None):
     """Auto-link an artifact to the goal that owns the current work.
 
@@ -621,7 +642,7 @@ def _resolve_goal_for_artifact(goal_id, session_id, db, transaction_id=None, pro
        a stale backlog entry cannot claim unrelated artifacts.
     """
     if goal_id:
-        return goal_id
+        return _canonical_goal_id(goal_id, db)
     tiers = []
     if transaction_id:
         tiers.append(

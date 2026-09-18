@@ -186,6 +186,10 @@ class TestWorkTypeColumn:
 
 class TestGoalAutoAttach:
     def test_explicit_goal_id_always_wins(self, conn):
+        """An explicit id beats every tier. It must name a real goal: an id that
+        matches nothing is refused (test_artifact_goal_id_is_resolved.py)."""
+        _insert_goal(conn, "explicit", "s-other", created_timestamp=50.0)
+        _insert_goal(conn, "g-sess", "s1", created_timestamp=200.0)
         assert _resolve_goal_for_artifact("explicit", "s1", _DB(conn)) == "explicit"
 
     def test_transaction_tier_beats_session_recency(self, conn):
