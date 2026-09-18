@@ -212,8 +212,12 @@ class CredentialsLoader:
                     var_name = match.group(1)
                     value = os.getenv(var_name)
                     if value is None:
-                        logger.debug(f"Environment variable {var_name} not set, using placeholder")
-                        return match.group(0)  # Return original if not found
+                        # The literal "${VAR}" goes downstream as the credential and
+                        # fails there with an auth error that names nothing. Say it here.
+                        logger.warning(
+                            f"credentials: environment variable {var_name} is not set; ${{{var_name}}} left unresolved"
+                        )
+                        return match.group(0)
                     return value
 
                 return re.sub(pattern, replacer, obj)
