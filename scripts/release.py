@@ -470,12 +470,13 @@ class ReleaseManager:
                 r'^version\s*=\s*"[^"]+"',
                 f'version = "{self.version}"',
             ),
-            # empirica-mcp pins its core dep with == (anti-drift); bump it in
-            # lockstep so the wrapper always requires the matching core version.
+            # empirica-mcp's core dep is a floor at the current version with a
+            # <2 ceiling; bump the floor in lockstep so upgrading the wrapper
+            # still pulls core up to match. (It was ==, which rolled core back.)
             (
                 self.repo_root / "empirica-mcp" / "pyproject.toml",
-                r'"empirica==[0-9]+\.[0-9]+\.[0-9]+"',
-                f'"empirica=={self.version}"',
+                r'"empirica>=[0-9]+\.[0-9]+\.[0-9]+,<2"',
+                f'"empirica>={self.version},<2"',
             ),
             (
                 self.repo_root / "scripts" / "install.py",
@@ -616,6 +617,12 @@ class ReleaseManager:
                 continue
 
             content = filepath.read_text()
+            if not re.search(pattern, content, flags=re.MULTILINE):
+                # "Already up to date" used to cover this too: a pattern that
+                # no longer matches the file (the file's form changed) skipped
+                # the bump silently, and the release shipped the old value.
+                warning(f"Version pattern matched NOTHING in {filepath}: {pattern} — not bumped")
+                continue
             new_content = re.sub(pattern, replacement, content, flags=re.MULTILINE)
 
             if content == new_content:
@@ -889,8 +896,8 @@ class ReleaseManager:
         results.append(("Homebrew tap", tap_ok, tap_detail))
 
         # Dependency-CLOSURE check: the unit a user installs is `pip install -U
-        # empirica empirica-mcp`, not either package alone. empirica-mcp pins
-        # `empirica==<v>` exactly, so if the sibling lags on PyPI even briefly,
+        # empirica empirica-mcp`, not either package alone. Until 1.13.48
+        # empirica-mcp pinned `empirica==<v>`, so if the sibling lagged on PyPI,
         # `-U` on a box with both resolves the OLD mcp, whose == pin DOWNGRADES
         # empirica — a self-reverting release that every per-package check reports
         # green (mesh report prop_tmmiftrs). Verify what the user RECEIVES, not

@@ -61,20 +61,20 @@ class TestVersionConsistency:
             f"expected {canonical_version!r} (from pyproject.toml)"
         )
 
-    def test_mcp_core_dep_pinned_to_version(self, canonical_version: str) -> None:
-        """empirica-mcp must pin its core dep with == to the current version, not
-        a loose >=. A loose constraint let `pipx upgrade empirica-mcp` bump the
-        wrapper while leaving empirica core stale (the version-drift footgun)."""
+    def test_mcp_core_dep_floor_tracks_version(self, canonical_version: str) -> None:
+        """empirica-mcp's core dep is a FLOOR at the current version with a <2
+        ceiling. The floor must track the version (a stale floor let `pipx upgrade
+        empirica-mcp` leave core behind); it must not be == (an exact pin rolled
+        core back on `pip install -U empirica`). David's ruling 2026-09-18."""
         mcp_pyproject = PROJECT_ROOT / "empirica-mcp" / "pyproject.toml"
         content = mcp_pyproject.read_text()
-        # Must be an exact pin on the matching version — reject >=, ~=, etc.
-        assert re.search(rf'"empirica=={re.escape(canonical_version)}"', content), (
-            "empirica-mcp/pyproject.toml must pin 'empirica==" + canonical_version + "' "
-            "(exact, matching core) to prevent wrapper/core version drift"
+        assert re.search(rf'"empirica>={re.escape(canonical_version)},<2"', content), (
+            f"empirica-mcp/pyproject.toml must declare 'empirica>={canonical_version},<2' "
+            "(floor bumped in lockstep by release.py)"
         )
-        assert not re.search(r'"empirica>=', content), (
-            "empirica-mcp/pyproject.toml has a loose 'empirica>=' constraint — "
-            "use '==' so the wrapper can't drift from core"
+        assert not re.search(r'"empirica==', content), (
+            "empirica-mcp/pyproject.toml has an exact 'empirica==' pin — it rolls core "
+            "back under a shared interpreter; use the lockstep floor"
         )
 
     def test_plugin_json_version_matches(self, canonical_version: str) -> None:

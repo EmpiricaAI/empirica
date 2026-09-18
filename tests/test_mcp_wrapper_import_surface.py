@@ -18,12 +18,12 @@ test here fails in the commit that removes the symbol, which is the only moment
 someone can cheaply choose a different refactor. The dependency direction is
 wrapper→core, so the guard has to run against the side that moves.
 
-This is deliberately NOT a defence of the `empirica==<exact>` pin in
-`empirica-mcp/pyproject.toml`. That pin is under review: an exact equality drags
-core BACK DOWN under a shared interpreter whenever the pair is split
-(`pip install -U empirica` on a box carrying empirica-mcp self-reverts), and it is
-protecting a two-symbol surface that this test can protect directly. Measured on a
-client box at core 1.13.33 → 1.13.47.
+This is what replaced the `empirica==<exact>` pin in
+`empirica-mcp/pyproject.toml` (now `>=<version>,<2`, David's ruling 2026-09-18). An
+exact equality dragged core BACK DOWN under a shared interpreter whenever the pair
+was split (`pip install -U empirica` on a box carrying empirica-mcp self-reverted),
+to protect a two-symbol surface this test protects directly. Measured on a client
+box at core 1.13.33 → 1.13.47.
 """
 
 from __future__ import annotations
