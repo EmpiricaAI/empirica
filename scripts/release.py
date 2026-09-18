@@ -2205,34 +2205,20 @@ brew install empirica
             info(f"GitHub: https://github.com/EmpiricaAI/empirica/releases/tag/v{self.version}")
             info("Homebrew: brew upgrade empirica")
             info("Chocolatey: choco upgrade empirica")
-            self.report_install_surfaces()
+            if not self.report_install_surfaces():
+                sys.exit(self.EXIT_BOX_STALE)
 
         except Exception as e:
             error(f"Publish failed: {e}")
 
-    def report_install_surfaces(self):
-        """Run the deploy-gap detector at the moment a gap is created.
+    #: Exit status of --publish when every channel shipped but the box that cut
+    #: the release still runs older code through its CLI. Distinct from 1 (a
+    #: publish step failed) so a wrapper never retries the publish for it.
+    EXIT_BOX_STALE = 3
 
-        This script verifies six PUBLISH channels and, until now, zero INSTALL
-        surfaces — so a release read as complete while the box that cut it kept
-        running the previous version through its CLI, its plugin and its MCP server.
-        After 1.13.47 that cost an evening: a correct feature was measured as broken
-        by four practices within minutes of shipping, because no local executor
-        carried it.
-
-        The detector already existed. `empirica doctor --deploy-gaps` checks exactly
-        the axes that failed, and a grep across hooks, settings, loops and crons
-        found nothing that had ever invoked it. An alarm nobody runs. So it runs
-        HERE, because publishing is what makes this box stale: the tag moves, the
-        local installs do not.
-
-        Best-effort and never fatal — the release is already out. A failure to run
-        the detector is reported as such rather than swallowed, since "could not
-        check" and "nothing to report" must not read alike.
-        """
-        log("\n" + "=" * 60)
-        log("🔎 Install surfaces on THIS box (empirica doctor --deploy-gaps)")
-        log("=" * 60)
+    def _run_deploy_gap_detector(self) -> list[dict] | None:
+        """`empirica doctor --deploy-gaps` from a neutral directory, or None when
+        it could not be run or answered nothing — the caller says UNCHECKED."""
         try:
             r = subprocess.run(
                 ["empirica", "doctor", "--deploy-gaps", "--output", "json"],
@@ -2246,22 +2232,103 @@ brew install empirica
             checks = (json.loads(raw[raw.find("{") :]) or {}).get("checks") or []
         except Exception as e:
             warning(f"Could not run the deploy-gap detector ({type(e).__name__}: {e}) — install surfaces UNCHECKED")
-            return
-
+            return None
         if not checks:
             warning("Deploy-gap detector returned no checks — install surfaces UNCHECKED")
-            return
+            return None
+        return checks
+
+    @staticmethod
+    def _cli_check(checks: list[dict]) -> dict | None:
+        return next((c for c in checks if c.get("name") == "CLI matches checkout"), None)
+
+    def _refresh_pipx_cli(self, cli_check: dict) -> bool:
+        """Reinstall the pipx CLI editable from this checkout. Only when the
+        stale binary IS a pipx install — a system pip is not ours to rewrite.
+        Returns True when the reinstall ran and exited 0."""
+        pkg_dir = str((cli_check.get("data") or {}).get("cli_package_dir") or "")
+        if "pipx" not in pkg_dir:
+            info(f"CLI is not a pipx install ({pkg_dir or 'unknown location'}); not refreshing it from here")
+            return False
+        info("Refreshing the pipx CLI from this checkout: pipx install --force --editable .")
+        try:
+            r = subprocess.run(
+                ["pipx", "install", "--force", "--editable", "."],
+                capture_output=True,
+                text=True,
+                timeout=300,
+                check=False,
+                cwd=str(Path(__file__).resolve().parent.parent),
+            )
+        except Exception as e:
+            warning(f"pipx reinstall did not run ({type(e).__name__}: {e})")
+            return False
+        if r.returncode != 0:
+            warning(f"pipx reinstall exited {r.returncode}: {(r.stderr or r.stdout).strip()[-300:]}")
+            return False
+        return True
+
+    def report_install_surfaces(self) -> bool:
+        """Refresh and verify the box that cut the release; False when it still runs older code.
+
+        This script verifies six PUBLISH channels. Until 4455c5f1a it verified zero
+        INSTALL surfaces, and after 1.13.47 that cost an evening: the box kept
+        running the previous version through a non-editable pipx CLI, so a correct
+        feature was measured as broken by four practices within minutes of
+        shipping. The report then only WARNED, and the refresh it named lived in a
+        memory file — followed after 1.13.46, skipped after 1.13.47. A memory entry
+        is a record, not a guard.
+
+        So publish now does the refresh it used to recommend, for the one surface
+        it owns: when the detector says the CLI is a stale pipx copy of THIS
+        checkout, it reinstalls it editable and measures again through the
+        binary's own interpreter (doctor does that; `python -c import` from inside
+        the repo finds ./empirica and always reports the working tree). The
+        deployed plugin and the MCP host are not refreshed here — the ecosystem
+        update owns them on shared boxes — they are reported, with the hint.
+
+        A CLI still stale after that FAILS the publish (exit EXIT_BOX_STALE): the
+        channels shipped, the release is not done. "Could not check" stays
+        UNCHECKED, never a pass.
+        """
+        log("\n" + "=" * 60)
+        log("🔎 Install surfaces on THIS box (empirica doctor --deploy-gaps)")
+        log("=" * 60)
+        checks = self._run_deploy_gap_detector()
+        if checks is None:
+            return True  # UNCHECKED already said; not a verdict either way
+
+        cli = self._cli_check(checks)
+        if cli and cli.get("status") in ("WARN", "FAIL"):
+            warning(f"{cli.get('status'):5} {cli.get('name')}: {cli.get('detail', '')}")
+            if self._refresh_pipx_cli(cli):
+                again = self._run_deploy_gap_detector()
+                if again is not None:
+                    checks = again
+                    cli = self._cli_check(checks)
 
         gaps = [c for c in checks if c.get("status") in ("WARN", "FAIL")]
         for c in checks:
             line = f"{c.get('status', '?'):5} {c.get('name', '?')}: {c.get('detail', '')}"
             (warning if c in gaps else info)(line)
-        if gaps:
+
+        cli_stale = bool(cli and cli.get("status") in ("WARN", "FAIL"))
+        other = [c for c in gaps if c is not cli]
+        if cli_stale:
             warning(
-                "This box is now running OLDER code than it just released. Refresh: "
-                "`pipx install --force --editable .` then your ecosystem update "
-                "(or `empirica setup-claude-code`)."
+                "This box STILL runs OLDER code than it just released through its CLI — "
+                "the publish is not done. Refresh by hand: `pipx install --force --editable .` "
+                "(or reinstall however this binary was installed), then re-run "
+                "`empirica doctor --deploy-gaps` from /tmp."
             )
+        if other:
+            warning(
+                "Deployed plugin / MCP host lag the release — run your ecosystem update "
+                "(or `empirica setup-claude-code` on a box you own)."
+            )
+        if not gaps:
+            success("Install surfaces on this box match the release")
+        return not cli_stale
 
     def run(self):
         """Execute full release process (prepare + publish in one shot).

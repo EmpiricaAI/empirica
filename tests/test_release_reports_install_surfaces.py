@@ -125,3 +125,127 @@ def test_publish_actually_calls_it(R):
 
     src = inspect.getsource(R)
     assert "self.report_install_surfaces()" in src
+
+
+# ─── the report REFRESHES the surface it owns, and FAILS the publish if still stale ─
+
+
+def _checks_with_data(*triples):
+    return json.dumps({"checks": [{"name": n, "status": s, "detail": d, "data": data} for n, s, d, data in triples]})
+
+
+def _scripted(R, monkeypatch, answers):
+    """Each subprocess call pops the next scripted (returncode, stdout); records every command."""
+    calls = []
+
+    def fake_run(cmd, **kw):
+        calls.append({"cmd": cmd, "cwd": kw.get("cwd")})
+        rc, out = answers.pop(0)
+        return types.SimpleNamespace(returncode=rc, stdout=out, stderr="")
+
+    monkeypatch.setattr(R.subprocess, "run", fake_run)
+    return calls
+
+
+PIPX = {"cli_package_dir": "/home/u/.local/share/pipx/venvs/empirica/lib/python3.12/site-packages/empirica"}
+STALE = ("CLI matches checkout", "WARN", "a pipx COPY predating HEAD", PIPX)
+FRESH = ("CLI matches checkout", "PASS", "editable", PIPX)
+
+
+def test_a_stale_pipx_cli_is_reinstalled_editable_and_remeasured(R, monkeypatch, capsys):
+    """The refresh that lived in a memory file, executed by the script instead."""
+    calls = _scripted(R, monkeypatch, [(0, _checks_with_data(STALE)), (0, ""), (0, _checks_with_data(FRESH))])
+
+    ok = _manager(R).report_install_surfaces()
+    out = capsys.readouterr().out
+
+    assert ok is True
+    assert [c["cmd"][:2] for c in calls] == [["empirica", "doctor"], ["pipx", "install"], ["empirica", "doctor"]]
+    assert calls[1]["cmd"] == ["pipx", "install", "--force", "--editable", "."]
+    assert Path(calls[1]["cwd"]).resolve() == _SCRIPT.parent.parent.resolve(), "editable from THIS checkout"
+    assert "STILL runs OLDER" not in out
+    assert "match the release" in out
+
+
+def test_a_cli_still_stale_after_the_refresh_fails_the_report(R, monkeypatch, capsys):
+    _scripted(R, monkeypatch, [(0, _checks_with_data(STALE)), (0, ""), (0, _checks_with_data(STALE))])
+
+    ok = _manager(R).report_install_surfaces()
+    out = capsys.readouterr().out
+
+    assert ok is False
+    assert "STILL runs OLDER" in out
+    assert "pipx install --force --editable" in out
+
+
+def test_a_stale_non_pipx_cli_is_not_rewritten_but_still_fails(R, monkeypatch, capsys):
+    """A system pip is not ours to reinstall; the verdict is still 'not done'."""
+    calls = _scripted(
+        R,
+        monkeypatch,
+        [
+            (
+                0,
+                _checks_with_data(
+                    (
+                        "CLI matches checkout",
+                        "WARN",
+                        "site-packages copy",
+                        {"cli_package_dir": "/usr/lib/python3/dist-packages/empirica"},
+                    )
+                ),
+            )
+        ],
+    )
+
+    ok = _manager(R).report_install_surfaces()
+    out = capsys.readouterr().out
+
+    assert ok is False
+    assert all(c["cmd"][0] != "pipx" for c in calls)
+    assert "not a pipx install" in out
+    assert "STILL runs OLDER" in out
+
+
+def test_a_failed_pipx_reinstall_is_reported_and_the_verdict_stays_stale(R, monkeypatch, capsys):
+    _scripted(R, monkeypatch, [(0, _checks_with_data(STALE)), (1, "boom")])
+
+    ok = _manager(R).report_install_surfaces()
+    out = capsys.readouterr().out
+
+    assert ok is False
+    assert "pipx reinstall exited 1" in out
+
+
+def test_plugin_or_mcp_lag_warns_but_does_not_fail_the_publish(R, monkeypatch, capsys):
+    """Those surfaces belong to the ecosystem update on a shared box."""
+    _scripted(
+        R,
+        monkeypatch,
+        [(0, _checks_with_data(FRESH, ("Deployed plugin fresh", "WARN", "deployed 1.13.46; package 1.13.47", {})))],
+    )
+
+    ok = _manager(R).report_install_surfaces()
+    out = capsys.readouterr().out
+
+    assert ok is True
+    assert "ecosystem update" in out
+
+
+def test_unchecked_is_not_a_failed_publish(R, monkeypatch, capsys):
+    """Could-not-check is said as such; it is not a verdict in either direction."""
+    _seen, out = _run_with(R, monkeypatch, capsys, raises=FileNotFoundError("empirica"))
+    assert "UNCHECKED" in out
+    # and the return value carries no stale verdict
+    monkeypatch.setattr(R.subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(FileNotFoundError("x")))
+    assert _manager(R).report_install_surfaces() is True
+
+
+def test_publish_exits_box_stale_when_the_report_fails(R):
+    import inspect
+
+    src = inspect.getsource(R)
+    assert "if not self.report_install_surfaces():" in src
+    assert "sys.exit(self.EXIT_BOX_STALE)" in src
+    cls = next(v for v in vars(R).values() if isinstance(v, type) and hasattr(v, "EXIT_BOX_STALE"))
+    assert cls.EXIT_BOX_STALE not in (0, 1), "distinct from success and from a failed publish step"
