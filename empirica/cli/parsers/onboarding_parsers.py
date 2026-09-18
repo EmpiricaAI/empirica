@@ -260,7 +260,7 @@ Exit codes:
     setup_cc_parser.add_argument(
         "--apply",
         action="store_true",
-        help="With --uninstall, actually remove. Without it you get the plan and nothing is touched.",
+        help="REQUIRES --uninstall: actually remove (without --apply, --uninstall only prints the plan). Refused on its own — install has no dry-run.",
     )
 
     doctor_parser.add_argument(
@@ -293,5 +293,5 @@ Exit codes:
     doctor_parser.add_argument(
         "--apply",
         action="store_true",
-        help="With --reconcile-notes, actually write. Without it you get the plan and nothing moves.",
+        help="REQUIRES --reconcile-notes: actually write (without --apply you get the plan). Refused on its own — the health report never writes.",
     )

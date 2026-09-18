@@ -2271,10 +2271,35 @@ def _handle_uninstall(apply_it: bool) -> int:
     return 2 if receipt["refused"] else 0
 
 
+def _refuse_apply_without_uninstall(args, output_format: str) -> int | None:
+    """`--apply` has one consumer: the --uninstall plan. Everywhere else in
+    this binary the same spelling means "dry-run by default, --apply to
+    write", so a caller passing it here expects a preview and instead got the
+    install — silently, since nothing read the flag. Refuse rather than
+    ignore: an advertised no-op is worse than a missing flag, because the
+    missing one fails loudly and teaches. Returns the exit code to use, or
+    None when the invocation is fine."""
+    if not (getattr(args, "apply", False) and not getattr(args, "uninstall", False)):
+        return None
+    msg = (
+        "setup-claude-code: --apply only means something with --uninstall. "
+        "Install has no dry-run and always writes; nothing was done. "
+        "Drop --apply to install, or add --uninstall to remove."
+    )
+    if output_format == "json":
+        print(json.dumps({"ok": False, "error": "apply_without_uninstall", "message": msg}))
+    else:
+        print(msg, file=sys.stderr)
+    return 2
+
+
 def handle_setup_claude_code_command(args):
     """Handle the setup command (harness integration)."""
     try:
         output_format = getattr(args, "output", "human")
+        refused = _refuse_apply_without_uninstall(args, output_format)
+        if refused is not None:
+            return refused
         if getattr(args, "uninstall", False):
             return _handle_uninstall(bool(getattr(args, "apply", False)))
 

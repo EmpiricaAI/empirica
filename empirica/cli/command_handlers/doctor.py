@@ -2017,6 +2017,20 @@ def _format_human(checks: list[Check]) -> str:
 
 def handle_doctor_command(args: Any) -> int:
     cwd = Path.cwd()
+    # Same guard as setup-claude-code: `--apply` is read only on the
+    # --reconcile-notes path. Passed alone it was accepted and ignored, and a
+    # plain health report printed as if the repair had been asked for and run.
+    if getattr(args, "apply", False) and not getattr(args, "reconcile_notes", False):
+        msg = (
+            "doctor: --apply only means something with --reconcile-notes. "
+            "The health report never writes; nothing was done. "
+            "Drop --apply for the report, or add --reconcile-notes to repair."
+        )
+        if getattr(args, "output", "human") == "json":
+            print(json.dumps({"ok": False, "error": "apply_without_reconcile_notes", "message": msg}))
+        else:
+            print(msg, file=sys.stderr)
+        return 2
     if getattr(args, "reconcile_notes", False):
         return _handle_reconcile_notes(cwd, apply_it=bool(getattr(args, "apply", False)))
     # --deploy-gaps: the focused "what is committed but not live" view. Same
