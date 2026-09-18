@@ -511,6 +511,74 @@ def test_a_first_time_archive_reports_not_already(capsys):
     assert json.loads(capsys.readouterr().out)["already_archived"] is False
 
 
+def test_archiving_an_id_cortex_does_not_hold_is_not_reported_as_archived(capsys):
+    """Cortex answers an unknown or expired id with HTTP 200, `ok: true` and
+    `no_op: true` + `reason` (observed live: 76 archives of the literal id "null"
+    each came back this way). Rendering that as `archived: true` is how the
+    inbox count became the only surface that disagreed. The verdict must say
+    nothing was archived, name cortex's reason, and exit non-zero so a batch
+    caller's per-item check sees it."""
+    from empirica.cli.command_handlers.mailbox_commands import handle_mailbox_archive_command
+
+    def post(url, body, api_key, timeout):
+        return 200, {
+            "ok": True,
+            "no_op": True,
+            "proposal_id": "prop_parent",
+            "reason": "not_found_or_expired",
+            "action": "archive",
+        }
+
+    rc = handle_mailbox_archive_command(_archive_args(), _resolve_cortex_creds=_creds(), _http_post=post)
+
+    assert rc == 2
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["archived"] is False
+    assert payload["no_op"] is True
+    assert payload["reason"] == "not_found_or_expired"
+    assert payload["already_archived"] is False
+
+
+def test_archive_no_op_in_human_output_does_not_say_archived(capsys):
+    from empirica.cli.command_handlers.mailbox_commands import handle_mailbox_archive_command
+
+    def post(url, body, api_key, timeout):
+        return 200, {"ok": True, "no_op": True, "proposal_id": "prop_parent", "reason": "not_found_or_expired"}
+
+    rc = handle_mailbox_archive_command(_archive_args(output="human"), _resolve_cortex_creds=_creds(), _http_post=post)
+
+    out = capsys.readouterr().out
+    assert rc == 2
+    assert out.startswith("not archived")
+    assert "not_found_or_expired" in out
+
+
+def test_reply_does_not_count_a_no_op_archive_as_parent_archived(capsys):
+    """Same drop on the auto-archive leg of `reply`: a `no_op: true` answer used to
+    flip `parent_archived` to True."""
+    from empirica.cli.command_handlers.mailbox_commands import handle_mailbox_reply_command
+
+    _, record = _record_post()
+
+    def post(url, body, api_key, timeout):
+        if "/archive" in url:
+            return 200, {"ok": True, "no_op": True, "proposal_id": "prop_parent", "reason": "not_found_or_expired"}
+        return record(url, body, api_key, timeout)
+
+    rc = handle_mailbox_reply_command(
+        _make_args(),
+        _resolve_cortex_creds=_creds(),
+        _resolve_ai_id=_ai_id(),
+        _http_post=post,
+        _fetch_parent=_fetch_parent(),
+    )
+
+    assert rc == 0
+    captured = capsys.readouterr()
+    assert '"parent_archived": false' in captured.out
+    assert "FAILED" in captured.err
+
+
 # ─── Retry safety: the key is what makes retrying legitimate ──────────────
 
 

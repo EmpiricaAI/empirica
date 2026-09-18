@@ -644,11 +644,14 @@ def handle_mailbox_reply_command(  # noqa: C901 — CLI handler with 7 validatio
         if archive_ai_id:
             archive_body["ai_id"] = archive_ai_id
         a_status, archive_resp = _http_post(archive_url, archive_body, api_key, 10.0)
+        # `no_op: true` is cortex saying it held nothing to archive (id unknown or
+        # expired) — a 200 with `ok: true` that changed nothing. Not "archived".
         archive_ok = (
             isinstance(archive_resp, dict)
             and 200 <= a_status < 300
             and (archive_resp.get("ok") is not False)
             and archive_resp.get("error") is None
+            and archive_resp.get("no_op") is not True
         )
         if archive_ok:
             parent_archived = True
@@ -1074,7 +1077,35 @@ def handle_mailbox_archive_command(
         sys.stderr.write(f"mailbox archive: failed (status={status}): {resp}\n")
         return 1
 
+    # Cortex answers an id it does not hold with HTTP 200, `ok: true` AND
+    # `no_op: true` + a reason — nothing was archived. The old rendering dropped
+    # both fields and printed `archived: true`, so 76 archives of the literal id
+    # "null" (a caller's jq slip) each reported success, and the inbox count was
+    # the only thing that disagreed. A no-op is not the requested state; say so
+    # and exit non-zero so a batch caller's per-item check sees it.
+    no_op = resp.get("no_op") is True
+    reason_code = resp.get("reason") if no_op else None
     fmt = getattr(args, "output", "json")
+    if no_op:
+        if fmt == "human":
+            sys.stdout.write(f"not archived {proposal_id[:24]}… — cortex: {reason_code or 'no_op'}\n")
+        else:
+            sys.stdout.write(
+                json.dumps(
+                    {
+                        "ok": True,
+                        "proposal_id": proposal_id,
+                        "archived": False,
+                        "already_archived": False,
+                        "no_op": True,
+                        "reason": reason_code,
+                    },
+                    indent=2,
+                )
+                + "\n"
+            )
+        return 2
+
     if fmt == "human":
         suffix = " (already archived)" if already else ""
         sys.stdout.write(f"archived {proposal_id[:24]}…{suffix}\n")
