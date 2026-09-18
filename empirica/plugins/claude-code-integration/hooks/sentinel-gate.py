@@ -3721,6 +3721,11 @@ def _check_postflight_loop_closed(
 RUSH_GUARD_EXEMPT_WORK_TYPES = frozenset({"remote-ops"})
 
 
+#: Why the last grounded-claims lookup could not answer, or None. Read by the
+#: deny that follows a False, so "lookup failed" never renders as "declared nothing".
+_claims_lookup_error: str | None = None
+
+
 def _has_grounded_claims(cursor, session_id, current_transaction_id) -> bool:
     """True when PREFLIGHT declared at least one claim grounded by `read` or `ran`.
 
@@ -3737,7 +3742,15 @@ def _has_grounded_claims(cursor, session_id, current_transaction_id) -> bool:
     Fail-CLOSED: any error returns False, so a missing table or a query problem
     means "not certified" and the normal CHECK path applies. A gate that fails
     open is worse than one that occasionally asks for a CHECK you did not need.
+
+    But a failure must not READ as "you declared nothing": the deny that
+    follows told the practitioner to re-run PREFLIGHT with claims, which is the
+    one remedy that cannot work when the lookup itself is broken (a pre-071
+    database, a missing column). The cause is kept in `_claims_lookup_error`
+    for the deny message to name. Return type stays bool — this is a seam.
     """
+    global _claims_lookup_error
+    _claims_lookup_error = None
     try:
         if current_transaction_id:
             cursor.execute(
@@ -3752,8 +3765,42 @@ def _has_grounded_claims(cursor, session_id, current_transaction_id) -> bool:
             )
         row = cursor.fetchone()
         return bool(row and row[0])
-    except Exception:
+    except Exception as e:
+        _claims_lookup_error = f"{type(e).__name__}: {str(e)[:160]}"
         return False
+
+
+def _deny_no_check_no_claims() -> tuple[str, str]:
+    """The deny for a praxic tool with no CHECK and no certifying claim.
+
+    Two different facts end here and they need different remedies: the lookup
+    found nothing (declare claims or CHECK), or the lookup could not run
+    (re-declaring cannot help; the store needs attention). The old message
+    only ever said the first.
+    """
+    if _claims_lookup_error:
+        return (
+            "deny",
+            "No CHECK, and the grounded-claims lookup FAILED so declared claims cannot be seen "
+            f"({_claims_lookup_error}).\n"
+            "  → This is not 'you declared nothing'. Run `empirica doctor` (schema / migrations), "
+            "or submit CHECK to proceed the normal way.",
+        )
+    # Praxic tools: deny — but name BOTH legitimate paths. The old message
+    # said only "Run CHECK", which is why skipping read as omission: the one
+    # moment the practitioner is definitely reading, we told them the
+    # ceremony was the only way through.
+    return (
+        "deny",
+        "No CHECK, and no grounded claims declared at PREFLIGHT — nothing yet records "
+        "what this work rests on.\n"
+        "  → If you still need to investigate: do that, then submit CHECK.\n"
+        "  → If you were ALREADY grounded before opening (you read the files first — "
+        "the normal order), re-run PREFLIGHT with `claims`: 2-3 load-bearing claims, "
+        "each with grounding read|ran|retrieved|assumed. One grounded by read or ran "
+        "certifies the transaction and praxic proceeds — no CHECK needed.\n"
+        "  Skipping CHECK when genuinely grounded is the CORRECT path, not a shortcut.",
+    )
 
 
 def _validate_check_record(
@@ -3848,22 +3895,7 @@ def _validate_check_record(
         # certification while still refusing an all-`assumed` declaration.
         if _has_grounded_claims(cursor, session_id, current_transaction_id):
             return None
-
-        # Praxic tools: deny — but name BOTH legitimate paths. The old message
-        # said only "Run CHECK", which is why skipping read as omission: the one
-        # moment the practitioner is definitely reading, we told them the
-        # ceremony was the only way through.
-        return (
-            "deny",
-            "No CHECK, and no grounded claims declared at PREFLIGHT — nothing yet records "
-            "what this work rests on.\n"
-            "  → If you still need to investigate: do that, then submit CHECK.\n"
-            "  → If you were ALREADY grounded before opening (you read the files first — "
-            "the normal order), re-run PREFLIGHT with `claims`: 2-3 load-bearing claims, "
-            "each with grounding read|ran|retrieved|assumed. One grounded by read or ran "
-            "certifies the transaction and praxic proceeds — no CHECK needed.\n"
-            "  Skipping CHECK when genuinely grounded is the CORRECT path, not a shortcut.",
-        )
+        return _deny_no_check_no_claims()
 
     know, uncertainty, reflex_data, check_timestamp = check_row
 

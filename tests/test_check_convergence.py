@@ -277,3 +277,39 @@ def test_the_no_check_deny_names_the_grounded_at_open_path():
     assert "claims" in msg, "it must name the alternative path"
     assert "read or ran" in msg, "and what actually certifies"
     assert "CORRECT path, not a shortcut" in msg, "and that skipping when grounded is correct"
+
+
+def test_a_failed_lookup_is_named_not_reported_as_no_claims():
+    """Fail-closed stays; the WORDS change. A pre-071 store or a broken query
+    used to deny with 'no grounded claims declared at PREFLIGHT' — false, and
+    the remedy it named (re-declare claims) cannot satisfy a query that cannot
+    run. The deny now says the lookup failed and what to do instead."""
+    import sqlite3
+
+    gate = _load_gate()
+
+    class _Bare:
+        def __init__(self):
+            self.conn = sqlite3.connect(":memory:")
+            self._cur = self.conn.cursor()
+
+        def execute(self, *a, **k):
+            return self._cur.execute(*a, **k)
+
+        def fetchone(self):
+            return self._cur.fetchone()
+
+    assert gate._has_grounded_claims(_Bare(), "s-1", "tx-1") is False
+    assert gate._claims_lookup_error and "transaction_claims" in gate._claims_lookup_error
+    decision, msg = gate._deny_no_check_no_claims()
+    assert decision == "deny"
+    assert "lookup FAILED" in msg
+    assert "not 'you declared nothing'" in msg
+    assert "no grounded claims declared" not in msg
+
+    # and a clean lookup that finds nothing still says the ordinary thing
+    assert gate._has_grounded_claims(_Cursor([]), "s-1", "tx-1") is False
+    assert gate._claims_lookup_error is None
+    decision, msg = gate._deny_no_check_no_claims()
+    assert "no grounded claims declared" in msg
+    assert "lookup FAILED" not in msg
