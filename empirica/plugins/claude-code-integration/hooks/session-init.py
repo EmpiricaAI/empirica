@@ -1585,6 +1585,23 @@ def _harness() -> str:
     return (os.environ.get("EMPIRICA_HARNESS") or "claude-code").strip() or "claude-code"
 
 
+def _deploy_gap_block(project_root: Path) -> str:
+    """The cached deploy-gap verdict for this box, or a line saying why there
+    is none. Never runs the detector (2.1 s); reads a cache and spawns a
+    detached refresh when it is missing, stale, failed or old. See
+    ``lib/deploy_gap_cache.py``.
+
+    An import or read failure is reported, not swallowed: silence is what a
+    clean fresh verdict looks like, so a broken reader must not look clean.
+    """
+    try:
+        from deploy_gap_cache import session_start_block
+
+        return session_start_block(project_root)
+    except Exception as e:
+        return f"Deploy gaps: verdict unreadable ({type(e).__name__}: {e}). Run `empirica doctor --deploy-gaps`."
+
+
 def _auto_sync_plugin():
     """Best-effort: heal a stale installed CC plugin so hook fixes from a pip
     upgrade reach this session. Shells out to `empirica plugin-sync` (a no-op
@@ -1704,6 +1721,13 @@ def main():
     context_text = format_context(result.get("project_context"))
     prompt = _build_preflight_prompt(session_id, context_text)
 
+    # Deploy-gap verdict (cached; the detector never runs on this path). Goes
+    # into the injected context so the model sees it, and into the stderr
+    # banner so the human does. Empty only when fresh and clean.
+    deploy_gap_text = _deploy_gap_block(project_root)
+    if deploy_gap_text:
+        prompt = f"{prompt}\n\n{deploy_gap_text}\n"
+
     output = {
         "ok": True,
         "session_id": session_id,
@@ -1718,6 +1742,9 @@ def main():
         budget_msg = f"\nBudget: {budget_summary.get('tokens_used', 0):,}t used / {budget_summary.get('tokens_available', 0):,}t avail ({budget_summary.get('utilization_pct', 0)}%)"
     dash_msg = f"\n{dashboard_status}" if dashboard_status else ""
     drift_msg = f"\n{version_drift_warning}" if version_drift_warning else ""
+    if deploy_gap_text:
+        # First line only on the banner; the full block is in the injected context.
+        drift_msg += f"\n{deploy_gap_text.splitlines()[0].lstrip('# ')}"
     loops_msg = (
         f"\nQueued {canonical_loops_installed} canonical loop(s) for install — "
         f"will surface on your next /loop invocation"
