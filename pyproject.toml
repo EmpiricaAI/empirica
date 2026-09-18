@@ -53,10 +53,13 @@ dependencies = [
                                 # The previous comment justified the cap by hardware-token tools
                                 # (pynitrokey, spsdk) pinning <47-<48 — already stale, since the cap
                                 # it described was <50 and permitted 49. We use no 50-only API.
-    "gitpython>=3.1.59",        # Security: CVE-2024-22190 RCE + GHSA-2f96-g7mh-g2hx/v396-v7q4-x2qj/956x-8gvw-wg5v argument-injection fixes;
+    "gitpython>=3.1.60",        # Security: CVE-2024-22190 RCE + GHSA-2f96-g7mh-g2hx/v396-v7q4-x2qj/956x-8gvw-wg5v argument-injection fixes;
                                 # GHSA-fjr4/6p8h/r9mr (unguarded Diffable.diff, --template hook exec,
                                 # kwarg-value option smuggling) fixed in 3.1.54, GHSA-94p4 (env-var
-                                # expansion in Remote.create URLs -> secret exfil) in 3.1.55 (floor)
+                                # expansion in Remote.create URLs -> secret exfil) in 3.1.55;
+                                # PYSEC-2026-3982/3983/3984 in 3.1.60 (floor)
+    "anyio>=4.14.2",            # Security: CVE-2026-63374, CVE-2026-64847 (transitive via httpx/mcp/anthropic/starlette)
+    "soupsieve>=2.9.0",         # Security: CVE-2026-85999, CVE-2026-86000 (transitive via beautifulsoup4)
     "lxml>=6.1.0",              # Security: CVE-2026-41066 XXE in default parser config (transitive via newspaper4k/trafilatura/python-docx)
     "python-multipart>=0.0.27", # Security: CVE-2026-42561 fix (transitive via mcp/nicegui/p4-confidence-tracker; direct pin overrides)
     "pyjwt>=2.13.0",            # Security: PYSEC-2026-175/177/178/179 fixes (transitive via mcp)
