@@ -1829,6 +1829,13 @@ def respond(decision: str, reason: str = "") -> None:
             "permissionDecisionReason": full_reason,
         }
     }
+    if show_nudge:
+        # The nudges must ride additionalContext. On "allow", Claude Code discards
+        # permissionDecisionReason before the model sees it — measured 2026-09-18
+        # with a headless run and a positive control (the hook ran, its reason
+        # never arrived; additionalContext in the same response did). Every nudge
+        # below was written for a channel nobody read until this line.
+        output["hookSpecificOutput"]["additionalContext"] = f"Sentinel: {nudges}"
     # Suppress output for "allow" UNLESS there's a nudge to show Claude
     if decision == "allow" and not show_nudge:
         output["suppressOutput"] = True
