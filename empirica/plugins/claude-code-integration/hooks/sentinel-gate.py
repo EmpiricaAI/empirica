@@ -4035,49 +4035,65 @@ def _check_prior_investigate(
 
 
 def _check_goalless_work(
-    cursor, session_id: str, preflight_project_id, claude_session_id, empirica_root, suffix
+    cursor, session_id: str, transaction_id, preflight_timestamp, claude_session_id, empirica_root, suffix
 ) -> str:
-    """Check if transaction has tool calls but no goals. Returns nudge string or empty."""
-    try:
-        _gl_count = 0
-        if empirica_root:
-            _gl_tx_file = _find_transaction_file(empirica_root, suffix, _resolve_empirica_session_id(claude_session_id))
-            if _gl_tx_file:
-                with open(_gl_tx_file) as _gl_f:
-                    _gl_count = json.load(_gl_f).get("tool_call_count", 0)
+    """Nudge when THIS transaction has done >=5 tool calls with no goal in play.
 
-        if _gl_count < 5:
+    "A goal in play" means any of: a goal created in this transaction
+    (goals.transaction_id), a task created or completed since PREFLIGHT (the
+    usual way work proceeds on an older goal), or a finding logged in this
+    transaction against a goal.
+
+    It used to ask whether the whole PROJECT had zero in_progress goals. Any
+    practice with live multi-week work always has one, so the nudge was off
+    everywhere that mattered - measured 2026-09-18: autonomy 18, core 3,
+    cortex 3, outreach 1 open goals, extension 0; every suppressing goal was
+    live work, so tidying goals could not have fixed it.
+    """
+    try:
+        count = 0
+        if empirica_root:
+            tx_file = _find_transaction_file(empirica_root, suffix, _resolve_empirica_session_id(claude_session_id))
+            if tx_file:
+                with open(tx_file) as f:
+                    count = json.load(f).get("tool_call_count", 0)
+        if count < 5 or not transaction_id:
             return ""
 
-        _gl_project_id = preflight_project_id
-        if not _gl_project_id:
-            cursor.execute("SELECT project_id FROM sessions WHERE session_id = ?", (session_id,))
-            _gl_row = cursor.fetchone()
-            _gl_project_id = _gl_row[0] if _gl_row else None
-
-        if _gl_project_id:
+        cursor.execute("SELECT 1 FROM goals WHERE transaction_id = ? LIMIT 1", (transaction_id,))
+        if cursor.fetchone():
+            return ""
+        if preflight_timestamp:
             cursor.execute(
-                """
-                SELECT COUNT(*) FROM goals
-                WHERE project_id = ? AND status = 'in_progress'
-            """,
-                (_gl_project_id,),
+                "SELECT 1 FROM subtasks WHERE created_timestamp >= ? OR completed_timestamp >= ? LIMIT 1",
+                (preflight_timestamp, preflight_timestamp),
             )
-            if cursor.fetchone()[0] == 0:
-                if _gl_count >= 10:
-                    return (
-                        f"DISCIPLINE: {_gl_count} tool calls with NO GOALS. "
-                        f"Create goals now: empirica goals-create --objective '...'. "
-                        f"Tell the user: 'We should create goals before continuing — "
-                        f"work without goals produces unmeasurable transactions.'"
-                    )
-                return (
-                    f"DISCIPLINE: {_gl_count} tool calls with no goals for this project. "
-                    f"Consider creating goals: empirica goals-create --objective '...'"
-                )
-    except Exception:
-        pass
-    return ""
+            if cursor.fetchone():
+                return ""
+        cursor.execute(
+            "SELECT 1 FROM project_findings WHERE transaction_id = ? AND goal_id IS NOT NULL LIMIT 1",
+            (transaction_id,),
+        )
+        if cursor.fetchone():
+            return ""
+
+        if count >= 10:
+            return (
+                f"DISCIPLINE: {count} tool calls in this transaction and NO GOAL in play. "
+                f"Create or claim one now: empirica goals-create --objective '...' "
+                f"(or add/complete a task on the goal you are working). "
+                f"Tell the user: 'We should goal this before continuing — "
+                f"work without a goal produces unmeasurable transactions.'"
+            )
+        return (
+            f"DISCIPLINE: {count} tool calls in this transaction and no goal in play. "
+            f"Consider: empirica goals-create --objective '...' or goals-add-task on the goal you are working."
+        )
+    except Exception as e:
+        # Advisory only, so never fatal - but a failing check must not read as
+        # "no nudge needed". stderr reaches the hook debug log.
+        print(f"sentinel: goalless check FAILED: {type(e).__name__}: {e}", file=sys.stderr)
+        return ""
 
 
 def _check_project_context(cursor, db, session_id: str, preflight_project_id) -> "tuple | None":
@@ -4700,7 +4716,7 @@ def _run_authorization_pipeline(hook_input: dict, tool_name: str, tool_input: di
         # Goalless-work advisory nudge
         global _goalless_nudge
         _goalless_nudge = _check_goalless_work(
-            cursor, session_id, preflight_project_id, claude_session_id, empirica_root, suffix
+            cursor, session_id, current_transaction_id, preflight_timestamp, claude_session_id, empirica_root, suffix
         )
 
         # Sequential pre-CHECK validations
