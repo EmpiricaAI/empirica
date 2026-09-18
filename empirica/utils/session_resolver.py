@@ -1782,8 +1782,18 @@ def _validate_session_in_db(session_id: str, project_path: str | None = None) ->
         db.close()
         return row is not None
     except Exception as e:
-        logger.debug(f"_validate_session_in_db: DB check failed ({e}), allowing session")
-        return True  # Fail open — don't block if DB is unavailable
+        # Fail OPEN — a resolver that blocks every command when the DB is
+        # unreadable is worse than one that trusts the pointer file. But the
+        # trust must be visible: at debug level a persistent DB failure made
+        # every stale pointer read as a validated session, silently, from the
+        # outside indistinguishable from a healthy resolution. WARNING is the
+        # level this function already uses for "stale session"; a failed check
+        # is at least as important as a failed match.
+        logger.warning(
+            f"_validate_session_in_db: DB check FAILED ({type(e).__name__}: {e}) — "
+            f"accepting session {session_id[:8]}... UNVALIDATED"
+        )
+        return True
 
 
 def _find_session_for_project(project_path: str) -> str | None:
