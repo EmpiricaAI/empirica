@@ -1194,21 +1194,6 @@ def _run_stale_cleanup(claude_session_id: str) -> int:
         return 0
 
 
-def _check_version_drift() -> str:
-    """Compare plugin VERSION with CLI version. Returns warning string or empty."""
-    try:
-        plugin_version_file = Path(__file__).parent.parent / "VERSION"
-        if plugin_version_file.exists():
-            plugin_ver = plugin_version_file.read_text().strip()
-            from empirica import __version__ as cli_ver
-
-            if plugin_ver != cli_ver:
-                return f"Plugin v{plugin_ver} != CLI v{cli_ver}. Run: empirica setup --force"
-    except Exception:
-        pass
-    return ""
-
-
 def _bootstrap_for_existing_session(session_id: str, project_root: Path) -> bool:
     """Run project-bootstrap for an existing/adopted session. Returns success."""
     try:
@@ -1689,7 +1674,6 @@ def main():
     # Housekeeping
     _run_stale_cleanup(claude_session_id)
     archived_plans = archive_stale_plans()
-    version_drift_warning = _check_version_drift()
 
     # RESUME PATH
     if is_resume:
@@ -1750,7 +1734,10 @@ def main():
     if budget_summary and not budget_summary.get("error"):
         budget_msg = f"\nBudget: {budget_summary.get('tokens_used', 0):,}t used / {budget_summary.get('tokens_available', 0):,}t avail ({budget_summary.get('utilization_pct', 0)}%)"
     dash_msg = f"\n{dashboard_status}" if dashboard_status else ""
-    drift_msg = f"\n{version_drift_warning}" if version_drift_warning else ""
+    # One staleness detector: the deploy-gap block. The VERSION-string compare
+    # that used to sit beside it told practitioners to run `setup --force`,
+    # which must not run on a shared box (retired 2026-09-18, David's ruling).
+    drift_msg = ""
     if deploy_gap_text:
         # First line only on the banner; the full block is in the injected context.
         drift_msg += f"\n{deploy_gap_text.splitlines()[0].lstrip('# ')}"
