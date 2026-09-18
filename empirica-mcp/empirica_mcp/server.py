@@ -103,7 +103,11 @@ TOOL_REGISTRY: dict[str, dict] = {
     "submit_preflight_assessment": {
         "cli": "preflight-submit",
         "params": {},
-        "required": ["session_id", "vectors"],
+        # `session_id` is optional on the three cascade tools: the CLI derives it from
+        # the active session when the payload omits it, and omitting it is the
+        # mitigation the mesh converged on after a hand-typed id lost one character.
+        # Requiring it here made that advice CLI-only.
+        "required": ["vectors"],
         "desc": (
             "Submit PREFLIGHT self-assessment (13 vectors 0.0-1.0). Optional `claims`: "
             "[{claim, grounding, ref}] with grounding read|ran|retrieved|assumed. Claims "
@@ -117,7 +121,11 @@ TOOL_REGISTRY: dict[str, dict] = {
     "submit_check_assessment": {
         "cli": "check-submit",
         "params": {},
-        "required": ["session_id", "vectors"],
+        # `session_id` is optional on the three cascade tools: the CLI derives it from
+        # the active session when the payload omits it, and omitting it is the
+        # mitigation the mesh converged on after a hand-typed id lost one character.
+        # Requiring it here made that advice CLI-only.
+        "required": ["vectors"],
         "desc": (
             "Submit CHECK gate assessment — gates noetic → praxic. Optional `claims`: "
             "[{claim, grounding, ref}] naming what the praxic work will rest on, so "
@@ -129,7 +137,11 @@ TOOL_REGISTRY: dict[str, dict] = {
     "submit_postflight_assessment": {
         "cli": "postflight-submit",
         "params": {},
-        "required": ["session_id", "vectors"],
+        # `session_id` is optional on the three cascade tools: the CLI derives it from
+        # the active session when the payload omits it, and omitting it is the
+        # mitigation the mesh converged on after a hand-typed id lost one character.
+        # Requiring it here made that advice CLI-only.
+        "required": ["vectors"],
         "desc": (
             "Submit POSTFLIGHT assessment — closes transaction, triggers grounded "
             "verification. Optional `claims`: [{index|id, verdict, evidence}] with verdict "

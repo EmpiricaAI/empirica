@@ -168,3 +168,16 @@ def _schema(tool):
     only CONSTRUCTS Tools does not.
     """
     return getattr(tool, "input_schema", None) or tool.inputSchema
+
+
+def test_cascade_tools_do_not_require_session_id():
+    """The CLI derives session_id from the active session when the payload omits
+    it, and omitting it is the mesh's mitigation for hand-typed ids losing a
+    character. Requiring it on the MCP schema made that advice CLI-only:
+    codex/ecodex seats structurally could not follow it."""
+    from empirica_mcp.server import TOOL_REGISTRY
+
+    for name in ("submit_preflight_assessment", "submit_check_assessment", "submit_postflight_assessment"):
+        entry = TOOL_REGISTRY[name]
+        assert "session_id" not in entry["required"], name
+        assert "vectors" in entry["required"], name
