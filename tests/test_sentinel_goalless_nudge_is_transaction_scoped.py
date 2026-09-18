@@ -117,3 +117,56 @@ def test_a_failing_check_says_so_in_the_channel_the_model_reads(gate, tmp_path, 
     broken = sqlite3.connect(":memory:").cursor()  # no tables at all
     out = _check(gate, broken, tmp_path, monkeypatch)
     assert "could not run" in out and "UNKNOWN" in out
+
+
+def _store(tmp_path):
+    empirica = tmp_path / ".empirica"
+    (empirica / "sessions").mkdir(parents=True)
+    conn = sqlite3.connect(empirica / "sessions" / "sessions.db")
+    conn.executescript(
+        """
+        CREATE TABLE goals (id TEXT, project_id TEXT, transaction_id TEXT, status TEXT);
+        CREATE TABLE subtasks (id TEXT, goal_id TEXT, created_timestamp REAL, completed_timestamp REAL);
+        CREATE TABLE project_findings (id TEXT, transaction_id TEXT, goal_id TEXT);
+        """
+    )
+    conn.commit()
+    conn.close()
+    return empirica
+
+
+def test_a_read_only_call_gets_the_nudge_too(gate, tmp_path, monkeypatch):
+    """The 3-of-6 misses: the check lived in the authorization pipeline, which
+    main()'s noetic fast path skips, so read-only calls never computed it. It now
+    runs in the tracker, beside the autonomy nudge, for every counted call."""
+    empirica = _store(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / ".empirica" / "active_work_cs.json").write_text("{}")
+
+    def fake_increment(*_a, **_k):
+        gate._counted_tx = {
+            "transaction_id": TX,
+            "preflight_timestamp": PREFLIGHT_TS,
+            "db_path": empirica / "sessions" / "sessions.db",
+        }
+        return 8, 0
+
+    monkeypatch.setattr(gate, "_try_increment_tool_count", fake_increment)
+    monkeypatch.setattr(gate, "_goalless_nudge", "")
+    gate._track_tool_usage({"session_id": "cs"}, "Read", {"file_path": "x.py"})
+    assert "no goal in play" in gate._goalless_nudge
+
+
+def test_the_pipeline_no_longer_computes_it(gate):
+    """One place computes it; a second assignment in the pipeline would reset it."""
+    import inspect
+
+    assert "_goalless_nudge = _check_goalless_work" not in inspect.getsource(gate)
+
+
+def test_a_legacy_text_timestamp_does_not_count_as_touched(gate, cursor, tmp_path, monkeypatch):
+    """SQLite ranks TEXT above every number: '2025-12-31 18:24:03' >= 1e9 is TRUE.
+    Core's store has 5 such rows; without the typeof guard they silenced the
+    nudge on every transaction, forever."""
+    cursor.execute("INSERT INTO subtasks VALUES ('legacy', 'old', '2025-12-31 18:24:03', NULL)")
+    assert "no goal in play" in _check(gate, cursor, tmp_path, monkeypatch)

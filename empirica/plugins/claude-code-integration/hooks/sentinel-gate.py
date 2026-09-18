@@ -1446,6 +1446,11 @@ _goalless_nudge = ""  # Module-level: set when no goals detected, read by respon
 # second lookup of the file: a reader with its own locator resolved a
 # different transaction file on some calls and read 0 (mesh-support, 2026-09-18).
 _tool_call_count: int | None = None
+# The transaction the tracker just counted against: its id, PREFLIGHT time and
+# store. The goalless check runs from these, beside the autonomy nudge, BEFORE
+# main()'s early exits - it lived inside the authorization pipeline, which the
+# noetic fast path skips, so it never ran on read-only calls (the 3-of-6 misses).
+_counted_tx: dict | None = None
 _reread_nudge = ""  # Module-level: set when Read tool targets already-read file
 _file_relevance_nudge = ""  # Module-level: set when artifacts reference an Edit/Write target
 _last_read_count = 0  # Module-level: how many times current file was read this tx
@@ -1744,6 +1749,12 @@ def _try_increment_tool_count(
         if tx.get("status") != "open":
             return 0, 0
 
+        global _counted_tx
+        _counted_tx = {
+            "transaction_id": tx.get("transaction_id"),
+            "preflight_timestamp": tx.get("preflight_timestamp"),
+            "db_path": tx_path.parent / "sessions" / "sessions.db",
+        }
         avg = tx.get("avg_turns", 0)
 
         # Read existing counters
@@ -4051,6 +4062,29 @@ def _check_prior_investigate(
     return ("ask", "Previous CHECK returned INVESTIGATE. Consider running CHECK with proceed before praxic actions.")
 
 
+def _goalless_from_counted_tx() -> str:
+    """Run the goalless check for the transaction the tracker just counted.
+
+    Cheap on the hot path: nothing below 5 calls, and a read-only sqlite3
+    connection rather than SessionDatabase (whose init is heavy).
+    """
+    tx = _counted_tx
+    if not tx or (_tool_call_count or 0) < 5 or not tx.get("transaction_id"):
+        return ""
+    import sqlite3
+
+    try:
+        conn = sqlite3.connect(f"file:{tx['db_path']}?mode=ro", uri=True, timeout=2)
+    except Exception as e:
+        return (
+            f"goalless check could not run ({type(e).__name__}: {e}) - whether this transaction has a goal is UNKNOWN"
+        )
+    try:
+        return _check_goalless_work(conn.cursor(), "", tx["transaction_id"], tx.get("preflight_timestamp"))
+    finally:
+        conn.close()
+
+
 def _check_goalless_work(cursor, session_id: str, transaction_id, preflight_timestamp) -> str:
     """Nudge when THIS transaction has done >=5 tool calls with no goal in play.
 
@@ -4074,8 +4108,14 @@ def _check_goalless_work(cursor, session_id: str, transaction_id, preflight_time
         if cursor.fetchone():
             return ""
         if preflight_timestamp:
+            # typeof guard: legacy rows hold TEXT timestamps ('2025-12-31 18:24:03'),
+            # and SQLite ranks any TEXT above any number, so a bare >= was true
+            # for them forever and silenced this nudge on every transaction in
+            # any store that has one (5 such rows in core's, 2026-09-18).
             cursor.execute(
-                "SELECT 1 FROM subtasks WHERE created_timestamp >= ? OR completed_timestamp >= ? LIMIT 1",
+                "SELECT 1 FROM subtasks WHERE "
+                "(typeof(created_timestamp) IN ('real','integer') AND created_timestamp >= ?) OR "
+                "(typeof(completed_timestamp) IN ('real','integer') AND completed_timestamp >= ?) LIMIT 1",
                 (preflight_timestamp, preflight_timestamp),
             )
             if cursor.fetchone():
@@ -4271,7 +4311,7 @@ def _track_tool_usage(hook_input: dict, tool_name: str, tool_input: dict) -> Non
     Nudge thresholds are informational — Claude decides when to POSTFLIGHT.
     Also sets re-read advisory when Read tool targets already-read file.
     """
-    global _autonomy_nudge, _reread_nudge, _tool_call_count
+    global _autonomy_nudge, _reread_nudge, _tool_call_count, _goalless_nudge
     try:
         _claude_sid = hook_input.get("session_id")
         # Only increment for sessions with active_work (parent sessions).
@@ -4282,6 +4322,7 @@ def _track_tool_usage(hook_input: dict, tool_name: str, tool_input: dict) -> Non
             _count, _avg = _try_increment_tool_count(_claude_sid, tool_name, tool_input)
             _tool_call_count = _count
             _autonomy_nudge = _compute_nudge(_count, _avg)
+            _goalless_nudge = _goalless_from_counted_tx()
     except Exception:
         pass  # Counter failure is non-fatal
 
@@ -4727,10 +4768,6 @@ def _run_authorization_pipeline(hook_input: dict, tool_name: str, tool_input: di
             return _handle_no_preflight(tool_name, tool_input, session_id, env_annotation)
 
         preflight_know, preflight_uncertainty, preflight_timestamp, preflight_project_id = preflight_row
-
-        # Goalless-work advisory nudge
-        global _goalless_nudge
-        _goalless_nudge = _check_goalless_work(cursor, session_id, current_transaction_id, preflight_timestamp)
 
         # Sequential pre-CHECK validations
         for check in (
