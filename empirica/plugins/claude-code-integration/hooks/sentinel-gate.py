@@ -4104,9 +4104,13 @@ def _check_goalless_work(
         )
     except Exception as e:
         # Advisory only, so never fatal - but a failing check must not read as
-        # "no nudge needed". stderr reaches the hook debug log.
-        print(f"sentinel: goalless check FAILED: {type(e).__name__}: {e}", file=sys.stderr)
-        return ""
+        # "no nudge needed". Hook stderr reaches no file anyone reads (mesh-support
+        # searched, 2026-09-18), so per the standing sentinel-gate decision the
+        # cause rides the text the practitioner reads: this nudge channel, which
+        # reaches the model since 593acacfc.
+        return (
+            f"goalless check could not run ({type(e).__name__}: {e}) - whether this transaction has a goal is UNKNOWN"
+        )
 
 
 def _check_project_context(cursor, db, session_id: str, preflight_project_id) -> "tuple | None":

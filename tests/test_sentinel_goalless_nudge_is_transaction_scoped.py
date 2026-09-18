@@ -113,7 +113,9 @@ def test_a_finding_logged_against_a_goal_in_this_transaction_silences_it(gate, c
     assert _check(gate, cursor, tmp_path, monkeypatch) == ""
 
 
-def test_a_failing_check_says_so_on_stderr(gate, tmp_path, monkeypatch, capsys):
+def test_a_failing_check_says_so_in_the_channel_the_model_reads(gate, tmp_path, monkeypatch):
+    """Not stderr: hook stderr reaches no file anyone reads. The cause rides the
+    nudge, so "could not check" never looks like "no nudge needed"."""
     broken = sqlite3.connect(":memory:").cursor()  # no tables at all
-    assert _check(gate, broken, tmp_path, monkeypatch) == ""
-    assert "goalless check FAILED" in capsys.readouterr().err
+    out = _check(gate, broken, tmp_path, monkeypatch)
+    assert "could not run" in out and "UNKNOWN" in out
