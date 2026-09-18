@@ -527,6 +527,34 @@ def _clear_fail_heartbeat(instance_id: str, loop_name: str) -> None:
         logger.debug(f"listener health marker clear failed (non-fatal): {e}")
 
 
+def _paused_listener_names(instance_id: str) -> list[str]:
+    """Names of this instance's registered listeners that carry a pause sidecar.
+
+    `empirica listener pause` writes the sidecar and its docstring promises a
+    "body pause check at next wake" as the backstop when the Monitor is not
+    torn down in time. Until this function existed there was no such check:
+    every `is_listener_paused` call site read the flag into a display, and a
+    paused listener kept waking its session — the same shape as `loop pause`
+    before 1761911a7. The registry keys listeners by their own name (e.g.
+    `empirica-inbox`), not by the loop this process serves, so pause is
+    resolved per instance: any paused registered listener pauses the wake.
+
+    Fail-open, and LOUD about it: an unreadable registry reads as not paused
+    (a transient error must not silence a healthy listener), but at WARNING so
+    a persistent failure is visible in the journal instead of looking, from
+    outside, exactly like "not paused" while `listener list` says paused=True.
+    """
+    try:
+        from empirica.core.cockpit.listener_registry import ListenerRegistry, is_listener_paused
+
+        return [
+            e.name for e in ListenerRegistry(instance_id).list_listeners() if is_listener_paused(instance_id, e.name)
+        ]
+    except Exception as e:
+        logger.warning(f"pause check failed (treating as NOT paused): {type(e).__name__}: {e}")
+        return []
+
+
 def _emit_catchup_events(
     instance_id: str,
     loop_name: str,
@@ -541,6 +569,13 @@ def _emit_catchup_events(
     Returns count of events emitted (useful for stderr-side telemetry —
     callers shouldn't depend on the value for control flow).
     """
+    # The pause check runs BEFORE the poll so the poll cursor does not advance:
+    # events that arrive while paused are delivered on unpause, not dropped.
+    paused = _paused_listener_names(instance_id)
+    if paused:
+        logger.info(f"catch-up skipped — listener paused ({', '.join(paused)}); events wait for unpause")
+        return 0
+
     try:
         from empirica.core.loop_scheduler.content_poll import (
             ContentPollUnreachable,
