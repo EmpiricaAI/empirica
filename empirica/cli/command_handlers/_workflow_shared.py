@@ -499,8 +499,16 @@ def _extract_all_vectors(vectors):
     return extracted
 
 
-def _retro_count_artifacts(cursor, session_id, transaction_id):
-    """Count artifact types logged in this transaction. Returns dict."""
+def _retro_count_artifacts(cursor, session_id, transaction_id, unmeasured: list[str] | None = None):
+    """Count artifact types logged in this transaction. Returns dict.
+
+    A type whose COUNT query raises is written as 0 so consumers can keep
+    summing — but 0 is also what "logged nothing" looks like, and that reading
+    drives the breadth nag and the calibration evidence. So a failed count is
+    ALSO appended to ``unmeasured`` (when the caller passes a list) and logged
+    at WARNING with the cause: a broken table must not render as a lazy
+    practitioner.
+    """
     artifact_counts = {}
     all_tables = [
         ("project_findings", "findings"),
@@ -520,9 +528,27 @@ def _retro_count_artifacts(cursor, session_id, transaction_id):
             else:
                 cursor.execute(f"SELECT COUNT(*) FROM {table} WHERE session_id = ?", (session_id,))
             artifact_counts[label] = cursor.fetchone()[0]
-        except Exception:
+        except Exception as e:
             artifact_counts[label] = 0
+            if unmeasured is not None:
+                unmeasured.append(label)
+            logger.warning(
+                f"retrospective: could not count {label} ({type(e).__name__}: {e}); reported as 0 but UNMEASURED"
+            )
     return artifact_counts
+
+
+def _retro_counts_with_gaps(cursor, session_id, transaction_id) -> tuple[dict, list[str], dict]:
+    """Counts, the labels that could not be counted, and the retrospective
+    seeded with both. Split out so the retrospective can say which zeros are
+    "could not count" rather than "logged nothing" — neither the breadth note
+    nor a reader should take a broken table for a lazy practitioner."""
+    unmeasured: list[str] = []
+    counts = _retro_count_artifacts(cursor, session_id, transaction_id, unmeasured)
+    retro: dict = {"artifact_counts": counts}
+    if unmeasured:
+        retro["artifact_counts_unmeasured"] = unmeasured
+    return counts, unmeasured, retro
 
 
 def _retro_count_sources(cursor, session_id: str, transaction_id: str | None) -> int:
@@ -895,14 +921,13 @@ def _build_retrospective(
         db = _get_db_for_session(session_id)
         cursor = db.conn.cursor()
 
-        artifact_counts = _retro_count_artifacts(cursor, session_id, transaction_id)
-        retro: dict = {"artifact_counts": artifact_counts}
+        artifact_counts, unmeasured, retro = _retro_counts_with_gaps(cursor, session_id, transaction_id)
 
         if adjudicate_claims:
             _retro_adjudicate_claims(db, session_id, transaction_id, claim_adjudications, retro)
 
         types_used = [k for k, v in artifact_counts.items() if v > 0]
-        types_missing = [k for k, v in artifact_counts.items() if v == 0]
+        types_missing = [k for k, v in artifact_counts.items() if v == 0 and k not in unmeasured]
 
         if len(types_used) <= 1 and sum(artifact_counts.values()) > 0:
             retro["breadth_note"] = (
