@@ -297,6 +297,82 @@ def _extract_pre_snapshot_data(pre_snapshot: dict) -> tuple:
     return pre_vectors, pre_reasoning, active_transaction, hook_counters
 
 
+#: A pre-compact snapshot older than this at post-compact time was not written
+#: by the compaction that just happened — pre-compact exited before its write.
+SNAPSHOT_FRESH_SECONDS = 3600
+
+
+def _snapshot_age_seconds(pre_snapshot: dict | None, now: float | None = None) -> float | None:
+    """Age of the snapshot from its own timestamp field (``%Y-%m-%dT%H-%M-%S``,
+    local time, as pre-compact writes it). None when absent or unparsable."""
+    if not pre_snapshot:
+        return None
+    raw = pre_snapshot.get("timestamp")
+    if not isinstance(raw, str):
+        return None
+    try:
+        written = datetime.strptime(raw, "%Y-%m-%dT%H-%M-%S").timestamp()
+    except ValueError:
+        return None
+    return (now if now is not None else datetime.now().timestamp()) - written
+
+
+def _validate_snapshot_transaction(
+    pre_snapshot: dict | None,
+    active_transaction: dict | None,
+    is_open_in_db=None,
+    now: float | None = None,
+) -> tuple[dict | None, str | None]:
+    """Decide whether the snapshot's transaction may be restored, and say why not.
+
+    The snapshot is a cache of the reflexes table. For 48 days this practice's
+    newest snapshot was one from 2026-08-01, and every compaction restored its
+    transaction (POSTFLIGHTed the same day) as OPEN with July vectors: the
+    SessionStart block said ACTIVE, PREFLIGHT warned unclosed-for-47-days, a
+    CHECK was written under it three weeks after its close. Two guards:
+
+    - a transaction the table says is CLOSED is never restored, whatever the
+      snapshot says;
+    - a snapshot older than SNAPSHOT_FRESH_SECONDS was not written by this
+      compaction, so pre-compact exited before its write — that is reported
+      as its own line, because silence here is exactly what let it run 48 days.
+
+    Returns (active_transaction or None, note or None).
+    """
+    if is_open_in_db is None:
+        try:
+            from empirica.utils.session_resolver import transaction_open_in_db as is_open_in_db
+        except Exception:
+            is_open_in_db = lambda _tx: None  # noqa: E731
+
+    notes: list[str] = []
+    age = _snapshot_age_seconds(pre_snapshot, now)
+    if age is not None and age > SNAPSHOT_FRESH_SECONDS:
+        days = age / 86400
+        when = f"{days:.0f} day(s)" if days >= 1 else f"{age / 3600:.0f} hour(s)"
+        notes.append(
+            f"⚠️ Pre-compact snapshot is {when} old ({pre_snapshot.get('timestamp')}) — this compaction "
+            "wrote none, so pre-compact.py exited before its snapshot. Its vectors and transaction "
+            "below are from THEN, not now. Run the hook by hand to see why: "
+            '`echo \'{"trigger":"manual","session_id":"<claude session id>"}\' | python3 <plugin>/hooks/pre-compact.py`.'
+        )
+
+    tx = active_transaction if isinstance(active_transaction, dict) else None
+    if tx and tx.get("status") == "open":
+        verdict = None
+        try:
+            verdict = is_open_in_db(tx.get("transaction_id"))
+        except Exception:
+            verdict = None
+        if verdict is False:
+            notes.append(
+                f"Snapshot transaction {str(tx.get('transaction_id'))[:8]} is CLOSED in the reflexes table "
+                "(POSTFLIGHT exists) — NOT restored as open. Start with a fresh PREFLIGHT."
+            )
+            tx = None
+    return tx, ("\n".join(notes) if notes else None)
+
+
 def _enrich_dynamic_context(dynamic_context: dict, active_transaction: dict, pre_snapshot: dict) -> None:
     """Inject transaction, last_task, git_context, and calibration into dynamic_context."""
     if active_transaction:
@@ -592,6 +668,10 @@ def main():
     phase_state = _get_session_phase_state(empirica_session)
     pre_snapshot = _load_pre_snapshot()
     pre_vectors, pre_reasoning, active_transaction, hook_counters = _extract_pre_snapshot_data(pre_snapshot)
+    # The snapshot is a cache; the reflexes table is the record. Never restore
+    # a transaction the table says is closed, and say so when the snapshot
+    # itself predates this compaction (pre-compact exited before writing).
+    active_transaction, snapshot_note = _validate_snapshot_transaction(pre_snapshot, active_transaction)
 
     dynamic_context = _load_dynamic_context(empirica_session, ai_id, pre_snapshot)
     _enrich_dynamic_context(dynamic_context, active_transaction, pre_snapshot)
@@ -621,6 +701,8 @@ def main():
         )
 
     # Stage 5: Build output and emit
+    if snapshot_note:
+        recovery_prompt = f"{snapshot_note}\n\n{recovery_prompt}"
     potential_drift = _calculate_potential_drift(pre_vectors)
     output = _build_output_payload(
         recovery_prompt,

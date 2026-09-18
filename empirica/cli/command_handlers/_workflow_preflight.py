@@ -139,6 +139,14 @@ def _preflight_check_unclosed_transaction():
         existing_tx = R.transaction_read()
         if existing_tx and existing_tx.get("status") == "open":
             existing_tx_id = existing_tx.get("transaction_id", "unknown")
+            # The pointer file is a cache of the reflexes table, and a stale
+            # pre-compact snapshot restored into it made this warning report a
+            # transaction as unclosed for 47 days when its POSTFLIGHT row had
+            # existed for all of them. Ask the table; only warn when it agrees.
+            from empirica.utils.session_resolver import transaction_open_in_db
+
+            if transaction_open_in_db(existing_tx_id) is False:
+                return None
             existing_tx_time = existing_tx.get("preflight_timestamp", 0)
             age_minutes = int((time.time() - existing_tx_time) / 60) if existing_tx_time else 0
             return {

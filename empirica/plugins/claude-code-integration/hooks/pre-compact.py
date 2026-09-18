@@ -474,6 +474,26 @@ def _restore_stash(stash_sha):
         return False
 
 
+def _trace(outcome: str, **fields) -> None:
+    """One JSON line per run to ~/.empirica/precompact.log, whatever the exit.
+
+    Every early exit here is silent by design (a hook must not block
+    compaction), which is how this project went 48 days without a snapshot
+    while six sibling practices on the same box kept writing theirs: nothing
+    recorded which exit fired. Post-compact consumes the handoff file, so no
+    trace survived. This is the trace. Best-effort; never raises.
+    """
+    try:
+        rec = {"ts": datetime.now().isoformat(timespec="seconds"), "cwd": os.getcwd(), "outcome": outcome}
+        rec.update(fields)
+        log = Path.home() / ".empirica" / "precompact.log"
+        log.parent.mkdir(parents=True, exist_ok=True)
+        with open(log, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, default=str) + "\n")
+    except Exception:
+        pass
+
+
 def main():
     # Read hook input from stdin (provided by Claude Code)
     hook_input = json.loads(sys.stdin.read())
@@ -484,6 +504,7 @@ def main():
     # CRITICAL: Find and change to project root BEFORE importing empirica
     project_root = find_project_root(claude_session_id=claude_session_id)
     if project_root is None:
+        _trace("no_project_root", trigger=trigger, claude_session_id=claude_session_id)
         print(json.dumps({}), file=sys.stdout)
         sys.exit(0)
     os.chdir(project_root)
@@ -501,6 +522,7 @@ def main():
     # Auto-detect latest Empirica session
     empirica_session = _detect_empirica_session()
     if not empirica_session:
+        _trace("no_empirica_session", trigger=trigger, claude_session_id=claude_session_id, project_root=project_root)
         print(json.dumps({}), file=sys.stdout)
         sys.exit(0)
 
@@ -597,6 +619,7 @@ def _main_guarded(*, stash_sha, recovered, trigger, empirica_session, last_task,
         )
 
         if result.returncode != 0:
+            _trace("bootstrap_failed", rc=result.returncode, stderr=result.stderr[:300], session=empirica_session)
             print(json.dumps({"stopReason": f"project-bootstrap failed: {result.stderr[:200]}"}), file=sys.stdout)
             sys.exit(2)
 
@@ -637,6 +660,7 @@ def _main_guarded(*, stash_sha, recovered, trigger, empirica_session, last_task,
 
         with open(snapshot_path, "w") as f:
             json.dump(snapshot, f, indent=2)
+        _trace("snapshot_written", path=str(snapshot_path), trigger=trigger, session=empirica_session)
 
         # Write unified breadcrumbs git note
         session_id_for_notes = breadcrumbs.get("session_id") or empirica_session
@@ -694,9 +718,11 @@ def _main_guarded(*, stash_sha, recovered, trigger, empirica_session, last_task,
         sys.exit(0)
 
     except subprocess.TimeoutExpired:
+        _trace("bootstrap_timeout", session=empirica_session)
         print(json.dumps({"stopReason": "project-bootstrap timed out (>30s)"}), file=sys.stdout)
         sys.exit(2)
     except Exception as e:
+        _trace("error", error=f"{type(e).__name__}: {str(e)[:300]}", session=empirica_session)
         print(json.dumps({"stopReason": f"pre-compact error: {str(e)[:200]}"}), file=sys.stdout)
         sys.exit(2)
 

@@ -1593,6 +1593,58 @@ def read_active_transaction_full(claude_session_id: str | None = None) -> dict |
     return None
 
 
+def transaction_open_in_db(transaction_id: str | None, db_path: str | None = None) -> bool | None:
+    """The one answer to "is this transaction open": the reflexes table.
+
+    True  — a PREFLIGHT row exists and no POSTFLIGHT row follows it.
+    False — a POSTFLIGHT row at or after its PREFLIGHT exists (closed), or no
+            PREFLIGHT row exists at all (never opened here).
+    None  — the question could not be asked (no id, DB unreadable): the caller
+            must not read that as either answer.
+
+    The pointer file (``active_transaction<suffix>.json``) is a cache of this,
+    and caches lie: a pre-compact snapshot from 2026-08-01 was restored into the
+    pointer on every compaction for 48 days, so SessionStart said ACTIVE, the
+    preflight warning said unclosed-for-47-days, and the Sentinel said closed —
+    about a transaction whose POSTFLIGHT row had been in this table since July.
+    Every reader that acts on "open" checks here before trusting the pointer.
+    """
+    if not transaction_id:
+        return None
+    try:
+        from empirica.data.session_database import SessionDatabase
+
+        if db_path is None:
+            from empirica.config.path_resolver import get_session_db_path
+
+            db_path = str(get_session_db_path())
+        # Opening a path that does not exist CREATES an empty database, which
+        # then answers "never opened" — a wrong path would read as closed. A
+        # missing store is an unanswerable question, not a closed transaction.
+        if not Path(db_path).is_file():
+            return None
+        db = SessionDatabase(db_path=db_path)
+        try:
+            cur = db.conn.cursor()
+            cur.execute(
+                "SELECT phase, timestamp FROM reflexes WHERE transaction_id = ? "
+                "AND phase IN ('PREFLIGHT', 'POSTFLIGHT') ORDER BY timestamp",
+                (transaction_id,),
+            )
+            rows = cur.fetchall()
+        finally:
+            db.close()
+    except Exception:
+        return None
+    preflight_at = None
+    for phase, ts in rows:
+        if phase == "PREFLIGHT" and preflight_at is None:
+            preflight_at = ts or 0
+        elif phase == "POSTFLIGHT" and preflight_at is not None and (ts or 0) >= preflight_at:
+            return False
+    return preflight_at is not None
+
+
 def read_active_transaction(claude_session_id: str | None = None) -> str | None:
     """Read the active transaction ID from the tracking file. Returns None if no active transaction.
 
