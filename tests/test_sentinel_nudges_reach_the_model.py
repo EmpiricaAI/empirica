@@ -44,7 +44,6 @@ def test_a_quiet_allow_adds_nothing_and_stays_suppressed(gate, capsys, monkeypat
     for name in (
         "_autonomy_nudge",
         "_goalless_nudge",
-        "_reread_nudge",
         "_remote_ops_nudge",
         "_worktype_nudge",
         "_file_relevance_nudge",

@@ -1451,9 +1451,7 @@ _tool_call_count: int | None = None
 # main()'s early exits - it lived inside the authorization pipeline, which the
 # noetic fast path skips, so it never ran on read-only calls (the 3-of-6 misses).
 _counted_tx: dict | None = None
-_reread_nudge = ""  # Module-level: set when Read tool targets already-read file
 _file_relevance_nudge = ""  # Module-level: set when artifacts reference an Edit/Write target
-_last_read_count = 0  # Module-level: how many times current file was read this tx
 
 
 def _find_transaction_file(
@@ -1610,17 +1608,12 @@ def _track_edited_files(counters: dict, tool_name: str, tool_input: dict | None)
             counters["edited_files"] = edited
 
 
-def _track_read_files(counters: dict, tool_name: str, tool_input: dict | None) -> None:
-    """Track read file paths for re-read advisory. Sets global _last_read_count."""
-    global _last_read_count
-    if tool_name != "Read" or not tool_input:
-        return
-    fp = tool_input.get("file_path", "")
-    if fp:
-        read_counts = counters.get("read_files", {})
-        read_counts[fp] = read_counts.get(fp, 0) + 1
-        counters["read_files"] = read_counts
-        _last_read_count = read_counts[fp]
+# RETIRED 2026-09-18 (David's ruling, goal d6559f6e): the re-read nudge and
+# read-file tracking. Both acted only on tool_name == "Read", and Sentinel is
+# registered for Bash and Edit|Write only, so neither ever ran. Hooking Read
+# would cost ~75 ms on the most frequent call (measured 73-77 ms). Deleted
+# rather than left dormant: a dormant nudge is indistinguishable from a working
+# one with nothing to say.
 
 
 def _extract_trace_target(tool_name: str, tool_input: dict | None) -> str:
@@ -1778,7 +1771,6 @@ def _try_increment_tool_count(
 
         if tool_name:
             _track_edited_files(counters, tool_name, tool_input)
-            _track_read_files(counters, tool_name, tool_input)
 
         if tool_name == "AskUserQuestion":
             counters["pending_user_response"] = True
@@ -1824,23 +1816,17 @@ def _compute_nudge(count: int, avg: int) -> str:
 
 def respond(decision: str, reason: str = "") -> None:
     """Output in Claude Code's expected format. Appends nudges on allow."""
-    global _autonomy_nudge, _goalless_nudge, _reread_nudge, _remote_ops_nudge, _worktype_nudge, _file_relevance_nudge
+    global _autonomy_nudge, _goalless_nudge, _remote_ops_nudge, _worktype_nudge, _file_relevance_nudge
     full_reason = reason
     show_nudge = False
     if decision == "allow" and (
-        _autonomy_nudge
-        or _goalless_nudge
-        or _reread_nudge
-        or _remote_ops_nudge
-        or _worktype_nudge
-        or _file_relevance_nudge
+        _autonomy_nudge or _goalless_nudge or _remote_ops_nudge or _worktype_nudge or _file_relevance_nudge
     ):
         nudges = " | ".join(
             n
             for n in [
                 _autonomy_nudge,
                 _goalless_nudge,
-                _reread_nudge,
                 _remote_ops_nudge,
                 _worktype_nudge,
                 _file_relevance_nudge,
@@ -4086,7 +4072,12 @@ def _goalless_from_counted_tx() -> str:
 
 
 def _check_goalless_work(cursor, session_id: str, transaction_id, preflight_timestamp) -> str:
-    """Nudge when THIS transaction has done >=5 tool calls with no goal in play.
+    """Nudge when THIS transaction has done >=5 gated tool calls with no goal in play.
+
+    "Gated" means the calls Sentinel sees: Bash and Edit|Write. Read, Grep and
+    Glob are not counted (ruled 2026-09-18, goal d6559f6e), so the effective
+    threshold is later for a practice that reads with those tools than for one
+    that reads through Bash - the same number means different volumes of work.
 
     "A goal in play" means any of: a goal created in this transaction
     (goals.transaction_id), a task created or completed since PREFLIGHT (the
@@ -4129,14 +4120,14 @@ def _check_goalless_work(cursor, session_id: str, transaction_id, preflight_time
 
         if count >= 10:
             return (
-                f"DISCIPLINE: {count} tool calls in this transaction and NO GOAL in play. "
+                f"DISCIPLINE: {count} gated tool calls in this transaction and NO GOAL in play. "
                 f"Create or claim one now: empirica goals-create --objective '...' "
                 f"(or add/complete a task on the goal you are working). "
                 f"Tell the user: 'We should goal this before continuing — "
                 f"work without a goal produces unmeasurable transactions.'"
             )
         return (
-            f"DISCIPLINE: {count} tool calls in this transaction and no goal in play. "
+            f"DISCIPLINE: {count} gated tool calls in this transaction and no goal in play. "
             f"Consider: empirica goals-create --objective '...' or goals-add-task on the goal you are working."
         )
     except Exception as e:
@@ -4311,7 +4302,7 @@ def _track_tool_usage(hook_input: dict, tool_name: str, tool_input: dict) -> Non
     Nudge thresholds are informational — Claude decides when to POSTFLIGHT.
     Also sets re-read advisory when Read tool targets already-read file.
     """
-    global _autonomy_nudge, _reread_nudge, _tool_call_count, _goalless_nudge
+    global _autonomy_nudge, _tool_call_count, _goalless_nudge
     try:
         _claude_sid = hook_input.get("session_id")
         # Only increment for sessions with active_work (parent sessions).
@@ -4325,13 +4316,6 @@ def _track_tool_usage(hook_input: dict, tool_name: str, tool_input: dict) -> Non
             _goalless_nudge = _goalless_from_counted_tx()
     except Exception:
         pass  # Counter failure is non-fatal
-
-    # _try_increment_tool_count sets _last_read_count when tracking Read tool calls.
-    # Advisory only — never blocks. Helps AI conserve context window.
-    if tool_name == "Read" and _last_read_count > 1:
-        _rd_fp = (tool_input or {}).get("file_path", "")
-        _short = Path(_rd_fp).name if _rd_fp else "file"
-        _reread_nudge = f"Re-reading {_short} ({_last_read_count}x this tx). Consider using cached knowledge."
 
 
 def _set_file_relevance_nudge(tool_name: str, tool_input: dict | None, claude_session_id: str | None) -> None:
