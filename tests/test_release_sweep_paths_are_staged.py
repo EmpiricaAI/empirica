@@ -51,6 +51,29 @@ def test_every_swept_file_exists(tmp_path, monkeypatch):
     assert gone == [], f"sweep entries for files that no longer exist: {gone}"
 
 
+def test_every_sweep_pattern_matches_its_file(monkeypatch):
+    """A pattern that matches nothing bumps nothing and ships the old value.
+    The first repoint added in this fix matched a template variable, not a
+    version, and only a printed warning said so."""
+    spec = importlib.util.spec_from_file_location("release_script_match", RELEASE_PY)
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    warned: list[str] = []
+    monkeypatch.setattr(mod, "warning", lambda msg: warned.append(msg))
+    monkeypatch.setattr(mod, "info", lambda *_a, **_k: None)
+    monkeypatch.setattr(mod, "success", lambda *_a, **_k: None)
+
+    mgr = mod.ReleaseManager.__new__(mod.ReleaseManager)
+    mgr.repo_root = REPO
+    mgr.version = "9.9.9"
+    mgr.dry_run = True
+    mgr.update_version_strings()
+
+    assert [w for w in warned if "matched NOTHING" in w or "Not found" in w] == []
+
+
 def test_every_swept_file_is_staged_by_the_release_commit(tmp_path, monkeypatch):
     spec = importlib.util.spec_from_file_location("release_script_allow", RELEASE_PY)
     assert spec and spec.loader

@@ -444,8 +444,8 @@ class ReleaseManager:
         """Update version strings in all source files not covered by other methods.
 
         Covers: __init__.py (both packages), empirica-mcp/pyproject.toml,
-        setup_claude_code.py, install.sh, plugin.json, the lean system prompt,
-        README and install docs, Dockerfile.alpine. Repo files only: a release
+        setup_claude_code.py, install.sh, plugin.json, README and install docs,
+        Dockerfile.alpine. Repo files only: a release
         never writes the box it runs on.
         """
         version_files = [
@@ -534,34 +534,12 @@ class ReleaseManager:
                 r"nubaeon/empirica:[0-9]+\.[0-9]+\.[0-9]+(-alpine)?",
                 lambda m: f"nubaeon/empirica:{self.version}{m.group(1) or ''}",
             ),
-            # MCP server reference
+            # MCP server reference. (The system prompt needs no entry: the lean
+            # template carries {{ empirica_version }} and is rendered at install.)
             (
                 self.repo_root / "docs" / "human" / "developers" / "MCP_SERVER_REFERENCE.md",
                 r"\*\*Version:\*\*\s+[0-9]+\.[0-9]+\.[0-9]+",
                 f"**Version:** {self.version}",
-            ),
-            # The lean system prompt is the canonical prompt now; the
-            # system-prompts/ CLAUDE.md and CANONICAL_CORE.md this sweep used
-            # to bump were removed, so both headers here went unswept.
-            (
-                self.repo_root
-                / "empirica"
-                / "plugins"
-                / "claude-code-integration"
-                / "templates"
-                / "empirica-system-prompt-lean.md",
-                r"Lean Core v[0-9]+\.[0-9]+\.[0-9]+",
-                f"Lean Core v{self.version}",
-            ),
-            (
-                self.repo_root
-                / "empirica"
-                / "plugins"
-                / "claude-code-integration"
-                / "templates"
-                / "empirica-system-prompt-lean.md",
-                r"\*\*Syncs with:\*\*\s+Empirica\s+v[0-9]+\.[0-9]+\.[0-9]+",
-                f"**Syncs with:** Empirica v{self.version}",
             ),
             # Chocolatey install script version
             (
@@ -1291,7 +1269,6 @@ class ReleaseManager:
         "empirica/__init__.py",
         "empirica-mcp/pyproject.toml",
         "empirica-mcp/empirica_mcp/__init__.py",
-        "empirica/plugins/claude-code-integration/templates/empirica-system-prompt-lean.md",
         "empirica/plugins/claude-code-integration/.claude-plugin/plugin.json",
         "empirica/plugins/claude-code-integration/install.sh",
         "empirica/cli/command_handlers/setup_claude_code.py",
