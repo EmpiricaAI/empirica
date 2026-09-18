@@ -33,6 +33,23 @@ logger.addHandler(handler)
 logger.setLevel(logging.DEBUG)
 
 
+def _with_hook_counters(tx_data: dict, tx_file: Path, suffix: str) -> dict:
+    """Attach tool_call_count from the hook counters file beside the transaction.
+
+    The counters were split out of the transaction file (single writer per
+    file); this hook kept reading tool_call_count from the transaction data,
+    got 0 every time, and so never reached its >3-calls POSTFLIGHT prompt.
+    Same path rule as sentinel-gate's _hook_counters_path.
+    """
+    counters_file = tx_file.parent / f"hook_counters{suffix}.json"
+    try:
+        with open(counters_file) as f:
+            tx_data["tool_call_count"] = json.load(f).get("tool_call_count", 0)
+    except (OSError, ValueError):
+        pass  # no counters yet: the transaction has made no tool calls
+    return tx_data
+
+
 def _find_open_transaction(instance_id: str) -> dict | None:
     """Find open transaction for current instance."""
     # Check instance_projects for current project
@@ -49,7 +66,7 @@ def _find_open_transaction(instance_id: str) -> dict | None:
                     with open(tx_file) as f:
                         tx_data = json.load(f)
                     if tx_data.get("status") == "open":
-                        return tx_data
+                        return _with_hook_counters(tx_data, tx_file, suffix)
         except Exception:
             pass
 
@@ -65,7 +82,7 @@ def _find_open_transaction(instance_id: str) -> dict | None:
                     with open(tx_file) as f:
                         tx_data = json.load(f)
                     if tx_data.get("status") == "open":
-                        return tx_data
+                        return _with_hook_counters(tx_data, tx_file, suffix)
         except Exception:
             continue
     return None

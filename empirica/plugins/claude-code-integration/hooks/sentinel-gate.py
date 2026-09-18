@@ -1701,6 +1701,18 @@ def _stamp_blocked_presence(claude_session_id: str | None, tool_input: dict | No
         pass
 
 
+def _hook_counters_path(tx_path: Path, suffix: str) -> Path:
+    """Where the hook-owned counters live: beside the transaction file, never in it.
+
+    The transaction file is workflow-owned (PREFLIGHT/POSTFLIGHT write it) and
+    the counters were split out to give each file a single writer. Readers that
+    looked for tool_call_count in the transaction file got 0 forever - the
+    goalless nudge (fixed 2026-09-18) and task-completed's POSTFLIGHT prompt.
+    One function for the path so a reader cannot drift from the writer again.
+    """
+    return tx_path.parent / f"hook_counters{suffix}.json"
+
+
 def _try_increment_tool_count(
     claude_session_id: str | None = None, tool_name: str | None = None, tool_input: dict | None = None
 ) -> tuple:
@@ -1730,7 +1742,7 @@ def _try_increment_tool_count(
         avg = tx.get("avg_turns", 0)
 
         # Read existing counters
-        counters_path = tx_path.parent / f"hook_counters{suffix}.json"
+        counters_path = _hook_counters_path(tx_path, suffix)
         counters = {}
         if counters_path.exists():
             try:
@@ -4054,8 +4066,9 @@ def _check_goalless_work(
         count = 0
         if empirica_root:
             tx_file = _find_transaction_file(empirica_root, suffix, _resolve_empirica_session_id(claude_session_id))
-            if tx_file:
-                with open(tx_file) as f:
+            counters_file = _hook_counters_path(Path(tx_file), suffix) if tx_file else None
+            if counters_file and counters_file.exists():
+                with open(counters_file) as f:
                     count = json.load(f).get("tool_call_count", 0)
         if count < 5 or not transaction_id:
             return ""

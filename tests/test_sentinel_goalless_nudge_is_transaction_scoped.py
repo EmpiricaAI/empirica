@@ -52,12 +52,37 @@ def cursor():
     return conn.cursor()
 
 
-def _check(gate, cursor, tmp_path, monkeypatch, calls=6):
-    tx_file = tmp_path / "active_transaction.json"
-    tx_file.write_text(json.dumps({"tool_call_count": calls}))
+def _check(gate, cursor, tmp_path, monkeypatch, calls=6, counters=True):
+    """Real layout: the transaction file carries NO count (it is workflow-owned);
+    the count lives in the hook counters file at the writer's own path helper.
+    The first version of this test put tool_call_count in the transaction file,
+    so it passed while the deployed hook read 0 forever (mesh-support,
+    prop_jqoi4xy3izelnl6vhctdykdtju)."""
+    suffix = "_tmux_9"
+    tx_file = tmp_path / f"active_transaction{suffix}.json"
+    tx_file.write_text(json.dumps({"status": "open", "transaction_id": TX, "preflight_timestamp": PREFLIGHT_TS}))
+    if counters:
+        gate._hook_counters_path(tx_file, suffix).write_text(json.dumps({"tool_call_count": calls}))
     monkeypatch.setattr(gate, "_find_transaction_file", lambda *_a, **_k: tx_file)
     monkeypatch.setattr(gate, "_resolve_empirica_session_id", lambda *_: "s")
-    return gate._check_goalless_work(cursor, "s", TX, PREFLIGHT_TS, "c", tmp_path, "")
+    return gate._check_goalless_work(cursor, "s", TX, PREFLIGHT_TS, "c", tmp_path, suffix)
+
+
+def test_a_count_in_the_transaction_file_is_not_read(gate, cursor, tmp_path, monkeypatch):
+    """Negative control on the channel: only the counters file counts."""
+    suffix = "_tmux_9"
+    tx_file = tmp_path / f"active_transaction{suffix}.json"
+    tx_file.write_text(json.dumps({"status": "open", "tool_call_count": 50}))
+    monkeypatch.setattr(gate, "_find_transaction_file", lambda *_a, **_k: tx_file)
+    monkeypatch.setattr(gate, "_resolve_empirica_session_id", lambda *_: "s")
+    assert gate._check_goalless_work(cursor, "s", TX, PREFLIGHT_TS, "c", tmp_path, suffix) == ""
+
+
+def test_the_writer_uses_the_same_path_helper(gate):
+    """Reader and writer cannot drift: the incrementer resolves its file via the helper."""
+    import inspect
+
+    assert "_hook_counters_path(tx_path, suffix)" in inspect.getsource(gate._try_increment_tool_count)
 
 
 def test_no_goal_in_this_transaction_nudges_despite_an_open_project_goal(gate, cursor, tmp_path, monkeypatch):
