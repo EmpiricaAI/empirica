@@ -10,7 +10,7 @@ Empirica's loop-cron skill wires periodic background work into the
 registry. This skill does the same for **event-driven** background work:
 held HTTP stream (ntfy), Monitor wake on event, listener stays armed.
 
-**Canonical flow (Phase 1 of prop_oxrhoehv4 shipped 2026-05-21):**
+**Canonical flow:**
 three single-purpose verbs (`on/arm/off`) that emit structured
 `next_step` JSON. The AI chains 3 mechanical tool calls per direction;
 the CLI handles defaults, persistent-service detection, and state-file

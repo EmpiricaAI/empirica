@@ -222,8 +222,8 @@ keep exploring (noetic, **same transaction**). **CHECK does not end the transact
 
 **CHECK certifies; it does not unlock.** Name the 2–3 claims the praxic work actually
 rests on. An empty CHECK is worse than none — it looks like diligence and carries
-nothing. Measured on one practice: 47% of 728 CHECKs arrived within 30 seconds of
-their PREFLIGHT.
+nothing, and a CHECK filed seconds after PREFLIGHT with no artifact in between is
+exactly that.
 
 ## Praxic phase — implement
 
@@ -353,10 +353,9 @@ transaction.
 immutable by design — retraction preserves the original wording and records that it
 failed.
 
-Measured on one practice: 1268 findings resolved, of which **1267 meant *stale* and 1
-meant *wrong***. A true error rate near zero across thousands of claims is not
-plausible; errors were simply not being expressed. A practice that cannot distinguish
-its ageing from its errors cannot calibrate on either.
+A practice whose resolutions are almost all *stale* and almost never *retracted* has
+not been right about everything — it has stopped expressing its errors. A practice
+that cannot distinguish its ageing from its errors cannot calibrate on either.
 
 ## Commands by phase
 
