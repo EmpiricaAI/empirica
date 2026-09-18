@@ -5,6 +5,54 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.48] - 2026-09-18
+
+### Changed
+
+- **A `ran` claim certifies only when it names its scope and its count.** A true
+  claim applied past the population it was measured over adjudicates `held`, so
+  no confidence gate can see it. `read` certifies as before; `ran` now buys the
+  CHECK skip only with a non-blank `scope` and an integer `count`; nothing is
+  refused. PREFLIGHT and the Sentinel's SQL check share one rule, pinned by a
+  test. Counts written as phrases (`"4 sites"`, `"46 of 46"`) keep their number;
+  they were stored as NULL, after which the summary asked for the count it had
+  just discarded.
+- **Anything waiting on the user is asked as a predicted answer.** The lean prompt
+  and `/reporting-discipline` say so; `goals-create` warns when a ruling goal has
+  no `Predicted:` line; a context-only hook reminds on `AskUserQuestion`.
+- **empirica-mcp depends on `empirica>=<release>,<2`**, not `==`. The pin rolled
+  core back whenever the wrapper was upgraded on its own.
+- **Migration 072 drops nine empty legacy tables.** Reference docs are read from
+  `epistemic_sources`.
+- **Removed:** `identity-verify`, `performance` and `monitor` (placeholders that
+  reported success for work they never did), nine flags no handler read, and
+  `config --force`. `investigate` is a retrieval verb. A test holds unread flags
+  at zero.
+
+### Fixed
+
+- **Sentinel nudges never reached the model.** On `allow`, `permissionDecisionReason`
+  is not shown to the model; `additionalContext` is. Measured headless, one token
+  per channel, with a positive control. All nudges now ride `additionalContext`.
+- **The goalless nudge asks about this transaction.** It fired only when the whole
+  project had no open goal, so every practice with long-running work had it off.
+  Three further causes kept it intermittent: it lived behind the read-only fast
+  path, it read a count from a second locator, and legacy TEXT timestamps compare
+  above every number in SQLite.
+- **`task-completed` read `tool_call_count` from a file it is no longer written to**,
+  so its "request POSTFLIGHT" branch could never run.
+- **Mailbox `show` and `poll` flag gated work accepted with no ECO decision.**
+- **Success-shaped nothing, across a dozen surfaces:** an unreachable index is "not
+  searched", not "0 found"; compliance and doctor checks that cannot answer are
+  SKIP, not PASS; failed label, export, adoption and pointer writes are reported;
+  a failed grounded-claims lookup no longer denies as "no claims declared".
+- **`GET /practice/composition?project_id=` always returned 404.** It now resolves
+  through the registry.
+- **The release sweep** named three deleted files and one path on the releasing
+  box, and left `empirica_mcp/__init__.py` bumped but uncommitted. A test now runs
+  the sweep and checks that every file it names is in the repo, exists, and is
+  staged.
+
 ## [1.13.47] - 2026-09-16
 
 ### Fixed

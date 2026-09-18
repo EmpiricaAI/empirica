@@ -2,7 +2,7 @@
 
 > **We Gave AI a Mirror. Now It Measures What It Believes.**
 
-[![Version](https://img.shields.io/badge/version-1.13.47-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.47)
+[![Version](https://img.shields.io/badge/version-1.13.48-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.48)
 [![PyPI](https://img.shields.io/pypi/v/empirica)](https://pypi.org/project/empirica/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -114,13 +114,13 @@ empirica setup
 
 ```bash
 # Security-hardened Alpine image (~276MB, recommended)
-docker pull nubaeon/empirica:1.13.47-alpine
+docker pull nubaeon/empirica:1.13.48-alpine
 
 # Standard image (Debian slim, ~414MB)
-docker pull nubaeon/empirica:1.13.47
+docker pull nubaeon/empirica:1.13.48
 
 # Run
-docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.47 /bin/bash
+docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.48 /bin/bash
 ```
 </details>
 
@@ -414,13 +414,16 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.13.47
+## What's New in 1.13.48
 
-- **A request timeout reported itself as "not found", and named two innocent suspects.** `_default_fetch_parent` caught bare `Exception` and returned `None`, so a 5s timeout, a DNS failure, a 401 and a 500 all reached the user as *"parent `<id>` not found or inaccessible. Check the id and your Cortex tenant scope."* — a sentence asserting an outcome the code never observed. Cortex's nginx logs carry the real shape: `499` under a 3-5× request spike, then `200` for the same id 25 seconds later. It cost two peer practices a retracted diagnosis each, both hunting a lookup defect that did not exist because the message named one. `None` now means a real 404; everything else raises `ParentFetchError` with the actual cause and a `retryable` flag. The sibling helper twenty lines below already did this properly and its docstring says it is deliberately *not* modelled on the broken one — the right pattern was adjacent the whole time.
-- **The SessionStart mesh block stated a page size as the inbox total.** It renders *"Pending mesh messages (N) — handle these FIRST"*, so N governs behaviour: work the page to zero and the block agrees you are done. N was `len(proposals)`. The CLI puts `matched`, `has_more` and a `truncated_hint` in the very object the hook parses, and the hook dropped all three. Measured: this practice's own session announced 20 against a true backlog of 28; a peer measured 20 against `matched=118`. The producer was already correct and had been fixed from an earlier incident of this exact shape — one consumer discarded the fields, which is why a producer-side fix could not reach it. The overflow line now carries `--limit` when the poll itself was truncated, instead of advertising a command that reproduces the same partial page.
-- **`--status all` returned 7 of 13 statuses while its own help promised "every status".** The hand-maintained allowlist went stale against cortex's vocabulary — and the comment sitting on it had predicted exactly that, naming the fix, two divergences earlier. A comment naming a future failure is a record that someone saw it coming, not a guard against it. `failed` and `wont_fix` were unreachable by default, by name, or via `all`, while the mailbox protocol instructs practitioners to act on precisely those states — so an emitter could not count their own undelivered sends and *"sender owns delivery"* had no client-side mechanism. `all` now sends **no filter** (the query key is omitted, not sent blank — `",".join(())` is a filter matching nothing, not the absence of one), and an unrecognised value is passed through with a note rather than rejected. Cortex validates its own vocabulary; the note keeps a typo loud against an older cortex that does not.
-- **`mailbox reply` was the only verb in its file resolving identity the raw way.** `poll` and `archive` both canonicalize, and `poll` carries the comment explaining why. A resolvable slug is canonicalized server-side today, so this emitted nothing broken — but that safety is invisible to the next reader, and an unresolvable slug would bounce with no local signal.
-- **W1a's idempotency protection shipped as code and was deleted as teaching.** `mailbox reply` stamps `payload.idempotency_key` and is the only emission path that does; peers found 220 emitter-supplied keys in cortex's ledger and could not account for setting any. Behaviour shipping without vocabulary is harder to spot than the reverse: the protected path gives no signal that it is protecting anything. The boundary is now recorded where a reader looks for it, plus a test that scans for the propose endpoint so a second core emitter cannot ship unprotected by omission.
+- **A `ran` claim certifies only when it names its scope and its count.** A true claim applied past the population it was measured over adjudicates `held`, so no confidence gate can see it. `read` certifies as before; `ran` now buys the CHECK skip only with a non-blank `scope` and an integer `count`; nothing is refused. PREFLIGHT and the Sentinel's SQL check share one rule, pinned by a test. Counts written as phrases (`"4 sites"`, `"46 of 46"`) keep their number; they were stored as NULL, after which the summary asked for the count it had just discarded.
+- **Anything waiting on the user is asked as a predicted answer.** The lean prompt and `/reporting-discipline` say so; `goals-create` warns when a ruling goal has no `Predicted:` line; a context-only hook reminds on `AskUserQuestion`.
+- **empirica-mcp depends on `empirica>=<release>,<2`**, not `==`. The pin rolled core back whenever the wrapper was upgraded on its own.
+- **Migration 072 drops nine empty legacy tables.** Reference docs are read from `epistemic_sources`.
+- **Removed:** `identity-verify`, `performance` and `monitor` (placeholders that reported success for work they never did), nine flags no handler read, and `config --force`. `investigate` is a retrieval verb. A test holds unread flags at zero.
+- **Sentinel nudges never reached the model.** On `allow`, `permissionDecisionReason` is not shown to the model; `additionalContext` is. Measured headless, one token per channel, with a positive control. All nudges now ride `additionalContext`.
+- **The goalless nudge asks about this transaction.** It fired only when the whole project had no open goal, so every practice with long-running work had it off. Three further causes kept it intermittent: it lived behind the read-only fast path, it read a count from a second locator, and legacy TEXT timestamps compare above every number in SQLite.
+- **`task-completed` read `tool_call_count` from a file it is no longer written to**, so its "request POSTFLIGHT" branch could never run.
 ## What's New in 1.13.46
 
 - **The calibration instrument penalised the behaviour the system prompt mandates.** `unknown_resolution_rate` counted every unknown in the session, unfloored and ungated, into `do`, `completion` and `impact` — so banking a question you could not yet answer emitted a hard `0.0` into three vectors, while the prompt calls a session reporting uncertainty with no unknown artifacts behind it an unsupported claim. Structural rather than a diligence failure: an unknown logged late in a session cannot be resolved inside it. The block eight lines below rewards the *same* class of act (`assumptions logged = epistemic honesty`), so one file treated banking uncertainty as a virtue and as absent impact at once — which is the strongest evidence the unknown side was never a deliberate judgment. Fixed **without a floor**, deliberately: a floor preserves an incentive under a friendlier number, which is what `issue_resolution_ratio`'s `0.2` does to its own zero. The metric is now a saturating **count of standing unknowns closed inside the window**, so neither banking uncertainty nor carrying a backlog can move it. Traced by empirica-mesh-support over three rounds, from an origin measurement by Carly R. Anderson's foundation seat across 17 practices.
@@ -461,6 +464,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 **Author:** David S. L. Van Assche
-**Version:** 1.13.47
+**Version:** 1.13.48
 
 *Turtles all the way down — built with its own epistemic framework, measuring what it knows at every step.*
