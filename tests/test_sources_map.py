@@ -11,7 +11,7 @@ Coverage:
   3. --global flag wires search_cross_project + post-filters to type='source'
   4. type filter passes through to both owned + discoverable
   5. _query_cross_mesh_sources excludes the current project_id
-  6. _query_cross_mesh_sources falls back to empty list when Qdrant absent
+  6. an unreachable index is reported as not searched (count None), never as 0 found
   7. JSON output schema is stable
   8. Discoverable empty when there are no cross-project source hits
 """
@@ -169,6 +169,14 @@ def test_owned_filter_by_type(fake_db, capsys):
 # ── --global / cross-mesh discoverable ─────────────────────────────────
 
 
+@pytest.fixture(autouse=True)
+def _qdrant_reachable(monkeypatch):
+    """The --global path now asks whether Qdrant is reachable before searching.
+    Pin it True so these tests do not measure whether this box runs Qdrant;
+    the unreachable case sets it False explicitly."""
+    monkeypatch.setattr("empirica.core.qdrant.global_sync._check_qdrant_available", lambda: True)
+
+
 def test_global_mode_wires_search_cross_project(fake_db, capsys):
     """--global → handler calls search_cross_project + post-filters to source."""
     project_id = "33333333-3333-3333-3333-333333333333"
@@ -235,12 +243,11 @@ def test_global_post_filter_by_source_type(fake_db, capsys):
     assert payload["discoverable"]["sources"][0]["source_id"] == "sid-web"
 
 
-def test_global_qdrant_unavailable_returns_empty(fake_db, capsys):
-    """search_cross_project raising → handler still returns ok=True with empty discoverable.
-
-    Discoverability is a nice-to-have, not a hard dependency. The handler must
-    not 500 if Qdrant is down.
-    """
+def test_global_search_failure_is_not_searched_rather_than_zero(fake_db, capsys):
+    """search_cross_project raising → ok=True (discoverability is not a hard
+    dependency) but the count is None and the scope says why. This test used to
+    assert count == 0, which is exactly the answer "looked and found nothing":
+    it pinned an unreachable index rendering as an empty mesh."""
     project_id = "66666666-6666-6666-6666-666666666666"
     with patch(
         "empirica.core.qdrant.global_sync.search_cross_project",
@@ -250,7 +257,20 @@ def test_global_qdrant_unavailable_returns_empty(fake_db, capsys):
         rc, payload = _run(args, capsys)
     assert rc == 0
     assert payload["ok"] is True
-    assert payload["discoverable"]["count"] == 0
+    assert payload["discoverable"]["count"] is None
+    assert payload["discoverable"]["scope"].startswith("unavailable")
+
+
+def test_global_unreachable_qdrant_is_not_searched(fake_db, capsys, monkeypatch):
+    project_id = "66666666-6666-6666-6666-666666666667"
+    monkeypatch.setattr("empirica.core.qdrant.global_sync._check_qdrant_available", lambda: False)
+    with patch("empirica.core.qdrant.global_sync.search_cross_project") as mock_search:
+        args = _make_args(project_id=project_id, include_global=True)
+        rc, payload = _run(args, capsys)
+    assert rc == 0
+    mock_search.assert_not_called()
+    assert payload["discoverable"]["count"] is None
+    assert "qdrant unreachable" in payload["discoverable"]["scope"]
 
 
 def test_global_empty_query_uses_neutral_anchor(fake_db, capsys):

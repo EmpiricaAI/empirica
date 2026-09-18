@@ -3215,21 +3215,24 @@ def _print_sources_pretty(sources):
 _VALID_ARCHIVE_REASONS = ("user_deleted", "file_missing", "url_unreachable", "superseded")
 
 
-def _hard_delete_source_chunks(project_id: str, source_id: str) -> int:
+def _hard_delete_source_chunks(project_id: str, source_id: str) -> int | None:
     """Best-effort hard-delete of Qdrant chunks for an archived source.
 
     Per SOURCES_LIFECYCLE_SPEC: chunks (layer B) are derived data; safe to
     drop on archive because they're regenerable from the original. Returns
-    number of points deleted (0 if Qdrant unavailable or none found).
+    the number of points deleted — 0 when Qdrant was reached and held none —
+    or None when Qdrant could not be reached, so the caller can say the
+    delete did not happen rather than report that there was nothing to delete.
     """
     try:
         from empirica.core.qdrant.collections import _docs_collection
         from empirica.core.qdrant.connection import _get_qdrant_client
-    except ImportError:
-        return 0
+    except ImportError as e:
+        logger.warning(f"source archive: qdrant modules unavailable, chunks not deleted: {e}")
+        return None
     client = _get_qdrant_client(project_id=project_id)
     if client is None:
-        return 0
+        return None
     try:
         from qdrant_client.models import FieldCondition, Filter, MatchValue
 
@@ -3246,11 +3249,11 @@ def _hard_delete_source_chunks(project_id: str, source_id: str) -> int:
         result = client.delete(collection_name=coll, points_selector=flt)
         return getattr(result, "deleted", 0) or 0
     except Exception as e:
-        logger.debug(f"_hard_delete_source_chunks: qdrant delete failed: {e}")
-        return 0
+        logger.warning(f"source archive: qdrant chunk delete FAILED: {e}")
+        return None
 
 
-def _hard_delete_source_memory_embed(project_id: str, source_id: str) -> int:
+def _hard_delete_source_memory_embed(project_id: str, source_id: str) -> int | None:
     """Best-effort delete of the source's metadata embed from the memory collection.
 
     A source is embedded at add-time into ``_memory_collection`` as an
@@ -3265,11 +3268,12 @@ def _hard_delete_source_memory_embed(project_id: str, source_id: str) -> int:
     try:
         from empirica.core.qdrant.collections import _memory_collection
         from empirica.core.qdrant.connection import _get_qdrant_client
-    except ImportError:
-        return 0
+    except ImportError as e:
+        logger.warning(f"source archive: qdrant modules unavailable, discovery embed not deleted: {e}")
+        return None
     client = _get_qdrant_client(project_id=project_id)
     if client is None:
-        return 0
+        return None
     try:
         from qdrant_client.models import FieldCondition, Filter, MatchValue
 
@@ -3285,8 +3289,8 @@ def _hard_delete_source_memory_embed(project_id: str, source_id: str) -> int:
         result = client.delete(collection_name=coll, points_selector=flt)
         return getattr(result, "deleted", 0) or 0
     except Exception as e:
-        logger.debug(f"_hard_delete_source_memory_embed: qdrant delete failed: {e}")
-        return 0
+        logger.warning(f"source archive: qdrant discovery-embed delete FAILED: {e}")
+        return None
 
 
 def _push_source_archive_to_cortex(full_id: str, reason: str, target_id: str | None) -> dict | None:
@@ -3331,6 +3335,23 @@ def _push_source_archive_to_cortex(full_id: str, reason: str, target_id: str | N
         return {"synced": False, "status": e.code, "error": f"HTTP {e.code}"}
     except (urllib.error.URLError, OSError, TimeoutError) as e:
         return {"synced": False, "status": 0, "error": f"{type(e).__name__}: {e}"}
+
+
+def _print_source_archived(full_id, title, reason, target_id, chunks_deleted, memory_deleted, cortex_status):
+    """Human rendering of a completed source-archive."""
+    print(f"✅ Archived source {full_id[:8]}... — {title}")
+    print(f"   Reason: {reason}" + (f" → target {target_id[:8]}..." if target_id else ""))
+    if chunks_deleted:
+        print(f"   Cleared {chunks_deleted} Qdrant chunks (regenerable from original)")
+    if memory_deleted is None:
+        print("   ⚠ Qdrant unreachable — the source's search embed was NOT removed; it may still")
+        print("     appear in sources-map --global and semantic search until Qdrant is back")
+    if cortex_status:
+        if cortex_status.get("synced"):
+            print(f"   ☁ Cortex notified (HTTP {cortex_status['status']})")
+        else:
+            print(f"   ⚠ Cortex sync failed: {cortex_status.get('error', 'unknown')} (local archive still succeeded)")
+    print("   Edges + citing findings/decisions untouched (audit chain preserved)")
 
 
 def handle_source_archive_command(args):
@@ -3471,23 +3492,17 @@ def handle_source_archive_command(args):
             "audit_log": existing_log,
             "message": "Source archived (soft-delete; edges + citing artifacts preserved)",
         }
+        if memory_deleted is None:
+            # The archive is committed, but the embed that makes the source
+            # discoverable could not be removed: sources-map --global and
+            # semantic search keep returning it until Qdrant is reachable.
+            result["index_cleanup"] = "incomplete: qdrant unreachable, archived source may still be discoverable"
         if cortex_status is not None:
             result["cortex"] = cortex_status
         if output_format == "json":
             print(json.dumps(result, indent=2))
         else:
-            print(f"✅ Archived source {full_id[:8]}... — {title}")
-            print(f"   Reason: {reason}" + (f" → target {target_id[:8]}..." if target_id else ""))
-            if chunks_deleted:
-                print(f"   Cleared {chunks_deleted} Qdrant chunks (regenerable from original)")
-            if cortex_status:
-                if cortex_status.get("synced"):
-                    print(f"   ☁ Cortex notified (HTTP {cortex_status['status']})")
-                else:
-                    print(
-                        f"   ⚠ Cortex sync failed: {cortex_status.get('error', 'unknown')} (local archive still succeeded)"
-                    )
-            print("   Edges + citing findings/decisions untouched (audit chain preserved)")
+            _print_source_archived(full_id, title, reason, target_id, chunks_deleted, memory_deleted, cortex_status)
         return 0
 
     except UnresolvableProjectError as e:
@@ -3555,14 +3570,21 @@ def handle_sources_map_command(args):
             practice_scope=explicit_project_id is None,
         )
 
-        discoverable_sources = []
+        discoverable_sources: list[dict] = []
+        unavailable = None
         if include_global:
-            discoverable_sources = _query_cross_mesh_sources(
+            discoverable_sources, unavailable = _query_cross_mesh_sources(
                 project_id=project_id,
                 query_text=query_text,
                 source_type_filter=source_type_filter,
                 limit=limit,
             )
+        if not include_global:
+            scope = "skipped (--global not set)"
+        elif unavailable:
+            scope = f"unavailable ({unavailable}) — not searched, count is not a result"
+        else:
+            scope = "cross-mesh"
 
         payload = {
             "ok": True,
@@ -3572,9 +3594,9 @@ def handle_sources_map_command(args):
                 "sources": owned_sources,
             },
             "discoverable": {
-                "count": len(discoverable_sources),
+                "count": None if unavailable else len(discoverable_sources),
                 "sources": discoverable_sources,
-                "scope": "cross-mesh" if include_global else "skipped (--global not set)",
+                "scope": scope,
             },
         }
 
@@ -3600,18 +3622,21 @@ def _query_cross_mesh_sources(
     query_text: str = "",
     source_type_filter: str | None = None,
     limit: int = 20,
-) -> list[dict]:
+) -> tuple[list[dict], str | None]:
     """Walk other projects' Qdrant collections for type='source' items.
 
     Filters out the current project (you already see those via owned).
-    Returns dicts with project_id provenance so consumers know who owns
-    each source. Falls back to empty list if Qdrant is unavailable —
-    discoverability is a nice-to-have, not a hard dependency.
+    Returns (sources, unavailable) — dicts with project_id provenance, and a
+    reason string when the index could not be searched. Discoverability is
+    not a hard dependency, but "could not look" and "looked, found none"
+    must not render the same: both used to print "0 (cross-mesh)".
     """
     try:
-        from empirica.core.qdrant.global_sync import search_cross_project
-    except Exception:
-        return []
+        from empirica.core.qdrant.global_sync import _check_qdrant_available, search_cross_project
+    except Exception as e:
+        return [], f"qdrant modules unavailable: {e}"
+    if not _check_qdrant_available():
+        return [], "qdrant unreachable"
 
     # search_cross_project requires a query — if caller didn't provide
     # one, use a neutral semantic anchor that still produces results.
@@ -3627,8 +3652,8 @@ def _query_cross_mesh_sources(
             exclude_project_id=project_id,
             limit=limit,
         )
-    except Exception:
-        return []
+    except Exception as e:
+        return [], f"cross-project search failed: {e}"
 
     out: list[dict] = []
     for r in raw:
@@ -3649,7 +3674,7 @@ def _query_cross_mesh_sources(
                 "collection_type": payload.get("collection_type"),
             }
         )
-    return out
+    return out, None
 
 
 def _print_sources_map_pretty(payload: dict) -> None:
@@ -3668,14 +3693,16 @@ def _print_sources_map_pretty(payload: dict) -> None:
     if owned.get("count", 0) > 10:
         print(f"    … +{owned['count'] - 10} more")
     print()
-    print(f"  Discoverable across mesh: {disc.get('count', 0)} ({disc.get('scope', '')})")
+    disc_count = disc.get("count")
+    shown = "not searched" if disc_count is None else disc_count
+    print(f"  Discoverable across mesh: {shown} ({disc.get('scope', '')})")
     for s in disc.get("sources", [])[:10]:
         pid = (s.get("project_id") or "?")[:12]
         sid = (s.get("source_id") or "")[:12]
         text = (s.get("text") or "")[:60]
         score = s.get("score")
         print(f"    • {sid}… owned-by={pid}… {text}{f' (score={score:.2f})' if score is not None else ''}")
-    if disc.get("count", 0) > 10:
+    if (disc_count or 0) > 10:
         print(f"    … +{disc['count'] - 10} more")
 
 

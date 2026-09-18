@@ -246,6 +246,44 @@ def test_archive_removes_memory_embed(project_db: Path, capsys):
     assert payload["memory_embed_deleted"] == 1
 
 
+def test_archive_with_qdrant_unreachable_says_the_embed_remains(project_db: Path, capsys):
+    """The deleters return None when Qdrant could not be reached. The archive
+    still commits, but the payload must not read memory_embed_deleted: 0 (= the
+    index held nothing): the source stays discoverable until Qdrant is back."""
+    sid = _seed_source(project_db)
+
+    with patch("empirica.data.session_database.SessionDatabase") as MockDB:
+        MockDB.return_value.conn = sqlite3.connect(
+            str(project_db / ".empirica" / "sessions" / "sessions.db"),
+        )
+        with (
+            patch(
+                "empirica.cli.command_handlers.artifact_log_commands._hard_delete_source_chunks",
+                return_value=None,
+            ),
+            patch(
+                "empirica.cli.command_handlers.artifact_log_commands._hard_delete_source_memory_embed",
+                return_value=None,
+            ),
+        ):
+            rc = handle_source_archive_command(_make_args(source_id=sid, reason="user_deleted"))
+
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["archived"] is True
+    assert payload["memory_embed_deleted"] is None
+    assert "discoverable" in payload["index_cleanup"]
+
+
+def test_the_embed_deleter_reports_unreachable_as_none(monkeypatch):
+    """Positive control on the real function: no Qdrant client → None, not 0."""
+    from empirica.cli.command_handlers import artifact_log_commands as alc
+
+    monkeypatch.setattr("empirica.core.qdrant.connection._get_qdrant_client", lambda **_: None)
+    assert alc._hard_delete_source_memory_embed("p", "s") is None
+    assert alc._hard_delete_source_chunks("p", "s") is None
+
+
 def test_archive_superseded_with_target(project_db: Path, capsys):
     src = _seed_source(project_db, title="Old version")
     replacement = _seed_source(project_db, title="New version")
