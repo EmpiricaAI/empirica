@@ -16,9 +16,14 @@ All fail-open — the blindspot machinery must never affect POSTFLIGHT.
 
 from __future__ import annotations
 
+import logging
 import time
 
+from empirica.utils.fail_loud import warn_unless_missing_table
+
 from .intent_gap import _TERMINAL_GOAL_STATUS
+
+logger = logging.getLogger(__name__)
 
 _ENGAGED_TASK_STATUS = frozenset({"completed", "complete", "done"})
 
@@ -72,7 +77,8 @@ def resolve_blindspot_outcomes(db, session_id: str) -> int:
         if updated:
             db.conn.commit()
         return updated
-    except Exception:
+    except Exception as e:
+        warn_unless_missing_table(logger, "blindspots.resolve_blindspot_outcomes", e)
         return 0
 
 
@@ -93,7 +99,8 @@ def mark_blindspot_regretted(db, session_id: str, subtask_id: str) -> int:
         )
         db.conn.commit()
         return cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
-    except Exception:
+    except Exception as e:
+        warn_unless_missing_table(logger, "blindspots.mark_blindspot_regretted", e)
         return 0
 
 
@@ -144,5 +151,6 @@ def apply_blindspot_regret(db, session_id: str) -> int:
         if flipped:
             db.conn.commit()
         return flipped
-    except Exception:
+    except Exception as e:
+        warn_unless_missing_table(logger, "blindspots.apply_blindspot_regret", e)
         return 0

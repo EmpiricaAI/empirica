@@ -10,7 +10,12 @@ persistence error must never affect the CHECK/POSTFLIGHT loop it observes.
 
 from __future__ import annotations
 
+import logging
 import time
+
+from empirica.utils.fail_loud import warn_unless_missing_table
+
+logger = logging.getLogger(__name__)
 
 # 30-day observation window (spec §5). Absence of a failure inside a shorter
 # window is NOT prevention evidence. Per-pattern overridable; research Q1 may
@@ -97,7 +102,8 @@ def emit_prevention_exposure(
         )
         db.conn.commit()
         return 1
-    except Exception:
+    except Exception as e:
+        warn_unless_missing_table(logger, "prevention.emit_prevention_exposure", e)
         return 0
 
 
@@ -131,7 +137,8 @@ def read_prevention_events(db, session_id: str | None = None) -> list[dict]:
             params = (session_id,)
         cur = db.conn.execute(sql, params)
         return [dict(zip(_EVENT_COLS, row)) for row in cur.fetchall()]
-    except Exception:
+    except Exception as e:
+        warn_unless_missing_table(logger, "prevention.read_prevention_events", e)
         return []
 
 

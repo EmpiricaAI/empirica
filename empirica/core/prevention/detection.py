@@ -18,7 +18,12 @@ Fail-open: the prevention machinery must never affect POSTFLIGHT.
 
 from __future__ import annotations
 
+import logging
 import time
+
+from empirica.utils.fail_loud import warn_unless_missing_table
+
+logger = logging.getLogger(__name__)
 
 
 def apply_prevention_detection(db, session_id: str, *, now: float | None = None) -> int:
@@ -130,5 +135,6 @@ def apply_prevention_detection(db, session_id: str, *, now: float | None = None)
         if updated:
             db.conn.commit()
         return updated
-    except Exception:
+    except Exception as e:
+        warn_unless_missing_table(logger, "prevention.apply_prevention_detection", e)
         return 0

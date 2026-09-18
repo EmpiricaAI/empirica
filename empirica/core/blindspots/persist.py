@@ -10,7 +10,12 @@ when a dismissed one later becomes a mistake or dead-end (the T4 regret loop).
 
 from __future__ import annotations
 
+import logging
 import time
+
+from empirica.utils.fail_loud import warn_unless_missing_table
+
+logger = logging.getLogger(__name__)
 
 _EVENT_COLS = (
     "session_id",
@@ -59,7 +64,8 @@ def persist_blindspot_candidates(db, session_id, transaction_id, candidates, sur
         )
         db.conn.commit()
         return len(rows)
-    except Exception:
+    except Exception as e:
+        warn_unless_missing_table(logger, "blindspots.persist_blindspot_candidates", e)
         return 0
 
 
@@ -73,7 +79,8 @@ def read_blindspot_events(db, session_id: str | None = None) -> list[dict]:
             params = (session_id,)
         cur = db.conn.execute(sql, params)
         return [dict(zip(_EVENT_COLS, row)) for row in cur.fetchall()]
-    except Exception:
+    except Exception as e:
+        warn_unless_missing_table(logger, "blindspots.read_blindspot_events", e)
         return []
 
 

@@ -12,11 +12,18 @@ is the caller's observation-window judgement, per spec §5).
 
 from __future__ import annotations
 
+import logging
+
+from empirica.utils.fail_loud import warn_unless_missing_table
+
+logger = logging.getLogger(__name__)
+
 
 def _rows(db, sql: str, params: tuple) -> list:
     try:
         return db.conn.execute(sql, params).fetchall()
-    except Exception:
+    except Exception as e:
+        warn_unless_missing_table(logger, "prevention._rows", e)
         return []
 
 
