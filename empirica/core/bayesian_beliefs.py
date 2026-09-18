@@ -21,10 +21,13 @@ Author: Claude Code
 Date: 2025-12-30
 """
 
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, ClassVar
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -486,8 +489,12 @@ def export_calibration_to_breadcrumbs(ai_id: str, db, git_root: str | None = Non
             if result.returncode == 0:
                 git_root = result.stdout.strip()
             else:
+                # Not a git checkout: no breadcrumbs file to write. Quiet and correct.
                 return False
-        except Exception:
+        except Exception as e:
+            logger.warning(
+                f"calibration export: could not resolve git root ({type(e).__name__}: {e}); breadcrumbs NOT refreshed"
+            )
             return False
 
     breadcrumbs_path = os.path.join(git_root, ".breadcrumbs.yaml")
@@ -499,8 +506,14 @@ def export_calibration_to_breadcrumbs(ai_id: str, db, git_root: str | None = Non
         report = belief_manager.get_calibration_report(ai_id)
 
         if not adjustments and not report:
-            return False
-    except Exception:
+            return False  # nothing to export yet — a fresh practice, not a failure
+    except Exception as e:
+        # The caller logs a False at debug. Without this line a persistent
+        # failure here leaves .breadcrumbs.yaml frozen at its last export while
+        # every SessionStart keeps injecting it as current calibration.
+        logger.warning(
+            f"calibration export: reading beliefs FAILED ({type(e).__name__}: {e}); breadcrumbs NOT refreshed"
+        )
         return False
 
     # Read existing .breadcrumbs.yaml if present
@@ -509,8 +522,16 @@ def export_calibration_to_breadcrumbs(ai_id: str, db, git_root: str | None = Non
     calibration_end = -1
 
     if os.path.exists(breadcrumbs_path):
-        with open(breadcrumbs_path) as f:
-            existing_lines = f.readlines()
+        try:
+            with open(breadcrumbs_path) as f:
+                existing_lines = f.readlines()
+        except OSError as e:
+            # Raised outside every try until now; the caller's broad except
+            # turned it into a debug line and a frozen calibration cache.
+            logger.warning(
+                f"calibration export: reading {breadcrumbs_path} FAILED ({type(e).__name__}: {e}); breadcrumbs NOT refreshed"
+            )
+            return False
 
         calibration_start, calibration_end = _find_yaml_section(
             existing_lines,
@@ -588,7 +609,10 @@ learning_trajectory:
             f.writelines(new_lines)
 
         return True
-    except Exception:
+    except Exception as e:
+        logger.warning(
+            f"calibration export: writing {breadcrumbs_path} FAILED ({type(e).__name__}: {e}); breadcrumbs NOT refreshed"
+        )
         return False
 
 
