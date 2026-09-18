@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.13.48] - 2026-09-18
 
+### Security
+
+- Dependency floors: `anyio>=4.14.2` (CVE-2026-63374, CVE-2026-64847),
+  `gitpython>=3.1.60` (PYSEC-2026-3982/3983/3984), `soupsieve>=2.9.0`
+  (CVE-2026-85999, CVE-2026-86000).
+
 ### Changed
 
 - **A `ran` claim certifies only when it names its scope and its count.** A true
