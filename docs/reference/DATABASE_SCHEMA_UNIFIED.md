@@ -185,7 +185,7 @@ projects (1) ──> (N) auto_captured_issues
 
 ## Table Inventory (generated)
 
-**60 tables** (+ 4 FTS5 shadow tables), **131 indexes**, **8 triggers** — the schema a fresh install materialises: `ALL_SCHEMAS` plus every migration in `empirica/data/migrations/migrations.py`, applied in order.
+**67 tables** (+ 4 FTS5 shadow tables), **131 indexes**, **8 triggers** — the schema a fresh install materialises: `ALL_SCHEMAS` plus every migration in `empirica/data/migrations/migrations.py`, applied in order.
 
 Regenerate with `python3 scripts/gen_schema_doc.py`; CI fails when this block is stale. A live database can hold tables outside this inventory (created lazily by code, or left behind by removed schemas): `python3 scripts/gen_schema_doc.py --diff-db <sessions.db>` lists them.
 
@@ -318,6 +318,22 @@ Alphabetical. Column lines read `name TYPE [PRIMARY KEY|NOT NULL] [DEFAULT x] [(
 - `resolution` TEXT
 - `created_at` REAL DEFAULT strftime('%s', 'now')
 - *indexes:* `idx_calibration_disputes_session`, `idx_calibration_disputes_vector_status`
+
+#### `calibration_insights`
+**13 columns**
+- `insight_id` TEXT PRIMARY KEY
+- `session_id` TEXT
+- `transaction_id` TEXT
+- `vector` TEXT
+- `phase` TEXT
+- `pattern` TEXT
+- `severity` REAL
+- `description` TEXT
+- `suggestion` TEXT
+- `evidence_sources` TEXT
+- `observation_count` INTEGER
+- `acted_on` BOOLEAN DEFAULT FALSE
+- `created_at` REAL
 
 #### `calibration_trajectory`
 **16 columns**
@@ -501,6 +517,17 @@ Alphabetical. Column lines read `name TYPE [PRIMARY KEY|NOT NULL] [DEFAULT x] [(
 - `source_ids` TEXT NOT NULL
 - *indexes:* `idx_concept_nodes_normalized`, `idx_concept_nodes_project`
 
+#### `context_budget_state`
+**8 columns**
+- `session_id` TEXT PRIMARY KEY
+- `node_id` TEXT
+- `inventory_json` TEXT
+- `thresholds_json` TEXT
+- `page_faults` INTEGER
+- `evictions` INTEGER
+- `created_at` REAL
+- `updated_at` REAL
+
 #### `cross_project_finding_links`
 **8 columns**
 - `id` TEXT PRIMARY KEY
@@ -539,6 +566,17 @@ Alphabetical. Column lines read `name TYPE [PRIMARY KEY|NOT NULL] [DEFAULT x] [(
 - `last_retrieved_at` REAL DEFAULT NULL
 - `retrieval_count` INTEGER DEFAULT 0
 - *indexes:* `idx_decisions_entity`, `idx_decisions_epistemic_source`, `idx_decisions_visibility`
+
+#### `epistemic_events`
+**8 columns**
+- `id` TEXT PRIMARY KEY
+- `session_id` TEXT NOT NULL
+- `event_type` TEXT NOT NULL
+- `agent_id` TEXT
+- `data_json` TEXT
+- `timestamp` REAL NOT NULL
+- `node_id` TEXT
+- `created_at` TEXT DEFAULT datetime('now')
 
 #### `epistemic_snapshots`
 **20 columns**
@@ -595,6 +633,14 @@ Alphabetical. Column lines read `name TYPE [PRIMARY KEY|NOT NULL] [DEFAULT x] [(
 - `review_verdict` TEXT DEFAULT NULL
 - `cortex_uuid` TEXT DEFAULT NULL
 - *indexes:* `idx_epistemic_sources_confidence`, `idx_epistemic_sources_content_hash`, `idx_epistemic_sources_cortex_uuid`, `idx_epistemic_sources_project`, `idx_epistemic_sources_session`, `idx_epistemic_sources_type`, `idx_epistemic_sources_visibility`
+
+#### `goal_dependencies`
+**5 columns**
+- `id` TEXT PRIMARY KEY
+- `goal_id` TEXT NOT NULL (FK: goals.id)
+- `depends_on_goal_id` TEXT NOT NULL (FK: goals.id)
+- `dependency_type` TEXT NOT NULL
+- `description` TEXT
 
 #### `goals`
 **21 columns**
@@ -1114,6 +1160,11 @@ Alphabetical. Column lines read `name TYPE [PRIMARY KEY|NOT NULL] [DEFAULT x] [(
 - `rollup_summary` TEXT
 - `created_at` TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 
+#### `subtask_dependencies`
+**2 columns**
+- `subtask_id` TEXT PRIMARY KEY (FK: subtasks.id)
+- `depends_on_subtask_id` TEXT PRIMARY KEY (FK: subtasks.id)
+
 #### `subtasks`
 **12 columns**
 - `id` TEXT PRIMARY KEY
@@ -1128,6 +1179,16 @@ Alphabetical. Column lines read `name TYPE [PRIMARY KEY|NOT NULL] [DEFAULT x] [(
 - `created_timestamp` REAL NOT NULL
 - `completed_timestamp` REAL
 - `subtask_data` TEXT NOT NULL
+
+#### `success_criteria`
+**7 columns**
+- `id` TEXT PRIMARY KEY
+- `goal_id` TEXT NOT NULL (FK: goals.id)
+- `description` TEXT NOT NULL
+- `validation_method` TEXT NOT NULL
+- `threshold` REAL
+- `is_required` BOOLEAN DEFAULT 1
+- `is_met` BOOLEAN DEFAULT 0
 
 #### `suggestions`
 **14 columns**
@@ -1145,6 +1206,13 @@ Alphabetical. Column lines read `name TYPE [PRIMARY KEY|NOT NULL] [DEFAULT x] [(
 - `created_timestamp` REAL NOT NULL
 - `reviewed_timestamp` REAL
 - `suggestion_data` TEXT
+
+#### `task_decompositions`
+**4 columns**
+- `goal_id` TEXT PRIMARY KEY (FK: goals.id)
+- `total_estimated_tokens` INTEGER
+- `created_timestamp` REAL NOT NULL
+- `decomposition_data` TEXT NOT NULL
 
 #### `token_savings`
 **6 columns**
@@ -1267,6 +1335,26 @@ Alphabetical. Column lines read `name TYPE [PRIMARY KEY|NOT NULL] [DEFAULT x] [(
 - *indexes:* `idx_weave_events_session`, `idx_weave_events_txn`
 
 <!-- END GENERATED -->
+
+## Legacy tables you may find in a long-lived database
+
+Not in the registry, not created by current code, not read by current code.
+`python3 scripts/gen_schema_doc.py --diff-db <sessions.db>` names them for a
+given store. Measured 2026-09-18 on a practice database that dates from the
+first release:
+
+| table | why it is there | rows here | safe to drop? |
+|---|---|---|---|
+| `act_logs`, `investigation_logs`, `investigation_tools` | early cascade logging, schema removed | 0 | yes when empty |
+| `client_findings`, `client_interactions`, `client_unknowns`, `clients` | CRM prototype, moved to empirica-workspace (`o-<slug>` organizations) | 0 / 0 / 0 / 1 | needs a ruling — `clients` holds a row |
+| `divergence_tracking`, `drift_monitoring` | removed in v1.2.0 (drift now uses the signaling system) | 0 | yes when empty |
+| `project_reference_docs` | dropped by migration 047 (data moved to `epistemic_sources`); recreated empty by an older binary's `ALL_SCHEMAS` opening the same store | 0 | yes when empty |
+| `engagements` | vendored by `data/repositories/workspace_db.py`; workspace's lane, not core's | 0 | not core's call |
+
+No migration drops these. A drop is a destructive operation on someone's
+history and takes an explicit ruling per table; the empty ones can go in one
+migration once that ruling exists. Until then they cost nothing but a line
+in `--diff-db`.
 
 ## Key Foreign Key Relationships
 

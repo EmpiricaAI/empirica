@@ -52,6 +52,7 @@ from empirica.core.epistemic_bus import (
     EventTypes,
     get_global_bus,
 )
+from empirica.data.schema.lazy_tables_schema import LAZY_TABLE_DDL
 
 logger = logging.getLogger(__name__)
 
@@ -766,18 +767,7 @@ class ContextBudgetManager(EpistemicObserver):
                 return False
             cursor = db.conn.cursor()
 
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS context_budget_state (
-                    session_id TEXT PRIMARY KEY,
-                    node_id TEXT,
-                    inventory_json TEXT,
-                    thresholds_json TEXT,
-                    page_faults INTEGER,
-                    evictions INTEGER,
-                    created_at REAL,
-                    updated_at REAL
-                )
-            """)
+            cursor.execute(LAZY_TABLE_DDL["context_budget_state"])
 
             inventory_data = {item_id: item.to_dict() for item_id, item in self._inventory.items()}
 

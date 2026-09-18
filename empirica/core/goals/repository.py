@@ -11,6 +11,7 @@ import logging
 import time
 from typing import Any
 
+from empirica.data.schema.lazy_tables_schema import LAZY_TABLE_DDL
 from empirica.data.session_database import SessionDatabase
 
 from .types import Goal, ScopeVector
@@ -52,31 +53,10 @@ class GoalRepository:
             """)
 
             # Success criteria table (normalized)
-            self.db.conn.execute("""
-                CREATE TABLE IF NOT EXISTS success_criteria (
-                    id TEXT PRIMARY KEY,
-                    goal_id TEXT NOT NULL,
-                    description TEXT NOT NULL,
-                    validation_method TEXT NOT NULL,
-                    threshold REAL,
-                    is_required BOOLEAN DEFAULT 1,
-                    is_met BOOLEAN DEFAULT 0,
-                    FOREIGN KEY (goal_id) REFERENCES goals(id)
-                )
-            """)
+            self.db.conn.execute(LAZY_TABLE_DDL["success_criteria"])
 
             # Dependencies table (normalized)
-            self.db.conn.execute("""
-                CREATE TABLE IF NOT EXISTS goal_dependencies (
-                    id TEXT PRIMARY KEY,
-                    goal_id TEXT NOT NULL,
-                    depends_on_goal_id TEXT NOT NULL,
-                    dependency_type TEXT NOT NULL,
-                    description TEXT,
-                    FOREIGN KEY (goal_id) REFERENCES goals(id),
-                    FOREIGN KEY (depends_on_goal_id) REFERENCES goals(id)
-                )
-            """)
+            self.db.conn.execute(LAZY_TABLE_DDL["goal_dependencies"])
 
             self.db.conn.commit()
             logger.info("Goal tables ensured in database")

@@ -9,6 +9,7 @@ MVP implementation: Simple database operations for task tracking.
 import json
 import logging
 
+from empirica.data.schema.lazy_tables_schema import LAZY_TABLE_DDL
 from empirica.data.session_database import SessionDatabase
 
 from .types import EpistemicImportance, SubTask, TaskDecomposition, TaskStatus
@@ -118,26 +119,10 @@ class TaskRepository:
             """)
 
             # Task dependencies table
-            self.db.conn.execute("""
-                CREATE TABLE IF NOT EXISTS subtask_dependencies (
-                    subtask_id TEXT NOT NULL,
-                    depends_on_subtask_id TEXT NOT NULL,
-                    PRIMARY KEY (subtask_id, depends_on_subtask_id),
-                    FOREIGN KEY (subtask_id) REFERENCES subtasks(id),
-                    FOREIGN KEY (depends_on_subtask_id) REFERENCES subtasks(id)
-                )
-            """)
+            self.db.conn.execute(LAZY_TABLE_DDL["subtask_dependencies"])
 
             # Task decompositions (metadata)
-            self.db.conn.execute("""
-                CREATE TABLE IF NOT EXISTS task_decompositions (
-                    goal_id TEXT PRIMARY KEY,
-                    total_estimated_tokens INTEGER,
-                    created_timestamp REAL NOT NULL,
-                    decomposition_data TEXT NOT NULL,
-                    FOREIGN KEY (goal_id) REFERENCES goals(id)
-                )
-            """)
+            self.db.conn.execute(LAZY_TABLE_DDL["task_decompositions"])
 
             self.db.conn.commit()
             logger.info("Task tables ensured in database")

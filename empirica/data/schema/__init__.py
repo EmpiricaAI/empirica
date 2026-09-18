@@ -10,6 +10,7 @@ from .concept_graph_schema import SCHEMAS as CONCEPT_GRAPH_SCHEMAS
 from .epistemic_schema import SCHEMAS as EPISTEMIC_SCHEMAS
 from .extended_schema import SCHEMAS as EXTENDED_SCHEMAS
 from .goals_schema import SCHEMAS as GOALS_SCHEMAS
+from .lazy_tables_schema import SCHEMAS as LAZY_TABLE_SCHEMAS
 from .projects_schema import SCHEMAS as PROJECTS_SCHEMAS
 from .sessions_schema import SCHEMAS as SESSIONS_SCHEMAS
 from .tracking_schema import SCHEMAS as TRACKING_SCHEMAS
@@ -28,6 +29,7 @@ ALL_SCHEMAS = (
     + EXTENDED_SCHEMAS
     + VERIFICATION_SCHEMAS
     + CODEBASE_MODEL_SCHEMAS
+    + LAZY_TABLE_SCHEMAS
 )
 
 __all__ = [
@@ -37,6 +39,7 @@ __all__ = [
     "EPISTEMIC_SCHEMAS",
     "EXTENDED_SCHEMAS",
     "GOALS_SCHEMAS",
+    "LAZY_TABLE_SCHEMAS",
     "PROJECTS_SCHEMAS",
     "SESSIONS_SCHEMAS",
     "TRACKING_SCHEMAS",

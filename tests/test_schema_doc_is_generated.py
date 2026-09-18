@@ -99,3 +99,50 @@ def test_check_mode_exit_codes(gen, monkeypatch, tmp_path):
     assert gen.main(["--check"]) == 1
     assert gen.main([]) == 0  # rewrites
     assert gen.main(["--check"]) == 0
+
+
+# ─── the seven formerly-lazy tables are in the registry, once ────────────
+
+
+def test_formerly_lazy_tables_materialise_on_a_fresh_install(gen, tmp_path):
+    """Before: goals/tasks repositories, the bus, the budget and calibration
+    insights each created their table on first use, so a fresh install lacked
+    them until that code ran. The DDL now lives in one schema module that
+    ALL_SCHEMAS includes and the creators execute."""
+    from empirica.data.schema.lazy_tables_schema import LAZY_TABLE_DDL
+
+    db = tmp_path / "s.db"
+    gen.materialise_current_schema(db)
+    conn = sqlite3.connect(db)
+    try:
+        present = set(gen._tables(conn))
+    finally:
+        conn.close()
+    assert set(LAZY_TABLE_DDL) <= present
+    assert len(LAZY_TABLE_DDL) == 7
+
+
+def test_lazy_creators_execute_the_registry_ddl_not_their_own():
+    """One source of truth: no module outside the registry carries a CREATE
+    TABLE for these names any more."""
+    import re
+
+    names = "|".join(
+        (
+            "success_criteria",
+            "goal_dependencies",
+            "subtask_dependencies",
+            "task_decompositions",
+            "epistemic_events",
+            "context_budget_state",
+            "calibration_insights",
+        )
+    )
+    pattern = re.compile(rf"CREATE TABLE IF NOT EXISTS ({names})\b")
+    offenders = []
+    for path in (REPO / "empirica").rglob("*.py"):
+        if "data/schema" in str(path) or "data/migrations" in str(path):
+            continue
+        if pattern.search(path.read_text(encoding="utf-8", errors="replace")):
+            offenders.append(str(path.relative_to(REPO)))
+    assert offenders == []

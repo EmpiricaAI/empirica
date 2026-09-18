@@ -22,6 +22,8 @@ import time
 import uuid
 from dataclasses import dataclass, field
 
+from empirica.data.schema.lazy_tables_schema import LAZY_TABLE_DDL
+
 logger = logging.getLogger(__name__)
 
 
@@ -96,23 +98,7 @@ class CalibrationInsightsAnalyzer:
 
     def _ensure_table(self):
         """Create calibration_insights table if it doesn't exist."""
-        self.db.conn.execute("""
-            CREATE TABLE IF NOT EXISTS calibration_insights (
-                insight_id TEXT PRIMARY KEY,
-                session_id TEXT,
-                transaction_id TEXT,
-                vector TEXT,
-                phase TEXT,
-                pattern TEXT,
-                severity REAL,
-                description TEXT,
-                suggestion TEXT,
-                evidence_sources TEXT,
-                observation_count INTEGER,
-                acted_on BOOLEAN DEFAULT FALSE,
-                created_at REAL
-            )
-        """)
+        self.db.conn.execute(LAZY_TABLE_DDL["calibration_insights"])
         self.db.conn.commit()
 
     def _get_recent_verifications(self) -> list[dict]:

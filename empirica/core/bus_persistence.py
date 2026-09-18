@@ -34,6 +34,7 @@ from empirica.core.epistemic_bus import (
     EpistemicObserver,
     get_global_bus,
 )
+from empirica.data.schema.lazy_tables_schema import LAZY_TABLE_DDL
 
 logger = logging.getLogger(__name__)
 
@@ -61,18 +62,7 @@ class SqliteBusObserver(EpistemicObserver):
             db = SessionDatabase()
             if db.conn is None:
                 return
-            db.conn.execute("""
-                CREATE TABLE IF NOT EXISTS epistemic_events (
-                    id TEXT PRIMARY KEY,
-                    session_id TEXT NOT NULL,
-                    event_type TEXT NOT NULL,
-                    agent_id TEXT,
-                    data_json TEXT,
-                    timestamp REAL NOT NULL,
-                    node_id TEXT,
-                    created_at TEXT DEFAULT (datetime('now'))
-                )
-            """)
+            db.conn.execute(LAZY_TABLE_DDL["epistemic_events"])
             db.conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_events_session
                 ON epistemic_events(session_id, timestamp)
