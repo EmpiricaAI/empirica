@@ -113,7 +113,10 @@ def _is_cortex_configured() -> bool:
         from empirica.core.auth.cortex_oauth import cortex_configured
 
         return cortex_configured()
-    except Exception:
+    except Exception as e:
+        # Still False — setup must not fail on it — but said, because a False
+        # here removes the mesh from the rendered prompt with nothing else to show.
+        logger.warning(f"could not check cortex configuration, rendering the prompt without the mesh layer: {e}")
         return False
 
 

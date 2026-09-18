@@ -1282,8 +1282,9 @@ _DRIFT_PREDICATE = (
 )
 
 
-def _count_goal_drift(cursor, project_id, status_filter, show_completed) -> int:
-    """Return drift count for the project, or 0 if not applicable to this view."""
+def _count_goal_drift(cursor, project_id, status_filter, show_completed) -> int | None:
+    """Return drift count for the project, 0 if not applicable to this view, or
+    None if the count failed — which must not read as "no drift"."""
     if not project_id or show_completed or status_filter in ("completed", "drift", "all"):
         return 0
     try:
@@ -1294,8 +1295,9 @@ def _count_goal_drift(cursor, project_id, status_filter, show_completed) -> int:
             (project_id,),
         )
         return cursor.fetchone()[0]
-    except Exception:
-        return 0
+    except Exception as e:
+        logger.warning(f"goal drift count failed: {e}")
+        return None
 
 
 #: Filters that are AGGREGATES rather than literal status values — they answer a
@@ -1365,7 +1367,10 @@ def _annotate_goals_result(result, empty_status_note, drift_count) -> None:
     """
     if empty_status_note:
         result["note"] = empty_status_note
-    if drift_count:
+    if drift_count is None:
+        result["drift_count"] = None
+        result["drift_hint"] = "status/is_completed drift could not be counted (query failed); treat as unknown."
+    elif drift_count:
         result["drift_count"] = drift_count
         result["drift_hint"] = (
             f"{drift_count} goal(s) have status/is_completed mismatch — "

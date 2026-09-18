@@ -573,6 +573,11 @@ def _verify_push_landed(remote: str, remote_before: int | None) -> tuple[dict[st
         verification["reason"] = after_err or "remote unreachable after push"
         return verification, False
 
+    if local_total is None:
+        verification["verdict"] = "unknown"
+        verification["reason"] = "local note refs could not be counted, so the push cannot be checked"
+        return verification, False
+
     verification["pushed"] = remote_after - remote_before if remote_before is not None else None
 
     if remote_after >= local_total:
@@ -839,7 +844,7 @@ def handle_sync_pull_command(args):
         return 1
 
 
-def _count_all_local_note_refs() -> int:
+def _count_all_local_note_refs() -> int | None:
     """EVERY ref under ``refs/notes/``, not just the enumerated namespaces.
 
     ``_count_local_notes()`` walks ``EMPIRICA_NOTES_REFS`` and is the right function
@@ -861,10 +866,15 @@ def _count_all_local_note_refs() -> int:
             timeout=15,
             check=False,
         )
-    except Exception:
-        return 0
+    except Exception as e:
+        # None, not 0: a local count of 0 reads as "nothing to replicate", and
+        # after a push as "replicated" — the reassuring answer to a question
+        # this could not ask.
+        logger.warning(f"could not count local note refs: {e}")
+        return None
     if proc.returncode != 0:
-        return 0
+        logger.warning(f"could not count local note refs: git exited {proc.returncode}")
+        return None
     return len([ln for ln in proc.stdout.splitlines() if ln.strip()])
 
 
@@ -893,7 +903,7 @@ def _count_remote_notes(remote: str, timeout: int = 20) -> tuple[int | None, str
     return len([ln for ln in proc.stdout.splitlines() if ln.strip()]), None
 
 
-def _replication_verdict(local: int, remote_count: int | None, unreachable: str | None) -> dict[str, Any]:
+def _replication_verdict(local: int | None, remote_count: int | None, unreachable: str | None) -> dict[str, Any]:
     """Are local notes actually reaching the remote? Say it in words.
 
     THE GAP THIS CLOSES. Across four practices measured 2026-09-02, ~9,500 epistemic
@@ -908,6 +918,8 @@ def _replication_verdict(local: int, remote_count: int | None, unreachable: str 
     if unreachable or remote_count is None:
         reason = unreachable or "remote ref count unavailable"
         return {"state": "unknown", "reason": f"remote not reachable — {reason}", "behind": None}
+    if local is None:
+        return {"state": "unknown", "reason": "local note refs could not be counted", "behind": None}
     behind = local - remote_count
     if local == 0:
         return {"state": "nothing_to_replicate", "reason": "no local note refs", "behind": 0}
