@@ -141,7 +141,6 @@ from .identity_commands import (
     handle_identity_verify_command,
 )
 from .investigation_commands import (
-    handle_analyze_command,
     handle_investigate_checkpoint_branch_command,
     handle_investigate_command,
     handle_investigate_create_branch_command,
@@ -293,7 +292,6 @@ from .workspace_search import handle_workspace_search_command
 # Export all handlers — deliberately grouped by domain (comments separate
 # semantic clusters), so strict alphabetical sort would lose the structure.
 __all__ = [  # noqa: RUF022
-    "handle_analyze_command",
     # Artifact generation
     "handle_artifacts_generate_command",
     "handle_assess_state_command",

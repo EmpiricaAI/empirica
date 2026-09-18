@@ -1,342 +1,60 @@
-"""
-Investigation Commands - Analysis, investigation, and exploration functionality
+"""Investigation commands: ``investigate`` (retrieval) and the epistemic branch verbs.
+
+``empirica investigate <query>`` is the retrieval verb the system prompt and
+``noetic-batch`` describe: an in-process alias of ``project-search --task``.
+It used to dispatch on the target instead — a file or directory went to two
+analyzer modules that were never shipped (every call returned an error dict
+under a "✅ Investigation complete" banner and exited 0), ``--type
+comprehensive`` raised on a field the parser never set, and a concept
+returned a hardcoded mock with ``analysis_depth: 0.7``. Zero working paths for
+the verb's whole life; the docs described output nothing produced.
+
+A target that names an existing file or directory is refused with exit 1
+rather than searched: that caller wanted analysis, which this verb does not
+do — ``Read``/``Grep`` do.
 """
 
+import argparse
 import json
+import logging
 import os
 from typing import Any
 
-from ..cli_utils import handle_cli_error, parse_json_safely, run_empirica_subprocess
+from ..cli_utils import handle_cli_error, parse_json_safely
 
-
-def _get_recalibration_attempts(session_id: str) -> int:
-    """
-    Get the number of recalibration attempts in this session.
-
-    Prevents infinite INVESTIGATE loops by tracking how many times
-    we've tried to recalibrate after drift detection.
-
-    Returns: Number of attempts (0 if session not found)
-    """
-    try:
-        from empirica.data.session_database import SessionDatabase
-
-        db = SessionDatabase()
-        session_data = db.get_session(session_id)
-
-        if not session_data:
-            return 0
-
-        # Count CHECK commands with 'investigate' decision in this session
-        # This is tracked in the reflexes table
-        from empirica.core.canonical.git_enhanced_reflex_logger import GitEnhancedReflexLogger
-
-        git_logger = GitEnhancedReflexLogger(session_id=session_id, enable_git_notes=True)
-        checkpoints = git_logger.list_checkpoints(limit=100)
-
-        investigate_count = 0
-        for checkpoint in checkpoints:
-            if checkpoint and checkpoint.get("metadata", {}).get("decision") == "investigate":
-                investigate_count += 1
-
-        return investigate_count
-    except Exception:
-        return 0
-
-
-def _get_profile_thresholds():
-    """Get thresholds from investigation profiles instead of using hardcoded values"""
-    try:
-        from empirica.config.profile_loader import ProfileLoader
-
-        loader = ProfileLoader()
-        universal = loader.universal_constraints
-
-        try:
-            profile = loader.get_profile("balanced")
-            constraints = profile.investigation
-
-            return {
-                "confidence_low": getattr(constraints, "confidence_low_threshold", 0.5),
-                "confidence_high": getattr(constraints, "confidence_high_threshold", 0.7),
-                "engagement_gate": universal.engagement_gate,
-                "coherence_min": universal.coherence_min,
-            }
-        except Exception:
-            return {
-                "confidence_low": 0.5,
-                "confidence_high": 0.7,
-                "engagement_gate": universal.engagement_gate,
-                "coherence_min": universal.coherence_min,
-            }
-    except Exception:
-        return {
-            "confidence_low": 0.5,
-            "confidence_high": 0.7,
-            "engagement_gate": 0.6,
-            "coherence_min": 0.5,
-        }
-
-
-def _investigate_load_bootstrap(session_id):
-    """Load bootstrap context for noetic recalibration.
-
-    Returns (bootstrap_context, recalibration_attempt) or (None, attempt)
-    if recalibration limit reached (caller should return early).
-    """
-    recalibration_attempt = _get_recalibration_attempts(session_id)
-
-    if recalibration_attempt >= 3:
-        print(f"⚠️  Recalibration attempt limit reached ({recalibration_attempt})")
-        print("   Consider: pausing investigation, taking a snapshot, or starting fresh")
-        print("   Further investigation may not resolve drift")
-        return None, recalibration_attempt
-
-    bootstrap_context = {}
-    try:
-        result = run_empirica_subprocess(
-            ["empirica", "project-bootstrap", "--session-id", session_id, "--output", "json"], timeout=30
-        )
-        if result.returncode == 0:
-            bootstrap_data = json.loads(result.stdout)
-            bootstrap_context = bootstrap_data.get("breadcrumbs", {})
-            print(f"📦 Loaded context anchor from bootstrap (attempt {recalibration_attempt + 1}/3)")
-            print(f"   Findings: {len(bootstrap_context.get('findings', []))}")
-            print(f"   Unknowns: {len(bootstrap_context.get('unknowns', []))}")
-            print(f"   Goals: {len(bootstrap_context.get('goals', []))}")
-    except Exception:
-        pass  # Bootstrap failure is non-fatal
-
-    return bootstrap_context, recalibration_attempt
-
-
-def _investigate_dispatch(investigation_type, target, args):
-    """Dispatch investigation to the correct handler based on type.
-
-    Returns the investigation result dict.
-    """
-    verbose = getattr(args, "verbose", False)
-
-    if investigation_type == "auto":
-        if os.path.exists(target):
-            if os.path.isfile(target):
-                return _investigate_file(target, verbose)
-            elif os.path.isdir(target):
-                return _investigate_directory(target, verbose)
-            else:
-                return {"error": "Target exists but is neither file nor directory"}
-        else:
-            return _investigate_concept(target, getattr(args, "context", None), verbose)
-
-    dispatch = {
-        "file": lambda: _investigate_file(target, verbose),
-        "directory": lambda: _investigate_directory(target, verbose),
-        "concept": lambda: _investigate_concept(target, getattr(args, "context", None), verbose),
-    }
-    handler = dispatch.get(investigation_type)
-    if handler:
-        return handler()
-    return {"error": f"Unknown investigation type: {investigation_type}"}
-
-
-def _investigate_display_results(target, result):
-    """Display investigation results to stdout."""
-    print("✅ Investigation complete")
-    print(f"   🎯 Target: {target}")
-    print(f"   📊 Type: {result.get('type', 'unknown')}")
-
-    if result.get("summary"):
-        print(f"   📝 Summary: {result['summary']}")
-
-    if result.get("findings"):
-        print("🔍 Key findings:")
-        for finding in result["findings"][:5]:
-            print(f"   • {finding}")
-
-    if result.get("metrics"):
-        print("📊 Metrics:")
-        for metric, value in result["metrics"].items():
-            print(f"   • {metric}: {value}")
-
-    if result.get("recommendations"):
-        print("💡 Recommendations:")
-        for rec in result["recommendations"]:
-            print(f"   • {rec}")
-
-    if result.get("error"):
-        print(f"❌ Investigation error: {result['error']}")
+logger = logging.getLogger(__name__)
 
 
 def handle_investigate_command(args):
-    """Handle investigation command (consolidates investigate + analyze)
+    """Semantic retrieval over this project's docs + memory (``project-search``)."""
+    from .project_search import handle_project_search_command
 
-    For NOETIC RECALIBRATION:
-    - If session-id provided, automatically load project-bootstrap first
-    - Bootstrap provides context anchor (findings, unknowns, goals)
-    - Investigation then rebuilds understanding from that anchor
-    """
-    try:
-        investigation_type = getattr(args, "type", "auto")
-        if investigation_type == "comprehensive":
-            return handle_analyze_command(args)
-
-        session_id = getattr(args, "session_id", None)
-        if session_id:
-            bootstrap_context, recalibration_attempt = _investigate_load_bootstrap(session_id)
-            if bootstrap_context is None and recalibration_attempt >= 3:
-                return None
-
-        target = args.target
-        print(f"🔍 Investigating: {target}")
-
-        result = _investigate_dispatch(investigation_type, target, args)
-
-        _investigate_display_results(target, result)
-
-        output_format = getattr(args, "output", "default")
-        if output_format == "json":
-            print(json.dumps(result, indent=2))
-
-        return None
-
-    except Exception as e:
-        handle_cli_error(e, "Investigation", getattr(args, "verbose", False))
-
-
-def handle_analyze_command(args):
-    """Handle comprehensive analysis (called from investigate --type=comprehensive)"""
-    try:
-        from empirica.components.empirical_performance_analyzer import EmpiricalPerformanceAnalyzer
-
-        # Support both 'subject' (old analyze) and 'target' (new investigate)
-        subject = getattr(args, "subject", None) or getattr(args, "target", "unknown")
-        print(f"📊 Analyzing: {subject}")
-
-        analyzer = EmpiricalPerformanceAnalyzer()
-        context = parse_json_safely(getattr(args, "context", None))
-
-        # Run comprehensive analysis
-        result = analyzer.analyze_performance(
-            subject=args.subject,
-            context=context,
-            analysis_type=getattr(args, "type", "general"),
-            detailed=getattr(args, "detailed", False),
-        )
-
-        print("✅ Analysis complete")
-        print(f"   🎯 Subject: {args.subject}")
-        print(f"   📊 Analysis type: {result.get('analysis_type', 'general')}")
-        print(f"   🏆 Score: {result.get('score', 0):.2f}")
-
-        # Show analysis dimensions
-        if result.get("dimensions"):
-            thresholds = _get_profile_thresholds()
-            print("📏 Analysis dimensions:")
-            for dimension, score in result["dimensions"].items():
-                status = (
-                    "✅"
-                    if score > thresholds["confidence_high"]
-                    else "⚠️"
-                    if score > thresholds["confidence_low"]
-                    else "❌"
-                )
-                print(f"   {status} {dimension}: {score:.2f}")
-
-        # Show insights
-        if result.get("insights"):
-            print("💭 Insights:")
-            for insight in result["insights"]:
-                print(f"   • {insight}")
-
-        # Show detailed breakdown if requested
-        if getattr(args, "detailed", False) and result.get("detailed_breakdown"):
-            print("🔍 Detailed breakdown:")
-            for category, details in result["detailed_breakdown"].items():
-                print(f"   📂 {category}:")
-                if isinstance(details, dict):
-                    for key, value in details.items():
-                        print(f"     • {key}: {value}")
-                else:
-                    print(f"     {details}")
-
-        # Format output based on requested format
-        output_format = getattr(args, "output", "default")
-        if output_format == "json":
-            print(json.dumps(result, indent=2))
-
-        # Return None to avoid exit code issues and duplicate output
-        return None
-
-    except Exception as e:
-        handle_cli_error(e, "Analysis", getattr(args, "verbose", False))
-
-
-def _investigate_file(file_path: str, verbose: bool = False) -> dict:
-    """Investigate a specific file"""
-    try:
-        from empirica.components.code_intelligence_analyzer import (  # pyright: ignore[reportMissingImports]
-            CodeIntelligenceAnalyzer,
-        )
-
-        analyzer = CodeIntelligenceAnalyzer()
-        result = analyzer.analyze_file(file_path)
-
-        return {
-            "type": "file",
-            "summary": result.get("summary", f"Analysis of {os.path.basename(file_path)}"),
-            "findings": result.get("key_findings", []),
-            "metrics": result.get("metrics", {}),
-            "recommendations": result.get("recommendations", []),
-        }
-
-    except Exception as e:
-        return {"error": str(e), "type": "file"}
-
-
-def _investigate_directory(dir_path: str, verbose: bool = False) -> dict:
-    """Investigate a directory structure"""
-    try:
-        from empirica.components.workspace_awareness import WorkspaceNavigator  # pyright: ignore[reportMissingImports]
-
-        workspace = WorkspaceNavigator()
-        result = workspace.analyze_directory(dir_path)
-
-        return {
-            "type": "directory",
-            "summary": result.get("summary", f"Analysis of {os.path.basename(dir_path)}"),
-            "findings": result.get("structure_insights", []),
-            "metrics": result.get("metrics", {}),
-            "recommendations": result.get("recommendations", []),
-        }
-
-    except Exception as e:
-        return {"error": str(e), "type": "directory"}
-
-
-def _investigate_concept(concept: str, context: str | None = None, verbose: bool = False) -> dict:
-    """Investigate a concept or abstract idea"""
-    try:
-        # NOTE: EpistemicAssessor moved to empirica-sentinel repo
-        parse_json_safely(context)
-
-        # Use available method or create mock result
+    target = args.target
+    output = getattr(args, "output", "human")
+    if os.path.exists(target):
         result = {
-            "summary": f"Concept investigation: {concept}",
-            "insights": [f"Analyzing concept: {concept}"],
-            "confidence_metrics": {"analysis_depth": 0.7},
-            "recommendations": ["Further investigation recommended"],
+            "ok": False,
+            "error": f"investigate does not analyze files or directories: {target}",
+            "hint": "read it with Read/Grep, or pass a question to retrieve what the practice already knows about it",
         }
+        if output == "json":
+            print(json.dumps(result, indent=2))
+        else:
+            print(f"❌ {result['error']}")
+            print(f"   {result['hint']}")
+        return 1
 
-        return {
-            "type": "concept",
-            "summary": result.get("summary", f"Investigation of concept: {concept}"),
-            "findings": result.get("insights", []),
-            "metrics": result.get("confidence_metrics", {}),
-            "recommendations": result.get("recommendations", []),
-        }
-
-    except Exception as e:
-        return {"error": str(e), "type": "concept"}
+    return handle_project_search_command(
+        argparse.Namespace(
+            project_id=None,
+            task=target,
+            type="focused",
+            limit=getattr(args, "limit", 5),
+            output=output,
+            verbose=getattr(args, "verbose", False),
+            global_search=getattr(args, "global_search", False),
+        )
+    )
 
 
 # ========== Epistemic Branching Commands ==========
@@ -479,8 +197,12 @@ def _merge_tag_losing_branches(db, session_id, merge_result):
         row = cursor.fetchone()
         if row:
             project_id = row[0]
-    except Exception:
-        pass
+    except Exception as e:
+        # Without the project id the dead-ends below are logged unscoped and
+        # never embedded; say so rather than tag losers into the void.
+        logger.warning(
+            "could not resolve project_id for session %s: %s — dead-ends logged unscoped, not embedded", session_id, e
+        )
 
     for loser in merge_result["other_branches"]:
         loser_name = loser.get("branch_name", "unknown")
@@ -494,7 +216,7 @@ def _merge_tag_losing_branches(db, session_id, merge_result):
         )
 
         db.log_project_dead_end(
-            project_id=None,
+            project_id=project_id,
             session_id=session_id,
             approach=approach,
             why_failed=why_failed,
@@ -521,8 +243,8 @@ def _merge_tag_losing_branches(db, session_id, merge_result):
                 )
                 if embedded:
                     dead_ends_embedded += 1
-            except ImportError:
-                pass
+            except ImportError as e:
+                logger.warning("dead-end for branch %s not embedded: %s", loser_branch_id, e)
 
     return dead_ends_logged, dead_ends_embedded
 

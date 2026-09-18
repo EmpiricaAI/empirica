@@ -10,7 +10,7 @@
 
 Investigation tools support the **NOETIC phase** - exploring, hypothesizing, and gathering evidence before action. They provide:
 
-- Target-based investigation (file, directory, concept, comprehensive)
+- Retrieval over the practice's own knowledge (`investigate` = `project-search --task`)
 - Multi-persona parallel investigation
 - Git branch isolation for exploratory work
 - Structured logging of investigation results
@@ -24,66 +24,33 @@ Investigation tools support the **NOETIC phase** - exploring, hypothesizing, and
 
 ### `investigate`
 
-Launch investigation with automatic type detection.
+Retrieve what this practice already knows about a topic. An in-process alias
+of `project-search --task` — same collections (docs, memory, eidetic,
+episodic; `--global` adds the global-learnings pool and other local projects).
 
 ```bash
-# Auto-detect target type
-empirica investigate src/auth/jwt.py
-
-# Specify investigation type
-empirica investigate --type comprehensive src/auth/
-
-# With session context (loads project bootstrap)
-empirica investigate --session-id <ID> --type concept "authentication patterns"
-
-# Detailed/verbose output
-empirica investigate src/auth/ --detailed
+empirica investigate "how does the sentinel gate loops between transactions"
+empirica investigate "listener pause" --limit 10 --global --output json
 ```
 
 **Parameters:**
 
 | Parameter | Required | Default | Description |
 |-----------|----------|---------|-------------|
-| `target` | Yes | - | Target to investigate (file, directory, or concept) |
-| `--session-id` | No | auto | Session ID (loads context via project-bootstrap) |
-| `--type` | No | `auto` | Investigation type: `auto`, `file`, `directory`, `concept`, `comprehensive` |
-| `--context` | No | - | JSON context data |
-| `--detailed` | No | `false` | Show detailed investigation output |
-| `--verbose` | No | `false` | Alias for --detailed |
+| `target` | Yes | - | Question or topic to retrieve for |
+| `--limit` | No | `5` | Number of results |
+| `--global` | No | `false` | Also search global learnings + other local projects |
+| `--output` | No | `human` | `human` or `json` (the JSON shape is `project-search`'s) |
 
-**Investigation Types:**
+**A file or directory path is refused** (exit 1, `ok: false`): this verb does
+not analyze code. Read it with `Read`/`Grep`, or ask a question about it.
 
-| Type | Description | Use Case |
-|------|-------------|----------|
-| `auto` | Auto-detect from target | Default behavior |
-| `file` | Single file deep analysis | Understanding a specific file |
-| `directory` | Directory structure analysis | Understanding a module |
-| `concept` | Semantic concept search | "How does auth work?" |
-| `comprehensive` | Full deep analysis (replaces analyze) | Complete understanding |
-
-**Output (JSON):**
-```json
-{
-  "ok": true,
-  "target": "src/auth/jwt.py",
-  "type": "file",
-  "investigation": {
-    "summary": "JWT token handling module",
-    "key_findings": [
-      "Uses RS256 signing algorithm",
-      "Token expiry set to 24 hours",
-      "Refresh tokens stored separately"
-    ],
-    "dependencies": ["cryptography", "pyjwt"],
-    "exports": ["create_token", "verify_token", "refresh_token"],
-    "complexity": "medium"
-  },
-  "epistemic_impact": {
-    "know_delta": 0.15,
-    "uncertainty_delta": -0.10
-  }
-}
-```
+> Until 1.13.47 `investigate` dispatched on the target type. The `file`,
+> `directory` and `comprehensive` types imported analyzers that were never
+> shipped and returned an error under a success banner with exit 0; the
+> `concept` type returned a hardcoded mock. None of those paths ever produced
+> the output this page used to show. They are gone, along with `--type`,
+> `--session-id`, `--context` and `--detailed`.
 
 ---
 
@@ -407,8 +374,8 @@ deadend_id = breadcrumbs.log_dead_end(
 ## Investigation Workflow
 
 ```
-1. Start Investigation
-   └── empirica investigate <target>
+1. Retrieve what is already known
+   └── empirica investigate "<question>"
 
 2. Create Branch (optional)
    └── empirica investigate-create-branch --name explore-X
@@ -462,4 +429,4 @@ Investigation tools feed into the epistemic transaction workflow:
 ---
 
 **API Stability:** Stable
-**Last Updated:** 2026-02-08
+**Last Updated:** 2026-09-18

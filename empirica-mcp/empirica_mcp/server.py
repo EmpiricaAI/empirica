@@ -664,9 +664,9 @@ TOOL_REGISTRY: dict[str, dict] = {
     # --- Investigation ---
     "investigate": {
         "cli": "investigate",
-        "params": {"session_id": "--session-id", "type": "--type", "context": "--context"},
-        "required": [],
-        "desc": "Run structured investigation (positional query text)",
+        "params": {"limit": "--limit", "global_search": "--global"},
+        "required": ["query"],
+        "desc": "Retrieve what this practice knows about a topic (alias of project-search --task; positional query text, not a file path)",
         "positional": "query",
     },
     # --- Handoff ---
@@ -1005,6 +1005,7 @@ _NUMERIC_PARAMS = {
     "cost_estimate",
 }
 _BOOLEAN_PARAMS = {
+    "global_search",
     "grounded",
     "trajectory",
     "completed",

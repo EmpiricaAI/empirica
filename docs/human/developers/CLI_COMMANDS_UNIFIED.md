@@ -23,7 +23,7 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.13.47
-**Generated:** 2026-09-16 17:37:40 UTC
+**Generated:** 2026-09-18 13:44:49 UTC
 **Total commands:** 243 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -2602,22 +2602,18 @@ Show issue capture statistics
 
 #### `empirica investigate`
 
-Investigate file/directory/concept
+Retrieve what the practice knows about a topic (alias of project-search --task)
 
 **Arguments:**
 
 - `target` — **required**
-  Target to investigate
-- `--session-id` — optional
-  Session ID (for noetic recalibration - loads context anchor via project-bootstrap)
-- `--type` — optional · type=`choice` · choices={auto, file, directory, concept, comprehensive} · default=`auto`
-  Investigation type. Use "comprehensive" for deep analysis (replaces analyze command)
-- `--context` — optional
-  JSON context data
-- `--detailed` — optional · flag
-  Show detailed investigation
+  Question or topic to retrieve for (not a file path)
+- `--limit` — optional · type=`int` · default=`5`
+  Number of results to return (default: 5)
+- `--global` — optional · flag
+  Also search the global-learnings pool + other LOCAL projects on this machine
 - `--verbose` — optional · flag
-  Show detailed investigation
+  Show detailed operation info
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format. empirica-mcp always passes --output json; bare CLI users get human by default.
 
@@ -4494,7 +4490,7 @@ Configure harness integration (hooks, system prompt, MCP server)
 - `--uninstall` — optional · flag
   Undo what setup wrote: remove the plugin dir and our own files, strip our keys from the configs Claude Code owns. PLAN ONLY unless --apply. The @include line in your own ~/.claude/CLAUDE.md is reported, never removed.
 - `--apply` — optional · flag
-  With --uninstall, actually remove. Without it you get the plan and nothing is touched.
+  REQUIRES --uninstall: actually remove (without --apply, --uninstall only prints the plan). Refused on its own — install has no dry-run.
 
 #### `empirica plugin-sync`
 
@@ -4546,7 +4542,7 @@ Check Empirica install health (Desktop + general — empirica-mcp, .empirica/, g
 - `--reconcile-notes` — optional · flag
   Repair historical notes/sqlite divergence: archive notes for artifacts sqlite no longer has, stamp resolutions notes never received. DRY-RUN unless --apply.
 - `--apply` — optional · flag
-  With --reconcile-notes, actually write. Without it you get the plan and nothing moves.
+  REQUIRES --reconcile-notes: actually write (without --apply you get the plan). Refused on its own — the health report never writes.
 
 #### `empirica release`
 

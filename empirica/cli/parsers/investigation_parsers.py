@@ -3,29 +3,28 @@
 
 def add_investigation_parsers(subparsers):
     """Add investigation command parsers"""
-    # Main investigate command (consolidates investigate + analyze)
-    investigate_parser = subparsers.add_parser("investigate", help="Investigate file/directory/concept")
-    investigate_parser.add_argument("target", help="Target to investigate")
-    investigate_parser.add_argument(
-        "--session-id", help="Session ID (for noetic recalibration - loads context anchor via project-bootstrap)"
+    # investigate <query>: retrieval over this project's docs + memory — an
+    # alias of `project-search --task`. It does not analyze files (a path
+    # target is refused); the file/directory/comprehensive types it once
+    # advertised never had an implementation behind them.
+    investigate_parser = subparsers.add_parser(
+        "investigate", help="Retrieve what the practice knows about a topic (alias of project-search --task)"
     )
+    investigate_parser.add_argument("target", help="Question or topic to retrieve for (not a file path)")
+    investigate_parser.add_argument("--limit", type=int, default=5, help="Number of results to return (default: 5)")
     investigate_parser.add_argument(
-        "--type",
-        default="auto",
-        choices=["auto", "file", "directory", "concept", "comprehensive"],
-        help='Investigation type. Use "comprehensive" for deep analysis (replaces analyze command)',
+        "--global",
+        dest="global_search",
+        action="store_true",
+        help="Also search the global-learnings pool + other LOCAL projects on this machine",
     )
-    investigate_parser.add_argument("--context", help="JSON context data")
-    investigate_parser.add_argument("--detailed", action="store_true", help="Show detailed investigation")
-    investigate_parser.add_argument("--verbose", action="store_true", help="Show detailed investigation")
+    investigate_parser.add_argument("--verbose", action="store_true", help="Show detailed operation info")
     investigate_parser.add_argument(
         "--output",
         choices=["human", "json"],
         default="human",
         help="Output format. empirica-mcp always passes --output json; bare CLI users get human by default.",
     )
-
-    # REMOVED: analyze command - use investigate --type=comprehensive instead
 
     # ========== Epistemic Branching Commands (CASCADE 2.0) ==========
 
