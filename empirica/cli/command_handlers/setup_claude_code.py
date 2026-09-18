@@ -488,6 +488,18 @@ def _register_all_hooks(settings, plugin_dir, python_cmd, output_format):
         use_extend=True,
     )
 
+    # Registered on its own detect pattern so an install that already has the
+    # Sentinel entries still gains it on the next setup (goal bc7aef96).
+    ruling_script = f"{python_cmd} {plugin_dir}/hooks/ruling-shape.py"
+    _register_hook(
+        settings,
+        "PreToolUse",
+        "ruling-shape",
+        [{"matcher": "AskUserQuestion", "hooks": [{"type": "command", "command": ruling_script, "timeout": 5}]}],
+        "PreToolUse (ruling shape) hook",
+        output_format,
+    )
+
     precompact_script = f"{python_cmd} {plugin_dir}/hooks/pre-compact.py"
     _register_hook(
         settings,

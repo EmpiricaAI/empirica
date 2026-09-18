@@ -7,9 +7,9 @@ practitioner's predicted answer with its reason, and room to override (David,
 the prediction is the first option, marked "(Recommended)", and the free-text
 "Other" is the override.
 
-This hook never blocks. When a single-select question offers no option marked
-"(Recommended)", it allows the call and attaches a one-line reminder, so the
-omission is visible at the moment of asking rather than only in review.
+This hook never blocks and never decides. When a single-select question offers
+no option marked "(Recommended)", it adds a one-line reminder to the model's
+context, so the omission is visible at the moment of asking.
 Multi-select questions are exempt (a set, not a ruling). Stdlib only: hooks run
 outside the package.
 """
@@ -52,10 +52,13 @@ def main() -> int:
     print(
         json.dumps(
             {
+                # additionalContext ONLY. A permissionDecision of "allow" can run
+                # AskUserQuestion without showing it, and its reason is shown to
+                # the user, not the model (hooks reference, PreToolUse decision
+                # control). No decision leaves the normal flow untouched.
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
-                    "permissionDecision": "allow",
-                    "permissionDecisionReason": reason,
+                    "additionalContext": reason,
                 }
             }
         )

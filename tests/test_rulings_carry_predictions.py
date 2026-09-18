@@ -55,8 +55,10 @@ def _ask(options, multi=False):
 
 def test_hook_reminds_when_no_option_is_recommended():
     out = _run_hook(_ask([{"label": "A", "description": ""}, {"label": "B", "description": ""}]))
-    reason = json.loads(out)["hookSpecificOutput"]["permissionDecisionReason"]
-    assert "Pin" in reason and "Recommended" in reason
+    hso = json.loads(out)["hookSpecificOutput"]
+    assert "Pin" in hso["additionalContext"] and "Recommended" in hso["additionalContext"]
+    # Must not decide: "allow" can run AskUserQuestion without showing it.
+    assert "permissionDecision" not in hso
 
 
 def test_hook_is_silent_when_the_prediction_is_marked():
