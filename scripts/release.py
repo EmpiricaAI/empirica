@@ -443,9 +443,10 @@ class ReleaseManager:
     def update_version_strings(self):
         """Update version strings in all source files not covered by other methods.
 
-        Covers: __init__.py, empirica-mcp/pyproject.toml, install.py,
-        setup_claude_code.py, install.sh (both copies), plugin.json (both copies),
-        CLAUDE.md (canonical + both template copies), Dockerfile.alpine.
+        Covers: __init__.py (both packages), empirica-mcp/pyproject.toml,
+        setup_claude_code.py, install.sh, plugin.json, the lean system prompt,
+        README and install docs, Dockerfile.alpine. Repo files only: a release
+        never writes the box it runs on.
         """
         version_files = [
             # (path, pattern, replacement)
@@ -479,11 +480,6 @@ class ReleaseManager:
                 f'"empirica>={self.version},<2"',
             ),
             (
-                self.repo_root / "scripts" / "install.py",
-                r'EMPIRICA_VERSION\s*=\s*"[^"]+"',
-                f'EMPIRICA_VERSION = "{self.version}"',
-            ),
-            (
                 self.repo_root / "empirica" / "cli" / "command_handlers" / "setup_claude_code.py",
                 r'PLUGIN_VERSION\s*=\s*"[^"]+"',
                 f'PLUGIN_VERSION = "{self.version}"',
@@ -497,12 +493,6 @@ class ReleaseManager:
                 self.repo_root / "empirica" / "plugins" / "claude-code-integration" / ".claude-plugin" / "plugin.json",
                 r'"version":\s*"[^"]+"',
                 f'"version": "{self.version}"',
-            ),
-            # Installed plugin VERSION file (drift detection at session start)
-            (
-                Path.home() / ".claude" / "plugins" / "local" / "empirica" / "VERSION",
-                r"^[0-9]+\.[0-9]+\.[0-9]+",
-                self.version,
             ),
             # __init__.py docstring version
             (
@@ -544,14 +534,32 @@ class ReleaseManager:
                 r"nubaeon/empirica:[0-9]+\.[0-9]+\.[0-9]+(-alpine)?",
                 lambda m: f"nubaeon/empirica:{self.version}{m.group(1) or ''}",
             ),
-            # MCP server reference + system-prompt CLAUDE.md "Syncs with" label
+            # MCP server reference
             (
                 self.repo_root / "docs" / "human" / "developers" / "MCP_SERVER_REFERENCE.md",
                 r"\*\*Version:\*\*\s+[0-9]+\.[0-9]+\.[0-9]+",
                 f"**Version:** {self.version}",
             ),
+            # The lean system prompt is the canonical prompt now; the
+            # system-prompts/ CLAUDE.md and CANONICAL_CORE.md this sweep used
+            # to bump were removed, so both headers here went unswept.
             (
-                self.repo_root / "docs" / "human" / "developers" / "system-prompts" / "CLAUDE.md",
+                self.repo_root
+                / "empirica"
+                / "plugins"
+                / "claude-code-integration"
+                / "templates"
+                / "empirica-system-prompt-lean.md",
+                r"Lean Core v[0-9]+\.[0-9]+\.[0-9]+",
+                f"Lean Core v{self.version}",
+            ),
+            (
+                self.repo_root
+                / "empirica"
+                / "plugins"
+                / "claude-code-integration"
+                / "templates"
+                / "empirica-system-prompt-lean.md",
                 r"\*\*Syncs with:\*\*\s+Empirica\s+v[0-9]+\.[0-9]+\.[0-9]+",
                 f"**Syncs with:** Empirica v{self.version}",
             ),
@@ -560,12 +568,6 @@ class ReleaseManager:
                 self.repo_root / "packaging" / "chocolatey" / "tools" / "chocolateyinstall.ps1",
                 r"\$packageVersion\s*=\s*'[^']+'",
                 f"$packageVersion = '{self.version}'",
-            ),
-            # Canonical Core prompt version header
-            (
-                self.repo_root / "docs" / "human" / "developers" / "system-prompts" / "CANONICAL_CORE.md",
-                r"Canonical Core v[0-9]+\.[0-9]+\.[0-9]+",
-                f"Canonical Core v{self.version}",
             ),
             # PROJECT_CONFIG version
             (
@@ -1288,6 +1290,8 @@ class ReleaseManager:
         "README.md",
         "empirica/__init__.py",
         "empirica-mcp/pyproject.toml",
+        "empirica-mcp/empirica_mcp/__init__.py",
+        "empirica/plugins/claude-code-integration/templates/empirica-system-prompt-lean.md",
         "empirica/plugins/claude-code-integration/.claude-plugin/plugin.json",
         "empirica/plugins/claude-code-integration/install.sh",
         "empirica/cli/command_handlers/setup_claude_code.py",
