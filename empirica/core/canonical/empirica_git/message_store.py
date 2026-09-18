@@ -756,6 +756,10 @@ class GitMessageStore:
             return
 
         last_poll = time.time()
+        # Messages delivered so far, by id. The since-window below overlaps on
+        # purpose, so the same message can come back once; this is what keeps
+        # that from reaching the callback twice.
+        delivered: set[str] = set()
 
         def _should_stop() -> bool:
             if stop_event is None:
@@ -764,6 +768,14 @@ class GitMessageStore:
             return bool(is_set() if callable(is_set) else False)
 
         while not _should_stop():
+            # Stamp the poll BEFORE the fetch and advance to that stamp after.
+            # It used to advance to time.time() taken after the fetch returned,
+            # while get_inbox_since keeps only timestamps strictly greater than
+            # the stamp — so a message written during the fetch (a git
+            # subprocess or several, on a loaded box) was stamped before the
+            # new last_poll and never returned by any later poll. Lost, not
+            # late. The subscribe test hit this on CI three times as a "flake".
+            poll_started = time.time()
             try:
                 new_msgs = self.get_inbox_since(
                     ai_id=ai_id,
@@ -772,19 +784,24 @@ class GitMessageStore:
                     machine=machine,
                 )
                 for msg in new_msgs:
+                    mid = msg.get("message_id", "")
+                    if mid and mid in delivered:
+                        continue
                     try:
                         callback(msg)
                     except Exception as e:
                         logger.warning(f"Subscription callback failed: {e}")
                         continue
+                    if mid:
+                        delivered.add(mid)
                     if mark_read:
                         self.mark_read(
                             channel=msg.get("channel", ""),
-                            message_id=msg.get("message_id", ""),
+                            message_id=mid,
                             ai_id=ai_id,
                             machine=machine,
                         )
-                last_poll = time.time()
+                last_poll = poll_started
             except Exception as e:
                 logger.warning(f"Subscription poll failed: {e}")
 

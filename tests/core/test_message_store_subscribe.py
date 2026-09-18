@@ -304,3 +304,104 @@ class TestSubscribe:
             # leaks a background `for-each-ref …/messages/test/` poll.
             stop.set()
             subscriber.join(timeout=2.0)
+
+
+class TestNoDeliveryHole:
+    """A message written DURING a poll's fetch must reach the callback on the next poll.
+
+    subscribe used to advance last_poll to time.time() taken after the fetch
+    returned, while get_inbox_since keeps only timestamps strictly greater than
+    since. A message written while the fetch ran (git subprocesses, seconds on a
+    loaded runner) was stamped before the new last_poll and never returned by
+    any later poll: lost, not late. This was the third "flake" in
+    test_mark_read_after_callback. Deterministic here: the fake fetch writes a
+    message mid-flight.
+    """
+
+    def test_message_written_during_a_fetch_is_delivered_next_poll(self, store):
+        import time as _time
+        from datetime import datetime, timezone
+
+        inbox: list[dict] = []
+        calls = {"n": 0}
+
+        def fake_get_inbox_since(ai_id, since_timestamp, channel=None, machine=None, limit=50):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                # written while this fetch is in flight: after the poll started,
+                # before the old code's post-fetch time.time()
+                _time.sleep(0.01)
+                inbox.append(
+                    {
+                        "message_id": "m-during-fetch",
+                        "channel": "test",
+                        "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+                    }
+                )
+                _time.sleep(0.01)
+                return []  # the fetch itself did not see it
+            since_iso = datetime.fromtimestamp(since_timestamp, tz=timezone.utc).isoformat()
+            return [m for m in inbox if m["timestamp"] > since_iso]
+
+        store.get_inbox_since = fake_get_inbox_since
+        store.mark_read = lambda **kw: None
+
+        received = []
+        stop = threading.Event()
+
+        def callback(msg):
+            received.append(msg["message_id"])
+            stop.set()
+
+        t = threading.Thread(
+            target=store.subscribe,
+            kwargs={
+                "ai_id": "alice",
+                "channel": "test",
+                "callback": callback,
+                "poll_interval": 0.05,
+                "stop_event": stop,
+            },
+            daemon=True,
+        )
+        t.start()
+        t.join(timeout=5.0)
+
+        assert received == ["m-during-fetch"]
+        assert calls["n"] >= 2
+
+    def test_a_message_in_the_overlap_is_delivered_once(self, store):
+        from datetime import datetime, timezone
+
+        msg = {"message_id": "m-once", "channel": "test", "timestamp": datetime.now(tz=timezone.utc).isoformat()}
+        calls = {"n": 0}
+
+        def fake_get_inbox_since(ai_id, since_timestamp, channel=None, machine=None, limit=50):
+            calls["n"] += 1
+            # returned by every poll — the overlap window makes this possible
+            return [msg] if calls["n"] <= 3 else []
+
+        store.get_inbox_since = fake_get_inbox_since
+        store.mark_read = lambda **kw: None
+        received = []
+        stop = threading.Event()
+
+        def callback(m):
+            received.append(m["message_id"])
+
+        t = threading.Thread(
+            target=store.subscribe,
+            kwargs={
+                "ai_id": "alice",
+                "channel": "test",
+                "callback": callback,
+                "poll_interval": 0.02,
+                "stop_event": stop,
+            },
+            daemon=True,
+        )
+        t.start()
+        time.sleep(0.3)
+        stop.set()
+        t.join(timeout=2.0)
+        assert received == ["m-once"]
