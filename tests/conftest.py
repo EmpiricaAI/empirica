@@ -529,5 +529,65 @@ def assert_genuine_assessment():
     return _assert
 
 
+# =============================================================================
+# The suite must not mutate this machine's services
+# =============================================================================
+#
+# Measured 2026-09-20: a full-suite run STOPPED AND DELETED this box's own
+# listener unit. `test_apply_strips_ONLY_our_keys_from_a_shared_file` calls
+# `apply_uninstall(home)` with no plan, so the plan was computed from the real
+# CWD — whose project.yaml says `ai_id: empirica` — and `uninstall()` ran
+# `systemctl --user disable --now empirica-listener-empirica.service` and
+# unlinked the unit. The practice was deaf to the mesh for two days and a peer
+# found it, not us.
+#
+# It fired once per install (uninstall() returns early when the unit file is
+# absent), which is what made it read as an unexplained disappearance rather
+# than as something the suite did.
+#
+# So: no test executes systemctl/launchctl against real services. A test that
+# wants to ASSERT on those calls patches the same symbol itself, which takes
+# precedence over this fixture.
+@pytest.fixture(autouse=True)
+def no_real_service_mutations():
+    import subprocess as _sp
+
+    refused: list[tuple[str, ...]] = []
+    #: Verbs that change a real service's state. Everything else (status,
+    #: list-units, is-active, enable, load) delegates, so tests that assert on
+    #: those calls keep working — the guard is about damage, not about traffic.
+    DESTRUCTIVE = {"stop", "disable", "kill", "mask", "unload", "bootout", "remove"}
+    # Its OWN MonkeyPatch, not the fixture: depending on `monkeypatch` hoists that
+    # fixture in the dependency graph, which moves its teardown after other
+    # autouse teardowns and broke test_version_drift_editable's cache_clear.
+    mp = MonkeyPatch()
+
+    def _wrap(original):
+        def _guarded(*args: str, check: bool = False, **kw):
+            if DESTRUCTIVE.intersection(args):
+                refused.append(args)
+                return _sp.CompletedProcess(list(args), 0, "", "")
+            return original(*args, check=check, **kw)
+
+        return _guarded
+
+    for mod, name in (
+        ("empirica.core.loop_scheduler.persistent_listener", "_systemctl"),
+        ("empirica.core.loop_scheduler.persistent_listener", "_launchctl"),
+        ("empirica.core.loop_scheduler.persistent_serve", "_systemctl"),
+        ("empirica.core.loop_scheduler.systemd", "_systemctl"),
+        ("empirica.core.loop_scheduler.launchd", "_launchctl"),
+    ):
+        try:
+            module = __import__(mod, fromlist=[name])
+        except Exception:
+            continue
+        original = getattr(module, name, None)
+        if callable(original):
+            mp.setattr(module, name, _wrap(original), raising=False)
+    yield refused
+    mp.undo()
+
+
 # Exclude archived tests from collection
 collect_ignore_glob = ["_archive/**"]

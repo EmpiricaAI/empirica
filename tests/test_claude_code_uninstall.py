@@ -26,6 +26,17 @@ from empirica.cli.command_handlers.claude_code_uninstall import (
 from empirica.cli.command_handlers.setup_claude_code import _read_json_with_stamp
 
 
+@pytest.fixture(autouse=True)
+def _never_plan_from_the_real_cwd(tmp_path, monkeypatch):
+    """`plan_uninstall` reads the CWD's project.yaml to decide which listener
+    SERVICE to tear down. Run from the repo that is `ai_id: empirica`, the
+    unplanned `apply_uninstall(home)` calls below uninstalled this machine's own
+    listener unit — measured 2026-09-20, twice, before it was traced here.
+    Tests that want a project chdir into one themselves; this only stops the
+    default from being somebody's live seat."""
+    monkeypatch.chdir(tmp_path)
+
+
 @pytest.fixture
 def home(tmp_path):
     c = tmp_path / ".claude"
