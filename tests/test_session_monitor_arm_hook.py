@@ -520,6 +520,21 @@ def test_hook_emits_arm_block_when_prior_intent_exists(monkeypatch, tmp_path):
     assert "prior-armed" in ctx or "listener_active_" in ctx
 
 
+def test_arm_block_carries_a_deadline_not_the_removed_persistent_flag(monkeypatch, tmp_path):
+    """Claude Code 2.1.271 replaced the no-timeout `persistent` option with a
+    deadline of at most 30 min plus a re-arm notification. `persistent: true`
+    is still ACCEPTED and silently ignored (probed 2026-09-20: a never-exiting
+    tail armed with it expired after its timeout anyway), so an instruction
+    that renders it promises a watch nobody gets."""
+    mod = _load_hook_module()
+    block = mod._build_monitor_block_from_cli(None, "empirica")
+    call = block[block.index("Monitor(") : block.index(")\n```")]
+    assert "persistent" not in call, f"arm call still passes the removed flag: {call}"
+    assert f"timeout_ms={mod.MONITOR_MAX_TIMEOUT_MS}" in block
+    assert mod.MONITOR_MAX_TIMEOUT_MS == 1_800_000
+    assert "re-arm" in block.lower()
+
+
 def test_hook_still_bails_when_no_signals_at_all(monkeypatch, tmp_path):
     """Sanity check: a fresh instance with no loops, no service, no prior
     intent must still bail. The fix doesn't break the legitimate empty-

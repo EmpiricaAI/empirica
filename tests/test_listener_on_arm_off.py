@@ -201,7 +201,11 @@ def test_on_persistent_service_returns_tail_monitor(tmp_path, monkeypatch, capsy
     # Crucially, no duplicate ntfy subscriber
     assert "empirica loop listen" not in cmd
     assert "curl" not in cmd
-    assert ns["args"]["persistent"] is True
+    assert "persistent" not in ns["args"], (
+        "Claude Code 2.1.271 removed the no-timeout persistent option; emitting it promises a watch that never arrives"
+    )
+    assert ns["args"]["timeout_ms"] == 1_800_000
+    assert "re-arm" in ns["expiry"].lower()
     assert "after_arm" in ns
 
 
@@ -269,7 +273,11 @@ def test_on_emits_monitor_next_step_with_correct_command(tmp_path, monkeypatch, 
     assert "; sleep 3; done" not in _cmd, "the flat respawn interval is back"
     assert "d=$((d*2))" in _cmd, "respawn delay must grow on repeated fast exits"
     assert "-gt 300" in _cmd, "and must be capped"
-    assert ns["args"]["persistent"] is True
+    assert "persistent" not in ns["args"], (
+        "Claude Code 2.1.271 removed the no-timeout persistent option; emitting it promises a watch that never arrives"
+    )
+    assert ns["args"]["timeout_ms"] == 1_800_000
+    assert "re-arm" in ns["expiry"].lower()
     assert "after_arm" in ns
     assert "empirica listener arm" in ns["after_arm"]
 

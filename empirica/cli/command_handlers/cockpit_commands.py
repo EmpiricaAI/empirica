@@ -2133,9 +2133,18 @@ def handle_listener_on_command(args) -> int:
             "args": {
                 "description": description,
                 "command": monitor_cmd,
-                "persistent": True,
-                "timeout_ms": 3600000,
+                # Claude Code 2.1.271 removed the no-timeout `persistent`
+                # option: every Monitor watch now carries a deadline of at
+                # most 30 min (10 in `-p` runs) and notifies to re-arm.
+                # Emitting `persistent: true` is accepted and ignored, so the
+                # arm instruction would promise a watch that does not exist.
+                "timeout_ms": 1800000,
             },
+            "expiry": (
+                "Monitor deadlines are capped at 30 min (Claude Code 2.1.271+). "
+                "Re-arm at expiry and run the after_arm command again; the persistent "
+                "listener service keeps receiving in the gap, so nothing is lost."
+            ),
             "after_arm": f"empirica listener arm <monitor_task_id> --name {name}",
         },
     }

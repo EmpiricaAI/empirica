@@ -35,6 +35,12 @@ except Exception:
     print(json.dumps({}))
     sys.exit(0)
 
+# Claude Code 2.1.271 removed the no-timeout `persistent` option: a Monitor
+# watch now always carries a deadline, at most 30 min (10 in `-p` runs), and
+# notifies to re-arm. Arming instructions render this, not `persistent=True`,
+# which is accepted and silently ignored — a watch promised and not delivered.
+MONITOR_MAX_TIMEOUT_MS = 1_800_000
+
 
 def _has_active_listener_intent(instance_id: str) -> bool:
     """True iff a previous session armed a listener for this instance.
@@ -203,12 +209,12 @@ def _build_monitor_block_from_cli(payload: dict | None, instance_id: str) -> str
     if monitor_args:
         description = monitor_args.get("description", f"Cortex orchestration push listener for {instance_id}")
         command = monitor_args.get("command", _standalone_supervised)
-        persistent = monitor_args.get("persistent", True)
+        timeout_ms = monitor_args.get("timeout_ms", MONITOR_MAX_TIMEOUT_MS)
     else:
         # Fallback when CLI is unavailable — preserve pre-Phase-2 behavior
         description = f"Cortex orchestration push listener for {instance_id}"
         command = _standalone_supervised
-        persistent = True
+        timeout_ms = MONITOR_MAX_TIMEOUT_MS
     after_arm = ns.get("after_arm") if isinstance(ns, dict) else None
     after_arm_hint = (
         f"\n\nAfter arming, run `{after_arm}` (replace `<monitor_task_id>` "
@@ -245,9 +251,16 @@ def _build_monitor_block_from_cli(payload: dict | None, instance_id: str) -> str
         f"Monitor(\n"
         f'    description="{description}",\n'
         f'    command="{command}",\n'
-        f"    persistent={persistent},\n"
+        f"    timeout_ms={timeout_ms},\n"
         f")\n"
         f"```\n\n"
+        f"Claude Code 2.1.271 replaced the no-timeout `persistent` option with a "
+        f"deadline of at most 30 min (10 in `-p` runs): the watch expires, you are "
+        f"notified, and you RE-ARM it — same Monitor call, then the arm command again. "
+        f"Passing `persistent=True` is accepted and silently ignored, so do not rely "
+        f"on it. Nothing is lost in the gap when the OS listener service is running; "
+        f"without that service, events arriving while no Monitor is armed wait in "
+        f"`~/.empirica/loop_fires.log` until the next arm or `mailbox poll`.\n\n"
         f"{mode_explainer}{after_arm_hint}"
     )
 
