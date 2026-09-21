@@ -78,7 +78,10 @@ def test_the_replacement_is_named_not_just_the_state(db):
 
     assert superseded_by == "new"
     assert "new" in resolution
-    assert kind == "superseded"
+    # The pointer is recorded; the KIND is not guessed. A bare edge says nothing
+    # about whether the target was wrong or merely replaced, so the column
+    # stays NULL, which renders as unclassified and can be classified later.
+    assert kind is None
 
 
 def test_a_non_finding_target_is_reported_not_silently_skipped(db):

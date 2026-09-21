@@ -43,11 +43,16 @@ def test_the_author_states_a_retraction_and_it_is_recorded_as_one():
     assert "new" in call["resolution"] and call["superseded_by"] == "new"
 
 
-def test_a_bare_edge_still_closes_the_target_and_says_what_it_assumed():
+def test_a_bare_edge_closes_the_target_unclassified_and_does_not_guess():
+    """It used to store `superseded` while warning about it. Three practices then
+    found every partly-wrong finding wearing that kind, and a fleet read of the
+    column measured house style. A guess in the column is indistinguishable from
+    a judgement; NULL is not."""
     db = _DB()
     note = gc._supersede_target(db, "new", "old", None)
-    assert db.calls[0]["resolution_kind"] == "superseded"
-    assert note and "no kind and reason" in note and "retracted" in note
+    assert db.calls[0]["resolution_kind"] is None
+    assert note and "UNCLASSIFIED" in note and "no kind and reason" in note and "retracted" in note
+    assert "two artifacts" in note
 
 
 def test_a_kind_without_a_reason_is_honoured_and_the_gap_is_named():
@@ -60,5 +65,5 @@ def test_a_kind_without_a_reason_is_honoured_and_the_gap_is_named():
 def test_an_unknown_kind_is_not_written_into_the_closed_vocabulary():
     db = _DB()
     note = gc._supersede_target(db, "new", "old", {"kind": "wrong", "reason": "x"})
-    assert db.calls[0]["resolution_kind"] == "superseded"
+    assert db.calls[0]["resolution_kind"] is None
     assert note and "no kind" in note

@@ -517,6 +517,14 @@ def _supersede_target(db, from_id: str, to_id: str, metadata: dict | None = None
         # findings closed that way). `invalidates` more often means "this was
         # false" than "this got older", and the vocabulary exists to tell them
         # apart. A hand-written resolution is never overwritten by this path.
+        #
+        # And when the author states no kind, NONE is recorded. The warning
+        # below used to say "closed as superseded" while still storing that
+        # guess; three practices then measured that every partly-wrong finding
+        # carried `superseded`, and a fleet read of resolution_kind measured
+        # house style. NULL renders as "unclassified" everywhere finding-resolve
+        # already does, and can be classified later; a guess cannot be told
+        # from a judgement once it is in the column.
         meta = metadata if isinstance(metadata, dict) else {}
         kind = str(meta.get("kind") or "").strip().lower()
         reason = str(meta.get("reason") or "").strip()
@@ -525,16 +533,17 @@ def _supersede_target(db, from_id: str, to_id: str, metadata: dict | None = None
             to_id,
             resolution=(f"{reason} " if reason else "") + f"(invalidated by {from_id})",
             superseded_by=from_id,
-            resolution_kind=kind if stated else "superseded",
+            resolution_kind=kind if stated else None,
         )
         if stated and reason:
             return None
         missing = " and ".join(part for part, absent in (("kind", not stated), ("reason", not reason)) if absent)
         return (
-            f"invalidates {to_id[:8]}: target closed as "
-            f"`{kind if stated else 'superseded'}` with no {missing} from you. If it was WRONG rather than "
-            'replaced, say so on the edge: "metadata": {"kind": "retracted", "reason": "..."} '
-            f"(kinds: {', '.join(sorted(_INVALIDATION_KINDS))})"
+            f"invalidates {to_id[:8]}: target closed "
+            f"{'as `' + kind + '`' if stated else 'UNCLASSIFIED'} with no {missing} from you. "
+            'Say which on the edge: "metadata": {"kind": "retracted", "reason": "..."} '
+            f"(kinds: {', '.join(sorted(_INVALIDATION_KINDS))}). A partly wrong target is two artifacts: "
+            "re-log the half that holds, then invalidate with kind superseded."
         )
     except Exception as e:  # never fail the log for a side effect
         logger.debug(f"supersede side-effect skipped ({from_id}->{to_id}): {e}")
