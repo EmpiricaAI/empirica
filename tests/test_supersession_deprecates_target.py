@@ -58,9 +58,9 @@ def db():
 
 
 def test_invalidating_a_finding_deprecates_it(db):
-    note = _supersede_target(db, "new", "old")
+    note = _supersede_target(db, "new", "old", {"kind": "superseded", "reason": "the sky was measured blue"})
 
-    assert note is None, "a clean supersession reports nothing"
+    assert note is None, "an edge that states its kind and reason reports nothing"
     row = db.conn.execute("SELECT is_resolved, superseded_by, resolution_kind FROM project_findings").fetchone()
     assert row[0] == 1
     assert row[1] == "new", "the replacement must be recorded, not just the fact of replacement"

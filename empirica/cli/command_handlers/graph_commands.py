@@ -73,7 +73,7 @@ LOG_ARTIFACTS_SCHEMA = {
             "to": "<ref or UUID>",
             "relation": "evidence | raised_by | grounded_by | resolves | "
             "invalidates | sourced_from | caused_by | prevents | attached_to",
-            "metadata": "<optional JSON dict>",
+            "metadata": "<optional JSON dict; on an `invalidates` edge, {kind: retracted|superseded|stale, reason: ...} records WHY the target is closed>",
         },
     ],
     "session_id": "<optional, auto-resolved from active context>",
@@ -466,7 +466,7 @@ def _wire_edges(db, edges: list[dict], ref_map: dict[str, str]) -> tuple[int, li
             _store_edge(db, from_id, to_id, relation, edge.get("metadata"))
             wired += 1
             if relation == "invalidates":
-                note = _supersede_target(db, from_id, to_id)
+                note = _supersede_target(db, from_id, to_id, edge.get("metadata"))
                 if note:
                     warnings.append(note)
         except Exception as e:
@@ -476,7 +476,12 @@ def _wire_edges(db, edges: list[dict], ref_map: dict[str, str]) -> tuple[int, li
     return wired, warnings
 
 
-def _supersede_target(db, from_id: str, to_id: str) -> str | None:
+#: What an `invalidates` edge may record about its target. `mistyped` is left
+#: out: it says the target was never that type, which an edge cannot establish.
+_INVALIDATION_KINDS = frozenset({"retracted", "superseded", "stale"})
+
+
+def _supersede_target(db, from_id: str, to_id: str, metadata: dict | None = None) -> str | None:
     """An `invalidates` edge DEPRECATES its target. Returns a note, or None.
 
     Drawing the edge used to be inert: the overturned artifact kept
@@ -505,13 +510,32 @@ def _supersede_target(db, from_id: str, to_id: str) -> str | None:
                 f"invalidates {to_id[:8]}: edge stored, but only findings carry `superseded_by` "
                 "today — the target keeps its current retrieval weight"
             )
+        # The AUTHOR says why, on the edge: metadata {"kind": ..., "reason": ...}.
+        # This used to pick `superseded` every time with a bare "Superseded by
+        # <id>", so an edge drawn because the target was WRONG was recorded as
+        # the target having merely aged (empirica-autonomy: three load-bearing
+        # findings closed that way). `invalidates` more often means "this was
+        # false" than "this got older", and the vocabulary exists to tell them
+        # apart. A hand-written resolution is never overwritten by this path.
+        meta = metadata if isinstance(metadata, dict) else {}
+        kind = str(meta.get("kind") or "").strip().lower()
+        reason = str(meta.get("reason") or "").strip()
+        stated = kind in _INVALIDATION_KINDS
         db.resolve_finding(
             to_id,
-            resolution=f"Superseded by {from_id}",
+            resolution=(f"{reason} " if reason else "") + f"(invalidated by {from_id})",
             superseded_by=from_id,
-            resolution_kind="superseded",
+            resolution_kind=kind if stated else "superseded",
         )
-        return None
+        if stated and reason:
+            return None
+        missing = " and ".join(part for part, absent in (("kind", not stated), ("reason", not reason)) if absent)
+        return (
+            f"invalidates {to_id[:8]}: target closed as "
+            f"`{kind if stated else 'superseded'}` with no {missing} from you. If it was WRONG rather than "
+            'replaced, say so on the edge: "metadata": {"kind": "retracted", "reason": "..."} '
+            f"(kinds: {', '.join(sorted(_INVALIDATION_KINDS))})"
+        )
     except Exception as e:  # never fail the log for a side effect
         logger.debug(f"supersede side-effect skipped ({from_id}->{to_id}): {e}")
         return f"invalidates {to_id[:8]}: edge stored but target not deprecated ({type(e).__name__})"
