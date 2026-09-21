@@ -902,6 +902,74 @@ def deploy_gap_checks(cwd: Path | None = None) -> list[Check]:
     ]
 
 
+def check_project_embed_outcome(cwd: Path | None = None) -> Check:
+    """Did the last `project-embed` work?
+
+    The session-end hook runs it detached with its output discarded, so a
+    failure there is seen by nobody. It failed on every run from 2026-09-06 to
+    2026-09-21 and a release gate found it by accident. The command now records
+    its own outcome; this reads it. No file means it has not run since that
+    shipped, which is a WARN and not a PASS: absent is not healthy.
+    """
+    import json as _json
+    import time as _time
+
+    cwd = cwd or Path.cwd()
+    name = "project-embed last run"
+    status_path = cwd / ".empirica" / "project_embed_status.json"
+    if not (cwd / ".empirica").is_dir():
+        return Check(name, SKIP, "not a project root")
+    if not status_path.exists():
+        return Check(
+            name, WARN, "no recorded run", "run `empirica project-embed` once", data={"path": str(status_path)}
+        )
+    try:
+        status = _json.loads(status_path.read_text())
+    except (OSError, ValueError) as exc:
+        return Check(name, WARN, f"status unreadable: {exc}", data={"path": str(status_path)})
+    age_days = (_time.time() - float(status.get("ts") or 0)) / 86400
+    data = {"age_days": round(age_days, 1), **{k: status.get(k) for k in ("ok", "error", "counts")}}
+    if not status.get("ok"):
+        return Check(
+            name,
+            FAIL,
+            f"last run failed {age_days:.1f}d ago: {status.get('error')}",
+            "run `empirica project-embed --verbose`; semantic retrieval is stale until it passes",
+            data=data,
+        )
+    # Relative, not absolute: an idle practice with a week-old run is healthy. What
+    # cannot be right is findings logged days AFTER the last run, which means the
+    # session-end launch stopped happening at all.
+    lag_days = _days_newest_finding_is_ahead(cwd, float(status.get("ts") or 0))
+    if lag_days is not None and lag_days > 3:
+        data["finding_lag_days"] = round(lag_days, 1)
+        return Check(
+            name,
+            WARN,
+            f"findings logged {lag_days:.0f}d after the last run",
+            "run `empirica project-embed`; the session-end launch may not be firing",
+            data=data,
+        )
+    return Check(name, PASS, f"ok {age_days:.1f}d ago", data=data)
+
+
+def _days_newest_finding_is_ahead(cwd: Path, last_run_ts: float) -> float | None:
+    """How far the newest finding postdates the last embed run, in days. None if unknown."""
+    db_path = cwd / ".empirica" / "sessions" / "sessions.db"
+    if not db_path.exists():
+        return None
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        try:
+            row = conn.execute("SELECT max(created_timestamp) FROM project_findings").fetchone()
+        finally:
+            conn.close()
+        newest = float(row[0]) if row and row[0] is not None else None
+    except (sqlite3.Error, TypeError, ValueError):
+        return None
+    return None if newest is None else (newest - last_run_ts) / 86400
+
+
 def check_retrieval_telemetry(cwd: Path | None = None) -> Check:
     """Are retrieval counters actually being written?
 
@@ -2042,6 +2110,7 @@ def run_all_checks(cwd: Path | None = None) -> list[Check]:
         check_sessions_db(cwd),
         check_unreleased_commits(cwd),
         check_retrieval_telemetry(cwd),
+        check_project_embed_outcome(cwd),
         check_notes_sqlite_divergence(cwd),
         check_git_remote(cwd),
         check_sync_state(cwd),

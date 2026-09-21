@@ -1,0 +1,109 @@
+"""project-embed that fails does not exit 0.
+
+It failed on every run for fifteen days and no session-end hook noticed. A peer
+then observed it print an error and return rc 0. The handler's except block
+reports the error and returns None; the dispatcher's fail-closed guard is what
+turns that into a nonzero exit, so the two are tested together.
+"""
+
+from __future__ import annotations
+
+from argparse import Namespace
+
+from empirica.cli import cli_core, cli_utils
+from empirica.cli.command_handlers import project_embed
+
+
+def _failing_run(monkeypatch):
+    import empirica.utils.session_resolver as sr
+
+    def boom(*_a, **_k):
+        raise NameError("name 'finding_fact_confidence' is not defined")
+
+    monkeypatch.setattr(sr.InstanceResolver, "project_path", staticmethod(boom))
+    monkeypatch.setattr(cli_utils, "_ERROR_REPORTED", [])
+    args = Namespace(project_id=None, output="json", verbose=False, global_sync=False)
+    return project_embed.handle_project_embed_command(args)
+
+
+def test_the_handler_reports_the_error(monkeypatch, capsys):
+    assert _failing_run(monkeypatch) is None
+    assert "finding_fact_confidence" in capsys.readouterr().out
+    assert cli_utils.errors_reported()
+
+
+def test_the_dispatcher_turns_a_reported_error_into_a_nonzero_exit(monkeypatch):
+    result = _failing_run(monkeypatch)
+    assert cli_core._handle_command_result(result, "project-embed") == 1
+
+
+def test_positive_control_a_clean_none_still_exits_zero(monkeypatch):
+    monkeypatch.setattr(cli_utils, "_ERROR_REPORTED", [])
+    assert cli_core._handle_command_result(None, "project-embed") == 0
+
+
+# --- the outcome is recorded, because the session-end launch has no audience ---
+
+
+def _project(tmp_path):
+    (tmp_path / ".empirica" / "sessions").mkdir(parents=True)
+    return tmp_path
+
+
+def test_a_failed_run_leaves_a_record_doctor_fails_on(tmp_path, monkeypatch):
+    import json
+
+    from empirica.cli.command_handlers import doctor
+
+    root = _project(tmp_path)
+    project_embed.record_embed_outcome(str(root), ok=False, error="NameError: name 'x' is not defined")
+    status = json.loads((root / ".empirica" / project_embed.EMBED_STATUS_FILE).read_text())
+    assert status["ok"] is False and "NameError" in status["error"]
+
+    check = doctor.check_project_embed_outcome(root)
+    assert check.status == doctor.FAIL and "NameError" in check.detail
+
+
+def test_positive_control_a_good_run_passes(tmp_path):
+    from empirica.cli.command_handlers import doctor
+
+    root = _project(tmp_path)
+    project_embed.record_embed_outcome(str(root), ok=True, counts={"memory": 3})
+    assert doctor.check_project_embed_outcome(root).status == doctor.PASS
+
+
+def test_no_record_is_a_warning_not_a_pass(tmp_path):
+    from empirica.cli.command_handlers import doctor
+
+    assert doctor.check_project_embed_outcome(_project(tmp_path)).status == doctor.WARN
+
+
+def test_findings_logged_days_after_the_last_run_warn(tmp_path):
+    import sqlite3
+    import time
+
+    from empirica.cli.command_handlers import doctor
+
+    root = _project(tmp_path)
+    project_embed.record_embed_outcome(str(root), ok=True)
+    conn = sqlite3.connect(root / ".empirica" / "sessions" / "sessions.db")
+    conn.execute("CREATE TABLE project_findings (id TEXT, created_timestamp REAL)")
+    conn.execute("INSERT INTO project_findings VALUES ('f1', ?)", (time.time() + 5 * 86400,))
+    conn.commit()
+    conn.close()
+    check = doctor.check_project_embed_outcome(root)
+    assert check.status == doctor.WARN and "after the last run" in check.detail
+
+
+def test_the_handler_records_failure_before_reporting_it(monkeypatch, tmp_path):
+    """The except block writes the record even when the run died before resolving a root."""
+    import inspect
+
+    source = inspect.getsource(project_embed.handle_project_embed_command)
+    failure = source.split("except Exception as e:")[-1]
+    assert failure.index("record_embed_outcome(") < failure.index("handle_cli_error(")
+    assert "ok=True" in source
+
+
+def test_an_unwritable_status_does_not_raise(tmp_path):
+    project_embed.record_embed_outcome(str(tmp_path / "missing"), ok=True)

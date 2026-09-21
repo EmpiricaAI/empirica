@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from pathlib import Path
 
 from empirica.core.fact_confidence import finding_fact_confidence
 from empirica.core.mistake_text import build_mistake_text
@@ -345,6 +346,33 @@ def _filter_unembedded(client, coll, valid):
     return [(f, t, ch, pid) for (f, t, ch, pid) in keyed if pid not in unchanged]
 
 
+EMBED_STATUS_FILE = "project_embed_status.json"
+
+
+def record_embed_outcome(project_root: str | None, ok: bool, error: str | None = None, counts: dict | None = None):
+    """Leave the last run's outcome where something can read it.
+
+    The session-end hook launches this command detached, with its output
+    discarded and its exit code unread, so a failure there has no audience. It
+    failed on every run for fifteen days and nothing said so. The exit code was
+    already right; the gap was that nobody was there to read it. `doctor` reads
+    this file. Never raises: a status that cannot be written must not turn a
+    good run into a failed one.
+    """
+    import time
+
+    try:
+        target = Path(project_root or os.getcwd()) / ".empirica" / EMBED_STATUS_FILE
+        if not target.parent.is_dir():
+            return
+        payload = {"ts": time.time(), "ok": bool(ok), "error": error, "counts": counts or {}}
+        tmp = target.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(payload))
+        tmp.replace(target)
+    except Exception as exc:
+        logger.debug("project-embed status not recorded: %s", exc)
+
+
 def _rehydrate_eidetic(project_id, findings, embed_eidetic_fn, check_fn):
     """Rehydrate eidetic collection from findings. Returns count embedded.
 
@@ -609,6 +637,12 @@ def handle_project_embed_command(args):
             "global_synced": global_synced if sync_global else None,
         }
 
+        record_embed_outcome(
+            root,
+            ok=True,
+            counts={"docs": len(docs_to_upsert), "memory": len(mem_items), "eidetic": result.get("eidetic")},
+        )
+
         if getattr(args, "output", "default") == "json":
             print(json.dumps(result, indent=2))
         else:
@@ -632,5 +666,6 @@ def handle_project_embed_command(args):
 
         return result
     except Exception as e:
+        record_embed_outcome(locals().get("root"), ok=False, error=f"{type(e).__name__}: {e}")
         handle_cli_error(e, "Project embed", getattr(args, "verbose", False))
         return None
