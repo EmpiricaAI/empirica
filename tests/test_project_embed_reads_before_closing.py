@@ -46,3 +46,21 @@ def test_no_read_takes_the_db_after_it_is_closed():
         and any(isinstance(a, ast.Name) and a.id == "db" for a in n.args)
     ]
     assert late == [], f"db is passed to a call after db.close() at line {first_close}: {late}"
+
+
+def test_the_summary_names_every_category_it_counts():
+    """It listed five of six memory categories: parts 2010, total 2132, the gap
+    being `mistakes` (empirica-extension). A total must be checkable from its parts."""
+    from empirica.cli.command_handlers.project_embed import _embed_summary
+
+    parts = {"findings": 228, "unknowns": 51, "mistakes": 122, "dead_ends": 130, "lessons": 7, "snapshots": 1594}
+    line = _embed_summary(52, 2132, parts, 274, 38)
+    assert "mistakes: 122" in line and "decisions: 274" in line and "assumptions: 38" in line
+    assert "not itemised" not in line
+
+
+def test_a_total_its_parts_do_not_reach_says_so():
+    from empirica.cli.command_handlers.project_embed import _embed_summary
+
+    line = _embed_summary(1, 2132, {"findings": 2010}, 0, 0)
+    assert "[+122 not itemised]" in line

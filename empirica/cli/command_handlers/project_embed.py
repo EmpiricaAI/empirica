@@ -471,6 +471,22 @@ def _rehydrate_eidetic_sequential(project_id, valid, embed_eidetic_fn):
     return count
 
 
+def _embed_summary(docs: int, memory_total: int, parts: dict[str, int], decisions: int, assumptions: int) -> str:
+    """The one-line human summary, with every counted category named.
+
+    It listed five of the six memory categories and left out `mistakes`, so its
+    parts summed to 2010 against a stated total of 2132 (empirica-extension):
+    a reader could not tell a double count from an unlisted category. If the
+    parts ever stop summing to the total, the line says so rather than hiding it.
+    """
+    listed = ", ".join(f"{k}: {v}" for k, v in parts.items())
+    msg = f"✅ Embedded docs: {docs} | memory: {memory_total} ({listed})"
+    gap = memory_total - sum(parts.values())
+    if gap:
+        msg += f" [+{gap} not itemised]" if gap > 0 else f" [{gap}: parts exceed total]"
+    return msg + f" | decisions: {decisions} | assumptions: {assumptions}"
+
+
 def handle_project_embed_command(args):
     """Handle project-embed command to sync docs and memory to Qdrant."""
     try:
@@ -595,8 +611,20 @@ def handle_project_embed_command(args):
         if getattr(args, "output", "default") == "json":
             print(json.dumps(result, indent=2))
         else:
-            msg = f"✅ Embedded docs: {len(docs_to_upsert)} | memory: {len(mem_items)}"
-            msg += f" (findings: {len(findings)}, unknowns: {len(unknowns)}, dead_ends: {len(dead_ends)}, lessons: {len(lessons)}, snapshots: {len(snapshots)})"
+            msg = _embed_summary(
+                len(docs_to_upsert),
+                len(mem_items),
+                {
+                    "findings": len(findings),
+                    "unknowns": len(unknowns),
+                    "mistakes": len(mistakes),
+                    "dead_ends": len(dead_ends),
+                    "lessons": len(lessons),
+                    "snapshots": len(snapshots),
+                },
+                typed_decisions,
+                typed_assumptions,
+            )
             if sync_global:
                 msg += f" | global: {global_synced}"
             print(msg)
