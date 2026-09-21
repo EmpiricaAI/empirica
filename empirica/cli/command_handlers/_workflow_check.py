@@ -541,6 +541,11 @@ def _check_load_dynamic_thresholds(session_id):
     ready_uncertainty_threshold = 0.35
     dynamic_thresholds_info = None
     profile_base_thresholds = None
+    # What the verdict rests on, reported with it. A gated practitioner was told
+    # an inflation had been applied and never the value they failed against, nor
+    # that `work_type: audit` had selected a 0.20 gate (empirica-cortex,
+    # prop_vv5u7l4pr5b6bkfrnbjl4xqhg4): a verdict nobody could check or reconstruct.
+    basis: dict[str, Any] = {"cascade_profile": "default", "base_source": "default"}
 
     # Profile-aware baselines
     try:
@@ -559,6 +564,8 @@ def _check_load_dynamic_thresholds(session_id):
                     "ready_know_threshold": loader.get("cascade.ready_know_threshold", 0.70),
                     "ready_uncertainty_threshold": loader.get("cascade.ready_uncertainty_threshold", 0.35),
                 }
+                ready_uncertainty_threshold = profile_base_thresholds["ready_uncertainty_threshold"]
+                basis.update(cascade_profile=cascade_profile, base_source=f"cascade profile '{cascade_profile}'")
                 logger.info(f"CHECK using cascade profile '{cascade_profile}' baselines: {profile_base_thresholds}")
     except Exception:
         pass
@@ -574,16 +581,26 @@ def _check_load_dynamic_thresholds(session_id):
             ready_uncertainty_threshold = _cal["ready_uncertainty"]
             profile_base_thresholds = dict(profile_base_thresholds or {})
             profile_base_thresholds["ready_uncertainty_threshold"] = ready_uncertainty_threshold
+            basis["base_source"] = "calibration.yaml ready_uncertainty"
     except Exception:
         pass
+    basis["base_threshold"] = ready_uncertainty_threshold
 
     # Dynamic thresholds from calibration history
     try:
         from empirica.core.post_test.dynamic_thresholds import compute_dynamic_thresholds
 
         dt_db = _get_db_for_session(session_id)
+        # The practice's OWN calibration history. This was the literal
+        # "claude-code", so every other practice was gated by a trajectory that
+        # was not its own, and the loop the module describes (overconfidence ->
+        # tighter gate) was disconnected for it. Measured 2026-09-21: cortex's
+        # store gives Brier 0.1246 under claude-code and 0.0322 under its own
+        # ai_id; core's gives 0.0324 and 0.0718. Wrong in both directions.
+        calibration_ai_id = _session_ai_id(dt_db, session_id)
+        basis["calibration_ai_id"] = calibration_ai_id
         dt_result = compute_dynamic_thresholds(
-            ai_id="claude-code",
+            ai_id=calibration_ai_id,
             db=dt_db,
             base_thresholds=profile_base_thresholds,
         )
@@ -615,7 +632,35 @@ def _check_load_dynamic_thresholds(session_id):
     except Exception as e:
         logger.debug(f"Dynamic thresholds unavailable (using static): {e}")
 
+    basis["uncertainty_threshold"] = ready_uncertainty_threshold
+    basis["threshold_source"] = "dynamic" if dynamic_thresholds_info else "static"
+    dynamic_thresholds_info = {**(dynamic_thresholds_info or {}), "basis": basis}
     return ready_know_threshold, ready_uncertainty_threshold, dynamic_thresholds_info
+
+
+def _session_ai_id(db, session_id: str) -> str:
+    """The ai_id this session logs under; "claude-code" only when it has none."""
+    try:
+        cursor = db.conn.cursor()
+        cursor.execute("SELECT ai_id FROM sessions WHERE session_id = ?", (session_id,))
+        row = cursor.fetchone()
+        value = (row["ai_id"] if hasattr(row, "keys") else row[0]) if row else None
+        if value:
+            return str(value)
+    except Exception as e:
+        logger.warning(f"CHECK could not resolve the session's ai_id, calibrating on claude-code: {e}")
+    return "claude-code"
+
+
+def _gate_reason(uncertainty, threshold, diminishing_returns, round_num) -> str:
+    """Why the gate computed what it did, in the terms the gate itself uses."""
+    if uncertainty <= threshold:
+        return f"uncertainty {uncertainty:.3f} <= threshold {threshold:.3f}"
+    if diminishing_returns.get("recommend_proceed"):
+        return f"uncertainty {uncertainty:.3f} > threshold {threshold:.3f}, passed on diminishing returns"
+    if round_num >= 5 and uncertainty <= 0.40:
+        return f"uncertainty {uncertainty:.3f} > threshold {threshold:.3f}, passed on max rounds (round {round_num})"
+    return f"uncertainty {uncertainty:.3f} > threshold {threshold:.3f}"
 
 
 def _check_detect_diminishing_returns(previous_check_vectors, know, uncertainty):
@@ -1374,6 +1419,11 @@ def handle_check_submit_command(args):
                     if dynamic_thresholds_info
                     else None,
                     "diminishing_returns": diminishing_returns.get("detected", False),
+                    "uncertainty_threshold": ready_uncertainty_threshold,
+                    "gate_reason": _gate_reason(
+                        vectors.get("uncertainty", 0.5), ready_uncertainty_threshold, diminishing_returns, round_num
+                    ),
+                    "basis": (dynamic_thresholds_info or {}).get("basis"),
                 },
                 "sentinel": {
                     "decision": sentinel_decision.value if sentinel_decision else None,
