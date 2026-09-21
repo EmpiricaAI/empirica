@@ -32,6 +32,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on its unit, then deleted it. It fires once per install, so it read as an
   unexplained disappearance. The test no longer plans from a live seat, and the
   suite refuses destructive service verbs outright.
+- **`project-embed` has failed on every run since 2026-09-06.** A decisions and
+  assumptions read was added below an existing `db.close()`, so the verb raised
+  "Cannot operate on a closed database" after embedding memory and nothing else,
+  while `project-bootstrap`, which runs it, still answered `ok: true`. The release
+  gate caught it. If you rely on semantic search over decisions or assumptions,
+  run `empirica project-embed` once after upgrading.
 - **Three counts that failed silently said 0.** A git failure made note
   replication read "nothing to replicate" and a push check read "replicated"; a
   failed query made `goals-list` read as having no status drift. Both now say
