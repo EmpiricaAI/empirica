@@ -516,7 +516,6 @@ def handle_project_embed_command(args):
         upsert_docs(project_id, docs_to_upsert)
 
         findings, unknowns, mistakes, dead_ends, lessons, snapshots = _query_memory_artifacts(db, project_id)
-        db.close()
 
         mem_items = _build_memory_items(findings, unknowns, mistakes, dead_ends, lessons, snapshots)
 
@@ -537,6 +536,10 @@ def handle_project_embed_command(args):
         )
 
         decisions, assumptions = _read_decisions_and_assumptions(db, project_id)
+        # Closed HERE, after the last read. bf0955f88 added the read above below
+        # an existing close(), so every run since 2026-09-06 raised "Cannot
+        # operate on a closed database" after embedding nothing past memory.
+        db.close()
         upsert_memory(project_id, mem_items)
 
         typed_decisions = _embed_typed_decisions(project_id, decisions)
