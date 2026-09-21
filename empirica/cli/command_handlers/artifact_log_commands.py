@@ -1161,6 +1161,7 @@ def _ingest_finding_eidetic(project_id, finding_id, finding, subject, impact, se
     try:
         import hashlib
 
+        from empirica.core.fact_confidence import finding_fact_confidence
         from empirica.core.qdrant.vector_store import confirm_eidetic_fact, embed_eidetic
 
         content_hash = hashlib.md5(finding.encode()).hexdigest()
@@ -1172,7 +1173,7 @@ def _ingest_finding_eidetic(project_id, finding_id, finding, subject, impact, se
             content=finding,
             fact_type="fact",
             domain=subject,
-            confidence=0.5 + ((impact or 0.5) * 0.2),
+            confidence=finding_fact_confidence(impact),
             confirmation_count=1,
             source_sessions=[session_id] if session_id else [],
             source_findings=[finding_id],

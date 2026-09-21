@@ -8,6 +8,7 @@ import json
 import logging
 import os
 
+from empirica.core.fact_confidence import finding_fact_confidence
 from empirica.core.mistake_text import build_mistake_text
 
 from ..cli_utils import handle_cli_error
@@ -415,7 +416,7 @@ def _rehydrate_eidetic(project_id, findings, embed_eidetic_fn, check_fn):
             if vector is None:
                 continue
             impact = f.get("impact")
-            base_confidence = float(impact) if impact else 0.6
+            base_confidence = finding_fact_confidence(impact)
             payload = {
                 "type": "fact",
                 **preview_fields("content", finding_text),
@@ -451,7 +452,7 @@ def _rehydrate_eidetic_sequential(project_id, valid, embed_eidetic_fn):
     count = 0
     for f, finding_text, content_hash in valid:
         impact = f.get("impact")
-        base_confidence = float(impact) if impact else 0.6
+        base_confidence = finding_fact_confidence(impact)
         try:
             success = embed_eidetic_fn(
                 project_id=project_id,

@@ -17,6 +17,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from empirica.core.fact_confidence import finding_fact_confidence
 from empirica.core.mistake_text import build_mistake_text
 
 logger = logging.getLogger(__name__)
@@ -436,7 +437,7 @@ def _embed_project_from_db(project_id: str, db_path: str, project_root: str) -> 
                 continue
             content_hash = hashlib.md5(finding_text.encode()).hexdigest()
             impact = f.get("impact")
-            base_confidence = float(impact) if impact else 0.6
+            base_confidence = finding_fact_confidence(impact)
             try:
                 success = embed_eidetic(
                     project_id=project_id,
