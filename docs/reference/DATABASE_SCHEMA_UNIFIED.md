@@ -185,7 +185,7 @@ projects (1) ──> (N) auto_captured_issues
 
 ## Table Inventory (generated)
 
-**67 tables** (+ 4 FTS5 shadow tables), **131 indexes**, **8 triggers** — the schema a fresh install materialises: `ALL_SCHEMAS` plus every migration in `empirica/data/migrations/migrations.py`, applied in order.
+**67 tables** (+ 4 FTS5 shadow tables), **132 indexes**, **8 triggers** — the schema a fresh install materialises: `ALL_SCHEMAS` plus every migration in `empirica/data/migrations/migrations.py`, applied in order.
 
 Regenerate with `python3 scripts/gen_schema_doc.py`; CI fails when this block is stale. A live database can hold tables outside this inventory (created lazily by code, or left behind by removed schemas): `python3 scripts/gen_schema_doc.py --diff-db <sessions.db>` lists them.
 
@@ -685,7 +685,7 @@ Alphabetical. Column lines read `name TYPE [PRIMARY KEY|NOT NULL] [DEFAULT x] [(
 - *indexes:* `idx_grounded_beliefs_ai_vector`
 
 #### `grounded_verifications`
-**20 columns**
+**21 columns**
 - `verification_id` TEXT PRIMARY KEY
 - `session_id` TEXT NOT NULL (FK: sessions.session_id)
 - `ai_id` TEXT NOT NULL
@@ -704,9 +704,10 @@ Alphabetical. Column lines read `name TYPE [PRIMARY KEY|NOT NULL] [DEFAULT x] [(
 - `criticality` TEXT
 - `compliance_status` TEXT
 - `parent_transaction_id` TEXT
+- `transaction_id` TEXT
 - `created_at` REAL DEFAULT strftime('%s', 'now')
 - `phase` TEXT DEFAULT 'combined'
-- *indexes:* `idx_grounded_verifications_session`
+- *indexes:* `idx_grounded_verifications_session`, `idx_grounded_verifications_transaction`
 
 #### `handoff_reports`
 **18 columns**

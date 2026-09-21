@@ -1576,6 +1576,11 @@ ALL_MIGRATIONS: list[tuple[str, str, Callable]] = [
         "Drop nine legacy tables that current code neither creates nor reads (act_logs, investigation_logs, investigation_tools, client_findings, client_interactions, client_unknowns, divergence_tracking, drift_monitoring, project_reference_docs) — each ONLY when it is empty in this database. A table holding rows is left in place and logged, so the migration cannot lose data. `clients` (holds a row on long-lived stores) and `engagements` (empirica-workspace's) are deliberately not in the set. David's ruling 2026-09-18. project_reference_docs' last two readers were moved to epistemic_sources(source_type='pointer') in the same change; 047 had recorded them as switched and they were not.",
         lambda cursor: migration_072_drop_empty_legacy_tables(cursor),
     ),
+    (
+        "073_verification_transaction_id",
+        "Add `transaction_id` to grounded_verifications. A verification row could not name the transaction it graded: the only transaction column, parent_transaction_id, means the PARENT of a compliance-loop retry and is NULL on every ordinary row by design. Readers joined through it anyway and got nothing (cortex measured 655 of 655 NULL and nearly reported a total collapse), or fell back to matching rows to POSTFLIGHTs by session and a time window, which is how one day produced a false outage, a false partial loss and a wrongly scoped mechanism from the same table. Nullable and NOT backfilled: a window match is a guess, and a guessed id in an identity column is worse than NULL.",
+        lambda cursor: migration_073_verification_transaction_id(cursor),
+    ),
 ]
 
 
@@ -3085,4 +3090,18 @@ def migration_072_drop_empty_legacy_tables(cursor: sqlite3.Cursor):
         logger.warning(f"Migration 072: kept legacy tables that hold rows (not dropped): {', '.join(kept)}")
     logger.info(
         f"✅ Migration 072 complete: dropped {len(dropped)} empty legacy table(s): {', '.join(dropped) or 'none'}"
+    )
+
+
+def migration_073_verification_transaction_id(cursor: sqlite3.Cursor):
+    """A verification row names the transaction it graded.
+
+    `parent_transaction_id` is not this: it is the parent of a compliance-loop
+    retry and stays NULL on ordinary rows. Historical rows keep NULL here, since
+    the only way to fill them is a session-and-time-window match, and that match
+    is the instrument that misled three analyses on 2026-09-21.
+    """
+    add_column_if_missing(cursor, "grounded_verifications", "transaction_id", "TEXT")
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_grounded_verifications_transaction ON grounded_verifications(transaction_id)"
     )

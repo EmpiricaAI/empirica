@@ -394,8 +394,13 @@ class GroundedCalibrationManager:
         domain: str | None = None,
         goal_id: str | None = None,
         phase: str = "combined",
+        transaction_id: str | None = None,
     ) -> str:
-        """Store a complete grounded verification record."""
+        """Store a complete grounded verification record.
+
+        `transaction_id` is the transaction this row graded, which is what lets a
+        reader join a verification to its POSTFLIGHT exactly.
+        """
         cursor = self.conn.cursor()
 
         # Get AI ID
@@ -434,8 +439,9 @@ class GroundedCalibrationManager:
                 grounded_coverage, overall_calibration_score,
                 evidence_count, sources_available, sources_failed,
                 domain, goal_id, phase,
-                observed_vectors, grounded_rationale, criticality, compliance_status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                observed_vectors, grounded_rationale, criticality, compliance_status,
+                transaction_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
             (
                 verification_id,
@@ -456,6 +462,7 @@ class GroundedCalibrationManager:
                 grounded_rationale,  # B3: AI's reasoning
                 criticality,  # A3: domain criticality
                 compliance_status,  # A3: compliance loop state
+                transaction_id or None,
             ),
         )
 
@@ -863,6 +870,7 @@ def _run_single_phase_verification(
         domain=domain,
         goal_id=goal_id,
         phase=phase,
+        transaction_id=transaction_id,
     )
 
     from .trajectory_tracker import TrajectoryTracker

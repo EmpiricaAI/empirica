@@ -76,6 +76,7 @@ SCHEMAS = [
         criticality TEXT,
         compliance_status TEXT,
         parent_transaction_id TEXT,
+        transaction_id TEXT,
 
         created_at REAL DEFAULT (strftime('%s', 'now')),
 
