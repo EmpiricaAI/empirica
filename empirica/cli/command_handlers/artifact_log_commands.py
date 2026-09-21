@@ -1679,7 +1679,19 @@ def handle_finding_resolve_command(args):
             print(json.dumps({"ok": False, "error": "finding_id and --resolution are required"}))
             return 1
 
+        from empirica.data.resolution_kind import UnresolvableFindingRef, canonical_finding_id
+
         db = SessionDatabase()
+        try:
+            # Expanded here as well as in the repository, so the receipt shows the
+            # full id that was stored and not the eight characters that were typed.
+            superseded_by = canonical_finding_id(db.conn.execute, superseded_by)
+        except UnresolvableFindingRef as e:
+            db.close()
+            print(
+                json.dumps({"ok": False, "error": str(e), "hint": "pass the replacement finding's id, 8+ characters"})
+            )
+            return 1
         updated = db.resolve_finding(
             finding_id, resolution, superseded_by=superseded_by, resolution_kind=resolution_kind
         )

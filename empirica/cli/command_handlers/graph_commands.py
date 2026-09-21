@@ -1339,14 +1339,21 @@ def handle_resolve_artifacts_command(args):  # noqa: C901 — batch dispatcher f
                     # from live retrieval. superseded_by optionally links the replacement.
                     import time as _tf
 
-                    from empirica.data.resolution_kind import is_retraction, normalize_resolution_kind
+                    from empirica.data.resolution_kind import (
+                        canonical_finding_id,
+                        is_retraction,
+                        normalize_resolution_kind,
+                    )
 
                     _kind = normalize_resolution_kind(item.get("resolution_kind"))
+                    # Raises into this item's error, so one bad pointer refuses
+                    # one resolution and the rest of the batch still applies.
+                    _superseded_by = canonical_finding_id(db.conn.execute, item.get("superseded_by"))
                     cursor = db.conn.cursor()
                     cursor.execute(
                         "UPDATE project_findings SET is_resolved = 1, resolution = ?, "
                         "resolved_timestamp = ?, superseded_by = ?, resolution_kind = ? WHERE id = ?",
-                        (resolution, _tf.time(), item.get("superseded_by"), _kind, artifact_id),
+                        (resolution, _tf.time(), _superseded_by, _kind, artifact_id),
                     )
                     if cursor.rowcount > 0:
                         resolved_count += 1

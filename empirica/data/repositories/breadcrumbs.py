@@ -603,9 +603,12 @@ class BreadcrumbRepository(BaseRepository):
                 values normalize to NULL ("not classified") rather than guessing —
                 a wrong kind here is precisely the error being measured.
         """
-        from empirica.data.resolution_kind import normalize_resolution_kind
+        from empirica.data.resolution_kind import canonical_finding_id, normalize_resolution_kind
 
         kind = normalize_resolution_kind(resolution_kind)
+        # Raises on a value that names no single finding. Stored verbatim, an
+        # 8-character id copied from any list view became a dangling pointer.
+        superseded_by = canonical_finding_id(self._execute, superseded_by)
         where = "id LIKE ?" if len(finding_id) < 36 else "id = ?"
         match = f"{finding_id}%" if len(finding_id) < 36 else finding_id
         cur = self._execute(

@@ -1498,8 +1498,18 @@ async def resolve_artifact(
                 (now, artifact_id),
             )
         elif artifact_type == "finding":
-            from empirica.data.resolution_kind import normalize_resolution_kind
+            from empirica.data.resolution_kind import (
+                UnresolvableFindingRef,
+                canonical_finding_id,
+                normalize_resolution_kind,
+            )
 
+            try:
+                _superseded_by = canonical_finding_id(cursor.execute, body.get("superseded_by"))
+            except UnresolvableFindingRef as exc:
+                # The caller's mistake, said as one: a pointer that names no
+                # single finding is refused, never stored.
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
             _exec_lifecycle_update(
                 cursor,
                 artifact_type,
@@ -1509,7 +1519,7 @@ async def resolve_artifact(
                     resolved_by or body.get("resolution") or "resolved",
                     now,
                     normalize_resolution_kind(body.get("resolution_kind")),
-                    body.get("superseded_by"),
+                    _superseded_by,
                     artifact_id,
                 ),
                 migration="057/061",

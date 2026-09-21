@@ -62,3 +62,47 @@ def is_retraction(kind: str | None) -> bool:
     had no way to say it.
     """
     return normalize_resolution_kind(kind) in ("retracted", "mistyped")
+
+
+class UnresolvableFindingRef(ValueError):
+    """A `superseded_by` value that names no single finding."""
+
+
+def canonical_finding_id(execute, value) -> str | None:
+    """Turn what a practitioner typed into the full id of one finding, or refuse.
+
+    `execute` is any `(sql, params) -> cursor` callable: a connection's execute, or
+    a repository's `_execute`, which also handles the PostgreSQL placeholder dialect.
+
+    Every list view and receipt prints ids as eight characters, so that is the
+    value in hand when someone reaches for `--superseded-by`. The column used to
+    store it verbatim: a pointer built from the tool's own output dangled (two of
+    a peer's four dangling pointers, measured 2026-09-21). A full id that matches
+    nothing was stored the same way.
+
+    Exact id wins. Otherwise an 8+ character prefix that matches exactly one
+    finding is expanded. Anything else raises: no match, several matches, or a
+    prefix too short to be an identity. Empty stays None.
+    """
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    row = execute("SELECT id FROM project_findings WHERE id = ?", (text,)).fetchone()
+    if row:
+        return row[0]
+    if len(text) < 8:
+        raise UnresolvableFindingRef(f"superseded_by {text!r} is too short to identify a finding (8+ characters)")
+    escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    matches = [
+        r[0]
+        for r in execute(
+            "SELECT id FROM project_findings WHERE id LIKE ? ESCAPE '\\' LIMIT 3", (escaped + "%",)
+        ).fetchall()
+    ]
+    if len(matches) == 1:
+        return matches[0]
+    if not matches:
+        raise UnresolvableFindingRef(f"superseded_by {text!r} matches no finding in this store")
+    raise UnresolvableFindingRef(f"superseded_by {text!r} matches more than one finding; give the full id")
