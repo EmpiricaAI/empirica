@@ -670,9 +670,38 @@ def _auto_embed_node(node: dict, artifact_id: str, context: dict):
             text=text,
             item_type=ntype,
             session_id=context["session_id"],
+            impact=data.get("impact"),
         )
-    except Exception:
-        pass  # Qdrant embedding is non-critical
+        if ntype == "finding":
+            _ingest_finding_eidetic_like_the_single_verb(data, artifact_id, context)
+    except Exception as exc:
+        # Embedding is non-critical, and it is not silent: a store that stops
+        # embedding reads as "nothing relevant" to every later retrieval.
+        logger.warning("auto-embed of %s %s failed: %s", node.get("type"), artifact_id, exc)
+
+
+def _ingest_finding_eidetic_like_the_single_verb(data: dict, artifact_id: str, context: dict) -> None:
+    """ONE DESTINATION PER TYPE, the same rule as decisions above.
+
+    `finding-log` ingests every finding into the eidetic collection at log time.
+    This batch path did not, and it is the documented default: any artifact with
+    an edge goes through here. So the more carefully a practice connected its
+    findings, the less of them reached the surface PREFLIGHT, CHECK and
+    project-bootstrap read. cortex measured it on 2026-09-21: about 40 findings
+    logged that day, all batched, none in eidetic.
+
+    The single verb's helper is reused, not copied, so the two cannot drift.
+    """
+    from empirica.cli.command_handlers.artifact_log_commands import _ingest_finding_eidetic
+
+    _ingest_finding_eidetic(
+        context["project_id"],
+        artifact_id,
+        data["finding"],
+        data.get("subject"),
+        data.get("impact"),
+        context["session_id"],
+    )
 
 
 def _read_graph_input(args) -> dict | None:
