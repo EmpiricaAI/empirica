@@ -93,9 +93,15 @@ def search_eidetic(
     domain: str | None = None,
     min_confidence: float = 0.0,
     limit: int = 5,
+    include_resolved: bool = False,
 ) -> list[dict]:
     """
     Search eidetic memory for relevant facts.
+
+    A fact promoted from a finding that was since resolved or retracted is left
+    out unless `include_resolved` is set. This is the one chokepoint for all
+    five readers (PREFLIGHT, CHECK, project-bootstrap, the epistemic brief,
+    decay), so none of them can serve a retracted claim as a fact.
 
     Args:
         project_id: Project UUID
@@ -141,11 +147,12 @@ def search_eidetic(
             collection_name=coll,
             query=vector,
             query_filter=query_filter,
-            limit=limit,
+            # Over-fetch when filtering, so retired facts do not eat the limit.
+            limit=limit if include_resolved else limit * 2,
             with_payload=True,
         )
 
-        return [
+        facts = [
             {
                 "id": str(r.id),
                 "score": r.score,
@@ -156,6 +163,9 @@ def search_eidetic(
                 "confidence": r.payload.get("confidence"),
                 "confirmation_count": r.payload.get("confirmation_count"),
                 "source_sessions": r.payload.get("source_sessions", []),
+                # which findings this fact was promoted from: what lets a reader
+                # retire the fact when those findings are resolved
+                "source_findings": r.payload.get("source_findings", []),
                 "tags": r.payload.get("tags", []),
                 # creation time (unix or ISO) for read-time recency ranking
                 "first_seen": r.payload.get("first_seen"),
@@ -163,6 +173,11 @@ def search_eidetic(
             }
             for r in results.points
         ]
+        if include_resolved:
+            return facts
+        from .pattern_retrieval import _reconcile_eidetic_against_sqlite
+
+        return _reconcile_eidetic_against_sqlite(facts)[:limit]
     except Exception as e:
         logger.warning(f"Failed to search eidetic: {e}")
         return []

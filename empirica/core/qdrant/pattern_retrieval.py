@@ -522,6 +522,74 @@ def _reconcile_findings_against_sqlite(raw_findings):
         return raw_findings
 
 
+def _resolved_finding_state() -> tuple[set[str], set[str]] | None:
+    """(resolved finding ids, their 500-char text prefixes), or None if unreadable."""
+    import sqlite3
+    from pathlib import Path
+
+    from empirica.data.session_database import _resolve_canonical_project_root
+
+    root = _resolve_canonical_project_root()
+    if not root:
+        return None
+    db_path = Path(root) / ".empirica" / "sessions" / "sessions.db"
+    if not db_path.is_file():
+        return None
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    try:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(project_findings)").fetchall()}
+        if "is_resolved" not in cols:
+            return None
+        ids: set[str] = set()
+        prefixes: set[str] = set()
+        for fid, text in conn.execute("SELECT id, finding FROM project_findings WHERE is_resolved = 1"):
+            if fid:
+                ids.add(fid)
+            if text:
+                prefixes.add(text[:500])
+        return ids, prefixes
+    finally:
+        conn.close()
+
+
+def _eidetic_is_retired(item: dict, ids: set[str], prefixes: set[str]) -> bool:
+    """True when every finding a fact was promoted from has been resolved.
+
+    Sources first, because they are exact. A fact confirmed from several
+    findings survives until ALL of them are resolved. Facts embedded without
+    sources fall back to the text: a promoted finding's content IS its text.
+    """
+    sources = [s for s in (item.get("source_findings") or []) if s]
+    if sources:
+        return all(s in ids for s in sources)
+    text = item.get("content_full") or item.get("content") or ""
+    return bool(text) and text[:500] in prefixes
+
+
+def _reconcile_eidetic_against_sqlite(raw_facts):
+    """Drop eidetic facts whose source findings were resolved or retracted.
+
+    Promotion writes a second point at log time and nothing demoted it, so a
+    finding retracted as false was still served as a `fact` at confidence 0.80,
+    above its correction (mesh-support, 2026-09-21, measured after the memory
+    half was fixed). Best-effort like the findings reconcile: any failure
+    returns the input unchanged, and says so.
+    """
+    if not raw_facts:
+        return raw_facts
+    try:
+        state = _resolved_finding_state()
+        if state is None:
+            return raw_facts
+        ids, prefixes = state
+        if not ids and not prefixes:
+            return raw_facts
+        return [f for f in raw_facts if not _eidetic_is_retired(f, ids, prefixes)]
+    except Exception as e:
+        logger.warning(f"eidetic reconcile failed; facts from resolved findings may be served: {e}")
+        return raw_facts
+
+
 def _stamp_surfaced_typed(items, artifact_type: str) -> int:
     """Stamp a typed-collection result whose items carry no `type` key.
 

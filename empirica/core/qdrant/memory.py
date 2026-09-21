@@ -291,12 +291,17 @@ def _drop_resolved_memory(kind_name: str, candidates: list[dict], include_resolv
     SQLite is the authority, read at query time. Runs BEFORE the confirm band
     applies the limit, so a dropped row makes room for a live one.
     """
-    if include_resolved or kind_name != "memory" or not candidates:
+    if include_resolved or kind_name not in ("memory", "eidetic") or not candidates:
         return candidates
     try:
-        from empirica.core.qdrant.pattern_retrieval import _reconcile_findings_against_sqlite
+        from empirica.core.qdrant import pattern_retrieval as pr
 
-        return _reconcile_findings_against_sqlite(candidates)
+        if kind_name == "eidetic":
+            # A promoted finding is a SECOND point in another collection, written
+            # at log time. Resolving the finding never reached it, so a retracted
+            # claim kept being served as a fact at its original confidence.
+            return pr._reconcile_eidetic_against_sqlite(candidates)
+        return pr._reconcile_findings_against_sqlite(candidates)
     except Exception as e:
         logger.warning(f"resolution reconcile failed; resolved artifacts may be served: {e}")
         return candidates
@@ -377,7 +382,10 @@ def search(
             _memory_collection,
             ["type", "text", "session_id", "goal_id", "timestamp", "impact", "artifact_id"],
         ),
-        "eidetic": (_eidetic_collection, ["type", "content", "confidence", "domain", "created_at", "first_seen"]),
+        "eidetic": (
+            _eidetic_collection,
+            ["type", "content", "confidence", "domain", "created_at", "first_seen", "source_findings"],
+        ),
         "episodic": (_episodic_collection, ["type", "narrative", "session_id", "outcome", "created_at", "timestamp"]),
         "assumptions": (
             _assumptions_collection,

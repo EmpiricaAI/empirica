@@ -62,7 +62,7 @@ def test_the_retraction_the_old_embed_and_the_answered_unknown_are_dropped(store
 
 
 def test_other_collections_are_not_touched(store):
-    assert len(memory._drop_resolved_memory("eidetic", _candidates(), include_resolved=False)) == 5
+    assert len(memory._drop_resolved_memory("episodic", _candidates(), include_resolved=False)) == 5
 
 
 def test_a_failing_reconcile_serves_the_rows_and_warns(monkeypatch, caplog):
@@ -94,3 +94,46 @@ def test_project_search_passes_the_flag_and_says_what_it_excluded():
     source = inspect.getsource(ps.handle_project_search_command)
     assert "include_resolved=include_resolved" in source
     assert 'payload["resolved_artifacts"]' in source
+
+
+# --- the eidetic half: a promoted finding is a second point, in another collection ---
+
+
+def _facts():
+    return [
+        {"content": "the false claim", "source_findings": ["f-false"], "confidence": 0.85},
+        {"content": "the correction", "source_findings": ["f-fix"], "confidence": 0.80},
+        {"content": "embedded before ids", "source_findings": [], "confidence": 0.80},
+        {"content": "confirmed twice", "source_findings": ["f-false", "f-fix"], "confidence": 0.90},
+        {"content": "a code signature", "source_findings": [], "confidence": 0.90},
+    ]
+
+
+def test_a_fact_is_retired_when_every_finding_it_came_from_is_resolved(store):
+    kept = pattern_retrieval._reconcile_eidetic_against_sqlite(_facts())
+    assert [f["content"] for f in kept] == ["the correction", "confirmed twice", "a code signature"]
+
+
+def test_the_shared_search_reconciles_eidetic_candidates(store):
+    kept = memory._drop_resolved_memory("eidetic", _facts(), include_resolved=False)
+    assert "the false claim" not in [f["content"] for f in kept]
+    assert len(memory._drop_resolved_memory("eidetic", _facts(), include_resolved=True)) == 5
+
+
+def test_an_unreadable_store_serves_the_facts_unchanged(monkeypatch):
+    import empirica.data.session_database as sd
+
+    monkeypatch.setattr(sd, "_resolve_canonical_project_root", lambda: None)
+    assert len(pattern_retrieval._reconcile_eidetic_against_sqlite(_facts())) == 5
+
+
+def test_every_eidetic_reader_goes_through_the_one_filtering_search():
+    """Five readers call search_eidetic; the filter lives inside it, so none can skip it."""
+    import inspect
+
+    from empirica.core.qdrant import eidetic
+
+    source = inspect.getsource(eidetic.search_eidetic)
+    assert "_reconcile_eidetic_against_sqlite(facts)[:limit]" in source
+    assert '"source_findings"' in source
+    assert "limit * 2" in source
