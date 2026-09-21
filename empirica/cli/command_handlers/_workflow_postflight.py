@@ -521,6 +521,38 @@ def _spawn_detached_storage_pipeline(
         _inline()  # spawn failed → run inline
 
 
+def _stamp_practitioner_model(db, transaction_id: str | None) -> str | None:
+    """Record which model was measured on this transaction's calibration rows.
+
+    Calibration accrues to the practitioner, and `ai_id` names the practice, so
+    without this a row cannot say who it graded. Keyed by transaction id, never
+    by session: the model can change inside one session. Returns what was
+    recorded; None means the rows keep NULL, which reads as "not recorded".
+    """
+    if not transaction_id:
+        return None
+    try:
+        from empirica.utils.practitioner_model import current_practitioner_model
+        from empirica.utils.session_resolver import get_claude_session_id
+
+        model = current_practitioner_model(get_claude_session_id())
+        if not model:
+            return None
+        db.conn.execute(
+            "UPDATE calibration_trajectory SET practitioner_model = ? WHERE transaction_id = ?",
+            (model, transaction_id),
+        )
+        db.conn.execute(
+            "UPDATE grounded_verifications SET practitioner_model = ? WHERE transaction_id = ?",
+            (model, transaction_id),
+        )
+        db.conn.commit()
+        return model
+    except Exception as exc:
+        logger.warning("practitioner model not recorded for %s: %s", transaction_id, exc)
+        return None
+
+
 def _run_grounded_verification(
     session_id: str,
     vectors: dict,
@@ -607,6 +639,7 @@ def _run_grounded_verification(
 
         if result:
             logger.debug(f"Grounded verification: {result['evidence_count']} evidence items")
+            result["practitioner_model"] = _stamp_practitioner_model(db, transaction_id)
         db.close()
         return result
     except Exception as e:

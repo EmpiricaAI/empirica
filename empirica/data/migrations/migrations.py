@@ -1581,6 +1581,11 @@ ALL_MIGRATIONS: list[tuple[str, str, Callable]] = [
         "Add `transaction_id` to grounded_verifications. A verification row could not name the transaction it graded: the only transaction column, parent_transaction_id, means the PARENT of a compliance-loop retry and is NULL on every ordinary row by design. Readers joined through it anyway and got nothing (cortex measured 655 of 655 NULL and nearly reported a total collapse), or fell back to matching rows to POSTFLIGHTs by session and a time window, which is how one day produced a false outage, a false partial loss and a wrongly scoped mechanism from the same table. Nullable and NOT backfilled: a window match is a guess, and a guessed id in an identity column is worse than NULL.",
         lambda cursor: migration_073_verification_transaction_id(cursor),
     ),
+    (
+        "074_practitioner_model",
+        "Add `practitioner_model` to calibration_trajectory and grounded_verifications. David's ruling 2026-09-21: calibration accrues to the PRACTITIONER, artifacts to the PRACTICE. `ai_id` names the practice, and one practice is inhabited by several models, sometimes within one session, so a calibration row could not say who it graded. The value is the model id on the last assistant line of the Claude Code transcript when the transaction closes. Nullable and NOT backfilled: history cannot be split by model after the fact, and a guessed practitioner is worse than an absent one. This records; it does not yet change what the CHECK gate reads.",
+        lambda cursor: migration_074_practitioner_model(cursor),
+    ),
 ]
 
 
@@ -3105,3 +3110,9 @@ def migration_073_verification_transaction_id(cursor: sqlite3.Cursor):
     cursor.execute(
         "CREATE INDEX IF NOT EXISTS idx_grounded_verifications_transaction ON grounded_verifications(transaction_id)"
     )
+
+
+def migration_074_practitioner_model(cursor: sqlite3.Cursor):
+    """A calibration row names the model it graded, not only the practice."""
+    for table in ("calibration_trajectory", "grounded_verifications"):
+        add_column_if_missing(cursor, table, "practitioner_model", "TEXT")

@@ -336,7 +336,7 @@ Alphabetical. Column lines read `name TYPE [PRIMARY KEY|NOT NULL] [DEFAULT x] [(
 - `created_at` REAL
 
 #### `calibration_trajectory`
-**16 columns**
+**17 columns**
 - `point_id` TEXT PRIMARY KEY
 - `session_id` TEXT NOT NULL (FK: sessions.session_id)
 - `ai_id` TEXT NOT NULL
@@ -353,6 +353,7 @@ Alphabetical. Column lines read `name TYPE [PRIMARY KEY|NOT NULL] [DEFAULT x] [(
 - `evidence_count` INTEGER DEFAULT NULL
 - `primary_source` TEXT DEFAULT NULL
 - `grounded_raw` TEXT DEFAULT NULL
+- `practitioner_model` TEXT
 - *indexes:* `idx_calibration_trajectory_ai_vector`, `idx_calibration_trajectory_phase`
 
 #### `cascades`
@@ -685,7 +686,7 @@ Alphabetical. Column lines read `name TYPE [PRIMARY KEY|NOT NULL] [DEFAULT x] [(
 - *indexes:* `idx_grounded_beliefs_ai_vector`
 
 #### `grounded_verifications`
-**21 columns**
+**22 columns**
 - `verification_id` TEXT PRIMARY KEY
 - `session_id` TEXT NOT NULL (FK: sessions.session_id)
 - `ai_id` TEXT NOT NULL
@@ -707,6 +708,7 @@ Alphabetical. Column lines read `name TYPE [PRIMARY KEY|NOT NULL] [DEFAULT x] [(
 - `transaction_id` TEXT
 - `created_at` REAL DEFAULT strftime('%s', 'now')
 - `phase` TEXT DEFAULT 'combined'
+- `practitioner_model` TEXT
 - *indexes:* `idx_grounded_verifications_session`, `idx_grounded_verifications_transaction`
 
 #### `handoff_reports`
