@@ -18,12 +18,30 @@ TWIN_A = "e90c8237-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 TWIN_B = "e90c8237-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
 
 
+MISTAKE = "79e9739b-cccc-4ccc-8ccc-cccccccccccc"
+
+
 @pytest.fixture
 def conn():
     c = sqlite3.connect(":memory:")
     c.execute("CREATE TABLE project_findings (id TEXT)")
+    c.execute("CREATE TABLE mistakes_made (id TEXT)")  # the other tables are absent, as on an older store
     c.executemany("INSERT INTO project_findings VALUES (?)", [(FULL,), (TWIN_A,), (TWIN_B,)])
+    c.execute("INSERT INTO mistakes_made VALUES (?)", (MISTAKE,))
     return c
+
+
+def test_a_supersession_may_point_at_another_artifact_type(conn):
+    """A finding that was really a mistake is resolved `mistyped` and points at the mistake."""
+    assert canonical_finding_id(conn.execute, MISTAKE) == MISTAKE
+    assert canonical_finding_id(conn.execute, "79e9739b") == MISTAKE
+
+
+def test_a_batch_ref_reused_outside_its_batch_is_refused(conn):
+    with pytest.raises(UnresolvableFindingRef):
+        canonical_finding_id(conn.execute, "f_unit")
+    with pytest.raises(UnresolvableFindingRef, match="matches no artifact"):
+        canonical_finding_id(conn.execute, "f_narrow")
 
 
 def test_an_eight_character_prefix_is_expanded(conn):
@@ -42,11 +60,11 @@ def test_empty_stays_none(conn):
 @pytest.mark.parametrize(
     ("value", "says"),
     [
-        ("c7affb47-142a-481e-b243-d0a17541acf6", "matches no finding"),
-        ("deadbeef", "matches no finding"),
+        ("c7affb47-142a-481e-b243-d0a17541acf6", "matches no artifact"),
+        ("deadbeef", "matches no artifact"),
         ("e90c8237", "more than one"),
         ("88f5", "too short"),
-        ("%%%%%%%%", "matches no finding"),
+        ("%%%%%%%%", "matches no artifact"),
     ],
 )
 def test_anything_else_is_refused(conn, value, says):

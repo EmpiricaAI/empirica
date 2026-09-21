@@ -65,11 +65,25 @@ def is_retraction(kind: str | None) -> bool:
 
 
 class UnresolvableFindingRef(ValueError):
-    """A `superseded_by` value that names no single finding."""
+    """A `superseded_by` value that names no single artifact."""
+
+
+# A supersession may cross types: a finding that was really a mistake is
+# resolved `mistyped` and points at the mistake. cortex held exactly that row,
+# and a findings-only lookup refused it as dangling (2026-09-21).
+_ARTIFACT_TABLES = (
+    "project_findings",
+    "mistakes_made",
+    "project_unknowns",
+    "project_dead_ends",
+    "assumptions",
+    "decisions",
+    "lessons",
+)
 
 
 def canonical_finding_id(execute, value) -> str | None:
-    """Turn what a practitioner typed into the full id of one finding, or refuse.
+    """Turn what a practitioner typed into the full id of one artifact, or refuse.
 
     `execute` is any `(sql, params) -> cursor` callable: a connection's execute, or
     a repository's `_execute`, which also handles the PostgreSQL placeholder dialect.
@@ -78,31 +92,42 @@ def canonical_finding_id(execute, value) -> str | None:
     value in hand when someone reaches for `--superseded-by`. The column used to
     store it verbatim: a pointer built from the tool's own output dangled (two of
     a peer's four dangling pointers, measured 2026-09-21). A full id that matches
-    nothing was stored the same way.
+    nothing was stored the same way, and so was a `log-artifacts` batch ref such
+    as `f_unit` reused in a later `resolve-artifacts` call.
 
-    Exact id wins. Otherwise an 8+ character prefix that matches exactly one
-    finding is expanded. Anything else raises: no match, several matches, or a
-    prefix too short to be an identity. Empty stays None.
+    Exact id wins, in any artifact table. Otherwise an 8+ character prefix that
+    matches exactly one artifact across all tables is expanded. Anything else
+    raises: no match, several matches, or a prefix too short to be an identity.
+    Empty stays None.
     """
     if value is None:
         return None
     text = str(value).strip()
     if not text:
         return None
-    row = execute("SELECT id FROM project_findings WHERE id = ?", (text,)).fetchone()
-    if row:
-        return row[0]
+    for table in _ARTIFACT_TABLES:
+        row = _fetch(execute, f"SELECT id FROM {table} WHERE id = ?", (text,))
+        if row:
+            return row[0][0]
     if len(text) < 8:
-        raise UnresolvableFindingRef(f"superseded_by {text!r} is too short to identify a finding (8+ characters)")
+        raise UnresolvableFindingRef(f"superseded_by {text!r} is too short to identify an artifact (8+ characters)")
     escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    matches = [
-        r[0]
-        for r in execute(
-            "SELECT id FROM project_findings WHERE id LIKE ? ESCAPE '\\' LIMIT 3", (escaped + "%",)
-        ).fetchall()
-    ]
+    matches: list[str] = []
+    for table in _ARTIFACT_TABLES:
+        rows = _fetch(execute, f"SELECT id FROM {table} WHERE id LIKE ? ESCAPE '\\' LIMIT 3", (escaped + "%",))
+        matches.extend(r[0] for r in rows)
+        if len(matches) > 1:
+            break
     if len(matches) == 1:
         return matches[0]
     if not matches:
-        raise UnresolvableFindingRef(f"superseded_by {text!r} matches no finding in this store")
-    raise UnresolvableFindingRef(f"superseded_by {text!r} matches more than one finding; give the full id")
+        raise UnresolvableFindingRef(f"superseded_by {text!r} matches no artifact in this store")
+    raise UnresolvableFindingRef(f"superseded_by {text!r} matches more than one artifact; give the full id")
+
+
+def _fetch(execute, sql: str, params: tuple) -> list:
+    """Rows, or none when the table is absent on an older store."""
+    try:
+        return list(execute(sql, params).fetchall())
+    except Exception:
+        return []
