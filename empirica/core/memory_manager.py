@@ -153,10 +153,17 @@ def fetch_ranked_artifacts(session_id: str, db_path: str | None = None, limit: i
             uf_args = (project_id,)
             gf = "WHERE is_completed = 0 AND project_id = ?"
             gf_args = (project_id,)
+            # Dead-ends and mistakes are never "resolved": they carry
+            # `is_invalidated`. They reused `pf`, so when `pf` gained
+            # `is_resolved = 0` both queries raised "no such column" and every
+            # section after findings and unknowns came back empty, at DEBUG.
+            vf = "WHERE COALESCE(is_invalidated, 0) = 0 AND project_id = ?"
+            vf_args = (project_id,)
         else:
             pf, pf_args = "WHERE is_resolved = 0", ()
             uf, uf_args = "WHERE is_resolved = 0", ()
             gf, gf_args = "WHERE is_completed = 0", ()
+            vf, vf_args = "WHERE COALESCE(is_invalidated, 0) = 0", ()
 
         # Findings
         cursor.execute(
@@ -190,9 +197,9 @@ def fetch_ranked_artifacts(session_id: str, db_path: str | None = None, limit: i
         cursor.execute(
             f"""
             SELECT approach, why_failed, created_timestamp FROM project_dead_ends
-            {pf} ORDER BY created_timestamp DESC LIMIT ?
+            {vf} ORDER BY created_timestamp DESC LIMIT ?
         """,
-            (*pf_args, 10),
+            (*vf_args, 10),
         )
         for row in cursor.fetchall():
             result["dead_ends"].append(
@@ -206,7 +213,7 @@ def fetch_ranked_artifacts(session_id: str, db_path: str | None = None, limit: i
         # Open goals
         cursor.execute(
             f"""
-            SELECT objective, status FROM project_goals
+            SELECT objective, status FROM goals
             {gf} ORDER BY created_timestamp DESC LIMIT ?
         """,
             (*gf_args, 10),
@@ -217,10 +224,10 @@ def fetch_ranked_artifacts(session_id: str, db_path: str | None = None, limit: i
         # Mistakes
         cursor.execute(
             f"""
-            SELECT mistake, prevention, created_timestamp FROM project_mistakes
-            {pf} ORDER BY created_timestamp DESC LIMIT ?
+            SELECT mistake, prevention, created_timestamp FROM mistakes_made
+            {vf} ORDER BY created_timestamp DESC LIMIT ?
         """,
-            (*pf_args, 5),
+            (*vf_args, 5),
         )
         for row in cursor.fetchall():
             result["mistakes"].append(
@@ -233,7 +240,11 @@ def fetch_ranked_artifacts(session_id: str, db_path: str | None = None, limit: i
 
         conn.close()
     except Exception as e:
-        logger.debug(f"fetch_ranked_artifacts failed: {e}")
+        # WARNING, not debug: this feeds MEMORY.md's EPISTEMIC FOCUS block, and a
+        # failure here returns a plausible partial dict. For months it returned
+        # findings and unknowns only and nothing said the other three were
+        # missing rather than empty.
+        logger.warning(f"fetch_ranked_artifacts failed, the hot cache will be partial: {e}")
 
     return result
 

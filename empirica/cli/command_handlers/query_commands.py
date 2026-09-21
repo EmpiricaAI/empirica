@@ -175,7 +175,7 @@ def _query_mistakes(
     cursor = db.conn.cursor()
 
     if scope == "session":
-        query = "SELECT id, session_id, mistake as description, why_wrong, cost_estimate, prevention, created_timestamp as created_at FROM session_mistakes WHERE session_id = ? ORDER BY created_timestamp DESC LIMIT ?"
+        query = "SELECT id, session_id, mistake as description, why_wrong, cost_estimate, prevention, created_timestamp as created_at FROM mistakes_made WHERE session_id = ? ORDER BY created_timestamp DESC LIMIT ?"
         params = [session_id, limit]
     elif scope == "project":
         query = "SELECT id, session_id, project_id, mistake as description, why_wrong, cost_estimate, prevention, created_timestamp as created_at FROM mistakes_made WHERE project_id = ? ORDER BY created_timestamp DESC LIMIT ?"

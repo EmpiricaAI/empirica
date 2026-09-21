@@ -421,7 +421,7 @@ def _collect_child_findings(db, parent_session_id):
         cursor.execute(
             """
             SELECT finding, impact, subject
-            FROM session_findings
+            FROM project_findings
             WHERE session_id = ?
             ORDER BY created_timestamp DESC
         """,
