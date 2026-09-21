@@ -9,15 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **POSTFLIGHT was dropping about 90% of grounded verifications.** Recorded
-  verifications fell from 72 of 78 POSTFLIGHTs on 2026-09-18 to 4 of 42 on
-  2026-09-20, each reported only as a non-fatal "database is locked", and a
-  POSTFLIGHT took over a minute. It was a self-deadlock: prevention detection
-  updated a row, then raised on a query against `session_dead_ends`, a table
-  dropped in February, returned without rolling back, and never closed its
-  connection. That pending write held the lock for the rest of the process.
-  **Calibration and Brier figures for 2026-09-18 onward rest on a small,
-  non-random subset of transactions; treat that window as unreliable.**
+- **POSTFLIGHT could drop its grounded verification behind a self-deadlock.**
+  Prevention detection updated a row, then raised on a query against
+  `session_dead_ends`, a table dropped in February, returned without rolling
+  back, and never closed its connection. That pending write held the lock for
+  the rest of the process, verification failed as a non-fatal "database is
+  locked", and the POSTFLIGHT took over a minute.
+  *Corrected 2026-09-21, after release:* this entry first said about 90% of
+  verifications were lost from 2026-09-18, and called that window's calibration
+  unreliable. That was wrong. The count it rested on, 4 of 42 on 2026-09-20,
+  had 36 rows in its denominator written by this repository's own test suite
+  into the developer's store. Counting real POSTFLIGHTs only, the measured
+  loss is 4 verifications on 2026-09-21 and at most 3 across 2026-09-17 and
+  2026-09-18, in one store. No other store reported any. **No calibration
+  window needs to be set aside.**
 - **Three modules queried a table that no longer exists.** Prevention
   detection, blindspot regret and the prevention oracle all read
   `session_dead_ends`, so their dead-end signal never worked in a real store.
