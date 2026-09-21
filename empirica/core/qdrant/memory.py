@@ -300,7 +300,7 @@ def _drop_resolved_memory(kind_name: str, candidates: list[dict], include_resolv
             # A promoted finding is a SECOND point in another collection, written
             # at log time. Resolving the finding never reached it, so a retracted
             # claim kept being served as a fact at its original confidence.
-            return pr._reconcile_eidetic_against_sqlite(candidates)
+            return pr.reconcile_eidetic_against_sqlite(candidates)
         return pr._reconcile_findings_against_sqlite(candidates)
     except Exception as e:
         logger.warning(f"resolution reconcile failed; resolved artifacts may be served: {e}")

@@ -566,7 +566,7 @@ def _eidetic_is_retired(item: dict, ids: set[str], prefixes: set[str]) -> bool:
     return bool(text) and text[:500] in prefixes
 
 
-def _reconcile_eidetic_against_sqlite(raw_facts):
+def reconcile_eidetic_against_sqlite(raw_facts):
     """Drop eidetic facts whose source findings were resolved or retracted.
 
     Promotion writes a second point at log time and nothing demoted it, so a

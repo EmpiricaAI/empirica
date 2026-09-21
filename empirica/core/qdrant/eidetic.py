@@ -175,9 +175,9 @@ def search_eidetic(
         ]
         if include_resolved:
             return facts
-        from .pattern_retrieval import _reconcile_eidetic_against_sqlite
+        from .pattern_retrieval import reconcile_eidetic_against_sqlite
 
-        return _reconcile_eidetic_against_sqlite(facts)[:limit]
+        return reconcile_eidetic_against_sqlite(facts)[:limit]
     except Exception as e:
         logger.warning(f"Failed to search eidetic: {e}")
         return []

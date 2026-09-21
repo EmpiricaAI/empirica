@@ -110,7 +110,7 @@ def _facts():
 
 
 def test_a_fact_is_retired_when_every_finding_it_came_from_is_resolved(store):
-    kept = pattern_retrieval._reconcile_eidetic_against_sqlite(_facts())
+    kept = pattern_retrieval.reconcile_eidetic_against_sqlite(_facts())
     assert [f["content"] for f in kept] == ["the correction", "confirmed twice", "a code signature"]
 
 
@@ -124,7 +124,7 @@ def test_an_unreadable_store_serves_the_facts_unchanged(monkeypatch):
     import empirica.data.session_database as sd
 
     monkeypatch.setattr(sd, "_resolve_canonical_project_root", lambda: None)
-    assert len(pattern_retrieval._reconcile_eidetic_against_sqlite(_facts())) == 5
+    assert len(pattern_retrieval.reconcile_eidetic_against_sqlite(_facts())) == 5
 
 
 def test_every_eidetic_reader_goes_through_the_one_filtering_search():
@@ -134,6 +134,6 @@ def test_every_eidetic_reader_goes_through_the_one_filtering_search():
     from empirica.core.qdrant import eidetic
 
     source = inspect.getsource(eidetic.search_eidetic)
-    assert "_reconcile_eidetic_against_sqlite(facts)[:limit]" in source
+    assert "reconcile_eidetic_against_sqlite(facts)[:limit]" in source
     assert '"source_findings"' in source
     assert "limit * 2" in source
