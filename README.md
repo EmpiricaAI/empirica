@@ -2,7 +2,7 @@
 
 > **We Gave AI a Mirror. Now It Measures What It Believes.**
 
-[![Version](https://img.shields.io/badge/version-1.13.48-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.48)
+[![Version](https://img.shields.io/badge/version-1.13.49-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.49)
 [![PyPI](https://img.shields.io/pypi/v/empirica)](https://pypi.org/project/empirica/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -114,13 +114,13 @@ empirica setup
 
 ```bash
 # Security-hardened Alpine image (~276MB, recommended)
-docker pull nubaeon/empirica:1.13.48-alpine
+docker pull nubaeon/empirica:1.13.49-alpine
 
 # Standard image (Debian slim, ~414MB)
-docker pull nubaeon/empirica:1.13.48
+docker pull nubaeon/empirica:1.13.49
 
 # Run
-docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.48 /bin/bash
+docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.49 /bin/bash
 ```
 </details>
 
@@ -414,16 +414,15 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.13.48
+## What's New in 1.13.49
 
-- **A `ran` claim certifies only when it names its scope and its count.** A true claim applied past the population it was measured over adjudicates `held`, so no confidence gate can see it. `read` certifies as before; `ran` now buys the CHECK skip only with a non-blank `scope` and an integer `count`; nothing is refused. PREFLIGHT and the Sentinel's SQL check share one rule, pinned by a test. Counts written as phrases (`"4 sites"`, `"46 of 46"`) keep their number; they were stored as NULL, after which the summary asked for the count it had just discarded.
-- **Anything waiting on the user is asked as a predicted answer.** The lean prompt and `/reporting-discipline` say so; `goals-create` warns when a ruling goal has no `Predicted:` line; a context-only hook reminds on `AskUserQuestion`.
-- **empirica-mcp depends on `empirica>=<release>,<2`**, not `==`. The pin rolled core back whenever the wrapper was upgraded on its own.
-- **Migration 072 drops nine empty legacy tables.** Reference docs are read from `epistemic_sources`.
-- **Removed:** `identity-verify`, `performance` and `monitor` (placeholders that reported success for work they never did), nine flags no handler read, and `config --force`. `investigate` is a retrieval verb. A test holds unread flags at zero.
-- **Sentinel nudges never reached the model.** On `allow`, `permissionDecisionReason` is not shown to the model; `additionalContext` is. Measured headless, one token per channel, with a positive control. All nudges now ride `additionalContext`.
-- **The goalless nudge asks about this transaction.** It fired only when the whole project had no open goal, so every practice with long-running work had it off. Three further causes kept it intermittent: it lived behind the read-only fast path, it read a count from a second locator, and legacy TEXT timestamps compare above every number in SQLite.
-- **`task-completed` read `tool_call_count` from a file it is no longer written to**, so its "request POSTFLIGHT" branch could never run.
+- **CHECK gated every practice on `claude-code`'s calibration history.** `compute_dynamic_thresholds` was called with a literal ai_id, so a practice's own calibration never tightened or relaxed its own gate. Measured on two stores: Brier 0.1246 under the borrowed history against 0.0322 under the practice's own, and 0.0324 against 0.0718 on the other: wrong in both directions, and well-formed either way. CHECK now reads the session's ai_id.
+- **A CHECK verdict can be checked from its own response.** `metacog` reported the threshold inflation and never the threshold. It now carries `uncertainty_threshold`, a `gate_reason`, and a `basis` block (cascade profile, base threshold and its source, whose calibration history, static or dynamic). That is also what explains a gate that looked non-monotonic: `work_type: audit` selects the `rigorous` profile, whose gate is 0.20.
+- **Running the test suite uninstalled the developer's own listener service.** A test computed an uninstall plan from the real working directory, whose `project.yaml` names a live practice, and ran `systemctl --user disable --now` on its unit, then deleted it. It fires once per install, so it read as an unexplained disappearance. The test no longer plans from a live seat, and the suite refuses destructive service verbs outright.
+- **Three counts that failed silently said 0.** A git failure made note replication read "nothing to replicate" and a push check read "replicated"; a failed query made `goals-list` read as having no status drift. Both now say unknown. A failed Cortex-configuration check is logged, since it silently removes the mesh layer from the rendered prompt.
+- **A `goal_id` the caller names resolves to a real goal, or is refused.** A short or wrong id wrote an edge to a goal that did not exist.
+- **Monitor arm instructions carry a deadline.** Claude Code 2.1.271 replaced the no-timeout `persistent` option: every watch now ends within 30 minutes and is re-armed. `listener on`, the SessionStart hook and the inbox-listener skill taught the old form, which is accepted and silently ignored. They now render a 30-minute deadline and say re-arming is the contract. With the per-practice listener service installed, a gap delays delivery and loses nothing.
+- **Truncated output is flagged where it is read.** A PostToolUse hook tells the model when its own `| head -N` returned exactly N lines, or when a response declared itself a page, including after `| jq` stripped the paging fields. Every notice says what it cannot see: filtered rows, a wrong population.
 ## What's New in 1.13.46
 
 - **The calibration instrument penalised the behaviour the system prompt mandates.** `unknown_resolution_rate` counted every unknown in the session, unfloored and ungated, into `do`, `completion` and `impact` — so banking a question you could not yet answer emitted a hard `0.0` into three vectors, while the prompt calls a session reporting uncertainty with no unknown artifacts behind it an unsupported claim. Structural rather than a diligence failure: an unknown logged late in a session cannot be resolved inside it. The block eight lines below rewards the *same* class of act (`assumptions logged = epistemic honesty`), so one file treated banking uncertainty as a virtue and as absent impact at once — which is the strongest evidence the unknown side was never a deliberate judgment. Fixed **without a floor**, deliberately: a floor preserves an incentive under a friendlier number, which is what `issue_resolution_ratio`'s `0.2` does to its own zero. The metric is now a saturating **count of standing unknowns closed inside the window**, so neither banking uncertainty nor carrying a backlog can move it. Traced by empirica-mesh-support over three rounds, from an origin measurement by Carly R. Anderson's foundation seat across 17 practices.
@@ -464,6 +463,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 **Author:** David S. L. Van Assche
-**Version:** 1.13.48
+**Version:** 1.13.49
 
 *Turtles all the way down — built with its own epistemic framework, measuring what it knows at every step.*

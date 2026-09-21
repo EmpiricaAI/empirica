@@ -5,6 +5,52 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.49] - 2026-09-21
+
+### Fixed
+
+- **CHECK gated every practice on `claude-code`'s calibration history.**
+  `compute_dynamic_thresholds` was called with a literal ai_id, so a practice's
+  own calibration never tightened or relaxed its own gate. Measured on two
+  stores: Brier 0.1246 under the borrowed history against 0.0322 under the
+  practice's own, and 0.0324 against 0.0718 on the other: wrong in both
+  directions, and well-formed either way. CHECK now reads the session's ai_id.
+- **A CHECK verdict can be checked from its own response.** `metacog` reported
+  the threshold inflation and never the threshold. It now carries
+  `uncertainty_threshold`, a `gate_reason`, and a `basis` block (cascade profile,
+  base threshold and its source, whose calibration history, static or dynamic).
+  That is also what explains a gate that looked non-monotonic: `work_type: audit`
+  selects the `rigorous` profile, whose gate is 0.20.
+- **Running the test suite uninstalled the developer's own listener service.** A
+  test computed an uninstall plan from the real working directory, whose
+  `project.yaml` names a live practice, and ran `systemctl --user disable --now`
+  on its unit, then deleted it. It fires once per install, so it read as an
+  unexplained disappearance. The test no longer plans from a live seat, and the
+  suite refuses destructive service verbs outright.
+- **Three counts that failed silently said 0.** A git failure made note
+  replication read "nothing to replicate" and a push check read "replicated"; a
+  failed query made `goals-list` read as having no status drift. Both now say
+  unknown. A failed Cortex-configuration check is logged, since it silently
+  removes the mesh layer from the rendered prompt.
+- **A `goal_id` the caller names resolves to a real goal, or is refused.** A
+  short or wrong id wrote an edge to a goal that did not exist.
+
+### Changed
+
+- **Monitor arm instructions carry a deadline.** Claude Code 2.1.271 replaced the
+  no-timeout `persistent` option: every watch now ends within 30 minutes and is
+  re-armed. `listener on`, the SessionStart hook and the inbox-listener skill
+  taught the old form, which is accepted and silently ignored. They now render a
+  30-minute deadline and say re-arming is the contract. With the per-practice
+  listener service installed, a gap delays delivery and loses nothing.
+
+### Added
+
+- **Truncated output is flagged where it is read.** A PostToolUse hook tells the
+  model when its own `| head -N` returned exactly N lines, or when a response
+  declared itself a page, including after `| jq` stripped the paging fields.
+  Every notice says what it cannot see: filtered rows, a wrong population.
+
 ## [1.13.48] - 2026-09-18
 
 ### Security
