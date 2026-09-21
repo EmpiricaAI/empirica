@@ -108,7 +108,7 @@ def apply_blindspot_regret(db, session_id: str) -> int:
     """Auto-flip dismissed blindspots to ``regretted`` — the training label.
 
     For each ``dismissed`` blindspot, if a mistake (``mistakes_made``) or dead-end
-    (``session_dead_ends``) with the same ``goal_id`` was logged *after* the
+    (``project_dead_ends``) with the same ``goal_id`` was logged *after* the
     blindspot was dismissed (``resolved_timestamp``), the warned-about gap bit:
     flip it to ``regretted``. The ``created_timestamp > resolved_timestamp`` guard
     enforces the causal order (the mistake came after the dismissal). Cross-
@@ -137,7 +137,7 @@ def apply_blindspot_regret(db, session_id: str) -> int:
             dead_end_hit = None
             if not mistake_hit:
                 dead_end_hit = db.conn.execute(
-                    "SELECT 1 FROM session_dead_ends WHERE session_id = ? "
+                    "SELECT 1 FROM project_dead_ends WHERE session_id = ? "
                     "AND (goal_id = ? OR subtask_id = ?) AND created_timestamp > ? LIMIT 1",
                     (session_id, goal_id, subtask_id, since),
                 ).fetchone()

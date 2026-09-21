@@ -91,7 +91,7 @@ def apply_prevention_detection(db, session_id: str, *, now: float | None = None)
                 ).fetchone()
                 if not failure:
                     failure = db.conn.execute(
-                        "SELECT 1 FROM session_dead_ends WHERE session_id = ? AND created_timestamp > ? LIMIT 1",
+                        "SELECT 1 FROM project_dead_ends WHERE session_id = ? AND created_timestamp > ? LIMIT 1",
                         (session_id, since),
                     ).fetchone()
             elif goal_id is None:
@@ -103,7 +103,7 @@ def apply_prevention_detection(db, session_id: str, *, now: float | None = None)
                 ).fetchone()
                 if not failure:
                     failure = db.conn.execute(
-                        "SELECT 1 FROM session_dead_ends WHERE session_id = ? "
+                        "SELECT 1 FROM project_dead_ends WHERE session_id = ? "
                         "AND (goal_id = ? OR subtask_id = ?) AND created_timestamp > ? LIMIT 1",
                         (session_id, goal_id, subtask_id, since),
                     ).fetchone()
@@ -136,5 +136,14 @@ def apply_prevention_detection(db, session_id: str, *, now: float | None = None)
             db.conn.commit()
         return updated
     except Exception as e:
+        # Roll back before reporting. An UPDATE earlier in the loop followed by a
+        # raise left a write PENDING on this connection; the caller never closed
+        # it, so it held sessions.db's write lock for the rest of POSTFLIGHT and
+        # grounded verification waited 30 s and was dropped as "database is
+        # locked" — measured 2026-09-21: 4 of 42 POSTFLIGHTs recorded one.
+        try:
+            db.conn.rollback()
+        except Exception as rollback_error:
+            logger.warning(f"prevention detection could not roll back its pending write: {rollback_error}")
         warn_unless_missing_table(logger, "prevention.apply_prevention_detection", e)
         return 0

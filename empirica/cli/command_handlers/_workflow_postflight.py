@@ -1671,7 +1671,12 @@ def _postflight_prevention_detection(session_id) -> int:
     from ._workflow_shared import _get_db_for_session
 
     db = _get_db_for_session(session_id)
-    return apply_prevention_detection(db, session_id)
+    try:
+        return apply_prevention_detection(db, session_id)
+    finally:
+        # Never leave this connection open: under IMMEDIATE isolation a write it
+        # still holds blocks every later stage of this same process.
+        db.close()
 
 
 def _write_auto_structural_edges(session_id, transaction_id) -> int:

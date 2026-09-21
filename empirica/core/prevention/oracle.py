@@ -103,14 +103,14 @@ def recurrence_verdict(db, pattern_key: str, subject_key: str, since_ts: float =
                 _add("mistake", at, 0.9)
             for (at,) in _rows(
                 db,
-                "SELECT created_timestamp FROM session_dead_ends WHERE goal_id = ? AND created_timestamp > ?",
+                "SELECT created_timestamp FROM project_dead_ends WHERE goal_id = ? AND created_timestamp > ?",
                 (gid, since_ts),
             ):
                 _add("dead_end", at, 0.9)
         for sid in subtask_ids:
             for (at,) in _rows(
                 db,
-                "SELECT created_timestamp FROM session_dead_ends WHERE subtask_id = ? AND created_timestamp > ?",
+                "SELECT created_timestamp FROM project_dead_ends WHERE subtask_id = ? AND created_timestamp > ?",
                 (sid, since_ts),
             ):
                 _add("dead_end", at, 0.9)

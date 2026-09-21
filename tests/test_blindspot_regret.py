@@ -19,7 +19,7 @@ def _db():
     migration_053_blindspot_events(conn.cursor())
     conn.execute("CREATE TABLE mistakes_made (id TEXT, session_id TEXT, goal_id TEXT, created_timestamp REAL)")
     conn.execute(
-        "CREATE TABLE session_dead_ends (id TEXT, session_id TEXT, goal_id TEXT, subtask_id TEXT, created_timestamp REAL)"
+        "CREATE TABLE project_dead_ends (id TEXT, session_id TEXT, goal_id TEXT, subtask_id TEXT, created_timestamp REAL)"
     )
     conn.commit()
     return types.SimpleNamespace(conn=conn)
@@ -51,7 +51,7 @@ def test_mistake_after_dismiss_regrets():
 def test_dead_end_after_dismiss_regrets():
     db = _db()
     _dismissed(db, resolved_ts=100.0)
-    db.conn.execute("INSERT INTO session_dead_ends VALUES ('d', 'sess', 'g', 's1', 200.0)")
+    db.conn.execute("INSERT INTO project_dead_ends VALUES ('d', 'sess', 'g', 's1', 200.0)")
     db.conn.commit()
     assert apply_blindspot_regret(db, "sess") == 1
     assert _outcome(db) == "regretted"
@@ -80,7 +80,7 @@ def test_no_dismissed_is_noop():
 
 def test_fail_open_on_missing_correlation_tables():
     conn = sqlite3.connect(":memory:")
-    migration_053_blindspot_events(conn.cursor())  # no mistakes_made / session_dead_ends
+    migration_053_blindspot_events(conn.cursor())  # no mistakes_made / project_dead_ends
     conn.execute(
         "INSERT INTO blindspot_events (session_id, transaction_id, created_timestamp, kind, goal_id, "
         "subtask_id, intent, surfaced_at, outcome, resolved_timestamp) "

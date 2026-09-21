@@ -34,7 +34,7 @@ def _db():
         "CREATE TABLE mistakes_made (id INTEGER PRIMARY KEY, session_id TEXT, goal_id TEXT, created_timestamp REAL)"
     )
     conn.execute(
-        "CREATE TABLE session_dead_ends (id INTEGER PRIMARY KEY, session_id TEXT, "
+        "CREATE TABLE project_dead_ends (id INTEGER PRIMARY KEY, session_id TEXT, "
         "goal_id TEXT, subtask_id TEXT, created_timestamp REAL)"
     )
     conn.commit()
@@ -82,7 +82,7 @@ def test_dead_end_after_exposure_becomes_failed():
     db = _db()
     _emit(db, acknowledged=True, window_s=100, exposed_at=1000.0)
     db.conn.execute(
-        "INSERT INTO session_dead_ends (session_id, goal_id, subtask_id, created_timestamp) VALUES ('sess','g','s1',1500.0)"
+        "INSERT INTO project_dead_ends (session_id, goal_id, subtask_id, created_timestamp) VALUES ('sess','g','s1',1500.0)"
     )
     db.conn.commit()
     assert apply_prevention_detection(db, "sess", now=2000.0) == 1

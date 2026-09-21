@@ -27,7 +27,7 @@ def _db():
         "CREATE TABLE mistakes_made (id INTEGER PRIMARY KEY, session_id TEXT, goal_id TEXT, created_timestamp REAL)"
     )
     conn.execute(
-        "CREATE TABLE session_dead_ends (id INTEGER PRIMARY KEY, session_id TEXT, "
+        "CREATE TABLE project_dead_ends (id INTEGER PRIMARY KEY, session_id TEXT, "
         "goal_id TEXT, subtask_id TEXT, created_timestamp REAL)"
     )
     conn.commit()
