@@ -14,8 +14,13 @@ from empirica.cli import cli_core, cli_utils
 from empirica.cli.command_handlers import project_embed
 
 
-def _failing_run(monkeypatch):
+def _failing_run(monkeypatch, tmp_path):
     import empirica.utils.session_resolver as sr
+
+    # The handler records a failure under the working directory when it died
+    # before resolving a project root. Run from tmp_path, or this test writes a
+    # false "last run failed" into the developer's checkout, which it did once.
+    monkeypatch.chdir(tmp_path)
 
     def boom(*_a, **_k):
         raise NameError("name 'finding_fact_confidence' is not defined")
@@ -26,14 +31,14 @@ def _failing_run(monkeypatch):
     return project_embed.handle_project_embed_command(args)
 
 
-def test_the_handler_reports_the_error(monkeypatch, capsys):
-    assert _failing_run(monkeypatch) is None
+def test_the_handler_reports_the_error(monkeypatch, capsys, tmp_path):
+    assert _failing_run(monkeypatch, tmp_path) is None
     assert "finding_fact_confidence" in capsys.readouterr().out
     assert cli_utils.errors_reported()
 
 
-def test_the_dispatcher_turns_a_reported_error_into_a_nonzero_exit(monkeypatch):
-    result = _failing_run(monkeypatch)
+def test_the_dispatcher_turns_a_reported_error_into_a_nonzero_exit(monkeypatch, tmp_path):
+    result = _failing_run(monkeypatch, tmp_path)
     assert cli_core._handle_command_result(result, "project-embed") == 1
 
 
@@ -107,3 +112,13 @@ def test_the_handler_records_failure_before_reporting_it(monkeypatch, tmp_path):
 
 def test_an_unwritable_status_does_not_raise(tmp_path):
     project_embed.record_embed_outcome(str(tmp_path / "missing"), ok=True)
+
+
+def test_a_failing_run_under_test_does_not_touch_the_checkout(monkeypatch, tmp_path):
+    from pathlib import Path
+
+    real = Path(__file__).resolve().parent.parent / ".empirica" / project_embed.EMBED_STATUS_FILE
+    before = real.stat().st_mtime_ns if real.exists() else None
+    _failing_run(monkeypatch, tmp_path)
+    after = real.stat().st_mtime_ns if real.exists() else None
+    assert before == after
