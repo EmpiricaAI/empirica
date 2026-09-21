@@ -15,6 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stores: Brier 0.1246 under the borrowed history against 0.0322 under the
   practice's own, and 0.0324 against 0.0718 on the other: wrong in both
   directions, and well-formed either way. CHECK now reads the session's ai_id.
+  **If your practice ever logged under a different ai_id** (sessions from before the
+  project-name convention sit under `claude-code`), the gate now reads only the
+  history under your current name, so your Brier score can move sharply after
+  this release. That is a change in which sessions are counted, not in your
+  calibration: check `SELECT ai_id, count(*) FROM sessions GROUP BY 1` first.
 - **A CHECK verdict can be checked from its own response.** `metacog` reported
   the threshold inflation and never the threshold. It now carries
   `uncertainty_threshold`, a `gate_reason`, and a `basis` block (cascade profile,
