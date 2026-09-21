@@ -111,3 +111,22 @@ def test_a_store_without_the_column_warns_and_does_not_raise(tmp_path, monkeypat
     with caplog.at_level(logging.WARNING):
         assert wp._stamp_practitioner_model(SimpleNamespace(conn=conn), "tx-1") is None
     assert "practitioner model not recorded" in caplog.text
+
+
+def test_the_transaction_file_supplies_the_id_when_the_tty_file_has_none(tmp_path, monkeypatch):
+    """The live case: tty session files held null ids, the transaction file held the real one."""
+    import empirica.utils.session_resolver as sr
+
+    _transcript(tmp_path, [_assistant("model-b")])
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(sr, "get_claude_session_id", lambda: None)
+    monkeypatch.setattr(sr, "read_active_transaction_full", lambda *a, **k: {"claude_session_id": SESSION})
+    assert wp._stamp_practitioner_model(_calibration_db(), "tx-1") == "model-b"
+
+
+def test_no_id_anywhere_is_none(monkeypatch):
+    import empirica.utils.session_resolver as sr
+
+    monkeypatch.setattr(sr, "get_claude_session_id", lambda: None)
+    monkeypatch.setattr(sr, "read_active_transaction_full", lambda *a, **k: None)
+    assert wp._claude_session_id_for_stamp() is None

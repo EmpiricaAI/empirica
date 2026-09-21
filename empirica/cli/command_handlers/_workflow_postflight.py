@@ -521,6 +521,23 @@ def _spawn_detached_storage_pipeline(
         _inline()  # spawn failed → run inline
 
 
+def _claude_session_id_for_stamp() -> str | None:
+    """The Claude Code session id, from whichever record actually holds it.
+
+    The tty session file is the usual source and is often empty: on the first
+    live POSTFLIGHT after this shipped, the tty files on the box held a null id
+    while the transaction file written at PREFLIGHT held the real one. So the
+    transaction file is the fallback, and it is read even after it is closed.
+    """
+    from empirica.utils import session_resolver as sr
+
+    found = sr.get_claude_session_id()
+    if found:
+        return found
+    tx = sr.read_active_transaction_full() or {}
+    return tx.get("claude_session_id") or None
+
+
 def _stamp_practitioner_model(db, transaction_id: str | None) -> str | None:
     """Record which model was measured on this transaction's calibration rows.
 
@@ -533,9 +550,8 @@ def _stamp_practitioner_model(db, transaction_id: str | None) -> str | None:
         return None
     try:
         from empirica.utils.practitioner_model import current_practitioner_model
-        from empirica.utils.session_resolver import get_claude_session_id
 
-        model = current_practitioner_model(get_claude_session_id())
+        model = current_practitioner_model(_claude_session_id_for_stamp())
         if not model:
             return None
         db.conn.execute(
