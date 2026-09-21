@@ -69,6 +69,38 @@ def _restore_untouched_transaction_files(backup: dict) -> list[str]:
 
 
 @pytest.fixture(autouse=True, scope="session")
+def pin_suite_session_db():
+    """Point a bare SessionDatabase() at a throwaway file for the whole suite."""
+    # Default the session database to a throwaway file for the WHOLE suite.
+    #
+    # Root cause (2026-09-21): a bare `SessionDatabase()` resolves from the
+    # working directory, and the suite runs from the checkout, so any test that
+    # reached one without pinning a path wrote into the developer's live
+    # sessions.db. Three files did, through GitEnhancedReflexLogger: 42 reflex
+    # rows per suite run, 9264 since 2026-06-23, all under the git-remote-hash
+    # fallback project id. 685 of them were POSTFLIGHTs with no verification,
+    # which read as a calibration outage when counted against real ones.
+    #
+    # EMPIRICA_SESSION_DB is priority 0 in get_session_db_path(), and subprocess
+    # tests inherit os.environ, so one variable covers both paths. A test that
+    # sets or deletes it at function scope still wins and restores to this.
+    if os.environ.get("EMPIRICA_SESSION_DB"):
+        yield
+        return
+
+    import shutil
+    import tempfile
+
+    suite_db_dir = tempfile.mkdtemp(prefix="empirica-suite-db-")
+    os.environ["EMPIRICA_SESSION_DB"] = str(Path(suite_db_dir) / "sessions.db")
+    try:
+        yield
+    finally:
+        os.environ.pop("EMPIRICA_SESSION_DB", None)
+        shutil.rmtree(suite_db_dir, ignore_errors=True)
+
+
+@pytest.fixture(autouse=True, scope="session")
 def isolate_empirica_instance():
     """Prevent tests from polluting live Empirica instance state.
 

@@ -20,6 +20,18 @@ import pytest
 pytestmark = pytest.mark.integration
 
 
+@pytest.fixture(autouse=True)
+def read_the_checkout_store(monkeypatch):
+    """These tests bootstrap the project in the working directory, on purpose.
+
+    The suite pins EMPIRICA_SESSION_DB to a throwaway file (conftest), which has
+    no project in it. project-bootstrap only reads, so opting back in to the
+    checkout's own store is safe here, and it is said out loud rather than
+    inherited.
+    """
+    monkeypatch.delenv("EMPIRICA_SESSION_DB", raising=False)
+
+
 class TestBootstrapComponents:
     """Test that bootstrap loads correctly after cleanup"""
 

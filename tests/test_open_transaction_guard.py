@@ -107,7 +107,9 @@ def fake_home(tmp_path, monkeypatch):
     home.mkdir()
     monkeypatch.setenv("HOME", str(home))
 
-    for var in ("TMUX_PANE", "WINDOWID", "TERM_SESSION_ID", "EMPIRICA_INSTANCE_ID"):
+    # EMPIRICA_SESSION_DB is priority 0 and the suite pins it (conftest); these
+    # tests exercise the resolution BELOW it, so it has to be absent here.
+    for var in ("TMUX_PANE", "WINDOWID", "TERM_SESSION_ID", "EMPIRICA_INSTANCE_ID", "EMPIRICA_SESSION_DB"):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv("EMPIRICA_HEADLESS", "true")
 

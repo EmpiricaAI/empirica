@@ -12,6 +12,7 @@ alongside an auto-captured high-severity error.
 """
 
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -92,11 +93,17 @@ RUNNABLE_STATELESS = [cmd for cmd in STATELESS_COMMANDS if cmd in ALL_JSON_COMMA
 
 def _run_empirica(*args, timeout=30):
     """Run an empirica CLI command and return the CompletedProcess."""
+    # These are read-only contract probes against the checkout's own store. The
+    # suite pins EMPIRICA_SESSION_DB to an empty throwaway file (conftest), and
+    # against that every probe here SKIPS as "no project" — eight contracts going
+    # unchecked while the run stays green. Opting back in is said here, once.
+    env = {k: v for k, v in os.environ.items() if k != "EMPIRICA_SESSION_DB"}
     return subprocess.run(
         ["empirica", *args],
         capture_output=True,
         text=True,
         timeout=timeout,
+        env=env,
     )
 
 
