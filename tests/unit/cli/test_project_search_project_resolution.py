@@ -35,6 +35,7 @@ def test_project_search_resolves_project_name_before_qdrant_calls(capsys):
         "workflow state model",
         kind="focused",
         limit=5,
+        include_resolved=False,
     )
 
     output = json.loads(capsys.readouterr().out)

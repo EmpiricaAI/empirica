@@ -169,7 +169,8 @@ def handle_project_search_command(args):
         use_global = getattr(args, "global_search", False)
 
         init_collections(project_id)
-        results = search(project_id, task, kind=kind, limit=limit)
+        include_resolved = bool(getattr(args, "include_resolved", False))
+        results = search(project_id, task, kind=kind, limit=limit, include_resolved=include_resolved)
         _stamp_surfaced(results)
 
         if use_global:
@@ -193,6 +194,9 @@ def handle_project_search_command(args):
             # None when the signal is unavailable, never False, because a consumer
             # reading False would act on "nothing matched" that was never checked.
             payload = {"ok": True, "results": results}
+            # The filter is said in the response, so an absent row reads as
+            # "excluded by default" and not as "nothing was ever logged".
+            payload["resolved_artifacts"] = "included" if include_resolved else "excluded (pass --include-resolved)"
             banner = _unconfirmed_banner(results)
             if banner is not None:
                 payload["matched"] = False

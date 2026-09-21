@@ -446,6 +446,17 @@ def _reconcile_goals_against_sqlite(raw_goals):
         return raw_goals
 
 
+def _resolved_unknown_ids(conn) -> set[str]:
+    """Ids of answered unknowns. They share the memory collection with findings
+    and return as though still open. By id only: an unknown has no pre-#307
+    embeds that would need the text-prefix fallback."""
+    try:
+        return {row[0] for row in conn.execute("SELECT id FROM project_unknowns WHERE is_resolved = 1") if row[0]}
+    except Exception as exc:
+        logger.debug(f"resolved unknowns not reconciled: {exc}")
+        return set()
+
+
 def _reconcile_findings_against_sqlite(raw_findings):
     """Drop findings resolved/superseded in the local SQLite (#307 retrieval hygiene).
 
@@ -489,6 +500,7 @@ def _reconcile_findings_against_sqlite(raw_findings):
                     resolved_ids.add(row[0])
                 if row[1]:
                     resolved_text_prefixes.add(row[1][:500])
+            resolved_ids |= _resolved_unknown_ids(conn)
         finally:
             conn.close()
         if not resolved_ids and not resolved_text_prefixes:

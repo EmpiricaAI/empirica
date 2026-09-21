@@ -279,8 +279,36 @@ def _band_text(fields: tuple[str, ...]):
     return extract
 
 
+def _drop_resolved_memory(kind_name: str, candidates: list[dict], include_resolved: bool) -> list[dict]:
+    """Take resolved findings and unknowns out of `memory` candidates.
+
+    `finding-resolve` tells the practitioner the finding is "dropped from live
+    retrieval". That was true of the PREFLIGHT pattern block only. This shared
+    search served a retracted finding at rank 1, above its own correction, on
+    three stores on 2026-09-21: the payload's `is_resolved` is frozen at embed
+    time and the projection never carried it, so no consumer could filter.
+
+    SQLite is the authority, read at query time. Runs BEFORE the confirm band
+    applies the limit, so a dropped row makes room for a live one.
+    """
+    if include_resolved or kind_name != "memory" or not candidates:
+        return candidates
+    try:
+        from empirica.core.qdrant.pattern_retrieval import _reconcile_findings_against_sqlite
+
+        return _reconcile_findings_against_sqlite(candidates)
+    except Exception as e:
+        logger.warning(f"resolution reconcile failed; resolved artifacts may be served: {e}")
+        return candidates
+
+
 def search(
-    project_id: str, query_text: str, kind: str = "focused", limit: int = 5, qdrant_url: str | None = None
+    project_id: str,
+    query_text: str,
+    kind: str = "focused",
+    limit: int = 5,
+    qdrant_url: str | None = None,
+    include_resolved: bool = False,
 ) -> dict[str, list[dict]]:
     """
     Semantic search over project knowledge.
@@ -403,6 +431,7 @@ def search(
             max(limit, _CANDIDATE_DEPTH),
             query_filter,
         )
+        candidates = _drop_resolved_memory(kind_name, candidates, include_resolved)
         results[kind_name] = _confirm_band(kind_name, query_text, candidates, limit)
 
     if results:
@@ -428,6 +457,7 @@ def search(
             # unconfirmed rows would make the confirmation signal depend on which
             # transport happened to answer — and the transport is invisible to the
             # caller, so the inconsistency would be unattributable.
+            candidates = _drop_resolved_memory(kind_name, candidates, include_resolved)
             results[kind_name] = _confirm_band(kind_name, query_text, candidates, limit)
         return results
     except Exception as e:

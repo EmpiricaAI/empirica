@@ -927,6 +927,15 @@ def add_checkpoint_parsers(subparsers):
     )
     project_search_parser.add_argument("--task", required=True, help="Task description to search for")
     project_search_parser.add_argument(
+        "--include-resolved",
+        action="store_true",
+        help=(
+            "Also return findings and unknowns that were resolved, superseded or "
+            "retracted. They are left out by default: a retracted finding used to "
+            "rank above its own correction. Use this to read history."
+        ),
+    )
+    project_search_parser.add_argument(
         "--type",
         choices=[
             "focused",
