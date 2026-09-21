@@ -779,6 +779,7 @@ def _persist_weave_event(session_id, transaction_id, block, decision_in, decisio
     fleet-critical since enforce-by-default shipped), so every error is swallowed.
     A missing table (un-migrated DB) simply drops the row.
     """
+    db = None
     try:
         import time
 
@@ -806,13 +807,17 @@ def _persist_weave_event(session_id, transaction_id, block, decision_in, decisio
             ),
         )
         db.conn.commit()
-        db.close()
     except Exception as e:
         logger.debug(f"weave-event persist skipped (non-fatal): {e}")
-        try:
-            db.close()  # type: ignore[possibly-undefined]  # releases a pending write
-        except Exception:  # db may not exist if the open itself failed
-            pass
+    finally:
+        # Releases a write the INSERT left pending if commit failed. Guarded
+        # because this function is FAIL-OPEN end to end, and logged because a
+        # close that cannot run is how the lock comes back.
+        if db is not None:
+            try:
+                db.close()
+            except Exception as close_error:
+                logger.warning(f"weave-event: could not close its connection: {close_error}")
 
 
 def _check_apply_weave_enforce(result, decision, session_id, transaction_id):

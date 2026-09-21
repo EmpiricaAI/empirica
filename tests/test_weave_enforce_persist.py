@@ -55,7 +55,7 @@ def test_migration_is_idempotent():
 
 def test_persist_weave_event_inserts_row(monkeypatch):
     conn = _migrated_conn()
-    monkeypatch.setattr(ws, "_get_db_for_session", lambda sid: types.SimpleNamespace(conn=conn))
+    monkeypatch.setattr(ws, "_get_db_for_session", lambda sid: types.SimpleNamespace(conn=conn, close=lambda: None))
     block = {
         "connected_ratio": 0.2,
         "response": "enforce",
@@ -74,7 +74,7 @@ def test_persist_weave_event_inserts_row(monkeypatch):
 
 def test_persist_is_fail_open_on_missing_table(monkeypatch):
     conn = sqlite3.connect(":memory:")  # un-migrated → table absent
-    monkeypatch.setattr(ws, "_get_db_for_session", lambda sid: types.SimpleNamespace(conn=conn))
+    monkeypatch.setattr(ws, "_get_db_for_session", lambda sid: types.SimpleNamespace(conn=conn, close=lambda: None))
     wc._persist_weave_event("s1", "tx1", {"scalars": {}}, "proceed", "proceed")  # must not raise
 
 
@@ -88,7 +88,7 @@ def test_persist_is_fail_open_on_db_error(monkeypatch):
 
 def test_apply_weave_enforce_persists_the_verdict(monkeypatch):
     conn = _migrated_conn()
-    monkeypatch.setattr(ws, "_get_db_for_session", lambda sid: types.SimpleNamespace(conn=conn))
+    monkeypatch.setattr(ws, "_get_db_for_session", lambda sid: types.SimpleNamespace(conn=conn, close=lambda: None))
     monkeypatch.setattr(
         ws,
         "_weave_enforcement_block",
