@@ -2,7 +2,7 @@
 
 > **We Gave AI a Mirror. Now It Measures What It Believes.**
 
-[![Version](https://img.shields.io/badge/version-1.13.49-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.49)
+[![Version](https://img.shields.io/badge/version-1.13.50-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.50)
 [![PyPI](https://img.shields.io/pypi/v/empirica)](https://pypi.org/project/empirica/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -114,13 +114,13 @@ empirica setup
 
 ```bash
 # Security-hardened Alpine image (~276MB, recommended)
-docker pull nubaeon/empirica:1.13.49-alpine
+docker pull nubaeon/empirica:1.13.50-alpine
 
 # Standard image (Debian slim, ~414MB)
-docker pull nubaeon/empirica:1.13.49
+docker pull nubaeon/empirica:1.13.50
 
 # Run
-docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.49 /bin/bash
+docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.50 /bin/bash
 ```
 </details>
 
@@ -414,16 +414,15 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.13.49
+## What's New in 1.13.50
 
-- **CHECK gated every practice on `claude-code`'s calibration history.** `compute_dynamic_thresholds` was called with a literal ai_id, so a practice's own calibration never tightened or relaxed its own gate. Measured on two stores: Brier 0.1246 under the borrowed history against 0.0322 under the practice's own, and 0.0324 against 0.0718 on the other: wrong in both directions, and well-formed either way. CHECK now reads the session's ai_id. **If your practice ever logged under a different ai_id** (sessions from before the project-name convention sit under `claude-code`), the gate now reads only the history under your current name, so your Brier score can move sharply after this release. That is a change in which sessions are counted, not in your calibration: check `SELECT ai_id, count(*) FROM sessions GROUP BY 1` first.
-- **A CHECK verdict can be checked from its own response.** `metacog` reported the threshold inflation and never the threshold. It now carries `uncertainty_threshold`, a `gate_reason`, and a `basis` block (cascade profile, base threshold and its source, whose calibration history, static or dynamic). That is also what explains a gate that looked non-monotonic: `work_type: audit` selects the `rigorous` profile, whose gate is 0.20.
-- **Running the test suite uninstalled the developer's own listener service.** A test computed an uninstall plan from the real working directory, whose `project.yaml` names a live practice, and ran `systemctl --user disable --now` on its unit, then deleted it. It fires once per install, so it read as an unexplained disappearance. The test no longer plans from a live seat, and the suite refuses destructive service verbs outright.
-- **`project-embed` has failed on every run since 2026-09-06.** A decisions and assumptions read was added below an existing `db.close()`, so the verb raised "Cannot operate on a closed database" after embedding memory and nothing else, while `project-bootstrap`, which runs it, still answered `ok: true`. The release gate caught it. If you rely on semantic search over decisions or assumptions, run `empirica project-embed` once after upgrading.
-- **Three counts that failed silently said 0.** A git failure made note replication read "nothing to replicate" and a push check read "replicated"; a failed query made `goals-list` read as having no status drift. Both now say unknown. A failed Cortex-configuration check is logged, since it silently removes the mesh layer from the rendered prompt.
-- **A `goal_id` the caller names resolves to a real goal, or is refused.** A short or wrong id wrote an edge to a goal that did not exist.
-- **Monitor arm instructions carry a deadline.** Claude Code 2.1.271 replaced the no-timeout `persistent` option: every watch now ends within 30 minutes and is re-armed. `listener on`, the SessionStart hook and the inbox-listener skill taught the old form, which is accepted and silently ignored. They now render a 30-minute deadline and say re-arming is the contract. With the per-practice listener service installed, a gap delays delivery and loses nothing.
-- **Truncated output is flagged where it is read.** A PostToolUse hook tells the model when its own `| head -N` returned exactly N lines, or when a response declared itself a page, including after `| jq` stripped the paging fields. Every notice says what it cannot see: filtered rows, a wrong population.
+- **POSTFLIGHT was dropping about 90% of grounded verifications.** Recorded verifications fell from 72 of 78 POSTFLIGHTs on 2026-09-18 to 4 of 42 on 2026-09-20, each reported only as a non-fatal "database is locked", and a POSTFLIGHT took over a minute. It was a self-deadlock: prevention detection updated a row, then raised on a query against `session_dead_ends`, a table dropped in February, returned without rolling back, and never closed its connection. That pending write held the lock for the rest of the process. **Calibration and Brier figures for 2026-09-18 onward rest on a small, non-random subset of transactions; treat that window as unreliable.**
+- **Three modules queried a table that no longer exists.** Prevention detection, blindspot regret and the prevention oracle all read `session_dead_ends`, so their dead-end signal never worked in a real store. Their tests built the dropped table by hand, which is why the suite stayed green. They now read `project_dead_ends`.
+- **`MEMORY.md`'s EPISTEMIC FOCUS block only ever listed findings.** Its source read goals and mistakes from tables that never existed, and a reused filter made the dead-ends query fail first, all behind one debug-level handler. Dead-ends, goals and mistakes now appear, and a failure there is a warning.
+- **`session-rollup` and `query mistakes --scope session`** read tables dropped in February. Repointed.
+- **Four more CHECK and POSTFLIGHT stages close the connection they write on**, including blindspot resolution, which had the same write-then-raise shape as the stage above.
+- **An `invalidates` edge no longer decides why its target is closed.** It always recorded `superseded` with no reasoning, filing retractions as ageing. The edge now carries `{"kind": "retracted|superseded|stale", "reason": "..."}`, and the response says so when it had to default.
+- **`project-embed`'s summary** lists every category it counts, and says by how much if its parts ever miss its total.
 ## What's New in 1.13.46
 
 - **The calibration instrument penalised the behaviour the system prompt mandates.** `unknown_resolution_rate` counted every unknown in the session, unfloored and ungated, into `do`, `completion` and `impact` — so banking a question you could not yet answer emitted a hard `0.0` into three vectors, while the prompt calls a session reporting uncertainty with no unknown artifacts behind it an unsupported claim. Structural rather than a diligence failure: an unknown logged late in a session cannot be resolved inside it. The block eight lines below rewards the *same* class of act (`assumptions logged = epistemic honesty`), so one file treated banking uncertainty as a virtue and as absent impact at once — which is the strongest evidence the unknown side was never a deliberate judgment. Fixed **without a floor**, deliberately: a floor preserves an incentive under a friendlier number, which is what `issue_resolution_ratio`'s `0.2` does to its own zero. The metric is now a saturating **count of standing unknowns closed inside the window**, so neither banking uncertainty nor carrying a backlog can move it. Traced by empirica-mesh-support over three rounds, from an origin measurement by Carly R. Anderson's foundation seat across 17 practices.
@@ -464,6 +463,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 **Author:** David S. L. Van Assche
-**Version:** 1.13.49
+**Version:** 1.13.50
 
 *Turtles all the way down — built with its own epistemic framework, measuring what it knows at every step.*

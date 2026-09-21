@@ -5,6 +5,51 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.50] - 2026-09-21
+
+### Fixed
+
+- **POSTFLIGHT was dropping about 90% of grounded verifications.** Recorded
+  verifications fell from 72 of 78 POSTFLIGHTs on 2026-09-18 to 4 of 42 on
+  2026-09-20, each reported only as a non-fatal "database is locked", and a
+  POSTFLIGHT took over a minute. It was a self-deadlock: prevention detection
+  updated a row, then raised on a query against `session_dead_ends`, a table
+  dropped in February, returned without rolling back, and never closed its
+  connection. That pending write held the lock for the rest of the process.
+  **Calibration and Brier figures for 2026-09-18 onward rest on a small,
+  non-random subset of transactions; treat that window as unreliable.**
+- **Three modules queried a table that no longer exists.** Prevention
+  detection, blindspot regret and the prevention oracle all read
+  `session_dead_ends`, so their dead-end signal never worked in a real store.
+  Their tests built the dropped table by hand, which is why the suite stayed
+  green. They now read `project_dead_ends`.
+- **`MEMORY.md`'s EPISTEMIC FOCUS block only ever listed findings.** Its source
+  read goals and mistakes from tables that never existed, and a reused filter
+  made the dead-ends query fail first, all behind one debug-level handler.
+  Dead-ends, goals and mistakes now appear, and a failure there is a warning.
+- **`session-rollup` and `query mistakes --scope session`** read tables dropped
+  in February. Repointed.
+- **Four more CHECK and POSTFLIGHT stages close the connection they write on**,
+  including blindspot resolution, which had the same write-then-raise shape as
+  the stage above.
+- **An `invalidates` edge no longer decides why its target is closed.** It always
+  recorded `superseded` with no reasoning, filing retractions as ageing. The edge
+  now carries `{"kind": "retracted|superseded|stale", "reason": "..."}`, and the
+  response says so when it had to default.
+- **`project-embed`'s summary** lists every category it counts, and says by how
+  much if its parts ever miss its total.
+
+### Added
+
+- A test that fails on any query against a table the schema drops or never
+  creates, naming the line. It is how the four readers above were found.
+
+### Notes
+
+- In 1.13.49, when a practice has no calibration history at all, CHECK's static
+  gate follows the transaction's profile (`work_type: audit` selects 0.20)
+  instead of always using 0.35. That shipped without a changelog line.
+
 ## [1.13.49] - 2026-09-21
 
 ### Fixed
