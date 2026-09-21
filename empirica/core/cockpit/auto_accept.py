@@ -65,6 +65,11 @@ def _cortex_creds() -> tuple[str, str] | None:
         return None
     url, bearer = creds.get("url"), creds.get("bearer")
     if not url or not bearer:
+        # Flagged for the variable NAME. `reason` and `source` are never the
+        # secret: source is "oauth" | "api_key" | "none", and reason is fixed text
+        # or the server's verdict from credential_health, which keys on a sha256
+        # fingerprint and stores no key. The bearer is `creds["bearer"]`, unlogged.
+        # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
         logger.debug("auto-accept: no cortex credential (%s)", creds.get("reason") or creds.get("source"))
         return None
     return url, bearer
