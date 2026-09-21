@@ -1045,8 +1045,11 @@ def _postflight_close_cascade_row(session_id) -> int:
             (now, _cascade_elapsed_ms(started_at, now), rowid),
         )
         closed += 1
-    if closed:
-        db.conn.commit()
+    try:
+        if closed:
+            db.conn.commit()
+    finally:
+        db.close()  # a failed commit must not leave the UPDATEs holding the lock
     return closed
 
 
@@ -1651,11 +1654,18 @@ def _postflight_resolve_blindspots(session_id) -> int:
     from ._workflow_shared import _get_db_for_session
 
     db = _get_db_for_session(session_id)
-    resolved = resolve_blindspot_outcomes(db, session_id)
-    # Then the regret pass: dismissed blindspots whose gap later bit (a mistake /
-    # dead-end on the same goal after the dismissal) become the training label.
-    regretted = apply_blindspot_regret(db, session_id)
-    return resolved + regretted
+    try:
+        resolved = resolve_blindspot_outcomes(db, session_id)
+        # Then the regret pass: dismissed blindspots whose gap later bit (a mistake /
+        # dead-end on the same goal after the dismissal) become the training label.
+        regretted = apply_blindspot_regret(db, session_id)
+        return resolved + regretted
+    finally:
+        # Same hazard as prevention detection: both callees write, the regret
+        # pass queried a dropped table, and an unclosed connection with a
+        # pending write holds sessions.db's lock for the rest of POSTFLIGHT.
+        # close() discards anything uncommitted and releases it.
+        db.close()
 
 
 def _postflight_prevention_detection(session_id) -> int:
@@ -1709,8 +1719,11 @@ def _write_auto_structural_edges(session_id, transaction_id) -> int:
             continue
     try:
         _sdb.conn.commit()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"auto structural edges: commit failed, {ensured} edge(s) not persisted: {e}")
+        ensured = 0
+    finally:
+        _sdb.close()  # never leave a pending write holding the lock
     return ensured
 
 

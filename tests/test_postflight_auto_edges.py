@@ -21,7 +21,10 @@ def _mem_db():
     conn.execute(
         "CREATE TABLE artifact_edges (from_id TEXT, to_id TEXT, relation TEXT, PRIMARY KEY (from_id, to_id, relation))"
     )
-    return SimpleNamespace(conn=conn), conn
+    sdb = SimpleNamespace(conn=conn, closed=False)
+    # Records the call; the in-memory conn stays open so the test can read it.
+    sdb.close = lambda: setattr(sdb, "closed", True)
+    return sdb, conn
 
 
 def test_persists_goal_edges(monkeypatch):

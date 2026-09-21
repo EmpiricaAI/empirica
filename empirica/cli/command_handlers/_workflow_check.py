@@ -806,8 +806,13 @@ def _persist_weave_event(session_id, transaction_id, block, decision_in, decisio
             ),
         )
         db.conn.commit()
+        db.close()
     except Exception as e:
         logger.debug(f"weave-event persist skipped (non-fatal): {e}")
+        try:
+            db.close()  # type: ignore[possibly-undefined]  # releases a pending write
+        except Exception:  # db may not exist if the open itself failed
+            pass
 
 
 def _check_apply_weave_enforce(result, decision, session_id, transaction_id):

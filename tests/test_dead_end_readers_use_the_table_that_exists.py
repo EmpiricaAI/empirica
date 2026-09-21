@@ -107,3 +107,23 @@ def test_the_postflight_stage_closes_its_connection():
 
     src = inspect.getsource(pf._postflight_prevention_detection)
     assert "finally:" in src and "db.close()" in src
+
+
+def test_postflight_and_check_stages_that_write_always_close_their_connection():
+    """Nine workflow functions opened a SessionDatabase and never closed it. The
+    ones that WRITE, or hand the connection to a callee that does, are the hazard:
+    under IMMEDIATE isolation a write left pending by a raise holds the lock for
+    the rest of the process."""
+    import inspect
+
+    from empirica.cli.command_handlers import _workflow_check as ck
+    from empirica.cli.command_handlers import _workflow_postflight as pf
+
+    for fn in (
+        pf._postflight_prevention_detection,
+        pf._postflight_resolve_blindspots,
+        pf._write_auto_structural_edges,
+        pf._postflight_close_cascade_row,
+        ck._persist_weave_event,
+    ):
+        assert ".close()" in inspect.getsource(fn), f"{fn.__name__} leaves its connection open"

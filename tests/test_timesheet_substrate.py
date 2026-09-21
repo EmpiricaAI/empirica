@@ -56,6 +56,11 @@ class _DB:
 
     def __init__(self, conn):
         self.conn = conn
+        self.closed = False
+
+    def close(self):
+        # Records the call; the in-memory conn stays open so the test can read it.
+        self.closed = True
 
 
 def _insert_cascade(conn, cascade_id, session_id, started_at, completed_at=None):
