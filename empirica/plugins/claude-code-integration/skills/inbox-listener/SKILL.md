@@ -50,17 +50,25 @@ channels endpoint.
 
 Two possible response shapes:
 
-**(a) Persistent OS service already running** — short-circuit:
+**(a) Persistent OS service already running** — arm a LOG TAIL, not a second listener:
 ```json
 {
   "ok": true,
-  "status": "persistent_service_active",
-  "next_step": null,
-  "message": "No in-session Monitor needed — wake events arrive via the system service."
+  "status": "persistent_service_tail_session",
+  "next_step": {
+    "tool": "Monitor",
+    "args": {
+      "description": "Cortex orchestration log tail for <id> (persistent-service mode)",
+      "command": "tail -F -n 0 ~/.empirica/loop_fires.log 2>/dev/null | grep -E --line-buffered '\"instance_id\": \"<id>\"'",
+      "timeout_ms": 1800000
+    },
+    "after_arm": "empirica listener arm <monitor_task_id> --name <id>-inbox"
+  }
 }
 ```
-You're done. The systemd-user / launchd service already holds the
-ntfy stream; wake events arrive through the normal channel.
+The systemd-user / launchd service holds the ntfy stream and writes every event
+to `~/.empirica/loop_fires.log`, but it cannot push into your session — the tail
+is what delivers. Without it the events reach disk and you never see them.
 
 **(b) No persistent service** — arm in-session:
 ```json
@@ -74,13 +82,22 @@ ntfy stream; wake events arrive through the normal channel.
     "args": {
       "description": "Cortex orchestration push listener for <id>",
       "command": "empirica loop listen --instance <id>",
-      "persistent": true,
-      "timeout_ms": 3600000
+      "timeout_ms": 1800000
     },
     "after_arm": "empirica listener arm <monitor_task_id> --name <id>-inbox"
   }
 }
 ```
+
+### Monitors expire — re-arming is the contract
+
+Claude Code 2.1.271 replaced the no-timeout `persistent` option with a deadline:
+every Monitor watch ends after at most 30 minutes (10 in `-p` runs) and you are
+notified. **Re-arm it** — same Monitor call, then `empirica listener arm` again
+with the new task id. Passing `persistent: true` is accepted and silently ignored
+on current builds, and omitting it is accepted on older ones, so the call above
+is valid everywhere. With the OS service running nothing is lost in the gap;
+without it, events wait in `loop_fires.log` until the next arm or `mailbox poll`.
 
 ### 2. Arm Monitor with the emitted args
 
@@ -88,8 +105,7 @@ ntfy stream; wake events arrive through the normal channel.
 result = Monitor(
     description="Cortex orchestration push listener for <id>",
     command="empirica loop listen --instance <id>",
-    persistent=True,
-    timeout_ms=3600000,
+    timeout_ms=1800000,
 )
 # capture result.task_id for step 3
 ```
@@ -158,7 +174,7 @@ external publisher (Cortex)
    │        com.empirica.listener.<ai_id>.plist)      │
    │   OR:                                            │
    │   (b) in-session `empirica loop listen` subprocess│
-   │       held via Monitor with persistent: true      │
+   │       held via Monitor, re-armed every 30 min     │
    └──────────────────────────────────────────────────┘
         │ emits one JSON line per ECO-decided proposal event
         ▼
@@ -198,8 +214,7 @@ The plugin's `session-monitor-arm.py` hook delegates to
 markdown in `additionalContext`. So:
 
 - Fresh SessionStart with persistent service running → hook emits the
-  "persistent service running, no Monitor needed" block. You read it,
-  nothing to arm.
+  LOG-TAIL Monitor block. Arm it + run `empirica listener arm <task_id>`.
 - Fresh SessionStart without persistent service → hook emits the
   Monitor-arming block. You arm the Monitor + run
   `empirica listener arm <task_id>`.

@@ -189,7 +189,7 @@ ai_id-guessing.
      instruction and a per-loop reaction table.
   4. If none → emit empty output (no false instructions).
 - **Output shape:** the AI gets a markdown block telling it to call
-  `Monitor(command="empirica loop listen --instance <id>", persistent=True)`.
+  `Monitor(command="empirica loop listen --instance <id>", timeout_ms=1800000)` — a watch expires after at most 30 min since Claude Code 2.1.271 and is re-armed.
   Monitor with an identical command is idempotent — the second call is a
   no-op.
 
@@ -510,7 +510,7 @@ claude --resume    # or fresh: just run `claude`
 
 The hook detects your active timer, emits `additionalContext` instructing
 the AI to call `Monitor(command="empirica loop listen --instance <ai_id>",
-persistent=true)`. After your first turn post-restart, the AI arms the
+timeout_ms=1800000)`, re-armed at each 30-minute expiry. After your first turn post-restart, the AI arms the
 Monitor and the listener subscribes to ntfy with tag filter.
 
 **Step 6 — Verify.**
