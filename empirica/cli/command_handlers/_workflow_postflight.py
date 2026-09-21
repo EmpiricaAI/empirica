@@ -561,7 +561,7 @@ def _run_grounded_verification(
         # Detect CHECK phase boundary for noetic/praxic split
         phase_boundary = None
         try:
-            phase_boundary = detect_phase_boundary(session_id, db)
+            phase_boundary = detect_phase_boundary(session_id, db, transaction_id=transaction_id)
             if phase_boundary and phase_boundary.get("has_check"):
                 logger.debug(f"Phase boundary: check_count={phase_boundary['check_count']}")
         except Exception as e:

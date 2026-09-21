@@ -15,10 +15,23 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def detect_phase_boundary(session_id: str, db) -> dict:
+def _scope(session_id: str, transaction_id: str | None) -> tuple:
+    """Parameters for the predicate that bounds a lookup to one transaction.
+
+    A session is a compaction boundary, not a unit of work: scoped by session,
+    one CHECK made every later POSTFLIGHT in that session phase-aware, and its
+    noetic row graded THIS transaction's evidence against the vectors of an
+    earlier, unrelated CHECK. Session scope survives only for callers that have
+    no transaction id to give.
+    """
+    tx = transaction_id or None
+    return (tx, tx, tx, session_id)
+
+
+def detect_phase_boundary(session_id: str, db, transaction_id: str | None = None) -> dict:
     """Find the CHECK proceed boundary in a transaction.
 
-    Queries the reflexes table for PREFLIGHT, CHECK, POSTFLIGHT entries.
+    Queries the reflexes table for the transaction's PREFLIGHT and CHECK entries.
     The last CHECK with decision="proceed" marks the noetic→praxic boundary.
 
     Returns:
@@ -46,6 +59,7 @@ def detect_phase_boundary(session_id: str, db) -> dict:
 
     try:
         cursor = db.conn.cursor()
+        params = _scope(session_id, transaction_id)
 
         # Get PREFLIGHT vectors and timestamp
         cursor.execute(
@@ -53,10 +67,11 @@ def detect_phase_boundary(session_id: str, db) -> dict:
             SELECT timestamp, know, uncertainty, completion, context,
                    do, signal, coherence, engagement
             FROM reflexes
-            WHERE session_id = ? AND phase = 'PREFLIGHT'
+            WHERE ((? IS NOT NULL AND transaction_id = ?) OR (? IS NULL AND session_id = ?))
+              AND phase = 'PREFLIGHT'
             ORDER BY timestamp DESC LIMIT 1
         """,
-            (session_id,),
+            params,
         )
         preflight_row = cursor.fetchone()
 
@@ -79,10 +94,11 @@ def detect_phase_boundary(session_id: str, db) -> dict:
             SELECT timestamp, reflex_data, know, uncertainty, completion,
                    context, do, signal, coherence, engagement
             FROM reflexes
-            WHERE session_id = ? AND phase = 'CHECK'
+            WHERE ((? IS NOT NULL AND transaction_id = ?) OR (? IS NULL AND session_id = ?))
+              AND phase = 'CHECK'
             ORDER BY timestamp ASC
         """,
-            (session_id,),
+            params,
         )
         check_rows = cursor.fetchall()
 
