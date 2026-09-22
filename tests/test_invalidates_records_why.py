@@ -67,3 +67,13 @@ def test_an_unknown_kind_is_not_written_into_the_closed_vocabulary():
     note = gc._supersede_target(db, "new", "old", {"kind": "wrong", "reason": "x"})
     assert db.calls[0]["resolution_kind"] is None
     assert note and "no kind" in note
+
+
+def test_mistyped_is_an_accepted_kind_on_the_edge():
+    """Re-logging a finding as the mistake or decision it really was closes the
+    original as `mistyped`. The kind was missing from the edge vocabulary, so
+    five of nineteen re-typed findings closed unclassified (2026-09-22)."""
+    db = _DB()
+    note = gc._supersede_target(db, "new", "old", {"kind": "mistyped", "reason": "a choice logged as a finding"})
+    assert db.calls[0]["resolution_kind"] == "mistyped"
+    assert note is None

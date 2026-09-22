@@ -614,7 +614,10 @@ def _wire_edges(db, edges: list[dict], ref_map: dict[str, str]) -> tuple[int, li
 
 #: What an `invalidates` edge may record about its target. `mistyped` is left
 #: out: it says the target was never that type, which an edge cannot establish.
-_INVALIDATION_KINDS = frozenset({"retracted", "superseded", "stale"})
+# Every resolution_kind the column accepts. `mistyped` was missing: re-logging a
+# finding as the mistake or decision it really was, with an invalidates edge
+# saying so, closed the original UNCLASSIFIED (2026-09-22, five of nineteen).
+_INVALIDATION_KINDS = frozenset({"retracted", "superseded", "stale", "mistyped"})
 
 
 def _supersede_target(db, from_id: str, to_id: str, metadata: dict | None = None) -> str | None:
