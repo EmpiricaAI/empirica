@@ -436,6 +436,39 @@ def pytest_configure(config):
 
 
 @pytest.fixture(autouse=True)
+def pin_home_state_dirs(tmp_path):
+    """Point the module-level ~/.empirica constants at tmp_path for every test.
+
+    listener_registry.EMPIRICA_DIR and practitioner_presence.EMPIRICA_DIR are
+    computed from Path.home() at import, so a test that never patched them wrote
+    into the developer's real ~/.empirica. Measured: listener_active fixture
+    files named cortex_cortex-inbox and custom_custom-inbox in a live home, and
+    a peer dated the same leak on their box to the second (2026-09-20 22:14),
+    with a real seat's state file touched in the same run.
+
+    This is the same shape as the suite-wide EMPIRICA_SESSION_DB pin: tests that
+    patch the constant themselves still win, since their function-scope patch
+    lands after this one and is undone before it. Changing the constants to
+    call-time lookups was tried and reverted: it moved 20 call sites and broke
+    the tests that patch the name.
+    """
+    # Own MonkeyPatch, not the fixture: see no_real_service_mutations below for
+    # why depending on `monkeypatch` reorders teardown and breaks cache_clear.
+    mp = MonkeyPatch()
+    home_state = tmp_path / "_home_empirica"
+    for modname in ("empirica.core.cockpit.listener_registry", "empirica.core.practitioner_presence"):
+        try:
+            import importlib
+
+            mod = importlib.import_module(modname)
+            mp.setattr(mod, "EMPIRICA_DIR", home_state, raising=True)
+        except Exception:
+            pass
+    yield
+    mp.undo()
+
+
+@pytest.fixture(autouse=True)
 def reset_process_wide_caches():
     """Reset module-global caches that leak state BETWEEN TEST FILES.
 

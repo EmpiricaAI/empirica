@@ -96,9 +96,24 @@ def test_list_active_loops_skips_inactive_timers(monkeypatch):
 # ── Hook: session-monitor-arm.py ────────────────────────────────────────
 
 
+_REAL_RUN = subprocess.run
+
+
+def _no_cli(*_a, **_k):
+    """The hook shells out to `empirica listener on --ai-id <instance>`, which
+    writes ~/.empirica/listener_active_<instance>_*.json on the REAL box. Two
+    tests here ran it for real with instance ids `cortex` and `custom`, and a
+    peer dated the same two files appearing in their home to the second. Unless
+    a test installs its own fake, the CLI is not reachable from here."""
+    return subprocess.CompletedProcess([], 1, "", "")
+
+
 def _run_hook(monkeypatch, instance_id: str | None, active_loops: list[str]) -> dict:
     """Run the hook script's main() in-process, capturing stdout JSON."""
     import importlib.util as _ilu
+
+    if subprocess.run is _REAL_RUN:
+        monkeypatch.setattr(subprocess, "run", _no_cli)
 
     hook_path = Path(__file__).resolve().parents[1] / (
         "empirica/plugins/claude-code-integration/hooks/session-monitor-arm.py"
