@@ -143,3 +143,48 @@ def test_notes_root_returns_None_outside_a_repo(tmp_path):
     """Unknown is not a value. A caller must be able to tell 'not a repo' from a
     root it can dedupe on."""
     assert notes_root(str(tmp_path)) is None
+
+
+def _note_with(repo, atype, aid, payload):
+    head = subprocess.run(["git", "rev-list", "-1", "HEAD"], cwd=repo, capture_output=True, text=True).stdout.strip()
+    subprocess.run(
+        ["git", "notes", f"--ref=empirica/{atype}/{aid}", "add", "-f", "-F", "-", head],
+        input=json.dumps(payload),
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+
+def test_a_note_that_already_carries_the_resolution_is_not_unstamped(repo, tmp_path):
+    """The plan read `resolved & note_ids`, so every resolved artifact with a note
+    counted as "never received" — 2221 on core, of which 963 really were."""
+    _note_with(repo, "findings", "stamped", {"finding": "s", "is_resolved": True})
+    _note_with(repo, "findings", "unknown_shape", {"unknown": "u", "resolved": True})
+    _note(repo, "findings", "bare")
+    db = _FakeDB(
+        tmp_path,
+        live_findings={"stamped", "unknown_shape", "bare"},
+        resolved_findings={"stamped", "unknown_shape", "bare"},
+    )
+
+    p = plan(db, str(repo))
+
+    assert p["types"]["findings"]["unstamped"] == ["bare"]
+
+
+def test_apply_then_plan_converges_to_zero(repo, tmp_path):
+    """The property the old count could not have: after a repair, the check clears."""
+    from empirica.core.canonical.empirica_git.note_reconcile import apply as _apply
+
+    for aid in ("a", "b"):
+        _note(repo, "findings", aid)
+    db = _FakeDB(tmp_path, live_findings={"a", "b"}, resolved_findings={"a", "b"})
+
+    first = plan(db, str(repo))
+    assert first["unstamped_total"] == 2, "positive control: both start unstamped"
+    receipt = _apply(db, str(repo), first)
+    assert receipt["stamped"] == 2 and receipt["failed"] == []
+
+    assert plan(db, str(repo))["unstamped_total"] == 0

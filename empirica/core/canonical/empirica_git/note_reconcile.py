@@ -22,10 +22,12 @@ moved cannot disagree with it.
 
 from __future__ import annotations
 
+import json
 import logging
 import subprocess
 from pathlib import Path
 
+from empirica.core.canonical.empirica_git.goal_store import GitCatFileBatch
 from empirica.core.canonical.empirica_git.note_lifecycle import (
     ACTIVE_PREFIX,
     archive_note,
@@ -79,6 +81,28 @@ def _active_note_ids(project_path: str, namespace: str) -> set[str]:
     return {ref.rsplit("/", 1)[-1] for ref in r.stdout.split() if ref.strip()}
 
 
+def _notes_lacking_resolution(project_path: str, namespace: str, ids: set[str]) -> set[str]:
+    """Of these ids, the ones whose active note does not say it is resolved.
+
+    Reads each note's payload through one `git cat-file --batch`. A note carries
+    the resolution as `is_resolved` (the stamp, and the finding store) or as
+    `resolved` (the unknown store's own resolve). A note that cannot be read or
+    parsed counts as lacking it: the stamp is idempotent, so over-including costs
+    one no-op rewrite, while under-including would report a divergence as fixed.
+    """
+    lacking: set[str] = set()
+    with GitCatFileBatch(project_path) as cat:
+        for aid in ids:
+            blob = cat.first_note_blob(f"{ACTIVE_PREFIX}/{namespace}/{aid}")
+            try:
+                payload = json.loads(blob.decode()) if blob is not None else None
+            except (ValueError, UnicodeDecodeError):
+                payload = None
+            if not isinstance(payload, dict) or not (payload.get("is_resolved") or payload.get("resolved")):
+                lacking.add(aid)
+    return lacking
+
+
 def plan(db, project_path: str, project_id: str | None = None) -> dict:
     """What reconciliation WOULD do. Pure read — nothing moves.
 
@@ -107,10 +131,11 @@ def plan(db, project_path: str, project_id: str | None = None) -> dict:
 
         orphaned = sorted(note_ids - live)
         # A note for a RESOLVED artifact that is still active is correct — that is
-        # the design. What we cannot tell from refs alone is whether it carries the
-        # stamp, so `unstamped` is the resolved set intersected with what notes hold;
-        # `stamp_resolution` is idempotent, so re-stamping a stamped note is a no-op.
-        unstamped = sorted(resolved & note_ids)
+        # the design. The refs cannot say whether the note carries the stamp, so the
+        # payload is read. Counting `resolved & note_ids` instead reported every
+        # resolved artifact as "never received", 2221 on core, and the count could
+        # not fall after a repair, so the check stayed WARN forever.
+        unstamped = sorted(_notes_lacking_resolution(project_path, namespace, resolved & note_ids))
         out["types"][namespace] = {"orphaned": orphaned, "unstamped": unstamped}
         out["orphaned_total"] += len(orphaned)
         out["unstamped_total"] += len(unstamped)

@@ -21,7 +21,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-class _GitCatFileBatch:
+class GitCatFileBatch:
     """One long-lived `git cat-file --batch`, queried object by object.
 
     A notes tree is read from its raw bytes, `mode name\\0<20-byte sha>` per
@@ -362,7 +362,7 @@ class GitGoalStore:
         if not refs:
             return {}
         try:
-            with _GitCatFileBatch(self.workspace_root) as cat:
+            with GitCatFileBatch(self.workspace_root) as cat:
                 out: dict[str, dict] = {}
                 for ref in refs:
                     blob = cat.first_note_blob(ref)
