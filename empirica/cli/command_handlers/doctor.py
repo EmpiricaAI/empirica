@@ -619,7 +619,17 @@ def check_plugin_freshness() -> Check:
         pkg = None
 
     failed = Path.home() / ".empirica" / ".plugin_autosync_failed"
-    data = {"plugin_dir": str(plugin_dir), "deployed": stamp, "package": pkg, "autosync_failed": failed.is_file()}
+    writer = _plugin_writer(plugin_dir)
+    data = {
+        "plugin_dir": str(plugin_dir),
+        "deployed": stamp,
+        "package": pkg,
+        "autosync_failed": failed.is_file(),
+        "last_writer": writer,
+    }
+    # The copy is shared by every practice on the box, so a verdict says whose
+    # deploy it is; "deployed 1.13.49" alone names no one to ask.
+    by = f" (written by {writer.get('ai_id') or '?'} at {str(writer.get('written_at') or '?')[:16]})" if writer else ""
 
     if failed.is_file():
         return Check(
@@ -649,13 +659,27 @@ def check_plugin_freshness() -> Check:
         return Check(
             "Deployed plugin fresh",
             WARN,
-            f"deployed {stamp}, package {pkg} — hooks, sentinel gate and arming block are the OLD copy",
+            f"deployed {stamp}{by}, package {pkg} — hooks, sentinel gate and arming block are the OLD copy",
             "empirica plugin-sync   (or `empirica setup-claude-code --force`) — upgrading the package "
             "does not refresh the deployed copy",
             data=data,
         )
 
-    return Check("Deployed plugin fresh", PASS, f"deployed {stamp} == package {pkg}", data=data)
+    return Check("Deployed plugin fresh", PASS, f"deployed {stamp} == package {pkg}{by}", data=data)
+
+
+def _plugin_writer(plugin_dir: Path) -> dict | None:
+    """The last-writer record setup-claude-code leaves in the shared plugin copy."""
+    import json as _json
+
+    f = plugin_dir / ".plugin-writer.json"
+    if not f.is_file():
+        return None
+    try:
+        data = _json.loads(f.read_text())
+        return data if isinstance(data, dict) else None
+    except (OSError, ValueError):
+        return None
 
 
 def check_claude_code_cli() -> Check:

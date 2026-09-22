@@ -1175,12 +1175,66 @@ def _read_plugin_version_stamp(plugin_dir: Path) -> str | None:
         return None
 
 
-def _write_plugin_version_stamp(plugin_dir: Path, version: str | None = None) -> None:
-    """Stamp the installed plugin with the empirica version its files came from."""
+PLUGIN_WRITER_STAMP = ".plugin-writer.json"
+
+
+def _deploying_practice() -> str | None:
+    """ai_id of the practice running the deploy, from the working directory."""
     try:
-        (plugin_dir / PLUGIN_VERSION_STAMP).write_text((version or _resolve_empirica_version()).strip() + "\n")
+        import yaml
+
+        cfg = Path.cwd() / ".empirica" / "project.yaml"
+        if cfg.is_file():
+            data = yaml.safe_load(cfg.read_text()) or {}
+            return data.get("ai_id") or None
+    except Exception as exc:
+        logger.debug("deploying practice unknown: %s", exc)
+    return None
+
+
+def _deploying_commit() -> str | None:
+    """Commit of the empirica checkout the plugin files came from, if it is one."""
+    try:
+        src = Path(__file__).resolve().parents[3]
+        out = subprocess.run(
+            ["git", "-C", str(src), "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=5
+        )
+        return (out.stdout.strip() or None) if out.returncode == 0 else None
+    except Exception as exc:
+        logger.debug("deploying commit unknown: %s", exc)
+        return None
+
+
+def _write_plugin_version_stamp(plugin_dir: Path, version: str | None = None) -> None:
+    """Stamp the installed plugin with the empirica version its files came from,
+    and with WHO deployed them.
+
+    The plugin directory is user-global: every practice on a box deploys into
+    the one copy, with no lock. A practice running an older checkout can revert
+    another's deploy, and the version stamp alone cannot say whose write it is
+    (empirica-mesh-support, prop_qrfjuk5clrfwddya63xceuprcy). The sidecar names
+    the practice, the version, the source commit when it is a checkout, and the
+    time, so doctor's staleness verdict can say who wrote what.
+    """
+    resolved = (version or _resolve_empirica_version()).strip()
+    try:
+        (plugin_dir / PLUGIN_VERSION_STAMP).write_text(resolved + "\n")
     except OSError:
         pass
+    try:
+        import json as _json
+        from datetime import datetime, timezone
+
+        record = {
+            "ai_id": _deploying_practice(),
+            "version": resolved,
+            "commit": _deploying_commit(),
+            "written_at": datetime.now(timezone.utc).isoformat(),
+            "cwd": str(Path.cwd()),
+        }
+        (plugin_dir / PLUGIN_WRITER_STAMP).write_text(_json.dumps(record, indent=2) + "\n")
+    except OSError as exc:
+        logger.debug("plugin writer stamp not written: %s", exc)
 
 
 def _sync_plugin_files_in_place(source_dir: Path, plugin_dir: Path) -> None:
