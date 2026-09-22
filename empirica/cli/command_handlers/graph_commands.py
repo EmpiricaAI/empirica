@@ -301,7 +301,10 @@ def _session_ai_id(db, session_id: str | None) -> str | None:
     try:
         row = db.conn.execute("SELECT ai_id FROM sessions WHERE session_id = ?", (session_id,)).fetchone()
         return row[0] if row else None
-    except Exception:
+    except Exception as exc:
+        # The note then records ai_id "unknown"; say why, so a broken lookup does
+        # not read like a session that was never created.
+        logger.debug("ai_id lookup failed for session %s: %s", session_id[:8], exc)
         return None
 
 

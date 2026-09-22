@@ -16,6 +16,7 @@ The distinction that carries the weight is ``stale`` vs ``retracted``:
 them means a practice cannot tell ageing from error in its own history.
 """
 
+import logging
 from typing import Literal
 
 ResolutionKind = Literal["stale", "superseded", "retracted", "mistyped"]
@@ -129,7 +130,11 @@ def _fetch(execute, sql: str, params: tuple) -> list:
     """Rows, or none when the table is absent on an older store."""
     try:
         return list(execute(sql, params).fetchall())
-    except Exception:
+    except Exception as exc:
+        # A missing table on an older store is expected. Anything else reads as
+        # "no match" and refuses the write, which is the safe side; log it so a
+        # locked or broken store is not mistaken for an absent artifact.
+        logging.getLogger(__name__).debug("artifact lookup skipped (%s): %s", sql[:40], exc)
         return []
 
 

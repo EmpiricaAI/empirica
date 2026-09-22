@@ -5,6 +5,63 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Retrieval served retracted findings above their corrections.** `finding-resolve`
+  promised "dropped from live retrieval", and only the PREFLIGHT pattern block
+  honoured it. The shared search behind `project-search` and `investigate` never
+  checked resolution state, and a promoted eidetic fact was a second copy that
+  resolving the finding never reached. Three practices measured a finding
+  retracted hours earlier at rank 1. Both collections now reconcile against
+  SQLite before ranking; `project-search --include-resolved` reads history, and
+  the JSON says which mode answered. Resolving also stamps `is_resolved`,
+  `resolution_kind` and `superseded_by` onto the vector points, for readers
+  that bypass search.
+- **`--superseded-by` stored whatever it was given.** Every list view prints
+  8-character ids, so pasting the tool's own output produced a dangling
+  pointer. The value is now resolved to one full artifact id of any type, or
+  the resolution is refused, at all four writers. The target of
+  `finding-resolve` and `unknown-resolve` must also match exactly one row; an
+  ambiguous prefix used to resolve every artifact sharing it.
+- **The phase boundary was session-scoped.** One CHECK anywhere in a session
+  made every later POSTFLIGHT phase-aware, and its noetic row graded that
+  transaction's evidence against an earlier, unrelated CHECK. Scoped to the
+  transaction. This was the "second verification row" three stores measured.
+- **An `invalidates` edge with no kind guessed `superseded`.** It now closes
+  the target unclassified and names the split move: re-log the half that
+  holds, then supersede with a pointer. A partly wrong finding is two
+  artifacts, not a fifth resolution kind.
+- **`log-artifacts` skipped two layers the single verbs wrote.** A batch-logged
+  finding never reached the eidetic collection until the next session-end
+  re-embed, and no batch-logged artifact of any type was ever written to git
+  notes, the canonical log. On core that left 2499 of 4981 findings with no
+  note. Both paths now mirror the single verbs. `scripts/backfill_git_notes.py`
+  writes the missing notes with their original timestamp and resolution
+  state; dry run by default.
+- **Two confidence formulas for a promoted fact.** Log-time and re-embed
+  disagreed by up to 0.22 on the same finding, and with first-writer-wins the
+  lower one would have stopped memory promotion. One function owns it now.
+- **A failed `project-embed` at session end was invisible.** The hook launches
+  it detached and discards its output; it failed on every run for fifteen
+  days. The command now records its outcome and `doctor` fails on a failed
+  last run. Its summary also says how many facts were already present, since
+  `eidetic: 0` is what a healthy re-run prints.
+- **Test isolation.** The suite wrote reflex rows into the developer's live
+  `sessions.db` (9307 rows since June, the false "verification outage" in the
+  1.13.50 notes) and listener markers into the real `~/.empirica`. Both stopped.
+
+### Added
+
+- **Verification rows record their transaction and their practitioner.**
+  `grounded_verifications.transaction_id` (migration 073) and
+  `practitioner_model` on the two calibration tables (migration 074), read from
+  the Claude Code transcript at POSTFLIGHT. `parent_transaction_id` was never
+  this: it is the parent of a compliance-loop retry and stays NULL by design.
+  Groundwork for calibrating the CHECK gate on the practitioner within the
+  practice; the gate's inputs are unchanged in this release.
+
 ## [1.13.50] - 2026-09-21
 
 ### Fixed
