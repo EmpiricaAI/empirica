@@ -86,6 +86,8 @@ class GitFindingStore:
         is_resolved: bool = False,
         resolution: str | None = None,
         superseded_by: str | None = None,
+        resolution_kind: str | None = None,
+        created_at: str | None = None,
     ) -> bool:
         """
         Store finding in git notes
@@ -120,7 +122,8 @@ class GitFindingStore:
                 "project_id": project_id,
                 "session_id": session_id,
                 "ai_id": ai_id,
-                "created_at": datetime.now(timezone.utc).isoformat(),
+                # A backfill passes the row's own time; a live write leaves it None.
+                "created_at": created_at or datetime.now(timezone.utc).isoformat(),
                 "finding": finding,
                 "impact": impact,
                 "goal_id": goal_id,
@@ -130,6 +133,7 @@ class GitFindingStore:
                 "is_resolved": is_resolved,
                 "resolution": resolution,
                 "superseded_by": superseded_by,
+                "resolution_kind": resolution_kind,
                 "resolved_at": datetime.now(timezone.utc).isoformat() if is_resolved else None,
             }
 
