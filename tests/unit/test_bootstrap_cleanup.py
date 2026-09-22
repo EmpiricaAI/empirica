@@ -30,6 +30,9 @@ def read_the_checkout_store(monkeypatch):
     inherited.
     """
     monkeypatch.delenv("EMPIRICA_SESSION_DB", raising=False)
+    # Same for the project: the suite's throwaway HOME has no registry, so the
+    # checkout the tests run in must be taken as the project.
+    monkeypatch.setenv("EMPIRICA_CWD_RELIABLE", "true")
 
 
 class TestBootstrapComponents:

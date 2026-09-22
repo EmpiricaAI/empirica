@@ -18,7 +18,6 @@ alongside the legacy ones double-counted 3 of 10 rows.
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 import pytest
@@ -114,5 +113,7 @@ def test_a_malformed_file_is_skipped_not_fatal(registry, tmp_path, monkeypatch):
 
 def test_the_real_candidate_paths_expand_to_absolute_home_paths():
     for p in manifests._MCP_REGISTRY_CANDIDATES:
-        assert str(p).startswith(os.path.expanduser("~")), f"{p} is not under home"
+        # The tuple is built at import, from whatever HOME was then; the suite
+        # moves HOME afterwards, so compare shape, not the current home's value.
+        assert "~" not in str(p), f"{p} was not expanded"
         assert Path(p).is_absolute()

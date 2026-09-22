@@ -100,6 +100,23 @@ def pin_suite_session_db():
         shutil.rmtree(suite_db_dir, ignore_errors=True)
 
 
+def _enter_suite_home() -> tuple[str | None, str]:
+    """Move HOME to a throwaway directory for the whole run. Returns (real, suite)."""
+    real = os.environ.get("HOME")
+    suite = tempfile.mkdtemp(prefix="empirica-suite-home-")
+    os.makedirs(os.path.join(suite, ".empirica"), exist_ok=True)
+    os.environ["HOME"] = suite
+    return real, suite
+
+
+def _leave_suite_home(real: str | None, suite: str) -> None:
+    if real is not None:
+        os.environ["HOME"] = real
+    else:
+        os.environ.pop("HOME", None)
+    shutil.rmtree(suite, ignore_errors=True)
+
+
 @pytest.fixture(autouse=True, scope="session")
 def isolate_empirica_instance():
     """Prevent tests from polluting live Empirica instance state.
@@ -115,6 +132,19 @@ def isolate_empirica_instance():
     import glob
 
     test_instance_id = f"test-{os.getpid()}"
+
+    # A throwaway HOME for the whole suite, inherited by every subprocess.
+    #
+    # Root cause (2026-09-22, strace over a full serial run): the suite opened
+    # the developer's live ~/.empirica/workspace/workspace.db for writing 37
+    # times and its journal 250 times, and left ten more files in ~/.empirica.
+    # Every writer builds its path from Path.home() at call time, and several
+    # run in subprocesses, where no monkeypatch reaches. Pinning the module
+    # constants (below) closes the in-process cases only. Setting HOME closes
+    # all of them at once: Path.home() honours it, and children inherit it.
+    #
+    # Tests that need the real home for a read set HOME back at function scope.
+    _real_home, _suite_home = _enter_suite_home()
 
     # Save and strip terminal identity vars
     saved_env = {}
@@ -231,6 +261,8 @@ def isolate_empirica_instance():
             os.environ.pop(var, None)
 
     _restore_untouched_transaction_files(backup)
+
+    _leave_suite_home(_real_home, _suite_home)
 
     # Reap test-created transaction files. Two passes, because scoping to this
     # process's pid alone under-collects: a test that shells out to the CLI gets
@@ -456,7 +488,11 @@ def pin_home_state_dirs(tmp_path):
     # why depending on `monkeypatch` reorders teardown and breaks cache_clear.
     mp = MonkeyPatch()
     home_state = tmp_path / "_home_empirica"
-    for modname in ("empirica.core.cockpit.listener_registry", "empirica.core.practitioner_presence"):
+    for modname in (
+        "empirica.core.cockpit.listener_registry",
+        "empirica.core.practitioner_presence",
+        "empirica.core.cockpit.loop_registry",
+    ):
         try:
             import importlib
 

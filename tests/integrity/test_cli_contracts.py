@@ -98,6 +98,10 @@ def _run_empirica(*args, timeout=30):
     # against that every probe here SKIPS as "no project" — eight contracts going
     # unchecked while the run stays green. Opting back in is said here, once.
     env = {k: v for k, v in os.environ.items() if k != "EMPIRICA_SESSION_DB"}
+    # The suite's throwaway HOME holds no project registry either, so the
+    # checkout the probes run in is declared the project. Without this, eight
+    # probes skip as "no project" and the run stays green while checking nothing.
+    env["EMPIRICA_CWD_RELIABLE"] = "true"
     return subprocess.run(
         ["empirica", *args],
         capture_output=True,

@@ -47,6 +47,10 @@ def isolated_env():
         # Inherit parent env, override only the DB path
         env = dict(os.environ)
         env["EMPIRICA_SESSION_DB"] = str(db_path)
+        # The suite runs under a throwaway HOME with no project registry, so the
+        # CLI must take the checkout it runs in as the project. Before this, the
+        # tests resolved the project from the developer's real registry.
+        env["EMPIRICA_CWD_RELIABLE"] = "true"
 
         yield env
 
