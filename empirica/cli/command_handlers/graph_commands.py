@@ -294,6 +294,127 @@ def _is_uuid(s: str) -> bool:
     return bool(re.match(r"^[0-9a-f]{8}-[0-9a-f]{4}-", s, re.I))
 
 
+def _session_ai_id(db, session_id: str | None) -> str | None:
+    """The practice this session belongs to; the git stores record it on every note."""
+    if not session_id:
+        return None
+    try:
+        row = db.conn.execute("SELECT ai_id FROM sessions WHERE session_id = ?", (session_id,)).fetchone()
+        return row[0] if row else None
+    except Exception:
+        return None
+
+
+def _store_node_git_notes(node: dict, artifact_id: str, context: dict) -> bool:
+    """Write a NEW node to its git-notes store, exactly as the single verb does.
+
+    Git notes are the canonical log: a from-notes rebuild imports them back and
+    drops what is not there. Every single `*-log` verb writes its artifact to a
+    store; this batch path wrote SQLite only, from its birth on 2026-04-23. On
+    core that left 2435 of 4981 findings with no note, and 982 resolutions the
+    notes never received, since a resolution mirror has nothing to update when
+    the artifact was never written. Same defect shape as the eidetic gap fixed
+    in 6982a9a6d, one layer down. Non-fatal, and not silent: a failed note write
+    is a warning, because a canonical log that quietly stops is the worst case.
+    """
+    ntype = node["type"]
+    data = node["data"]
+    common = {
+        "project_id": context["project_id"],
+        "session_id": context["session_id"],
+        "ai_id": context.get("ai_id") or "unknown",
+    }
+    goal_id = data.get("goal_id") or context.get("goal_id")
+    try:
+        if ntype == "finding":
+            from empirica.core.canonical.empirica_git.finding_store import GitFindingStore
+
+            return bool(
+                GitFindingStore().store_finding(
+                    finding_id=artifact_id,
+                    finding=data["finding"],
+                    impact=data.get("impact"),
+                    goal_id=goal_id,
+                    subtask_id=data.get("subtask_id"),
+                    subject=data.get("subject"),
+                    **common,
+                )
+            )
+        if ntype == "unknown":
+            from empirica.core.canonical.empirica_git.unknown_store import GitUnknownStore
+
+            return bool(
+                GitUnknownStore().store_unknown(
+                    unknown_id=artifact_id,
+                    unknown=data["unknown"],
+                    goal_id=goal_id,
+                    subtask_id=data.get("subtask_id"),
+                    **common,
+                )
+            )
+        if ntype == "dead_end":
+            from empirica.core.canonical.empirica_git.dead_end_store import GitDeadEndStore
+
+            return bool(
+                GitDeadEndStore().store_dead_end(
+                    dead_end_id=artifact_id,
+                    approach=data["approach"],
+                    why_failed=data["why_failed"],
+                    goal_id=goal_id,
+                    subtask_id=data.get("subtask_id"),
+                    **common,
+                )
+            )
+        if ntype == "mistake":
+            from empirica.core.canonical.empirica_git.mistake_store import GitMistakeStore
+
+            return bool(
+                GitMistakeStore().store_mistake(
+                    mistake_id=artifact_id,
+                    mistake=data["mistake"],
+                    why_wrong=data["why_wrong"],
+                    prevention=data.get("prevention"),
+                    cost_estimate=data.get("cost_estimate"),
+                    root_cause_vector=data.get("root_cause_vector"),
+                    goal_id=goal_id,
+                    **common,
+                )
+            )
+        if ntype == "assumption":
+            from empirica.core.canonical.empirica_git.assumption_store import GitAssumptionStore
+
+            return bool(
+                GitAssumptionStore().store_assumption(
+                    assumption_id=artifact_id,
+                    assumption=data["assumption"],
+                    confidence=data.get("confidence", 0.5),
+                    domain=data.get("domain"),
+                    goal_id=goal_id,
+                    **common,
+                )
+            )
+        if ntype == "decision":
+            from empirica.core.canonical.empirica_git.decision_store import GitDecisionStore
+
+            alternatives = data.get("alternatives")
+            return bool(
+                GitDecisionStore().store_decision(
+                    decision_id=artifact_id,
+                    choice=data["choice"],
+                    rationale=data.get("rationale", ""),
+                    alternatives=json.dumps(alternatives) if isinstance(alternatives, list) else alternatives,
+                    confidence=data.get("confidence", 0.7),
+                    reversibility=data.get("reversibility") or "committal",
+                    goal_id=goal_id,
+                    **common,
+                )
+            )
+        return False  # sources have their own verb and shape; nothing else has a store
+    except Exception as exc:
+        logger.warning("git notes not written for %s %s: %s", ntype, artifact_id, exc)
+        return False
+
+
 def _create_node(db, node: dict, context: dict) -> str | None:
     """Create a single artifact node. Returns the UUID or None on failure."""
     ntype = node["type"]
@@ -830,6 +951,7 @@ def _resolve_graph_context(graph: dict, args, db) -> dict | None:
         "project_id": project_id,
         "goal_id": goal_id,
         "transaction_id": transaction_id,
+        "ai_id": _session_ai_id(db, session_id),
     }
 
 
@@ -896,6 +1018,7 @@ def log_artifacts_graph(
             artifact_id = _create_node(db, node, context)
             if artifact_id:
                 ref_map[node["ref"]] = artifact_id
+                _store_node_git_notes(node, artifact_id, context)
                 _auto_embed_node(node, artifact_id, context)
             else:
                 created_errors.append(f"Failed to create {node['type']} '{node['ref']}'")
