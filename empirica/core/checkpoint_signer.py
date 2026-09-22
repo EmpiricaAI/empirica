@@ -146,7 +146,8 @@ class CheckpointSigner:
 
         try:
             result = subprocess.run(
-                ["git", "notes", "--ref", signature_ref, "add", "-f", "-m", json.dumps(signature_payload), "HEAD"],
+                ["git", "notes", "--ref", signature_ref, "add", "-f", "-F", "-", "HEAD"],
+                input=json.dumps(signature_payload),
                 capture_output=True,
                 text=True,
                 cwd=self.git_repo_path,

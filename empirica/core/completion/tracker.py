@@ -387,7 +387,8 @@ class CompletionTracker:
 
             # Add note to git
             result = subprocess.run(
-                ["git", "notes", "--ref", note_ref, "add", "-f", "-m", note_json, target],
+                ["git", "notes", "--ref", note_ref, "add", "-f", "-F", "-", target],
+                input=note_json,
                 capture_output=True,
                 timeout=5,
                 cwd=".",

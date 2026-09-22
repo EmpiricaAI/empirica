@@ -192,7 +192,8 @@ class CheckpointManager:
 
         # Add git note (refs/notes/empirica/checkpoints)
         subprocess.run(
-            ["git", "notes", "--ref=empirica/checkpoints", "add", "-f", "-m", checkpoint_json, commit_hash],
+            ["git", "notes", "--ref=empirica/checkpoints", "add", "-f", "-F", "-", commit_hash],
+            input=checkpoint_json,
             cwd=self.workspace_root,
             capture_output=True,
             text=True,

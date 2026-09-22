@@ -79,7 +79,8 @@ class GitAssumptionStore:
 
             note_ref = f"empirica/assumptions/{assumption_id}"
             subprocess.run(
-                ["git", "notes", f"--ref={note_ref}", "add", "-f", "-m", json.dumps(payload, indent=2), commit_hash],
+                ["git", "notes", f"--ref={note_ref}", "add", "-f", "-F", "-", commit_hash],
+                input=json.dumps(payload, indent=2),
                 cwd=self.workspace_root,
                 capture_output=True,
                 text=True,

@@ -68,6 +68,9 @@ def main() -> int:
     ]
     written = {"findings": 0, "unknowns": 0}
     failed = {"findings": 0, "unknowns": 0}
+    # A count says something failed; the ids say which, so the row can be found
+    # without re-deriving the whole missing set.
+    failed_ids: dict[str, list[str]] = {"findings": [], "unknowns": []}
     report: dict = {
         "ok": True,
         "mode": "apply" if args.apply else "dry-run",
@@ -77,6 +80,7 @@ def main() -> int:
         "unknowns_missing_resolved": sum(1 for r in unknowns if r["is_resolved"]),
         "written": written,
         "failed": failed,
+        "failed_ids": failed_ids,
     }
     if not args.apply:
         print(json.dumps(report, indent=2))
@@ -113,6 +117,8 @@ def main() -> int:
             created_at=_iso(r["created_timestamp"]),
         )
         (written if ok else failed)["findings"] += 1
+        if not ok:
+            failed_ids["findings"].append(r["id"])
         writes += 1
     for r in unknowns:
         if args.limit and writes >= args.limit:
@@ -129,6 +135,8 @@ def main() -> int:
             resolved_by=r["resolved_by"],
         )
         (written if ok else failed)["unknowns"] += 1
+        if not ok:
+            failed_ids["unknowns"].append(r["id"])
         writes += 1
     print(json.dumps(report, indent=2))
     return 0 if not any(failed.values()) else 1

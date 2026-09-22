@@ -206,7 +206,8 @@ class GitGoalStore:
             # Store in git notes (refs/notes/empirica/goals/<goal-id>)
             note_ref = f"empirica/goals/{goal_id}"
             subprocess.run(
-                ["git", "notes", f"--ref={note_ref}", "add", "-f", "-m", payload_json, commit_hash],
+                ["git", "notes", f"--ref={note_ref}", "add", "-f", "-F", "-", commit_hash],
+                input=payload_json,
                 cwd=self.workspace_root,
                 capture_output=True,
                 text=True,

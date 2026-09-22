@@ -389,7 +389,8 @@ def _patch_git_note_with_edges(artifact_type: str, artifact_id: str, edges: list
     # 4. Write note back (-f overwrites)
     new_json = json.dumps(payload, indent=2)
     subprocess.run(
-        ["git", "notes", f"--ref={short_ref}", "add", "-f", "-m", new_json, commit_sha],
+        ["git", "notes", f"--ref={short_ref}", "add", "-f", "-F", "-", commit_sha],
+        input=new_json,
         cwd=workspace,
         capture_output=True,
         text=True,

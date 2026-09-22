@@ -54,7 +54,8 @@ class GitHandoffStorage:
             compressed = report["compressed_json"]
 
             result = subprocess.run(
-                ["git", "notes", "--ref", note_ref, "add", "-f", "-m", compressed, "HEAD"],
+                ["git", "notes", "--ref", note_ref, "add", "-f", "-F", "-", "HEAD"],
+                input=compressed,
                 capture_output=True,
                 timeout=5,
                 cwd=str(self.repo_path),
@@ -74,7 +75,8 @@ class GitHandoffStorage:
                     )
                     # Retry
                     result = subprocess.run(
-                        ["git", "notes", "--ref", note_ref, "add", "-f", "-m", compressed, "HEAD"],
+                        ["git", "notes", "--ref", note_ref, "add", "-f", "-F", "-", "HEAD"],
+                        input=compressed,
                         capture_output=True,
                         timeout=5,
                         cwd=str(self.repo_path),
@@ -89,7 +91,8 @@ class GitHandoffStorage:
             markdown = report["markdown"]
 
             subprocess.run(
-                ["git", "notes", "--ref", markdown_ref, "add", "-f", "-m", markdown, "HEAD"],
+                ["git", "notes", "--ref", markdown_ref, "add", "-f", "-F", "-", "HEAD"],
+                input=markdown,
                 capture_output=True,
                 timeout=5,
                 cwd=str(self.repo_path),

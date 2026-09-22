@@ -155,7 +155,8 @@ class GitMessageStore:
 
             note_ref = f"empirica/messages/{channel}/{message_id}"
             subprocess.run(
-                ["git", "notes", f"--ref={note_ref}", "add", "-f", "-m", payload_json, commit_hash],
+                ["git", "notes", f"--ref={note_ref}", "add", "-f", "-F", "-", commit_hash],
+                input=payload_json,
                 cwd=self.workspace_root,
                 capture_output=True,
                 text=True,
@@ -432,7 +433,8 @@ class GitMessageStore:
             commit_hash = parts[1] if len(parts) >= 2 else (self._get_head_commit() or "HEAD")
 
             subprocess.run(
-                ["git", "notes", f"--ref={note_ref}", "add", "-f", "-m", payload_json, commit_hash],
+                ["git", "notes", f"--ref={note_ref}", "add", "-f", "-F", "-", commit_hash],
+                input=payload_json,
                 cwd=self.workspace_root,
                 capture_output=True,
                 text=True,

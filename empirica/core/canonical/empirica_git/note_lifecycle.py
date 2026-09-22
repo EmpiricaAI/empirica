@@ -43,12 +43,18 @@ ACTIVE_PREFIX = "refs/notes/empirica"
 ARCHIVE_PREFIX = "refs/notes/empirica-archive"
 
 
-def _git(args: list[str], project_path: str | None) -> subprocess.CompletedProcess | None:
+def _git(args: list[str], project_path: str | None, input: str | None = None) -> subprocess.CompletedProcess | None:
     try:
         return subprocess.run(
-            ["git", *args], cwd=project_path or None, capture_output=True, text=True, timeout=10, check=False
+            ["git", *args],
+            cwd=project_path or None,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+            input=input,
         )
-    except (subprocess.SubprocessError, FileNotFoundError) as e:
+    except (subprocess.SubprocessError, OSError) as e:
         logger.debug(f"note_lifecycle: git {args[:2]} failed: {e}")
         return None
 
@@ -145,8 +151,9 @@ def stamp_resolution(
     payload.update({k: v for k, v in resolution.items() if v is not None})
 
     added = _git(
-        ["notes", f"--ref={ref_short}", "add", "-f", "-m", json.dumps(payload, indent=2), target_commit],
+        ["notes", f"--ref={ref_short}", "add", "-f", "-F", "-", target_commit],
         project_path,
+        input=json.dumps(payload, indent=2),
     )
     if added is None or added.returncode != 0:
         detail = (added.stderr.strip()[:120] if added else "git unavailable") or "unknown"

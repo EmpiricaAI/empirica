@@ -208,7 +208,8 @@ RETRIEVAL:
 
     try:
         subprocess.run(
-            ["git", "notes", "--ref=breadcrumbs", "add", "-f", "-m", note, "HEAD"],
+            ["git", "notes", "--ref=breadcrumbs", "add", "-f", "-F", "-", "HEAD"],
+            input=note,
             capture_output=True,
             text=True,
             timeout=5,

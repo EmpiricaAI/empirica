@@ -308,7 +308,8 @@ def _write_prune_receipt(artifact_id: str, artifact_type: str, reason: str, arti
         # Write receipt as a git note on HEAD
         receipt_json = json.dumps(receipt, indent=2)
         result = subprocess.run(
-            ["git", "notes", f"--ref={ref}", "add", "-f", "-m", receipt_json, "HEAD"],
+            ["git", "notes", f"--ref={ref}", "add", "-f", "-F", "-", "HEAD"],
+            input=receipt_json,
             capture_output=True,
             text=True,
             timeout=10,
