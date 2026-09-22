@@ -132,27 +132,24 @@ def test_the_summary_separates_new_from_already_present():
 
 
 def test_the_batch_path_records_how_many_were_already_present(monkeypatch):
+    """Independent of whether a Qdrant is running: the client and the imports are
+    patched at the module the function imports them from. The first version of
+    this test passed on a box with Qdrant up and failed in CI, which has none."""
     import empirica.cli.command_handlers.project_embed as pe
+    import empirica.core.qdrant.connection as qc
 
     valid = [({"id": f"f{i}", "finding": f"text {i}"}, f"text {i}", f"h{i}") for i in range(5)]
     monkeypatch.setattr(pe, "_filter_unembedded", lambda client, coll, v: v[:2])  # 2 new of 5
+    monkeypatch.setattr(qc, "_get_qdrant_client", lambda *a, **k: object())
+    monkeypatch.setattr(qc, "_get_qdrant_imports", lambda: (None, None, None, object))
 
-    class _Client:
-        pass
+    def stop(*_a, **_k):
+        raise RuntimeError("stop before embedding")
 
-    monkeypatch.setattr(pe, "_get_qdrant_client", lambda *a, **k: _Client(), raising=False)
     # Stop at the embedding step: what is under test is the count recorded before it.
-    monkeypatch.setattr(
-        pe,
-        "_get_embeddings_batch_for_collection",
-        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("stop")),
-        raising=False,
-    )
-    monkeypatch.setattr(pe, "_rehydrate_eidetic_sequential", lambda *a, **k: 2)
-    try:
-        pe._rehydrate_eidetic("p", [v[0] for v in valid], lambda **k: True, lambda: True)
-    except Exception:
-        pass
+    monkeypatch.setattr(qc, "_get_embeddings_batch_for_collection", stop, raising=False)
+    monkeypatch.setattr(pe, "_rehydrate_eidetic_sequential", lambda *a, **k: 0)
+    pe._rehydrate_eidetic("p", [v[0] for v in valid], lambda **k: True, lambda: True)
     assert pe._LAST_EIDETIC["already_present"] == 3
 
 
