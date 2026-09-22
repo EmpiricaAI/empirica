@@ -185,7 +185,7 @@ projects (1) ──> (N) auto_captured_issues
 
 ## Table Inventory (generated)
 
-**67 tables** (+ 4 FTS5 shadow tables), **132 indexes**, **8 triggers** — the schema a fresh install materialises: `ALL_SCHEMAS` plus every migration in `empirica/data/migrations/migrations.py`, applied in order.
+**68 tables** (+ 4 FTS5 shadow tables), **134 indexes**, **8 triggers** — the schema a fresh install materialises: `ALL_SCHEMAS` plus every migration in `empirica/data/migrations/migrations.py`, applied in order.
 
 Regenerate with `python3 scripts/gen_schema_doc.py`; CI fails when this block is stale. A live database can hold tables outside this inventory (created lazily by code, or left behind by removed schemas): `python3 scripts/gen_schema_doc.py --diff-db <sessions.db>` lists them.
 
@@ -634,6 +634,26 @@ Alphabetical. Column lines read `name TYPE [PRIMARY KEY|NOT NULL] [DEFAULT x] [(
 - `review_verdict` TEXT DEFAULT NULL
 - `cortex_uuid` TEXT DEFAULT NULL
 - *indexes:* `idx_epistemic_sources_confidence`, `idx_epistemic_sources_content_hash`, `idx_epistemic_sources_cortex_uuid`, `idx_epistemic_sources_project`, `idx_epistemic_sources_session`, `idx_epistemic_sources_type`, `idx_epistemic_sources_visibility`
+
+#### `falsifiers`
+**16 columns**
+- `id` TEXT PRIMARY KEY
+- `project_id` TEXT
+- `session_id` TEXT
+- `transaction_id` TEXT
+- `registered_phase` TEXT
+- `parent_type` TEXT NOT NULL
+- `parent_id` TEXT NOT NULL
+- `statement` TEXT NOT NULL
+- `query` TEXT
+- `state` TEXT NOT NULL DEFAULT 'registered'
+- `tripped_by` TEXT
+- `evidence` TEXT
+- `visibility` TEXT
+- `registered_at` REAL NOT NULL
+- `adjudicated_at` REAL
+- `adjudicated_transaction_id` TEXT
+- *indexes:* `idx_falsifiers_parent`, `idx_falsifiers_project_state`
 
 #### `goal_dependencies`
 **5 columns**

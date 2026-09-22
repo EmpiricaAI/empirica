@@ -103,6 +103,7 @@ from .epistemics_commands import (
 from .epp_commands import (
     handle_epp_activate_command,
 )
+from .falsifier_commands import handle_falsifier_list_command
 from .forgejo_commands import handle_forgejo_publish_command
 from .goal_commands import (
     handle_goals_activate_command,
@@ -488,6 +489,7 @@ __all__ = [  # noqa: RUF022
     "handle_trajectory_project_command",
     "handle_transaction_adopt_command",
     "handle_unknown_list_command",
+    "handle_falsifier_list_command",
     "handle_unknown_log_command",
     "handle_unknown_resolve_command",
     # Visibility tier commands (PROPOSAL_VISIBILITY_TIERS.md)

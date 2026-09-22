@@ -1227,6 +1227,27 @@ def add_checkpoint_parsers(subparsers):
     )
     finding_resolve_parser.add_argument("--verbose", action="store_true", help="Show detailed operation info")
 
+    # Falsifier list command (FALSIFIER_SPEC Phase 1). Registration and
+    # adjudication ride PREFLIGHT/CHECK/POSTFLIGHT under `falsifiers`; this is
+    # the only verb, and it only reads.
+    falsifier_list_parser = subparsers.add_parser(
+        "falsifier-list",
+        help=(
+            "List the practice's falsifiers: observations registered at PREFLIGHT or "
+            "CHECK that would refute a belief. Open ones by default; --state tripped|"
+            "survived|expired|all. Always prints counts by state."
+        ),
+    )
+    falsifier_list_parser.add_argument("--project-id", required=False, help="Project UUID (default: active)")
+    falsifier_list_parser.add_argument(
+        "--state",
+        choices=["registered", "tripped", "survived", "expired", "all"],
+        default="registered",
+        help="Which falsifiers to list (default: registered, i.e. open)",
+    )
+    falsifier_list_parser.add_argument("--limit", type=int, default=50, help="Max rows (default 50)")
+    falsifier_list_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
+
     # Unknown list command
     unknown_list_parser = subparsers.add_parser(
         "unknown-list",

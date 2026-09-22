@@ -160,6 +160,15 @@ class PreflightInput(BaseModel):
             "rely on and how you know it."
         ),
     )
+    falsifiers: list[dict] | None = Field(
+        default=None,
+        description=(
+            "Optional. The observation that would refute a belief this work acts on, "
+            "registered BEFORE the evidence. Each: {statement, query (executable form, "
+            "preferred), falsifies: <finding|assumption|decision id>}. Stays open and "
+            "is surfaced at every PREFLIGHT until a POSTFLIGHT adjudicates it."
+        ),
+    )
     voice: str | None = Field(
         default=None,
         description=(
@@ -534,6 +543,7 @@ RAW_CONSUMED: dict[str, frozenset[str]] = {
             "confidence",
             "cycle",
             "decision",
+            "falsifiers",
             "reasoning",
             "round",
             "session_id",
@@ -542,7 +552,16 @@ RAW_CONSUMED: dict[str, frozenset[str]] = {
         }
     ),
     "PostflightInput": frozenset(
-        {"claims", "coverage", "grounded_rationale", "grounded_vectors", "reasoning", "session_id", "vectors"}
+        {
+            "claims",
+            "coverage",
+            "falsifiers",
+            "grounded_rationale",
+            "grounded_vectors",
+            "reasoning",
+            "session_id",
+            "vectors",
+        }
     ),
 }
 

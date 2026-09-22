@@ -128,6 +128,7 @@ class TestPostflightParserCoverage:
                 coverage,
                 _claims,
                 output_format,
+                _falsifiers,
             ) = _postflight_parse_config_or_legacy(args)
         finally:
             sys.stdin = old_stdin

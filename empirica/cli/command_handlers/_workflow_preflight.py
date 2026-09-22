@@ -22,6 +22,8 @@ from ._workflow_shared import (
     _parse_workflow_input,
     _remap_trajectory_summary,
     _resolve_and_validate_session,
+    open_falsifiers_block,
+    register_window_falsifiers,
 )
 
 logger = logging.getLogger(__name__)
@@ -64,6 +66,7 @@ def _preflight_parse_and_validate(args):
         voice = getattr(validated, "voice", None)
         retrospective_reason = getattr(validated, "retrospective_reason", None)
         claims = getattr(validated, "claims", None) or []
+        falsifiers = getattr(validated, "falsifiers", None) or []
         engagement_id = getattr(validated, "engagement_id", None)
     else:
         session_id = args.session_id
@@ -78,6 +81,7 @@ def _preflight_parse_and_validate(args):
         voice = getattr(args, "voice", None)
         retrospective_reason = getattr(args, "retrospective_reason", None)
         claims = []
+        falsifiers = []
         engagement_id = None
 
         if not session_id or not vectors:
@@ -123,6 +127,7 @@ def _preflight_parse_and_validate(args):
         "voice": voice,
         "retrospective_reason": retrospective_reason,
         "claims": claims if isinstance(claims, list) else [],
+        "falsifiers": falsifiers if isinstance(falsifiers, list) else [],
         "engagement_id": engagement_id,
         "output_format": output_format,
     }
@@ -1242,6 +1247,14 @@ def handle_preflight_submit_command(args):
             # and how you know it.
             preflight_claims = _preflight_declare_claims(session_id, transaction_id, parsed.get("claims"))
 
+            # Falsifiers: surface the ones still open BEFORE registering new ones,
+            # so the list is what earlier transactions committed to, then record
+            # this window's (FALSIFIER_SPEC Phase 1).
+            open_falsifiers = open_falsifiers_block(session_id)
+            preflight_falsifiers = register_window_falsifiers(
+                session_id, transaction_id, "preflight", parsed.get("falsifiers")
+            )
+
             # Stage 3b: Persist transaction file.
             #
             # This was `except Exception -> logger.debug(...non-fatal...)`, and it
@@ -1350,6 +1363,10 @@ def handle_preflight_submit_command(args):
             # threaded through the builder's ten parameters.
             if preflight_claims:
                 result["claims"] = preflight_claims
+            if open_falsifiers:
+                result["open_falsifiers"] = open_falsifiers
+            if preflight_falsifiers:
+                result["falsifiers"] = preflight_falsifiers
 
             # Emitted only when the tail is SLOW: at normal speed (<5s) the field
             # is noise, and at 60-120s it is the diagnostic — the transaction is

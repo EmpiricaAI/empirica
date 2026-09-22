@@ -857,6 +857,66 @@ def _maybe_add_weave_gate(cursor, session_id, transaction_id, retro: dict, total
         pass
 
 
+def register_window_falsifiers(session_id, transaction_id, phase: str, items) -> dict | None:
+    """Register falsifiers declared at PREFLIGHT or CHECK; return the echo block.
+
+    Refused items are named in the block, not written. Fail-soft on anything
+    else, like claims: an optional record must never block the window.
+    """
+    if not items:
+        return None
+    db = None
+    try:
+        from empirica.core import falsifiers as _falsifiers
+
+        db = _get_db_for_session(session_id)
+        return _falsifiers.register(db, session_id=session_id, transaction_id=transaction_id, phase=phase, items=items)
+    except Exception as e:
+        logger.warning(f"falsifier registration failed: {e}")
+        return {"registered": [], "refused": [], "error": f"{type(e).__name__}: {e}"}
+    finally:
+        if db is not None:
+            try:
+                db.close()
+            except Exception:
+                pass
+
+
+def open_falsifiers_block(session_id) -> dict | None:
+    """Open falsifiers for the session's practice, for PREFLIGHT to surface."""
+    db = None
+    try:
+        from empirica.core import falsifiers as _falsifiers
+
+        db = _get_db_for_session(session_id)
+        row = db.conn.execute("SELECT project_id FROM sessions WHERE session_id = ?", (session_id,)).fetchone()
+        return _falsifiers.open_falsifiers(db, row[0] if row else None)
+    except Exception as e:
+        logger.debug(f"open falsifiers not surfaced: {e}")
+        return None
+    finally:
+        if db is not None:
+            try:
+                db.close()
+            except Exception:
+                pass
+
+
+def _retro_adjudicate_falsifiers(db, transaction_id, verdicts, retro: dict) -> None:
+    """Apply POSTFLIGHT falsifier verdicts. Mutates ``retro``. Unknown ids are reported."""
+    if not verdicts:
+        return
+    try:
+        from empirica.core import falsifiers as _falsifiers
+
+        summary = _falsifiers.adjudicate(db, transaction_id=transaction_id, items=verdicts)
+        if summary:
+            retro["falsifiers"] = summary
+    except Exception as e:
+        logger.warning(f"falsifier adjudication failed: {e}")
+        retro["falsifiers"] = {"error": f"{type(e).__name__}: {e}"}
+
+
 def _retro_adjudicate_claims(db, session_id, transaction_id, adjudications, retro: dict) -> None:
     """Apply POSTFLIGHT verdicts and record the gap note. Mutates ``retro``.
 
@@ -903,6 +963,7 @@ def _build_retrospective(
     transaction_id: str | None,
     claim_adjudications: list | None = None,
     adjudicate_claims: bool = False,
+    falsifier_verdicts: list | None = None,
 ) -> dict:
     """Build retrospective feedback: artifact breadth, commit discipline, completion hints.
 
@@ -932,6 +993,7 @@ def _build_retrospective(
 
         if adjudicate_claims:
             _retro_adjudicate_claims(db, session_id, transaction_id, claim_adjudications, retro)
+            _retro_adjudicate_falsifiers(db, transaction_id, falsifier_verdicts, retro)
 
         types_used = [k for k, v in artifact_counts.items() if v > 0]
         types_missing = [k for k, v in artifact_counts.items() if v == 0 and k not in unmeasured]

@@ -705,6 +705,7 @@ def _postflight_parse_config_or_legacy(args):
             "grounded_rationale",
             "coverage",
             "claims",
+            "falsifiers",
             "preflight_session_id",
             "work_type",
             "output",
@@ -734,6 +735,9 @@ def _postflight_parse_config_or_legacy(args):
         claims = config_data.get("claims")
         if not isinstance(claims, list):
             claims = None
+        falsifiers = config_data.get("falsifiers")
+        if not isinstance(falsifiers, list):
+            falsifiers = None
 
         if not session_id or not vectors:
             print(
@@ -760,6 +764,7 @@ def _postflight_parse_config_or_legacy(args):
         grounded_rationale = None
         coverage = None
         claims = None
+        falsifiers = None
 
         if not session_id:
             try:
@@ -779,7 +784,17 @@ def _postflight_parse_config_or_legacy(args):
             )
             sys.exit(1)
 
-    return session_id, vectors, reasoning, grounded_vectors, grounded_rationale, coverage, claims, output_format
+    return (
+        session_id,
+        vectors,
+        reasoning,
+        grounded_vectors,
+        grounded_rationale,
+        coverage,
+        claims,
+        output_format,
+        falsifiers,
+    )
 
 
 def _postflight_resolve_preflight_session(session_id):
@@ -825,9 +840,17 @@ def _parse_postflight_input(args) -> dict[str, Any]:
     Returns dict with keys: session_id, vectors, reasoning, preflight_session_id,
     grounded_vectors, grounded_rationale, coverage, output_format.
     """
-    session_id, vectors, reasoning, grounded_vectors, grounded_rationale, coverage, claims, output_format = (
-        _postflight_parse_config_or_legacy(args)
-    )
+    (
+        session_id,
+        vectors,
+        reasoning,
+        grounded_vectors,
+        grounded_rationale,
+        coverage,
+        claims,
+        output_format,
+        falsifiers,
+    ) = _postflight_parse_config_or_legacy(args)
 
     # Transaction continuity: override session_id from active transaction
     try:
@@ -857,6 +880,7 @@ def _parse_postflight_input(args) -> dict[str, Any]:
         "grounded_rationale": grounded_rationale,
         "coverage": coverage,
         "claims": claims,
+        "falsifiers": falsifiers,
         "output_format": output_format,
     }
 
@@ -2186,6 +2210,7 @@ def handle_postflight_submit_command(args):
                 tx_info["transaction_id"],
                 claim_adjudications=parsed.get("claims") or [],
                 adjudicate_claims=True,
+                falsifier_verdicts=parsed.get("falsifiers") or [],
             )
             postflight_coverage = parsed.get("coverage")
             checkpoint_id = logger_instance.add_checkpoint(

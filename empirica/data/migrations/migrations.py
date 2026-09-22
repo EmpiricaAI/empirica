@@ -1586,6 +1586,11 @@ ALL_MIGRATIONS: list[tuple[str, str, Callable]] = [
         "Add `practitioner_model` to calibration_trajectory and grounded_verifications. David's ruling 2026-09-21: calibration accrues to the PRACTITIONER, artifacts to the PRACTICE. `ai_id` names the practice, and one practice is inhabited by several models, sometimes within one session, so a calibration row could not say who it graded. The value is the model id on the last assistant line of the Claude Code transcript when the transaction closes. Nullable and NOT backfilled: history cannot be split by model after the fact, and a guessed practitioner is worse than an absent one. This records; it does not yet change what the CHECK gate reads.",
         lambda cursor: migration_074_practitioner_model(cursor),
     ),
+    (
+        "075_falsifiers",
+        "Create `falsifiers`, the observation that would refute a belief, registered before the evidence that tests it (autonomy's FALSIFIER_SPEC, Phase 1, approved by David 2026-09-22). A falsifier outlives its transaction: it stays open and is surfaced at every PREFLIGHT until adjudicated tripped, survived or expired. Survived requires evidence that the population was observed; silence is expired. Every falsifier names its parent belief (finding, assumption or decision); one with no parent is refused at write time.",
+        lambda cursor: migration_075_falsifiers(cursor),
+    ),
 ]
 
 
@@ -3116,3 +3121,47 @@ def migration_074_practitioner_model(cursor: sqlite3.Cursor):
     """A calibration row names the model it graded, not only the practice."""
     for table in ("calibration_trajectory", "grounded_verifications"):
         add_column_if_missing(cursor, table, "practitioner_model", "TEXT")
+
+
+def migration_075_falsifiers(cursor: sqlite3.Cursor):
+    """Falsifiers: the observation that would refute a belief, registered before the evidence.
+
+    A claim is adjudicated at its own POSTFLIGHT and then closes. A falsifier
+    outlives its transaction: it stays `registered` and is surfaced at every later
+    PREFLIGHT until someone adjudicates it, because the refutations it exists for
+    arrive later than the transaction that made the belief (autonomy's
+    FALSIFIER_SPEC, source f486a5dc, Phase 1).
+
+    ``parent_type``/``parent_id``  the belief it tests: a finding, assumption or
+                     decision. Required; a falsifier with no belief is refused.
+    ``query``        the executable form, when there is one. Preferred, because it
+                     can be re-run by someone who does not know the belief.
+    ``state``        registered | tripped | survived | expired. `survived` needs
+                     evidence that the population was observed; without it the
+                     honest verdict is `expired`, never `survived`.
+    ``registered_phase``  preflight or check, so the ordering is recorded.
+    """
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS falsifiers (
+            id TEXT PRIMARY KEY,
+            project_id TEXT,
+            session_id TEXT,
+            transaction_id TEXT,
+            registered_phase TEXT,
+            parent_type TEXT NOT NULL,
+            parent_id TEXT NOT NULL,
+            statement TEXT NOT NULL,
+            query TEXT,
+            state TEXT NOT NULL DEFAULT 'registered',
+            tripped_by TEXT,
+            evidence TEXT,
+            visibility TEXT,
+            registered_at REAL NOT NULL,
+            adjudicated_at REAL,
+            adjudicated_transaction_id TEXT
+        )
+        """
+    )
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_falsifiers_project_state ON falsifiers(project_id, state)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_falsifiers_parent ON falsifiers(parent_id)")

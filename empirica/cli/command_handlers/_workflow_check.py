@@ -20,6 +20,7 @@ from ._workflow_shared import (
     _invoke_sentinel_hook,
     _parse_workflow_input,
     _resolve_and_validate_session,
+    register_window_falsifiers,
 )
 
 logger = logging.getLogger(__name__)
@@ -105,6 +106,9 @@ def _check_cmd_parse_inputs(args):
     claims = (config_data.get("claims") if config_data else None) or []
     if not isinstance(claims, list):
         claims = []
+    falsifiers = (config_data.get("falsifiers") if config_data else None) or []
+    if not isinstance(falsifiers, list):
+        falsifiers = []
 
     return {
         "session_id": session_id,
@@ -115,6 +119,7 @@ def _check_cmd_parse_inputs(args):
         "config_data": config_data,
         "output_format": output_format,
         "claims": claims,
+        "falsifiers": falsifiers,
     }
 
 
@@ -286,6 +291,9 @@ def handle_check_command(args):
         )
 
         claims_block = _check_declare_claims(session_id, check_transaction_id, inputs.get("claims"))
+        falsifiers_block = register_window_falsifiers(
+            session_id, check_transaction_id, "check", inputs.get("falsifiers")
+        )
 
         # 6. Build result
         confidence_value = (
@@ -307,6 +315,7 @@ def handle_check_command(args):
             },
             "evidence": {"findings_count": findings_count, "unknowns_count": unknowns_count},
             "claims": claims_block,
+            "falsifiers": falsifiers_block,
             "investigation_progress": {
                 "cycle": inputs["cycle"],
                 "round": inputs["round_num"],
@@ -391,6 +400,9 @@ def _check_parse_inputs(args):
     _claims_in = (config_data.get("claims") if config_data else None) or []
     if not isinstance(_claims_in, list):
         _claims_in = []
+    _falsifiers_in = (config_data.get("falsifiers") if config_data else None) or []
+    if not isinstance(_falsifiers_in, list):
+        _falsifiers_in = []
 
     return {
         "session_id": session_id,
@@ -400,6 +412,7 @@ def _check_parse_inputs(args):
         "cycle": cycle,
         "output_format": output_format,
         "claims": _claims_in,
+        "falsifiers": _falsifiers_in,
     }
 
 
@@ -1437,6 +1450,9 @@ def handle_check_submit_command(args):
             # heterogeneous beliefs; naming the 2-3 load-bearing ones keeps the
             # ungrounded outlier visible instead of buried in the mean.
             claims_block = _check_declare_claims(session_id, check_transaction_id, inputs.get("claims"))
+            falsifiers_block = register_window_falsifiers(
+                session_id, check_transaction_id, "check", inputs.get("falsifiers")
+            )
 
             # Stage 12: Build result dict
             result = {
@@ -1469,6 +1485,7 @@ def handle_check_submit_command(args):
                 if SentinelHooks.is_enabled() and sentinel_override
                 else None,
                 "claims": claims_block,
+                "falsifiers": falsifiers_block,
             }
 
             # Stage 13: Blindspot scan (may override decision)
