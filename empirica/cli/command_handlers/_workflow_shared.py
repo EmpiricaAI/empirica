@@ -817,6 +817,7 @@ def _weave_enforcement_block(session_id: str, transaction_id: str | None) -> dic
     the ``enforced`` flag) or None. Best-effort — any measurement error returns
     None, so a counting failure never blocks CHECK.
     """
+    db = None
     try:
         db = _get_db_for_session(session_id)
         cursor = db.conn.cursor()
@@ -828,6 +829,12 @@ def _weave_enforcement_block(session_id: str, transaction_id: str | None) -> dic
         return _weave_gate_block(total_artifacts, edges)
     except Exception:
         return None
+    finally:
+        if db is not None:
+            try:
+                db.close()
+            except Exception as exc:
+                logger.debug("db close failed: %s", exc)
 
 
 def _maybe_add_weave_gate(cursor, session_id, transaction_id, retro: dict, total_artifacts: int) -> None:

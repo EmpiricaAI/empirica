@@ -210,6 +210,7 @@ def handle_check_command(args):
     findings/unknowns. Returns evidence-based decision, drift analysis,
     and reasoning.
     """
+    db = None
     try:
         import sys
         import time
@@ -342,6 +343,15 @@ def handle_check_command(args):
 
     except Exception as e:
         handle_cli_error(e, "CHECK", getattr(args, "verbose", False))
+    finally:
+        # The handle lived for the whole 140-line handler and was never closed,
+        # on the success path, the early exits and the error path alike. A
+        # finally covers all three, including sys.exit, which passes through it.
+        if db is not None:
+            try:
+                db.close()
+            except Exception as exc:
+                logger.debug("db close failed: %s", exc)
 
 
 def _check_parse_inputs(args):
@@ -869,6 +879,7 @@ def _check_surface_blindspots(result, session_id, transaction_id):
     deduped against already-surfaced-unresolved rows so repeated CHECKs don't
     duplicate. Fail-open: any error yields no advisory and never affects CHECK.
     """
+    db = None
     try:
         from empirica.core.blindspots import (
             detect_intent_gaps,
@@ -900,6 +911,12 @@ def _check_surface_blindspots(result, session_id, transaction_id):
             persist_blindspot_candidates(db, session_id, transaction_id, fresh, "check")
     except Exception as e:
         logger.debug(f"blindspot surface skipped (non-fatal): {e}")
+    finally:
+        if db is not None:
+            try:
+                db.close()
+            except Exception as exc:
+                logger.debug("db close failed: %s", exc)
 
 
 def _check_store_and_publish(session_id, round_num, vectors, decision, reasoning, cycle):

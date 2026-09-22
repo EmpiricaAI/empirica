@@ -1513,9 +1513,25 @@ def _cortex_format_rows(rows, table, key):
     return [{"id": r["id"], "unknown": r[key]} for r in rows if r[key]]
 
 
+def _close_quietly(db) -> None:
+    """Close a read-only handle; a failure to close is logged, never raised.
+
+    Four workflow helpers opened a SessionDatabase and returned without closing
+    it. They only read, so they held no write lock, but under WAL a long-lived
+    reader pins the WAL and every call leaked a handle (AST sweep, 2026-09-21).
+    """
+    if db is None:
+        return
+    try:
+        db.close()
+    except Exception as exc:
+        logger.debug("db close failed: %s", exc)
+
+
 def _cortex_extract_transaction_delta(session_id):
     """Extract this transaction's artifacts for Cortex sync. Returns dict."""
     _tx_delta = {}
+    _sdb = None
     try:
         _tx_data = R.transaction_read()
         _tx_id = _tx_data.get("transaction_id", "") if _tx_data else ""
@@ -1540,6 +1556,8 @@ def _cortex_extract_transaction_delta(session_id):
                 _tx_delta[_delta_key] = _cortex_format_rows(_rows, _tbl, _key)
     except Exception:
         pass
+    finally:
+        _close_quietly(_sdb)
     return _tx_delta
 
 
@@ -1676,6 +1694,7 @@ def _cortex_extract_transaction_graph(session_id):
     Edges = per-artifact `attached_to` (any->goal) edges + the canonical artifact_edges
     rows. Wholly best-effort: any failure degrades to a partial/empty graph.
     """
+    _sdb = None
     try:
         _tx_data = R.transaction_read()
         _tx_id = _tx_data.get("transaction_id", "") if _tx_data else ""
@@ -1690,6 +1709,8 @@ def _cortex_extract_transaction_graph(session_id):
         return {"nodes": nodes, "edges": goal_edges + edges}
     except Exception:
         return {}
+    finally:
+        _close_quietly(_sdb)
 
 
 def _postflight_resolve_blindspots(session_id) -> int:
