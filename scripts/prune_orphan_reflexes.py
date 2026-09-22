@@ -1,21 +1,29 @@
 #!/usr/bin/env python3
-"""Remove reflex rows left in the live store by the test suite, one project id at a time.
+"""Remove reflex rows the test suite left in the live store.
 
 Until aada19519 pinned EMPIRICA_SESSION_DB for the whole suite, tests wrote
-reflexes into the developer's real sessions.db under a project id that no
-`projects` row names. On core that was 9308 rows under 489d07a11e939ff9. They sit
-in the denominator of any reflex count that does not filter by project id, and
-they have already produced one false outage report.
+reflexes into the developer's real sessions.db under project ids that no
+`projects` row names. They sit in the denominator of any reflex count that does
+not filter by project id, and they have already produced one false outage report.
+
+A row is removed only when it is PROVABLY a test row:
+
+- its project id has no `projects` row, and
+- its session is one of the suite's fixed session ids (TEST_SESSION_IDS), or a
+  session whose `sessions` row says `ai_id = 'test-ai'`.
+
+An unregistered project id is not enough by itself. On core, real sessions
+(ai_id claude-code, January to May 2026) wrote reflexes under unregistered ids
+too; those are practice history filed under the wrong id and are kept. So are
+rows whose session has no `sessions` row and no test id, because nothing shows
+whether they were tests or real sessions that lost their row. Both kept groups
+are counted in the report.
 
 No CLI verb deletes reflexes (delete-artifacts covers graph artifacts only), so
-this is a reviewed script rather than ad-hoc SQL:
-
-- dry run by default; `--apply` deletes;
-- `--project-id` is required and named explicitly, and a project id that has a
-  `projects` row is refused, so real work cannot be selected by mistake;
-- `--apply` takes an online backup of the database first and prints its path.
-
-Run from the project root.
+this is a reviewed script rather than ad-hoc SQL. Dry run by default. `--apply`
+takes an online backup first and prints its path. Select one id with
+`--project-id` (a registered id is refused) or every unregistered id with
+`--all-unregistered`. Run from the project root.
 """
 
 from __future__ import annotations
@@ -27,11 +35,21 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+#: Session ids the test suite used literally. None has a `sessions` row on core.
+TEST_SESSION_IDS = ("test-session", "test-git-state-session", "other-session", "test-cli-create")
+
+_TEST_ROW = "(session_id IN ({ids}) OR session_id IN (SELECT session_id FROM sessions WHERE ai_id = 'test-ai'))".format(
+    ids=",".join("?" * len(TEST_SESSION_IDS))
+)
+_UNREGISTERED = "project_id NOT IN (SELECT id FROM projects)"
+
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--db", default=".empirica/sessions/sessions.db")
-    ap.add_argument("--project-id", required=True, help="the unregistered project id whose reflexes to remove")
+    scope = ap.add_mutually_exclusive_group(required=True)
+    scope.add_argument("--project-id", help="one unregistered project id")
+    scope.add_argument("--all-unregistered", action="store_true", help="every project id with no projects row")
     ap.add_argument("--apply", action="store_true")
     args = ap.parse_args()
 
@@ -40,26 +58,40 @@ def main() -> int:
         print(json.dumps({"ok": False, "error": f"no database at {db_path}"}))
         return 1
     conn = sqlite3.connect(str(db_path))
-    registered = conn.execute("SELECT 1 FROM projects WHERE id = ?", (args.project_id,)).fetchone()
-    if registered:
-        print(json.dumps({"ok": False, "error": f"{args.project_id} is a registered project; refusing"}))
-        return 1
 
-    where = "project_id = ?"
-    rows = conn.execute(
-        f"SELECT count(*), count(DISTINCT session_id) FROM reflexes WHERE {where}", (args.project_id,)
-    ).fetchone()
-    by_session = conn.execute(
-        f"SELECT session_id, count(*) FROM reflexes WHERE {where} GROUP BY 1 ORDER BY 2 DESC LIMIT 10",
-        (args.project_id,),
-    ).fetchall()
+    if args.project_id:
+        if conn.execute("SELECT 1 FROM projects WHERE id = ?", (args.project_id,)).fetchone():
+            print(json.dumps({"ok": False, "error": f"{args.project_id} is a registered project; refusing"}))
+            return 1
+        scope_sql, scope_params = "project_id = ?", (args.project_id,)
+    else:
+        scope_sql, scope_params = _UNREGISTERED, ()
+
+    target = f"{scope_sql} AND {_UNREGISTERED} AND {_TEST_ROW}"
+    params = (*scope_params, *TEST_SESSION_IDS)
+
+    def count(where: str, p: tuple) -> int:
+        return conn.execute(f"SELECT count(*) FROM reflexes WHERE {where}", p).fetchone()[0]
+
+    in_scope = count(f"{scope_sql} AND {_UNREGISTERED}", scope_params)
+    selected = count(target, params)
+    kept_real = count(
+        f"{scope_sql} AND {_UNREGISTERED} AND session_id IN (SELECT session_id FROM sessions WHERE ai_id != 'test-ai')",
+        scope_params,
+    )
     report: dict = {
         "ok": True,
         "mode": "apply" if args.apply else "dry-run",
-        "project_id": args.project_id,
-        "reflexes": rows[0],
-        "sessions": rows[1],
-        "top_sessions": dict(by_session),
+        "scope": args.project_id or "all unregistered project ids",
+        "rows_in_scope": in_scope,
+        "selected_test_rows": selected,
+        "kept_real_sessions": kept_real,
+        "kept_unattributable": in_scope - selected - kept_real,
+        "by_project": dict(
+            conn.execute(
+                f"SELECT project_id, count(*) FROM reflexes WHERE {target} GROUP BY 1 ORDER BY 2 DESC LIMIT 10", params
+            ).fetchall()
+        ),
     }
     if not args.apply:
         print(json.dumps(report, indent=2))
@@ -72,12 +104,10 @@ def main() -> int:
     report["backup"] = str(backup)
 
     with conn:
-        deleted = conn.execute(f"DELETE FROM reflexes WHERE {where}", (args.project_id,)).rowcount
-    remaining = conn.execute(f"SELECT count(*) FROM reflexes WHERE {where}", (args.project_id,)).fetchone()[0]
-    report["deleted"] = deleted
-    report["remaining"] = remaining
+        report["deleted"] = conn.execute(f"DELETE FROM reflexes WHERE {target}", params).rowcount
+    report["remaining_selected"] = count(target, params)
     print(json.dumps(report, indent=2))
-    return 0 if remaining == 0 else 1
+    return 0 if report["remaining_selected"] == 0 else 1
 
 
 if __name__ == "__main__":
