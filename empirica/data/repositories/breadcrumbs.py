@@ -573,6 +573,7 @@ class BreadcrumbRepository(BaseRepository):
 
         self.commit()
         self._persist_resolution_to_git_notes("unknown", unknown_id, resolved_by)
+        self._sync_resolution_to_qdrant("project_unknowns", unknown_id, None, None)
         logger.info(f"✅ Unknown resolved: {unknown_id[:8]}...")
         return True
 
@@ -631,10 +632,24 @@ class BreadcrumbRepository(BaseRepository):
         updated = bool(getattr(cur, "rowcount", 0))
         if updated:
             self._persist_resolution_to_git_notes("finding", finding_id, resolution, superseded_by)
+            self._sync_resolution_to_qdrant("project_findings", finding_id, kind, superseded_by)
         logger.info(
             f"{'✅' if updated else '⚠️'} Finding resolve {finding_id[:8]}...: {'updated' if updated else 'no match'}"
         )
         return updated
+
+    def _sync_resolution_to_qdrant(self, table: str, artifact_id: str, kind, superseded_by) -> None:
+        """Second layer after the read-time reconcile: stamp the vector point too,
+        for readers that go to Qdrant directly. Best effort, never raises."""
+        try:
+            row = self._execute(f"SELECT project_id FROM {table} WHERE id = ?", (artifact_id,)).fetchone()
+            if not row or not row[0]:
+                return
+            from empirica.core.qdrant.resolution_sync import mark_resolved_in_qdrant
+
+            mark_resolved_in_qdrant(row[0], artifact_id, resolution_kind=kind, superseded_by=superseded_by)
+        except Exception as exc:
+            logger.debug(f"qdrant resolution sync skipped for {artifact_id[:8]}: {exc}")
 
     def _persist_resolution_to_git_notes(
         self, kind: str, id_arg: str, reason: str, superseded_by: str | None = None

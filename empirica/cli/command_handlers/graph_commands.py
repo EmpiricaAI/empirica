@@ -415,6 +415,18 @@ def _store_node_git_notes(node: dict, artifact_id: str, context: dict) -> bool:
         return False
 
 
+def _sync_resolution_to_qdrant(db, table: str, artifact_id: str, kind, superseded_by) -> None:
+    """Stamp the vector point after a batch resolution; best effort, never raises."""
+    try:
+        row = db.conn.execute(f"SELECT project_id FROM {table} WHERE id = ?", (artifact_id,)).fetchone()
+        if row and row[0]:
+            from empirica.core.qdrant.resolution_sync import mark_resolved_in_qdrant
+
+            mark_resolved_in_qdrant(row[0], artifact_id, resolution_kind=kind, superseded_by=superseded_by)
+    except Exception as exc:
+        logger.debug(f"qdrant resolution sync skipped for {artifact_id[:8]}: {exc}")
+
+
 def _create_node(db, node: dict, context: dict) -> str | None:
     """Create a single artifact node. Returns the UUID or None on failure."""
     ntype = node["type"]
@@ -1463,6 +1475,7 @@ def handle_resolve_artifacts_command(args):  # noqa: C901 — batch dispatcher f
                     )
                     if cursor.rowcount > 0:
                         resolved_count += 1
+                        _sync_resolution_to_qdrant(db, "project_unknowns", artifact_id, None, None)
                     else:
                         resolution_errors.append(f"Unknown '{artifact_id}' not found")
 
@@ -1489,6 +1502,7 @@ def handle_resolve_artifacts_command(args):  # noqa: C901 — batch dispatcher f
                     )
                     if cursor.rowcount > 0:
                         resolved_count += 1
+                        _sync_resolution_to_qdrant(db, "project_findings", artifact_id, _kind, _superseded_by)
                         # STAMP the note; it stays ACTIVE.
                         #
                         # Resolution reached sqlite and nothing else — measured

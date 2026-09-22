@@ -1542,6 +1542,18 @@ async def resolve_artifact(
             )
 
         db.conn.commit()
+        if artifact_type in ("finding", "unknown"):
+            # Second layer after the read-time reconcile: stamp the vector point too.
+            from empirica.cli.command_handlers.graph_commands import _sync_resolution_to_qdrant
+            from empirica.data.resolution_kind import normalize_resolution_kind as _norm_kind
+
+            _sync_resolution_to_qdrant(
+                db,
+                "project_findings" if artifact_type == "finding" else "project_unknowns",
+                artifact_id,
+                _norm_kind(body.get("resolution_kind")) if artifact_type == "finding" else None,
+                body.get("superseded_by") if artifact_type == "finding" else None,
+            )
         return {"ok": True, "type": artifact_type, "id": artifact_id, "action": "resolved"}
     finally:
         db.close()
