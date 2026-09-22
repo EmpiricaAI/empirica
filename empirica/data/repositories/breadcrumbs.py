@@ -542,29 +542,26 @@ class BreadcrumbRepository(BaseRepository):
         for a UUID that does not exist. An UPDATE matching zero rows is not a
         resolution — and a caller cannot tell a real close from a typo'd id.
         """
-        # Support partial UUID matching (like git short hashes)
-        if len(unknown_id) < 36:
-            # Partial ID - use LIKE
-            cursor = self._execute(
-                """
-                UPDATE project_unknowns
-                SET is_resolved = TRUE, resolved_by = ?, resolved_timestamp = ?,
-                    resolution_finding_id = ?
-                WHERE id LIKE ?
-            """,
-                (resolved_by, time.time(), resolution_finding_id, f"{unknown_id}%"),
-            )
-        else:
-            # Full ID - exact match
-            cursor = self._execute(
-                """
-                UPDATE project_unknowns
-                SET is_resolved = TRUE, resolved_by = ?, resolved_timestamp = ?,
-                    resolution_finding_id = ?
-                WHERE id = ?
-            """,
-                (resolved_by, time.time(), resolution_finding_id, unknown_id),
-            )
+        # A prefix is accepted, like a git short hash, but it must name ONE row.
+        # This used to UPDATE ... WHERE id LIKE prefix% and resolve every unknown
+        # sharing the prefix. A refused prefix is reported as not-resolved, the
+        # same outcome as a typo, and the message says why.
+        from empirica.data.resolution_kind import UnresolvableFindingRef, one_artifact_id
+
+        try:
+            unknown_id = one_artifact_id(self._execute, "project_unknowns", unknown_id)
+        except UnresolvableFindingRef as exc:
+            logger.info(f"unknown-resolve refused: {exc}")
+            return False
+        cursor = self._execute(
+            """
+            UPDATE project_unknowns
+            SET is_resolved = TRUE, resolved_by = ?, resolved_timestamp = ?,
+                resolution_finding_id = ?
+            WHERE id = ?
+        """,
+            (resolved_by, time.time(), resolution_finding_id, unknown_id),
+        )
 
         changed = (cursor.rowcount or 0) > 0 if cursor is not None else False
         if not changed:
@@ -603,22 +600,32 @@ class BreadcrumbRepository(BaseRepository):
                 values normalize to NULL ("not classified") rather than guessing —
                 a wrong kind here is precisely the error being measured.
         """
-        from empirica.data.resolution_kind import canonical_finding_id, normalize_resolution_kind
+        from empirica.data.resolution_kind import (
+            UnresolvableFindingRef,
+            canonical_finding_id,
+            normalize_resolution_kind,
+            one_artifact_id,
+        )
 
         kind = normalize_resolution_kind(resolution_kind)
         # Raises on a value that names no single finding. Stored verbatim, an
         # 8-character id copied from any list view became a dangling pointer.
         superseded_by = canonical_finding_id(self._execute, superseded_by)
-        where = "id LIKE ?" if len(finding_id) < 36 else "id = ?"
-        match = f"{finding_id}%" if len(finding_id) < 36 else finding_id
+        # The TARGET must name one row too. This used to be WHERE id LIKE prefix%
+        # with no count, so an ambiguous prefix resolved every finding sharing it.
+        try:
+            finding_id = one_artifact_id(self._execute, "project_findings", finding_id)
+        except UnresolvableFindingRef as exc:
+            logger.info(f"finding-resolve refused: {exc}")
+            return False
         cur = self._execute(
-            f"""
+            """
             UPDATE project_findings
             SET is_resolved = TRUE, resolution = ?, resolved_timestamp = ?, superseded_by = ?,
                 resolution_kind = ?
-            WHERE {where}
+            WHERE id = ?
             """,
-            (resolution, time.time(), superseded_by, kind, match),
+            (resolution, time.time(), superseded_by, kind, finding_id),
         )
         self.commit()
         updated = bool(getattr(cur, "rowcount", 0))

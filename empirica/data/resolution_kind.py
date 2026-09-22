@@ -131,3 +131,30 @@ def _fetch(execute, sql: str, params: tuple) -> list:
         return list(execute(sql, params).fetchall())
     except Exception:
         return []
+
+
+def one_artifact_id(execute, table: str, value: str) -> str:
+    """The single row in `table` that `value` names, expanded to its full id.
+
+    `finding-resolve` and `unknown-resolve` ran UPDATE ... WHERE id LIKE prefix%
+    with no check on how many rows matched, so an ambiguous prefix resolved every
+    artifact sharing it, silently. Exact match wins; an 8+ character prefix must
+    match exactly one row. Raises UnresolvableFindingRef otherwise.
+    """
+    if table not in _ARTIFACT_TABLES:
+        raise ValueError(f"not an artifact table: {table}")
+    text = str(value or "").strip()
+    if not text:
+        raise UnresolvableFindingRef("no artifact id given")
+    row = _fetch(execute, f"SELECT id FROM {table} WHERE id = ?", (text,))
+    if row:
+        return row[0][0]
+    if len(text) < 8:
+        raise UnresolvableFindingRef(f"{text!r} is too short to identify an artifact (8+ characters)")
+    escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    rows = _fetch(execute, f"SELECT id FROM {table} WHERE id LIKE ? ESCAPE '\\' LIMIT 3", (escaped + "%",))
+    if len(rows) == 1:
+        return rows[0][0]
+    if not rows:
+        raise UnresolvableFindingRef(f"no {table} row matches {text!r}")
+    raise UnresolvableFindingRef(f"{text!r} matches more than one {table} row; give the full id")
