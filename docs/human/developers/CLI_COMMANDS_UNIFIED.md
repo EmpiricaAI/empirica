@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.13.50
-**Generated:** 2026-09-21 17:23:41 UTC
+**Framework version:** 1.13.51
+**Generated:** 2026-09-22 08:15:42 UTC
 **Total commands:** 240 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -1540,6 +1540,8 @@ Semantic search for relevant docs/memory by task description
   Project UUID or name (default: resolved from the active project, like every other verb). It was required=True, which made the `project-search --task ... --global` line printed in the dispatch-agent skill unrunnable as written.
 - `--task` — **required**
   Task description to search for
+- `--include-resolved` — optional · flag
+  Also return findings and unknowns that were resolved, superseded or retracted. They are left out by default: a retracted finding used to rank above its own correction. Use this to read history.
 - `--type` — optional · type=`choice` · choices={focused, all, intelligence, docs, memory, eidetic, episodic, assumptions, decisions, goals} · default=`focused`
   Result type: focused (docs+memory+eidetic+episodic — this project's own knowledge), all (alias of focused, backward compat), intelligence (goals+decisions+assumptions), or a single collection
 - `--limit` — optional · type=`int` · default=`5`
