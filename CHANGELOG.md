@@ -48,12 +48,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   days. The command now records its outcome and `doctor` fails on a failed
   last run. Its summary also says how many facts were already present, since
   `eidetic: 0` is what a healthy re-run prints.
-- **Test isolation.** The suite wrote reflex rows into the developer's live
-  `sessions.db` (9307 rows since June, the false "verification outage" in the
-  1.13.50 notes) and listener markers into the real `~/.empirica`. Both stopped.
+- **The test suite wrote into the developer's live state.** Reflex rows into
+  `sessions.db` (9307 since June, the false "verification outage" in the
+  1.13.50 notes), listener markers into `~/.empirica`, and the shared
+  `workspace.db`, which one run opened for writing 37 times. The suite now runs
+  under a throwaway `HOME` and session database; a traced full run writes
+  nothing into the real home.
+- **`goals-discover` took about 25 seconds** on a store with 3167 goal notes:
+  two git processes per goal. It now reads every note through one
+  `git cat-file --batch`, in about 1.3 seconds, with the same results.
+- **Five read-only workflow handlers leaked a database handle per call,**
+  including `handle_check_command`. Each now closes in a `finally`.
+- **An `invalidates` edge rejected the kind `mistyped`,** so re-typing a
+  finding as the mistake or decision it was closed the original unclassified.
 
 ### Added
 
+- **The shared plugin copy records who deployed it.** Every practice on a box
+  deploys into one user-global directory; `.plugin-writer.json` now names the
+  practice, version, source commit and time, and `doctor` names the writer in
+  its freshness verdict.
 - **Verification rows record their transaction and their practitioner.**
   `grounded_verifications.transaction_id` (migration 073) and
   `practitioner_model` on the two calibration tables (migration 074), read from
