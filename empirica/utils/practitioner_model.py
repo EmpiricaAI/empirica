@@ -77,3 +77,23 @@ def model_from_transcript(path: Path | None) -> str | None:
 
 def current_practitioner_model(claude_session_id: str | None, home: Path | None = None) -> str | None:
     return model_from_transcript(transcript_path(claude_session_id, home))
+
+
+def practitioner_model_now(claude_session_id: str | None = None) -> str | None:
+    """The current practitioner's model, resolving the Claude session id if not given.
+
+    The tty session file is the usual source of the id and is often empty, so the
+    active transaction file is the fallback (the same order POSTFLIGHT's stamp
+    uses). Returns None when neither yields a transcript with an assistant line.
+    """
+    if not claude_session_id:
+        try:
+            from empirica.utils import session_resolver as sr
+
+            claude_session_id = sr.get_claude_session_id() or (sr.read_active_transaction_full() or {}).get(
+                "claude_session_id"
+            )
+        except Exception as exc:
+            logger.debug("practitioner model: no Claude session id (%s)", exc)
+            return None
+    return current_practitioner_model(claude_session_id)

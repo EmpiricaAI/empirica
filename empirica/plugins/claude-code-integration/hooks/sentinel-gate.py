@@ -581,6 +581,12 @@ UNCERTAINTY_THRESHOLD = 0.35
 MAX_CHECK_AGE_MINUTES = 30
 
 
+# The Claude session id of the hook invocation, set once in main(). Read by
+# _get_dynamic_thresholds to find the practitioner's model without threading the
+# id through every gate that asks for thresholds.
+_hook_claude_session_id: str | None = None
+
+
 def _get_dynamic_thresholds(db) -> tuple:
     """Read Brier-based dynamic thresholds. Returns (know_threshold, unc_threshold).
 
@@ -609,7 +615,18 @@ def _get_dynamic_thresholds(db) -> tuple:
 
         # Brier thresholds are per-practice — resolve the canonical ai_id so a
         # multi-practice machine doesn't read 'claude-code' calibration for all.
-        dt_result = compute_dynamic_thresholds(ai_id=R.ai_id() or "claude-code", db=db, base_thresholds=_cal_base)
+        # Within the practice, the practitioner's own trajectory when it has
+        # enough points (David, 2026-09-21); the practice's otherwise.
+        _model = None
+        try:
+            from empirica.utils.practitioner_model import practitioner_model_now
+
+            _model = practitioner_model_now(_hook_claude_session_id)
+        except Exception:
+            _model = None
+        dt_result = compute_dynamic_thresholds(
+            ai_id=R.ai_id() or "claude-code", db=db, base_thresholds=_cal_base, practitioner_model=_model
+        )
         if dt_result.get("source") == "dynamic":
             noetic = dt_result.get("noetic", {})
             if noetic.get("brier_score") is not None:
@@ -4883,6 +4900,9 @@ def main():
     # `mcp__cortex__<op>` at this single entry point, so every downstream
     # classification works regardless of how the harness dispatches.
     tool_name = _normalize_aggregated_cortex_tool(tool_name, tool_input)
+
+    global _hook_claude_session_id
+    _hook_claude_session_id = hook_input.get("session_id")
 
     _track_tool_usage(hook_input, tool_name, tool_input)
     _set_file_relevance_nudge(tool_name, tool_input, hook_input.get("session_id"))

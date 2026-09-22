@@ -51,15 +51,19 @@ def thresholds(monkeypatch):
     """Run _check_load_dynamic_thresholds with the store and transaction faked."""
     seen: dict = {}
 
-    def fake_compute(ai_id, db, base_thresholds=None):
+    def fake_compute(ai_id, db, base_thresholds=None, practitioner_model=None):
         seen["ai_id"] = ai_id
         seen["base"] = base_thresholds
+        seen["practitioner_model"] = practitioner_model
         return {"source": "static"}
 
-    def run(ai_id="empirica-cortex", profile=None):
+    def run(ai_id="empirica-cortex", profile=None, model="claude-test-model"):
         import empirica.core.post_test.dynamic_thresholds as dt
+        import empirica.utils.practitioner_model as pm
 
         monkeypatch.setattr(dt, "compute_dynamic_thresholds", fake_compute)
+        # Never the box's own transcript: the model is part of the fixture.
+        monkeypatch.setattr(pm, "practitioner_model_now", lambda *_a, **_k: model)
         monkeypatch.setattr(wc, "_get_db_for_session", lambda _sid: _DB(ai_id))
         monkeypatch.setattr(wc.R, "transaction_id", staticmethod(lambda: "tx"))
         monkeypatch.setattr(wc.R, "transaction_read", staticmethod(lambda: {"cascade_profile": profile}))
@@ -105,3 +109,9 @@ def test_the_gate_is_monotonic_for_a_fixed_threshold():
         for u in (0.10, 0.20, 0.25, 0.33, 0.34, 0.50)
     ]
     assert decisions == ["proceed", "proceed", "proceed", "proceed", "investigate", "investigate"]
+
+
+def test_the_practitioners_model_is_passed_and_reported(thresholds):
+    (_, _, info), seen = thresholds(model="claude-opus-5")
+    assert seen["practitioner_model"] == "claude-opus-5"
+    assert info["basis"]["practitioner_model"] == "claude-opus-5"

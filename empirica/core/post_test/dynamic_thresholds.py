@@ -256,8 +256,17 @@ def compute_dynamic_thresholds(
     base_thresholds: dict | None = None,
     min_transactions: int | None = None,
     lookback: int | None = None,
+    practitioner_model: str | None = None,
 ) -> dict:
     """Compute phase-aware dynamic thresholds using Brier score reliability.
+
+    Calibration accrues to the PRACTITIONER, artifacts to the PRACTICE (David,
+    2026-09-21). `ai_id` names the practice store; `practitioner_model` names
+    who is being gated inside it. When given, each phase reads only that model's
+    trajectory, and falls back to the whole practice when the model has fewer
+    than `min_transactions` points. Each phase reports which it used as `basis`
+    ("practitioner" or "practice"), with `practitioner_points` beside it, so a
+    fallback is never mistaken for a per-model reading.
 
     Threshold model:
     - reliability near 0 → well calibrated → thresholds stay at domain baseline
@@ -311,6 +320,8 @@ def compute_dynamic_thresholds(
         "brier_uncertainty": None,
         "threshold_inflation": 0.0,
         "transactions_analyzed": 0,
+        "basis": "practice",
+        "practitioner_points": None,
     }
     static_result = {
         "noetic": {**static_phase},
@@ -324,22 +335,46 @@ def compute_dynamic_thresholds(
         result: dict[str, Any] = {"source": "dynamic", "reason": "brier calibration"}
 
         for phase in ["noetic", "praxic"]:
-            # Get recent trajectory points with both self-assessed and grounded
-            cursor.execute(
-                """
-                SELECT self_assessed, grounded
-                FROM calibration_trajectory
-                WHERE ai_id = ? AND phase = ? AND grounded IS NOT NULL
-                ORDER BY timestamp DESC
-                LIMIT ?
-            """,
-                (ai_id, phase, lb),
-            )
-
-            rows = cursor.fetchall()
+            # Get recent trajectory points with both self-assessed and grounded:
+            # the practitioner's own inside the practice when enough exist,
+            # otherwise the practice's.
+            basis = "practice"
+            practitioner_points = None
+            rows = []
+            if practitioner_model:
+                cursor.execute(
+                    """
+                    SELECT self_assessed, grounded
+                    FROM calibration_trajectory
+                    WHERE ai_id = ? AND phase = ? AND grounded IS NOT NULL AND practitioner_model = ?
+                    ORDER BY timestamp DESC
+                    LIMIT ?
+                """,
+                    (ai_id, phase, practitioner_model, lb),
+                )
+                rows = cursor.fetchall()
+                practitioner_points = len(rows)
+                if len(rows) >= min_txns:
+                    basis = "practitioner"
+            if basis == "practice":
+                cursor.execute(
+                    """
+                    SELECT self_assessed, grounded
+                    FROM calibration_trajectory
+                    WHERE ai_id = ? AND phase = ? AND grounded IS NOT NULL
+                    ORDER BY timestamp DESC
+                    LIMIT ?
+                """,
+                    (ai_id, phase, lb),
+                )
+                rows = cursor.fetchall()
 
             if len(rows) < min_txns:
-                result[phase] = {**static_phase, "transactions_analyzed": len(rows)}
+                result[phase] = {
+                    **static_phase,
+                    "transactions_analyzed": len(rows),
+                    "practitioner_points": practitioner_points,
+                }
                 continue
 
             # Build prediction pairs: (self_assessed, grounded)
@@ -382,6 +417,8 @@ def compute_dynamic_thresholds(
                 "brier_uncertainty": decomp.uncertainty,
                 "threshold_inflation": round(inflation, 3),
                 "transactions_analyzed": decomp.n_predictions,
+                "basis": basis,
+                "practitioner_points": practitioner_points,
             }
 
         # If both phases are still static, mark overall as static

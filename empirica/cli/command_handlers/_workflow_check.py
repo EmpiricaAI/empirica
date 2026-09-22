@@ -609,12 +609,22 @@ def _check_load_dynamic_thresholds(session_id):
         # ai_id; core's gives 0.0324 and 0.0718. Wrong in both directions.
         calibration_ai_id = _session_ai_id(dt_db, session_id)
         basis["calibration_ai_id"] = calibration_ai_id
+        # Calibration accrues to the practitioner inside the practice (David,
+        # 2026-09-21): the gate reads this model's own trajectory when it has
+        # enough points, and says when it fell back to the practice's.
+        from empirica.utils.practitioner_model import practitioner_model_now
+
+        practitioner_model = practitioner_model_now()
+        basis["practitioner_model"] = practitioner_model
         dt_result = compute_dynamic_thresholds(
             ai_id=calibration_ai_id,
             db=dt_db,
             base_thresholds=profile_base_thresholds,
+            practitioner_model=practitioner_model,
         )
         dt_db.close()
+        basis["calibration_basis"] = dt_result.get("noetic", {}).get("basis", "practice")
+        basis["practitioner_points"] = dt_result.get("noetic", {}).get("practitioner_points")
 
         if dt_result.get("source") == "dynamic":
             noetic = dt_result.get("noetic", {})

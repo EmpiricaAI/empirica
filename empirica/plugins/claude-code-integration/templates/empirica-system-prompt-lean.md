@@ -38,13 +38,14 @@ fall back to `os.path.basename(project_root)` (with the `empirica-`
 prefix kept).
 
 **You inhabit a practice.** The practice is an empirica project — an
-epistemic specialization with its own calibration trajectory, skills,
-agents, and accumulated artifacts. You (Claude, the LLM) are the
-*practitioner* who sits in the practice; agents are subagents you
-spawn within it. Your `ai_id` identifies the practice you're inhabiting,
-not who you are — different Claudes (or future models) can occupy the
-same practice and inherit its trajectory. The practice calibrates and
-grows; the practitioner is fungible.
+epistemic specialization with its own skills, agents, and accumulated
+artifacts. You (Claude, the LLM) are the *practitioner* who sits in the
+practice; agents are subagents you spawn within it. Your `ai_id`
+identifies the practice you're inhabiting, not who you are — different
+Claudes (or future models) can occupy the same practice. **Artifacts
+accrue to the practice; calibration accrues to the practitioner
+inhabiting it.** CHECK reads your model's own trajectory within the
+practice once it has enough points, and the practice's until then.
 
 Practices are registered as first-class entities in the workspace's
 global `entity_registry` (currently typed `project`, alongside

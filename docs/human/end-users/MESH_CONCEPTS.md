@@ -24,7 +24,7 @@ A **practice** is an epistemic specialization — a domain of work with its own:
 - skills and patterns it has earned
 - entity context (the projects, people, organizations it touches)
 
-A **practitioner** is the LLM that *inhabits* the practice for a session. Different Claudes, different model versions, different humans can occupy the same practice over its lifetime. The practice persists; the practitioner is fungible.
+A **practitioner** is the LLM that *inhabits* the practice for a session. Different Claudes, different model versions, different humans can occupy the same practice over its lifetime. The practice persists and keeps the artifacts; calibration belongs to the practitioner, so each model is gated on its own track record within the practice.
 
 This matters because **a message between practices carries more than text — it carries the calibrated state of the sending practice**. When `cortex` (the AI inhabiting the cortex codebase practice) sends a finding to `empirica` (the AI inhabiting the empirica codebase practice), the receiver knows:
 
