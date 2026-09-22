@@ -21,6 +21,78 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+class _GitCatFileBatch:
+    """One long-lived `git cat-file --batch`, queried object by object.
+
+    A notes tree is read from its raw bytes, `mode name\\0<20-byte sha>` per
+    entry, so the first note under a ref is reached in two or three lookups
+    without a process per ref.
+    """
+
+    def __init__(self, cwd):
+        self._cwd = cwd
+        self._proc = None
+
+    def __enter__(self):
+        self._proc = subprocess.Popen(
+            ["git", "cat-file", "--batch"],
+            cwd=self._cwd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+        return self
+
+    def __exit__(self, *_exc):
+        if self._proc is not None:
+            if self._proc.stdin:
+                self._proc.stdin.close()
+            self._proc.wait(timeout=30)
+
+    def fetch(self, spec: str) -> tuple[str, bytes] | None:
+        proc = self._proc
+        if proc is None or proc.stdin is None or proc.stdout is None:
+            return None
+        proc.stdin.write((spec + "\n").encode())
+        proc.stdin.flush()
+        header = proc.stdout.readline().decode().split()
+        if len(header) != 3:
+            return None  # "<spec> missing"
+        _sha, otype, size = header
+        body = proc.stdout.read(int(size))
+        proc.stdout.read(1)  # trailing newline
+        return otype, body
+
+    @staticmethod
+    def first_entry(tree: bytes) -> tuple[str, bytes] | None:
+        """(mode, raw sha) of a tree's first entry; entries are path-sorted."""
+        nul = tree.find(b"\0")
+        if nul < 0 or len(tree) < nul + 21:
+            return None
+        mode = tree[:nul].decode().split(" ", 1)[0]
+        return mode, tree[nul + 1 : nul + 21]
+
+    def first_note_blob(self, ref: str) -> bytes | None:
+        """The first note under a notes ref, in `git notes list` order."""
+        got = self.fetch(f"{ref}^{{tree}}")
+        if not got or got[0] != "tree":
+            return None
+        entry = self.first_entry(got[1])
+        if entry is None:
+            return None
+        mode, raw = entry
+        if mode.startswith("40"):  # fanout directory: descend once
+            sub = self.fetch(raw.hex())
+            if not sub or sub[0] != "tree":
+                return None
+            entry = self.first_entry(sub[1])
+            if entry is None:
+                return None
+            _mode, raw = entry
+        blob = self.fetch(raw.hex())
+        return blob[1] if blob and blob[0] == "blob" else None
+
+
 class GitGoalStore:
     """
     Git-based goal storage for cross-AI coordination
@@ -228,6 +300,12 @@ class GitGoalStore:
 
             goals = []
 
+            # One reader for every ref, not two git processes per goal. With
+            # 3167 goal refs on one store, load_goal per ref took about 25 s and
+            # a CLI contract test timed out under parallel load. None here means
+            # the batch reader failed and the per-goal path is used instead.
+            batch = self._load_all_goal_notes(result.stdout)
+
             # Parse for-each-ref output
             # Format: <commit-hash> commit\trefs/notes/empirica/goals/<goal-id>
             for line in result.stdout.strip().split("\n"):
@@ -244,7 +322,7 @@ class GitGoalStore:
 
                 # Extract goal ID from ref path
                 goal_id = ref.split("/")[-1]
-                goal_data = self.load_goal(goal_id)
+                goal_data = batch.get(goal_id) if batch is not None else self.load_goal(goal_id)
 
                 if not goal_data:
                     continue
@@ -262,6 +340,41 @@ class GitGoalStore:
         except Exception as e:
             logger.warning(f"Failed to discover goals: {e}")
             return []
+
+    def _load_all_goal_notes(self, for_each_ref_output: str) -> dict[str, dict] | None:
+        """Read the first note under every goal ref through one `git cat-file --batch`.
+
+        Mirrors load_goal's choice exactly: `git notes list` sorts by the
+        annotated commit's path, and load_goal takes its first line, so this
+        walks each ref's notes tree in order and reads the first blob it finds,
+        descending one fanout level when the tree is fanned out. Trees are
+        parsed from their raw bytes: `mode name\\0<20-byte sha>` per entry.
+        Returns None on any failure so the caller falls back to load_goal.
+        """
+        # for-each-ref prints "<sha> commit\trefs/notes/empirica/goals/<id>"
+        refs = [
+            token
+            for line in for_each_ref_output.strip().split("\n")
+            for token in line.split()
+            if token.startswith("refs/notes/empirica/goals/")
+        ]
+        if not refs:
+            return {}
+        try:
+            with _GitCatFileBatch(self.workspace_root) as cat:
+                out: dict[str, dict] = {}
+                for ref in refs:
+                    blob = cat.first_note_blob(ref)
+                    if blob is None:
+                        continue
+                    try:
+                        out[ref.split("/")[-1]] = json.loads(blob.decode())
+                    except (ValueError, UnicodeDecodeError):
+                        continue
+                return out
+        except Exception as e:
+            logger.debug(f"batch goal-note read failed, falling back per goal: {e}")
+            return None
 
     def add_lineage(self, goal_id: str, ai_id: str, action: str) -> bool:
         """
