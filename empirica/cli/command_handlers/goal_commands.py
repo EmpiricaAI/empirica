@@ -1717,6 +1717,7 @@ def handle_goals_list_command(args):
             "goals_count": len(goals),
             "total_matching": total_matching,
             "truncated": bool(total_matching is not None and total_matching > len(goals)),
+            "truncation_notice": _truncation_notice(len(goals), total_matching, limit),
             "limit": limit,
             "goals": goals,
             "filters": {
@@ -1740,16 +1741,29 @@ def handle_goals_list_command(args):
         handle_cli_error(e, "List goals", getattr(args, "verbose", False))
 
 
+def _truncation_notice(shown: int, total_matching, limit) -> str | None:
+    """What to do about a capped list, in the same words for both outputs.
+
+    The human header named the remedies and the JSON carried only `truncated`
+    and `total_matching`, so the reader that most needed the remedy (an AI
+    parsing JSON) was the one never told `--uncapped` exists
+    (empirica-workspace, prop_g6biqcvzoraklgokljypyptihe).
+    """
+    if total_matching is None or total_matching <= shown:
+        return None
+    return (
+        f"showing {shown} of {total_matching} · CAPPED at {limit} — use --uncapped for this project's "
+        f"full backlog, --all-projects to also cross project scope, or raise --limit"
+    )
+
+
 def _print_goals_list_human(goals, status_desc, filter_desc, total_matching, limit, all_projects):
     """Render goals-list human output. Extracted to keep the handler under the
     complexity gate; `all_projects` adds a per-goal project column (gardening)."""
     print(f"{'=' * 70}")
-    if total_matching is not None and total_matching > len(goals):
-        print(
-            f"🎯 GOALS ({status_desc.upper()}) - showing {len(goals)} of {total_matching} "
-            f"[{filter_desc}] · CAPPED at {limit} — use --uncapped for this project's full backlog, "
-            f"--all-projects to also cross project scope, or raise --limit"
-        )
+    notice = _truncation_notice(len(goals), total_matching, limit)
+    if notice:
+        print(f"🎯 GOALS ({status_desc.upper()}) [{filter_desc}] - {notice}")
     else:
         print(f"🎯 GOALS ({status_desc.upper()}) - {len(goals)} found [{filter_desc}]")
     print(f"{'=' * 70}")
