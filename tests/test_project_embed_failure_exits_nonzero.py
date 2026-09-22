@@ -122,3 +122,41 @@ def test_a_failing_run_under_test_does_not_touch_the_checkout(monkeypatch, tmp_p
     _failing_run(monkeypatch, tmp_path)
     after = real.stat().st_mtime_ns if real.exists() else None
     assert before == after
+
+
+# --- eidetic 0 is what a healthy re-run prints, so the summary says which zero ---
+
+
+def test_the_summary_separates_new_from_already_present():
+    assert project_embed._eidetic_summary(0, 446) == " | eidetic: 0 new, 446 already present"
+
+
+def test_the_batch_path_records_how_many_were_already_present(monkeypatch):
+    import empirica.cli.command_handlers.project_embed as pe
+
+    valid = [({"id": f"f{i}", "finding": f"text {i}"}, f"text {i}", f"h{i}") for i in range(5)]
+    monkeypatch.setattr(pe, "_filter_unembedded", lambda client, coll, v: v[:2])  # 2 new of 5
+
+    class _Client:
+        pass
+
+    monkeypatch.setattr(pe, "_get_qdrant_client", lambda *a, **k: _Client(), raising=False)
+    # Stop at the embedding step: what is under test is the count recorded before it.
+    monkeypatch.setattr(
+        pe,
+        "_get_embeddings_batch_for_collection",
+        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("stop")),
+        raising=False,
+    )
+    monkeypatch.setattr(pe, "_rehydrate_eidetic_sequential", lambda *a, **k: 2)
+    try:
+        pe._rehydrate_eidetic("p", [v[0] for v in valid], lambda **k: True, lambda: True)
+    except Exception:
+        pass
+    assert pe._LAST_EIDETIC["already_present"] == 3
+
+
+def test_the_json_result_names_both_numbers():
+    import inspect
+
+    assert '"eidetic_already_present"' in inspect.getsource(project_embed.handle_project_embed_command)

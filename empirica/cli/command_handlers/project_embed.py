@@ -373,6 +373,12 @@ def record_embed_outcome(project_root: str | None, ok: bool, error: str | None =
         logger.debug("project-embed status not recorded: %s", exc)
 
 
+# How many findings the last _rehydrate_eidetic found already embedded. A module
+# cell rather than a changed return type, so the sequential fallback and every
+# caller keep their signature; read right after the call.
+_LAST_EIDETIC: dict[str, int] = {"already_present": 0}
+
+
 def _rehydrate_eidetic(project_id, findings, embed_eidetic_fn, check_fn):
     """Rehydrate eidetic collection from findings. Returns count embedded.
 
@@ -391,6 +397,7 @@ def _rehydrate_eidetic(project_id, findings, embed_eidetic_fn, check_fn):
     from empirica.core.qdrant.text_preview import preview_fields
 
     eidetic_count = 0
+    _LAST_EIDETIC["already_present"] = 0
     if not (check_fn() and findings):
         return eidetic_count
 
@@ -421,6 +428,10 @@ def _rehydrate_eidetic(project_id, findings, embed_eidetic_fn, check_fn):
 
         # Incremental skip: embed only new/changed findings (O(new)), not all.
         todo = _filter_unembedded(client, coll, valid)
+        # Both numbers travel, because `eidetic: 0` is what a healthy incremental
+        # re-run prints AND what a run that found nothing prints. workspace could
+        # not tell them apart from the summary (2026-09-21).
+        _LAST_EIDETIC["already_present"] = len(valid) - len(todo)
         if not todo:
             return 0  # everything already embedded with current content
 
@@ -514,6 +525,11 @@ def _embed_summary(docs: int, memory_total: int, parts: dict[str, int], decision
     if gap:
         msg += f" [+{gap} not itemised]" if gap > 0 else f" [{gap}: parts exceed total]"
     return msg + f" | decisions: {decisions} | assumptions: {assumptions}"
+
+
+def _eidetic_summary(new: int, already_present: int) -> str:
+    """`eidetic: 0` alone reads the same for a healthy re-run and for nothing found."""
+    return f" | eidetic: {new} new, {already_present} already present"
 
 
 def handle_project_embed_command(args):
@@ -615,6 +631,9 @@ def handle_project_embed_command(args):
             "docs": len(docs_to_upsert),
             "memory": len(mem_items),
             "eidetic": eidetic_count,
+            # newly embedded vs already there: 0 new with 446 present is healthy;
+            # 0 new with 0 present is a store that has nothing, or a failure upstream
+            "eidetic_already_present": _LAST_EIDETIC["already_present"],
             "code_api": code_embedded,
             # What LANDED in the typed collections, separate from what was read.
             # A count of rows found and a count of points written are different
@@ -640,7 +659,12 @@ def handle_project_embed_command(args):
         record_embed_outcome(
             root,
             ok=True,
-            counts={"docs": len(docs_to_upsert), "memory": len(mem_items), "eidetic": result.get("eidetic")},
+            counts={
+                "docs": len(docs_to_upsert),
+                "memory": len(mem_items),
+                "eidetic": result.get("eidetic"),
+                "eidetic_already_present": result.get("eidetic_already_present"),
+            },
         )
 
         if getattr(args, "output", "default") == "json":
@@ -660,6 +684,7 @@ def handle_project_embed_command(args):
                 typed_decisions,
                 typed_assumptions,
             )
+            msg += _eidetic_summary(eidetic_count, _LAST_EIDETIC["already_present"])
             if sync_global:
                 msg += f" | global: {global_synced}"
             print(msg)
