@@ -165,7 +165,8 @@ class PreflightInput(BaseModel):
         description=(
             "Optional. The observation that would refute a belief this work acts on, "
             "registered BEFORE the evidence. Each: {statement, query (executable form, "
-            "preferred), falsifies: <finding|assumption|decision id>}. Stays open and "
+            "preferred), falsifies: <finding|assumption|decision|dead_end|mistake|lesson id>}. "
+            "An unknown asserts nothing, so it cannot be falsified. Stays open and "
             "is surfaced at every PREFLIGHT until a POSTFLIGHT adjudicates it."
         ),
     )

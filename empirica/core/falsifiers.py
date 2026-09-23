@@ -37,11 +37,31 @@ logger = logging.getLogger(__name__)
 STATES = ("registered", "tripped", "survived", "expired")
 ADJUDICATED = ("tripped", "survived", "expired")
 
-#: A falsifier tests a BELIEF. These are the artifact types that hold one.
+#: A falsifier tests something that could be OBSERVED false. Per type, the table
+#: and the column its visibility lives in (None where the table has no such column).
+#:
+#: `dead_end` is here for the reason it is the best case in the set: "this approach
+#: does not work" is a claim true over one version, one config, one input, and then
+#: asserted as a permanent constraint on the option space. Dead-ends are never
+#: resolved by policy, because they are meant to resurface, so a falsifier is the
+#: only thing that can ever retire a stale one — as a flag on `is_invalidated` for a
+#: human, never automatically (spec section 8).
+#:
+#: `mistake` is here for its `prevention`, which is the live half: the mistake itself
+#: is history and cannot be refuted, but "this prevention stops recurrence" is
+#: refuted by the same mistake being logged again after it was in place.
+#:
+#: `unknown` is deliberately absent. An unknown asserts nothing, so nothing can make
+#: it false; it gets answered. An unknown whose QUESTION presupposes something untrue
+#: is two artifacts: log the presupposition as an assumption and falsify that. David
+#: ruled this widening on 2026-09-23.
 PARENT_TABLES = {
-    "finding": "project_findings",
-    "assumption": "assumptions",
-    "decision": "decisions",
+    "finding": ("project_findings", "visibility"),
+    "assumption": ("assumptions", "visibility"),
+    "decision": ("decisions", "visibility"),
+    "dead_end": ("project_dead_ends", "visibility"),
+    "mistake": ("mistakes_made", "visibility"),
+    "lesson": ("lessons", "sharing_policy"),
 }
 
 #: How many open falsifiers PREFLIGHT prints. The total is always reported beside
@@ -61,23 +81,23 @@ def _resolve_parent(conn, ref: Any) -> tuple[str, str, str | None]:
     """
     text = str(ref or "").strip()
     if not text:
-        raise FalsifierRefused("a falsifier needs `falsifies`: the id of the finding, assumption or decision it tests")
-    hits: list[tuple[str, str, str | None]] = []
-    for ptype, table in PARENT_TABLES.items():
+        raise FalsifierRefused("a falsifier needs `falsifies`: the id of the " + ", ".join(PARENT_TABLES) + " it tests")
+    for ptype, (table, viscol) in PARENT_TABLES.items():
         try:
-            rows = conn.execute(f"SELECT id, visibility FROM {table} WHERE id = ?", (text,)).fetchall()
+            rows = conn.execute(f"SELECT id, {viscol} FROM {table} WHERE id = ?", (text,)).fetchall()
         except Exception as exc:
             logger.debug("falsifier parent lookup skipped for %s: %s", table, exc)
             continue
         if rows:
             return ptype, rows[0][0], rows[0][1]
     if len(text) < 8:
-        raise FalsifierRefused(f"falsifies {text!r} is too short to identify a belief (8+ characters)")
+        raise FalsifierRefused(f"falsifies {text!r} is too short to identify an artifact (8+ characters)")
     escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    for ptype, table in PARENT_TABLES.items():
+    hits: list[tuple[str, str, str | None]] = []
+    for ptype, (table, viscol) in PARENT_TABLES.items():
         try:
             rows = conn.execute(
-                f"SELECT id, visibility FROM {table} WHERE id LIKE ? ESCAPE '\\' LIMIT 3", (escaped + "%",)
+                f"SELECT id, {viscol} FROM {table} WHERE id LIKE ? ESCAPE '\\' LIMIT 3", (escaped + "%",)
             ).fetchall()
         except Exception as exc:
             logger.debug("falsifier parent lookup skipped for %s: %s", table, exc)
@@ -87,9 +107,10 @@ def _resolve_parent(conn, ref: Any) -> tuple[str, str, str | None]:
         return hits[0]
     if not hits:
         raise FalsifierRefused(
-            f"falsifies {text!r} matches no finding, assumption or decision; a falsifier must test an existing belief"
+            f"falsifies {text!r} matches no {', '.join(PARENT_TABLES)}; a falsifier must test an artifact that "
+            "asserts something. An unknown asserts nothing — log its presupposition as an assumption and test that."
         )
-    raise FalsifierRefused(f"falsifies {text!r} matches more than one belief; give the full id")
+    raise FalsifierRefused(f"falsifies {text!r} matches more than one artifact; give the full id")
 
 
 def _project_of(conn, session_id: str | None) -> str | None:
@@ -136,8 +157,11 @@ def register(
             continue
         fid = str(uuid.uuid4())
         # The spec's invariant: a falsifier is at least as visible as its belief,
-        # or a shared claim ships without its test. Inheriting satisfies it.
-        visibility = pvis or "local"
+        # or a shared claim ships without its test. Inheriting satisfies it. A
+        # lesson's column is `sharing_policy`, whose vocabulary is its own, so
+        # anything outside the visibility vocabulary falls to the closed value
+        # rather than being written through as if it meant the same thing.
+        visibility = pvis if pvis in ("local", "shared", "public") else "local"
         conn.execute(
             "INSERT INTO falsifiers (id, project_id, session_id, transaction_id, registered_phase, parent_type,"
             " parent_id, statement, query, state, visibility, registered_at)"

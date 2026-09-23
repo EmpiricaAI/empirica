@@ -23,10 +23,16 @@ class _DB:
         c = self.conn
         c.execute("CREATE TABLE sessions (session_id TEXT, project_id TEXT)")
         c.execute("INSERT INTO sessions VALUES ('s1', 'p1')")
-        for table in ("project_findings", "assumptions", "decisions"):
+        for table in ("project_findings", "assumptions", "decisions", "project_dead_ends", "mistakes_made"):
             c.execute(f"CREATE TABLE {table} (id TEXT PRIMARY KEY, visibility TEXT)")
+        c.execute("CREATE TABLE lessons (id TEXT PRIMARY KEY, sharing_policy TEXT)")
+        c.execute("CREATE TABLE project_unknowns (id TEXT PRIMARY KEY, visibility TEXT)")
         c.execute("INSERT INTO project_findings VALUES ('f0000000-aaaa', 'shared')")
         c.execute("INSERT INTO assumptions VALUES ('a0000000-bbbb', NULL)")
+        c.execute("INSERT INTO project_dead_ends VALUES ('d0000000-cccc', 'local')")
+        c.execute("INSERT INTO mistakes_made VALUES ('m0000000-dddd', 'shared')")
+        c.execute("INSERT INTO lessons VALUES ('l0000000-eeee', 'org')")
+        c.execute("INSERT INTO project_unknowns VALUES ('u0000000-ffff', 'local')")
         migration_075_falsifiers(c.cursor())
         migration_075_falsifiers(c.cursor())  # idempotent
 
@@ -119,3 +125,36 @@ def test_counts_cover_every_state(db):
     _reg(db, {"statement": "y", "falsifies": "f0000000-aaaa"})
     fz.adjudicate(db, transaction_id="t9", items=[{"id": fid, "state": "tripped", "evidence": "row found"}])
     assert fz.counts(db, "p1") == {"registered": 1, "tripped": 1, "survived": 0, "expired": 0}
+
+
+# David widened the parent set on 2026-09-23: a falsifier tests anything that
+# asserts something observable, not only the three "belief" types.
+def test_a_dead_end_can_be_falsified(db):
+    """The best case in the set: dead-ends are never resolved by policy, so a
+    falsifier is the only thing that can ever retire a stale one."""
+    out = _reg(db, {"statement": "the approach succeeds on any run after the upgrade", "falsifies": "d0000000-cccc"})
+    assert out["registered"][0]["falsifies"] == "dead_end:d0000000-cccc"
+
+
+def test_a_mistakes_prevention_can_be_falsified(db):
+    out = _reg(
+        db,
+        {
+            "statement": "the same mistake is logged again after the prevention was in place",
+            "falsifies": "m0000000-dddd",
+        },
+    )
+    assert out["registered"][0]["falsifies"] == "mistake:m0000000-dddd"
+
+
+def test_a_lessons_sharing_policy_does_not_become_a_visibility(db):
+    """`org` is the lessons vocabulary, not the visibility one; it must not be
+    written through as though the two words meant the same thing."""
+    _reg(db, {"statement": "a peer applies it and it does not hold", "falsifies": "l0000000-eeee"})
+    assert db.conn.execute("SELECT visibility FROM falsifiers").fetchone()[0] == "local"
+
+
+def test_an_unknown_cannot_be_falsified_and_the_refusal_says_why(db):
+    out = _reg(db, {"statement": "x", "falsifies": "u0000000-ffff"})
+    assert out["registered"] == []
+    assert "asserts nothing" in out["refused"][0]["reason"]

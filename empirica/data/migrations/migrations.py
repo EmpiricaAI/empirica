@@ -1588,7 +1588,7 @@ ALL_MIGRATIONS: list[tuple[str, str, Callable]] = [
     ),
     (
         "075_falsifiers",
-        "Create `falsifiers`, the observation that would refute a belief, registered before the evidence that tests it (autonomy's FALSIFIER_SPEC, Phase 1, approved by David 2026-09-22). A falsifier outlives its transaction: it stays open and is surfaced at every PREFLIGHT until adjudicated tripped, survived or expired. Survived requires evidence that the population was observed; silence is expired. Every falsifier names its parent belief (finding, assumption or decision); one with no parent is refused at write time.",
+        "Create `falsifiers`, the observation that would refute a belief, registered before the evidence that tests it (autonomy's FALSIFIER_SPEC, Phase 1, approved by David 2026-09-22). A falsifier outlives its transaction: it stays open and is surfaced at every PREFLIGHT until adjudicated tripped, survived or expired. Survived requires evidence that the population was observed; silence is expired. Every falsifier names the artifact it tests — a finding, assumption, decision, dead_end, mistake or lesson — and one with no parent is refused at write time. Unknowns are excluded: an unknown asserts nothing, so nothing can make it false.",
         lambda cursor: migration_075_falsifiers(cursor),
     ),
 ]
