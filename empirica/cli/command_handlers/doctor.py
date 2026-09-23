@@ -633,13 +633,16 @@ def check_plugin_freshness() -> Check:
     # ai_id inferred from where the package sits is a weaker fact than one the
     # operator set, and a line that cannot tell them apart invites both to be
     # read the same way. Records written before 1.14 have no source field.
-    _src = (writer or {}).get("ai_id_source")
-    _via = f" via {_src}" if _src and _src not in ("env", "cwd") else ""
-    by = (
-        f" (written by {writer.get('ai_id') or '?'}{_via} at {str(writer.get('written_at') or '?')[:16]})"
-        if writer
-        else ""
-    )
+    # A deploy is performed by an OPERATOR, and on a multi-practice box no
+    # practice name is true (mesh-support, prop_zxpwbp7aibcgdbbzk7plmh3n4u). So
+    # name the practice only when the record carries one, and otherwise name the
+    # operator, rather than printing '?' where a practice is expected and letting
+    # absence read as a fact about the writer.
+    _w = writer or {}
+    _who = _w.get("ai_id") or _w.get("deployed_by") or "?"
+    _src = _w.get("ai_id_source")
+    _via = f" via {_src}" if _w.get("ai_id") and _src and _src not in ("env", "cwd", "explicit") else ""
+    by = f" (written by {_who}{_via} at {str(_w.get('written_at') or '?')[:16]})" if writer else ""
 
     if failed.is_file():
         return Check(

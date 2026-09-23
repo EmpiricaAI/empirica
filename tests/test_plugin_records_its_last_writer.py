@@ -83,9 +83,15 @@ def test_the_env_var_wins_and_says_so(tmp_path, monkeypatch):
     assert rec["ai_id"] == "empirica-autonomy" and rec["ai_id_source"] == "env"
 
 
-def test_a_deploy_from_a_neutral_directory_falls_back_to_the_source_checkout(tmp_path, monkeypatch):
-    """The $HOME case. The package is the practice's own editable install, so the
-    checkout the plugin files came from names the practice when the cwd cannot."""
+def test_a_deploy_from_a_neutral_directory_names_the_OPERATOR_not_a_practice(tmp_path, monkeypatch):
+    """The $HOME case, corrected.
+
+    The first fix read the checkout the package came from. mesh-support refuted
+    it (prop_zxpwbp7aibcgdbbzk7plmh3n4u): a fleet deploy is run by an operator,
+    and on a box with nine practices there is no right practice to name. On this
+    box the package is core's checkout, so that fallback would have attributed
+    every operator deploy to core — a plausible wrong name, worse than none.
+    """
     plugin = tmp_path / "plugin"
     plugin.mkdir()
     neutral = tmp_path / "home"
@@ -96,10 +102,23 @@ def test_a_deploy_from_a_neutral_directory_falls_back_to_the_source_checkout(tmp
     monkeypatch.setattr(scc, "__file__", str(checkout / "empirica" / "cli" / "command_handlers" / "setup.py"))
     scc._write_plugin_version_stamp(plugin, "1.13.51")
     rec = json.loads((plugin / ".plugin-writer.json").read_text())
-    assert rec["ai_id"] == "empirica-mesh-support" and rec["ai_id_source"] == "source_checkout"
+    assert rec["ai_id"] is None and rec["ai_id_source"] == "unknown"
+    assert "@" in rec["deployed_by"], "the operator is always recorded"
 
 
-def test_cwd_still_wins_over_the_source_checkout(tmp_path, monkeypatch):
+def test_an_explicit_ai_id_is_recorded_as_explicit(tmp_path, monkeypatch):
+    """The one case where a practice name is true rather than guessed: a caller
+    that knows passes it (mesh-support's ecosystem-update, via --ai-id)."""
+    plugin = tmp_path / "plugin"
+    plugin.mkdir()
+    monkeypatch.delenv("EMPIRICA_AI_ID", raising=False)
+    monkeypatch.chdir(tmp_path)
+    scc._write_plugin_version_stamp(plugin, "1.13.51", ai_id="empirica-cortex")
+    rec = json.loads((plugin / ".plugin-writer.json").read_text())
+    assert rec["ai_id"] == "empirica-cortex" and rec["ai_id_source"] == "explicit"
+
+
+def test_cwd_names_the_practice_when_the_deploy_ran_from_its_checkout(tmp_path, monkeypatch):
     plugin = tmp_path / "plugin"
     plugin.mkdir()
     monkeypatch.delenv("EMPIRICA_AI_ID", raising=False)
@@ -109,17 +128,26 @@ def test_cwd_still_wins_over_the_source_checkout(tmp_path, monkeypatch):
     assert rec["ai_id"] == "empirica-outreach" and rec["ai_id_source"] == "cwd"
 
 
-def test_doctor_says_an_inferred_writer_was_inferred(tmp_path, monkeypatch):
+def test_doctor_names_the_operator_when_no_practice_was_recorded(tmp_path, monkeypatch):
+    """Absence of a practice must not print as '?' where a practice is expected:
+    that is the shape that makes an unknown read as a fact about the writer."""
     home = tmp_path / "home"
     plugin = home / ".claude" / "plugins" / "local" / "empirica"
     plugin.mkdir(parents=True)
     monkeypatch.setenv("HOME", str(home))
     (plugin / ".plugin-version").write_text("0.0.1\n")
     (plugin / ".plugin-writer.json").write_text(
-        json.dumps({"ai_id": "empirica-mesh-support", "ai_id_source": "source_checkout", "written_at": "2026-09-23"})
+        json.dumps(
+            {
+                "ai_id": None,
+                "ai_id_source": "unknown",
+                "deployed_by": "ops@fleet-runner",
+                "written_at": "2026-09-23",
+            }
+        )
     )
     check = doctor.check_plugin_freshness()
-    assert "written by empirica-mesh-support via source_checkout" in check.detail
+    assert "written by ops@fleet-runner at" in check.detail and "via" not in check.detail
 
 
 def test_doctor_does_not_annotate_a_writer_that_named_itself(tmp_path, monkeypatch):

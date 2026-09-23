@@ -1192,43 +1192,53 @@ def _ai_id_in(root: Path) -> str | None:
     return None
 
 
-def _deploying_practice() -> tuple[str | None, str]:
-    """Which practice is deploying, and WHERE that answer came from.
+def _deploying_practice(explicit: str | None = None) -> tuple[str | None, str]:
+    """Which practice is deploying, and WHERE that answer came from — or neither.
 
-    The cwd's project.yaml was the only source, so a fleet deploy run from a
-    neutral directory — `cd ~ && empirica setup-claude-code` — stamped `ai_id:
-    null` and the record could not say whose write it was (cortex,
-    prop_xjnwejgcnzetdozzlja54kf2ca, observed on this box).
+    The cwd's project.yaml was the only source, so a fleet deploy from a neutral
+    directory stamped `ai_id: null` (cortex, prop_xjnwejgcnzetdozzlja54kf2ca).
+    The first fix added the checkout the package came from. mesh-support refuted
+    that with their own tool's comment, and they are right
+    (prop_zxpwbp7aibcgdbbzk7plmh3n4u):
 
-    Four sources, most explicit first. The SOURCE is returned with the value
-    because an ai_id inferred from the package location is a weaker fact than one
-    the operator set, and a record that cannot say which it holds invites both to
-    be read as the same thing.
+        a fleet deploy is performed by an OPERATOR running a script, not by a
+        practice, and on a box with several practices there is no right one to
+        name. Every path-derived source answers "which practice is associated
+        with this location", while the field asks "who deployed this".
+
+    On this box the package is core's editable checkout, so that fallback would
+    have attributed every operator deploy to core: a plausible wrong name, which
+    is worse than an absent one. So only sources that CARRY the identity count:
+    an explicit argument from a caller that knows, or EMPIRICA_AI_ID, or the cwd
+    when the deploy really was run from a practice checkout. Otherwise None, and
+    `deployed_by` in the record says who actually ran it.
     """
+    explicit = (explicit or "").strip()
+    if explicit:
+        return explicit, "explicit"
     env = (os.environ.get("EMPIRICA_AI_ID") or "").strip()
     if env:
         return env, "env"
     found = _ai_id_in(Path.cwd())
     if found:
         return found, "cwd"
-    # The checkout these plugin files came from. This is the one that answers
-    # the $HOME case: the deploy runs from anywhere, but the package is the
-    # practice's own editable install. A pip install has no .empirica here.
-    try:
-        found = _ai_id_in(Path(__file__).resolve().parents[3])
-        if found:
-            return found, "source_checkout"
-    except Exception as exc:
-        logger.debug("source checkout ai_id unknown: %s", exc)
-    try:
-        from empirica.utils.session_resolver import InstanceResolver as _R
-
-        found = (_R.ai_id() or "").strip() or None
-        if found:
-            return found, "session"
-    except Exception as exc:
-        logger.debug("session ai_id unknown: %s", exc)
     return None, "unknown"
+
+
+def _deploying_operator() -> str:
+    """user@host — always resolvable, and true whoever ran the deploy."""
+    import getpass
+    import socket
+
+    try:
+        user = getpass.getuser()
+    except Exception:
+        user = os.environ.get("USER") or "?"
+    try:
+        host = socket.gethostname() or "?"
+    except Exception:
+        host = "?"
+    return f"{user}@{host}"
 
 
 def _deploying_commit() -> str | None:
@@ -1244,7 +1254,7 @@ def _deploying_commit() -> str | None:
         return None
 
 
-def _write_plugin_version_stamp(plugin_dir: Path, version: str | None = None) -> None:
+def _write_plugin_version_stamp(plugin_dir: Path, version: str | None = None, ai_id: str | None = None) -> None:
     """Stamp the installed plugin with the empirica version its files came from,
     and with WHO deployed them.
 
@@ -1264,10 +1274,11 @@ def _write_plugin_version_stamp(plugin_dir: Path, version: str | None = None) ->
         import json as _json
         from datetime import datetime, timezone
 
-        ai_id, ai_id_source = _deploying_practice()
+        resolved_ai_id, ai_id_source = _deploying_practice(ai_id)
         record = {
-            "ai_id": ai_id,
+            "ai_id": resolved_ai_id,
             "ai_id_source": ai_id_source,
+            "deployed_by": _deploying_operator(),
             "version": resolved,
             "commit": _deploying_commit(),
             "written_at": datetime.now(timezone.utc).isoformat(),
@@ -1343,7 +1354,7 @@ def handle_plugin_sync_command(args):
         return 1
 
     _sync_plugin_files_in_place(source_dir, plugin_dir)
-    _write_plugin_version_stamp(plugin_dir, version)
+    _write_plugin_version_stamp(plugin_dir, version, ai_id=getattr(args, "ai_id", None))
     return _emit({"ok": True, "synced": True, "from": installed, "to": version})
 
 
@@ -2477,7 +2488,8 @@ def handle_setup_claude_code_command(args):
 
         # Stage 2: Install plugin files
         install_report = _install_plugin_files(source_dir, plugin_dir, output_format)
-        _write_plugin_version_stamp(plugin_dir)  # drives drift-sync / session-init auto-heal
+        # drives drift-sync / session-init auto-heal
+        _write_plugin_version_stamp(plugin_dir, ai_id=getattr(args, "ai_id", None))
 
         # Stage 3: Install CLAUDE.md
         if not skip_claude_md:

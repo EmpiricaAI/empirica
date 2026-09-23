@@ -27,6 +27,10 @@ def add_onboarding_parsers(subparsers):
     )
     plugin_sync_parser.add_argument("--force", action="store_true", help="Sync even if the version stamp matches")
     plugin_sync_parser.add_argument(
+        "--ai-id",
+        help="The practice this sync is performed FOR, when the caller knows it. See `setup --help`.",
+    )
+    plugin_sync_parser.add_argument(
         "--quiet", action="store_true", help="Suppress the human status line (still exits non-zero on error)"
     )
     plugin_sync_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
@@ -76,6 +80,16 @@ Run this after 'brew install empirica' or 'pip install empirica'.
         ),
     )
     setup_cc_parser.add_argument("--force", action="store_true", help="Reinstall plugin even if it already exists")
+    setup_cc_parser.add_argument(
+        "--ai-id",
+        help=(
+            "The practice this deploy is performed FOR, when the caller knows it "
+            "(a single-practice box, or a script that was told). Recorded in the "
+            "plugin's writer stamp. Left off on a multi-practice box: a fleet deploy "
+            "is run by an operator, not by a practice, and a guessed name there is "
+            "worse than none — the stamp records user@host either way."
+        ),
+    )
     setup_cc_parser.add_argument(
         "--skip-mcp", action="store_true", help="Skip MCP server installation and configuration"
     )
