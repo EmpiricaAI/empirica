@@ -90,7 +90,7 @@ class GitHandoffStorage:
             markdown_ref = f"empirica/handoff/{session_id}/markdown"
             markdown = report["markdown"]
 
-            subprocess.run(
+            md = subprocess.run(
                 ["git", "notes", "--ref", markdown_ref, "add", "-f", "-F", "-", "HEAD"],
                 input=markdown,
                 capture_output=True,
@@ -98,6 +98,12 @@ class GitHandoffStorage:
                 cwd=str(self.repo_path),
                 text=True,
             )
+            # The JSON half above raises on failure; this half used to return
+            # success regardless, so a handoff could report stored with its
+            # human-readable copy silently absent. It is the larger payload of
+            # the two, so it is the one more likely to be refused.
+            if md.returncode != 0:
+                logger.warning("handoff markdown note refused: %s", md.stderr.strip()[:200])
 
             logger.info(f"📝 Stored handoff in git notes: {note_ref}")
 

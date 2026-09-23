@@ -150,8 +150,9 @@ def test_doctor_names_the_operator_when_no_practice_was_recorded(tmp_path, monke
     assert "written by ops@fleet-runner at" in check.detail and "via" not in check.detail
 
 
-def test_doctor_does_not_annotate_a_writer_that_named_itself(tmp_path, monkeypatch):
-    """Positive control for the annotation: `cwd` and `env` print unadorned."""
+def test_doctor_annotates_a_name_derived_from_the_directory(tmp_path, monkeypatch):
+    """`cwd` is where the command ran, not an assertion by the deployer — and on a
+    box of worktrees it resolves to a parent practice. It prints as derived."""
     home = tmp_path / "home"
     plugin = home / ".claude" / "plugins" / "local" / "empirica"
     plugin.mkdir(parents=True)
@@ -159,6 +160,20 @@ def test_doctor_does_not_annotate_a_writer_that_named_itself(tmp_path, monkeypat
     (plugin / ".plugin-version").write_text("0.0.1\n")
     (plugin / ".plugin-writer.json").write_text(
         json.dumps({"ai_id": "empirica-outreach", "ai_id_source": "cwd", "written_at": "2026-09-23"})
+    )
+    check = doctor.check_plugin_freshness()
+    assert "written by empirica-outreach via cwd at" in check.detail
+
+
+def test_doctor_does_not_annotate_a_writer_that_named_itself(tmp_path, monkeypatch):
+    """Positive control for the annotation: an asserted identity prints unadorned."""
+    home = tmp_path / "home"
+    plugin = home / ".claude" / "plugins" / "local" / "empirica"
+    plugin.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    (plugin / ".plugin-version").write_text("0.0.1\n")
+    (plugin / ".plugin-writer.json").write_text(
+        json.dumps({"ai_id": "empirica-outreach", "ai_id_source": "explicit", "written_at": "2026-09-23"})
     )
     check = doctor.check_plugin_freshness()
     assert "written by empirica-outreach at" in check.detail and "via" not in check.detail

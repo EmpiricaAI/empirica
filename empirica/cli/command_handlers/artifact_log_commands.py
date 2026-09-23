@@ -317,13 +317,18 @@ def _persist_edges(artifact_type: str, artifact_id: str, edges: list[dict]) -> i
     # 2. Git note: read existing, merge the WIRED edges into <type>_data, rewrite.
     if wired_edges:
         try:
-            _patch_git_note_with_edges(artifact_type, artifact_id, wired_edges)
+            if not _patch_git_note_with_edges(artifact_type, artifact_id, wired_edges):
+                logger.warning(
+                    "edges wired in SQLite but NOT in the git note for %s %s — a rebuild from notes will drop them",
+                    artifact_type,
+                    artifact_id,
+                )
         except Exception as e:
             logger.warning(f"_persist_edges git-note phase failed: {e}")
     return wired
 
 
-def _patch_git_note_with_edges(artifact_type: str, artifact_id: str, edges: list[dict]) -> None:
+def _patch_git_note_with_edges(artifact_type: str, artifact_id: str, edges: list[dict]) -> bool:
     """Read note for artifact, merge edges into <type>_data, write back.
 
     Uses `git notes` plumbing rather than the per-type Git*Store classes, so this
@@ -336,8 +341,11 @@ def _patch_git_note_with_edges(artifact_type: str, artifact_id: str, edges: list
     namespace, _table, _id_col, _data_col = _ARTIFACT_EDGE_TARGETS[artifact_type]
     nested_key = f"{artifact_type}_data"
     workspace = get_git_root()
+    # These returns mean "there is no note here to patch", which is a different
+    # thing from "the rewrite was refused" — only the latter is the divergence
+    # the caller warns about, so they report True.
     if not workspace:
-        return
+        return True
     short_ref = f"empirica/{namespace}/{artifact_id}"
 
     # 1. Find annotated commit
@@ -349,10 +357,11 @@ def _patch_git_note_with_edges(artifact_type: str, artifact_id: str, edges: list
         timeout=5,
     )
     if list_proc.returncode != 0 or not list_proc.stdout.strip():
-        return  # No git note to patch (e.g., GitFindingStore failed earlier)
+        logger.debug("no note to patch for %s", short_ref)
+        return True  # e.g. GitFindingStore failed earlier and warned there
     parts = list_proc.stdout.strip().split("\n")[0].split()
     if len(parts) < 2:
-        return
+        return True
     commit_sha = parts[1]
 
     # 2. Read note content
@@ -364,11 +373,13 @@ def _patch_git_note_with_edges(artifact_type: str, artifact_id: str, edges: list
         timeout=5,
     )
     if show_proc.returncode != 0:
-        return
+        logger.debug("note unreadable for %s", short_ref)
+        return True
     try:
         payload = json.loads(show_proc.stdout)
     except json.JSONDecodeError:
-        return
+        logger.debug("note is not JSON for %s", short_ref)
+        return True
 
     # 3. Merge edges
     nested = payload.get(nested_key)
@@ -388,7 +399,7 @@ def _patch_git_note_with_edges(artifact_type: str, artifact_id: str, edges: list
 
     # 4. Write note back (-f overwrites)
     new_json = json.dumps(payload, indent=2)
-    subprocess.run(
+    written = subprocess.run(
         ["git", "notes", f"--ref={short_ref}", "add", "-f", "-F", "-", commit_sha],
         input=new_json,
         cwd=workspace,
@@ -396,6 +407,13 @@ def _patch_git_note_with_edges(artifact_type: str, artifact_id: str, edges: list
         text=True,
         timeout=10,
     )
+    # The caller reports the edges as wired from SQLite alone. A refused rewrite
+    # left the note holding the artifact without its edges and said nothing,
+    # which is the sqlite/notes divergence this practice keeps finding.
+    if written.returncode != 0:
+        logger.warning("edge note rewrite refused for %s: %s", short_ref, written.stderr.strip()[:200])
+        return False
+    return True
 
 
 def _parse_config_input(args):

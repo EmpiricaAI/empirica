@@ -207,7 +207,7 @@ RETRIEVAL:
 """
 
     try:
-        subprocess.run(
+        done = subprocess.run(
             ["git", "notes", "--ref=breadcrumbs", "add", "-f", "-F", "-", "HEAD"],
             input=note,
             capture_output=True,
@@ -215,6 +215,13 @@ RETRIEVAL:
             timeout=5,
             cwd=os.getcwd(),
         )
+        # The caller renders this as a tick. Without reading returncode, a
+        # refused write (no HEAD, a notes lock, a git error) printed the tick
+        # and lost the breadcrumb: deleting this call entirely would have looked
+        # identical.
+        if done.returncode != 0:
+            print(f"breadcrumbs note refused: {done.stderr.strip()[:200]}", file=sys.stderr)
+            return False
         return True
     except Exception:
         return False

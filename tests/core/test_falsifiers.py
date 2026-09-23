@@ -147,11 +147,41 @@ def test_a_mistakes_prevention_can_be_falsified(db):
     assert out["registered"][0]["falsifies"] == "mistake:m0000000-dddd"
 
 
-def test_a_lessons_sharing_policy_does_not_become_a_visibility(db):
-    """`org` is the lessons vocabulary, not the visibility one; it must not be
-    written through as though the two words meant the same thing."""
+def test_a_lessons_sharing_policy_is_TRANSLATED_not_dropped(db):
+    """`lessons` uses org/private/public. Mapping `org` to `local` made the test
+    LESS visible than the lesson, which is the invariant inheriting exists to
+    satisfy — and `org` is the most common value on this store."""
     _reg(db, {"statement": "a peer applies it and it does not hold", "falsifies": "l0000000-eeee"})
-    assert db.conn.execute("SELECT visibility FROM falsifiers").fetchone()[0] == "local"
+    assert db.conn.execute("SELECT visibility FROM falsifiers").fetchone()[0] == "shared"
+
+
+def test_an_unrecognised_policy_falls_to_the_closed_value(db):
+    """Positive control for the translation: an unknown word is not passed through."""
+    db.conn.execute("INSERT INTO lessons VALUES ('l1111111-ffff', 'licensed')")
+    _reg(db, {"statement": "x", "falsifies": "l1111111-ffff"})
+    row = db.conn.execute("SELECT visibility FROM falsifiers WHERE parent_id = 'l1111111-ffff'").fetchone()
+    assert row[0] == "local"
+
+
+def test_a_session_with_no_project_is_refused_rather_than_written_unreachable(db, monkeypatch):
+    """Both read surfaces filter on project_id, so a row without one is accepted
+    and then invisible. 525 of core's 1346 session rows carry no project_id."""
+    db.conn.execute("UPDATE sessions SET project_id = NULL")
+    # The active-project fallback reads this machine; pin it so the test measures
+    # the refusal and not the developer's checkout.
+    monkeypatch.setattr(
+        "empirica.utils.session_resolver.InstanceResolver.project_id_from_db", staticmethod(lambda *_a, **_k: None)
+    )
+    out = fz.register(
+        db,
+        session_id="s1",
+        transaction_id="t1",
+        phase="check",
+        items=[{"statement": "x", "falsifies": "f0000000-aaaa"}],
+    )
+    assert out["registered"] == []
+    assert "never be seen" in out["refused"][0]["reason"] or "never seen" in out["refused"][0]["reason"]
+    assert db.conn.execute("SELECT count(*) FROM falsifiers").fetchone()[0] == 0
 
 
 def test_an_unknown_cannot_be_falsified_and_the_refusal_says_why(db):

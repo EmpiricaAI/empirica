@@ -1049,15 +1049,10 @@ def log_artifacts_graph(
             import subprocess
 
             subprocess.run(
-                [
-                    "git",
-                    "notes",
-                    "--ref=breadcrumbs",
-                    "append",
-                    "-m",
-                    json.dumps({"batch_log": len(ref_map), "edges": edges_wired}),
-                ],
+                ["git", "notes", "--ref=breadcrumbs", "append", "-F", "-"],
+                input=json.dumps({"batch_log": len(ref_map), "edges": edges_wired}),
                 capture_output=True,
+                text=True,
                 timeout=5,
                 check=False,
             )

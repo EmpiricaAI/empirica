@@ -353,6 +353,8 @@ def compute_dynamic_thresholds(
                     (ai_id, phase, practitioner_model, lb),
                 )
                 rows = cursor.fetchall()
+                # Capped by `lb`, so it is "points read", not "points that exist".
+                # Reported with the cap beside it rather than as a bare count.
                 practitioner_points = len(rows)
                 if len(rows) >= min_txns:
                     basis = "practitioner"
@@ -419,6 +421,7 @@ def compute_dynamic_thresholds(
                 "transactions_analyzed": decomp.n_predictions,
                 "basis": basis,
                 "practitioner_points": practitioner_points,
+                "lookback": lb,
             }
 
         # If both phases are still static, mark overall as static

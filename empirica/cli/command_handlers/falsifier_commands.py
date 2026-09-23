@@ -22,6 +22,16 @@ def handle_falsifier_list_command(args):
         from empirica.utils.session_resolver import InstanceResolver as R
 
         project_id = R.project_id_from_db(R.project_path() or os.getcwd())
+    if not project_id:
+        # The query binds project_id, so an unresolved one matches nothing and
+        # would print a confident empty list for a practice that may hold rows.
+        out = {
+            "ok": False,
+            "error": "no project resolved for this directory, so no practice could be listed",
+            "hint": "run from a project root, pass --project-id, or run `empirica project-bootstrap`",
+        }
+        print(json.dumps(out, indent=2) if getattr(args, "output", "human") == "json" else out["error"])
+        return 1
     state = getattr(args, "state", "registered")
     limit = getattr(args, "limit", 50)
 

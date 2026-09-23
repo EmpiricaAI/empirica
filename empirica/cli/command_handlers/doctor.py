@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import shutil
 import sqlite3
 import subprocess
@@ -641,7 +640,12 @@ def check_plugin_freshness() -> Check:
     _w = writer or {}
     _who = _w.get("ai_id") or _w.get("deployed_by") or "?"
     _src = _w.get("ai_id_source")
-    _via = f" via {_src}" if _w.get("ai_id") and _src and _src not in ("env", "cwd", "explicit") else ""
+    # Only `explicit` and `env` are assertions by whoever ran the deploy. `cwd` is
+    # where the command happened to run, and on this box 13 of 41 project.yaml
+    # paths are worktrees resolving to a parent practice (cortex measured it).
+    # Excluding `cwd` made this branch unreachable, so a derived name and an
+    # asserted one printed identically — the distinction the field exists for.
+    _via = f" via {_src}" if _w.get("ai_id") and _src and _src not in ("env", "explicit") else ""
     by = f" (written by {_who}{_via} at {str(_w.get('written_at') or '?')[:16]})" if writer else ""
 
     if failed.is_file():
@@ -1439,9 +1443,6 @@ def _version_key(v: str) -> tuple:
         digits = "".join(c for c in seg if c.isdigit())
         parts.append(int(digits) if digits else 0)
     return tuple(parts)
-
-
-_VERSION_LINE = re.compile(rb"^__version__\s*=.*$", re.MULTILINE)
 
 
 # The digest lives in empirica/core/build_facts.py, where the presence record and

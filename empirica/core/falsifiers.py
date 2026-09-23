@@ -28,6 +28,7 @@ That needs its own ruling.
 from __future__ import annotations
 
 import logging
+import os
 import time
 import uuid
 from typing import Any
@@ -114,13 +115,34 @@ def _resolve_parent(conn, ref: Any) -> tuple[str, str, str | None]:
 
 
 def _project_of(conn, session_id: str | None) -> str | None:
-    if not session_id:
-        return None
+    """The practice a session belongs to, falling back to the active project.
+
+    39% of the session rows on core carry no project_id (525 of 1346), and both
+    read surfaces key on it — so a falsifier written under one of those sessions
+    was accepted, stored, and then invisible to every reader. `register` refuses
+    rather than writing such a row; this resolves the value first so the refusal
+    is rare.
+    """
+    if session_id:
+        try:
+            row = conn.execute("SELECT project_id FROM sessions WHERE session_id = ?", (session_id,)).fetchone()
+            if row and row[0]:
+                return row[0]
+        except Exception as exc:
+            logger.debug("session project lookup failed: %s", exc)
     try:
-        row = conn.execute("SELECT project_id FROM sessions WHERE session_id = ?", (session_id,)).fetchone()
-    except Exception:
+        from empirica.utils.session_resolver import InstanceResolver as R
+
+        return R.project_id_from_db(R.project_path() or os.getcwd())
+    except Exception as exc:
+        logger.debug("active project unresolved: %s", exc)
         return None
-    return row[0] if row else None
+
+
+#: `lessons` uses its own words. Mapping `org` to `local` would make a falsifier
+#: LESS visible than the lesson it tests, which is the invariant this inherits to
+#: satisfy; `org` is the most common value on this store (34 of 58).
+_VISIBILITY_FROM = {"org": "shared", "private": "local", "public": "public"}
 
 
 def register(
@@ -141,6 +163,24 @@ def register(
     conn = db.conn
     project_id = _project_of(conn, session_id)
     registered: list[dict[str, Any]] = []
+    if not project_id:
+        # Every read surface filters on project_id, so a row without one is
+        # accepted and then unreachable — registered, never surfaced, never
+        # adjudicable. Refusing says so while the practitioner can still act.
+        return {
+            "registered": [],
+            "refused": [
+                {
+                    "statement": (i.get("statement") if isinstance(i, dict) else None),
+                    "reason": (
+                        "this session resolves to no project, and a falsifier is surfaced per practice — "
+                        "it would be stored and never seen. Run `empirica project-bootstrap`, or register "
+                        "from a session that belongs to this practice."
+                    ),
+                }
+                for i in (items or [])
+            ],
+        }
     refused: list[dict[str, Any]] = []
     for item in items or []:
         if not isinstance(item, dict):
@@ -161,7 +201,7 @@ def register(
         # lesson's column is `sharing_policy`, whose vocabulary is its own, so
         # anything outside the visibility vocabulary falls to the closed value
         # rather than being written through as if it meant the same thing.
-        visibility = pvis if pvis in ("local", "shared", "public") else "local"
+        visibility = pvis if pvis in ("local", "shared", "public") else _VISIBILITY_FROM.get(pvis or "", "local")
         conn.execute(
             "INSERT INTO falsifiers (id, project_id, session_id, transaction_id, registered_phase, parent_type,"
             " parent_id, statement, query, state, visibility, registered_at)"
@@ -196,8 +236,10 @@ def open_falsifiers(db, project_id: str | None, limit: int = SURFACE_LIMIT) -> d
             (project_id, limit),
         ).fetchall()
     except Exception as exc:
+        # NOT None: that is what "none are open" returns, and a store where
+        # migration 075 has not run would then read as a clean slate forever.
         logger.debug("open falsifiers unavailable: %s", exc)
-        return None
+        return {"error": f"{type(exc).__name__}: {exc}", "open_total": None}
     if not total:
         return None
     now = time.time()

@@ -35,12 +35,19 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-#: Session ids the test suite used literally. None has a `sessions` row on core.
+#: Session ids the test suite used literally.
 TEST_SESSION_IDS = ("test-session", "test-git-state-session", "other-session", "test-cli-create")
 
-_TEST_ROW = "(session_id IN ({ids}) OR session_id IN (SELECT session_id FROM sessions WHERE ai_id = 'test-ai'))".format(
-    ids=",".join("?" * len(TEST_SESSION_IDS))
-)
+#: A row is a test row when its session is one of those fixed ids AND no real
+#: session owns that id, or when the session's own row says ai_id test-ai.
+#: Matching on the id alone meant that on any store where a real session happened
+#: to carry one of them, its reflexes were selected for deletion while the report
+#: still said "provable test rows" — and the selected and kept buckets overlapped.
+#: "None has a sessions row on core" was an assertion about one box, not a check.
+_TEST_ROW = (
+    "((session_id IN ({ids}) AND session_id NOT IN (SELECT session_id FROM sessions))"
+    " OR session_id IN (SELECT session_id FROM sessions WHERE ai_id = 'test-ai'))"
+).format(ids=",".join("?" * len(TEST_SESSION_IDS)))
 _UNREGISTERED = "project_id NOT IN (SELECT id FROM projects)"
 
 
@@ -87,11 +94,19 @@ def main() -> int:
         "selected_test_rows": selected,
         "kept_real_sessions": kept_real,
         "kept_unattributable": in_scope - selected - kept_real,
+        # The three buckets must partition the scope. A negative remainder means
+        # they overlapped, which is a defect in the predicate, not a number.
+        "buckets_partition": (in_scope - selected - kept_real) >= 0,
+        # Capped at 10, and the cap is stated: a list that silently ends at ten
+        # reads as the whole set.
         "by_project": dict(
             conn.execute(
                 f"SELECT project_id, count(*) FROM reflexes WHERE {target} GROUP BY 1 ORDER BY 2 DESC LIMIT 10", params
             ).fetchall()
         ),
+        "by_project_total": conn.execute(
+            f"SELECT count(DISTINCT project_id) FROM reflexes WHERE {target}", params
+        ).fetchone()[0],
     }
     if not args.apply:
         print(json.dumps(report, indent=2))

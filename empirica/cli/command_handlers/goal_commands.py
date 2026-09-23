@@ -3605,9 +3605,14 @@ def _write_prune_receipt(pruned: list[dict], modes_run: list[str], dry_run: bool
             "errors": [p for p in pruned if "error" in p],
             "timestamp": time.time(),
         }
+        # stdin, like every other note writer: argv caps one string at 128 KB and
+        # a receipt grows with the prune (6a53e8c53 converted the `add` writers;
+        # the two `append` ones were missed and the commit claimed all of them).
         subprocess.run(
-            ["git", "notes", "--ref=breadcrumbs", "append", "-m", json.dumps(receipt)],
+            ["git", "notes", "--ref=breadcrumbs", "append", "-F", "-"],
+            input=json.dumps(receipt),
             capture_output=True,
+            text=True,
             timeout=5,
             check=False,
         )
