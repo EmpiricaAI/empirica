@@ -191,6 +191,38 @@ def _preflight_check_session_exists(session_id):
             if cur.fetchone():
                 return None
 
+            # A local miss is two situations and only one is an error. If the
+            # session is real and lives in ANOTHER registered practice, this
+            # transaction would write into that practice's store from this
+            # checkout — refuse (David, via mesh-support prop_337a3aqsffem7a7ozcbruc3vba;
+            # it already happened and left an orphan row here, unknown 4ca7fcc7).
+            # If it exists nowhere, warn exactly as before: that is a first
+            # transaction on a session created outside the CLI.
+            try:
+                from empirica.core.practice_ownership import find_owning_practice
+
+                owner = find_owning_practice(session_id, exclude_db=getattr(db, "db_path", None))
+            except Exception as exc:  # a diagnostic must never block PREFLIGHT
+                logger.debug(f"owning-practice lookup skipped: {exc}")
+                owner = None
+            if owner:
+                return {
+                    "refuse": True,
+                    "session_id": session_id,
+                    "owning_practice": owner["name"],
+                    "owning_project_id": owner["project_id"],
+                    "owning_store": owner["db_path"],
+                    "message": (
+                        f"Session {session_id!r} belongs to the practice {owner['name']!r}, not to this "
+                        "checkout. Opening it here would write that practice's transaction into this "
+                        "store. Refused before any write."
+                    ),
+                    "fix": (
+                        "Run this from that practice's checkout, or start a transaction for THIS practice "
+                        "with `empirica session-create`."
+                    ),
+                }
+
             warning = {
                 "session_id": session_id,
                 "length": len(session_id or ""),
@@ -1209,7 +1241,12 @@ def handle_preflight_submit_command(args):
         unclosed_transaction_warning = _preflight_check_unclosed_transaction()
 
         # Stage 2b: Does the session this transaction attaches to actually exist?
+        # A session owned by ANOTHER registered practice is refused here, before
+        # any write; everything else stays a warning.
         session_warning = _preflight_check_session_exists(session_id)
+        if session_warning and session_warning.get("refuse"):
+            print(json.dumps({"ok": False, "error": session_warning["message"], **session_warning}, indent=2))
+            return 1
 
         # Stage 3: Create checkpoint and transaction
         try:
