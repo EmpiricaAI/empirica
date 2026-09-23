@@ -1178,18 +1178,57 @@ def _read_plugin_version_stamp(plugin_dir: Path) -> str | None:
 PLUGIN_WRITER_STAMP = ".plugin-writer.json"
 
 
-def _deploying_practice() -> str | None:
-    """ai_id of the practice running the deploy, from the working directory."""
+def _ai_id_in(root: Path) -> str | None:
+    """The `ai_id` in `<root>/.empirica/project.yaml`, or None."""
     try:
         import yaml
 
-        cfg = Path.cwd() / ".empirica" / "project.yaml"
+        cfg = Path(root) / ".empirica" / "project.yaml"
         if cfg.is_file():
             data = yaml.safe_load(cfg.read_text()) or {}
             return data.get("ai_id") or None
     except Exception as exc:
-        logger.debug("deploying practice unknown: %s", exc)
+        logger.debug("no ai_id under %s: %s", root, exc)
     return None
+
+
+def _deploying_practice() -> tuple[str | None, str]:
+    """Which practice is deploying, and WHERE that answer came from.
+
+    The cwd's project.yaml was the only source, so a fleet deploy run from a
+    neutral directory — `cd ~ && empirica setup-claude-code` — stamped `ai_id:
+    null` and the record could not say whose write it was (cortex,
+    prop_xjnwejgcnzetdozzlja54kf2ca, observed on this box).
+
+    Four sources, most explicit first. The SOURCE is returned with the value
+    because an ai_id inferred from the package location is a weaker fact than one
+    the operator set, and a record that cannot say which it holds invites both to
+    be read as the same thing.
+    """
+    env = (os.environ.get("EMPIRICA_AI_ID") or "").strip()
+    if env:
+        return env, "env"
+    found = _ai_id_in(Path.cwd())
+    if found:
+        return found, "cwd"
+    # The checkout these plugin files came from. This is the one that answers
+    # the $HOME case: the deploy runs from anywhere, but the package is the
+    # practice's own editable install. A pip install has no .empirica here.
+    try:
+        found = _ai_id_in(Path(__file__).resolve().parents[3])
+        if found:
+            return found, "source_checkout"
+    except Exception as exc:
+        logger.debug("source checkout ai_id unknown: %s", exc)
+    try:
+        from empirica.utils.session_resolver import InstanceResolver as _R
+
+        found = (_R.ai_id() or "").strip() or None
+        if found:
+            return found, "session"
+    except Exception as exc:
+        logger.debug("session ai_id unknown: %s", exc)
+    return None, "unknown"
 
 
 def _deploying_commit() -> str | None:
@@ -1225,8 +1264,10 @@ def _write_plugin_version_stamp(plugin_dir: Path, version: str | None = None) ->
         import json as _json
         from datetime import datetime, timezone
 
+        ai_id, ai_id_source = _deploying_practice()
         record = {
-            "ai_id": _deploying_practice(),
+            "ai_id": ai_id,
+            "ai_id_source": ai_id_source,
             "version": resolved,
             "commit": _deploying_commit(),
             "written_at": datetime.now(timezone.utc).isoformat(),

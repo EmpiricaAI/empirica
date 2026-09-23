@@ -629,7 +629,17 @@ def check_plugin_freshness() -> Check:
     }
     # The copy is shared by every practice on the box, so a verdict says whose
     # deploy it is; "deployed 1.13.49" alone names no one to ask.
-    by = f" (written by {writer.get('ai_id') or '?'} at {str(writer.get('written_at') or '?')[:16]})" if writer else ""
+    # `ai_id_source` rides along when the practice was not named outright: an
+    # ai_id inferred from where the package sits is a weaker fact than one the
+    # operator set, and a line that cannot tell them apart invites both to be
+    # read the same way. Records written before 1.14 have no source field.
+    _src = (writer or {}).get("ai_id_source")
+    _via = f" via {_src}" if _src and _src not in ("env", "cwd") else ""
+    by = (
+        f" (written by {writer.get('ai_id') or '?'}{_via} at {str(writer.get('written_at') or '?')[:16]})"
+        if writer
+        else ""
+    )
 
     if failed.is_file():
         return Check(
