@@ -138,6 +138,7 @@ was *believed*, *chosen*, or *got wrong*.
 | **decision** | What did I choose, over what, and what reverses it? | a finding about how the system works |
 | **mistake** | What did **I** do wrong, and what prevents a repeat? | a finding — but a bug in the code is a finding; *shipping* it is a mistake |
 | **dead_end** | What approach genuinely does not work? | a transient failure or a tool hiccup |
+| **falsifier** | What OBSERVATION would refute a belief I am acting on? *(registered before the evidence, in the `falsifiers` array at PREFLIGHT/CHECK; names its parent artifact)* | a claim — but a claim dies at POSTFLIGHT and a falsifier outlives it, which is the point |
 
 **The two confusions worth naming.** A defect in the code is a **finding**; *you*
 shipping it is a **mistake**. Something unverified is an **assumption**; something

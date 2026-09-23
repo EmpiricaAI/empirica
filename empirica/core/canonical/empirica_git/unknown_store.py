@@ -81,6 +81,8 @@ class GitUnknownStore:
         subtask_id: str | None = None,
         resolved: bool = False,
         resolved_by: str | None = None,
+        created_at: str | None = None,
+        resolved_at: str | None = None,
     ) -> bool:
         """
         Store unknown in git notes
@@ -113,13 +115,16 @@ class GitUnknownStore:
                 "project_id": project_id,
                 "session_id": session_id,
                 "ai_id": ai_id,
-                "created_at": datetime.now(timezone.utc).isoformat(),
+                # From the caller when it knows: a backfill writing an old row
+                # must not date it today. Notes are canonical, so a fabricated
+                # timestamp here survives a rebuild and overwrites the true one.
+                "created_at": created_at or datetime.now(timezone.utc).isoformat(),
                 "unknown": unknown,
                 "goal_id": goal_id,
                 "subtask_id": subtask_id,
                 "resolved": resolved,
                 "resolved_by": resolved_by,
-                "resolved_at": datetime.now(timezone.utc).isoformat() if resolved else None,
+                "resolved_at": (resolved_at or datetime.now(timezone.utc).isoformat()) if resolved else None,
             }
 
             payload_json = json.dumps(payload, indent=2)

@@ -28,9 +28,16 @@ Three distinct failures:
 1. **`dead_end` (750) and `mistake` (133) have no lifecycle whatsoever.** They are
    permanent *negative* guidance — "approach X failed", "I did Y wrong, prevention: Z"
    — retrieved into future sessions to steer practitioners away. **Nothing ever
-   retries a dead-end**, so a mistaken one is invisible *by construction*: there is no
+   retries a dead-end**, so a mistaken one was invisible *by construction*: there was no
    event that could ever contradict it. A wrong dead-end silently removes a viable
    approach from the practice's option space, forever.
+
+   **1.14 supplies that event, opt-in:** a `falsifier` may name a dead_end or a
+   mistake as its parent — for a dead-end, the observation that would show the
+   approach works after all; for a mistake, the recurrence that would show its
+   `prevention` does not hold. A trip flags the artifact for a human
+   (`is_invalidated`) and never resolves it automatically. It is registered by
+   choice, so it narrows the blind spot rather than closing it.
 
 2. **`decision` (486) has the columns and no surface.** `outcome`,
    `outcome_assessed_at` and `regret_score` exist — someone designed this loop — but

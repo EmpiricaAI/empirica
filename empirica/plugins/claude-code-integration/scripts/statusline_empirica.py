@@ -411,8 +411,17 @@ def get_dynamic_threshold(db) -> tuple:
         from empirica.core.post_test.dynamic_thresholds import compute_dynamic_thresholds
         from empirica.utils.session_resolver import InstanceResolver as R
 
-        # Per-practice Brier thresholds — resolve the canonical ai_id.
-        dt = compute_dynamic_thresholds(ai_id=R.ai_id() or "claude-code", db=db)
+        # The SAME basis the gate enforces. Without the model the statusline
+        # showed the practice-wide threshold while sentinel-gate.py enforced the
+        # practitioner's own, and those diverge as soon as a model has enough
+        # points of its own — a number on screen that is not the number in force.
+        try:
+            from empirica.utils.practitioner_model import practitioner_model_now
+
+            _model = practitioner_model_now()
+        except Exception:
+            _model = None
+        dt = compute_dynamic_thresholds(ai_id=R.ai_id() or "claude-code", db=db, practitioner_model=_model)
         if dt.get("source") == "dynamic":
             noetic = dt.get("noetic", {})
             if noetic.get("brier_score") is not None:

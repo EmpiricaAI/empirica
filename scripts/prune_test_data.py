@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import json
 import sqlite3
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -95,6 +96,59 @@ def _referenced_in_workspace(conn, entity_id: str) -> list[str]:
                 if n:
                     hits.append(f"{table}.{col}")
     return hits
+
+
+#: Per-artifact note namespaces, keyed by the table the rows live in. Only tables
+#: this script deletes from are listed; a namespace shared by many artifacts
+#: (breadcrumbs, checkpoints) is never touched.
+_NOTE_NAMESPACES = {"goals": "goals"}
+
+
+def _note_refs_for(conn, test_sessions: list[str]) -> list[str]:
+    """Note refs belonging to rows this run will delete, that actually exist."""
+    if not test_sessions:
+        return []
+    marks = ",".join("?" * len(test_sessions))
+    refs = []
+    for table, namespace in _NOTE_NAMESPACES.items():
+        try:
+            ids = [r[0] for r in conn.execute(f"SELECT id FROM {table} WHERE session_id IN ({marks})", test_sessions)]
+        except Exception:
+            continue
+        for artifact_id in ids:
+            ref = f"refs/notes/empirica/{namespace}/{artifact_id}"
+            found = subprocess.run(
+                ["git", "rev-parse", "--verify", "--quiet", ref], capture_output=True, text=True, timeout=10
+            )
+            if found.returncode == 0:
+                refs.append(ref)
+    return refs
+
+
+def _remove_note_refs(refs: list[str]) -> int:
+    removed = 0
+    for ref in refs:
+        done = subprocess.run(["git", "update-ref", "-d", ref], capture_output=True, text=True, timeout=10)
+        if done.returncode == 0:
+            removed += 1
+    return removed
+
+
+def _free_backup_path(db_path: Path) -> Path:
+    """A backup name nothing else is using.
+
+    The stamp is per-SECOND, and the upgrade guide tells operators to run these
+    scripts back to back on one store — so two runs finishing in the same second
+    wrote the same filename, and the survivor was the POST-prune copy. A backup
+    that can be silently overwritten by the next step is not a rollback.
+    """
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    candidate = db_path.with_name(f"{db_path.name}.bak-{stamp}")
+    n = 2
+    while candidate.exists():
+        candidate = db_path.with_name(f"{db_path.name}.bak-{stamp}-{n}")
+        n += 1
+    return candidate
 
 
 def _prune_workspace(path: Path, apply: bool) -> dict:
@@ -178,6 +232,7 @@ def main() -> int:
             if n:
                 plan[table] = n
     plan["projects"] = len(removable_projects)
+    note_refs = _note_refs_for(conn, test_sessions)
 
     report: dict = {
         "ok": True,
@@ -189,13 +244,18 @@ def main() -> int:
         "kept_referenced_project_count": len(referenced),
         "rows_by_table": plan,
         "rows_total": sum(plan.values()),
+        # Rows and their notes go together. Deleting the row alone left the note
+        # standing, and notes are canonical: `rebuild` imports them back, so the
+        # prune re-created exactly the sqlite/notes divergence the doctor check in
+        # this same release reports. Measured on core: two fixture goals were
+        # gone from sqlite while refs/notes/empirica/goals/<id> survived.
+        "note_refs": len(note_refs),
     }
     if not args.apply:
         print(json.dumps(report, indent=2))
         return 0
 
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    backup = db_path.with_name(f"{db_path.name}.bak-{stamp}")
+    backup = _free_backup_path(db_path)
     with sqlite3.connect(str(backup)) as dst:
         conn.backup(dst)
     report["backup"] = str(backup)
@@ -215,6 +275,7 @@ def main() -> int:
             deleted["projects"] = conn.execute(
                 f"DELETE FROM projects WHERE id IN ({marks})", removable_projects
             ).rowcount
+    report["note_refs_removed"] = _remove_note_refs(note_refs)
     report["deleted"] = deleted
     report["deleted_total"] = sum(deleted.values())
     remaining = conn.execute(f"SELECT count(*) FROM sessions WHERE {_TEST_SESSION}", TEST_SESSION_IDS).fetchone()[0]

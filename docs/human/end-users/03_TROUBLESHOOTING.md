@@ -218,7 +218,18 @@ git config --global user.email "your@email.com"
 Error: Could not submit PREFLIGHT assessment
 ```
 
-**Cause:** Missing session, no project initialized, or invalid JSON
+**Cause:** Missing session, no project initialized, or invalid JSON — or, since
+1.14, a session that belongs to **another practice**. That one is a refusal
+rather than an error, and it names the owner:
+
+```json
+{"ok": false, "owning_practice": "empirica-cortex",
+ "owning_store": "/…/empirica-cortex/.empirica/sessions/sessions.db"}
+```
+
+Run it from that practice's checkout, or start a session for the practice you
+are in with `empirica session-create`. A session that exists nowhere still only
+warns and proceeds.
 
 **Solution:**
 ```bash

@@ -86,7 +86,7 @@ numbers need adjusting.
 
 | Layer | Term | Contains |
 |-------|------|----------|
-| Investigation outputs | **Noetic artifacts** | findings, unknowns, dead-ends, mistakes, blindspots, lessons |
+| Investigation outputs | **Noetic artifacts** | findings, unknowns, dead-ends, mistakes, blindspots, lessons, falsifiers |
 | Intent layer | **Epistemic intent** | assumptions, decisions, intent edges |
 | Action outputs | **Praxic artifacts** | goals, tasks, commits |
 | State measurements | **Epistemic state** | vectors, calibration, drift, snapshots, deltas |
@@ -410,7 +410,6 @@ compound — every "I'll just do it from memory" call is a calibration gap.
 | `/cortex-mailbox-send` | You want to send to a peer AI — FYI, question, request work, OR ack a proposal a peer made of YOU (completion handshake). Covers the collab vs ECO-gated flavor split. |
 {% endif %}
 | `/reporting-discipline` | **Before writing a reply that reports finished work, a correction, a release or a mesh outcome** — not after the user says it was too long. The drift is invisible from the inside: this practice held three memory entries on it and still had to be told. |
-| `/empirica-commands` | Need a specific CLI flag and `--help` isn't enough |
 | `/code-audit`, `/code-docs-align` | Pre-release pass OR after a refactor sweep that may have left drift |
 | `/epistemic-gardening` | **Not only a pre-release ceremony.** Load it (a) the moment PREFLIGHT/CHECK surfaces an artifact you can see is stale, superseded or FALSE — that is gardening *inside* the transaction, one `finding-resolve` away, not a separate pass; (b) before a release or periodically, for the full sweep; (c) when a peer's report makes you doubt a chunk of your graph. **Correcting one artifact you just noticed is the common case; the full pass is the rare one.** |
 | `/epistemic-persistence-protocol` | User pushes back on your position — load BEFORE responding to classify the pushback type |
@@ -439,9 +438,11 @@ empirica project-search --task "..." --global
 empirica log-artifacts -             # JSON graph: nodes + edges
 empirica resolve-artifacts -         # JSON: batch resolve unknowns/assumptions/goals
 empirica delete-artifacts -          # JSON: batch delete stale artifacts
+empirica falsifier-list              # open falsifiers + counts by state
 ```
 
-For full CLI reference: load `/empirica-commands` skill.
+For a specific flag: `empirica <verb> --help`, or `--schema` on the payload verbs.
+Full reference: `docs/human/developers/CLI_COMMANDS_UNIFIED.md`.
 
 ---
 
@@ -601,7 +602,9 @@ Infer epistemic actions from conversation naturally:
 | Error made — *you* did something wrong (not the code) | `mistake-log --mistake "..." --why-wrong "..." --prevention "..."` — `--prevention` is the load-bearing field (what future-you needs to not repeat it), not optional |
 | Choice point | `decision-log --choice "..." --rationale "..." --reversibility <exploratory\|committal\|forced>` |
 | **At CHECK, before acting** | Name the **2–3 claims the praxic work actually rests on** in the `claims` array, each with how it was grounded: `ran` (executed + observed) · `read` (opened the source) · `retrieved` (from OUR OWN prior artifact — *testimony, not observation*) · `assumed` (acting without checking). CHECK echoes back how many are weakly grounded, while you can still do something about it. |
+| **A belief you are ACTING on that later evidence could refute** | Register a falsifier in `falsifiers` at PREFLIGHT or CHECK: `{statement, query, falsifies: <finding\|assumption\|decision\|dead_end\|mistake\|lesson id>}`. The `statement` is the OBSERVATION that would refute it, not a conclusion — *"any publish row where `decided_by_kind` reads human"*, never *"if I find evidence I'm wrong"*. A `query` is strongly preferred: it can be re-run by someone who does not know the belief. Unlike a claim it OUTLIVES the transaction, and every later PREFLIGHT re-surfaces it until adjudicated — which is the point, because the refutation almost always arrives after the window has closed. |
 | **At POSTFLIGHT, closing** | Adjudicate each claim: `held` · `refuted` · `untested`. Anything you don't adjudicate is **recorded as `untested` and reported as a gap** — that is the point, not a penalty. `refuted` is rare and `held` is cheap; *"I acted on this and never checked it"* is the state a single `know` score cannot express. |
+| **An open falsifier, at POSTFLIGHT** | Adjudicate under `falsifiers`: `tripped` (say what fired it), `survived`, or `expired`. **`survived` needs evidence that you looked at the population** — without it the verdict is recorded as `expired`, because nobody having looked is not the same as the belief holding. Leaving it open is legitimate: it keeps surfacing. |
 | **A claim you previously logged turns out to be FALSE** | `finding-resolve <id> --kind retracted --resolution "why it was wrong"` — **not** the housekeeping row below. Retraction is a distinct act from closing what is done, and the two feel identical in the moment: the first records progress, the second records error. **A practice whose resolutions are almost all `stale` was not rarely wrong — it had no way to say so**, and a graph that cannot distinguish its ageing from its errors cannot calibrate on either. Check your own ratio; near-zero is a reporting artifact, not a track record. If the claim was true when written and merely aged, that is `--kind stale`; if a newer artifact replaced it, `--kind superseded --superseded-by <id>`; if it was a mistake or another type wearing a finding's clothes, `--kind mistyped`. |
 | Something to check on later, but not worth a full artifact yet (a doubt, a follow-up, "this smells off", "ask peer X") | `empirica note "..."` (optionally `--tag followup\|doubt\|idea`) — a fast scratchpad note-to-self. Pure metadata, not shared, survives compaction; surfaces at POSTFLIGHT for triage (`note --list`, then promote to an artifact/goal or `note --clear`). Capture now, classify later. |
 | External material cited (URL, doc, paper, transcript) | `source-add` then link via `sourced_from` in `log-artifacts` |

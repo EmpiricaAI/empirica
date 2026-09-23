@@ -166,6 +166,7 @@ As the AI investigates, it logs structured artifacts automatically:
 | **Assumption** | An unverified belief, with confidence level | Tracked until verified or falsified |
 | **Decision** | A choice point, with rationale and alternatives | Permanent audit trail of why choices were made |
 | **Mistake** | An error, with root cause and prevention strategy | Feeds the cognitive immune system |
+| **Falsifier** | The observation that would prove a belief wrong, written down *before* the evidence | Catches the failure confidence cannot: a true measurement claimed more widely than it was taken. Resurfaces every session until someone checks it |
 
 **You can trigger these naturally:**
 - "I discovered that..." → finding-log

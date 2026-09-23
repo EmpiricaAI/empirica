@@ -270,6 +270,16 @@ Verdicts: `held` · `refuted` · `untested`. Address a claim by `index` (1-based
 declaration order) or `id`. The payload keys are `verdict` and `evidence` — `note` is
 accepted as an alias.
 
+**Falsifiers close here too, and they are not claims.** A `falsifiers` array at
+PREFLIGHT or CHECK registers the OBSERVATION that would refute a belief you are
+acting on — `{statement, query, falsifies: <artifact id>}` — and unlike a claim it
+OUTLIVES the transaction, surfacing at every later PREFLIGHT until adjudicated.
+At POSTFLIGHT: `{"falsifiers": [{"id": "f701c90f", "state": "tripped|survived|expired",
+"evidence": "...", "tripped_by": "..."}]}`. **`survived` needs evidence that you
+looked at the population**; without it the verdict is recorded as `expired`, because
+nobody having looked is not the same as the belief holding. Leaving one open is
+legitimate — that is the mechanism working. `empirica falsifier-list` shows them.
+
 **Anything you don't adjudicate is recorded as `untested` and reported as a gap.**
 That is the feature, not a penalty. `refuted` is rare, `held` is cheap, and *"I acted
 on this and never checked it"* is the one state a single `know` score cannot express.

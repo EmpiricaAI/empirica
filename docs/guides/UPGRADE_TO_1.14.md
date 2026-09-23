@@ -159,7 +159,7 @@ operator and on a multi-practice box no practice name would be true.
 ## Housekeeping scripts
 
 If your store predates the test-isolation fix, the suite may have written into
-it. Both scripts dry-run by default and back up before applying:
+it. All three scripts dry-run by default and back up before applying:
 
 ```bash
 python3 scripts/prune_orphan_reflexes.py --all-unregistered   # reflex rows

@@ -28,14 +28,19 @@ The load-bearing axis is **SHARED (practice) vs INDIVIDUAL (practitioner)**.
 Containment: **Agent ⊂ spawned-by Practitioner ⊂ occupies Practice.** Skill is
 orthogonal (a loaded capability). The Epistemic Profile is **two layers**, not one.
 
-**Code reality (verified 2026-06-24):**
-- Brier is aggregated **per-practice**: `get_brier_profile(ai_id, …)` → `WHERE ai_id = ?`;
-  sentinel + statusline both say "Brier thresholds are per-practice".
-- But the raw data is **per-practitioner**: `trajectory_tracker.record_trajectory_point`
+**Code reality (verified 2026-06-24; calibration half SHIPPED in 1.14):**
+- Brier *was* aggregated per-practice only. Since 1.14 the CHECK gate keys on the
+  **practitioner model within the practice** — `compute_dynamic_thresholds(…,
+  practitioner_model=…)` filters `calibration_trajectory.practitioner_model`
+  (migration 074) and falls back to the practice when that model has fewer than
+  `min_transactions` points. Every phase reports `basis`, `practitioner_points`
+  and `lookback`, so a fallback is never mistaken for a per-model reading. The
+  statusline passes the same model, so what it shows is what the gate enforces.
+- The raw data was already per-practitioner: `trajectory_tracker.record_trajectory_point`
   stores every cycle keyed on `(session_id, ai_id, vector)` with `self_assessed`,
-  `grounded`, `gap`. So a per-practitioner Brier/track-record is **latent — already
-  captured, just rolled up one level for calibration.** The build surfaces it; it
-  does not re-instrument.
+  `grounded`, `gap`. The 1.14 change surfaced it rather than re-instrumenting.
+  A **human** practitioner axis is still latent: `practitioner_model` names the
+  model, not the seat.
 
 ---
 
@@ -109,7 +114,7 @@ latent in existing data:
 | Leg-surgery **practice** | a practice (ai_id) | exists |
 | a **case / engagement** | the engagement substrate | **built (A1–A5)** |
 | **surgeons discussing** | live practitioners contributing attributed reads on the engagement | identity built (B2); deliberation record = new |
-| **Sentinel decides direction** by integrity + reliability + **feasibility** | Sentinel — today weighs *practice* calibration | extend to *per-practitioner* multi-signal arbitration |
+| **Sentinel decides direction** by integrity + reliability + **feasibility** | Sentinel — weighs the *practitioner model's* calibration within the practice, practice as fallback (1.14) | extend to multi-signal arbitration, and to the human seat rather than the model |
 | **fold the chosen direction back** | reliability-weighted update of the practice profile | new |
 
 A **deliberation** is a set of practitioner reads on one engagement: each read is

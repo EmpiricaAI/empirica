@@ -1435,8 +1435,14 @@ def _register_marketplace(marketplace_dir, plugins_dir, claude_dir, plugin_dir, 
         },
     )
 
-    plugin_names = [p.get("name") for p in marketplace.get("plugins", [])]
-    if PLUGIN_NAME not in plugin_names:
+    # First-write-wins on the ENTRY, but the version inside it has to keep up:
+    # the guard used to skip the whole block once registered, so marketplace.json
+    # still advertised the version of whichever release first registered the
+    # plugin. Measured on this box during the 1.14 sweep: `.plugin-version` read
+    # 1.14.0 while marketplace.json read 1.7.0 — seven minor versions stale, in a
+    # release whose theme is version truth.
+    entry = next((p for p in marketplace.get("plugins", []) if p.get("name") == PLUGIN_NAME), None)
+    if entry is None:
         marketplace.setdefault("plugins", []).append(
             {
                 "name": PLUGIN_NAME,
@@ -1450,6 +1456,12 @@ def _register_marketplace(marketplace_dir, plugins_dir, claude_dir, plugin_dir, 
         _write_json_file(marketplace_file, marketplace)
         if output_format != "json":
             print("   ✓ Added to marketplace.json")
+    elif entry.get("version") != PLUGIN_VERSION:
+        was = entry.get("version")
+        entry["version"] = PLUGIN_VERSION
+        _write_json_file(marketplace_file, marketplace)
+        if output_format != "json":
+            print(f"   ✓ marketplace.json version {was} → {PLUGIN_VERSION}")
 
     # Installed plugins registration
     installed_plugins_file = claude_dir / "plugins" / "installed_plugins.json"

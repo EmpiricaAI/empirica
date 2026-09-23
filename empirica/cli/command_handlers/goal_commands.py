@@ -3608,8 +3608,11 @@ def _write_prune_receipt(pruned: list[dict], modes_run: list[str], dry_run: bool
         # stdin, like every other note writer: argv caps one string at 128 KB and
         # a receipt grows with the prune (6a53e8c53 converted the `add` writers;
         # the two `append` ones were missed and the commit claimed all of them).
+        # Receipts go to their own ref: `breadcrumbs` is the session narrative
+        # and pre-compact writes it with `add -f`, which REPLACES whatever was
+        # appended there.
         subprocess.run(
-            ["git", "notes", "--ref=breadcrumbs", "append", "-F", "-"],
+            ["git", "notes", "--ref=empirica/receipts", "append", "-F", "-"],
             input=json.dumps(receipt),
             capture_output=True,
             text=True,

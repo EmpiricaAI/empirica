@@ -1048,8 +1048,14 @@ def log_artifacts_graph(
         try:
             import subprocess
 
+            # Receipts go to their own ref. `breadcrumbs` is the per-commit session
+            # narrative and the pre-compact hook writes it with `add -f`, which
+            # REPLACES — so a receipt appended here was destroyed by the next
+            # compaction, and until it was, it left the note as prose with JSON
+            # glued on the end: neither valid JSON nor clean text (18 of 771
+            # notes on core). Nothing reads receipts from breadcrumbs.
             subprocess.run(
-                ["git", "notes", "--ref=breadcrumbs", "append", "-F", "-"],
+                ["git", "notes", "--ref=empirica/receipts", "append", "-F", "-"],
                 input=json.dumps({"batch_log": len(ref_map), "edges": edges_wired}),
                 capture_output=True,
                 text=True,

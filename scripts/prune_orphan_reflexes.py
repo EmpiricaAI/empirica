@@ -48,7 +48,36 @@ _TEST_ROW = (
     "((session_id IN ({ids}) AND session_id NOT IN (SELECT session_id FROM sessions))"
     " OR session_id IN (SELECT session_id FROM sessions WHERE ai_id = 'test-ai'))"
 ).format(ids=",".join("?" * len(TEST_SESSION_IDS)))
-_UNREGISTERED = "project_id NOT IN (SELECT id FROM projects)"
+#: NULL-safe on BOTH sides, deliberately. `project_id NOT IN (SELECT id FROM
+#: projects)` evaluates to NULL — never TRUE — for a row whose project_id is
+#: NULL, so 1713 of core's 9378 reflexes were invisible to the scope, to both
+#: kept buckets, and to the partition check, which then reported a complete
+#: partition over 62% of the rows it claimed to cover. One NULL in `projects.id`
+#: would have made the predicate NULL for every row and selected nothing, still
+#: reporting clean.
+#:
+#: A NULL project_id is "unstamped", not "foreign": a store belongs to one
+#: project, so such a row is this practice's (see bind_store_sessions.py). It is
+#: in scope here only so the counts are honest — selection still requires the row
+#: to be provably a test row.
+_UNREGISTERED = "(project_id IS NULL OR NOT EXISTS (SELECT 1 FROM projects p WHERE p.id = reflexes.project_id))"
+
+
+def _free_backup_path(db_path: Path) -> Path:
+    """A backup name nothing else is using.
+
+    The stamp is per-SECOND, and the upgrade guide tells operators to run these
+    scripts back to back on one store — so two runs finishing in the same second
+    wrote the same filename, and the survivor was the POST-prune copy. A backup
+    that can be silently overwritten by the next step is not a rollback.
+    """
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    candidate = db_path.with_name(f"{db_path.name}.bak-{stamp}")
+    n = 2
+    while candidate.exists():
+        candidate = db_path.with_name(f"{db_path.name}.bak-{stamp}-{n}")
+        n += 1
+    return candidate
 
 
 def main() -> int:
@@ -56,7 +85,11 @@ def main() -> int:
     ap.add_argument("--db", default=".empirica/sessions/sessions.db")
     scope = ap.add_mutually_exclusive_group(required=True)
     scope.add_argument("--project-id", help="one unregistered project id")
-    scope.add_argument("--all-unregistered", action="store_true", help="every project id with no projects row")
+    scope.add_argument(
+        "--all-unregistered",
+        action="store_true",
+        help="every row whose project is unregistered, or unstamped (NULL)",
+    )
     ap.add_argument("--apply", action="store_true")
     args = ap.parse_args()
 
@@ -112,8 +145,7 @@ def main() -> int:
         print(json.dumps(report, indent=2))
         return 0
 
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    backup = db_path.with_name(f"{db_path.name}.bak-{stamp}")
+    backup = _free_backup_path(db_path)
     with sqlite3.connect(str(backup)) as dst:
         conn.backup(dst)
     report["backup"] = str(backup)

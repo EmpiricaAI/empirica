@@ -88,6 +88,7 @@ class GitFindingStore:
         superseded_by: str | None = None,
         resolution_kind: str | None = None,
         created_at: str | None = None,
+        resolved_at: str | None = None,
     ) -> bool:
         """
         Store finding in git notes
@@ -134,7 +135,12 @@ class GitFindingStore:
                 "resolution": resolution,
                 "superseded_by": superseded_by,
                 "resolution_kind": resolution_kind,
-                "resolved_at": datetime.now(timezone.utc).isoformat() if is_resolved else None,
+                # WHEN it was resolved, from the caller when it knows — a backfill
+                # or a re-write of an old artifact does. Stamping `now` there put
+                # the backfill instant into the canonical log for 954 findings
+                # whose true resolution dates SQLite still held, and notes are what
+                # `rebuild` imports back.
+                "resolved_at": (resolved_at or datetime.now(timezone.utc).isoformat()) if is_resolved else None,
             }
 
             # Serialize

@@ -101,7 +101,10 @@ when you change directories mid-conversation.
 
 ### The implicit way
 
-If you forget to `project-switch`, things still mostly work — but with caveats:
+Since 1.14 one case no longer "mostly works": a PREFLIGHT whose session belongs
+to **another registered practice** is refused before any write, naming the owning
+practice and its store. A session that exists nowhere still only warns — that is
+a legitimate first transaction. The rest of the caveats stand:
 
 - `session-create` will auto-link to whatever project the current `cwd`
   resolves to (via git remote, then `project.yaml`)

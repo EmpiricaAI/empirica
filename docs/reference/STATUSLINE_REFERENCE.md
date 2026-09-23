@@ -60,14 +60,14 @@ Tiered emoji maps to the value:
 
 ### 2. Dynamic CHECK Threshold — `↕70%`
 
-The Brier-calibrated **know** threshold the Sentinel requires for auto-proceed past CHECK. Arrow color signals **calibration health** (how much the Sentinel trusts your self-assessment):
+The Brier-calibrated **know** threshold the Sentinel requires for auto-proceed past CHECK. Since 1.14 it is computed on the same basis the gate enforces: the current practitioner model's own calibration within the practice, falling back to the practice when that model has too few points. Arrow color signals **calibration health** (how much the Sentinel trusts your self-assessment):
 
 | Color | Threshold inflation | Meaning |
 |-------|--------------------|---------|
 | green | ≤ 0.03 | Well-calibrated — threshold at baseline |
 | yellow | ≤ 0.10 | Moderate miscalibration detected |
 | red | > 0.10 | Significant miscalibration — Sentinel raises the bar |
-| gray | — | Static fallback (no Brier data yet) |
+| gray | — | Static fallback — neither the model nor the practice has enough calibrated transactions yet |
 
 The threshold rises as your predicted confidence diverges from actual outcomes. It falls back as calibration improves. **The number you see is what you need to hit in PREFLIGHT know to skip CHECK.**
 

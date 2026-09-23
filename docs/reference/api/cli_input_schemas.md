@@ -69,6 +69,13 @@ accepts.
   `{claim, grounding: read|ran|retrieved|assumed, ref}`. Declaring one grounded
   by `read` or `ran` certifies the transaction, so praxic may proceed without a
   separate CHECK.
+- `falsifiers: list[dict]` — Observations that would refute a belief this work
+  acts on, registered BEFORE the evidence. Each
+  `{statement, query, falsifies: <finding|assumption|decision|dead_end|mistake|lesson id>}`.
+  One with no parent, or a parent that does not resolve, is refused and named
+  rather than stored. Unlike `claims`, a falsifier outlives the transaction: it
+  is surfaced at every later PREFLIGHT until a POSTFLIGHT adjudicates it. Also
+  accepted on CHECK and POSTFLIGHT (see below).
 - `engagement_id: str` — Opaque reference to the engagement this work belongs
   to. Core never resolves or interprets it; engagement entities and their types
   live in the workspace layer. A goal created inside this transaction without
@@ -100,6 +107,21 @@ runs grounded verification, and produces a calibration score.
 - `reasoning: str` — Retrospective explanation (optional, max 5000 chars)
 - `learnings: str` — Key learnings from the transaction (optional, max 5000 chars)
 - `goal_id: str` — Optional goal UUID for goal-progress linkage
+- `claims: list[dict]` — Verdicts for the claims declared at PREFLIGHT or CHECK:
+  `{claim|index|id, verdict: held|refuted|untested, evidence}`. Anything not
+  adjudicated is recorded `untested` and reported as a gap.
+- `falsifiers: list[dict]` — Verdicts for OPEN falsifiers, this transaction's or
+  any earlier one's: `{id, state: tripped|survived|expired, evidence,
+  tripped_by}`. `survived` requires evidence that the population was observed;
+  without it the verdict is recorded as `expired`. Unknown or already-closed
+  ids are reported, not dropped.
+
+> **CHECK** (`check-submit`) has no pydantic model — the handler reads its
+> payload off the raw dict. It accepts `vectors`, `reasoning`, `decision`,
+> `cycle`, `round`, `confidence`, `approach`, `verbose`, `session_id`, plus
+> `claims` and `falsifiers` with the same shapes as PREFLIGHT. The consumed set
+> is pinned in `validation.RAW_CONSUMED` and checked by
+> `tests/test_ignored_keys_are_announced.py`.
 
 ### `FindingInput`
 
