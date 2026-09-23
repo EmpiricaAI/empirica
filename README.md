@@ -2,7 +2,7 @@
 
 > **We Gave AI a Mirror. Now It Measures What It Believes.**
 
-[![Version](https://img.shields.io/badge/version-1.13.51-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.13.51)
+[![Version](https://img.shields.io/badge/version-1.14.0-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.14.0)
 [![PyPI](https://img.shields.io/pypi/v/empirica)](https://pypi.org/project/empirica/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -114,13 +114,13 @@ empirica setup
 
 ```bash
 # Security-hardened Alpine image (~276MB, recommended)
-docker pull nubaeon/empirica:1.13.51-alpine
+docker pull nubaeon/empirica:1.14.0-alpine
 
 # Standard image (Debian slim, ~414MB)
-docker pull nubaeon/empirica:1.13.51
+docker pull nubaeon/empirica:1.14.0
 
 # Run
-docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.13.51 /bin/bash
+docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.14.0 /bin/bash
 ```
 </details>
 
@@ -381,7 +381,7 @@ deliberate choice rather than something you infer from a feature table.
 | **[Architecture](docs/architecture/)** | Technical reference for contributors |
 | **[Claude Code Setup](docs/human/developers/CLAUDE_CODE_SETUP.md)** | Install + system prompt + plugin wiring |
 | **[Changelog](CHANGELOG.md)** | Full release history — every version since 1.0 |
-| **[Upgrade to 1.13](docs/guides/UPGRADE_TO_1.13.md)** | Migration guide for the 1.12.x → 1.13 jump — two deliberate breaking changes, both fail-safe. Older guides (1.9–1.11) live in [docs/guides/](docs/guides/) |
+| **[Upgrade to 1.14](docs/guides/UPGRADE_TO_1.14.md)** | Migration guide for the 1.13.x → 1.14 jump — one behaviour change that can refuse work, and it refuses in the safe direction. Older guides (1.9–1.13) live in [docs/guides/](docs/guides/) |
 
 ---
 
@@ -414,29 +414,16 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.13.51
+## What's New in 1.14.0
 
-- **Retrieval served retracted findings above their corrections.** `finding-resolve` promised "dropped from live retrieval", and only the PREFLIGHT pattern block honoured it. The shared search behind `project-search` and `investigate` never checked resolution state, and a promoted eidetic fact was a second copy that resolving the finding never reached. Three practices measured a finding retracted hours earlier at rank 1. Both collections now reconcile against SQLite before ranking; `project-search --include-resolved` reads history, and the JSON says which mode answered. Resolving also stamps `is_resolved`, `resolution_kind` and `superseded_by` onto the vector points, for readers that bypass search.
-- **`--superseded-by` stored whatever it was given.** Every list view prints 8-character ids, so pasting the tool's own output produced a dangling pointer. The value is now resolved to one full artifact id of any type, or the resolution is refused, at all four writers. The target of `finding-resolve` and `unknown-resolve` must also match exactly one row; an ambiguous prefix used to resolve every artifact sharing it.
-- **The phase boundary was session-scoped.** One CHECK anywhere in a session made every later POSTFLIGHT phase-aware, and its noetic row graded that transaction's evidence against an earlier, unrelated CHECK. Scoped to the transaction. This was the "second verification row" three stores measured.
-- **An `invalidates` edge with no kind guessed `superseded`.** It now closes the target unclassified and names the split move: re-log the half that holds, then supersede with a pointer. A partly wrong finding is two artifacts, not a fifth resolution kind.
-- **`log-artifacts` skipped two layers the single verbs wrote.** A batch-logged finding never reached the eidetic collection until the next session-end re-embed, and no batch-logged artifact of any type was ever written to git notes, the canonical log. On core that left 2499 of 4981 findings with no note. Both paths now mirror the single verbs. `scripts/backfill_git_notes.py` writes the missing notes with their original timestamp and resolution state; dry run by default.
-- **Two confidence formulas for a promoted fact.** Log-time and re-embed disagreed by up to 0.22 on the same finding, and with first-writer-wins the lower one would have stopped memory promotion. One function owns it now.
-- **A failed `project-embed` at session end was invisible.** The hook launches it detached and discards its output; it failed on every run for fifteen days. The command now records its outcome and `doctor` fails on a failed last run. Its summary also says how many facts were already present, since `eidetic: 0` is what a healthy re-run prints.
-- **The test suite wrote into the developer's live state.** Reflex rows into `sessions.db` (9307 since June, the false "verification outage" in the 1.13.50 notes), listener markers into `~/.empirica`, and the shared `workspace.db`, which one run opened for writing 37 times. The suite now runs under a throwaway `HOME` and session database; a traced full run writes nothing into the real home.
-## What's New in 1.13.46
-
-- **The calibration instrument penalised the behaviour the system prompt mandates.** `unknown_resolution_rate` counted every unknown in the session, unfloored and ungated, into `do`, `completion` and `impact` — so banking a question you could not yet answer emitted a hard `0.0` into three vectors, while the prompt calls a session reporting uncertainty with no unknown artifacts behind it an unsupported claim. Structural rather than a diligence failure: an unknown logged late in a session cannot be resolved inside it. The block eight lines below rewards the *same* class of act (`assumptions logged = epistemic honesty`), so one file treated banking uncertainty as a virtue and as absent impact at once — which is the strongest evidence the unknown side was never a deliberate judgment. Fixed **without a floor**, deliberately: a floor preserves an incentive under a friendlier number, which is what `issue_resolution_ratio`'s `0.2` does to its own zero. The metric is now a saturating **count of standing unknowns closed inside the window**, so neither banking uncertainty nor carrying a backlog can move it. Traced by empirica-mesh-support over three rounds, from an origin measurement by Carly R. Anderson's foundation seat across 17 practices.
-- **A grounded calibration value carried no provenance, so `0.0` could not be told from an observation of a different scope.** `calibration_trajectory` stored `grounded` and `gap` and nothing else — not the transaction, not the evidence count, not the raw counts behind the number. Migration **070** adds `transaction_id`, `evidence_count`, `primary_source` and `grounded_raw`. Every value was already computed and discarded (`GroundedVectorEstimate` carried `evidence_count` and `primary_source`; every `EvidenceItem` carried `raw_value`), so this is persistence, not new measurement. Nullable and **not backfilled** — the provenance of a historical row is exactly what was never recorded, and inventing it would manufacture the confidence the columns exist to make checkable.
-- **The completion evidence downgraded its own scope silently.** The collector is transaction-scoped when a transaction is in hand and session-cumulative when not, and both branches emitted the same bare float under the same metric name. The fallback now records `scope: transaction|session` beside its counts: it may still emit, it may not emit anonymously.
-- **A mixed-timestamp normalisation filed every ISO row under January 1970.** `'2026-09-13 01:15:52' GLOB '[0-9]*'` matches — an ISO date starts with a digit — so the numeric branch took it and `CAST` returned `2026.0`. Discriminated on `typeof()` instead, which answers the question being asked rather than inferring it from string shape.
-- **The `ruff` exclude protecting vendored skill payload only held for directory invocations.** Callers that pass changed files by path — pre-commit, and the POSTFLIGHT compliance checker — linted the excluded file anyway: 52 violations by path, 0 by directory, same file, same config. Worse than a no-op, because the obvious way to silence those violations is to reformat another practice's source, which is what the exclude exists to prevent. Pinned with `force-exclude`.
-- **`doctor`'s version oracle and its own remedy.** It asked the wrong question about what is running, and the remedy it printed could downgrade the box while satisfying the check that printed it.
-- **The mailbox retry is now gated on holding the key that makes it safe**, and the archive leg resolves the canonical `ai_id` from the roster.
-- **`/epistemic-editing`** ships with the Claude Code plugin — a grounded document-review pass (seven targets, a four-word grounding vocabulary, a galley with a per-flag decision store). Maintained by `empirica-paper`, hosted here because the other `/epistemic-*` skills live here. It is the first skill to ship executable payload, so it also brings `tests/test_skill_payload_scripts.py`: payload must parse, import stdlib only (the skill's "no install" promise, made checkable), ship the scripts it documents, and render a document it did not ship with.
----
-
-
+- **Calibration is keyed on the practitioner, inside the practice.** David's ruling of 2026-09-21: artifacts accrue to the practice, calibration to the practitioner inhabiting it. `ai_id` names the practice store, and one store pools every model that has worked in it — core's mixes Opus 5 and Fable 5.1 transactions from the same day. CHECK now reads the current model's own trajectory when it has enough points and the practice's until then, and every phase reports which basis it used and how many points the model had. Rows from before the model was recorded count for the practice only. The lean prompt's "the practitioner is fungible" line contradicted the ruling and is rewritten.
+- **Falsifiers: pre-registered disconfirmation as an artifact** (autonomy's FALSIFIER_SPEC, Phase 1). A falsifier names the observation that would refute a belief, registered BEFORE the evidence that tests it. It exists for a failure no confidence gate can see: a true measurement asserted past the population it was taken over adjudicates `held`, and the refutation usually arrives after the transaction has closed. So it outlives its transaction. - Register at PREFLIGHT or CHECK under `falsifiers`, naming the finding, assumption, decision, dead_end, mistake or lesson it tests. One with no parent, or a parent that does not resolve, is refused and named in the response, and is not stored. An unknown asserts nothing and cannot be falsified. - Every PREFLIGHT lists the practice's open falsifiers with the open total. - POSTFLIGHT adjudicates any open falsifier as `tripped`, `survived` or `expired`. A `survived` with no evidence is recorded as `expired`: nobody having looked is not the same as the belief holding. - `falsifier-list` prints them with counts by state.
+- **A PREFLIGHT whose session belongs to another registered practice is refused**, before any write, naming the practice and its store. A session that exists nowhere still only warns — that is a first transaction on a session created outside the CLI. Ownership is read from the workspace registry, and every failure to read it falls back to the warning rather than refusing work.
+- **A session records what code it is running** — version and content digest — into its presence record, and the listener daemon forwards it unchanged. The daemon is a separate, usually newer process, so a build measured at emit time describes the daemon and not the session. Both version strings are recorded with the disagreement flagged: on one box the environment's metadata read 1.13.50 over 1.13.51 code, and the digest is the authority over either. The fleet-wide read-back waits on cortex. - `--ai-id` on `setup` and `plugin-sync`, for a caller that genuinely knows which practice a deploy is for.
+- **Any artifact over 128 KB could never reach git notes.** Every note writer passed the body as one argv string, which Linux caps, so the write failed and the artifact existed only in SQLite — where a rebuild from notes drops it. All 20 writers now pass the body on stdin. Found by a backfill that wrote 2,806 missing notes and could not write one 103 KB finding.
+- **The notes/sqlite doctor check overcounted unstamped resolutions** by reporting every resolved artifact that had a note: 2,221 on core where 963 were real, and the count could not fall after a repair, so the check stayed WARN forever. It now reads each note's payload.
+- **The plugin writer stamp recorded no practice for a deploy run from a neutral directory**, and a first fix made it worse by naming the practice whose checkout the package came from — on a multi-practice box that is a plausible wrong name, which is worse than an honest blank. The record now always carries the operator (user@host), and a practice only when the invocation carries one, with the source recorded. `doctor` names the operator when no practice was recorded.
+- **`goals-list --output json` did not carry the truncation notice** the human header printed. The AI reads the JSON, so the surface with the remedy had no AI reading it (empirica-workspace).
 ## Privacy & Data
 
 **Your data stays local:**
@@ -464,6 +451,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 **Author:** David S. L. Van Assche
-**Version:** 1.13.51
+**Version:** 1.14.0
 
 *Turtles all the way down — built with its own epistemic framework, measuring what it knows at every step.*

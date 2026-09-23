@@ -22,9 +22,9 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.13.51
-**Generated:** 2026-09-22 08:15:42 UTC
-**Total commands:** 240 (across 24 categories)
+**Framework version:** 1.14.0
+**Generated:** 2026-09-23 10:48:44 UTC
+**Total commands:** 241 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
 `empirica <command> --help` — the generator extracts the same `help`
@@ -65,7 +65,7 @@ require `--session-id` (`project-bootstrap`, `sessions-show`,
 | [session](#session) | 8 | `session-create`, `sessions-list`, `sessions-show`, … |
 | [workflow](#workflow) | 4 | `preflight-submit`, `check`, `check-submit`, … |
 | [goals](#goals) | 16 | `goals-create`, `goals-list`, `goals-search`, … |
-| [logging](#logging) | 26 | `finding-log`, `finding-resolve`, `unknown-log`, … |
+| [logging](#logging) | 27 | `finding-log`, `finding-resolve`, `unknown-log`, … |
 | [project](#project) | 18 | `project-init`, `project-update`, `project-create`, … |
 | [workspace](#workspace) | 18 | `workspace-init`, `workspace-map`, `workspace-list`, … |
 | [checkpoint](#checkpoint) | 7 | `checkpoint-create`, `checkpoint-load`, `checkpoint-list`, … |
@@ -780,6 +780,21 @@ List open project unknowns (default) or resolved ones with --resolved. Useful at
   Output format
 - `--verbose` — optional · flag
   Show detailed operation info
+
+#### `empirica falsifier-list`
+
+List the practice's falsifiers: observations registered at PREFLIGHT or CHECK that would refute a belief. Open ones by default; --state tripped|survived|expired|all. Always prints counts by state.
+
+**Arguments:**
+
+- `--project-id` — optional
+  Project UUID (default: active)
+- `--state` — optional · type=`choice` · choices={registered, tripped, survived, expired, all} · default=`registered`
+  Which falsifiers to list (default: registered, i.e. open)
+- `--limit` — optional · type=`int` · default=`50`
+  Max rows (default 50)
+- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
+  Output format
 
 #### `empirica unknown-resolve`
 
@@ -3579,6 +3594,8 @@ Register/heartbeat this practitioner's presence
   Blocked-reason (emit-and-park signal)
 - `--session-pid` — optional · type=`int`
   Claude Code parent PID (os.getppid() at session-init) — the daemon's liveness anchor
+- `--record-build` — optional · flag
+  Record what this process is running (version + content digest) into the presence record. Passed by session-init, so the build belongs to the SESSION; the daemon that emits heartbeats is a different, usually newer process and leaves it alone.
 - `--ai-id` — optional
   Practice ai_id (default: resolve from project context)
 - `--location` — optional
@@ -4423,6 +4440,8 @@ Configure harness integration (hooks, system prompt, MCP server)
   Which harness to configure (default: $EMPIRICA_HARNESS, else claude-code). Supported: claude-code. Others are refused by name rather than silently handed Claude Code's files.
 - `--force` — optional · flag
   Reinstall plugin even if it already exists
+- `--ai-id` — optional
+  The practice this deploy is performed FOR, when the caller knows it (a single-practice box, or a script that was told). Recorded in the plugin's writer stamp. Left off on a multi-practice box: a fleet deploy is run by an operator, not by a practice, and a guessed name there is worse than none — the stamp records user@host either way.
 - `--skip-mcp` — optional · flag
   Skip MCP server installation and configuration
 - `--skip-credentials` — optional · flag
@@ -4454,6 +4473,8 @@ Re-sync the installed Claude Code plugin if it has drifted behind the running em
 
 - `--force` — optional · flag
   Sync even if the version stamp matches
+- `--ai-id` — optional
+  The practice this sync is performed FOR, when the caller knows it. See `setup --help`.
 - `--quiet` — optional · flag
   Suppress the human status line (still exits non-zero on error)
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`

@@ -5,6 +5,113 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.0] - 2026-09-23
+
+Two new epistemic mechanisms and a set of measurement fixes. The minor bump is
+for the first two: what CHECK measures and what steers future work both change.
+
+### Added
+
+- **Calibration is keyed on the practitioner, inside the practice.** David's
+  ruling of 2026-09-21: artifacts accrue to the practice, calibration to the
+  practitioner inhabiting it. `ai_id` names the practice store, and one store
+  pools every model that has worked in it — core's mixes Opus 5 and Fable 5.1
+  transactions from the same day. CHECK now reads the current model's own
+  trajectory when it has enough points and the practice's until then, and every
+  phase reports which basis it used and how many points the model had. Rows
+  from before the model was recorded count for the practice only. The lean
+  prompt's "the practitioner is fungible" line contradicted the ruling and is
+  rewritten.
+- **Falsifiers: pre-registered disconfirmation as an artifact** (autonomy's
+  FALSIFIER_SPEC, Phase 1). A falsifier names the observation that would refute
+  a belief, registered BEFORE the evidence that tests it. It exists for a
+  failure no confidence gate can see: a true measurement asserted past the
+  population it was taken over adjudicates `held`, and the refutation usually
+  arrives after the transaction has closed. So it outlives its transaction.
+  - Register at PREFLIGHT or CHECK under `falsifiers`, naming the finding,
+    assumption, decision, dead_end, mistake or lesson it tests. One with no
+    parent, or a parent that does not resolve, is refused and named in the
+    response, and is not stored. An unknown asserts nothing and cannot be
+    falsified.
+  - Every PREFLIGHT lists the practice's open falsifiers with the open total.
+  - POSTFLIGHT adjudicates any open falsifier as `tripped`, `survived` or
+    `expired`. A `survived` with no evidence is recorded as `expired`: nobody
+    having looked is not the same as the belief holding.
+  - `falsifier-list` prints them with counts by state.
+- **A PREFLIGHT whose session belongs to another registered practice is
+  refused**, before any write, naming the practice and its store. A session
+  that exists nowhere still only warns — that is a first transaction on a
+  session created outside the CLI. Ownership is read from the workspace
+  registry, and every failure to read it falls back to the warning rather than
+  refusing work.
+- **A session records what code it is running** — version and content digest —
+  into its presence record, and the listener daemon forwards it unchanged. The
+  daemon is a separate, usually newer process, so a build measured at emit time
+  describes the daemon and not the session. Both version strings are recorded
+  with the disagreement flagged: on one box the environment's metadata read
+  1.13.50 over 1.13.51 code, and the digest is the authority over either.
+  The fleet-wide read-back waits on cortex.
+- `--ai-id` on `setup` and `plugin-sync`, for a caller that genuinely knows
+  which practice a deploy is for.
+
+### Fixed
+
+- **Any artifact over 128 KB could never reach git notes.** Every note writer
+  passed the body as one argv string, which Linux caps, so the write failed and
+  the artifact existed only in SQLite — where a rebuild from notes drops it. All
+  20 writers now pass the body on stdin. Found by a backfill that wrote 2,806
+  missing notes and could not write one 103 KB finding.
+- **The notes/sqlite doctor check overcounted unstamped resolutions** by
+  reporting every resolved artifact that had a note: 2,221 on core where 963
+  were real, and the count could not fall after a repair, so the check stayed
+  WARN forever. It now reads each note's payload.
+- **The plugin writer stamp recorded no practice for a deploy run from a
+  neutral directory**, and a first fix made it worse by naming the practice
+  whose checkout the package came from — on a multi-practice box that is a
+  plausible wrong name, which is worse than an honest blank. The record now
+  always carries the operator (user@host), and a practice only when the
+  invocation carries one, with the source recorded. `doctor` names the operator
+  when no practice was recorded.
+- **`goals-list --output json` did not carry the truncation notice** the human
+  header printed. The AI reads the JSON, so the surface with the remedy had no
+  AI reading it (empirica-workspace).
+
+### Changed
+
+- The content digest that answers "what code is this" now has one definition,
+  shared by `doctor`, the presence record and the heartbeat.
+
+- **Eight silent failures found by a pre-release sweep of this diff**, each a
+  path where failure and success produced identical observables: a falsifier
+  registered under a session with no project was stored unreachable; a lesson's
+  `org` policy inherited as `local`, less visible than the lesson it tests; an
+  unreadable falsifier store read as "none open"; `falsifier-list` printed an
+  empty practice when it could not resolve one; the pre-compact breadcrumb
+  reported a tick whether or not git wrote it; artifact edges were reported
+  wired when only SQLite had them; a handoff reported stored with its markdown
+  half missing; and the prune script could have selected a real session's rows.
+- **The session hook survives a CLI older than the plugin.** The plugin
+  directory is user-global while each practice upgrades its own CLI, so 1.14's
+  `--record-build` would have been rejected by a 1.13 CLI — losing the whole
+  presence write, and with it the liveness anchor that keeps a quiet session
+  visible to the fleet. The hook now retries without the flag and reports a real
+  failure.
+
+### Internal
+
+- `scripts/prune_orphan_reflexes.py` removes reflex rows the test suite wrote
+  into a live store, selecting only provably-test rows and keeping rows from
+  real sessions. 16,487 removed from core with backups.
+- `scripts/prune_test_data.py` removes the rest of the suite's leavings —
+  sessions, fixture projects, captured issues, attention budgets — only where
+  the row itself says it is a fixture, and only for projects nothing
+  references. 1,797 rows removed from core; its `projects` table went from 916
+  rows to 1.
+- `scripts/bind_store_sessions.py` stamps sessions that carry no `project_id`
+  with the project their store belongs to. A store lives inside one project's
+  `.empirica/`, so this is a repair, not a guess.
+- `scripts/backfill_git_notes.py` names the ids it fails on.
+
 ## [1.13.51] - 2026-09-22
 
 ### Fixed

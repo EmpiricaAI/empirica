@@ -1225,32 +1225,41 @@ def _write_practitioner_presence(claude_session_id: str, ai_id: str, empirica_se
     """
     if not claude_session_id:
         return
+    base = [
+        "empirica",
+        "practitioner",
+        "write",
+        "--session",
+        claude_session_id,
+        "--ai-id",
+        ai_id,
+        "--empirica-session",
+        empirica_session_id,
+        "--session-pid",
+        str(os.getppid()),
+        "--output",
+        "json",
+    ]
+    # The session records what IT is running; the daemon forwards it.
     try:
-        subprocess.run(
-            [
-                "empirica",
-                "practitioner",
-                "write",
-                "--session",
-                claude_session_id,
-                "--ai-id",
-                ai_id,
-                "--empirica-session",
-                empirica_session_id,
-                # The session records what IT is running; the daemon forwards it.
-                "--record-build",
-                "--session-pid",
-                str(os.getppid()),
-                "--output",
-                "json",
-            ],
+        done = subprocess.run(
+            [*base, "--record-build"],
             capture_output=True,
             text=True,
             timeout=10,
             stdin=subprocess.DEVNULL,
         )
-    except Exception:
-        pass
+        # The plugin is shared and user-global while each practice upgrades its
+        # own CLI, so a plugin NEWER than the installed empirica is routine. An
+        # older CLI exits 2 on the unknown flag, and with the result unread the
+        # whole presence write was lost — taking the liveness anchor with it, so
+        # the session would read as dead to the fleet over a build field.
+        if done.returncode != 0 and "unrecognized arguments" in (done.stderr or ""):
+            done = subprocess.run(base, capture_output=True, text=True, timeout=10, stdin=subprocess.DEVNULL)
+        if done.returncode != 0:
+            print(f"presence write failed: {(done.stderr or '').strip()[:200]}", file=sys.stderr)
+    except Exception as exc:
+        print(f"presence write skipped: {type(exc).__name__}: {exc}", file=sys.stderr)
 
 
 def _handle_resume_path(claude_session_id: str, project_root: Path, ai_id: str) -> bool:
