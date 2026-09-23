@@ -115,3 +115,63 @@ def test_an_unreadable_store_is_skipped_not_fatal(tmp_path):
     )
     assert find_owning_practice("sess-x", workspace_db=reg)["name"] == "Good"
     assert good.is_file()
+
+
+def _missing_session_db():
+    """A SessionDatabase stand-in whose store holds no sessions and no near-miss."""
+
+    class _Cur:
+        def execute(self, *_a, **_k):
+            return self
+
+        def fetchone(self):
+            return None
+
+        def fetchall(self):
+            return []
+
+    class _Conn:
+        def cursor(self):
+            return _Cur()
+
+    class _DB:
+        db_path = None
+        conn = _Conn()
+
+        def close(self):
+            pass
+
+    return lambda *_a, **_k: _DB()
+
+
+# ── The wiring, not just the lookup ───────────────────────────────────────────
+# mesh-support's review of bad081c39: the unit tests above would all pass if the
+# call in PREFLIGHT were replaced with `pass`, and its blanket except would hide
+# a NameError the same way theirs did four hours earlier. These two are the
+# control — the first fails if the lookup stops being called or its result stops
+# being used, the second fails if the except stops being a fallback.
+def test_preflight_refuses_when_the_lookup_names_an_owner(monkeypatch):
+    from empirica.cli.command_handlers import _workflow_preflight as wp
+
+    monkeypatch.setattr(wp, "SessionDatabase", _missing_session_db(), raising=False)
+    monkeypatch.setattr(
+        "empirica.core.practice_ownership.find_owning_practice",
+        lambda *_a, **_k: {"name": "Peer", "project_id": "p-peer", "db_path": "/peer/sessions.db"},
+    )
+    out = wp._preflight_check_session_exists("sess-peer")
+    assert out["refuse"] is True
+    assert out["owning_practice"] == "Peer"
+    assert "Peer" in out["message"]
+
+
+def test_preflight_still_warns_when_the_lookup_raises(monkeypatch):
+    from empirica.cli.command_handlers import _workflow_preflight as wp
+
+    def boom(*_a, **_k):
+        raise RuntimeError("registry on fire")
+
+    monkeypatch.setattr(wp, "SessionDatabase", _missing_session_db(), raising=False)
+    monkeypatch.setattr("empirica.core.practice_ownership.find_owning_practice", boom)
+    out = wp._preflight_check_session_exists("sess-nowhere")
+    assert out is not None and not out.get("refuse"), "a broken lookup must fall back to the warning"
+    assert "No session row" in out["message"]

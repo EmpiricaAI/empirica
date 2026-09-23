@@ -198,6 +198,18 @@ def _preflight_check_session_exists(session_id):
             # it already happened and left an orphan row here, unknown 4ca7fcc7).
             # If it exists nowhere, warn exactly as before: that is a first
             # transaction on a session created outside the CLI.
+            # Ownership is read from workspace.db `entity_registry`, NOT from the
+            # projects-list manifest. The manifest is the more obvious choice and
+            # it is wrong: a test suite can write into it, and on core it holds
+            # zero projects and one leaked pytest tmp root. A registry a test can
+            # write into is not a registry (mesh-support measured the same class
+            # on their side). If this lookup ever moves, keep the source.
+            #
+            # And keep the integration test with it: this blanket except cannot be
+            # verified by "it did not raise" — a swallowed NameError looks exactly
+            # like a working channel. The test that fails when the call below is
+            # replaced with `pass` is the control (mesh-support shipped that exact
+            # bug four hours before reviewing this).
             try:
                 from empirica.core.practice_ownership import find_owning_practice
 
