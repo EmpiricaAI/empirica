@@ -96,6 +96,16 @@ def _add_practitioner_group(subparsers):
         type=int,
         help="Claude Code parent PID (os.getppid() at session-init) — the daemon's liveness anchor",
     )
+    write.add_argument(
+        "--record-build",
+        dest="record_build",
+        action="store_true",
+        help=(
+            "Record what this process is running (version + content digest) into the presence "
+            "record. Passed by session-init, so the build belongs to the SESSION; the daemon "
+            "that emits heartbeats is a different, usually newer process and leaves it alone."
+        ),
+    )
     write.add_argument("--ai-id", dest="ai_id", help="Practice ai_id (default: resolve from project context)")
     write.add_argument("--location", help="Location/instance_id (default: resolve from current process)")
     write.add_argument("--empirica-session", dest="empirica_session", help="Empirica session id (default: resolve)")

@@ -1237,6 +1237,8 @@ def _write_practitioner_presence(claude_session_id: str, ai_id: str, empirica_se
                 ai_id,
                 "--empirica-session",
                 empirica_session_id,
+                # The session records what IT is running; the daemon forwards it.
+                "--record-build",
                 "--session-pid",
                 str(os.getppid()),
                 "--output",

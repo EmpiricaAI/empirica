@@ -52,6 +52,17 @@ def handle_practitioner_write_command(args) -> int:
         empirica_sid = getattr(args, "empirica_session", None) or R.session_id(claude_session_id=cc)
         tx = getattr(args, "active_transaction", None) or R.transaction_id(claude_session_id=cc)
         status = getattr(args, "status", "active")
+        # Only the SESSION records what it is running, and only when it says so
+        # (--record-build, passed by session-init). Measured in THIS process,
+        # which is the session's own tooling. A daemon touch leaves it out, and
+        # write_presence then preserves whatever the session recorded — without
+        # that, the daemon's newer build would overwrite the session's, which is
+        # the exact confusion this field exists to remove.
+        build = None
+        if getattr(args, "record_build", False):
+            from empirica.core.build_facts import in_process_build
+
+            build = in_process_build()
         try:
             rec = write_presence(
                 cc,
@@ -62,6 +73,7 @@ def handle_practitioner_write_command(args) -> int:
                 active_transaction_id=tx,
                 empirica_session_id=empirica_sid,
                 session_pid=getattr(args, "session_pid", None),
+                build=build,
             )
         except ValueError as ve:
             return _emit_user_error(args, str(ve))

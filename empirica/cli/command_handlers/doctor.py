@@ -1444,46 +1444,11 @@ def _version_key(v: str) -> tuple:
 _VERSION_LINE = re.compile(rb"^__version__\s*=.*$", re.MULTILINE)
 
 
-def package_content_digest(pkg_dir: Path) -> str | None:
-    """sha256 over a package's `.py` sources — WHAT the code is, not what it is called.
-
-    The first digest definition for the version-truth work (David-directed
-    2026-09-17). Two rules learned the same evening:
-
-    * **An identical version string is not evidence of identical code, and a
-      differing one is not evidence of different code.** Measured on one box for one
-      package: `__version__` 1.8.14, dist-info 1.13.46, pyproject 1.13.47 — over
-      `.py` trees that were byte-identical. Every string misstated the code, each in
-      a different direction. Content is the only authority.
-    * **The digest must not smuggle the string back in.** `__version__ = "..."` lines
-      are normalised before hashing. Without that, correcting a stale version string
-      flips the digest of otherwise identical code — which is exactly what happened
-      between cortex's measurement ("byte-identical") and mine an hour later (one
-      file differing, by one line, because I had fixed the string).
-
-    Relative paths are part of the hash, so a moved or renamed module counts as a
-    change. `__pycache__` and non-`.py` files are ignored. Returns None when the
-    directory cannot be read — "could not compare" must never read as "same".
-    """
-    import hashlib
-
-    try:
-        files = sorted(p for p in pkg_dir.rglob("*.py") if "__pycache__" not in p.parts)
-    except OSError:
-        return None
-    if not files:
-        return None
-    h = hashlib.sha256()
-    for f in files:
-        try:
-            body = f.read_bytes()
-        except OSError:
-            return None
-        h.update(str(f.relative_to(pkg_dir)).encode())
-        h.update(b"\0")
-        h.update(_VERSION_LINE.sub(b"__version__ = <normalised>", body))
-        h.update(b"\0")
-    return h.hexdigest()
+# The digest lives in empirica/core/build_facts.py, where the presence record and
+# the heartbeat also read it: two definitions of "what code is this" would drift,
+# and this one is what says a seat is running something other than it claims.
+# Re-exported here because doctor's checks and its tests reach for it by name.
+from empirica.core.build_facts import package_content_digest  # noqa: E402
 
 
 def _mcp_content_state() -> tuple[str | None, dict[str, Any]]:

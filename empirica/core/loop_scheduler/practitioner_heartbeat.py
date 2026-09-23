@@ -178,6 +178,14 @@ def _practitioner_body(
     }
     if canonical_ai_id:
         body["ai_id"] = canonical_ai_id
+    # Forwarded UNCHANGED from the record. This daemon is not the session and
+    # usually runs a newer build, so anything it measured here would describe
+    # itself; the only honest thing it can do with the session's build is carry
+    # it. Absent on records written before this shipped, and omitted rather than
+    # sent as null so cortex can tell "not reported" from "reported empty".
+    build = record.get("build")
+    if isinstance(build, dict) and build:
+        body["build"] = build
     if emitter_id:
         # WHO sent this row, as distinct from WHOSE it is.
         #

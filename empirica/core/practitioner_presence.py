@@ -158,6 +158,7 @@ def write_presence(
     empirica_session_id: str | None = None,
     practitioner_id: str | None = None,
     session_pid: int | None = None,
+    build: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Upsert the practitioner's presence record (stamps ``last_heartbeat``=now).
 
@@ -173,14 +174,21 @@ def write_presence(
     PRESERVED rather than clobbered, so the anchor survives high-churn rewrites
     (the per-turn refresh, a daemon touch).
     """
+    # `build` is what the SESSION is running, recorded by the session itself.
+    # The daemon that emits the heartbeat is a different, usually newer process,
+    # so a build read at emit time measures the daemon (that was the first
+    # attempt, and it was wrong). Preserved across rewrites that do not re-supply
+    # it, like `session_pid`: a per-turn refresh must not blank it.
     if status not in VALID_STATUS:
         raise ValueError(f"invalid status {status!r} — must be one of {VALID_STATUS}")
     EMPIRICA_DIR.mkdir(parents=True, exist_ok=True)
     # Preserve the liveness anchor across rewrites that don't re-supply it.
-    if session_pid is None:
-        prior = read_presence(claude_session_id)
-        if prior is not None and isinstance(prior.get("session_pid"), int):
+    if session_pid is None or build is None:
+        prior = read_presence(claude_session_id) or {}
+        if session_pid is None and isinstance(prior.get("session_pid"), int):
             session_pid = prior["session_pid"]
+        if build is None and isinstance(prior.get("build"), dict):
+            build = prior["build"]
     record: dict[str, Any] = {
         "claude_session_id": claude_session_id,
         # nullable seam — becomes user_id × practice_id × harness_class when the
@@ -193,6 +201,7 @@ def write_presence(
         "active_transaction_id": active_transaction_id,
         "empirica_session_id": empirica_session_id,
         "session_pid": session_pid,
+        "build": build,
         "last_heartbeat": time.time(),
     }
     _atomic_write_presence(presence_path(claude_session_id), record)
