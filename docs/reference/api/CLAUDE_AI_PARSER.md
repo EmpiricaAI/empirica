@@ -1,18 +1,28 @@
-# ClaudeAIParser — Claude.ai Conversation Import
+# ClaudeAIParser — Claude.ai conversation import
 
-## Overview
+`ClaudeAIParser` reads a Claude.ai export and normalises it into the same
+`ConversationTurn` objects `TranscriptParser` produces for Claude Code
+transcripts, so one artifact extractor serves both sources.
 
-`ClaudeAIParser` parses Claude.ai exported conversations into Empirica's
-artifact format. It handles the real export format (ZIP archive with
-`conversations.json`) and extracts epistemically relevant content.
+It lives in `empirica/core/canonical/transcript_parser.py`, beside
+`TranscriptParser`, because they share that interface.
 
-## Export Format
+> Rewritten 2026-09-23 against the code. The previous revision documented a
+> module path that does not exist (`empirica.core.profile.claude_ai_parser`) and
+> three methods that were never on the class (`parse_zip`, `parse_json`,
+> `extract_artifacts`). Everything below was read off the implementation and the
+> one caller.
 
-Claude.ai exports as a ZIP containing:
-- `conversations.json` — Array of conversation objects
-- `memories.json` — Claude's internal memory about the user
+## Export format
 
-### conversations.json Structure
+A Claude.ai export is a ZIP archive holding:
+
+- `conversations.json` — the conversations, each with `chat_messages[]`
+- `memories.json` — Claude's memory about the user
+- `projects.json` — project metadata and docs
+- `users.json` — the user profile
+
+A conversation's messages carry `content[]` blocks:
 
 ```json
 [
@@ -20,14 +30,11 @@ Claude.ai exports as a ZIP containing:
     "uuid": "abc123",
     "name": "Conversation Title",
     "created_at": "2026-01-15T10:30:00Z",
-    "updated_at": "2026-01-15T11:45:00Z",
     "chat_messages": [
       {
         "uuid": "msg-1",
         "sender": "human",
-        "content": [
-          { "type": "text", "text": "..." }
-        ],
+        "content": [{ "type": "text", "text": "..." }],
         "created_at": "2026-01-15T10:30:00Z"
       },
       {
@@ -35,7 +42,7 @@ Claude.ai exports as a ZIP containing:
         "sender": "assistant",
         "content": [
           { "type": "text", "text": "..." },
-          { "type": "tool_use", "name": "search", "input": {...} },
+          { "type": "tool_use", "name": "search", "input": {} },
           { "type": "tool_result", "content": "..." }
         ]
       }
@@ -44,51 +51,62 @@ Claude.ai exports as a ZIP containing:
 ]
 ```
 
-**Critical**: Parse `content[]` blocks, NOT the `text` field. 87/654 messages
-have text vs content mismatches. The `text` field drops tool_use/tool_result details.
+**Parse `content[]`, never the `text` field.** `text` is a display-oriented
+flattening that drops tool blocks, and the two disagree on about 13% of messages
+(87 of 654 when this was measured). The parser's own docstring carries the same
+warning.
 
 ## Usage
 
 ```python
-from empirica.core.profile.claude_ai_parser import ClaudeAIParser
+from empirica.core.canonical.artifact_extractor import ArtifactExtractor
+from empirica.core.canonical.transcript_parser import ClaudeAIParser
 
 parser = ClaudeAIParser()
 
-# Parse from ZIP file
-conversations = parser.parse_zip("/path/to/claude-export.zip")
+# One entry point. It takes the ZIP, or a conversations.json directly.
+turns, metadata = parser.parse_export("/path/to/claude-export.zip")
 
-# Parse from JSON directly
-conversations = parser.parse_json("/path/to/conversations.json")
-
-# Extract artifacts
-for conv in conversations:
-    artifacts = parser.extract_artifacts(conv)
-    # artifacts: List[Dict] with type, content, confidence, source_turn
+extractor = ArtifactExtractor(min_confidence=0.3)
+result = extractor.extract_all(turns, source="claude-ai")
 ```
 
-## Content Block Types
+`parse_export` returns `(turns, metadata)`:
 
-| Type | Count (typical) | Description |
-|------|-----------------|-------------|
-| `text` | ~756 | Plain text messages |
-| `tool_use` | ~272 | Tool invocations with name + input |
-| `tool_result` | ~200 | Tool results with content |
-| `thinking` | varies | Claude's reasoning (when visible) |
+- `turns` — `list[ConversationTurn]`, flattened across every conversation in the
+  export.
+- `metadata` — `source`, `conversation_count`, `file_path`, `total_turns`, plus
+  `has_memories` / `memories` and `has_projects` / `project_count` when the ZIP
+  carried them.
 
-## Integration with Profile Import
+A missing file, unreadable JSON or an unrecognised shape returns `([], {})` with
+a warning logged. It does not raise.
+
+## Content block types
+
+| Type | Description |
+|------|-------------|
+| `text` | plain message text |
+| `tool_use` | a tool invocation, with name and input |
+| `tool_result` | the result of one |
+| `thinking` | reasoning, when the export carries it |
+
+## Through the CLI
 
 ```bash
-# Import Claude.ai conversations into Empirica profile
 empirica profile-import --source claude-ai --file ~/Downloads/claude-export.zip
-
-# Dry-run to preview what would be imported
 empirica profile-import --source claude-ai --file ~/Downloads/claude-export.zip --dry-run
 ```
 
+`--file` is required for `--source claude-ai`. `--min-confidence` sets the
+extractor's floor; `--output json` prints the machine form. The handler is
+`_import_from_claude_ai` in `empirica/cli/command_handlers/profile_commands.py`,
+which is the code path this page documents.
+
 ## memories.json
 
-Contains Claude's internal memory about the user — a pre-built epistemic
-profile. Format: array of memory entries with confidence scores.
+Claude's memory about the user: a pre-built epistemic profile, returned under
+`metadata["memories"]` when the export contains it.
 
 ```json
 [
@@ -99,4 +117,5 @@ profile. Format: array of memory entries with confidence scores.
 ]
 ```
 
-These can be imported as eidetic facts with confidence scores.
+The parser passes it through as metadata. Turning those entries into eidetic
+facts is not implemented here.

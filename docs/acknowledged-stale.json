@@ -124,6 +124,31 @@
       "reason": "Describes the integration storage-flow suite, which still exists under tests/integration/. Subject live, content unread.",
       "decided_by": "empirica (2026-09-06 pre-1.13.39 sweep)",
       "review_by": "2026-12-01"
+    },
+    "empirica/plugins/claude-code-integration/agents/architecture.md": {
+      "status": "verified_current",
+      "reason": "Read in full. Agent definition for empirica:architecture, which is live: the agent type is offered by the Agent tool on this box. The body is the shared template — domain list, epistemic priors, operating thresholds, investigation protocol, output format — and names no CLI verb, path or flag that could have drifted. Only the domain words differ between the four; diffed against architecture.md to confirm.",
+      "decided_by": "empirica (2026-09-23, Opus 5)"
+    },
+    "empirica/plugins/claude-code-integration/agents/performance.md": {
+      "status": "verified_current",
+      "reason": "Read in full. Agent definition for empirica:performance, which is live: the agent type is offered by the Agent tool on this box. The body is the shared template — domain list, epistemic priors, operating thresholds, investigation protocol, output format — and names no CLI verb, path or flag that could have drifted. Only the domain words differ between the four; diffed against architecture.md to confirm.",
+      "decided_by": "empirica (2026-09-23, Opus 5)"
+    },
+    "empirica/plugins/claude-code-integration/agents/security.md": {
+      "status": "verified_current",
+      "reason": "Read in full. Agent definition for empirica:security, which is live: the agent type is offered by the Agent tool on this box. The body is the shared template — domain list, epistemic priors, operating thresholds, investigation protocol, output format — and names no CLI verb, path or flag that could have drifted. Only the domain words differ between the four; diffed against architecture.md to confirm.",
+      "decided_by": "empirica (2026-09-23, Opus 5)"
+    },
+    "empirica/plugins/claude-code-integration/agents/ux.md": {
+      "status": "verified_current",
+      "reason": "Read in full. Agent definition for empirica:ux, which is live: the agent type is offered by the Agent tool on this box. The body is the shared template — domain list, epistemic priors, operating thresholds, investigation protocol, output format — and names no CLI verb, path or flag that could have drifted. Only the domain words differ between the four; diffed against architecture.md to confirm.",
+      "decided_by": "empirica (2026-09-23, Opus 5)"
+    },
+    "empirica/plugins/claude-code-integration/commands/chrome-health.md": {
+      "status": "verified_current",
+      "reason": "Read in full. Checked each reference: chrome_health_check.py exists at the documented path in both the source plugin and the deployed copy, and CronCreate is still a tool in this harness. The status vocabulary (healthy/degraded/dead/unknown) matches the script's output contract. Unverified: the claim that CronCreate auto-expires after 3 days.",
+      "decided_by": "empirica (2026-09-23, Opus 5)"
     }
   }
 }
