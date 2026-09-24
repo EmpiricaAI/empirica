@@ -66,6 +66,22 @@ def _stampable_tables(conn) -> list[str]:
     return out
 
 
+def _unstamped(conn, session_clause: str) -> dict[str, int]:
+    """Rows with no project_id, per table, for sessions matching `session_clause`.
+
+    `sessions` itself is excluded: its own binding is the other half of this
+    script, and counting it here would report the same rows twice under two names.
+    """
+    out: dict[str, int] = {}
+    for table in _stampable_tables(conn):
+        if table == "sessions":
+            continue
+        (n,) = conn.execute(f"SELECT count(*) FROM {table} WHERE project_id IS NULL AND {session_clause}").fetchone()
+        if n:
+            out[table] = n
+    return out
+
+
 def _free_backup_path(db_path: Path) -> Path:
     """A backup name nothing else is using.
 
@@ -105,19 +121,16 @@ def main() -> int:
     test_rows = conn.execute("SELECT count(*) FROM sessions WHERE project_id IS NULL AND ai_id = 'test-ai'").fetchone()[
         0
     ]
-    unstamped_artifacts = {
-        t: n
-        for t in _stampable_tables(conn)
-        for (n,) in [
-            conn.execute(
-                f"SELECT count(*) FROM {t} WHERE project_id IS NULL AND session_id IN (SELECT session_id FROM sessions)"
-            ).fetchone()
-        ]
-        if n
-    }
+    unstamped_artifacts = _unstamped(conn, "session_id IN (SELECT session_id FROM sessions)")
+    # Rows whose session has no `sessions` row at all cannot be bound through it,
+    # so they are not covered by "remaining: 0" — they are outside what this
+    # repair can reach. Reported separately rather than folded into done: 506
+    # such rows sat behind a zero on core while the script reported ok.
+    unreachable = _unstamped(conn, "session_id NOT IN (SELECT session_id FROM sessions)")
     report: dict = {
         "ok": True,
         "unstamped_artifacts": unstamped_artifacts,
+        "unstampable_no_session_row": unreachable,
         "mode": "apply" if args.apply else "dry-run",
         "store": str(db_path),
         "project_id": project_id,
@@ -152,6 +165,7 @@ def main() -> int:
             if n:
                 stamped[table] = n
     report["artifacts_stamped"] = stamped
+    report["unstamped_after"] = _unstamped(conn, "session_id IN (SELECT session_id FROM sessions)")
     report["remaining"] = conn.execute(f"SELECT count(*) FROM sessions WHERE {where}").fetchone()[0]
     print(json.dumps(report, indent=2))
     return 0 if report["remaining"] == 0 else 1

@@ -889,8 +889,12 @@ def open_falsifiers_block(session_id) -> dict | None:
         from empirica.core import falsifiers as _falsifiers
 
         db = _get_db_for_session(session_id)
-        row = db.conn.execute("SELECT project_id FROM sessions WHERE session_id = ?", (session_id,)).fetchone()
-        return _falsifiers.open_falsifiers(db, row[0] if row else None)
+        # The SAME resolver the writer uses. A raw sessions lookup here while
+        # `register` falls back to the active project is a reader and a writer
+        # disagreeing about which practice a falsifier belongs to: it would be
+        # accepted, stored under the active project, and then never surfaced —
+        # and being surfaced at every later PREFLIGHT is the whole mechanism.
+        return _falsifiers.open_falsifiers(db, _falsifiers._project_of(db.conn, session_id))
     except Exception as e:
         logger.debug(f"open falsifiers not surfaced: {e}")
         return None

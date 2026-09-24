@@ -98,12 +98,17 @@ def in_process_build() -> dict[str, Any]:
     change this process is not running. A long session keeps reporting the build
     it started with, which is exactly the fact version truth is missing.
     """
-    # BOTH strings, because they disagree and neither is authoritative. Measured
-    # here 2026-09-23: the pipx venv serving the `empirica` console script carries
-    # dist metadata 1.13.50 over an editable install of 1.13.51 code. Reporting
-    # one would have been confidently wrong whichever was picked, so `version` is
-    # the string shipped with the imported code, `dist_version` is what the
-    # environment claims, and `digest` is the only authority over either.
+    # BOTH strings, because they disagree and neither is authoritative. The
+    # standing fact: an editable install serves code whose own `__version__` has
+    # moved on while the environment's dist metadata still names the version it
+    # was installed at, so the two honestly disagree and reporting either alone
+    # is confidently wrong. (First measured 2026-09-23 on a pipx venv serving an
+    # editable checkout; the numbers are deliberately not repeated here — a live
+    # value written into a comment ages into a false one. Run
+    # `in_process_build()` to see the current pair.)
+    #
+    # `version` is the string shipped with the imported code, `dist_version` is
+    # what the environment claims, and `digest` is the only authority over either.
     code_v, dist_v = _code_version(), _dist_version()
     facts: dict[str, Any] = {
         "source": "in_process",

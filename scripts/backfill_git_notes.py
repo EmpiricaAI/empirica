@@ -160,6 +160,7 @@ def _repair_timestamps(conn, apply: bool) -> dict:
         "write_lag_ignored": {"findings": 0, "unknowns": 0},
         "rewritten": {"findings": 0, "unknowns": 0},
         "duplicate_notes_removed": 0,
+        "failed_count": 0,
         "failed": [],
         "examples": [],
     }
@@ -203,8 +204,14 @@ def _repair_timestamps(conn, apply: bool) -> dict:
                     continue
                 if _apply_repair(ref_short, targets, head, payload, want_created, want_resolved, report):
                     report["rewritten"][kind] += 1
-                elif len(report["failed"]) < 10:
-                    report["failed"].append(r["id"])
+                else:
+                    # Counted in full, not just the first ten: a mode that can
+                    # only report ten failures and still says ok cannot report a
+                    # run where every write was refused.
+                    report["failed_count"] += 1
+                    report["ok"] = False
+                    if len(report["failed"]) < 10:
+                        report["failed"].append(r["id"])
     return report
 
 
@@ -232,8 +239,12 @@ def main() -> int:
     conn.row_factory = sqlite3.Row
 
     if args.repair_timestamps:
-        print(json.dumps(_repair_timestamps(conn, args.apply), indent=2))
-        return 0
+        repaired = _repair_timestamps(conn, args.apply)
+        print(json.dumps(repaired, indent=2))
+        # Exit code follows the result, as the normal mode's does. Returning 0
+        # after every write was refused is how a repair reports success at
+        # having done nothing.
+        return 0 if repaired.get("ok") else 1
 
     findings = [
         r

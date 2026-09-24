@@ -45,6 +45,10 @@ def _calls(monkeypatch, responder):
 
 
 def test_a_current_cli_is_asked_for_the_build(monkeypatch):
+    """Positive control, and labelled as one: this passes against the pre-fix
+    code too, because one call carrying both flags is what it already did. It is
+    here so the two tests below are read as differences from a working baseline,
+    not as the whole evidence."""
     seen = _calls(monkeypatch, lambda _cmd: _Result())
     session_init._write_practitioner_presence("cc-1", "empirica", "sess-1")
     assert len(seen) == 1

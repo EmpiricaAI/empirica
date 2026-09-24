@@ -101,7 +101,15 @@ def _referenced_in_workspace(conn, entity_id: str) -> list[str]:
 #: Per-artifact note namespaces, keyed by the table the rows live in. Only tables
 #: this script deletes from are listed; a namespace shared by many artifacts
 #: (breadcrumbs, checkpoints) is never touched.
-_NOTE_NAMESPACES = {"goals": "goals"}
+_NOTE_NAMESPACES = {
+    "goals": "goals",
+    "project_findings": "findings",
+    "project_unknowns": "unknowns",
+    "project_dead_ends": "dead_ends",
+    "decisions": "decisions",
+    "mistakes_made": "mistakes",
+    "assumptions": "assumptions",
+}
 
 
 def _note_refs_for(conn, test_sessions: list[str]) -> list[str]:
