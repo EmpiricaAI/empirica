@@ -1196,15 +1196,18 @@ def _run_auto_bootstrap(project_path, attached_session, output_format):
             bootstrap_cmd.extend(["--session-id", attached_session["session_id"]])
         if project_path:
             result = run_empirica_subprocess(bootstrap_cmd, timeout=30, cwd=str(project_path))
-            if result.returncode == 0:
-                try:
-                    import json as _json
+            # The PAYLOAD decides, not the return code and never a default.
+            # This gated on returncode — which bootstrap returned as 0 even when
+            # it failed — and on a parse error it INVENTED `ok: true`. So a
+            # bootstrap that printed "Project not found" was reported to the
+            # caller as a successful one.
 
-                    bootstrap_result = _json.loads(result.stdout)
-                    if output_format == "human":
-                        print("✅ Project context loaded (auto-bootstrap)")
-                except Exception:
-                    bootstrap_result = {"ok": True, "note": "bootstrap ran but non-JSON output"}
+            bootstrap_result = _parse_bootstrap_output(result)
+            if output_format == "human":
+                if bootstrap_result.get("ok"):
+                    print("✅ Project context loaded (auto-bootstrap)")
+                else:
+                    print(f"⚠ Auto-bootstrap did not load project context: {bootstrap_result.get('error')}")
             else:
                 bootstrap_result = {"ok": False, "error": result.stderr[:200]}
     except Exception as e:
@@ -1290,6 +1293,36 @@ def _print_switch_next_steps(project_path, findings, unknowns, goals, preflight_
     print("⚠️  All commands now write to this project's database.")
     print("    Findings, sessions, goals → stored in this project context.")
     print()
+
+
+def _parse_bootstrap_output(result) -> dict:
+    """The bootstrap subprocess's verdict, or an honest failure — never a default.
+
+    `project-bootstrap` prints its JSON and can then print further lines, so a
+    bare `json.loads` on the whole of stdout raises on output that IS a valid
+    result. The first JSON object is extracted; anything else is reported as
+    unparseable with the head of what was printed, because a caller that cannot
+    read the verdict has not been told the run succeeded.
+    """
+    import json as _json
+
+    out = (getattr(result, "stdout", "") or "").strip()
+    start = out.find("{")
+    if start >= 0:
+        decoder = _json.JSONDecoder()
+        try:
+            payload, _end = decoder.raw_decode(out[start:])
+            if isinstance(payload, dict):
+                return payload
+        except ValueError:
+            pass
+    return {
+        "ok": False,
+        "error": "bootstrap output could not be parsed",
+        "returncode": getattr(result, "returncode", None),
+        "stdout_head": out[:200],
+        "stderr_head": (getattr(result, "stderr", "") or "")[:200],
+    }
 
 
 def handle_project_switch_command(args):

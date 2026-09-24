@@ -18,8 +18,14 @@ from ..cli_utils import handle_cli_error, safe_print
 logger = logging.getLogger(__name__)
 
 
-def _bootstrap_error_output(output_format: str, error_msg: str, hint: str | None = None):
-    """Output error in appropriate format and return None."""
+def _bootstrap_error_output(output_format: str, error_msg: str, hint: str | None = None) -> int:
+    """Print the error and return the EXIT CODE the caller must return.
+
+    This returned None, and the handler returns whatever it gets — so every
+    bootstrap failure printed `ok: false` and exited 0. A scripted caller saw
+    success, and `project-switch` did exactly that: it gated on the return code,
+    got 0, and reported the failed bootstrap as `ok: true`.
+    """
     if output_format == "json":
         result = {"ok": False, "error": error_msg}
         if hint:
@@ -29,7 +35,7 @@ def _bootstrap_error_output(output_format: str, error_msg: str, hint: str | None
         safe_print(f"❌ Error: {error_msg}")
         if hint:
             safe_print(f"\nTip: {hint}")
-    return None
+    return 1
 
 
 def _resolve_project_via_context():
@@ -509,8 +515,17 @@ def handle_project_bootstrap_command(args):
         db.close()
 
         if "error" in breadcrumbs:
-            safe_print(f"❌ {breadcrumbs['error']}")
-            return None
+            # A resolved project id that the STORE does not hold. It printed a
+            # bare line — no JSON even under --output json — and returned None,
+            # which the CLI reads as success: a scripted caller got exit 0 and an
+            # unparseable stdout. The id is named because the usual cause is a
+            # context file pointing at another practice's project.
+            return _bootstrap_error_output(
+                output_format,
+                str(breadcrumbs["error"]),
+                "The project id resolved here is not in this store. Run `empirica project-switch <name>`, "
+                "or pass --project-id, or `empirica project-init` if this checkout has no project yet.",
+            )
 
         # Format output — delegated to project_bootstrap_formatter.py
         from .project_bootstrap_formatter import format_bootstrap_output
