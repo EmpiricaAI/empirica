@@ -1208,8 +1208,6 @@ def _run_auto_bootstrap(project_path, attached_session, output_format):
                     print("✅ Project context loaded (auto-bootstrap)")
                 else:
                     print(f"⚠ Auto-bootstrap did not load project context: {bootstrap_result.get('error')}")
-            else:
-                bootstrap_result = {"ok": False, "error": result.stderr[:200]}
     except Exception as e:
         bootstrap_result = {"ok": False, "error": str(e)}
         logger.debug(f"Auto-bootstrap on project-switch failed (non-fatal): {e}")

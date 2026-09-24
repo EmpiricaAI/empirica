@@ -48,3 +48,26 @@ def test_unparseable_output_is_a_failure_and_carries_what_was_printed():
 
 def test_empty_output_is_a_failure_too():
     assert _parse_bootstrap_output(_Result())["ok"] is False
+
+
+# ── The wiring: project-switch must report the verdict it parsed ─────────────
+# The helper tests above passed while project-switch still printed
+# `{"ok": false, "error": ""}` for a bootstrap that succeeded: a leftover
+# `else` attached to the human-output branch overwrote the parsed verdict with
+# the (empty) stderr whenever the caller asked for JSON.
+def _switch_bootstrap(monkeypatch, tmp_path, stdout, output_format):
+    from empirica.cli.command_handlers import project_commands as pc
+
+    monkeypatch.setattr(pc, "run_empirica_subprocess", lambda *_a, **_k: _Result(stdout=stdout))
+    return pc._run_auto_bootstrap(tmp_path, None, output_format)
+
+
+def test_a_successful_bootstrap_reads_as_success_in_json_mode(monkeypatch, tmp_path):
+    out = _switch_bootstrap(monkeypatch, tmp_path, '{"ok": true, "project_id": "p"}', "json")
+    assert out["ok"] is True
+
+
+def test_a_failed_bootstrap_still_reads_as_failure_in_json_mode(monkeypatch, tmp_path):
+    """Positive control: the JSON path does not simply report success."""
+    out = _switch_bootstrap(monkeypatch, tmp_path, '{"ok": false, "error": "Project not found"}', "json")
+    assert out["ok"] is False and "not found" in out["error"]
