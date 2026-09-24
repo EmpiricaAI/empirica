@@ -2,7 +2,7 @@
 
 > **We Gave AI a Mirror. Now It Measures What It Believes.**
 
-[![Version](https://img.shields.io/badge/version-1.14.0-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.14.0)
+[![Version](https://img.shields.io/badge/version-1.14.1-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.14.1)
 [![PyPI](https://img.shields.io/pypi/v/empirica)](https://pypi.org/project/empirica/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -114,13 +114,13 @@ empirica setup
 
 ```bash
 # Security-hardened Alpine image (~276MB, recommended)
-docker pull nubaeon/empirica:1.14.0-alpine
+docker pull nubaeon/empirica:1.14.1-alpine
 
 # Standard image (Debian slim, ~414MB)
-docker pull nubaeon/empirica:1.14.0
+docker pull nubaeon/empirica:1.14.1
 
 # Run
-docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.14.0 /bin/bash
+docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.14.1 /bin/bash
 ```
 </details>
 
@@ -304,7 +304,7 @@ The browser-side ECO surface (Accept/Decline, inbox triage, publish review) live
 
 The cross-AI coordination layer. Practitioners in different practices coordinate not via text-only chat but via **epistemic envelopes** that carry calibrated state, source-tagged provenance, noetic/praxic intent, and workflow position.
 
-- **Practitioner / practice** framing — practices are calibrated epistemic specializations that persist; practitioners (the LLMs) are fungible. See [MESH_CONCEPTS.md](docs/human/end-users/MESH_CONCEPTS.md).
+- **Practitioner / practice** framing — practices are epistemic specializations that persist, and practitioners (the LLMs) inhabit them. Artifacts accrue to the practice; calibration accrues to the practitioner inhabiting it. See [MESH_CONCEPTS.md](docs/human/end-users/MESH_CONCEPTS.md).
 - **Shared Epistemic Record (SER)** — cortex-resident shared-state object for coordination across ≥2 practitioners. Goals stay per-practitioner; SER carries the *joint* state (`coordination_state`, role-tiered participants, escalate-on-silence). Three actions: `create_ser` / `transition_ser` / `ser_ack`. Spec at `empirica-cortex/docs/architecture/SHARED_EPISTEMIC_RECORD.md`.
 - **`empirica mesh` command cluster** — unified diagnostic + control surface across listener instances + the optional cortex bridge:
   ```bash
@@ -414,16 +414,15 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.14.0
+## What's New in 1.14.1
 
-- **Calibration is keyed on the practitioner, inside the practice.** David's ruling of 2026-09-21: artifacts accrue to the practice, calibration to the practitioner inhabiting it. `ai_id` names the practice store, and one store pools every model that has worked in it — core's mixes Opus 5 and Fable 5.1 transactions from the same day. CHECK now reads the current model's own trajectory when it has enough points and the practice's until then, and every phase reports which basis it used and how many points the model had. Rows from before the model was recorded count for the practice only. The lean prompt's "the practitioner is fungible" line contradicted the ruling and is rewritten.
-- **Falsifiers: pre-registered disconfirmation as an artifact** (autonomy's FALSIFIER_SPEC, Phase 1). A falsifier names the observation that would refute a belief, registered BEFORE the evidence that tests it. It exists for a failure no confidence gate can see: a true measurement asserted past the population it was taken over adjudicates `held`, and the refutation usually arrives after the transaction has closed. So it outlives its transaction. - Register at PREFLIGHT or CHECK under `falsifiers`, naming the finding, assumption, decision, dead_end, mistake or lesson it tests. One with no parent, or a parent that does not resolve, is refused and named in the response, and is not stored. An unknown asserts nothing and cannot be falsified. - Every PREFLIGHT lists the practice's open falsifiers with the open total. - POSTFLIGHT adjudicates any open falsifier as `tripped`, `survived` or `expired`. A `survived` with no evidence is recorded as `expired`: nobody having looked is not the same as the belief holding. - `falsifier-list` prints them with counts by state.
-- **A PREFLIGHT whose session belongs to another registered practice is refused**, before any write, naming the practice and its store. A session that exists nowhere still only warns — that is a first transaction on a session created outside the CLI. Ownership is read from the workspace registry, and every failure to read it falls back to the warning rather than refusing work.
-- **A session records what code it is running** — version and content digest — into its presence record, and the listener daemon forwards it unchanged. The daemon is a separate, usually newer process, so a build measured at emit time describes the daemon and not the session. Both version strings are recorded with the disagreement flagged: on one box the environment's metadata read 1.13.50 over 1.13.51 code, and the digest is the authority over either. The fleet-wide read-back waits on cortex. - `--ai-id` on `setup` and `plugin-sync`, for a caller that genuinely knows which practice a deploy is for.
-- **Any artifact over 128 KB could never reach git notes.** Every note writer passed the body as one argv string, which Linux caps, so the write failed and the artifact existed only in SQLite — where a rebuild from notes drops it. All 20 writers now pass the body on stdin. Found by a backfill that wrote 2,806 missing notes and could not write one 103 KB finding.
-- **The notes/sqlite doctor check overcounted unstamped resolutions** by reporting every resolved artifact that had a note: 2,221 on core where 963 were real, and the count could not fall after a repair, so the check stayed WARN forever. It now reads each note's payload.
-- **The plugin writer stamp recorded no practice for a deploy run from a neutral directory**, and a first fix made it worse by naming the practice whose checkout the package came from — on a multi-practice box that is a plausible wrong name, which is worse than an honest blank. The record now always carries the operator (user@host), and a practice only when the invocation carries one, with the source recorded. `doctor` names the operator when no practice was recorded.
-- **`goals-list --output json` did not carry the truncation notice** the human header printed. The AI reads the JSON, so the surface with the remedy had no AI reading it (empirica-workspace).
+- **The listener arming instruction can be followed.** Monitor and TaskStop are deferred tools on current Claude Code: they are named, but not callable until ToolSearch loads them. The session-start instruction called Monitor directly, so a practitioner who followed it found no such tool and concluded the session was broken, while mesh events piled up unseen. The instruction, the `inbox-listener` skill and the plugin README now load the tool first.
+- **A new project can create a session.** `session-create` on a freshly initialised project failed on an unresolvable project path, after already writing the session row, so every retry leaked another row. It now binds the session and reports a warning instead.
+- **The checkout you stand in decides the project.** `session-create` and the statusline both preferred a context file left by an earlier command over the project root you were in, so a session could bind to whichever project ran last. A project root's own `.empirica/project.yaml` now wins; context files answer only outside a project root.
+- **`project-init` writes where every other verb reads.** It ignored `EMPIRICA_SESSION_DB`, which every later verb honours, so with a pinned store an initialised project was invisible to the rest of the CLI.
+- **A failed bootstrap no longer reads as a successful one.** `project-bootstrap` exited 0 on failure, and `project-switch` reported that failure as a success. The exit code is now honest, and `project-switch` reads the verdict from the payload in both output modes.
+- **`--output json` prints exactly one JSON document.** `project-init` printed its result twice, as did `session-create --auto-init`, which broke every `json.load` consumer. A refused `project-init` (already initialised) now exits 1 instead of 0.
+- **The heartbeat names the build of its own emitter.** Beside the session's build facts, the listener daemon now reports its own, so a reader can tell "an older emitter that sends nothing" from "a current emitter whose session had nothing to report".
 ## Privacy & Data
 
 **Your data stays local:**
@@ -451,6 +450,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 **Author:** David S. L. Van Assche
-**Version:** 1.14.0
+**Version:** 1.14.1
 
 *Turtles all the way down — built with its own epistemic framework, measuring what it knows at every step.*

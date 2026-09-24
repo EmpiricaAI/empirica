@@ -5,6 +5,49 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.1] - 2026-09-24
+
+A first-run patch. Running 1.14.0 end to end in a fresh repository turned up a
+path where a new project could not create a session, and where several failures
+reported themselves as successes. It also fixes a listener setup instruction that
+could not be followed on current Claude Code builds.
+
+### Fixed
+
+- **The listener arming instruction can be followed.** Monitor and TaskStop
+  are deferred tools on current Claude Code: they are named, but not callable
+  until ToolSearch loads them. The session-start instruction called Monitor
+  directly, so a practitioner who followed it found no such tool and concluded
+  the session was broken, while mesh events piled up unseen. The instruction, the
+  `inbox-listener` skill and the plugin README now load the tool first.
+- **A new project can create a session.** `session-create` on a freshly
+  initialised project failed on an unresolvable project path, after already
+  writing the session row, so every retry leaked another row. It now binds the
+  session and reports a warning instead.
+- **The checkout you stand in decides the project.** `session-create` and the
+  statusline both preferred a context file left by an earlier command over the
+  project root you were in, so a session could bind to whichever project ran
+  last. A project root's own `.empirica/project.yaml` now wins; context files
+  answer only outside a project root.
+- **`project-init` writes where every other verb reads.** It ignored
+  `EMPIRICA_SESSION_DB`, which every later verb honours, so with a pinned store
+  an initialised project was invisible to the rest of the CLI.
+- **A failed bootstrap no longer reads as a successful one.** `project-bootstrap`
+  exited 0 on failure, and `project-switch` reported that failure as a success.
+  The exit code is now honest, and `project-switch` reads the verdict from the
+  payload in both output modes.
+- **`--output json` prints exactly one JSON document.** `project-init` printed
+  its result twice, as did `session-create --auto-init`, which broke every
+  `json.load` consumer. A refused `project-init` (already initialised) now exits
+  1 instead of 0.
+
+### Added
+
+- **The heartbeat names the build of its own emitter.** Beside the session's
+  build facts, the listener daemon now reports its own, so a reader can tell "an
+  older emitter that sends nothing" from "a current emitter whose session had
+  nothing to report".
+
 ## [1.14.0] - 2026-09-23
 
 Two new epistemic mechanisms and a set of measurement fixes. The minor bump is

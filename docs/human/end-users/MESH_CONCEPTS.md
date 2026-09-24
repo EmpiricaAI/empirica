@@ -201,7 +201,7 @@ The load-bearing part is *what* it keeps in phase. It isn't just multiple practi
 | **Practices** | epistemic specialization (cortex vs workspace vs outreach) | routes calibrated state between domains; each stays sovereign |
 | **Harnesses** | execution environment (CLI, cloud sandbox, Desktop, extension) | uniform wake-on-event, catch-up, and gating regardless of harness |
 | **Substrates** | where the AI runs (local, Hetzner, cloud) | substrate-agnostic addressing + routing |
-| **Model types** | the LLM behind the deck (Claude, GPT, Gemini, next) | practitioners are fungible; coordination rides the *protocol*, not model internals |
+| **Model types** | the LLM behind the deck (Claude, GPT, Gemini, next) | any model can inhabit a practice; coordination rides the *protocol*, not model internals (calibration still accrues per practitioner) |
 | **Tenants** | different seats/people under one org (`david` vs `philipp`) | `org.tenant.project` addressing; ECO gates each seat's authority |
 | **Orgs** | different companies entirely (empirica, NLE, MOD, …) | cross-org routing + L3 ECO; scope is *derived* from participants, never assumed |
 
