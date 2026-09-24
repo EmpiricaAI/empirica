@@ -657,6 +657,29 @@ def _resolve_from_git_remote():
     return None
 
 
+def _resolve_from_cwd_project_yaml():
+    """The project_id in the cwd's own `.empirica/project.yaml`, or None.
+
+    Only a project ROOT answers: walking up would re-introduce the ambiguity of
+    a worktree or a subdirectory of another practice, and the point here is that
+    standing in a checkout is unambiguous evidence about which practice you are
+    working in.
+    """
+    from pathlib import Path
+
+    import yaml
+
+    cfg = Path.cwd() / ".empirica" / "project.yaml"
+    if not cfg.is_file():
+        return None
+    try:
+        data = yaml.safe_load(cfg.read_text()) or {}
+    except Exception:
+        return None
+    pid = data.get("project_id")
+    return str(pid) if pid else None
+
+
 def _resolve_early_project_id(project_id):
     """Resolve project_id through multiple strategies (context files, sessions.db, git remote).
 
@@ -671,11 +694,30 @@ def _resolve_early_project_id(project_id):
             early_project_id = resolved
 
     if not early_project_id:
-        # Method 0: Check resolver context files (highest priority)
+        # Method 0: the checkout you are STANDING IN, when it is one.
+        #
+        # Context files used to win here, on the reasoning that the harness
+        # resets cwd constantly so cwd cannot be trusted. That holds when cwd is
+        # not a project — and it is exactly wrong when it is: a project.yaml
+        # names the practice that owns this checkout, while a context file names
+        # wherever some earlier command happened to run. Measured live: a session
+        # created for `empirica`, from empirica's own checkout, bound to a
+        # throwaway project a test had left in the context files minutes before.
+        # The store and the checkout define the practice (David, 2026-09-23).
+        #
+        # Context files remain the answer when cwd is not a project root, which
+        # is the case the priority was written for.
         try:
-            early_project_id = _resolve_from_context_files()
+            early_project_id = _resolve_from_cwd_project_yaml()
         except Exception:
             pass
+
+        # Method 0b: resolver context files
+        if not early_project_id:
+            try:
+                early_project_id = _resolve_from_context_files()
+            except Exception:
+                pass
 
         # Method 1: sessions.db (authoritative) or project.yaml (fallback)
         if not early_project_id:
