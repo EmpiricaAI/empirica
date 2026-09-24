@@ -490,6 +490,22 @@ def _format_init_output(
             print("   Edit docs/SEMANTIC_INDEX.yaml to add your documentation metadata")
 
 
+def _resolve_init_db_path(git_root):
+    """Where this project's row belongs: the pinned store if one is set, else local.
+
+    Returns a Path. `EMPIRICA_SESSION_DB` is the documented override and the one
+    tests, CI and Docker use; the project-local path is the default for a normal
+    checkout.
+    """
+    import os
+    from pathlib import Path
+
+    env_db = (os.environ.get("EMPIRICA_SESSION_DB") or "").strip()
+    if env_db:
+        return Path(env_db)
+    return Path(git_root) / ".empirica" / "sessions" / "sessions.db"
+
+
 def handle_project_init_command(args):
     """Handle project-init command - initialize Empirica in a new repo"""
     try:
@@ -547,7 +563,14 @@ def handle_project_init_command(args):
         with open(project_config_path, "w") as f:
             yaml.dump(project_config, f, default_flow_style=False, sort_keys=False)
 
-        db_path = git_root / ".empirica" / "sessions" / "sessions.db"
+        # The project-local store is the right default — a store belongs to one
+        # project — but EMPIRICA_SESSION_DB has to win when it is set, because
+        # every other verb honours it and the project's own config.yaml
+        # advertises it as an override. Without this, `project-init` wrote the
+        # projects row into one database while session-create, finding-log and
+        # goals-* read another: the project existed nowhere they could see it,
+        # which is the root of several first-run failures.
+        db_path = _resolve_init_db_path(git_root)
         db = SessionDatabase(db_path=str(db_path))
         reused_existing = False
 
