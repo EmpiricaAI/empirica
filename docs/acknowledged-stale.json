@@ -149,6 +149,36 @@
       "status": "verified_current",
       "reason": "Read in full. Checked each reference: chrome_health_check.py exists at the documented path in both the source plugin and the deployed copy, and CronCreate is still a tool in this harness. The status vocabulary (healthy/degraded/dead/unknown) matches the script's output contract. Unverified: the claim that CronCreate auto-expires after 3 days.",
       "decided_by": "empirica (2026-09-23, Opus 5)"
+    },
+    "examples/codebase-onboarder/agent.md": {
+      "status": "pending_review",
+      "reason": "Example agent definition. It is linked from examples/README.md, and every empirica verb it calls (finding-log, unknown-log, assumption-log, deadend-log, decision-log, project-search, setup-claude-code) still exists with the leading flag it passes. The prose was not read this pass.",
+      "decided_by": "empirica (2026-09-24, CI drift trip after the 1.14.0 cut)",
+      "review_by": "2026-12-01"
+    },
+    "examples/codebase-onboarder/sample-output.md": {
+      "status": "pending_review",
+      "reason": "Example agent definition. It is linked from examples/README.md, and every empirica verb it calls (finding-log, unknown-log, assumption-log, deadend-log, decision-log, project-search, setup-claude-code) still exists with the leading flag it passes. The prose was not read this pass.",
+      "decided_by": "empirica (2026-09-24, CI drift trip after the 1.14.0 cut)",
+      "review_by": "2026-12-01"
+    },
+    "examples/competitor-monitor/agent.md": {
+      "status": "pending_review",
+      "reason": "Example agent definition. It is linked from examples/README.md, and every empirica verb it calls (finding-log, unknown-log, assumption-log, deadend-log, decision-log, project-search, setup-claude-code) still exists with the leading flag it passes. The prose was not read this pass.",
+      "decided_by": "empirica (2026-09-24, CI drift trip after the 1.14.0 cut)",
+      "review_by": "2026-12-01"
+    },
+    "examples/missed-opportunities/agent.md": {
+      "status": "pending_review",
+      "reason": "Example agent definition. It is linked from examples/README.md, and every empirica verb it calls (finding-log, unknown-log, assumption-log, deadend-log, decision-log, project-search, setup-claude-code) still exists with the leading flag it passes. The prose was not read this pass.",
+      "decided_by": "empirica (2026-09-24, CI drift trip after the 1.14.0 cut)",
+      "review_by": "2026-12-01"
+    },
+    "examples/token-budget/agent.md": {
+      "status": "pending_review",
+      "reason": "Example agent definition. It is linked from examples/README.md, and every empirica verb it calls (finding-log, unknown-log, assumption-log, deadend-log, decision-log, project-search, setup-claude-code) still exists with the leading flag it passes. The prose was not read this pass.",
+      "decided_by": "empirica (2026-09-24, CI drift trip after the 1.14.0 cut)",
+      "review_by": "2026-12-01"
     }
   }
 }
