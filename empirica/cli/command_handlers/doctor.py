@@ -2066,10 +2066,21 @@ def check_notes_sqlite_divergence(cwd: Path | None = None) -> Check:
     name = "notes/sqlite divergence"
     root = cwd or Path.cwd()
     try:
+        # The SAME store every other verb writes to. Hardcoding the
+        # project-local path meant that with EMPIRICA_SESSION_DB set — tests, CI,
+        # Docker, any pinned store — this compared notes against a database that
+        # does not hold the artifacts, reported LIVE artifacts as orphans, and
+        # then offered `--reconcile-notes --apply`, which would archive their
+        # notes. A check that proposes a destructive repair has to be looking at
+        # the right store.
+        from empirica.config.path_resolver import get_session_db_path
         from empirica.core.canonical.empirica_git.note_reconcile import plan
         from empirica.data.session_database import SessionDatabase
 
-        db_path = root / ".empirica" / "sessions" / "sessions.db"
+        try:
+            db_path = Path(get_session_db_path())
+        except Exception:
+            db_path = root / ".empirica" / "sessions" / "sessions.db"
         if not db_path.exists():
             return Check(name, SKIP, "no sessions.db here")
         db = SessionDatabase(db_path=str(db_path))

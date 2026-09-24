@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sqlite3
 import subprocess
 import sys
@@ -142,6 +143,80 @@ def _remove_note_refs(refs: list[str]) -> int:
     return removed
 
 
+def _plan(conn, db_path: Path, apply: bool):
+    """What this run would remove, and the report it prints either way."""
+    # The four literal ids own no `sessions` row — that is why the suite's rows
+    # under them were invisible to a sessions-table query. They are included as
+    # DELETE targets whether or not a row exists, but only counted as present
+    # when something actually references them: reporting `test_sessions: 4` for a
+    # store holding none put two numbers with opposite readings in one report.
+    owned = {r[0] for r in conn.execute(f"SELECT session_id FROM sessions WHERE {_TEST_SESSION}", TEST_SESSION_IDS)}
+    test_sessions = sorted(owned | set(TEST_SESSION_IDS))
+    test_projects = [r[0] for r in conn.execute(f"SELECT id FROM projects WHERE {_TEST_PROJECT}")]
+
+    # A project id with any referent stays, whatever its name says.
+    referenced: dict[str, list[str]] = {}
+    if test_projects:
+        marks = ",".join("?" * len(test_projects))
+        for table in _tables_with(conn, "project_id"):
+            if table == "projects":
+                continue
+            rows = conn.execute(
+                f"SELECT DISTINCT project_id FROM {table} WHERE project_id IN ({marks})", test_projects
+            ).fetchall()
+            for (pid,) in rows:
+                referenced.setdefault(pid, []).append(table)
+    removable_projects = [p for p in test_projects if p not in referenced]
+
+    plan: dict[str, int] = {}
+    session_tables = _tables_with(conn, "session_id")
+    if test_sessions:
+        marks = ",".join("?" * len(test_sessions))
+        for table in session_tables:
+            n = conn.execute(f"SELECT count(*) FROM {table} WHERE session_id IN ({marks})", test_sessions).fetchone()[0]
+            if n:
+                plan[table] = n
+    plan["projects"] = len(removable_projects)
+    note_refs = _note_refs_for(conn, test_sessions)
+
+    report: dict = {
+        "ok": True,
+        "mode": "apply" if apply else "dry-run",
+        "store": str(db_path),
+        "test_sessions": len(owned),
+        "literal_ids_targeted": len(TEST_SESSION_IDS),
+        "test_projects": len(test_projects),
+        "kept_referenced_projects": dict(list(referenced.items())[:10]),
+        "kept_referenced_project_count": len(referenced),
+        "rows_by_table": plan,
+        "rows_total": sum(plan.values()),
+        # Rows and their notes go together. Deleting the row alone left the note
+        # standing, and notes are canonical: `rebuild` imports them back, so the
+        # prune re-created exactly the sqlite/notes divergence the doctor check in
+        # this same release reports. Measured on core: two fixture goals were
+        # gone from sqlite while refs/notes/empirica/goals/<id> survived.
+        "note_refs": len(note_refs),
+    }
+    return test_sessions, removable_projects, note_refs, report
+
+
+def _nothing_to_do(report: dict, note_refs: list[str]) -> bool:
+    """True when an --apply would change nothing, after filling in the zeros.
+
+    Without this, an apply that deletes nothing still copied the whole store —
+    379 MB on core — and the copy it left is indistinguishable from one taken
+    before real work.
+    """
+    if report["rows_total"] or note_refs:
+        return False
+    report["deleted"] = {}
+    report["deleted_total"] = 0
+    report["note_refs_removed"] = 0
+    report["backup"] = None
+    report["remaining_test_sessions"] = 0
+    return True
+
+
 def _free_backup_path(db_path: Path) -> Path:
     """A backup name nothing else is using.
 
@@ -187,7 +262,11 @@ def _prune_workspace(path: Path, apply: bool) -> dict:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--db", default=".empirica/sessions/sessions.db")
+    ap.add_argument(
+        "--db",
+        default=os.environ.get("EMPIRICA_SESSION_DB") or ".empirica/sessions/sessions.db",
+        help="store to operate on (default: $EMPIRICA_SESSION_DB, else the project-local one)",
+    )
     ap.add_argument("--apply", action="store_true")
     ap.add_argument(
         "--workspace",
@@ -206,60 +285,13 @@ def main() -> int:
         print(json.dumps({"ok": False, "error": f"no database at {db_path}"}))
         return 1
     conn = sqlite3.connect(str(db_path))
+    test_sessions, removable_projects, note_refs, report = _plan(conn, db_path, args.apply)
 
-    # The four literal ids own no `sessions` row — that is why the suite's rows
-    # under them were invisible to a sessions-table query, and why 114
-    # attention_budgets and 2 goals survived the first pass. They are included
-    # by name, whether or not a row exists for them.
-    test_sessions = sorted(
-        {r[0] for r in conn.execute(f"SELECT session_id FROM sessions WHERE {_TEST_SESSION}", TEST_SESSION_IDS)}
-        | set(TEST_SESSION_IDS)
-    )
-    test_projects = [r[0] for r in conn.execute(f"SELECT id FROM projects WHERE {_TEST_PROJECT}")]
-
-    # A project id with any referent stays, whatever its name says.
-    referenced: dict[str, list[str]] = {}
-    if test_projects:
-        marks = ",".join("?" * len(test_projects))
-        for table in _tables_with(conn, "project_id"):
-            if table == "projects":
-                continue
-            rows = conn.execute(
-                f"SELECT DISTINCT project_id FROM {table} WHERE project_id IN ({marks})", test_projects
-            ).fetchall()
-            for (pid,) in rows:
-                referenced.setdefault(pid, []).append(table)
-    removable_projects = [p for p in test_projects if p not in referenced]
-
-    plan: dict[str, int] = {}
-    session_tables = _tables_with(conn, "session_id")
-    if test_sessions:
-        marks = ",".join("?" * len(test_sessions))
-        for table in session_tables:
-            n = conn.execute(f"SELECT count(*) FROM {table} WHERE session_id IN ({marks})", test_sessions).fetchone()[0]
-            if n:
-                plan[table] = n
-    plan["projects"] = len(removable_projects)
-    note_refs = _note_refs_for(conn, test_sessions)
-
-    report: dict = {
-        "ok": True,
-        "mode": "apply" if args.apply else "dry-run",
-        "store": str(db_path),
-        "test_sessions": len(test_sessions),
-        "test_projects": len(test_projects),
-        "kept_referenced_projects": dict(list(referenced.items())[:10]),
-        "kept_referenced_project_count": len(referenced),
-        "rows_by_table": plan,
-        "rows_total": sum(plan.values()),
-        # Rows and their notes go together. Deleting the row alone left the note
-        # standing, and notes are canonical: `rebuild` imports them back, so the
-        # prune re-created exactly the sqlite/notes divergence the doctor check in
-        # this same release reports. Measured on core: two fixture goals were
-        # gone from sqlite while refs/notes/empirica/goals/<id> survived.
-        "note_refs": len(note_refs),
-    }
     if not args.apply:
+        print(json.dumps(report, indent=2))
+        return 0
+
+    if _nothing_to_do(report, note_refs):
         print(json.dumps(report, indent=2))
         return 0
 
@@ -272,7 +304,7 @@ def main() -> int:
     with conn:
         if test_sessions:
             marks = ",".join("?" * len(test_sessions))
-            for table in plan:
+            for table in report["rows_by_table"]:
                 if table == "projects":
                     continue
                 deleted[table] = conn.execute(

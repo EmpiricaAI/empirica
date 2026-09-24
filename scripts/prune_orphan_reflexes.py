@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sqlite3
 import sys
 from datetime import datetime, timezone
@@ -82,7 +83,11 @@ def _free_backup_path(db_path: Path) -> Path:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--db", default=".empirica/sessions/sessions.db")
+    ap.add_argument(
+        "--db",
+        default=os.environ.get("EMPIRICA_SESSION_DB") or ".empirica/sessions/sessions.db",
+        help="store to operate on (default: $EMPIRICA_SESSION_DB, else the project-local one)",
+    )
     scope = ap.add_mutually_exclusive_group(required=True)
     scope.add_argument("--project-id", help="one unregistered project id")
     scope.add_argument(
