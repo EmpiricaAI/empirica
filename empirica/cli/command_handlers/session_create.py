@@ -732,11 +732,22 @@ def _close_and_create_session(ai_id, early_project_id, subject, parent_session_i
     return session_id, close_result
 
 
-def _write_active_session_file(session_id, ai_id):
+def _write_active_session_file(session_id, ai_id, project_path_override=None):
     """Write active_session file for statusline (instance-specific, atomic write).
 
-    Returns:
-        dict on failure (error result), or None on success.
+    Returns None, or a WARNING dict when the project path cannot be resolved.
+
+    This used to return an error the caller returned as the command's result —
+    but the session row is written in the stage before, so the command reported
+    failure while leaving a fully usable session behind, and every retry left
+    another. Measured in a fresh repo: two "failed" runs, two rows, the first
+    one openable.
+
+    The file binds the statusline to this session. Losing it costs the statusline
+    and nothing else, so an unresolvable path is now a warning on a successful
+    create rather than a failure that strands rows. `project_path_override` is
+    the same escape --auto-init already passes to the TTY write, for the case
+    where the project was created moments ago and the resolver cannot see it yet.
     """
     import os
     import tempfile
@@ -751,9 +762,13 @@ def _write_active_session_file(session_id, ai_id):
     active_session_file = Path.home() / ".empirica" / f"active_session{instance_suffix}"
     active_session_file.parent.mkdir(parents=True, exist_ok=True)
 
-    resolved_project_path = R.project_path()
+    resolved_project_path = project_path_override or R.project_path()
     if not resolved_project_path:
-        return {"ok": False, "error": "Cannot resolve project path. Run 'empirica project-switch <project>' first."}
+        return {
+            "warning": "project path unresolved — the statusline will not bind to this session",
+            "fix": "run `empirica project-switch <project>`, then `empirica session-create` again if you want the binding",
+            "session_created": session_id,
+        }
 
     active_session_data = {"session_id": session_id, "project_path": resolved_project_path, "ai_id": ai_id}
     tmp_fd, tmp_path = tempfile.mkstemp(dir=str(active_session_file.parent))
@@ -832,7 +847,15 @@ def _link_session_to_project(session_id, project_id, output_format):
 
 
 def _format_session_output(
-    output_format, session_id, ai_id, user_id, project_id, parent_session_id, auto_init_performed, close_result
+    output_format,
+    session_id,
+    ai_id,
+    user_id,
+    project_id,
+    parent_session_id,
+    auto_init_performed,
+    close_result,
+    active_session_warning=None,
 ):
     """Format and print the final session creation output."""
     from empirica.data.session_database import SessionDatabase
@@ -852,9 +875,16 @@ def _format_session_output(
                 "cross_project_warnings": close_result["warnings"],
             },
         }
+        # Said on a successful create, not swallowed: the session is real and
+        # usable, and the only thing lost is the statusline binding.
+        if active_session_warning:
+            result["active_session_warning"] = active_session_warning
         print(json.dumps(result, indent=2))
     else:
         print("✅ Session created successfully!")
+        if active_session_warning:
+            print(f"   ⚠ {active_session_warning['warning']}")
+            print(f"     {active_session_warning['fix']}")
         print(f"   📋 Session ID: {session_id}")
         print(f"   🤖 AI ID: {ai_id}")
 
@@ -927,10 +957,12 @@ def handle_session_create_command(args):
             ai_id, early_project_id, subject, parent_session_id, output_format
         )
 
-        # Stage 8: Write active session file
-        error = _write_active_session_file(session_id, ai_id)
-        if error:
-            return error
+        # Stage 8: Write active session file. A warning, never a failure: the
+        # session already exists by here, and returning an error left it behind
+        # as an orphan while telling the caller the command failed.
+        active_session_warning = _write_active_session_file(
+            session_id, ai_id, project_path_override=auto_init_project_path
+        )
 
         # Stage 9: Write TTY session
         # auto_init_project_path overrides the resolver when --auto-init just
@@ -948,7 +980,15 @@ def handle_session_create_command(args):
 
         # Stage 12: Format output
         _format_session_output(
-            output_format, session_id, ai_id, user_id, project_id, parent_session_id, auto_init_performed, close_result
+            output_format,
+            session_id,
+            ai_id,
+            user_id,
+            project_id,
+            parent_session_id,
+            auto_init_performed,
+            close_result,
+            active_session_warning,
         )
 
     except Exception as e:
