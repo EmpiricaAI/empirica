@@ -186,6 +186,31 @@ def _practitioner_body(
     build = record.get("build")
     if isinstance(build, dict) and build:
         body["build"] = build
+
+    # The EMITTER's own build, labelled as its own and never as the session's.
+    #
+    # Without it, three different states arrive identically — a seat whose
+    # session predates the feature, a seat whose CLI is too old so the hook
+    # retried without `--record-build`, and a seat with genuinely nothing to
+    # report — because core chose to OMIT `build` rather than send null and the
+    # retry then produces the same absence (cortex, prop_es62dir4t5gsvkex5ppv43caem).
+    #
+    # The mark cannot come from a skewed box's own tooling: one install serves
+    # both the CLI and this daemon, so a CLI old enough to reject the flag ships
+    # a daemon old enough to send nothing new. What CAN discriminate is this
+    # field's own presence — an emitter that omits it is pre-1.14.1, an emitter
+    # that sends it while `build` is absent is a current emitter whose session
+    # had nothing to forward.
+    #
+    # This is NOT the withdrawn executors patch. That one read the build in the
+    # emitter and called it the session's; this one is named for what it
+    # measures and sits beside the session's rather than standing in for it.
+    try:
+        from empirica.core.build_facts import in_process_build
+
+        body["emitter_build"] = in_process_build()
+    except Exception as exc:  # never fail a heartbeat over a diagnostic
+        logger.debug(f"emitter build unavailable: {exc}")
     if emitter_id:
         # WHO sent this row, as distinct from WHOSE it is.
         #

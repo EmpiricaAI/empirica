@@ -82,3 +82,26 @@ def test_a_record_without_a_build_omits_the_field():
     assert "build" not in body
     body = _practitioner_body({"claude_session_id": "s1", "build": {}}, machine="box")
     assert "build" not in body
+
+
+# ── The emitter marks itself, so absence has a cause ─────────────────────────
+# cortex, prop_es62dir4t5gsvkex5ppv43caem: omitting `build` rather than sending
+# null lets a reader tell "not reported" from "reported empty" — but a seat whose
+# CLI was too old, so session-init retried without `--record-build`, produces the
+# SAME absence as a seat with nothing to report. The distinction survived the
+# wire and collapsed one step earlier.
+def test_the_emitter_reports_its_own_build_beside_the_sessions():
+    build = {"source": "in_process", "version": "1.13.40", "digest": "abc"}
+    body = _practitioner_body({"claude_session_id": "s1", "build": build}, machine="box")
+    assert body["build"] == build, "the session's build is still forwarded unchanged"
+    assert body["emitter_build"]["source"] == "in_process"
+    assert body["emitter_build"] != build, "the emitter's build is its own, not a copy of the session's"
+
+
+def test_a_session_with_no_build_still_identifies_its_emitter():
+    """The discriminating case: `build` absent, `emitter_build` present means a
+    current emitter whose session had nothing to forward — as against a
+    pre-1.14.1 emitter, which omits both."""
+    body = _practitioner_body({"claude_session_id": "s1"}, machine="box")
+    assert "build" not in body
+    assert body["emitter_build"]["version"]
