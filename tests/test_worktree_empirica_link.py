@@ -183,7 +183,7 @@ class TestAutoInitLinksWorktreesInsteadOfMinting:
         from unittest.mock import patch
 
         with patch(
-            "empirica.cli.command_handlers.project_init.handle_project_init_command",
+            "empirica.cli.command_handlers.project_init.run_project_init",
             return_value=init_result,
         ):
             performed, project_id, project_path = _handle_auto_init(args, output_format="json", project_id=None)

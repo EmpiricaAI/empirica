@@ -33,7 +33,7 @@ def test_handle_auto_init_returns_project_path_when_init_runs(tmp_path, monkeypa
     with (
         patch("empirica.config.path_resolver.get_git_root", return_value=fake_git_root),
         patch(
-            "empirica.cli.command_handlers.project_init.handle_project_init_command",
+            "empirica.cli.command_handlers.project_init.run_project_init",
             return_value=init_result,
         ),
     ):
@@ -75,7 +75,7 @@ def test_handle_auto_init_never_clobbers_existing_project_yaml(tmp_path, monkeyp
 
     with (
         patch("empirica.config.path_resolver.get_git_root", return_value=tmp_path),
-        patch("empirica.cli.command_handlers.project_init.handle_project_init_command") as init_mock,
+        patch("empirica.cli.command_handlers.project_init.run_project_init") as init_mock,
     ):
         performed, project_id, _project_path = _handle_auto_init(args, output_format="json", project_id=None)
 

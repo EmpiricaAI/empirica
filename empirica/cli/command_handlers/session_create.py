@@ -336,7 +336,7 @@ def _mint_or_adopt_project(git_root, output_format):
     try:
         from types import SimpleNamespace
 
-        from empirica.cli.command_handlers.project_init import handle_project_init_command
+        from empirica.cli.command_handlers.project_init import run_project_init
 
         init_args = SimpleNamespace(
             non_interactive=True,
@@ -349,7 +349,7 @@ def _mint_or_adopt_project(git_root, output_format):
             project_id=adopted_id,  # None → mint (new); set → adopt canonical
         )
 
-        result = handle_project_init_command(init_args)
+        result = run_project_init(init_args, emit_result=False)
         if result is None:
             if output_format != "json":
                 print("❌ Auto-init failed. Run 'empirica project-init' manually.")

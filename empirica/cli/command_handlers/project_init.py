@@ -507,7 +507,21 @@ def _resolve_init_db_path(git_root):
 
 
 def handle_project_init_command(args):
-    """Handle project-init command - initialize Empirica in a new repo"""
+    """CLI entry for project-init. Returns an exit code, not the result dict.
+
+    run_project_init prints its own result. A dict returned here would be
+    printed a SECOND time by the dispatcher, so `--output json` emitted two
+    documents and broke every json.load consumer.
+    """
+    return 0 if run_project_init(args) else 1
+
+
+def run_project_init(args, emit_result=True):
+    """Initialize Empirica in a repo. Returns the result dict, or None on failure.
+
+    emit_result=False leaves the success output to the caller: session-create
+    --auto-init prints one document of its own, and project-init's would make two.
+    """
     try:
         import yaml
 
@@ -601,18 +615,19 @@ def handle_project_init_command(args):
         if config_input["create_semantic_index"]:
             semantic_index_path = _create_semantic_index_template(git_root, project_name)
 
-        _format_init_output(
-            output_format,
-            project_id,
-            project_name,
-            git_root,
-            config_path,
-            project_config_path,
-            semantic_index_path,
-            config_input["enable_beads"],
-            config_input["create_semantic_index"],
-            reused_existing,
-        )
+        if emit_result:
+            _format_init_output(
+                output_format,
+                project_id,
+                project_name,
+                git_root,
+                config_path,
+                project_config_path,
+                semantic_index_path,
+                config_input["enable_beads"],
+                config_input["create_semantic_index"],
+                reused_existing,
+            )
 
         return {
             "ok": True,
