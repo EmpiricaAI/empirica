@@ -97,7 +97,7 @@ Skills load on demand when the AI detects a relevant situation. Invoke with `/sk
 | **code-docs-align** | `/code-docs-align`, doc accuracy | Verifies documentation matches code reality — bridges code-audit and docs-assess |
 | **dispatch-agent** | Agent spawning, complex tasks | Enriches agent prompts with Cortex context (dead-ends, findings, anti-patterns) |
 | **ewm-interview** | `/ewm-interview`, workflow setup | Interviews users to create personalized AI collaboration protocol (workflow-protocol.yaml) |
-| **inbox-listener** | Wake-on-event setup (held HTTP stream registration) | Sister to `loop-cron` for event-driven background work — arms `Monitor(persistent=True)` on a registered listener |
+| **inbox-listener** | Wake-on-event setup (held HTTP stream registration) | Sister to `loop-cron` for event-driven background work — arms a `Monitor` on a registered listener (load it via ToolSearch first — it is a deferred tool — and re-arm at each 30-minute expiry) |
 | **loop-cron** | Recurring background work setup | Wires periodic tasks into the registry. Self-throttles when an empirica transaction is open. The body skill for cron-mode loops |
 | **services-auditor** | `/services-auditor`, compliance review | Phase 2 service-tier auditor — invoked from `empirica scan --explain` to hand off compliance findings to the calling AI session |
 | **services-audit-cron** | Recurring services audit | Scheduled wrapper for `services-auditor` — fires the audit on a cron interval |

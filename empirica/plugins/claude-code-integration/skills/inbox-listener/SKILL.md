@@ -101,7 +101,13 @@ without it, events wait in `loop_fires.log` until the next arm or `mailbox poll`
 
 ### 2. Arm Monitor with the emitted args
 
+Monitor is a **deferred** tool on current Claude Code: it is named in the
+deferred-tools list but has no schema until loaded, so calling it cold fails and
+it does not appear in your tool list. Load it first; where it is already loaded
+the load is a no-op.
+
 ```python
+ToolSearch(query="select:Monitor,TaskStop")
 result = Monitor(
     description="Cortex orchestration push listener for <id>",
     command="empirica loop listen --instance <id>",

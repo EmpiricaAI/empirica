@@ -245,9 +245,18 @@ def _build_monitor_block_from_cli(payload: dict | None, instance_id: str) -> str
             '("epistemic email for the AI age" — David, 2026-05-15).'
         )
 
+    # Monitor and TaskStop are DEFERRED tools on current Claude Code: they are
+    # named in the session's deferred-tools list but have no schema until
+    # ToolSearch loads them. Without the load step the instruction below cannot
+    # be followed, and a practitioner who looks for Monitor in its tool list
+    # concludes the session is broken (mesh-support, 2026-09-24: four refuted
+    # environment hypotheses on one seat before the deferral was spotted).
     return (
-        f"**Arm this Monitor at session start:**\n\n"
+        f"**Arm this Monitor at session start.** If `Monitor` is not in your tool "
+        f"list, it is deferred: load it first. Loading it is not optional — "
+        f"calling it unloaded fails.\n\n"
         f"```python\n"
+        f'ToolSearch(query="select:Monitor,TaskStop")  # no-op where Monitor is already loaded\n'
         f"Monitor(\n"
         f'    description="{description}",\n'
         f'    command="{command}",\n'

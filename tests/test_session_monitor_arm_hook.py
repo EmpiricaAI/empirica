@@ -20,6 +20,8 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from empirica.core.loop_scheduler import (
     list_active_loops_for_instance,
 )
@@ -594,3 +596,17 @@ def test_hook_requires_both_mesh_skills_when_listener_armed(monkeypatch):
     # precondition phrasing (vs the soft "if needed, load X" pattern that
     # gets routinely missed)
     assert "before your first" in ctx.lower() or "before first" in ctx.lower()
+
+
+# ── Monitor is a deferred tool: the block must load it before calling it ─────
+# mesh-support prop_ihecnvjmh5bttnjblzp2nmlgqq: the rendered block carried a
+# bare Monitor(...) with zero mentions of ToolSearch. On current Claude Code,
+# Monitor has no schema until ToolSearch loads it, so a practitioner who
+# followed the instruction literally found no such tool and concluded the
+# session was broken — while events accumulated unseen in loop_fires.log.
+@pytest.mark.parametrize("payload", [None, {"ok": True, "status": "persistent_service_tail_session"}])
+def test_every_monitor_block_loads_the_deferred_tool_first(payload):
+    mod = _load_hook_module()
+    block = mod._build_monitor_block_from_cli(payload, "myai")
+    assert 'ToolSearch(query="select:Monitor,TaskStop")' in block
+    assert block.index("ToolSearch(") < block.index("Monitor("), "the load must come before the call"
