@@ -281,6 +281,72 @@ def _ensure_git_root(interactive, output_format, args=None):
     return git_root
 
 
+def _repair_missing_store(git_root, output_format):
+    """Recreate a missing store for an initialised project. None if not applicable.
+
+    A plain re-run of project-init used to refuse on "already initialized" even
+    when the thing actually missing was the database: a moved checkout, a deleted
+    `.empirica/sessions/`, or a newly pinned EMPIRICA_SESSION_DB. The only way
+    out was `--force`, which rewrites project.yaml. This path touches no config:
+    it creates the store and the projects row under the id project.yaml already
+    carries. With no usable id there is nothing to repair against, so the caller
+    falls back to the refusal and its `--force` hint.
+    """
+    import yaml
+
+    from empirica.data.session_database import SessionDatabase
+
+    db_path = _resolve_init_db_path(git_root)
+    project_yaml = Path(git_root) / ".empirica" / "project.yaml"
+    if db_path.exists() or not project_yaml.is_file():
+        return None
+    try:
+        cfg = yaml.safe_load(project_yaml.read_text()) or {}
+    except Exception:
+        return None
+    project_id = cfg.get("project_id") if isinstance(cfg, dict) else None
+    if not project_id:
+        return None
+
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    db = SessionDatabase(db_path=str(db_path))
+    try:
+        _ensure_project_row(
+            db,
+            str(project_id),
+            cfg.get("name") or Path(git_root).name,
+            cfg.get("description"),
+            _get_git_remote_url(),
+            cfg.get("project_type"),
+            cfg.get("tags"),
+            output_format,
+        )
+        # _ensure_project_row swallows its own failures, so read the row back:
+        # a repair that reports success over an empty store is the defect again.
+        repaired = bool(db.get_project(str(project_id)))
+    finally:
+        db.close()
+
+    result = {
+        "ok": repaired,
+        "repaired": "store",
+        "project_id": str(project_id),
+        "db_path": str(db_path),
+        "message": (
+            "Store was missing; recreated it under the existing project_id. project.yaml was not touched."
+            if repaired
+            else "Store was missing and could not be repaired: the projects row did not persist."
+        ),
+    }
+    if output_format == "json":
+        print(json.dumps(result, indent=2))
+    else:
+        print(("🔧 " if repaired else "❌ ") + result["message"])
+        print(f"   Store: {db_path}")
+        print(f"   Project ID: {project_id}")
+    return result
+
+
 def _check_already_initialized(config_path, args, output_format):
     """Check if Empirica is already initialized. Returns True if should abort."""
     if not config_path.exists() or getattr(args, "force", False):
@@ -538,6 +604,10 @@ def run_project_init(args, emit_result=True):
             return None
 
         config_path = git_root / ".empirica" / "config.yaml"
+        if config_path.exists() and not getattr(args, "force", False):
+            repaired = _repair_missing_store(git_root, output_format)
+            if repaired is not None:
+                return repaired if repaired["ok"] else None
         if _check_already_initialized(config_path, args, output_format):
             return None
 
