@@ -448,7 +448,7 @@ def handle_lesson_create_command(args: Namespace) -> dict[str, Any]:
 
         # Parse steps
         steps = []
-        for step_data in input_data.get("steps", []):
+        for step_data in input_data.get("steps") or []:
             phase_str = str(step_data.get("phase", "praxic")).lower()
             phase = LessonPhase(phase_str)
 

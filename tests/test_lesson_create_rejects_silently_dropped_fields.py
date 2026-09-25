@@ -218,20 +218,23 @@ def test_dict_steps_still_accepted_after_shape_guard():
 
 
 def test_visibility_is_accepted_and_mapped_onto_sharing_policy():
-    from empirica.core.lessons import get_lesson_storage
+    from empirica.core.lessons import Lesson, get_lesson_storage
 
     result = _run({"name": "vis-alias", "description": "d", "visibility": "shared"})
     assert result["ok"] is True, result
     stored = get_lesson_storage().get_lesson(result["lesson_id"])
+    assert isinstance(stored, Lesson), "the full record, not a hot-cache entry"
     assert stored.sharing_policy == "org"
 
 
 def test_the_type_named_body_key_is_accepted_as_the_description():
-    from empirica.core.lessons import get_lesson_storage
+    from empirica.core.lessons import Lesson, get_lesson_storage
 
     result = _run({"name": "body-alias", "lesson": "what it teaches"})
     assert result["ok"] is True, result
-    assert get_lesson_storage().get_lesson(result["lesson_id"]).description == "what it teaches"
+    stored = get_lesson_storage().get_lesson(result["lesson_id"])
+    assert isinstance(stored, Lesson), "the full record, not a hot-cache entry"
+    assert stored.description == "what it teaches"
 
 
 def test_every_problem_is_reported_in_one_pass():
@@ -257,3 +260,8 @@ def test_an_alias_that_contradicts_the_native_field_is_refused():
     result = _run({"name": "clash", "description": "d", "visibility": "public", "sharing_policy": "private"})
     assert result["ok"] is False
     assert "Pass one" in result["error"]
+
+
+def test_null_steps_is_no_steps_not_a_crash():
+    result = _run({"name": "null-steps", "description": "d", "steps": None})
+    assert result["ok"] is True, result
