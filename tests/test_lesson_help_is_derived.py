@@ -52,10 +52,11 @@ def test_every_closed_vocabulary_value_is_named(epilog):
 
 
 def test_the_divergence_from_visibility_is_explained_not_just_listed(epilog):
-    """Naming `sharing_policy` without saying why it is not `visibility` leaves the
-    reader assuming drift and reaching for `shared`, which is rejected."""
-    assert "visibility" in epilog
-    assert "shared~org" in epilog
+    """Naming `sharing_policy` without saying how it relates to `visibility` leaves
+    the reader assuming drift. Since 2026-09-25 `visibility` is accepted as an alias
+    (David's ruling), so the help must say so and show the mapping."""
+    assert "visibility" in epilog and "alias" in epilog
+    assert "shared->org" in epilog
 
 
 def test_the_worked_example_actually_works(tmp_path, monkeypatch):

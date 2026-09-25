@@ -210,3 +210,50 @@ def test_plain_string_step_is_rejected_not_crashed():
 def test_dict_steps_still_accepted_after_shape_guard():
     result = _run({"name": "t2", "description": "d", "steps": [{"order": 1, "action": "a"}]})
     assert result["ok"] is True
+
+
+# ─── Artifact-layer aliases, and every problem at once (David, 2026-09-25) ──
+# mesh-support needed five sequential failures to author one lesson: each call
+# surfaced exactly one error, so the schema was found by bisection.
+
+
+def test_visibility_is_accepted_and_mapped_onto_sharing_policy():
+    from empirica.core.lessons import get_lesson_storage
+
+    result = _run({"name": "vis-alias", "description": "d", "visibility": "shared"})
+    assert result["ok"] is True, result
+    stored = get_lesson_storage().get_lesson(result["lesson_id"])
+    assert stored.sharing_policy == "org"
+
+
+def test_the_type_named_body_key_is_accepted_as_the_description():
+    from empirica.core.lessons import get_lesson_storage
+
+    result = _run({"name": "body-alias", "lesson": "what it teaches"})
+    assert result["ok"] is True, result
+    assert get_lesson_storage().get_lesson(result["lesson_id"]).description == "what it teaches"
+
+
+def test_every_problem_is_reported_in_one_pass():
+    result = _run(
+        {
+            "name": "many",
+            "description": "d",
+            "summary": "unknown",
+            "abstraction_level": "galactic",
+            "visibility": "everyone",
+            "steps": ["a string", {"action": "x", "phase": "diagnose"}],
+        }
+    )
+    assert result["ok"] is False
+    problems = " ".join(result["problems"])
+    for expected in ("summary", "galactic", "everyone", "step 1", "step 2"):
+        assert expected in problems, f"{expected!r} missing: the caller would find it one retry later"
+    assert len(result["problems"]) == 5
+
+
+def test_an_alias_that_contradicts_the_native_field_is_refused():
+    """Positive control on the mapping: it never silently picks one of two answers."""
+    result = _run({"name": "clash", "description": "d", "visibility": "public", "sharing_policy": "private"})
+    assert result["ok"] is False
+    assert "Pass one" in result["error"]

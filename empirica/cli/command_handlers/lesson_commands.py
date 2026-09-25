@@ -60,6 +60,68 @@ LESSON_ENUMS: dict[str, tuple[str, ...]] = {
 
 _PHASE_VALUES: frozenset[str] = frozenset({"noetic", "praxic"})
 
+# The artifact layer's vocabulary, accepted as aliases (David, 2026-09-25). A
+# practitioner who writes findings all day reaches for `visibility` and for the
+# type-named body key; each used to be one rejection, found one per attempt —
+# five sequential failures to author one lesson. `licensed` has no visibility
+# equivalent, so the lesson store keeps its own axis and this only maps onto it.
+_VISIBILITY_TO_SHARING: dict[str, str] = {"local": "private", "shared": "org", "public": "public"}
+_BODY_ALIAS = "lesson"
+
+
+def _normalise_lesson_payload(data: dict) -> tuple[dict, list[str]]:
+    """Map artifact-layer aliases onto lesson fields, and collect EVERY problem.
+
+    Returns (payload, problems). Reports all of them at once: the checks that
+    follow in the handler each stop at the first failure, which is what made the
+    schema discoverable only by bisection.
+    """
+    data = dict(data)
+    problems: list[str] = []
+
+    if "visibility" in data:
+        vis = data.pop("visibility")
+        mapped = _VISIBILITY_TO_SHARING.get(vis) if isinstance(vis, str) else None
+        if mapped is None:
+            problems.append(
+                f"visibility {vis!r} has no lesson equivalent. Use one of "
+                f"{', '.join(_VISIBILITY_TO_SHARING)}, or sharing_policy directly."
+            )
+        elif "sharing_policy" in data and data["sharing_policy"] != mapped:
+            problems.append(
+                f"visibility {vis!r} means sharing_policy {mapped!r}, but sharing_policy "
+                f"{data['sharing_policy']!r} was also given. Pass one."
+            )
+        else:
+            data["sharing_policy"] = mapped
+
+    if _BODY_ALIAS in data:
+        body = data.pop(_BODY_ALIAS)
+        if "description" in data and data["description"] != body:
+            problems.append(f"both '{_BODY_ALIAS}' and 'description' carry a body. Pass one.")
+        else:
+            data["description"] = body
+
+    unknown = sorted(set(data) - KNOWN_LESSON_KEYS)
+    if unknown:
+        problems.append(
+            f"unknown field(s): {', '.join(unknown)}. Accepted: {', '.join(sorted(KNOWN_LESSON_KEYS))} "
+            f"(plus the aliases visibility and {_BODY_ALIAS})."
+        )
+    for field, allowed in LESSON_ENUMS.items():
+        if field in data and data[field] not in allowed:
+            problems.append(f"invalid {field}: {data[field]!r}. Allowed: {', '.join(allowed)}.")
+    for idx, step in enumerate(data.get("steps") or []):
+        if not isinstance(step, dict):
+            problems.append(f"step {idx + 1}: expected an object with an 'action' field (got {type(step).__name__}).")
+            continue
+        phase = str(step.get("phase", "praxic")).lower()
+        if phase not in _PHASE_VALUES:
+            problems.append(
+                f"step {idx + 1}: invalid phase {step.get('phase')!r}. Allowed: {', '.join(sorted(_PHASE_VALUES))}."
+            )
+    return data, problems
+
 
 def _supersession_note(storage, include_superseded: bool) -> dict:
     """How many lessons in the store are retired, and whether they were withheld.
@@ -344,6 +406,18 @@ def handle_lesson_create_command(args: Namespace) -> dict[str, Any]:
                 "error": "No input provided. Use --input FILE, --json JSON, --from-global ID, or pipe to stdin",
             }
 
+        if not isinstance(input_data, dict):
+            return {"ok": False, "error": f"Lesson payload must be a JSON object (got {type(input_data).__name__})."}
+        input_data, problems = _normalise_lesson_payload(input_data)
+        if problems:
+            return {
+                "ok": False,
+                "error": f"{len(problems)} problem(s) in the lesson payload: " + " | ".join(problems),
+                "problems": problems,
+                "unknown_fields": sorted(set(input_data) - KNOWN_LESSON_KEYS),
+                "accepted_fields": sorted(KNOWN_LESSON_KEYS),
+            }
+
         # Build lesson object
         name = input_data.get("name", getattr(args, "name", "Unnamed Lesson"))
         version = input_data.get("version", "1.0")
@@ -368,59 +442,14 @@ def handle_lesson_create_command(args: Namespace) -> dict[str, Any]:
             expected_delta=expected_delta,
         )
 
-        # Reject what we cannot store, rather than dropping it and reporting
-        # success. A caller passing `summary` plainly intends content; silently
-        # discarding it is the worst available behaviour, because the receipt
-        # says the lesson was created and nothing says it is empty.
-        unknown = sorted(set(input_data) - KNOWN_LESSON_KEYS)
-        if unknown:
-            return {
-                "ok": False,
-                "error": (f"Unknown field(s): {', '.join(unknown)}. Accepted: {', '.join(sorted(KNOWN_LESSON_KEYS))}."),
-                "unknown_fields": unknown,
-                "accepted_fields": sorted(KNOWN_LESSON_KEYS),
-            }
-
-        # Enums are REJECTED, not coerced. sharing_policy silently falling back
-        # to `private` is the consequential one: it decides whether the lesson
-        # crosses the practice boundary at all, which is the entire distinction
-        # between a lesson and a finding. A practitioner authoring a lesson to
-        # propagate a pattern got a success message and an artifact no peer
-        # would ever see.
-        for field, allowed in LESSON_ENUMS.items():
-            if field in input_data and input_data[field] not in allowed:
-                return {
-                    "ok": False,
-                    "error": (f"Invalid {field}: {input_data[field]!r}. Allowed: {', '.join(allowed)}."),
-                }
+        # Unknown fields, enum values, step shape and phase were all checked by
+        # _normalise_lesson_payload above, which reports every problem at once.
+        # The one-at-a-time copies that stood here could no longer fire.
 
         # Parse steps
         steps = []
-        for idx, step_data in enumerate(input_data.get("steps", [])):
-            # A plain-string step crashed with AttributeError at the .get below
-            # instead of the clean message every other malformed field gets —
-            # this path predates the unknown-field/enum hardening (mesh-support,
-            # prop_kdi4qrcc). Same contract: name the step, name the shape.
-            if not isinstance(step_data, dict):
-                return {
-                    "ok": False,
-                    "error": (
-                        f"Invalid step {idx + 1}: expected an object with an 'action' field "
-                        f"(got {type(step_data).__name__}: {step_data!r})."
-                    ),
-                }
+        for step_data in input_data.get("steps", []):
             phase_str = str(step_data.get("phase", "praxic")).lower()
-            # Previously: NOETIC if phase_str == "noetic" else PRAXIC — so every
-            # unrecognised phase silently became praxic. A six-step lesson using
-            # diagnose/remediate/verify stored six praxic steps and said ok.
-            if phase_str not in _PHASE_VALUES:
-                return {
-                    "ok": False,
-                    "error": (
-                        f"Invalid phase {step_data.get('phase')!r} on step {idx + 1}. "
-                        f"Allowed: {', '.join(sorted(_PHASE_VALUES))}."
-                    ),
-                }
             phase = LessonPhase(phase_str)
 
             step = LessonStep(

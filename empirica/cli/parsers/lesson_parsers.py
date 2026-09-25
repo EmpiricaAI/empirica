@@ -38,14 +38,17 @@ def add_lesson_parsers(subparsers):
             "the contract.\n\n"
             "Payload fields (--input / --json / stdin). Anything else is rejected by name:\n"
             f"    {', '.join(sorted(KNOWN_LESSON_KEYS))}\n\n"
-            "The body is `description`. `steps` is a list of OBJECTS, each with an `action` "
-            "key and an optional `phase` of noetic|praxic — not a list of strings.\n\n"
+            "The body is `description` (`lesson` is accepted as an alias, like `finding` on "
+            "finding-log). `steps` is a list of OBJECTS, each with an `action` "
+            "key and an optional `phase` of noetic|praxic — not a list of strings. Every "
+            "problem in a payload is reported at once, under `problems`.\n\n"
             "Closed vocabularies (out-of-vocabulary values are rejected, never defaulted):\n"
             f"{_enums}\n\n"
-            "`sharing_policy` is the lesson store's own axis and is deliberately NOT the "
-            "`visibility` flag used by finding-log and its siblings — a lesson carries "
-            "marketplace tiers the artifact layer has no concept of. Nearest equivalents: "
-            "local~private, shared~org, public~public.\n\n"
+            "`sharing_policy` is the lesson store's own axis — a lesson carries marketplace "
+            "tiers the artifact layer has no concept of. The artifact layer's `visibility` is "
+            "accepted as an alias and mapped onto it: local->private, shared->org, "
+            "public->public. `project` and `licensed` have no visibility form; pass "
+            "sharing_policy for those.\n\n"
             'Example:\n  empirica lesson-create --json \'{"name": "x", "description": "what it '
             'teaches", "steps": [{"order": 1, "phase": "praxic", "action": "do the thing"}]}\''
         ),
