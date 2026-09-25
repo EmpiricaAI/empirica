@@ -651,3 +651,44 @@ def test_no_idempotency_key_means_no_retry(monkeypatch, capsys):
     assert "could not compute idempotency_key" in err
     assert "genuinely skipped" in err, "the message must not claim a skip the code does not perform"
     assert rc != 0
+
+
+# ─── A reply to your own proposal ─────────────────────────────────────
+# Two follow-ups to cortex were sent with --parent-id pointing at the sender's
+# own outbound ask. The default target is the parent's author, so both landed in
+# the sender's own inbox, reached no peer, and the response said ok.
+
+
+def test_a_reply_to_your_own_proposal_is_refused_before_any_send(capsys):
+    calls, post = _record_post()
+    rc = handle_mailbox_reply_command(
+        _make_args(source_claude="empirica.david.empirica"),
+        _resolve_cortex_creds=_creds(),
+        _resolve_ai_id=_ai_id(),
+        _http_post=post,
+        _fetch_parent=_fetch_parent(source_claude="empirica.david.empirica"),
+    )
+    assert rc == 1
+    assert calls == [], "nothing may be proposed, completed or archived"
+    err = capsys.readouterr().err
+    assert "your own proposal" in err and "--target-claudes" in err
+
+
+def test_naming_the_peer_explicitly_still_threads_under_your_own_ask(capsys):
+    """Positive control: the documented way to chase your own ask works."""
+    calls, post = _record_post()
+    rc = handle_mailbox_reply_command(
+        _make_args(
+            source_claude="empirica.david.empirica",
+            target_claudes="empirica.david.empirica-cortex",
+            no_close=True,
+        ),
+        _resolve_cortex_creds=_creds(),
+        _resolve_ai_id=_ai_id(),
+        _http_post=post,
+        _fetch_parent=_fetch_parent(source_claude="empirica.david.empirica"),
+    )
+    assert rc == 0
+    propose = next(c for c in calls if "/propose" in c["url"])
+    assert propose["body"]["target_claudes"] == ["empirica.david.empirica-cortex"]
+    assert propose["body"]["parent_id"] == "prop_parent"

@@ -442,6 +442,20 @@ def handle_mailbox_reply_command(  # noqa: C901 — CLI handler with 7 validatio
         target_claudes = [t.strip() for t in target_claudes_arg.split(",") if t.strip()]
     else:
         parent_source = parent.get("source_claude")
+        # A reply answers the parent's author. When that author is the caller,
+        # the default addresses the caller: the "reply" lands in its own inbox,
+        # reaches no peer, and then CLOSES the caller's own open ask. Measured
+        # 2026-09-23: two follow-ups to cortex, sent this way, never left the
+        # sender, and the response said ok. Refused only for the derived default;
+        # an explicit --target-claudes is a deliberate choice and is honoured.
+        if parent_source and parent_source.strip().lower() == str(source_claude).strip().lower():
+            sys.stderr.write(
+                f"mailbox reply: parent {parent_id} is your own proposal (source_claude {parent_source}), "
+                "so the default target would be you: the reply would reach no peer and would close your "
+                "own open ask. To chase your own ask, name the peer and keep it open: "
+                f"--target-claudes <peer> --no-close (with --parent-id {parent_id} for threading).\n"
+            )
+            return 1
         target_claudes = [parent_source] if parent_source else []
     if not target_claudes:
         sys.stderr.write(
