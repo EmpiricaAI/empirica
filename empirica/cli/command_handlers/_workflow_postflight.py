@@ -577,6 +577,7 @@ def _run_grounded_verification(
     work_type: str | None,
     transaction_id: str | None,
     project_path: str | None = None,
+    edited_files: list[str] | None = None,
 ) -> dict | None:
     """Run grounded verification: phase-aware evidence collection + calibration.
 
@@ -651,6 +652,7 @@ def _run_grounded_verification(
             work_type=work_type,
             per_vector_weights=tier2_weights,
             transaction_id=transaction_id,
+            edited_files=edited_files,
         )
 
         if result:
@@ -2333,6 +2335,7 @@ def handle_postflight_submit_command(args):
                 tx_info["work_type"],
                 tx_info["transaction_id"],
                 project_path=resolved_project_path,
+                edited_files=tx_info.get("edited_files"),
             )
             goal_criteria_block = _soft_run(
                 "goal_criteria",

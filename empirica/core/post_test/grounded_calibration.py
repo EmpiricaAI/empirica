@@ -730,6 +730,7 @@ def _run_single_phase_verification(
     preflight_timestamp: float | None = None,
     per_vector_weights: dict[str, float] | None = None,
     transaction_id: str | None = None,
+    edited_files: list[str] | None = None,
 ) -> dict | None:
     """Run grounded verification for a single phase (noetic, praxic, or combined)."""
 
@@ -771,6 +772,7 @@ def _run_single_phase_verification(
         work_context=work_context,
         preflight_timestamp=preflight_timestamp,
         transaction_id=transaction_id,
+        edited_files=edited_files,
     )
     bundle = collector.collect_all()
 
@@ -1311,6 +1313,7 @@ def run_grounded_verification(
     work_type: str | None = None,
     per_vector_weights: dict[str, dict[str, float]] | None = None,
     transaction_id: str | None = None,
+    edited_files: list[str] | None = None,
 ) -> dict | None:
     """
     Full grounded verification pipeline.
@@ -1359,6 +1362,7 @@ def run_grounded_verification(
                     preflight_timestamp=preflight_ts,
                     per_vector_weights=noetic_weights,
                     transaction_id=transaction_id,
+                    edited_files=edited_files,
                 )
                 if noetic_result:
                     results["noetic"] = noetic_result
@@ -1380,6 +1384,7 @@ def run_grounded_verification(
                     preflight_timestamp=preflight_ts,
                     per_vector_weights=praxic_weights,
                     transaction_id=transaction_id,
+                    edited_files=edited_files,
                 )
                 if praxic_result:
                     results["praxic"] = praxic_result
@@ -1400,6 +1405,7 @@ def run_grounded_verification(
                 work_type=work_type,
                 per_vector_weights=combined_weights,
                 transaction_id=transaction_id,
+                edited_files=edited_files,
             )
             if combined_result:
                 results["combined"] = combined_result

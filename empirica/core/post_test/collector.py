@@ -211,8 +211,13 @@ class PostTestCollector:
         work_context: str | None = None,
         preflight_timestamp: float | None = None,
         transaction_id: str | None = None,
+        edited_files: list[str] | None = None,
     ):
         self.session_id = session_id
+        # Captured by POSTFLIGHT from the hook counters before it deletes them.
+        # None means "not supplied", so the file lookup below still runs for
+        # callers outside POSTFLIGHT; a list, even empty, is the answer.
+        self._edited_files = list(edited_files) if edited_files is not None else None
         self.project_id = project_id
         self.phase = phase  # "noetic", "praxic", or "combined"
         self.check_timestamp = check_timestamp  # CHECK boundary timestamp
@@ -1578,6 +1583,12 @@ class PostTestCollector:
         every Edit/Write tool call to the hook_counters file (since v1.8.14).
         Falls back to reading from active_transaction for backward compat.
         """
+        # POSTFLIGHT deletes the counters before grounded verification runs, so
+        # the lookup below found nothing there and every non-git edit went
+        # unseen. The list it captured first is the authority when supplied.
+        if self._edited_files is not None:
+            return list(self._edited_files)
+
         from empirica.utils.session_resolver import InstanceResolver as R
 
         suffix = R.instance_suffix()
