@@ -5,6 +5,54 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.3] - 2026-09-25
+
+Cut early for one fix: on a seat where empirica was installed only through pipx or
+Homebrew, the Sentinel could be off without anything saying so.
+
+### Fixed
+
+- **Hooks run the same Python as the `empirica` command.** Setup wrote a bare
+  `python3` into every hook. A pipx or Homebrew install puts empirica only in its own
+  interpreter, so on such a seat the hooks could not import empirica, and the
+  Sentinel allowed every tool call and said nothing. Setup now writes the CLI's own
+  interpreter into every hook and the statusline, using the stable `opt/` path on
+  Homebrew. A plain re-run of `empirica setup-claude-code` repairs an existing seat
+  in place, with no `--force` needed.
+- **The Sentinel says when it cannot run.** If empirica still cannot be imported, the
+  gate keeps allowing, so a broken install cannot lock anyone out. But the first
+  such call in a session now shows "Empirica Sentinel is OFF" with the interpreter
+  and the reason, and `doctor` has a new check, "Hook interpreter imports empirica",
+  that asks the interpreter the hooks actually run. The check is also part of
+  `--deploy-gaps`.
+- **Hooks no longer import from a hard-coded development checkout.** Twelve places
+  put `~/empirical-ai/empirica` ahead of the installed package, and the Sentinel
+  searched upward from the current directory for any `empirica` package. On a seat
+  with an old clone at that path, or a session inside any checkout, hooks ran that
+  code instead of the installed release.
+- **Grounded calibration sees the files a transaction edited.** POSTFLIGHT deleted
+  the hook counters before grounded verification and compliance ran, so both got an
+  empty list. Edits outside the git repository never reached calibration, and
+  goal-scoped compliance ran the full test suite and linted the whole repository
+  instead of the files changed. POSTFLIGHT now captures the list first.
+- **Pre-compact keeps a transaction opened from another terminal.** It looked only
+  under its own terminal's name, so a transaction opened in another X11 window, or
+  under a tmux pane number that changed across compaction, was missed and not
+  restored.
+- **A git that cannot answer is no longer "not a git repository".** On a git timeout
+  or a missing git binary, the artifact stores skipped the git-notes write with a
+  message nobody saw. They now warn.
+- **`compliance-report` counts a timed-out check as unavailable, not failed**, and
+  computes the score over the checks that actually ran.
+- **`subagent-stop` no longer swallows an interrupt** during its counters write, or
+  reports "parent transaction not found" when the write itself failed.
+
+### Added
+
+- `scripts/silent_handler_census.py`: lists error handlers that return without
+  raising or logging loudly, ranked by what the returned value feeds, so each
+  review pass works from the same definition.
+
 ## [1.14.2] - 2026-09-25
 
 A correctness patch: five places where something went wrong and the output did

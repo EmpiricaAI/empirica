@@ -2,7 +2,7 @@
 
 > **We Gave AI a Mirror. Now It Measures What It Believes.**
 
-[![Version](https://img.shields.io/badge/version-1.14.2-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.14.2)
+[![Version](https://img.shields.io/badge/version-1.14.3-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.14.3)
 [![PyPI](https://img.shields.io/pypi/v/empirica)](https://pypi.org/project/empirica/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -114,13 +114,13 @@ empirica setup
 
 ```bash
 # Security-hardened Alpine image (~276MB, recommended)
-docker pull nubaeon/empirica:1.14.2-alpine
+docker pull nubaeon/empirica:1.14.3-alpine
 
 # Standard image (Debian slim, ~414MB)
-docker pull nubaeon/empirica:1.14.2
+docker pull nubaeon/empirica:1.14.3
 
 # Run
-docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.14.2 /bin/bash
+docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.14.3 /bin/bash
 ```
 </details>
 
@@ -414,13 +414,16 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.14.2
+## What's New in 1.14.3
 
-- **Hook counters stay beside the transaction they belong to.** When a hook ran in a different terminal context from the shell that ran PREFLIGHT (another X11 window, or a tmux pane number rotated across compaction), it found the transaction file under one suffix and wrote its counters under another. The tool-call count, the autonomy nudge and task-completed's POSTFLIGHT prompt then read the wrong file or none. The counters path is now read off the transaction file actually found, and POSTFLIGHT clears that file.
-- **`session-create` says when the checkout's `project.yaml` cannot name the project.** A root whose `project.yaml` could not be parsed, or carried no `project_id`, fell back silently to a context file or to no project, and reported `ok`. The output now carries `project_root_warning`, naming the problem and what the session bound to.
-- **`mailbox reply` refuses a reply whose default target would be you.** Replying to your own proposal addressed the reply to yourself, reached no peer, and closed your own open ask, while reporting `ok`. It is now refused with the way to chase your own ask: `--target-claudes <peer> --no-close`.
-- **A plain `project-init` repairs a missing store.** When the configuration existed but the database did not (a moved checkout, a deleted `.empirica/sessions/`, a newly pinned `EMPIRICA_SESSION_DB`), the only way past "already initialized" was `--force`, which rewrites `project.yaml`. A plain re-run now recreates the store under the existing `project_id` and leaves `project.yaml` untouched.
-- **`lesson-create` accepts the artifact-layer vocabulary.** `visibility` maps onto `sharing_policy` (local→private, shared→org, public→public) and `lesson` is accepted as the body, as `finding` is on `finding-log`. Every problem in a payload is reported at once, under `problems`, instead of one per attempt. An alias that contradicts the native field is refused. `"steps": null` now means no steps rather than an error.
+- **Hooks run the same Python as the `empirica` command.** Setup wrote a bare `python3` into every hook. A pipx or Homebrew install puts empirica only in its own interpreter, so on such a seat the hooks could not import empirica, and the Sentinel allowed every tool call and said nothing. Setup now writes the CLI's own interpreter into every hook and the statusline, using the stable `opt/` path on Homebrew. A plain re-run of `empirica setup-claude-code` repairs an existing seat in place, with no `--force` needed.
+- **The Sentinel says when it cannot run.** If empirica still cannot be imported, the gate keeps allowing, so a broken install cannot lock anyone out. But the first such call in a session now shows "Empirica Sentinel is OFF" with the interpreter and the reason, and `doctor` has a new check, "Hook interpreter imports empirica", that asks the interpreter the hooks actually run. The check is also part of `--deploy-gaps`.
+- **Hooks no longer import from a hard-coded development checkout.** Twelve places put `~/empirical-ai/empirica` ahead of the installed package, and the Sentinel searched upward from the current directory for any `empirica` package. On a seat with an old clone at that path, or a session inside any checkout, hooks ran that code instead of the installed release.
+- **Grounded calibration sees the files a transaction edited.** POSTFLIGHT deleted the hook counters before grounded verification and compliance ran, so both got an empty list. Edits outside the git repository never reached calibration, and goal-scoped compliance ran the full test suite and linted the whole repository instead of the files changed. POSTFLIGHT now captures the list first.
+- **Pre-compact keeps a transaction opened from another terminal.** It looked only under its own terminal's name, so a transaction opened in another X11 window, or under a tmux pane number that changed across compaction, was missed and not restored.
+- **A git that cannot answer is no longer "not a git repository".** On a git timeout or a missing git binary, the artifact stores skipped the git-notes write with a message nobody saw. They now warn.
+- **`compliance-report` counts a timed-out check as unavailable, not failed**, and computes the score over the checks that actually ran.
+- **`subagent-stop` no longer swallows an interrupt** during its counters write, or reports "parent transaction not found" when the write itself failed.
 ## Privacy & Data
 
 **Your data stays local:**
@@ -448,6 +451,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 **Author:** David S. L. Van Assche
-**Version:** 1.14.2
+**Version:** 1.14.3
 
 *Turtles all the way down — built with its own epistemic framework, measuring what it knows at every step.*
