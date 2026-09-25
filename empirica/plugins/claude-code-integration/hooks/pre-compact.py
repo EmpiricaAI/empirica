@@ -255,7 +255,6 @@ def _detect_empirica_session():
     Returns session ID string or None.
     """
     try:
-        sys.path.insert(0, str(Path.home() / "empirical-ai" / "empirica"))
         from empirica.utils.session_resolver import InstanceResolver as R
 
         # Try the canonical ai_id first (project.yaml → basename), then the
@@ -383,7 +382,6 @@ def _run_context_budget_triage(empirica_session):
     Returns budget report dict or None.
     """
     try:
-        sys.path.insert(0, str(Path.home() / "empirical-ai" / "empirica"))
         from empirica.core.context_budget import (
             ContextBudgetManager,
             load_thresholds_from_config,

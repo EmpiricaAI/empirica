@@ -280,7 +280,6 @@ def _resolve_project_and_setup(claude_session_id: str) -> tuple:
         sys.exit(0)
     os.chdir(project_root)
     instance_id = get_instance_id()
-    sys.path.insert(0, str(Path.home() / "empirical-ai" / "empirica"))
     return project_root, instance_id
 
 

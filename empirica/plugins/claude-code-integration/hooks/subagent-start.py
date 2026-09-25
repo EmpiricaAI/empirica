@@ -144,9 +144,6 @@ def _create_default_budget(parent_session_id: str) -> dict:
     Only creates if no budget exists for this session (idempotent).
     """
     try:
-        import sys
-
-        sys.path.insert(0, str(Path.home() / "empirical-ai" / "empirica"))
         import uuid
 
         from empirica.core.attention_budget import AttentionBudget, DomainAllocation, persist_budget

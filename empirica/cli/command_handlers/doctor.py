@@ -933,12 +933,74 @@ def check_unreleased_commits(cwd: Path | None = None) -> Check:
 #: The deploy-gap subset: one readable answer to "what is committed but not
 #: live on this box", assembled from the checks that each cover one lane.
 #: `doctor --deploy-gaps` runs exactly these.
+def check_hook_interpreter(settings_file: Path | None = None) -> Check:
+    """Can the interpreter Claude Code runs the Sentinel under import empirica?
+
+    Hooks run whatever interpreter settings.json names, which is not necessarily
+    the CLI's. setup used to write a bare `python3`, and on a pipx or Homebrew
+    install that interpreter has no empirica: the Sentinel then allowed every
+    tool call and said nothing. This asks the actual interpreter, not a proxy
+    for it, and reports the gate's own "I could not run" marker if one is open.
+    """
+    import json as _json
+    import shlex
+
+    settings_file = settings_file or Path.home() / ".claude" / "settings.json"
+    name = "Hook interpreter imports empirica"
+    try:
+        settings = _json.loads(settings_file.read_text())
+    except (OSError, ValueError):
+        return Check(name, SKIP, f"no readable {settings_file}")
+    command = next(
+        (
+            h.get("command", "")
+            for entry in (settings.get("hooks") or {}).get("PreToolUse", [])
+            for h in entry.get("hooks") or []
+            if "sentinel-gate.py" in (h.get("command") or "")
+        ),
+        "",
+    )
+    if not command:
+        return Check(name, SKIP, "no Sentinel hook registered")
+    try:
+        interpreter = shlex.split(command)[0]
+    except ValueError:
+        return Check(name, FAIL, f"cannot parse the hook command: {command}")
+    try:
+        r = subprocess.run(
+            [interpreter, "-c", "import empirica.config.path_resolver"], capture_output=True, text=True, timeout=15
+        )
+        ok = r.returncode == 0
+        why = (r.stderr.strip().splitlines() or [""])[-1]
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        ok, why = False, type(exc).__name__
+    marker = Path.home() / ".empirica" / "sentinel_unavailable.json"
+    if not ok:
+        return Check(
+            name,
+            FAIL,
+            f"{interpreter} cannot import empirica ({why}); the Sentinel is allowing every tool call",
+            "Run `empirica setup-claude-code` from your empirica install: hooks then use its interpreter",
+            {"interpreter": interpreter},
+        )
+    if marker.exists():
+        return Check(
+            name,
+            WARN,
+            f"{interpreter} imports empirica now, but the Sentinel reported itself unable to run: {marker}",
+            "It clears on the next gated call; if it persists, a hook runs under a different interpreter",
+            {"interpreter": interpreter},
+        )
+    return Check(name, PASS, interpreter, data={"interpreter": interpreter})
+
+
 def deploy_gap_checks(cwd: Path | None = None) -> list[Check]:
     cwd = cwd or Path.cwd()
     return [
         check_unreleased_commits(cwd),  # committed, not released
         check_cli_matches_checkout(cwd),  # released, not what this shell runs
         check_plugin_freshness(),  # released, not what the deployed plugin runs
+        check_hook_interpreter(),  # the deployed hooks run an interpreter that lacks empirica
         check_mcp_version_skew(),  # released, not what the MCP host serves
     ]
 
@@ -2115,6 +2177,7 @@ def run_all_checks(cwd: Path | None = None) -> list[Check]:
         check_cli_matches_checkout(cwd),
         check_empirica_mcp(),
         check_plugin_freshness(),
+        check_hook_interpreter(),
         check_claude_code_cli(),
         check_git_present(),
         check_noetic_tools(),

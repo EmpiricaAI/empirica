@@ -291,7 +291,6 @@ def _resolve_cortex_creds() -> tuple[str, str]:
     separate goal tracks hardening that precedence / warning on env-vs-file
     mismatch.) Falls back to raw env only if the loader import fails."""
     try:
-        sys.path.insert(0, str(Path.home() / "empirical-ai" / "empirica"))
         from empirica.config.credentials_loader import get_credentials_loader
 
         # Either credential. An api_key-only read meant this never ran on a seat
@@ -1184,7 +1183,6 @@ def _prefer_cwd_on_startup(project_root, cwd_root, suffix):
 def _run_stale_cleanup(claude_session_id: str) -> int:
     """Opportunistic cleanup of stale instance_projects for dead tmux panes."""
     try:
-        sys.path.insert(0, str(Path.home() / "empirical-ai" / "empirica"))
         from empirica.utils.session_resolver import InstanceResolver as R
 
         removed = R.cleanup_stale_instances()
@@ -1404,7 +1402,6 @@ def _init_context_budget(session_id: str, project_context: dict) -> dict:
     Returns budget summary dict, or dict with 'error' key on failure.
     """
     try:
-        sys.path.insert(0, str(Path.home() / "empirical-ai" / "empirica"))
         from empirica.core.context_budget import (
             ContentType,
             ContextBudgetManager,

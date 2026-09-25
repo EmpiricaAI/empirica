@@ -470,7 +470,7 @@ def test_run_all_checks_returns_complete_list():
     assert "Deployed plugin fresh" in names
 
 
-def test_run_all_checks_count_is_34():
+def test_run_all_checks_count_is_35():
     """+1 for check_mcp_version_skew (GH #404, injected-topology skew).
     +1 for check_engagement_registry_drift (engagement dual-write, 1.13.23).
     +1 for check_cli_matches_checkout (CLI/checkout skew the version cannot see).
@@ -489,12 +489,16 @@ def test_run_all_checks_count_is_34():
        project-embed detached with its output discarded, so fifteen days of
        failure had no audience; the command now records its outcome and this
        reads it).
+    +1 for check_hook_interpreter (setup wrote a bare python3 into every hook,
+       which on a pipx or Homebrew install cannot import empirica, and the
+       Sentinel then allowed every call without a word; this asks the actual
+       hook interpreter).
 
     A hardcoded count is a tripwire for "a check was added/removed without
     thinking about the suite" — when it fires, update it deliberately (and add
     the name assertion below), never by pasting the new number blind."""
     checks = run_all_checks()
-    assert len(checks) == 34
+    assert len(checks) == 35
     # The tripwire earns its keep only if the NEW check is named. A bumped
     # number alone records that something changed, not what.
     assert any(c.name == "notes/sqlite divergence" for c in checks)
@@ -502,6 +506,7 @@ def test_run_all_checks_count_is_34():
     assert any(c.name == "unreleased commits" for c in checks)
     assert any(c.name == "Notify dispatcher" for c in checks)
     assert any(c.name == "project-embed last run" for c in checks)
+    assert any(c.name == "Hook interpreter imports empirica" for c in checks)
 
 
 # ─── Tailscale (prop_ilf6uy4q) ─────────────────────────────────────────

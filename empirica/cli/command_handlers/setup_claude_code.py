@@ -235,6 +235,59 @@ def _find_python() -> str:
     return sys.executable
 
 
+def _interpreter_imports_empirica(python: str) -> bool:
+    """Whether `python` can import the empirica package — what every hook needs."""
+    try:
+        result = subprocess.run(
+            [python, "-c", "import empirica.config.path_resolver"], capture_output=True, text=True, timeout=15
+        )
+        return result.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def _stable_interpreter_path(exe: str) -> str:
+    """Map a Homebrew Cellar interpreter to its stable opt/ path.
+
+    The Cellar path is versioned (`…/Cellar/empirica/1.14.2/libexec/bin/python`)
+    and is deleted on `brew upgrade`, which would leave every hook pointing at a
+    missing binary. `…/opt/empirica/…` follows the installed version.
+    """
+    import re
+
+    m = re.match(r"^(.*)/Cellar/([^/]+)/[^/]+/(.*)$", exe.replace("\\", "/"))
+    if m:
+        opt = Path(m.group(1)) / "opt" / m.group(2) / m.group(3)
+        if opt.exists():
+            return str(opt)
+    return exe
+
+
+def _hook_interpreter() -> str:
+    """The interpreter hooks and the statusline run under: the one running this CLI.
+
+    Hooks used to run a bare `python3` (_find_python), which is not the CLI's
+    interpreter on a pipx or Homebrew install — those put empirica only in their
+    own. There the hooks could not import empirica, and sentinel-gate allowed
+    every tool call without a word. Running the CLI's interpreter means hooks run
+    exactly what the CLI runs: the working tree on an editable dev install, the
+    release everywhere else. (David, 2026-09-25.)
+
+    Falls back to _find_python, loudly, only if this interpreter somehow cannot
+    import empirica — which would mean setup is not running from an install.
+    """
+    exe = _stable_interpreter_path(sys.executable)
+    if _interpreter_imports_empirica(exe):
+        return f'"{exe}"' if " " in exe else exe
+    fallback = _find_python()
+    print(
+        f"⚠️  {exe} cannot import empirica; hooks will use {fallback}, "
+        "which may not have it either. Re-run setup from an empirica install.",
+        file=sys.stderr,
+    )
+    return fallback
+
+
 def _get_plugin_source_dir() -> Path | None:
     """Find the bundled plugin source directory.
 
@@ -836,12 +889,54 @@ def _configure_settings(settings, settings_file, plugin_dir, python_cmd, force, 
     _configure_statusline(settings, plugin_dir, python_cmd, output_format)
     _configure_permissions(settings, output_format)
     _register_all_hooks(settings, plugin_dir, python_cmd, output_format)
+    _repair_hook_interpreters(settings, plugin_dir, python_cmd, output_format)
 
     # Write settings.json
     try:
         _write_json_file(settings_file, settings, expect_stamp=_settings_stamp)
     except ConcurrentlyModified as e:
         sys.stderr.write(f"   ⚠ settings.json changed while setup was preparing its write — NOT written. {e}\n")
+
+
+def _repair_hook_interpreters(settings, plugin_dir, python_cmd, output_format) -> int:
+    """Point every Empirica hook and the statusline at `python_cmd`, in place.
+
+    Registration skips a hook that already exists, so a plain re-run of setup
+    never changed an interpreter already written — existing seats would have
+    kept `python3 …` for good, and `--force` rewrites everything else too. This
+    rewrites only the interpreter of commands that run OUR scripts (under
+    <plugin_dir>/hooks/ or /scripts/), keeping everything after the script path.
+    Returns how many commands changed.
+    """
+    python_cmd = python_cmd.replace("\\", "/")
+    root = Path(plugin_dir).as_posix()
+    markers = (f"{root}/hooks/", f"{root}/scripts/")
+
+    def fixed(cmd: str) -> str | None:
+        for marker in markers:
+            i = cmd.find(marker)
+            if i > 0:
+                new = f"{python_cmd} {cmd[i:]}"
+                return new if new != cmd else None
+        return None
+
+    changed = 0
+    for entries in (settings.get("hooks") or {}).values():
+        for entry in entries or []:
+            for hook in entry.get("hooks") or []:
+                new = fixed(hook.get("command") or "")
+                if new:
+                    hook["command"] = new
+                    changed += 1
+    status = settings.get("statusLine")
+    if isinstance(status, dict):
+        new = fixed(status.get("command") or "")
+        if new:
+            status["command"] = new
+            changed += 1
+    if changed and output_format != "json":
+        print(f"   ✓ {changed} hook command(s) now run {python_cmd}")
+    return changed
 
 
 def _setup_directories(output_format):
@@ -2491,7 +2586,7 @@ def handle_setup_claude_code_command(args):
             print("🧠 Setting up Claude Code integration...")
             print(f"   Source: {source_dir}\n")
 
-        python_cmd = _find_python()
+        python_cmd = _hook_interpreter()
         if output_format != "json":
             print(f"   Using Python: {python_cmd}")
 

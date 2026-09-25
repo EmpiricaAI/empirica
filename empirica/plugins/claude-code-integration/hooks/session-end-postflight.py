@@ -21,8 +21,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "lib"))
 from project_resolver import find_project_root
 
-sys.path.insert(0, str(Path.home() / "empirical-ai" / "empirica"))
-
 
 def get_session_state(session_id: str) -> dict:
     """
@@ -529,7 +527,6 @@ def _resolve_cortex_creds() -> tuple[str, str]:
     the 2026-05-28 10-day listener-deaf incident. Falls back to raw env only
     if the loader import fails."""
     try:
-        sys.path.insert(0, str(Path.home() / "empirical-ai" / "empirica"))
         from empirica.config.credentials_loader import get_credentials_loader
 
         # Either credential. An api_key-only read meant this never ran on a seat

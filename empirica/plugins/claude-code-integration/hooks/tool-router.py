@@ -575,7 +575,6 @@ def get_active_session_vectors():
             return None, None
 
         # Read vectors from DB
-        sys.path.insert(0, str(Path.home() / "empirical-ai" / "empirica"))
         from empirica.data.session_database import SessionDatabase
 
         db = SessionDatabase()
@@ -839,7 +838,6 @@ def _resolve_project_id_for_session(session_id: str) -> str | None:
     if not session_id:
         return None
     try:
-        sys.path.insert(0, str(Path.home() / "empirical-ai" / "empirica"))
         from empirica.data.session_database import SessionDatabase
 
         db = SessionDatabase()

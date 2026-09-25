@@ -537,7 +537,6 @@ def main():
     delegated_ok = False
     if subagent_tool_calls > 0:
         try:
-            sys.path.insert(0, str(Path.home() / "empirical-ai" / "empirica"))
             delegated_ok = add_delegated_work_to_parent(subagent_tool_calls)
         except Exception:
             pass

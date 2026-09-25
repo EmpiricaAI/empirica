@@ -1875,6 +1875,61 @@ def respond(decision: str, reason: str = "") -> None:
     print(json.dumps(output))
 
 
+_UNAVAILABLE_MARKER = Path.home() / ".empirica" / "sentinel_unavailable.json"
+
+
+def _respond_unavailable(reason: str, claude_session_id: str | None) -> None:
+    """Allow, because a broken install must not lock a session out, but SAY so.
+
+    This used to respond allow with suppressOutput, so on a seat whose hook
+    interpreter could not import empirica (every pipx or Homebrew install, while
+    setup wrote a bare python3 into the hooks) the Sentinel was off and nothing
+    anywhere said it. Now the first such call in a Claude session carries the
+    reason to the user (systemMessage) and the model (additionalContext), later
+    ones stay quiet, and a marker records it for `doctor`. (David, 2026-09-25.)
+    """
+    first = True
+    try:
+        first = json.loads(_UNAVAILABLE_MARKER.read_text()).get("claude_session_id") != claude_session_id
+    except (OSError, ValueError, AttributeError):
+        pass
+    try:
+        _UNAVAILABLE_MARKER.parent.mkdir(parents=True, exist_ok=True)
+        _UNAVAILABLE_MARKER.write_text(
+            json.dumps(
+                {"claude_session_id": claude_session_id, "reason": reason, "python": sys.executable, "at": time.time()}
+            )
+        )
+    except OSError:
+        pass
+    msg = (
+        f"Empirica Sentinel is OFF: this hook's Python ({sys.executable}) cannot import empirica ({reason}). "
+        "Tool calls are not being gated. Re-run `empirica setup-claude-code` from your empirica install "
+        "so the hooks use its interpreter."
+    )
+    output: dict = {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "allow",
+            "permissionDecisionReason": msg,
+        }
+    }
+    if first:
+        output["systemMessage"] = msg
+        output["hookSpecificOutput"]["additionalContext"] = msg
+    else:
+        output["suppressOutput"] = True
+    print(json.dumps(output))
+
+
+def _clear_unavailable_marker() -> None:
+    """The gate works again, so the marker must not keep reporting it off."""
+    try:
+        _UNAVAILABLE_MARKER.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
 def resolve_project_root(claude_session_id: str | None = None) -> Path | None:
     """Resolve the correct project root using the shared project_resolver.
 
@@ -1913,27 +1968,12 @@ def find_empirica_package() -> Path | None:
     except ImportError:
         pass
 
-    # Search for empirica package in known development locations
-    def has_empirica_package(path: Path) -> bool:
-        return (path / "empirica" / "__init__.py").exists()
-
-    # Check cwd and parents first (respect project context)
-    current = Path.cwd()
-    for parent in [current] + list(current.parents):
-        if has_empirica_package(parent):
-            return parent
-        if parent == parent.parent:
-            break
-
-    # Fallback to known dev paths
-    known_paths = [
-        Path.home() / "empirical-ai" / "empirica",
-        Path.home() / "empirica",
-    ]
-    for path in known_paths:
-        if has_empirica_package(path):
-            return path
-
+    # No guessing. This used to walk up from the cwd for any directory holding an
+    # `empirica` package, then try ~/empirical-ai/empirica and ~/empirica — so a
+    # session inside any checkout, or a seat with an old clone at those paths,
+    # ran that code instead of the installed package, and nothing recorded it.
+    # Hooks now run the CLI's own interpreter (setup-claude-code), which imports
+    # empirica natively; when it cannot, the caller says so instead.
     return None
 
 
@@ -4433,6 +4473,16 @@ def _resolve_empirica_root(claude_session_id: str | None) -> Path | None:
     if package_path:
         sys.path.insert(0, str(package_path))
 
+    # Prove empirica imports BEFORE anything else: the project root can resolve
+    # through the plugin's own lib without it, and the failure then surfaced
+    # later, somewhere else, or not at all.
+    try:
+        import empirica.config.path_resolver  # noqa: F401  # pyright: ignore[reportUnusedImport,reportMissingImports]
+    except ImportError as e:
+        _respond_unavailable(str(e), claude_session_id)
+        sys.exit(0)
+    _clear_unavailable_marker()
+
     # Resolve project root using priority chain (claude_session → transaction → instance → TTY → CWD)
     # This is critical for multi-project scenarios where CWD may be reset
     #
@@ -4455,7 +4505,7 @@ def _resolve_empirica_root(claude_session_id: str | None) -> Path | None:
             os.chdir(empirica_root.parent)
         return empirica_root
     except ImportError as e:
-        respond("allow", f"Cannot import path_resolver: {e}")
+        _respond_unavailable(str(e), claude_session_id)
         sys.exit(0)
 
 
