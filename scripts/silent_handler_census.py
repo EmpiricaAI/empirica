@@ -1,23 +1,38 @@
-"""Census: except handlers that return a value with no logging, warning or raise.
+#!/usr/bin/env python3
+"""Census of except handlers that return a value without saying anything loud.
 
-Prints JSON, one row per site: file, line, enclosing function, exception type,
-the returned value, whether the function is check-shaped (is_/has_/count/...),
-and whether the value is a confident one (True/False/0/empty). Rank by
-`verdict_shaped and confident_value` first: those are where a failure reads
-as a confident answer. Used for goal 61da889f; the seven files in TRIAGED
-were judged per site before this script existed.
+A handler counts when it catches, returns, and neither raises nor logs at
+WARNING or above, nor prints, nor writes to stderr. Those are the sites where a
+failure can come back as a confident answer: a predicate saying "no", a count
+saying zero, a lookup saying "absent". The census does not judge them; it lists
+and ranks them for a person to triage, and by-design verdicts go into
+.broccoli-accept so the next pass does not re-litigate them.
 
-    python3 scripts/silent_handler_census.py | jq '[.[] | select(.verdict_shaped and .confident_value)]'
+Rank favours what the value FEEDS (goal 61da889f): predicate-named functions,
+boolean and zero returns, and modules on the hook, POSTFLIGHT, calibration or
+doctor paths.
+
+    python3 scripts/silent_handler_census.py              # ranked TSV, all sites
+    python3 scripts/silent_handler_census.py --top 40     # the triage slice
+    python3 scripts/silent_handler_census.py --count      # just the total
+
+Measured 2026-09-25 with the seven files the first pass triaged excluded: 883
+sites, then 861 once the 22 git-notes store checks were made loud (bf2da231d).
+A regex census over the same tree says 1275, because it cannot see a returned
+error payload or a log more than a couple of lines away; use this one. The
+count is a trend to watch, not a target: most sites are by design.
 """
 
+from __future__ import annotations
+
+import argparse
 import ast
-import json
 import re
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent / "empirica"
-TRIAGED = {
+LOUD = {"warning", "error", "exception", "critical"}
+TRIAGED_FIRST_PASS = {
     "sentinel-gate.py",
     "session_resolver.py",
     "session-init.py",
@@ -26,59 +41,82 @@ TRIAGED = {
     "mailbox_commands.py",
     "identity_migration.py",
 }
-LOUD = {"warning", "error", "exception", "critical", "warn", "print", "warn_unless_missing_table", "handle_cli_error"}
-VERDICTY = re.compile(
-    r"^(is_|has_|can_|should_|check|verify|validate|count|_count|exists|_exists|_is_|_has_|detect|find_)|(_ok|_exists|_count|_valid|_fresh|_stale|_alive|_running|_healthy)$"
+_PREDICATE = re.compile(
+    r"^_?(is|has|can|should)_|check|verify|valid|gate|allow|deny|exists|verdict|passed|match|owned|alive|running|live"
 )
+_HOT_PATH = re.compile(r"hooks|post_test|_workflow|sentinel|calibration|grounded|compliance|doctor")
 
 
-def is_loud(node):
-    for sub in ast.walk(node):
-        if isinstance(sub, ast.Raise):
-            return True
-        if isinstance(sub, ast.Call):
-            f = sub.func
-            name = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", "")
-            if name in LOUD:
-                return True
-    return False
+def _signals(body: list[ast.stmt]) -> set[str]:
+    found: set[str] = set()
+    for node in ast.walk(ast.Module(body=body, type_ignores=[])):
+        if isinstance(node, ast.Raise):
+            found.add("raise")
+        if isinstance(node, ast.Call):
+            f = node.func
+            if isinstance(f, ast.Attribute) and f.attr in LOUD | {"debug", "info"}:
+                found.add(f.attr)
+            elif isinstance(f, ast.Name) and f.id == "print":
+                found.add("print")
+            elif isinstance(f, ast.Attribute) and f.attr == "write" and "stderr" in ast.unparse(f.value):
+                found.add("stderr")
+    return found
 
 
-def ret_value(h):
-    for stmt in h.body:
-        if isinstance(stmt, ast.Return):
-            return "None" if stmt.value is None else ast.unparse(stmt.value)[:60]
-    return None
-
-
-out, seen = [], set()
-for path in sorted(ROOT.rglob("*.py")):
-    if path.name in TRIAGED or "/tests/" in str(path):
-        continue
-    try:
-        tree = ast.parse(path.read_text(), str(path))
-    except SyntaxError:
-        continue
-    for fn in ast.walk(tree):
-        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+def census(root: Path, exclude: set[str]):
+    for path in sorted(root.rglob("*.py")):
+        rel = str(path.relative_to(root.parent))
+        if "/tests/" in rel or path.name in exclude:
             continue
-        for node in ast.walk(fn):
-            if not isinstance(node, ast.ExceptHandler) or (str(path), node.lineno) in seen:
-                continue
-            val = ret_value(node)
-            if val is None or is_loud(node):
-                continue
-            seen.add((str(path), node.lineno))
-            confident = val in ("True", "False", "0", "[]", "{}", "''", '""', "0.0", "()")
-            out.append(
-                {
-                    "file": str(path.relative_to(ROOT.parent)),
-                    "line": node.lineno,
-                    "func": fn.name,
-                    "exc": ast.unparse(node.type) if node.type else "bare",
-                    "returns": val,
-                    "verdict_shaped": bool(VERDICTY.search(fn.name)),
-                    "confident_value": confident,
-                }
-            )
-json.dump(out, sys.stdout, indent=0)
+        try:
+            tree = ast.parse(path.read_text())
+        except (SyntaxError, UnicodeDecodeError):
+            continue
+        for fn in (n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))):
+            for node in ast.walk(fn):
+                if not isinstance(node, ast.Try):
+                    continue
+                for handler in node.handlers:
+                    returns = [
+                        r for r in ast.walk(ast.Module(body=handler.body, type_ignores=[])) if isinstance(r, ast.Return)
+                    ]
+                    if not returns:
+                        continue
+                    signals = _signals(handler.body)
+                    if signals & (LOUD | {"raise", "print", "stderr"}):
+                        continue
+                    value = ast.unparse(returns[0].value) if returns[0].value is not None else "None"
+                    caught = ast.unparse(handler.type) if handler.type is not None else "BARE"
+                    yield rel, handler.lineno, fn.name, caught, value[:80], ",".join(sorted(signals)) or "none"
+
+
+def score(row) -> int:
+    rel, _line, fn, _caught, value, logs = row
+    s = 3 if _PREDICATE.search(fn.lower()) else 0
+    s += 2 if value in ("False", "True", "0", "0.0") else 0
+    s += 1 if value in ("[]", "{}") else 0
+    s += 1 if _HOT_PATH.search(rel) else 0
+    s += 1 if logs == "none" else 0
+    return s
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--root", default="empirica", help="package root to scan (default: empirica)")
+    ap.add_argument("--top", type=int, default=0, help="print only the N highest-ranked sites")
+    ap.add_argument("--count", action="store_true", help="print only the number of sites")
+    ap.add_argument("--include-first-pass", action="store_true", help="also scan the seven files already triaged")
+    args = ap.parse_args()
+
+    exclude = set() if args.include_first_pass else TRIAGED_FIRST_PASS
+    rows = sorted(census(Path(args.root), exclude), key=lambda r: (-score(r), r[0], r[1]))
+    if args.count:
+        print(len(rows))
+        return 0
+    for row in rows[: args.top] if args.top else rows:
+        print("\t".join([str(score(row)), *map(str, row)]))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
