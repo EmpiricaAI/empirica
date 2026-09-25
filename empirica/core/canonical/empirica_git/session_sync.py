@@ -43,7 +43,15 @@ class SessionSync:
                 ["git", "rev-parse", "--git-dir"], cwd=self.workspace_root, capture_output=True, text=True, timeout=5
             )
             return result.returncode == 0
-        except (subprocess.TimeoutExpired, FileNotFoundError):
+        except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
+            # Not "not a repo": git could not answer. Reading this as absence
+            # skipped the note write with a DEBUG line nobody sees, leaving a
+            # SQLite row with no note for `rebuild` to import.
+            logger.warning(
+                "git could not answer in %s (%s); the git-notes write is skipped for this call",
+                self.workspace_root,
+                type(exc).__name__,
+            )
             return False
 
     def _check_remote(self) -> bool:
@@ -56,7 +64,15 @@ class SessionSync:
                 ["git", "remote", "-v"], cwd=self.workspace_root, capture_output=True, text=True, timeout=5
             )
             return result.returncode == 0 and len(result.stdout.strip()) > 0
-        except (subprocess.TimeoutExpired, FileNotFoundError):
+        except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
+            # Not "not a repo": git could not answer. Reading this as absence
+            # skipped the note write with a DEBUG line nobody sees, leaving a
+            # SQLite row with no note for `rebuild` to import.
+            logger.warning(
+                "git could not answer in %s (%s); the git-notes write is skipped for this call",
+                self.workspace_root,
+                type(exc).__name__,
+            )
             return False
 
     def pull_latest(self, notes_only: bool = True) -> bool:

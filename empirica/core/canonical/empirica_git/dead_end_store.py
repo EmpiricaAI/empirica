@@ -53,7 +53,15 @@ class GitDeadEndStore:
                 ["git", "rev-parse", "--git-dir"], cwd=self.workspace_root, capture_output=True, text=True, timeout=5
             )
             return result.returncode == 0
-        except (subprocess.TimeoutExpired, FileNotFoundError):
+        except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
+            # Not "not a repo": git could not answer. Reading this as absence
+            # skipped the note write with a DEBUG line nobody sees, leaving a
+            # SQLite row with no note for `rebuild` to import.
+            logger.warning(
+                "git could not answer in %s (%s); the git-notes write is skipped for this call",
+                self.workspace_root,
+                type(exc).__name__,
+            )
             return False
 
     def _has_commits(self) -> bool:
@@ -65,7 +73,15 @@ class GitDeadEndStore:
                 ["git", "rev-parse", "HEAD"], cwd=self.workspace_root, capture_output=True, text=True, timeout=5
             )
             return result.returncode == 0
-        except (subprocess.TimeoutExpired, FileNotFoundError):
+        except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
+            # Not "not a repo": git could not answer. Reading this as absence
+            # skipped the note write with a DEBUG line nobody sees, leaving a
+            # SQLite row with no note for `rebuild` to import.
+            logger.warning(
+                "git could not answer in %s (%s); the git-notes write is skipped for this call",
+                self.workspace_root,
+                type(exc).__name__,
+            )
             return False
 
     def store_dead_end(
