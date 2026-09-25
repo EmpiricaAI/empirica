@@ -135,7 +135,9 @@ def add_delegated_work_to_parent(tool_call_count: int) -> bool:
             return False
 
         # Read-modify-write the hook counters file
-        counters_path = tx_path.parent / f"hook_counters{suffix}.json"
+        from empirica.utils.session_resolver import hook_counters_path_for_transaction
+
+        counters_path = hook_counters_path_for_transaction(tx_path)
         counters = {}
         if counters_path.exists():
             try:

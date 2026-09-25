@@ -1009,7 +1009,9 @@ def _postflight_close_and_capture_counters(result, resolved_project_path, suffix
     result["work_type"] = tx_data.get("work_type")
 
     # Read hook counters
-    counters_file = tx_file.parent / f"hook_counters{suffix}.json"
+    from empirica.utils.session_resolver import hook_counters_path_for_transaction
+
+    counters_file = hook_counters_path_for_transaction(tx_file)
     counters = {}
     if counters_file.exists():
         try:
@@ -1061,6 +1063,14 @@ def _postflight_close_and_capture_counters(result, resolved_project_path, suffix
         except Exception as e:
             logger.warning(f"Failed to preserve enrichment on close: {e}")
 
+    # Delete the counters file that was READ — the one beside the transaction —
+    # as well as the instance's own. They differ when the transaction was found
+    # under a suffix other than this process's, and clearing only the instance's
+    # left the pair's counters behind to be counted into the next transaction.
+    try:
+        counters_file.unlink(missing_ok=True)
+    except OSError as e:
+        logger.warning(f"Could not clear hook counters at {counters_file}: {e}")
     R.counters_clear()
 
 

@@ -41,7 +41,9 @@ def _with_hook_counters(tx_data: dict, tx_file: Path, suffix: str) -> dict:
     got 0 every time, and so never reached its >3-calls POSTFLIGHT prompt.
     Same path rule as sentinel-gate's _hook_counters_path.
     """
-    counters_file = tx_file.parent / f"hook_counters{suffix}.json"
+    from empirica.utils.session_resolver import hook_counters_path_for_transaction
+
+    counters_file = hook_counters_path_for_transaction(tx_file)
     try:
         with open(counters_file) as f:
             tx_data["tool_call_count"] = json.load(f).get("tool_call_count", 0)

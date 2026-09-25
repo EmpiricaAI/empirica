@@ -2029,6 +2029,26 @@ def _hook_counters_path(project_path: str | None = None, suffix: str | None = No
     return Path.home() / ".empirica" / f"hook_counters{suffix}.json"
 
 
+def hook_counters_path_for_transaction(tx_path) -> "Path":
+    """The counters file that belongs to a LOCATED transaction file.
+
+    Same directory, and the suffix read off the transaction file's own name —
+    not the calling process's instance suffix. Transaction lookup falls back to
+    suffix-mismatched files (a hook whose WINDOWID differs from the shell that
+    ran PREFLIGHT, a tmux pane number rotated across compaction), and every
+    caller then built the counters path from ITS suffix. Measured on an X11
+    seat: active_transaction_x11_68431093.json beside
+    hook_counters_x11_67108867.json, so readers of the pair saw the wrong file
+    or none. Keying on the file found makes the pair unsplittable.
+    """
+    from pathlib import Path
+
+    p = Path(tx_path)
+    name, prefix, ext = p.name, "active_transaction", ".json"
+    suffix = name[len(prefix) : -len(ext)] if name.startswith(prefix) and name.endswith(ext) else ""
+    return p.parent / f"hook_counters{suffix}.json"
+
+
 def read_hook_counters(claude_session_id: str | None = None) -> dict | None:
     """Read the hook counters file. Returns None if it doesn't exist."""
     project_path = get_active_project_path(claude_session_id)

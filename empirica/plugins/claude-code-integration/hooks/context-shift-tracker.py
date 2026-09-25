@@ -368,8 +368,9 @@ def main():
             return
 
         # READ-MODIFY-WRITE the hook counters file (hook-owned, no race with POSTFLIGHT)
-        suffix = _get_instance_suffix()
-        counters_path = tx_path.parent / f"hook_counters{suffix}.json"
+        from empirica.utils.session_resolver import hook_counters_path_for_transaction
+
+        counters_path = hook_counters_path_for_transaction(tx_path)
         counters = {}
         if counters_path.exists():
             try:

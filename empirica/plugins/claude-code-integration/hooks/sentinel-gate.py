@@ -1730,7 +1730,9 @@ def _hook_counters_path(tx_path: Path, suffix: str) -> Path:
     goalless nudge (fixed 2026-09-18) and task-completed's POSTFLIGHT prompt.
     One function for the path so a reader cannot drift from the writer again.
     """
-    return tx_path.parent / f"hook_counters{suffix}.json"
+    from empirica.utils.session_resolver import hook_counters_path_for_transaction
+
+    return hook_counters_path_for_transaction(tx_path)
 
 
 def _try_increment_tool_count(
@@ -4253,7 +4255,7 @@ def _handle_investigate_continuation(
     # Resolve counters file path (co-located with transaction file)
     _inv_counters_path = None
     if tx_file:
-        _inv_counters_path = tx_file.parent / f"hook_counters{suffix}.json"
+        _inv_counters_path = _hook_counters_path(tx_file, suffix)
 
     def _read_inv_counters():
         if not _inv_counters_path or not _inv_counters_path.exists():
