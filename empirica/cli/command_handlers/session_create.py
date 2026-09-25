@@ -657,13 +657,18 @@ def _resolve_from_git_remote():
     return None
 
 
-def _resolve_from_cwd_project_yaml():
-    """The project_id in the cwd's own `.empirica/project.yaml`, or None.
+def _read_cwd_project_yaml():
+    """(project_id, problem) from the cwd's own `.empirica/project.yaml`.
 
     Only a project ROOT answers: walking up would re-introduce the ambiguity of
     a worktree or a subdirectory of another practice, and the point here is that
     standing in a checkout is unambiguous evidence about which practice you are
     working in.
+
+    `problem` is set only when the file EXISTS and still cannot name the
+    project. That is a broken checkout, not an absent one, and the fallbacks then
+    answer from context files — the stale-mapping case this check exists to
+    prevent — or bind nothing. Both used to report `ok` with no sign of either.
     """
     from pathlib import Path
 
@@ -671,13 +676,38 @@ def _resolve_from_cwd_project_yaml():
 
     cfg = Path.cwd() / ".empirica" / "project.yaml"
     if not cfg.is_file():
-        return None
+        return None, None
     try:
         data = yaml.safe_load(cfg.read_text()) or {}
-    except Exception:
-        return None
+    except Exception as exc:
+        return None, f"{cfg} could not be parsed ({type(exc).__name__})"
+    if not isinstance(data, dict):
+        return None, f"{cfg} is not a mapping"
     pid = data.get("project_id")
-    return str(pid) if pid else None
+    if not pid:
+        return None, f"{cfg} has no project_id"
+    return str(pid), None
+
+
+def _resolve_from_cwd_project_yaml():
+    """The project_id in the cwd's own `.empirica/project.yaml`, or None."""
+    return _read_cwd_project_yaml()[0]
+
+
+def _cwd_project_yaml_warning(bound_project_id):
+    """A warning for the output when the cwd's project.yaml exists but is unusable."""
+    _pid, problem = _read_cwd_project_yaml()
+    if not problem:
+        return None
+    bound = (
+        f"the session bound to {bound_project_id} from another source"
+        if bound_project_id
+        else "the session is bound to NO project"
+    )
+    return {
+        "warning": f"{problem}; {bound}.",
+        "fix": "Repair .empirica/project.yaml (it must carry project_id), or pass --project-id.",
+    }
 
 
 def _resolve_early_project_id(project_id):
@@ -898,6 +928,7 @@ def _format_session_output(
     auto_init_performed,
     close_result,
     active_session_warning=None,
+    project_root_warning=None,
 ):
     """Format and print the final session creation output."""
     from empirica.data.session_database import SessionDatabase
@@ -921,12 +952,15 @@ def _format_session_output(
         # usable, and the only thing lost is the statusline binding.
         if active_session_warning:
             result["active_session_warning"] = active_session_warning
+        if project_root_warning:
+            result["project_root_warning"] = project_root_warning
         print(json.dumps(result, indent=2))
     else:
         print("✅ Session created successfully!")
-        if active_session_warning:
-            print(f"   ⚠ {active_session_warning['warning']}")
-            print(f"     {active_session_warning['fix']}")
+        for warning in (active_session_warning, project_root_warning):
+            if warning:
+                print(f"   ⚠ {warning['warning']}")
+                print(f"     {warning['fix']}")
         print(f"   📋 Session ID: {session_id}")
         print(f"   🤖 AI ID: {ai_id}")
 
@@ -993,6 +1027,9 @@ def handle_session_create_command(args):
 
         # Stage 6: Resolve early project ID
         early_project_id = _resolve_early_project_id(project_id)
+        # Only when the caller named no project: an explicit --project-id is the
+        # answer, and a broken project.yaml beside it is a separate repair.
+        project_root_warning = None if project_id else _cwd_project_yaml_warning(early_project_id)
 
         # Stage 7: Close previous sessions and create new one
         session_id, close_result = _close_and_create_session(
@@ -1031,6 +1068,7 @@ def handle_session_create_command(args):
             auto_init_performed,
             close_result,
             active_session_warning,
+            project_root_warning,
         )
 
     except Exception as e:
