@@ -156,11 +156,14 @@ def add_delegated_work_to_parent(tool_call_count: int) -> bool:
                 json.dump(counters, tf, indent=2)
             os.replace(tmp, str(counters_path))
         except BaseException:
+            # Clean up the temp file, then let it propagate: an ordinary error
+            # becomes False in the handler below, while an interrupt or exit is
+            # not swallowed into a quiet "not added".
             try:
                 os.unlink(tmp)
             except OSError:
                 pass
-            return False
+            raise
 
         return True
     except Exception:
@@ -600,7 +603,7 @@ def main():
     if subagent_tool_calls > 0:
         delegation_msg = (
             f" Delegated work: {subagent_tool_calls} tool calls"
-            f"{' added to parent transaction' if delegated_ok else ' (parent tx not found)'}."
+            f"{' added to parent transaction' if delegated_ok else ' NOT added to the parent transaction (none found, or the counters write failed)'}."
         )
 
     # Regulation enforcement: make STOP unmissable
