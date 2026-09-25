@@ -403,33 +403,42 @@ def _run_context_budget_triage(empirica_session):
         return None
 
 
-def _capture_transaction_state(project_root):
+def _capture_transaction_state(project_root, empirica_session=None, claude_session_id=None):
     """Capture active transaction state for continuity across compact.
 
     Returns (active_transaction, hook_counters) tuple.
+
+    The transaction is located the way the Sentinel locates it: this hook's own
+    suffix first, then a suffix-mismatched file matched by session. Looking only
+    under this hook's suffix missed a transaction PREFLIGHT had opened from
+    another terminal context (another X11 window, a tmux pane number that had
+    rotated), so the snapshot carried no transaction and nothing was restored
+    after compaction. The counters are read from beside the file found, never
+    from this process's suffix, which could split the pair.
     """
     active_transaction = None
     hook_counters = None
     try:
         from project_resolver import _get_instance_suffix
 
-        suffix = _get_instance_suffix()
+        from empirica.utils.session_resolver import _find_transaction_file, hook_counters_path_for_transaction
 
-        if suffix:
-            tx_path = project_root / ".empirica" / f"active_transaction{suffix}.json"
-            if tx_path.exists():
-                with open(tx_path) as f:
-                    active_transaction = json.load(f)
-            counters_path = project_root / ".empirica" / f"hook_counters{suffix}.json"
+        suffix = _get_instance_suffix()
+        empirica_dir = project_root / ".empirica"
+
+        tx_path = _find_transaction_file(empirica_dir, suffix, empirica_session, claude_session_id)
+        if tx_path is None and not suffix:
+            tx_files = list(empirica_dir.glob("active_transaction_*.json"))
+            if tx_files:
+                tx_path = max(tx_files, key=lambda p: p.stat().st_mtime)
+
+        if tx_path is not None and tx_path.exists():
+            with open(tx_path) as f:
+                active_transaction = json.load(f)
+            counters_path = hook_counters_path_for_transaction(tx_path)
             if counters_path.exists():
                 with open(counters_path) as f:
                     hook_counters = json.load(f)
-        else:
-            tx_files = list((project_root / ".empirica").glob("active_transaction_*.json"))
-            if tx_files:
-                tx_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-                with open(tx_files[0]) as f:
-                    active_transaction = json.load(f)
     except Exception:
         pass
     return active_transaction, hook_counters
@@ -612,7 +621,7 @@ def _install_stash_guard(stash_sha):
 
 def _main_guarded(*, stash_sha, recovered, trigger, empirica_session, last_task, git_context, project_root):
     budget_report = _run_context_budget_triage(empirica_session)
-    active_transaction, hook_counters = _capture_transaction_state(project_root)
+    active_transaction, hook_counters = _capture_transaction_state(project_root, empirica_session)
 
     # STEP 1: Capture fresh epistemic vectors
     fresh_vectors, assess_error = _assess_fresh_vectors(empirica_session)
