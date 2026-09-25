@@ -1030,6 +1030,9 @@ def _postflight_close_and_capture_counters(result, resolved_project_path, suffix
         "unsolicited_prompts": counters.get("unsolicited_prompt_count", 0),
     }
     result["tool_trace"] = counters.get("tool_trace", [])
+    # Captured here because the counters file is deleted below, before the
+    # compliance stage that needs it runs.
+    result["edited_files"] = counters.get("edited_files", [])
 
     # Close transaction, preserving enrichment fields
     _enrichment_keys = (
@@ -1150,6 +1153,7 @@ def _close_postflight_transaction(session_id):
         "phase_tool_counts": None,
         "context_shifts": {"solicited_prompts": 0, "unsolicited_prompts": 0},
         "tool_trace": [],
+        "edited_files": [],
         "work_context": None,
         "work_type": None,
         "entity_context": [],
@@ -1266,7 +1270,7 @@ def _run_postflight_beliefs_and_exports(session_id, preflight_vectors, vectors):
     return belief_updates, calibration_exported
 
 
-def _run_postflight_compliance(session_id, transaction_id, work_type, resolved_project_path):
+def _run_postflight_compliance(session_id, transaction_id, work_type, resolved_project_path, edited_files=None):
     """Run compliance loop execution.
 
     Returns:
@@ -1286,16 +1290,13 @@ def _run_postflight_compliance(session_id, transaction_id, work_type, resolved_p
         _pf_criticality = _tx.get("criticality")
         _pf_work_type = _tx.get("work_type", work_type)
         if _pf_domain or _pf_criticality:
-            # Goal-scoped: read edited_files from hook counters
-            _edited = []
-            try:
-                _hc = R.hook_counters_read() if hasattr(R, "hook_counters_read") else None  # pyright: ignore[reportAttributeAccessIssue]
-                if _hc:
-                    _edited = _hc.get("edited_files", [])
-                elif _tx:
-                    _edited = _tx.get("edited_files", [])
-            except Exception:
-                pass
+            # Goal-scoped: the files this transaction edited, captured from the
+            # hook counters at close. This read `R.hook_counters_read()` behind a
+            # hasattr guard; no such method exists, so it always fell back to the
+            # transaction file, which has not carried edited_files since the
+            # counters were split out. Every check then ran unscoped: the tests
+            # check ran the full suite under a 300s timeout, lint the whole repo.
+            _edited = list(edited_files or []) or list(_tx.get("edited_files") or [])
             compliance_result = run_compliance_checks(
                 session_id=session_id,
                 transaction_id=transaction_id,
@@ -2367,6 +2368,7 @@ def handle_postflight_submit_command(args):
                 tx_info["transaction_id"],
                 tx_info["work_type"],
                 resolved_project_path,
+                tx_info.get("edited_files"),
             )
             if compliance_outcome:
                 compliance_result, compliance_error = compliance_outcome
