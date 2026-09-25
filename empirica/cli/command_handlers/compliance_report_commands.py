@@ -284,7 +284,10 @@ def _run_check(name: str, cmd: list[str], cwd: Path, timeout: int = 120) -> dict
     except FileNotFoundError:
         return {"check": name, "passed": None, "error": "tool not installed", "duration_seconds": 0}
     except subprocess.TimeoutExpired:
-        return {"check": name, "passed": False, "error": f"timeout ({timeout}s)", "duration_seconds": timeout}
+        # Could not answer, like a missing tool: None, not False. False counted a
+        # timed-out secret scan as a failed check while the summary reported zero
+        # unavailable (ecodex, prop_cb32uv7kevf2fmhxhb3wme73fa).
+        return {"check": name, "passed": None, "error": f"timeout ({timeout}s)", "duration_seconds": timeout}
 
 
 def _parse_ruff_result(raw: dict[str, Any]) -> dict[str, Any]:
@@ -1139,9 +1142,16 @@ def _build_repo_hygiene_check(project_root: Path, overrides: dict[str, Any] | No
 def _compute_overall_status(results: list[dict[str, Any]]) -> dict[str, Any]:
     """Compute overall compliance status."""
     total = len(results)
-    passed = sum(1 for r in results if r.get("passed") is True)
-    failed = sum(1 for r in results if r.get("passed") is False)
-    unavailable = sum(1 for r in results if r.get("passed") is None)
+
+    # A check that says it could not answer is unavailable, whatever `passed`
+    # happens to carry: parsers stamp status "unavailable" over the raw runner
+    # result, and a stray False there was counted as a failure.
+    def _unavailable(r: dict[str, Any]) -> bool:
+        return r.get("status") == "unavailable" or r.get("passed") is None
+
+    unavailable = sum(1 for r in results if _unavailable(r))
+    passed = sum(1 for r in results if not _unavailable(r) and r.get("passed") is True)
+    failed = sum(1 for r in results if not _unavailable(r) and r.get("passed") is False)
 
     if failed == 0 and unavailable == 0:
         status = "fully_compliant"
