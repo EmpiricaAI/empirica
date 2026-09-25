@@ -2,7 +2,7 @@
 
 > **We Gave AI a Mirror. Now It Measures What It Believes.**
 
-[![Version](https://img.shields.io/badge/version-1.14.1-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.14.1)
+[![Version](https://img.shields.io/badge/version-1.14.2-blue)](https://github.com/EmpiricaAI/empirica/releases/tag/v1.14.2)
 [![PyPI](https://img.shields.io/pypi/v/empirica)](https://pypi.org/project/empirica/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)]()
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -114,13 +114,13 @@ empirica setup
 
 ```bash
 # Security-hardened Alpine image (~276MB, recommended)
-docker pull nubaeon/empirica:1.14.1-alpine
+docker pull nubaeon/empirica:1.14.2-alpine
 
 # Standard image (Debian slim, ~414MB)
-docker pull nubaeon/empirica:1.14.1
+docker pull nubaeon/empirica:1.14.2
 
 # Run
-docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.14.1 /bin/bash
+docker run -it -v $(pwd)/.empirica:/data/.empirica nubaeon/empirica:1.14.2 /bin/bash
 ```
 </details>
 
@@ -414,15 +414,13 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.14.1
+## What's New in 1.14.2
 
-- **The listener arming instruction can be followed.** Monitor and TaskStop are deferred tools on current Claude Code: they are named, but not callable until ToolSearch loads them. The session-start instruction called Monitor directly, so a practitioner who followed it found no such tool and concluded the session was broken, while mesh events piled up unseen. The instruction, the `inbox-listener` skill and the plugin README now load the tool first.
-- **A new project can create a session.** `session-create` on a freshly initialised project failed on an unresolvable project path, after already writing the session row, so every retry leaked another row. It now binds the session and reports a warning instead.
-- **The checkout you stand in decides the project.** `session-create` and the statusline both preferred a context file left by an earlier command over the project root you were in, so a session could bind to whichever project ran last. A project root's own `.empirica/project.yaml` now wins; context files answer only outside a project root.
-- **`project-init` writes where every other verb reads.** It ignored `EMPIRICA_SESSION_DB`, which every later verb honours, so with a pinned store an initialised project was invisible to the rest of the CLI.
-- **A failed bootstrap no longer reads as a successful one.** `project-bootstrap` exited 0 on failure, and `project-switch` reported that failure as a success. The exit code is now honest, and `project-switch` reads the verdict from the payload in both output modes.
-- **`--output json` prints exactly one JSON document.** `project-init` printed its result twice, as did `session-create --auto-init`, which broke every `json.load` consumer. A refused `project-init` (already initialised) now exits 1 instead of 0.
-- **The heartbeat names the build of its own emitter.** Beside the session's build facts, the listener daemon now reports its own, so a reader can tell "an older emitter that sends nothing" from "a current emitter whose session had nothing to report".
+- **Hook counters stay beside the transaction they belong to.** When a hook ran in a different terminal context from the shell that ran PREFLIGHT (another X11 window, or a tmux pane number rotated across compaction), it found the transaction file under one suffix and wrote its counters under another. The tool-call count, the autonomy nudge and task-completed's POSTFLIGHT prompt then read the wrong file or none. The counters path is now read off the transaction file actually found, and POSTFLIGHT clears that file.
+- **`session-create` says when the checkout's `project.yaml` cannot name the project.** A root whose `project.yaml` could not be parsed, or carried no `project_id`, fell back silently to a context file or to no project, and reported `ok`. The output now carries `project_root_warning`, naming the problem and what the session bound to.
+- **`mailbox reply` refuses a reply whose default target would be you.** Replying to your own proposal addressed the reply to yourself, reached no peer, and closed your own open ask, while reporting `ok`. It is now refused with the way to chase your own ask: `--target-claudes <peer> --no-close`.
+- **A plain `project-init` repairs a missing store.** When the configuration existed but the database did not (a moved checkout, a deleted `.empirica/sessions/`, a newly pinned `EMPIRICA_SESSION_DB`), the only way past "already initialized" was `--force`, which rewrites `project.yaml`. A plain re-run now recreates the store under the existing `project_id` and leaves `project.yaml` untouched.
+- **`lesson-create` accepts the artifact-layer vocabulary.** `visibility` maps onto `sharing_policy` (local→private, shared→org, public→public) and `lesson` is accepted as the body, as `finding` is on `finding-log`. Every problem in a payload is reported at once, under `problems`, instead of one per attempt. An alias that contradicts the native field is refused. `"steps": null` now means no steps rather than an error.
 ## Privacy & Data
 
 **Your data stays local:**
@@ -450,6 +448,6 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 **Author:** David S. L. Van Assche
-**Version:** 1.14.1
+**Version:** 1.14.2
 
 *Turtles all the way down — built with its own epistemic framework, measuring what it knows at every step.*

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "empirica-mcp"
-version = "1.14.1"
+version = "1.14.2"
 description = "MCP server for Empirica — AI measurement and calibration tools via Model Context Protocol"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -30,7 +30,7 @@ dependencies = [
     # `pip install -U empirica` ran on a box carrying empirica-mcp. The two
     # imported symbols the pin protected are guarded in core by
     # tests/test_mcp_wrapper_import_surface.py. David's ruling 2026-09-18.
-    "empirica>=1.14.1,<2",
+    "empirica>=1.14.2,<2",
     # Spans BOTH SDK majors: server.py detects which is present and registers
     # handlers accordingly (decorators on 1.x, `on_*` constructor params on 2.x).
     # Suite passes 572/572 on 1.28.1 and on 2.0.0.

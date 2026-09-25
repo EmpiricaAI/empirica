@@ -5,6 +5,45 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.2] - 2026-09-25
+
+A correctness patch: five places where something went wrong and the output did
+not say so.
+
+### Fixed
+
+- **Hook counters stay beside the transaction they belong to.** When a hook ran
+  in a different terminal context from the shell that ran PREFLIGHT (another X11
+  window, or a tmux pane number rotated across compaction), it found the
+  transaction file under one suffix and wrote its counters under another. The
+  tool-call count, the autonomy nudge and task-completed's POSTFLIGHT prompt
+  then read the wrong file or none. The counters path is now read off the
+  transaction file actually found, and POSTFLIGHT clears that file.
+- **`session-create` says when the checkout's `project.yaml` cannot name the
+  project.** A root whose `project.yaml` could not be parsed, or carried no
+  `project_id`, fell back silently to a context file or to no project, and
+  reported `ok`. The output now carries `project_root_warning`, naming the
+  problem and what the session bound to.
+- **`mailbox reply` refuses a reply whose default target would be you.** Replying
+  to your own proposal addressed the reply to yourself, reached no peer, and
+  closed your own open ask, while reporting `ok`. It is now refused with the way
+  to chase your own ask: `--target-claudes <peer> --no-close`.
+- **A plain `project-init` repairs a missing store.** When the configuration
+  existed but the database did not (a moved checkout, a deleted
+  `.empirica/sessions/`, a newly pinned `EMPIRICA_SESSION_DB`), the only way past
+  "already initialized" was `--force`, which rewrites `project.yaml`. A plain
+  re-run now recreates the store under the existing `project_id` and leaves
+  `project.yaml` untouched.
+
+### Changed
+
+- **`lesson-create` accepts the artifact-layer vocabulary.** `visibility` maps
+  onto `sharing_policy` (local→private, shared→org, public→public) and `lesson`
+  is accepted as the body, as `finding` is on `finding-log`. Every problem in a
+  payload is reported at once, under `problems`, instead of one per attempt. An
+  alias that contradicts the native field is refused. `"steps": null` now means
+  no steps rather than an error.
+
 ## [1.14.1] - 2026-09-24
 
 A first-run patch. Running 1.14.0 end to end in a fresh repository turned up a
