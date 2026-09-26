@@ -719,7 +719,10 @@ def _handle_help_command(parsed_args) -> None:
                 if cmd in helps:
                     print(f"  {cmd:20s} {_one_line(helps[cmd])}")
         print("\nMore:")
-        print("  empirica help <area>   an area's commands, e.g. " + ", ".join(list(_HELP_CATEGORIES)[:6]) + ", ...")
+        print("  empirica help <area>   an area's commands with descriptions. Areas:")
+        import textwrap
+
+        print(textwrap.fill(", ".join(_HELP_CATEGORIES), width=88, initial_indent="    ", subsequent_indent="    "))
         print("  empirica help all      every area, with counts")
         print("  empirica <command> --help")
         print("  empirica --help        the AI session workflow (PREFLIGHT, CHECK, POSTFLIGHT, artifacts)")
