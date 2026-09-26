@@ -52,6 +52,36 @@ def _format_iso(epoch: float | None) -> str:
     return datetime.fromtimestamp(epoch).strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _config_path_arg(args) -> tuple[str | None, str | None]:
+    """(config path, error) from --config or --profile.
+
+    --profile NAME means ~/.empirica/cockpit/config-NAME.yaml, so a second
+    cockpit is `--profile ecodex` rather than a full path. An unknown profile is
+    an error naming the ones that exist, never a silently written default: a
+    typo must not bring up the wrong cockpit.
+    """
+    config_path = getattr(args, "config", None)
+    profile = getattr(args, "profile", None)
+    if not profile:
+        return config_path, None
+    if config_path:
+        return None, "pass --config or --profile, not both"
+    base = Path.home() / ".empirica" / "cockpit"
+    path = base / f"config-{profile}.yaml"
+    if not path.is_file():
+        found = sorted(p.stem.removeprefix("config-") for p in base.glob("config-*.yaml"))
+        return None, f"no cockpit profile {profile!r} ({path}); available: {', '.join(found) or 'none'}"
+    return str(path), None
+
+
+def _profile_error(args, error: str) -> int:
+    if getattr(args, "output", "human") == "json":
+        print(json.dumps({"ok": False, "error": error}))
+    else:
+        print(f"❌ {error}")
+    return 1
+
+
 def handle_cockpit_launch_command(args) -> int:
     """``empirica cockpit launch [--config PATH] [--no-attach]``.
 
@@ -66,7 +96,9 @@ def handle_cockpit_launch_command(args) -> int:
     Detects abnormal exit on launch and surfaces a warning unless
     ``--quiet-warnings`` is set.
     """
-    config_path = getattr(args, "config", None)
+    config_path, profile_error = _config_path_arg(args)
+    if profile_error:
+        return _profile_error(args, profile_error)
     no_attach = bool(getattr(args, "no_attach", False))
     quiet = bool(getattr(args, "quiet_warnings", False))
     output = getattr(args, "output", "human")
@@ -263,7 +295,9 @@ def handle_cockpit_status_command(args) -> int:
     """``empirica cockpit status``. Read-only state snapshot — does NOT
     attach. Reports session liveness, last clean shutdown, abnormal-exit
     state, and configured project list."""
-    config_path = getattr(args, "config", None)
+    config_path, profile_error = _config_path_arg(args)
+    if profile_error:
+        return _profile_error(args, profile_error)
     output = getattr(args, "output", "human")
 
     config_p = Path(config_path).expanduser() if config_path else None
@@ -364,7 +398,9 @@ def handle_cockpit_detach_command(args) -> int:
 def handle_cockpit_kill_command(args) -> int:
     """``empirica cockpit kill [--prune]``. Destroy the tmux session
     and optionally prune dead per-instance state files."""
-    config_path = getattr(args, "config", None)
+    config_path, profile_error = _config_path_arg(args)
+    if profile_error:
+        return _profile_error(args, profile_error)
     prune = bool(getattr(args, "prune", False))
     output = getattr(args, "output", "human")
 

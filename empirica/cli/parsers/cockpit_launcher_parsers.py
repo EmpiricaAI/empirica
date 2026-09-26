@@ -46,6 +46,11 @@ when the previous session ended without writing a clean-shutdown marker
         "--config", metavar="PATH", help="Override the default config path (~/.empirica/cockpit/config.yaml)"
     )
     launch.add_argument(
+        "--profile",
+        metavar="NAME",
+        help="Use ~/.empirica/cockpit/config-NAME.yaml (e.g. monitor-a, monitor-b, ecodex) instead of the default config",
+    )
+    launch.add_argument(
         "--no-attach",
         action="store_true",
         help="Don't attach after creating the layout — useful for headless / scripted bring-up",
@@ -72,6 +77,11 @@ when the previous session ended without writing a clean-shutdown marker
         help="Show current cockpit state without attaching (read-only)",
     )
     status.add_argument("--config", metavar="PATH", help="Override the default config path")
+    status.add_argument(
+        "--profile",
+        metavar="NAME",
+        help="Use ~/.empirica/cockpit/config-NAME.yaml (e.g. monitor-a, monitor-b, ecodex) instead of the default config",
+    )
     status.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
 
     # detach
@@ -87,6 +97,11 @@ when the previous session ended without writing a clean-shutdown marker
         help="Destroy the cockpit session and write clean-shutdown marker",
     )
     kill.add_argument("--config", metavar="PATH", help="Override the default config path")
+    kill.add_argument(
+        "--profile",
+        metavar="NAME",
+        help="Use ~/.empirica/cockpit/config-NAME.yaml (e.g. monitor-a, monitor-b, ecodex) instead of the default config",
+    )
     kill.add_argument(
         "--prune",
         action="store_true",
