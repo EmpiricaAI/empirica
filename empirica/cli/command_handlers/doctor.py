@@ -994,6 +994,78 @@ def check_hook_interpreter(settings_file: Path | None = None) -> Check:
     return Check(name, PASS, interpreter, data={"interpreter": interpreter})
 
 
+def _newest_code_mtime(pkg_dir: Path) -> float | None:
+    """Newest .py modification time in the installed package: when the code on
+    disk last changed (install time for a release, last edit for an editable)."""
+    try:
+        return max((p.stat().st_mtime for p in pkg_dir.rglob("*.py")), default=None)
+    except OSError:
+        return None
+
+
+def _empirica_processes() -> list[dict[str, Any]]:
+    """Running processes whose command line runs empirica, as {pid, create_time, cmd}."""
+    import psutil
+
+    found = []
+    for proc in psutil.process_iter(["pid", "create_time", "cmdline"]):
+        try:
+            cmdline = proc.info.get("cmdline") or []
+        except (psutil.Error, OSError):
+            continue
+        cmd = " ".join(cmdline)
+        runs_empirica = any(
+            Path(arg).name in ("empirica", "empirica-mcp") or arg in ("empirica.cli", "empirica_mcp") for arg in cmdline
+        )
+        if runs_empirica:
+            found.append({"pid": proc.info["pid"], "create_time": proc.info.get("create_time"), "cmd": cmd})
+    return found
+
+
+def check_long_running_processes(pkg_dir: Path | None = None, processes: list[dict] | None = None) -> Check:
+    """Are any running empirica processes older than the code on disk?
+
+    Every other deploy-gap check compares artifacts on disk, so a long-lived
+    process — the TUI, the listener daemon, `serve` — escapes all of them.
+    Measured 2026-09-21: `--deploy-gaps` reported every check PASS while
+    `empirica tui` had been running for 47 days on August code (cortex's
+    handover). The CLI is spawned per call and is exempt by construction.
+    """
+    import os as _os
+    import time as _time
+
+    name = "Long-running processes on current code"
+    if pkg_dir is None:
+        import empirica
+
+        pkg_dir = Path(empirica.__file__).resolve().parent
+    newest = _newest_code_mtime(pkg_dir)
+    if newest is None:
+        return Check(name, SKIP, f"could not read the package at {pkg_dir}")
+    try:
+        procs = _empirica_processes() if processes is None else processes
+    except ImportError:
+        return Check(name, SKIP, "psutil not installed")
+    me = _os.getpid()
+    stale = sorted(
+        (p for p in procs if p.get("pid") != me and p.get("create_time") and p["create_time"] < newest),
+        key=lambda p: p["create_time"],  # oldest first: the 47-day TUI, not the listener restarted an hour ago
+    )
+    if not stale:
+        return Check(name, PASS, f"{len(procs)} empirica process(es), none older than the code on disk")
+    now = _time.time()
+    rows = [f"pid {p['pid']} up {(now - p['create_time']) / 86400:.1f}d: {p['cmd'][:80]}" for p in stale]
+    editable = (pkg_dir.parent / "pyproject.toml").is_file()
+    note = " (editable install: any edit since a process started counts)" if editable else ""
+    return Check(
+        name,
+        WARN,
+        f"{len(stale)} process(es) started before the code on disk last changed{note}: " + "; ".join(rows),
+        "Restart them to run the installed code (TUI: quit and relaunch; daemons: `empirica listener off/on`)",
+        {"stale": stale},
+    )
+
+
 def deploy_gap_checks(cwd: Path | None = None) -> list[Check]:
     cwd = cwd or Path.cwd()
     return [
@@ -1001,6 +1073,7 @@ def deploy_gap_checks(cwd: Path | None = None) -> list[Check]:
         check_cli_matches_checkout(cwd),  # released, not what this shell runs
         check_plugin_freshness(),  # released, not what the deployed plugin runs
         check_hook_interpreter(),  # the deployed hooks run an interpreter that lacks empirica
+        check_long_running_processes(),  # released, not what a long-lived process is running
         check_mcp_version_skew(),  # released, not what the MCP host serves
     ]
 
@@ -2178,6 +2251,7 @@ def run_all_checks(cwd: Path | None = None) -> list[Check]:
         check_empirica_mcp(),
         check_plugin_freshness(),
         check_hook_interpreter(),
+        check_long_running_processes(),
         check_claude_code_cli(),
         check_git_present(),
         check_noetic_tools(),
