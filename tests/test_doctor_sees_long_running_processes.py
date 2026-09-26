@@ -59,3 +59,28 @@ def test_this_process_is_never_flagged(tmp_path):
     pkg = _pkg(tmp_path, now)
     procs = [{"pid": os.getpid(), "create_time": now - 3600, "cmd": "empirica doctor"}]
     assert doctor.check_long_running_processes(pkg, procs).status == doctor.PASS
+
+
+# ─── Human on a terminal, json through a pipe ──────────────────────────────
+
+
+def _run_doctor(monkeypatch, capsys, tty: bool):
+    import sys
+    import types
+
+    monkeypatch.setattr(doctor, "run_all_checks", lambda cwd=None: [doctor.Check("x", doctor.PASS, "ok")])
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: tty)
+    doctor.handle_doctor_command(types.SimpleNamespace(output=None, deploy_gaps=False))
+    return capsys.readouterr().out
+
+
+def test_a_pipe_gets_json(monkeypatch, capsys):
+    """The Desktop MCP tool and AI sessions read doctor through a pipe."""
+    import json
+
+    assert json.loads(_run_doctor(monkeypatch, capsys, tty=False))["summary"]["total"] == 1
+
+
+def test_a_terminal_gets_the_human_report(monkeypatch, capsys):
+    out = _run_doctor(monkeypatch, capsys, tty=True)
+    assert "Empirica Doctor" in out and not out.lstrip().startswith("{")

@@ -259,8 +259,11 @@ Exit codes:
     doctor_parser.add_argument(
         "--output",
         choices=["human", "json"],
-        default="json",
-        help="Output format (default: json — Desktop calls expect machine-readable)",
+        default=None,
+        help=(
+            "Output format. Default: human on a terminal, json when piped (the Desktop MCP tool and AI "
+            "sessions call it through a pipe, so they keep getting json)."
+        ),
     )
     setup_cc_parser.add_argument(
         "--uninstall",

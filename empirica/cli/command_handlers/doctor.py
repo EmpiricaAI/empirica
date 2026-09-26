@@ -1054,7 +1054,16 @@ def check_long_running_processes(pkg_dir: Path | None = None, processes: list[di
     if not stale:
         return Check(name, PASS, f"{len(procs)} empirica process(es), none older than the code on disk")
     now = _time.time()
-    rows = [f"pid {p['pid']} up {(now - p['create_time']) / 86400:.1f}d: {p['cmd'][:80]}" for p in stale]
+
+    def _short(cmd: str) -> str:
+        # From the empirica entry point on: the interpreter path says nothing.
+        parts = cmd.split()
+        i = next((k for k, a in enumerate(parts) if Path(a).name in ("empirica", "empirica-mcp")), 0)
+        return " ".join([Path(parts[i]).name, *parts[i + 1 :]])[:70] if parts else cmd[:70]
+
+    rows = [f"pid {p['pid']} up {(now - p['create_time']) / 86400:.1f}d: {_short(p['cmd'])}" for p in stale[:5]]
+    if len(stale) > 5:
+        rows.append(f"+{len(stale) - 5} more")
     editable = (pkg_dir.parent / "pyproject.toml").is_file()
     note = " (editable install: any edit since a process started counts)" if editable else ""
     return Check(
@@ -2341,7 +2350,10 @@ def handle_doctor_command(args: Any) -> int:
     warns = sum(1 for c in checks if c.status == WARN)
     skips = sum(1 for c in checks if c.status == SKIP)
     passed = len(checks) - fails - warns - skips
-    output_format = getattr(args, "output", "json")
+    # Human on a terminal, json through a pipe. It used to be json always, so a
+    # person typing `empirica doctor` got a JSON document; every machine caller
+    # (the Desktop MCP tool, AI sessions) reads it through a pipe and is unaffected.
+    output_format = getattr(args, "output", None) or ("human" if sys.stdout.isatty() else "json")
     if output_format == "human":
         print(_format_human(checks))
     else:
