@@ -4,12 +4,15 @@ Migration 057 gave findings ``is_resolved`` plus a free-text ``resolution``.
 Free text cannot be queried — and, more importantly, cannot be *offered*. What
 the surface does not name, the practitioner does not reach for.
 
-Measured 2026-07-30 on the empirica practice: of 1268 resolved findings, **1267
-resolve as stale/superseded/snapshot and exactly 1 as an error**. A true error
-rate of 1-in-4199 over six months is not plausible, so errors were not being
-expressed rather than not occurring. The rebuttal "we simply had not gardened
-yet" does not apply — this practice HAS gardened 1268 findings. Gardening itself
-was staleness-only, because staleness was the only available word.
+Measured on the empirica practice, resolutions up to 2026-07-30: **1,269
+resolved findings, every one with a free-text reason and none classifiable as
+wrong.** About 1,030 of the reasons use staleness language; at most three describe
+an error. (Re-measured 2026-09-26 from the free text; the first count, "1267 stale
+and 1 wrong", classified the prose more tidily than it reads.) A near-zero error
+rate over six months is not plausible, so errors were not being expressed rather
+than not occurring. The rebuttal "we simply had not gardened yet" does not apply —
+this practice HAS gardened those findings. Gardening itself was staleness-only,
+because staleness was the only available word.
 
 The distinction that carries the weight is ``stale`` vs ``retracted``:
 *it aged* and *it was never true* are different epistemic events, and collapsing

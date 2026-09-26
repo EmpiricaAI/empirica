@@ -187,9 +187,11 @@ second records error.
 | `retracted` | **it was wrong** |
 | `mistyped` | it was another type wearing a finding's clothes |
 
-Measured on this practice: **1268 findings resolved, of which 1267 meant *stale* and
-1 meant *wrong*.** A true error rate near zero across thousands of claims is not
-plausible — errors were simply not being expressed. **A practice that cannot
+Measured on this practice before `resolution_kind` existed (resolved by
+2026-07-30): **1,269 findings resolved, every one with a free-text reason, and no
+way to record *wrong*.** About 1,030 of those reasons read as staleness; at most
+three describe an error. A true error rate near zero across thousands of claims
+is not plausible — errors were simply not being expressed. **A practice that cannot
 distinguish its ageing from its errors cannot calibrate on either.**
 
 Correct the CLAIM with `finding-resolve --kind retracted`; correct the METADATA
