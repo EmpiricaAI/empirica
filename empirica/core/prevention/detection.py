@@ -27,7 +27,17 @@ logger = logging.getLogger(__name__)
 
 
 def apply_prevention_detection(db, session_id: str, *, now: float | None = None) -> int:
-    """Advance this session's ``exposed`` prevention_events at POSTFLIGHT.
+    """Advance ``exposed`` prevention_events at POSTFLIGHT.
+
+    This session's rows, as before, plus any other session's rows whose
+    observation window has already elapsed. Selecting only this session's rows
+    meant an exposure was adjudicated only if ITS session ran another POSTFLIGHT
+    after the window closed; a session that ended first left its exposures
+    `exposed` for good. Measured 2026-09-26 on core: 74 rows from one session,
+    last POSTFLIGHT 09-18, windows closing 09-19 to 09-25, never advanced.
+    Sessions are compaction boundaries, not lifecycle scopes. Each row is judged
+    against its OWN session, so the verdict is the one its own POSTFLIGHT would
+    have reached; only the time it runs changes.
 
     ``now`` is injectable so tests can simulate an elapsed observation window
     (production passes wall-clock). Returns the number of rows advanced, or 0 on
@@ -41,16 +51,21 @@ def apply_prevention_detection(db, session_id: str, *, now: float | None = None)
         # or a fabrication exposure would get a FALSE 'prevented' verdict from the
         # mere absence of a mistake. Those rows await a distinct oracle (spec §6 Q4).
         exposed = db.conn.execute(
-            "SELECT id, goal_id, subtask_id, exposed_at, acknowledged, window_s, shadow "
-            "FROM prevention_events WHERE session_id = ? AND outcome = 'exposed' "
-            "AND (outcome_family = 'prevention' OR outcome_family IS NULL)",
-            (session_id,),
+            "SELECT id, session_id, goal_id, subtask_id, exposed_at, acknowledged, window_s, shadow "
+            "FROM prevention_events WHERE outcome = 'exposed' "
+            "AND (outcome_family = 'prevention' OR outcome_family IS NULL) "
+            "AND (session_id = ? OR (window_s IS NOT NULL AND COALESCE(exposed_at, 0) + window_s <= ?))",
+            (session_id, now),
         ).fetchall()
         if not exposed:
             return 0
 
         updated = 0
-        for row_id, goal_id, subtask_id, exposed_at, acknowledged, window_s, shadow in exposed:
+        own_session = session_id
+        for row_id, row_session, goal_id, subtask_id, exposed_at, acknowledged, window_s, shadow in exposed:
+            # Judge the row against the session that was exposed, not the one
+            # whose POSTFLIGHT happens to be running.
+            session_id = row_session or own_session
             since = exposed_at or 0
             # Causal order: only failures logged AFTER the exposure count.
             #

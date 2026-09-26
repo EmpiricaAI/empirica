@@ -171,3 +171,45 @@ def test_aggregate_splits_by_family():
     fab = aggregate_prevention_events(rows, family="fabrication")
     assert prev["total"] == 1 and prev["by_outcome"].get("prevented") == 1
     assert fab["total"] == 1 and fab["by_outcome"].get("exposed") == 1
+
+
+# ─── Rows from a session that no longer POSTFLIGHTs ─────────────────────────
+# Detection selected only the running POSTFLIGHT's own session, so an exposure
+# was adjudicated only if ITS session POSTFLIGHTed again after the window
+# closed. Measured on core 2026-09-26: 74 rows from one session (last POSTFLIGHT
+# 09-18, windows closing 09-19 to 09-25) stayed `exposed` for good.
+
+
+def test_an_expired_row_from_another_session_is_adjudicated():
+    db = _db()
+    _emit(db, acknowledged=True, window_s=100, exposed_at=1000.0)  # session "sess"
+    assert apply_prevention_detection(db, "a-later-session", now=2000.0) == 1
+    assert _outcome(db) == "prevented"
+
+
+def test_it_is_judged_against_its_own_session_not_the_running_one():
+    """A mistake in the RUNNING session must not fail another session's row, and
+    one in the row's own session must."""
+    db = _db()
+    _emit(db, acknowledged=True, window_s=100, exposed_at=1000.0)
+    db.conn.execute(
+        "INSERT INTO mistakes_made (session_id, goal_id, created_timestamp) VALUES ('a-later-session','g',1500.0)"
+    )
+    db.conn.commit()
+    apply_prevention_detection(db, "a-later-session", now=2000.0)
+    assert _outcome(db) == "prevented", "another session's mistake is not this subject's recurrence"
+
+    db2 = _db()
+    _emit(db2, acknowledged=True, window_s=100, exposed_at=1000.0)
+    db2.conn.execute("INSERT INTO mistakes_made (session_id, goal_id, created_timestamp) VALUES ('sess','g',1500.0)")
+    db2.conn.commit()
+    apply_prevention_detection(db2, "a-later-session", now=2000.0)
+    assert _outcome(db2) == "failed"
+
+
+def test_another_sessions_open_window_is_left_alone():
+    """Positive control: only EXPIRED foreign rows are taken; an open window stays."""
+    db = _db()
+    _emit(db, acknowledged=True, window_s=100, exposed_at=1000.0)
+    assert apply_prevention_detection(db, "a-later-session", now=1050.0) == 0
+    assert _outcome(db) == "exposed"
