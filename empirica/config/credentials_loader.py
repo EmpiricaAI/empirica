@@ -78,6 +78,50 @@ def _apply_api_key(cortex_block: dict, api_key: str | None) -> None:
         )
 
 
+class _NullLock:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        return False
+
+
+def _oauth_refresh_lock(directory: Path):
+    """An exclusive inter-process lock for the OAuth refresh, or a no-op.
+
+    fcntl is POSIX-only; where it is missing (Windows) the refresh runs
+    unserialized, exactly as it did before this lock existed. A lock that cannot
+    be opened also degrades to that, with a warning, rather than blocking the
+    token for good.
+    """
+    import contextlib
+
+    try:
+        import fcntl
+    except ImportError:
+        return _NullLock()
+
+    @contextlib.contextmanager
+    def _locked():
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            fh = open(directory / ".cortex_oauth_refresh.lock", "a")  # noqa: SIM115 — held for the with-block
+        except OSError as e:
+            logger.warning(f"cortex token refresh lock unavailable ({e}); refreshing unserialized")
+            yield
+            return
+        try:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+            yield
+        finally:
+            try:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+            finally:
+                fh.close()
+
+    return _locked()
+
+
 class CredentialsLoader:
     """Load and manage AI adapter credentials"""
 
@@ -629,6 +673,27 @@ class CredentialsLoader:
         return oauth if isinstance(oauth, dict) else {}
 
     def cortex_access_token(self, *, refresh: Any = None, leeway_s: float = 120.0) -> str | None:
+        """A currently-valid access token; see `_cortex_access_token_once`.
+
+        With a refresh callable, the whole check-and-refresh runs under an
+        inter-process lock. Cortex rotates the refresh token on every use, so two
+        processes refreshing at once spend the same token: the loser's refresh
+        fails, and a replayed rotated token can revoke the whole family. Under
+        the lock the stored set is re-read first, so a process that waited finds
+        the token another one just renewed and does not refresh again. This
+        matters more now that `empirica auth token` makes the stored token the
+        credential every ecosystem tool presents.
+        """
+        if refresh is None:
+            return self._cortex_access_token_once(refresh=None, leeway_s=leeway_s)
+        # Resolved like the save path, not read off the cache: a concurrent reload
+        # can momentarily clear the cache's source path, and a caller that then
+        # fell back to another directory took a different lock and raced anyway.
+        lock_dir = self._resolve_credentials_target(None).parent
+        with _oauth_refresh_lock(lock_dir):
+            return self._cortex_access_token_once(refresh=refresh, leeway_s=leeway_s)
+
+    def _cortex_access_token_once(self, *, refresh: Any = None, leeway_s: float = 120.0) -> str | None:
         """A currently-valid access token, refreshing through `refresh` if needed.
 
         `refresh` is injected — a callable taking `(refresh_token, token_endpoint)`

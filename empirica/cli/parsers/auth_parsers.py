@@ -1,9 +1,10 @@
 """Parsers for `empirica auth` — OAuth for the proprietary Cortex service.
 
-One group verb with three actions (reduce-CLI-surface rule): login runs the
+One group verb with four actions (reduce-CLI-surface rule): login runs the
 authorization_code + PKCE browser flow and stores the token set under
-cortex.oauth; status reports whether this seat is retirement-ready; logout
-revokes and drops the token set (the api_key is never touched).
+cortex.oauth; token prints a currently valid access token from that set, for
+other ecosystem tools; status reports whether this seat is retirement-ready;
+logout revokes and drops the token set (the api_key is never touched).
 
 Cortex is Empirica's PROPRIETARY serving layer (getempirica.com), not part of
 this open-source core — connecting requires a Cortex account, which is what
@@ -18,7 +19,7 @@ def add_auth_parsers(subparsers) -> None:
         "auth",
         help=(
             "OAuth for the proprietary Cortex service (getempirica.com; requires an account): "
-            "login (browser flow), status (retirement-ready?), logout (revoke)"
+            "login (browser flow), token (for other tools), status (retirement-ready?), logout (revoke)"
         ),
     )
     actions = auth.add_subparsers(dest="auth_action")
@@ -34,6 +35,16 @@ def add_auth_parsers(subparsers) -> None:
         help="Seconds to wait for the browser callback (optional, default: 300)",
     )
     login.add_argument("--output", choices=["human", "json"], default="human")
+
+    token = actions.add_parser(
+        "token",
+        help=(
+            "Print a currently valid access token from the `auth login` token set, refreshing it if it has "
+            "expired, so other ecosystem tools present the same credential instead of a static key. Exits 1 "
+            "with no token printed when there is none or it cannot be refreshed."
+        ),
+    )
+    token.add_argument("--output", choices=["human", "json"], default="human")
 
     status = actions.add_parser(
         "status",

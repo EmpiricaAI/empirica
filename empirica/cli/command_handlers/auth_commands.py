@@ -15,6 +15,7 @@ destructive-ops-need-per-surface-survival-signoff).
 from __future__ import annotations
 
 import json
+import sys
 import time
 
 
@@ -171,13 +172,61 @@ def _drop_oauth_block(loader) -> None:
         loader._write_credentials(target, existing)
 
 
+def handle_auth_token_command(args) -> int:
+    """Print a valid access token for other tools to present.
+
+    Cortex has one token shape: one audience, no subscription claims, and every
+    endpoint authorizes per request from the user behind the token (cortex,
+    2026-09-26). So the token `auth login` stored, refreshed when expired, is
+    exactly what every ecosystem tool should send, rather than a static key of
+    its own. Human output is the bare token, so `$(empirica auth token)` works.
+    Nothing is printed to stdout on failure: a caller must never mistake an error
+    message for a token.
+    """
+    from empirica.core.auth.cortex_oauth import default_refresh
+
+    output = getattr(args, "output", "human")
+    loader = _loader()
+    oauth = loader.get_cortex_oauth()
+    token = loader.cortex_access_token(refresh=default_refresh(loader)) if oauth else None
+    if not token:
+        reason = (
+            "no token set stored"
+            if not oauth.get("access_token")
+            else "the stored token expired and could not be refreshed"
+        )
+        if output == "json":
+            print(json.dumps({"ok": False, "error": reason, "hint": "run `empirica auth login`"}))
+        else:
+            sys.stderr.write(f"empirica auth token: {reason}; run `empirica auth login`\n")
+        return 1
+    if output == "json":
+        fresh = loader.get_cortex_oauth()
+        print(
+            json.dumps(
+                {
+                    "ok": True,
+                    "access_token": token,
+                    "token_type": "Bearer",
+                    "expires_at": fresh.get("expires_at"),
+                    "url": (loader.get_cortex_config().get("url") or None),
+                }
+            )
+        )
+    else:
+        print(token)
+    return 0
+
+
 def handle_auth_group_command(args) -> int:
     action = getattr(args, "auth_action", None)
+    if action == "token":
+        return handle_auth_token_command(args)
     if action == "login":
         return handle_auth_login_command(args)
     if action == "status":
         return handle_auth_status_command(args)
     if action == "logout":
         return handle_auth_logout_command(args)
-    print("usage: empirica auth {login|status|logout}")
+    print("usage: empirica auth {login|token|status|logout}")
     return 2
