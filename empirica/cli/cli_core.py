@@ -668,21 +668,61 @@ _HELP_CATEGORIES = {
 }
 
 
+# The short list `empirica help` shows people, in the spirit of `claude --help`:
+# a handful of commands with one line each. Descriptions come from each
+# command's own parser help, so this list cannot drift from the commands.
+_HUMAN_HELP: list[tuple[str, list[str]]] = [
+    ("Get started", ["setup", "doctor", "auth", "project-init"]),
+    ("Day to day", ["tui", "cockpit", "status", "goals-list", "project-search", "project-bootstrap"]),
+    ("Mesh", ["mailbox", "listener", "practice-context"]),
+    ("Maintenance", ["plugin-sync", "compliance-report", "sessions-list"]),
+]
+
+
+def _one_line(text: str, width: int = 62) -> str:
+    """The first clause of a parser help string, trimmed to fit one line."""
+    import re
+
+    first = re.split(r" — |\. |: |\(", (text or "").strip(), maxsplit=1)[0].strip()
+    return first if len(first) <= width else first[: width - 1].rstrip() + "…"
+
+
+def _command_helps() -> dict[str, str]:
+    subs = next(a for a in create_argument_parser()._actions if isinstance(a, argparse._SubParsersAction))
+    return {a.dest: a.help or "" for a in subs._choices_actions}
+
+
 def _handle_help_command(parsed_args) -> None:
-    """Handle the built-in help command, printing categorized command lists."""
+    """`empirica help` (short list), `help <area>` (with descriptions), `help all` (every area)."""
     cat_arg = getattr(parsed_args, "_help_category", None)
+    helps = _command_helps()
     if cat_arg and cat_arg in _HELP_CATEGORIES:
-        cat = cat_arg
-        print(f"\n{cat.title()} ({len(_HELP_CATEGORIES[cat])} commands):\n")
-        for cmd in _HELP_CATEGORIES[cat]:
-            print(f"  {cmd}")
+        cmds = _HELP_CATEGORIES[cat_arg]
+        print(f"\n{cat_arg.title()} ({len(cmds)} commands):\n")
+        for cmd in cmds:
+            print(f"  {cmd:24s} {_one_line(helps.get(cmd, ''))}")
         print("\nUse 'empirica <command> --help' for details.")
-    else:
+    elif cat_arg == "all":
         total = sum(len(cmds) for cmds in _HELP_CATEGORIES.values())
         print(f"\nAll Empirica Commands ({total} total):\n")
         for cat, cmds in _HELP_CATEGORIES.items():
             print(f"  {cat:16s} ({len(cmds):2d})  {', '.join(cmds[:4])}{'...' if len(cmds) > 4 else ''}")
-        print("\nUse 'empirica help <category>' to see all commands in a category.")
+        print("\nUse 'empirica help <area>' to see an area's commands with descriptions.")
+    else:
+        if cat_arg:
+            print(f"\nNo help area {cat_arg!r}.")
+        print("\nUsage: empirica <command> [options]\n")
+        print("Empirica: measurement and calibration layer for AI.")
+        for heading, cmds in _HUMAN_HELP:
+            print(f"\n{heading}:")
+            for cmd in cmds:
+                if cmd in helps:
+                    print(f"  {cmd:20s} {_one_line(helps[cmd])}")
+        print("\nMore:")
+        print("  empirica help <area>   an area's commands, e.g. " + ", ".join(list(_HELP_CATEGORIES)[:6]) + ", ...")
+        print("  empirica help all      every area, with counts")
+        print("  empirica <command> --help")
+        print("  empirica --help        the AI session workflow (PREFLIGHT, CHECK, POSTFLIGHT, artifacts)")
 
 
 def _handle_command_result(result, parsed_args) -> int:
