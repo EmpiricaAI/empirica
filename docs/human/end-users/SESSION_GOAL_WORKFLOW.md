@@ -170,7 +170,7 @@ empirica goals-discover
 # Resume a goal another AI worked on
 empirica goals-resume --goal-id <ID> --ai-id $(basename $PWD)
 
-# Claim a goal (creates branch if BEADS enabled)
+# Claim a goal (links BEADS; add --create-branch to check out a goal branch)
 empirica goals-claim --goal-id <ID>
 ```
 

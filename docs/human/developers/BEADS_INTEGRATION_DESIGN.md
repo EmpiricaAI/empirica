@@ -103,22 +103,26 @@ The AI claims a goal, gets a branch named after it, works on it, then completes
 
 ### `empirica goals-claim`
 
-Start work on a goal — creates branch, links to BEADS, optionally opens a
+Start work on a goal — links to BEADS, optionally creates a branch and opens a
 PREFLIGHT transaction.
 
 ```bash
 empirica goals-claim --goal-id <GOAL_ID>
-                     [--create-branch]    # default: true
+                     [--create-branch]    # default: false — moves HEAD
                      [--run-preflight]    # default: false
 ```
 
 What happens:
 1. Resolves goal + (if BEADS-paired) BEADS issue id
-2. Computes branch name (see naming below)
-3. Creates + checks out the branch
-4. Persists mapping to `.empirica/branch_mappings.json`
-5. Sets BEADS issue status to `in_progress`
-6. Optionally opens a PREFLIGHT transaction
+2. Sets BEADS issue status to `in_progress`
+3. With `--create-branch`: computes the branch name (see naming below), creates
+   and checks it out, persists the mapping to `.empirica/branch_mapping.json`,
+   and reports `head_moved: true` (human output: `Switched to branch …`)
+4. Optionally opens a PREFLIGHT transaction
+
+Branch creation was the default until 2026-09-28. A verb that reads as
+bookkeeping moved HEAD without saying so, and the next commits landed on a branch
+the practitioner never chose.
 
 ### `empirica goals-complete`
 

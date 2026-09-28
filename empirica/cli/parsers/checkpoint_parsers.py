@@ -2248,19 +2248,28 @@ Example:
     goals_claim_parser = subparsers.add_parser(
         "goals-claim",
         help=(
-            "Start working on a goal: create a git branch named after it, "
-            "link to the BEADS issue, optionally run PREFLIGHT. Differs "
-            "from goals-resume (takeover of a peer's goal) — claim is for "
-            "goals already yours that you're committing to start. Skip "
-            "branch creation with --no-branch for non-code goals."
+            "Start working on a goal: link it to the BEADS issue, optionally "
+            "run PREFLIGHT, and with --create-branch check out a git branch "
+            "named after it. Differs from goals-resume (takeover of a peer's "
+            "goal) — claim is for goals already yours that you're committing "
+            "to start. HEAD moves only when you pass --create-branch."
         ),
     )
     goals_claim_parser.add_argument("--goal-id", required=True, type=nonblank_id, help="Goal UUID to claim")
+    # Off by default since 2026-09-28: a verb that reads as metadata silently
+    # moved HEAD, and a peer's next 7 commits landed on the wrong branch
+    # (ecodex, prop_2gmong6onbdenarycy2xobktby).
     goals_claim_parser.add_argument(
-        "--create-branch", action="store_true", default=True, help="Create git branch (default: True)"
+        "--create-branch",
+        action="store_true",
+        default=False,
+        help="Create and check out epistemic/reasoning/goal-<id> (moves HEAD; default: off)",
     )
     goals_claim_parser.add_argument(
-        "--no-branch", dest="create_branch", action="store_false", help="Skip branch creation"
+        "--no-branch",
+        dest="create_branch",
+        action="store_false",
+        help="Do not touch git (the default; kept for scripts)",
     )
     goals_claim_parser.add_argument("--run-preflight", action="store_true", help="Run PREFLIGHT after claiming")
     goals_claim_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")

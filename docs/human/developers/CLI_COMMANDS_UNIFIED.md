@@ -23,7 +23,7 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.14.3
-**Generated:** 2026-09-25 12:20:12 UTC
+**Generated:** 2026-09-28 09:55:30 UTC
 **Total commands:** 241 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -447,16 +447,16 @@ Close a goal as done. Pass --reason explaining what shipped (commit SHAs, what g
 
 #### `empirica goals-claim`
 
-Start working on a goal: create a git branch named after it, link to the BEADS issue, optionally run PREFLIGHT. Differs from goals-resume (takeover of a peer's goal) — claim is for goals already yours that you're committing to start. Skip branch creation with --no-branch for non-code goals.
+Start working on a goal: link it to the BEADS issue, optionally run PREFLIGHT, and with --create-branch check out a git branch named after it. Differs from goals-resume (takeover of a peer's goal) — claim is for goals already yours that you're committing to start. HEAD moves only when you pass --create-branch.
 
 **Arguments:**
 
 - `--goal-id` — **required** · type=`nonblank_id`
   Goal UUID to claim
-- `--create-branch` — optional · flag · default=`True`
-  Create git branch (default: True)
+- `--create-branch` — optional · flag
+  Create and check out epistemic/reasoning/goal-<id> (moves HEAD; default: off)
 - `--no-branch` — optional · flag · default=`True`
-  Skip branch creation
+  Do not touch git (the default; kept for scripts)
 - `--run-preflight` — optional · flag
   Run PREFLIGHT after claiming
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
@@ -3760,7 +3760,7 @@ List the SERs this practice participates in — GET /v1/sers. Pass a ser_id to s
 
 #### `empirica auth`
 
-OAuth for the proprietary Cortex service (getempirica.com; requires an account): login (browser flow), status (retirement-ready?), logout (revoke)
+OAuth for the proprietary Cortex service (getempirica.com; requires an account): login (browser flow), token (for other tools), status (retirement-ready?), logout (revoke)
 
 **Subcommands:**
 
@@ -3772,6 +3772,15 @@ Authorization_code + PKCE browser flow; stores the token set under cortex.oauth 
 
 - `--timeout` — optional · type=`float` · default=`300`
   Seconds to wait for the browser callback (optional, default: 300)
+- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
+
+
+##### `empirica auth token`
+
+Print a currently valid access token from the `auth login` token set, refreshing it if it has expired, so other ecosystem tools present the same credential instead of a static key. Exits 1 with no token printed when there is none or it cannot be refreshed.
+
+**Arguments:**
+
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
 
 
@@ -3807,6 +3816,8 @@ Bring up the cockpit (idempotent — attaches if already running)
 
 - `--config` — optional
   Override the default config path (~/.empirica/cockpit/config.yaml)
+- `--profile` — optional
+  Use ~/.empirica/cockpit/config-NAME.yaml (e.g. monitor-a, monitor-b, ecodex) instead of the default config
 - `--no-attach` — optional · flag
   Don't attach after creating the layout — useful for headless / scripted bring-up
 - `--quiet-warnings` — optional · flag
@@ -3825,6 +3836,8 @@ Show current cockpit state without attaching (read-only)
 
 - `--config` — optional
   Override the default config path
+- `--profile` — optional
+  Use ~/.empirica/cockpit/config-NAME.yaml (e.g. monitor-a, monitor-b, ecodex) instead of the default config
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
 
@@ -3847,6 +3860,8 @@ Destroy the cockpit session and write clean-shutdown marker
 
 - `--config` — optional
   Override the default config path
+- `--profile` — optional
+  Use ~/.empirica/cockpit/config-NAME.yaml (e.g. monitor-a, monitor-b, ecodex) instead of the default config
 - `--prune` — optional · flag
   Also prune dead per-instance state files (equivalent to `empirica instance prune`)
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
@@ -4164,7 +4179,7 @@ Create a new lesson from JSON input
 - `--from-global` — optional
   INGEST a peer's shared lesson by id from the cross-practice pool. The copy is attributed to its author permanently and can never be re-published from here.
 - `--supersedes` — optional
-  Id of a lesson this one REPLACES — writes a supersedes edge so the older one stops being served. Distinct from bumping version, which publishes a revision of the same lesson.
+  Id of a lesson this one REPLACES — writes a supersedes edge so the older one stops being served. Distinct from bumping version, which publishes a revision of the same lesson. To retire an OLDER pair after the fact, without publishing anything: resolve-artifacts with {"type": "lesson", "id": <old>, "superseded_by": <new>}.
 - `--output` — optional · type=`choice` · choices={human, json} · default=`json`
   Output format
 
@@ -4508,8 +4523,8 @@ Check Empirica install health (Desktop + general — empirica-mcp, .empirica/, g
 
 **Arguments:**
 
-- `--output` — optional · type=`choice` · choices={human, json} · default=`json`
-  Output format (default: json — Desktop calls expect machine-readable)
+- `--output` — optional · type=`choice` · choices={human, json}
+  Output format. Default: human on a terminal, json when piped (the Desktop MCP tool and AI sessions call it through a pipe, so they keep getting json).
 - `--deploy-gaps` — optional · flag
   Only the deploy-gap checks: unreleased commits, CLI-vs-checkout, plugin freshness, MCP skew - one readable answer to 'what is committed but not live on this box'
 - `--strict-warn` — optional · flag

@@ -2763,6 +2763,7 @@ def _handle_goals_claim_command_helper(ai_id, beads_issue_id, create_branch, goa
 
             result["branch_name"] = branch_name
             result["branch_created"] = True
+            result["head_moved"] = True  # say it: the caller's next commits land on this branch
 
             # Add branch mapping
             try:
@@ -2787,6 +2788,24 @@ def _handle_goals_claim_command_helper(ai_id, beads_issue_id, create_branch, goa
     else:
         result["branch_created"] = False
         result["branch_skipped"] = True
+        result["head_moved"] = False
+
+
+def _print_goals_claim_human(result: dict, goal_id: str, beads_issue_id) -> None:
+    """Human output for goals-claim; any move of HEAD is named, never implied."""
+    print(f"✅ Claimed goal: {goal_id[:8]}")
+    if beads_issue_id and result.get("beads_status_updated"):
+        print("✅ Updated BEADS status: in_progress")
+    if result.get("branch_created"):
+        made = "created and " if result["branch_action"] == "created_new" else ""
+        print(f"⚠️  Switched to branch {result['branch_name']} ({made}checked out — your next commits land here)")
+    elif result.get("branch_error"):
+        print(f"❌ Branch not created: {result['branch_error']}")
+    if result.get("branch_mapping_saved"):
+        print("✅ Branch mapping saved")
+    if result.get("preflight_started"):
+        print("🧠 Running PREFLIGHT...")
+    print("✅ Ready to start work!")
 
 
 def handle_goals_claim_command(args):
@@ -2796,7 +2815,7 @@ def handle_goals_claim_command(args):
         from empirica.data.session_database import SessionDatabase
 
         goal_id = args.goal_id
-        create_branch = getattr(args, "create_branch", True)
+        create_branch = getattr(args, "create_branch", False)
         run_preflight = getattr(args, "run_preflight", False)
         output_format = getattr(args, "output", "json")
 
@@ -2886,18 +2905,7 @@ def handle_goals_claim_command(args):
         if output_format == "json":
             print(json.dumps(result, indent=2))
         else:
-            print(f"✅ Claimed goal: {goal_id[:8]}")
-            if beads_issue_id and result.get("beads_status_updated"):
-                print("✅ Updated BEADS status: in_progress")
-            if result.get("branch_created"):
-                print(
-                    f"✅ {'Created' if result['branch_action'] == 'created_new' else 'Checked out'} branch: {result['branch_name']}"
-                )
-            if result.get("branch_mapping_saved"):
-                print("✅ Branch mapping saved")
-            if result.get("preflight_started"):
-                print("🧠 Running PREFLIGHT...")
-            print("✅ Ready to start work!")
+            _print_goals_claim_human(result, goal_id, beads_issue_id)
 
     except Exception as e:
         handle_cli_error(e, "goals-claim", getattr(args, "output", "json"))
