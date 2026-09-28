@@ -895,6 +895,68 @@ def check_sessions_db(cwd: Path | None = None) -> Check:
     )
 
 
+STALE_OPEN_TRANSACTION_DAYS = 7
+
+
+def check_stale_open_transactions(cwd: Path | None = None, now: float | None = None) -> Check:
+    """Transaction files still OPEN long after anything could be using them.
+
+    Hooks find a pane's transaction by the instance suffix in the file name, so a
+    window left open by a pane that is gone waits for whichever pane reuses that
+    suffix, and that pane then counts its calls against a months-old window
+    (ecodex, 2026-09-28: tmux_48 open since 2026-07-25 beside five closed ones).
+    Reported, never repaired: only the practitioner knows whether it was done.
+    """
+    import time as _time
+
+    name = "No abandoned open transactions"
+    cwd = cwd or Path.cwd()
+    edir = cwd / ".empirica"
+    if not edir.is_dir():
+        return Check(name, SKIP, f"no .empirica directory at {edir}")
+    now = _time.time() if now is None else now
+    files = sorted(edir.glob("active_transaction*.json"))
+    open_count = 0
+    stale: list[dict] = []
+    for f in files:
+        try:
+            tx = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(tx, dict) or tx.get("status") != "open":
+            continue
+        open_count += 1
+        try:
+            age_days = (now - float(tx.get("preflight_timestamp") or 0)) / 86400
+        except (TypeError, ValueError):
+            continue
+        if age_days > STALE_OPEN_TRANSACTION_DAYS:
+            suffix = f.stem.removeprefix("active_transaction").removeprefix("_")
+            stale.append(
+                {
+                    "file": f.name,
+                    "instance": suffix or "(global)",
+                    "transaction_id": str(tx.get("transaction_id") or "")[:8],
+                    "age_days": round(age_days, 1),
+                }
+            )
+    walked = f"{len(files)} transaction file(s) read, {open_count} open"
+    if not stale:
+        return Check(name, PASS, f"{walked}, none older than {STALE_OPEN_TRANSACTION_DAYS} days")
+    stale.sort(key=lambda r: -r["age_days"])
+    first = stale[0]
+    return Check(
+        name,
+        WARN,
+        f"{walked}; {len(stale)} open for more than {STALE_OPEN_TRANSACTION_DAYS} days: "
+        + ", ".join(f"{r['file']} ({r['transaction_id']}, {r['age_days']}d)" for r in stale[:5]),
+        "A pane reusing that instance id would count its work against the old window. If the work is done, "
+        f"take it over and close it: `empirica transaction-adopt --from {first['instance']} --project {cwd}`, "
+        "then submit a POSTFLIGHT.",
+        {"stale": stale},
+    )
+
+
 def check_lesson_supersession_orphans(cwd: Path | None = None) -> Check:
     """Lessons whose YAML says they were superseded while the store still serves them.
 
@@ -2340,6 +2402,7 @@ def run_all_checks(cwd: Path | None = None) -> list[Check]:
         check_project_yaml(cwd),
         check_sessions_db(cwd),
         check_lesson_supersession_orphans(cwd),
+        check_stale_open_transactions(cwd),
         check_unreleased_commits(cwd),
         check_retrieval_telemetry(cwd),
         check_project_embed_outcome(cwd),
