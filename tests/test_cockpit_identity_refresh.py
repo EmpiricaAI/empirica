@@ -264,3 +264,16 @@ def test_panes_from_an_older_launch_are_adopted_only_when_unambiguous(tmux_env, 
     assert result.missing == [], "absence cannot be claimed while a pane is untracked"
     alpha = {r[3]: r for r in _panes("old")}["g/0"][0]
     assert _opt(alpha, "@empirica_instance_id") == "alpha"
+
+
+def test_a_project_whose_directory_is_missing_gets_a_placeholder_not_a_practitioner(tmp_path):
+    """tmux falls back to another cwd for a missing -c, which would start claude in the wrong practice."""
+    from empirica.core.cockpit.launcher.tmux import _resolve_pane
+
+    cfg = _cfg(ProjectSpec(name="later", path=str(tmp_path / "not-yet"), launch="claude"))
+    cwd, cmd = _resolve_pane(cfg.groups[0].panes[0], cfg)
+    assert cwd is None
+    assert "not provisioned yet" in cmd and "claude" not in cmd.split("&&")[-1]
+
+    (tmp_path / "not-yet").mkdir()
+    assert _resolve_pane(cfg.groups[0].panes[0], cfg) == (str(tmp_path / "not-yet"), "claude")

@@ -297,6 +297,12 @@ def _resolve_pane(pane: PaneSpec, config: LauncherConfig) -> tuple[str | None, s
             # with bash so the operator can see something is wrong rather
             # than the whole session failing.
             return None, f'echo "[empirica] unknown project: {pane.project_ref}" && bash'
+        if not os.path.isdir(os.path.expanduser(proj.path)):
+            # tmux would fall back to another directory and start the practitioner
+            # there. A seat is often launched before every practice is provisioned,
+            # so say what is missing and leave a shell instead.
+            missing = shlex.quote(f"[empirica] {proj.name} not provisioned yet: {proj.path} does not exist")
+            return None, f"echo {missing} && bash"
         return proj.path, proj.launch
     return None, pane.inline_command or "bash"
 
