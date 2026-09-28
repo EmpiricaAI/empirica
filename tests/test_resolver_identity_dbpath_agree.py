@@ -197,3 +197,32 @@ def test_env_var_is_not_the_sole_guard_in_path_resolver():
         "db-path resolution has no harness-agnostic ground truth — it still depends "
         "solely on an env var that never arrives via the Bash tool"
     )
+
+
+# ─── The open-transaction exception must hold on BOTH halves ───────────
+
+
+def test_an_open_transaction_keeps_identity_and_db_on_the_same_project(two_projects, monkeypatch):
+    """The db-path guard keeps the context project while it has an open
+    transaction (no split measurement window). Identity used to ignore that and
+    follow cwd, logging "trusting cwd" while every read and write went to the
+    transaction's project — measured 2026-09-28, lessons read from core's store
+    under that warning for cortex."""
+    import json
+
+    from empirica.config.path_resolver import _try_context_project_db
+    from empirica.utils.session_resolver import InstanceResolver as R
+    from empirica.utils.session_resolver import _cwd_project_override
+
+    monkeypatch.delenv("EMPIRICA_CWD_RELIABLE", raising=False)
+    stale = two_projects["stale"]
+    tx = stale / ".empirica" / f"active_transaction{R.instance_suffix()}.json"
+    tx.write_text(json.dumps({"transaction_id": "t1", "status": "open"}))
+
+    assert _try_context_project_db(str(stale), two_projects["here"]) == two_projects["stale_db"]
+    assert _cwd_project_override(str(stale)) is None, "identity must stay where the data stays"
+
+    # Positive control: once the transaction closes, both follow cwd again.
+    tx.write_text(json.dumps({"transaction_id": "t1", "status": "closed"}))
+    assert _try_context_project_db(str(stale), two_projects["here"]) != two_projects["stale_db"]
+    assert Path(_cwd_project_override(str(stale)) or "").resolve() == two_projects["here"].resolve()

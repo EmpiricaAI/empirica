@@ -1158,6 +1158,13 @@ def _cwd_project_override(instance_path: str) -> "str | None":
     a long time this function healed identity while the database path stayed on
     the stale project — the warning came from the half that recovered, the data
     from the half that did not. Both now key on the same ground truth.
+
+    Including its one exception: an OPEN transaction on ``instance_path`` keeps
+    this run there, because the db-path guard refuses to split a measurement
+    window across two databases. Without the same exception here, identity went
+    to cwd while every read and write stayed on the transaction's project, and
+    the warning announced the half that did not happen (measured 2026-09-28:
+    lessons read from core's store under a "trusting cwd" warning for cortex).
     """
     from pathlib import Path
 
@@ -1166,6 +1173,17 @@ def _cwd_project_override(instance_path: str) -> "str | None":
         if (Path(cwd) / ".empirica" / "project.yaml").exists() and os.path.realpath(cwd) != os.path.realpath(
             instance_path
         ):
+            from empirica.config.path_resolver import _has_open_transaction
+
+            if _has_open_transaction(instance_path):
+                logger.warning(
+                    "get_active_project_path: cwd is a registered project (%s), but the open transaction "
+                    "in %s keeps this run there. Pass --project-id, or close that transaction, to act on %s.",
+                    cwd,
+                    instance_path,
+                    cwd,
+                )
+                return None
             logger.warning(
                 "get_active_project_path: cwd is a registered project (%s) but "
                 "instance_projects points elsewhere (%s) — trusting cwd (stale-mapping guard).",
