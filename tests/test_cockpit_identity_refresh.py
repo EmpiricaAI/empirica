@@ -277,3 +277,28 @@ def test_a_project_whose_directory_is_missing_gets_a_placeholder_not_a_practitio
 
     (tmp_path / "not-yet").mkdir()
     assert _resolve_pane(cfg.groups[0].panes[0], cfg) == (str(tmp_path / "not-yet"), "claude")
+
+
+def test_a_hung_tmux_call_is_a_pane_error_and_the_build_continues(monkeypatch):
+    """From Francisco's cockpit: a build that stops part-way reads as 'some windows
+    missing', not as an error. A timeout used to raise out of the whole launch."""
+    from empirica.core.cockpit.launcher import tmux as t
+
+    calls: list[tuple] = []
+
+    def fake_run(argv, **kw):
+        calls.append(tuple(argv))
+        if argv[1] == "split-window":
+            raise subprocess.TimeoutExpired(argv, kw.get("timeout"))
+        if argv[1] == "list-panes" and "-a" not in argv:
+            return subprocess.CompletedProcess(argv, 1, "", "no such window")
+        return subprocess.CompletedProcess(argv, 0, "%1\n", "")
+
+    monkeypatch.setattr(t.subprocess, "run", fake_run)
+    cfg = _cfg(panes=[PaneSpec(inline_command="a"), PaneSpec(inline_command="b"), PaneSpec(inline_command="c")])
+
+    created, n, err = t._create_group_window(cfg.groups[0], cfg, "s", True, {})
+
+    assert (created, n, err) == (True, 1, None), "first pane built, the hung splits counted as failed"
+    assert sum(1 for c in calls if c[1] == "split-window") == 2, "the build kept going after the first hang"
+    assert any(c[1] == "select-layout" for c in calls)

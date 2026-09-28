@@ -50,14 +50,25 @@ class LaunchResult:
 
 def _tmux(*args: str, check: bool = False) -> subprocess.CompletedProcess:
     """Run a tmux command, capturing output. Doesn't raise on non-zero
-    by default — callers inspect ``returncode`` and ``stderr``."""
-    return subprocess.run(
-        ["tmux", *args],
-        capture_output=True,
-        text=True,
-        check=check,
-        timeout=10,
-    )
+    by default — callers inspect ``returncode`` and ``stderr``.
+
+    A hung call is a failed call too (rc 124), never an exception: callers
+    treat a failure as one pane's error and keep building, and a raise here
+    would stop the build part-way, which reads as "some windows missing"
+    rather than as an error.
+    """
+    try:
+        return subprocess.run(
+            ["tmux", *args],
+            capture_output=True,
+            text=True,
+            check=check,
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(
+            ["tmux", *args], 124, "", f"tmux {args[0] if args else ''} timed out after 10s"
+        )
 
 
 def tmux_available() -> bool:
