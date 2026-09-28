@@ -28,6 +28,12 @@ class ProjectSpec:
     path: str
     launch: str = "claude"  # command to run in this window
     kind: str = "code"  # placeholder for future split / pane semantics
+    # EMPIRICA_INSTANCE_ID for this project's panes. None = derive from the
+    # name when the launch program is claude or a shell; "" = never bind.
+    instance_id: str | None = None
+    # Command `cockpit refresh` runs to bring a dead pane back. None = the
+    # launch command with --continue, when the launch program is claude.
+    resume: str | None = None
 
 
 @dataclass
@@ -52,6 +58,7 @@ class PaneSpec:
     project_ref: str | None = None
     inline_command: str | None = None
     label: str | None = None  # optional human-readable pane title
+    instance_id: str | None = None  # overrides the project's; "" = never bind
 
 
 @dataclass
@@ -96,6 +103,7 @@ class LauncherConfig:
     warn_on_abnormal_exit: bool = True
     auto_prune_dead: bool = False
     notify_on_abnormal_exit: bool = True
+    mouse: bool = True  # click a window name to switch, click a pane to focus
 
     def project_names(self) -> list[str]:
         return [p.name for p in self.projects]
@@ -153,6 +161,29 @@ def detect_projects(projects_root: Path | None = None) -> list[ProjectSpec]:
     return discovered
 
 
+def _optional_str(entry: dict, key: str) -> str | None:
+    """A key that may be absent (None), explicitly empty (""), or set.
+
+    Absent and empty mean different things for ``instance_id``: absent derives
+    one, empty says this pane must not be bound.
+    """
+    if key not in entry or entry[key] is None:
+        return None
+    value = entry[key]
+    if value is False:
+        return ""
+    return str(value).strip()
+
+
+def _serialize_project(p: ProjectSpec) -> dict[str, Any]:
+    out: dict[str, Any] = {"name": p.name, "path": p.path, "launch": p.launch, "kind": p.kind}
+    if p.instance_id is not None:
+        out["instance_id"] = p.instance_id
+    if p.resume is not None:
+        out["resume"] = p.resume
+    return out
+
+
 def _parse_groups(raw_groups: list) -> list[GroupSpec]:
     """Parse the optional ``groups:`` section of the launcher YAML."""
     groups: list[GroupSpec] = []
@@ -175,6 +206,7 @@ def _parse_groups(raw_groups: list) -> list[GroupSpec]:
                     project_ref=str(project_ref) if project_ref else None,
                     inline_command=str(inline) if inline else None,
                     label=str(pane.get("label")) if pane.get("label") else None,
+                    instance_id=_optional_str(pane, "instance_id"),
                 )
             )
         if not panes:
@@ -221,6 +253,8 @@ def load_config(path: Path | None = None) -> LauncherConfig:
                 path=str(path),
                 launch=str(entry.get("launch") or "claude"),
                 kind=str(entry.get("kind") or "code"),
+                instance_id=_optional_str(entry, "instance_id"),
+                resume=_optional_str(entry, "resume"),
             )
         )
 
@@ -252,6 +286,7 @@ def load_config(path: Path | None = None) -> LauncherConfig:
         warn_on_abnormal_exit=bool(abnormal.get("warn", True)),
         auto_prune_dead=bool(abnormal.get("auto_prune_dead", False)),
         notify_on_abnormal_exit=bool(abnormal.get("notify", True)),
+        mouse=bool(raw.get("mouse", True)),
     )
 
 
@@ -260,7 +295,8 @@ def _serialize(config: LauncherConfig) -> dict[str, Any]:
         "session_name": config.session_name,
         "attach_on_launch": config.attach_on_launch,
         "surface": config.surface,
-        "projects": [{"name": p.name, "path": p.path, "launch": p.launch, "kind": p.kind} for p in config.projects],
+        "mouse": config.mouse,
+        "projects": [_serialize_project(p) for p in config.projects],
         "status_windows": [{"name": w.name, "command": w.command} for w in config.status_windows],
         "on_abnormal_exit": {
             "warn": config.warn_on_abnormal_exit,
@@ -280,6 +316,7 @@ def _serialize(config: LauncherConfig) -> dict[str, Any]:
                             "project": p.project_ref,
                             "command": p.inline_command,
                             "label": p.label,
+                            "instance_id": p.instance_id,
                         }.items()
                         if v is not None
                     }

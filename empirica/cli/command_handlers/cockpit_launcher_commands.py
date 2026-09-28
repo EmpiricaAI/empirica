@@ -27,6 +27,7 @@ from empirica.core.cockpit.launcher import (
     launch_cockpit,
     launch_groups,
     load_config,
+    refresh_cockpit,
     write_clean_shutdown,
     write_default_config,
 )
@@ -287,8 +288,63 @@ def _handle_groups_launch(config, output: str, quiet: bool) -> int:
         print("  Click a window name in the top status-line to switch between groups.")
         print()
         print("  Detach all: empirica cockpit detach   (writes clean-shutdown marker)")
-        print("  Refresh:    empirica cockpit launch   (re-wraps the surviving session)")
+        print("  Re-wrap:    empirica cockpit launch   (re-attaches the surviving session, adds missing panes)")
+        print("  Refresh:    empirica cockpit refresh  (restarts dead claude panes in place, resumed)")
     return 0 if result.all_ok() else 1
+
+
+def handle_cockpit_refresh_command(args) -> int:
+    """``empirica cockpit refresh``. Respawn dead claude panes in place,
+    with their identity and conversation. Live panes are never touched."""
+    config_path, profile_error = _config_path_arg(args)
+    if profile_error:
+        return _profile_error(args, profile_error)
+    output = getattr(args, "output", "human")
+    config = load_config(path=Path(config_path).expanduser() if config_path else None)
+
+    result = refresh_cockpit(config)
+    failed = [r for r in result.respawned if r["error"]]
+    ok = result.error is None and not failed
+    if output == "json":
+        print(
+            json.dumps(
+                {
+                    "ok": ok,
+                    "session_name": result.session_name,
+                    "respawned": result.respawned,
+                    "alive": result.alive,
+                    "missing": result.missing,
+                    "adopted": result.adopted,
+                    "unkeyed_panes": result.unkeyed,
+                    "error": result.error,
+                },
+                indent=2,
+            )
+        )
+        return 0 if ok else 1
+
+    if result.error:
+        print(f"❌ {result.error}")
+        return 1
+    print(f"🔄 cockpit refresh · session {result.session_name}")
+    if result.adopted:
+        print(f"  ⊕ now tracking {len(result.adopted)} pane(s) from an earlier launch: {', '.join(result.adopted)}")
+    for r in result.respawned:
+        who = r["instance_id"] or "(no identity)"
+        if r["error"]:
+            print(f"  ✗ {r['key']:24s} {who} — {r['error']}")
+        else:
+            print(f"  ↻ {r['key']:24s} {who} — {r['command']}")
+    if not result.respawned:
+        print(f"  nothing to do: {len(result.alive)} claude pane(s) running")
+    if result.missing:
+        print(f"  ⚠ not in the session: {', '.join(result.missing)} — `empirica cockpit launch` adds them back")
+    if result.unkeyed:
+        print(
+            f"  ⚠ {result.unkeyed} pane(s) could not be matched to a configured pane (window or directory "
+            "differs), so they are not tracked and missing panes cannot be listed"
+        )
+    return 0 if ok else 1
 
 
 def handle_cockpit_status_command(args) -> int:
@@ -451,7 +507,7 @@ def handle_cockpit_group_command(args) -> int:
     """Dispatcher for ``empirica cockpit <action>``."""
     action = getattr(args, "cockpit_action", None)
     if not action:
-        sys.stderr.write("usage: empirica cockpit <launch|status|detach|kill> [args...]\n")
+        sys.stderr.write("usage: empirica cockpit <launch|refresh|status|detach|kill> [args...]\n")
         return 2
     handler = _COCKPIT_DISPATCH.get(action)
     if handler is None:
@@ -465,6 +521,7 @@ _COCKPIT_DISPATCH = {
     "status": handle_cockpit_status_command,
     "detach": handle_cockpit_detach_command,
     "kill": handle_cockpit_kill_command,
+    "refresh": handle_cockpit_refresh_command,
 }
 
 
@@ -473,5 +530,6 @@ __all__ = [
     "handle_cockpit_group_command",
     "handle_cockpit_kill_command",
     "handle_cockpit_launch_command",
+    "handle_cockpit_refresh_command",
     "handle_cockpit_status_command",
 ]

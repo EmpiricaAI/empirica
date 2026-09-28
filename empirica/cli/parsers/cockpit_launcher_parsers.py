@@ -17,8 +17,15 @@ def add_cockpit_launcher_parsers(subparsers):
 Single-command bring-up of a configured multi-Claude tmux cockpit
 (one window per project, optional status windows for monitoring).
 
-Layout-only — Claude conversations regenerate on each launch (by design;
-that's `/compact` + Empirica artifacts' job, not the launcher's).
+`launch` is layout-only — Claude conversations regenerate on each launch
+(by design; that's `/compact` + Empirica artifacts' job, not the launcher's).
+`refresh` is the exception: it brings back, in place, a claude pane whose
+claude exited, resuming its conversation and keeping its EMPIRICA_INSTANCE_ID.
+
+Each project pane launched as claude or a shell is bound to a stable,
+slot-shaped EMPIRICA_INSTANCE_ID (the project name, or `instance_id:` in
+config), so a relaunched practitioner keeps its identity instead of
+becoming a generic tmux_N.
 
 State files live under ~/.empirica/cockpit/:
   config.yaml           — your project list + status windows
@@ -70,6 +77,15 @@ when the previous session ended without writing a clean-shutdown marker
         "supports native drag-and-drop file paste.",
     )
     launch.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
+
+    # refresh
+    refresh = actions.add_parser(
+        "refresh",
+        help="Relaunch, in place, every claude pane whose claude exited — same identity, conversation resumed",
+    )
+    refresh.add_argument("--config", metavar="PATH", help="Override the default config path")
+    refresh.add_argument("--profile", metavar="NAME", help="Use ~/.empirica/cockpit/config-NAME.yaml")
+    refresh.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
 
     # status
     status = actions.add_parser(

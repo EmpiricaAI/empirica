@@ -49,12 +49,15 @@ from empirica.core.cockpit.launcher.tmux import (
     GroupLaunchResult,
     GroupsLaunchResult,
     LaunchResult,
+    RefreshResult,
     alacritty_available,
     cockpit_kill,
     cockpit_session_exists,
     ghostty_available,
     launch_cockpit,
     launch_groups,
+    refresh_cockpit,
+    resume_command,
 )
 
 __all__ = [
@@ -71,6 +74,7 @@ __all__ = [
     "LauncherConfig",
     "PaneSpec",
     "ProjectSpec",
+    "RefreshResult",
     "SessionAlreadyRunning",
     "StatusWindow",
     "alacritty_available",
@@ -82,6 +86,8 @@ __all__ = [
     "launch_cockpit",
     "launch_groups",
     "load_config",
+    "refresh_cockpit",
+    "resume_command",
     "write_clean_shutdown",
     "write_default_config",
     "write_session_start",
