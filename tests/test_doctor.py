@@ -470,7 +470,7 @@ def test_run_all_checks_returns_complete_list():
     assert "Deployed plugin fresh" in names
 
 
-def test_run_all_checks_count_is_36():
+def test_run_all_checks_count_is_37():
     """+1 for check_mcp_version_skew (GH #404, injected-topology skew).
     +1 for check_engagement_registry_drift (engagement dual-write, 1.13.23).
     +1 for check_cli_matches_checkout (CLI/checkout skew the version cannot see).
@@ -495,12 +495,15 @@ def test_run_all_checks_count_is_36():
        hook interpreter).
     +1 for check_long_running_processes (every other deploy-gap check compares
        artifacts on disk, so a TUI ran 47 days on August code while all passed).
+    +1 for check_lesson_supersession_orphans (a lesson marked superseded only in
+       its YAML, before --supersedes existed, is served beside its successor and
+       nothing shows it; cortex asked for the census after finding one by hand).
 
     A hardcoded count is a tripwire for "a check was added/removed without
     thinking about the suite" — when it fires, update it deliberately (and add
     the name assertion below), never by pasting the new number blind."""
     checks = run_all_checks()
-    assert len(checks) == 36
+    assert len(checks) == 37
     # The tripwire earns its keep only if the NEW check is named. A bumped
     # number alone records that something changed, not what.
     assert any(c.name == "notes/sqlite divergence" for c in checks)

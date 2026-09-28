@@ -895,6 +895,77 @@ def check_sessions_db(cwd: Path | None = None) -> Check:
     )
 
 
+def check_lesson_supersession_orphans(cwd: Path | None = None) -> Check:
+    """Lessons whose YAML says they were superseded while the store still serves them.
+
+    Before ``lesson-create --supersedes`` existed, a revision could only be marked
+    by hand: a ``superseded_by:`` line in the old lesson's YAML. The store never
+    reads that key, so the old version keeps being served beside its successor,
+    and nothing shows it short of comparing the YAML to the list by hand (cortex,
+    2026-09-25: v1.0 served beside v3.0). Read-only; the repair is one
+    ``resolve-artifacts`` call per orphan.
+    """
+    name = "Superseded lessons retired in the store"
+    cwd = cwd or Path.cwd()
+    lessons_dir = cwd / ".empirica" / "lessons"
+    db_path = cwd / ".empirica" / "sessions" / "sessions.db"
+    if not lessons_dir.is_dir():
+        return Check(name, SKIP, f"no lessons directory at {lessons_dir}")
+    if not db_path.exists():
+        return Check(name, SKIP, f"no sessions DB at {db_path}")
+    try:
+        import yaml
+    except ImportError:
+        return Check(name, SKIP, "PyYAML not installed")
+
+    files = sorted(lessons_dir.glob("*.yaml"))
+    declared: dict[str, str] = {}
+    unreadable: list[str] = []
+    for f in files:
+        try:
+            doc = yaml.safe_load(f.read_text(encoding="utf-8")) or {}
+        except (OSError, yaml.YAMLError):
+            unreadable.append(f.name)
+            continue
+        if isinstance(doc, dict) and doc.get("superseded_by"):
+            declared[str(doc.get("id") or f.stem)] = str(doc["superseded_by"]).strip()
+
+    try:
+        with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as conn:
+            retired = {
+                row[0]
+                for row in conn.execute(
+                    "SELECT target_id FROM knowledge_graph WHERE source_type = 'lesson' "
+                    "AND target_type = 'lesson' AND relation_type = 'supersedes'"
+                )
+            }
+    except sqlite3.Error as e:
+        return Check(name, SKIP, f"cannot read supersedes edges: {e}")
+
+    walked = f"{len(files)} lesson file(s) read"
+    if unreadable:
+        walked += f", {len(unreadable)} unreadable ({', '.join(unreadable[:3])})"
+    orphans = {old: new for old, new in declared.items() if old not in retired}
+    if not orphans:
+        detail = (
+            f"{walked}; {len(declared)} declare superseded_by, all retired in the store"
+            if declared
+            else f"{walked}; none declares superseded_by in its YAML"
+        )
+        return Check(name, WARN if unreadable else PASS, detail, data={"files": len(files), "declared": len(declared)})
+    payload = json.dumps(
+        {"resolutions": [{"type": "lesson", "id": old, "superseded_by": new} for old, new in orphans.items()]}
+    )
+    return Check(
+        name,
+        WARN,
+        f"{walked}; {len(orphans)} say superseded_by in YAML but are still served: "
+        + ", ".join(f"{old} → {new}" for old, new in list(orphans.items())[:5]),
+        f"Retire them (run from this project): echo '{payload}' | empirica resolve-artifacts -",
+        {"orphans": orphans, "files": len(files)},
+    )
+
+
 def check_unreleased_commits(cwd: Path | None = None) -> Check:
     """What is committed but not yet in any release — the queue, readable.
 
@@ -2268,6 +2339,7 @@ def run_all_checks(cwd: Path | None = None) -> list[Check]:
         check_empirica_folder(cwd),
         check_project_yaml(cwd),
         check_sessions_db(cwd),
+        check_lesson_supersession_orphans(cwd),
         check_unreleased_commits(cwd),
         check_retrieval_telemetry(cwd),
         check_project_embed_outcome(cwd),
