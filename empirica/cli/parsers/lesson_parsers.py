@@ -66,7 +66,9 @@ def add_lesson_parsers(subparsers):
     lesson_create.add_argument(
         "--supersedes",
         help="Id of a lesson this one REPLACES — writes a supersedes edge so the older one stops being served. "
-        "Distinct from bumping version, which publishes a revision of the same lesson.",
+        "Distinct from bumping version, which publishes a revision of the same lesson. "
+        "To retire an OLDER pair after the fact, without publishing anything: "
+        'resolve-artifacts with {"type": "lesson", "id": <old>, "superseded_by": <new>}.',
     )
     lesson_create.add_argument("--output", choices=["human", "json"], default="json", help="Output format")
 

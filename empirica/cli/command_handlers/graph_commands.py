@@ -83,11 +83,12 @@ LOG_ARTIFACTS_SCHEMA = {
 RESOLVE_ARTIFACTS_SCHEMA = {
     "resolutions": [
         {
-            "type": "unknown | assumption | goal | finding | dead_end | mistake | decision",
+            "type": "unknown | assumption | goal | finding | dead_end | mistake | decision | lesson",
             "id": "<UUID of the artifact to resolve>",
             "resolution": "<resolution text or status — semantics depend on type>",
             "verified": "<true/false, optional, for assumption→finding>",
-            "superseded_by": "<optional finding UUID that replaced this one — finding type only>",
+            "superseded_by": "<finding: optional UUID of the finding that replaced this one. "
+            "lesson: REQUIRED id of the lesson that replaces it — the only way a lesson is retired>",
             "resolution_kind": "<finding only, optional closed vocabulary: stale (was true, aged out) | "
             "superseded (replaced by a NAMED newer artifact) | retracted (was FALSE when written) | "
             "mistyped (belongs to another artifact type). Free-text `resolution` cannot be queried and, "
@@ -1694,6 +1695,36 @@ def handle_resolve_artifacts_command(args):  # noqa: C901 — batch dispatcher f
                             )
                         else:
                             resolution_errors.append(f"Decision '{artifact_id}' not found")
+
+                elif artifact_type == "lesson":
+                    # A lesson has ONE resolution: superseded by a named successor.
+                    # `lesson-create --supersedes` writes that edge, but only at
+                    # create time and for one id, so a revision published before the
+                    # flag existed could never be retired afterwards (cortex,
+                    # prop_6cfjxruyona7ndpcksdvdsiyrm: v1.0 served beside v3.0).
+                    # Same edge, same writer; no `stale`/`retracted` here, because a
+                    # lesson that is wrong is replaced, never closed without one.
+                    successor = str(item.get("superseded_by") or "").strip()
+                    if not successor:
+                        resolution_errors.append(
+                            f"Lesson '{artifact_id}' needs superseded_by=<id of the lesson that replaces it> "
+                            "— a lesson is retired only by a named successor"
+                        )
+                    else:
+                        from empirica.cli.command_handlers.lesson_commands import _wire_supersession
+                        from empirica.core.lessons import get_lesson_storage
+
+                        storage = get_lesson_storage()
+                        if storage.get_lesson(successor) is None:
+                            resolution_errors.append(
+                                f"Lesson '{artifact_id}': no successor lesson with id {successor!r} — no edge written"
+                            )
+                        else:
+                            written, err = _wire_supersession(storage, successor, str(artifact_id))
+                            if written:
+                                resolved_count += 1
+                            else:
+                                resolution_errors.append(f"Lesson '{artifact_id}': {err}")
 
                 else:
                     resolution_errors.append(f"Unsupported resolution type: '{artifact_type}'")
