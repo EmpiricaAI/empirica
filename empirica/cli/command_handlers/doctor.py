@@ -1054,6 +1054,105 @@ def check_tmux_session_identity() -> Check:
     )
 
 
+def _claude_processes() -> tuple[list[dict], int]:
+    """``(processes, unreadable)`` for every running claude: pid, cwd, EMPIRICA_INSTANCE_ID (or None).
+
+    A process whose environment or cwd cannot be read (another user's, or gone) is counted, not
+    dropped: a PASS that skipped unreadable sessions would overstate what was checked.
+    """
+    import psutil
+
+    found: list[dict] = []
+    unreadable = 0
+    for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+        cmd = proc.info.get("cmdline") or []
+        if proc.info.get("name") != "claude" and not (cmd and Path(cmd[0]).name == "claude"):
+            continue
+        try:
+            found.append(
+                {"pid": proc.info["pid"], "cwd": proc.cwd(), "instance_id": proc.environ().get("EMPIRICA_INSTANCE_ID")}
+            )
+        except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess, OSError):
+            unreadable += 1
+    return found, unreadable
+
+
+def _project_ai_id(cwd: str) -> tuple[Path, str] | None:
+    """``(project root, ai_id)`` of the nearest .empirica/project.yaml at or above ``cwd``."""
+    import yaml
+
+    for d in (Path(cwd), *Path(cwd).parents):
+        f = d / ".empirica" / "project.yaml"
+        if f.is_file():
+            try:
+                doc = yaml.safe_load(f.read_text(encoding="utf-8")) or {}
+            except (OSError, yaml.YAMLError):
+                return None
+            ai_id = doc.get("ai_id") if isinstance(doc, dict) else None
+            return (d, str(ai_id)) if ai_id else None
+    return None
+
+
+def check_claude_instance_identity(processes: list[dict] | None = None, unreadable: int = 0) -> Check:
+    """Each live claude runs as the practice whose directory it sits in.
+
+    A claude's EMPIRICA_INSTANCE_ID picks its instance-keyed files: transaction file, project
+    pointer, session, listener state. Two claudes with the same id share all of them, and a
+    write from one lands in the other's store (2026-09-29: a claude in empirica-nle ran as
+    `empirica`, took over core's transaction file and mapped core's instance to its own
+    project). `check_tmux_session_identity` reads tmux session environments and read PASS
+    while that was live, because the id sat in a long-lived shell's own environment and a
+    restart inside that shell re-inherits it. This reads the processes themselves.
+    """
+    import re
+
+    name = "Live claude sessions run as their own practice"
+    if processes is None:
+        try:
+            processes, unreadable = _claude_processes()
+        except ImportError:
+            return Check(name, SKIP, "psutil not installed")
+    if not processes and not unreadable:
+        return Check(name, SKIP, "no claude process running")
+
+    agree = unbound = skipped = 0
+    bad: list[dict] = []
+    for p in processes:
+        iid = p.get("instance_id")
+        if not iid:
+            unbound += 1  # falls back to the pane id: a different, milder problem
+            continue
+        proj = _project_ai_id(p["cwd"])
+        # A UUID id is deliberate (ecodex binds its thread id); a claude outside any project has
+        # nothing to compare against.
+        if proj is None or not re.fullmatch(r"[a-z][a-z0-9_-]*", iid):
+            skipped += 1
+            continue
+        root, ai_id = proj
+        if iid in (ai_id, root.name):
+            agree += 1
+        else:
+            bad.append({"pid": p["pid"], "instance_id": iid, "project": root.name, "ai_id": ai_id})
+
+    walked = (
+        f"{len(processes)} claude process(es) read: {agree} agree with their project, {unbound} unbound, "
+        f"{skipped} skipped (uuid id or outside a project), {unreadable} unreadable"
+    )
+    if not bad:
+        return Check(name, WARN if unreadable else PASS, walked, data={"agree": agree, "unbound": unbound})
+    return Check(
+        name,
+        WARN,
+        f"{walked}; {len(bad)} run under another practice's id: "
+        + "; ".join(f"pid {b['pid']} is '{b['instance_id']}' in {b['project']} (ai_id {b['ai_id']})" for b in bad[:4]),
+        "Each shares that id's transaction file and project pointer with the practice that owns it, so writes "
+        "can land in the wrong store. Restart it from a shell that does not carry the id: `unset "
+        "EMPIRICA_INSTANCE_ID`, then `EMPIRICA_INSTANCE_ID=<ai_id> claude --continue`. Restarting inside the same "
+        "shell inherits the wrong id again.",
+        {"mismatched": bad, "unbound": unbound},
+    )
+
+
 STALE_OPEN_TRANSACTION_DAYS = 7
 
 
@@ -2554,6 +2653,7 @@ def run_all_checks(cwd: Path | None = None) -> list[Check]:
         check_hook_interpreter(),
         check_plugin_main_thread_agent(),
         check_tmux_session_identity(),
+        check_claude_instance_identity(),
         check_long_running_processes(),
         check_claude_code_cli(),
         check_git_present(),
