@@ -9,6 +9,7 @@ and plugin sync rebuild (the copied agent is backed up to empirica.bak and remov
 
 from __future__ import annotations
 
+import argparse
 import re
 from pathlib import Path
 
@@ -19,8 +20,6 @@ EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
 
 def _options(parser) -> set[str]:
     """Every option of a parser and of every sub-action beneath it (`cockpit launch --profile`)."""
-    import argparse
-
     out = {o for a in parser._actions for o in a.option_strings}
     for a in parser._actions:
         if isinstance(a, argparse._SubParsersAction):
@@ -33,6 +32,7 @@ def _verbs_and_flags() -> dict[str, set[str]]:
     from empirica.cli.cli_core import create_argument_parser
 
     sub = create_argument_parser()._subparsers._group_actions[0]
+    assert isinstance(sub, argparse._SubParsersAction)
     return {name: _options(p) for name, p in sub.choices.items()}
 
 
