@@ -372,3 +372,106 @@ def test_groups_with_surface_tmux_are_built_without_spawning_a_terminal(tmux_env
     assert out["windows"] == [{"name": "work", "created": True, "panes": 2, "error": None}]
     assert sorted(r[3] for r in _panes("gt")) == ["work/0", "work/1"], "both panes in ONE window, side by side"
     assert _wait(lambda: log.exists() and len(log.read_text().splitlines()) == 2)
+
+
+# ── a session must never carry an identity (mesh-support, 2026-09-29) ───────
+#
+# `new-session -e EMPIRICA_INSTANCE_ID=x` scopes x to the whole SESSION. cockpit-a therefore
+# handed `empirica` to a claude started by hand in its spare shell, which ran as `empirica`
+# inside empirica-nle's directory.
+
+
+def _session_env_of_a_plain_window(session: str, tmp_path, name: str = "plain") -> dict[str, str]:
+    """Start a window the way a human's `tmux new-window` does (no -e) and read its environment."""
+    out = tmp_path / f"{name}.env"
+    subprocess.run(["tmux", "new-window", "-d", "-t", f"{session}:", "-n", name, f"env > {out}; sleep 60"], check=True)
+    assert _wait(lambda: out.exists() and out.stat().st_size > 0)
+    return dict(line.split("=", 1) for line in out.read_text().splitlines() if "=" in line)
+
+
+def test_the_leak_is_real_tmux_scopes_new_session_e_to_the_whole_session(tmux_env, tmp_path):
+    """POSITIVE CONTROL: raw tmux, no launcher. If this stops leaking, the fix below tests nothing."""
+    subprocess.run(
+        ["tmux", "new-session", "-d", "-s", "leak", "-e", "EMPIRICA_INSTANCE_ID=first", "sleep 60"], check=True
+    )
+
+    assert _session_env_of_a_plain_window("leak", tmp_path).get("EMPIRICA_INSTANCE_ID") == "first"
+
+
+def test_the_launcher_does_not_leave_the_first_panes_id_in_the_session(tmux_env, tmp_path):
+    from empirica.core.cockpit.launcher.tmux import _create_group_window, session_identity
+
+    proj_dir, log = tmux_env
+    cfg = LauncherConfig(
+        session_name="clean",
+        projects=[ProjectSpec(name="alpha", path=str(proj_dir), launch="claude")],
+        groups=[GroupSpec(name="g", panes=[PaneSpec(project_ref="alpha")])],
+    )
+    _create_group_window(cfg.groups[0], cfg, "clean", True, assign_identities(cfg, "clean"))
+
+    assert session_identity("clean") is None
+    assert "EMPIRICA_INSTANCE_ID" not in _session_env_of_a_plain_window("clean", tmp_path), "the spare-shell case"
+    assert _wait(lambda: log.exists() and log.read_text().strip())
+    assert log.read_text().splitlines()[0].startswith("alpha "), "the first pane itself is still bound"
+
+
+def _polluted_session(name: str, tmp_path, ident: str = "old"):
+    """A session built the way 4a5fb0dee built it: id in the session environment."""
+    pid_file = tmp_path / f"{name}.pid"
+    subprocess.run(
+        [
+            "tmux", "new-session", "-d", "-s", name, "-e", f"EMPIRICA_INSTANCE_ID={ident}",
+            f"echo $$ > {pid_file}; exec sleep 60",
+        ],
+        check=True,
+    )  # fmt: skip
+    assert _wait(lambda: pid_file.exists() and pid_file.read_text().strip())
+    return int(pid_file.read_text())
+
+
+def test_launch_heals_a_session_that_already_carries_an_id(tmux_env, tmp_state, tmp_path):
+    from empirica.core.cockpit.launcher.tmux import launch_groups, session_identity
+
+    proj_dir, _ = tmux_env
+    _polluted_session("heal", tmp_path)
+    cfg = LauncherConfig(
+        session_name="heal",
+        projects=[ProjectSpec(name="alpha", path=str(proj_dir), launch="bash")],
+        groups=[GroupSpec(name="g", panes=[PaneSpec(project_ref="alpha")])],
+    )
+
+    result = launch_groups(cfg, spawn_terminal=False)
+
+    assert result.session_identity_stripped == "old"
+    assert session_identity("heal") is None
+    assert "EMPIRICA_INSTANCE_ID" not in _session_env_of_a_plain_window("heal", tmp_path)
+
+
+def test_refresh_heals_it_too_and_touches_no_running_process(tmux_env, tmp_path):
+    from empirica.core.cockpit.launcher.tmux import refresh_cockpit, session_identity
+
+    proj_dir, _ = tmux_env
+    running = _polluted_session("rf", tmp_path)
+    cfg = LauncherConfig(
+        session_name="rf",
+        projects=[ProjectSpec(name="alpha", path=str(proj_dir), launch="claude")],
+        groups=[GroupSpec(name="g", panes=[PaneSpec(project_ref="alpha")])],
+    )
+
+    result = refresh_cockpit(cfg)
+
+    assert result.session_identity_stripped == "old"
+    assert session_identity("rf") is None
+    with open(f"/proc/{running}/environ", "rb") as f:
+        assert b"EMPIRICA_INSTANCE_ID=old" in f.read(), "a running process keeps the environment it started with"
+
+
+def test_an_already_clean_session_reports_nothing_removed(tmux_env, tmp_path):
+    from empirica.core.cockpit.launcher.tmux import refresh_cockpit, strip_session_identity
+
+    proj_dir, _ = tmux_env
+    subprocess.run(["tmux", "new-session", "-d", "-s", "ok", "sleep 60"], check=True)
+    cfg = LauncherConfig(session_name="ok", projects=[ProjectSpec(name="a", path=str(proj_dir))], groups=[])
+
+    assert strip_session_identity("ok") is None
+    assert refresh_cockpit(cfg).session_identity_stripped is None

@@ -470,7 +470,7 @@ def test_run_all_checks_returns_complete_list():
     assert "Deployed plugin fresh" in names
 
 
-def test_run_all_checks_count_is_39():
+def test_run_all_checks_count_is_40():
     """+1 for check_mcp_version_skew (GH #404, injected-topology skew).
     +1 for check_engagement_registry_drift (engagement dual-write, 1.13.23).
     +1 for check_cli_matches_checkout (CLI/checkout skew the version cannot see).
@@ -504,12 +504,15 @@ def test_run_all_checks_count_is_39():
     +1 for check_plugin_main_thread_agent (a plugin synced from claude.ai set a
        default agent whose tools allowlist removed Monitor, Edit, Write and
        ToolSearch from every restarted session, silently).
+    +1 for check_tmux_session_identity (new-session -e is session-scoped, so the
+       first cockpit pane's id was inherited by every unbound pane: a claude started
+       by hand in a spare shell ran as another practice).
 
     A hardcoded count is a tripwire for "a check was added/removed without
     thinking about the suite" — when it fires, update it deliberately (and add
     the name assertion below), never by pasting the new number blind."""
     checks = run_all_checks()
-    assert len(checks) == 39
+    assert len(checks) == 40
     # The tripwire earns its keep only if the NEW check is named. A bumped
     # number alone records that something changed, not what.
     assert any(c.name == "notes/sqlite divergence" for c in checks)

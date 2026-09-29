@@ -46,6 +46,7 @@ class LaunchResult:
     windows_created: list[str]
     status_windows_created: list[str]
     error: str | None = None
+    session_identity_stripped: str | None = None  # id removed from an existing session's environment
 
 
 def _tmux(*args: str, check: bool = False) -> subprocess.CompletedProcess:
@@ -103,13 +104,14 @@ def launch_cockpit(config: LauncherConfig) -> LaunchResult:
             error="tmux binary not found on PATH",
         )
 
-    # Idempotent: if the session exists, just record we're attaching.
+    # Idempotent: if the session exists, just record we're attaching (and heal it).
     if cockpit_session_exists(config.session_name):
         return LaunchResult(
             session_name=config.session_name,
             created=False,
             windows_created=[],
             status_windows_created=[],
+            session_identity_stripped=strip_session_identity(config.session_name),
         )
 
     # Create the session with the first project as the initial window so
@@ -261,6 +263,7 @@ class GroupsLaunchResult:
     session_name: str = ""
     terminal_pid: int | None = None  # PID of the ONE spawned terminal, or None if spawn failed/skipped
     terminal_skipped: bool = False  # True when an existing client was found and we skipped spawning a duplicate
+    session_identity_stripped: str | None = None  # id removed from an existing session's environment
     error: str | None = (
         None  # top-level error (e.g. tmux missing, terminal spawn failed); per-window errors live on each result
     )
@@ -478,6 +481,49 @@ def _configure_session(config: LauncherConfig, session_name: str) -> None:
         _tmux("set-option", "-t", session_name, "mouse", "on")
 
 
+_ID_VAR = "EMPIRICA_INSTANCE_ID"
+
+
+def session_identity(session_name: str) -> str | None:
+    """The EMPIRICA_INSTANCE_ID a tmux SESSION would hand to any pane started in it, or None.
+
+    tmux prints ``VAR=value`` when set, ``-VAR`` when marked removed, and an error when unknown.
+    """
+    result = _tmux("show-environment", "-t", session_name, _ID_VAR)
+    line = result.stdout.strip()
+    if result.returncode == 0 and line.startswith(f"{_ID_VAR}="):
+        return line.split("=", 1)[1]
+    return None
+
+
+def strip_session_identity(session_name: str) -> str | None:
+    """Remove EMPIRICA_INSTANCE_ID from a session's environment; return what was there.
+
+    ``new-session -e VAR=x`` scopes the variable to the whole SESSION, not to the first pane
+    (tmux 3.6, demonstrated by mesh-support with a positive control). Left in place, every
+    later pane started without its own id inherits the first pane's practitioner identity: a
+    claude started by hand in a spare shell ran as `empirica` inside another practice's
+    directory. Identity belongs to a pane, so the session must never carry one.
+
+    ``-r`` (not ``-u``) so an id that reached the session from the global environment is
+    stripped too. Only future panes are affected: a running process keeps the environment it
+    was started with, and pane-level binding (`-e` on the pane's own command, and
+    `respawn-pane -e`) is untouched.
+    """
+    value = session_identity(session_name)
+    if value is not None:
+        _tmux("set-environment", "-t", session_name, "-r", _ID_VAR)
+    return value
+
+
+def _session_of(base: list[str]) -> str | None:
+    """The session name in a ``new-session ... -s NAME ...`` command."""
+    try:
+        return base[base.index("-s") + 1]
+    except (ValueError, IndexError):
+        return None
+
+
 def _open_pane(base: list[str], pane: PaneSpec, key: str, config: LauncherConfig, identities: dict[str, str]):
     """Run one pane-creating tmux command (new-session / new-window /
     split-window) for ``pane``, bound and stamped. Returns the tmux result."""
@@ -493,6 +539,8 @@ def _open_pane(base: list[str], pane: PaneSpec, key: str, config: LauncherConfig
         pane_id = result.stdout.strip()
         _set_pane_title(pane_id, _pane_title(pane))
         _stamp_pane(pane_id, key, iid, remain=bool(iid) and _runs_claude(pane, config))
+        if base and base[0] == "new-session" and (session := _session_of(base)):
+            strip_session_identity(session)  # -e on new-session is session-wide; the pane keeps its copy
     return result
 
 
@@ -683,6 +731,7 @@ def launch_groups(config: LauncherConfig, spawn_terminal: bool = True) -> Groups
 
     results: list[GroupLaunchResult] = []
     session_existed_before = cockpit_session_exists(session_name)
+    stripped = strip_session_identity(session_name) if session_existed_before else None
     identities = assign_identities(config, session_name)
     for i, group in enumerate(config.groups):
         is_first_group = not session_existed_before and i == 0
@@ -703,7 +752,7 @@ def launch_groups(config: LauncherConfig, spawn_terminal: bool = True) -> Groups
     if not spawn_terminal:
         # surface: tmux — the caller attaches the terminal it was run from.
         write_lock()
-        return GroupsLaunchResult(groups=results, session_name=session_name)
+        return GroupsLaunchResult(groups=results, session_name=session_name, session_identity_stripped=stripped)
 
     # Dedup: if the session already has a client attached (= a terminal
     # window from a prior launch is still alive), don't spawn a
@@ -711,7 +760,9 @@ def launch_groups(config: LauncherConfig, spawn_terminal: bool = True) -> Groups
     # not just the session level.
     if _session_has_attached_client(session_name):
         write_lock()
-        return GroupsLaunchResult(groups=results, session_name=session_name, terminal_skipped=True)
+        return GroupsLaunchResult(
+            groups=results, session_name=session_name, terminal_skipped=True, session_identity_stripped=stripped
+        )
 
     spawn_fn = _spawn_ghostty if config.surface == "ghostty" else _spawn_alacritty
     pid, spawn_err = spawn_fn(
@@ -721,7 +772,13 @@ def launch_groups(config: LauncherConfig, spawn_terminal: bool = True) -> Groups
     )
 
     write_lock()
-    return GroupsLaunchResult(groups=results, session_name=session_name, terminal_pid=pid, error=spawn_err)
+    return GroupsLaunchResult(
+        groups=results,
+        session_name=session_name,
+        terminal_pid=pid,
+        error=spawn_err,
+        session_identity_stripped=stripped,
+    )
 
 
 # ─── Refresh: bring dead practitioners back in place ───────────────────────
@@ -736,6 +793,7 @@ class RefreshResult:
     alive: list[str] = field(default_factory=list)  # keys whose claude is still running
     missing: list[str] = field(default_factory=list)  # configured claude panes absent from the session
     unkeyed: int = 0  # untracked panes that might be a configured claude pane (blocks `missing`)
+    session_identity_stripped: str | None = None  # id removed from the session's environment
     adopted: list[str] = field(default_factory=list)  # older panes matched and stamped this run
     error: str | None = None
 
@@ -823,6 +881,8 @@ def refresh_cockpit(config: LauncherConfig) -> RefreshResult:
     if not cockpit_session_exists(session_name):
         out.error = f"cockpit session {session_name!r} is not running — use `empirica cockpit launch`"
         return out
+
+    out.session_identity_stripped = strip_session_identity(session_name)
 
     fmt = (
         "#{pane_id}\t#{pane_dead}\t#{pane_current_command}\t#{@empirica_pane}\t"

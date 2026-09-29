@@ -23,7 +23,7 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.14.3
-**Generated:** 2026-09-29 09:42:12 UTC
+**Generated:** 2026-09-29 10:08:51 UTC
 **Total commands:** 241 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer

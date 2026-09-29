@@ -239,6 +239,7 @@ def _handle_groups_in_terminal(config, output: str, no_attach: bool) -> int:
             )
         )
     else:
+        _print_stripped(result.session_identity_stripped)
         for g in result.groups:
             verb = "created" if g.created else "adopted existing"
             print(f"  · {g.group_name:12s} ({verb}, {g.panes_created} panes){'  ⚠ ' + g.error if g.error else ''}")
@@ -290,6 +291,7 @@ def _handle_groups_launch(config, output: str, quiet: bool) -> int:
         "session_name": result.session_name,
         "terminal_pid": result.terminal_pid,
         "terminal_skipped": result.terminal_skipped,
+        "session_identity_stripped": result.session_identity_stripped,
         "wm_class": _wm_class_for(surface, result.session_name),
         "windows": [
             {
@@ -308,6 +310,7 @@ def _handle_groups_launch(config, output: str, quiet: bool) -> int:
         return 0 if result.all_ok() else 1
 
     # Human-readable summary doubles as a keybinding cheatsheet.
+    _print_stripped(result.session_identity_stripped)
     if result.terminal_skipped:
         window_state = "window already attached, skipped spawn"
     elif result.terminal_pid:
@@ -332,6 +335,15 @@ def _handle_groups_launch(config, output: str, quiet: bool) -> int:
     return 0 if result.all_ok() else 1
 
 
+def _print_stripped(stripped: str | None) -> None:
+    if stripped:
+        print(
+            f"  ⊖ removed EMPIRICA_INSTANCE_ID={stripped} from the session environment: it made every pane "
+            "started here without its own id run as that practitioner. Running claudes keep the id they "
+            "started with; restart any that were started by hand."
+        )
+
+
 def handle_cockpit_refresh_command(args) -> int:
     """``empirica cockpit refresh``. Respawn dead claude panes in place,
     with their identity and conversation. Live panes are never touched."""
@@ -353,6 +365,7 @@ def handle_cockpit_refresh_command(args) -> int:
                     "respawned": result.respawned,
                     "alive": result.alive,
                     "missing": result.missing,
+                    "session_identity_stripped": result.session_identity_stripped,
                     "adopted": result.adopted,
                     "unkeyed_panes": result.unkeyed,
                     "error": result.error,
@@ -366,6 +379,7 @@ def handle_cockpit_refresh_command(args) -> int:
         print(f"❌ {result.error}")
         return 1
     print(f"🔄 cockpit refresh · session {result.session_name}")
+    _print_stripped(result.session_identity_stripped)
     if result.adopted:
         print(f"  ⊕ now tracking {len(result.adopted)} pane(s) from an earlier launch: {', '.join(result.adopted)}")
     for r in result.respawned:

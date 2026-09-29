@@ -1018,6 +1018,42 @@ def check_plugin_main_thread_agent(home: Path | None = None) -> Check:
     )
 
 
+def check_tmux_session_identity() -> Check:
+    """A tmux session whose environment hands a practitioner identity to every new pane.
+
+    `new-session -e EMPIRICA_INSTANCE_ID=x` scopes x to the whole session, so a cockpit
+    built before the launcher stripped it left `cockpit-a` carrying `empirica`: a claude
+    started by hand in a spare shell there ran as `empirica` inside another practice's
+    directory (2026-09-29). Identity belongs to a pane; no session should carry one.
+    """
+    import shutil
+
+    from empirica.core.cockpit.launcher.tmux import _tmux, session_identity
+
+    name = "No tmux session hands out a practitioner identity"
+    if shutil.which("tmux") is None:
+        return Check(name, SKIP, "tmux not installed")
+    listing = _tmux("list-sessions", "-F", "#{session_name}")
+    if listing.returncode != 0:
+        return Check(name, SKIP, "no tmux server running")
+    sessions = [line for line in listing.stdout.splitlines() if line.strip()]
+    bad = {sess: value for sess in sessions if (value := session_identity(sess)) is not None}
+    walked = f"{len(sessions)} tmux session(s) read"
+    if not bad:
+        return Check(name, PASS, walked)
+    return Check(
+        name,
+        WARN,
+        f"{walked}; {len(bad)} carry EMPIRICA_INSTANCE_ID in the session environment: "
+        + ", ".join(f"{k}={v}" for k, v in bad.items())
+        + ". Any pane started there without its own id runs as that practitioner.",
+        "Stop the inheritance (touches no process): `tmux set-environment -t <session> -r EMPIRICA_INSTANCE_ID`, "
+        "or run `empirica cockpit refresh --profile <name>`, which does it. A claude already started by hand in "
+        "such a session keeps the wrong id until it is restarted.",
+        {"sessions": bad},
+    )
+
+
 STALE_OPEN_TRANSACTION_DAYS = 7
 
 
@@ -2517,6 +2553,7 @@ def run_all_checks(cwd: Path | None = None) -> list[Check]:
         check_plugin_freshness(),
         check_hook_interpreter(),
         check_plugin_main_thread_agent(),
+        check_tmux_session_identity(),
         check_long_running_processes(),
         check_claude_code_cli(),
         check_git_present(),
