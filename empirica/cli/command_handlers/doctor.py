@@ -895,6 +895,129 @@ def check_sessions_db(cwd: Path | None = None) -> Check:
     )
 
 
+# Tools a main-thread agent must not silently lose: without them the session
+# cannot edit files, watch the mesh, or load any deferred tool.
+_MAIN_THREAD_TOOLS = ("Edit", "Write", "Monitor", "ToolSearch")
+
+
+def _agent_frontmatter(path: Path) -> dict:
+    import yaml
+
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return {}
+    if not text.startswith("---"):
+        return {}
+    try:
+        fm = yaml.safe_load(text.split("---", 2)[1]) or {}
+    except (yaml.YAMLError, IndexError):
+        return {}
+    return fm if isinstance(fm, dict) else {}
+
+
+def _plugin_default_agent(root: Path) -> str | None:
+    """The agent a plugin makes the MAIN thread: root settings.json wins over plugin.json."""
+    for f, pick in (
+        (root / "settings.json", lambda d: d.get("agent")),
+        (root / ".claude-plugin" / "plugin.json", lambda d: (d.get("settings") or {}).get("agent")),
+    ):
+        try:
+            agent = pick(json.loads(f.read_text(encoding="utf-8")))
+        except (OSError, ValueError, AttributeError):
+            continue
+        if agent:
+            return str(agent)
+    return None
+
+
+def _enabled_plugin_roots(claude_dir: Path) -> list[tuple[str, Path]]:
+    """``(key, root)`` for every plugin Claude Code will load: installed ones that
+    ``enabledPlugins`` switches on, and synced ones unless switched off."""
+    plugins_dir = claude_dir / "plugins"
+    try:
+        enabled = (json.loads((claude_dir / "settings.json").read_text(encoding="utf-8")) or {}).get(
+            "enabledPlugins"
+        ) or {}
+    except (OSError, ValueError):
+        enabled = {}
+    try:
+        installed = json.loads((plugins_dir / "installed_plugins.json").read_text(encoding="utf-8")).get("plugins", {})
+    except (OSError, ValueError, AttributeError):
+        installed = {}
+    roots: list[tuple[str, Path]] = []
+    for key, entries in installed.items():
+        first = (
+            next((e for e in entries if isinstance(e, dict) and e.get("installPath")), None)
+            if isinstance(entries, list)
+            else None
+        )
+        if enabled.get(key) is True and first:
+            roots.append((key, Path(first["installPath"])))
+    for manifest in sorted((plugins_dir / "synced").glob("*/*/.claude-plugin/plugin.json")):
+        root = manifest.parent.parent
+        if enabled.get(f"{root.name}@synced") is not False:  # synced plugins load unless switched off
+            roots.append((f"{root.name}@synced", root))
+    return roots
+
+
+def _agent_tool_loss(root: Path, agent: str) -> dict | None:
+    """What a plugin's main-thread agent removes, or None when it removes nothing."""
+    cands = [root / "agents" / f"{agent}.md", *sorted((root / "agents").glob("**/*.md"))]
+    fm = next((f for f in (_agent_frontmatter(c) for c in cands if c.is_file()) if f.get("name") == agent), {})
+    if not fm:
+        return {"agent": agent, "problem": "agent file not found or unreadable", "lost": []}
+    tools = fm.get("tools")
+    if isinstance(tools, str):
+        tools = [t.strip() for t in tools.split(",") if t.strip()]
+    lost = [t for t in _MAIN_THREAD_TOOLS if isinstance(tools, list) and t not in tools]
+    return {"agent": agent, "model": fm.get("model"), "lost": lost} if lost else None
+
+
+def check_plugin_main_thread_agent(home: Path | None = None) -> Check:
+    """An enabled plugin whose default agent takes tools away from the main session.
+
+    A plugin's ``settings.json`` ``{"agent": ...}`` makes that agent the main-thread
+    agent while the plugin is enabled, with the agent's own ``model`` and ``tools``
+    allowlist. Plugins synced from a claude.ai account load by default, so one
+    uploaded for Cowork took over every Claude Code session on restart: no Monitor,
+    Edit, Write or ToolSearch, and Sonnet instead of Opus, with no warning
+    (2026-09-29; a headless session listed 5 tools with it, 561 without).
+    """
+    name = "No plugin strips the main session's tools"
+    claude_dir = (home or Path.home()) / ".claude"
+    if not (claude_dir / "plugins").is_dir():
+        return Check(name, SKIP, f"no plugins directory at {claude_dir / 'plugins'}")
+    roots = _enabled_plugin_roots(claude_dir)
+    bad: list[dict] = []
+    with_agent = 0
+    for key, root in roots:
+        agent = _plugin_default_agent(root)
+        if not agent:
+            continue
+        with_agent += 1
+        loss = _agent_tool_loss(root, agent)
+        if loss:
+            bad.append({"plugin": key, **loss})
+    walked = f"{len(roots)} enabled plugin(s) read, {with_agent} set a default agent"
+    if not bad:
+        return Check(name, PASS, walked)
+    detail = "; ".join(
+        f"{b['plugin']} makes '{b['agent']}' the main-thread agent"
+        + (f", removing {', '.join(b['lost'])}" if b["lost"] else f" ({b['problem']})")
+        + (f", model {b['model']}" if b.get("model") else "")
+        for b in bad[:4]
+    )
+    return Check(
+        name,
+        WARN,
+        f"{walked}; {detail}",
+        "Disable it for Claude Code: `claude plugin disable <name> --scope user` "
+        "(new sessions only; a running one keeps what it loaded), or remove its settings.json agent.",
+        {"plugins": bad},
+    )
+
+
 STALE_OPEN_TRANSACTION_DAYS = 7
 
 
@@ -2393,6 +2516,7 @@ def run_all_checks(cwd: Path | None = None) -> list[Check]:
         check_empirica_mcp(),
         check_plugin_freshness(),
         check_hook_interpreter(),
+        check_plugin_main_thread_agent(),
         check_long_running_processes(),
         check_claude_code_cli(),
         check_git_present(),
