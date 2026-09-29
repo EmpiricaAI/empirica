@@ -265,7 +265,21 @@ def get_empirica_root() -> Path:
 
 
 def _has_open_transaction(context_project_path: str) -> bool:
-    """Check if the context project has an open transaction."""
+    """Does the context project hold an open transaction that is THIS caller's own?
+
+    Both the DB-path guard and the identity guard keep the mapped project, instead of
+    following cwd, while a transaction is open, so one measurement window is never split
+    across two databases. That only makes sense for the caller's own window. The transaction
+    file is keyed by the instance suffix, and a suffix is shared: a pane id is reused after a
+    restart, and two processes can carry the same instance id. Asking only "is there an open
+    transaction under this suffix" let a stale one from an earlier pane pin an unrelated
+    outreach claude to core (a stray session row), and let an NLE claude's open transaction
+    pin core's writes into the NLE store (2026-09-29).
+
+    So a transaction stamped with a claude_session_id that differs from the caller's
+    (CLAUDE_CODE_SESSION_ID, present in the Bash tool's subprocesses) is someone else's and
+    does not pin. When either id is unknown the answer is what it always was: open means open.
+    """
     try:
         from empirica.utils.session_resolver import InstanceResolver as R
 
@@ -278,7 +292,12 @@ def _has_open_transaction(context_project_path: str) -> bool:
             import json as _json
 
             with open(tx_file) as _f:
-                return _json.load(_f).get("status") == "open"
+                tx = _json.load(_f)
+            if tx.get("status") != "open":
+                return False
+            owner = tx.get("claude_session_id")
+            caller = os.getenv("CLAUDE_CODE_SESSION_ID")
+            return not (owner and caller and owner != caller)
     except Exception:
         pass
     return False

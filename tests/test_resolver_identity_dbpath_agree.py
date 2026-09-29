@@ -226,3 +226,94 @@ def test_an_open_transaction_keeps_identity_and_db_on_the_same_project(two_proje
     tx.write_text(json.dumps({"transaction_id": "t1", "status": "closed"}))
     assert _try_context_project_db(str(stale), two_projects["here"]) != two_projects["stale_db"]
     assert Path(_cwd_project_override(str(stale)) or "").resolve() == two_projects["here"].resolve()
+
+
+# ─── The open transaction must be the CALLER'S OWN (2026-09-29) ────────
+#
+# The transaction file is keyed by the instance suffix, and a suffix is shared: a tmux pane id is
+# reused after a restart, and two processes can carry one instance id. "An open transaction exists
+# under this suffix" therefore let (a) a stale transaction from an earlier pane pin an unrelated
+# outreach claude to core, leaving a stray session row in core's store, and (b) an NLE claude's
+# open transaction pin core's writes into the NLE store while core's pinned the NLE claude.
+
+
+def _open_tx(project, claude_session_id):
+    import json
+
+    from empirica.utils.session_resolver import InstanceResolver as R
+
+    doc = {"transaction_id": "t1", "status": "open"}
+    if claude_session_id is not None:
+        doc["claude_session_id"] = claude_session_id
+    (project / ".empirica" / f"active_transaction{R.instance_suffix()}.json").write_text(json.dumps(doc))
+
+
+def _resolve_both(two_projects):
+    from empirica.config.path_resolver import _try_context_project_db
+    from empirica.utils.session_resolver import _cwd_project_override
+
+    stale = str(two_projects["stale"])
+    db = _try_context_project_db(stale, two_projects["here"])
+    identity = _cwd_project_override(stale)
+    return db, identity
+
+
+def test_a_transaction_owned_by_another_claude_does_not_pin_either_guard(two_projects, monkeypatch):
+    """The outreach case and the NLE case: same suffix, different claude session."""
+    monkeypatch.delenv("EMPIRICA_CWD_RELIABLE", raising=False)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "outreach-claude")
+    _open_tx(two_projects["stale"], "an-older-pane-session")
+
+    db, identity = _resolve_both(two_projects)
+
+    assert db != two_projects["stale_db"], "the db path must follow cwd, not a stranger's transaction"
+    assert Path(identity or "").resolve() == two_projects["here"].resolve()
+
+
+def test_the_callers_own_open_transaction_still_pins_both_guards(two_projects, monkeypatch):
+    """POSITIVE CONTROL: without this the test above would pass for any guard that never pins."""
+    monkeypatch.delenv("EMPIRICA_CWD_RELIABLE", raising=False)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "me")
+    _open_tx(two_projects["stale"], "me")
+
+    db, identity = _resolve_both(two_projects)
+
+    assert db == two_projects["stale_db"] and identity is None
+
+
+def test_when_the_caller_is_unknown_open_still_means_open(two_projects, monkeypatch):
+    """Hooks or callers without the variable keep exactly today's behaviour."""
+    monkeypatch.delenv("EMPIRICA_CWD_RELIABLE", raising=False)
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
+    _open_tx(two_projects["stale"], "someone")
+
+    db, identity = _resolve_both(two_projects)
+
+    assert db == two_projects["stale_db"] and identity is None
+
+
+def test_a_transaction_with_no_recorded_owner_still_pins(two_projects, monkeypatch):
+    """Older transaction files carry no claude_session_id; ownership cannot be decided, so keep pinning."""
+    monkeypatch.delenv("EMPIRICA_CWD_RELIABLE", raising=False)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "me")
+    _open_tx(two_projects["stale"], None)
+
+    db, identity = _resolve_both(two_projects)
+
+    assert db == two_projects["stale_db"] and identity is None
+
+
+def test_a_closed_transaction_never_pins_whoever_owns_it(two_projects, monkeypatch):
+    import json
+
+    from empirica.utils.session_resolver import InstanceResolver as R
+
+    monkeypatch.delenv("EMPIRICA_CWD_RELIABLE", raising=False)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "me")
+    (two_projects["stale"] / ".empirica" / f"active_transaction{R.instance_suffix()}.json").write_text(
+        json.dumps({"transaction_id": "t1", "status": "closed", "claude_session_id": "me"})
+    )
+
+    db, _ = _resolve_both(two_projects)
+
+    assert db != two_projects["stale_db"]
