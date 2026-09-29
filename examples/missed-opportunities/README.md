@@ -12,7 +12,9 @@ A rejected hypothesis ("we checked and this isn't a problem") is as valuable as 
 
 ```bash
 # Copy agent to your Claude Code plugins
-cp agent.md ~/.claude/plugins/local/empirica/agents/missed-opportunities.md
+mkdir -p .claude/agents && cp agent.md .claude/agents/missed-opportunities.md   # in your project; or ~/.claude/agents/ for all projects
+# Not ~/.claude/plugins/local/empirica/agents/: plugin sync rebuilds that folder and removes your file.
+# A ready-made demo practice for this: see ../README.md, Quick Start
 
 # Then point it at your data:
 # "Analyze sales.csv for missed opportunities"

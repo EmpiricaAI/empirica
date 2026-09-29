@@ -12,7 +12,9 @@ This agent analyzes your actual session transcripts and tells you exactly what's
 
 ```bash
 # Copy agent to your Claude Code plugins
-cp agent.md ~/.claude/plugins/local/empirica/agents/token-budget.md
+mkdir -p .claude/agents && cp agent.md .claude/agents/token-budget.md   # in your project; or ~/.claude/agents/ for all projects
+# Not ~/.claude/plugins/local/empirica/agents/: plugin sync rebuilds that folder and removes your file.
+# A ready-made demo practice for this: see ../README.md, Quick Start
 
 # Then in conversation:
 # "Analyze my token usage for the last week"

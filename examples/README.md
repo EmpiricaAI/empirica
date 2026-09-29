@@ -24,17 +24,34 @@ Most AI agents give you answers. These agents give you **answers + the investiga
 
 ## Quick Start
 
+Each example is a Claude Code agent. Run one inside its own **demo practice**: a folder with
+its own Empirica project, its own identity, and one window in a cockpit you can relaunch.
+
 ```bash
-# Install Empirica
+# 1. Install Empirica and wire it into Claude Code
 pip install empirica
 empirica setup-claude-code --force
 
-# Copy an agent to your plugin
-cp examples/codebase-onboarder/agent.md ~/.claude/plugins/local/empirica/agents/
+# 2. Make a demo practice and put one example agent in it
+empirica provision-practice demo-onboarder --base-path ~/empirica-demo \
+  --tenant demo --org demo --no-cortex --cockpit-profile demo
+mkdir -p ~/empirica-demo/demo-onboarder/.claude/agents
+cp examples/codebase-onboarder/agent.md ~/empirica-demo/demo-onboarder/.claude/agents/codebase-onboarder.md
 
-# Use it in Claude Code
-# "Use the codebase-onboarder agent to investigate this repo"
+# 3. Open it (a TUI window plus a Claude in the demo practice)
+empirica cockpit launch --profile demo
 ```
+
+Then, in that Claude: *"Use the codebase-onboarder agent to investigate `~/some/repo`."*
+
+Add more agents the same way (run step 2 again with another name and the same
+`--cockpit-profile demo` to get one window each). See the [cockpit guide](../docs/guides/COCKPIT.md).
+
+**Where an agent file goes, and where it must not.** Claude Code loads agents from
+`<project>/.claude/agents/` and `~/.claude/agents/`. Do **not** copy them into
+`~/.claude/plugins/local/empirica/agents/`: that folder belongs to the Empirica plugin, and the
+next `empirica setup-claude-code` or plugin sync rebuilds it, backing your file up to
+`empirica.bak/` and removing it from the live plugin, so the agent quietly disappears.
 
 ## The Epistemic Difference
 

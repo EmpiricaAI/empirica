@@ -34,7 +34,9 @@ competitors:
 2. Install the agent:
 
 ```bash
-cp agent.md ~/.claude/plugins/local/empirica/agents/competitor-monitor.md
+mkdir -p .claude/agents && cp agent.md .claude/agents/competitor-monitor.md   # in your project; or ~/.claude/agents/ for all projects
+# Not ~/.claude/plugins/local/empirica/agents/: plugin sync rebuilds that folder and removes your file.
+# A ready-made demo practice for this: see ../README.md, Quick Start
 ```
 
 3. Run it:

@@ -12,7 +12,9 @@ The investigation trail is as valuable as the output. You can see HOW the agent 
 
 ```bash
 # Copy agent to your Claude Code plugins
-cp agent.md ~/.claude/plugins/local/empirica/agents/codebase-onboarder.md
+mkdir -p .claude/agents && cp agent.md .claude/agents/codebase-onboarder.md   # in your project; or ~/.claude/agents/ for all projects
+# Not ~/.claude/plugins/local/empirica/agents/: plugin sync rebuilds that folder and removes your file.
+# A ready-made demo practice for this: see ../README.md, Quick Start
 
 # Or just reference it directly in conversation:
 # "Use the codebase-onboarder agent to investigate this repo"
