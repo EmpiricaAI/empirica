@@ -658,7 +658,7 @@ def _spawn_ghostty(group_name: str, session_name: str, extra_args: list[str]) ->
         return None, f"ghostty spawn failed: {exc}"
 
 
-def launch_groups(config: LauncherConfig) -> GroupsLaunchResult:
+def launch_groups(config: LauncherConfig, spawn_terminal: bool = True) -> GroupsLaunchResult:
     """Bring up the canonical groups layout: ONE terminal window (per
     ``config.surface`` — alacritty or ghostty) for the whole config,
     hosting ``config.session_name`` with one tmux window per group
@@ -699,6 +699,11 @@ def launch_groups(config: LauncherConfig) -> GroupsLaunchResult:
 
     if any(g.error for g in results):
         return GroupsLaunchResult(groups=results, session_name=session_name, error=None)
+
+    if not spawn_terminal:
+        # surface: tmux — the caller attaches the terminal it was run from.
+        write_lock()
+        return GroupsLaunchResult(groups=results, session_name=session_name)
 
     # Dedup: if the session already has a client attached (= a terminal
     # window from a prior launch is still alive), don't spawn a

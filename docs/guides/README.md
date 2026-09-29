@@ -8,6 +8,7 @@
 
 | Guide | Description |
 |-------|-------------|
+| [COCKPIT.md](COCKPIT.md) | Bring up all your practices in one tmux layout with `empirica cockpit`: profiles, config, identity, refresh |
 | [TMUX_MULTI_PANE_GUIDE.md](TMUX_MULTI_PANE_GUIDE.md) | Running multiple Claude Code instances with instance isolation |
 | [PROJECT_SWITCHING_FOR_AIS.md](PROJECT_SWITCHING_FOR_AIS.md) | Authoritative guide to project context resolution and switching |
 | [AUTO_ISSUE_CAPTURE_GUIDE.md](AUTO_ISSUE_CAPTURE_GUIDE.md) | Automatic bug/warning/TODO capture from sessions |

@@ -11,8 +11,7 @@ def add_cockpit_launcher_parsers(subparsers):
     """Register the ``cockpit`` verb group on the top-level subparsers."""
     cockpit_root = subparsers.add_parser(
         "cockpit",
-        help="Multi-instance cockpit launcher — bring up the canonical "
-        "tmux layout in one command, with abnormal-exit detection",
+        help="Bring up all your practices in one tmux layout and keep it alive",
         description="""
 Single-command bring-up of a configured multi-Claude tmux cockpit
 (one window per project, optional status windows for monitoring).
@@ -26,6 +25,8 @@ Each project pane launched as claude or a shell is bound to a stable,
 slot-shaped EMPIRICA_INSTANCE_ID (the project name, or `instance_id:` in
 config), so a relaunched practitioner keeps its identity instead of
 becoming a generic tmux_N.
+
+Guide: docs/guides/COCKPIT.md (config format, profiles, surfaces, refresh).
 
 State files live under ~/.empirica/cockpit/:
   config.yaml           — your project list + status windows

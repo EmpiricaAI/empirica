@@ -23,7 +23,7 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.14.3
-**Generated:** 2026-09-28 09:55:30 UTC
+**Generated:** 2026-09-29 08:23:56 UTC
 **Total commands:** 241 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -3804,7 +3804,7 @@ Revoke this seat's refresh token at cortex and drop cortex.oauth. The api_key is
 
 #### `empirica cockpit`
 
-Multi-instance cockpit launcher — bring up the canonical tmux layout in one command, with abnormal-exit detection
+Bring up all your practices in one tmux layout and keep it alive
 
 **Subcommands:**
 
@@ -3824,6 +3824,20 @@ Bring up the cockpit (idempotent — attaches if already running)
   Suppress the abnormal-exit warning even when the previous session ended uncleanly
 - `--surface` — optional · type=`choice` · choices={tmux, alacritty, ghostty}
   Override the surface from config. tmux = legacy single-attach. alacritty/ghostty = one window per group with WM_CLASS/app-id for KDE Meta+1..N switching (requires "groups:" in config). ghostty additionally supports native drag-and-drop file paste.
+- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
+  Output format
+
+
+##### `empirica cockpit refresh`
+
+Relaunch, in place, every claude pane whose claude exited — same identity, conversation resumed
+
+**Arguments:**
+
+- `--config` — optional
+  Override the default config path
+- `--profile` — optional
+  Use ~/.empirica/cockpit/config-NAME.yaml
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
 

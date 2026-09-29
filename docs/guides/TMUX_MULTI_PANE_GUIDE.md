@@ -2,6 +2,8 @@
 
 This guide explains how to run multiple Claude Code instances simultaneously, each with isolated project context.
 
+> **Bringing up many practices at once?** `empirica cockpit launch` builds the tmux layout below from a config file, gives each pane a stable identity, and restarts dead panes in place. See [COCKPIT.md](COCKPIT.md). This guide covers how the isolation works and how to set panes up by hand.
+
 ---
 
 ## Why Tmux + Empirica?

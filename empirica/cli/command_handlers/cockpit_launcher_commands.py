@@ -135,6 +135,12 @@ def handle_cockpit_launch_command(args) -> int:
     # tmux session and panes.
     if config.is_groups_mode() and config.surface in ("alacritty", "ghostty"):
         return _handle_groups_launch(config, output, quiet)
+    if config.is_groups_mode():
+        # surface: tmux with groups — same layout, in the terminal launch ran from.
+        # This used to fall through to the one-window-per-project path and
+        # silently ignore the groups, so panes never appeared side by side
+        # unless alacritty or ghostty was installed.
+        return _handle_groups_in_terminal(config, output, no_attach)
 
     # 2. Abnormal-exit detection
     abnormal_payload = _check_and_print_abnormal(config, quiet, output)
@@ -212,6 +218,39 @@ def _wm_class_for(surface: str, session_name: str) -> str:
     if surface == "ghostty":
         return f"com.empirica.cockpit.{session_name}"
     return f"empirica-{session_name}"
+
+
+def _handle_groups_in_terminal(config, output: str, no_attach: bool) -> int:
+    """Groups layout with ``surface: tmux``: build it, then attach this terminal."""
+    result = launch_groups(config, spawn_terminal=False)
+    if result.error:
+        if output == "json":
+            print(json.dumps({"ok": False, "error": result.error}))
+        else:
+            print(f"❌ {result.error}")
+        return 1
+    windows = [
+        {"name": g.group_name, "created": g.created, "panes": g.panes_created, "error": g.error} for g in result.groups
+    ]
+    if output == "json":
+        print(
+            json.dumps(
+                {"ok": result.all_ok(), "surface": "tmux", "session_name": result.session_name, "windows": windows}
+            )
+        )
+    else:
+        for g in result.groups:
+            verb = "created" if g.created else "adopted existing"
+            print(f"  · {g.group_name:12s} ({verb}, {g.panes_created} panes){'  ⚠ ' + g.error if g.error else ''}")
+    if no_attach or not config.attach_on_launch:
+        if output == "human":
+            print(f"✅ Cockpit ready: {result.session_name} — attach with: tmux attach -t {result.session_name}")
+        return 0 if result.all_ok() else 1
+    if os.environ.get("TMUX"):
+        # Already inside tmux: attaching would nest. Move this client instead.
+        os.execvp("tmux", ["tmux", "switch-client", "-t", result.session_name])  # noqa: S606
+    os.execvp("tmux", ["tmux", "attach-session", "-t", result.session_name])  # noqa: S606
+    return 1
 
 
 def _handle_groups_launch(config, output: str, quiet: bool) -> int:

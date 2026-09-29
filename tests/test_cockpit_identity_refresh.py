@@ -12,11 +12,13 @@ Two ports from the per-seat cockpit scripts, which core now replaces
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import signal
 import subprocess
 import time
+from pathlib import Path
 
 import pytest
 
@@ -136,7 +138,11 @@ def tmux_env(tmp_path, monkeypatch):
     proj_dir = tmp_path / "proj"
     proj_dir.mkdir()
     yield proj_dir, log
-    subprocess.run(["tmux", "kill-server"], capture_output=True)
+    # Explicit socket: -S ignores $TMUX and TMUX_TMPDIR, so this cannot reach a
+    # live server even if the environment above leaks. (A bare `tmux kill-server`
+    # from a smoke test once killed every live cockpit: $TMUX outranks TMUX_TMPDIR.)
+    private = sock_dir / f"tmux-{os.getuid()}" / "default"
+    subprocess.run(["tmux", "-S", str(private), "kill-server"], capture_output=True)
 
 
 def _opt(pane_id: str, name: str) -> str:
@@ -302,3 +308,67 @@ def test_a_hung_tmux_call_is_a_pane_error_and_the_build_continues(monkeypatch):
     assert (created, n, err) == (True, 1, None), "first pane built, the hung splits counted as failed"
     assert sum(1 for c in calls if c[1] == "split-window") == 2, "the build kept going after the first hang"
     assert any(c[1] == "select-layout" for c in calls)
+
+
+# ── surface: tmux with groups (the guide's first example) ───────────────────
+
+
+@pytest.fixture
+def tmp_state(tmp_path, monkeypatch):
+    """Keep the launcher's state files (last_session_start, lock) off the real ~/.empirica."""
+    from empirica.core.cockpit.launcher import state
+
+    d = tmp_path / "state"
+    d.mkdir()
+    monkeypatch.setattr(state, "COCKPIT_DIR", d)
+    monkeypatch.setattr(state, "LAST_SESSION_START_PATH", d / "last_session_start")
+    monkeypatch.setattr(state, "LAST_CLEAN_SHUTDOWN_PATH", d / "last_clean_shutdown")
+    monkeypatch.setattr(state, "LOCK_PATH", d / "active.lock")
+    return d
+
+
+def test_tilde_in_a_project_path_is_expanded(tmp_path):
+    """tmux does not expand ~ in -c; the guide's example writes ~/code/..."""
+    from empirica.core.cockpit.launcher.config import load_config
+
+    cfg_file = tmp_path / "c.yaml"
+    cfg_file.write_text("projects:\n  - {name: a, path: ~/code/a}\n")
+
+    assert load_config(cfg_file).projects[0].path == str(Path.home() / "code" / "a")
+
+
+def test_groups_with_surface_tmux_are_built_without_spawning_a_terminal(tmux_env, tmp_state, monkeypatch, capsys):
+    """Groups used to be honoured only for alacritty/ghostty; surface: tmux silently built one
+    window per project instead, so the guide's side-by-side example never produced its layout."""
+    from empirica.cli.command_handlers import cockpit_launcher_commands as cmds
+    from empirica.core.cockpit.launcher import tmux as t
+
+    proj_dir, log = tmux_env
+    cfg_file = proj_dir.parent / "c.yaml"
+    cfg_file.write_text(
+        f"session_name: gt\nsurface: tmux\nprojects:\n  - {{name: alpha, path: {proj_dir}, launch: claude}}\n"
+        f"  - {{name: beta, path: {proj_dir}, launch: claude}}\n"
+        "groups:\n  - name: work\n    panes:\n      - {project: alpha}\n      - {project: beta}\n"
+    )
+
+    def _no_terminal(*a, **k):
+        raise AssertionError("a terminal was spawned for surface: tmux")
+
+    monkeypatch.setattr(t, "_spawn_ghostty", _no_terminal)
+    monkeypatch.setattr(t, "_spawn_alacritty", _no_terminal)
+
+    class Args:
+        config = str(cfg_file)
+        profile = None
+        no_attach = True
+        quiet_warnings = True
+        surface = None
+        output = "json"
+
+    assert cmds.handle_cockpit_launch_command(Args()) == 0
+    out = json.loads(capsys.readouterr().out)
+
+    assert out["ok"] and out["surface"] == "tmux"
+    assert out["windows"] == [{"name": "work", "created": True, "panes": 2, "error": None}]
+    assert sorted(r[3] for r in _panes("gt")) == ["work/0", "work/1"], "both panes in ONE window, side by side"
+    assert _wait(lambda: log.exists() and len(log.read_text().splitlines()) == 2)

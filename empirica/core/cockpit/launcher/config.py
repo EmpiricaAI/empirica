@@ -250,7 +250,7 @@ def load_config(path: Path | None = None) -> LauncherConfig:
         projects.append(
             ProjectSpec(
                 name=str(name),
-                path=str(path),
+                path=str(Path(str(path)).expanduser()),  # tmux does not expand ~ in -c
                 launch=str(entry.get("launch") or "claude"),
                 kind=str(entry.get("kind") or "code"),
                 instance_id=_optional_str(entry, "instance_id"),
