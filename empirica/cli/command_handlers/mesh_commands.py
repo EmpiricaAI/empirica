@@ -79,6 +79,12 @@ class MeshInstanceState(NamedTuple):
     backoff_state: str | None  # None | "rate_limit" | "auth_fail"
     health_color: str  # green | yellow | red
     health_reason: str
+    # Where the last fire was read from, and how far back the logs reach. A practice
+    # quiet since before the last rotation has its fires in loop_fires.log.1, so
+    # "no fire in the current file" is not "no fire".
+    last_fire_source: str | None = None  # file name, e.g. "loop_fires.log.1"
+    fire_window_start: datetime | None = None  # earliest timestamp in the oldest log read
+    fire_logs_read: int = 0
 
 
 def _load_cortex_credentials() -> dict | None:
@@ -177,37 +183,100 @@ def _tag_matches(cmd: str, needle: str) -> bool:
     return cmd[end] in "&\"',; \t"
 
 
-def _last_fire_for(ai_id: str) -> tuple[datetime | None, int]:
-    if not LOOP_FIRES_LOG.exists():
-        return None, 0
-    last_ts: datetime | None = None
-    fires_last_hour = 0
-    now = datetime.now(tz=timezone.utc)
-    cutoff_ts = now.timestamp() - 3600
-    needle = f'"instance_id": "{ai_id}"'
+class FireScan(NamedTuple):
+    last_ts: datetime | None
+    fires_last_hour: int
+    source: str | None  # file the last fire came from
+    window_start: datetime | None  # earliest timestamp in the oldest file read
+    files_read: int
+
+
+def _parse_ts(value) -> datetime | None:
+    if not value:
+        return None
     try:
-        with LOOP_FIRES_LOG.open() as f:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _fires_log_generations() -> list[Path]:
+    """The current fires log, then its rotated generations, newest first.
+
+    Rotation renames the current file to ``<log>.1`` (see
+    listener._rotate_fires_log_if_oversized), so today there is at most one prior
+    generation. Numbered siblings are read too, in numeric order, so a longer
+    retention needs no change here.
+    """
+    numbered = []
+    for p in LOOP_FIRES_LOG.parent.glob(LOOP_FIRES_LOG.name + ".*"):
+        suffix = p.name.rsplit(".", 1)[-1]
+        if suffix.isdigit():
+            numbered.append((int(suffix), p))
+    return [p for p in [LOOP_FIRES_LOG, *(p for _, p in sorted(numbered))] if p.exists()]
+
+
+def _scan_one_fires_log(path: Path, needle: str, cutoff: float) -> tuple[datetime | None, datetime | None, int]:
+    """``(first ts in file, last ts for this instance, fires since cutoff)``."""
+    first_ts: datetime | None = None
+    last_ts: datetime | None = None
+    recent = 0
+    try:
+        with path.open() as f:
             for line in f:
+                if first_ts is None:
+                    try:
+                        first_ts = _parse_ts(json.loads(line).get("ts"))
+                    except ValueError:
+                        pass
                 if needle not in line:
                     continue
                 try:
-                    entry = json.loads(line)
-                except Exception:
+                    ts = _parse_ts(json.loads(line).get("ts"))
+                except ValueError:
                     continue
-                ts_str = entry.get("ts")
-                if not ts_str:
-                    continue
-                try:
-                    ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-                except Exception:
+                if ts is None:
                     continue
                 if last_ts is None or ts > last_ts:
                     last_ts = ts
-                if ts.timestamp() >= cutoff_ts:
-                    fires_last_hour += 1
-    except Exception:
+                if ts.timestamp() >= cutoff:
+                    recent += 1
+    except OSError:
         pass
-    return last_ts, fires_last_hour
+    return first_ts, last_ts, recent
+
+
+def _scan_fires(ai_id: str) -> FireScan:
+    """Last fire for an instance across the current and rotated fires logs.
+
+    Reads the current file first and goes back a generation only when it holds
+    no fire for the instance (or began less than an hour ago, so the hourly count
+    may continue into the older file). Reports which file the answer came from
+    and how far back the logs reach, so "nothing found" can say what it looked at.
+    """
+    cutoff = datetime.now(tz=timezone.utc).timestamp() - 3600
+    needle = f'"instance_id": "{ai_id}"'
+    last_ts: datetime | None = None
+    source: str | None = None
+    window_start: datetime | None = None
+    recent = 0
+    files = _fires_log_generations()
+    read = 0
+    for path in files:
+        first_ts, file_last, file_recent = _scan_one_fires_log(path, needle, cutoff)
+        read += 1
+        window_start = first_ts or window_start
+        recent += file_recent
+        if file_last is not None and (last_ts is None or file_last > last_ts):
+            last_ts, source = file_last, path.name
+        if last_ts is not None and not (first_ts is not None and first_ts.timestamp() > cutoff):
+            break
+    return FireScan(last_ts, recent, source, window_start, read)
+
+
+def _last_fire_for(ai_id: str) -> tuple[datetime | None, int]:
+    scan = _scan_fires(ai_id)
+    return scan.last_ts, scan.fires_last_hour
 
 
 def _listener_health_freshness(ai_id: str) -> float | None:
@@ -306,13 +375,15 @@ def _compute_health(s: dict, cortex_configured: bool) -> tuple[str, str]:
     # listener now subscribes with the canonical tag. The fire path
     # was structurally unreachable. Mesh-support prop_po4nyp3xzb.
     last = s["last_fire_at_utc"]
+    src = s.get("last_fire_source")
+    where = f" [read from {src}]" if src and src != LOOP_FIRES_LOG.name else ""
     now = datetime.now(tz=timezone.utc)
     if last is not None:
         idle_seconds = (now - last).total_seconds()
         if idle_seconds <= ZOMBIE_THRESHOLD_SECONDS:
             # Fires are flowing — bridge is healthy regardless of whether
             # our curl-pid detection found a match.
-            return "green", f"last fire {_fmt_age(idle_seconds)} ago"
+            return "green", f"last fire {_fmt_age(idle_seconds)} ago{where}"
         # Fires went silent — escalate using curl-pid + backoff signals.
         if s["curl_subprocess_pid"] is None:
             backoff = s.get("backoff_state")
@@ -332,9 +403,9 @@ def _compute_health(s: dict, cortex_configured: bool) -> tuple[str, str]:
             return (
                 "green",
                 f"quiet but healthy — no fires in {int(idle_seconds // 60)}m "
-                f"but listener health ok ({int(health_age)}s ago)",
+                f"but listener health ok ({int(health_age)}s ago){where}",
             )
-        return "red", f"zombie suspected: no fires in {int(idle_seconds // 60)} min"
+        return "red", f"zombie suspected: no fires in {int(idle_seconds // 60)} min{where}"
 
     # No fires recorded yet — fall through to the curl-pid + backoff
     # diagnostic since we have no fire-flow signal to lean on.
@@ -345,7 +416,14 @@ def _compute_health(s: dict, cortex_configured: bool) -> tuple[str, str]:
         if backoff == "auth_fail":
             return "yellow", "auth/HTTP backoff — curl absent during 5-min backoff; catch-up poll still running"
         return "red", "curl subscription dead — cortex bridge broken"
-    return "yellow", "no fires recorded yet (cold start ok if recent install)"
+    window = s.get("fire_window_start")
+    if window is None:
+        # No fires log at all (or none readable): this really is a cold start.
+        return "yellow", "no fires recorded yet (cold start ok if recent install)"
+    # Logs exist and hold no fire for this instance. That is a statement about the
+    # retained window, not about history: rotation keeps one prior generation.
+    n = s.get("fire_logs_read") or 1
+    return "yellow", f"no fire in the retained log window (since {window:%Y-%m-%d}, {n} log file(s) read)"
 
 
 def _fmt_age(seconds: float) -> str:
@@ -361,7 +439,8 @@ def _fmt_age(seconds: float) -> str:
 def _gather_state(ai_id: str, cortex_configured: bool) -> MeshInstanceState:
     svc = listener_status_for(ai_id)
     listener_pid, curl_pid = _find_listener_pids(ai_id)
-    last_fire, fires_last_hour = _last_fire_for(ai_id)
+    scan = _scan_fires(ai_id)
+    last_fire, fires_last_hour = scan.last_ts, scan.fires_last_hour
     loops_count = 0
     try:
         from empirica.core.loop_scheduler.systemd import list_active_loops_for_instance
@@ -382,6 +461,9 @@ def _gather_state(ai_id: str, cortex_configured: bool) -> MeshInstanceState:
         "cortex_configured": cortex_configured,
         "loops_registered": loops_count,
         "backoff_state": backoff_state,
+        "last_fire_source": scan.source,
+        "fire_window_start": scan.window_start,
+        "fire_logs_read": scan.files_read,
     }
     color, reason = _compute_health(s, cortex_configured)
     return MeshInstanceState(**s, health_color=color, health_reason=reason)
@@ -400,8 +482,9 @@ def handle_mesh_status_command(args) -> int:
         out = []
         for r in rows:
             d = r._asdict()
-            if d["last_fire_at_utc"]:
-                d["last_fire_at_utc"] = d["last_fire_at_utc"].isoformat()
+            for key in ("last_fire_at_utc", "fire_window_start"):
+                if d[key]:
+                    d[key] = d[key].isoformat()
             out.append(d)
         print(
             json.dumps(
@@ -420,10 +503,14 @@ def handle_mesh_status_command(args) -> int:
     header = f"{'ai_id':<20} {'health':<6} {'service':<10} {'curl':<8} {'last fire':<12} {'fires/h':>8}  reason"
     print(header)
     print("-" * len(header))
+    from_rotated = False
     for r in rows:
         if r.last_fire_at_utc:
             idle = (datetime.now(tz=timezone.utc) - r.last_fire_at_utc).total_seconds()
             last_str = _fmt_age(idle)
+            if r.last_fire_source and r.last_fire_source != LOOP_FIRES_LOG.name:
+                last_str += "*"
+                from_rotated = True
         else:
             last_str = "-"
         svc_str = "active" if r.service_active else ("dead" if r.service_installed else "absent")
@@ -435,6 +522,10 @@ def handle_mesh_status_command(args) -> int:
         print(
             f"{r.ai_id:<20} {g:<6} {svc_str:<10} {curl_str:<8} {last_str:<12} {r.fires_last_hour:>8}  {r.health_reason}"
         )
+
+    if from_rotated:
+        print()
+        print("* last fire read from a rotated fires log (the current one holds none for this instance)")
 
     if not cortex_configured:
         print()
@@ -470,9 +561,21 @@ def handle_mesh_diagnose_command(args) -> int:
         print(f"  Curl subscription:    {state.curl_subprocess_pid or 'DEAD (no curl process for tags=' + ai_id + ')'}")
     if state.last_fire_at_utc:
         idle = (datetime.now(tz=timezone.utc) - state.last_fire_at_utc).total_seconds()
-        print(f"  Last fire:            {state.last_fire_at_utc.isoformat()}  ({_fmt_age(idle)} ago)")
+        from_note = (
+            f", read from {state.last_fire_source}"
+            if state.last_fire_source and state.last_fire_source != LOOP_FIRES_LOG.name
+            else ""
+        )
+        print(f"  Last fire:            {state.last_fire_at_utc.isoformat()}  ({_fmt_age(idle)} ago{from_note})")
+    elif state.fire_window_start:
+        # Not "NEVER": the logs only reach back this far, so all that is known is that
+        # nothing landed inside the window.
+        print(
+            f"  Last fire:            none in the retained window "
+            f"(since {state.fire_window_start.isoformat()}, {state.fire_logs_read} log file(s) read)"
+        )
     else:
-        print("  Last fire:            NEVER")
+        print("  Last fire:            none recorded (no fires log found)")
     print(f"  Fires in last hour:   {state.fires_last_hour}")
     print()
     print(f"  Health: {state.health_color.upper()} -- {state.health_reason}")
@@ -577,6 +680,9 @@ def _emit_diagnose_json(ai_id: str, state, cortex_results) -> int:
             "listener_process_pid": state.listener_process_pid,
             "curl_subprocess_pid": state.curl_subprocess_pid,
             "last_fire_at_utc": (state.last_fire_at_utc.isoformat() if state.last_fire_at_utc else None),
+            "last_fire_source": state.last_fire_source,
+            "fire_window_start": (state.fire_window_start.isoformat() if state.fire_window_start else None),
+            "fire_logs_read": state.fire_logs_read,
             "fires_last_hour": state.fires_last_hour,
             "loops_registered": state.loops_registered,
             "health_color": state.health_color,
