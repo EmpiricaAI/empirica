@@ -179,7 +179,7 @@ def fake_listener(monkeypatch):
     monkeypatch.setattr(
         mc, "listener_status_for", lambda ai_id: types.SimpleNamespace(backend="systemd", installed=True, active=True)
     )
-    monkeypatch.setattr(mc, "_find_listener_pids", lambda ai_id: (11, 22))
+    monkeypatch.setattr(mc, "_find_listener_procs", lambda ai_id: mc.ListenerProcs(11, 22, True))  # no real ps
     monkeypatch.setattr(mc, "_load_cortex_credentials", lambda: None)
 
 

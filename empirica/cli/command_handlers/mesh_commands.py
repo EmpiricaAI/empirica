@@ -85,6 +85,9 @@ class MeshInstanceState(NamedTuple):
     last_fire_source: str | None = None  # file name, e.g. "loop_fires.log.1"
     fire_window_start: datetime | None = None  # earliest timestamp in the oldest log read
     fire_logs_read: int = 0
+    # True when the curl found descends from the listener, False when it does not (an orphan a dead
+    # listener left behind), None when no curl was found. One snapshot: see _find_listener_procs.
+    curl_parented: bool | None = None
 
 
 def _load_cortex_credentials() -> dict | None:
@@ -125,18 +128,69 @@ def _enumerate_instances() -> list[str]:
     return sorted(instances)
 
 
-def _find_listener_pids(ai_id: str) -> tuple[int | None, int | None]:
-    try:
-        ps_out = subprocess.run(
-            ["ps", "-eo", "pid,args"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        ).stdout
-    except Exception:
-        return None, None
+class ListenerProcs(NamedTuple):
+    listener_pid: int | None
+    curl_pid: int | None
+    curl_parented: bool | None
+
+
+def _parse_ps_table(ps_out: str) -> dict[int, tuple[int, str]]:
+    """``{pid: (ppid, args)}`` from ``ps -eo pid,ppid,args`` output (header line skipped)."""
+    table: dict[int, tuple[int, str]] = {}
+    for line in ps_out.splitlines()[1:]:
+        parts = line.strip().split(None, 2)
+        if len(parts) != 3:
+            continue
+        try:
+            table[int(parts[0])] = (int(parts[1]), parts[2])
+        except ValueError:
+            continue
+    return table
+
+
+def _descends_from(table: dict[int, tuple[int, str]], pid: int, ancestors: set[int]) -> bool:
+    """Is any of ``ancestors`` above ``pid``? Walks ppid links, so a shell or supervisor wrapper
+    between the listener and its curl still counts as parented. Bounded, and cycle-safe."""
+    seen: set[int] = set()
+    cur = pid
+    for _ in range(16):
+        parent = table.get(cur, (None, ""))[0]
+        if parent is None or parent in seen or parent <= 0:
+            return False
+        if parent in ancestors:
+            return True
+        seen.add(parent)
+        cur = parent
+    return False
+
+
+def _find_listener_procs(ai_id: str, ps_out: str | None = None) -> ListenerProcs:
+    """The listener, its curl, and whether that curl descends from it.
+
+    The curl is matched by cmdline (orchestration-events plus the tag), which says nothing about
+    who owns it: an orphan left by a dead listener matches exactly like a live bridge, and a curl
+    whose parent just died and is being respawned reads as one too. So each match is also walked up
+    the process table. A parented curl wins over an orphan when both exist (a respawn in flight),
+    and ``curl_parented`` is False when curls exist but none descends from a found listener.
+
+    This is ONE ps snapshot: a listener restarting can make its curl look orphaned for a moment.
+    Health therefore still trusts fire-flow first; anything that acts on this (a watchdog restart)
+    should confirm with a second sample.
+    """
+    if ps_out is None:
+        try:
+            ps_out = subprocess.run(
+                ["ps", "-eo", "pid,ppid,args"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            ).stdout
+        except Exception:
+            return ListenerProcs(None, None, None)
+    table = _parse_ps_table(ps_out)
     listener_pid = None
-    curl_pid = None
+    listener_pids: set[int] = set()
+    curls: list[int] = []
     listen_needle = f"loop listen --instance {ai_id}"
     # Post-3-form migration (1.11.x strict-canonical), the listener
     # subscribes via _resolve_canonical_ai_id, so the curl cmdline
@@ -148,22 +202,20 @@ def _find_listener_pids(ai_id: str) -> tuple[int | None, int | None]:
     # confusion (e.g. `tags=empirica` matching `tags=empirica-cortex`).
     legacy_needle = f"tags={ai_id}"
     canonical_suffix = f".{ai_id}"
-    for line in ps_out.splitlines()[1:]:
-        parts = line.strip().split(None, 1)
-        if len(parts) != 2:
-            continue
-        pid_str, cmd = parts
-        try:
-            pid = int(pid_str)
-        except ValueError:
-            continue
+    for pid, (_ppid, cmd) in table.items():
         if listen_needle in cmd and "loop listen" in cmd:
             listener_pid = pid
+            listener_pids.add(pid)
         elif "orchestration-events" in cmd and (
             _tag_matches(cmd, legacy_needle) or _tag_matches(cmd, canonical_suffix)
         ):
-            curl_pid = pid
-    return listener_pid, curl_pid
+            curls.append(pid)
+    if not curls:
+        return ListenerProcs(listener_pid, None, None)
+    parented = [c for c in curls if _descends_from(table, c, listener_pids)]
+    if parented:
+        return ListenerProcs(listener_pid, parented[-1], True)
+    return ListenerProcs(listener_pid, curls[-1], False)
 
 
 def _tag_matches(cmd: str, needle: str) -> bool:
@@ -366,6 +418,12 @@ def _compute_health(s: dict, cortex_configured: bool) -> tuple[str, str]:
     if not cortex_configured:
         return "green", "local-only (cortex bridge not configured)"
 
+    curl_alive = s["curl_subprocess_pid"] is not None and s.get("curl_parented") is not False
+    curl_gone = (
+        "curl subscription orphaned — the curl found is not the listener's child; cortex bridge broken"
+        if s["curl_subprocess_pid"] is not None
+        else "curl subscription dead — cortex bridge broken"
+    )
     # Fire-flow is the AUTHORITATIVE liveness signal — fires are what we
     # actually care about. Curl-pid detection (next block) is a
     # diagnostic refinement, not a primary signal. Pre-1.11.8 this
@@ -385,13 +443,13 @@ def _compute_health(s: dict, cortex_configured: bool) -> tuple[str, str]:
             # our curl-pid detection found a match.
             return "green", f"last fire {_fmt_age(idle_seconds)} ago{where}"
         # Fires went silent — escalate using curl-pid + backoff signals.
-        if s["curl_subprocess_pid"] is None:
+        if not curl_alive:
             backoff = s.get("backoff_state")
             if backoff == "rate_limit":
                 return "yellow", "rate-limited — curl absent during 30-min backoff; catch-up poll still running"
             if backoff == "auth_fail":
                 return "yellow", "auth/HTTP backoff — curl absent during 5-min backoff; catch-up poll still running"
-            return "red", "curl subscription dead — cortex bridge broken"
+            return "red", curl_gone
         # Curl is alive and we have idle gap > ZOMBIE_THRESHOLD. Cross-
         # reference the listener's positive-liveness health marker
         # before flagging zombie — a fresh status=ok marker is direct
@@ -409,13 +467,13 @@ def _compute_health(s: dict, cortex_configured: bool) -> tuple[str, str]:
 
     # No fires recorded yet — fall through to the curl-pid + backoff
     # diagnostic since we have no fire-flow signal to lean on.
-    if s["curl_subprocess_pid"] is None:
+    if not curl_alive:
         backoff = s.get("backoff_state")
         if backoff == "rate_limit":
             return "yellow", "rate-limited — curl absent during 30-min backoff; catch-up poll still running"
         if backoff == "auth_fail":
             return "yellow", "auth/HTTP backoff — curl absent during 5-min backoff; catch-up poll still running"
-        return "red", "curl subscription dead — cortex bridge broken"
+        return "red", curl_gone
     window = s.get("fire_window_start")
     if window is None:
         # No fires log at all (or none readable): this really is a cold start.
@@ -438,7 +496,8 @@ def _fmt_age(seconds: float) -> str:
 
 def _gather_state(ai_id: str, cortex_configured: bool) -> MeshInstanceState:
     svc = listener_status_for(ai_id)
-    listener_pid, curl_pid = _find_listener_pids(ai_id)
+    procs = _find_listener_procs(ai_id)
+    listener_pid, curl_pid = procs.listener_pid, procs.curl_pid
     scan = _scan_fires(ai_id)
     last_fire, fires_last_hour = scan.last_ts, scan.fires_last_hour
     loops_count = 0
@@ -448,7 +507,8 @@ def _gather_state(ai_id: str, cortex_configured: bool) -> MeshInstanceState:
         loops_count = len(list_active_loops_for_instance(ai_id) or [])
     except Exception:
         pass
-    backoff_state = _detect_backoff_state(ai_id) if curl_pid is None else None
+    curl_alive = curl_pid is not None and procs.curl_parented is not False
+    backoff_state = _detect_backoff_state(ai_id) if not curl_alive else None
     s = {
         "ai_id": ai_id,
         "backend": svc.backend,
@@ -464,6 +524,7 @@ def _gather_state(ai_id: str, cortex_configured: bool) -> MeshInstanceState:
         "last_fire_source": scan.source,
         "fire_window_start": scan.window_start,
         "fire_logs_read": scan.files_read,
+        "curl_parented": procs.curl_parented,
     }
     color, reason = _compute_health(s, cortex_configured)
     return MeshInstanceState(**s, health_color=color, health_reason=reason)
@@ -515,7 +576,10 @@ def handle_mesh_status_command(args) -> int:
             last_str = "-"
         svc_str = "active" if r.service_active else ("dead" if r.service_installed else "absent")
         if r.cortex_configured:
-            curl_str = "ok" if r.curl_subprocess_pid else "dead"
+            if not r.curl_subprocess_pid:
+                curl_str = "dead"
+            else:
+                curl_str = "orphan" if r.curl_parented is False else "ok"
         else:
             curl_str = "n/a"
         g = glyph.get(r.health_color, "?")
@@ -558,7 +622,15 @@ def handle_mesh_diagnose_command(args) -> int:
     print(f"  Loops registered:     {state.loops_registered}")
     print(f"  Cortex configured:    {cortex_configured}")
     if cortex_configured:
-        print(f"  Curl subscription:    {state.curl_subprocess_pid or 'DEAD (no curl process for tags=' + ai_id + ')'}")
+        if state.curl_subprocess_pid:
+            note = (
+                "  (NOT the listener's child: an orphan left by a dead listener)"
+                if state.curl_parented is False
+                else ""
+            )
+            print(f"  Curl subscription:    {state.curl_subprocess_pid}{note}")
+        else:
+            print(f"  Curl subscription:    DEAD (no curl process for tags={ai_id})")
     if state.last_fire_at_utc:
         idle = (datetime.now(tz=timezone.utc) - state.last_fire_at_utc).total_seconds()
         from_note = (
@@ -590,8 +662,8 @@ def handle_mesh_diagnose_command(args) -> int:
             print(f"Fix: empirica mesh on {ai_id}")
         elif not state.service_active:
             print(f"Fix: empirica mesh restart {ai_id}")
-        elif cortex_configured and state.curl_subprocess_pid is None:
-            print(f"Fix: empirica mesh restart {ai_id}  (curl subprocess died; restart re-spawns)")
+        elif cortex_configured and (state.curl_subprocess_pid is None or state.curl_parented is False):
+            print(f"Fix: empirica mesh restart {ai_id}  (curl subprocess died or is orphaned; restart re-spawns)")
         elif (
             state.last_fire_at_utc
             and (datetime.now(tz=timezone.utc) - state.last_fire_at_utc).total_seconds() > ZOMBIE_THRESHOLD_SECONDS
@@ -679,6 +751,7 @@ def _emit_diagnose_json(ai_id: str, state, cortex_results) -> int:
             "service_active": state.service_active,
             "listener_process_pid": state.listener_process_pid,
             "curl_subprocess_pid": state.curl_subprocess_pid,
+            "curl_parented": state.curl_parented,
             "last_fire_at_utc": (state.last_fire_at_utc.isoformat() if state.last_fire_at_utc else None),
             "last_fire_source": state.last_fire_source,
             "fire_window_start": (state.fire_window_start.isoformat() if state.fire_window_start else None),
