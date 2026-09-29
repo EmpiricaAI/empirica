@@ -85,6 +85,7 @@ class MeshInstanceState(NamedTuple):
     last_fire_source: str | None = None  # file name, e.g. "loop_fires.log.1"
     fire_window_start: datetime | None = None  # earliest timestamp in the oldest log read
     fire_logs_read: int = 0
+    fire_logs_unreadable: int = 0
     # True when the curl found descends from the listener, False when it does not (an orphan a dead
     # listener left behind), None when no curl was found. One snapshot: see _find_listener_procs.
     curl_parented: bool | None = None
@@ -203,7 +204,9 @@ def _find_listener_procs(ai_id: str, ps_out: str | None = None) -> ListenerProcs
     legacy_needle = f"tags={ai_id}"
     canonical_suffix = f".{ai_id}"
     for pid, (_ppid, cmd) in table.items():
-        if listen_needle in cmd and "loop listen" in cmd:
+        # Boundary match: `--instance empirica` is a prefix of `--instance empirica-workspace`, and a
+        # bare substring would hand one practice another's listener pid (and its curl ancestry).
+        if "loop listen" in cmd and _tag_matches(cmd, listen_needle):
             listener_pid = pid
             listener_pids.add(pid)
         elif "orchestration-events" in cmd and (
@@ -241,15 +244,29 @@ class FireScan(NamedTuple):
     source: str | None  # file the last fire came from
     window_start: datetime | None  # earliest timestamp in the oldest file read
     files_read: int
+    files_unreadable: int = 0  # generations that exist but could not be opened
 
 
 def _parse_ts(value) -> datetime | None:
+    """An ISO timestamp as an aware UTC datetime, or None. A naive one is read as UTC: comparing a
+    naive with an aware datetime raises, and one such line would otherwise take down the scan."""
     if not value:
         return None
     try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        ts = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     except ValueError:
         return None
+    return ts if ts.tzinfo is not None else ts.replace(tzinfo=timezone.utc)
+
+
+def _line_ts(line: str) -> datetime | None:
+    """The ``ts`` of one fires-log line. A line that is not a JSON object (a list, a scalar, a torn
+    write) has no timestamp; it must not raise, because it sits between the lines that do."""
+    try:
+        rec = json.loads(line)
+    except ValueError:
+        return None
+    return _parse_ts(rec.get("ts")) if isinstance(rec, dict) else None
 
 
 def _fires_log_generations() -> list[Path]:
@@ -268,25 +285,24 @@ def _fires_log_generations() -> list[Path]:
     return [p for p in [LOOP_FIRES_LOG, *(p for _, p in sorted(numbered))] if p.exists()]
 
 
-def _scan_one_fires_log(path: Path, needle: str, cutoff: float) -> tuple[datetime | None, datetime | None, int]:
-    """``(first ts in file, last ts for this instance, fires since cutoff)``."""
+def _scan_one_fires_log(path: Path, needle: str, cutoff: float) -> tuple[datetime | None, datetime | None, int, bool]:
+    """``(first ts in file, last ts for this instance, fires since cutoff, readable)``.
+
+    ``readable`` is False when the file could not be opened: a scan that reads nothing must say so,
+    or "no fires" is indistinguishable from "could not look". Bytes that are not UTF-8 are replaced
+    rather than raised, so one torn line cannot hide the fires around it.
+    """
     first_ts: datetime | None = None
     last_ts: datetime | None = None
     recent = 0
     try:
-        with path.open() as f:
+        with path.open(errors="replace") as f:
             for line in f:
                 if first_ts is None:
-                    try:
-                        first_ts = _parse_ts(json.loads(line).get("ts"))
-                    except ValueError:
-                        pass
+                    first_ts = _line_ts(line)
                 if needle not in line:
                     continue
-                try:
-                    ts = _parse_ts(json.loads(line).get("ts"))
-                except ValueError:
-                    continue
+                ts = _line_ts(line)
                 if ts is None:
                     continue
                 if last_ts is None or ts > last_ts:
@@ -294,8 +310,8 @@ def _scan_one_fires_log(path: Path, needle: str, cutoff: float) -> tuple[datetim
                 if ts.timestamp() >= cutoff:
                     recent += 1
     except OSError:
-        pass
-    return first_ts, last_ts, recent
+        return first_ts, last_ts, recent, False
+    return first_ts, last_ts, recent, True
 
 
 def _scan_fires(ai_id: str) -> FireScan:
@@ -314,8 +330,12 @@ def _scan_fires(ai_id: str) -> FireScan:
     recent = 0
     files = _fires_log_generations()
     read = 0
+    unreadable = 0
     for path in files:
-        first_ts, file_last, file_recent = _scan_one_fires_log(path, needle, cutoff)
+        first_ts, file_last, file_recent, readable = _scan_one_fires_log(path, needle, cutoff)
+        if not readable:
+            unreadable += 1
+            continue
         read += 1
         window_start = first_ts or window_start
         recent += file_recent
@@ -323,7 +343,7 @@ def _scan_fires(ai_id: str) -> FireScan:
             last_ts, source = file_last, path.name
         if last_ts is not None and not (first_ts is not None and first_ts.timestamp() > cutoff):
             break
-    return FireScan(last_ts, recent, source, window_start, read)
+    return FireScan(last_ts, recent, source, window_start, read, unreadable)
 
 
 def _last_fire_for(ai_id: str) -> tuple[datetime | None, int]:
@@ -474,14 +494,22 @@ def _compute_health(s: dict, cortex_configured: bool) -> tuple[str, str]:
         if backoff == "auth_fail":
             return "yellow", "auth/HTTP backoff — curl absent during 5-min backoff; catch-up poll still running"
         return "red", curl_gone
+    return "yellow", _no_fire_reason(s)
+
+
+def _no_fire_reason(s: dict) -> str:
+    """Why an instance with a live curl has no fire on record, worded by what the scan could see."""
     window = s.get("fire_window_start")
+    if window is None and s.get("fire_logs_unreadable") and not s.get("fire_logs_read"):
+        # Logs exist and none could be opened: that is not a cold start, it is a blind spot.
+        return f"fires log unreadable ({s['fire_logs_unreadable']} file(s)); cannot tell whether fires flow"
     if window is None:
-        # No fires log at all (or none readable): this really is a cold start.
-        return "yellow", "no fires recorded yet (cold start ok if recent install)"
+        # No fires log at all: this really is a cold start.
+        return "no fires recorded yet (cold start ok if recent install)"
     # Logs exist and hold no fire for this instance. That is a statement about the
     # retained window, not about history: rotation keeps one prior generation.
     n = s.get("fire_logs_read") or 1
-    return "yellow", f"no fire in the retained log window (since {window:%Y-%m-%d}, {n} log file(s) read)"
+    return f"no fire in the retained log window (since {window:%Y-%m-%d}, {n} log file(s) read)"
 
 
 def _fmt_age(seconds: float) -> str:
@@ -524,6 +552,7 @@ def _gather_state(ai_id: str, cortex_configured: bool) -> MeshInstanceState:
         "last_fire_source": scan.source,
         "fire_window_start": scan.window_start,
         "fire_logs_read": scan.files_read,
+        "fire_logs_unreadable": scan.files_unreadable,
         "curl_parented": procs.curl_parented,
     }
     color, reason = _compute_health(s, cortex_configured)

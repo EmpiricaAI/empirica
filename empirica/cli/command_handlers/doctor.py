@@ -1054,6 +1054,10 @@ def check_tmux_session_identity() -> Check:
     )
 
 
+# `claude` is also the executable behind helpers that are not sessions and carry no practice id.
+_NON_SESSION_CLAUDE_FLAGS = frozenset({"--chrome-native-host"})
+
+
 def _claude_processes() -> tuple[list[dict], int]:
     """``(processes, unreadable)`` for every running claude: pid, cwd, EMPIRICA_INSTANCE_ID (or None).
 
@@ -1068,6 +1072,8 @@ def _claude_processes() -> tuple[list[dict], int]:
         cmd = proc.info.get("cmdline") or []
         if proc.info.get("name") != "claude" and not (cmd and Path(cmd[0]).name == "claude"):
             continue
+        if _NON_SESSION_CLAUDE_FLAGS.intersection(cmd):
+            continue  # a helper the browser extension spawns, not a session
         try:
             found.append(
                 {"pid": proc.info["pid"], "cwd": proc.cwd(), "instance_id": proc.environ().get("EMPIRICA_INSTANCE_ID")}
@@ -1106,6 +1112,8 @@ def check_claude_instance_identity(processes: list[dict] | None = None, unreadab
     """
     import re
 
+    from empirica.utils.session_resolver import _is_uuid_format
+
     name = "Live claude sessions run as their own practice"
     if processes is None:
         try:
@@ -1125,7 +1133,8 @@ def check_claude_instance_identity(processes: list[dict] | None = None, unreadab
         proj = _project_ai_id(p["cwd"])
         # A UUID id is deliberate (ecodex binds its thread id); a claude outside any project has
         # nothing to compare against.
-        if proj is None or not re.fullmatch(r"[a-z][a-z0-9_-]*", iid):
+        # UUID shape first: a UUID that starts with a-f is also slot-shaped.
+        if proj is None or _is_uuid_format(iid) or not re.fullmatch(r"[a-z][a-z0-9_-]*", iid):
             skipped += 1
             continue
         root, ai_id = proj
@@ -1176,6 +1185,7 @@ def check_stale_open_transactions(cwd: Path | None = None, now: float | None = N
     files = sorted(edir.glob("active_transaction*.json"))
     open_count = 0
     stale: list[dict] = []
+    unknown_age: list[str] = []
     for f in files:
         try:
             tx = json.loads(f.read_text(encoding="utf-8"))
@@ -1185,9 +1195,11 @@ def check_stale_open_transactions(cwd: Path | None = None, now: float | None = N
             continue
         open_count += 1
         try:
-            age_days = (now - float(tx.get("preflight_timestamp") or 0)) / 86400
-        except (TypeError, ValueError):
+            started = float(tx["preflight_timestamp"])
+        except (KeyError, TypeError, ValueError):
+            unknown_age.append(f.name)  # missing is not "epoch 0": that would read as 20000 days
             continue
+        age_days = (now - started) / 86400
         if age_days > STALE_OPEN_TRANSACTION_DAYS:
             suffix = f.stem.removeprefix("active_transaction").removeprefix("_")
             stale.append(
@@ -1199,6 +1211,16 @@ def check_stale_open_transactions(cwd: Path | None = None, now: float | None = N
                 }
             )
     walked = f"{len(files)} transaction file(s) read, {open_count} open"
+    if not stale and unknown_age:
+        return Check(
+            name,
+            WARN,
+            f"{walked}; {len(unknown_age)} open with no readable preflight_timestamp, so their age is unknown: "
+            + ", ".join(unknown_age[:5]),
+            "Inspect the file; a window with no start time cannot be aged, and a pane reusing that instance id "
+            "would count against it.",
+            {"unknown_age": unknown_age},
+        )
     if not stale:
         return Check(name, PASS, f"{walked}, none older than {STALE_OPEN_TRANSACTION_DAYS} days")
     stale.sort(key=lambda r: -r["age_days"])
@@ -1211,7 +1233,7 @@ def check_stale_open_transactions(cwd: Path | None = None, now: float | None = N
         "A pane reusing that instance id would count its work against the old window. If the work is done, "
         f"take it over and close it: `empirica transaction-adopt --from {first['instance']} --project {cwd}`, "
         "then submit a POSTFLIGHT.",
-        {"stale": stale},
+        {"stale": stale, "unknown_age": unknown_age},
     )
 
 

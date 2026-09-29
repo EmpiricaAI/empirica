@@ -216,3 +216,75 @@ def test_diagnose_no_longer_says_never_when_it_only_read_a_window(logs, fake_lis
 
     assert "NEVER" not in out
     assert "none in the retained window" in out and "2 log file(s) read" in out
+
+
+# ── a bad line must not take `mesh status` down (broccoli, v1.14.3..HEAD) ────
+
+
+def _fixture_log(logs, *raw: bytes) -> None:
+    logs.write_bytes(b"".join(raw))
+
+
+GOOD = _line("cortex", NOW).encode()
+
+
+def test_a_json_list_line_between_good_lines_is_skipped_not_fatal(logs):
+    """POSITIVE CONTROL is the good line: it must still be counted. v1.14.3 caught every
+    exception per line; the rewrite narrowed to ValueError and `[1,2].get` raised AttributeError."""
+    _fixture_log(logs, b"[1, 2]\n", GOOD, b'"just a string"\n', b"42\n")
+
+    scan = mc._scan_fires("cortex")
+
+    assert scan.last_ts is not None and scan.fires_last_hour == 1 and scan.files_unreadable == 0
+
+
+def test_invalid_utf8_is_replaced_not_raised(logs):
+    _fixture_log(logs, b'\xff\xfe {"instance_id": "cortex" torn\n', GOOD)
+
+    scan = mc._scan_fires("cortex")
+
+    assert scan.fires_last_hour == 1
+
+
+def test_a_naive_timestamp_beside_an_aware_one_compares(logs):
+    """Comparing naive with aware raises TypeError; both are read as UTC."""
+    naive = json.dumps({"ts": (NOW - timedelta(minutes=5)).replace(tzinfo=None).isoformat(), "instance_id": "cortex"})
+    _fixture_log(logs, naive.encode() + b"\n", GOOD)
+
+    scan = mc._scan_fires("cortex")
+
+    assert scan.fires_last_hour == 2 and scan.last_ts is not None and scan.last_ts.tzinfo is not None
+
+
+def test_a_log_that_cannot_be_opened_is_reported_as_unreadable_not_as_a_cold_start(logs, monkeypatch):
+    """Every generation unreadable used to leave window_start None, which health calls a cold start."""
+    _fixture_log(logs, GOOD)
+    real_open = type(logs).open
+
+    def deny(self, *a, **k):
+        if self == logs:
+            raise PermissionError("denied")
+        return real_open(self, *a, **k)
+
+    monkeypatch.setattr(type(logs), "open", deny)
+
+    scan = mc._scan_fires("cortex")
+    assert (scan.files_read, scan.files_unreadable) == (0, 1)
+
+    color, reason = mc._compute_health(
+        {
+            "ai_id": "cortex",
+            "service_installed": True,
+            "service_active": True,
+            "listener_process_pid": 1,
+            "curl_subprocess_pid": 2,
+            "curl_parented": True,
+            "last_fire_at_utc": None,
+            "fire_window_start": scan.window_start,
+            "fire_logs_read": scan.files_read,
+            "fire_logs_unreadable": scan.files_unreadable,
+            "backoff_state": None,
+        },
+        cortex_configured=True,
+    )
+    assert color == "yellow" and "unreadable" in reason and "cold start" not in reason

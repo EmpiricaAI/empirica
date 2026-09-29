@@ -50,3 +50,36 @@ def test_fresh_and_closed_files_pass_and_say_what_was_read(tmp_path):
 
 def test_no_empirica_directory_is_a_skip(tmp_path):
     assert check_stale_open_transactions(tmp_path, now=NOW).status == SKIP
+
+
+def _raw(root: Path, suffix: str, body: dict) -> None:
+    (root / ".empirica").mkdir(parents=True, exist_ok=True)
+    (root / ".empirica" / f"active_transaction{suffix}.json").write_text(json.dumps(body))
+
+
+def test_an_open_transaction_with_no_start_time_is_unknown_age_not_epoch_zero(tmp_path):
+    """A missing preflight_timestamp used to become 0, i.e. ~20000 days old."""
+    _raw(tmp_path, "_a", {"transaction_id": "x", "status": "open"})
+
+    c = check_stale_open_transactions(tmp_path, now=NOW)
+
+    assert c.status == WARN and c.data["unknown_age"] == ["active_transaction_a.json"] and c.data.get("stale") is None
+    assert "age is unknown" in c.detail and "20" not in c.detail.split("unknown")[0]
+
+
+def test_a_non_numeric_start_time_never_reads_as_none_older_than_seven_days(tmp_path):
+    """It used to be skipped after being counted open, and the PASS then said none were old."""
+    _raw(tmp_path, "_a", {"transaction_id": "x", "status": "open", "preflight_timestamp": "yesterday"})
+
+    c = check_stale_open_transactions(tmp_path, now=NOW)
+
+    assert c.status == WARN and "none older" not in c.detail
+
+
+def test_unknown_age_and_stale_are_both_reported(tmp_path):
+    _raw(tmp_path, "_a", {"transaction_id": "x", "status": "open"})
+    _tx(tmp_path, "_tmux_48", "open", 65)
+
+    c = check_stale_open_transactions(tmp_path, now=NOW)
+
+    assert c.status == WARN and [r["instance"] for r in c.data["stale"]] == ["tmux_48"] and c.data["unknown_age"]

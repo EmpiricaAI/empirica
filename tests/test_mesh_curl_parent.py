@@ -200,3 +200,24 @@ def test_diagnose_json_carries_curl_parented_too(capsys):
     local = json.loads(capsys.readouterr().out)["local"]
 
     assert local["curl_subprocess_pid"] == 101 and local["curl_parented"] is False
+
+
+# ── the listener match is a boundary match (broccoli) ───────────────────────
+
+
+def test_a_listener_for_a_longer_instance_name_is_not_this_practices_listener():
+    """`--instance empirica` is a prefix of `--instance empirica-workspace`. Measured on the
+    box: `empirica` was reported with the workspace listener's pid."""
+    other = (200, 1, "/usr/bin/python3 -m empirica loop listen --instance empirica-workspace --foo")
+    procs = mc._find_listener_procs("empirica", _ps(other))
+
+    assert procs.listener_pid is None
+
+
+def test_the_exact_listener_is_still_found_beside_a_longer_named_one():
+    """Positive control for the test above, and the end-of-command case (no trailing argument)."""
+    other = (200, 1, "/usr/bin/python3 -m empirica loop listen --instance empirica-workspace")
+    mine = (300, 1, "/usr/bin/python3 -m empirica loop listen --instance empirica")
+
+    assert mc._find_listener_procs("empirica", _ps(other, mine)).listener_pid == 300
+    assert mc._find_listener_procs("empirica-workspace", _ps(other, mine)).listener_pid == 200

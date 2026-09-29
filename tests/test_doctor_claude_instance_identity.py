@@ -147,3 +147,44 @@ def test_the_real_gatherer_reads_a_live_processes_cwd_and_id(fake_claude):
     assert Path(mine[0]["cwd"]).resolve() == proj.resolve()
     # and the check, given exactly that process, flags it
     assert check_claude_instance_identity(mine).status == WARN
+
+
+# ── broccoli: classifier and process-set defects ────────────────────────────
+
+
+@pytest.mark.parametrize("uuid", ["a1b2c3d4-0000-4000-8000-000000000001", "f0000000-1111-7222-8333-444444444444"])
+def test_a_uuid_starting_with_a_letter_is_still_a_uuid_not_a_mismatch(tmp_path, uuid):
+    """A UUID beginning a-f also matches the slot regex `[a-z][a-z0-9_-]*`; the shape is tested first."""
+    d = _project(tmp_path / "ecodex", "ecodex")
+
+    c = check_claude_instance_identity([_p(1, d, uuid)])
+
+    assert c.status == PASS and "1 skipped" in c.detail
+
+
+def test_a_slot_shaped_wrong_id_is_still_a_mismatch(tmp_path):
+    """Control for the above: the UUID test must not swallow real ids that merely start with a hex letter."""
+    d = _project(tmp_path / "proj", "proj")
+
+    assert check_claude_instance_identity([_p(1, d, "abc-def")]).status == WARN
+
+
+def test_a_claude_helper_process_is_not_a_session(tmp_path):
+    """`claude --chrome-native-host` is spawned by the browser extension. It carries no practice id and
+    landed in "unbound" on the real box (pids 557820, 3404814)."""
+    exe = tmp_path / "claude"
+    exe.write_text("#!/bin/sh\nsleep 60\n")
+    exe.chmod(0o755)
+    proj = _project(tmp_path / "proj", "proj")
+    helper = subprocess.Popen([str(exe), "--chrome-native-host"], cwd=proj)
+    session = subprocess.Popen([str(exe), "60"], cwd=proj)
+    time.sleep(0.2)
+    try:
+        found, _ = _claude_processes()
+        pids = {p["pid"] for p in found}
+        assert session.pid in pids  # positive control: the enumerator sees a plain claude
+        assert helper.pid not in pids
+    finally:
+        for p in (helper, session):
+            p.kill()
+            p.wait()
