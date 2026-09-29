@@ -176,3 +176,27 @@ def test_status_table_says_orphan_for_an_unparented_curl_and_ok_for_a_parented_o
     mc.handle_mesh_status_command(types.SimpleNamespace(instance=None, output="human"))
     out = capsys.readouterr().out
     assert " ok " in out and "orphan" not in out
+
+
+def test_diagnose_json_carries_curl_parented_too(capsys):
+    state = mc.MeshInstanceState(
+        ai_id="cortex",
+        backend="systemd",
+        service_installed=True,
+        service_active=True,
+        listener_process_pid=100,
+        curl_subprocess_pid=101,
+        last_fire_at_utc=None,
+        fires_last_hour=0,
+        cortex_configured=True,
+        loops_registered=0,
+        backoff_state=None,
+        health_color="red",
+        health_reason="x",
+        curl_parented=False,
+    )
+
+    mc._emit_diagnose_json("cortex", state, None)
+    local = json.loads(capsys.readouterr().out)["local"]
+
+    assert local["curl_subprocess_pid"] == 101 and local["curl_parented"] is False
