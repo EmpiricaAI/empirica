@@ -137,9 +137,14 @@ Only on an affirmative:
 ```bash
 empirica provision-practice <name> \
   --tenant <tenant> --org <org> \
+  --cockpit-profile <tenant> \
   [--forgejo-owner <owner> --forgejo-host <ssh-url>] \
   [--no-cortex]
 ```
+
+`--cockpit-profile` adds each practice to one cockpit layout (`~/.empirica/cockpit/config-<name>.yaml`,
+created on the first call with a TUI window, then one window per practice). Pass the SAME name on
+every call. The tenant slug is a sensible default; use another if they already have a profile.
 
 Where the flags come from Phase 3:
 
@@ -153,6 +158,20 @@ Where the flags come from Phase 3:
 **Report per practice what actually happened** — provisioned, already existed,
 or failed and why. A rollup "done!" over a partial failure is the shape this
 whole system exists to prevent.
+
+**Then hand them the cockpit.** When at least one practice was provisioned, end the
+phase with the command the last call printed, in a block they can copy:
+
+```bash
+empirica cockpit launch --profile <name>
+```
+
+Say what it does in one line (one window per practice, each starting `claude` in its
+own directory with a stable identity, plus a TUI window) and point at
+`docs/guides/COCKPIT.md` for changing it. `empirica cockpit refresh` restarts a
+practice whose Claude exited. Do not launch it for them: it opens their terminal.
+If no practice was provisioned, or a `cockpit-profile` step failed, say that instead
+and do not print a launch command for a profile that was not written.
 
 ---
 
@@ -217,6 +236,7 @@ practices:                     # Phase 6 — what was actually provisioned
   - name: "{ai_id}"
     provisioned: true
     domain: "{domain}"
+cockpit_profile: "{name}"      # Phase 6 — `empirica cockpit launch --profile {name}`; omit if none was written
 
 work_preferences:
   ai_autonomy_level: "{autonomous|collaborative_with_checkpoints|assistant_mode}"

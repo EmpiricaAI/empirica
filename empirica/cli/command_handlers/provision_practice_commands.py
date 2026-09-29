@@ -118,6 +118,47 @@ def _wire_forgejo(proj_dir: Path, name: str, owner: str, host: str, dry_run: boo
     return True, None
 
 
+def _add_to_cockpit_profile(profile: str, name: str, proj_dir: Path, dry_run: bool, failed: bool) -> dict:
+    """The ``cockpit-profile`` step. Skipped, and said so, when an earlier step failed:
+    a profile listing a practice that never came up would launch an empty pane."""
+    from empirica.core.cockpit.launcher.config import ProfileError, add_practice_to_profile, profile_path
+
+    launch = f"empirica cockpit launch --profile {profile}"
+    try:
+        target = profile_path(profile)
+    except ProfileError as exc:
+        return {"step": "cockpit-profile", "changed": False, "error": str(exc)}
+    if failed:
+        return {
+            "step": "cockpit-profile",
+            "changed": False,
+            "note": "skipped: an earlier step failed",
+            "launch": launch,
+        }
+    if dry_run:
+        return {"step": "cockpit-profile", "changed": True, "note": f"dry-run, would add to {target}", "launch": launch}
+    try:
+        target, changed = add_practice_to_profile(profile, name, str(proj_dir))
+    except ProfileError as exc:
+        return {"step": "cockpit-profile", "changed": False, "error": str(exc)}
+    note = str(target) if changed else f"already in {target}"
+    return {"step": "cockpit-profile", "changed": changed, "note": note, "launch": launch}
+
+
+def _print_human(name: str, proj_dir: Path, steps: list[dict], dry_run: bool, launch_command, any_error: bool) -> None:
+    verb = "dry-run" if dry_run else "provisioned"
+    print(f"{'❌' if any_error else '✅'} {name} {verb} at {proj_dir}")
+    for s in steps:
+        marker = "✗" if s.get("error") else ("·" if not s["changed"] else "✓")
+        note = f" ({s['note']})" if s.get("note") else ""
+        line = f"  {marker} {s['step']}{note}"
+        if s.get("error"):
+            line += f"  ⚠ {s['error']}"
+        print(line)
+    if launch_command and not any_error and not dry_run:
+        print(f"\nLaunch your practices: {launch_command}")
+
+
 def handle_provision_practice_command(args) -> int:
     """``empirica provision-practice <name> [options]``.
 
@@ -205,6 +246,13 @@ def handle_provision_practice_command(args) -> int:
             ok, err = _wire_forgejo(proj_dir, name, forgejo_owner, forgejo_host, dry_run)
             steps.append({"step": "forgejo-backup-wired", "changed": ok, "error": err})
 
+    profile = getattr(args, "cockpit_profile", None)
+    launch_command = None
+    if profile:
+        step = _add_to_cockpit_profile(profile, name, proj_dir, dry_run, failed=any(s.get("error") for s in steps))
+        steps.append(step)
+        launch_command = step.get("launch")
+
     any_error = any(s.get("error") for s in steps)
     payload = {
         "ok": not any_error,
@@ -216,18 +264,12 @@ def handle_provision_practice_command(args) -> int:
         "dry_run": dry_run,
         "steps": steps,
     }
+    if launch_command:
+        payload["launch_command"] = launch_command
 
     if output == "json":
         print(json.dumps(payload, indent=2))
         return 0 if not any_error else 1
 
-    verb = "dry-run" if dry_run else "provisioned"
-    print(f"{'❌' if any_error else '✅'} {name} {verb} at {proj_dir}")
-    for s in steps:
-        marker = "✗" if s.get("error") else ("·" if not s["changed"] else "✓")
-        note = f" ({s['note']})" if s.get("note") else ""
-        line = f"  {marker} {s['step']}{note}"
-        if s.get("error"):
-            line += f"  ⚠ {s['error']}"
-        print(line)
+    _print_human(name, proj_dir, steps, dry_run, launch_command, any_error)
     return 0 if not any_error else 1

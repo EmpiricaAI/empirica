@@ -12,6 +12,7 @@ a ``.empirica/`` folder).
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -328,6 +329,70 @@ def _serialize(config: LauncherConfig) -> dict[str, Any]:
     if config.alacritty_args:
         out["alacritty_args"] = config.alacritty_args
     return out
+
+
+_PROFILE_NAME = re.compile(r"[a-z0-9][a-z0-9_-]*")
+
+
+class ProfileError(ValueError):
+    """A profile could not be created or extended without risking the user's file."""
+
+
+def profile_path(profile: str) -> Path:
+    """``~/.empirica/cockpit/config-NAME.yaml``. The name becomes a file name, so it is
+    checked here, not trusted: no separators, no dots, no leading dash."""
+    if not _PROFILE_NAME.fullmatch(profile or ""):
+        raise ProfileError(f"profile name {profile!r} must be lowercase letters, digits, - or _")
+    return Path.home() / ".empirica" / "cockpit" / f"config-{profile}.yaml"
+
+
+def add_practice_to_profile(profile: str, name: str, path: str) -> tuple[Path, bool]:
+    """Add one practice to a cockpit profile, creating the profile if it has none.
+
+    Returns ``(file, changed)``. Idempotent: a practice already listed changes
+    nothing. A new profile gets a ``monitor`` window running the TUI, then one
+    window per practice (surface: tmux, so the layout opens where ``launch`` is run).
+
+    An existing file is read strictly. ``load_config`` returns defaults for
+    anything unreadable, which is right for launching and wrong here: writing
+    those defaults back would replace a profile the user edited. So an unreadable
+    or non-mapping file is refused, and a modified one is backed up first (the
+    round trip drops YAML comments).
+    """
+    import yaml
+
+    target = profile_path(profile)
+    if target.exists():
+        try:
+            raw = yaml.safe_load(target.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError) as exc:
+            raise ProfileError(f"{target} is not readable YAML ({exc}); fix or remove it, nothing was changed") from exc
+        if not isinstance(raw, dict):
+            raise ProfileError(f"{target} is not a YAML mapping; fix or remove it, nothing was changed")
+        config = load_config(target)
+    else:
+        config = LauncherConfig(
+            session_name=f"cockpit-{profile}",
+            attach_on_launch=True,
+            surface="tmux",
+            groups=[GroupSpec(name="monitor", panes=[PaneSpec(inline_command="empirica tui", label="tui")])],
+        )
+    if config.project_by_name(name) is not None:
+        return target, False
+    config.projects.append(ProjectSpec(name=name, path=str(Path(path).expanduser()), launch="claude"))
+    config.groups.append(GroupSpec(name=name, panes=[PaneSpec(project_ref=name)]))
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists():
+        target.with_suffix(".yaml.bak").write_bytes(target.read_bytes())
+    header = (
+        f"# Cockpit profile '{profile}': written by `empirica provision-practice --cockpit-profile {profile}`.\n"
+        f"# Launch: empirica cockpit launch --profile {profile}    Guide: docs/guides/COCKPIT.md\n"
+    )
+    target.write_text(
+        header + yaml.safe_dump(_serialize(config), default_flow_style=False, sort_keys=False), encoding="utf-8"
+    )
+    return target, True
 
 
 def write_default_config(

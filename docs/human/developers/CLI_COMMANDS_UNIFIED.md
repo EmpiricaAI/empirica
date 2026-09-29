@@ -23,7 +23,7 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.14.3
-**Generated:** 2026-09-29 08:23:56 UTC
+**Generated:** 2026-09-29 09:42:12 UTC
 **Total commands:** 241 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -1763,6 +1763,8 @@ Create + register a new local practice/practitioner in one command
   Forgejo SSH remote for the backup, e.g. ssh://git@host:port. Falls back to the EMPIRICA_FORGEJO_HOST env var; required when --forgejo-owner is set (no built-in default).
 - `--no-cortex` — optional · flag
   Skip cortex registration (local writes only) — passed through to project-register
+- `--cockpit-profile` — optional
+  Also add this practice to the cockpit profile NAME (~/.empirica/cockpit/config-NAME.yaml, created if absent, with a TUI window) and print `empirica cockpit launch --profile NAME`. Run once per practice with the same NAME to build one layout.
 - `--dry-run` — optional · flag
   Print planned actions without executing
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`

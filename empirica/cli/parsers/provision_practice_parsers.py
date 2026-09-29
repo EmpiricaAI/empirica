@@ -61,5 +61,12 @@ Falls back to erroring with a clear message if neither is available.
         action="store_true",
         help="Skip cortex registration (local writes only) — passed through to project-register",
     )
+    p.add_argument(
+        "--cockpit-profile",
+        metavar="NAME",
+        help="Also add this practice to the cockpit profile NAME (~/.empirica/cockpit/config-NAME.yaml, "
+        "created if absent, with a TUI window) and print `empirica cockpit launch --profile NAME`. "
+        "Run once per practice with the same NAME to build one layout.",
+    )
     p.add_argument("--dry-run", action="store_true", help="Print planned actions without executing")
     p.add_argument("--output", choices=["human", "json"], default="human", help="Output format")

@@ -62,6 +62,24 @@ switch (mouse support is on by default).
 
 ---
 
+## From onboarding
+
+If you ran `/ewm-interview` and let it provision your practices, it already wrote a
+cockpit for them: each `empirica provision-practice <name> --cockpit-profile <profile>`
+adds one practice to `~/.empirica/cockpit/config-<profile>.yaml` (creating it with a
+TUI window on the first call). The interview ends by printing the command:
+
+```bash
+empirica cockpit launch --profile <profile>
+```
+
+You can run the same flag yourself to add a practice later. It is safe to repeat: a
+practice already listed changes nothing. A profile you edited is backed up to
+`config-<profile>.yaml.bak` before it is rewritten (rewriting drops YAML comments), and
+one that no longer parses is refused rather than replaced.
+
+---
+
 ## Several cockpits: profiles
 
 A second layout, say a different set of practices or one per monitor, is a
