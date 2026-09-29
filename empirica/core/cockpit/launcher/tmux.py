@@ -72,6 +72,25 @@ def _tmux(*args: str, check: bool = False) -> subprocess.CompletedProcess:
         )
 
 
+def exact_session(name: str) -> str:
+    """A tmux target naming exactly this session. A bare name is matched by PREFIX when no session
+    has it exactly, so `cockpit` finds `cockpit2` and a kill, a set-environment or a set-option would
+    land on someone else's session. The `=` prefix makes the match exact."""
+    return f"={name}"
+
+
+def _sess_at(name: str) -> str:
+    """Exact session, spelled as a window/option target (`=name:`): `new-window` and `set-option`
+    refuse the bare `=name` form."""
+    return f"={name}:"
+
+
+def _window(session: str, window: str) -> str:
+    """Exact ``session:window``. Both halves matched exactly: `cockpit2:api` would otherwise find a
+    window named `api-server`, and the launcher would then believe the group already exists."""
+    return f"={session}:={window}"
+
+
 def tmux_available() -> bool:
     """True iff the ``tmux`` binary is on PATH."""
     return shutil.which("tmux") is not None
@@ -81,7 +100,7 @@ def cockpit_session_exists(session_name: str) -> bool:
     """Check whether a tmux session with the given name is running."""
     if not tmux_available():
         return False
-    result = _tmux("has-session", "-t", session_name)
+    result = _tmux("has-session", "-t", exact_session(session_name))
     return result.returncode == 0
 
 
@@ -180,7 +199,7 @@ def launch_cockpit(config: LauncherConfig) -> LaunchResult:
     # Additional project windows
     for project in remaining_projects:
         result = _open_pane(
-            ["new-window", "-t", config.session_name, "-n", project.name],
+            ["new-window", "-t", _sess_at(config.session_name), "-n", project.name],
             PaneSpec(project_ref=project.name),
             f"{project.name}/0",
             config,
@@ -198,7 +217,7 @@ def launch_cockpit(config: LauncherConfig) -> LaunchResult:
         result = _tmux(
             "new-window",
             "-t",
-            config.session_name,
+            _sess_at(config.session_name),
             "-n",
             status.name,
             status.command,
@@ -227,7 +246,7 @@ def cockpit_kill(session_name: str = "cockpit") -> tuple[bool, str | None]:
         return False, "tmux binary not found on PATH"
 
     if cockpit_session_exists(session_name):
-        result = _tmux("kill-session", "-t", session_name)
+        result = _tmux("kill-session", "-t", exact_session(session_name))
         if result.returncode != 0:
             return False, f"tmux kill-session failed: {result.stderr.strip()}"
 
@@ -292,7 +311,7 @@ def _session_has_attached_client(session_name: str) -> bool:
     """
     if not tmux_available():
         return False
-    result = _tmux("list-clients", "-t", session_name, "-F", "#{client_pid}")
+    result = _tmux("list-clients", "-t", exact_session(session_name), "-F", "#{client_pid}")
     if result.returncode != 0:
         return False
     return any(line.strip() for line in result.stdout.splitlines())
@@ -478,7 +497,7 @@ def _configure_session(config: LauncherConfig, session_name: str) -> None:
     """Session-wide UX: with mouse on, window names in the status line are
     clickable tabs and a click focuses a pane — no prefix keys needed."""
     if config.mouse:
-        _tmux("set-option", "-t", session_name, "mouse", "on")
+        _tmux("set-option", "-t", _sess_at(session_name), "mouse", "on")
 
 
 _ID_VAR = "EMPIRICA_INSTANCE_ID"
@@ -489,7 +508,7 @@ def session_identity(session_name: str) -> str | None:
 
     tmux prints ``VAR=value`` when set, ``-VAR`` when marked removed, and an error when unknown.
     """
-    result = _tmux("show-environment", "-t", session_name, _ID_VAR)
+    result = _tmux("show-environment", "-t", exact_session(session_name), _ID_VAR)
     line = result.stdout.strip()
     if result.returncode == 0 and line.startswith(f"{_ID_VAR}="):
         return line.split("=", 1)[1]
@@ -512,7 +531,7 @@ def strip_session_identity(session_name: str) -> str | None:
     """
     value = session_identity(session_name)
     if value is not None:
-        _tmux("set-environment", "-t", session_name, "-r", _ID_VAR)
+        _tmux("set-environment", "-t", exact_session(session_name), "-r", _ID_VAR)
     return value
 
 
@@ -544,6 +563,22 @@ def _open_pane(base: list[str], pane: PaneSpec, key: str, config: LauncherConfig
     return result
 
 
+def _why(result: subprocess.CompletedProcess) -> str:
+    return result.stderr.strip() or result.stdout.strip() or f"exit {result.returncode}"
+
+
+def _incomplete(group: GroupSpec, failures: list[str], attempted: int) -> str | None:
+    """The error for a window built with panes missing, or None when every pane came up.
+
+    A failed split used to be dropped: a detached 80x24 window refused 10 of 13 splits ("no space
+    for new pane") and the launch still reported success, because the rollup only read whole-window
+    errors. The first reason is kept; the rest are almost always the same one.
+    """
+    if not failures:
+        return None
+    return f"{len(failures)} of {attempted} pane(s) in {group.name!r} not created: {failures[0]}"
+
+
 def _create_group_window(
     group: GroupSpec,
     config: LauncherConfig,
@@ -569,7 +604,7 @@ def _create_group_window(
     this works regardless of ``base-index`` 0 vs 1.
     """
     identities = identities or {}
-    window_target = f"{session_name}:{group.name}"
+    window_target = _window(session_name, group.name)
     split_flag = "-h" if group.split == "horizontal" else "-v"
     layout = "even-horizontal" if group.split == "horizontal" else "even-vertical"
     keyed = [(f"{group.name}/{i}", pane) for i, pane in enumerate(group.panes)]
@@ -583,15 +618,16 @@ def _create_group_window(
             missing = [(k, p) for k, p in keyed if k not in present]
         else:
             missing = keyed[existing:]  # unstamped window from an older launch
+        failures: list[str] = []
         for key, pane in missing:
-            if (
-                _open_pane(["split-window", "-t", window_target, split_flag], pane, key, config, identities).returncode
-                == 0
-            ):
+            result = _open_pane(["split-window", "-t", window_target, split_flag], pane, key, config, identities)
+            if result.returncode == 0:
                 existing += 1
+            else:
+                failures.append(_why(result))
         if missing:
             _tmux("select-layout", "-t", window_target, layout)
-        return False, existing, None
+        return False, existing, _incomplete(group, failures, len(missing))
 
     if not group.panes:
         return False, 0, f"group {group.name!r} has no panes"
@@ -601,7 +637,7 @@ def _create_group_window(
         base = ["new-session", "-d", "-s", session_name, "-n", group.name]
         verb = "new-session"
     else:
-        base = ["new-window", "-t", session_name, "-n", group.name]
+        base = ["new-window", "-t", _sess_at(session_name), "-n", group.name]
         verb = "new-window"
     result = _open_pane(base, first, first_key, config, identities)
     if result.returncode != 0:
@@ -610,14 +646,18 @@ def _create_group_window(
         _configure_session(config, session_name)
 
     panes_created = 1
+    failures = []
     for key, pane in keyed[1:]:
-        if _open_pane(["split-window", "-t", window_target, split_flag], pane, key, config, identities).returncode == 0:
+        result = _open_pane(["split-window", "-t", window_target, split_flag], pane, key, config, identities)
+        if result.returncode == 0:
             panes_created += 1
+        else:
+            failures.append(_why(result))
 
     # Even out pane sizes so a 2-pane horizontal split is 50/50.
     _tmux("select-layout", "-t", window_target, layout)
 
-    return True, panes_created, None
+    return True, panes_created, _incomplete(group, failures, len(keyed) - 1)
 
 
 def _spawn_alacritty(group_name: str, session_name: str, extra_args: list[str]) -> tuple[int | None, str | None]:
@@ -644,7 +684,7 @@ def _spawn_alacritty(group_name: str, session_name: str, extra_args: list[str]) 
         "tmux",
         "attach-session",
         "-t",
-        session_name,
+        exact_session(session_name),
     ]
 
     try:
@@ -688,7 +728,7 @@ def _spawn_ghostty(group_name: str, session_name: str, extra_args: list[str]) ->
         "tmux",
         "attach-session",
         "-t",
-        session_name,
+        exact_session(session_name),
     ]
 
     try:
@@ -817,14 +857,17 @@ def resume_command(proj) -> str:
         return proj.launch
     if any(t in ("--continue", "-c") for t in tokens):
         return proj.launch
+    # Edit the ORIGINAL string, never shlex.join the tokens: the launch line is run by a shell, and
+    # a round trip through split/join quotes `~`, `$VAR` and `$(...)`, so a refreshed pane would
+    # start with those inert where the first launch expanded them.
     for i, t in enumerate(tokens):
         if t in ("--resume", "-r"):
             nxt = tokens[i + 1] if i + 1 < len(tokens) else None
             if nxt and not nxt.startswith("-"):
                 return proj.launch
-            tokens[i] = "--continue"
-            return shlex.join(tokens)
-    return shlex.join([*tokens, "--continue"])
+            swapped, n = re.subn(r"(?<!\S)(?:--resume|-r)(?!\S)", "--continue", proj.launch, count=1)
+            return swapped if n else proj.launch
+    return f"{proj.launch} --continue"
 
 
 def _adopt(
@@ -841,7 +884,9 @@ def _adopt(
     """
     seen = {r["key"] for r in rows if r["key"]}
     adopted: list[str] = []
-    for row in rows:
+    fits: dict[int, list[str]] = {}  # untracked row index -> configured keys it could be
+    claimants: dict[str, int] = {}  # configured key -> how many untracked panes could be it
+    for idx, row in enumerate(rows):
         if row["key"]:
             continue
         candidates = []
@@ -851,8 +896,15 @@ def _adopt(
             proj = config.project_by_name(pane.project_ref)
             if proj and os.path.realpath(proj.path) == os.path.realpath(row["path"] or "/nonexistent"):
                 candidates.append(key)
-        if len(candidates) != 1:
+        fits[idx] = candidates
+        for key in candidates:
+            claimants[key] = claimants.get(key, 0) + 1
+    for idx, candidates in fits.items():
+        # One key for the pane AND one pane for the key: a spare shell split from the claude pane
+        # shares its window and directory, and would otherwise take the key by row order.
+        if len(candidates) != 1 or claimants[candidates[0]] != 1:
             continue
+        row = rows[idx]
         key = candidates[0]
         iid = identities.get(key)
         _stamp_pane(row["pane_id"], key, iid, remain=bool(iid) and _runs_claude(specs[key], config))
@@ -888,7 +940,7 @@ def refresh_cockpit(config: LauncherConfig) -> RefreshResult:
         "#{pane_id}\t#{pane_dead}\t#{pane_current_command}\t#{@empirica_pane}\t"
         "#{@empirica_instance_id}\t#{window_name}\t#{pane_current_path}"
     )
-    listing = _tmux("list-panes", "-s", "-t", session_name, "-F", fmt)
+    listing = _tmux("list-panes", "-s", "-t", exact_session(session_name), "-F", fmt)
     if listing.returncode != 0:
         out.error = f"tmux list-panes failed: {listing.stderr.strip()}"
         return out
@@ -918,6 +970,18 @@ def refresh_cockpit(config: LauncherConfig) -> RefreshResult:
             continue
         proj = config.project_by_name(pane.project_ref or "")
         if proj is None:
+            continue
+        if not os.path.isdir(os.path.expanduser(proj.path)):
+            # tmux quietly starts the new process in $HOME when -c names a directory that is gone.
+            out.respawned.append(
+                {
+                    "key": key,
+                    "pane_id": row["pane_id"],
+                    "instance_id": row["iid"] or None,
+                    "command": None,
+                    "error": f"project directory {proj.path} does not exist; not respawned",
+                }
+            )
             continue
         command = resume_command(proj)
         iid = row["iid"] or None

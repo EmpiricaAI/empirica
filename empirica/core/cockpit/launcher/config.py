@@ -12,6 +12,7 @@ a ``.empirica/`` folder).
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -377,21 +378,44 @@ def add_practice_to_profile(profile: str, name: str, path: str) -> tuple[Path, b
             surface="tmux",
             groups=[GroupSpec(name="monitor", panes=[PaneSpec(inline_command="empirica tui", label="tui")])],
         )
-    if config.project_by_name(name) is not None:
+    wanted = Path(path).expanduser()
+    existing = config.project_by_name(name)
+    if existing is not None:
+        if os.path.realpath(os.path.expanduser(existing.path)) != os.path.realpath(wanted):
+            # Idempotent means "same practice, same place". A different path under the same name is
+            # a conflict the user has to settle; reporting "already there" would leave the stale path.
+            raise ProfileError(
+                f"{name!r} is already in {target} at {existing.path}, not {wanted}; "
+                "edit or remove that entry, nothing was changed"
+            )
         return target, False
-    config.projects.append(ProjectSpec(name=name, path=str(Path(path).expanduser()), launch="claude"))
-    config.groups.append(GroupSpec(name=name, panes=[PaneSpec(project_ref=name)]))
+    if any(g.name == name for g in config.groups):
+        raise ProfileError(
+            f"a window named {name!r} already exists in {target} (the default TUI window is 'monitor'); "
+            "provision under another name, nothing was changed"
+        )
+    config.projects.append(ProjectSpec(name=name, path=str(wanted), launch="claude"))
+    if config.is_groups_mode():
+        config.groups.append(GroupSpec(name=name, panes=[PaneSpec(project_ref=name)]))
+    # else: a projects-only profile opens one window per project on its own. Adding a group would
+    # flip it to groups mode, where only the groups are windows and the existing projects vanish.
 
-    target.parent.mkdir(parents=True, exist_ok=True)
-    if target.exists():
-        target.with_suffix(".yaml.bak").write_bytes(target.read_bytes())
     header = (
         f"# Cockpit profile '{profile}': written by `empirica provision-practice --cockpit-profile {profile}`.\n"
         f"# Launch: empirica cockpit launch --profile {profile}    Guide: docs/guides/COCKPIT.md\n"
     )
-    target.write_text(
-        header + yaml.safe_dump(_serialize(config), default_flow_style=False, sort_keys=False), encoding="utf-8"
-    )
+    body = header + yaml.safe_dump(_serialize(config), default_flow_style=False, sort_keys=False)
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        backup = target.with_suffix(".yaml.bak")
+        if target.exists() and not backup.exists():
+            # The FIRST backup is the user's own version; a later run must not overwrite it with ours.
+            backup.write_bytes(target.read_bytes())
+        tmp = target.with_suffix(".yaml.tmp")
+        tmp.write_text(body, encoding="utf-8")
+        os.replace(tmp, target)
+    except OSError as exc:
+        raise ProfileError(f"could not write {target} ({exc}); nothing was changed") from exc
     return target, True
 
 

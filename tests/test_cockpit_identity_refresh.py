@@ -305,7 +305,10 @@ def test_a_hung_tmux_call_is_a_pane_error_and_the_build_continues(monkeypatch):
 
     created, n, err = t._create_group_window(cfg.groups[0], cfg, "s", True, {})
 
-    assert (created, n, err) == (True, 1, None), "first pane built, the hung splits counted as failed"
+    # The build continued past the hangs (below), and the hangs are REPORTED: this used to assert
+    # err is None, which pinned the defect that a failed split was indistinguishable from success.
+    assert (created, n) == (True, 1)
+    assert err is not None and "2 of 2 pane(s)" in err and "timed out" in err
     assert sum(1 for c in calls if c[1] == "split-window") == 2, "the build kept going after the first hang"
     assert any(c[1] == "select-layout" for c in calls)
 

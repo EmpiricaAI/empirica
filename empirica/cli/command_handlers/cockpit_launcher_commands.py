@@ -32,6 +32,7 @@ from empirica.core.cockpit.launcher import (
     write_default_config,
 )
 from empirica.core.cockpit.launcher.detection import SessionAlreadyRunning
+from empirica.core.cockpit.launcher.tmux import exact_session
 
 
 def _format_age(seconds: float | None) -> str:
@@ -180,7 +181,7 @@ def handle_cockpit_launch_command(args) -> int:
     if output == "human":
         verb = "created" if result.created else "attaching to existing"
         print(f"✅ Cockpit {verb}: {result.session_name} — handing off to tmux...")
-    os.execvp("tmux", ["tmux", "attach-session", "-t", result.session_name])  # noqa: S606 — tmux is the OS executable, args are sanitized config values
+    os.execvp("tmux", ["tmux", "attach-session", "-t", exact_session(result.session_name)])  # noqa: S606 — tmux is the OS executable, args are sanitized config values
     # execvp doesn't return on success; if we get here, something failed.
     return 1
 
@@ -243,14 +244,22 @@ def _handle_groups_in_terminal(config, output: str, no_attach: bool) -> int:
         for g in result.groups:
             verb = "created" if g.created else "adopted existing"
             print(f"  · {g.group_name:12s} ({verb}, {g.panes_created} panes){'  ⚠ ' + g.error if g.error else ''}")
+    if not result.all_ok():
+        # Attaching would hand the terminal to tmux and the warnings above would be gone with the
+        # scrollback. Stop, say what is missing, and leave the choice to attach with the user.
+        if output == "human":
+            bad = [g for g in result.groups if g.error]
+            print(f"❌ Cockpit incomplete: {len(bad)} window(s) with problems, not attaching.")
+            print(f"   Attach anyway: tmux attach -t ={result.session_name}")
+        return 1
     if no_attach or not config.attach_on_launch:
         if output == "human":
             print(f"✅ Cockpit ready: {result.session_name} — attach with: tmux attach -t {result.session_name}")
-        return 0 if result.all_ok() else 1
+        return 0
     if os.environ.get("TMUX"):
         # Already inside tmux: attaching would nest. Move this client instead.
-        os.execvp("tmux", ["tmux", "switch-client", "-t", result.session_name])  # noqa: S606
-    os.execvp("tmux", ["tmux", "attach-session", "-t", result.session_name])  # noqa: S606
+        os.execvp("tmux", ["tmux", "switch-client", "-t", exact_session(result.session_name)])  # noqa: S606
+    os.execvp("tmux", ["tmux", "attach-session", "-t", exact_session(result.session_name)])  # noqa: S606
     return 1
 
 
