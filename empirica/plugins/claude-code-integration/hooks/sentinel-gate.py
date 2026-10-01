@@ -1003,8 +1003,11 @@ def _strip_empirica_global_flags(command: str) -> str:
 # same group, and the table was checked against the parser's own choices rather than against
 # how the names read. `contact consent`, `entity link|unlink|remember`, `engagement add-*|set-id|
 # remint-ids|rebuild-repair`, `touchpoint add`, `revenue-event add` and `crm-sync push|pull|plan`
-# are writes and stay gated. `entity recall` and `engagement materials` read as reads but were
-# not verified, so they stay gated too until someone does.
+# are writes and stay gated. `entity recall` and `engagement materials` were first left gated as
+# unverified; the workspace practice then confirmed in its code, and I re-read it, that they only
+# SELECT (`get_memory`, `list_materials`). One caveat covers every row of this table that opens the
+# local store: opening it runs an idempotent schema init (CREATE TABLE IF NOT EXISTS, a taxonomy
+# migration) that only writes on a fresh or unmigrated database.
 WORKSPACE_READ_ACTIONS = frozenset(
     {
         ("org", "list"),
@@ -1013,9 +1016,11 @@ WORKSPACE_READ_ACTIONS = frozenset(
         ("contact", "show"),
         ("engagement", "list"),
         ("engagement", "show"),
+        ("engagement", "materials"),
         ("touchpoint", "list"),
         ("revenue-event", "list"),
         ("entity", "knowledge"),
+        ("entity", "recall"),
         ("crm-sync", "preview"),
     }
 )

@@ -44,6 +44,8 @@ READS = [
     "empirica-workspace touchpoint list --engagement-id e1",
     "empirica-workspace revenue-event list",
     "empirica-workspace entity knowledge --entity o-acme",
+    "empirica-workspace entity recall --entity o-acme",
+    "empirica-workspace engagement materials e1",
     "empirica-workspace crm-sync preview",
     "empirica-workspace org --help",
 ]
