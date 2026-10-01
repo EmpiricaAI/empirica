@@ -34,7 +34,12 @@ from empirica.cli.command_handlers.diagnose import (
     check_python_version,
 )
 
-_ECODEX_PLUGIN_KEY = "empirica@nubaeon"
+# ecodex renamed its bundled plugin from `empirica@nubaeon` to `empirica@empiricaAI` (ecodex 0.157.2).
+# It migrates the config key on first run but leaves the old cache directory in place, so an install
+# can carry either or both. The new name is checked first; the old one keeps older installs passing.
+_ECODEX_PLUGIN_NAMESPACES = ("empiricaAI", "nubaeon")
+_ECODEX_PLUGIN_KEYS = tuple(f"empirica@{ns}" for ns in _ECODEX_PLUGIN_NAMESPACES)
+_ECODEX_PLUGIN_KEY = _ECODEX_PLUGIN_KEYS[0]
 
 # Subset of vendored hook scripts whose drift matters most. We don't diff
 # every file because some legitimately diverge (vendored copies may carry
@@ -56,14 +61,17 @@ def _ecodex_plugin_cache_dir() -> Path | None:
     """Resolve the bundled-plugin cache dir.
 
     ecodex's installer stages the plugin under
-    ``~/.codex/plugins/cache/nubaeon/empirica/<version>/``. Return the
-    highest-version dir if any, else None.
+    ``~/.codex/plugins/cache/empiricaAI/empirica/<version>/`` (``nubaeon`` before the
+    rename). Return the highest-version dir of the first namespace that has one, else None.
     """
-    base = Path.home() / ".codex" / "plugins" / "cache" / "nubaeon" / "empirica"
-    if not base.is_dir():
-        return None
-    versioned = sorted((p for p in base.iterdir() if p.is_dir()), key=lambda p: p.name)
-    return versioned[-1] if versioned else None
+    for namespace in _ECODEX_PLUGIN_NAMESPACES:
+        base = Path.home() / ".codex" / "plugins" / "cache" / namespace / "empirica"
+        if not base.is_dir():
+            continue
+        versioned = sorted((p for p in base.iterdir() if p.is_dir()), key=lambda p: p.name)
+        if versioned:
+            return versioned[-1]
+    return None
 
 
 def check_ecodex_plugin_installed() -> CheckResult:
@@ -73,7 +81,7 @@ def check_ecodex_plugin_installed() -> CheckResult:
         return CheckResult(
             name="ecodex plugin installed",
             status=FAIL,
-            detail="No `~/.codex/plugins/cache/nubaeon/empirica/` directory",
+            detail="No `~/.codex/plugins/cache/empiricaAI/empirica/` (or legacy `nubaeon`) directory",
             hint="Run `./ecodex/scripts/install.sh` from the ecodex repo",
         )
     # Codex plugin manifests live at <plugin>/.codex-plugin/plugin.json
@@ -371,7 +379,8 @@ def check_ecodex_plugin_hooks_feature_enabled() -> CheckResult:
 
 
 def check_ecodex_plugin_enabled_in_config() -> CheckResult:
-    """Verify ~/.codex/config.toml has `[plugins."empirica@nubaeon"]` enabled."""
+    """Verify ~/.codex/config.toml declares the empirica plugin (`empirica@empiricaAI`, or the
+    pre-rename `empirica@nubaeon`)."""
     config_path = Path.home() / ".codex" / "config.toml"
     if not config_path.is_file():
         return CheckResult(
@@ -381,18 +390,20 @@ def check_ecodex_plugin_enabled_in_config() -> CheckResult:
             hint="Run `./ecodex/scripts/install.sh` (will install default config)",
         )
     text = config_path.read_text()
-    if f'[plugins."{_ECODEX_PLUGIN_KEY}"]' not in text:
+    found = next((k for k in _ECODEX_PLUGIN_KEYS if f'[plugins."{k}"]' in text), None)
+    if found is None:
         return CheckResult(
             name="ecodex plugin enabled in config",
             status=FAIL,
-            detail=f'No `[plugins."{_ECODEX_PLUGIN_KEY}"]` section in config',
+            detail=f'No `[plugins."{_ECODEX_PLUGIN_KEY}"]` section in config (legacy `empirica@nubaeon` also absent)',
             hint=f'Add to ~/.codex/config.toml:\n\n[plugins."{_ECODEX_PLUGIN_KEY}"]\nenabled = true',
         )
     # Coarse enabled check — toml parsing avoided to keep this stdlib-only
     return CheckResult(
         name="ecodex plugin enabled in config",
         status=PASS,
-        detail=f'`[plugins."{_ECODEX_PLUGIN_KEY}"]` declared',
+        detail=f'`[plugins."{found}"]` declared',
+        data={"plugin_key": found},
     )
 
 
@@ -839,19 +850,20 @@ def check_empirica_proportionality_block_wired() -> CheckResult:
     except (ImportError, AttributeError, ValueError):
         source_tree_hook = None
 
-    bundled_hook = (
+    bundled_hooks = [
         Path.home()
         / ".codex"
         / "plugins"
         / "cache"
-        / "nubaeon"
+        / namespace
         / "empirica"
         / "0.1.0"
         / "hooks_scripts"
         / "hooks"
         / "tool-router.py"
-    )
-    candidates = [p for p in [source_tree_hook, bundled_hook] if p is not None]
+        for namespace in _ECODEX_PLUGIN_NAMESPACES
+    ]
+    candidates = [p for p in [source_tree_hook, *bundled_hooks] if p is not None]
 
     router_file: Path | None = None
     for c in candidates:
