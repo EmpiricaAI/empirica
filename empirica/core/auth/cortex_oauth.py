@@ -271,6 +271,20 @@ def default_refresh(loader, *, http=_http_json) -> Callable[[str, str | None], d
     return _refresh
 
 
+def custody_refresh(loader, *, http=_http_json) -> tuple[Callable[[str, str | None], dict] | None, str]:
+    """``(refresh callback or None, owner)`` for the stored OAuth family.
+
+    The CLI refreshes ONLY a family it owns (`cli` / absent = the headless-fallback client it
+    minted via `auth login`). A `daemon`-owned family is refreshed by the serve tick, an
+    `extension`-owned one (daemonless Desktop seat) by the extension. For those the callback is
+    None: the caller reads the access_token only, because a second refresher on one family makes
+    cortex revoke it (rotation + reuse detection). Every path that would refresh asks here, so
+    `cortex_bearer` and `empirica auth token` cannot disagree about who may.
+    """
+    owner = (loader.get_cortex_oauth().get("refresh_owner") or "cli").lower()
+    return (default_refresh(loader, http=http) if owner == "cli" else None), owner
+
+
 def cortex_bearer(loader=None, *, http=_http_json) -> dict[str, Any]:
     """{url, bearer, source} — OAuth-first, api_key fallback, dead credentials skipped.
 
@@ -301,14 +315,8 @@ def cortex_bearer(loader=None, *, http=_http_json) -> dict[str, Any]:
     cfg = loader.get_cortex_config()
     token = None
     try:
-        # Refresh custody: the CLI refreshes ONLY a family it owns ('cli' /
-        # absent = the headless-fallback client it minted via `auth login`).
-        # A 'daemon'-owned family is refreshed by the serve tick; an
-        # 'extension'-owned one (daemonless Desktop seat) by the extension.
-        # In both of those the CLI reads access_token ONLY — a second refresher
-        # on one family makes cortex revoke it (rotation + reuse detection).
-        owner = (loader.get_cortex_oauth().get("refresh_owner") or "cli").lower()
-        refresh_cb = default_refresh(loader, http=http) if owner == "cli" else None
+        # Refresh custody (see custody_refresh): only a family the CLI owns is refreshed here.
+        refresh_cb, _owner = custody_refresh(loader, http=http)
         token = loader.cortex_access_token(refresh=refresh_cb)
     except Exception as e:  # refresh machinery must never take down the api_key path
         logger.warning(f"oauth token resolution failed, falling back to api_key: {e}")

@@ -183,22 +183,31 @@ def handle_auth_token_command(args) -> int:
     Nothing is printed to stdout on failure: a caller must never mistake an error
     message for a token.
     """
-    from empirica.core.auth.cortex_oauth import default_refresh
+    from empirica.core.auth import cortex_oauth
 
     output = getattr(args, "output", "human")
     loader = _loader()
     oauth = loader.get_cortex_oauth()
-    token = loader.cortex_access_token(refresh=default_refresh(loader)) if oauth else None
+    # Custody first: a daemon- or extension-owned family is refreshed by its owner, and a second
+    # refresher makes cortex revoke it. For those this returns the stored token while it is valid
+    # and never refreshes; the same gate `cortex_bearer` applies.
+    refresh_cb, owner = cortex_oauth.custody_refresh(loader) if oauth else (None, "cli")
+    token = loader.cortex_access_token(refresh=refresh_cb) if oauth else None
     if not token:
-        reason = (
-            "no token set stored"
-            if not oauth.get("access_token")
-            else "the stored token expired and could not be refreshed"
-        )
-        if output == "json":
-            print(json.dumps({"ok": False, "error": reason, "hint": "run `empirica auth login`"}))
+        if not oauth.get("access_token"):
+            reason, hint = "no token set stored", "run `empirica auth login`"
+        elif owner != "cli":
+            reason = f"the stored token expired and its refresh belongs to the {owner}, not the CLI"
+            hint = (
+                f"wait for the {owner} to refresh it (is `empirica serve` running?), or run `empirica auth login` "
+                "to take the family over"
+            )
         else:
-            sys.stderr.write(f"empirica auth token: {reason}; run `empirica auth login`\n")
+            reason, hint = "the stored token expired and could not be refreshed", "run `empirica auth login`"
+        if output == "json":
+            print(json.dumps({"ok": False, "error": reason, "hint": hint, "refresh_owner": owner}))
+        else:
+            sys.stderr.write(f"empirica auth token: {reason}; {hint}\n")
         return 1
     if output == "json":
         fresh = loader.get_cortex_oauth()
