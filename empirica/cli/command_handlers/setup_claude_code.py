@@ -20,6 +20,7 @@ import json
 import logging
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import urllib.error
@@ -377,9 +378,19 @@ def _write_json_file(path: Path, data: dict, expect_stamp: tuple | None = None):
                 "from OUTSIDE a running Claude Code session, or re-run to retry the merge."
             )
     temp_path = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    # The rename replaces the target wholesale, so it carries the TEMP file's mode and discards the
+    # target's: a `chmod 600 ~/.claude.json` was undone by the next setup run (empirica-nle), and the
+    # file holds static credentials. Keep the existing mode. A file that does not exist yet is made
+    # 0600 rather than the umask default, since it can hold credentials too.
     try:
-        with open(temp_path, "w") as f:
+        keep_mode: int = stat.S_IMODE(path.stat().st_mode)
+    except OSError:
+        keep_mode = 0o600
+    try:
+        fd = os.open(temp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w") as f:
             json.dump(data, f, indent=2)
+        os.chmod(temp_path, keep_mode)  # explicit: os.open's mode argument is cut by the umask
         temp_path.replace(path)
     finally:
         if temp_path.exists():
