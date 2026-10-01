@@ -994,6 +994,53 @@ def _strip_empirica_global_flags(command: str) -> str:
     return " ".join(["empirica", *parts[i:]])
 
 
+# `empirica-workspace` is a SEPARATE binary (the CRM / portfolio CLI), so the `empirica <verb>`
+# tiers never matched it and every call was gated, reads included: a list verb that cannot write
+# was refused between transactions (empirica-workspace, 2026-09-29, `contact list --limit 1000`).
+#
+# The read set is an EXACT (group, action) table, never a prefix or a suffix rule. The group's
+# action is a positional (`org list|show|create|update`), the writes sit beside the reads in the
+# same group, and the table was checked against the parser's own choices rather than against
+# how the names read. `contact consent`, `entity link|unlink|remember`, `engagement add-*|set-id|
+# remint-ids|rebuild-repair`, `touchpoint add`, `revenue-event add` and `crm-sync push|pull|plan`
+# are writes and stay gated. `entity recall` and `engagement materials` read as reads but were
+# not verified, so they stay gated too until someone does.
+WORKSPACE_READ_ACTIONS = frozenset(
+    {
+        ("org", "list"),
+        ("org", "show"),
+        ("contact", "list"),
+        ("contact", "show"),
+        ("engagement", "list"),
+        ("engagement", "show"),
+        ("touchpoint", "list"),
+        ("revenue-event", "list"),
+        ("entity", "knowledge"),
+        ("crm-sync", "preview"),
+    }
+)
+
+
+def is_safe_workspace_read(command: str) -> bool:
+    """Is this an `empirica-workspace` command that only reads?
+
+    Token-exact on the binary, the group and the action; whatever follows (`--limit 1000`,
+    `--output json`, an id) cannot turn a read into a write because the action was already
+    decided. A `--help` / `-h` anywhere as its own token is inert, as for `empirica`.
+    """
+    import shlex as _shlex
+
+    try:
+        toks = _shlex.split(command.lstrip())
+    except ValueError:
+        return False
+    if not toks or toks[0] != "empirica-workspace":
+        return False
+    if {"--help", "-h", "--version"} & set(toks[1:]):
+        return True
+    return len(toks) >= 3 and (toks[1], toks[2]) in WORKSPACE_READ_ACTIONS
+
+
 def is_safe_empirica_command(command: str) -> bool:
     """Tiered whitelist for empirica CLI commands.
 
@@ -1004,6 +1051,8 @@ def is_safe_empirica_command(command: str) -> bool:
     in the main gate logic to prevent prompt injection bypass.
     """
     raw = command.lstrip()
+    if raw.startswith("empirica-workspace"):
+        return is_safe_workspace_read(raw)  # a different binary: the `empirica <verb>` tiers never apply
     if not raw.startswith("empirica"):
         return False
 
