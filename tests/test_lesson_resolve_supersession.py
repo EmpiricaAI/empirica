@@ -32,6 +32,9 @@ class _FakeStore:
         self.edges.append((source_id, target_id, relation_type))
         return "edge-id"
 
+    def superseded_ids(self):
+        return {t: s for s, t, rel in self.edges if rel == "supersedes"}
+
 
 @pytest.fixture
 def store(tmp_path, monkeypatch):
@@ -92,3 +95,18 @@ def test_a_superseded_lesson_that_does_not_exist_writes_nothing(store, capsys):
     assert out["resolved"] == 0
     assert "nope" in out["errors"][0]
     assert store.edges == []
+
+
+def test_a_retired_lesson_cannot_be_named_as_the_successor(store, capsys):
+    """A superseded_by B, then B superseded_by A retired BOTH and each call reported resolved: the
+    edge A->B and the edge B->A leave nothing to serve."""
+    store._existing = {"a", "b"}
+
+    first = _resolve({"resolutions": [{"type": "lesson", "id": "a", "superseded_by": "b"}]}, capsys)
+    assert first["resolved"] == 1 and first["errors"] == []  # control: the forward edge is fine
+
+    second = _resolve({"resolutions": [{"type": "lesson", "id": "b", "superseded_by": "a"}]}, capsys)
+
+    assert second["resolved"] == 0
+    assert any("itself superseded by" in e and "live lesson" in e for e in second["errors"])
+    assert store.edges == [("b", "a", "supersedes")], "only the first edge exists; the cycle edge was not written"

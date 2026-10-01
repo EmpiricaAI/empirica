@@ -112,6 +112,14 @@ def _oauth_refresh_lock(directory: Path):
             return
         try:
             fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        except OSError as e:
+            # Opening worked, locking did not (ENOLCK / ENOTSUP on NFS or FUSE homes). Same
+            # degradation as an unopenable lock file, not a raise out of the token refresh.
+            fh.close()
+            logger.warning(f"cortex token refresh lock unavailable ({e}); refreshing unserialized")
+            yield
+            return
+        try:
             yield
         finally:
             try:

@@ -213,3 +213,41 @@ def test_another_sessions_open_window_is_left_alone():
     _emit(db, acknowledged=True, window_s=100, exposed_at=1000.0)
     assert apply_prevention_detection(db, "a-later-session", now=1050.0) == 0
     assert _outcome(db) == "exposed"
+
+
+def _raw_row(db, **cols):
+    base = {
+        "session_id": None,
+        "goal_id": "g",
+        "exposed_at": 1000.0,
+        "acknowledged": 1,
+        "window_s": 100,
+        "shadow": 0,
+        "created_timestamp": 1000.0,
+    }
+    base.update(cols)
+    names = ", ".join([*base, "outcome"])
+    marks = ", ".join(["?"] * (len(base) + 1))
+    db.conn.execute(f"INSERT INTO prevention_events ({names}) VALUES ({marks})", [*base.values(), "exposed"])
+    db.conn.commit()
+
+
+def test_a_row_with_no_session_is_not_judged_against_the_running_session():
+    """session_id is nullable. Such a row used to be picked up by the cross-session arm and judged
+    against the RUNNING session, so that session's own mistake failed a row that is not its."""
+    db = _db()
+    _raw_row(db)  # session_id NULL, window long elapsed at now=2000
+    db.conn.execute("INSERT INTO mistakes_made (session_id, goal_id, created_timestamp) VALUES ('running','g',1500.0)")
+    db.conn.commit()
+
+    assert apply_prevention_detection(db, "running", now=2000.0) == 0
+    assert _outcome(db) == "exposed"
+
+
+def test_a_row_with_no_exposure_time_does_not_read_as_an_elapsed_window():
+    """COALESCE(exposed_at, 0) + window_s <= now is true for any NULL exposed_at."""
+    db = _db()
+    _raw_row(db, session_id="other", exposed_at=None)
+
+    assert apply_prevention_detection(db, "running", now=2000.0) == 0
+    assert _outcome(db) == "exposed"

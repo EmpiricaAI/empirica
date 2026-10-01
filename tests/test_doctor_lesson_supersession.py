@@ -85,6 +85,9 @@ def test_the_printed_repair_is_accepted_by_resolve_artifacts(tmp_path, monkeypat
             written.append((s, t, rel))
             return "e"
 
+        def superseded_ids(self):
+            return {}
+
     real = sdb.SessionDatabase
     monkeypatch.setattr(sdb, "SessionDatabase", lambda *a, **k: real(db_path=str(tmp_path / "t.db")))
     monkeypatch.setattr(lessons_mod, "get_lesson_storage", lambda: _Store())

@@ -65,3 +65,24 @@ def test_with_the_flag_the_move_is_reported(tmp_path, monkeypatch):
     head = subprocess.run(["git", "branch", "--show-current"], capture_output=True, text=True, check=True).stdout
     assert head.strip() == "epistemic/reasoning/goal-abcdef12"
     assert result["head_moved"] is True and result["branch_action"] == "created_new"
+
+
+def test_a_failed_branch_is_reported_as_a_failure_not_as_ready(tmp_path, monkeypatch, capsys):
+    """`--create-branch` outside a repository: the claim stands, the branch does not. It used to end
+    "Ready to start work!" with head_moved absent and exit 0."""
+    from empirica.cli.command_handlers.goal_commands import (
+        _handle_goals_claim_command_helper,
+        _print_goals_claim_human,
+    )
+
+    monkeypatch.chdir(tmp_path)  # not a git repository
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path.parent))
+    result: dict = {"ok": True}
+
+    _handle_goals_claim_command_helper("ai", None, True, "abcdef12-0000", result, "s1")
+    _print_goals_claim_human(result, "abcdef12-0000", None)
+    out = capsys.readouterr().out
+
+    assert result["ok"] is False and result["head_moved"] is False and result["branch_created"] is False
+    assert "not a git repository" in result["branch_error"]
+    assert "Ready to start work" not in out and "HEAD did not move" in out

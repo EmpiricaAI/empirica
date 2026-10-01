@@ -6,6 +6,6 @@
 
 The thorough quality sweep you run before a release, after a refactor, or when something just *smells* off. Two halves:
 
-Skill `eat-the-broccoli` · version 2.6.0 · load with `/eat-the-broccoli` in Claude Code.
+Skill `eat-the-broccoli` · version 2.7.0 · load with `/eat-the-broccoli` in Claude Code.
 
 Full skill: [SKILL.md](SKILL.md)

@@ -153,6 +153,14 @@ def _wire_supersession(storage, new_id: str, supersedes: str | None) -> tuple[bo
         return None, "supersedes: a lesson cannot supersede itself — no edge written"
     if storage.get_lesson(supersedes) is None:
         return None, f"supersedes: no lesson with id {supersedes!r} — no edge written"
+    retired = storage.superseded_ids()
+    if new_id in retired:
+        # A successor that is itself retired cannot carry the retirement forward: A->B then B->A
+        # retired both, and retrieval then served neither. Point at the live one instead.
+        return None, (
+            f"supersedes: {new_id!r} is itself superseded by {retired[new_id]!r}; "
+            f"name the live lesson as the successor — no edge written"
+        )
     if storage.add_edge(new_id, supersedes, "supersedes"):
         return True, None
     return False, f"supersedes: edge to {supersedes!r} could not be written"

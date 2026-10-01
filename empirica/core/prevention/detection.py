@@ -54,18 +54,21 @@ def apply_prevention_detection(db, session_id: str, *, now: float | None = None)
             "SELECT id, session_id, goal_id, subtask_id, exposed_at, acknowledged, window_s, shadow "
             "FROM prevention_events WHERE outcome = 'exposed' "
             "AND (outcome_family = 'prevention' OR outcome_family IS NULL) "
-            "AND (session_id = ? OR (window_s IS NOT NULL AND COALESCE(exposed_at, 0) + window_s <= ?))",
+            # A foreign row is taken only when it names its own session AND its own clock: the columns
+            # are nullable, and a NULL session would be judged against whichever session is running,
+            # a NULL exposed_at would read as an elapsed window at once.
+            "AND (session_id = ? OR (session_id IS NOT NULL AND exposed_at IS NOT NULL "
+            "AND window_s IS NOT NULL AND exposed_at + window_s <= ?))",
             (session_id, now),
         ).fetchall()
         if not exposed:
             return 0
 
         updated = 0
-        own_session = session_id
         for row_id, row_session, goal_id, subtask_id, exposed_at, acknowledged, window_s, shadow in exposed:
             # Judge the row against the session that was exposed, not the one
             # whose POSTFLIGHT happens to be running.
-            session_id = row_session or own_session
+            session_id = row_session
             since = exposed_at or 0
             # Causal order: only failures logged AFTER the exposure count.
             #

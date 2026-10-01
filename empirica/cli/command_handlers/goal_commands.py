@@ -2784,7 +2784,10 @@ def _handle_goals_claim_command_helper(ai_id, beads_issue_id, create_branch, goa
 
         except subprocess.CalledProcessError as e:
             result["branch_created"] = False
-            result["branch_error"] = str(e)
+            result["head_moved"] = False  # absent read as "unknown"; a failed checkout did not move it
+            stderr = e.stderr.decode(errors="replace") if isinstance(e.stderr, bytes) else (e.stderr or "")
+            result["branch_error"] = stderr.strip() or str(e)
+            result["ok"] = False  # the claim stands, the branch the caller asked for does not
     else:
         result["branch_created"] = False
         result["branch_skipped"] = True
@@ -2805,6 +2808,9 @@ def _print_goals_claim_human(result: dict, goal_id: str, beads_issue_id) -> None
         print("✅ Branch mapping saved")
     if result.get("preflight_started"):
         print("🧠 Running PREFLIGHT...")
+    if result.get("branch_error"):
+        print("⚠️  Goal claimed, but the branch you asked for was not created; HEAD did not move.")
+        return
     print("✅ Ready to start work!")
 
 
@@ -2906,6 +2912,8 @@ def handle_goals_claim_command(args):
             print(json.dumps(result, indent=2))
         else:
             _print_goals_claim_human(result, goal_id, beads_issue_id)
+        if result.get("branch_error"):
+            sys.exit(1)
 
     except Exception as e:
         handle_cli_error(e, "goals-claim", getattr(args, "output", "json"))
