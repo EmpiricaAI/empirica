@@ -5,6 +5,66 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.4] - 2026-10-01
+
+Cockpit and identity hardening. Several practices shared one instance id and wrote into
+each other's transaction files; this release closes the ways that happened, and makes
+`doctor` and `mesh status` say so when it does.
+
+### Added
+
+- **Cockpit panes keep their identity.** Each pane is bound to its own instance id and
+  `empirica cockpit refresh` respawns a dead claude where it was, same identity,
+  conversation resumed. `--profile NAME` picks `~/.empirica/cockpit/config-NAME.yaml`,
+  `provision-practice --cockpit-profile NAME` adds a practice to it, and
+  `docs/guides/COCKPIT.md` is the user guide.
+- **`empirica auth token`** prints a valid login credential for other tools, and token
+  refreshes are serialized across processes (cortex rotates the refresh token on use).
+- **`resolve-artifacts` can retire a lesson** after the fact with `superseded_by`.
+- **`empirica help`** is a short list for people, as `claude --help` is.
+- **New `doctor` checks.** Live claude sessions running under another practice's id;
+  a plugin whose default agent strips the main session's tools (reads `tools`,
+  `disallowedTools`, user and project settings); transaction files open for more than
+  7 days; lessons marked superseded only in their YAML; long-running empirica processes
+  older than the code on disk; tmux sessions that hand out a practitioner identity.
+  `doctor` prints a report on a terminal and JSON through a pipe.
+- **`mesh status`** reads the rotated fires log (a quiet practice is no longer a cold
+  start) and says whether the curl it found is the listener's child or an orphan.
+
+### Fixed
+
+- **A tmux session never carries a practitioner identity.** `new-session -e` scopes the
+  variable to the whole session, so a claude started by hand in a spare pane ran as
+  another practice. The launcher strips it.
+- **The resolver pins a project to an open transaction only if that transaction is the
+  caller's own.** A foreign or stale open transaction no longer misroutes commands.
+- **tmux targets are exact.** A bare session or window name matches by prefix, so
+  `cockpit` found `cockpit2` and `cockpit2:api` adopted a window named `api-server`.
+- **A cockpit with missing panes says so.** A failed split was dropped and the launch
+  reported success; it now reports the missing panes and does not attach.
+- `refresh` no longer respawns into `$HOME` when a project directory is gone, and keeps
+  `~`, `$VAR` and `$(...)` in a launch line; an untracked spare shell is no longer adopted
+  as the claude pane.
+- **The profile writer** keeps a legacy projects-only profile as it was, refuses a known
+  name at a different path and a name that collides with a window, keeps the first backup,
+  and writes atomically.
+- **`mesh status` survives a bad fires-log line** (a JSON list, invalid UTF-8, mixed naive
+  and aware timestamps) and no longer confuses `--instance empirica` with
+  `--instance empirica-workspace`. An unreadable log reads "unreadable", not "cold start".
+- **`doctor`** no longer reads a UUID instance id that starts a-f as a mismatch, ignores
+  `claude --chrome-native-host` helpers, reports a transaction with no start time as
+  unknown age, and counts an unreadable `project.yaml` as unreadable, not "outside a project".
+- **`goals-claim --create-branch`** that fails now says so, reports `head_moved: false`
+  and exits 1, instead of "Ready to start work".
+- **Lesson supersession** refuses a successor that is itself retired (A to B then B to A
+  retired both and served neither).
+- **Prevention detection** no longer judges a row with no session or no exposure time
+  against the session that happens to be running.
+- **The OAuth refresh lock** degrades to unserialized, with a warning, when `flock` itself
+  fails (NFS, FUSE) instead of raising out of the refresh.
+- `goals-claim` no longer moves HEAD unless `--create-branch` is passed; a hung tmux call
+  is a pane error; the shipped examples install where `sync` does not erase them.
+
 ## [1.14.3] - 2026-09-25
 
 Cut early for one fix: on a seat where empirica was installed only through pipx or
