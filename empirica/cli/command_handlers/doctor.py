@@ -1202,6 +1202,100 @@ def check_claude_instance_identity(processes: list[dict] | None = None, unreadab
     )
 
 
+def _claude_session_file(pid: int, claude_dir: Path) -> dict | None:
+    """Claude Code's own ``~/.claude/sessions/<pid>.json`` (sessionId, cwd), or None.
+
+    The session id is NOT in a claude process's environment (only its tool subprocesses get
+    CLAUDE_CODE_SESSION_ID), so this file is the way from a live pid to the session whose
+    ``active_work`` record routes its hooks. The format is Claude Code's, not ours: an absent or
+    unrecognised file is reported as not checked, never as agreement.
+    """
+    try:
+        doc = json.loads((claude_dir / "sessions" / f"{pid}.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(doc, dict) or not doc.get("sessionId"):
+        return None
+    return doc
+
+
+def _empirica_project_root(cwd: str) -> Path | None:
+    """The nearest directory at or above ``cwd`` that holds a ``.empirica`` directory."""
+    for d in (Path(cwd), *Path(cwd).parents):
+        if (d / ".empirica").is_dir():
+            return d
+    return None
+
+
+def check_session_routing(processes: list[dict] | None = None, home: Path | None = None, unreadable: int = 0) -> Check:
+    """Each live claude's hooks resolve it in the project it runs in.
+
+    Hooks find a session's project through ``~/.empirica/active_work_<claude-session-id>.json``.
+    A record that names another practice's project sends every hook for that session into the
+    wrong tree, where they adjudicate against whatever transaction is there (empirica-nle,
+    2026-09-29: its record named core's project, and its stop hook enforced core's transaction).
+    Nothing reported it, and the session could not repair it from inside, because the gate the
+    bad record causes refuses the repair. A deliberate `project-switch` into another project
+    looks identical, so this says what it found and leaves the judgment to the practitioner.
+    """
+    name = "Live claude sessions are routed to the project they run in"
+    home = home or Path.home()
+    if processes is None:
+        try:
+            found, unreadable = _claude_processes()
+        except ImportError:
+            return Check(name, SKIP, "psutil not installed")
+        processes = []
+        for p in found:
+            doc = _claude_session_file(p["pid"], home / ".claude")
+            processes.append({**p, "session_id": doc.get("sessionId") if doc else None})
+    if not processes and not unreadable:
+        return Check(name, SKIP, "no claude process running")
+
+    agree = unmapped = unrouted = outside = 0
+    bad: list[dict] = []
+    for p in processes:
+        sid = p.get("session_id")
+        if not sid:
+            unmapped += 1  # no session file for this pid: not checked, and counted as such
+            continue
+        record = home / ".empirica" / f"active_work_{sid}.json"
+        try:
+            routed = json.loads(record.read_text(encoding="utf-8")).get("project_path")
+        except (OSError, ValueError, AttributeError):
+            unrouted += 1  # no record: hooks fall back to other keys, a different and milder case
+            continue
+        root = _empirica_project_root(p["cwd"])
+        if root is None or not routed:
+            outside += 1
+            continue
+        if os.path.realpath(routed) == os.path.realpath(root):
+            agree += 1
+        else:
+            bad.append({"pid": p["pid"], "session_id": sid, "runs_in": str(root), "routed_to": str(routed)})
+
+    walked = (
+        f"{len(processes)} claude process(es) read: {agree} routed where they run, {unrouted} with no record, "
+        f"{unmapped} with no session file, {outside} outside a project, {unreadable} unreadable"
+    )
+    if not bad:
+        return Check(name, WARN if unreadable else PASS, walked, data={"agree": agree})
+    first = bad[0]
+    return Check(
+        name,
+        WARN,
+        f"{walked}; {len(bad)} routed to another project: "
+        + "; ".join(
+            f"pid {b['pid']} runs in {Path(b['runs_in']).name} but its hooks resolve it in {Path(b['routed_to']).name}"
+            for b in bad[:4]
+        ),
+        f"If that was not a deliberate project-switch, run from that session: `empirica project-switch "
+        f"{Path(first['runs_in']).name} --claude-session-id {first['session_id']}` (the flag is what rewrites "
+        f"the record; without it only the instance pointer changes). If the session cannot run it, relaunch it.",
+        {"mismatched": bad},
+    )
+
+
 STALE_OPEN_TRANSACTION_DAYS = 7
 
 
@@ -2716,6 +2810,7 @@ def run_all_checks(cwd: Path | None = None) -> list[Check]:
         check_plugin_main_thread_agent(),
         check_tmux_session_identity(),
         check_claude_instance_identity(),
+        check_session_routing(),
         check_long_running_processes(),
         check_claude_code_cli(),
         check_git_present(),

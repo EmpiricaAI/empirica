@@ -105,6 +105,14 @@ unset EMPIRICA_INSTANCE_ID
 EMPIRICA_INSTANCE_ID=<its ai_id> claude --continue
 ```
 
+Hooks also find a session's project through `~/.empirica/active_work_<claude-session-id>.json`. If
+that record names another practice's project, every hook for the session looks in the wrong tree
+(a stop hook then enforces a transaction that is not yours). `empirica doctor` reports it under
+"Live claude sessions are routed to the project they run in". The record is rewritten by
+`empirica project-switch <project> --claude-session-id <id>`; without `--claude-session-id` only the
+instance pointer changes. A deliberate `project-switch` into another project looks identical, so
+the check reports and does not repair.
+
 `empirica project-switch <project> --claude-session-id "$CLAUDE_CODE_SESSION_ID"` re-points the
 project pointer. It cannot change the id of a process that is already running, so it repairs
 the pointer, not the sharing.

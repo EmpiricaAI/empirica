@@ -470,7 +470,7 @@ def test_run_all_checks_returns_complete_list():
     assert "Deployed plugin fresh" in names
 
 
-def test_run_all_checks_count_is_41():
+def test_run_all_checks_count_is_42():
     """+1 for check_mcp_version_skew (GH #404, injected-topology skew).
     +1 for check_engagement_registry_drift (engagement dual-write, 1.13.23).
     +1 for check_cli_matches_checkout (CLI/checkout skew the version cannot see).
@@ -510,12 +510,15 @@ def test_run_all_checks_count_is_41():
     +1 for check_claude_instance_identity (the tmux-session check read PASS while a
        claude ran as another practice, because the id sat in a long-lived shell's own
        environment; this reads the processes).
+    +1 for check_session_routing (a claude's hooks resolve its project through its
+      active_work record; NLE's named core's project, so its stop hook enforced core's
+      transaction and nothing reported it).
 
     A hardcoded count is a tripwire for "a check was added/removed without
     thinking about the suite" — when it fires, update it deliberately (and add
     the name assertion below), never by pasting the new number blind."""
     checks = run_all_checks()
-    assert len(checks) == 41
+    assert len(checks) == 42
     # The tripwire earns its keep only if the NEW check is named. A bumped
     # number alone records that something changed, not what.
     assert any(c.name == "notes/sqlite divergence" for c in checks)
