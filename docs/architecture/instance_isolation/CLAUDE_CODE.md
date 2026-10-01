@@ -78,6 +78,39 @@ compaction). Hooks use `get_active_project_path()` which reads `instance_project
 
 ---
 
+## The instance id: who owns the files
+
+Every per-instance file is keyed by an **instance id**, and two processes that share one
+share all of those files (last writer wins). The id is the first of these that is set:
+
+1. `EMPIRICA_INSTANCE_ID` (or `CLAUDE_INSTANCE_ID`): an explicit id
+2. `TMUX_PANE` (`tmux_N`)
+3. `TERM_SESSION_ID` (macOS Terminal)
+4. `WINDOWID` (X11)
+5. the controlling TTY
+
+What it keys: `~/.empirica/instance_projects/<id>.json` (which project this instance is in,
+and which claude session owns it), `<project>/.empirica/active_transaction_<id>.json`, the
+active session, and the listener state. Commands route by that pointer, not by your working
+directory, so a claude in project B that carries project A's id writes into A.
+
+The cockpit launcher gives each pane its own id. The way this goes wrong: an id exported in a
+long-lived shell, or `claude` restarted inside a shell that already carries one, so the new
+process inherits the old practice's id. `empirica doctor` reads each live claude's environment
+and reports a mismatch ("Live claude sessions run as their own practice"). The fix is to
+restart that claude from a shell that does not carry the id:
+
+```bash
+unset EMPIRICA_INSTANCE_ID
+EMPIRICA_INSTANCE_ID=<its ai_id> claude --continue
+```
+
+`empirica project-switch <project> --claude-session-id "$CLAUDE_CODE_SESSION_ID"` re-points the
+project pointer. It cannot change the id of a process that is already running, so it repairs
+the pointer, not the sharing.
+
+---
+
 ## Running Multiple Instances
 
 ### Recommended: tmux or separate windows
@@ -102,7 +135,7 @@ If you run multiple Claude Code instances in tmux panes:
 └─────────────────┴─────────────────┘
 ```
 
-Each pane gets its own:
+Each pane gets its own (unless an explicit `EMPIRICA_INSTANCE_ID` overrides the pane id, see above):
 - `instance_projects/tmux_N.json`
 - `active_transaction_tmux_N.json` (in project dir)
 

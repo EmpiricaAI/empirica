@@ -179,6 +179,12 @@
       "reason": "Example agent definition. It is linked from examples/README.md, and every empirica verb it calls (finding-log, unknown-log, assumption-log, deadend-log, decision-log, project-search, setup-claude-code) still exists with the leading flag it passes. The prose was not read this pass.",
       "decided_by": "empirica (2026-09-24, CI drift trip after the 1.14.0 cut)",
       "review_by": "2026-12-01"
+    },
+    "docs/architecture/MEMORY_ARCHITECTURE.md": {
+      "status": "pending_review",
+      "reason": "Read in full this pass (2026-10-01). The hook scripts it names (session-init, sentinel-gate, session-end-postflight, post-compact, pre-compact) all exist in the plugin, and the instance_projects / active_transaction file layout matches the code. Not verified: the per-project Qdrant collection count and the tier-2 loading claims. Subject is live, so not archived.",
+      "decided_by": "empirica (2026-10-01, 1.14.4 release gate)",
+      "review_by": "2026-11-15"
     }
   }
 }
