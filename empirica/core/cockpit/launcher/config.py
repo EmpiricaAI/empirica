@@ -138,28 +138,43 @@ def _builtin_default(projects: list[ProjectSpec] | None = None) -> LauncherConfi
     )
 
 
-def detect_projects(projects_root: Path | None = None) -> list[ProjectSpec]:
-    """Discover candidate projects under ``~/empirical-ai/``.
+def _default_project_roots() -> list[Path]:
+    """Where first-launch discovery looks: ``~/empirical-ai`` and ``~/empirica``.
 
-    A directory qualifies if it has a ``.empirica/`` subdirectory.
-    The launch command defaults to ``claude``.
+    ``provision-practice`` creates practices under ``~/empirica`` unless told otherwise, so a
+    practice provisioned with the defaults must be found here too; before this a default-provisioned
+    practice never appeared in an auto-generated cockpit. Resolved per call, not at import, so it
+    follows the current HOME.
     """
-    root = projects_root or DEFAULT_PROJECTS_ROOT
-    if not root.exists() or not root.is_dir():
-        return []
+    return [Path.home() / "empirical-ai", Path.home() / "empirica"]
+
+
+def detect_projects(projects_root: Path | None = None) -> list[ProjectSpec]:
+    """Discover candidate projects under ``~/empirical-ai/`` and ``~/empirica/``.
+
+    A directory qualifies if it has a ``.empirica/`` subdirectory. The launch command defaults to
+    ``claude``. An explicit ``projects_root`` searches only that directory. A name found under
+    both default roots is listed once, from the first.
+    """
+    roots = [projects_root] if projects_root is not None else _default_project_roots()
     discovered: list[ProjectSpec] = []
-    for entry in sorted(root.iterdir()):
-        if not entry.is_dir():
+    names: set[str] = set()
+    for root in roots:
+        if not root.exists() or not root.is_dir():
             continue
-        if (entry / ".empirica").is_dir():
-            discovered.append(
-                ProjectSpec(
-                    name=entry.name,
-                    path=str(entry.resolve()),
-                    launch="claude",
-                    kind="code",
+        for entry in sorted(root.iterdir()):
+            if not entry.is_dir() or entry.name in names:
+                continue
+            if (entry / ".empirica").is_dir():
+                names.add(entry.name)
+                discovered.append(
+                    ProjectSpec(
+                        name=entry.name,
+                        path=str(entry.resolve()),
+                        launch="claude",
+                        kind="code",
+                    )
                 )
-            )
     return discovered
 
 
@@ -337,6 +352,129 @@ _PROFILE_NAME = re.compile(r"[a-z0-9][a-z0-9_-]*")
 
 class ProfileError(ValueError):
     """A profile could not be created or extended without risking the user's file."""
+
+
+def config_file_state(path: Path | None = None) -> str:
+    """What ``load_config`` found at ``path``: ``ok``, ``missing``, ``unreadable`` or ``not-a-mapping``.
+
+    ``load_config`` answers all three non-ok cases with the built-in defaults, which is right for
+    launching and invisible to a status check: a profile with a YAML typo would report the
+    defaults as if they were the profile.
+    """
+    import yaml
+
+    config_path = path or DEFAULT_CONFIG_PATH
+    if not config_path.exists():
+        return "missing"
+    try:
+        raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, yaml.YAMLError):
+        return "unreadable"
+    return "ok" if raw is None or isinstance(raw, dict) else "not-a-mapping"
+
+
+def dropped_entries(raw: dict) -> list[str]:
+    """What ``load_config`` silently leaves out of the file, as errors.
+
+    The loader skips an entry that is not a mapping, a project without a name or path, a window
+    without a name or command, a group without a name, a pane naming neither a project nor a
+    command, and a group left with no pane. Skipping is right for launching a hand-edited file;
+    it is also why a typo in one pane just made the window vanish, and a status check on the
+    loaded config cannot see what was never loaded.
+    """
+    out: list[str] = []
+
+    def bad(section: str, i: int, why: str) -> None:
+        out.append(f"{section}[{i}] is ignored: {why}")
+
+    for i, e in enumerate(raw.get("projects") or [], start=1):
+        if not isinstance(e, dict):
+            bad("projects", i, "not a mapping")
+        elif not e.get("name") or not e.get("path"):
+            bad("projects", i, "needs both name and path")
+    for i, e in enumerate(raw.get("status_windows") or [], start=1):
+        if not isinstance(e, dict):
+            bad("status_windows", i, "not a mapping")
+        elif not e.get("name") or not e.get("command"):
+            bad("status_windows", i, "needs both name and command")
+    for i, g in enumerate(raw.get("groups") or [], start=1):
+        if not isinstance(g, dict):
+            bad("groups", i, "not a mapping")
+            continue
+        label = f"group {g.get('name')!r}" if g.get("name") else f"groups[{i}]"
+        if not g.get("name"):
+            bad("groups", i, "has no name")
+            continue
+        usable = 0
+        for j, pane in enumerate(g.get("panes") or [], start=1):
+            if not isinstance(pane, dict):
+                out.append(f"{label} pane {j} is ignored: not a mapping")
+            elif not pane.get("project") and not pane.get("command"):
+                out.append(f"{label} pane {j} is ignored: names neither a project nor a command")
+            else:
+                usable += 1
+        if not usable:
+            out.append(f"{label} is ignored: it has no usable pane, so its window will not exist")
+    return out
+
+
+def validate_file(path: Path | None = None) -> tuple[list[str], list[str]]:
+    """``(errors, warnings)`` for the config at ``path``: what the loader dropped, then what the
+    loaded config cannot do. A file that cannot be read yields no per-entry findings; the caller
+    reports that through ``config_file_state``."""
+    import yaml
+
+    config_path = path or DEFAULT_CONFIG_PATH
+    errors: list[str] = []
+    if config_file_state(config_path) == "ok":
+        raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        if isinstance(raw, dict):
+            errors = dropped_entries(raw)
+    more_errors, warnings = validate_config(load_config(config_path))
+    return [*errors, *more_errors], warnings
+
+
+def validate_config(config: LauncherConfig) -> tuple[list[str], list[str]]:
+    """``(errors, warnings)`` for a config, without touching tmux.
+
+    An error is something launch cannot honour: a pane naming a project that is not listed, a
+    pane that names both or neither of ``project_ref`` / ``inline_command``, a group with no
+    panes, or two groups or projects sharing a name (tmux window names and ``project_by_name``
+    both resolve by name, so the second would be unreachable). Launch turns the first of these
+    into a bash placeholder and carries on, which is why this exists: the mistake showed only
+    after the windows were built. A warning is something launch will degrade, not refuse: a
+    project directory that does not exist yet.
+    """
+    errors: list[str] = []
+    warnings: list[str] = []
+    seen: set[str] = set()
+    for proj in config.projects:
+        if proj.name in seen:
+            errors.append(f"project {proj.name!r} is listed more than once")
+        seen.add(proj.name)
+    known = {p.name for p in config.projects}
+    groups_seen: set[str] = set()
+    referenced: set[str] = set()
+    for group in config.groups:
+        if group.name in groups_seen:
+            errors.append(f"group {group.name!r} appears more than once (its window name would collide)")
+        groups_seen.add(group.name)
+        if not group.panes:
+            errors.append(f"group {group.name!r} has no panes")
+        for i, pane in enumerate(group.panes, start=1):
+            where = f"group {group.name!r} pane {i}"
+            if pane.project_ref and pane.inline_command:
+                errors.append(f"{where} sets both project and command; use one")
+            elif pane.project_ref:
+                referenced.add(pane.project_ref)
+                if pane.project_ref not in known:
+                    errors.append(f"{where} names project {pane.project_ref!r}, which is not listed under projects")
+            elif not pane.inline_command:
+                errors.append(f"{where} names neither a project nor a command")
+    for proj in config.projects:
+        if (not config.groups or proj.name in referenced) and not os.path.isdir(os.path.expanduser(proj.path)):
+            warnings.append(f"project {proj.name!r}: {proj.path} does not exist yet (launch leaves a placeholder pane)")
+    return errors, warnings
 
 
 def profile_path(profile: str) -> Path:

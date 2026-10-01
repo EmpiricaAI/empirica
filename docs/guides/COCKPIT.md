@@ -25,7 +25,8 @@ This guide is about bringing the layout up and keeping it healthy.
 
 The first `empirica cockpit launch` writes `~/.empirica/cockpit/config.yaml`
 if it does not exist. The generated config has one window per project it finds
-under `~/empirical-ai/` (any folder with a `.empirica/` inside) and a status
+under `~/empirical-ai/` and `~/empirica/` (any folder with a `.empirica/` inside; the
+second is where `provision-practice` puts a practice by default) and a status
 window. It then opens the layout in your terminal.
 
 To choose the practices yourself, write the config first. Here are two practices
@@ -91,6 +92,12 @@ empirica cockpit status --profile monitor-b
 empirica cockpit refresh --profile monitor-b
 empirica cockpit kill   --profile monitor-b
 ```
+
+`cockpit status` is also the check for a profile you edited by hand, and it touches nothing.
+It exits 1 and lists the problem when a pane names a project that is not under `projects:`,
+when a group has no usable pane, when two groups or projects share a name, or when the file
+cannot be read (otherwise you would be shown the built-in layout as if it were yours). A
+project directory that does not exist yet is a warning: launch leaves a placeholder pane.
 
 Give each profile its own `session_name`, since each is its own tmux session. An
 unknown profile name is refused and the error lists the profiles that exist. A

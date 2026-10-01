@@ -31,6 +31,7 @@ from empirica.core.cockpit.launcher import (
     write_clean_shutdown,
     write_default_config,
 )
+from empirica.core.cockpit.launcher.config import config_file_state, validate_file
 from empirica.core.cockpit.launcher.detection import SessionAlreadyRunning
 from empirica.core.cockpit.launcher.tmux import exact_session
 
@@ -420,12 +421,21 @@ def handle_cockpit_status_command(args) -> int:
 
     config_p = Path(config_path).expanduser() if config_path else None
     config = load_config(path=config_p)
+    # An explicitly named config that is missing or unreadable is a problem, not "defaults": load_config
+    # answers both with the built-in layout, and reporting that layout as the profile hides the typo.
+    file_state = config_file_state(config_p)
+    errors, warnings = validate_file(config_p)
+    if config_p is not None and file_state != "ok":
+        errors.insert(0, f"{config_p} is {file_state.replace('-', ' ')}; showing the built-in defaults instead")
     snap = cockpit_status()
     abnormal = detect_abnormal_exit()
     session_live = cockpit_session_exists(config.session_name)
 
     payload = {
-        "ok": True,
+        "ok": not errors,
+        "problems": errors,
+        "warnings": warnings,
+        "config_file": file_state,
         "session_name": config.session_name,
         "session_live": session_live,
         "last_session_start": _format_iso(snap.last_session_start),
@@ -450,10 +460,14 @@ def handle_cockpit_status_command(args) -> int:
 
     if output == "json":
         print(json.dumps(payload, indent=2, default=str))
-        return 0
+        return 1 if errors else 0
 
     # Human-readable
     print(f"🛫 cockpit · session: {config.session_name}")
+    for msg in errors:
+        print(f"   ✗ {msg}")
+    for msg in warnings:
+        print(f"   ⚠ {msg}")
     print(f"   live: {'yes' if session_live else 'no'}")
     print(
         f"   last start:  {_format_iso(snap.last_session_start)} ({_format_age(_age_seconds(snap.last_session_start))})"
@@ -476,7 +490,7 @@ def handle_cockpit_status_command(args) -> int:
         print("   status windows:")
         for w in config.status_windows:
             print(f"     · {w.name:14s} {w.command}")
-    return 0
+    return 1 if errors else 0
 
 
 def _age_seconds(epoch: float | None) -> float | None:
