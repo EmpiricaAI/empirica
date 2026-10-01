@@ -115,3 +115,57 @@ def test_a_default_agent_whose_file_is_missing_is_reported_not_passed(tmp_path):
 
 def test_no_plugins_directory_is_a_skip(tmp_path):
     assert check_plugin_main_thread_agent(tmp_path).status == SKIP
+
+
+# ── broccoli: blind spots in the check ──────────────────────────────────────
+
+DENYING = "---\nname: denier\ntools: Read, Edit, Write, Bash, Monitor, ToolSearch\ndisallowedTools: Monitor, Edit\n---\nbody\n"
+INHERITING_DENIER = "---\nname: inheritor\ndisallowedTools:\n  - ToolSearch\n---\nbody\n"
+
+
+def test_disallowed_tools_remove_tools_even_when_the_allowlist_is_full(tmp_path):
+    """Only `tools:` was read, so an agent that denies Monitor passed clean."""
+    home = _home(tmp_path)
+    _synced(home, "denier", agent_md=DENYING, agent="denier")
+
+    c = check_plugin_main_thread_agent(home)
+
+    assert c.status == WARN and c.data["plugins"][0]["lost"] == ["Edit", "Monitor"]
+
+
+def test_disallowed_tools_without_any_allowlist_still_count(tmp_path):
+    home = _home(tmp_path)
+    _synced(home, "inheritor", agent_md=INHERITING_DENIER, agent="inheritor")
+
+    assert check_plugin_main_thread_agent(home).data["plugins"][0]["lost"] == ["ToolSearch"]
+
+
+def _installed(home: Path, key: str, install_path: Path) -> None:
+    (home / ".claude" / "plugins" / "installed_plugins.json").write_text(
+        json.dumps({"plugins": {key: [{"scope": "project", "installPath": str(install_path)}]}})
+    )
+
+
+def test_a_plugin_enabled_only_in_the_project_is_seen_when_the_project_is_given(tmp_path):
+    """enabledPlugins was read from the user settings only."""
+    home = _home(tmp_path)
+    root = _plugin(tmp_path / "p", "p", agent_md=FOUNDER, agent="empirica-founder")
+    _installed(home, "p@local", root)
+    project = tmp_path / "proj"
+    (project / ".claude").mkdir(parents=True)
+    (project / ".claude" / "settings.local.json").write_text(json.dumps({"enabledPlugins": {"p@local": True}}))
+
+    assert check_plugin_main_thread_agent(home).status == PASS  # control: user settings alone do not enable it
+    c = check_plugin_main_thread_agent(home, project)
+
+    assert c.status == WARN and [b["plugin"] for b in c.data["plugins"]] == ["p@local"]
+
+
+def test_an_enabled_plugin_whose_files_are_gone_is_counted_as_not_read(tmp_path):
+    """A missing installPath used to be counted among the plugins read."""
+    home = _home(tmp_path, {"gone@local": True})
+    _installed(home, "gone@local", tmp_path / "no-such-dir")
+
+    c = check_plugin_main_thread_agent(home)
+
+    assert "0 enabled plugin(s) read" in c.detail and "1 enabled but not on disk" in c.detail

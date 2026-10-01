@@ -188,3 +188,16 @@ def test_a_claude_helper_process_is_not_a_session(tmp_path):
         for p in (helper, session):
             p.kill()
             p.wait()
+
+
+def test_a_project_file_that_yields_no_ai_id_is_unreadable_not_outside_a_project(tmp_path):
+    """An unreadable project.yaml used to map to None, i.e. 'outside a project', and the session
+    was counted as skipped: a PASS that had not compared it."""
+    d = tmp_path / "proj"
+    (d / ".empirica").mkdir(parents=True)
+    (d / ".empirica" / "project.yaml").write_text("ai_id: [unclosed\n")
+
+    assert _project_ai_id(str(d)) == (d, None)
+    c = check_claude_instance_identity([_p(1, d, "someone")])
+
+    assert c.status == WARN and "1 unreadable" in c.detail and "0 skipped" in c.detail

@@ -931,21 +931,36 @@ def _plugin_default_agent(root: Path) -> str | None:
     return None
 
 
-def _enabled_plugin_roots(claude_dir: Path) -> list[tuple[str, Path]]:
-    """``(key, root)`` for every plugin Claude Code will load: installed ones that
-    ``enabledPlugins`` switches on, and synced ones unless switched off."""
-    plugins_dir = claude_dir / "plugins"
+def _read_enabled_plugins(settings_file: Path) -> dict:
     try:
-        enabled = (json.loads((claude_dir / "settings.json").read_text(encoding="utf-8")) or {}).get(
-            "enabledPlugins"
-        ) or {}
+        doc = json.loads(settings_file.read_text(encoding="utf-8")) or {}
     except (OSError, ValueError):
-        enabled = {}
+        return {}
+    enabled = doc.get("enabledPlugins") if isinstance(doc, dict) else None
+    return enabled if isinstance(enabled, dict) else {}
+
+
+def _enabled_plugin_roots(
+    claude_dir: Path, project_dir: Path | None = None
+) -> tuple[list[tuple[str, Path]], list[str]]:
+    """``(roots, missing)``: ``(key, root)`` for every plugin Claude Code will load, and the keys
+    that are enabled but whose files are not on disk (counted, never read as clean).
+
+    Installed plugins that ``enabledPlugins`` switches on, and synced ones unless switched off.
+    ``enabledPlugins`` merges user, project and project-local settings, later ones winning, so a
+    plugin enabled only for one project is seen when that project is ``project_dir``.
+    """
+    plugins_dir = claude_dir / "plugins"
+    enabled = _read_enabled_plugins(claude_dir / "settings.json")
+    if project_dir is not None:
+        for name in ("settings.json", "settings.local.json"):
+            enabled = {**enabled, **_read_enabled_plugins(project_dir / ".claude" / name)}
     try:
         installed = json.loads((plugins_dir / "installed_plugins.json").read_text(encoding="utf-8")).get("plugins", {})
     except (OSError, ValueError, AttributeError):
         installed = {}
     roots: list[tuple[str, Path]] = []
+    missing: list[str] = []
     for key, entries in installed.items():
         first = (
             next((e for e in entries if isinstance(e, dict) and e.get("installPath")), None)
@@ -953,12 +968,16 @@ def _enabled_plugin_roots(claude_dir: Path) -> list[tuple[str, Path]]:
             else None
         )
         if enabled.get(key) is True and first:
-            roots.append((key, Path(first["installPath"])))
+            root = Path(first["installPath"])
+            if root.is_dir():
+                roots.append((key, root))
+            else:
+                missing.append(key)
     for manifest in sorted((plugins_dir / "synced").glob("*/*/.claude-plugin/plugin.json")):
         root = manifest.parent.parent
         if enabled.get(f"{root.name}@synced") is not False:  # synced plugins load unless switched off
             roots.append((f"{root.name}@synced", root))
-    return roots
+    return roots, missing
 
 
 def _agent_tool_loss(root: Path, agent: str) -> dict | None:
@@ -970,11 +989,18 @@ def _agent_tool_loss(root: Path, agent: str) -> dict | None:
     tools = fm.get("tools")
     if isinstance(tools, str):
         tools = [t.strip() for t in tools.split(",") if t.strip()]
-    lost = [t for t in _MAIN_THREAD_TOOLS if isinstance(tools, list) and t not in tools]
+    denied = fm.get("disallowedTools")
+    if isinstance(denied, str):
+        denied = [t.strip() for t in denied.split(",") if t.strip()]
+    lost = [
+        t
+        for t in _MAIN_THREAD_TOOLS
+        if (isinstance(tools, list) and t not in tools) or (isinstance(denied, list) and t in denied)
+    ]
     return {"agent": agent, "model": fm.get("model"), "lost": lost} if lost else None
 
 
-def check_plugin_main_thread_agent(home: Path | None = None) -> Check:
+def check_plugin_main_thread_agent(home: Path | None = None, project_dir: Path | None = None) -> Check:
     """An enabled plugin whose default agent takes tools away from the main session.
 
     A plugin's ``settings.json`` ``{"agent": ...}`` makes that agent the main-thread
@@ -988,7 +1014,11 @@ def check_plugin_main_thread_agent(home: Path | None = None) -> Check:
     claude_dir = (home or Path.home()) / ".claude"
     if not (claude_dir / "plugins").is_dir():
         return Check(name, SKIP, f"no plugins directory at {claude_dir / 'plugins'}")
-    roots = _enabled_plugin_roots(claude_dir)
+    # A real run also reads the current project's settings; an injected home must not reach for the
+    # machine's working directory.
+    if project_dir is None and home is None:
+        project_dir = Path.cwd()
+    roots, missing = _enabled_plugin_roots(claude_dir, project_dir)
     bad: list[dict] = []
     with_agent = 0
     for key, root in roots:
@@ -1000,6 +1030,8 @@ def check_plugin_main_thread_agent(home: Path | None = None) -> Check:
         if loss:
             bad.append({"plugin": key, **loss})
     walked = f"{len(roots)} enabled plugin(s) read, {with_agent} set a default agent"
+    if missing:
+        walked += f", {len(missing)} enabled but not on disk, so not read ({', '.join(missing[:3])})"
     if not bad:
         return Check(name, PASS, walked)
     detail = "; ".join(
@@ -1083,8 +1115,13 @@ def _claude_processes() -> tuple[list[dict], int]:
     return found, unreadable
 
 
-def _project_ai_id(cwd: str) -> tuple[Path, str] | None:
-    """``(project root, ai_id)`` of the nearest .empirica/project.yaml at or above ``cwd``."""
+def _project_ai_id(cwd: str) -> tuple[Path, str | None] | None:
+    """``(project root, ai_id)`` of the nearest .empirica/project.yaml at or above ``cwd``.
+
+    None means NO project file was found. ``(root, None)`` means one was found and yielded no ai_id
+    (unreadable, malformed, or the key is absent): a different fact, which the caller must not
+    report as "outside a project".
+    """
     import yaml
 
     for d in (Path(cwd), *Path(cwd).parents):
@@ -1093,9 +1130,9 @@ def _project_ai_id(cwd: str) -> tuple[Path, str] | None:
             try:
                 doc = yaml.safe_load(f.read_text(encoding="utf-8")) or {}
             except (OSError, yaml.YAMLError):
-                return None
+                return d, None
             ai_id = doc.get("ai_id") if isinstance(doc, dict) else None
-            return (d, str(ai_id)) if ai_id else None
+            return (d, str(ai_id)) if ai_id else (d, None)
     return None
 
 
@@ -1138,6 +1175,9 @@ def check_claude_instance_identity(processes: list[dict] | None = None, unreadab
             skipped += 1
             continue
         root, ai_id = proj
+        if ai_id is None:
+            unreadable += 1  # the project file exists but gives no ai_id to compare against
+            continue
         if iid in (ai_id, root.name):
             agree += 1
         else:
