@@ -62,6 +62,9 @@ each other's transaction files; this release closes the ways that happened, and 
   against the session that happens to be running.
 - **The OAuth refresh lock** degrades to unserialized, with a warning, when `flock` itself
   fails (NFS, FUSE) instead of raising out of the refresh.
+- **`diagnose --frontend ecodex` accepts the renamed plugin.** ecodex 0.157.2 renamed its
+  bundled plugin to `empirica@empiricaAI`; both names pass, the new one first, so installs on
+  either side of the rename are no longer reported as missing.
 - `goals-claim` no longer moves HEAD unless `--create-branch` is passed; a hung tmux call
   is a pane error; the shipped examples install where `sync` does not erase them.
 
