@@ -244,7 +244,7 @@ SAFE_BASH_PREFIXES = (
     "pwd",
     "echo ",
     "printf ",
-    "env",
+    "env",  # handled specially in _matches_safe_prefix: judged by what follows its NAME=value words
     "printenv",
     "set",
     "whoami",
@@ -1026,24 +1026,42 @@ WORKSPACE_READ_ACTIONS = frozenset(
 )
 
 
+def _has_help_flag(command: str, binary: str) -> bool:
+    """Is `command` an invocation of `binary` that carries a REAL --help / -h / --version argument?
+
+    Those print usage and never run the verb, so they are inert whatever the verb is. "Real" is the
+    point: `shlex.split` keeps a trailing `# --help` comment, a heredoc body line and a quoted value
+    as tokens, none of which is an argument the program receives, so `org create --name X # --help`
+    read as a help call and waved a write through (broccoli, 2026-10-02). So: only the first line,
+    only up to a heredoc, comments dropped by the shell's own rule, and quotes KEPT (`posix=False`)
+    so a value `"--help"` stays distinct from the flag `--help`.
+    """
+    import shlex as _shlex
+
+    head = command.lstrip().split("\n", 1)[0].split("<<", 1)[0]
+    try:
+        toks = _shlex.split(head, comments=True, posix=False)
+    except ValueError:
+        return False
+    return bool(toks) and toks[0] == binary and bool({"--help", "-h", "--version"} & set(toks[1:]))
+
+
 def is_safe_workspace_read(command: str) -> bool:
     """Is this an `empirica-workspace` command that only reads?
 
     Token-exact on the binary, the group and the action; whatever follows (`--limit 1000`,
     `--output json`, an id) cannot turn a read into a write because the action was already
-    decided. A `--help` / `-h` anywhere as its own token is inert, as for `empirica`.
+    decided. A real `--help` / `-h` argument is inert, as for `empirica` (see `_has_help_flag`).
     """
     import shlex as _shlex
 
+    if _has_help_flag(command, "empirica-workspace"):
+        return True
     try:
         toks = _shlex.split(command.lstrip())
     except ValueError:
         return False
-    if not toks or toks[0] != "empirica-workspace":
-        return False
-    if {"--help", "-h", "--version"} & set(toks[1:]):
-        return True
-    return len(toks) >= 3 and (toks[1], toks[2]) in WORKSPACE_READ_ACTIONS
+    return len(toks) >= 3 and toks[0] == "empirica-workspace" and (toks[1], toks[2]) in WORKSPACE_READ_ACTIONS
 
 
 def is_safe_empirica_command(command: str) -> bool:
@@ -1079,17 +1097,11 @@ def is_safe_empirica_command(command: str) -> bool:
     # `empirica --version`, leaving `empirica` with no trailing space — so the
     # version query, inert by definition, was DENIED. The token check must see
     # what the user typed; the stripper exists only for the prefix tiers below.
-    import shlex as _shlex
-
-    try:
-        _toks = _shlex.split(raw)
-    except ValueError:
-        _toks = []
     # First token must be exactly `empirica` — the loose startswith above admits
-    # `empiricafoo`, and running the token check on that would bless a different
-    # binary's --version. The old order got this for free from the trailing-space
-    # prefix; the reorder has to say it explicitly.
-    if _toks and _toks[0] == "empirica" and {"--help", "-h", "--version"} & set(_toks):
+    # `empiricafoo`, and running the check on that would bless a different binary's
+    # --version. The flag must be a REAL argument: a trailing `# --help` comment or a
+    # heredoc line is not one (`_has_help_flag`), and used to bless any verb.
+    if _has_help_flag(raw, "empirica"):
         return True
 
     # Prefix tiers match `empirica <verb> ...` literally, so normalize the legal
@@ -2293,6 +2305,10 @@ def _normalize_git_globals(cmd: str) -> str:
     return "git " + " ".join(parts[i:])
 
 
+_ENV_PREFIX_RE = re.compile(r"env(?:\s+|$)")
+_ENV_ASSIGN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=(?:\"[^\"]*\"|'[^']*'|\S*)\s*")
+
+
 def _matches_safe_prefix(cmd: str) -> bool:
     """Check if a command matches any SAFE_BASH_PREFIXES entry.
 
@@ -2307,8 +2323,27 @@ def _matches_safe_prefix(cmd: str) -> bool:
     # same check as `git status`. The dangerous-flag guard above runs on the
     # ORIGINAL text, so nothing is smuggled past it by normalization.
     cmd = _normalize_git_globals(cmd)
+    # `env` runs whatever follows its NAME=value words, so it is safe exactly when that is: bare
+    # `env` prints the environment, `env EMPIRICA_INSTANCE_ID=x empirica mailbox poll` is judged as
+    # `empirica mailbox poll`, and `env rm -rf x` as `rm -rf x`. As a blanket prefix it blessed all
+    # three (broccoli, 2026-10-02).
+    env_match = _ENV_PREFIX_RE.match(cmd)
+    if env_match:
+        rest = cmd[env_match.end() :]
+        while True:
+            assign = _ENV_ASSIGN_RE.match(rest)
+            if not assign:
+                break
+            rest = rest[assign.end() :]
+        rest = rest.strip()
+        return True if not rest else is_safe_bash_command({"command": rest})
     for prefix in SAFE_BASH_PREFIXES:
         if cmd.startswith(prefix):
+            # A bare-word prefix names a COMMAND, so it must end at a word boundary: `id` is not
+            # `idle`, `set` is not `setfacl -R`, `cal` is not `calibre`. A prefix that carries a
+            # space or other punctuation (`git status`, `gh api `) is already specific.
+            if prefix.isalnum() and len(cmd) > len(prefix) and not cmd[len(prefix)].isspace():
+                continue
             return True
         if prefix.endswith(" ") and cmd == prefix.rstrip():
             return True
@@ -2821,7 +2856,14 @@ def is_safe_bash_command(tool_input: dict) -> bool:
     # Single command. A trailing pipe can smuggle an executor
     # (`empirica goals-list | sh`), so a piped command is NOT safe on the bare
     # empirica-prefix match — it goes through the pipe-chain check below.
-    if not _contains_outside_quotes(command, "|") and is_safe_empirica_statement(command):
+    # A read followed by a redirect or process substitution is not a read: `empirica goals-list >
+    # file` writes, `empirica goals-list <(rm -rf x)` runs. The redirect check looks at the head only,
+    # before any heredoc, so a `>` inside a JSON payload body cannot gate a legitimate submission.
+    if (
+        not _contains_outside_quotes(command, "|")
+        and not _has_dangerous_redirects(command.split("<<", 1)[0])
+        and is_safe_empirica_statement(command)
+    ):
         return True
 
     # Work-type expansion: infra/config/debug/remote-ops get broader safe
