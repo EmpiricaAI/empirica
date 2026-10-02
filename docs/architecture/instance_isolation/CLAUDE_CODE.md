@@ -113,6 +113,12 @@ that record names another practice's project, every hook for the session looks i
 instance pointer changes. A deliberate `project-switch` into another project looks identical, so
 the check reports and does not repair.
 
+`empirica preflight-submit` refuses when the store it would write to is not the project you are
+standing in (nearest ancestor holding `.empirica/project.yaml`): before any write, it names both
+projects and the fix. Two deliberate ways through: a `project-switch --claude-session-id` made by this
+same session (another session's switch does not count), or `EMPIRICA_ALLOW_PROJECT_MISMATCH=1` for the
+command. A working directory outside any project never refuses.
+
 `empirica project-switch <project> --claude-session-id "$CLAUDE_CODE_SESSION_ID"` re-points the
 project pointer. It cannot change the id of a process that is already running, so it repairs
 the pointer, not the sharing.

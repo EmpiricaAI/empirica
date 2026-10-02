@@ -260,6 +260,85 @@ def _preflight_check_session_exists(session_id):
         return None  # Never let a diagnostic block PREFLIGHT.
 
 
+def _project_root_of(path: Path) -> Path | None:
+    """The nearest ancestor of ``path`` that is a project: it holds ``.empirica/project.yaml``.
+
+    ``project.yaml`` and not just a ``.empirica`` directory, because the user's home carries a
+    ``.empirica`` of its own, and a working directory anywhere under it would otherwise "belong" to
+    the home directory.
+    """
+    home = Path.home().resolve()
+    for d in (path, *path.parents):
+        if d.resolve() == home:
+            return None
+        if (d / ".empirica" / "project.yaml").is_file():
+            return d
+    return None
+
+
+def _preflight_check_project_matches_cwd():
+    """Refuse when the store this PREFLIGHT would write to is not the project the caller stands in.
+
+    Every resolver routes by the instance pointer, not by the working directory. When two claudes
+    share an instance id (2026-09-29 and 10-01: a claude in empirica-nle carrying the id `empirica`),
+    the one that did not choose that pointer writes its transaction into the other's store, with
+    nothing refusing it: the session it used existed there, so `_preflight_check_session_exists`
+    had nothing to object to.
+
+    Refuses only when both roots are known and differ. A working directory outside any project, or
+    a match, never refuses. Two ways through, both deliberate: this claude SESSION switched on
+    purpose (`project-switch --claude-session-id`, recorded in its own active_work record, so
+    another session's switch does not count), or `EMPIRICA_ALLOW_PROJECT_MISMATCH=1`. An explicit
+    `EMPIRICA_SESSION_DB` is also a stated choice of store, and is left alone.
+
+    Never raises: a guard on the hot path must not become the outage.
+    """
+    if os.environ.get("EMPIRICA_ALLOW_PROJECT_MISMATCH") == "1" or os.environ.get("EMPIRICA_SESSION_DB"):
+        return None
+    try:
+        from empirica.config.path_resolver import get_session_db_path
+
+        store_root = get_session_db_path().resolve().parents[2]  # <root>/.empirica/sessions/sessions.db
+        cwd_root = _project_root_of(Path.cwd().resolve())
+        if cwd_root is None or cwd_root.resolve() == store_root:
+            return None
+
+        claude_session = os.environ.get("CLAUDE_CODE_SESSION_ID")
+        if claude_session:
+            try:
+                record = json.loads((Path.home() / ".empirica" / f"active_work_{claude_session}.json").read_text())
+                if (
+                    record.get("source") == "project-switch"
+                    and Path(str(record.get("project_path", ""))).resolve() == store_root
+                ):
+                    return None  # this session chose that store
+            except (OSError, ValueError):
+                pass
+
+        return {
+            "refuse": True,
+            "store_root": str(store_root),
+            "cwd_project": str(cwd_root),
+            "message": (
+                f"This PREFLIGHT would write to {store_root.name!r} ({store_root}) but you are standing in "
+                f"{cwd_root.name!r} ({cwd_root}). Instance routing, not your working directory, picked that "
+                "store; the usual cause is a shell or pane that carries another practice's EMPIRICA_INSTANCE_ID. "
+                "Refused before any write."
+            ),
+            "fix": (
+                f"If you work in {cwd_root.name!r}: restart this claude from a shell without the wrong id "
+                f"(`unset EMPIRICA_INSTANCE_ID; EMPIRICA_INSTANCE_ID={cwd_root.name} claude --continue`), or run "
+                f'`empirica project-switch {cwd_root.name} --claude-session-id "$CLAUDE_CODE_SESSION_ID"`. '
+                f"If you meant {store_root.name!r}: `empirica project-switch {store_root.name} --claude-session-id "
+                '"$CLAUDE_CODE_SESSION_ID"` records that as deliberate, or set EMPIRICA_ALLOW_PROJECT_MISMATCH=1 '
+                "for this command."
+            ),
+        }
+    except Exception as exc:  # a guard must never block PREFLIGHT by failing
+        logger.debug(f"project/cwd guard skipped: {exc}")
+        return None
+
+
 def _preflight_create_checkpoint(session_id, vectors, reasoning, transaction_id, task_context=None):
     """Create GitEnhancedReflexLogger checkpoint for PREFLIGHT.
 
@@ -1258,6 +1337,13 @@ def handle_preflight_submit_command(args):
         session_warning = _preflight_check_session_exists(session_id)
         if session_warning and session_warning.get("refuse"):
             print(json.dumps({"ok": False, "error": session_warning["message"], **session_warning}, indent=2))
+            return 1
+
+        # Stage 2c: is the store this would write to the project the caller stands in? A claude that
+        # inherited another practice's instance id would otherwise open its window in that practice.
+        project_mismatch = _preflight_check_project_matches_cwd()
+        if project_mismatch:
+            print(json.dumps({"ok": False, "error": project_mismatch["message"], **project_mismatch}, indent=2))
             return 1
 
         # Stage 3: Create checkpoint and transaction
