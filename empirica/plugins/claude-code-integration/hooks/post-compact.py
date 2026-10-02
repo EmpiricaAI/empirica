@@ -179,9 +179,21 @@ def _write_active_work_for_new_conversation(
                 "empirica_session_id": empirica_session_id,
                 "timestamp": datetime.now().isoformat(),
             }
-            with open(instance_file, "w") as f:
-                json.dump(instance_data, f, indent=2)
-            os.chmod(instance_file, 0o600)
+            # Another LIVE claude in another project owns this instance id: leave its pointer alone.
+            owner = None
+            if instance_file.exists():
+                try:
+                    from instance_clash import clash_notice, foreign_live_owner
+
+                    owner = foreign_live_owner(json.loads(instance_file.read_text()), claude_session_id, project_path)
+                    if owner:
+                        print(clash_notice(str(instance_id), owner, project_path), file=sys.stderr)
+                except Exception:
+                    owner = None
+            if not owner:
+                with open(instance_file, "w") as f:
+                    json.dump(instance_data, f, indent=2)
+                os.chmod(instance_file, 0o600)
 
         return True
     except Exception as e:
