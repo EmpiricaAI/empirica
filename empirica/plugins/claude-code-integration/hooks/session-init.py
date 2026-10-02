@@ -1638,6 +1638,16 @@ def _auto_sync_plugin():
         pass
 
 
+def _calibration_block(project_root) -> str:
+    """The calibration bias block for this project, or "" (never raises: a hook must not fail on it)."""
+    try:
+        from calibration_block import load_calibration_block
+
+        return load_calibration_block([Path(project_root)])
+    except Exception:
+        return ""
+
+
 def main():
     """Main session init logic.
 
@@ -1728,6 +1738,12 @@ def main():
     deploy_gap_text = _deploy_gap_block(project_root)
     if deploy_gap_text:
         prompt = f"{prompt}\n\n{deploy_gap_text}\n"
+
+    # The calibration bias profile the system prompt promises "at session start". Nothing here read
+    # .breadcrumbs.yaml before, and the post-compact reader returned "" on every real file.
+    calibration_text = _calibration_block(project_root)
+    if calibration_text:
+        prompt = f"{prompt}\n\n{calibration_text}\n"
 
     output = {
         "ok": True,

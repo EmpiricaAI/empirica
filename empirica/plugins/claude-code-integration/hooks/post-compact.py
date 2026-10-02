@@ -194,50 +194,24 @@ def _write_active_work_for_new_conversation(
 
 
 def _load_calibration_from_breadcrumbs_yaml() -> str:
-    """Load calibration biases from .breadcrumbs.yaml for post-compact injection.
+    """The calibration bias block for post-compact injection, or "" when there is none.
 
-    Previously handled by session-start.sh bash script.
-    Returns formatted calibration text or empty string.
+    The formatting lives in lib/calibration_block.py so session start serves the same block. This
+    used to read a `calibration:` key the file no longer has and returned "" on every real file.
     """
-    git_root = None
+    try:
+        from calibration_block import load_calibration_block
+    except ImportError:
+        return ""  # a plugin copy older than this hook: compaction must not fail on a missing helper
+
+    roots: list[Path] = [Path(".")]
     try:
         result = subprocess.run(["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, timeout=5)
-        git_root = result.stdout.strip()
+        if result.stdout.strip():
+            roots.append(Path(result.stdout.strip()))
     except Exception:
         pass
-
-    config_path = None
-    if Path(".breadcrumbs.yaml").exists():
-        config_path = Path(".breadcrumbs.yaml")
-    elif git_root and Path(git_root, ".breadcrumbs.yaml").exists():
-        config_path = Path(git_root, ".breadcrumbs.yaml")
-
-    if not config_path:
-        return ""
-
-    try:
-        import yaml
-
-        with open(config_path) as f:
-            config = yaml.safe_load(f) or {}
-
-        calibration = config.get("calibration")
-        if not calibration:
-            return ""
-
-        # Format calibration for prompt injection
-        lines = ["### Calibration Biases (from .breadcrumbs.yaml)"]
-        if isinstance(calibration, dict):
-            for key, value in calibration.items():
-                if isinstance(value, dict):
-                    lines.append(f"**{key}:**")
-                    for k, v in value.items():
-                        lines.append(f"  {k}: {v}")
-                else:
-                    lines.append(f"  {key}: {value}")
-        return "\n".join(lines)
-    except Exception:
-        return ""
+    return load_calibration_block(roots)
 
 
 def _resolve_project_and_setup(claude_session_id: str) -> tuple:
