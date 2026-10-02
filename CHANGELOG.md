@@ -5,6 +5,67 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.5] - 2026-10-02
+
+A security pass on the Sentinel's read classifier, the first guard against two claudes sharing
+one instance id, and the calibration profile reaching the AI again.
+
+### Security
+
+- **The read classifier can no longer be talked into a write.** A trailing `# --help`, a heredoc
+  line or a quoted `"--help"` counted as the help flag, so any `empirica-workspace` write (and any
+  `empirica` verb) passed. A read followed by a redirect or process substitution passed
+  (`empirica goals-list > file`). `env` was a blanket safe prefix (`env rm -rf x` passed), and
+  bare-word prefixes had no word boundary (`setfacl` matched `set`). `env VAR=x empirica ...` and
+  `2>/dev/null` still work.
+- **`setup-claude-code` keeps the file mode.** It rewrote `~/.claude.json` through a temp file and
+  reset a hardened `chmod 600` to the umask default. It now keeps the existing mode, creates new
+  files 0600, writes through a symlink instead of replacing it, and no longer fails on a stale
+  temp file or a filesystem that rejects chmod.
+- **`empirica auth token` honours refresh custody.** It refreshed a token that the daemon or the
+  extension owns, which makes cortex revoke the family. One shared gate now decides for both
+  `auth token` and the cortex bearer; for such a family it prints the stored token while valid and
+  otherwise exits 1 naming the owner.
+- Floors raised for advisories published since 1.14.4: `pyjwt>=2.15.1`, `urllib3>=2.8.0`.
+
+### Added
+
+- **PREFLIGHT refuses to write into the wrong practice.** When the store it would write to is not
+  the project you are standing in (a shell or pane carrying another practice's
+  `EMPIRICA_INSTANCE_ID`), it refuses before any write and names the fix. A `project-switch` made by
+  the same session, or `EMPIRICA_ALLOW_PROJECT_MISMATCH=1`, is the deliberate way through.
+- **`doctor` reports a claude session routed to another project** (its `active_work` record names a
+  different project than the one it runs in), and a live claude running under another practice's
+  instance id is reported with the way out.
+- **The calibration profile reaches the AI.** The post-compact loader read a key the file no longer
+  has and injected nothing, and session start had no reader. One formatter now serves both: the
+  grounded divergence per vector, the top insights, the vectors no evidence grades, with its
+  observation count and age (stale is labelled). The breadcrumbs writer escapes quotes, so one `"`
+  can no longer invalidate the whole file.
+- **`cockpit status` validates the profile**: an unlisted project, a group with no usable pane, a
+  duplicate name, an unreadable file (the default one too), or a dot in a group name (tmux cannot
+  address it) exits 1 and says why. First-launch discovery also scans `~/empirica`, where
+  `provision-practice` puts a practice by default.
+- **The Sentinel treats `empirica-workspace` reads as noetic**: an exact table of read actions
+  (`org|contact|engagement list|show`, `touchpoint list`, `revenue-event list`, `entity knowledge|recall`,
+  `engagement materials`, `crm-sync preview`); every write sibling stays gated.
+- **`diagnose --frontend ecodex`** accepts the renamed plugin (`empirica@empiricaAI`, the legacy key
+  as fallback) and tests whether the plugin's hooks are reachable instead of a feature key current
+  codex ignores.
+
+### Fixed
+
+- `cockpit launch` with an exact tmux target, a loud partial-failure report and a safer profile
+  writer, and `refresh` that does not respawn into `$HOME` (all 1.14.4 behaviour hardened).
+- `doctor`: a UUID instance id starting a-f, `claude --chrome-native-host` helpers, a transaction
+  with no start time, an unreadable `project.yaml`, a plugin's `disallowedTools`, and a pid whose
+  session file belongs to a dead claude are read correctly.
+- `mesh status` survives a malformed fires-log line and no longer mistakes `--instance empirica`
+  for `--instance empirica-workspace`.
+- `goals-claim --create-branch` that fails says so and exits 1; a lesson cannot name a retired
+  successor; prevention detection no longer judges a row with no session against the running one;
+  the OAuth refresh lock degrades to unserialized when `flock` itself fails.
+
 ## [1.14.4] - 2026-10-01
 
 Cockpit and identity hardening. Several practices shared one instance id and wrote into
