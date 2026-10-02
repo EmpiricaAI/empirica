@@ -34,9 +34,9 @@ one instance id, and the calibration profile reaching the AI again.
   the project you are standing in (a shell or pane carrying another practice's
   `EMPIRICA_INSTANCE_ID`), it refuses before any write and names the fix. A `project-switch` made by
   the same session, or `EMPIRICA_ALLOW_PROJECT_MISMATCH=1`, is the deliberate way through.
-- **`doctor` reports a claude session routed to another project** (its `active_work` record names a
-  different project than the one it runs in), and a live claude running under another practice's
-  instance id is reported with the way out.
+- **`doctor` reports a claude session routed to another project**: its `active_work` record names a
+  different project than the one it runs in. The report names the repair (`project-switch
+  --claude-session-id`, the flag is what rewrites the record).
 - **The calibration profile reaches the AI.** The post-compact loader read a key the file no longer
   has and injected nothing, and session start had no reader. One formatter now serves both: the
   grounded divergence per vector, the top insights, the vectors no evidence grades, with its
@@ -52,19 +52,6 @@ one instance id, and the calibration profile reaching the AI again.
 - **`diagnose --frontend ecodex`** accepts the renamed plugin (`empirica@empiricaAI`, the legacy key
   as fallback) and tests whether the plugin's hooks are reachable instead of a feature key current
   codex ignores.
-
-### Fixed
-
-- `cockpit launch` with an exact tmux target, a loud partial-failure report and a safer profile
-  writer, and `refresh` that does not respawn into `$HOME` (all 1.14.4 behaviour hardened).
-- `doctor`: a UUID instance id starting a-f, `claude --chrome-native-host` helpers, a transaction
-  with no start time, an unreadable `project.yaml`, a plugin's `disallowedTools`, and a pid whose
-  session file belongs to a dead claude are read correctly.
-- `mesh status` survives a malformed fires-log line and no longer mistakes `--instance empirica`
-  for `--instance empirica-workspace`.
-- `goals-claim --create-branch` that fails says so and exits 1; a lesson cannot name a retired
-  successor; prevention detection no longer judges a row with no session against the running one;
-  the OAuth refresh lock degrades to unserialized when `flock` itself fails.
 
 ## [1.14.4] - 2026-10-01
 

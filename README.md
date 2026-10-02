@@ -415,16 +415,16 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.14.4
+## What's New in 1.14.5
 
-- **Cockpit panes keep their identity.** Each pane is bound to its own instance id and `empirica cockpit refresh` respawns a dead claude where it was, same identity, conversation resumed. `--profile NAME` picks `~/.empirica/cockpit/config-NAME.yaml`, `provision-practice --cockpit-profile NAME` adds a practice to it, and `docs/guides/COCKPIT.md` is the user guide.
-- **`empirica auth token`** prints a valid login credential for other tools, and token refreshes are serialized across processes (cortex rotates the refresh token on use).
-- **`resolve-artifacts` can retire a lesson** after the fact with `superseded_by`.
-- **`empirica help`** is a short list for people, as `claude --help` is.
-- **New `doctor` checks.** Live claude sessions running under another practice's id; a plugin whose default agent strips the main session's tools (reads `tools`, `disallowedTools`, user and project settings); transaction files open for more than 7 days; lessons marked superseded only in their YAML; long-running empirica processes older than the code on disk; tmux sessions that hand out a practitioner identity. `doctor` prints a report on a terminal and JSON through a pipe.
-- **`mesh status`** reads the rotated fires log (a quiet practice is no longer a cold start) and says whether the curl it found is the listener's child or an orphan.
-- **A tmux session never carries a practitioner identity.** `new-session -e` scopes the variable to the whole session, so a claude started by hand in a spare pane ran as another practice. The launcher strips it.
-- **The resolver pins a project to an open transaction only if that transaction is the caller's own.** A foreign or stale open transaction no longer misroutes commands.
+- **The read classifier can no longer be talked into a write.** A trailing `# --help`, a heredoc line or a quoted `"--help"` counted as the help flag, so any `empirica-workspace` write (and any `empirica` verb) passed. A read followed by a redirect or process substitution passed (`empirica goals-list > file`). `env` was a blanket safe prefix (`env rm -rf x` passed), and bare-word prefixes had no word boundary (`setfacl` matched `set`). `env VAR=x empirica ...` and `2>/dev/null` still work.
+- **`setup-claude-code` keeps the file mode.** It rewrote `~/.claude.json` through a temp file and reset a hardened `chmod 600` to the umask default. It now keeps the existing mode, creates new files 0600, writes through a symlink instead of replacing it, and no longer fails on a stale temp file or a filesystem that rejects chmod.
+- **`empirica auth token` honours refresh custody.** It refreshed a token that the daemon or the extension owns, which makes cortex revoke the family. One shared gate now decides for both `auth token` and the cortex bearer; for such a family it prints the stored token while valid and otherwise exits 1 naming the owner. - Floors raised for advisories published since 1.14.4: `pyjwt>=2.15.1`, `urllib3>=2.8.0`.
+- **PREFLIGHT refuses to write into the wrong practice.** When the store it would write to is not the project you are standing in (a shell or pane carrying another practice's `EMPIRICA_INSTANCE_ID`), it refuses before any write and names the fix. A `project-switch` made by the same session, or `EMPIRICA_ALLOW_PROJECT_MISMATCH=1`, is the deliberate way through.
+- **`doctor` reports a claude session routed to another project**: its `active_work` record names a different project than the one it runs in. The report names the repair (`project-switch --claude-session-id`, the flag is what rewrites the record).
+- **The calibration profile reaches the AI.** The post-compact loader read a key the file no longer has and injected nothing, and session start had no reader. One formatter now serves both: the grounded divergence per vector, the top insights, the vectors no evidence grades, with its observation count and age (stale is labelled). The breadcrumbs writer escapes quotes, so one `"` can no longer invalidate the whole file.
+- **`cockpit status` validates the profile**: an unlisted project, a group with no usable pane, a duplicate name, an unreadable file (the default one too), or a dot in a group name (tmux cannot address it) exits 1 and says why. First-launch discovery also scans `~/empirica`, where `provision-practice` puts a practice by default.
+- **The Sentinel treats `empirica-workspace` reads as noetic**: an exact table of read actions (`org|contact|engagement list|show`, `touchpoint list`, `revenue-event list`, `entity knowledge|recall`, `engagement materials`, `crm-sync preview`); every write sibling stays gated.
 ## Privacy & Data
 
 **Your data stays local:**
