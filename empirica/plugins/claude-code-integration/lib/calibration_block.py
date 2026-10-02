@@ -17,6 +17,8 @@ to internalize it.
 
 from __future__ import annotations
 
+import math
+import re
 import time
 from datetime import datetime
 from pathlib import Path
@@ -27,6 +29,25 @@ MAX_VECTORS = 6
 MAX_INSIGHTS = 3
 #: Past this age the profile is shown but labelled stale.
 STALE_AFTER_DAYS = 7
+
+
+#: Insight text is written by code but injected into the AI's context, and `.breadcrumbs.yaml` can come
+#: from a cloned repo. One short line each: no newline can start a fake heading, and none is unbounded.
+MAX_TEXT = 200
+_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_ -]{0,40}")
+
+
+def _one_line(value: object) -> str:
+    text = " ".join(str(value).split())
+    return text if len(text) <= MAX_TEXT else text[: MAX_TEXT - 1] + "…"
+
+
+def _severity(value: object) -> float:
+    try:
+        sev = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 0.0
+    return sev if math.isfinite(sev) else 0.0
 
 
 def _age_days(stamp: object, now: float) -> float | None:
@@ -42,16 +63,28 @@ def format_calibration_block(config: dict, now: float | None = None) -> str:
     if not isinstance(cal, dict):
         return ""
     div = cal.get("divergence")
-    divergence = {k: float(v) for k, v in div.items() if isinstance(v, (int, float))} if isinstance(div, dict) else {}
+    divergence = (
+        {
+            str(k): float(v)
+            for k, v in div.items()
+            if isinstance(v, (int, float))
+            and not isinstance(v, bool)
+            and math.isfinite(v)
+            and _NAME_RE.fullmatch(str(k))
+        }
+        if isinstance(div, dict)
+        else {}
+    )
     if not divergence:
         return ""
 
     now = time.time() if now is None else now
     age = _age_days(cal.get("last_updated"), now)
-    when = str(cal.get("last_updated", "unknown date"))[:10]
+    when = str(cal["last_updated"])[:10] if cal.get("last_updated") else "unknown date"
     stale = f", STALE ({age:.0f} days old)" if age is not None and age > STALE_AFTER_DAYS else ""
     n = cal.get("observations")
-    header = f"### Calibration (grounded{f', {n:,} observations' if isinstance(n, int) else ''}, updated {when}{stale})"
+    counted = f", {n:,} observations" if isinstance(n, int) and not isinstance(n, bool) else ""
+    header = f"### Calibration (grounded{counted}, updated {when}{stale})"
 
     named = sorted((kv for kv in divergence.items() if abs(kv[1]) >= MIN_DIVERGENCE), key=lambda kv: -abs(kv[1]))
     lines = [
@@ -65,13 +98,14 @@ def format_calibration_block(config: dict, now: float | None = None) -> str:
         lines.append(f"  no vector differs by {MIN_DIVERGENCE:.2f} or more")
 
     insights = [i for i in (cal.get("insights") or []) if isinstance(i, dict) and i.get("description")]
-    insights.sort(key=lambda i: -float(i.get("severity") or 0))
+    insights.sort(key=lambda i: -_severity(i.get("severity")))
     for i in insights[:MAX_INSIGHTS]:
-        lines.append(f"  - {i['description']}")
+        lines.append(f"  - {_one_line(i['description'])}")
 
     ungrounded = cal.get("ungrounded")
-    if isinstance(ungrounded, list) and ungrounded:
-        lines.append(f"Not graded by evidence: {', '.join(str(u) for u in ungrounded)}")
+    names = [str(u) for u in ungrounded if _NAME_RE.fullmatch(str(u))] if isinstance(ungrounded, list) else []
+    if names:
+        lines.append(f"Not graded by evidence: {', '.join(names)}")
     return "\n".join(lines)
 
 
@@ -88,5 +122,8 @@ def load_calibration_block(roots: list[Path], now: float | None = None) -> str:
             config = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         except Exception:
             return ""
-        return format_calibration_block(config, now)
+        try:
+            return format_calibration_block(config, now)
+        except Exception:
+            return ""  # an odd file must cost the block, never the SessionStart or PostCompact output
     return ""

@@ -138,14 +138,118 @@ def test_an_explicit_session_db_is_a_stated_choice_and_is_left_alone(world):
     assert wp._preflight_check_project_matches_cwd() is None
 
 
-def test_a_guard_that_fails_does_not_block_preflight(world):
+def test_a_guard_that_fails_does_not_block_preflight_but_says_so(world):
+    """A persistent failure must not look identical to a pass: it is returned, not swallowed."""
+
     def boom():
         raise RuntimeError("resolver down")
 
     world.mp.setattr("empirica.config.path_resolver.get_session_db_path", boom)
     world.mp.chdir(world.nle)
 
+    out = wp._preflight_check_project_matches_cwd()
+
+    assert out and not out.get("refuse") and "RuntimeError: resolver down" in out["skipped"]
+
+
+def test_a_non_dict_active_work_record_is_not_a_crash_and_not_a_pass(world):
+    (world.home / ".empirica" / "active_work_sess-1.json").write_text("[1, 2]")
+    world.mp.setenv("CLAUDE_CODE_SESSION_ID", "sess-1")
+    world.mp.chdir(world.nle)
+
+    out = wp._preflight_check_project_matches_cwd()
+
+    assert out and out.get("refuse") is True
+
+
+def _marker(home: Path, session_id: str, project: Path) -> None:
+    (home / ".empirica" / f"deliberate_switch_{session_id}.json").write_text(json.dumps({"project_path": str(project)}))
+
+
+def test_the_deliberate_switch_marker_survives_a_hook_rewriting_active_work(world):
+    """post-compact and session-init overwrite active_work with their own source; the marker is theirs to leave alone."""
+    _marker(world.home, "sess-1", world.core)
+    _record(world.home, "sess-1", world.core, "post-compact")  # the hook rewrote the record
+    world.mp.setenv("CLAUDE_CODE_SESSION_ID", "sess-1")
+    world.mp.chdir(world.nle)
+
     assert wp._preflight_check_project_matches_cwd() is None
+
+
+def test_another_sessions_marker_does_not_count(world):
+    _marker(world.home, "someone-else", world.core)
+    world.mp.setenv("CLAUDE_CODE_SESSION_ID", "sess-1")
+    world.mp.chdir(world.nle)
+
+    assert wp._preflight_check_project_matches_cwd() is not None
+
+
+def test_a_marker_naming_a_different_store_does_not_count(world):
+    _marker(world.home, "sess-1", world.nle)
+    world.mp.setenv("CLAUDE_CODE_SESSION_ID", "sess-1")
+    world.mp.chdir(world.nle)
+
+    assert wp._preflight_check_project_matches_cwd() is not None
+
+
+def _git(cwd: Path, *args: str) -> None:
+    import subprocess
+
+    subprocess.run(
+        ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", *args],
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+    )
+
+
+def test_a_linked_worktree_of_the_stores_repo_is_the_same_project(world, tmp_path):
+    """A repo that TRACKS .empirica/project.yaml gives every worktree its own copy, which read as a different project."""
+    main = tmp_path / "tracked"
+    (main / ".empirica" / "sessions").mkdir(parents=True)
+    (main / ".empirica" / "project.yaml").write_text("ai_id: tracked\n")
+    _git(main, "init", "-q", "-b", "main")
+    _git(main, "add", "-A")
+    _git(main, "commit", "-q", "-m", "x")
+    wt = tmp_path / "tracked-wt"
+    _git(main, "worktree", "add", "-q", str(wt))
+    world.mp.setattr(
+        "empirica.config.path_resolver.get_session_db_path", lambda: main / ".empirica" / "sessions" / "sessions.db"
+    )
+    world.mp.chdir(wt)
+
+    assert wp._project_root_of(wt.resolve()) == wt.resolve(), "the worktree does read as its own project root"
+    assert wp._preflight_check_project_matches_cwd() is None
+
+
+def test_a_different_repo_with_its_own_project_is_still_refused(world, tmp_path):
+    """CONTROL: the worktree allowance must not wave through an unrelated repository."""
+    a = tmp_path / "repo-a"
+    b = tmp_path / "repo-b"
+    for r in (a, b):
+        (r / ".empirica" / "sessions").mkdir(parents=True)
+        (r / ".empirica" / "project.yaml").write_text(f"ai_id: {r.name}\n")
+        _git(r, "init", "-q", "-b", "main")
+        _git(r, "add", "-A")
+        _git(r, "commit", "-q", "-m", "x")
+    world.mp.setattr(
+        "empirica.config.path_resolver.get_session_db_path", lambda: a / ".empirica" / "sessions" / "sessions.db"
+    )
+    world.mp.chdir(b)
+
+    out = wp._preflight_check_project_matches_cwd()
+
+    assert out and out.get("refuse") is True
+
+
+def test_project_switch_writes_the_marker_hooks_cannot_overwrite(world, tmp_path):
+    from empirica.cli.command_handlers import project_commands as pc
+
+    ok = pc._update_active_work(str(world.core), "core", None, "sess-9")
+
+    assert ok
+    marker = json.loads((world.home / ".empirica" / "deliberate_switch_sess-9.json").read_text())
+    assert marker["project_path"] == str(world.core) and marker["claude_session_id"] == "sess-9"
 
 
 # ── wiring: the call site must exist and must refuse before any write ───────

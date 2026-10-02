@@ -444,6 +444,10 @@ def _update_active_work(
             with open(session_marker_path, "w") as f:
                 json.dump(active_work, f, indent=2)
             logger.debug(f"Updated session-specific active_work: {folder_name}")
+            # The record post-compact and session-init rewrite (source flips to their own name) cannot
+            # carry "this session chose that project on purpose". This marker only project-switch writes.
+            with open(marker_dir / f"deliberate_switch_{claude_session_id}.json", "w") as f:
+                json.dump({"project_path": project_path, "claude_session_id": claude_session_id, "at": time.time()}, f)
 
         try:
             _headless = R.is_headless()

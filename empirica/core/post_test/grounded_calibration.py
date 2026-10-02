@@ -610,8 +610,10 @@ class GroundedCalibrationManager:
                 lines.append(
                     f"      severity: {sev:.2f}\n" if isinstance(sev, (int, float)) else f"      severity: {sev}\n"
                 )
-                lines.append(f'      description: "{_get("description")}"\n')
-                lines.append(f'      suggestion: "{_get("suggestion")}"\n')
+                # json.dumps, not an f-string around quotes: a `"` in the text ended the scalar early and
+                # made the whole file invalid YAML, so every reader of .breadcrumbs.yaml lost the lot.
+                lines.append(f"      description: {json.dumps(str(_get('description')), ensure_ascii=False)}\n")
+                lines.append(f"      suggestion: {json.dumps(str(_get('suggestion')), ensure_ascii=False)}\n")
         return "".join(lines)
 
     @staticmethod

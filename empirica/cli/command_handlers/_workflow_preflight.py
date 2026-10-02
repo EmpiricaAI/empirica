@@ -276,6 +276,54 @@ def _project_root_of(path: Path) -> Path | None:
     return None
 
 
+def _same_git_repo(a: Path, b: Path) -> bool:
+    """Do two directories share one git repository (a main checkout and its linked worktrees)?
+
+    Asked only when the project roots already differ, so the subprocess is off the common path. A
+    linked worktree of a repo that tracks `.empirica/project.yaml` carries its own copy, and without
+    this it reads as a different project from the store in the main checkout.
+    """
+    import subprocess
+
+    def common_dir(d: Path) -> Path | None:
+        try:
+            out = subprocess.run(
+                ["git", "-C", str(d), "rev-parse", "--git-common-dir"], capture_output=True, text=True, timeout=3
+            ).stdout.strip()
+        except Exception:
+            return None
+        return (d / out).resolve() if out else None
+
+    ca, cb = common_dir(a), common_dir(b)
+    return ca is not None and ca == cb
+
+
+def _session_chose_store(store_root: Path) -> bool:
+    """Did THIS claude session deliberately switch to ``store_root``?
+
+    Two records, either counts: the marker `project-switch` writes and no hook ever rewrites, and the
+    older `active_work` record with source `project-switch`, which post-compact and session-init
+    overwrite (so a switch recorded only there decayed at the next compaction).
+    """
+    claude_session = os.environ.get("CLAUDE_CODE_SESSION_ID")
+    if not claude_session:
+        return False
+    home = Path.home() / ".empirica"
+    for name, needs_source in (
+        (f"deliberate_switch_{claude_session}.json", False),
+        (f"active_work_{claude_session}.json", True),
+    ):
+        try:
+            record = json.loads((home / name).read_text())
+            if needs_source and record.get("source") != "project-switch":
+                continue
+            if Path(str(record.get("project_path", ""))).resolve() == store_root:
+                return True
+        except (OSError, ValueError, AttributeError, TypeError):
+            continue
+    return False
+
+
 def _preflight_check_project_matches_cwd():
     """Refuse when the store this PREFLIGHT would write to is not the project the caller stands in.
 
@@ -303,17 +351,8 @@ def _preflight_check_project_matches_cwd():
         if cwd_root is None or cwd_root.resolve() == store_root:
             return None
 
-        claude_session = os.environ.get("CLAUDE_CODE_SESSION_ID")
-        if claude_session:
-            try:
-                record = json.loads((Path.home() / ".empirica" / f"active_work_{claude_session}.json").read_text())
-                if (
-                    record.get("source") == "project-switch"
-                    and Path(str(record.get("project_path", ""))).resolve() == store_root
-                ):
-                    return None  # this session chose that store
-            except (OSError, ValueError):
-                pass
+        if _session_chose_store(store_root) or _same_git_repo(cwd_root, store_root):
+            return None  # this session chose that store, or cwd is a worktree of the store's repo
 
         return {
             "refuse": True,
@@ -335,8 +374,10 @@ def _preflight_check_project_matches_cwd():
             ),
         }
     except Exception as exc:  # a guard must never block PREFLIGHT by failing
-        logger.debug(f"project/cwd guard skipped: {exc}")
-        return None
+        # ...but a guard that fails every time must not look like a guard that passes every time:
+        # the skip is returned, and the handler puts it in the PREFLIGHT response.
+        logger.warning(f"project/cwd guard skipped: {exc}")
+        return {"skipped": f"{type(exc).__name__}: {exc}"}
 
 
 def _preflight_create_checkpoint(session_id, vectors, reasoning, transaction_id, task_context=None):
@@ -1335,15 +1376,13 @@ def handle_preflight_submit_command(args):
         # A session owned by ANOTHER registered practice is refused here, before
         # any write; everything else stays a warning.
         session_warning = _preflight_check_session_exists(session_id)
-        if session_warning and session_warning.get("refuse"):
-            print(json.dumps({"ok": False, "error": session_warning["message"], **session_warning}, indent=2))
-            return 1
 
         # Stage 2c: is the store this would write to the project the caller stands in? A claude that
         # inherited another practice's instance id would otherwise open its window in that practice.
         project_mismatch = _preflight_check_project_matches_cwd()
-        if project_mismatch:
-            print(json.dumps({"ok": False, "error": project_mismatch["message"], **project_mismatch}, indent=2))
+        refusal = next((w for w in (session_warning, project_mismatch) if w and w.get("refuse")), None)
+        if refusal:
+            print(json.dumps({"ok": False, "error": refusal["message"], **refusal}, indent=2))
             return 1
 
         # Stage 3: Create checkpoint and transaction
@@ -1491,6 +1530,9 @@ def handle_preflight_submit_command(args):
                 voice=parsed.get("voice"),
                 session_warning=session_warning,
             )
+
+            if project_mismatch and project_mismatch.get("skipped"):
+                result["project_guard_skipped"] = project_mismatch["skipped"]
 
             # Echo the grounded-at-open declaration so the practitioner sees
             # immediately whether they may proceed straight to praxic, or whether
