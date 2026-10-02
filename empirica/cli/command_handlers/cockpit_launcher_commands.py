@@ -410,6 +410,23 @@ def handle_cockpit_refresh_command(args) -> int:
     return 0 if ok else 1
 
 
+def _status_findings(config_p: Path | None) -> tuple[str, list[str], list[str]]:
+    """``(file state, errors, warnings)`` for `cockpit status`.
+
+    An unreadable file is a problem on the DEFAULT path too, which is the common one (only "missing"
+    is normal there: first launch writes it), and a malformed section is a finding, not a traceback.
+    """
+    file_state = config_file_state(config_p)
+    try:
+        errors, warnings = validate_file(config_p)
+    except Exception as exc:
+        errors, warnings = [f"the config could not be checked: {type(exc).__name__}: {exc}"], []
+    if file_state in ("unreadable", "not-a-mapping") or (config_p is not None and file_state != "ok"):
+        shown = config_p or "the default cockpit config"
+        errors.insert(0, f"{shown} is {file_state.replace('-', ' ')}; showing the built-in defaults instead")
+    return file_state, errors, warnings
+
+
 def handle_cockpit_status_command(args) -> int:
     """``empirica cockpit status``. Read-only state snapshot — does NOT
     attach. Reports session liveness, last clean shutdown, abnormal-exit
@@ -423,10 +440,7 @@ def handle_cockpit_status_command(args) -> int:
     config = load_config(path=config_p)
     # An explicitly named config that is missing or unreadable is a problem, not "defaults": load_config
     # answers both with the built-in layout, and reporting that layout as the profile hides the typo.
-    file_state = config_file_state(config_p)
-    errors, warnings = validate_file(config_p)
-    if config_p is not None and file_state != "ok":
-        errors.insert(0, f"{config_p} is {file_state.replace('-', ' ')}; showing the built-in defaults instead")
+    file_state, errors, warnings = _status_findings(config_p)
     snap = cockpit_status()
     abnormal = detect_abnormal_exit()
     session_live = cockpit_session_exists(config.session_name)

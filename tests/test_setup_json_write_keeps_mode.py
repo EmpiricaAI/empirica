@@ -90,3 +90,51 @@ def test_the_concurrent_modification_refusal_is_unchanged(tmp_path):
 
     assert json.loads(f.read_text()) == {}, "refused means nothing was written"
     assert _mode(f) == before, "and the mode is exactly what it was"
+
+
+# ── hardening from the 1.14.5 broccoli sweep ────────────────────────────────
+
+
+def test_a_symlinked_target_is_written_through_not_replaced(tmp_path):
+    """A dotfile manager keeps ~/.claude.json as a link; renaming over it replaced the link with a regular
+    file and left the real file stale."""
+    real = tmp_path / "dotfiles" / "claude.json"
+    real.parent.mkdir()
+    real.write_text("{}")
+    real.chmod(0o600)
+    link = tmp_path / "claude.json"
+    link.symlink_to(real)
+
+    _write_json_file(link, {"a": 1})
+
+    assert link.is_symlink(), "the link survives"
+    assert json.loads(real.read_text()) == {"a": 1} and _mode(real) == 0o600
+
+
+def test_a_stale_temp_file_from_a_dead_process_does_not_break_the_write(tmp_path):
+    """The temp name was per-pid and opened O_EXCL; a leftover from a killed process with a reused pid raised."""
+    f = tmp_path / "claude.json"
+    f.write_text("{}")
+    (tmp_path / f"claude.json.{os.getpid()}.tmp").write_text("junk")
+
+    _write_json_file(f, {"a": 1})
+
+    assert json.loads(f.read_text()) == {"a": 1}
+
+
+def test_a_filesystem_that_rejects_chmod_still_gets_the_write(tmp_path, monkeypatch):
+    """vfat and some FUSE mounts refuse chmod; the old writer succeeded there and the new one must too."""
+    f = tmp_path / "claude.json"
+    f.write_text("{}")
+    real_chmod = os.chmod
+
+    def picky(path, mode, *a, **k):
+        if str(path).endswith(".tmp"):
+            raise PermissionError("operation not permitted")
+        return real_chmod(path, mode, *a, **k)
+
+    monkeypatch.setattr(os, "chmod", picky)
+
+    _write_json_file(f, {"a": 1})
+
+    assert json.loads(f.read_text()) == {"a": 1}

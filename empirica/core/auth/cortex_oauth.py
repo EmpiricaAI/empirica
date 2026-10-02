@@ -281,7 +281,8 @@ def custody_refresh(loader, *, http=_http_json) -> tuple[Callable[[str, str | No
     cortex revoke it (rotation + reuse detection). Every path that would refresh asks here, so
     `cortex_bearer` and `empirica auth token` cannot disagree about who may.
     """
-    owner = (loader.get_cortex_oauth().get("refresh_owner") or "cli").lower()
+    raw = loader.get_cortex_oauth().get("refresh_owner")
+    owner = (str(raw).strip().lower() if raw else "") or "cli"  # a non-string owner is a malformed one, not a crash
     return (default_refresh(loader, http=http) if owner == "cli" else None), owner
 
 

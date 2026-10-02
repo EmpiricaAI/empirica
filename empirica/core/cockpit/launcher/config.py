@@ -159,14 +159,20 @@ def detect_projects(projects_root: Path | None = None) -> list[ProjectSpec]:
     roots = [projects_root] if projects_root is not None else _default_project_roots()
     discovered: list[ProjectSpec] = []
     names: set[str] = set()
+    resolved: set[Path] = set()
     for root in roots:
-        if not root.exists() or not root.is_dir():
-            continue
-        for entry in sorted(root.iterdir()):
-            if not entry.is_dir() or entry.name in names:
+        try:
+            if not root.exists() or not root.is_dir():
                 continue
+            entries = sorted(root.iterdir())
+        except OSError:
+            continue  # a root we cannot read finds nothing; it must not take the launcher down
+        for entry in entries:
+            if not entry.is_dir() or entry.name in names or entry.resolve() in resolved:
+                continue  # same name, or the same directory under another name (a symlink alias)
             if (entry / ".empirica").is_dir():
                 names.add(entry.name)
+                resolved.add(entry.resolve())
                 discovered.append(
                     ProjectSpec(
                         name=entry.name,
@@ -201,6 +207,12 @@ def _serialize_project(p: ProjectSpec) -> dict[str, Any]:
     return out
 
 
+def _as_list(value: object) -> list:
+    """A YAML section as a list; anything else (a scalar, a mapping) is no entries, and is REPORTED by
+    `dropped_entries`. `projects: 5` used to raise out of load_config, and so out of `status`."""
+    return value if isinstance(value, list) else []
+
+
 def _parse_groups(raw_groups: list) -> list[GroupSpec]:
     """Parse the optional ``groups:`` section of the launcher YAML."""
     groups: list[GroupSpec] = []
@@ -211,7 +223,7 @@ def _parse_groups(raw_groups: list) -> list[GroupSpec]:
         if not gname:
             continue
         panes: list[PaneSpec] = []
-        for pane in entry.get("panes") or []:
+        for pane in _as_list(entry.get("panes")):
             if not isinstance(pane, dict):
                 continue
             project_ref = pane.get("project")
@@ -257,7 +269,7 @@ def load_config(path: Path | None = None) -> LauncherConfig:
         return _builtin_default()
 
     projects = []
-    for entry in raw.get("projects") or []:
+    for entry in _as_list(raw.get("projects")):
         if not isinstance(entry, dict):
             continue
         name = entry.get("name")
@@ -276,7 +288,7 @@ def load_config(path: Path | None = None) -> LauncherConfig:
         )
 
     status_windows = []
-    for entry in raw.get("status_windows") or []:
+    for entry in _as_list(raw.get("status_windows")):
         if not isinstance(entry, dict):
             continue
         name = entry.get("name")
@@ -285,12 +297,12 @@ def load_config(path: Path | None = None) -> LauncherConfig:
             continue
         status_windows.append(StatusWindow(name=str(name), command=str(command)))
 
-    groups = _parse_groups(raw.get("groups") or [])
+    groups = _parse_groups(_as_list(raw.get("groups")))
 
-    abnormal = raw.get("on_abnormal_exit") or {}
+    abnormal = raw.get("on_abnormal_exit")
+    abnormal = abnormal if isinstance(abnormal, dict) else {}
     surface = str(raw.get("surface") or ("alacritty" if groups else "tmux"))
-    alacritty_args_raw = raw.get("alacritty_args") or []
-    alacritty_args = [str(a) for a in alacritty_args_raw if a]
+    alacritty_args = [str(a) for a in _as_list(raw.get("alacritty_args")) if a]
 
     return LauncherConfig(
         session_name=str(raw.get("session_name") or "cockpit"),
@@ -373,40 +385,20 @@ def config_file_state(path: Path | None = None) -> str:
     return "ok" if raw is None or isinstance(raw, dict) else "not-a-mapping"
 
 
-def dropped_entries(raw: dict) -> list[str]:
-    """What ``load_config`` silently leaves out of the file, as errors.
-
-    The loader skips an entry that is not a mapping, a project without a name or path, a window
-    without a name or command, a group without a name, a pane naming neither a project nor a
-    command, and a group left with no pane. Skipping is right for launching a hand-edited file;
-    it is also why a typo in one pane just made the window vanish, and a status check on the
-    loaded config cannot see what was never loaded.
-    """
+def _dropped_groups(raw: dict) -> list[str]:
     out: list[str] = []
-
-    def bad(section: str, i: int, why: str) -> None:
-        out.append(f"{section}[{i}] is ignored: {why}")
-
-    for i, e in enumerate(raw.get("projects") or [], start=1):
-        if not isinstance(e, dict):
-            bad("projects", i, "not a mapping")
-        elif not e.get("name") or not e.get("path"):
-            bad("projects", i, "needs both name and path")
-    for i, e in enumerate(raw.get("status_windows") or [], start=1):
-        if not isinstance(e, dict):
-            bad("status_windows", i, "not a mapping")
-        elif not e.get("name") or not e.get("command"):
-            bad("status_windows", i, "needs both name and command")
-    for i, g in enumerate(raw.get("groups") or [], start=1):
+    for i, g in enumerate(_as_list(raw.get("groups")), start=1):
         if not isinstance(g, dict):
-            bad("groups", i, "not a mapping")
+            out.append(f"groups[{i}] is ignored: not a mapping")
             continue
-        label = f"group {g.get('name')!r}" if g.get("name") else f"groups[{i}]"
         if not g.get("name"):
-            bad("groups", i, "has no name")
+            out.append(f"groups[{i}] is ignored: has no name")
             continue
+        label = f"group {g.get('name')!r}"
+        if g.get("panes") not in (None, []) and not isinstance(g.get("panes"), list):
+            out.append(f"{label} panes is ignored: expected a list, found {type(g['panes']).__name__}")
         usable = 0
-        for j, pane in enumerate(g.get("panes") or [], start=1):
+        for j, pane in enumerate(_as_list(g.get("panes")), start=1):
             if not isinstance(pane, dict):
                 out.append(f"{label} pane {j} is ignored: not a mapping")
             elif not pane.get("project") and not pane.get("command"):
@@ -416,6 +408,33 @@ def dropped_entries(raw: dict) -> list[str]:
         if not usable:
             out.append(f"{label} is ignored: it has no usable pane, so its window will not exist")
     return out
+
+
+def dropped_entries(raw: dict) -> list[str]:
+    """What ``load_config`` silently leaves out of the file, as errors.
+
+    The loader skips an entry that is not a mapping, a project without a name or path, a window
+    without a name or command, a group without a name, a pane naming neither a project nor a
+    command, a group left with no pane, and any section that is not a list. Skipping is right for
+    launching a hand-edited file; it is also why a typo in one pane just made the window vanish, and
+    a status check on the loaded config cannot see what was never loaded.
+    """
+    out: list[str] = []
+    for section in ("projects", "status_windows", "groups", "alacritty_args"):
+        value = raw.get(section)
+        if value not in (None, []) and not isinstance(value, list):
+            out.append(f"{section} is ignored: expected a list, found {type(value).__name__}")
+    for i, e in enumerate(_as_list(raw.get("projects")), start=1):
+        if not isinstance(e, dict):
+            out.append(f"projects[{i}] is ignored: not a mapping")
+        elif not e.get("name") or not e.get("path"):
+            out.append(f"projects[{i}] is ignored: needs both name and path")
+    for i, e in enumerate(_as_list(raw.get("status_windows")), start=1):
+        if not isinstance(e, dict):
+            out.append(f"status_windows[{i}] is ignored: not a mapping")
+        elif not e.get("name") or not e.get("command"):
+            out.append(f"status_windows[{i}] is ignored: needs both name and command")
+    return out + _dropped_groups(raw)
 
 
 def validate_file(path: Path | None = None) -> tuple[list[str], list[str]]:
@@ -459,6 +478,11 @@ def validate_config(config: LauncherConfig) -> tuple[list[str], list[str]]:
         if group.name in groups_seen:
             errors.append(f"group {group.name!r} appears more than once (its window name would collide)")
         groups_seen.add(group.name)
+        if "." in group.name:
+            errors.append(
+                f"group {group.name!r} contains a '.', which tmux reads as a pane separator, so its window cannot be "
+                "addressed; rename the group (the project name can stay)"
+            )
         if not group.panes:
             errors.append(f"group {group.name!r} has no panes")
         for i, pane in enumerate(group.panes, start=1):
@@ -527,14 +551,15 @@ def add_practice_to_profile(profile: str, name: str, path: str) -> tuple[Path, b
                 "edit or remove that entry, nothing was changed"
             )
         return target, False
-    if any(g.name == name for g in config.groups):
+    group_name = name.replace(".", "-")  # tmux reads '.' in a window target as a pane separator
+    if any(g.name == group_name for g in config.groups):
         raise ProfileError(
             f"a window named {name!r} already exists in {target} (the default TUI window is 'monitor'); "
             "provision under another name, nothing was changed"
         )
     config.projects.append(ProjectSpec(name=name, path=str(wanted), launch="claude"))
     if config.is_groups_mode():
-        config.groups.append(GroupSpec(name=name, panes=[PaneSpec(project_ref=name)]))
+        config.groups.append(GroupSpec(name=group_name, panes=[PaneSpec(project_ref=name)]))
     # else: a projects-only profile opens one window per project on its own. Adding a group would
     # flip it to groups mode, where only the groups are windows and the existing projects vanish.
 

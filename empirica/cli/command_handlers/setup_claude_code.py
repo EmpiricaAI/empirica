@@ -23,6 +23,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -377,7 +378,9 @@ def _write_json_file(path: Path, data: dict, expect_stamp: tuple | None = None):
                 "Claude Code writes this file continuously — re-run `empirica setup-claude-code` "
                 "from OUTSIDE a running Claude Code session, or re-run to retry the merge."
             )
-    temp_path = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    # Write THROUGH a symlink: a dotfile manager may keep ~/.claude.json as a link to the real file,
+    # and renaming over the link replaced it with a regular file while the real one went stale.
+    path = Path(os.path.realpath(path))
     # The rename replaces the target wholesale, so it carries the TEMP file's mode and discards the
     # target's: a `chmod 600 ~/.claude.json` was undone by the next setup run (empirica-nle), and the
     # file holds static credentials. Keep the existing mode. A file that does not exist yet is made
@@ -386,11 +389,17 @@ def _write_json_file(path: Path, data: dict, expect_stamp: tuple | None = None):
         keep_mode: int = stat.S_IMODE(path.stat().st_mode)
     except OSError:
         keep_mode = 0o600
+    # mkstemp: a unique name (a stale temp from a killed process with a reused pid made O_EXCL raise)
+    # created 0600, in the target's directory so the rename stays atomic.
+    fd, temp_name = tempfile.mkstemp(dir=path.parent, prefix=f"{path.name}.", suffix=".tmp")
+    temp_path = Path(temp_name)
     try:
-        fd = os.open(temp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "w") as f:
             json.dump(data, f, indent=2)
-        os.chmod(temp_path, keep_mode)  # explicit: os.open's mode argument is cut by the umask
+        try:
+            os.chmod(temp_path, keep_mode)
+        except OSError:
+            pass  # a filesystem that rejects chmod (vfat, some FUSE) keeps its own mode; the write still lands
         temp_path.replace(path)
     finally:
         if temp_path.exists():

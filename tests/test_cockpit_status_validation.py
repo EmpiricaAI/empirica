@@ -214,3 +214,95 @@ def test_a_profile_the_writer_produced_validates_clean(tmp_path):
     errors, warnings = cfg.validate_file(f)
 
     assert errors == [] and warnings == []
+
+
+# ── hardening from the 1.14.5 broccoli sweep ────────────────────────────────
+
+
+def _default_config(home, text):
+    d = home / ".empirica" / "cockpit"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "config.yaml").write_text(text)
+
+
+def _status_default(capsys):
+    rc = cmds.handle_cockpit_status_command(types.SimpleNamespace(config=None, profile=None, output="json"))
+    return rc, json.loads(capsys.readouterr().out)
+
+
+def test_a_broken_default_config_is_not_reported_healthy(home, capsys, monkeypatch):
+    """Only an explicit --config was checked; the default file, the common path, reported ok:true."""
+    monkeypatch.setattr(cfg, "DEFAULT_CONFIG_PATH", home / ".empirica" / "cockpit" / "config.yaml")
+    _default_config(home, "projects: [\n  - name: a\n")
+
+    rc, out = _status_default(capsys)
+
+    assert rc == 1 and out["config_file"] == "unreadable" and "unreadable" in out["problems"][0]
+
+
+def test_a_missing_default_config_is_normal_first_launch_writes_it(home, capsys, monkeypatch):
+    """CONTROL: only unreadable and not-a-mapping are errors on the default path."""
+    monkeypatch.setattr(cfg, "DEFAULT_CONFIG_PATH", home / ".empirica" / "cockpit" / "config.yaml")
+
+    rc, out = _status_default(capsys)
+
+    assert rc == 0 and out["config_file"] == "missing" and out["problems"] == []
+
+
+@pytest.mark.parametrize("body", ["projects: 5\n", "groups: 5\n", "status_windows: x\n", "alacritty_args: 5\n"])
+def test_a_section_of_the_wrong_type_is_a_finding_not_a_traceback(tmp_path, capsys, body):
+    """`projects: 5` raised TypeError out of load_config, and so out of `status`."""
+    f = _write(tmp_path / "c.yaml", "session_name: t\n" + body)
+
+    rc, out = _status(f, capsys)
+
+    assert rc == 1 and any("expected a list" in p for p in out["problems"]), out["problems"]
+
+
+def test_panes_of_the_wrong_type_are_reported(tmp_path, capsys):
+    f = _write(tmp_path / "c.yaml", "groups:\n  - name: g\n    panes: 5\n")
+
+    rc, out = _status(f, capsys)
+
+    assert rc == 1 and any("panes is ignored" in p for p in out["problems"])
+
+
+def test_a_symlink_alias_of_a_practice_is_listed_once(home):
+    _practice(home / "empirical-ai", "foo")
+    (home / "empirica").mkdir()
+    (home / "empirica" / "alias").symlink_to(home / "empirical-ai" / "foo")
+
+    found = cfg.detect_projects()
+
+    assert [p.name for p in found] == ["foo"], "two names for one directory is two panes on one project"
+
+
+def test_an_unreadable_root_finds_nothing_instead_of_raising(home):
+    _practice(home / "empirical-ai", "core")
+    (home / "empirica").mkdir()
+    (home / "empirica").chmod(0)
+    try:
+        if (home / "empirica").exists() and __import__("os").access(home / "empirica", __import__("os").R_OK):
+            pytest.skip("running as a user that ignores directory permissions")
+        assert [p.name for p in cfg.detect_projects()] == ["core"]
+    finally:
+        (home / "empirica").chmod(0o700)
+
+
+def test_a_group_name_with_a_dot_is_flagged_because_tmux_cannot_address_it(tmp_path, capsys):
+    """tmux reads '.' in a window target as a pane separator ("can't find window: my")."""
+    f = _write(tmp_path / "c.yaml", "groups:\n  - {name: my.proj, panes: [{command: x}]}\n")
+
+    rc, out = _status(f, capsys)
+
+    assert rc == 1 and any("pane separator" in p for p in out["problems"])
+
+
+def test_the_profile_writer_gives_a_dotted_practice_a_usable_window_name(tmp_path):
+    """The group name is arbitrary; the project name (which the pane runs) stays exact."""
+    f, _ = cfg.add_practice_to_profile("me", "my.proj", str(tmp_path / "my.proj"))
+    config = cfg.load_config(f)
+
+    assert [g.name for g in config.groups] == ["monitor", "my-proj"]
+    assert config.project_by_name("my.proj") is not None and config.groups[1].panes[0].project_ref == "my.proj"
+    assert cfg.validate_file(f)[0] == []

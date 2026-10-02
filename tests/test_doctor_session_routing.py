@@ -20,12 +20,15 @@ from empirica.cli.command_handlers.doctor import (
     SKIP,
     WARN,
     _claude_session_file,
+    _empirica_project_root,
+    _session_id_for_process,
     check_session_routing,
 )
 
 
 def _project(root: Path) -> Path:
     (root / ".empirica").mkdir(parents=True)
+    (root / ".empirica" / "project.yaml").write_text(f"ai_id: {root.name}\n")
     return root
 
 
@@ -95,7 +98,7 @@ def test_no_record_no_session_file_and_no_project_are_counted_not_passed_silentl
 
     c = check_session_routing([_p(1, a, "s1"), _p(2, a, None), _p(3, nowhere, "s3")], home)
 
-    assert c.status == PASS
+    assert c.status == WARN, "nothing was compared, so it is not a pass"
     assert "1 with no record" in c.detail and "1 with no session file" in c.detail and "1 outside a project" in c.detail
 
 
@@ -127,3 +130,65 @@ def test_the_session_file_reader_returns_the_session_id_and_tolerates_absence(tm
     assert _claude_session_file(43, claude) is None, "malformed: not checked, never agreement"
     assert _claude_session_file(44, claude) is None, "no sessionId: unrecognised format"
     assert _claude_session_file(45, claude) is None, "no file"
+
+
+# ── hardening from the 1.14.5 broccoli sweep ────────────────────────────────
+
+
+def test_the_homes_dot_empirica_does_not_make_every_directory_under_home_a_project(tmp_path, monkeypatch):
+    """~/.empirica exists for every empirica user, so 'nearest .empirica' called ~/Downloads part of the home."""
+    home = tmp_path / "home"
+    (home / ".empirica").mkdir(parents=True)
+    plain = home / "Downloads"
+    plain.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+
+    assert _empirica_project_root(str(plain)) is None
+    c = check_session_routing([_p(1, plain, "s1")], home)
+    assert "1 outside a project" not in c.detail or c.status == WARN  # not read as running in the home
+
+
+def test_a_nested_dot_empirica_without_a_project_file_is_not_a_project(tmp_path):
+    repo = _project(tmp_path / "repo")
+    nested = repo / "tests"
+    (nested / ".empirica").mkdir(parents=True)
+
+    assert _empirica_project_root(str(nested)) == repo, "tests/.empirica has no project.yaml: the repo is the project"
+
+
+def test_a_non_string_project_path_is_a_mismatch_candidate_not_a_crash(tmp_path):
+    """It raised TypeError out of os.path.realpath, and doctor has no per-check guard."""
+    home = tmp_path / "home"
+    a = _project(tmp_path / "a")
+    (home / ".empirica").mkdir(parents=True)
+    (home / ".empirica" / "active_work_s1.json").write_text(
+        json.dumps({"project_path": 5})
+    )  # raw: _record() stringifies
+
+    c = check_session_routing([_p(1, a, "s1")], home)
+
+    assert c.status == WARN and "1 outside a project" in c.detail
+
+
+def test_nothing_compared_is_a_warning_not_a_pass(tmp_path):
+    """If Claude Code renamed its session files every process would be unmapped and doctor would be green forever."""
+    a = _project(tmp_path / "a")
+
+    c = check_session_routing([_p(1, a, None), _p(2, a, None)], tmp_path / "home")
+
+    assert c.status == WARN and "no session could be compared" in c.detail
+
+
+def test_a_session_file_whose_cwd_is_not_the_processs_cwd_is_not_its_file(tmp_path):
+    """pid reuse: the file belongs to a dead claude that had that pid."""
+    claude = tmp_path / ".claude"
+    (claude / "sessions").mkdir(parents=True)
+    here, elsewhere = tmp_path / "here", tmp_path / "elsewhere"
+    here.mkdir()
+    elsewhere.mkdir()
+    (claude / "sessions" / "42.json").write_text(json.dumps({"pid": 42, "sessionId": "abc", "cwd": str(elsewhere)}))
+
+    assert _session_id_for_process({"pid": 42, "cwd": str(here)}, claude) is None
+    assert _session_id_for_process({"pid": 42, "cwd": str(elsewhere)}, claude) == "abc", (
+        "CONTROL: a matching cwd is accepted"
+    )

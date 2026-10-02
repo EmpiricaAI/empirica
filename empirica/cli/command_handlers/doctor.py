@@ -1219,10 +1219,29 @@ def _claude_session_file(pid: int, claude_dir: Path) -> dict | None:
     return doc
 
 
+def _session_id_for_process(proc: dict, claude_dir: Path) -> str | None:
+    """The claude session id for a live process, or None when it cannot be established.
+
+    A pid is reused, and a session file left by a dead claude would be read as the new process's. The
+    file records its own cwd: when that is not the process's cwd, it is not this process's file.
+    """
+    doc = _claude_session_file(proc["pid"], claude_dir)
+    if not doc or os.path.realpath(str(doc.get("cwd") or "")) != os.path.realpath(proc["cwd"]):
+        return None
+    return str(doc["sessionId"])
+
+
 def _empirica_project_root(cwd: str) -> Path | None:
-    """The nearest directory at or above ``cwd`` that holds a ``.empirica`` directory."""
+    """The nearest directory at or above ``cwd`` that is a project: it holds ``.empirica/project.yaml``.
+
+    Not merely a ``.empirica`` directory: the home directory has one of its own (so every working
+    directory under it was "in" the home), and a repo can carry nested ones (``tests/.empirica``).
+    """
+    home = Path.home().resolve()
     for d in (Path(cwd), *Path(cwd).parents):
-        if (d / ".empirica").is_dir():
+        if d.resolve() == home:
+            return None
+        if (d / ".empirica" / "project.yaml").is_file():
             return d
     return None
 
@@ -1245,10 +1264,7 @@ def check_session_routing(processes: list[dict] | None = None, home: Path | None
             found, unreadable = _claude_processes()
         except ImportError:
             return Check(name, SKIP, "psutil not installed")
-        processes = []
-        for p in found:
-            doc = _claude_session_file(p["pid"], home / ".claude")
-            processes.append({**p, "session_id": doc.get("sessionId") if doc else None})
+        processes = [{**p, "session_id": _session_id_for_process(p, home / ".claude")} for p in found]
     if not processes and not unreadable:
         return Check(name, SKIP, "no claude process running")
 
@@ -1266,7 +1282,7 @@ def check_session_routing(processes: list[dict] | None = None, home: Path | None
             unrouted += 1  # no record: hooks fall back to other keys, a different and milder case
             continue
         root = _empirica_project_root(p["cwd"])
-        if root is None or not routed:
+        if root is None or not routed or not isinstance(routed, str):
             outside += 1
             continue
         if os.path.realpath(routed) == os.path.realpath(root):
@@ -1279,6 +1295,12 @@ def check_session_routing(processes: list[dict] | None = None, home: Path | None
         f"{unmapped} with no session file, {outside} outside a project, {unreadable} unreadable"
     )
     if not bad:
+        # PASS means something was compared and agreed. Nothing compared (Claude Code renaming its
+        # session files would do it) is not a pass, and says so.
+        if not agree:
+            return Check(
+                name, WARN, f"{walked}; no session could be compared, so nothing was checked", data={"agree": 0}
+            )
         return Check(name, WARN if unreadable else PASS, walked, data={"agree": agree})
     first = bad[0]
     return Check(

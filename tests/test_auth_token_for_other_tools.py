@@ -181,3 +181,28 @@ def test_cortex_bearer_and_auth_token_ask_the_same_gate(loader):
         )
         cb, who = custody_refresh(loader)
         assert (cb is not None) is expect_cb and who == (owner or "cli").lower()
+
+
+@pytest.mark.parametrize("weird", [1, True, ["daemon"], {"x": 1}])
+def test_a_non_string_refresh_owner_is_a_malformed_owner_not_a_crash(loader, weird):
+    """`.lower()` on a non-string raised AttributeError out of `auth token` (cortex_bearer is inside a try)."""
+    from empirica.core.auth.cortex_oauth import custody_refresh
+
+    loader.save_cortex_oauth(access_token=_LIVE, refresh_token=_RT, expires_at=time.time() + 3600)
+    loader.get_cortex_oauth()["refresh_owner"] = weird  # as a hand-edited credentials.yaml would carry it
+
+    cb, owner = custody_refresh(loader)
+
+    assert cb is None and owner != "cli", "an owner we cannot read is not the CLI: no refresh"
+
+
+def test_whitespace_around_the_owner_does_not_make_it_somebody_else(loader):
+    from empirica.core.auth.cortex_oauth import custody_refresh
+
+    loader.save_cortex_oauth(access_token=_LIVE, refresh_token=_RT, expires_at=time.time() + 3600)
+    loader.get_cortex_oauth()["refresh_owner"] = " CLI "
+    assert loader.get_cortex_oauth()["refresh_owner"] == " CLI ", "the edit reached the loader's own state"
+
+    cb, owner = custody_refresh(loader)
+
+    assert owner == "cli" and cb is not None
