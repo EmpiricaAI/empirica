@@ -1318,6 +1318,62 @@ def check_session_routing(processes: list[dict] | None = None, home: Path | None
     )
 
 
+def _static_auth_servers(scope: str, servers: object) -> list[str]:
+    """``scope:name`` for each HTTP/SSE MCP server in ``servers`` whose headers hold a literal Authorization value.
+
+    A value that is an environment reference (`${VAR}`) is not a stored secret and is not listed.
+    """
+    found: list[str] = []
+    if not isinstance(servers, dict):
+        return found
+    for name, cfg in servers.items():
+        if not isinstance(cfg, dict) or not isinstance(cfg.get("headers"), dict):
+            continue
+        for key, value in cfg["headers"].items():
+            if str(key).lower() == "authorization" and isinstance(value, str) and value and "${" not in value:
+                found.append(f"{scope}:{name}")
+                break
+    return found
+
+
+def check_static_connector_headers(home: Path | None = None) -> Check:
+    """MCP connectors that carry a literal `Authorization` header in ``~/.claude.json``.
+
+    That header is a stored credential. When it is the admin key, rotating the key signs the seat out
+    of the connector (2026-09-29: the rotation that David approved would have cut every seat that holds
+    it this way). `headersHelper` with `empirica auth token --headers` presents the seat's own OAuth
+    token fresh on each connection, so nothing is stored. Names and scopes only: no value is ever read
+    into the report.
+    """
+    name = "No MCP connector stores a static Authorization header"
+    path = (home or Path.home()) / ".claude.json"
+    if not path.is_file():
+        return Check(name, SKIP, f"no {path}")
+    try:
+        config = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return Check(name, WARN, f"{path} could not be read ({type(exc).__name__}), so its connectors were not checked")
+    if not isinstance(config, dict):
+        return Check(name, WARN, f"{path} is not a JSON object, so its connectors were not checked")
+    found = _static_auth_servers("user", config.get("mcpServers"))
+    projects = config.get("projects") if isinstance(config.get("projects"), dict) else {}
+    for proj, pc in projects.items():
+        if isinstance(pc, dict):
+            found += _static_auth_servers(f"project {Path(str(proj)).name}", pc.get("mcpServers"))
+    walked = f"{len(config.get('mcpServers') or {})} user-scope connector(s) and {len(projects)} project entr(ies) read"
+    if not found:
+        return Check(name, PASS, walked)
+    return Check(
+        name,
+        WARN,
+        f"{walked}; {len(found)} carry a literal Authorization header: {', '.join(found[:6])}",
+        'Once `empirica auth status` shows a valid OAuth token, replace the header with `"headersHelper": "empirica auth '
+        'token --headers"` on that connector (a connector must be tried and reconnected on one seat first). Until then '
+        "a key rotation signs this seat out of it.",
+        {"connectors": found},
+    )
+
+
 STALE_OPEN_TRANSACTION_DAYS = 7
 
 
@@ -2833,6 +2889,7 @@ def run_all_checks(cwd: Path | None = None) -> list[Check]:
         check_tmux_session_identity(),
         check_claude_instance_identity(),
         check_session_routing(),
+        check_static_connector_headers(),
         check_long_running_processes(),
         check_claude_code_cli(),
         check_git_present(),

@@ -186,6 +186,7 @@ def handle_auth_token_command(args) -> int:
     from empirica.core.auth import cortex_oauth
 
     output = getattr(args, "output", "human")
+    as_headers = bool(getattr(args, "headers", False))
     loader = _loader()
     oauth = loader.get_cortex_oauth()
     # Custody first: a daemon- or extension-owned family is refreshed by its owner, and a second
@@ -204,11 +205,18 @@ def handle_auth_token_command(args) -> int:
             )
         else:
             reason, hint = "the stored token expired and could not be refreshed", "run `empirica auth login`"
-        if output == "json":
+        if as_headers:
+            # A helper that prints a header on failure presents an empty bearer; printing nothing makes the
+            # connection fail where someone can see it.
+            sys.stderr.write(f"empirica auth token --headers: {reason}; {hint}\n")
+        elif output == "json":
             print(json.dumps({"ok": False, "error": reason, "hint": hint, "refresh_owner": owner}))
         else:
             sys.stderr.write(f"empirica auth token: {reason}; {hint}\n")
         return 1
+    if as_headers:
+        print(json.dumps({"Authorization": f"Bearer {token}"}))
+        return 0
     if output == "json":
         fresh = loader.get_cortex_oauth()
         print(

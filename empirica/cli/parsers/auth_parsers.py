@@ -45,6 +45,15 @@ def add_auth_parsers(subparsers) -> None:
         ),
     )
     token.add_argument("--output", choices=["human", "json"], default="human")
+    token.add_argument(
+        "--headers",
+        action="store_true",
+        help=(
+            'Print the HTTP header object Claude Code\'s `headersHelper` expects, {"Authorization": "Bearer <token>"}, '
+            "built as JSON (no shell quoting to get wrong). On any failure nothing is printed to stdout, so the "
+            "connection fails visibly instead of presenting an empty bearer."
+        ),
+    )
 
     status = actions.add_parser(
         "status",

@@ -206,3 +206,61 @@ def test_whitespace_around_the_owner_does_not_make_it_somebody_else(loader):
     cb, owner = custody_refresh(loader)
 
     assert owner == "cli" and cb is not None
+
+
+# ── --headers: the object Claude Code's headersHelper wants ─────────────────
+
+
+def _run_headers():
+    return auth_commands.handle_auth_token_command(types.SimpleNamespace(output="human", headers=True))
+
+
+def test_headers_prints_one_json_object_with_the_bearer(loader, capsys):
+    """Built with json.dumps: the shell one-liner broke on a token with a quote or backslash."""
+    import json
+
+    loader.save_cortex_oauth(access_token=_LIVE, refresh_token=_RT, expires_at=time.time() + 3600)
+
+    assert _run_headers() == 0
+    out = capsys.readouterr().out
+
+    assert json.loads(out) == {"Authorization": f"Bearer {_LIVE}"} and out.count("\n") == 1
+
+
+def test_headers_survives_a_token_the_shell_one_liner_would_corrupt(loader, capsys):
+    import json
+
+    nasty = 'a"b\\c d'
+    loader.save_cortex_oauth(access_token=nasty, refresh_token=_RT, expires_at=time.time() + 3600)
+
+    assert _run_headers() == 0
+
+    assert json.loads(capsys.readouterr().out)["Authorization"] == f"Bearer {nasty}"
+
+
+def test_headers_prints_nothing_to_stdout_when_there_is_no_token(loader, capsys):
+    """An empty bearer is a request that looks authenticated and is refused with no explanation; no output fails visibly."""
+    assert _run_headers() == 1
+    captured = capsys.readouterr()
+
+    assert captured.out == "" and "auth login" in captured.err
+
+
+def test_headers_prints_nothing_for_an_expired_token_the_cli_does_not_own(loader, capsys, monkeypatch):
+    loader.save_cortex_oauth(access_token=_OLD, refresh_token=_RT, expires_at=time.time() - 10, refresh_owner="daemon")
+    _spy_refresh(monkeypatch)
+
+    assert _run_headers() == 1
+    captured = capsys.readouterr()
+
+    assert captured.out == "" and "belongs to the daemon" in captured.err
+
+
+def test_headers_with_json_output_still_prints_only_the_header_object(loader, capsys):
+    import json
+
+    loader.save_cortex_oauth(access_token=_LIVE, refresh_token=_RT, expires_at=time.time() + 3600)
+
+    assert auth_commands.handle_auth_token_command(types.SimpleNamespace(output="json", headers=True)) == 0
+
+    assert list(json.loads(capsys.readouterr().out)) == ["Authorization"]
