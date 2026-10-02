@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import shutil
 import socket
 import subprocess
@@ -323,58 +322,74 @@ def check_ecodex_plugin_writable_roots_declared() -> CheckResult:
     )
 
 
-def check_ecodex_plugin_hooks_feature_enabled() -> CheckResult:
-    """Verify codex's plugin_hooks feature gate is on.
+def check_ecodex_plugin_hooks_reachable() -> CheckResult:
+    """Verify the empirica plugin's hooks can run: the plugin is enabled and its binary is on PATH.
 
-    Codex's `Feature::PluginHooks` is `Stage::UnderDevelopment` with
-    `default_enabled: false`. Without `[features] plugin_hooks = true`
-    in ~/.codex/config.toml, the entire plugin hook engine is disabled
-    — empirica's PreToolUse / UserPromptSubmit / SessionStart / Stop
-    hooks all silently no-op and the discipline pipeline goes dark
-    in ecodex sessions.
+    This used to demand `[features] plugin_hooks = true`, the gate codex put on its plugin hook
+    engine (2026-05-06: without it every empirica hook silently no-op'd). Current codex treats that
+    key as a removed legacy one and runs plugin hooks without a gate, so a correct install failed
+    the check, and ecodex kept writing the key only to satisfy it (ecodex, 2026-10-02). What decides
+    whether the hooks run now is whether the plugin is enabled and its binary is reachable.
 
-    Tx-AC regression detector: this was the subtle root-cause behind
-    "the proportionality block isn't reaching the agent" 2026-05-06.
-    Symptom is invisible — no error, just no hook output in
-    codex-tui.log. Easy to miss; cheap to verify here.
+    An explicit `plugin_hooks = false` still warns: a codex build old enough to read the key would
+    disable hooks. An absent key is fine.
     """
     config_path = Path.home() / ".codex" / "config.toml"
     if not config_path.is_file():
         return CheckResult(
-            name="ecodex plugin_hooks feature enabled",
+            name="ecodex plugin hooks reachable",
             status=SKIP,
             detail="~/.codex/config.toml missing",
             hint="See `ecodex plugin enabled in config` check",
         )
-    text = config_path.read_text()
-    # Lightweight match: under [features] block, look for plugin_hooks = true.
-    in_features = False
-    for raw in text.splitlines():
-        line = raw.strip()
-        if line.startswith("[features]"):
-            in_features = True
-            continue
-        if line.startswith("[") and not line.startswith("[features]"):
-            in_features = False
-            continue
-        if in_features and re.match(r"plugin_hooks\s*=\s*true", line):
-            return CheckResult(
-                name="ecodex plugin_hooks feature enabled",
-                status=PASS,
-                detail="[features] plugin_hooks = true in config",
-            )
+    try:
+        import tomllib
+
+        config = tomllib.loads(config_path.read_text())
+    except ImportError:
+        return CheckResult(name="ecodex plugin hooks reachable", status=SKIP, detail="tomllib unavailable")
+    except (OSError, ValueError) as exc:
+        return CheckResult(
+            name="ecodex plugin hooks reachable",
+            status=WARN,
+            detail=f"{config_path} is not valid TOML ({exc}); the plugin state could not be read",
+        )
+
+    plugins = config.get("plugins") if isinstance(config.get("plugins"), dict) else {}
+    key = next((k for k in _ECODEX_PLUGIN_KEYS if isinstance(plugins.get(k), dict)), None)
+    if key is None:
+        return CheckResult(
+            name="ecodex plugin hooks reachable",
+            status=SKIP,
+            detail="no empirica plugin section in config",
+            hint="See `ecodex plugin enabled in config` check",
+        )
+    if plugins[key].get("enabled") is False:
+        return CheckResult(
+            name="ecodex plugin hooks reachable",
+            status=FAIL,
+            detail=f'[plugins."{key}"] is set enabled = false, so empirica\'s hooks do not run',
+            hint=f'Set `enabled = true` under [plugins."{key}"] in ~/.codex/config.toml, then restart ecodex.',
+        )
+    features = config.get("features") if isinstance(config.get("features"), dict) else {}
+    if features.get("plugin_hooks") is False:
+        return CheckResult(
+            name="ecodex plugin hooks reachable",
+            status=WARN,
+            detail="[features] plugin_hooks = false: current codex ignores the key, an older build would disable hooks",
+            hint="Remove the line, or set it true, in ~/.codex/config.toml.",
+        )
+    if shutil.which("codex-empirica-plugin") is None:
+        return CheckResult(
+            name="ecodex plugin hooks reachable",
+            status=WARN,
+            detail="codex-empirica-plugin is not on PATH, so the plugin's hook commands cannot start",
+            hint="Reinstall ecodex, or put its bin directory (usually ~/.local/bin) on PATH.",
+        )
     return CheckResult(
-        name="ecodex plugin_hooks feature enabled",
-        status=FAIL,
-        detail=(
-            "[features] plugin_hooks not set true — codex's plugin hook engine "
-            "is OFF by default (Stage::UnderDevelopment). Empirica's "
-            "PreToolUse/UserPromptSubmit/SessionStart/Stop hooks won't fire. "
-            "Sentinel gate, context injection, session bind all dark."
-        ),
-        hint=(
-            "Add to ~/.codex/config.toml:\n\n[features]\nplugin_hooks = true\nplugins = true\n\nThen restart ecodex."
-        ),
+        name="ecodex plugin hooks reachable",
+        status=PASS,
+        detail=f'[plugins."{key}"] enabled and codex-empirica-plugin on PATH (no feature gate needed)',
     )
 
 
@@ -1002,7 +1017,7 @@ def run_all_checks_ecodex(*, fast: bool = False) -> list[CheckResult]:
     results.append(check_ecodex_plugin_vendored_freshness())
     # Feature gate — without this on, the plugin's hooks ALL silently no-op.
     # Subtle failure mode (no error, just dark integration); doctor catches it.
-    results.append(check_ecodex_plugin_hooks_feature_enabled())
+    results.append(check_ecodex_plugin_hooks_reachable())
     # Statusline (the path most likely to break invisibly)
     results.append(check_ecodex_statusline_runtime_stdin())
     results.append(check_ecodex_statusline_script_runs())
