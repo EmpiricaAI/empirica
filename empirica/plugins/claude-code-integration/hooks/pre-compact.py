@@ -376,7 +376,7 @@ def _recover_orphaned_stashes():
         return None
 
 
-def _run_context_budget_triage(empirica_session):
+def _run_context_budget_triage(empirica_session, db_path=None):
     """Run context budget triage (evict low-priority before compaction).
 
     Returns budget report dict or None.
@@ -395,7 +395,7 @@ def _run_context_budget_triage(empirica_session):
         )
         manager._decay_all_items()
         report = manager.get_inventory_summary()
-        manager.persist_state()
+        manager.persist_state(db_path=db_path)
         return report
     except Exception:
         return None
@@ -618,7 +618,8 @@ def _install_stash_guard(stash_sha):
 
 
 def _main_guarded(*, stash_sha, recovered, trigger, empirica_session, last_task, git_context, project_root):
-    budget_report = _run_context_budget_triage(empirica_session)
+    practice_db = Path(project_root) / ".empirica" / "sessions" / "sessions.db"
+    budget_report = _run_context_budget_triage(empirica_session, db_path=practice_db if practice_db.exists() else None)
     active_transaction, hook_counters = _capture_transaction_state(project_root, empirica_session)
 
     # STEP 1: Capture fresh epistemic vectors

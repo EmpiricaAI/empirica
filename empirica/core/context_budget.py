@@ -756,12 +756,17 @@ class ContextBudgetManager(EpistemicObserver):
 
     # --- Persistence ---
 
-    def persist_state(self) -> bool:
-        """Persist budget state to database for cross-session continuity."""
+    def persist_state(self, db_path: str | os.PathLike | None = None) -> bool:
+        """Persist budget state to database for cross-session continuity.
+
+        ``db_path`` is the sessions.db the caller already holds. A hook has resolved its practice and
+        changed into it; without the path this re-resolved the location from scratch, and at a moment the
+        resolver saw no git repo and no env it failed (`Cannot determine sessions.db path`, ecodex).
+        """
         try:
             from empirica.data.session_database import SessionDatabase
 
-            db = SessionDatabase()
+            db = SessionDatabase(db_path=str(db_path)) if db_path else SessionDatabase()
             if db.conn is None:
                 logger.error("No database connection")
                 return False

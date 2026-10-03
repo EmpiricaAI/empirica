@@ -639,6 +639,16 @@ def main():
     hook_input = json.loads(sys.stdin.read())
     claude_session_id = hook_input.get("session_id")
 
+    # Only a compaction needs recovering. A harness that fires this hook at EVERY SessionStart (codex does:
+    # session-init and post-compact both run) would otherwise reach _handle_complete_session, which creates a
+    # new session whenever the active one is complete, and two sessions appeared 0.26 s apart for one thread
+    # (ecodex). Claude Code's matcher already restricts it to `compact`; this makes the script itself agree.
+    # A payload with no `source` is judged as before: we cannot tell, so a compaction is not dropped.
+    source = hook_input.get("source")
+    if isinstance(source, str) and source and source != "compact":
+        print(json.dumps({"ok": True, "skipped": True, "reason": f"SessionStart source={source} is not a compaction"}))
+        sys.exit(0)
+
     # Stage 1: Resolve project and setup environment
     project_root, instance_id = _resolve_project_and_setup(claude_session_id)
     _try_memory_swap(claude_session_id)

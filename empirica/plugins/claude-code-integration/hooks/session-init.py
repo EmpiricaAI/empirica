@@ -1446,7 +1446,7 @@ EOF
     sys.exit(0)
 
 
-def _init_context_budget(session_id: str, project_context: dict) -> dict:
+def _init_context_budget(session_id: str, project_context: dict, db_path=None) -> dict:
     """Initialize Context Budget Manager (bootloader phase).
 
     Returns budget summary dict, or dict with 'error' key on failure.
@@ -1529,7 +1529,7 @@ def _init_context_budget(session_id: str, project_context: dict) -> dict:
                     )
                 )
 
-        manager.persist_state()
+        manager.persist_state(db_path=db_path)
         return manager.get_inventory_summary()
     except Exception as e:
         return {"error": str(e)}
@@ -1779,7 +1779,12 @@ def main():
 
     # Initialize subsystems
     session_id = result["session_id"]
-    budget_summary = _init_context_budget(session_id, result.get("project_context", {}))
+    budget_db = Path(project_root) / ".empirica" / "sessions" / "sessions.db" if project_root else None
+    budget_summary = _init_context_budget(
+        session_id,
+        result.get("project_context", {}),
+        db_path=budget_db if budget_db and budget_db.exists() else None,
+    )
     dashboard_status = _init_dashboard(session_id, ai_id)
 
     # Zero-touch: auto-install canonical loops if this instance is fresh
