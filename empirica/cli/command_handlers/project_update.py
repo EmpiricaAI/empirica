@@ -159,7 +159,7 @@ def handle_project_update_command(args):
         with open(config_path, "w") as f:
             yaml.dump(updated, f, default_flow_style=False, sort_keys=False)
 
-        _sync_to_db(config, git_root)
+        synced = _sync_to_db(config, git_root)
 
         if output_format == "json":
             print(
@@ -168,6 +168,7 @@ def handle_project_update_command(args):
                         "ok": True,
                         "changes": changes,
                         "config": updated,
+                        "synced": synced,
                     },
                     indent=2,
                     default=str,
@@ -177,8 +178,11 @@ def handle_project_update_command(args):
             print(f"✅ Updated project.yaml ({len(changes)} changes)")
             for change in changes:
                 print(f"   • {change}")
+            for store, result in synced.items():
+                if result.startswith("error") or result == "no row for project_id":
+                    print(f"   ⚠️  {store} not updated: {result}")
 
-        return {"ok": True, "changes": changes}
+        return {"ok": True, "changes": changes, "synced": synced}
 
     except Exception as e:
         from ..cli_utils import handle_cli_error
@@ -238,9 +242,8 @@ def _soft_validate_edge(entity: str):
         project_name = entity.split("/", 1)[1]
         from empirica.data.repositories.workspace_db import WorkspaceDBRepository
 
-        repo = WorkspaceDBRepository()
-        projects = repo.list_projects()
-        repo.close()
+        with WorkspaceDBRepository.open(ensure_schema=False) as repo:
+            projects = repo.list_projects()
 
         names = [p.get("name", "") for p in projects]
         folder_names = [Path(p.get("trajectory_path", "")).parent.name for p in projects]
@@ -251,91 +254,107 @@ def _soft_validate_edge(entity: str):
         pass  # Workspace may not be available
 
 
-def _sync_to_db(config: ProjectConfig, git_root: Path):
-    """Sync updated config fields to sessions.db and workspace.db."""
+def _sync_to_db(config: ProjectConfig, git_root: Path) -> dict[str, str]:
+    """Sync updated config fields to sessions.db and workspace.db; say what each one did.
+
+    The two stores are independent: a practice that was bootstrapped but never ran a session has a
+    workspace row and no sessions.db, and the workspace row is the one other tools read. Each result
+    is one of ``updated``, ``no database``, ``no row for project_id`` or ``error: <type>: <message>``.
+    Failures stay non-fatal, but they are REPORTED. This used to swallow every exception, and the
+    workspace half constructed its repository with no connection (a TypeError), so for as long as
+    that signature had been so, ``project-update --status archived`` wrote project.yaml, reported
+    ok, and left ``global_projects`` active (ecodex, prop_42avmw5tlnef7neqmw5vujsdou).
+    """
+    return {
+        "sessions_db": _sync_sessions_db(config, git_root),
+        "workspace_db": _sync_workspace_db(config),
+    }
+
+
+def _sync_sessions_db(config: ProjectConfig, git_root: Path) -> str:
+    db_path = git_root / ".empirica" / "sessions" / "sessions.db"
+    if not db_path.exists():
+        return "no database"
+    if not config.project_id:
+        return "no row for project_id"
     try:
+        import json as json_mod
+
         from empirica.data.session_database import SessionDatabase
 
-        db_path = git_root / ".empirica" / "sessions" / "sessions.db"
-        if not db_path.exists():
-            return
-
         db = SessionDatabase(db_path=str(db_path))
-
-        if config.project_id:
-            # Update project_data JSON with full config
-            project = db.get_project(config.project_id)
-            if project:
-                import json as json_mod
-
-                project_data = {}
-                try:
-                    existing = project.get("project_data", "{}")
-                    project_data = json_mod.loads(existing) if isinstance(existing, str) else existing or {}
-                except Exception:
-                    pass
-
-                project_data.update(
-                    {
-                        "type": config.type,
-                        "domain": config.domain,
-                        "classification": config.classification,
-                        "evidence_profile": config.evidence_profile,
-                        "languages": config.languages,
-                        "tags": config.tags,
-                        "contacts": config.contacts,
-                        "engagements": config.engagements,
-                        "edges": config.edges,
-                    }
-                )
-
-                db.conn.execute(
-                    "UPDATE projects SET project_type = ?, project_tags = ?, project_data = ?, status = ? WHERE id = ?",
-                    (
-                        config.type,
-                        json_mod.dumps(config.tags),
-                        json_mod.dumps(project_data),
-                        config.status,
-                        config.project_id,
-                    ),
-                )
-                db.conn.commit()
-
-        db.close()
-
-        # Sync to workspace.db (indexed fields + full v2.0 enrichment in metadata)
         try:
-            import json as json_mod2
-
-            from empirica.data.repositories.workspace_db import WorkspaceDBRepository
-
-            repo = WorkspaceDBRepository()
-            metadata = json_mod2.dumps(
+            project = db.get_project(config.project_id)
+            if not project:
+                return "no row for project_id"
+            project_data = {}
+            try:
+                existing = project.get("project_data", "{}")
+                project_data = json_mod.loads(existing) if isinstance(existing, str) else existing or {}
+            except Exception:
+                pass
+            project_data.update(
                 {
+                    "type": config.type,
                     "domain": config.domain,
                     "classification": config.classification,
                     "evidence_profile": config.evidence_profile,
                     "languages": config.languages,
+                    "tags": config.tags,
                     "contacts": config.contacts,
                     "engagements": config.engagements,
                     "edges": config.edges,
                 }
             )
-            repo.conn.execute(
-                "UPDATE global_projects SET project_type = ?, project_tags = ?, status = ?, metadata = ?, updated_timestamp = ? WHERE id = ?",
+            db.conn.execute(
+                "UPDATE projects SET project_type = ?, project_tags = ?, project_data = ?, status = ? WHERE id = ?",
                 (
                     config.type,
-                    json_mod2.dumps(config.tags),
+                    json_mod.dumps(config.tags),
+                    json_mod.dumps(project_data),
                     config.status,
-                    metadata,
-                    __import__("time").time(),
                     config.project_id,
                 ),
             )
-            repo.conn.commit()
-            repo.close()
-        except Exception:
-            pass  # Workspace sync is non-fatal
-
+            db.conn.commit()
+            return "updated"
+        finally:
+            db.close()
     except Exception as e:
-        logger.warning(f"DB sync failed (non-fatal): {e}")
+        logger.warning(f"sessions.db sync failed (non-fatal): {e}")
+        return f"error: {type(e).__name__}: {e}"
+
+
+def _sync_workspace_db(config: ProjectConfig) -> str:
+    if not config.project_id:
+        return "no row for project_id"
+    try:
+        import json as json_mod
+        import time
+
+        from empirica.data.repositories.workspace_db import WorkspaceDBRepository, _get_workspace_db_path
+
+        if not _get_workspace_db_path().exists():
+            return "no database"  # opening would create an empty one, for a project nothing registered
+        metadata = json_mod.dumps(
+            {
+                "domain": config.domain,
+                "classification": config.classification,
+                "evidence_profile": config.evidence_profile,
+                "languages": config.languages,
+                "contacts": config.contacts,
+                "engagements": config.engagements,
+                "edges": config.edges,
+            }
+        )
+        with WorkspaceDBRepository.open(ensure_schema=False) as repo:
+            cursor = repo.conn.execute(
+                "UPDATE global_projects SET project_type = ?, project_tags = ?, status = ?, metadata = ?, "
+                "updated_timestamp = ? WHERE id = ?",
+                (config.type, json_mod.dumps(config.tags), config.status, metadata, time.time(), config.project_id),
+            )
+            repo.conn.commit()
+            return "updated" if cursor.rowcount else "no row for project_id"
+    except Exception as e:
+        logger.warning(f"workspace.db sync failed (non-fatal): {e}")
+        return f"error: {type(e).__name__}: {e}"

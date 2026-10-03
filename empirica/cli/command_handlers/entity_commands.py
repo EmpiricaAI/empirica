@@ -751,6 +751,11 @@ def handle_entity_delete_command(args):
                         "references": repo.project_references(eid),
                     }
                 )
+                if result.get("deleted") and not dry_run:
+                    # The project store removed global_projects. Its own registry row is the entity
+                    # layer's, and removing it here is what makes this a retirement rather than half
+                    # of one: left behind it is a `project:<id>` entity with no project.
+                    result["entity_row"] = repo.delete_entity_hard(et, eid)
                 print(json.dumps(result, indent=2)) if output == "json" else _render_project_delete(result)
                 return 0 if result.get("ok") else 1
 

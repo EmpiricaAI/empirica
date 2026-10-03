@@ -550,9 +550,17 @@ class WorkspaceDBRepository(BaseRepository):
         """
         refs: dict[str, Any] = {"entity_registry": 0, "entity_memberships": 0, "qdrant_collections": []}
 
-        for table, column in (("entity_registry", "entity_id"), ("entity_memberships", "group_id")):
+        # The project's OWN registry row (entity_type 'project') is not a reference to it: it is the
+        # same practice, indexed. Counting it made every hard delete refuse, because `entity-delete`
+        # needs that row to exist before it will even start, so the refusal could never be cleared
+        # except with --force, which leaves that very row behind (ecodex, 2026-10-03). Anything ELSE
+        # that carries the id still blocks.
+        for table, column, extra in (
+            ("entity_registry", "entity_id", " AND entity_type != 'project'"),
+            ("entity_memberships", "group_id", ""),
+        ):
             try:
-                row = self._execute(f"SELECT COUNT(*) FROM {table} WHERE {column} = ?", (project_id,)).fetchone()
+                row = self._execute(f"SELECT COUNT(*) FROM {table} WHERE {column} = ?{extra}", (project_id,)).fetchone()
                 refs[table] = row[0] if row else 0
             except Exception as e:  # table may not exist on an older schema
                 refs[table] = f"unavailable: {type(e).__name__}"

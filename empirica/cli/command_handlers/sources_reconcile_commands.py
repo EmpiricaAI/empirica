@@ -846,16 +846,14 @@ def _swap_workspace_entity_links(local_uuid: str, cortex_uuid: str) -> str:
     try:
         from empirica.data.repositories.workspace_db import WorkspaceDBRepository
 
-        repo = WorkspaceDBRepository()
-        cursor = repo.conn.cursor()
-        cursor.execute(
-            "UPDATE entity_artifacts SET artifact_id = ? WHERE artifact_type = 'source' AND artifact_id = ?",
-            (cortex_uuid, local_uuid),
-        )
-        repo.conn.commit()
-        n = cursor.rowcount
-        repo.conn.close()
-        return f"updated_{n}"
+        with WorkspaceDBRepository.open() as repo:
+            cursor = repo.conn.cursor()
+            cursor.execute(
+                "UPDATE entity_artifacts SET artifact_id = ? WHERE artifact_type = 'source' AND artifact_id = ?",
+                (cortex_uuid, local_uuid),
+            )
+            repo.conn.commit()
+            return f"updated_{cursor.rowcount}"
     except Exception as e:
         return f"skipped: {e}"
 
