@@ -1968,10 +1968,20 @@ def _respond_unavailable(reason: str, claude_session_id: str | None) -> None:
         )
     except OSError:
         pass
+    harness = (os.environ.get("EMPIRICA_HARNESS") or "claude-code").strip() or "claude-code"
+    if harness == "claude-code":
+        repair = "Re-run `empirica setup-claude-code` from your empirica install so the hooks use its interpreter."
+    else:
+        # `setup-claude-code` repairs Claude Code's hook settings, which no other harness reads.
+        repair = (
+            f"Make sure the empirica CLI is on PATH for {harness} (it runs hooks with the interpreter "
+            "that script names)."
+        )
+        if harness == "codex":
+            repair += " Then run `empirica diagnose --frontend ecodex`."
     msg = (
         f"Empirica Sentinel is OFF: this hook's Python ({sys.executable}) cannot import empirica ({reason}). "
-        "Tool calls are not being gated. Re-run `empirica setup-claude-code` from your empirica install "
-        "so the hooks use its interpreter."
+        f"Tool calls are not being gated. {repair}"
     )
     output: dict = {
         "hookSpecificOutput": {
@@ -4602,6 +4612,13 @@ def _resolve_empirica_root(claude_session_id: str | None) -> Path | None:
         return empirica_root
     except ImportError as e:
         _respond_unavailable(str(e), claude_session_id)
+        sys.exit(0)
+    except ValueError:
+        # Outside a git repo, with no env root and no config: there is no project and
+        # nothing to measure, so not gating is by design (David, 2026-10-03). Say so as
+        # a decision. This used to reach the outer crash handler, where it read as
+        # SENTINEL_CRASH and, under EMPIRICA_SENTINEL_FAIL_CLOSED, became a deny.
+        respond("allow", "Sentinel not applicable: no git repo and no empirica project here, nothing to measure")
         sys.exit(0)
 
 
