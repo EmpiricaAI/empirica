@@ -191,6 +191,14 @@ echo "true" > ~/.empirica/sentinel_enabled    # Re-enable
 /empirica on    # Resume
 ```
 
+The file wins over the environment. `EMPIRICA_SENTINEL_LOOPING=false` is consulted only when
+`~/.empirica/sentinel_enabled` does not exist, so a file holding `true` silently ignores it. An
+unattended runner that must not be gated should run with a scratch `HOME`, or with the plugin off.
+
+Outside a git repo and any empirica project there is nothing to measure, so the Sentinel allows and
+says so ("not applicable"); that is not a crash and `EMPIRICA_SENTINEL_FAIL_CLOSED` does not turn it
+into a deny.
+
 ### Lean Core Prompt
 
 81% reduction in always-loaded context. Loads skills on demand:
