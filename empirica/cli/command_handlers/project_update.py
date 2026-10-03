@@ -155,7 +155,11 @@ def handle_project_update_command(args):
                 print("ℹ️  No changes specified. Use --help to see available options.")
             return None
 
-        updated = config.to_dict()
+        # to_dict() carries only the keys ProjectConfig models. Writing it alone deleted every other
+        # top-level key (ai_id, the mesh seat, publish_channels, cockpit, artifact_graph, ...), so a routine
+        # `project-update --status archived` removed a practice's identity. Merge instead: modelled keys take
+        # their updated value, anything else survives.
+        updated = {**raw_config, **config.to_dict()}
         with open(config_path, "w") as f:
             yaml.dump(updated, f, default_flow_style=False, sort_keys=False)
 

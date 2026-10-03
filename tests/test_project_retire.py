@@ -402,3 +402,55 @@ def test_one_conflicting_link_does_not_abort_the_swap_of_the_others(store):
         .fetchall()
     )
     assert rows == [("C", "e1"), ("C", "p1")], "no local id left, and the duplicate collapsed to one link"
+
+
+# ── project-update must not delete what it does not model ───────────────────
+
+
+def test_project_update_keeps_the_top_level_keys_it_does_not_model(tmp_path, monkeypatch, capsys):
+    """It rewrote project.yaml from ProjectConfig.to_dict(), which drops every key it has no field for, so a
+    routine `project-update --status archived` deleted a practice's ai_id, mesh seat, publish channels and
+    cockpit. Found when a test of mine reached the repository's own file (mistake c0f8d3a1)."""
+    import yaml
+
+    import empirica.config.path_resolver as pr
+
+    root = tmp_path / "co"
+    (root / ".empirica").mkdir(parents=True)
+    original = {
+        "version": "2.0",
+        "name": "co",
+        "ai_id": "co",
+        "project_id": "p-keep",
+        "type": "software",
+        "status": "active",
+        "publish_channels": ["pypi", "docker"],
+        "cockpit": {"listeners": [{"name": "inbox", "topic": "ntfy:inbox"}], "loops": [{"name": "sweep"}]},
+        "artifact_graph": {"connectivity_floor": 0.34},
+        "org_id": "org-x",
+        "tenant_slug": "t",
+        "mesh_id_prefix": "x.t",
+        "canonical_seat": "x.t.co",
+    }
+    (root / ".empirica" / "project.yaml").write_text(yaml.safe_dump(original, sort_keys=False))
+    monkeypatch.chdir(root)
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True, capture_output=True)
+    monkeypatch.setattr(pr, "get_git_root", lambda: root)
+    monkeypatch.setattr(wdb, "_get_workspace_db_path", lambda: tmp_path / "absent" / "workspace.db")
+
+    pu.handle_project_update_command(SimpleNamespace(status="dormant", output="json"))
+    capsys.readouterr()
+
+    after = yaml.safe_load((root / ".empirica" / "project.yaml").read_text())
+    assert after["status"] == "dormant"
+    for key in (
+        "ai_id",
+        "publish_channels",
+        "cockpit",
+        "artifact_graph",
+        "org_id",
+        "tenant_slug",
+        "mesh_id_prefix",
+        "canonical_seat",
+    ):
+        assert after.get(key) == original[key], f"project-update dropped or changed {key}"
