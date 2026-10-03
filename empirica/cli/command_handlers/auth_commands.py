@@ -235,8 +235,88 @@ def handle_auth_token_command(args) -> int:
     return 0
 
 
+def _report_connector_plan(
+    rows: list[dict], unknown: list[str], applied: dict | None, output: str, backup=None
+) -> None:
+    if output == "json":
+        print(
+            json.dumps(
+                {
+                    "ok": True,
+                    "plan": rows,
+                    "not_found": unknown,
+                    "applied": applied,
+                    "backup": str(backup) if backup else None,
+                }
+            )
+        )
+        return
+    if not rows:
+        print("no user-scope connector stores a static Authorization header")
+    for r in rows:
+        why = f" ({r['why']})" if r.get("why") else ""
+        print(f"  {r['action']:7s} {r['name']:20s} {r['host'] or '(no host)'}{why}")
+    for name in unknown:
+        print(f"  not found: {name!r} has no static Authorization header to switch")
+    if applied is not None:
+        print(f"switched {applied['changed']} connector(s); backup {backup}")
+        print("the backup holds the OLD bearer: delete it once the connector has reconnected")
+        print("restart Claude Code (or /mcp reconnect) for the connector to pick up the helper")
+    elif any(r["action"] == "switch" for r in rows):
+        print("dry run: nothing written. Re-run with --apply to switch the rows marked `switch`.")
+
+
+def handle_auth_connectors_command(args) -> int:
+    """Plan, and on --apply perform, the switch of named connectors to `headersHelper`."""
+    import shutil
+    from pathlib import Path
+
+    from empirica.cli.command_handlers.setup_claude_code import _read_json_with_stamp, _write_json_file_soft
+    from empirica.core.auth.connector_switch import apply_switches, plan_switches
+
+    output = getattr(args, "output", "human")
+    names = list(getattr(args, "name", None) or [])
+    path = Path.home() / ".claude.json"
+    try:
+        config, stamp = _read_json_with_stamp(path, {}) if path.is_file() else ({}, None)
+    except (OSError, ValueError) as exc:
+        sys.stderr.write(
+            f"empirica auth connectors: {path} could not be read ({type(exc).__name__}); nothing changed\n"
+        )
+        return 1
+    if not isinstance(config, dict):
+        sys.stderr.write(f"empirica auth connectors: {path} is not a JSON object; nothing changed\n")
+        return 1
+
+    loader = _loader()
+    oauth = loader.get_cortex_oauth()
+    try:
+        valid = bool(oauth.get("access_token")) and float(oauth.get("expires_at") or 0) > time.time()
+    except (TypeError, ValueError):
+        valid = False
+    rows = plan_switches(config, names, valid, loader.get_cortex_config().get("url"))
+    listed = {r["name"] for r in rows}
+    unknown = [n for n in names if n not in listed]
+    to_switch = [r for r in rows if r["action"] == "switch"]
+
+    if not getattr(args, "apply", False) or not to_switch:
+        _report_connector_plan(rows, unknown, None, output)
+        return 0
+
+    backup = path.with_name(f"{path.name}.bak-{time.strftime('%Y%m%d-%H%M%S')}")
+    shutil.copy2(path, backup)
+    backup.chmod(0o600)
+    changed = apply_switches(config, rows)
+    if not _write_json_file_soft(path, config, stamp, str(path)):
+        return 1
+    _report_connector_plan(rows, unknown, {"changed": changed}, output, backup)
+    return 0
+
+
 def handle_auth_group_command(args) -> int:
     action = getattr(args, "auth_action", None)
+    if action == "connectors":
+        return handle_auth_connectors_command(args)
     if action == "token":
         return handle_auth_token_command(args)
     if action == "login":
@@ -245,5 +325,5 @@ def handle_auth_group_command(args) -> int:
         return handle_auth_status_command(args)
     if action == "logout":
         return handle_auth_logout_command(args)
-    print("usage: empirica auth {login|token|status|logout}")
+    print("usage: empirica auth {login|token|status|connectors|logout}")
     return 2

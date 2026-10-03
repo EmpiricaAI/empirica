@@ -61,6 +61,18 @@ def add_auth_parsers(subparsers) -> None:
     )
     status.add_argument("--output", choices=["human", "json"], default="human")
 
+    connectors = actions.add_parser(
+        "connectors",
+        help=(
+            "List MCP connectors in ~/.claude.json that store a static Authorization bearer and switch the ones "
+            "you name to `headersHelper: empirica auth token --headers`, so nothing is stored. Dry run unless "
+            "--apply; backs the file up first; only hosts that are ours; only with a valid OAuth token."
+        ),
+    )
+    connectors.add_argument("--name", action="append", default=[], help="Connector to switch (repeatable)")
+    connectors.add_argument("--apply", action="store_true", help="Write the change (default: show the plan only)")
+    connectors.add_argument("--output", choices=["human", "json"], default="human")
+
     logout = actions.add_parser(
         "logout",
         help="Revoke this seat's refresh token at cortex and drop cortex.oauth. The api_key is untouched — logout is never a lockout.",
