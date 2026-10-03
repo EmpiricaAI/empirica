@@ -137,6 +137,14 @@ DELETE_ARTIFACTS_SCHEMA = {
     ],
     "prune_dangling": "<optional bool — act on every edge whose from_id or to_id matches no existing artifact>",
     "repair": "<optional bool (default true) — with prune_dangling, REWIRE a dangling endpoint that resolves to a real artifact (e.g. a short prefix) instead of deleting it; only truly-unrecoverable edges are pruned. false = pure prune (delete all dangling)>",
+    "reflexes": {
+        "phantom_checks": (
+            "<optional bool — remove the phantom CHECK rows the auto-checkpoint wrote before 46aec0d66: phase CHECK, "
+            "no reasoning, reflex_data.auto_checkpoint true. Acts on THIS practice's store only, previews unless "
+            "--apply, and names each row (id, session, time). The real vectors live on in git notes and snapshots; "
+            "nothing else is touched>"
+        ),
+    },
     "reason": "<optional human-readable reason — logged as decision>",
 }
 
@@ -1854,6 +1862,65 @@ def _log_deletion_decision(cursor, project_id: str, session_id: str, choice: str
         return f"error: {e}"
 
 
+_REFLEX_KEYS = {"phantom_checks"}
+
+#: A phantom CHECK row: the auto-checkpoint's, not a CHECK someone submitted. `auto_checkpoint` is only ever written
+#: into reflex_data by that path, and the real CHECK it shadowed carries reasoning, so the three conditions together
+#: name it. json_valid guards the extract: json_extract raises on malformed JSON, and one bad row must not fail the
+#: whole purge (SQLite does not promise to evaluate an AND left to right, hence the CASE).
+_PHANTOM_CHECK_WHERE = (
+    "phase = 'CHECK' AND (reasoning IS NULL OR reasoning = '') "
+    "AND CASE WHEN json_valid(reflex_data) THEN json_extract(reflex_data, '$.auto_checkpoint') END = 1"
+)
+
+
+def _process_reflex_deletions(cursor, spec: object, dry_run: bool) -> tuple[int, list[dict], list[str]]:
+    """Remove (or preview removing) phantom CHECK rows from this practice's reflexes table.
+
+    Returns ``(removed, items, errors)``. Only `phantom_checks` exists; an unknown key is an error, since a switch
+    the verb silently ignored reads exactly like a successful preview. The caller commits.
+    """
+    if not isinstance(spec, dict):
+        return 0, [], ['`reflexes` must be an object, e.g. {"phantom_checks": true}']
+    unknown = sorted(set(spec) - _REFLEX_KEYS)
+    if unknown:
+        return (
+            0,
+            [],
+            [f"Unrecognised key(s) in `reflexes`: {', '.join(unknown)}. Accepted: {', '.join(sorted(_REFLEX_KEYS))}."],
+        )
+    if not spec.get("phantom_checks"):
+        return 0, [], []
+    try:
+        rows = cursor.execute(
+            f"SELECT id, session_id, timestamp FROM reflexes WHERE {_PHANTOM_CHECK_WHERE} ORDER BY timestamp"
+        ).fetchall()
+    except Exception as e:
+        return 0, [], [f"phantom_checks query failed: {e}"]
+    from datetime import datetime
+
+    items = []
+    for rid, session_id, ts in rows:
+        try:
+            at = datetime.fromtimestamp(float(ts)).isoformat(timespec="seconds")
+        except (TypeError, ValueError, OverflowError, OSError):
+            at = str(ts)
+        items.append(
+            {
+                "type": "reflex",
+                "id": rid,
+                "session_id": session_id,
+                "at": at,
+                "action": "would_delete" if dry_run else "deleted",
+            }
+        )
+    if dry_run or not rows:
+        return 0, items, []
+    ids = [r[0] for r in rows]
+    cursor.execute(f"DELETE FROM reflexes WHERE id IN ({','.join('?' * len(ids))})", ids)
+    return cursor.rowcount, items, []
+
+
 def _read_deletion_input(args) -> dict | None:
     """Read and validate deletion JSON from stdin or file."""
     from empirica.cli.cli_utils import parse_json_safely
@@ -1873,8 +1940,8 @@ def _read_deletion_input(args) -> dict | None:
         return None
 
     items = data.get("deletions", data.get("items", []))
-    if not items and not data.get("edges") and not data.get("prune_dangling"):
-        print(json.dumps({"ok": False, "error": "No deletions, edges, or prune_dangling specified"}))
+    if not items and not data.get("edges") and not data.get("prune_dangling") and not data.get("reflexes"):
+        print(json.dumps({"ok": False, "error": "No deletions, edges, prune_dangling or reflexes specified"}))
         return None
 
     return data
@@ -2235,6 +2302,7 @@ def handle_delete_artifacts_command(args):  # noqa: C901 — batch dispatcher fa
             "edges",
             "prune_dangling",
             "repair",
+            "reflexes",
             "reason",
             "dry_run",
             "project_id",
@@ -2324,11 +2392,22 @@ def handle_delete_artifacts_command(args):  # noqa: C901 — batch dispatcher fa
         deleted_items.extend(edge_items)
         delete_errors.extend(edge_errors)
 
+        # Phantom CHECK rows (the old auto-checkpoint's), this practice's store only.
+        reflexes_removed, reflex_items, reflex_errors = 0, [], []
+        if "reflexes" in data:
+            reflexes_removed, reflex_items, reflex_errors = _process_reflex_deletions(cursor, data["reflexes"], dry_run)
+            deleted_items.extend(reflex_items)
+            delete_errors.extend(reflex_errors)
+            if reflex_errors and not reflex_items and not reflexes_removed and not (items or edge_items):
+                db.close()
+                print(json.dumps({"ok": False, "error": "; ".join(reflex_errors), "errors": reflex_errors}))
+                return 1
+
         if not dry_run:
             db.conn.commit()
 
             # Log the deletion as a decision (audit trail)
-            if deleted_count > 0 or edge_removed > 0 or edge_repaired > 0:
+            if deleted_count > 0 or edge_removed > 0 or edge_repaired > 0 or reflexes_removed > 0:
                 sid = None
                 try:
                     from empirica.utils.session_resolver import InstanceResolver as R
@@ -2344,6 +2423,7 @@ def handle_delete_artifacts_command(args):  # noqa: C901 — batch dispatcher fa
                         session_id=sid,
                         choice=(
                             f"Deleted {deleted_count} artifact(s) + {edge_removed} edge(s) + repaired {edge_repaired}"
+                            + (f" + {reflexes_removed} phantom CHECK reflex row(s)" if reflexes_removed else "")
                         ),
                         rationale=reason,
                     )
@@ -2376,6 +2456,7 @@ def handle_delete_artifacts_command(args):  # noqa: C901 — batch dispatcher fa
             "deleted": deleted_count,
             "edges_removed": edge_removed,
             "edges_repaired": edge_repaired,
+            "reflexes_removed": reflexes_removed,
             "dry_run": dry_run,
             "items": deleted_items,
             "audit": audit_status,

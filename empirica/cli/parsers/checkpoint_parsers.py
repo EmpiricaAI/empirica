@@ -1850,6 +1850,11 @@ the default.
 
 Example:
   echo '{"deletions": [{"type": "finding", "id": "abc123"}], "reason": "Stale test data"}' | empirica delete-artifacts -
+
+Phantom CHECK rows (written by the auto-checkpoint before 46aec0d66: phase CHECK, no reasoning, auto_checkpoint
+true) are removed per practice, from the practice you run it in:
+  echo '{"reflexes": {"phantom_checks": true}}' | empirica delete-artifacts -          # preview, names each row
+  echo '{"reflexes": {"phantom_checks": true}}' | empirica delete-artifacts - --apply  # remove them
         """,
     )
     delete_artifacts_parser.add_argument(
