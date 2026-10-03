@@ -50,7 +50,7 @@ def conn() -> sqlite3.Connection:
         "CREATE TABLE project_unknowns (id TEXT PRIMARY KEY, session_id TEXT, "
         "transaction_id TEXT, is_resolved INTEGER DEFAULT 0, resolved_timestamp)"
     )
-    c.execute("CREATE TABLE assumptions (id TEXT PRIMARY KEY, session_id TEXT)")
+    c.execute("CREATE TABLE assumptions (id TEXT PRIMARY KEY, session_id TEXT, transaction_id TEXT)")
     c.execute("CREATE TABLE decisions (id TEXT PRIMARY KEY, session_id TEXT)")
     return c
 

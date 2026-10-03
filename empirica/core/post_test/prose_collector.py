@@ -60,6 +60,23 @@ class ProseEvidenceCollector:
             self._owns_db = True
         return self._db
 
+    def _transaction_scope(self, table: str) -> tuple[str, tuple, str]:
+        """``(sql fragment, params, label)`` restricting a count over ``table`` to the current transaction.
+
+        The transaction is the measurement window. With no transaction id the session is the only window there is,
+        and the label says so, so a stored observation shows which one it used. So does a database old enough that
+        ``table`` has no ``transaction_id`` column: counting the session beats raising and losing every observation
+        in the method.
+        """
+        if self.transaction_id:
+            try:
+                cols = {r[1] for r in self._get_db().conn.cursor().execute(f"PRAGMA table_info({table})").fetchall()}
+            except Exception:
+                cols = set()
+            if "transaction_id" in cols:
+                return " AND transaction_id = ?", (self.transaction_id,), "transaction"
+        return "", (), "session"
+
     def _close_db(self):
         if self._owns_db and self._db is not None:
             self._db.close()
@@ -443,12 +460,12 @@ class ProseEvidenceCollector:
         db = self._get_db()
         cursor = db.conn.cursor()
 
-        # Word count of all findings logged this session
+        # Word count of the findings logged in THIS transaction. It counted the whole session, so a long session
+        # saturated `finding_production` for every transaction in it, whatever that one did (cortex, 2026-10-04).
+        scope_sql, scope_params, scope = self._transaction_scope("project_findings")
         cursor.execute(
-            """
-            SELECT finding FROM project_findings WHERE session_id = ?
-        """,
-            (self.session_id,),
+            f"SELECT finding FROM project_findings WHERE session_id = ?{scope_sql}",
+            (self.session_id, *scope_params),
         )
         findings = cursor.fetchall()
 
@@ -458,6 +475,9 @@ class ProseEvidenceCollector:
         if finding_count > 0:
             # Production rate: findings logged (like commits made)
             # Normalize: 1-2 = 0.3, 5 = 0.7, 10+ = 1.0
+            #
+            # Supports `do` ONLY. It also supported `change`, so ten findings read as change 1.0 on a transaction that
+            # changed nothing. Findings produced are work done, not the system having changed.
             production_score = min(1.0, finding_count / 10.0)
             items.append(
                 EvidenceItem(
@@ -468,9 +488,10 @@ class ProseEvidenceCollector:
                         "findings_logged": finding_count,
                         "total_words": total_words,
                         "avg_words_per_finding": round(total_words / finding_count, 1),
+                        "scope": scope,
                     },
                     quality=EvidenceQuality.SEMI_OBJECTIVE,
-                    supports_vectors=["do", "change"],
+                    supports_vectors=["do"],
                 )
             )
 
@@ -715,26 +736,30 @@ class ProseEvidenceCollector:
                 )
             )
 
-        # Assumptions logged (epistemic honesty metric)
+        # Assumptions logged IN THIS TRANSACTION (epistemic honesty metric). Counted over the session it saturated for
+        # every transaction of a long session.
+        scope_sql, scope_params, scope = self._transaction_scope("assumptions")
         cursor.execute(
-            """
-            SELECT COUNT(*) FROM assumptions WHERE session_id = ?
-        """,
-            (self.session_id,),
+            f"SELECT COUNT(*) FROM assumptions WHERE session_id = ?{scope_sql}",
+            (self.session_id, *scope_params),
         )
         assumption_count = cursor.fetchone()[0]
 
         if assumption_count > 0:
-            # Logging assumptions = epistemic honesty, similar to writing tests
+            # Logging assumptions = epistemic honesty, similar to writing tests.
+            #
+            # Supports `know` ONLY. It also supported `uncertainty`, grounding it at min(1, n/3): three logged
+            # assumptions read as MAXIMAL uncertainty, so logging honestly could never shrink the gap. More
+            # assumptions acknowledged is not evidence of more uncertainty (cortex, 2026-10-04).
             honesty_score = min(1.0, assumption_count / 3.0)
             items.append(
                 EvidenceItem(
                     source="action_verification",
                     metric_name="assumption_logging",
                     value=honesty_score,
-                    raw_value={"assumptions_logged": assumption_count},
+                    raw_value={"assumptions_logged": assumption_count, "scope": scope},
                     quality=EvidenceQuality.SEMI_OBJECTIVE,
-                    supports_vectors=["uncertainty", "know"],
+                    supports_vectors=["know"],
                 )
             )
 
