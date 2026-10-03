@@ -713,7 +713,7 @@ has_key = loader.has_credential("MINIMAX_API_KEY")
 
 - `EMPIRICA_INSTANCE_ID`: Explicit override for session instance identification. Used for multi-Claude environments.
 - `EMPIRICA_AUTOPILOT_MODE`: Enable binding Sentinel decisions (`true`, `false`, default: `false`). When `true`, CHECK decisions are enforced (not suggestive).
-- `EMPIRICA_STATUS_MODE`: Status display mode for statusline (`basic`, `default`, `learning`, `full`). Default: `default`. Shows confidence, open goals/unknowns, phase, vectors, and drift status.
+- `EMPIRICA_STATUS_MODE`: Status display mode for statusline (`compact`, `expanded`, `basic`, `learning`, `full`). Default: `compact`. `~/.empirica/statusline_mode` overrides it and is read on every render. See `STATUSLINE_REFERENCE.md`.
 
 ### Calibration
 

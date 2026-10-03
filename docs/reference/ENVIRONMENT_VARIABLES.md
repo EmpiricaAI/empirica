@@ -163,7 +163,7 @@ Without this, the 1M window delays compaction until very late, causing:
 
 | Variable | Purpose | Default | Values |
 |----------|---------|---------|--------|
-| `EMPIRICA_STATUS_MODE` | Statusline display mode | `default` | `default`, `balanced`, `compact`, `minimal` |
+| `EMPIRICA_STATUS_MODE` | Statusline display mode (`~/.empirica/statusline_mode` overrides it) | `compact` | `compact`, `expanded`, `basic`, `learning`, `full` |
 | `EMPIRICA_STATUS_JSON` | Output statusline as JSON | `false` | `true`, `false` |
 | `EMPIRICA_STATUS_TMUX` | Compact tmux output | `false` | `true`, `false` |
 

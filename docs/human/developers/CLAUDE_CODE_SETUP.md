@@ -169,8 +169,9 @@ confidence?" Both can legitimately differ.
 | Noetic composite | `clarity, coherence, signal, density` | Investigation quality |
 | ⚡ overall | `know, 1−uncertainty, context, completion` | Weighted confidence band |
 
-Display modes via `EMPIRICA_STATUS_MODE` env var: `basic`, `default`,
-`learning`, `full`.
+Display modes: `compact` (the default), `expanded`, `basic`, `learning`, `full`. Switch live with
+`echo expanded > ~/.empirica/statusline_mode` (the file wins), or set `EMPIRICA_STATUS_MODE`.
+See `docs/reference/STATUSLINE_REFERENCE.md`.
 
 ---
 

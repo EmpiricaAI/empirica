@@ -3,7 +3,7 @@
 **Status:** AUTHORITATIVE
 **Source:** `empirica/plugins/claude-code-integration/scripts/statusline_empirica.py`
 **Audience:** End users and developers
-**Last Updated:** 2026-04-24 (v1.8.14)
+**Last Updated:** 2026-10-03 (v1.14.6)
 
 ---
 
@@ -11,18 +11,27 @@
 
 The Empirica statusline renders your current epistemic state in the Claude Code status bar. It reads vectors and session state from the local SQLite DB on every render — no model API calls, no network. If you see nothing, the script didn't run; if you see `[empirica] OFF-RECORD`, it ran but sentinel is paused.
 
-Four display modes are available. Default is the one most users see.
+Five display modes are available. `compact` is the default and the one most users see; `expanded` is the detailed view.
 
 ---
 
 ## Display Modes
 
-Set via `EMPIRICA_STATUS_MODE` env var. Default is `default`.
+Claude Code has no built-in compact/expanded toggle, so the mode is chosen two ways. The file wins and is
+read on **every render**, so a switch takes effect at once with no restart:
+
+```bash
+echo expanded > ~/.empirica/statusline_mode   # detailed view
+echo compact  > ~/.empirica/statusline_mode   # back to the default
+```
+
+When the file is absent, empty or names no mode, `EMPIRICA_STATUS_MODE` is used; when that is unset too, the mode is `compact`.
 
 | Mode | Sections | When to use |
 |------|----------|-------------|
+| `compact` (default) | practice, stage + confidence, goals/unknowns/assumptions, findings/decisions, learning, context, model, investigate or act | General use: one short line |
+| `expanded` (`default` is its old name) | confidence + open counts + phase composite + K/C + Δ + ctx% | When you want the numbers |
 | `basic` | confidence + threshold | Minimal — just the headline |
-| `default` | confidence + threshold + open counts + phase + K/C + Δ + ctx% | General use |
 | `learning` | confidence + threshold + open counts + phase + all 5 key vectors + Δ | When focusing on vector evolution |
 | `full` | `[project:ai@sid]` + goal progress + phase + all vectors + Δ | Deep debugging / handoff review |
 
@@ -32,7 +41,27 @@ export EMPIRICA_STATUS_MODE=learning
 
 ---
 
-## Default Mode — Segment-by-Segment
+## Compact Mode — Element by Element
+
+Example: ` empirica  │ CHECK 73% │ G2 U5 A3 F4/D1 │ learning good │ 41%ctx │ 🧠 Sonnet 5.5 - 🔍 investigate`
+
+1. **Practice**: black text on a white background, the project name.
+2. **Stage and confidence**: `PRE`, `CHECK`, `POST` or `TEST`, then the confidence below. `POST` is POSTFLIGHT submitted and
+   not yet graded; `TEST` is the post-test having graded the transaction. `---` means no transaction yet.
+3. **Counts**: `G` open goals, `U` unresolved unknowns, `A` unresolved assumptions (all for the project), and
+   `F/D` findings and decisions logged **in this transaction**, since its PREFLIGHT. Project totals run to thousands
+   and say nothing about the window you are in. `F0/D0` is grey: you have not logged anything yet.
+4. **Learning**: `poor | average | good | great` from the **grounded calibration** of the last closed transaction (the gap between
+   what you assessed and what the evidence showed; not self-reported). Bands on the mean gap: under 0.10 great, under 0.20
+   good, under 0.30 average, otherwise poor. `pending` until the post-test has graded a transaction, and `unrated` when under
+   30% of the vectors were reached by any evidence, because the score then means little. The bands are a first pass.
+5. **Context used**, as in expanded mode.
+6. **Model**, then **`investigate` or `act`**: `investigate` while the work is noetic (PREFLIGHT, or a CHECK that has not
+   proceeded), `act` once it is praxic.
+
+---
+
+## Expanded Mode — Segment-by-Segment
 
 Example: `⚡83% ↕70% │ 🎯0 ❓0 │ POST ⚙82% │ K:80% C:85% │ Δ ✓ │ 58%ctx`
 
@@ -184,7 +213,7 @@ In some legacy paths and debug output you may see moon-phase confidence emojis f
 
 | Var | Values | Default | Effect |
 |-----|--------|---------|--------|
-| `EMPIRICA_STATUS_MODE` | `basic` \| `default` \| `learning` \| `full` | `default` | Mode selector |
+| `EMPIRICA_STATUS_MODE` | `compact` \| `expanded` \| `basic` \| `learning` \| `full` (`default` = `expanded`) | `compact` | Mode selector; `~/.empirica/statusline_mode` overrides it |
 | `EMPIRICA_AI_ID` | any string | `claude-code` | Which AI's session to render |
 | `EMPIRICA_SIGNALING_LEVEL` | `basic` \| `default` \| `full` | `default` | Signaling module verbosity |
 

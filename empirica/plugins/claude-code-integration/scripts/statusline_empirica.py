@@ -6,13 +6,19 @@ Uses the shared signaling module for consistent emoji display.
 Reads vectors from DB (real-time).
 
 Display modes:
+  - compact (the default): practice | stage + confidence | goals unknowns assumptions findings/decisions |
+    learning | context | model - investigate or act
+  - expanded: the previous default (phase composite, key vectors, open counts); `default` is its old name
   - basic: Just confidence
-  - default: Phase + key vectors + open counts
   - learning: Focus on vector changes
   - full: Everything with values
 
+Switching: Claude Code has no built-in compact/expanded toggle, so the mode is read on EVERY render from
+~/.empirica/statusline_mode (`echo expanded > ~/.empirica/statusline_mode`, `echo compact >` to go back; no
+restart), and from EMPIRICA_STATUS_MODE when that file is absent or unusable.
+
 Environment:
-  EMPIRICA_STATUS_MODE: basic|default|learning|full (default: default)
+  EMPIRICA_STATUS_MODE: compact|expanded|basic|learning|full (default: compact; the file above wins)
   EMPIRICA_AI_ID: AI identifier override (default: resolved from project.yaml → basename, then 'claude-code')
   EMPIRICA_SIGNALING_LEVEL: basic|default|full (default: default)
   EMPIRICA_STATUS_MODEL: 0|false|off to hide the active-model tag (default: shown)
@@ -47,6 +53,7 @@ class Colors:
     WHITE = "\033[37m"
     BRIGHT_GREEN = "\033[92m"
     BRIGHT_CYAN = "\033[96m"
+    BLACK_ON_WHITE = "\033[30;47m"  # the practice label
 
 
 def get_ai_id() -> str:
@@ -149,6 +156,13 @@ def get_open_counts(db: SessionDatabase, session_id: str, project_id: str | None
         """)
     goal_linked_unknowns = cursor.fetchone()[0] or 0
 
+    # Unresolved assumptions (status 'unverified'), project-scoped like the goals and unknowns above
+    if project_id:
+        cursor.execute("SELECT COUNT(*) FROM assumptions WHERE status = 'unverified' AND project_id = ?", (project_id,))
+    else:
+        cursor.execute("SELECT COUNT(*) FROM assumptions WHERE status = 'unverified'")
+    open_assumptions = cursor.fetchone()[0] or 0
+
     # Get completion from latest vector state
     cursor.execute(
         """
@@ -167,8 +181,135 @@ def get_open_counts(db: SessionDatabase, session_id: str, project_id: str | None
         "open_goals": open_goals,
         "open_unknowns": open_unknowns,
         "goal_linked_unknowns": goal_linked_unknowns,
+        "open_assumptions": open_assumptions,
         "completion": completion,
     }
+
+
+def get_latest_transaction_id(
+    db: SessionDatabase, session_id: str, transaction_session_id: str | None = None
+) -> str | None:
+    """The transaction of the most recent reflex: the open one, or the one that just closed."""
+    row = (
+        db.conn.cursor()
+        .execute(
+            "SELECT transaction_id FROM reflexes WHERE session_id = ? AND transaction_id IS NOT NULL "
+            "AND transaction_id != '' ORDER BY timestamp DESC LIMIT 1",
+            (transaction_session_id or session_id,),
+        )
+        .fetchone()
+    )
+    return row[0] if row else None
+
+
+def get_transaction_artifacts(db: SessionDatabase, transaction_id: str | None) -> dict:
+    """Findings and decisions logged in ONE transaction.
+
+    Project totals run to thousands and move slowly, so they say nothing about the window you are in; this
+    counts what was logged since this PREFLIGHT, which is the artifact breadth the discipline asks for.
+    """
+    if not transaction_id:
+        return {"findings": 0, "decisions": 0}
+    cur = db.conn.cursor()
+    findings = cur.execute(
+        "SELECT COUNT(*) FROM project_findings WHERE transaction_id = ?", (transaction_id,)
+    ).fetchone()
+    decisions = cur.execute("SELECT COUNT(*) FROM decisions WHERE transaction_id = ?", (transaction_id,)).fetchone()
+    return {"findings": findings[0] or 0, "decisions": decisions[0] or 0}
+
+
+def get_post_test(db: SessionDatabase, transaction_id: str | None) -> dict:
+    """Has the post-test graded this transaction, and what did it find?
+
+    ``score`` is the grounded calibration gap (lower is better) and ``coverage`` the share of vectors any
+    evidence reached. A transaction carries one `combined` row, or split noetic and praxic rows; the split
+    ones are weighted by their coverage, so a 0.03 over 23% of the vectors does not pull down a 0.13 over 85%.
+    """
+    untested = {"tested": False, "score": None, "coverage": None}
+    if not transaction_id:
+        return untested
+    rows = (
+        db.conn.cursor()
+        .execute(
+            "SELECT phase, overall_calibration_score, grounded_coverage FROM grounded_verifications "
+            "WHERE transaction_id = ? AND overall_calibration_score IS NOT NULL ORDER BY created_at DESC",
+            (transaction_id,),
+        )
+        .fetchall()
+    )
+    if not rows:
+        return untested
+    combined = [r for r in rows if r[0] == "combined"]
+    if combined:
+        return {"tested": True, "score": combined[0][1], "coverage": combined[0][2]}
+    weight = sum((r[2] or 0.0) for r in rows)
+    if weight <= 0:
+        return {"tested": True, "score": sum(r[1] for r in rows) / len(rows), "coverage": 0.0}
+    return {
+        "tested": True,
+        "score": sum(r[1] * (r[2] or 0.0) for r in rows) / weight,
+        "coverage": weight / len(rows),
+    }
+
+
+#: Below this share of vectors reached by evidence, a calibration score is too thinly grounded to rate.
+MIN_RATING_COVERAGE = 0.30
+
+
+def learning_rating(score: float | None, coverage: float | None) -> str:
+    """poor | average | good | great, from the grounded calibration gap of the last closed transaction.
+
+    Not self-reported: the gap is between what was assessed and what the evidence showed, so reporting
+    higher numbers cannot raise it. `pending` until the post-test has graded a transaction, and `unrated`
+    when too little evidence reached the vectors for the score to mean much. The bands are a first pass.
+    """
+    if score is None:
+        return "pending"
+    if coverage is None or coverage < MIN_RATING_COVERAGE:
+        return "unrated"
+    if score < 0.10:
+        return "great"
+    if score < 0.20:
+        return "good"
+    if score < 0.30:
+        return "average"
+    return "poor"
+
+
+def cascade_stage(phase: str | None, tested: bool) -> str:
+    """PRE, CHECK, POST or TEST: where this transaction is in the cascade.
+
+    POST is POSTFLIGHT submitted and not yet graded; TEST is the post-test having graded it.
+    """
+    if phase == "POSTFLIGHT":
+        return "TEST" if tested else "POST"
+    return {"PREFLIGHT": "PRE", "CHECK": "CHECK"}.get(phase or "", "---")
+
+
+STATUS_MODES = ("compact", "expanded", "basic", "learning", "full")
+
+
+def resolve_status_mode(home: Path | None = None) -> str:
+    """The statusline mode: ~/.empirica/statusline_mode, else EMPIRICA_STATUS_MODE, else compact.
+
+    The file is read on every render so a switch takes effect at once, with no restart (Claude Code has
+    no built-in toggle between a compact and an expanded line). `default` is the old name of what is now
+    `expanded`. A file that is empty, unreadable or names no mode is ignored, not an error.
+    """
+
+    def _norm(raw: str) -> str | None:
+        raw = raw.strip().lower()
+        raw = "expanded" if raw == "default" else raw
+        return raw if raw in STATUS_MODES else None
+
+    try:
+        text = ((home or Path.home()) / ".empirica" / "statusline_mode").read_text(encoding="utf-8")
+        mode = _norm(text.splitlines()[0]) if text.strip() else None
+        if mode:
+            return mode
+    except (OSError, UnicodeDecodeError, IndexError):
+        pass
+    return _norm(os.getenv("EMPIRICA_STATUS_MODE", "")) or "compact"
 
 
 def get_active_goal(db: SessionDatabase, session_id: str) -> dict | None:
@@ -1258,6 +1399,64 @@ def _format_statusline_default(parts, phase, vectors, deltas, gate_decision, ope
     return " │ ".join(parts)
 
 
+_RATING_COLOR = {
+    "great": Colors.BRIGHT_GREEN,
+    "good": Colors.GREEN,
+    "average": Colors.YELLOW,
+    "poor": Colors.RED,
+}
+
+
+def _format_statusline_compact(label, phase, vectors, gate_decision, open_counts, artifacts, post_test, stdin_context):
+    """The compact default, one short line.
+
+    practice | stage confidence | G U A F/D | learning | context | model - investigate or act
+    """
+    post_test = post_test or {}
+    artifacts = artifacts or {}
+    counts = open_counts or {}
+    tested = bool(post_test.get("tested"))
+
+    parts = [f"{Colors.BLACK_ON_WHITE} {label} {Colors.RESET}"]
+
+    stage = cascade_stage(phase, tested)
+    confidence = calculate_confidence(vectors) if vectors else None
+    conf_str = f" {_color_by_value(confidence)}{int(confidence * 100)}%{Colors.RESET}" if confidence is not None else ""
+    parts.append(f"{Colors.BLUE}{stage}{Colors.RESET}{conf_str}")
+
+    f_n, d_n = artifacts.get("findings", 0), artifacts.get("decisions", 0)
+    artifact_color = Colors.GREEN if (f_n or d_n) else Colors.GRAY
+    parts.append(
+        f"{Colors.WHITE}G{counts.get('open_goals', 0)} U{counts.get('open_unknowns', 0)} "
+        f"A{counts.get('open_assumptions', 0)}{Colors.RESET} {artifact_color}F{f_n}/D{d_n}{Colors.RESET}"
+    )
+
+    rating = learning_rating(post_test.get("score"), post_test.get("coverage"))
+    rating_color = _RATING_COLOR.get(rating, Colors.GRAY)
+    parts.append(f"{Colors.GRAY}learning{Colors.RESET} {rating_color}{rating}{Colors.RESET}")
+
+    if stdin_context:
+        ctx_str = format_context_window(stdin_context)
+        if ctx_str:
+            parts.append(ctx_str)
+
+    work = "act" if determine_work_phase(phase, gate_decision) == "praxic" else "investigate"
+    emoji = "🔨" if work == "act" else "🔍"
+    model = (format_model(stdin_context) or "").strip()
+    tail = f"{model} - {emoji} {work}" if model else f"{emoji} {work}"
+    parts.append(tail)
+    return " │ ".join(parts)
+
+
+def compose_output(output: str, mode: str, stdin_context: dict | None) -> str:
+    """The final line. The compact layout carries the model inline; every other layout gets the tag after a 3-space gap,
+    outside the ' │ '-joined cells, so it reads as harness state."""
+    if mode == "compact":
+        return output
+    model_tag = format_model(stdin_context)
+    return f"{output}   {model_tag}" if model_tag else output
+
+
 def _format_statusline_learning(parts, phase, vectors, deltas, open_counts):
     """Format the 'learning' mode statusline sections."""
     parts.append(format_open_counts(open_counts))
@@ -1311,13 +1510,23 @@ def format_statusline(
     project_name: str | None = None,
     threshold_info: tuple | None = None,
     stdin_context: dict | None = None,
+    artifacts: dict | None = None,
+    post_test: dict | None = None,
 ) -> str:
     """Format the statusline based on mode."""
+    if mode == "compact":
+        label = project_name or "empirica"
+        if len(label) > 20:
+            label = label[:18] + ".."
+        return _format_statusline_compact(
+            label, phase, vectors, gate_decision, open_counts, artifacts, post_test, stdin_context
+        )
+
     label, parts = _format_statusline_header(project_name, vectors, threshold_info)
 
     if mode == "basic":
         return " ".join(parts)
-    elif mode == "default":
+    elif mode in ("expanded", "default"):
         return _format_statusline_default(parts, phase, vectors, deltas, gate_decision, open_counts, stdin_context)
     elif mode == "learning":
         return _format_statusline_learning(parts, phase, vectors, deltas, open_counts)
@@ -1560,7 +1769,7 @@ def _read_open_transaction(project_path) -> tuple:
 def main():
     """Main statusline generation."""
     try:
-        mode = os.getenv("EMPIRICA_STATUS_MODE", "default").lower()
+        mode = resolve_status_mode()
         output_json = "--json" in sys.argv or os.getenv("EMPIRICA_STATUS_JSON", "").lower() == "true"
         output_tmux = "--tmux" in sys.argv or os.getenv("EMPIRICA_STATUS_TMUX", "").lower() == "true"
         ai_id = get_ai_id()
@@ -1609,6 +1818,12 @@ def main():
         deltas = get_vector_deltas(db, transaction_session_id or session_id)
         goal = get_active_goal(db, session_id)
         open_counts = get_open_counts(db, session_id, project_id=project_id)
+        artifacts = post_test = None
+        if mode == "compact":
+            # Only the compact line shows these, so only it pays for the three small queries.
+            tx_for_counts = transaction_id or get_latest_transaction_id(db, session_id, transaction_session_id)
+            artifacts = get_transaction_artifacts(db, tx_for_counts)
+            post_test = get_post_test(db, tx_for_counts)
         # threshold_info intentionally not fetched — Sentinel-scoped, not surfaced live
         db.close()
 
@@ -1647,13 +1862,12 @@ def main():
             project_name=project_name,
             threshold_info=None,
             stdin_context=stdin_context,
+            artifacts=artifacts,
+            post_test=post_test,
         )
-        # Model tag sits OUTSIDE empirica's line: appended after a 3-space gap so
-        # it reads as harness state, separate from the ' │ '-joined empirica cells.
-        model_tag = format_model(stdin_context)
-        if model_tag:
-            output = f"{output}   {model_tag}"
-        print(output)
+        # Outside the other layouts the model tag follows a 3-space gap so it reads as harness state;
+        # the compact layout carries it inline (see compose_output).
+        print(compose_output(output, mode, stdin_context))
 
     except Exception as e:
         print(f"{Colors.GRAY}[empirica:error]{Colors.RESET}")
