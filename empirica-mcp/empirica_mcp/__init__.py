@@ -1,3 +1,3 @@
 """Empirica MCP Server — thin CLI wrapper for AI agent environments."""
 
-__version__ = "1.14.5"
+__version__ = "1.14.6"
