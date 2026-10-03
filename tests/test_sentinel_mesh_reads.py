@@ -45,6 +45,8 @@ READS = [
     "empirica mailbox sers prop_abc --output json",
     "empirica mesh tail",
     "empirica mesh tail --instance empirica",
+    "empirica mesh-agreements list",
+    "empirica mesh-agreements list --status active --output json",
 ]
 
 WRITES_BESIDE_THEM = [
@@ -59,6 +61,7 @@ WRITES_BESIDE_THEM = [
     "empirica mesh on",
     "empirica mesh off",
     "empirica mesh migrate-topics",
+    "empirica mesh-agreements sync",
 ]
 
 

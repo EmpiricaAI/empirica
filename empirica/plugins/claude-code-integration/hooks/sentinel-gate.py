@@ -835,6 +835,9 @@ EMPIRICA_TIER1_PREFIXES = (
     # side was classified were listed. Each was read in its handler, not judged from its name:
     "empirica mailbox sers",  # One HTTP GET of /v1/sers (the handler says read-only on purpose)
     "empirica mesh tail",  # Spawns `tail` on loop_fires.log and prints it
+    # Lists the mirrored agreements from the local registry. `sync` beside it writes and stays gated.
+    # Opening the workspace store runs its idempotent schema init, which only writes on a fresh db.
+    "empirica mesh-agreements list",
     # Credential STATE only: derived flags (present / valid / expired), no token printed (ecodex-lab,
     # prop_d24tvfzlhfawzewirnxrtt6jsi). `auth token` can refresh stored credentials and `auth connectors
     # --apply` rewrites ~/.claude.json, so neither is listed, and argparse accepts abbreviated flags
