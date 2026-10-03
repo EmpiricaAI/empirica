@@ -159,6 +159,18 @@ def _print_human(name: str, proj_dir: Path, steps: list[dict], dry_run: bool, la
         print(f"\nLaunch your practices: {launch_command}")
 
 
+def _resolve_substrate(args) -> str:
+    """The substrate to record: an explicit --substrate, else `local` for a --no-cortex provision, else `cortex`.
+
+    The roster documents substrate as cortex | git | local. --no-cortex used to skip only the Cortex POST while the
+    parser pre-filled `cortex`, so a standalone practice was written down as a Cortex one (ecodex-lab).
+    """
+    explicit = getattr(args, "substrate", None)
+    if explicit:
+        return explicit
+    return "local" if getattr(args, "no_cortex", False) else "cortex"
+
+
 def handle_provision_practice_command(args) -> int:
     """``empirica provision-practice <name> [options]``.
 
@@ -184,7 +196,7 @@ def handle_provision_practice_command(args) -> int:
     inferred_tenant, inferred_org = _infer_tenant_org(cwd)
     tenant = getattr(args, "tenant", None) or inferred_tenant
     org = getattr(args, "org", None) or inferred_org
-    substrate = getattr(args, "substrate", None) or "cortex"
+    substrate = _resolve_substrate(args)
 
     if not tenant or not org:
         msg = (

@@ -42,7 +42,11 @@ Falls back to erroring with a clear message if neither is available.
     )
     p.add_argument("--tenant", help="Tenant slug (default: inferred from cwd's project.yaml)")
     p.add_argument("--org", help="Org slug (default: inferred from cwd's project.yaml)")
-    p.add_argument("--substrate", default="cortex", help="Substrate value written to project.yaml (default: cortex)")
+    p.add_argument(
+        "--substrate",
+        default=None,
+        help="Substrate value written to project.yaml: cortex, git or local (default: local with --no-cortex, else cortex)",
+    )
     p.add_argument(
         "--forgejo-owner",
         metavar="OWNER",
