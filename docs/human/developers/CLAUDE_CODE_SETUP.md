@@ -138,7 +138,31 @@ env vars.
 
 ## The Statusline
 
-A live render looks like:
+The default is one short line:
+
+```
+ empirica  │ CHECK 78% │ G3 U5 A2 F4/D1 │ Δ ✓ │ 41%ctx │ 🔍 investigate - 🧠 Sonnet 5.5
+```
+
+| Segment | What it shows |
+|---|---|
+| ` empirica ` | The practice, black text on a white background |
+| `CHECK 78%` | Cascade stage (`PRE`, `CHECK`, `POST`, `TEST`) and overall confidence. `POST` is POSTFLIGHT submitted and not yet graded; `TEST` is the post-test having graded it |
+| `G3 U5 A2` | Open goals, unresolved unknowns, unresolved assumptions |
+| `F4/D1` | Findings and decisions logged **in this transaction** (grey at `F0/D0`) |
+| `Δ ✓` | Learning, from the grounded calibration of the last closed transaction: 🔥 very good, ✓ good, `-` average, ✗ below average, `…` not graded yet, `?` too little evidence |
+| `41%ctx` | Context window used |
+| `🔍 investigate` / `🔨 act` | Noetic or praxic, by stage |
+| `🧠 Sonnet 5.5` | The model |
+
+The detailed view is the `expanded` mode. Switch with no restart:
+
+```bash
+echo expanded > ~/.empirica/statusline_mode   # detailed
+echo compact  > ~/.empirica/statusline_mode   # back to the default
+```
+
+### The expanded view
 
 ```
 [empirica] ⚡84% │ 🎯28 ❓47/23 │ CHK 🔨88%→ │ K:90% C:92% │ Δ ✓ │ 58%ctx

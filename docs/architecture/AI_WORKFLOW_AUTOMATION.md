@@ -317,7 +317,7 @@ def run_preflight_checklist():
 }
 ```
 
-Shows: `[empirica] ⚡75% | 🔬NOETIC | PREFLIGHT | K:80% U:25% C:85%`
+Shows: ` empirica  │ PRE 75% │ G2 U5 A2 F0/D0 │ Δ … │ 🔍 investigate - 🧠 Sonnet 5.5` (the detailed view, with K/U/C vectors, is `echo expanded > ~/.empirica/statusline_mode`)
 
 ### Enforced Workflow
 

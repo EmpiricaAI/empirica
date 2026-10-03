@@ -35,7 +35,7 @@ AI coding agents today have no self-awareness about what they know:
 | **Measures before acting** | AI investigates your codebase before touching it. The Sentinel gate blocks edits until understanding is demonstrated |
 | **Remembers across sessions** | Findings, dead-ends, and learnings persist in a 4-layer memory system. Session 3 starts where Session 2 left off |
 | **Prevents confident mistakes** | The CHECK gate uses domain-aware thresholds scaled by criticality, tightened by the calibration of the model doing the work — cybersec/high is stricter than default/low |
-| **Shows confidence in real-time** | Live statusline in your terminal: `[empirica] ⚡94% ↕70% │ 🎯3 │ POST 🔍92% │ K:95% C:92%` |
+| **Shows confidence in real-time** | Live statusline in your terminal, compact by default: ` empirica  │ CHECK 78% │ G3 U5 A2 F4/D1 │ Δ ✓ │ 41%ctx │ 🔍 investigate - 🧠 Sonnet 5.5` (stage and confidence, open goals/unknowns/assumptions, what you logged this transaction, a learning mark, context, and investigate or act). One command switches to the detailed view |
 | **Calibrates against reality** | Three-vector model: self-assessed, observed (from deterministic checks), and AI-reasoned grounded state with rationale. Domain compliance loops iterate until all checks pass |
 | **Tracks your codebase** | Temporal entity model auto-extracts functions, classes, and imports from every file edit — the AI knows what's alive and what's stale |
 | **Works through natural language** | You describe tasks normally. The AI operates the measurement system automatically |

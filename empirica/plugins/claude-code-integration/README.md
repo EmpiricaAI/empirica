@@ -137,10 +137,21 @@ Specialized sub-agents with epistemic profiles and calibrated confidence thresho
 Real-time epistemic state in your terminal:
 
 ```
-[empirica] P:87% U:15% | G:3 | POST K:92% C:88% | delta +K+D
+ empirica  │ CHECK 78% │ G3 U5 A2 F4/D1 │ Δ ✓ │ 41%ctx │ 🔍 investigate - 🧠 Sonnet 5.5
 ```
 
-Shows: postflight confidence, uncertainty, active goals, grounded calibration scores, and learning deltas.
+One short line: the practice (black on white), the cascade stage (`PRE`, `CHECK`, `POST`, `TEST`) with confidence, open goals, unknowns and
+assumptions, findings and decisions logged in this transaction, a learning mark from the grounded calibration of the last closed
+transaction (🔥 very good, ✓ good, `-` average, ✗ below average, `…` not graded yet), context used, then `investigate` or `act` and the model.
+
+The detailed view (vectors, phase composite, deltas) is one command away, no restart:
+
+```bash
+echo expanded > ~/.empirica/statusline_mode   # detailed
+echo compact  > ~/.empirica/statusline_mode   # back to the default
+```
+
+See `docs/reference/STATUSLINE_REFERENCE.md`.
 
 ---
 

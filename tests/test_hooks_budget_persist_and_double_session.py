@@ -72,12 +72,31 @@ def _rows(dbp, sid):
 # ── persist_state takes the path the hook holds ─────────────────────────────
 
 
-def test_without_a_path_the_resolver_failure_is_what_ecodex_saw(unresolvable):
-    """CONTROL: this is the failing environment. No path given, nothing resolves, nothing is written."""
-    dbp, sid = unresolvable
+def test_the_database_is_opened_at_the_path_given_and_only_resolved_when_none_is(unresolvable, monkeypatch):
+    """What changed, asserted without depending on what the global resolver happens to find: with a path,
+    SessionDatabase is built AT that path; without one it is built with none (the re-resolving form ecodex hit)."""
+    import empirica.data.session_database as sdb
 
-    assert ContextBudgetManager(session_id=sid, auto_subscribe=False).persist_state() is False
-    assert _rows(dbp, sid) == []
+    dbp, sid = unresolvable
+    seen = []
+    real = sdb.SessionDatabase
+
+    class Recording(real):
+        def __init__(self, *args, **kwargs):
+            seen.append(kwargs.get("db_path"))
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(sdb, "SessionDatabase", Recording)
+    manager = ContextBudgetManager(session_id=sid, auto_subscribe=False)
+
+    manager.persist_state(db_path=dbp)
+    try:
+        manager.persist_state()
+    except Exception:
+        pass  # whether the default resolution succeeds is the box's business, not this test's
+
+    assert seen[0] == str(dbp)
+    assert seen[1] is None
 
 
 def test_with_the_path_the_hook_holds_it_persists_even_where_the_resolver_finds_nothing(unresolvable):

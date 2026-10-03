@@ -140,10 +140,10 @@ Common words carry "human baggage" - consciousness assumptions that don't map cl
 
 ```
 Statusline Display:
-[empirica] ⚡87% │ ⚡ PRAXIC │ POSTFLIGHT │ K:85% U:12% C:90% │ ✓ stable
-                  ^^^^^^^^     ^^^^^^^^^^
-                  emergent     compliance
-                  (observed)   (oversight)
+ empirica  │ POST 87% │ G2 U3 A1 F4/D1 │ Δ 🔥 │ 41%ctx │ 🔨 act - 🧠 Sonnet 5.5
+             ^^^^                                         ^^^
+             compliance                                   emergent
+             (oversight)                                  (observed)
 ```
 
 **Analogy:** Like a pilot and ground control:
