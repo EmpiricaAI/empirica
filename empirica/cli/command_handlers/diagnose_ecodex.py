@@ -19,6 +19,7 @@ import os
 import shutil
 import socket
 import subprocess
+import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -918,20 +919,111 @@ def check_empirica_proportionality_block_wired() -> CheckResult:
     )
 
 
+def _tui_files_naming_instance_id(tui_src: Path) -> list[str]:
+    """The TUI source files that name EMPIRICA_INSTANCE_ID, wherever it is set.
+
+    The key may be set on the statusline command's own environment (`.env(...)`, ecodex's choice: one TUI
+    process hosts several threads and a process-global would leak between them) or process-wide
+    (`set_var`). Either way the literal appears in the file that does it, and which file that is the check
+    must not decide.
+    """
+    if not tui_src.is_dir():
+        return []
+    found = []
+    for path in sorted(tui_src.rglob("*.rs")):
+        try:
+            if "EMPIRICA_INSTANCE_ID" in path.read_text(encoding="utf-8", errors="replace"):
+                found.append(path.name)
+        except OSError:
+            continue
+    return found
+
+
+def _statusline_resolves_by_instance_id(script: Path | None = None) -> tuple[bool, str]:
+    """Empirica's half of the isolation contract, exercised rather than read.
+
+    Builds a practice and an instance file for a thread id under a scratch HOME, runs the statusline with
+    EMPIRICA_INSTANCE_ID set to that thread id from a directory that is NOT the practice, and asks whether it
+    names the practice. Then runs it again WITHOUT the variable: if it names the practice anyway, the variable
+    was not what resolved it and the first answer proves nothing. Returns (ok, detail).
+
+    ``script`` is the statusline to run (the installed ecodex copy when there is one); by default empirica's own.
+    """
+    import re
+    import tempfile
+
+    if script is None:
+        script = (
+            Path(__file__).resolve().parents[2]
+            / "plugins"
+            / "claude-code-integration"
+            / "scripts"
+            / "statusline_empirica.py"
+        )
+    if not script.is_file():
+        return False, f"no statusline script to run at {script}"
+    thread = "00000000-0000-4000-8000-0000000000aa"
+    name = "probe-practice"
+    ansi = re.compile(r"\x1b\[[0-9;]*m")
+    with tempfile.TemporaryDirectory(prefix="empirica-isolation-probe-") as tmp:
+        root = Path(tmp)
+        home, elsewhere, prac = root / "home", root / "elsewhere", root / name
+        for d in (home / ".empirica" / "instance_projects", elsewhere, prac / ".empirica" / "sessions"):
+            d.mkdir(parents=True)
+        (prac / ".empirica" / "project.yaml").write_text(f"project_id: {name}\nname: {name}\nai_id: {name}\n")
+        from empirica.data.session_database import SessionDatabase
+
+        db = SessionDatabase(db_path=str(prac / ".empirica" / "sessions" / "sessions.db"))
+        # A project row, so the statusline labels the session with the practice name rather than its fallback.
+        pid = db.create_project(name=name)
+        sid = db.create_session(ai_id=name, project_id=pid)
+        db.close()
+        (home / ".empirica" / "instance_projects" / f"{thread}.json").write_text(
+            json.dumps({"project_path": str(prac), "claude_session_id": None, "empirica_session_id": sid})
+        )
+        base = {"HOME": str(home), "PATH": os.environ.get("PATH", "/usr/bin:/bin"), "EMPIRICA_AI_ID": name}
+
+        def run(extra: dict) -> str:
+            try:
+                out = subprocess.run(
+                    [sys.executable, str(script)],
+                    input="{}",
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                    cwd=elsewhere,
+                    env={**base, **extra},
+                    check=False,
+                ).stdout
+            except (subprocess.TimeoutExpired, OSError) as e:
+                return f"<failed: {e}>"
+            return ansi.sub("", out)
+
+        with_id = run({"EMPIRICA_INSTANCE_ID": thread})
+        if name not in with_id:
+            return (
+                False,
+                f"statusline did not resolve the practice from EMPIRICA_INSTANCE_ID (printed: {with_id.strip()[:80]!r})",
+            )
+        without = run({})
+        if name in without:
+            return (
+                False,
+                "statusline named the practice without EMPIRICA_INSTANCE_ID too, so the variable proved nothing",
+            )
+    return True, "statusline resolves the practice from EMPIRICA_INSTANCE_ID, and not without it"
+
+
 def check_ecodex_instance_isolation_key() -> CheckResult:
-    """Verify the ecodex Rust source propagates EMPIRICA_INSTANCE_ID.
+    """Verify the ecodex side sets EMPIRICA_INSTANCE_ID and that empirica honours it.
 
-    Empirica's get_instance_id() priority list reads EMPIRICA_INSTANCE_ID
-    first. ecodex's plugin (empirica_cli.rs) and TUI (chatwidget.rs) both
-    set it from codex's session_id (thread_id UUID) so the entire
-    empirica pipeline keys on codex's session — works identically across
-    tmux/non-tmux/ssh/container/headless. Tx-Z's regression detector.
+    Empirica's get_instance_id() reads EMPIRICA_INSTANCE_ID first. ecodex keys it on codex's thread id so the
+    whole pipeline follows the codex session across tmux, ssh, containers and headless runs.
 
-    This is a source-grep (like the statusline runtime check) — confirms
-    the propagation is wired, not that it's running. Combined with the
-    statusline-script-runnable + plugin-installed checks, that's enough
-    coverage for the integration. A live env-var probe would only cover
-    the doctor's OWN process, not ecodex's.
+    Three parts. The plugin source names the key (hook subprocesses). The TUI source names it somewhere under
+    tui/src, as a per-command env or as set_var: ecodex deliberately sets it on the spawned statusline command
+    rather than process-wide, because one TUI process can host several threads. And empirica's statusline is
+    RUN with the key set and without it, which is the part a grep cannot show: that the contract resolves.
     """
     # Locate ecodex source
     candidates = [
@@ -953,37 +1045,39 @@ def check_ecodex_instance_isolation_key() -> CheckResult:
             hint="Set ECODEX_REPO_ROOT to your ecodex checkout",
         )
     plugin_cli = repo_root / "codex-rs" / "codex-empirica-plugin" / "src" / "empirica_cli.rs"
-    tui_chat = repo_root / "codex-rs" / "tui" / "src" / "chatwidget.rs"
+    tui_src = repo_root / "codex-rs" / "tui" / "src"
     missing: list[str] = []
     if plugin_cli.is_file():
-        text = plugin_cli.read_text()
-        if "EMPIRICA_INSTANCE_ID" not in text:
+        if "EMPIRICA_INSTANCE_ID" not in plugin_cli.read_text():
             missing.append("plugin/empirica_cli.rs (hook subprocesses won't get the key)")
     else:
         missing.append("plugin/empirica_cli.rs (file missing)")
-    if tui_chat.is_file():
-        text = tui_chat.read_text()
-        if "EMPIRICA_INSTANCE_ID" not in text:
-            missing.append("tui/chatwidget.rs (statusline subprocess won't get the key)")
-    else:
-        missing.append("tui/chatwidget.rs (file missing)")
+    if not _tui_files_naming_instance_id(tui_src):
+        missing.append("tui/src (no file sets EMPIRICA_INSTANCE_ID, so the statusline subprocess won't get the key)")
     if missing:
         return CheckResult(
             name="ecodex instance isolation key propagated",
             status=FAIL,
             detail=f"EMPIRICA_INSTANCE_ID propagation missing in: {', '.join(missing)}",
             hint=(
-                "Tx-Z fix: plugin's empirica_cli.rs run_hook_script() must "
-                "extract session_id from input JSON and set "
-                "EMPIRICA_INSTANCE_ID on subprocess env; TUI's chatwidget.rs "
-                "must `unsafe { std::env::set_var('EMPIRICA_INSTANCE_ID', "
-                "session.thread_id.to_string()) }` at session bootstrap"
+                "The plugin's empirica_cli.rs run_hook_script() must set EMPIRICA_INSTANCE_ID on the hook subprocess "
+                "env from the input's session_id. The TUI must set it for the statusline subprocess, preferably on that "
+                "command's own env (`.env(...)`) rather than process-wide, since one TUI process can host several "
+                "threads."
             ),
+        )
+    ok, detail = _statusline_resolves_by_instance_id()
+    if not ok:
+        return CheckResult(
+            name="ecodex instance isolation key propagated",
+            status=FAIL,
+            detail=detail,
+            hint="Empirica's statusline must resolve the practice from EMPIRICA_INSTANCE_ID (instance_projects/<id>.json)",
         )
     return CheckResult(
         name="ecodex instance isolation key propagated",
         status=PASS,
-        detail="EMPIRICA_INSTANCE_ID propagated from plugin + TUI",
+        detail=f"EMPIRICA_INSTANCE_ID set by plugin + TUI source; {detail}",
     )
 
 
