@@ -5,6 +5,59 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.6] - 2026-10-03
+
+A seat can stop storing a bearer in `~/.claude.json`, the Sentinel stops refusing mesh and
+credential-state reads, and several things that misdescribed themselves outside Claude Code or
+outside a project now say what is true.
+
+### Added
+
+- **`empirica auth token --headers`** prints `{"Authorization": "Bearer ..."}` for Claude Code's
+  `headersHelper`, so a connector presents the seat's own OAuth token fresh on every connection and
+  nothing is stored. It honours refresh custody, and on failure prints nothing to stdout.
+- **`empirica auth connectors`** lists the connectors in `~/.claude.json` that store a static
+  `Authorization` header, and with `--name <connector> --apply` switches them to `headersHelper`.
+  It plans first and changes nothing without `--apply`. It switches only what you named, only `https`
+  URLs on a host that is yours (the seat's cortex or `*.getempirica.com`), and only while the seat has a
+  valid OAuth token. A 0600 backup is written first, a conflicting write by Claude Code aborts without
+  clobbering it, and no header value is ever printed.
+- **`doctor` lists connectors that store a literal bearer** (names and scopes only). A value that is a
+  pure `${VAR}` reference is not stored and is not listed.
+
+### Fixed
+
+- **A newcomer no longer takes over a live owner's instance pointer.** A SessionStart or post-compact
+  from a claude carrying another practice's `EMPIRICA_INSTANCE_ID` used to rewrite the pointer. It now
+  leaves it and tells the newcomer, including on the resume and adoption paths that `claude --continue`
+  takes. Liveness reads the process name through `/proc`, rejects a recycled pid, and never signals on
+  Windows.
+- **The Sentinel stops refusing reads.** `auth status`, `mailbox sers`, `mesh tail` and
+  `mesh-agreements list` are reads before CHECK, and the harness `monitor` tool is a read when its whole
+  input is `list`. `auth token` and `auth connectors` stay gated.
+- **Outside any project the Sentinel says "not applicable"** instead of reporting a crash, and that is
+  no longer a deny under `EMPIRICA_SENTINEL_FAIL_CLOSED`. A directory that holds a project but no git
+  repository still reports the failure, and still denies under fail-closed.
+- **Outside Claude Code the hooks speak for their harness.** The repair hint for a hook that cannot
+  import empirica, the tool-router hints (CLI verbs instead of `mcp__empirica__` tools) and the
+  deploy-gap block follow `EMPIRICA_HARNESS`, which is case-insensitive.
+- **A phantom CHECK row.** After a risky CHECK, `check-submit` ran `checkpoint-create`, which wrote a
+  second CHECK-phase row with every vector 0.5, no reasoning and no transaction, and the Sentinel reads
+  the latest CHECK for a session. An automatic checkpoint now keeps its git note and writes no row, and a
+  manual `checkpoint-create` carries the real vectors.
+- **`project-update` deleted what it did not model.** It rewrote `project.yaml` from the fields it knows,
+  dropping `ai_id`, the mesh seat, `publish_channels`, `cockpit` and the rest; it now keeps them. Its
+  workspace sync had never run (a swallowed `TypeError`), so `--status archived` left the registry
+  active; it now syncs, merges into existing metadata, reports `synced` per store, and returns `ok: false`
+  when a sync errors.
+- **`entity-delete project:<id> --hard`** could only succeed with `--force`, because the project's own
+  registry row counted as a reference to it, and `--force` then left that row behind. The row no longer
+  blocks and is removed with the project; running it again finishes an interrupted retirement and clears
+  rows an earlier `--force` left.
+- **Stamped writes of `~/.claude.json`** took their change-stamp after reading the file, so a write
+  landing in between was overwritten. The stamp is now taken first.
+- `doctor` no longer aborts on a non-object `mcpServers` and lists project connectors by full path.
+
 ## [1.14.5] - 2026-10-02
 
 A security pass on the Sentinel's read classifier, the first guard against two claudes sharing

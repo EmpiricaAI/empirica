@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.14.5
-**Generated:** 2026-10-02 10:04:29 UTC
+**Framework version:** 1.14.6
+**Generated:** 2026-10-03 18:43:58 UTC
 **Total commands:** 241 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -3784,6 +3784,8 @@ Print a currently valid access token from the `auth login` token set, refreshing
 **Arguments:**
 
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
+- `--headers` — optional · flag
+  Print the HTTP header object Claude Code's `headersHelper` expects, {"Authorization": "Bearer <token>"}, built as JSON (no shell quoting to get wrong). On any failure nothing is printed to stdout, so the connection fails visibly instead of presenting an empty bearer.
 
 
 ##### `empirica auth status`
@@ -3792,6 +3794,19 @@ Show this seat's credential state: oauth token validity, refresh custody, api_ke
 
 **Arguments:**
 
+- `--output` — optional · type=`choice` · choices={human, json} · default=`human`
+
+
+##### `empirica auth connectors`
+
+List MCP connectors in ~/.claude.json that store a static Authorization bearer and switch the ones you name to `headersHelper: empirica auth token --headers`, so nothing is stored. Dry run unless --apply; backs the file up first; only hosts that are ours; only with a valid OAuth token.
+
+**Arguments:**
+
+- `--name` — optional · default=`[]`
+  Connector to switch (repeatable)
+- `--apply` — optional · flag
+  Write the change (default: show the plan only)
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
 
 
