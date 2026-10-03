@@ -19,6 +19,7 @@ Performance target: < 2 seconds (runs on every prompt).
 """
 
 import json
+import os
 import re
 import sys
 import time
@@ -707,6 +708,23 @@ def is_blindspot_relevant(task_lower, mode, vectors):
 # complexity threshold.
 
 
+def _harness() -> str:
+    """Which harness hosts this hook: ``EMPIRICA_HARNESS``, defaulting to ``claude-code``."""
+    return (os.environ.get("EMPIRICA_HARNESS") or "claude-code").strip() or "claude-code"
+
+
+def _empirica_tool(mcp_tool: str, cli_verb: str) -> str:
+    """How to name an Empirica operation in advice: the MCP tool on Claude Code, the CLI verb elsewhere.
+
+    ecodex leaves the Empirica MCP server off by default (it wraps the CLI, and a shell-capable harness
+    has the CLI), so a hint naming `mcp__empirica__investigate` points at a tool that is not there
+    (prop_qr2m4fleanh65cjjj634zqsvom). Claude Code's text is unchanged.
+    """
+    if _harness() == "claude-code":
+        return f"`mcp__empirica__{mcp_tool}`"
+    return f"`empirica {cli_verb}`"
+
+
 def _agent_match_advice(agent_matches: list) -> list[str]:
     """Advice lines recommending the top-matched domain agent(s)."""
     if not agent_matches:
@@ -725,7 +743,7 @@ def _investigation_routing_advice(task_lower: str, has_agent_match: bool) -> lis
         return []
     return [
         "This looks like an investigation task. "
-        "Use `mcp__empirica__investigate` for systematic investigation "
+        f"Use {_empirica_tool('investigate', 'investigate')} for systematic investigation "
         "with epistemic tracking, or spawn a domain-specific agent "
         "(empirica:architecture, security, performance, ux) "
         "for focused analysis."
@@ -737,7 +755,7 @@ def _blindspot_advice(task_lower: str, mode: str, vectors) -> list[str]:
     if not is_blindspot_relevant(task_lower, mode, vectors):
         return []
     return [
-        "Consider running `mcp__empirica__blindspot_scan` to detect "
+        f"Consider running {_empirica_tool('blindspot_scan', 'blindspot-scan')} to detect "
         "knowledge gaps from negative space analysis before proceeding."
     ]
 
@@ -754,18 +772,21 @@ def _mode_based_advice(
     if mode == "load_context":
         return [
             "Project context not yet loaded (context vector low) — run "
-            "`mcp__empirica__project_bootstrap` to ground in project state "
+            f"{_empirica_tool('project_bootstrap', 'project-bootstrap')} to ground in project state "
             "before proceeding."
         ]
     if mode == "investigate" and not has_agent_match:
         return [
-            "Uncertainty is high — use `mcp__empirica__investigate` "
+            f"Uncertainty is high — use {_empirica_tool('investigate', 'investigate')} "
             "or spawn a domain agent for systematic investigation."
         ]
     if mode == "cautious_implementation" and any(
         kw in task_lower for kw in ["try", "attempt", "approach", "workaround", "fix"]
     ):
-        return ["If this approach doesn't work, log it with `mcp__empirica__deadend_log` to prevent re-exploration."]
+        return [
+            f"If this approach doesn't work, log it with {_empirica_tool('deadend_log', 'deadend-log')} "
+            "to prevent re-exploration."
+        ]
     return []
 
 
@@ -773,10 +794,15 @@ def _epistemic_workflow_advice(task_lower: str) -> list[str]:
     """Hint at the Empirica epistemic workflow for transaction-related tasks."""
     if not is_epistemic_task(task_lower):
         return []
+    uses = (
+        "Use the Empirica MCP tools (preflight/check/postflight) "
+        if _harness() == "claude-code"
+        else "Use the Empirica CLI (preflight-submit/check-submit/postflight-submit) "
+    )
     return [
         "This involves epistemic workflow. "
-        "Use the Empirica MCP tools (preflight/check/postflight) "
-        "or invoke the `epistemic-transaction` skill (ships with the Cortex bundle) "
+        + uses
+        + "or invoke the `epistemic-transaction` skill (ships with the Cortex bundle) "
         "for planning guidance."
     ]
 

@@ -126,6 +126,17 @@ NOETIC_MCP_CORTEX = {
 }
 
 
+def _is_readonly_monitor_call(tool_name: str, tool_input) -> bool:
+    """The harness `monitor` tool asked to LIST the active watches, and nothing else.
+
+    ecodex-lab (prop_d24tvfzlhfawzewirnxrtt6jsi) had `{"action": "list"}` refused before CHECK although
+    listing only reads. Classified by ACTION because the tool also arms and kills watches, which change
+    state and stay gated; a call with no action, an unknown action or a non-string one is not a list.
+    Claude Code's own `Monitor` tool carries no `action`, so it is never matched here.
+    """
+    return tool_name == "monitor" and isinstance(tool_input, dict) and tool_input.get("action") == "list"
+
+
 def _normalize_aggregated_cortex_tool(tool_name: str, tool_input) -> str:
     """Resolve a bare `mcp__cortex` namespace to its full `mcp__cortex__<op>`.
 
@@ -820,6 +831,15 @@ EMPIRICA_TIER1_PREFIXES = (
     # mailbox reads as noetic (prop_iefo2tdx); the poll/show verbs only GET.
     "empirica mailbox poll",  # Read cortex inbox/outbox (pure read)
     "empirica mailbox show",  # Read one proposal body (pure read)
+    # The rest of the mesh's reads, left gated because only the verbs that existed when the receive
+    # side was classified were listed. Each was read in its handler, not judged from its name:
+    "empirica mailbox sers",  # One HTTP GET of /v1/sers (the handler says read-only on purpose)
+    "empirica mesh tail",  # Spawns `tail` on loop_fires.log and prints it
+    # Credential STATE only: derived flags (present / valid / expired), no token printed (ecodex-lab,
+    # prop_d24tvfzlhfawzewirnxrtt6jsi). `auth token` can refresh stored credentials and `auth connectors
+    # --apply` rewrites ~/.claude.json, so neither is listed, and argparse accepts abbreviated flags
+    # (`--app`), so a "no --apply" test on the rest of that command line would not hold either.
+    "empirica auth status",
     # Unified breadcrumb query (findings/unknowns/deadends/mistakes/issues/…).
     # Pure read — `query_commands.py` contains no INSERT/UPDATE/commit/write.
     # Resolved from the four verbs left gated when the suffix rule landed; the
@@ -3662,6 +3682,7 @@ def _noetic_firewall_check(tool_name: str, tool_input: dict, hook_input: dict) -
         or tool_name in NOETIC_MCP_CHROME
         or tool_name in NOETIC_MCP_CORTEX
         or _is_empirica_mcp_tool(tool_name)
+        or _is_readonly_monitor_call(tool_name, tool_input)
     ):
         return (True, f"Noetic tool: {tool_name}")
 
