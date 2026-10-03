@@ -7,7 +7,7 @@ Reads vectors from DB (real-time).
 
 Display modes:
   - compact (the default): practice | stage + confidence | goals unknowns assumptions findings/decisions |
-    learning | context | model - investigate or act
+    Δ learning mark | context | investigate or act - model
   - expanded: the previous default (phase composite, key vectors, open counts); `default` is its old name
   - basic: Just confidence
   - learning: Focus on vector changes
@@ -1406,11 +1406,20 @@ _RATING_COLOR = {
     "poor": Colors.RED,
 }
 
+#: fire for very good, a tick for good, a dash for average, a cross for below average. `pending` (not graded
+#: yet) and `unrated` (too little evidence) are not grades, so they get neither a mark of praise nor of failure.
+_RATING_SYMBOL = {"great": "🔥", "good": "✓", "average": "-", "poor": "✗", "pending": "…", "unrated": "?"}
+
+
+def learning_symbol(rating: str) -> str:
+    """The mark shown after the delta sign for a learning rating."""
+    return _RATING_SYMBOL.get(rating, "?")
+
 
 def _format_statusline_compact(label, phase, vectors, gate_decision, open_counts, artifacts, post_test, stdin_context):
     """The compact default, one short line.
 
-    practice | stage confidence | G U A F/D | learning | context | model - investigate or act
+    practice | stage confidence | G U A F/D | Δ learning mark | context | investigate or act - model
     """
     post_test = post_test or {}
     artifacts = artifacts or {}
@@ -1433,7 +1442,7 @@ def _format_statusline_compact(label, phase, vectors, gate_decision, open_counts
 
     rating = learning_rating(post_test.get("score"), post_test.get("coverage"))
     rating_color = _RATING_COLOR.get(rating, Colors.GRAY)
-    parts.append(f"{Colors.GRAY}learning{Colors.RESET} {rating_color}{rating}{Colors.RESET}")
+    parts.append(f"{Colors.GRAY}Δ{Colors.RESET} {rating_color}{learning_symbol(rating)}{Colors.RESET}")
 
     if stdin_context:
         ctx_str = format_context_window(stdin_context)
@@ -1443,7 +1452,7 @@ def _format_statusline_compact(label, phase, vectors, gate_decision, open_counts
     work = "act" if determine_work_phase(phase, gate_decision) == "praxic" else "investigate"
     emoji = "🔨" if work == "act" else "🔍"
     model = (format_model(stdin_context) or "").strip()
-    tail = f"{model} - {emoji} {work}" if model else f"{emoji} {work}"
+    tail = f"{emoji} {work} - {model}" if model else f"{emoji} {work}"
     parts.append(tail)
     return " │ ".join(parts)
 

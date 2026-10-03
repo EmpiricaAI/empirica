@@ -43,7 +43,7 @@ export EMPIRICA_STATUS_MODE=learning
 
 ## Compact Mode — Element by Element
 
-Example: ` empirica  │ CHECK 73% │ G2 U5 A3 F4/D1 │ learning good │ 41%ctx │ 🧠 Sonnet 5.5 - 🔍 investigate`
+Example: ` empirica  │ CHECK 73% │ G2 U5 A3 F4/D1 │ Δ ✓ │ 41%ctx │ 🔍 investigate - 🧠 Sonnet 5.5`
 
 1. **Practice**: black text on a white background, the project name.
 2. **Stage and confidence**: `PRE`, `CHECK`, `POST` or `TEST`, then the confidence below. `POST` is POSTFLIGHT submitted and
@@ -51,12 +51,12 @@ Example: ` empirica  │ CHECK 73% │ G2 U5 A3 F4/D1 │ learning good │ 41%c
 3. **Counts**: `G` open goals, `U` unresolved unknowns, `A` unresolved assumptions (all for the project), and
    `F/D` findings and decisions logged **in this transaction**, since its PREFLIGHT. Project totals run to thousands
    and say nothing about the window you are in. `F0/D0` is grey: you have not logged anything yet.
-4. **Learning**: `poor | average | good | great` from the **grounded calibration** of the last closed transaction (the gap between
-   what you assessed and what the evidence showed; not self-reported). Bands on the mean gap: under 0.10 great, under 0.20
-   good, under 0.30 average, otherwise poor. `pending` until the post-test has graded a transaction, and `unrated` when under
-   30% of the vectors were reached by any evidence, because the score then means little. The bands are a first pass.
+4. **Learning**: `Δ` and a mark from the **grounded calibration** of the last closed transaction (the gap between what you
+   assessed and what the evidence showed; not self-reported). 🔥 very good (mean gap under 0.10), ✓ good (under 0.20),
+   `-` average (under 0.30), ✗ below average. `…` until the post-test has graded a transaction, and `?` when under 30% of the
+   vectors were reached by any evidence, because the score then means little. The bands are a first pass.
 5. **Context used**, as in expanded mode.
-6. **Model**, then **`investigate` or `act`**: `investigate` while the work is noetic (PREFLIGHT, or a CHECK that has not
+6. **`investigate` or `act`**, then the **model**: `investigate` while the work is noetic (PREFLIGHT, or a CHECK that has not
    proceeded), `act` once it is praxic.
 
 ---

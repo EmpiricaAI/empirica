@@ -76,6 +76,33 @@ def test_no_graded_transaction_is_pending(sl):
     assert sl.learning_rating(None, None) == "pending"
 
 
+@pytest.mark.parametrize(
+    ("rating", "symbol"),
+    [("great", "🔥"), ("good", "✓"), ("average", "-"), ("poor", "✗"), ("pending", "…"), ("unrated", "?")],
+)
+def test_the_learning_symbol_per_rating(sl, rating, symbol):
+    """Very good is fire, good a tick, average a dash, below average a cross; not-yet and too-little-evidence are not a grade."""
+    assert sl.learning_symbol(rating) == symbol
+
+
+@pytest.mark.parametrize(
+    ("graded", "symbol"),
+    [
+        ({"tested": True, "score": 0.05, "coverage": 0.85}, "Δ 🔥"),
+        ({"tested": True, "score": 0.15, "coverage": 0.85}, "Δ ✓"),
+        ({"tested": True, "score": 0.25, "coverage": 0.85}, "Δ -"),
+        ({"tested": True, "score": 0.45, "coverage": 0.85}, "Δ ✗"),
+        ({"tested": True, "score": 0.03, "coverage": 0.23}, "Δ ?"),
+    ],
+)
+def test_the_compact_line_shows_the_delta_and_the_symbol(sl, graded, symbol):
+    assert symbol in _plain(_render(sl, "compact", phase="POSTFLIGHT", post_test=graded))
+
+
+def test_the_word_learning_is_gone_from_the_compact_line(sl):
+    assert "learning" not in _plain(_render(sl, "compact"))
+
+
 # ── the cascade stage ───────────────────────────────────────────────────────
 
 
@@ -242,7 +269,7 @@ def _render(sl, mode, phase="PREFLIGHT", gate=None, post_test=None, stdin=STDIN,
 def test_the_compact_line_has_every_element_in_david_s_order(sl):
     text = _plain(_render(sl, "compact"))
 
-    order = ["empirica", "PRE 7", "G2 U5 A3 F4/D1", "learning pending", "41%ctx", "Sonnet 5.5", "investigate"]
+    order = ["empirica", "PRE 7", "G2 U5 A3 F4/D1", "Δ …", "41%ctx", "investigate", "Sonnet 5.5"]
     positions = [text.find(x) for x in order]
     assert all(p >= 0 for p in positions), (text, positions)
     assert positions == sorted(positions), text
@@ -254,8 +281,10 @@ def test_the_practice_label_is_black_on_white(sl):
     assert raw.lstrip().startswith("\x1b[30;47m") and "empirica" in raw.split("\x1b[0m")[0]
 
 
-def test_model_and_the_work_mode_are_joined_by_a_dash(sl):
-    assert "Sonnet 5.5 - " in _plain(_render(sl, "compact")).replace("🧠 ", "")
+def test_the_work_mode_comes_before_the_model_joined_by_a_dash(sl):
+    text = _plain(_render(sl, "compact"))
+
+    assert text.rstrip().endswith("investigate - 🧠 Sonnet 5.5"), text
 
 
 def test_the_compact_line_drops_the_numbers_the_expanded_view_keeps(sl):
@@ -281,7 +310,7 @@ def test_the_old_default_is_what_expanded_renders(sl):
     ],
 )
 def test_investigate_or_act_follows_the_stage(sl, phase, gate, word):
-    assert _plain(_render(sl, "compact", phase=phase, gate=gate)).rstrip().endswith(word)
+    assert f"{word} - 🧠 Sonnet 5.5" in _plain(_render(sl, "compact", phase=phase, gate=gate))
 
 
 def test_after_the_post_test_the_stage_is_test_and_the_learning_is_rated(sl):
@@ -289,21 +318,20 @@ def test_after_the_post_test_the_stage_is_test_and_the_learning_is_rated(sl):
 
     text = _plain(_render(sl, "compact", phase="POSTFLIGHT", post_test=graded))
 
-    assert "TEST" in text and "learning good" in text
+    assert "TEST" in text and "Δ ✓" in text
 
 
 def test_before_the_post_test_the_stage_is_post_and_the_learning_is_pending(sl):
     text = _plain(_render(sl, "compact", phase="POSTFLIGHT"))
 
-    assert "POST " in text and "learning pending" in text
+    assert "POST " in text and "Δ …" in text
 
 
 def test_a_harness_that_sends_no_model_or_context_still_renders(sl):
     text = _plain(_render(sl, "compact", stdin=None))
 
-    assert (
-        "empirica" in text and "learning" in text and "ctx" not in text and " - " not in text.replace("investigate", "")
-    )
+    assert "empirica" in text and "Δ" in text and "ctx" not in text and " - " not in text
+    assert text.rstrip().endswith("investigate")
 
 
 def test_no_phase_and_no_vectors_does_not_crash(sl):
