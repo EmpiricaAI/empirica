@@ -82,7 +82,7 @@ def test_project_scope_connectors_are_read_too(tmp_path):
 
     c = check_static_connector_headers(tmp_path)
 
-    assert c.data["connectors"] == ["project nle:crm"] and SECRET not in c.detail
+    assert c.data["connectors"] == ["project /work/nle:crm"] and SECRET not in c.detail
 
 
 def test_a_missing_file_is_a_skip_and_a_malformed_one_a_warning_not_a_pass(tmp_path):

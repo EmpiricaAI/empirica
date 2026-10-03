@@ -331,13 +331,18 @@ def _ensure_json_file(path: Path, default: dict) -> dict:
 
 
 def _read_json_with_stamp(path: Path, default: dict) -> tuple[dict, tuple | None]:
-    """Contents plus a change-stamp for optimistic-concurrency on write."""
-    data = _ensure_json_file(path, default)
+    """Contents plus a change-stamp for optimistic-concurrency on write.
+
+    The stamp is taken BEFORE the read. Stat-ing after it let a write that landed between the two be
+    absorbed into the stamp, so the later check passed and the other writer's change was overwritten
+    (broccoli, 2026-10-03: reproduced against `empirica auth connectors --apply`).
+    """
     try:
         st = path.stat()
-        return data, (st.st_mtime_ns, st.st_size)
+        stamp: tuple | None = (st.st_mtime_ns, st.st_size)
     except OSError:
-        return data, None
+        stamp = None
+    return _ensure_json_file(path, default), stamp
 
 
 def _write_json_file_soft(path: Path, data: dict, stamp: tuple | None, label: str) -> bool:

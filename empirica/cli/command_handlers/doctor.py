@@ -1321,19 +1321,14 @@ def check_session_routing(processes: list[dict] | None = None, home: Path | None
 def _static_auth_servers(scope: str, servers: object) -> list[str]:
     """``scope:name`` for each HTTP/SSE MCP server in ``servers`` whose headers hold a literal Authorization value.
 
-    A value that is an environment reference (`${VAR}`) is not a stored secret and is not listed.
+    A value that is only an environment reference (`${VAR}`) is not a stored secret and is not listed.
+    The predicate is the switcher's own (`connector_switch.has_static_authorization`).
     """
-    found: list[str] = []
+    from empirica.core.auth.connector_switch import has_static_authorization
+
     if not isinstance(servers, dict):
-        return found
-    for name, cfg in servers.items():
-        if not isinstance(cfg, dict) or not isinstance(cfg.get("headers"), dict):
-            continue
-        for key, value in cfg["headers"].items():
-            if str(key).lower() == "authorization" and isinstance(value, str) and value and "${" not in value:
-                found.append(f"{scope}:{name}")
-                break
-    return found
+        return []
+    return [f"{scope}:{name}" for name, cfg in servers.items() if has_static_authorization(cfg)]
 
 
 def check_static_connector_headers(home: Path | None = None) -> Check:
@@ -1359,8 +1354,10 @@ def check_static_connector_headers(home: Path | None = None) -> Check:
     projects = config.get("projects") if isinstance(config.get("projects"), dict) else {}
     for proj, pc in projects.items():
         if isinstance(pc, dict):
-            found += _static_auth_servers(f"project {Path(str(proj)).name}", pc.get("mcpServers"))
-    walked = f"{len(config.get('mcpServers') or {})} user-scope connector(s) and {len(projects)} project entr(ies) read"
+            found += _static_auth_servers(f"project {proj}", pc.get("mcpServers"))
+    user_servers = config.get("mcpServers")
+    n_user = len(user_servers) if isinstance(user_servers, dict) else 0
+    walked = f"{n_user} user-scope connector(s) and {len(projects)} project entr(ies) read"
     if not found:
         return Check(name, PASS, walked)
     return Check(

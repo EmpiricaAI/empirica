@@ -21,6 +21,7 @@ Rules this module enforces, each because the alternative is a way to hurt a seat
 
 from __future__ import annotations
 
+import re
 from typing import Any
 from urllib.parse import urlparse
 
@@ -35,8 +36,21 @@ def _host(url: object) -> str:
         return ""
 
 
+def _scheme(url: object) -> str:
+    try:
+        return urlparse(str(url)).scheme.lower()
+    except ValueError:
+        return ""
+
+
 def host_is_ours(url: object, cortex_url: str | None = None) -> bool:
-    """Is ``url`` served by the seat's cortex or by a ``*.getempirica.com`` host?"""
+    """Is ``url`` an https URL served by the seat's cortex or by a ``*.getempirica.com`` host?
+
+    https only: switching presents the OAuth token to that URL, and over ``http://`` it would travel in
+    the clear.
+    """
+    if _scheme(url) != "https":
+        return False
     host = _host(url)
     if not host:
         return False
@@ -45,11 +59,23 @@ def host_is_ours(url: object, cortex_url: str | None = None) -> bool:
     return bool(cortex_url) and host == _host(cortex_url)
 
 
-def _has_static_authorization(cfg: object) -> bool:
+#: An Authorization value that is ONLY an environment reference (`${VAR}`, optionally after `Bearer `).
+#: Not "contains `${`": `Bearer abc${X}` and `${X:-literal-default}` still store a secret in the file.
+_ENV_ONLY = re.compile(r"(?i)(?:bearer\s+)?\$\{[A-Za-z_][A-Za-z0-9_]*\}")
+
+
+def has_static_authorization(cfg: object) -> bool:
+    """Does this connector store a literal ``Authorization`` header value?
+
+    The one definition, shared by the switcher and `empirica doctor`; they were two hand-kept copies.
+    """
     if not isinstance(cfg, dict) or not isinstance(cfg.get("headers"), dict):
         return False
     return any(
-        str(k).lower() == "authorization" and isinstance(v, str) and v and "${" not in v
+        str(k).strip().lower() == "authorization"
+        and isinstance(v, str)
+        and v.strip()
+        and not _ENV_ONLY.fullmatch(v.strip())
         for k, v in cfg["headers"].items()
     )
 
@@ -66,12 +92,20 @@ def plan_switches(
     servers = config.get("mcpServers") if isinstance(config.get("mcpServers"), dict) else {}
     rows: list[dict[str, Any]] = []
     for name, cfg in servers.items():
-        if not _has_static_authorization(cfg):
+        if not has_static_authorization(cfg):
             continue
         host = _host(cfg.get("url"))
         row: dict[str, Any] = {"name": name, "host": host or None}
         if not host_is_ours(cfg.get("url"), cortex_url):
-            row.update(action="leave", why="host is not ours; the seat's token is never presented elsewhere")
+            row.update(
+                action="leave",
+                why="not an https URL on a host that is ours; the seat's token is never presented elsewhere",
+            )
+        elif cfg.get("headersHelper"):
+            row.update(
+                action="leave",
+                why="already has its own headersHelper, which is not overwritten; the stored header is yours to remove",
+            )
         elif not token_valid:
             row.update(action="leave", why="no valid OAuth token on this seat (run `empirica auth login`)")
         elif name not in names:

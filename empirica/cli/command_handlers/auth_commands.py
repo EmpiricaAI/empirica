@@ -268,10 +268,17 @@ def _report_connector_plan(
 
 def handle_auth_connectors_command(args) -> int:
     """Plan, and on --apply perform, the switch of named connectors to `headersHelper`."""
+    import os
     import shutil
+    import stat as _stat
     from pathlib import Path
 
-    from empirica.cli.command_handlers.setup_claude_code import _read_json_with_stamp, _write_json_file_soft
+    from empirica.cli.command_handlers.setup_claude_code import (
+        ConcurrentlyModified,
+        _read_json_with_stamp,
+        _write_json_file,
+    )
+    from empirica.config.credentials_loader import _as_epoch_seconds
     from empirica.core.auth.connector_switch import apply_switches, plan_switches
 
     output = getattr(args, "output", "human")
@@ -291,7 +298,10 @@ def handle_auth_connectors_command(args) -> int:
     loader = _loader()
     oauth = loader.get_cortex_oauth()
     try:
-        valid = bool(oauth.get("access_token")) and float(oauth.get("expires_at") or 0) > time.time()
+        # The loader's own normaliser: an extension bridge has stored expires_at in JS milliseconds,
+        # which as seconds reads as year ~58,600, so a dead token looked valid here and the connector was
+        # switched to a helper that then refused to serve it (broccoli, 2026-10-03).
+        valid = bool(oauth.get("access_token")) and float(_as_epoch_seconds(oauth.get("expires_at")) or 0) > time.time()
     except (TypeError, ValueError):
         valid = False
     rows = plan_switches(config, names, valid, loader.get_cortex_config().get("url"))
@@ -303,13 +313,47 @@ def handle_auth_connectors_command(args) -> int:
         _report_connector_plan(rows, unknown, None, output)
         return 0
 
-    backup = path.with_name(f"{path.name}.bak-{time.strftime('%Y%m%d-%H%M%S')}")
-    shutil.copy2(path, backup)
-    backup.chmod(0o600)
+    stem = f"{path.name}.bak-{time.strftime('%Y%m%d-%H%M%S')}"
+    backup = path.with_name(stem)
+    n = 1
+    while (
+        backup.exists()
+    ):  # two applies in one second must not overwrite the first backup, which holds the original header
+        n += 1
+        backup = path.with_name(f"{stem}-{n}")
+    try:
+        shutil.copy2(path, backup)
+        backup.chmod(0o600)
+    except OSError as exc:
+        sys.stderr.write(
+            f"empirica auth connectors: could not write the backup ({type(exc).__name__}); nothing changed\n"
+        )
+        return 1
     changed = apply_switches(config, rows)
-    if not _write_json_file_soft(path, config, stamp, str(path)):
+    try:
+        _write_json_file(path, config, expect_stamp=stamp)
+    except ConcurrentlyModified:
+        sys.stderr.write(
+            f"empirica auth connectors: {path} changed while this command was preparing its write (Claude Code "
+            f"writes it continuously). Nothing was written. Re-run it. The backup {backup.name} was kept and holds "
+            "the old header; delete it when you no longer need it.\n"
+        )
+        return 1
+    except OSError as exc:
+        sys.stderr.write(
+            f"empirica auth connectors: could not write {path} ({type(exc).__name__}); nothing changed. "
+            f"The backup {backup.name} was kept.\n"
+        )
         return 1
     _report_connector_plan(rows, unknown, {"changed": changed}, output, backup)
+    try:
+        if _stat.S_IMODE(os.stat(path).st_mode) & 0o077:
+            sys.stderr.write(
+                f"empirica auth connectors: {path} is readable by other users and holds credentials; "
+                f"run `chmod 600 {path}`.\n"
+            )
+    except OSError:
+        pass
     return 0
 
 
