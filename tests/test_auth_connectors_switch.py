@@ -47,8 +47,10 @@ def seat(tmp_path, monkeypatch, capsys):
         return p
 
     def valid_token():
-        loader.save_cortex_oauth(  # noqa: S106 - fake values
-            access_token="LIVE", refresh_token="RT", expires_at=time.time() + 3600
+        loader.save_cortex_oauth(
+            access_token="LIVE",  # noqa: S106 - fake value
+            refresh_token="RT",  # noqa: S106 - fake value
+            expires_at=time.time() + 3600,
         )
 
     def run(*names, apply=False, output="human"):
