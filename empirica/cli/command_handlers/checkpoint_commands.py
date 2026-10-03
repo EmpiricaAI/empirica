@@ -84,7 +84,11 @@ def handle_checkpoint_create_command(args):
         # Try to get latest vectors from session
         try:
             # Load vectors from reflexes table using the new API
-            vectors = db.get_latest_vectors(session_id)
+            # get_latest_vectors returns the whole record ({session_id, phase, vectors: {...}, ...}). Passing it
+            # on as the vectors made every lookup miss and default to 0.5: a checkpoint of a real CHECK
+            # was written as an all-0.5 one (ecodex, 2026-10-03).
+            latest = db.get_latest_vectors(session_id)
+            vectors = (latest or {}).get("vectors") or {}
             if vectors:
                 logger.info(f"Loaded vectors from reflexes table for session {session_id}: {len(vectors)} vectors")
             else:

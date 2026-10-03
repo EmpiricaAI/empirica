@@ -71,6 +71,14 @@ class CheckpointStorage:
                 logger.error("Cannot save checkpoint: missing session_id or phase")
                 return False
 
+            # An automatic checkpoint (check-submit, after a risky CHECK) is a git-note anchor, not an
+            # assessment: the CHECK that triggered it has already written its own row. A second CHECK-phase
+            # row, with no reasoning and no transaction, is what the Sentinel and every "latest CHECK"
+            # reader then take as the practitioner's current state.
+            if (checkpoint.get("meta") or {}).get("auto_checkpoint"):
+                logger.debug(f"Auto-checkpoint for {session_id} phase={phase}: git note and json only, no reflexes row")
+                return True
+
             db = SessionDatabase()
 
             try:

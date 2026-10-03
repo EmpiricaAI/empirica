@@ -11,7 +11,6 @@ Created: 2025-12-01
 Purpose: Prevent regression after fixes
 """
 
-import json
 import sqlite3
 import subprocess
 from pathlib import Path
@@ -377,26 +376,26 @@ class TestCheckpointVectorStorage:
 
         logger = GitEnhancedReflexLogger(session_id=session_id, enable_git_notes=True, git_repo_path=str(tmp_path))
 
-        # Load vectors from database
-        vectors = db.get_latest_vectors(session_id)
+        # Load vectors from database. The record nests them under "vectors"; passing the record itself made
+        # every lookup default to 0.5 (the phantom all-0.5 CHECK row, 2026-10-03).
+        vectors = db.get_latest_vectors(session_id)["vectors"]
 
         # Create checkpoint WITH vectors
         logger.add_checkpoint("PREFLIGHT", 1, vectors=vectors)
 
-        # Verify checkpoint in git notes
-        result = subprocess.run(["git", "notes", "show", "HEAD"], cwd=tmp_path, capture_output=True, text=True)
+        # Read it back through the logger. The previous form ran `git notes show HEAD` (rc 1: the note is
+        # not under the default ref) and asserted only `if returncode == 0`, so none of it ever executed.
+        checkpoint = logger.get_last_checkpoint(max_age_hours=24, phase="PREFLIGHT")
 
-        if result.returncode == 0:
-            checkpoint = json.loads(result.stdout)
+        assert checkpoint is not None, "the checkpoint just written must be readable"
+        assert "vectors" in checkpoint, "Checkpoint must include vectors field"
+        assert checkpoint["vectors"] != {}, "Checkpoint vectors must not be empty"
+        assert len(checkpoint["vectors"]) == 13, "Checkpoint must include all 13 epistemic vectors"
 
-            assert "vectors" in checkpoint, "Checkpoint must include vectors field"
-            assert checkpoint["vectors"] != {}, "Checkpoint vectors must not be empty"
-            assert len(checkpoint["vectors"]) == 13, "Checkpoint must include all 13 epistemic vectors"
-
-            # Verify specific vectors
-            assert checkpoint["vectors"]["know"] == 0.65
-            assert checkpoint["vectors"]["do"] == 0.80
-            assert checkpoint["vectors"]["uncertainty"] == 0.35
+        # Verify specific vectors
+        assert checkpoint["vectors"]["know"] == 0.65
+        assert checkpoint["vectors"]["do"] == 0.80
+        assert checkpoint["vectors"]["uncertainty"] == 0.35
 
 
 class TestCLICheckpointCommands:
