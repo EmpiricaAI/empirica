@@ -9,10 +9,12 @@ default Claude Code mode).
 |---|---|---|
 | Python version | Interpreter is ≥ 3.10 | Reinstall empirica with newer Python |
 | empirica CLI on PATH | `empirica` resolves | Reinstall empirica |
-| ecodex plugin installed | `~/.codex/plugins/cache/nubaeon/empirica/<v>/.codex-plugin/plugin.json` exists + parses | `./ecodex/scripts/install.sh` |
-| ecodex plugin enabled in config | `[plugins."empirica@nubaeon"]` block in `~/.codex/config.toml` | Add the block manually or reinstall |
+| ecodex plugin installed | `~/.codex/plugins/cache/<namespace>/empirica/<v>/.codex-plugin/plugin.json` exists + parses (`empiricaAI`, with the legacy `nubaeon` as fallback) | `./ecodex/scripts/install.sh` |
+| ecodex plugin enabled in config | `[plugins."empirica@empiricaAI"]` block (or the legacy `empirica@nubaeon`) in `~/.codex/config.toml` | Add the block manually or reinstall |
+| ecodex plugin hooks reachable | The plugin's hooks are reachable by what runs them, tested directly rather than through a codex feature key (current codex ignores `plugin_hooks`) | Reinstall the plugin; run `empirica diagnose --frontend ecodex` again |
 | statusline runtime pipes session_id | ecodex's `plugin_statusline_runtime.rs` doesn't use `Stdio::null()` for the script subprocess | Switch to `Stdio::piped()` and write `{"session_id":...,"cwd":...}` to child stdin |
 | statusline script runnable | The bundled `statusline_empirica.py` executes and produces output | Re-run installer; check `chmod +x` |
+| instance isolation key propagated | The plugin source sets `EMPIRICA_INSTANCE_ID` for hook subprocesses; some file under `tui/src` sets it for the statusline subprocess (a per-command `.env(...)` or `set_var`; ecodex uses the per-command form because one TUI process can host several threads); and the statusline is **run** with the key set and without it, from a directory that is not the practice, and must name the practice only when the key is set | Set the key on the spawned command's environment; check `instance_projects/<thread id>.json` exists for the thread |
 | translator listening | TCP probe on `127.0.0.1:18080` | Start translator: `~/.local/bin/start-kimi-translator.sh &` |
 | translator /healthz | HTTP `GET /healthz` returns 200 | Rebuild translator: `cargo build -p codex-empirica-translator --release` |
 | provider env keys | Each `[model_providers.*]` block's `env_key` is set in `~/.codex/.env` or env | Add to `~/.codex/.env` (chmod 600) |

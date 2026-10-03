@@ -100,6 +100,19 @@ local registry, never Cortex.
 empirica project-update --project-description "..."   # edit committed project.yaml fields
 ```
 
+`project-update` rewrites `project.yaml` but keeps every key it does not model (`ai_id`, the mesh seat, `publish_channels`,
+`cockpit`, ...), and syncs the project's rows in `sessions.db` and the workspace registry. The JSON result carries a
+`synced` block per store (`updated`, `no database`, `no row for project_id`, or `error: ...`) and `ok` is `false` when
+a sync errored.
+
+**Retiring a practice.** `empirica project-update --status archived` marks it archived in `project.yaml`, `sessions.db`
+and the workspace registry. To remove it from the registry entirely, `empirica entity-delete project:<id> --hard --confirm`
+deletes its registry row together with its entity row; it refuses while other entities or memberships still reference
+the project (and while a Qdrant lookup cannot be made), and running it again finishes an interrupted retirement.
+
+`empirica provision-practice <name> --no-cortex` records `substrate: local` in `project.yaml` (default `cortex`; an
+explicit `--substrate` wins).
+
 ---
 
 ## Lifecycle gaps & edge cases

@@ -200,6 +200,11 @@ Empirica commands use a two-tier system instead of a blanket whitelist (prevents
 - Sentinel queries: `sentinel-status`, `sentinel-check`
 - Profile: `profile-status`
 - Other: `monitor`, `efficiency-report`, `docs-assess`, `issue-list`
+- Mesh and credential state: `mailbox poll`, `mailbox show`, `mailbox sers`, `mesh status`, `mesh diagnose`, `mesh tail`, `mesh-agreements list`, `practice-context`, `auth status`, and the `listener` and `loop` registry verbs
+- Diagnostics: `doctor`, `diagnose`, `status`, `commit-context`, `query`
+- Any `<group> <action>` verb is listed by name, never by suffix. `empirica-workspace` reads are an exact (group, action) table (`org|contact|engagement list|show`, `touchpoint list`, `revenue-event list`, `entity knowledge|recall`, `engagement materials`, `crm-sync preview`); every write beside them stays gated.
+
+**Deliberately not Tier 1:** `auth token` (it can refresh and rewrite stored credentials) and `auth connectors` (it rewrites `~/.claude.json` with `--apply`; argparse accepts abbreviated flags, so "gated unless `--apply` is absent" would not hold). `mailbox poll`, `show` and `sers` resolve their bearer through the shared credential path, which refreshes the seat's expiring OAuth token like any cortex call.
 
 **Tier 2 — State-changing (allowed because they ARE the epistemic workflow):**
 - Transaction: `preflight-submit`, `check-submit`, `postflight-submit`
@@ -210,6 +215,16 @@ Empirica commands use a two-tier system instead of a blanket whitelist (prevents
 - Lessons: `lesson-create`, `lesson-load`, `lesson-embed`
 - Profile: `profile-sync`, `profile-prune`
 - Other: `unknown-resolve`, `investigate`, `artifacts-generate`, `sentinel-orchestrate`, `sentinel-load-profile`
+
+### The harness `monitor` tool
+
+Some harnesses (ecodex) expose a tool named `monitor` that lists, arms and kills watches. It is classified by what the call does: noetic only when its whole input is `{"action": "list"}`. Any other action, a missing action or an extra field keeps it gated. Claude Code's own `Monitor` tool carries no `action` and is never matched by this rule.
+
+### Outside a project, and when the gate itself fails
+
+- **No project:** with no git repository, no env root and no `.empirica/project.yaml` at or above the working directory (the home directory's own `~/.empirica` does not count), there is nothing to measure. The Sentinel allows and says so: *"Sentinel not applicable: no git repo and no empirica project here, nothing to measure."* It is not a crash and it is not a deny under `EMPIRICA_SENTINEL_FAIL_CLOSED`.
+- **A project whose root could not be resolved** (a directory holding `.empirica/project.yaml` but no git repository) is not "no project". It goes through the crash handler: `SENTINEL_CRASH` on stderr and an allow, or a deny with `EMPIRICA_SENTINEL_FAIL_CLOSED=1`.
+- **The hook cannot import empirica:** the gate allows (a broken install must not lock a session out) but says so on the first call of a session. The repair text follows `EMPIRICA_HARNESS`: under Claude Code, re-run `empirica setup-claude-code`; under another harness, make the empirica CLI reachable on PATH for that harness (and, for codex, `empirica diagnose --frontend ecodex`).
 
 ---
 
@@ -318,6 +333,8 @@ Two mechanisms to disable the Sentinel entirely:
 |-----------|-----|----------|-------------------|
 | File flag | Write `false` to `~/.empirica/sentinel_enabled` | Higher | No |
 | Env var | `EMPIRICA_SENTINEL_LOOPING=false` | Lower | Yes |
+
+The file wins, and it wins in both directions: the env var is consulted only when the file does not exist, so a file holding `true` makes `EMPIRICA_SENTINEL_LOOPING=false` inert. An unattended runner that must not be gated should run with a scratch `HOME`, or with the plugin off, rather than rely on the env var. Inside a project the Sentinel keeps refusing unmeasured praxic work for a run nobody opens a transaction for; that is by design.
 
 ---
 

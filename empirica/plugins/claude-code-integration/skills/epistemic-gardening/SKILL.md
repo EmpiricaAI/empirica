@@ -179,6 +179,10 @@ empirica delete-artifacts - << 'EOF'
 EOF
 ```
 
+Phantom CHECK rows (a second, all-0.5 CHECK the auto-checkpoint wrote before 1.14.6; no reasoning, `auto_checkpoint`
+true) are removed per practice with the same verb, previewing first:
+`echo '{"reflexes": {"phantom_checks": true}}' | empirica delete-artifacts -`, then the same with `--apply`.
+
 ### 4 — Verify
 
 ```bash

@@ -36,7 +36,7 @@ cross-goal dedup, long-open-unknown triage, orphan re-wiring across transactions
 | `empirica goals-get-stale` | detect stale goals (dry-run detection) |
 | `empirica finding-resolve` | resolve/supersede a **finding** (kept for history, dropped from live retrieval via read-time reconcile — #307). Findings were previously the one artifact type with no resolve verb; superseded findings are now *resolved*, not *deleted*. |
 | `empirica resolve-artifacts -` | batch-resolve unknowns / assumptions / goals / **findings** |
-| `empirica delete-artifacts -` | batch delete — **dry-run default + receipt logged as a decision for audit** |
+| `empirica delete-artifacts -` | batch delete — **dry-run default + receipt logged as a decision for audit**. Also removes the phantom CHECK rows an old auto-checkpoint wrote, per practice: `{"reflexes": {"phantom_checks": true}}` (phase CHECK, no reasoning, `auto_checkpoint` true) |
 | `empirica log-artifacts -` | node + edge writes (edge re-wiring) |
 | `empirica sources-reconcile` | source-identity dedup vs the catalogue (`--apply`, dry-run default) |
 | `empirica docs-link-check` | link-rot detection for docs (extend to sources — §7) |

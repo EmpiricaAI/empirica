@@ -195,6 +195,25 @@ per-seat act gated on a per-surface survival check — `logout` revokes the refr
 token and drops the oauth block but **never touches the api_key**; logout is
 never a lockout.
 
+### Retiring a stored bearer from `~/.claude.json`
+
+An MCP connector that stores `headers.Authorization` in `~/.claude.json` holds a credential that a key rotation
+signs out. `headersHelper` with `empirica auth token --headers` presents the seat's own OAuth token, fresh, on every
+connection, so nothing is stored:
+
+- `empirica auth token --headers` prints `{"Authorization": "Bearer ..."}` and nothing else on stdout; on failure
+  it prints nothing there and exits 1. It honours refresh custody like `auth token`.
+- `empirica auth connectors` lists the connectors that store a static header (names, scopes and hosts, never a
+  value) and changes nothing. `--name <connector> --apply` switches the ones you named, only if the URL is `https`
+  on a host that is yours (the seat's cortex or `*.getempirica.com`) and the seat has a valid OAuth token now. It
+  writes a 0600 backup first, aborts without clobbering if Claude Code writes the file meanwhile, leaves a connector
+  that already has its own `headersHelper` alone, and warns if the file is group- or world-readable.
+- `empirica doctor` lists connectors that still store a literal bearer ("No MCP connector stores a static
+  Authorization header"). A value that is only `${VAR}` is not stored and is not listed.
+
+The backup keeps the old header: delete it when you no longer need it, because it is the one place that header
+still lives.
+
 ---
 
 ## Failure modes worth knowing

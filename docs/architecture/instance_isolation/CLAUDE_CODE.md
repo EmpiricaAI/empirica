@@ -123,6 +123,14 @@ command. A working directory outside any project never refuses.
 project pointer. It cannot change the id of a process that is already running, so it repairs
 the pointer, not the sharing.
 
+**A newcomer does not take over a live owner's pointer.** A SessionStart or post-compact from a claude that
+carries another practice's `EMPIRICA_INSTANCE_ID` used to rewrite `instance_projects/<id>.json`. It now leaves the
+pointer alone when the session that holds it is a live claude in a different project, and the newcomer's context
+says so (an `INSTANCE ID CLASH` block, also on the `--continue` resume and adoption paths). "Live" is read from
+`~/.claude/sessions/<pid>.json`: where `/proc` exists the process name must be `claude` and, when the session file
+records a cwd, the process must still run there; a recycled pid does not count; on Windows nothing is signalled. A
+dead owner, the same project, or a pointer with no owner session fall through to the old behaviour.
+
 ---
 
 ## Running Multiple Instances

@@ -41,7 +41,9 @@ This document lists all environment variables that control Empirica's behavior.
 | Variable | Purpose | Default | Values |
 |----------|---------|---------|--------|
 | `EMPIRICA_SENTINEL_MODE` | Gate enforcement level | `controller` | `observer`, `controller` |
-| `EMPIRICA_SENTINEL_LOOPING` | Enable investigate loops (env var fallback) | `true` | `true`, `false` |
+| `EMPIRICA_SENTINEL_LOOPING` | Enable investigate loops (env var fallback; ignored whenever `~/.empirica/sentinel_enabled` exists) | `true` | `true`, `false` |
+| `EMPIRICA_SENTINEL_FAIL_CLOSED` | Deny, instead of allow, when the Sentinel itself crashes (not for "no project", which is a stated allow) | unset | `1`, `true`, `yes` |
+| `EMPIRICA_HARNESS` | Which harness hosts the hooks, case-insensitive. Non-`claude-code` values (codex sets `codex`) change the repair hint, the tool-router hints (CLI verbs instead of `mcp__empirica__` tools) and skip the deploy-gap block | `claude-code` | `claude-code`, `codex`, ... |
 
 **File-based control (preferred):** Write `true` or `false` to `~/.empirica/sentinel_enabled`.
 This takes priority over the env var and is dynamically settable without restarting the session.
