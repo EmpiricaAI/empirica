@@ -844,10 +844,21 @@ def _swap_workspace_entity_links(local_uuid: str, cortex_uuid: str) -> str:
     """Best-effort swap in the global workspace DB's entity_artifacts.
     Separate database — failure here must not unwind the project-DB swap."""
     try:
-        from empirica.data.repositories.workspace_db import WorkspaceDBRepository
+        from empirica.data.repositories.workspace_db import WorkspaceDBRepository, _get_workspace_db_path
 
+        if not _get_workspace_db_path().exists():
+            return "skipped: no workspace database"  # opening would create an empty one
         with WorkspaceDBRepository.open() as repo:
             cursor = repo.conn.cursor()
+            # UNIQUE(artifact_type, artifact_id, entity_type, entity_id): where the cortex id is already
+            # linked to an entity the local id is linked to, the local row is a duplicate. Drop it, or one
+            # such row aborts the whole update and leaves every link on the local id.
+            cursor.execute(
+                "DELETE FROM entity_artifacts WHERE artifact_type = 'source' AND artifact_id = ? AND EXISTS ("
+                "SELECT 1 FROM entity_artifacts o WHERE o.artifact_type = 'source' AND o.artifact_id = ? "
+                "AND o.entity_type = entity_artifacts.entity_type AND o.entity_id = entity_artifacts.entity_id)",
+                (local_uuid, cortex_uuid),
+            )
             cursor.execute(
                 "UPDATE entity_artifacts SET artifact_id = ? WHERE artifact_type = 'source' AND artifact_id = ?",
                 (cortex_uuid, local_uuid),

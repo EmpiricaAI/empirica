@@ -665,6 +665,11 @@ def _emit_delete_refusal(output: str, msg: str):
     sys.exit(2)
 
 
+def _project_row_absent(result: dict) -> bool:
+    """The project store reported there was no project row to delete (not that it refused)."""
+    return result.get("deleted") is False and "no such project row" in str(result.get("reason", ""))
+
+
 def _render_project_delete(result: dict) -> None:
     """Human view of a project delete. NAMES what blocked it, never just a count.
 
@@ -682,10 +687,14 @@ def _render_project_delete(result: dict) -> None:
     else:
         print(f"❌ {result.get('error')}")
 
+    if result.get("entity_row") is not None:
+        print(f"   registry row removed: {result['entity_row']}")
     for lane in ("entity_registry", "entity_memberships"):
         if refs.get(lane):
             print(f"   {lane}: {refs[lane]} row(s) still referencing")
-    cols = refs.get("qdrant_collections")
+    if "qdrant_collections" not in refs:
+        return  # no reference check was made (the project row was already absent): claim nothing about qdrant
+    cols = refs["qdrant_collections"]
     if cols is None:
         print(f"   qdrant: UNCHECKED — {refs.get('qdrant_error', 'unreachable')}")
     elif cols:
@@ -751,10 +760,12 @@ def handle_entity_delete_command(args):
                         "references": repo.project_references(eid),
                     }
                 )
-                if result.get("deleted") and not dry_run:
-                    # The project store removed global_projects. Its own registry row is the entity
-                    # layer's, and removing it here is what makes this a retirement rather than half
-                    # of one: left behind it is a `project:<id>` entity with no project.
+                if not dry_run and result.get("ok") and (result.get("deleted") or _project_row_absent(result)):
+                    # The project store removed global_projects (or it was already gone). Its own
+                    # registry row is the entity layer's, and removing it here is what makes this a
+                    # retirement rather than half of one: left behind it is a `project:<id>` entity
+                    # with no project. The two deletes are separate commits, so an interrupted run is
+                    # finished by running it again, and so are the rows an earlier --force left behind.
                     result["entity_row"] = repo.delete_entity_hard(et, eid)
                 print(json.dumps(result, indent=2)) if output == "json" else _render_project_delete(result)
                 return 0 if result.get("ok") else 1

@@ -134,7 +134,12 @@ def _is_readonly_monitor_call(tool_name: str, tool_input) -> bool:
     state and stay gated; a call with no action, an unknown action or a non-string one is not a list.
     Claude Code's own `Monitor` tool carries no `action`, so it is never matched here.
     """
-    return tool_name == "monitor" and isinstance(tool_input, dict) and tool_input.get("action") == "list"
+    return (
+        tool_name == "monitor"
+        and isinstance(tool_input, dict)
+        and set(tool_input) == {"action"}
+        and tool_input["action"] == "list"
+    )
 
 
 def _normalize_aggregated_cortex_tool(tool_name: str, tool_input) -> str:
@@ -833,10 +838,14 @@ EMPIRICA_TIER1_PREFIXES = (
     "empirica mailbox show",  # Read one proposal body (pure read)
     # The rest of the mesh's reads, left gated because only the verbs that existed when the receive
     # side was classified were listed. Each was read in its handler, not judged from its name:
-    "empirica mailbox sers",  # One HTTP GET of /v1/sers (the handler says read-only on purpose)
+    # One HTTP GET of /v1/sers. Like `mailbox poll` and `show` beside it, it resolves its bearer through
+    # cortex_bearer, which refreshes the seat's expiring OAuth token and persists the rotated refresh token.
+    # That is the same side effect those two already carry; `auth token` is kept out for being that and nothing else.
+    "empirica mailbox sers",
     "empirica mesh tail",  # Spawns `tail` on loop_fires.log and prints it
     # Lists the mirrored agreements from the local registry. `sync` beside it writes and stays gated.
-    # Opening the workspace store runs its idempotent schema init, which only writes on a fresh db.
+    # Opening the workspace store runs its schema init, which migrates an old database in place (it adds
+    # columns and creates missing tables); on a current one it writes nothing.
     "empirica mesh-agreements list",
     # Credential STATE only: derived flags (present / valid / expired), no token printed (ecodex-lab,
     # prop_d24tvfzlhfawzewirnxrtt6jsi). `auth token` can refresh stored credentials and `auth connectors
@@ -1991,7 +2000,7 @@ def _respond_unavailable(reason: str, claude_session_id: str | None) -> None:
         )
     except OSError:
         pass
-    harness = (os.environ.get("EMPIRICA_HARNESS") or "claude-code").strip() or "claude-code"
+    harness = (os.environ.get("EMPIRICA_HARNESS") or "claude-code").strip().lower() or "claude-code"
     if harness == "claude-code":
         repair = "Re-run `empirica setup-claude-code` from your empirica install so the hooks use its interpreter."
     else:
@@ -4592,6 +4601,25 @@ def _build_env_annotation() -> str:
     )
 
 
+def _inside_an_empirica_project() -> bool:
+    """Does the working directory sit inside a directory holding ``.empirica/project.yaml``?
+
+    The home directory is never a project: it carries ``~/.empirica`` (the global store), so every
+    directory beneath it would otherwise count as "in" one. The walk stops there.
+    """
+    try:
+        home = Path.home().resolve()
+        here = Path.cwd().resolve()
+    except (OSError, RuntimeError):
+        return False
+    for d in (here, *here.parents):
+        if d == home:
+            return False
+        if (d / ".empirica" / "project.yaml").is_file():
+            return True
+    return False
+
+
 def _resolve_empirica_root(claude_session_id: str | None) -> Path | None:
     """Resolve .empirica root directory, setting up imports and CWD.
 
@@ -4642,6 +4670,12 @@ def _resolve_empirica_root(claude_session_id: str | None) -> Path | None:
         # nothing to measure, so not gating is by design (David, 2026-10-03). Say so as
         # a decision. This used to reach the outer crash handler, where it read as
         # SENTINEL_CRASH and, under EMPIRICA_SENTINEL_FAIL_CLOSED, became a deny.
+        #
+        # Only when there really is no project. A directory that holds .empirica/project.yaml but
+        # no git repo is a project whose root could not be resolved, and that stays a crash to report
+        # (and a deny under fail-closed): the reviewer found it being waved through as "nothing to measure".
+        if _inside_an_empirica_project():
+            raise
         respond("allow", "Sentinel not applicable: no git repo and no empirica project here, nothing to measure")
         sys.exit(0)
 

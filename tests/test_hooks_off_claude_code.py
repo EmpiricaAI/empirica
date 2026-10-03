@@ -39,11 +39,16 @@ def _load(name: str, filename: str):
     return mod
 
 
-def _run_gate(tmp_path: Path, **env_over: str):
+def _run_gate(tmp_path: Path, *, project: bool = False, under_home: bool = False, **env_over: str):
     home = tmp_path / "home"
-    work = tmp_path / "work"
+    work = home / "work" if under_home else tmp_path / "work"
     home.mkdir()
-    work.mkdir()
+    work.mkdir(parents=True)
+    if under_home:
+        (home / ".empirica").mkdir()  # the global store every home has: not a project
+    if project:
+        (work / ".empirica").mkdir()
+        (work / ".empirica" / "project.yaml").write_text("project_id: p\nai_id: p\n")
     env = {"HOME": str(home), "PATH": "/usr/bin:/bin", "PYTHONPATH": str(REPO), **env_over}
     hook_input = {
         "hook_event_name": "PreToolUse",
@@ -86,6 +91,28 @@ def test_no_project_stays_an_allow_under_fail_closed(tmp_path):
 
     assert proc.returncode == 0
     assert _decision(proc)["permissionDecision"] == "allow"
+
+
+def test_a_real_project_in_a_directory_with_no_git_is_not_called_not_applicable(tmp_path):
+    """The no-project allow is for the absence of a project. A directory holding .empirica/project.yaml
+    but no git repo is a project whose root could not be resolved: that is a crash to report, not nothing
+    to measure (broccoli, 2026-10-03: it was allowed, and it overrode fail-closed)."""
+    proc = _run_gate(tmp_path, project=True)
+
+    assert "not applicable" not in _decision(proc)["permissionDecisionReason"]
+
+
+def test_a_real_project_in_a_directory_with_no_git_still_denies_under_fail_closed(tmp_path):
+    proc = _run_gate(tmp_path, project=True, EMPIRICA_SENTINEL_FAIL_CLOSED="1")
+
+    assert proc.returncode == 2 and _decision(proc)["permissionDecision"] == "deny"
+
+
+def test_a_directory_under_home_is_not_a_project_because_home_has_an_empirica_dir(tmp_path):
+    """Positive control for the project test: ~/.empirica is the global store, not a project."""
+    proc = _run_gate(tmp_path, under_home=True)
+
+    assert "not applicable" in _decision(proc)["permissionDecisionReason"]
 
 
 # ── the repair hint ─────────────────────────────────────────────────────────

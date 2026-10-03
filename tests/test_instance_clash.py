@@ -26,6 +26,9 @@ LIB = HOOKS.parent / "lib"
 sys.path.insert(0, str(LIB))
 import instance_clash as ic  # noqa: E402
 
+# The fixtures run real processes named `claude` through /proc and /bin/sh; CI is Linux-only.
+pytestmark = pytest.mark.skipif(sys.platform != "linux", reason="drives real processes through /proc")
+
 
 @pytest.fixture
 def world(tmp_path, monkeypatch):

@@ -18,26 +18,48 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 
 
 def _alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
+    """Is ``pid`` a running claude?
+
+    Where /proc exists it answers both questions at once, for any user's process: the pid is live and its
+    command name is `claude`. A kill probe is only the fallback, and never on Windows, where
+    ``os.kill(pid, 0)`` calls TerminateProcess and would kill the very owner this guard protects. A
+    non-positive pid is refused outright (``kill(0, 0)`` and ``kill(-1, 0)`` signal process groups).
+    """
+    if pid <= 0 or sys.platform == "win32":
         return False
-    except PermissionError:
-        return True  # exists, owned by someone else
-    except OSError:
-        return False
-    # A recycled pid number would pass the kill probe. The session file's owner must still be a claude.
     comm = Path(f"/proc/{pid}/comm")
     if comm.exists():
         try:
             return comm.read_text().strip() == "claude"
         except OSError:
-            return True
+            pass  # vanished between exists() and read(): fall through to the probe
+    try:
+        os.kill(pid, 0)
+    except PermissionError:
+        return True  # exists, owned by someone else, and /proc could not tell us its name
+    except OSError:
+        return False
     return True
+
+
+def _runs_where_recorded(pid: int, recorded_cwd: object) -> bool:
+    """A recycled pid can belong to a different live claude; the session file records where its own ran.
+
+    Compared only when both sides are known: a session file without a cwd, or a process whose cwd cannot
+    be read, is accepted rather than turned into a stranger.
+    """
+    if not recorded_cwd or not isinstance(recorded_cwd, str):
+        return True
+    try:
+        actual = os.readlink(f"/proc/{pid}/cwd")
+    except OSError:
+        return True
+    return os.path.realpath(actual) == os.path.realpath(recorded_cwd)
 
 
 def live_claude_pid(session_id: str, claude_dir: Path | None = None) -> int | None:
@@ -58,7 +80,7 @@ def live_claude_pid(session_id: str, claude_dir: Path | None = None) -> int | No
             pid = int(doc.get("pid") or f.stem)
         except (TypeError, ValueError):
             continue
-        if _alive(pid):
+        if _alive(pid) and _runs_where_recorded(pid, doc.get("cwd")):
             return pid
     return None
 

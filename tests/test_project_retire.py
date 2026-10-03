@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import ast
 import json
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -31,6 +32,20 @@ from empirica.cli.command_handlers.entity_commands import handle_entity_delete_c
 from empirica.data.repositories.workspace_db import WorkspaceDBRepository
 
 PID = "p-retire"
+
+_REAL_PROJECT_YAML = Path(__file__).parent.parent / ".empirica" / "project.yaml"
+
+
+@pytest.fixture(autouse=True)
+def _the_real_practice_is_untouched():
+    """A tripwire. `handle_project_update_command` resolves its project through a git-root lookup that is
+    cached for the whole pytest process, and an earlier version of one test here rewrote THIS repository's
+    own project.yaml (status archived, eleven keys dropped) and wrote an auto-captured issue into its store.
+    Whatever a test in this module does, the real file must come out byte-identical."""
+    before = _REAL_PROJECT_YAML.read_bytes() if _REAL_PROJECT_YAML.exists() else None
+    yield
+    after = _REAL_PROJECT_YAML.read_bytes() if _REAL_PROJECT_YAML.exists() else None
+    assert after == before, "a test in this module changed the repository's own .empirica/project.yaml"
 
 
 @pytest.fixture
@@ -233,3 +248,157 @@ def test_a_refused_hard_delete_leaves_the_registry_row_alone(store, capsys):
     assert rc == 1 and json.loads(capsys.readouterr().out)["ok"] is False
     with WorkspaceDBRepository.open() as r:
         assert r.get_project_by_id(PID) is not None and r.get_entity("project", PID) is not None
+
+
+# ── reviewer findings (1.14.6 broccoli sweep) ───────────────────────────────
+
+
+def test_a_registry_row_left_behind_by_an_earlier_force_delete_can_be_cleared(store, capsys):
+    """delete_project commits first, and a --force delete before the fix left the registry row behind. With
+    the project row already gone the verb answered ok / deleted:false and the row could never be cleared."""
+    with WorkspaceDBRepository.open() as r:
+        r.delete_project(PID, force=True)
+        assert r.get_project_by_id(PID) is None and r.get_entity("project", PID) is not None
+
+    rc = handle_entity_delete_command(_hard())
+
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 0 and out["ok"] is True and "entity_row" in out
+    with WorkspaceDBRepository.open() as r:
+        assert r.get_entity("project", PID) is None
+
+
+def test_an_interrupted_retirement_is_finished_by_running_it_again(store, capsys, monkeypatch):
+    """The two deletes are not one transaction. If the second fails, a retry must complete it."""
+    real = WorkspaceDBRepository.delete_entity_hard
+    calls = {"n": 0}
+
+    def fail_once(self, entity_type, entity_id):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("boom")
+        return real(self, entity_type, entity_id)
+
+    monkeypatch.setattr(WorkspaceDBRepository, "delete_entity_hard", fail_once)
+    # handle_cli_error auto-captures the exception as an issue in the CWD project's store: here, this repository's own.
+    monkeypatch.setattr("empirica.cli.command_handlers.entity_commands.handle_cli_error", lambda *_a, **_k: None)
+    try:
+        handle_entity_delete_command(_hard())
+    except SystemExit:
+        pass
+    capsys.readouterr()
+    with WorkspaceDBRepository.open() as r:
+        assert r.get_project_by_id(PID) is None and r.get_entity("project", PID) is not None, "the half-done state"
+
+    rc = handle_entity_delete_command(_hard())
+
+    assert rc == 0
+    with WorkspaceDBRepository.open() as r:
+        assert r.get_entity("project", PID) is None
+
+
+def test_the_human_view_shows_the_registry_row_removal_and_no_false_qdrant_line(store, capsys):
+    with WorkspaceDBRepository.open() as r:
+        r.delete_project(PID, force=True)
+    capsys.readouterr()
+
+    handle_entity_delete_command(_hard(output="human"))
+
+    out = capsys.readouterr().out
+    assert "registry" in out.lower()
+    assert "UNCHECKED" not in out, (
+        "no qdrant check was made for an absent project row, so none may be claimed unchecked"
+    )
+
+
+def test_project_update_reports_not_ok_when_the_workspace_sync_errors(tmp_path, monkeypatch, capsys):
+    """`ok` is the field a caller checks. The failure the change exposed must not leave it true."""
+    root = tmp_path / "co"
+    (root / ".empirica").mkdir(parents=True)
+    (root / ".empirica" / "project.yaml").write_text("project_id: p-x\nname: co\ntype: software\n")
+    monkeypatch.chdir(root)
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True, capture_output=True)
+    import empirica.config.path_resolver as pr
+
+    # The handler's git-root lookup is cached per process; pin it to the scratch checkout.
+    monkeypatch.setattr(pr, "get_git_root", lambda: root)
+    broken = tmp_path / "broken.db"
+    broken.write_bytes(b"")  # exists, holds no tables
+    monkeypatch.setattr(wdb, "_get_workspace_db_path", lambda: broken)
+
+    pu.handle_project_update_command(SimpleNamespace(status="archived", output="json"))
+
+    out = json.loads(capsys.readouterr().out)
+    assert out["synced"]["workspace_db"].startswith("error")
+    assert out["ok"] is False
+
+
+def test_a_workspace_sync_that_updated_nothing_because_nothing_is_registered_is_not_an_error(store):
+    """Control for the rule above: 'no row' is an honest state, not a failure."""
+    assert pu._synced_ok({"sessions_db": "no database", "workspace_db": "no row for project_id"}) is True
+    assert pu._synced_ok({"sessions_db": "updated", "workspace_db": "error: OperationalError: x"}) is False
+
+
+def test_the_workspace_sync_keeps_metadata_keys_it_does_not_own(store):
+    import sqlite3
+
+    con = sqlite3.connect(store)
+    con.execute("UPDATE global_projects SET metadata = ? WHERE id = ?", (json.dumps({"keep": "me", "other": 1}), PID))
+    con.commit()
+    con.close()
+
+    assert pu._sync_workspace_db(_config()) == "updated"
+
+    meta = json.loads(
+        sqlite3.connect(store).execute("SELECT metadata FROM global_projects WHERE id = ?", (PID,)).fetchone()[0]
+    )
+    assert meta["keep"] == "me" and meta["other"] == 1 and "evidence_profile" in meta
+
+
+# ── the sources-reconcile entity swap, live since the constructor fix ───────
+
+
+def _link(con, artifact_id, entity_id):
+    import uuid
+
+    con.execute(
+        "INSERT INTO entity_artifacts (id, artifact_type, artifact_id, entity_type, entity_id) "
+        "VALUES (?, 'source', ?, 'project', ?)",
+        (uuid.uuid4().hex, artifact_id, entity_id),
+    )
+
+
+def test_the_swap_does_not_create_a_workspace_db_that_is_not_there(tmp_path, monkeypatch):
+    from empirica.cli.command_handlers.sources_reconcile_commands import _swap_workspace_entity_links
+
+    dbp = tmp_path / "absent" / "workspace.db"
+    monkeypatch.setattr(wdb, "_get_workspace_db_path", lambda: dbp)
+
+    result = _swap_workspace_entity_links("L", "C")
+
+    assert result.startswith("skipped") and not dbp.exists() and not dbp.parent.exists()
+
+
+def test_one_conflicting_link_does_not_abort_the_swap_of_the_others(store):
+    """UNIQUE(artifact_type, artifact_id, entity_type, entity_id): the cortex id may already be linked to an
+    entity the local id is linked to. That local row is a duplicate and goes; the rest still swap."""
+    import sqlite3
+
+    from empirica.cli.command_handlers.sources_reconcile_commands import _swap_workspace_entity_links
+
+    con = sqlite3.connect(store)
+    _link(con, "L", "p1")
+    _link(con, "C", "p1")  # the conflict
+    _link(con, "L", "e1")
+    con.commit()
+    con.close()
+
+    result = _swap_workspace_entity_links("L", "C")
+
+    assert result.startswith("updated_")
+    rows = (
+        sqlite3.connect(store)
+        .execute("SELECT artifact_id, entity_id FROM entity_artifacts ORDER BY entity_id")
+        .fetchall()
+    )
+    assert rows == [("C", "e1"), ("C", "p1")], "no local id left, and the duplicate collapsed to one link"

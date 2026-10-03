@@ -710,7 +710,7 @@ def is_blindspot_relevant(task_lower, mode, vectors):
 
 def _harness() -> str:
     """Which harness hosts this hook: ``EMPIRICA_HARNESS``, defaulting to ``claude-code``."""
-    return (os.environ.get("EMPIRICA_HARNESS") or "claude-code").strip() or "claude-code"
+    return (os.environ.get("EMPIRICA_HARNESS") or "claude-code").strip().lower() or "claude-code"
 
 
 def _empirica_tool(mcp_tool: str, cli_verb: str) -> str:

@@ -165,7 +165,7 @@ def handle_project_update_command(args):
             print(
                 json.dumps(
                     {
-                        "ok": True,
+                        "ok": _synced_ok(synced),
                         "changes": changes,
                         "config": updated,
                         "synced": synced,
@@ -179,10 +179,10 @@ def handle_project_update_command(args):
             for change in changes:
                 print(f"   • {change}")
             for store, result in synced.items():
-                if result.startswith("error") or result == "no row for project_id":
+                if result != "updated" and not (store == "sessions_db" and result == "no database"):
                     print(f"   ⚠️  {store} not updated: {result}")
 
-        return {"ok": True, "changes": changes, "synced": synced}
+        return {"ok": _synced_ok(synced), "changes": changes, "synced": synced}
 
     except Exception as e:
         from ..cli_utils import handle_cli_error
@@ -252,6 +252,11 @@ def _soft_validate_edge(entity: str):
             logger.warning(f"Edge target '{entity}' not found in workspace (may not be initialized yet)")
     except Exception:
         pass  # Workspace may not be available
+
+
+def _synced_ok(synced: dict[str, str]) -> bool:
+    """Did every store sync without error? 'no database' and 'no row' are honest states, not failures."""
+    return not any(str(v).startswith("error") for v in synced.values())
 
 
 def _sync_to_db(config: ProjectConfig, git_root: Path) -> dict[str, str]:
@@ -336,18 +341,25 @@ def _sync_workspace_db(config: ProjectConfig) -> str:
 
         if not _get_workspace_db_path().exists():
             return "no database"  # opening would create an empty one, for a project nothing registered
-        metadata = json_mod.dumps(
-            {
-                "domain": config.domain,
-                "classification": config.classification,
-                "evidence_profile": config.evidence_profile,
-                "languages": config.languages,
-                "contacts": config.contacts,
-                "engagements": config.engagements,
-                "edges": config.edges,
-            }
-        )
+        owned = {
+            "domain": config.domain,
+            "classification": config.classification,
+            "evidence_profile": config.evidence_profile,
+            "languages": config.languages,
+            "contacts": config.contacts,
+            "engagements": config.engagements,
+            "edges": config.edges,
+        }
         with WorkspaceDBRepository.open(ensure_schema=False) as repo:
+            # Merge into what is there: keys this command does not own survive.
+            row = repo.conn.execute(
+                "SELECT metadata FROM global_projects WHERE id = ?", (config.project_id,)
+            ).fetchone()
+            try:
+                existing = json_mod.loads(row[0]) if row and row[0] else {}
+            except (TypeError, ValueError):
+                existing = {}
+            metadata = json_mod.dumps({**(existing if isinstance(existing, dict) else {}), **owned})
             cursor = repo.conn.execute(
                 "UPDATE global_projects SET project_type = ?, project_tags = ?, status = ?, metadata = ?, "
                 "updated_timestamp = ? WHERE id = ?",

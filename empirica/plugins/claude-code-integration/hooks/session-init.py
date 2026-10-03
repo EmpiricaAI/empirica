@@ -825,6 +825,16 @@ def format_context(ctx: dict) -> str:
 _INSTANCE_CLASH_NOTICE = ""
 
 
+def _with_clash_notice(context: str) -> str:
+    """``context`` with the instance-clash notice in front of it, when this start was refused the pointer.
+
+    main() did this, but the resume and adoption paths build their own context and exit first, and
+    `claude --continue` (the remedy the notice itself recommends) goes through the resume path, so the
+    refusal reached stderr only and the model never saw it.
+    """
+    return f"{_INSTANCE_CLASH_NOTICE}\n\n{context}" if _INSTANCE_CLASH_NOTICE else context
+
+
 def _foreign_owner_holds_pointer(
     instance_file: Path, instance_id: object, claude_session_id: str, project_path
 ) -> bool:
@@ -1323,7 +1333,8 @@ def _handle_resume_path(claude_session_id: str, project_root: Path, ai_id: str) 
         "bootstrap_complete": bootstrap_ok,
         "hookSpecificOutput": {
             "hookEventName": "SessionStart",
-            "additionalContext": f"""
+            "additionalContext": _with_clash_notice(
+                f"""
 ## Session Resumed
 
 **Session ID:** `{session_id}` (existing, from {existing.get("source", "unknown")})
@@ -1332,7 +1343,8 @@ def _handle_resume_path(claude_session_id: str, project_root: Path, ai_id: str) 
 Anchor files updated for new terminal. Existing session and transaction state preserved.
 
 **Note:** If you need a fresh session, run `empirica session-create --ai-id {ai_id}`.
-""",
+"""
+            ),
         },
     }
 
@@ -1370,7 +1382,8 @@ def _handle_orphan_adoption(claude_session_id: str, project_root: Path) -> bool:
         "bootstrap_complete": bootstrap_ok,
         "hookSpecificOutput": {
             "hookEventName": "SessionStart",
-            "additionalContext": f"""
+            "additionalContext": _with_clash_notice(
+                f"""
 ## Transaction Adopted After Restart
 
 **Session ID:** `{session_id}` (adopted from orphaned transaction)
@@ -1380,7 +1393,8 @@ Found an open transaction from a previous terminal/tmux instance.
 Session and transaction state preserved -- anchor files updated for new instance.
 
 **After reviewing context:** Run CHECK or continue your transaction.
-""",
+"""
+            ),
         },
     }
 
@@ -1620,7 +1634,7 @@ def _harness() -> str:
     opt-outs) is what lets a non-CC harness stop forking hook bodies per
     re-vendor: it sets EMPIRICA_HARNESS once and the guards below read it.
     """
-    return (os.environ.get("EMPIRICA_HARNESS") or "claude-code").strip() or "claude-code"
+    return (os.environ.get("EMPIRICA_HARNESS") or "claude-code").strip().lower() or "claude-code"
 
 
 def _deploy_gap_block(project_root: Path) -> str:
