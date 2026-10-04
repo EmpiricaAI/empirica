@@ -123,6 +123,34 @@ NOETIC_MCP_CORTEX = {
     "mcp__cortex__cortex_get_proposal",  # Fetch proposal by id (pure read)
     "mcp__cortex__cortex_archive_proposal",  # Archiver-scoped soft-flip (hide-from-my-view; ergonomically noetic)
     "mcp__cortex__cortex_complete_proposal",  # Ack: closing bracket of a wake→act→ack loop, authorized by the accepted proposal (noetic by policy)
+    # PURE READS that were missing, so the gate treated them as praxic and refused them after POSTFLIGHT (cowork,
+    # via ecodex-lab, 2026-10-04: cortex_list_goals "Epistemic loop closed"). Each was classified from the tool's own
+    # description, not from its name: all enumerate or fetch, none writes.
+    "mcp__cortex__cortex_list_goals",  # Enumerate a project's goals (flat list, newest first)
+    "mcp__cortex__cortex_list_artifacts",  # Enumerate artifacts of one type
+    "mcp__cortex__cortex_list_sources",  # Sources catalogue, metadata rows only
+    "mcp__cortex__cortex_memory_status",  # Counts of what you logged recently + a nudge
+    "mcp__cortex__cortex_ai_discover",  # List reachable AI seats
+    "mcp__cortex__cortex_get_skill",  # Fetch one skill's body
+    "mcp__cortex__cortex_list_scheduled_skills",  # List scheduled skill runs
+    "mcp__cortex__cortex_source_chunks",  # Enumerate every chunk of one source
+    "mcp__cortex__cortex_source_get_raw",  # Fetch a source's retained raw bytes (cross-tenant fetches are audited server-side)
+    "mcp__cortex__cortex_render_skill_board",  # Returns rendered HTML; writes nothing
+}
+
+# The CRM MCP server's READ tools (the CRM lane doc: reads are equally good through either door). Every upsert,
+# delete, link, scope, supersede, transfer and consent-event tool stays gated; an unclassified tool is praxic.
+NOETIC_MCP_CRM_READS = {
+    "mcp__empirica-crm__crm_whoami",
+    "mcp__empirica-crm__crm_schema",
+    "mcp__empirica-crm__crm_get",
+    "mcp__empirica-crm__crm_list_organizations",
+    "mcp__empirica-crm__crm_list_contacts",
+    "mcp__empirica-crm__crm_list_engagements",
+    "mcp__empirica-crm__crm_list_touchpoints",
+    "mcp__empirica-crm__crm_list_revenue_events",
+    "mcp__empirica-crm__crm_scope_changes",  # The disclosure log: read-only
+    "mcp__empirica-crm__crm_consent_state",  # Reads the current consent state; crm_record_consent_event is the write
 }
 
 
@@ -1691,13 +1719,26 @@ def _is_empirica_mcp_tool(tool_name: str) -> bool:
     return tool_name.startswith(EMPIRICA_MCP_PREFIX)
 
 
-def _classify_tool_phase(tool_name: str, tool_input: dict | None) -> bool:
-    """Classify whether a tool call is noetic (True) or praxic (False)."""
-    return bool(
+def _is_noetic_tool(tool_name: str) -> bool:
+    """Is this tool noetic: it reads or investigates and cannot change state, so it flows in any phase?
+
+    The ONE place the noetic sets are consulted. The same four-part predicate was written out at seven sites, and a
+    set that grew in one place went stale where nobody could audit it (ten pure-read cortex tools were refused after
+    POSTFLIGHT). Add a tool to the right set above, with its decision in a comment; do not re-spell this elsewhere.
+    """
+    return (
         tool_name in NOETIC_TOOLS
         or tool_name in NOETIC_MCP_CHROME
         or tool_name in NOETIC_MCP_CORTEX
+        or tool_name in NOETIC_MCP_CRM_READS
         or _is_empirica_mcp_tool(tool_name)
+    )
+
+
+def _classify_tool_phase(tool_name: str, tool_input: dict | None) -> bool:
+    """Classify whether a tool call is noetic (True) or praxic (False)."""
+    return bool(
+        _is_noetic_tool(tool_name)
         or (tool_name == "Bash" and tool_input and is_safe_bash_command(tool_input))
         or (tool_name in ("Write", "Edit") and tool_input and is_plan_file(tool_input))
     )
@@ -3689,13 +3730,7 @@ def _noetic_firewall_check(tool_name: str, tool_input: dict, hook_input: dict) -
     or None if the tool is not noetic (caller continues with praxic gating).
     """
     # Rule 1: Noetic tools always allowed (read/investigate)
-    if (
-        tool_name in NOETIC_TOOLS
-        or tool_name in NOETIC_MCP_CHROME
-        or tool_name in NOETIC_MCP_CORTEX
-        or _is_empirica_mcp_tool(tool_name)
-        or _is_readonly_monitor_call(tool_name, tool_input)
-    ):
+    if _is_noetic_tool(tool_name) or _is_readonly_monitor_call(tool_name, tool_input):
         return (True, f"Noetic tool: {tool_name}")
 
     # Rule 2: Safe Bash commands always allowed (read-only shell)
@@ -4046,16 +4081,10 @@ def _validate_check_record(
     # praxic call — INCLUDING the postflight that would clear it — deny "Rushed
     # assessment", an unrecoverable deadlock. Covers both the no-CHECK-row and
     # the has-CHECK-row (rush) paths.
-    if (
-        tool_name in NOETIC_TOOLS
-        or tool_name in NOETIC_MCP_CHROME
-        or tool_name in NOETIC_MCP_CORTEX
-        or _is_empirica_mcp_tool(tool_name)
-        or (
-            tool_name == "Bash"
-            and tool_input
-            and (is_safe_bash_command(tool_input) or is_safe_empirica_statement(tool_input.get("command", "")))
-        )
+    if _is_noetic_tool(tool_name) or (
+        tool_name == "Bash"
+        and tool_input
+        and (is_safe_bash_command(tool_input) or is_safe_empirica_statement(tool_input.get("command", "")))
     ):
         return None
 
@@ -4090,12 +4119,7 @@ def _validate_check_record(
             return None
 
         # Noetic tools: silent pass (no message, no logging)
-        if (
-            tool_name in NOETIC_TOOLS
-            or tool_name in NOETIC_MCP_CHROME
-            or tool_name in NOETIC_MCP_CORTEX
-            or _is_empirica_mcp_tool(tool_name)
-        ):
+        if _is_noetic_tool(tool_name):
             return None
         if tool_name == "Bash" and is_safe_bash_command(tool_input):
             return None
@@ -4234,12 +4258,7 @@ def _check_prior_investigate(
 
     # All noetic tools always allowed — INVESTIGATE means "investigate more",
     # not "stop using tools". Read, Grep, Glob, Bash grep/ls/cat, etc.
-    if (
-        tool_name in NOETIC_TOOLS
-        or tool_name in NOETIC_MCP_CHROME
-        or tool_name in NOETIC_MCP_CORTEX
-        or _is_empirica_mcp_tool(tool_name)
-    ):
+    if _is_noetic_tool(tool_name):
         return None  # Silent allow — don't even log it as a decision
     if tool_name == "Bash" and is_safe_bash_command(tool_input):
         return None  # Safe Bash is noetic
@@ -4458,12 +4477,7 @@ def _handle_investigate_continuation(
         except Exception:
             pass
 
-    if (
-        tool_name in NOETIC_TOOLS
-        or tool_name in NOETIC_MCP_CHROME
-        or tool_name in NOETIC_MCP_CORTEX
-        or _is_empirica_mcp_tool(tool_name)
-    ):
+    if _is_noetic_tool(tool_name):
         # Increment noetic counter in hook counters file
         _inv_c = _read_inv_counters()
         _inv_c["noetic_since_investigate"] = _inv_c.get("noetic_since_investigate", 0) + 1
@@ -4783,12 +4797,7 @@ def _handle_closed_transaction(tool_name: str, tool_input: dict) -> None:
         if is_safe_empirica_statement(command):
             respond("allow", "Empirica command (transaction closed, artifact lifecycle / loop-opening)")
             sys.exit(0)
-    elif (
-        tool_name in NOETIC_TOOLS
-        or tool_name in NOETIC_MCP_CHROME
-        or tool_name in NOETIC_MCP_CORTEX
-        or _is_empirica_mcp_tool(tool_name)
-    ):
+    elif _is_noetic_tool(tool_name):
         respond("allow", "Noetic tool (transaction closed)")
         sys.exit(0)
     # Praxic tool with closed transaction → correct error message

@@ -88,8 +88,21 @@ NOETIC_MCP_CORTEX = {
     'mcp__cortex__search_knowledge',       # Semantic search
     'mcp__cortex__get_entity_context',     # Entity lookup
     'mcp__cortex__cortex_stats',           # Stats (read-only)
+    # ... and the other pure reads: cortex_list_goals, cortex_list_artifacts, cortex_list_sources,
+    # cortex_memory_status, cortex_ai_discover, cortex_get_skill, cortex_list_scheduled_skills,
+    # cortex_source_chunks, cortex_source_get_raw, cortex_render_skill_board
 }
 ```
+
+The set is not only searches: it also holds the epistemic-workflow writes the gate admits by policy (`*_log`, `goal_create`,
+`log_artifacts`, the mailbox poll/archive/complete family, `cortex_collab`). The authoritative list, with the decision
+for each entry, is the set itself in `sentinel-gate.py`. `cortex_propose`, `cortex_publish` and every other tool that
+changes state stay gated, and a tool nobody has classified is praxic. The CRM MCP server's read tools
+(`crm_whoami`, `crm_schema`, `crm_get`, `crm_list_*`, `crm_scope_changes`, `crm_consent_state`) are noetic too; every
+`crm_upsert_*`, delete, link, scope, supersede, transfer and consent-event tool is gated.
+
+Every site that asks "is this tool noetic" calls one helper, `_is_noetic_tool`, so a tool added to a set is noetic
+everywhere, including after POSTFLIGHT.
 
 ### Noetic MCP Tools: Chrome (Always Allowed)
 
