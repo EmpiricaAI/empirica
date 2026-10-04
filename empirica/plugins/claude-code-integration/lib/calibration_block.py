@@ -102,6 +102,18 @@ def format_calibration_block(config: dict, now: float | None = None) -> str:
     for i in insights[:MAX_INSIGHTS]:
         lines.append(f"  - {_one_line(i['description'])}")
 
+    excluded = cal.get("excluded")
+    for item in (excluded if isinstance(excluded, list) else [])[:3]:
+        if not isinstance(item, dict):
+            continue
+        names = [str(v) for v in (item.get("vectors") or []) if _NAME_RE.fullmatch(str(v))]
+        count = item.get("observations")
+        if names and isinstance(count, int) and not isinstance(count, bool):
+            lines.append(
+                f"Excluded as known-bad measurements ({', '.join(names)}, {count:,} observations): "
+                f"{_one_line(item.get('reason') or 'no reason recorded')}"
+            )
+
     ungrounded = cal.get("ungrounded")
     names = [str(u) for u in ungrounded if _NAME_RE.fullmatch(str(u))] if isinstance(ungrounded, list) else []
     if names:

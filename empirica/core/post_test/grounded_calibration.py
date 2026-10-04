@@ -113,6 +113,89 @@ def _build_insufficient_evidence_response(
     }
 
 
+def _to_epoch(value) -> float | None:
+    """A date string (YYYY-MM-DD, UTC midnight) or a number, as epoch seconds; None when it is neither."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        import calendar
+        import time as _time
+
+        try:
+            return float(calendar.timegm(_time.strptime(value.strip()[:10], "%Y-%m-%d")))
+        except ValueError:
+            return None
+    return None
+
+
+def load_calibration_exclusions(git_root: str | None) -> list[dict]:
+    """Practice-owned exclusions from `.empirica/project.yaml` (`calibration_exclusions`).
+
+    Each entry names the vectors, optionally a grounding `source`, and optionally a `from` (inclusive) / `until`
+    (exclusive) window, with a `reason`. An entry that cannot be read is dropped with a warning: the alternative,
+    reading a half-valid entry as "exclude everything of that vector", would be the worse failure. An entry with no
+    source and no window is also dropped, for the same reason.
+    """
+    import os
+
+    if not git_root:
+        return []
+    path = os.path.join(git_root, ".empirica", "project.yaml")
+    if not os.path.isfile(path):
+        return []
+    try:
+        import yaml
+
+        with open(path, encoding="utf-8") as fh:
+            raw = (yaml.safe_load(fh) or {}).get("calibration_exclusions")
+    except Exception as e:
+        logger.warning("calibration_exclusions: could not read %s: %s", path, e)
+        return []
+    if not raw:
+        return []
+    entries: list[dict] = []
+    for i, item in enumerate(raw if isinstance(raw, list) else []):
+        vectors = item.get("vectors") if isinstance(item, dict) else None
+        source = item.get("source") if isinstance(item, dict) else None
+        lo = _to_epoch(item.get("from")) if isinstance(item, dict) and "from" in item else None
+        hi = _to_epoch(item.get("until")) if isinstance(item, dict) and "until" in item else None
+        bad_window = isinstance(item, dict) and (("from" in item and lo is None) or ("until" in item and hi is None))
+        valid = (
+            isinstance(item, dict)
+            and isinstance(vectors, list)
+            and vectors
+            and all(isinstance(v, str) for v in vectors)
+            and (source is None or isinstance(source, str))
+            and not bad_window
+            and (source is not None or lo is not None or hi is not None)
+        )
+        if not valid:
+            logger.warning("calibration_exclusions: entry %d in %s is not usable and was dropped: %r", i, path, item)
+            continue
+        entries.append(
+            {
+                "vectors": list(vectors),
+                "source": source,
+                "from": lo,
+                "until": hi,
+                "reason": str(item.get("reason", "")),
+            }
+        )
+    return entries
+
+
+def _entry_matches(entry: dict, vector: str, source: str | None, created_at: float) -> bool:
+    if vector not in entry["vectors"]:
+        return False
+    if entry.get("source") is not None and source != entry["source"]:
+        return False
+    if entry.get("from") is not None and created_at < entry["from"]:
+        return False
+    return not (entry.get("until") is not None and created_at >= entry["until"])
+
+
 @dataclass
 class GroundedBelief:
     """A Bayesian belief grounded in objective evidence."""
@@ -469,11 +552,43 @@ class GroundedCalibrationManager:
         self.conn.commit()
         return verification_id
 
-    def get_calibration_divergence(self, ai_id: str) -> dict[str, dict]:
+    def replay_grounded_belief(self, ai_id: str, vector: str, exclusions: list[dict] | None) -> dict:
+        """The grounded belief for `vector` with matching observations skipped.
+
+        Re-runs the same sequential update as update_grounded_beliefs over the stored verifications, oldest first.
+        With no exclusions it reproduces the stored belief (the control the exclusion rests on). Disputes are not
+        replayed: they are not recorded per observation.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT grounded_vectors, created_at FROM grounded_verifications "
+            "WHERE ai_id = ? AND grounded_vectors IS NOT NULL ORDER BY created_at, rowid",
+            (ai_id,),
+        )
+        mean, var, count, excluded = self.DEFAULT_PRIOR_MEAN, self.DEFAULT_PRIOR_VARIANCE, 0, 0
+        for raw, created_at in cursor.fetchall():
+            try:
+                est = json.loads(raw).get(vector)
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(est, dict) or not isinstance(est.get("value"), (int, float)):
+                continue
+            if any(_entry_matches(e, vector, est.get("source"), created_at) for e in exclusions or []):
+                excluded += 1
+                continue
+            obs_var = self.OBSERVATION_VARIANCE / max(float(est.get("confidence") or 0.0), 0.1)
+            mean = (var * est["value"] + obs_var * mean) / (var + obs_var)
+            var = 1.0 / (1.0 / var + 1.0 / obs_var)
+            count += int(est.get("evidence_count") or 0)
+        return {"mean": mean, "variance": var, "evidence_count": count, "excluded": excluded}
+
+    def get_calibration_divergence(self, ai_id: str, exclusions: list[dict] | None = None) -> dict[str, dict]:
         """
         Compare self-referential and grounded calibration tracks.
 
-        Returns per-vector comparison showing where the two tracks disagree.
+        Returns per-vector comparison showing where the two tracks disagree. With `exclusions`, the grounded side of
+        each affected vector is replayed without the matching observations and the entry says how many were skipped;
+        unaffected vectors are untouched.
         """
         from ..bayesian_beliefs import BayesianBeliefManager
 
@@ -491,16 +606,33 @@ class GroundedCalibrationManager:
 
             g_ec = grounded.evidence_count if grounded and isinstance(grounded.evidence_count, (int, float)) else 0
             if self_ref and grounded and g_ec > 0:
+                g_mean, g_ev, g_var, skipped = grounded.mean, grounded.evidence_count, grounded.variance, 0
+                if exclusions and any(vector in e["vectors"] for e in exclusions):
+                    replay = self.replay_grounded_belief(ai_id, vector, exclusions)
+                    if replay["excluded"]:
+                        g_mean, g_ev, g_var = replay["mean"], replay["evidence_count"], replay["variance"]
+                        skipped = replay["excluded"]
                 divergence[vector] = {
                     "self_referential_mean": self_ref.mean,
-                    "grounded_mean": grounded.mean,
-                    "gap": round(self_ref.mean - grounded.mean, 4),
+                    "grounded_mean": g_mean,
+                    "gap": round(self_ref.mean - g_mean, 4),
                     "self_ref_evidence": self_ref.evidence_count,
-                    "grounded_evidence": grounded.evidence_count,
-                    "grounded_variance": grounded.variance,
+                    "grounded_evidence": g_ev,
+                    "grounded_variance": g_var,
                 }
+                if skipped:
+                    divergence[vector]["excluded_observations"] = skipped
 
         return divergence
+
+    def summarize_exclusions(self, ai_id: str, exclusions: list[dict] | None) -> list[dict]:
+        """Per entry: the vectors, the reason, and how many stored observations it skipped (0 entries are omitted)."""
+        out = []
+        for entry in exclusions or []:
+            skipped = sum(self.replay_grounded_belief(ai_id, v, [entry])["excluded"] for v in entry["vectors"])
+            if skipped:
+                out.append({"vectors": entry["vectors"], "observations": skipped, "reason": entry.get("reason", "")})
+        return out
 
     def get_windowed_divergence(self, ai_id: str, weeks: int, now: float | None = None) -> dict:
         """Self-versus-grounded gap over the verifications of the last `weeks` weeks.
@@ -554,7 +686,7 @@ class GroundedCalibrationManager:
             divergence[vector] = entry
         return {"verifications": len(rows), "divergence": divergence}
 
-    def get_grounded_adjustments(self, ai_id: str) -> dict[str, float]:
+    def get_grounded_adjustments(self, ai_id: str, exclusions: list[dict] | None = None) -> dict[str, float]:
         """
         Corrections to APPLY TO SELF-ASSESSMENT: grounded evidence minus what
         the AI actually believed.
@@ -583,7 +715,7 @@ class GroundedCalibrationManager:
         max_correction = BayesianBeliefManager.MAX_CORRECTION_MAGNITUDE
         adjustments = {}
 
-        for vector, data in self.get_calibration_divergence(ai_id).items():
+        for vector, data in self.get_calibration_divergence(ai_id, exclusions).items():
             ec = data["grounded_evidence"] if isinstance(data["grounded_evidence"], (int, float)) else 0
             if ec >= 3:
                 # gap is self-assessed − grounded; the correction moves the
@@ -609,6 +741,7 @@ class GroundedCalibrationManager:
         holistic_calibration_score,
         holistic_gaps,
         insights,
+        excluded=None,
     ):
         """Build the YAML block for grounded calibration export."""
         timestamp = datetime.now().isoformat()
@@ -629,6 +762,12 @@ class GroundedCalibrationManager:
             for vector, data in sorted(divergence.items(), key=lambda x: abs(x[1]["gap"]), reverse=True):
                 sign = "+" if data["gap"] >= 0 else ""
                 lines.append(f"    {vector}: {sign}{data['gap']:.2f}\n")
+        if excluded:
+            lines.append("  excluded:\n")
+            for item in excluded:
+                lines.append(f"    - vectors: [{', '.join(item['vectors'])}]\n")
+                lines.append(f"      observations: {item['observations']}\n")
+                lines.append(f"      reason: {json.dumps(item['reason'], ensure_ascii=False)}\n")
         lines.append(f"  ungrounded: [{', '.join(sorted(UNGROUNDABLE_VECTORS))}]\n")
         if adjustments:
             lines.append("  grounded_bias_corrections:\n")
@@ -709,9 +848,13 @@ class GroundedCalibrationManager:
         holistic_calibration_score: float | None = None,
         holistic_gaps: dict | None = None,
         insights: list | None = None,
+        exclusions: list[dict] | None = None,
     ) -> bool:
         """
         Export grounded calibration to .breadcrumbs.yaml as a new section.
+
+        `exclusions` defaults to the practice's `calibration_exclusions` in project.yaml; the section records what
+        was excluded so a reader of the block can see that its gaps are not over all history.
 
         Does NOT replace the existing `calibration:` section — adds a
         parallel `grounded_calibration:` section for comparison.
@@ -736,9 +879,12 @@ class GroundedCalibrationManager:
 
         breadcrumbs_path = os.path.join(git_root, ".breadcrumbs.yaml")
 
+        if exclusions is None:
+            exclusions = load_calibration_exclusions(git_root)
         beliefs = self.get_grounded_beliefs(ai_id)
-        adjustments = self.get_grounded_adjustments(ai_id)
-        divergence = self.get_calibration_divergence(ai_id)
+        adjustments = self.get_grounded_adjustments(ai_id, exclusions)
+        divergence = self.get_calibration_divergence(ai_id, exclusions)
+        excluded = self.summarize_exclusions(ai_id, exclusions)
 
         if not beliefs:
             return False
@@ -765,6 +911,7 @@ class GroundedCalibrationManager:
             holistic_calibration_score,
             holistic_gaps,
             insights,
+            excluded,
         )
         return self._replace_yaml_section(breadcrumbs_path, yaml_block)
 

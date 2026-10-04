@@ -1109,6 +1109,12 @@ Empirica uses a 4-layer weight system for calibration scoring. Each layer serves
 - **Granularity:** Per project, per phase (noetic/praxic), per vector
 - **Example:** In noetic phase, execution vectors (do, change, state) are weighted low (0.2-0.3) because they're irrelevant to investigation
 
+**Known-bad measurement windows (not a weighting layer): `calibration_exclusions`**
+- **Source:** `.empirica/project.yaml` — `calibration_exclusions`, a list kept by the practice (the file is local to the checkout, not committed)
+- **Entry:** `vectors` (list), optional `source` (the grounding source, e.g. `git`), optional `from` (inclusive) and `until` (exclusive) as `YYYY-MM-DD` UTC, and a `reason`. An entry needs a `source` or a window; one that has neither, or that cannot be read, is dropped with a warning and never read as "exclude everything"
+- **Effect:** the grounded belief for each named vector is replayed over `grounded_verifications` without the matching observations. The replay reproduces the stored belief when nothing is excluded. Rows are never rewritten. The injected bias block, `grounded_bias_corrections` and `calibration-report` use the replayed value, and each says what it left out (`excluded` in `.breadcrumbs.yaml`, `exclusions_applied` in the report JSON)
+- **When to add one:** you measured a period in which a sensor was wrong and has since been fixed. Example, core: `source: git`, `vectors: [do, state, change]`, 2026-08-01 to 2026-09-21, because git evidence was graded over a window far wider than the transaction until v1.13.51. To check a seat, average `json_extract(raw_value, '$.commits')` over `verification_evidence` rows with `metric_name = 'commit_count'` by month: about 1-2 is transaction-sized, 10 or more is not
+
 **Layer 4: Work-Type Evidence Relevance**
 - **Source:** `core/post_test/mapper.py` — `WORK_TYPE_RELEVANCE` (hardcoded)
 - **Purpose:** Scale how much each evidence source (git metrics, test results, code quality, etc.) matters for the current work type

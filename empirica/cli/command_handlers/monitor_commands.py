@@ -1155,12 +1155,18 @@ def _show_grounded_calibration(args, ai_id: str, weeks: int, output_format: str,
 
     try:
         db = SessionDatabase()
-        from empirica.core.post_test.grounded_calibration import GroundedCalibrationManager
+        from empirica.config.path_resolver import get_git_root
+        from empirica.core.post_test.grounded_calibration import GroundedCalibrationManager, load_calibration_exclusions
 
         gcm = GroundedCalibrationManager(db)
+        # The practice's own known-bad windows (project.yaml `calibration_exclusions`), the same ones the injected
+        # bias block uses, so this report and that block agree and the output says what it left out.
+        git_root = get_git_root()
+        exclusions = load_calibration_exclusions(str(git_root) if git_root else None)
         grounded_beliefs = gcm.get_grounded_beliefs(ai_id)
-        grounded_adjustments = gcm.get_grounded_adjustments(ai_id)
-        divergence = gcm.get_calibration_divergence(ai_id)
+        grounded_adjustments = gcm.get_grounded_adjustments(ai_id, exclusions)
+        divergence = gcm.get_calibration_divergence(ai_id, exclusions)
+        exclusions_applied = gcm.summarize_exclusions(ai_id, exclusions)
 
         # Load open disputes
         open_disputes = _get_open_disputes(db)
@@ -1193,6 +1199,7 @@ def _show_grounded_calibration(args, ai_id: str, weeks: int, output_format: str,
                     ),
                 },
                 "divergence": divergence,
+                "exclusions_applied": exclusions_applied,
             }
             if getattr(args, "windowed", False):
                 windowed = gcm.get_windowed_divergence(ai_id, weeks)
@@ -1213,6 +1220,11 @@ def _show_grounded_calibration(args, ai_id: str, weeks: int, output_format: str,
             print(
                 f"   ai_id: {ai_id} | window: all history (--weeks applies to --learning-trajectory and --trajectory only)"
             )
+            for item in exclusions_applied:
+                print(
+                    f"   excluded as known-bad ({', '.join(item['vectors'])}, {item['observations']} observations): "
+                    f"{item['reason'] or 'no reason recorded'}"
+                )
             _print_grounded_calibration_human(total_grounded_evidence, open_disputes, divergence, grounded_adjustments)
 
         # Optional trajectory trend

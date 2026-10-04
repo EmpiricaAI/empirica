@@ -36,11 +36,14 @@ class _FakeGCM:
     def get_grounded_beliefs(self, ai_id):
         return {"know": types.SimpleNamespace(evidence_count=12), "state": types.SimpleNamespace(evidence_count=9)}
 
-    def get_grounded_adjustments(self, ai_id):
+    def get_grounded_adjustments(self, ai_id, exclusions=None):
         return dict(ADJUSTMENTS)
 
-    def get_calibration_divergence(self, ai_id):
+    def get_calibration_divergence(self, ai_id, exclusions=None):
         return {k: dict(v) for k, v in DIVERGENCE.items()}
+
+    def summarize_exclusions(self, ai_id, exclusions):
+        return [{"vectors": ["change"], "observations": 7, "reason": "r"}] if exclusions else []
 
 
 @pytest.fixture
@@ -48,6 +51,8 @@ def report(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("EMPIRICA_SESSION_DB", str(tmp_path / "sessions.db"))
     monkeypatch.setattr(gc, "GroundedCalibrationManager", _FakeGCM)
     monkeypatch.setattr(mc, "_get_open_disputes", lambda _db: {})
+    # Never read this checkout's project.yaml: the practice's real exclusions would change what these tests see.
+    monkeypatch.setattr(gc, "load_calibration_exclusions", lambda _root: [])
 
     def run(ai_id="some-practice", weeks=8, output="json"):
         mc._show_grounded_calibration(types.SimpleNamespace(), ai_id, weeks, output, False)
@@ -112,3 +117,15 @@ def test_the_ai_id_help_no_longer_claims_the_default_is_all():
     text = _help("ai_id")
 
     assert "default: all" not in text.lower() and "own" in text.lower()
+
+
+def test_exclusions_applied_are_reported_in_json_and_in_the_human_output(report, monkeypatch):
+    entry = {"vectors": ["change"], "source": "git", "from": None, "until": None, "reason": "r"}
+    monkeypatch.setattr(gc, "load_calibration_exclusions", lambda _root: [entry])
+
+    assert report()["exclusions_applied"] == [{"vectors": ["change"], "observations": 7, "reason": "r"}]
+    assert "excluded as known-bad" in report(output="human")
+
+
+def test_no_exclusions_means_an_empty_list_not_a_missing_key(report):
+    assert report()["exclusions_applied"] == []

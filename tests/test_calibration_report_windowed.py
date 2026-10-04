@@ -99,6 +99,7 @@ def _run(db, monkeypatch, capsys, windowed, weeks=1):
     """The report closes the handle it opens, so each run gets a fresh one on the same file."""
     path = db.db_path
     monkeypatch.setattr(mc, "_get_open_disputes", lambda _db: {})
+    monkeypatch.setattr("empirica.core.post_test.grounded_calibration.load_calibration_exclusions", lambda _root: [])
     monkeypatch.setattr(
         "empirica.data.session_database.SessionDatabase", lambda *_a, **_k: SessionDatabase(db_path=path)
     )
