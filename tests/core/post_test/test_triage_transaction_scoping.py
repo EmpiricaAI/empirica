@@ -245,37 +245,21 @@ class TestTriageUnknownResolution:
         # Transaction scale: 0.5 + 1*0.2 = 0.7
         assert unknown_item.value == pytest.approx(0.7, abs=0.01)
 
-    def test_transaction_scope_unknowns_change_threshold_is_two(self):
-        """Transaction scope: 2 unknowns resolved triggers triage_change.
-        (Session scope requires 5.)"""
-        conn = _setup_db()
-        now = time.time()
-        preflight = now - 60
-        _insert_session(conn, "tx-test", now - 3600)
-        _insert_unknown(conn, "u1", "tx-test", resolved=True, resolved_ts=now - 40)
-        _insert_unknown(conn, "u2", "tx-test", resolved=True, resolved_ts=now - 30)
+    def test_resolving_unknowns_never_emits_triage_change(self):
+        """triage_change (min(1, resolved/4)) was removed 2026-10-04: resolving unknowns is not change.
+        Both scopes, however many are resolved. See tests/test_no_count_to_change.py."""
+        for session, preflight, n in (("tx-test", time.time() - 60, 2), ("sess-test", None, 6)):
+            conn = _setup_db()
+            now = time.time()
+            _insert_session(conn, session, now - 3600)
+            for i in range(n):
+                _insert_unknown(conn, f"u{i}", session, resolved=True, resolved_ts=now - 30)
 
-        collector = _make_collector(conn, "tx-test", preflight_timestamp=preflight)
-        items = collector._collect_triage_metrics()
+            items = _make_collector(conn, session, preflight_timestamp=preflight)._collect_triage_metrics()
 
-        change_item = next((i for i in items if i.metric_name == "triage_change"), None)
-        assert change_item is not None
-        assert change_item.value > 0.0
-
-    def test_session_scope_unknowns_change_threshold_still_five(self):
-        """Session scope (legacy): 2 unknowns should NOT trigger triage_change."""
-        conn = _setup_db()
-        now = time.time()
-        session_start = now - 3600
-        _insert_session(conn, "sess-test", session_start)
-        _insert_unknown(conn, "u1", "sess-test", resolved=True, resolved_ts=now - 40)
-        _insert_unknown(conn, "u2", "sess-test", resolved=True, resolved_ts=now - 30)
-
-        collector = _make_collector(conn, "sess-test", preflight_timestamp=None)
-        items = collector._collect_triage_metrics()
-
-        change_item = next((i for i in items if i.metric_name == "triage_change"), None)
-        assert change_item is None  # Below session-scale threshold of 5
+            if preflight is not None:  # without a preflight timestamp the collector emits nothing at all
+                assert any(i.metric_name == "unknowns_resolved" for i in items), "collector live (positive control)"
+            assert not any(i.metric_name == "triage_change" for i in items)
 
 
 # ---------------------------------------------------------------------------

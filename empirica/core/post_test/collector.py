@@ -777,8 +777,8 @@ class PostTestCollector:
                 )
             )
 
-            # Goal completion also grounds impact and change:
-            # completing goals = delivering impact, creating change
+            # Goal completion grounds impact. It does NOT ground change: finishing goals is bookkeeping, not an
+            # observation of what changed (ruled 2026-10-04; the git sensors observe change).
             if completed > 0:
                 # Impact: completing any goals shows delivered value
                 impact_score = min(1.0, ratio * 1.2)  # Boost slightly — completion is strong impact signal
@@ -790,20 +790,6 @@ class PostTestCollector:
                         raw_value={"completed": completed, "total": total},
                         quality=EvidenceQuality.SEMI_OBJECTIVE,
                         supports_vectors=["impact"],
-                        metadata={"session_id": self.session_id},
-                    )
-                )
-
-                # Change: completed goals = state change happened
-                change_score = ratio  # Direct ratio — completing half the goals = 0.5 change
-                items.append(
-                    EvidenceItem(
-                        source="goals",
-                        metric_name="goal_completion_change",
-                        value=change_score,
-                        raw_value={"completed": completed, "total": total},
-                        quality=EvidenceQuality.SEMI_OBJECTIVE,
-                        supports_vectors=["change"],
                         metadata={"session_id": self.session_id},
                     )
                 )
@@ -1323,7 +1309,7 @@ class PostTestCollector:
                             "scope": scope_label,
                         },
                         quality=EvidenceQuality.SEMI_OBJECTIVE,
-                        supports_vectors=["completion", "change"],
+                        supports_vectors=["completion"],
                         metadata={"work_type": "triage"},
                     )
                 )
@@ -1359,25 +1345,6 @@ class PostTestCollector:
                     metadata={"work_type": "triage"},
                 )
             )
-
-            # High resolution count signals change happened.
-            # Transaction-scoped: 2+ resolutions is substantial.
-            if unknowns_resolved >= 2:
-                change_score = min(1.0, unknowns_resolved / 4.0)
-                items.append(
-                    EvidenceItem(
-                        source="triage",
-                        metric_name="triage_change",
-                        value=change_score,
-                        raw_value={
-                            "unknowns_resolved": unknowns_resolved,
-                            "scope": scope_label,
-                        },
-                        quality=EvidenceQuality.SEMI_OBJECTIVE,
-                        supports_vectors=["change"],
-                        metadata={"work_type": "triage"},
-                    )
-                )
 
         return items
 
