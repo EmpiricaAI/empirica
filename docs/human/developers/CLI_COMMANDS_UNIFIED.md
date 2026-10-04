@@ -23,7 +23,7 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.14.6
-**Generated:** 2026-10-04 12:13:30 UTC
+**Generated:** 2026-10-04 14:53:56 UTC
 **Total commands:** 241 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -2773,6 +2773,12 @@ Export one practice's current grounding state (self-assessed + grounded 13-vecto
 
 - `--ai-id` — **required**
   Practice to export (canonical 3-form or bare basename)
+- `--transactions` — optional · flag
+  Export per-transaction history instead of the state snapshot: ids, timestamps, PREFLIGHT / CHECK(s) / POSTFLIGHT vectors, self vs grounded per vector, linked goal ids and artifact ids with type. Structure only: no objective, title, reasoning or other text, so it can leave the practice without a content review
+- `--since` — optional
+  With --transactions: only transactions that started at or after this (epoch, YYYY-MM-DD or ISO UTC)
+- `--limit` — optional · type=`int`
+  With --transactions: newest N transactions (default 50, max 1000); the output says if it truncated
 - `--output` — optional · type=`choice` · choices={human, json} · default=`json`
   Output format (default: json)
 

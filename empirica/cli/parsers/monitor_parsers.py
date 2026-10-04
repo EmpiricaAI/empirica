@@ -187,6 +187,27 @@ ai_id → ok:false, reason:not_local.
         "--ai-id", required=True, help="Practice to export (canonical 3-form or bare basename)"
     )
     grounding_export_parser.add_argument(
+        "--transactions",
+        action="store_true",
+        default=False,
+        help=(
+            "Export per-transaction history instead of the state snapshot: ids, timestamps, PREFLIGHT / CHECK(s) / "
+            "POSTFLIGHT vectors, self vs grounded per vector, linked goal ids and artifact ids with type. Structure "
+            "only: no objective, title, reasoning or other text, so it can leave the practice without a content review"
+        ),
+    )
+    grounding_export_parser.add_argument(
+        "--since",
+        default=None,
+        help="With --transactions: only transactions that started at or after this (epoch, YYYY-MM-DD or ISO UTC)",
+    )
+    grounding_export_parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="With --transactions: newest N transactions (default 50, max 1000); the output says if it truncated",
+    )
+    grounding_export_parser.add_argument(
         "--output", choices=["human", "json"], default="json", help="Output format (default: json)"
     )
 

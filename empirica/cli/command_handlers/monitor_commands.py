@@ -1881,6 +1881,41 @@ _GROUNDING_VECTORS = (
 )
 
 
+def _export_transactions(args, ai_id: str, output: str) -> int:
+    """`grounding-export --transactions`: structure-only transaction history (core/transaction_export.py)."""
+    from empirica.core.transaction_export import export_transactions, parse_since
+    from empirica.data.session_database import SessionDatabase
+
+    def fail(payload: dict) -> int:
+        print(json.dumps(payload) if output == "json" else f"Error: {payload.get('error') or payload.get('reason')}")
+        return 1
+
+    try:
+        since = parse_since(getattr(args, "since", None))
+    except ValueError as e:
+        return fail({"ok": False, "ai_id": ai_id, "error": str(e)})
+    db = SessionDatabase()
+    try:
+        has_sessions = db.conn.execute("SELECT COUNT(*) FROM sessions WHERE ai_id = ?", (ai_id,)).fetchone()[0] > 0
+        if not has_sessions:
+            return fail(
+                {"ok": False, "ai_id": ai_id, "reason": "not_local", "hint": "no sessions for this ai_id on this host"}
+            )
+        result = export_transactions(db.conn, ai_id, since=since, limit=getattr(args, "limit", None))
+    except Exception as e:
+        return fail({"ok": False, "ai_id": ai_id, "error": str(e)})
+    finally:
+        db.close()
+    if output == "json":
+        print(json.dumps(result, indent=2))
+    else:
+        print(
+            f"grounding-export --transactions {ai_id}: {result['returned']} of {result['total_matching']} transactions"
+            f"{' (truncated)' if result['truncated'] else ''}"
+        )
+    return 0
+
+
 def handle_grounding_export_command(args):
     """Export a single practice's current grounding state as JSON.
 
@@ -1908,6 +1943,9 @@ def handle_grounding_export_command(args):
     # Accept the canonical 3-form (org.tenant.project) or the bare basename —
     # the db stores the basename ai_id.
     ai_id = raw.rsplit(".", 1)[-1] if "." in raw else raw
+
+    if getattr(args, "transactions", False):
+        return _export_transactions(args, ai_id, output)
 
     try:
         from empirica.core.post_test.grounded_calibration import GroundedCalibrationManager
