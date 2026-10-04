@@ -162,3 +162,44 @@ def test_a_database_that_is_not_the_cwds_is_flagged(tmp_path, monkeypatch, capsy
 
     assert out["target"]["matches_cwd"] is False
     assert "not the current directory's" in out["warning"] and "project" in out["warning"]
+
+
+# ── 4. plainly read-only commands the classifier gated (ecodex follow-up, prop_qioc34jtwjhonn5xts2lei63ee) ──────────────────
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "readlink -f /tmp",
+        "realpath /tmp",
+        "git merge-base --is-ancestor HEAD~1 HEAD",
+        "git merge-base HEAD origin/develop",
+        "claude --version",
+        "empirica --version; readlink -f /tmp; git log -1; rg -n foo file",
+        "git log -1 && git merge-base --is-ancestor a b",
+    ],
+)
+def test_a_plain_read_is_not_gated(gate, command):
+    assert _safe(gate, command)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "readlink -f /tmp > out.txt",
+        "realpath /tmp; rm -rf x",
+        "git merge-base HEAD x && git push",
+        "claude --version; touch x",
+        "claude login",
+        "claude --dangerously-skip-permissions",
+    ],
+)
+def test_the_new_reads_do_not_open_a_write_path(gate, command):
+    """Control: each of these is a real write, a chain into one, or a different claude verb, and must still gate."""
+    assert not _safe(gate, command)
+
+
+def test_infra_only_inspection_stays_gated_outside_infra_work(gate):
+    """`ss`, `free` and `uptime` are reads, but they are allowed by work_type on purpose (INFRA_SAFE_PREFIXES), not globally."""
+    for command in ("ss -ltn", "free -m", "uptime"):
+        assert not _safe(gate, command), command

@@ -209,6 +209,9 @@ SAFE_BASH_PREFIXES = (
     "file ",
     "stat ",
     "wc ",
+    # Path resolution — prints a path, has no write mode (ecodex, 2026-10-04: `readlink -f` gated a whole read-only line).
+    "readlink ",
+    "realpath ",
     # Hashing — read-only, and the gate was actively discouraging the safer move.
     # A bare `sha256sum <path>` was denied as praxic during mesh patch intake: one
     # command, no redirect, no chain, while `rg` and Read on the same file flowed.
@@ -315,6 +318,7 @@ SAFE_BASH_PREFIXES = (
     # Version/help queries (always safe, any tool)
     "--version",
     "--help",
+    "claude --version",
     "python3 --version",
     "python --version",
     "node --version",
@@ -404,6 +408,7 @@ SAFE_BASH_PREFIXES = (
     "scc ",
     # Git read operations (additions)
     "git rev-parse",
+    "git merge-base",
     "git rev-list",
     "git for-each-ref",
     "git describe",
