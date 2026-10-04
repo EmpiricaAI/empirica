@@ -318,7 +318,6 @@ SAFE_BASH_PREFIXES = (
     # Version/help queries (always safe, any tool)
     "--version",
     "--help",
-    "claude --version",
     "python3 --version",
     "python --version",
     "node --version",
@@ -408,7 +407,7 @@ SAFE_BASH_PREFIXES = (
     "scc ",
     # Git read operations (additions)
     "git rev-parse",
-    "git merge-base",
+    "git merge-base ",  # trailing space: a word boundary, so `git merge-basefoo` is not this
     "git rev-list",
     "git for-each-ref",
     "git describe",
@@ -2397,6 +2396,11 @@ _ENV_PREFIX_RE = re.compile(r"env(?:\s+|$)")
 _ENV_ASSIGN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=(?:\"[^\"]*\"|'[^']*'|\S*)\s*")
 
 
+#: Commands that are safe ONLY as written, with nothing after them. A prefix entry cannot say that: `claude --version`
+#: as a prefix also matched `claude --version -p 'rm -rf x'` and `claude --version-evil`.
+_EXACT_SAFE_COMMANDS = frozenset({"claude --version"})
+
+
 def _matches_safe_prefix(cmd: str) -> bool:
     """Check if a command matches any SAFE_BASH_PREFIXES entry.
 
@@ -2425,6 +2429,8 @@ def _matches_safe_prefix(cmd: str) -> bool:
             rest = rest[assign.end() :]
         rest = rest.strip()
         return True if not rest else is_safe_bash_command({"command": rest})
+    if cmd.strip() in _EXACT_SAFE_COMMANDS:
+        return True
     for prefix in SAFE_BASH_PREFIXES:
         if cmd.startswith(prefix):
             # A bare-word prefix names a COMMAND, so it must end at a word boundary: `id` is not
@@ -2909,15 +2915,32 @@ def _classify_chain(command: str) -> bool | None:
 
 
 def _strip_sql_literals(sql: str) -> str:
-    """`sql` with the contents of '...' and "..." literals blanked, so a keyword scan sees only code.
+    """`sql` with quoted literals and comments blanked, so a keyword scan sees only code.
 
-    A doubled quote inside a literal is an escaped quote and does not end it. A literal that never terminates is NOT
-    blanked: it is an SQL error, not a place to hide a statement, so its text stays visible to the scan.
+    Scanned in order, one pass, because the three are not independent: a quote inside a comment is not a literal
+    (`-- it's` must not open one) and a comment marker inside a literal is data (`'-- x'`). A doubled quote inside a
+    literal is an escaped quote and does not end it. A literal or block comment that never terminates is NOT blanked:
+    it is an SQL error, not a place to hide a statement, so its text stays visible to the scan.
     """
     out: list[str] = []
     i, n = 0, len(sql)
     while i < n:
         ch = sql[i]
+        if ch == "-" and sql[i : i + 2] == "--":  # line comment: to the end of the line
+            j = sql.find("\n", i)
+            if j == -1:
+                j = n
+            out.append(" ")
+            i = j
+            continue
+        if ch == "/" and sql[i : i + 2] == "/*":  # block comment
+            j = sql.find("*/", i + 2)
+            if j == -1:  # unterminated: keep it as code
+                out.append(sql[i:])
+                break
+            out.append(" ")
+            i = j + 2
+            continue
         if ch not in ("'", '"'):
             out.append(ch)
             i += 1
@@ -2930,7 +2953,7 @@ def _strip_sql_literals(sql: str) -> str:
                     continue
                 break
             j += 1
-        if j >= n:  # unterminated: keep it as code
+        if j >= n:  # unterminated literal: keep it as code
             out.append(sql[i:])
             break
         out.append(ch + " " + ch)
@@ -3055,7 +3078,6 @@ def is_safe_sqlite_command(command: str) -> bool:
     Blocks:
     - sqlite3 db "INSERT/UPDATE/DELETE/DROP/CREATE/ALTER ..."
     """
-    import re
     import shlex
 
     # Tokenize the way the shell would, so flags BEFORE the db path
@@ -3087,75 +3109,113 @@ def is_safe_sqlite_command(command: str) -> bool:
     # corrupts the gate's meaning far more than it protects anything.
     value_flags = {"-separator", "-nullvalue", "-newline", "-cmd", "-init", "-mode", "-lookaside", "-vfs"}
     positionals: list[str] = []
+    startup_commands: list[str] = []
     args = tokens[1:]
     i = 0
     while i < len(args):
         tok = args[i]
+        if tok == "-init":
+            return False  # runs a script file we cannot read
+        if tok == "-cmd":
+            # sqlite3 executes the value before the database is opened: classify it like any other statement.
+            if i + 1 >= len(args):
+                return False
+            startup_commands.append(args[i + 1])
+            i += 2
+            continue
         if tok in value_flags:
             i += 2  # skip the flag AND its value
             continue
         if tok.startswith("-"):
             i += 1  # bare flag (-header/-json/-line/-box/-csv/-readonly/…)
             continue
+        if re.match(r"^(\d*|&)>>?", tok):
+            # A redirect (`2>/dev/null`, `2>&1`, `>f`) is not a statement. Whether a file redirect is allowed at all is
+            # decided by the caller's redirect gate; here it only must not be mistaken for SQL to classify.
+            i += 1
+            continue
         positionals.append(tok)
         i += 1
 
-    # Shape is `sqlite3 [flags] <db_path> <query> [redirects…]`. The query is
-    # the arg RIGHT AFTER the db path (positionals[1]) — taking the last
-    # positional would be fooled by a trailing `2>/dev/null`. No query means an
-    # interactive REPL (which can write) → block.
+    # Shape is `sqlite3 [flags] <db_path> <query>... [redirects…]`. sqlite3 runs EVERY positional after the db path
+    # as its own statement, plus every -cmd value before them, so each one is classified: checking only the first let
+    # `sqlite3 db "SELECT 1" "DROP TABLE t"` through. No query means an interactive REPL (which can write) → block.
     if len(positionals) < 2:
         return False
-    query = positionals[1].strip().upper()
-    # The write-keyword scan reads the query WITHOUT its quoted literals: a word inside '...' or "..." is data or a
-    # name, not a statement (ecodex, 2026-10-03: LIKE '%ecodex update%' gated a pure SELECT).
-    code_only = _strip_sql_literals(positionals[1].strip()).upper()
+    return all(_is_safe_sqlite_statement(q) for q in [*startup_commands, *positionals[1:]])
 
-    # Write-keyword backstop (defense in depth): any DML/DDL anywhere in the
-    # query — including inside a writable CTE (`WITH … DELETE`) — → praxic.
-    write_kw = (
-        "INSERT",
-        "UPDATE",
-        "DELETE",
-        "DROP",
-        "CREATE",
-        "ALTER",
-        "REPLACE",
-        "ATTACH",
-        "DETACH",
-        "VACUUM",
-        "REINDEX",
-        "TRUNCATE",
-    )
-    if any(re.search(r"\b" + kw + r"\b", code_only) for kw in write_kw):
+
+_SQLITE_WRITE_KEYWORDS = (
+    "INSERT",
+    "UPDATE",
+    "DELETE",
+    "DROP",
+    "CREATE",
+    "ALTER",
+    r"REPLACE\s+INTO",  # the statement; replace(a, b, c) is a read-only function
+    "ATTACH",
+    "DETACH",
+    "VACUUM",
+    "REINDEX",
+    "TRUNCATE",
+)
+#: Functions that write or load code from inside a SELECT.
+_SQLITE_UNSAFE_FUNCTIONS = ("WRITEFILE", "LOAD_EXTENSION", "EDIT", "FTS3_TOKENIZER")
+_SQLITE_UNSAFE_META = (
+    ".OUTPUT",
+    ".ONCE",
+    ".IMPORT",
+    ".BACKUP",
+    ".CLONE",
+    ".RESTORE",
+    ".SHELL",
+    ".SYSTEM",
+    ".EXCEL",
+    ".READ",
+    ".LOAD",
+    ".OPEN",
+)
+_SQLITE_SAFE_META = (
+    ".SCHEMA",
+    ".TABLES",
+    ".DUMP",
+    ".INDICES",
+    ".INDEXES",
+    ".MODE",
+    ".HEADERS",
+    ".WIDTH",
+    ".HELP",
+    ".DATABASES",
+    ".FULLSCHEMA",
+)
+_SQLITE_SAFE_SQL = ("SELECT", "WITH", "PRAGMA", "EXPLAIN", "ANALYZE")
+
+
+def _is_safe_sqlite_statement(statement: str) -> bool:
+    """One sqlite3 argument: a read query or a display-only dot-command, with no write hiding anywhere in it."""
+    import re
+
+    code = _strip_sql_literals(statement).upper()
+
+    # Write-keyword backstop (defense in depth): any DML/DDL anywhere in the code, including inside a writable CTE
+    # (`WITH … DELETE`). Quoted literals and comments are not code, so a LIKE pattern or a remark may say 'update'.
+    if any(re.search(r"\b" + kw + r"\b", code) for kw in _SQLITE_WRITE_KEYWORDS):
+        return False
+    if any(re.search(r"\b" + fn + r"\s*\(", code) for fn in _SQLITE_UNSAFE_FUNCTIONS):
         return False
 
-    # File-writing / shell-escaping meta commands → praxic.
-    unsafe_meta = (".OUTPUT", ".ONCE", ".IMPORT", ".BACKUP", ".CLONE", ".RESTORE", ".SHELL", ".SYSTEM", ".EXCEL")
-    if any(query.startswith(m) for m in unsafe_meta):
-        return False
+    # A dot-command is recognised at the start of any LINE of the argument, not only the first: `SELECT 1\n.shell …`
+    # runs the shell. Each must be a display-only one, and no file-writing or shell-escaping meta command may appear.
+    for line in code.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(".") and (
+            any(stripped.startswith(m) for m in _SQLITE_UNSAFE_META)
+            or not any(stripped.startswith(m) for m in _SQLITE_SAFE_META)
+        ):
+            return False
 
-    # Safe display-only meta (dot) commands.
-    safe_meta = (
-        ".SCHEMA",
-        ".TABLES",
-        ".DUMP",
-        ".INDICES",
-        ".INDEXES",
-        ".MODE",
-        ".HEADERS",
-        ".WIDTH",
-        ".HELP",
-        ".DATABASES",
-        ".FULLSCHEMA",
-    )
-    if any(query.startswith(meta) for meta in safe_meta):
-        return True
-
-    # Safe read-only SQL (WITH = CTE reads; the write backstop above already
-    # rejected writable CTEs).
-    safe_sql = ("SELECT", "WITH", "PRAGMA", "EXPLAIN", "ANALYZE")
-    return any(query.startswith(sql) for sql in safe_sql)
+    head = code.strip()
+    return any(head.startswith(m) for m in _SQLITE_SAFE_META) or any(head.startswith(sql) for sql in _SQLITE_SAFE_SQL)
 
 
 def is_safe_python_command(command: str) -> bool:
@@ -3923,7 +3983,12 @@ def _closed_loop_message(tool_name: str, tool_input: dict) -> str:
     if tool_name == "Bash":
         command = tool_input.get("command", "") if isinstance(tool_input, dict) else ""
         try:
-            for inner in _extract_command_substitutions(command):
+            # Read what is_safe_bash_command reads (a heredoc body is not command text), and accuse a substitution only
+            # when it is the whole reason: with each one replaced by a placeholder the call must classify safe, or the
+            # real cause is something else (`rm -rf build $(touch x)` is praxic with or without the substitution).
+            head = command.split("<<", 1)[0]
+            would_pass_without = is_safe_bash_command({"command": _strip_command_substitutions(head)})
+            for inner in _extract_command_substitutions(head) if would_pass_without else []:
                 if inner.strip() and not _is_command_text_safe(inner):
                     shown = " ".join(inner.split())
                     shown = shown if len(shown) <= 70 else shown[:69] + "…"

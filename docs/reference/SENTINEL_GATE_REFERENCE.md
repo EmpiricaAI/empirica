@@ -186,6 +186,8 @@ Write operations (`INSERT`, `UPDATE`, `DELETE`, `DROP`, `CREATE`, `ALTER`) are b
 
 The write-keyword scan reads the query with its quoted literals blanked: a word inside `'...'` or `"..."` is data or a name, so `SELECT ... LIKE '%ecodex update%'` is a read. A doubled quote stays inside the literal, and a literal that never terminates is scanned as code rather than trusted, so a statement cannot be hidden behind a stray quote.
 
+Comments are blanked in the same pass, in order, because a quote inside `-- it's` is not a literal and a `--` inside a literal is data. Every positional after the database path is classified as its own statement, and so is every `-cmd` value (sqlite3 runs them all); `-init` is refused because it runs a file the gate cannot read. A dot-command is recognised at the start of any line of an argument and must be a display-only one. `writefile()`, `load_extension()`, `edit()` and `fts3_tokenizer()` are refused; `replace(a, b, c)` is a read and only `REPLACE INTO` is a write.
+
 ### Work-Type-Aware Command Expansion (INFRA_SAFE_PREFIXES)
 
 When PREFLIGHT declares `work_type` as `infra`, `config`, or `debug`, the Sentinel expands the safe command list with additional inspection prefixes. The user explicitly chose the work type, so this is a scope declaration.
