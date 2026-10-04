@@ -3906,6 +3906,39 @@ def _detect_subagent(claude_session_id: str) -> bool:
     return False
 
 
+_LOOP_CLOSED_MESSAGE = (
+    "Epistemic loop closed (POSTFLIGHT completed). Run new PREFLIGHT to start next goal. "
+    "Command: empirica preflight-submit - (JSON with vectors on stdin)"
+)
+
+
+def _closed_loop_message(tool_name: str, tool_input: dict) -> str:
+    """The deny text for a praxic call after POSTFLIGHT, naming the real cause when it is not the loop.
+
+    A command substitution in the text (`...` or $(...), also inside single quotes because the scan is
+    quote-agnostic) whose inner command is not a recognised read fails the whole call, and "Run new PREFLIGHT" names a
+    remedy that cannot clear that: the operator reads it as "goals are not allowed outside a transaction" and reports it
+    as a rule (cortex, 2026-10-04). Say what refused it first. Every other praxic call keeps the ordinary message.
+    """
+    if tool_name == "Bash":
+        command = tool_input.get("command", "") if isinstance(tool_input, dict) else ""
+        try:
+            for inner in _extract_command_substitutions(command):
+                if inner.strip() and not _is_command_text_safe(inner):
+                    shown = " ".join(inner.split())
+                    shown = shown if len(shown) <= 70 else shown[:69] + "…"
+                    return (
+                        "Epistemic loop closed (POSTFLIGHT completed), but that is not why THIS call was refused: its text "
+                        f"contains a command substitution (`...` or $(...), also inside single quotes) whose inner command "
+                        f"`{shown}` is not a recognised read, so the whole call failed. Running PREFLIGHT will not clear "
+                        "this refusal. Remove the substitution (write markdown code spans without backticks, or keep the "
+                        "text in a file) and re-run."
+                    )
+        except Exception:  # advisory text only: never let it cost the deny itself
+            pass
+    return _LOOP_CLOSED_MESSAGE
+
+
 def _check_postflight_loop_closed(
     cursor, session_id: str, current_transaction_id: str | None, preflight_timestamp, tool_name: str, tool_input: dict
 ) -> tuple | None:
@@ -3993,10 +4026,7 @@ def _check_postflight_loop_closed(
                         "only). Re-run `empirica preflight-submit -` ALONE, then run the rest.",
                     )
 
-            return (
-                "deny",
-                "Epistemic loop closed (POSTFLIGHT completed). Run new PREFLIGHT to start next goal. Command: empirica preflight-submit - (JSON with vectors on stdin)",
-            )
+            return ("deny", _closed_loop_message(tool_name, tool_input))
     except (ValueError, TypeError):
         pass  # If timestamps can't be compared, continue with other checks
 
@@ -4839,10 +4869,7 @@ def _handle_closed_transaction(tool_name: str, tool_input: dict) -> None:
         respond("allow", "Noetic tool (transaction closed)")
         sys.exit(0)
     # Praxic tool with closed transaction → correct error message
-    respond(
-        "deny",
-        "Epistemic loop closed (POSTFLIGHT completed). Run new PREFLIGHT to start next goal. Command: empirica preflight-submit - (JSON with vectors on stdin)",
-    )
+    respond("deny", _closed_loop_message(tool_name, tool_input))
     sys.exit(0)
 
 

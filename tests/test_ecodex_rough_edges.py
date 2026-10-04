@@ -203,3 +203,51 @@ def test_infra_only_inspection_stays_gated_outside_infra_work(gate):
     """`ss`, `free` and `uptime` are reads, but they are allowed by work_type on purpose (INFRA_SAFE_PREFIXES), not globally."""
     for command in ("ss -ltn", "free -m", "uptime"):
         assert not _safe(gate, command), command
+
+
+# ── 5. the refusal names its real cause (cortex, prop_o4au4ianpbhzhhelxeddyfe7v4) ───────────────────────────────────────────
+
+GENERIC = "Run new PREFLIGHT to start next goal"
+
+
+def _msg(gate, command):
+    return gate._closed_loop_message("Bash", {"command": command})
+
+
+def test_a_command_substitution_that_is_not_a_read_is_named_not_blamed_on_the_loop(gate):
+    msg = _msg(gate, 'empirica goals-create --objective "x" --description "see `--windowed` here"')
+
+    assert "command substitution" in msg and "--windowed" in msg
+    assert "will not clear" in msg and "PREFLIGHT" in msg
+
+
+def test_a_dollar_paren_wrapper_is_named_the_same_way(gate):
+    msg = _msg(gate, "X=$(touch /tmp/x); echo done")
+
+    assert "command substitution" in msg and "touch /tmp/x" in msg
+
+
+def test_single_quoted_backticks_are_named_with_the_reason_they_are_still_scanned(gate):
+    msg = _msg(gate, "empirica goals-create --description 'a `code span` in markdown'")
+
+    assert "single quotes" in msg and "code span" in msg
+
+
+def test_a_plain_praxic_command_keeps_the_ordinary_loop_closed_message(gate):
+    """Control: the loop IS the reason here, so the old remedy is the right one and nothing else is added."""
+    msg = _msg(gate, "rm -rf build")
+
+    assert GENERIC in msg and "command substitution" not in msg
+
+
+def test_a_substitution_that_is_a_recognised_read_does_not_change_the_message(gate):
+    """`$(date)` is not what refused this call, so the message must not accuse it."""
+    msg = _msg(gate, "rm -rf $(date +%Y)")
+
+    assert "command substitution" not in msg
+
+
+def test_the_two_deny_sites_share_one_message_source(gate):
+    src = (HOOKS / "sentinel-gate.py").read_text()
+
+    assert src.count("to start next goal") == 1 and src.count("_closed_loop_message(") == 3  # def + the two deny sites
