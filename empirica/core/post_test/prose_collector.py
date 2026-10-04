@@ -763,12 +763,12 @@ class ProseEvidenceCollector:
                 )
             )
 
-        # Decisions logged (choice points documented)
+        # Decisions logged IN THIS TRANSACTION (choice points documented). Counted over the session it saturated for
+        # every transaction of a long session, like the two proxies fixed beside it.
+        scope_sql, scope_params, scope = self._transaction_scope("decisions")
         cursor.execute(
-            """
-            SELECT COUNT(*) FROM decisions WHERE session_id = ?
-        """,
-            (self.session_id,),
+            f"SELECT COUNT(*) FROM decisions WHERE session_id = ?{scope_sql}",
+            (self.session_id, *scope_params),
         )
         decision_count = cursor.fetchone()[0]
 
@@ -779,7 +779,7 @@ class ProseEvidenceCollector:
                     source="action_verification",
                     metric_name="decision_documentation",
                     value=decision_score,
-                    raw_value={"decisions_logged": decision_count},
+                    raw_value={"decisions_logged": decision_count, "scope": scope},
                     quality=EvidenceQuality.SEMI_OBJECTIVE,
                     supports_vectors=["context", "signal"],
                 )

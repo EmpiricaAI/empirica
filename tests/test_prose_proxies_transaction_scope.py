@@ -143,3 +143,39 @@ def test_a_database_old_enough_to_lack_transaction_id_falls_back_to_the_session_
     item = _item(_collector(world, "tx-A")._collect_action_verification(), "assumption_logging")
 
     assert item.raw_value["scope"] == "session" and item.raw_value["assumptions_logged"] == 1
+
+
+# ── decisions: the same class, ruled the same way (David, 2026-10-04) ───────
+
+
+def _log_decisions(world, tx, n):
+    for i in range(n):
+        world.db.log_decision(world.pid, world.sid, f"{tx} choice {i}", f"{tx} rationale {i}", transaction_id=tx)
+
+
+def test_decisions_are_counted_in_the_transaction_not_the_session(world):
+    _log_decisions(world, "tx-A", 5)
+    _log_decisions(world, "tx-B", 1)
+
+    item = _item(_collector(world, "tx-B")._collect_action_verification(), "decision_documentation")
+
+    assert item.raw_value["decisions_logged"] == 1
+    assert item.value == pytest.approx(1 / 3)
+    assert item.raw_value["scope"] == "transaction"
+
+
+def test_a_transaction_that_logged_no_decisions_emits_none(world):
+    _log_decisions(world, "tx-A", 9)
+
+    items = _collector(world, "tx-B")._collect_action_verification()
+
+    assert [i for i in items if i.metric_name == "decision_documentation"] == []
+
+
+def test_decision_documentation_keeps_its_vectors(world):
+    """Control: the ruling changed the window, not what it supports (context, signal)."""
+    _log_decisions(world, "tx-A", 3)
+
+    item = _item(_collector(world, "tx-A")._collect_action_verification(), "decision_documentation")
+
+    assert item.supports_vectors == ["context", "signal"]
