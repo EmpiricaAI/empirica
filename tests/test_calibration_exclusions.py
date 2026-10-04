@@ -226,3 +226,55 @@ def test_the_block_tells_the_reader_the_gap_excludes_known_bad_rows():
     )
 
     assert "excluded" in block.lower() and "284" in block and "change" in block
+
+
+# ── pre-release review of 1.14.7 ────────────────────────────────────────────
+
+
+def test_excluding_every_observation_drops_the_vector_instead_of_reporting_the_prior(world):
+    """A replay with nothing left returns the 0.5 prior with zero evidence; emitting that is a fabricated gap."""
+    _history(world)
+    everything = [{"vectors": ["change"], "source": None, "from": 0.0, "until": None, "reason": "all"}]
+
+    assert "change" not in world.gcm.get_calibration_divergence("a", exclusions=everything)
+    assert "change" in world.gcm.get_calibration_divergence("a"), "control: it is there without the exclusion"
+
+
+def test_an_unquoted_yaml_date_is_read_as_a_date(tmp_path):
+    """`from: 2026-08-01` without quotes is a YAML date object, the natural way to write it."""
+    (tmp_path / ".empirica").mkdir()
+    (tmp_path / ".empirica" / "project.yaml").write_text(
+        "name: x\ncalibration_exclusions:\n  - vectors: [change]\n    source: git\n    from: 2026-08-01\n    until: 2026-09-21\n"
+    )
+
+    (entry,) = load_calibration_exclusions(str(tmp_path))
+
+    assert entry["until"] - entry["from"] == 51 * DAY
+
+
+def test_a_mapping_instead_of_a_list_is_warned_about_not_silently_empty(tmp_path, caplog):
+    (tmp_path / ".empirica").mkdir()
+    (tmp_path / ".empirica" / "project.yaml").write_text(
+        "calibration_exclusions:\n  vectors: [change]\n  source: git\n"
+    )
+
+    with caplog.at_level("WARNING"):
+        assert load_calibration_exclusions(str(tmp_path)) == []
+    assert "calibration_exclusions" in caplog.text and "list" in caplog.text
+
+
+def test_an_unknown_vector_name_drops_the_entry_loudly(tmp_path, caplog):
+    root = _project(tmp_path, [{"vectors": ["Change"], "source": "git"}, {"vectors": ["change"], "source": ""}])
+
+    with caplog.at_level("WARNING"):
+        assert load_calibration_exclusions(root) == []
+    assert "Change" in caplog.text
+
+
+def test_an_entry_that_matches_nothing_is_still_reported_with_zero(world):
+    _history(world)
+    nothing = [{"vectors": ["change"], "source": "pytest", "from": None, "until": None, "reason": "typo"}]
+
+    assert world.gcm.summarize_exclusions("a", nothing) == [
+        {"vectors": ["change"], "observations": 0, "reason": "typo"}
+    ]

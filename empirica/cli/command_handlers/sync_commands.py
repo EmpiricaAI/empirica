@@ -1434,6 +1434,16 @@ def handle_rebuild_command(args):
         # only, previews unless --apply, and is idempotent.
         if getattr(args, "reflexes_only", False):
             return _rebuild_reflexes_only(args, output_format)
+        if getattr(args, "apply", False):
+            print(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": "--apply only applies with --reflexes-only; the default rebuild always writes",
+                    }
+                )
+            )
+            return 1
 
         # --qdrant-only: re-embed Qdrant from CURRENT SQLite WITHOUT the notes-import
         # step. The default path (_rebuild_from_notes) reconstructs SQLite from git notes

@@ -179,3 +179,20 @@ def test_decision_documentation_keeps_its_vectors(world):
     item = _item(_collector(world, "tx-A")._collect_action_verification(), "decision_documentation")
 
     assert item.supports_vectors == ["context", "signal"]
+
+
+def test_a_transaction_logged_under_two_sessions_is_counted_whole(world):
+    """A transaction that outlives a compaction is logged under more than one session id; the window is the transaction."""
+    sid2 = world.db.create_session(ai_id="a", project_id=world.pid)
+    world.db.log_finding(world.pid, world.sid, "first half of tx-A", transaction_id="tx-A")
+    world.db.log_finding(world.pid, sid2, "second half of tx-A", transaction_id="tx-A")
+    world.db.log_assumption(world.pid, world.sid, "assumed one", transaction_id="tx-A")
+    world.db.log_assumption(world.pid, sid2, "assumed two", transaction_id="tx-A")
+
+    for sid in (world.sid, sid2):
+        collector = ProseEvidenceCollector(session_id=sid, project_id=world.pid, db=world.db, transaction_id="tx-A")
+        findings = _item(collector._collect_document_metrics(), "finding_production")
+        assumptions = _item(collector._collect_action_verification(), "assumption_logging")
+
+        assert findings.raw_value["findings_logged"] == 2 and findings.raw_value["scope"] == "transaction"
+        assert assumptions.raw_value["assumptions_logged"] == 2

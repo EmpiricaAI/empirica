@@ -6,8 +6,12 @@ as PREFLIGHT, CHECK(s), POSTFLIGHT vector states with self versus grounded value
 free-text fields (reasoning, objectives, artifact titles, retrospectives) carry people's and clients' names.
 
 How that is held: nothing is read from a text column. Reflex JSON is read through a whitelist of keys, and every string that
-survives is checked against a narrow token pattern, so prose arriving under a whitelisted key is dropped, not passed through.
-`dropped_unsafe_values` counts those, so a field that stopped being an enum is visible rather than silently missing.
+survives is checked against what that field can legitimately be: identifiers must be UUID- or hex-shaped, enum fields must
+be a member of a closed vocabulary, a notes ref must have the exact shape the writer produces, numbers must be finite and
+bounded. A single word is not enough (a name, a client, a lowercased slug all fit a token pattern), so the pattern alone is
+not the contract. Anything else is dropped, never passed through, and `dropped_unsafe_values` counts it, so a field that
+stopped being an enum, or a vocabulary that grew, is visible rather than silently missing. The one field that is only
+shape-checked is `practitioner_model` (a model id from a known family prefix, lowercase, no spaces).
 """
 
 from __future__ import annotations
@@ -39,17 +43,51 @@ VECTORS = (
 DEFAULT_LIMIT = 50
 MAX_LIMIT = 1000
 
-#: Identifiers and enum-shaped tokens: one word, no spaces, bounded. A sentence cannot match.
+#: Free-form tokens are used only for the practice name echoed back. Everything else below is stricter.
 _TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,79}")
+_UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+_HEX_ID = re.compile(r"[0-9a-f]{8,64}")
 _SHA = re.compile(r"[0-9a-f]{7,64}")
-#: A git notes ref is a slash-separated path of ids (`empirica/session/<id>/postflight/<id>`): no spaces, so not prose.
-_REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,199}")
+#: The one notes ref a session-phase checkpoint is written under: no free text can be a segment of it.
+_REF = re.compile(r"empirica/session/[0-9a-f-]{36}/(PREFLIGHT|CHECK|POSTFLIGHT)/[0-9]{1,6}")
+_MODEL = re.compile(r"(claude|gpt|codex|gemini|o[0-9]|qwen|llama|mistral|deepseek|grok)[a-z0-9.-]{0,60}")
+_NUMBER_LIMIT = 1e12  # epoch seconds are ~1.8e9; this only stops absurd values
+
+
+def _compliance_values() -> frozenset[str]:
+    try:
+        from empirica.core.post_test.compliance_status import ComplianceStatus
+
+        return frozenset(m.value for m in ComplianceStatus)
+    except Exception:  # an old install: refuse every value rather than guess
+        return frozenset()
+
+
+#: Closed vocabularies. A value outside its set is dropped and counted, which is the visible failure: when a vocabulary
+#: grows the export says so, instead of passing whatever the new value is.
+_VOCAB: dict[str, frozenset[str]] = {
+    "goal_status": frozenset({"planned", "in_progress", "completed", "abandoned", "blocked", "paused", "archived"}),
+    "grounded_phase": frozenset({"combined", "noetic", "praxic"}),
+    "decision": frozenset({"proceed", "proceed_with_caution", "investigate", "investigate_more"}),
+    "work_type": frozenset(
+        {"code", "research", "docs", "debug", "infra", "release", "remote-ops", "config", "data", "comms", "design", "audit"}
+    ),
+    "consistency": frozenset({"good", "moderate", "poor"}),
+    "compliance": _compliance_values(),
+    "source": frozenset(
+        {
+            "artifacts", "sentinel", "goals", "issues", "noetic", "git", "code_quality", "triage", "codebase_model",
+            "non_git_files", "meta", "prose_quality", "prose_stylometry", "document_metrics", "source_quality",
+            "action_verification", "pytest", "web",
+        }
+    ),
+}  # fmt: skip
 
 #: reflex_data keys that may be read, by phase, and the kind each must be.
 _REFLEX_FIELDS: dict[str, dict[str, str]] = {
     "PREFLIGHT": {"git_commit_sha": "sha", "git_notes_ref": "ref"},
     "CHECK": {
-        "decision": "token",
+        "decision": "vocab:decision",
         "confidence": "number",
         "cycle": "number",
         "auto_checkpoint": "bool",
@@ -57,8 +95,8 @@ _REFLEX_FIELDS: dict[str, dict[str, str]] = {
         "git_notes_ref": "ref",
     },
     "POSTFLIGHT": {
-        "work_type": "token",
-        "internal_consistency": "token",
+        "work_type": "vocab:work_type",
+        "internal_consistency": "vocab:consistency",
         "tool_call_count": "number",
         "postflight_confidence": "number",
         "auto_closed": "bool",
@@ -105,18 +143,44 @@ class _Safe:
     def __init__(self) -> None:
         self.dropped = 0
 
+    def _drop(self, value: Any) -> None:
+        if value not in (None, ""):
+            self.dropped += 1
+
     def token(self, value: Any) -> str | None:
         if isinstance(value, str) and _TOKEN.fullmatch(value):
             return value
-        if value not in (None, ""):
-            self.dropped += 1
+        self._drop(value)
+        return None
+
+    def ident(self, value: Any) -> str | None:
+        """An id: UUID- or hex-shaped. A word, however innocent, is not an id."""
+        if isinstance(value, str) and (_UUID.fullmatch(value) or _HEX_ID.fullmatch(value)):
+            return value
+        self._drop(value)
+        return None
+
+    def vocab(self, name: str, value: Any) -> str | None:
+        if isinstance(value, str) and value in _VOCAB[name]:
+            return value
+        self._drop(value)
+        return None
+
+    def model(self, value: Any) -> str | None:
+        if isinstance(value, str) and _MODEL.fullmatch(value):
+            return value
+        self._drop(value)
         return None
 
     def number(self, value: Any) -> float | int | None:
-        if isinstance(value, (int, float)) and not isinstance(value, bool) and value == value:
+        if (
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and value == value
+            and abs(value) <= _NUMBER_LIMIT
+        ):
             return round(value, 4) if isinstance(value, float) else value
-        if value not in (None, ""):
-            self.dropped += 1
+        self._drop(value)
         return None
 
     def kind(self, kind: str, value: Any) -> Any:
@@ -124,13 +188,12 @@ class _Safe:
             return value if isinstance(value, bool) else None
         if kind == "number":
             return self.number(value)
+        if kind.startswith("vocab:"):
+            return self.vocab(kind.split(":", 1)[1], value)
         pattern = {"sha": _SHA, "ref": _REF}.get(kind)
-        if pattern is None:
-            return self.token(value)
-        if isinstance(value, str) and pattern.fullmatch(value):
+        if pattern is not None and isinstance(value, str) and pattern.fullmatch(value):
             return value
-        if value not in (None, ""):
-            self.dropped += 1
+        self._drop(value)
         return None
 
 
@@ -194,7 +257,7 @@ def _grounded(row, safe: _Safe) -> dict:
             for key in ("confidence", "evidence_count"):
                 if safe.number(g.get(key)) is not None:
                     entry[key] = safe.number(g[key])
-            if safe.token(g.get("source")) is not None:
+            if safe.vocab("source", g.get("source")) is not None:
                 entry["source"] = g["source"]
         if "self" in entry and "grounded" in entry:
             gap = gaps.get(vec) if safe.number(gaps.get(vec)) is not None else entry["self"] - entry["grounded"]
@@ -202,13 +265,13 @@ def _grounded(row, safe: _Safe) -> dict:
         if entry:
             vectors[vec] = entry
     return {
-        "phase": safe.token(row["phase"]),
+        "phase": safe.vocab("grounded_phase", row["phase"]),
         "created_at": safe.number(row["created_at"]),
         "grounded_coverage": safe.number(row["grounded_coverage"]),
         "overall_calibration_score": safe.number(row["overall_calibration_score"]),
         "evidence_count": safe.number(row["evidence_count"]),
-        "practitioner_model": safe.token(row["practitioner_model"]),
-        "compliance_status": safe.token(row["compliance_status"]),
+        "practitioner_model": safe.model(row["practitioner_model"]),
+        "compliance_status": safe.vocab("compliance", row["compliance_status"]),
         "vectors": vectors,
     }
 
@@ -248,10 +311,15 @@ def _export(conn, ai_id: str, since: float | None, limit: int) -> dict:
         (ai_id, lower),
     ).fetchone()[0]
 
+    # A transaction whose id is not UUID- or hex-shaped cannot be linked by a consumer and its id could be anything:
+    # it is left out and counted, rather than emitted with a null id.
+    usable = [row for row in starts if _UUID.fullmatch(row["tx"]) or _HEX_ID.fullmatch(row["tx"])]
+    unsafe_ids = len(starts) - len(usable)
+    starts = usable
     chosen = [row["tx"] for row in starts[:limit]]
     records: dict[str, dict] = {
         tx: {
-            "transaction_id": safe.token(tx),
+            "transaction_id": safe.ident(tx),
             "session_id": None,
             "ai_id": safe.token(ai_id),
             "preflight": None,
@@ -266,10 +334,12 @@ def _export(conn, ai_id: str, since: float | None, limit: int) -> dict:
 
     for part in _chunks(chosen):
         for row in conn.execute(
-            f"SELECT * FROM reflexes WHERE transaction_id IN ({_marks(len(part))}) ORDER BY timestamp, id", part
+            f"SELECT * FROM reflexes WHERE transaction_id IN ({_marks(len(part))}) "
+            "AND session_id IN (SELECT session_id FROM sessions WHERE ai_id = ?) ORDER BY timestamp, id",
+            [*part, ai_id],
         ):
             rec = records[row["transaction_id"]]
-            rec["session_id"] = rec["session_id"] or safe.token(row["session_id"])
+            rec["session_id"] = rec["session_id"] or safe.ident(row["session_id"])
             phase = row["phase"]
             if phase == "PREFLIGHT" and rec["preflight"] is None:
                 rec["preflight"] = _reflex(row, safe)
@@ -282,8 +352,9 @@ def _export(conn, ai_id: str, since: float | None, limit: int) -> dict:
             conn,
             unavailable,
             "grounded_verifications",
-            f"SELECT * FROM grounded_verifications WHERE transaction_id IN ({_marks(len(part))}) ORDER BY created_at",
-            part,
+            f"SELECT * FROM grounded_verifications WHERE transaction_id IN ({_marks(len(part))}) "
+            "AND ai_id = ? ORDER BY created_at",
+            [*part, ai_id],
         )
         for row in rows:
             records[row["transaction_id"]]["grounded"].append(_grounded(row, safe))
@@ -299,8 +370,8 @@ def _export(conn, ai_id: str, since: float | None, limit: int) -> dict:
         for row in rows:
             records[row["transaction_id"]]["goals"].append(
                 {
-                    "id": safe.token(row["id"]),
-                    "status": safe.token(row["status"]),
+                    "id": safe.ident(row["id"]),
+                    "status": safe.vocab("goal_status", row["status"]),
                     "created_timestamp": safe.number(row["created_timestamp"]),
                     "completed_timestamp": safe.number(row["completed_timestamp"]),
                 }
@@ -315,8 +386,8 @@ def _export(conn, ai_id: str, since: float | None, limit: int) -> dict:
                 part,
             )
             for row in rows:
-                item: dict[str, Any] = {"id": safe.token(row["id"]), "type": kind}
-                goal_id = safe.token(row["goal_id"])
+                item: dict[str, Any] = {"id": safe.ident(row["id"]), "type": kind}
+                goal_id = safe.ident(row["goal_id"])
                 if goal_id is not None:
                     item["goal_id"] = goal_id
                 records[row["transaction_id"]]["artifacts"].append(item)
@@ -332,6 +403,7 @@ def _export(conn, ai_id: str, since: float | None, limit: int) -> dict:
         "total_matching": len(starts),
         "truncated": len(starts) > len(transactions),
         "skipped_without_transaction_id": skipped,
+        "skipped_unsafe_transaction_ids": unsafe_ids,
         "dropped_unsafe_values": safe.dropped,
         "unavailable": unavailable,
         "transactions": transactions,

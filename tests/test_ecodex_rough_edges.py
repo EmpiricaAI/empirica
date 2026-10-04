@@ -85,7 +85,7 @@ def test_a_write_hidden_after_a_literal_that_mentions_select_still_gates(gate):
 # ── 1. goals-activate between transactions ──────────────────────────────────
 
 
-def _activate(monkeypatch, capsys, tx_state):
+def _activate(monkeypatch, capsys, tx_state, in_db=True):
     import empirica.cli.command_handlers.goal_commands as gcmd
 
     seen = {}
@@ -106,6 +106,7 @@ def _activate(monkeypatch, capsys, tx_state):
     monkeypatch.setattr(
         "empirica.utils.session_resolver.InstanceResolver.transaction_read", staticmethod(lambda *a, **k: tx_state)
     )
+    monkeypatch.setattr("empirica.utils.session_resolver.transaction_open_in_db", lambda *a, **k: in_db)
     gcmd.handle_goals_activate_command(types.SimpleNamespace(goal_id="g1", output="json"))
     return seen, json.loads(capsys.readouterr().out)
 
@@ -251,3 +252,16 @@ def test_the_two_deny_sites_share_one_message_source(gate):
     src = (HOOKS / "sentinel-gate.py").read_text()
 
     assert src.count("to start next goal") == 1 and src.count("_closed_loop_message(") == 3  # def + the two deny sites
+
+
+def test_a_pointer_that_says_open_but_the_table_says_closed_is_not_linked(monkeypatch, capsys):
+    """The pointer file is a cache; a restored snapshot read 'open' for 48 days. The reflexes table has the last word."""
+    seen, out = _activate(monkeypatch, capsys, {"transaction_id": "tx-stale", "status": "open"}, in_db=False)
+
+    assert seen["transaction_id"] is None and out["transaction_linked"] is False and "PREFLIGHT" in out["warning"]
+
+
+def test_an_unanswerable_table_lookup_leaves_the_pointers_answer_standing(monkeypatch, capsys):
+    seen, out = _activate(monkeypatch, capsys, {"transaction_id": "tx-open", "status": "open"}, in_db=None)
+
+    assert seen["transaction_id"] == "tx-open" and out["transaction_linked"] is True

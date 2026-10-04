@@ -2287,6 +2287,13 @@ def handle_goals_activate_command(args):
             tx = R.transaction_read()
             if isinstance(tx, dict) and tx.get("status") == "open":
                 transaction_id = tx.get("transaction_id")
+                # The pointer file is a cache and caches lie (a restored snapshot read "open" for 48 days): the
+                # reflexes table has the last word. Only a definite "closed" overrides it; an unanswerable question
+                # (None) leaves the pointer's answer standing.
+                from empirica.utils.session_resolver import transaction_open_in_db
+
+                if transaction_open_in_db(transaction_id) is False:
+                    transaction_id = None
         except Exception:
             pass
 

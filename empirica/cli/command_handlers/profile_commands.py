@@ -192,7 +192,8 @@ def _print_sync_pretty(result, import_result, remote, import_only, do_push, do_q
         for artifact_type in ["findings", "unknowns", "dead_ends", "mistakes", "decisions", "assumptions", "goals"]:
             type_stats = stats.get(artifact_type, {})
             if type_stats.get("total", 0) > 0:
-                print(f"     {artifact_type}: {type_stats['imported']} new / {type_stats['total']} total")
+                failed_note = f", {type_stats['failed']} REFUSED by the table" if type_stats.get("failed") else ""
+                print(f"     {artifact_type}: {type_stats['imported']} new / {type_stats['total']} total{failed_note}")
         if do_push:
             print(f"   Pushed to: {remote}")
         if do_qdrant:

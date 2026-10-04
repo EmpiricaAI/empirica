@@ -331,10 +331,17 @@ class ProfileImporter:
         return value if isinstance(value, str) else json.dumps(value)
 
     def import_decisions(self, db) -> int:
-        """Import decisions from git notes into SQLite (the notes carry no transaction id)."""
+        """Import decisions from git notes into SQLite (the notes carry no transaction id).
+
+        `skipped` means the id is already in SQLite. A note the table's constraints refuse is `failed`, not skipped:
+        INSERT OR IGNORE reported both as "already there", so a constraint violation looked like a clean re-import.
+        Imported rows are `local`: the notes carry no visibility and the table default is `shared`, which would publish
+        a decision its author kept local.
+        """
         ids = self._discover_refs("refs/notes/empirica/decisions/")
         imported = 0
         skipped = 0
+        failed = 0
 
         cursor = db.conn.cursor()
         for decision_id in ids:
@@ -346,16 +353,20 @@ class ProfileImporter:
             if not ts:
                 ts = datetime.now(timezone.utc).timestamp()
 
+            row_id = data.get("decision_id", decision_id)
+            if cursor.execute("SELECT 1 FROM decisions WHERE id = ?", (row_id,)).fetchone():
+                skipped += 1
+                continue
             try:
                 cursor.execute(
                     """
-                    INSERT OR IGNORE INTO decisions
+                    INSERT INTO decisions
                     (id, choice, alternatives, rationale, confidence_at_decision, reversibility,
-                     project_id, session_id, transaction_id, goal_id, created_by_ai, created_timestamp)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     project_id, session_id, transaction_id, goal_id, created_by_ai, created_timestamp, visibility)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'local')
                 """,
                     (
-                        data.get("decision_id", decision_id),
+                        row_id,
                         data.get("choice", ""),
                         self._text(data.get("alternatives")),
                         data.get("rationale", ""),
@@ -369,22 +380,25 @@ class ProfileImporter:
                         ts,
                     ),
                 )
-                if cursor.rowcount > 0:
-                    imported += 1
-                else:
-                    skipped += 1
+                imported += 1
             except Exception as e:
-                logger.warning(f"Failed to import decision {decision_id[:8]}: {e}")
+                failed += 1
+                logger.warning(f"Failed to import decision {str(decision_id)[:8]}: {e}")
 
         db.conn.commit()
-        self._stats["decisions"] = {"imported": imported, "skipped": skipped, "total": len(ids)}
+        self._stats["decisions"] = {"imported": imported, "skipped": skipped, "total": len(ids), "failed": failed}
         return imported
 
     def import_assumptions(self, db) -> int:
-        """Import assumptions from git notes into SQLite (the notes carry no transaction id)."""
+        """Import assumptions from git notes into SQLite (the notes carry no transaction id).
+
+        Same accounting and visibility rule as import_decisions: `skipped` is an id already present, a refused note is
+        `failed`, and imported rows are `local`. An invalid status or confidence is normalised, not refused.
+        """
         ids = self._discover_refs("refs/notes/empirica/assumptions/")
         imported = 0
         skipped = 0
+        failed = 0
 
         cursor = db.conn.cursor()
         for assumption_id in ids:
@@ -396,17 +410,21 @@ class ProfileImporter:
             if not ts:
                 ts = datetime.now(timezone.utc).timestamp()
 
+            row_id = data.get("assumption_id", assumption_id)
+            if cursor.execute("SELECT 1 FROM assumptions WHERE id = ?", (row_id,)).fetchone():
+                skipped += 1
+                continue
             conf, status = data.get("confidence"), data.get("status")
             try:
                 cursor.execute(
                     """
-                    INSERT OR IGNORE INTO assumptions
+                    INSERT INTO assumptions
                     (id, assumption, confidence, status, project_id, session_id, transaction_id,
-                     goal_id, created_by_ai, created_timestamp)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     goal_id, created_by_ai, created_timestamp, visibility)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'local')
                 """,
                     (
-                        data.get("assumption_id", assumption_id),
+                        row_id,
                         data.get("assumption", ""),
                         conf
                         if isinstance(conf, (int, float)) and not isinstance(conf, bool) and 0.0 <= conf <= 1.0
@@ -420,15 +438,13 @@ class ProfileImporter:
                         ts,
                     ),
                 )
-                if cursor.rowcount > 0:
-                    imported += 1
-                else:
-                    skipped += 1
+                imported += 1
             except Exception as e:
-                logger.warning(f"Failed to import assumption {assumption_id[:8]}: {e}")
+                failed += 1
+                logger.warning(f"Failed to import assumption {str(assumption_id)[:8]}: {e}")
 
         db.conn.commit()
-        self._stats["assumptions"] = {"imported": imported, "skipped": skipped, "total": len(ids)}
+        self._stats["assumptions"] = {"imported": imported, "skipped": skipped, "total": len(ids), "failed": failed}
         return imported
 
     def import_goals(self, db) -> int:

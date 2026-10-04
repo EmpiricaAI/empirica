@@ -26,7 +26,8 @@ Schema name: `empirica.transaction_export.v1`. Implementation: `empirica/core/tr
 | `since`, `limit` | What was applied. |
 | `returned`, `total_matching`, `truncated` | `total_matching` counts every transaction that matches `--since`, so a capped page says it is a page. |
 | `skipped_without_transaction_id` | Legacy reflex rows with no transaction id are counted, not emitted. |
-| `dropped_unsafe_values` | Values that failed the token check and were left out. Non-zero means a field stopped being an enum. |
+| `dropped_unsafe_values` | Values that failed their field's check (id shape, vocabulary, ref shape, range) and were left out. Non-zero means a field stopped being what it was. |
+| `skipped_unsafe_transaction_ids` | Transactions left out because their own id is not UUID- or hex-shaped. |
 | `unavailable` | Sections that could not be read because the store predates a table or column. |
 | `transactions` | Newest first. |
 
@@ -58,9 +59,20 @@ a window far wider than the transaction; see `calibration_exclusions` in the con
 ## How "structure only" is held
 
 - No text column is selected. Reflex JSON is read through a whitelist of keys per phase.
-- Every string in the output is checked against a narrow pattern: one token, no spaces, at most 80 characters for ids and enums
-  and 200 for a notes ref. A sentence cannot match, so prose arriving under a trusted key is dropped and counted.
-- The tests plant a marker in every free-text field the store has and require it to appear nowhere in the output.
+- Every string that survives is checked against what that field can legitimately be, because a single word fits any token
+  pattern (a name, a client, a lowercased slug), so a pattern alone would not be a contract:
+  - ids (`transaction_id`, `session_id`, goal and artifact ids) must be UUID- or hex-shaped;
+  - `decision`, `work_type`, `internal_consistency`, goal `status`, grounded `phase`, `compliance_status` and `source`
+    must be a member of a closed vocabulary (`compliance_status` from the `ComplianceStatus` enum);
+  - `git_notes_ref` must be exactly `empirica/session/<uuid>/<PHASE>/<n>`; `git_commit_sha` must be hex;
+  - numbers must be finite and below 1e12;
+  - `practitioner_model` is the one field that is only shape-checked: a known model-family prefix, lowercase, no spaces.
+- Anything else is left out and counted in `dropped_unsafe_values`. A transaction whose own id is not safely shaped is left out
+  and counted in `skipped_unsafe_transaction_ids`. When a vocabulary grows, the count says so instead of the new value passing.
+- Reflex, grounded-verification, goal and artifact reads are for this practice (`ai_id`); one live transaction id spans two
+  practices in core's store and the other practice's rows are not exported.
+- The tests plant a marker in every free-text field the store has, plant names under every enum and id field, and require
+  none of it in the output.
 
 A goal's `transaction_id` is one column, so a goal that spans many transactions links to the one it was created or activated
 in; tasks and findings link by their own `transaction_id`.

@@ -11,7 +11,9 @@ This importer keeps what the note says and nothing else: the original timestamp,
 NULL), the transaction id, the reasoning, and the meta fields in `reflex_data` as the original writer shaped it.
 
 Identity is (session_id, phase, round), which is exactly what the ref name encodes, so the decision to skip a row never needs
-the note's content: a ref whose identity already has a row is left alone. A session with no `sessions` row is skipped and
+the note's content: a ref whose identity already has a row is left alone. One consequence is stated rather than hidden: the
+writer reuses `<PHASE>/<round>` across transactions, so a ref can hold several notes, and when its identity is already
+present the other notes under it are not looked at. For a ref that is NOT present, every note under it is restored. A session with no `sessions` row is skipped and
 named, because a reflex without its session breaks every join that reads it. The default is a preview; nothing is written
 without `apply`.
 """
@@ -70,20 +72,30 @@ def _epoch(stamp: Any) -> float | None:
     return None
 
 
-def _read_note(repo: str, refname: str) -> dict | None:
-    """The note body on `refname` as a dict, or None if it cannot be read or is not an object."""
+def _read_notes(repo: str, refname: str) -> list[dict | None]:
+    """Every note body on `refname`, in listing order; None for one that cannot be read or is not an object.
+
+    A ref can hold several notes, one per annotated commit: the writer reuses the name `<PHASE>/<round>` across
+    transactions (20 of 1500 sampled refs in core's store hold more than one, for different transactions), so reading only
+    the first would restore one transaction and silently lose the rest.
+    """
     listed = _git(repo, "notes", f"--ref={refname[len('refs/notes/') :]}", "list")
     lines = [ln.split() for ln in listed.stdout.splitlines() if ln.strip()]
     if listed.returncode != 0 or not lines:
-        return None
-    blob = _git(repo, "cat-file", "blob", lines[0][0])
-    if blob.returncode != 0:
-        return None
-    try:
-        body = json.loads(blob.stdout)
-    except ValueError:
-        return None
-    return body if isinstance(body, dict) else None
+        return []
+    bodies: list[dict | None] = []
+    for parts in lines:
+        blob = _git(repo, "cat-file", "blob", parts[0])
+        if blob.returncode != 0:
+            bodies.append(None)
+            continue
+        try:
+            body = json.loads(blob.stdout)
+        except ValueError:
+            bodies.append(None)
+            continue
+        bodies.append(body if isinstance(body, dict) else None)
+    return bodies
 
 
 def _row(note: dict, ident: tuple[str, str, int], project_id: str | None) -> dict | None:
@@ -131,6 +143,32 @@ def _row(note: dict, ident: tuple[str, str, int], project_id: str | None) -> dic
     }
 
 
+def _collect_rows(repo: str, candidates: list, sessions: dict) -> tuple[list[dict], dict]:
+    """The rows to insert from the candidate refs, and the counts of what was left out and why."""
+    rows: list[dict] = []
+    counts = {"unreadable": 0, "multi_note_refs": 0, "no_vectors": 0, "phantom": 0}
+    seen: set[tuple[str, str, int, str | None]] = set()
+    for refname, ident in candidates:
+        notes = _read_notes(repo, refname)
+        if not notes:
+            counts["unreadable"] += 1
+            continue
+        if len(notes) > 1:
+            counts["multi_note_refs"] += 1
+        for note in notes:
+            row = _row(note, ident, sessions[ident[0]]) if note is not None else None
+            if row is None:
+                counts["unreadable"] += 1
+            elif "skip" in row:
+                counts[row["skip"]] += 1
+            else:
+                key = (*ident, row["transaction_id"])
+                if key not in seen:  # the same transaction twice under one ref is one event
+                    seen.add(key)
+                    rows.append(row)
+    return rows, counts
+
+
 def import_reflexes(conn, repo: str, apply: bool = False) -> dict:
     """Preview or apply the restore of reflex rows from `repo`'s session-phase notes into `conn`'s `reflexes`."""
     listed = _git(repo, "for-each-ref", "--format=%(refname)", PREFIX)
@@ -160,18 +198,7 @@ def import_reflexes(conn, repo: str, apply: bool = False) -> dict:
         else:
             candidates.append((refname, ident))
 
-    rows: list[dict] = []
-    unreadable = 0
-    skipped = {"no_vectors": 0, "phantom": 0}
-    for refname, ident in candidates:
-        note = _read_note(repo, refname)
-        row = _row(note, ident, sessions[ident[0]]) if note is not None else None
-        if row is None:
-            unreadable += 1
-        elif "skip" in row:
-            skipped[row["skip"]] += 1
-        else:
-            rows.append(row)
+    rows, counts = _collect_rows(repo, candidates, sessions)
 
     by_phase: dict[str, int] = {}
     for row in rows:
@@ -212,7 +239,8 @@ def import_reflexes(conn, repo: str, apply: bool = False) -> dict:
         "by_phase": by_phase,
         "skipped_no_session": sum(no_session.values()),
         "sessions_missing": sorted(no_session)[:_LISTED_SESSIONS_CAP],
-        "unreadable_notes": unreadable,
-        "skipped_no_vectors": skipped["no_vectors"],
-        "skipped_phantom": skipped["phantom"],
+        "unreadable_notes": counts["unreadable"],
+        "multi_note_refs": counts["multi_note_refs"],
+        "skipped_no_vectors": counts["no_vectors"],
+        "skipped_phantom": counts["phantom"],
     }

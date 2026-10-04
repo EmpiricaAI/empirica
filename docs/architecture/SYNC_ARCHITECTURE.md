@@ -154,7 +154,9 @@ empirica rebuild --reflexes-only [--apply]
 # not 0.5 (a CHECK note often has 7 of 13). Skipped and counted: sessions with no `sessions` row (named in the output),
 # notes with no vectors, notes that disagree with their ref name, and the old auto-checkpoint's all-0.5 phantom CHECK
 # rows that delete-artifacts purged on purpose. Calibration rows (grounded_beliefs, grounded_verifications) are
-# SQLite-only and have no note to restore from.
+# SQLite-only and have no note to restore from. A ref can hold several notes (the writer reuses <PHASE>/<round>
+# across transactions): every note under a ref that is NOT present is restored, but when the identity is already
+# present the other notes under it are not looked at (`multi_note_refs` counts the ones met).
 ```
 
 ### Workspace-Level Sync

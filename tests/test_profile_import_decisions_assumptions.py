@@ -67,7 +67,7 @@ def test_decisions_are_restored_with_their_fields(world):
     ).fetchone()
 
     assert tuple(row) == ("use X", "because", json.dumps(["Y", "Z"]), 0.8, "exploratory", "a")
-    assert imp.stats["decisions"] == {"imported": 1, "skipped": 0, "total": 1}
+    assert imp.stats["decisions"] == {"imported": 1, "skipped": 0, "total": 1, "failed": 0}
 
 
 def test_assumptions_are_restored_with_their_fields(world):
@@ -117,3 +117,59 @@ def test_an_existing_row_is_not_overwritten(world):
     ProfileImporter(str(world.repo)).import_all(world.db)
 
     assert world.db.conn.execute("SELECT choice FROM decisions WHERE id='d1'").fetchone()[0] == "live choice"
+
+
+def test_a_note_the_table_refuses_is_failed_not_reported_as_already_there(world):
+    """INSERT OR IGNORE reported a CHECK or NOT NULL violation as 'skipped (already in SQLite)'."""
+    _note(
+        world,
+        "decisions",
+        "bad1",
+        {
+            "decision_id": "bad1",
+            "choice": "x",
+            "rationale": None,
+            "project_id": world.pid,
+            "created_at": "2026-10-03T16:52:03+00:00",
+        },
+    )
+    _note(
+        world,
+        "decisions",
+        "bad2",
+        {
+            "decision_id": "bad2",
+            "choice": "x",
+            "rationale": "r",
+            "reversibility": "irreversible",
+            "project_id": world.pid,
+            "created_at": "2026-10-03T16:52:03+00:00",
+        },
+    )
+    _decision(world, "good")
+
+    imp = ProfileImporter(str(world.repo))
+    imp.import_all(world.db)
+
+    assert imp.stats["decisions"]["imported"] == 1 and imp.stats["decisions"]["failed"] == 2
+    assert imp.stats["decisions"]["skipped"] == 0, "nothing was already there"
+
+
+def test_a_real_duplicate_is_still_skipped_and_not_failed(world):
+    _decision(world)
+    ProfileImporter(str(world.repo)).import_all(world.db)
+
+    again = ProfileImporter(str(world.repo))
+    again.import_all(world.db)
+
+    assert again.stats["decisions"]["skipped"] == 1 and again.stats["decisions"]["failed"] == 0
+
+
+def test_imported_decisions_and_assumptions_are_local_not_the_shared_table_default(world):
+    _decision(world)
+    _assumption(world)
+
+    ProfileImporter(str(world.repo)).import_all(world.db)
+
+    assert world.db.conn.execute("SELECT visibility FROM decisions WHERE id='d1'").fetchone()[0] == "local"
+    assert world.db.conn.execute("SELECT visibility FROM assumptions WHERE id='a1'").fetchone()[0] == "local"

@@ -61,7 +61,11 @@ class ProseEvidenceCollector:
         return self._db
 
     def _transaction_scope(self, table: str) -> tuple[str, tuple, str]:
-        """``(sql fragment, params, label)`` restricting a count over ``table`` to the current transaction.
+        """``(WHERE condition, params, label)`` restricting a count over ``table`` to the current transaction.
+
+        The condition is the transaction alone, NOT the transaction AND this session: a transaction that outlives a
+        compaction is logged under more than one session id (18 such transactions in core's store), and sessions are not
+        a unit of measurement. Counting only the current session's share undercounted while labelling it `transaction`.
 
         The transaction is the measurement window. With no transaction id the session is the only window there is,
         and the label says so, so a stored observation shows which one it used. So does a database old enough that
@@ -74,8 +78,8 @@ class ProseEvidenceCollector:
             except Exception:
                 cols = set()
             if "transaction_id" in cols:
-                return " AND transaction_id = ?", (self.transaction_id,), "transaction"
-        return "", (), "session"
+                return "transaction_id = ?", (self.transaction_id,), "transaction"
+        return "session_id = ?", (self.session_id,), "session"
 
     def _close_db(self):
         if self._owns_db and self._db is not None:
@@ -464,8 +468,8 @@ class ProseEvidenceCollector:
         # saturated `finding_production` for every transaction in it, whatever that one did (cortex, 2026-10-04).
         scope_sql, scope_params, scope = self._transaction_scope("project_findings")
         cursor.execute(
-            f"SELECT finding FROM project_findings WHERE session_id = ?{scope_sql}",
-            (self.session_id, *scope_params),
+            f"SELECT finding FROM project_findings WHERE {scope_sql}",
+            scope_params,
         )
         findings = cursor.fetchall()
 
@@ -740,8 +744,8 @@ class ProseEvidenceCollector:
         # every transaction of a long session.
         scope_sql, scope_params, scope = self._transaction_scope("assumptions")
         cursor.execute(
-            f"SELECT COUNT(*) FROM assumptions WHERE session_id = ?{scope_sql}",
-            (self.session_id, *scope_params),
+            f"SELECT COUNT(*) FROM assumptions WHERE {scope_sql}",
+            scope_params,
         )
         assumption_count = cursor.fetchone()[0]
 
@@ -767,8 +771,8 @@ class ProseEvidenceCollector:
         # every transaction of a long session, like the two proxies fixed beside it.
         scope_sql, scope_params, scope = self._transaction_scope("decisions")
         cursor.execute(
-            f"SELECT COUNT(*) FROM decisions WHERE session_id = ?{scope_sql}",
-            (self.session_id, *scope_params),
+            f"SELECT COUNT(*) FROM decisions WHERE {scope_sql}",
+            scope_params,
         )
         decision_count = cursor.fetchone()[0]
 

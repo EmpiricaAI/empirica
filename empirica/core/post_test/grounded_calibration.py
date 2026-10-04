@@ -117,6 +117,14 @@ def _to_epoch(value) -> float | None:
     """A date string (YYYY-MM-DD, UTC midnight) or a number, as epoch seconds; None when it is neither."""
     if isinstance(value, bool):
         return None
+    import calendar as _cal
+    import datetime as _dt
+
+    # YAML turns an unquoted `from: 2026-08-01` into a date object, which is the natural way to write it.
+    if isinstance(value, _dt.datetime):
+        return float(_cal.timegm(value.utctimetuple()))
+    if isinstance(value, _dt.date):
+        return float(_cal.timegm(value.timetuple()))
     if isinstance(value, (int, float)):
         return float(value)
     if isinstance(value, str):
@@ -155,8 +163,16 @@ def load_calibration_exclusions(git_root: str | None) -> list[dict]:
         return []
     if not raw:
         return []
+    if not isinstance(raw, list):
+        logger.warning(
+            "calibration_exclusions in %s must be a list of entries (`- vectors: [...]`), got %s: nothing was excluded",
+            path,
+            type(raw).__name__,
+        )
+        return []
+    known_vectors = set(GroundedCalibrationManager.TRACKED_VECTORS)
     entries: list[dict] = []
-    for i, item in enumerate(raw if isinstance(raw, list) else []):
+    for i, item in enumerate(raw):
         vectors = item.get("vectors") if isinstance(item, dict) else None
         source = item.get("source") if isinstance(item, dict) else None
         lo = _to_epoch(item.get("from")) if isinstance(item, dict) and "from" in item else None
@@ -166,8 +182,8 @@ def load_calibration_exclusions(git_root: str | None) -> list[dict]:
             isinstance(item, dict)
             and isinstance(vectors, list)
             and vectors
-            and all(isinstance(v, str) for v in vectors)
-            and (source is None or isinstance(source, str))
+            and all(isinstance(v, str) and v in known_vectors for v in vectors)
+            and (source is None or (isinstance(source, str) and source.strip() != ""))
             and not bad_window
             and (source is not None or lo is not None or hi is not None)
         )
@@ -610,6 +626,8 @@ class GroundedCalibrationManager:
                 if exclusions and any(vector in e["vectors"] for e in exclusions):
                     replay = self.replay_grounded_belief(ai_id, vector, exclusions)
                     if replay["excluded"]:
+                        if replay["evidence_count"] <= 0:
+                            continue  # nothing left after the exclusion: the replay is the 0.5 prior, not a measurement
                         g_mean, g_ev, g_var = replay["mean"], replay["evidence_count"], replay["variance"]
                         skipped = replay["excluded"]
                 divergence[vector] = {
@@ -626,12 +644,12 @@ class GroundedCalibrationManager:
         return divergence
 
     def summarize_exclusions(self, ai_id: str, exclusions: list[dict] | None) -> list[dict]:
-        """Per entry: the vectors, the reason, and how many stored observations it skipped (0 entries are omitted)."""
+        """Per entry: the vectors, the reason, and how many stored observations it skipped (0 when it matched nothing)."""
         out = []
         for entry in exclusions or []:
             skipped = sum(self.replay_grounded_belief(ai_id, v, [entry])["excluded"] for v in entry["vectors"])
-            if skipped:
-                out.append({"vectors": entry["vectors"], "observations": skipped, "reason": entry.get("reason", "")})
+            # An entry that matched nothing is reported with 0, so a typo is visible instead of silently inert.
+            out.append({"vectors": entry["vectors"], "observations": skipped, "reason": entry.get("reason", "")})
         return out
 
     def get_windowed_divergence(self, ai_id: str, weeks: int, now: float | None = None) -> dict:

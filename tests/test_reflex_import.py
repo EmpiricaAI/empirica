@@ -49,7 +49,19 @@ def world(tmp_path):
     return types.SimpleNamespace(repo=repo, db=db, pid=pid, sid=sid, tmp=tmp_path)
 
 
-def _note(world, phase, rnd, *, vectors=None, meta=None, session_id=None, stamp=STAMP, body=None, round_in_body=None):
+def _note(
+    world,
+    phase,
+    rnd,
+    *,
+    vectors=None,
+    meta=None,
+    session_id=None,
+    stamp=STAMP,
+    body=None,
+    round_in_body=None,
+    commit="HEAD",
+):
     sid = session_id or world.sid
     payload = body or {
         "session_id": sid,
@@ -61,7 +73,7 @@ def _note(world, phase, rnd, *, vectors=None, meta=None, session_id=None, stamp=
         "epistemic_tags": {},
     }
     text = payload if isinstance(payload, str) else json.dumps(payload)
-    _git(world.repo, "notes", f"--ref=empirica/session/{sid}/{phase}/{rnd}", "add", "-f", "-m", text, "HEAD")
+    _git(world.repo, "notes", f"--ref=empirica/session/{sid}/{phase}/{rnd}", "add", "-f", "-m", text, commit)
 
 
 def _rows(world):
@@ -286,3 +298,37 @@ def test_an_auto_checkpoint_note_with_real_vectors_is_still_restored(world):
     _note(world, "CHECK", 1, vectors=V7, meta={"transaction_id": "t", "auto_checkpoint": True})
 
     assert _run(world, apply=True)["imported"] == 1
+
+
+def test_a_ref_that_holds_notes_for_two_transactions_restores_both(world):
+    """The writer reuses <PHASE>/<round> across transactions; reading only the first note lost the others."""
+    _note(world, "CHECK", 1, meta={"transaction_id": "tx-A", "decision": "proceed"})
+    _git(world.repo, "commit", "-q", "--allow-empty", "-m", "second")
+    _note(world, "CHECK", 1, meta={"transaction_id": "tx-B", "decision": "investigate"})
+
+    out = _run(world, apply=True)
+
+    assert out["imported"] == 2 and out["multi_note_refs"] == 1
+    assert sorted(r["transaction_id"] for r in _rows(world)) == ["tx-A", "tx-B"]
+
+
+def test_an_unreadable_note_beside_a_good_one_in_the_same_ref_costs_only_itself(world):
+    _note(world, "CHECK", 1, meta={"transaction_id": "tx-A"})
+    _git(world.repo, "commit", "-q", "--allow-empty", "-m", "second")
+    _note(world, "CHECK", 1, body="not json {")
+
+    out = _run(world, apply=True)
+
+    assert out["imported"] == 1 and out["unreadable_notes"] == 1
+
+
+def test_apply_without_reflexes_only_is_refused_not_ignored(world, monkeypatch, capsys):
+    from empirica.cli.command_handlers import sync_commands
+
+    monkeypatch.setattr(sync_commands, "_rebuild_from_notes", lambda: pytest.fail("the default rebuild must not run"))
+    args = types.SimpleNamespace(
+        output="json", from_notes=True, qdrant=False, qdrant_only=False, reflexes_only=False, apply=True
+    )
+
+    assert sync_commands.handle_rebuild_command(args) == 1
+    assert "--apply only applies with --reflexes-only" in json.loads(capsys.readouterr().out)["error"]

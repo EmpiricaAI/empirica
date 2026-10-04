@@ -1235,6 +1235,16 @@ def _show_grounded_calibration(args, ai_id: str, weeks: int, output_format: str,
                     f"{item['reason'] or 'no reason recorded'}"
                 )
             _print_grounded_calibration_human(total_grounded_evidence, open_disputes, divergence, grounded_adjustments)
+            if getattr(args, "windowed", False):
+                windowed = gcm.get_windowed_divergence(ai_id, weeks)
+                print(
+                    f"   windowed: last {weeks} week(s), {windowed['verifications']} verifications "
+                    "(mean of per-verification self - grounded; not the all-time divergence above)"
+                )
+                for vec, d in windowed["divergence"].items():
+                    note = " (derived from the other vectors)" if d.get("derived_from_other_vectors") else ""
+                    print(f"     {vec}: {d['gap']:+.3f} over {d['observations']}{note}")
+                print("   (windowed does not apply calibration_exclusions)")
 
         # Optional trajectory trend
         if show_trajectory:
@@ -1955,6 +1965,11 @@ def handle_grounding_export_command(args):
 
     if getattr(args, "transactions", False):
         return _export_transactions(args, ai_id, output)
+    stray = [f for f in ("since", "limit") if getattr(args, f, None) is not None]
+    if stray:
+        msg = {"ok": False, "error": f"--{' and --'.join(stray)} only apply with --transactions; they would be ignored"}
+        print(json.dumps(msg) if output == "json" else f"Error: {msg['error']}")
+        return 1
 
     try:
         from empirica.core.post_test.grounded_calibration import GroundedCalibrationManager

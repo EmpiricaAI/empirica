@@ -15,6 +15,7 @@ import json
 import re
 import time
 import types
+import uuid
 
 import pytest
 
@@ -22,6 +23,13 @@ from empirica.core.transaction_export import export_transactions
 from empirica.data.session_database import SessionDatabase
 
 MARK = "ZQXMARKER"
+
+
+def U(name: str) -> str:
+    """A stable UUID for a readable test name: the export refuses ids that are not UUID- or hex-shaped."""
+    return str(uuid.uuid5(uuid.NAMESPACE_DNS, name))
+
+
 VEC13 = {
     "engagement": 0.9,
     "know": 0.8,
@@ -101,7 +109,7 @@ def _tx(world, tx, start, *, checks=1, post=True, session=None):
                 "task_summary": f"{MARK} summary",
                 "retrospective": f"{MARK} retro",
                 "git_commit_sha": "ab12cd34",
-                "git_notes_ref": "empirica/session/0a21af76-6609-4d5d-9fd1-44e07551f7aa/postflight/7a4676a8-422a-4dec-99f7-099a820aa4f4",
+                "git_notes_ref": "empirica/session/0a21af76-6609-4d5d-9fd1-44e07551f7aa/POSTFLIGHT/29",
             },
         )
         _stamp(db, r, start + 100)
@@ -156,11 +164,11 @@ def _export(world, **kw):
 
 
 def test_a_transaction_carries_its_phases_in_order_with_all_13_vectors(world):
-    _tx(world, "tx1", NOW - 1000, checks=2)
+    _tx(world, U("tx1"), NOW - 1000, checks=2)
 
     (t,) = _export(world)["transactions"]
 
-    assert t["transaction_id"] == "tx1" and t["session_id"] == world.sid and t["ai_id"] == "a"
+    assert t["transaction_id"] == U("tx1") and t["session_id"] == world.sid and t["ai_id"] == "a"
     assert t["preflight"]["vectors"] == VEC13
     assert [c["cycle"] for c in t["checks"]] == [1, 2] and [c["decision"] for c in t["checks"]] == [
         "investigate",
@@ -176,7 +184,7 @@ def test_a_transaction_carries_its_phases_in_order_with_all_13_vectors(world):
 
 
 def test_a_transaction_that_has_not_closed_has_no_postflight_not_a_missing_key_error(world):
-    _tx(world, "open", NOW - 100, post=False, checks=0)
+    _tx(world, U("open"), NOW - 100, post=False, checks=0)
 
     (t,) = _export(world)["transactions"]
 
@@ -184,32 +192,32 @@ def test_a_transaction_that_has_not_closed_has_no_postflight_not_a_missing_key_e
 
 
 def test_only_the_requested_practice_is_exported(world):
-    _tx(world, "mine", NOW - 1000)
-    _tx(world, "theirs", NOW - 900, session=world.other)
+    _tx(world, U("mine"), NOW - 1000)
+    _tx(world, U("theirs"), NOW - 900, session=world.other)
 
-    assert [t["transaction_id"] for t in _export(world)["transactions"]] == ["mine"]
+    assert [t["transaction_id"] for t in _export(world)["transactions"]] == [U("mine")]
 
 
 def test_newest_first_with_since_and_limit_and_a_truthful_total(world):
     for i in range(5):
-        _tx(world, f"tx{i}", NOW - (5 - i) * 1000)
+        _tx(world, U(f"tx{i}"), NOW - (5 - i) * 1000)
 
     out = _export(world, limit=2)
-    assert [t["transaction_id"] for t in out["transactions"]] == ["tx4", "tx3"]
+    assert [t["transaction_id"] for t in out["transactions"]] == [U("tx4"), U("tx3")]
     assert out["total_matching"] == 5 and out["truncated"] is True and out["returned"] == 2
 
     since = _export(world, since=NOW - 3500)
-    assert [t["transaction_id"] for t in since["transactions"]] == ["tx4", "tx3", "tx2"]
+    assert [t["transaction_id"] for t in since["transactions"]] == [U("tx4"), U("tx3"), U("tx2")]
     assert since["total_matching"] == 3 and since["truncated"] is False
 
 
 def test_rows_with_no_transaction_id_are_counted_not_emitted(world):
-    _tx(world, "tx1", NOW - 1000)
+    _tx(world, U("tx1"), NOW - 1000)
     world.db.store_vectors(world.sid, "PREFLIGHT", VEC13)  # a legacy row: no transaction id
 
     out = _export(world)
 
-    assert [t["transaction_id"] for t in out["transactions"]] == ["tx1"]
+    assert [t["transaction_id"] for t in out["transactions"]] == [U("tx1")]
     assert out["skipped_without_transaction_id"] == 1
 
 
@@ -217,8 +225,8 @@ def test_rows_with_no_transaction_id_are_counted_not_emitted(world):
 
 
 def test_grounded_rows_carry_self_grounded_and_gap_per_vector(world):
-    _tx(world, "tx1", NOW - 1000)
-    _verification(world, "tx1", "praxic")
+    _tx(world, U("tx1"), NOW - 1000)
+    _verification(world, U("tx1"), "praxic")
 
     (v,) = _export(world)["transactions"][0]["grounded"]
 
@@ -240,7 +248,7 @@ def test_grounded_rows_carry_self_grounded_and_gap_per_vector(world):
 
 
 def test_a_transaction_with_no_verification_has_an_empty_grounded_list(world):
-    _tx(world, "tx1", NOW - 1000)
+    _tx(world, U("tx1"), NOW - 1000)
 
     assert _export(world)["transactions"][0]["grounded"] == []
 
@@ -249,20 +257,20 @@ def test_a_transaction_with_no_verification_has_an_empty_grounded_list(world):
 
 
 def test_linked_goals_and_artifacts_are_ids_with_types_only(world):
-    _tx(world, "tx1", NOW - 1000)
-    _tx(world, "tx2", NOW - 500)
-    _goal(world, "goal-1", "tx1")
-    world.db.log_finding(world.pid, world.sid, f"{MARK} finding", transaction_id="tx1", goal_id="goal-1")
-    world.db.log_unknown(world.pid, world.sid, f"{MARK} unknown", transaction_id="tx1")
-    world.db.log_dead_end(world.pid, world.sid, f"{MARK} approach", f"{MARK} why", transaction_id="tx1")
-    world.db.log_finding(world.pid, world.sid, f"{MARK} elsewhere", transaction_id="tx2")
+    _tx(world, U("tx1"), NOW - 1000)
+    _tx(world, U("tx2"), NOW - 500)
+    _goal(world, U("goal-1"), U("tx1"))
+    world.db.log_finding(world.pid, world.sid, f"{MARK} finding", transaction_id=U("tx1"), goal_id=U("goal-1"))
+    world.db.log_unknown(world.pid, world.sid, f"{MARK} unknown", transaction_id=U("tx1"))
+    world.db.log_dead_end(world.pid, world.sid, f"{MARK} approach", f"{MARK} why", transaction_id=U("tx1"))
+    world.db.log_finding(world.pid, world.sid, f"{MARK} elsewhere", transaction_id=U("tx2"))
 
     by_id = {t["transaction_id"]: t for t in _export(world)["transactions"]}
-    t1 = by_id["tx1"]
+    t1 = by_id[U("tx1")]
 
     assert t1["goals"] == [
         {
-            "id": "goal-1",
+            "id": U("goal-1"),
             "status": "completed",
             "created_timestamp": pytest.approx(NOW - 50),
             "completed_timestamp": pytest.approx(NOW - 5),
@@ -270,8 +278,8 @@ def test_linked_goals_and_artifacts_are_ids_with_types_only(world):
     ]
     assert sorted(a["type"] for a in t1["artifacts"]) == ["dead_end", "finding", "unknown"]
     assert all(set(a) <= {"id", "type", "goal_id"} for a in t1["artifacts"])
-    assert next(a for a in t1["artifacts"] if a["type"] == "finding")["goal_id"] == "goal-1"
-    assert [a["type"] for a in by_id["tx2"]["artifacts"]] == ["finding"], (
+    assert next(a for a in t1["artifacts"] if a["type"] == "finding")["goal_id"] == U("goal-1")
+    assert [a["type"] for a in by_id[U("tx2")]["artifacts"]] == ["finding"], (
         "an artifact belongs to its own transaction only"
     )
 
@@ -280,11 +288,11 @@ def test_linked_goals_and_artifacts_are_ids_with_types_only(world):
 
 
 def _everything(world):
-    _tx(world, "tx1", NOW - 1000, checks=2)
-    _verification(world, "tx1", "praxic")
-    _goal(world, "goal-1", "tx1")
-    world.db.log_finding(world.pid, world.sid, f"{MARK} finding", transaction_id="tx1", goal_id="goal-1")
-    world.db.log_unknown(world.pid, world.sid, f"{MARK} unknown", transaction_id="tx1")
+    _tx(world, U("tx1"), NOW - 1000, checks=2)
+    _verification(world, U("tx1"), "praxic")
+    _goal(world, U("goal-1"), U("tx1"))
+    world.db.log_finding(world.pid, world.sid, f"{MARK} finding", transaction_id=U("tx1"), goal_id=U("goal-1"))
+    world.db.log_unknown(world.pid, world.sid, f"{MARK} unknown", transaction_id=U("tx1"))
     return _export(world)
 
 
@@ -292,7 +300,7 @@ def test_no_free_text_field_of_the_store_appears_in_the_output(world):
     """The leak control: the marker is in reasoning, prompts, gaps, summaries, rationale, domain, objective and body."""
     out = _everything(world)
 
-    assert "tx1" in json.dumps(out), "positive control: the output is not empty"
+    assert U("tx1") in json.dumps(out), "positive control: the output is not empty"
     assert MARK not in json.dumps(out)
 
 
@@ -348,7 +356,7 @@ def test_a_prose_value_in_a_whitelisted_reflex_field_is_dropped_not_passed_throu
         world.sid,
         "POSTFLIGHT",
         VEC13,
-        transaction_id="tx1",
+        transaction_id=U("tx1"),
         metadata={
             "work_type": f"{MARK} a sentence, with punctuation. And more words than a work type has.",
             "internal_consistency": "good",
@@ -356,7 +364,7 @@ def test_a_prose_value_in_a_whitelisted_reflex_field_is_dropped_not_passed_throu
         },
     )
     _stamp(world.db, r, NOW - 10)
-    world.db.store_vectors(world.sid, "PREFLIGHT", VEC13, transaction_id="tx1")
+    world.db.store_vectors(world.sid, "PREFLIGHT", VEC13, transaction_id=U("tx1"))
 
     post = _export(world)["transactions"][0]["postflight"]
 
@@ -366,7 +374,7 @@ def test_a_prose_value_in_a_whitelisted_reflex_field_is_dropped_not_passed_throu
 
 
 def test_a_malformed_reflex_data_row_does_not_break_the_export(world):
-    _tx(world, "tx1", NOW - 1000)
+    _tx(world, U("tx1"), NOW - 1000)
     world.db.conn.execute("UPDATE reflexes SET reflex_data = 'not json {' WHERE phase = 'POSTFLIGHT'")
     world.db.conn.commit()
 
@@ -376,8 +384,8 @@ def test_a_malformed_reflex_data_row_does_not_break_the_export(world):
 
 
 def test_a_phantom_auto_checkpoint_check_is_flagged(world):
-    _tx(world, "tx1", NOW - 1000, checks=0)
-    r = world.db.store_vectors(world.sid, "CHECK", {}, transaction_id="tx1", metadata={"auto_checkpoint": True})
+    _tx(world, U("tx1"), NOW - 1000, checks=0)
+    r = world.db.store_vectors(world.sid, "CHECK", {}, transaction_id=U("tx1"), metadata={"auto_checkpoint": True})
     _stamp(world.db, r, NOW - 900)
 
     (t,) = _export(world)["transactions"]
@@ -397,7 +405,7 @@ def _handler(world, monkeypatch, capsys, **kw):
 
 
 def test_the_flag_adds_the_transactions_and_the_default_output_is_unchanged(world, monkeypatch, capsys):
-    _tx(world, "tx1", NOW - 1000)
+    _tx(world, U("tx1"), NOW - 1000)
     world.db.close()
 
     rc, _ = _handler(world, monkeypatch, capsys)
@@ -410,7 +418,7 @@ def test_the_flag_adds_the_transactions_and_the_default_output_is_unchanged(worl
     assert handle_grounding_export_command(args) == 0
     out = json.loads(capsys.readouterr().out)
     assert out["ok"] is True and out["schema"] == "empirica.transaction_export.v1"
-    assert out["transactions"][0]["transaction_id"] == "tx1"
+    assert out["transactions"][0]["transaction_id"] == U("tx1")
     assert MARK not in json.dumps(out)
 
 
@@ -433,3 +441,127 @@ def test_the_flags_are_on_the_parser():
     dests = {a.dest for a in sub.choices["grounding-export"]._actions}
 
     assert {"transactions", "since", "limit"} <= dests
+
+
+# ── pre-release review of 1.14.7: a single word is not structure ────────────────────────────────────────────────────
+
+
+NAMES = {
+    "decision": "Georg.Fechter",
+    "work_type": "Mistral-Rate-Ceiling-NLE",
+    "internal_consistency": "Nestle:Q3-pricing",
+    "git_notes_ref": "clients/Georg/Fechter/NLE-contract",
+}
+
+
+def test_a_one_word_name_in_an_enum_field_is_dropped_not_passed(world):
+    """The first version checked a token SHAPE, and a name, a client or a slug all fit it."""
+    pre = world.db.store_vectors(world.sid, "PREFLIGHT", VEC13, transaction_id=U("tx1"))
+    chk = world.db.store_vectors(
+        world.sid, "CHECK", VEC13, transaction_id=U("tx1"), metadata={"decision": NAMES["decision"], "cycle": 1e308}
+    )
+    post = world.db.store_vectors(
+        world.sid,
+        "POSTFLIGHT",
+        VEC13,
+        transaction_id=U("tx1"),
+        metadata={
+            "work_type": NAMES["work_type"],
+            "internal_consistency": NAMES["internal_consistency"],
+            "git_notes_ref": NAMES["git_notes_ref"],
+        },
+    )
+    for i, row in enumerate((pre, chk, post)):
+        _stamp(world.db, row, NOW - 100 + i)
+
+    out = _export(world)
+    dumped = json.dumps(out)
+
+    for value in NAMES.values():
+        assert value not in dumped
+    (t,) = out["transactions"]
+    assert "decision" not in t["checks"][0] and "cycle" not in t["checks"][0]
+    assert "work_type" not in t["postflight"] and "git_notes_ref" not in t["postflight"]
+    assert out["dropped_unsafe_values"] >= 5
+
+
+def test_an_id_that_is_a_word_is_dropped_and_its_transaction_is_left_out_and_counted(world):
+    _tx(world, U("tx1"), NOW - 1000)
+    _tx(world, "Client-Acme-Renewal", NOW - 500)
+
+    out = _export(world)
+
+    assert [t["transaction_id"] for t in out["transactions"]] == [U("tx1")]
+    assert out["skipped_unsafe_transaction_ids"] == 1 and "Acme" not in json.dumps(out)
+
+
+def test_goal_and_artifact_ids_that_are_words_are_dropped(world):
+    _tx(world, U("tx1"), NOW - 1000)
+    _goal(world, "Client-Acme-Renewal", U("tx1"))
+    world.db.log_finding(
+        world.pid, world.sid, f"{MARK} finding", transaction_id=U("tx1"), goal_id="Client-Acme-Renewal"
+    )
+
+    (t,) = _export(world)["transactions"]
+
+    assert t["goals"][0]["id"] is None and "Acme" not in json.dumps(t)
+    assert all("goal_id" not in a for a in t["artifacts"])
+
+
+def test_a_word_in_a_goal_status_a_source_or_a_model_is_dropped(world):
+    _tx(world, U("tx1"), NOW - 1000)
+    _verification(world, U("tx1"), "praxic")
+    world.db.conn.execute(
+        "UPDATE grounded_verifications SET practitioner_model = 'claude-opus.NLE-Acme', compliance_status = 'Contract:ACME-2026', phase = 'Georg_Fechter'"
+    )
+    world.db.conn.execute(
+        "UPDATE grounded_verifications SET grounded_vectors = replace(grounded_vectors, '\"git\"', '\"Acme_renewal\"')"
+    )
+    _goal(world, "goal-x", U("tx1"), status="Acme_renewal")
+    world.db.conn.commit()
+
+    out = _export(world)
+
+    assert "Acme" not in json.dumps(out) and "Georg" not in json.dumps(out) and "ACME" not in json.dumps(out)
+    assert out["dropped_unsafe_values"] >= 5
+
+
+def test_the_real_values_this_practice_writes_all_survive(world):
+    """Control for the vocabularies: every legitimate value of every enum field passes, so the drops above are not blanket."""
+    _tx(world, U("tx1"), NOW - 1000, checks=2)
+    _verification(world, U("tx1"), "praxic")
+
+    (t,) = _export(world)["transactions"]
+
+    assert t["postflight"]["work_type"] == "code" and t["postflight"]["internal_consistency"] == "good"
+    assert [c["decision"] for c in t["checks"]] == ["investigate", "proceed"]
+    assert t["postflight"]["git_notes_ref"].endswith("/POSTFLIGHT/29")
+    assert (
+        t["grounded"][0]["compliance_status"] == "complete"
+        and t["grounded"][0]["practitioner_model"] == "claude-sonnet-5-5"
+    )
+    assert t["grounded"][0]["vectors"]["do"]["source"] == "git"
+
+
+def test_another_practices_rows_under_a_shared_transaction_id_are_not_exported(world):
+    """One live transaction id spans two practices; the per-transaction reads must filter by the practice too."""
+    tx = U("shared")
+    _tx(world, U("shared"), NOW - 1000)
+    world.db.store_vectors(
+        world.other, "CHECK", {**VEC13, "know": 0.01}, transaction_id=tx, metadata={"decision": "proceed"}
+    )
+
+    (t,) = _export(world)["transactions"]
+
+    assert all(c["vectors"]["know"] != 0.01 for c in t["checks"]) and t["session_id"] == world.sid
+
+
+def test_since_or_limit_without_transactions_is_an_error_not_a_silent_no_op(world, monkeypatch, capsys):
+    from empirica.cli.command_handlers.monitor_commands import handle_grounding_export_command
+
+    monkeypatch.setenv("EMPIRICA_SESSION_DB", str(world.db.db_path))
+    args = types.SimpleNamespace(ai_id="a", output="json", transactions=False, since="2026-10-01", limit=None)
+
+    assert handle_grounding_export_command(args) == 1
+    out = json.loads(capsys.readouterr().out)
+    assert out["ok"] is False and "--since" in out["error"] and "--transactions" in out["error"]

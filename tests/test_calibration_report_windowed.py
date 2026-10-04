@@ -133,3 +133,20 @@ def test_the_flag_is_on_the_parser_and_its_help_names_the_quantity():
     action = next(a for a in sub.choices["calibration-report"]._actions if a.dest == "windowed")
 
     assert "different quantity" in action.help.lower() and action.default is False
+
+
+def test_windowed_is_not_silently_dropped_from_the_human_output(db, monkeypatch, capsys):
+    """The flag's help promises a windowed block; --output defaults to human, where it used to vanish."""
+    _seed(db)
+    path = db.db_path
+    monkeypatch.setattr(mc, "_get_open_disputes", lambda _db: {})
+    monkeypatch.setattr("empirica.core.post_test.grounded_calibration.load_calibration_exclusions", lambda _root: [])
+    monkeypatch.setattr(
+        "empirica.data.session_database.SessionDatabase", lambda *_a, **_k: SessionDatabase(db_path=path)
+    )
+
+    mc._show_grounded_calibration(types.SimpleNamespace(windowed=True), "p", 1, "human", False)
+    text = capsys.readouterr().out
+
+    assert "windowed: last 1 week(s), 2 verifications" in text and "know: +0.400" in text
+    assert "does not apply calibration_exclusions" in text
