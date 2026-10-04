@@ -144,6 +144,17 @@ empirica sync status
 empirica rebuild [--from-notes] [--qdrant]
 # Reconstructs sessions.db from refs/notes/empirica/*
 # --qdrant: Also rebuild Qdrant embeddings
+
+# Restore ONLY the reflex rows (PREFLIGHT/CHECK/POSTFLIGHT vectors) from the session-phase notes
+empirica rebuild --reflexes-only [--apply]
+# The default rebuild restores artifacts and stub sessions but no reflex rows. This mode touches `reflexes` only,
+# previews unless --apply, and is idempotent: identity is (session_id, phase, round), which the ref name
+# refs/notes/empirica/session/<session_id>/<PHASE>/<round> encodes, so an existing row is never replaced. It keeps the
+# note's own timestamp, transaction id and reasoning, and only the vectors the note carries: the rest stay NULL,
+# not 0.5 (a CHECK note often has 7 of 13). Skipped and counted: sessions with no `sessions` row (named in the output),
+# notes with no vectors, notes that disagree with their ref name, and the old auto-checkpoint's all-0.5 phantom CHECK
+# rows that delete-artifacts purged on purpose. Calibration rows (grounded_beliefs, grounded_verifications) are
+# SQLite-only and have no note to restore from.
 ```
 
 ### Workspace-Level Sync

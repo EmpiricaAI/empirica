@@ -1383,6 +1383,44 @@ def _rebuild_from_notes() -> dict[str, Any]:
     return rebuilt
 
 
+def _rebuild_reflexes_only(args, output_format: str) -> int:
+    """`rebuild --reflexes-only [--apply]`: core/canonical/reflex_import.py against this project's store and repo."""
+    from empirica.config.path_resolver import get_git_root
+    from empirica.core.canonical.reflex_import import import_reflexes
+    from empirica.data.session_database import SessionDatabase
+
+    repo = get_git_root()
+    if not repo:
+        print(json.dumps({"ok": False, "error": "not inside a git repository: the notes live in git"}))
+        return 1
+    db = SessionDatabase()
+    try:
+        result = import_reflexes(db.conn, str(repo), apply=bool(getattr(args, "apply", False)))
+        result["db_path"] = str(getattr(db, "db_path", "") or "")
+        result["repo"] = str(repo)
+    except Exception as e:
+        print(json.dumps({"ok": False, "error": f"{type(e).__name__}: {e}"}))
+        return 1
+    finally:
+        db.close()
+    payload = {"ok": bool(result.get("ok")), "reflexes": result}
+    if output_format == "json":
+        print(json.dumps(payload, indent=2))
+    else:
+        verb = "Imported" if result.get("applied") else "Would import"
+        n = result.get("imported") if result.get("applied") else result.get("importable")
+        print(
+            f"{verb} {n} reflex rows from {result.get('refs_found')} session notes ({result.get('already_present')} already present)"
+        )
+        if result.get("skipped_no_session"):
+            print(
+                f"   skipped {result['skipped_no_session']} for sessions with no row: {', '.join(result['sessions_missing'])}"
+            )
+        if not result.get("applied"):
+            print("   preview only: pass --apply to write")
+    return 0 if payload["ok"] else 1
+
+
 def handle_rebuild_command(args):
     """Handle rebuild command - reconstruct SQLite from git notes"""
     try:
@@ -1390,6 +1428,12 @@ def handle_rebuild_command(args):
         from_notes = getattr(args, "from_notes", True)
         qdrant = getattr(args, "qdrant", False)
         qdrant_only = getattr(args, "qdrant_only", False)
+
+        # --reflexes-only: restore reflex rows from the session-phase notes and nothing else. Like --qdrant-only it
+        # skips the default notes->SQLite rebuild, which would rewrite artifacts from notes; this touches `reflexes`
+        # only, previews unless --apply, and is idempotent.
+        if getattr(args, "reflexes_only", False):
+            return _rebuild_reflexes_only(args, output_format)
 
         # --qdrant-only: re-embed Qdrant from CURRENT SQLite WITHOUT the notes-import
         # step. The default path (_rebuild_from_notes) reconstructs SQLite from git notes

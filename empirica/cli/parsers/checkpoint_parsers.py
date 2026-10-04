@@ -2585,6 +2585,17 @@ written to git notes (breadcrumbs ref) for audit trail.
         help="Re-embed Qdrant from CURRENT SQLite only, SKIPPING the notes->SQLite rebuild "
         "(safe resync after direct-SQL/bulk changes not yet persisted to git notes)",
     )
+    rebuild_parser.add_argument(
+        "--reflexes-only",
+        action="store_true",
+        help="Restore ONLY the reflex rows (PREFLIGHT/CHECK/POSTFLIGHT vectors) from the session-phase git notes, "
+        "touching nothing else and skipping the notes->SQLite rebuild. Original timestamps; only the vectors a note "
+        "carries (the rest stay NULL, never 0.5); skips a (session, phase, round) that already has a row; names "
+        "sessions that have no row. PREVIEWS unless --apply",
+    )
+    rebuild_parser.add_argument(
+        "--apply", action="store_true", help="With --reflexes-only: actually insert (default is a preview)"
+    )
     rebuild_parser.add_argument("--output", choices=["human", "json"], default="json", help="Output format")
     rebuild_parser.add_argument("--verbose", action="store_true", help="Show detailed operation info")
 

@@ -23,7 +23,7 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.14.6
-**Generated:** 2026-10-04 14:53:56 UTC
+**Generated:** 2026-10-04 15:05:38 UTC
 **Total commands:** 241 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -2301,6 +2301,10 @@ Reconstruct SQLite from git notes
   Rebuild SQLite from notes FIRST, then also rebuild Qdrant
 - `--qdrant-only` — optional · flag
   Re-embed Qdrant from CURRENT SQLite only, SKIPPING the notes->SQLite rebuild (safe resync after direct-SQL/bulk changes not yet persisted to git notes)
+- `--reflexes-only` — optional · flag
+  Restore ONLY the reflex rows (PREFLIGHT/CHECK/POSTFLIGHT vectors) from the session-phase git notes, touching nothing else and skipping the notes->SQLite rebuild. Original timestamps; only the vectors a note carries (the rest stay NULL, never 0.5); skips a (session, phase, round) that already has a row; names sessions that have no row. PREVIEWS unless --apply
+- `--apply` — optional · flag
+  With --reflexes-only: actually insert (default is a preview)
 - `--output` — optional · type=`choice` · choices={human, json} · default=`json`
   Output format
 - `--verbose` — optional · flag
