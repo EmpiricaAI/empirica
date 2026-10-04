@@ -165,7 +165,6 @@ class LivenessProbe:
             self._log("liveness probe inactive — no cortex credentials")
             return
         cortex_url = cortex["url"]
-        api_key = cortex["api_key"]
         self._last_ok_at = self._now()
         self._log(
             f"liveness probe armed: interval={self.interval_sec:.0f}s "
@@ -173,14 +172,42 @@ class LivenessProbe:
             f"target={cortex_url}/v1/users/me/roster"
         )
         while not self._stop_evt.is_set():
-            self._do_probe(cortex_url, api_key)
+            self._probe_once()
             self._check_staleness()
             self._wait()
 
-    def _do_probe(self, cortex_url: str, api_key: str) -> None:
+    def _probe_once(self) -> None:
+        """One probe with a bearer resolved NOW.
+
+        The bearer was resolved once at thread start and reused for the life of the process. It is a 24-hour OAuth
+        access token, so every listener on a box (they share credentials.yaml) got a 401 at the same expiry, counted
+        four misses, exited and was restarted together, which kept their clocks aligned and made them cycle together
+        every day (NLE, 2026-10-04). Resolving per probe is cheap: the loader reads a cached credential and refreshes
+        only near expiry, exactly as catch-up in this same process already does.
+        """
+        cortex = self._cortex_loader()
+        if not cortex or not cortex.get("url") or not cortex.get("api_key"):
+            self._consecutive_failures += 1
+            self._log(f"liveness probe miss ({self._consecutive_failures} consecutive): no cortex credentials")
+            return
+        self._do_probe(cortex["url"], cortex["api_key"], retry_on_401=True)
+
+    def _do_probe(self, cortex_url: str, api_key: str, retry_on_401: bool = False) -> None:
         try:
             status = self._probe_fn(cortex_url, api_key)
-        except (TimeoutError, urllib.error.URLError, urllib.error.HTTPError, OSError) as e:
+        except urllib.error.HTTPError as e:
+            if e.code == 401 and retry_on_401:
+                # The token may have expired between resolving it and using it. Re-resolve ONCE and retry before
+                # counting a miss; a token that is genuinely revoked comes back unchanged, and is then a real miss.
+                fresh = self._cortex_loader()
+                fresh_key = (fresh or {}).get("api_key")
+                if fresh_key and fresh_key != api_key:
+                    self._do_probe(cortex_url, fresh_key, retry_on_401=False)
+                    return
+            self._consecutive_failures += 1
+            self._log(f"liveness probe miss ({self._consecutive_failures} consecutive): {type(e).__name__}: {e}")
+            return
+        except (TimeoutError, urllib.error.URLError, OSError) as e:
             self._consecutive_failures += 1
             self._log(f"liveness probe miss ({self._consecutive_failures} consecutive): {type(e).__name__}: {e}")
             return
