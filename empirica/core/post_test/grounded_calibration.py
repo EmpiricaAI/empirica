@@ -502,6 +502,58 @@ class GroundedCalibrationManager:
 
         return divergence
 
+    def get_windowed_divergence(self, ai_id: str, weeks: int, now: float | None = None) -> dict:
+        """Self-versus-grounded gap over the verifications of the last `weeks` weeks.
+
+        A DIFFERENT quantity from get_calibration_divergence: that compares the aggregated belief means over all
+        history; this averages the raw per-verification values inside the window. Both are (self - grounded), so
+        + means the practice read higher than the evidence, but the two are not interchangeable and are reported
+        under separate keys.
+        """
+        import json as _json
+        import time as _time
+
+        since = (now if now is not None else _time.time()) - max(int(weeks), 0) * 7 * 86400
+        cursor = self.db.conn.cursor()
+        cursor.execute(
+            "SELECT self_assessed_vectors, grounded_vectors FROM grounded_verifications "
+            "WHERE ai_id = ? AND created_at >= ? AND grounded_vectors IS NOT NULL",
+            (ai_id, since),
+        )
+        rows = cursor.fetchall()
+        acc: dict[str, list[tuple[float, float]]] = {}
+        for raw_self, raw_grounded in rows:
+            try:
+                selfv, grounded = _json.loads(raw_self), _json.loads(raw_grounded)
+            except (TypeError, ValueError):
+                continue
+            for vector, est in grounded.items():
+                value = est.get("value") if isinstance(est, dict) else est
+                s = selfv.get(vector)
+                if (
+                    vector in UNGROUNDABLE_VECTORS
+                    or not isinstance(value, (int, float))
+                    or not isinstance(s, (int, float))
+                ):
+                    continue
+                acc.setdefault(vector, []).append((float(s), float(value)))
+
+        divergence: dict[str, dict] = {}
+        for vector, pairs in sorted(acc.items()):
+            self_mean = sum(p[0] for p in pairs) / len(pairs)
+            grounded_mean = sum(p[1] for p in pairs) / len(pairs)
+            entry: dict = {
+                "self_mean": round(self_mean, 4),
+                "grounded_mean": round(grounded_mean, 4),
+                "gap": round(self_mean - grounded_mean, 4),
+                "observations": len(pairs),
+            }
+            if vector == "uncertainty":
+                # Its grounded value is computed from the other vectors' gaps and coverage, not measured.
+                entry["derived_from_other_vectors"] = True
+            divergence[vector] = entry
+        return {"verifications": len(rows), "divergence": divergence}
+
     def get_grounded_adjustments(self, ai_id: str) -> dict[str, float]:
         """
         Corrections to APPLY TO SELF-ASSESSMENT: grounded evidence minus what

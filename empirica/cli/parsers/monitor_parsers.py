@@ -117,6 +117,16 @@ Use --learning-trajectory to see PREFLIGHT→POSTFLIGHT deltas (learning, not ca
         help="AI identifier to compute under (default: this practice's own, resolved from the project; its canonical id is the project basename)",
     )
     calibration_parser.add_argument(
+        "--windowed",
+        action="store_true",
+        default=False,
+        help=(
+            "Add a `windowed` block: the self-versus-grounded gap over the last --weeks, recomputed from "
+            "grounded_verifications. A different quantity from the all-time `divergence` (per-verification means, "
+            "not aggregated belief means); reported under its own key, never merged"
+        ),
+    )
+    calibration_parser.add_argument(
         "--weeks",
         type=int,
         default=8,

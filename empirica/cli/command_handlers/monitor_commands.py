@@ -1194,6 +1194,16 @@ def _show_grounded_calibration(args, ai_id: str, weeks: int, output_format: str,
                 },
                 "divergence": divergence,
             }
+            if getattr(args, "windowed", False):
+                windowed = gcm.get_windowed_divergence(ai_id, weeks)
+                result["windowed"] = {
+                    "window": {"requested_weeks": weeks, "applied": True, "scope": "last_weeks"},
+                    "quantity": (
+                        "mean of per-verification (self - grounded) inside the window; a different quantity from "
+                        "`divergence`, which compares aggregated belief means over all history"
+                    ),
+                    **windowed,
+                }
             if open_disputes:
                 result["disputed_vectors"] = {
                     v: {"reason": d["reason"], "expected": d["expected"]} for v, d in open_disputes.items()
