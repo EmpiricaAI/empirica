@@ -5,6 +5,63 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.7] - 2026-10-04
+
+A transaction export that can leave a practice without a content review, a calibration report that says what it
+computed, and a bias profile that no longer carries measurements known to be wrong. The Sentinel stops refusing reads it
+should allow and stops allowing writes it should not.
+
+### Added
+
+- **`empirica grounding-export --ai-id <practice> --transactions [--since] [--limit]`** exports per-transaction
+  history with structure only: ids, timestamps, PREFLIGHT / CHECK(n) / POSTFLIGHT vectors, self versus grounded per
+  vector, linked goal ids and artifact ids with their type. No text column is read: ids must be UUID- or hex-shaped,
+  enum fields are checked against closed vocabularies, notes refs against the exact shape the writer produces, and
+  anything else is left out and counted. A flag on the existing verb; the default output is unchanged. Schema:
+  `docs/reference/TRANSACTION_EXPORT.md`.
+- **`empirica calibration-report --windowed --weeks N`** adds a `windowed` block: the self-versus-grounded gap
+  recomputed from `grounded_verifications` over the window. It is a different quantity from the all-time `divergence`
+  and sits under its own key. The default report now states its `ai_id`, its window (`applied: false`, `all_time`),
+  which adjustments sit at the +/-0.25 cap (`adjustments_clamped`), the sign conventions, the exclusions applied, and
+  the database it read (`target`). `--weeks` is documented as applying to the trajectory paths only.
+- **`calibration_exclusions` in `.empirica/project.yaml`** lets a practice exclude measurements it knows were wrong
+  (vectors, optional source, optional date window, reason) from its grounded bias. The grounded belief is replayed
+  without them (the replay reproduces the stored belief when nothing is excluded); no row is rewritten; the bias block,
+  `grounded_bias_corrections` and the report say what was left out. Core's own entry covers git evidence from
+  2026-08-01 to 2026-09-20, when it was graded over a window far wider than the transaction (fixed in v1.13.51).
+- **`empirica rebuild --reflexes-only [--apply]`** restores reflex rows from the session-phase git notes, idempotently.
+  It touches `reflexes` only, previews unless `--apply`, keeps the note's timestamp, transaction id and reasoning and
+  only the vectors the note carries (the rest stay NULL, never 0.5), skips an identity that already has a row, names
+  sessions that have no row, and skips the old auto-checkpoint's phantom CHECK rows. The apply is one transaction.
+- **`profile-sync` and the notes import now restore decisions and assumptions**, as `local`. A note the table refuses is
+  counted `failed`, not reported as already present.
+- **`delete-artifacts` can remove the phantom CHECK rows** the old auto-checkpoint wrote (`reflexes:
+  {phantom_checks: true}`), and its output names the database it ran against and warns when that is not the cwd's.
+- **A compact statusline by default** (practice, cascade stage, confidence, goals, unknowns, assumptions, findings and
+  decisions, a learning mark, investigate or act, model, context), with the previous default one switch away.
+
+### Fixed
+
+- **Calibration no longer grounds `change` on housekeeping.** `triage_change`, `goal_completion_change` and the `change`
+  support on `goal_completion_ratio` mapped a count of goals completed or unknowns resolved onto `change`; they are
+  removed (still evidence for `do`, `completion` and `know`). The prose proxies stopped mapping effort counts onto
+  `change` and `uncertainty`, and count the transaction rather than the session, including a transaction logged under
+  more than one session. `change` gaps before and after this release are not comparable; split on version.
+- **The Sentinel allows pure-read Cortex and CRM tools after POSTFLIGHT** (ten Cortex reads and the CRM read set, from
+  one predicate), plus `readlink`, `realpath`, `git merge-base` and `claude --version`.
+- **The Sentinel's sqlite scan reads comments, every statement and `-cmd`.** A quoted word in a `LIKE` pattern no
+  longer gates a SELECT, and a quote inside a comment can no longer hide a write; every positional and `-cmd` value is
+  classified, `-init` is refused, dot-commands are checked per line, and `writefile()`, `load_extension()`, `edit()`
+  and `fts3_tokenizer()` are refused. Safe-prefix matches end at a word.
+- **A refusal caused by a command substitution says so** instead of telling you to run PREFLIGHT.
+- **`goals-activate` links only to an open transaction** (checked against the reflexes table, not only the pointer
+  file) and says when it did not.
+- **The listener liveness probe resolves its bearer per probe** and retries a 401 once, so a 24-hour token expiry no
+  longer makes every listener on a box exit together.
+- **Hooks and diagnostics outside Claude Code**: budget persistence uses the path the hook holds, post-compact ignores
+  a start that is not a compaction, session-init reads bootstrap's context where it is and shows all 13 vectors,
+  `diagnose-ecodex` tests the isolation contract, and `provision-practice --no-cortex` records substrate `local`.
+
 ## [1.14.6] - 2026-10-03
 
 A seat can stop storing a bearer in `~/.claude.json`, the Sentinel stops refusing mesh and
