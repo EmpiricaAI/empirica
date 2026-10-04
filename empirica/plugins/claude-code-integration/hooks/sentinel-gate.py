@@ -2903,6 +2903,36 @@ def _classify_chain(command: str) -> bool | None:
     return None
 
 
+def _strip_sql_literals(sql: str) -> str:
+    """`sql` with the contents of '...' and "..." literals blanked, so a keyword scan sees only code.
+
+    A doubled quote inside a literal is an escaped quote and does not end it. A literal that never terminates is NOT
+    blanked: it is an SQL error, not a place to hide a statement, so its text stays visible to the scan.
+    """
+    out: list[str] = []
+    i, n = 0, len(sql)
+    while i < n:
+        ch = sql[i]
+        if ch not in ("'", '"'):
+            out.append(ch)
+            i += 1
+            continue
+        j = i + 1
+        while j < n:
+            if sql[j] == ch:
+                if j + 1 < n and sql[j + 1] == ch:
+                    j += 2
+                    continue
+                break
+            j += 1
+        if j >= n:  # unterminated: keep it as code
+            out.append(sql[i:])
+            break
+        out.append(ch + " " + ch)
+        i = j + 1
+    return "".join(out)
+
+
 def is_safe_bash_command(tool_input: dict) -> bool:
     """Check if a Bash command is in the safe (noetic) whitelist.
 
@@ -3072,6 +3102,9 @@ def is_safe_sqlite_command(command: str) -> bool:
     if len(positionals) < 2:
         return False
     query = positionals[1].strip().upper()
+    # The write-keyword scan reads the query WITHOUT its quoted literals: a word inside '...' or "..." is data or a
+    # name, not a statement (ecodex, 2026-10-03: LIKE '%ecodex update%' gated a pure SELECT).
+    code_only = _strip_sql_literals(positionals[1].strip()).upper()
 
     # Write-keyword backstop (defense in depth): any DML/DDL anywhere in the
     # query — including inside a writable CTE (`WITH … DELETE`) — → praxic.
@@ -3089,7 +3122,7 @@ def is_safe_sqlite_command(command: str) -> bool:
         "REINDEX",
         "TRUNCATE",
     )
-    if any(re.search(r"\b" + kw + r"\b", query) for kw in write_kw):
+    if any(re.search(r"\b" + kw + r"\b", code_only) for kw in write_kw):
         return False
 
     # File-writing / shell-escaping meta commands → praxic.

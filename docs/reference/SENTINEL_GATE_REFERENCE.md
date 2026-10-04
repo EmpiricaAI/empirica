@@ -184,6 +184,8 @@ Read-only SQLite access is allowed:
 
 Write operations (`INSERT`, `UPDATE`, `DELETE`, `DROP`, `CREATE`, `ALTER`) are blocked.
 
+The write-keyword scan reads the query with its quoted literals blanked: a word inside `'...'` or `"..."` is data or a name, so `SELECT ... LIKE '%ecodex update%'` is a read. A doubled quote stays inside the literal, and a literal that never terminates is scanned as code rather than trusted, so a statement cannot be hidden behind a stray quote.
+
 ### Work-Type-Aware Command Expansion (INFRA_SAFE_PREFIXES)
 
 When PREFLIGHT declares `work_type` as `infra`, `config`, or `debug`, the Sentinel expands the safe command list with additional inspection prefixes. The user explicitly chose the work type, so this is a scope declaration.

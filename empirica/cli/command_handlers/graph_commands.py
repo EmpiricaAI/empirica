@@ -2432,6 +2432,7 @@ def handle_delete_artifacts_command(args):  # noqa: C901 — batch dispatcher fa
                 else:
                     audit_status = "skipped: no session or project context"
 
+        target = _target_report(db)
         db.close()
 
         # A vector left behind or an unwritten audit row is a real failure of the
@@ -2461,13 +2462,44 @@ def handle_delete_artifacts_command(args):  # noqa: C901 — batch dispatcher fa
             "items": deleted_items,
             "audit": audit_status,
             "errors": delete_errors,
+            "target": target,
         }
+        if target.get("matches_cwd") is False:
+            result["warning"] = (
+                f"ran against {target['db_path']}, which is not the current directory's project "
+                f"({target.get('cwd_project')}): the instance's active project or an open transaction selects the "
+                "project, not the cwd, and this verb has no --project-id. Counts above are that project's."
+            )
         print(json.dumps(result, indent=2))
         return 0
 
     except Exception as e:
         handle_cli_error(e, "Delete artifacts", getattr(args, "verbose", False))
         return 1
+
+
+def _target_report(db) -> dict:
+    """Which database a destructive verb ran against, and whether it is the cwd's project.
+
+    The project is selected by the instance's active context, not the cwd, so a loop over practice directories ran
+    every time against one practice and each preview read as that directory's (ecodex, 2026-10-03). Naming the
+    database makes the silent case legible; `matches_cwd` is None when it cannot be told.
+    """
+    from pathlib import Path
+
+    db_path = getattr(db, "db_path", None)
+    report: dict = {"db_path": str(db_path) if db_path else None, "matches_cwd": None, "cwd_project": None}
+    try:
+        from empirica.config.path_resolver import get_git_root
+
+        root = get_git_root()
+        if root and db_path:
+            report["cwd_project"] = str(root)
+            p = Path(db_path).resolve()
+            report["matches_cwd"] = Path(root).resolve() in p.parents
+    except Exception:
+        pass
+    return report
 
 
 UPDATE_ARTIFACTS_SCHEMA = {

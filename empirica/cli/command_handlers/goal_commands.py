@@ -2279,10 +2279,14 @@ def handle_goals_activate_command(args):
         goal_id = args.goal_id
         output_format = getattr(args, "output", "json")
 
-        # Auto-derive transaction_id
+        # Link only to an OPEN transaction. The tracking file outlives POSTFLIGHT with status "closed", and reading
+        # just the id linked a goal activated between transactions to the previous one, so the new transaction
+        # showed no goal (ecodex, 2026-10-03). PREFLIGHT first, then activate.
         transaction_id = None
         try:
-            transaction_id = R.transaction_id()
+            tx = R.transaction_read()
+            if isinstance(tx, dict) and tx.get("status") == "open":
+                transaction_id = tx.get("transaction_id")
         except Exception:
             pass
 
@@ -2297,14 +2301,26 @@ def handle_goals_activate_command(args):
                 "goal_id": goal_id,
                 "status": "in_progress",
                 "transaction_id": transaction_id,
-                "message": f"Goal {goal_id[:8]} activated — now in_progress and linked to current transaction",
+                "transaction_linked": transaction_id is not None,
+                "message": (
+                    f"Goal {goal_id[:8]} activated — now in_progress and linked to current transaction"
+                    if transaction_id
+                    else f"Goal {goal_id[:8]} activated — now in_progress, NOT linked to a transaction"
+                ),
             }
+            if not transaction_id:
+                result["warning"] = (
+                    "no open transaction to link to: run PREFLIGHT first, then goals-activate (or goals-add-task on "
+                    "an in-progress goal, which the Sentinel also counts as a goal in play)"
+                )
             if output_format == "json":
                 print(json.dumps(result))
             else:
                 print(f"✅ Activated goal: {goal_id[:8]}")
                 if transaction_id:
                     print(f"   Linked to transaction: {transaction_id[:8]}")
+                else:
+                    print(f"   ⚠️  {result['warning']}")
         else:
             result = {"ok": False, "error": f"Goal {goal_id} not found or not in 'planned' status"}
             print(json.dumps(result))

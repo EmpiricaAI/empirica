@@ -1836,7 +1836,9 @@ Example:
             "reason), this hard-deletes from SQLite + Qdrant. The deletion "
             "itself is logged as a decision for audit. PREVIEWS by default — "
             'pass --apply to actually delete. For "still valid but answered", '
-            'use resolve. For "never should have been logged", use this.'
+            'use resolve. For "never should have been logged", use this. '
+            "Runs against the instance's active project, not the cwd; the "
+            "output's `target` names the database and warns when it is not the cwd's."
         ),
         description="""
 Delete stale or non-pertinent artifacts from the epistemic chain.
@@ -2395,8 +2397,9 @@ written to git notes (breadcrumbs ref) for audit trail.
         "goals-activate",
         aliases=["goal-activate"],
         help=(
-            "Flip a planned goal to in_progress and link it to the active "
-            "transaction. Use when you're ready to start work on a goal "
+            "Flip a planned goal to in_progress and link it to the OPEN "
+            "transaction (run PREFLIGHT first; with no open transaction it "
+            "still activates but says it did not link). Use when you're ready to start work on a goal "
             "created earlier as planned (collaborative pre-scoping). Differs "
             "from goals-claim — activate is the same-AI status transition; "
             "claim is the lifecycle hook (branch, BEADS)."

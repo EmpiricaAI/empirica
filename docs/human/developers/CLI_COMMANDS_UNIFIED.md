@@ -23,7 +23,7 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.14.6
-**Generated:** 2026-10-03 18:43:58 UTC
+**Generated:** 2026-10-04 12:13:30 UTC
 **Total commands:** 241 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -1275,7 +1275,7 @@ Close multiple open artifacts (unknowns, assumptions, goals) in one call. Typica
 
 #### `empirica delete-artifacts`
 
-Remove stale, duplicate, or test-noise artifacts from the ledger. Unlike resolve-artifacts (closes WITH a resolution reason), this hard-deletes from SQLite + Qdrant. The deletion itself is logged as a decision for audit. PREVIEWS by default — pass --apply to actually delete. For "still valid but answered", use resolve. For "never should have been logged", use this.
+Remove stale, duplicate, or test-noise artifacts from the ledger. Unlike resolve-artifacts (closes WITH a resolution reason), this hard-deletes from SQLite + Qdrant. The deletion itself is logged as a decision for audit. PREVIEWS by default — pass --apply to actually delete. For "still valid but answered", use resolve. For "never should have been logged", use this. Runs against the instance's active project, not the cwd; the output's `target` names the database and warns when it is not the cwd's.
 
 **Arguments:**
 
@@ -1755,8 +1755,8 @@ Create + register a new local practice/practitioner in one command
   Tenant slug (default: inferred from cwd's project.yaml)
 - `--org` — optional
   Org slug (default: inferred from cwd's project.yaml)
-- `--substrate` — optional · default=`cortex`
-  Substrate value written to project.yaml (default: cortex)
+- `--substrate` — optional
+  Substrate value written to project.yaml: cortex, git or local (default: local with --no-cortex, else cortex)
 - `--forgejo-owner` — optional
   If set, wire a forgejo backup remote under this owner (git remote add + sync-config + sync-push)
 - `--forgejo-host` — optional
@@ -2741,9 +2741,11 @@ Generate calibration report from grounded evidence
 **Arguments:**
 
 - `--ai-id` — optional
-  Filter by AI identifier (default: all; canonical ai_ids derived from project basename)
+  AI identifier to compute under (default: this practice's own, resolved from the project; its canonical id is the project basename)
+- `--windowed` — optional · flag
+  Add a `windowed` block: the self-versus-grounded gap over the last --weeks, recomputed from grounded_verifications. A different quantity from the all-time `divergence` (per-verification means, not aggregated belief means); reported under its own key, never merged
 - `--weeks` — optional · type=`int` · default=`8`
-  Number of weeks to analyze (default: 8)
+  Number of weeks for --learning-trajectory and --trajectory (default: 8). The default grounded report covers all history and its JSON says so (window.applied false)
 - `--include-tests` — optional · flag
   Include test sessions in analysis (normally filtered)
 - `--min-samples` — optional · type=`int` · default=`10`
@@ -4945,7 +4947,7 @@ Analyze goal feasibility
 
 #### `empirica goals-activate`  _(aliases: `goal-activate`)_
 
-Flip a planned goal to in_progress and link it to the active transaction. Use when you're ready to start work on a goal created earlier as planned (collaborative pre-scoping). Differs from goals-claim — activate is the same-AI status transition; claim is the lifecycle hook (branch, BEADS).
+Flip a planned goal to in_progress and link it to the OPEN transaction (run PREFLIGHT first; with no open transaction it still activates but says it did not link). Use when you're ready to start work on a goal created earlier as planned (collaborative pre-scoping). Differs from goals-claim — activate is the same-AI status transition; claim is the lifecycle hook (branch, BEADS).
 
 **Arguments:**
 
