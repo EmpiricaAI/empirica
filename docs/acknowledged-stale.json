@@ -185,6 +185,12 @@
       "reason": "Read in full this pass (2026-10-01). The hook scripts it names (session-init, sentinel-gate, session-end-postflight, post-compact, pre-compact) all exist in the plugin, and the instance_projects / active_transaction file layout matches the code. Not verified: the per-project Qdrant collection count and the tier-2 loading claims. Subject is live, so not archived.",
       "decided_by": "empirica (2026-10-01, 1.14.4 release gate)",
       "review_by": "2026-11-15"
+    },
+    "SECURITY.md": {
+      "status": "pending_review",
+      "reason": "READ this pass (2026-10-04). The reporting process and the supported-versions sentence (latest minor on develop and main) match how the project is released. The contact addresses (security@ and brand@empirica-ai.com) and the facts about the impersonating Solana token are the maintainers' to confirm and I cannot verify them from the repo, so this is pending_review, not verified_current.",
+      "decided_by": "empirica (2026-10-04, date rollover: crossed 180 days)",
+      "review_by": "2026-12-01"
     }
   }
 }
