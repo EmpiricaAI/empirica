@@ -113,9 +113,18 @@ Use --learning-trajectory to see PREFLIGHT→POSTFLIGHT deltas (learning, not ca
         """,
     )
     calibration_parser.add_argument(
-        "--ai-id", help="Filter by AI identifier (default: all; canonical ai_ids derived from project basename)"
+        "--ai-id",
+        help="AI identifier to compute under (default: this practice's own, resolved from the project; its canonical id is the project basename)",
     )
-    calibration_parser.add_argument("--weeks", type=int, default=8, help="Number of weeks to analyze (default: 8)")
+    calibration_parser.add_argument(
+        "--weeks",
+        type=int,
+        default=8,
+        help=(
+            "Number of weeks for --learning-trajectory and --trajectory (default: 8). The default grounded report "
+            "covers all history and its JSON says so (window.applied false)"
+        ),
+    )
     calibration_parser.add_argument(
         "--include-tests", action="store_true", help="Include test sessions in analysis (normally filtered)"
     )

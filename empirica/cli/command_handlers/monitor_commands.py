@@ -1167,13 +1167,31 @@ def _show_grounded_calibration(args, ai_id: str, weeks: int, output_format: str,
 
         total_grounded_evidence = sum(b.evidence_count for b in grounded_beliefs.values())
 
+        # What the numbers are, said in the output (cowork + extension, 2026-10-04). This path reads the aggregated
+        # beliefs for `ai_id`, which are not windowed, so `weeks` is NOT applied here (it applies to --learning-trajectory
+        # and --trajectory); a clamped correction is a cap, not a measurement.
+        from empirica.core.bayesian_beliefs import BayesianBeliefManager
+
+        cap = BayesianBeliefManager.MAX_CORRECTION_MAGNITUDE
+        clamped = sorted(v for v, a in grounded_adjustments.items() if abs(a) >= cap - 1e-9)
+
         if output_format == "json":
             result = {
                 "ok": True,
                 "calibration_type": "grounded",
                 "note": "Grounded calibration: POSTFLIGHT self-assessment vs objective evidence",
+                "ai_id": ai_id,
+                "window": {"requested_weeks": weeks, "applied": False, "scope": "all_time"},
                 "observations": total_grounded_evidence,
                 "adjustments": grounded_adjustments,
+                "adjustments_clamped": clamped,
+                "sign": {
+                    "gap": "self_referential_mean - grounded_mean (+ = you read higher than the evidence)",
+                    "adjustments": (
+                        f"negated gap x min(evidence/10, 1), capped at +/-{cap} "
+                        "(+ = raise your self-assessment); vectors at the cap are listed in adjustments_clamped"
+                    ),
+                },
                 "divergence": divergence,
             }
             if open_disputes:
@@ -1182,6 +1200,9 @@ def _show_grounded_calibration(args, ai_id: str, weeks: int, output_format: str,
                 }
             print(json.dumps(result, indent=2))
         else:
+            print(
+                f"   ai_id: {ai_id} | window: all history (--weeks applies to --learning-trajectory and --trajectory only)"
+            )
             _print_grounded_calibration_human(total_grounded_evidence, open_disputes, divergence, grounded_adjustments)
 
         # Optional trajectory trend
