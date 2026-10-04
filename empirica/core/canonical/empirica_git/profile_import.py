@@ -323,6 +323,114 @@ class ProfileImporter:
         self._stats["mistakes"] = {"imported": imported, "skipped": skipped, "total": len(ids)}
         return imported
 
+    @staticmethod
+    def _text(value: Any) -> str | None:
+        """A column value from a note field: strings as-is, structures as JSON, absent as NULL."""
+        if value is None:
+            return None
+        return value if isinstance(value, str) else json.dumps(value)
+
+    def import_decisions(self, db) -> int:
+        """Import decisions from git notes into SQLite (the notes carry no transaction id)."""
+        ids = self._discover_refs("refs/notes/empirica/decisions/")
+        imported = 0
+        skipped = 0
+
+        cursor = db.conn.cursor()
+        for decision_id in ids:
+            data = self._load_note(f"empirica/decisions/{decision_id}")
+            if not data:
+                continue
+
+            ts = self._parse_timestamp(data.get("created_at"))
+            if not ts:
+                ts = datetime.now(timezone.utc).timestamp()
+
+            try:
+                cursor.execute(
+                    """
+                    INSERT OR IGNORE INTO decisions
+                    (id, choice, alternatives, rationale, confidence_at_decision, reversibility,
+                     project_id, session_id, transaction_id, goal_id, created_by_ai, created_timestamp)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                    (
+                        data.get("decision_id", decision_id),
+                        data.get("choice", ""),
+                        self._text(data.get("alternatives")),
+                        data.get("rationale", ""),
+                        data.get("confidence_at_decision"),
+                        data.get("reversibility"),
+                        data.get("project_id"),
+                        data.get("session_id"),
+                        data.get("transaction_id"),
+                        data.get("goal_id"),
+                        data.get("ai_id"),
+                        ts,
+                    ),
+                )
+                if cursor.rowcount > 0:
+                    imported += 1
+                else:
+                    skipped += 1
+            except Exception as e:
+                logger.warning(f"Failed to import decision {decision_id[:8]}: {e}")
+
+        db.conn.commit()
+        self._stats["decisions"] = {"imported": imported, "skipped": skipped, "total": len(ids)}
+        return imported
+
+    def import_assumptions(self, db) -> int:
+        """Import assumptions from git notes into SQLite (the notes carry no transaction id)."""
+        ids = self._discover_refs("refs/notes/empirica/assumptions/")
+        imported = 0
+        skipped = 0
+
+        cursor = db.conn.cursor()
+        for assumption_id in ids:
+            data = self._load_note(f"empirica/assumptions/{assumption_id}")
+            if not data:
+                continue
+
+            ts = self._parse_timestamp(data.get("created_at"))
+            if not ts:
+                ts = datetime.now(timezone.utc).timestamp()
+
+            conf, status = data.get("confidence"), data.get("status")
+            try:
+                cursor.execute(
+                    """
+                    INSERT OR IGNORE INTO assumptions
+                    (id, assumption, confidence, status, project_id, session_id, transaction_id,
+                     goal_id, created_by_ai, created_timestamp)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                    (
+                        data.get("assumption_id", assumption_id),
+                        data.get("assumption", ""),
+                        conf
+                        if isinstance(conf, (int, float)) and not isinstance(conf, bool) and 0.0 <= conf <= 1.0
+                        else None,
+                        status if status in ("unverified", "verified", "falsified") else "unverified",
+                        data.get("project_id"),
+                        data.get("session_id"),
+                        data.get("transaction_id"),
+                        data.get("goal_id"),
+                        data.get("ai_id"),
+                        ts,
+                    ),
+                )
+                if cursor.rowcount > 0:
+                    imported += 1
+                else:
+                    skipped += 1
+            except Exception as e:
+                logger.warning(f"Failed to import assumption {assumption_id[:8]}: {e}")
+
+        db.conn.commit()
+        self._stats["assumptions"] = {"imported": imported, "skipped": skipped, "total": len(ids)}
+        return imported
+
     def import_goals(self, db) -> int:
         """Import goals from git notes into SQLite."""
         ids = self._discover_refs("refs/notes/empirica/goals/")
@@ -391,6 +499,8 @@ class ProfileImporter:
         self.import_unknowns(db)
         self.import_dead_ends(db)
         self.import_mistakes(db)
+        self.import_decisions(db)
+        self.import_assumptions(db)
         self.import_goals(db)
 
         total_imported = sum(s["imported"] for s in self._stats.values())

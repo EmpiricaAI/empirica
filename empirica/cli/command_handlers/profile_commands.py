@@ -189,7 +189,7 @@ def _print_sync_pretty(result, import_result, remote, import_only, do_push, do_q
         print(f"   Skipped: {summary.get('skipped', 0)} (already in SQLite)")
         print(f"   Total in notes: {summary.get('total_notes', 0)}")
         stats = import_result.get("stats", {})
-        for artifact_type in ["findings", "unknowns", "dead_ends", "mistakes", "goals"]:
+        for artifact_type in ["findings", "unknowns", "dead_ends", "mistakes", "decisions", "assumptions", "goals"]:
             type_stats = stats.get(artifact_type, {})
             if type_stats.get("total", 0) > 0:
                 print(f"     {artifact_type}: {type_stats['imported']} new / {type_stats['total']} total")
@@ -901,7 +901,7 @@ def _get_transcript_import_stats() -> dict:
 def _detect_notes_sqlite_drift(artifact_counts, notes_counts):
     """Detect drift between git notes and SQLite artifact counts."""
     drift = {}
-    for artifact_type in ["findings", "unknowns", "dead_ends", "mistakes", "goals"]:
+    for artifact_type in ["findings", "unknowns", "dead_ends", "mistakes", "decisions", "assumptions", "goals"]:
         notes_count = notes_counts.get(artifact_type, 0)
         sqlite_count = artifact_counts.get(artifact_type, 0)
         if notes_count > 0 and sqlite_count >= 0:

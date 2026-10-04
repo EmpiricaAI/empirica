@@ -1143,6 +1143,12 @@ def _print_grounded_calibration_human(
     print()
 
 
+def _target_report(db) -> dict:
+    from empirica.cli.command_handlers.graph_commands import _target_report as report
+
+    return report(db)
+
+
 def _show_grounded_calibration(args, ai_id: str, weeks: int, output_format: str, show_trajectory: bool):
     """Show grounded calibration (POSTFLIGHT → POST-TEST evidence comparison).
 
@@ -1200,6 +1206,9 @@ def _show_grounded_calibration(args, ai_id: str, weeks: int, output_format: str,
                 },
                 "divergence": divergence,
                 "exclusions_applied": exclusions_applied,
+                # Which store this read. The path comes from the instance context, not the cwd, so the same command can
+                # read a different database after a project-switch; a card that quotes these numbers should say which.
+                "target": _target_report(db),
             }
             if getattr(args, "windowed", False):
                 windowed = gcm.get_windowed_divergence(ai_id, weeks)

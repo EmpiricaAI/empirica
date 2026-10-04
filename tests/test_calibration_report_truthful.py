@@ -129,3 +129,11 @@ def test_exclusions_applied_are_reported_in_json_and_in_the_human_output(report,
 
 def test_no_exclusions_means_an_empty_list_not_a_missing_key(report):
     assert report()["exclusions_applied"] == []
+
+
+def test_the_report_names_the_database_it_read(report, tmp_path):
+    """The store is chosen by the instance context, not the cwd, so the output must say which one it read."""
+    target = report()["target"]
+
+    assert target["db_path"] == str(tmp_path / "sessions.db")
+    assert target["matches_cwd"] in (True, False, None)
