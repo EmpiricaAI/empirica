@@ -921,6 +921,53 @@ Applied to BOTH copies — `session_resolver.py` and the `sentinel-gate.py` mirr
 **Commit:** PR #238. Tests in `tests/test_transaction_dual_key.py`
 (`test_find_exact_closed_does_not_mask_open_elsewhere` + 2 companions).
 
+### 11.32 Any Open Transaction Under a Shared Suffix Pinned the Project (2026-09-29)
+
+**Symptom:** A claude with no binding of its own was routed into another practice's store
+(stray session rows in core from an outreach claude; NLE writes landing in core and the
+reverse), because `_has_open_transaction` asked whether *any* open transaction existed under
+the caller's instance suffix. Suffixes are shared: a tmux pane id is reused after a restart,
+and two processes can carry one instance id.
+
+**Fix:** an open transaction pins the project only if it is the caller's own. A transaction
+stamped with a `claude_session_id` that differs from the caller's `CLAUDE_CODE_SESSION_ID`
+is someone else's and does not pin. If either id is unknown, or the file predates the field,
+open still means open.
+
+**Commit:** `f6329b560`.
+
+### 11.33 PREFLIGHT Wrote Into the Wrong Practice's Store (2026-10-02)
+
+**Symptom:** A claude in `empirica-nle` carrying instance id `empirica` opened PREFLIGHTs that
+landed in core's store: every resolver routes by the instance pointer, not the working
+directory, and the earlier guard only refused a session absent locally and owned by another
+registered practice.
+
+**Fix:** PREFLIGHT stage 2c resolves the store root and the project the caller stands in
+(nearest ancestor with `.empirica/project.yaml`) and refuses, before any write, when both exist
+and differ, naming both and the fix. Ways through: this claude session switched on purpose
+(`project-switch --claude-session-id`) or `EMPIRICA_ALLOW_PROJECT_MISMATCH=1`; an explicit
+`EMPIRICA_SESSION_DB` is left alone. A cwd outside any project never refuses.
+
+**Commit:** `b30c7e47b`.
+
+### 11.34 A Newcomer's SessionStart Took Over a Live Owner's Pointer (2026-10-02)
+
+**Symptom:** A relaunched `empirica-nle` claude still carrying `EMPIRICA_INSTANCE_ID=empirica`
+rewrote `instance_projects/empirica.json` (core's pointer) with its own project and session;
+core's PREFLIGHT then landed beside the wrong transaction file and its gated tools read
+"loop closed". The old guard looked for an open transaction in the newcomer's project directory,
+where the owner's transaction cannot be.
+
+**Fix:** liveness identifies an owner worth protecting. `lib/instance_clash.py` reads
+`~/.claude/sessions/<pid>.json` (rejecting a recycled pid that is not a claude); when the
+pointer names a different session, in a different project, that is alive, both `session-init`
+and `post-compact` leave the pointer alone. The newcomer still writes its own session-keyed
+`active_work`, and `session-init` injects a notice naming the owner and the relaunch steps.
+A dead owner, same project, or a first pointer behave as before.
+
+**Commit:** `0f01dc6cf`.
+
 ---
 
 ## By Design (Not Bugs)

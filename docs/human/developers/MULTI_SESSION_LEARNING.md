@@ -108,7 +108,7 @@ if pushed):
 ```
 AI A (Day 1): Investigates database schema.
               POSTFLIGHT logs 8 findings about indexes, FK constraints.
-              git push origin 'refs/notes/empirica_*'
+              empirica sync-push
 
 AI B (Day 2): empirica project-bootstrap loads AI A's findings.
               PREFLIGHT starts with high context on the database.
@@ -120,8 +120,9 @@ AI A (Day 3): Returns. project-bootstrap shows AI B's application-layer findings
 
 **Push policy:** artifacts are local until you opt in:
 ```bash
-git push origin 'refs/notes/empirica_*:refs/notes/empirica_*'
-git fetch origin 'refs/notes/empirica_*:refs/notes/empirica_*'
+empirica sync-config notes_remote <remote>   # once; there is no default remote
+empirica sync-push                           # pushes refs/notes/empirica/* (+ breadcrumbs)
+empirica sync-pull --rebuild                 # fetches them back and rebuilds SQLite
 ```
 
 ---
@@ -192,9 +193,9 @@ Opt artifacts in via `--visibility shared` (within-org) or
 | Storage | What | Where |
 |---|---|---|
 | SQLite | Sessions, transactions, artifacts | `.empirica/sessions/sessions.db` |
-| Git notes | Same artifacts (mirror) | `.git/refs/notes/empirica_*` |
+| Git notes | Same artifacts (mirror) | `refs/notes/empirica/<ns>/...` |
 | Qdrant | Embeddings for semantic search | per-project + `global_learnings` |
-| Breadcrumbs | Per-AI calibration | `.empirica/breadcrumbs.yaml` |
+| Breadcrumbs | Per-AI calibration | `.breadcrumbs.yaml` (repo root) |
 
 The SQLite is canonical; git notes are the shareable mirror.
 

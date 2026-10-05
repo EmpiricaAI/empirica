@@ -108,7 +108,7 @@ Decided: **both**, each for what it's good at.
   open (like `cortex-mailbox-poll` / `message-cleanup`). Emits a **hygiene
   receipt** (N dead sources, M closable goals, K unknowns to triage, L orphans)
   — surfaced, not silently actioned.
-- **On-demand skill** (`/artifact-hygiene`) — the deep semantic pass, run when
+- **On-demand skill** (`/epistemic-gardening`, which is how the deep pass shipped) — the deep semantic pass, run when
   wanted (like `/code-audit`, `/eat-the-broccoli`). Does the judgment work the
   loop deliberately defers: which unknowns look answered, which edges to re-wire,
   which sources drifted in content.
@@ -118,10 +118,10 @@ Loop for continuous mechanical upkeep; skill for the deep pass. They share the
 
 ## 7. Net-new work (the gaps — each a work-stream)
 
-1. **Source link-rot check.** Extend `docs-link-check`'s URL probe to the
+1. **Source link-rot check — DONE (`sources-check`, #261).** Extend `docs-link-check`'s URL probe to the
    `sources` table → flag 404 / moved (dead-ref), gated by
    `source_staleness_days`. Smallest, safest slice — mechanical, surface-only.
-2. **`hygiene_policy` schema + resolver.** `_resolve_hygiene_policy()` mirroring
+2. **`hygiene_policy` schema + resolver — DONE (`empirica/config/hygiene_policy.py`, #262).** `_resolve_hygiene_policy()` mirroring
    `_resolve_gate_scalars` (#253): defaults + env/config, per-`work_type` seeds,
    clamped, fallback-safe.
 3. **The canonical loop body.** Orchestrates the existing verbs + emits the
@@ -129,7 +129,7 @@ Loop for continuous mechanical upkeep; skill for the deep pass. They share the
    (`canonical_loops.py`), installed like `message-cleanup`.
 4. **Semantic-candidate surfacing.** "Which unknowns look answered / which edges
    to re-wire" via the artifact graph + semantic search — the judgment layer the
-   `/artifact-hygiene` skill drives.
+   `/epistemic-gardening` skill drives.
 
 ## 8. Relationship to the artifact-graph map
 
@@ -150,7 +150,7 @@ hygiene sweep re-homes orphans the gate flagged in past transactions.
 
 **Settled:**
 - Autonomy default = **surface + safe-mechanical auto** (semantic → triage queue).
-- Delivery = **both** canonical loop + `/artifact-hygiene` skill.
+- Delivery = **both** canonical loop + `/epistemic-gardening` skill.
 
 **Open:**
 - `hygiene_policy` home — `.empirica/project.yaml` (per-practice, filesystem) vs

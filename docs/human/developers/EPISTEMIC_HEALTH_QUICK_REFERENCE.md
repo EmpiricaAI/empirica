@@ -136,14 +136,15 @@ Bootstrap shows: uncertainty > 0.8, unfamiliar terms in findings
 ## Sentinel Calibration
 
 The Sentinel decides whether to require CHECK ceremony or auto-proceed
-based on dynamic thresholds calibrated from your prior transactions
-(in `.empirica/breadcrumbs.yaml`). **There are no fixed cutoffs.**
+based on thresholds calibrated from your prior transactions (summary in
+`.breadcrumbs.yaml` at the repo root). The baseline is `know >= 0.70` and
+`uncertainty <= 0.35`; calibration only tightens above it (by at most 0.05).
 
-- High historical calibration → loose gates, more autonomy
+- Good historical calibration → gates stay at the baseline, numbers trusted as-is
 - Drift between belief and grounded observation → tighter gates
 
-This is **earned autonomy**: gaming vectors degrades autonomy over time
-because POST-FLIGHT grounded verification catches the divergence.
+Gaming vectors costs you: POST-FLIGHT grounded verification catches the
+divergence and the gate tightens.
 
 ---
 

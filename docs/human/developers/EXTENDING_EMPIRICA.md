@@ -76,8 +76,7 @@ bus = EpistemicBus()
 | **SessionDatabase** | `from empirica.data.session_database import SessionDatabase` | All data access |
 | **EpistemicBus** | `from empirica.core.epistemic_bus import EpistemicBus` | Event pub/sub |
 | **BaseRepository** | `from empirica.data.repositories import BaseRepository` | Data patterns |
-| **InvestigationPlugin** | `from empirica.investigation import InvestigationPlugin` | Tool plugins |
-| **Qdrant store** | `from empirica.core.qdrant import search, embed_memory` | Semantic memory |
+| **Qdrant store** | `from empirica.core.qdrant.memory import search, upsert_memory` | Semantic memory |
 
 ### The 13 Vectors (Universal)
 
@@ -177,52 +176,31 @@ db = SessionDatabase()
 clients = ClientRepository(db.conn)
 ```
 
-### Pattern 3: Investigation Plugins
+### Pattern 3: Investigation Tools
 
-Add custom tools that improve specific vectors.
-
-```python
-from empirica.investigation import InvestigationPlugin, PluginRegistry
-
-# Define what your tool does epistemically
-notion_plugin = InvestigationPlugin(
-    name='notion_search',
-    description='Search Notion workspace for docs and decisions',
-    improves_vectors=['know', 'context', 'clarity'],
-    confidence_gain=0.25,
-    tool_type='search',
-    executor=my_notion_search_function,  # Optional: actual implementation
-    metadata={'requires_api_key': True}
-)
-
-# Register globally
-registry = PluginRegistry()
-registry.register(notion_plugin)
-
-# Query by vector
-know_tools = registry.find_by_vector('know')  # All tools that improve 'know'
-```
+There is no `empirica.investigation` module and no plugin registry in the codebase. Add
+investigation tools the way the shipped ones are added: as MCP servers or CLI verbs the
+practitioner calls during the noetic phase, and log what they return with `finding-log` /
+`log-artifacts` so the vectors move on evidence. See Pattern 5 for CLI extensions.
 
 ### Pattern 4: Semantic Memory Extensions
 
 Add your own embeddings to Qdrant.
 
 ```python
-from empirica.core.qdrant import embed_memory, search
+from empirica.core.qdrant.memory import search, upsert_memory
 
-# Store domain-specific knowledge
-embed_memory(
-    project_id="my-project",
-    content="Client prefers async communication via Slack",
-    kind="client_preferences",  # Your custom kind
-    metadata={"client_id": "abc-123", "source": "meeting_notes"}
-)
+# Store domain-specific knowledge (items are {id, text, type, ...})
+upsert_memory("my-project", [
+    {"id": "pref-1", "text": "Client prefers async communication via Slack",
+     "type": "finding", "session_id": "abc-123"},
+])
 
-# Retrieve semantically
+# Retrieve semantically (returns {} / empty lists when Qdrant is unavailable)
 results = search(
     project_id="my-project",
-    query="how does this client like to communicate?",
-    kind="client_preferences"
+    query_text="how does this client like to communicate?",
+    kind="focused",
 )
 ```
 
@@ -308,21 +286,13 @@ dependencies = [
 ]
 ```
 
-### Issue 2: Entry Points Not Auto-Discovered
+### Issue 2: No Plugin Entry Points
 
-**Problem:** `[project.entry-points."empirica.plugins"]` is defined but not loaded.
+**Problem:** Core defines no `empirica.plugins` entry-point group and no plugin registry
+(`empirica.investigation` does not exist), so there is nothing to auto-discover.
 
-**Current workaround:** Register manually in your app's init:
-```python
-# my_extension/__init__.py
-from empirica.investigation import PluginRegistry
-
-def register_plugin(registry: PluginRegistry):
-    from .plugins import my_plugin
-    registry.register(my_plugin)
-```
-
-**Future:** Auto-discovery via `importlib.metadata.entry_points()`.
+**Current workaround:** Ship your extension as a CLI verb, an MCP server or a Claude Code
+plugin (skills, hooks) and register it in that host, not in empirica.
 
 ### Issue 3: Schema Migrations
 

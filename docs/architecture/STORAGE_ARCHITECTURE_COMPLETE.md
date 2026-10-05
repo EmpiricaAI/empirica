@@ -865,8 +865,8 @@ empirica goals-discover --from-ai-id empirica
 # Find goals by session
 empirica goals-discover --session-id abc123
 
-# Find goals by status
-empirica goals-discover --status in-progress
+# Find goals by status (goals-list; goals-discover has no --status)
+empirica goals-list --status in_progress
 ```
 
 ### Lineage & Provenance

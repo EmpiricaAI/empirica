@@ -370,7 +370,7 @@ PREFLIGHT ──────────────────► CHECK ──
     │                           │                           │                              │
     │                           │                           │                              │
     ▼                           ▼                           ▼                              ▼
-sentinel.start_loop()    sentinel.check_compliance()   sentinel.complete_loop()    sentinel.verify_grounded()
+sentinel.start_loop()    sentinel.check_compliance()   sentinel.complete_loop()    run_grounded_verification()
                                │                                                   (Grounded Verification)
                                ▼
                         ┌──────────────┐
@@ -400,7 +400,7 @@ Nudges are informational — the agent decides when to POSTFLIGHT based on work 
 
 ## Subagent Transaction Exemption
 
-Subagents bypass Sentinel gating. Detection: no `active_session_{instance_suffix}` file exists for the instance (subagents never call `session-create`). Rationale: the parent's CHECK already authorized the spawn; double-gating is redundant.
+Subagents bypass Sentinel gating. Detection (`_detect_subagent` in `sentinel-gate.py`): first, `active_work_<claude_session_id>.json` carries `is_subagent: true` (written by the SubagentStart hook); only when that file is absent does it fall back to absence-detection (no matching `active_session_{instance_suffix}`, or running in a linked git worktree). Rationale: the parent's CHECK already authorized the spawn; double-gating is redundant.
 
 Subagent tool calls are counted post-hoc via SubagentStop and added to the parent's `delegated_tool_calls`.
 
@@ -420,4 +420,4 @@ The Sentinel integrates with Claude Code via a `PreToolUse` hook (`sentinel-gate
 
 - `empirica/core/sentinel/orchestrator.py` - Main Sentinel class
 - `empirica/core/sentinel/decision_logic.py` - Persona selection logic
-- `plugins/claude-code-integration/hooks/sentinel-gate.py` - Claude Code hook
+- `empirica/plugins/claude-code-integration/hooks/sentinel-gate.py` - Claude Code hook

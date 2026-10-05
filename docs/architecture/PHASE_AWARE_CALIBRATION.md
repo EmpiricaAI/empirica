@@ -93,6 +93,13 @@ Not all transactions have both phases:
 
 For investigate-only sessions, praxic evidence is absent by design — no penalty.
 
+**The boundary belongs to the transaction, not the session.** `detect_phase_boundary()`
+selects the PREFLIGHT and CHECK rows by `transaction_id` (commit `d077d5697`); session scope
+remains only for a caller that has no transaction id. A transaction that skipped CHECK
+therefore writes one combined (non-phase-split) verification row, whatever CHECKs earlier
+transactions in the same session had. Before that fix, every POSTFLIGHT after the session's
+first CHECK was split against an unrelated earlier CHECK's vectors.
+
 ### Multiple CHECKs
 
 Transactions can have multiple CHECK gates (investigate loops). Each `investigate`
@@ -139,54 +146,66 @@ the score to drive improvement.
 ### Mechanism
 
 ```python
-threshold = base_threshold - (calibration_accuracy * autonomy_factor)
-threshold = clamp(threshold, safety_floor, base_threshold)
+inflation = min(reliability * (max_inflation / 0.15), max_inflation) * min(1.0, n / 20)
+know_threshold        = min(know_ceiling, know_base + inflation)
+uncertainty_threshold = max(unc_ceiling,  unc_base  - inflation)
 ```
 
 Where:
-- `base_threshold` = conservative default (from workflow-protocol.yaml)
-- `calibration_accuracy` = 1.0 - mean_divergence over last N transactions (per phase)
-- `autonomy_factor` = max threshold reduction allowed (e.g., 0.2)
-- `safety_floor` = absolute minimum threshold (never goes below this)
+- `know_base` / `unc_base` = the domain baseline (0.70 / 0.35 by default, from `cascade_styles.yaml`, a cascade profile, or `calibration.yaml`)
+- `reliability` = the Brier reliability component (calibration error, 0 = perfect) over the last `lookback` points (default 20) of that phase's `calibration_trajectory`
+- `max_inflation` = the most the gate may tighten (default 0.05)
+- `n / 20` = cold-start damper: with few points the estimate is noisy, so inflation ramps to full at 20
+- ceilings = safety limits (default 0.90 for know, 0.15 for uncertainty)
+- Fewer than `min_transactions` (default 5) points: the baseline is used unchanged
 
-### Per-Phase Autonomy
+Thresholds never go **below** the baseline. Good calibration is not rewarded with a
+lower bar; it keeps the baseline, which means the system trusts the numbers as-is.
+Only miscalibration moves the gate, and only toward stricter. See the module docstring
+of `empirica/core/post_test/dynamic_thresholds.py`.
 
-| Phase | Calibration Track | Threshold Adjusted | Effect |
-|-------|------------------|-------------------|--------|
-| Noetic | Track A history | CHECK gate `proceed` threshold | Well-calibrated investigator -> looser CHECK, more autonomy to explore |
-| Praxic | Track B history | POSTFLIGHT sentinel thresholds | Well-calibrated implementer -> wider latitude on action |
+### Per-Phase Calibration History
+
+| Phase | Calibration Track | Effect |
+|-------|------------------|--------|
+| Noetic | Track A history | Drives the know/uncertainty thresholds the CHECK gate and the Sentinel hook actually use |
+| Praxic | Track B history | Computed and reported alongside (`praxic` block of `compute_dynamic_thresholds()`); the gates read the noetic figures |
+
+Each phase reports `basis`: `practitioner` when the model inhabiting the practice has at
+least `min_transactions` points of its own, otherwise `practice` (the whole `ai_id` store).
+CHECK reads the **session's own `ai_id`** (not a fixed `claude-code`) and the current
+practitioner model, with the fallback to the practice (commits `ac78d1170`, `8974c6a0c`).
 
 ### Domain Scoping
 
-Calibration accuracy is domain-scoped (via `subject` on findings/calibration records).
-An AI can be:
-- Well-calibrated on security investigation -> loose noetic gate for security
-- Poorly calibrated on performance implementation -> tight praxic gate for performance
+Domain criticality scales the uncertainty threshold at the CHECK gate
+(`_get_domain_scaled_thresholds()`): higher criticality means a stricter uncertainty bar.
+Calibration accuracy is domain-scoped (via `subject` on findings/calibration records): an AI
+can be well calibrated on security investigation and poorly calibrated on performance
+implementation.
 
 ### Progression
 
 ```
-New AI on project:     Conservative defaults (tight gates)
+New AI on project:     Baseline gates (0.70 / 0.35), no inflation (< 5 points)
         |               calibration data accumulates
         v
-~10 transactions:      Noetic divergence closing -> loosen CHECK
-        |               praxic divergence still wide
-        v
-~20 transactions:      Praxic divergence closing -> loosen action gates
-        |               both tracks stable
-        v
-Mature:                Earned autonomy based on demonstrated calibration
+~10-20 transactions:   Reliability estimate stabilises; inflation ramps to full weight
         |
-        v (regression detected)
-Auto-tighten:          Calibration accuracy drops -> gates tighten automatically
+        v
+Well calibrated:       reliability near 0 -> gates stay at baseline
+        |
+        v (overconfidence detected)
+Auto-tighten:          reliability rises -> know raised / uncertainty tolerance
+                       lowered by up to max_inflation -> forced investigation
 ```
 
 ### Self-Correcting Properties
 
-1. **Overconfidence** -> high divergence -> tighter gates -> forced investigation -> better calibration
-2. **Underconfidence** -> low divergence -> gates stay conservative -> no harm (just slower)
-3. **Domain regression** -> domain-specific tightening -> other domains unaffected
-4. **Phase-specific** -> poor praxic calibration doesn't penalize noetic autonomy
+1. **Overconfidence** -> high reliability error -> tighter gates -> forced investigation -> better calibration
+2. **Good calibration** -> reliability near 0 -> gates stay at baseline -> numbers trusted as-is
+3. **Domain criticality** -> stricter uncertainty bar for critical domains -> other domains unaffected
+4. **Phase-specific** -> noetic and praxic history are separate trajectories
 
 ---
 
@@ -301,7 +320,7 @@ this is correct Bayesian behavior, not a bug.
 - Service registry with self-declaring deterministic checks
 - Compliance loop runs domain checklist at POSTFLIGHT
 - Per-domain threshold computation via `_get_domain_scaled_thresholds()`
-- Dashboard: `empirica calibration-report --by-domain --by-phase` (existing)
+- Dashboard: `empirica calibration-report` (`--windowed`, `--brier`, `--trajectory` views)
 - CLI: `empirica domain-validate`
 
 ---

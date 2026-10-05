@@ -16,25 +16,23 @@ CLI surfaces on top of one core module:
 |---|---|---|
 | `empirica sentinel <pause\|resume\|status>` | `empirica.core.cockpit.sentinel_pause` | Per-instance noetic firewall toggle |
 | `empirica loop <register\|heartbeat\|pause\|install-request\|...>` | `empirica.core.cockpit.loop_registry` | **Practice-keyed** (per `ai_id`) **periodic** loop registry CRUD — one loop per practice, like the persistent listener |
-| `empirica listener <register\|pause\|resume\|record-wake\|fire\|install-request\|list\|status\|unregister>` | `empirica.core.cockpit.listener_registry` | Per-instance **event-driven** listener registry CRUD (sister concept to loop) |
+| `empirica listener <register\|pause\|resume\|record-wake\|fire\|install-request\|list\|status\|unregister\|on\|arm\|off\|gc>` | `empirica.core.cockpit.listener_registry` | Per-instance **event-driven** listener registry CRUD (sister concept to loop) |
 | `empirica instance <kill\|forget\|label\|prune>` | `empirica.core.cockpit.instance_actions` | Destructive lifecycle: terminate / scrub state / rename / bulk-prune-dead |
 | `empirica status [--all\|--instance ID] [--pretty\|--json]` | `empirica.core.cockpit.instance_state` | Cockpit overview, all renderers consume the same JSON |
 | `empirica tui` | `empirica.cli.tui.cockpit_app` | Interactive Textual app — clickable buttons + keyboard shortcuts for every verb (P/L/E/S/N) |
+| `empirica cockpit <launch\|refresh\|status\|detach\|kill>` | `empirica.core.cockpit.launcher` | Config-driven tmux/terminal bring-up of a multi-Claude layout; see [guides/COCKPIT.md](../guides/COCKPIT.md) |
 
 **Loops are periodic** (cron-mode, `loop-cron` skill); **listeners are
 event-driven** (held HTTP connection via ntfy/SSE → Monitor wake,
 `inbox-listener` skill). Both share the same install-request → pickup-hook
 → owning Claude executes pattern.
 
-The bespoke TUI is **not** part of v1. The intended dashboard is:
+The bespoke TUI was **not** part of v1; `empirica tui` has since shipped (table
+above). The original lightweight dashboard still works:
 
 ```bash
 watch -n 2 empirica status --all --pretty
 ```
-
-A bespoke `empirica tui` may follow once the watch recipe surfaces concrete
-gaps from real use — the threshold is "≥3 documented gaps from real use,
-not anticipated."
 
 ---
 

@@ -282,53 +282,41 @@ For example, `/home/user/code/myapp` → `-home-user-code-myapp`.
 
 ## Qdrant Integration
 
-### QdrantMemory
+### Semantic memory (`empirica.core.qdrant.memory`)
 
-Semantic storage and retrieval for epistemic data.
+Semantic storage and retrieval for epistemic data. The module exposes functions, not a
+`QdrantMemory` class (and `empirica.core.canonical` does not export one).
 
 ```python
-from empirica.core.canonical import QdrantMemory
+from empirica.core.qdrant.memory import search, upsert_memory
 
-memory = QdrantMemory(
-    url="http://localhost:6333",
-    collection_prefix="empirica"
-)
-
-# Store finding with embedding
-memory.store_finding(
-    finding_id="abc123",
-    text="JWT tokens not validated on every request",
-    metadata={"impact": 0.8, "session_id": "xyz"}
-)
+# Store an artifact with its embedding (items: {id, text, type, session_id, ...})
+upsert_memory("my-project", [
+    {"id": "abc123", "type": "finding",
+     "text": "JWT tokens not validated on every request", "session_id": "xyz"},
+])
 
 # Semantic search
-results = memory.search_findings(
-    query="authentication vulnerabilities",
-    limit=5,
-    threshold=0.7
-)
+results = search("my-project", "authentication vulnerabilities", kind="focused", limit=5)
 ```
 
-### EmbeddingProvider
+### Embeddings (`empirica.core.qdrant.embeddings`)
 
 Multi-provider embedding generation.
 
 ```python
-from empirica.core.canonical import EmbeddingProvider
+from empirica.core.qdrant.embeddings import get_embedding, get_embedding_provider
 
 # Configure via environment
-# EMPIRICA_EMBEDDING_PROVIDER=jina
-# EMPIRICA_EMBEDDING_MODEL=jina-embeddings-v3
+# EMPIRICA_EMBEDDINGS_PROVIDER=jina
+# EMPIRICA_EMBEDDINGS_MODEL=jina-embeddings-v3
 # JINA_API_KEY=...
 
-provider = EmbeddingProvider.from_env()
-
-# Generate embeddings
-embedding = provider.embed("JWT validation security pattern")
-# Returns: [0.123, 0.456, ...] (1024-dim vector)
+embedding = get_embedding("JWT validation security pattern")   # list[float]
 
 # Batch embeddings
-embeddings = provider.embed_batch([
+provider = get_embedding_provider()
+embeddings = provider.batch_embed([
     "Authentication patterns",
     "Authorization flows",
     "Token validation"
@@ -341,8 +329,8 @@ The provider → model → dimensions matrix (Jina, Voyage, Ollama, OpenAI, and 
 local hash-based fallback) is in
 [STORAGE_ARCHITECTURE_COMPLETE.md § Layer 4](./STORAGE_ARCHITECTURE_COMPLETE.md#layer-4-qdrant-vector-database-semantic-search)
 and the [Qdrant API Reference](../reference/api/qdrant.md). Configure via
-`EMPIRICA_EMBEDDING_PROVIDER` / `EMPIRICA_EMBEDDING_MODEL` plus the provider's
-API-key env var (see the `EmbeddingProvider.from_env()` example above).
+`EMPIRICA_EMBEDDINGS_PROVIDER` / `EMPIRICA_EMBEDDINGS_MODEL` plus the provider's
+API-key env var (see the example above).
 
 ### Collections
 
@@ -367,7 +355,7 @@ Multiple Claude instances on one project share this file (swarm learning).
 The full data-flow diagram and the ranking-formula breakdown live in
 [STORAGE_ARCHITECTURE_COMPLETE.md § Layer 5](./STORAGE_ARCHITECTURE_COMPLETE.md#layer-5-claude-code-bridge-memorymd-hot-cache).
 
-**Source:** `plugins/claude-code-integration/hooks/session-end-postflight.py`
+**Source:** `empirica/plugins/claude-code-integration/hooks/session-end-postflight.py`
 
 ---
 

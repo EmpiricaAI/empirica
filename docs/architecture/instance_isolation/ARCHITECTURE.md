@@ -149,7 +149,7 @@ Database Path (get_session_db_path):
 ```
 SessionStart event type:
   "startup"  → session-init.py (creates new session + anchor files)
-  "resume"   → post-compact.py (detects existing session, updates anchors for new terminal)
+  "resume"   → session-init.py (detects existing session, updates anchors for new terminal)
   "compact"  → post-compact.py (context recovery after memory compaction)
 ```
 

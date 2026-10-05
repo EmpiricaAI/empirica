@@ -82,7 +82,7 @@ source-of-truth paths.
 ### CASCADE Workflow
 
 ```
-PREFLIGHT → CHECK → noetic → praxic → POSTFLIGHT (+ grounded verification)
+PREFLIGHT → noetic → [CHECK] → praxic → POSTFLIGHT (+ grounded verification)
 ```
 
 Both investigation and implementation happen within the same transaction.
@@ -102,10 +102,12 @@ Full reference: [../end-users/05_EPISTEMIC_VECTORS_EXPLAINED.md](../end-users/05
 
 ### Readiness Gate
 
-The Sentinel computes thresholds dynamically from calibration data in
-`.empirica/breadcrumbs.yaml` (per-AI). **There are no fixed cutoffs.**
-Good calibration → looser gates → more autonomy. Drift between belief
-and grounded observation → tighter gates.
+The Sentinel gates on `know` and `uncertainty` against a domain baseline
+(default 0.70 / 0.35). Calibration data (the per-AI summary is in
+`.breadcrumbs.yaml` at the repo root) only ever **tightens** the gate above
+that baseline, by at most 0.05 (`calibration.max_inflation`): good
+calibration keeps the baseline and the numbers are trusted as-is, while drift
+between belief and grounded observation raises the bar.
 
 ---
 

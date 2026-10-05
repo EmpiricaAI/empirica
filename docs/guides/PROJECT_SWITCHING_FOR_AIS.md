@@ -45,11 +45,15 @@ created. This is intentional: it prevents accidental cross-project writes.
 `session-create` and friends resolve `project_id` in this order:
 
 1. **Explicit `--project-id`** flag (highest priority)
-2. **Active session row** in the local `sessions.db` if one is open
-3. **Match by `git remote get-url origin`** against the `projects` table
-4. **`.empirica/project.yaml`'s `project_id`** field (fresh-project fallback)
+2. **The checkout you are standing in:** the `project_id` in the current directory's
+   own `.empirica/project.yaml`. A project root's own `project.yaml` wins over any
+   context file left by an earlier command
+3. **Resolver context files** (active work / instance project), which answer only
+   when the current directory is not a project root
+4. **`sessions.db`** (the open session row), with `project.yaml` as its fallback
+5. **Match by `git remote get-url origin`** against the `projects` table
 
-If all four fail, `session-create` registers a new project from the current
+If all fail, `session-create` registers a new project from the current
 directory's git remote.
 
 ### Database scoping
@@ -107,7 +111,7 @@ practice and its store. A session that exists nowhere still only warns — that 
 a legitimate first transaction. The rest of the caveats stand:
 
 - `session-create` will auto-link to whatever project the current `cwd`
-  resolves to (via git remote, then `project.yaml`)
+  resolves to (the checkout's own `project.yaml` first, then the git remote)
 - `finding-log` and friends will also resolve via `cwd` walk-up
 - BUT: if a transaction was opened against project A and you `cd` to project
   B's directory mid-transaction, the transaction state file is still scoped
@@ -134,16 +138,18 @@ working in project A, log it without leaving the transaction.
 ### Quick check
 
 ```bash
-empirica project-status
+empirica project-bootstrap --output json
+empirica status
 ```
 
-Shows the resolved project, recent activity, and active transaction (if any).
+`project-bootstrap` shows the resolved project and its recent activity; `status`
+shows the live instances and each one's open transaction (if any).
 
 ### Suspicion-prompted check
 
 If you're unsure whether your context matches what the user just asked for:
 
-1. **Run `empirica project-status`** before logging anything substantive
+1. **Run `empirica project-bootstrap`** before logging anything substantive
 2. **Compare project name to the user's stated intent** — match? Continue.
    Mismatch? `project-switch` or ask for clarification.
 
@@ -183,7 +189,7 @@ cockpit overview).
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | `finding-log` writes to "wrong" project | `cd`'d without `project-switch` | `project-switch` then re-log |
-| `project-bootstrap` shows zero history | Wrong project resolved | Check `project-status`, switch explicitly |
+| `project-bootstrap` shows zero history | Wrong project resolved | Check `project-bootstrap` (resolved project), switch explicitly |
 | Two panes interfering | `EMPIRICA_INSTANCE_ID` set globally | Unset (only set per-terminal in non-tmux) |
 | Transaction won't close | Transaction file under different instance | Use the same pane that opened it, or `postflight-submit -` |
 | Session links to wrong project | `git remote origin` matched a stale project row | `project-switch <correct>` then re-create session |
@@ -198,7 +204,7 @@ Minimum guidance for AI agents:
 PROJECT CONTEXT VERIFICATION
 
 When the user says "work on project X" or you change directories:
-  1. Run `empirica project-status` to verify resolved context
+  1. Run `empirica project-bootstrap` to verify resolved context
   2. If mismatch, run `empirica project-switch <name>` explicitly
   3. All subsequent *-log commands write to that project's DB
 

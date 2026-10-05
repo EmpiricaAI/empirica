@@ -1,6 +1,6 @@
 # Empirica System Architecture
 
-**Version:** 1.11.10 | **Updated:** 2026-06-08 | **Status:** Production
+**Version:** 1.14.8 | **Updated:** 2026-10-05 | **Status:** Production
 
 ---
 
@@ -35,7 +35,7 @@ The mental model. Everything else hangs off these.
 |---|---|
 | [`AI_ID_AS_ANCHOR.md`](AI_ID_AS_ANCHOR.md) | The practice model — `ai_id` (NOT cwd) is THE anchor for cross-machine identity. Practitioner vs practice distinction. Resolution chain. |
 | [`NOETIC_PRAXIC_FRAMEWORK.md`](NOETIC_PRAXIC_FRAMEWORK.md) | The thinking-phases mental model. Noetic (investigate) → CHECK (gate) → Praxic (act). Why CHECK gates the transition but does NOT end the transaction. |
-| [`SENTINEL_ARCHITECTURE.md`](SENTINEL_ARCHITECTURE.md) | The gate controller. PreToolUse hook that blocks praxic actions until CHECK passes. Per-domain criticality. Read this before assuming you know how a tool call gets blocked. |
+| [`SENTINEL_ARCHITECTURE.md`](SENTINEL_ARCHITECTURE.md) | The gate controller. PreToolUse hook that blocks praxic actions until CHECK passes or a claim grounded `read` / `ran` (with scope and count) certifies the transaction. Per-domain criticality. Read this before assuming you know how a tool call gets blocked. |
 | [`EPP_ARCHITECTURE.md`](EPP_ARCHITECTURE.md) | Epistemic Persistence Protocol — how state survives compaction boundaries. PREFLIGHT/POSTFLIGHT as measurement windows. |
 | [`STORAGE_ARCHITECTURE_COMPLETE.md`](STORAGE_ARCHITECTURE_COMPLETE.md) | Four-layer storage: HOT (in-session) / WARM (SQLite) / SEARCH (Qdrant) / COLD (git notes + YAML). Where every artifact lives and why. |
 | [`separation-of-concerns.md`](separation-of-concerns.md) | The overall layering — CLI / Core / Data / Plugins / Hooks. Read before adding to the wrong layer. |
@@ -73,7 +73,7 @@ Read these when you're actually working in the area. Grouped by concern.
 | [`QDRANT_EPISTEMIC_INTEGRATION.md`](QDRANT_EPISTEMIC_INTEGRATION.md) | Qdrant integration — collections, embedding pipeline. *(Dated 2025-12-19 — read with awareness.)* |
 | [`GRAPH_TEMPORAL_LAYER.md`](GRAPH_TEMPORAL_LAYER.md) | Edge declaration + commit-context walker. |
 | [`CANONICAL_STORAGE.md`](CANONICAL_STORAGE.md) | Foundation layer of the four-layer model. Reference detail; the complete picture is in `STORAGE_ARCHITECTURE_COMPLETE.md`. |
-| [`SYNC_ARCHITECTURE.md`](SYNC_ARCHITECTURE.md) | Daemon sync pipeline — git-notes ↔ cortex. |
+| [`SYNC_ARCHITECTURE.md`](SYNC_ARCHITECTURE.md) | Git-notes sync — `sync-push` / `sync-pull` / `sync-status` against a configured git remote, and `rebuild` back into SQLite. |
 | [`EPISTEMIC_STATE_COMPLETE_CAPTURE.md`](EPISTEMIC_STATE_COMPLETE_CAPTURE.md) | What gets captured per transaction + how it survives compaction. |
 | [`EPISTEMIC_BUS.md`](EPISTEMIC_BUS.md) | Event flow between subsystems. |
 

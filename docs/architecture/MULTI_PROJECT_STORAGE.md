@@ -8,11 +8,11 @@
 
 Empirica uses a **project-local primary** architecture:
 - **Primary:** Each git repo has its own `.empirica/sessions/sessions.db` for all project data
-- **Global:** `~/.empirica/` stores credentials, config, cross-project Qdrant vectors, and **CRM data**
-- **CRM:** `~/.empirica/crm/crm.db` stores clients and engagements (inherently cross-project)
+- **Global:** `~/.empirica/` stores credentials, config, cross-project Qdrant vectors, 
+- **CRM:** not stored by core. Organizations, contacts and engagements live in the shared `crm-mcp` store (owned by `empirica-workspace`); the old `~/.empirica/crm/crm.db` holds retired CRM tables and nothing reads it (commit `fcf442110`)
 - **Fallback:** If no local `.empirica/` exists, falls back to `~/.empirica/`
 
-**Key principle:** Data follows the project. When you `cd` into a repo, you get that project's sessions, goals, and findings. CRM data (clients, engagements) is always global since relationships span multiple projects.
+**Key principle:** Data follows the project. When you `cd` into a repo, you get that project's sessions, goals, and findings. CRM identity (organizations, contacts, engagements) is not project data and is not in core's stores; it lives in `crm-mcp`.
 
 ```
                               ┌─────────────────────────────────────────┐
@@ -52,12 +52,10 @@ Empirica uses a **project-local primary** architecture:
                               │  └─────────────────────────────────┘   │
                               │                                         │
                               │  ┌─────────────────────────────────┐   │
-                              │  │   crm/crm.db                    │   │
+                              │  │   crm/crm.db  (RETIRED)         │   │
                               │  │   ═══════════                   │   │
-                              │  │   • clients (relationships)     │   │
-                              │  │   • engagements (client↔project)│   │
-                              │  │   • client_interactions         │   │
-                              │  │   • client_memory (semantic)    │   │
+                              │  │   • legacy CRM tables, unused   │   │
+                              │  │   • live CRM = crm-mcp          │   │
                               │  └─────────────────────────────────┘   │
                               │                                         │
                               └──────────────────┬──────────────────────┘
@@ -179,17 +177,12 @@ results = search(
 ```
 
 ### Client → Project (via Engagements)
-```sql
--- Find all projects linked to a client via engagements
--- (Queries ~/.empirica/crm/crm.db)
-SELECT e.project_id, e.title, e.status, e.engagement_type
-FROM engagements e
-WHERE e.client_id = 'client-uuid'
-  AND e.status = 'active';
-```
 
-Engagements serve as the many-to-many connection layer between clients and projects.
-A client can have multiple engagements with multiple projects over time.
+Engagements are canonical in `crm-mcp`, not in a local SQL table. Use
+`empirica-workspace engagement list|show` (or the `mcp__empirica-crm__crm_list_engagements`
+tool) to find the engagements for an organization or contact, and
+`empirica-workspace entity knowledge --entity <id>` for the artifacts bound to one.
+The legacy local `crm.db` query that used to stand here is retired.
 
 ---
 
@@ -312,7 +305,7 @@ Qdrant runs as separate service for semantic memory.
 | Artifact | Primary (Project-Local) | Fallback (Global) |
 |----------|------------------------|-------------------|
 | Sessions DB | `<repo>/.empirica/sessions/sessions.db` | `~/.empirica/sessions/sessions.db` |
-| CRM DB | - | `~/.empirica/crm/crm.db` (always global) |
+| CRM | - | `crm-mcp` (shared store; the local `~/.empirica/crm/crm.db` is retired) |
 | Qdrant vectors | - | `~/.empirica/qdrant_storage/` (always global) |
 | Global lessons | - | `~/.empirica/lessons/*.yaml` |
 | Client lessons | - | `~/.empirica/lessons/clients/{client_id}/*.yaml` |
@@ -324,7 +317,7 @@ Qdrant runs as separate service for semantic memory.
 
 **Resolution order:** Project-local `.empirica/` is checked first. Falls back to `~/.empirica/` only if local dir doesn't exist.
 
-**Always Global:** CRM data (clients, engagements), Qdrant vectors, and credentials are always stored globally because they span multiple projects.
+**Always Global:** Qdrant vectors and credentials are always stored globally because they span multiple projects. CRM identity is not in core's stores (see `crm-mcp`).
 
 **Per-Project (Claude Code):** MEMORY.md is keyed by project path, ensuring project isolation. Multiple Claude instances on the same project share one MEMORY.md file.
 

@@ -55,7 +55,7 @@ This framework is NOT about checkpoints, snapshots, or memory management.
 │ │ Validates:                                        │      │
 │ │ • know ≥ 0.70 (foundation sufficient?)            │      │
 │ │ • uncertainty ≤ 0.35 (confidence threshold?)      │      │
-│ │ • coherence ≥ 0.65 (pieces fit together?)         │      │
+│ │   (baselines; calibration can only tighten them)  │      │
 │ │                                                   │      │
 │ │ If FAIL → loop back to NOETIC (investigate more) │      │
 │ │ If PASS → proceed to PRAXIC (act with knowledge)  │      │
@@ -318,9 +318,9 @@ GATE 1: PREFLIGHT Assessment
   AI assesses: "How much do I actually know?"
   → Sets know, uncertainty, context vectors
   
-GATE 2: CHECK Decision (Mandatory if scope > 0.5 OR uncertainty > 0.5)
+GATE 2: CHECK Decision (certifies what the praxic work rests on)
   AI asks: "Have I learned enough?"
-  → know ≥ 0.70 AND uncertainty ≤ 0.35 AND coherence ≥ 0.65?
+  → know ≥ 0.70 AND uncertainty ≤ 0.35 (baselines; Brier calibration only tightens)
   
   If NO → Loop back to NOETIC (investigate more)
   If YES → Proceed to PRAXIC (act with confidence)
@@ -337,15 +337,21 @@ GATE 4: POST-TEST (Grounded Verification)
   → Feed calibration data back for future accuracy
 ```
 
-### When CHECK is Mandatory vs Discretionary
+### When CHECK is Needed vs Not
 
-| Condition | Enforcement | Reason |
-|-----------|-------------|--------|
-| scope > 0.5 (complex work) | CHECK mandatory | Rigor required for complexity |
-| uncertainty > 0.5 (high doubt) | CHECK mandatory | Must investigate before acting |
-| Post session-resume (loaded context) | CHECK mandatory | Verify bootstrap sufficient |
-| Post memory-compact | CHECK mandatory | Verify recovered context valid |
-| Simple, confident work | CHECK discretionary | AI judgment sufficient |
+The Sentinel does not look at scope or session events. A praxic tool call is denied
+when the transaction has **no CHECK and no certifying claim**:
+
+| State of the transaction | Praxic tool call |
+|--------------------------|------------------|
+| A CHECK `proceed` exists | Allowed |
+| No CHECK, but PREFLIGHT declared a claim grounded `read`, or `ran` with a `scope` and a `count` | Allowed — the claim certifies the transaction, CHECK is skipped |
+| No CHECK, only `retrieved` / `assumed` claims, or none | Denied — do the noetic grounding, then declare claims or submit CHECK |
+
+`retrieved` (your own prior artifacts) and `assumed` never certify: they are testimony or
+the absence of grounding. A high-scope, high-uncertainty or post-compact transaction has
+no extra rule of its own; those states simply make it unlikely that you hold a `read` or
+`ran` claim yet. The CHECK thresholds themselves are in `PHASE_AWARE_CALIBRATION.md`.
 
 ### The Intelligence is in the Loop
 
@@ -405,9 +411,9 @@ The epistemic transaction cycle is **self-healing**:
 |----------|--------------|
 | **Session start** | PREFLIGHT (baseline), then decide: NOETIC or PRAXIC? |
 | **High uncertainty** | Must NOETIC first (investigate until confident) |
-| **Complex scope** | Must CHECK before PRAXIC (validate learning) |
-| **Simple + confident** | Can skip CHECK, go straight to PRAXIC |
-| **Post memory-compact** | CHECK mandatory (verify recovered context) |
+| **Complex scope** | CHECK before PRAXIC (state what the action rests on), unless a `read`/`ran` claim already certifies it |
+| **Simple + confident** | Declare grounded claims in PREFLIGHT and go straight to PRAXIC, no CHECK |
+| **Post memory-compact** | Re-ground (read the state back); CHECK or a certifying claim before praxic |
 | **Session end** | POSTFLIGHT (measure learning delta, store findings) |
 | **Next session** | Bootstrap loads findings, starts at higher know, lower uncertainty |
 

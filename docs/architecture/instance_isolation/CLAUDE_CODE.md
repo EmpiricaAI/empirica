@@ -14,7 +14,7 @@ Claude Code provides hooks that fire on specific events. These hooks receive `se
 | Event | SessionStart Trigger | Hook | What Happens |
 |-------|---------------------|------|--------------|
 | New conversation | `startup` | `session-init.py` | Creates Empirica session, writes `active_work` + `instance_projects` |
-| Continued conversation | `resume` | `post-compact.py` | Continues transaction OR creates new session, writes isolation files |
+| Continued conversation | `resume` | `session-init.py` | Detects the existing session, updates anchors for the new terminal, does not create a duplicate |
 | Memory compaction | `compact` | `post-compact.py` | Same as resume — finds open transaction, writes isolation files |
 | After `/clear` | `clear` | (none currently) | No hook configured |
 | Tool use | n/a (PreToolUse) | `sentinel-gate.py` | Reads isolation files to find correct project |

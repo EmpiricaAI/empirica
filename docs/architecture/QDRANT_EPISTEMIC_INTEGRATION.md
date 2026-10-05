@@ -297,7 +297,7 @@ results = search(
 ### Example 3: Project-Wide Learning Stats
 
 ```bash
-empirica calibration-report --project-id <UUID> --output json
+empirica calibration-report --ai-id <practice> --output json   # per practice; no --project-id flag
 ```
 
 **Returns:**
@@ -545,18 +545,17 @@ results = search(
 # Log learning artifacts
 empirica finding-log --project-id <UUID> --finding "..."
 empirica unknown-log --project-id <UUID> --unknown "..."
-empirica deadend-log --project-id <UUID> --deadend "..."
+empirica deadend-log --project-id <UUID> --approach "..." --why-failed "..."
 empirica mistake-log --session-id <UUID> --mistake "..." --why-wrong "..."
 
 # Semantic search
 empirica project-search \
   --project-id <UUID> \
-  --query "OAuth2 learning" \
-  --min-learning 0.2 \
+  --task "OAuth2 learning" \
   --limit 10
 
-# Project stats
-empirica calibration-report --project-id <UUID>
+# Calibration stats (per practice)
+empirica calibration-report --ai-id <practice>
 
 # Embed project docs
 empirica project-embed --project-id <UUID>

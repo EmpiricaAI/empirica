@@ -184,7 +184,7 @@ Response includes:
 
 - `project_skills/*.yaml` - Condensed runtime skills
 - `empirica/plugins/claude-code-integration/skills/*/SKILL.md` - Verbose Claude Code skills
-- `skill_extractor/` - Architecture docs and implementation guide
+- `_archive/skill_extractor/` - Architecture docs and implementation guide (archived)
 - `empirica/core/skills/parser.py` - Markdown to YAML parser
 - `empirica/core/skills/extractor.py` - Extraction logic
 - `empirica/cli/command_handlers/skill_commands.py` - CLI handlers

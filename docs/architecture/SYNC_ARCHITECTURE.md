@@ -9,7 +9,9 @@
 
 ## Executive Summary
 
-This document defines the sync architecture for Empirica epistemic data across devices and dependent projects. The core insight: **git notes are the canonical source** for all epistemic state; SQLite is a derived cache.
+This document defines the sync architecture for Empirica epistemic data across devices and dependent projects. The core insight: **git notes are the replicated mirror** of epistemic state; SQLite (`sessions.db`) is the working store the CLI reads and writes, and `rebuild` restores it from the notes. Calibration rows (`grounded_beliefs`, `grounded_verifications`) are SQLite-only and have no note to restore from.
+
+> **Namespace list below is a design snapshot (2026-01).** The live set is whatever `git for-each-ref refs/notes` shows: under `refs/notes/empirica/` today `assumptions`, `cascades`, `checkpoints`, `dead_ends`, `decisions`, `findings`, `goals`, `handoff`, `messages`, `mistakes`, `receipts`, `session/<id>/<PHASE>/<n>`, `signatures`, `sources`, `tasks`, `unknowns`; plus `refs/notes/breadcrumbs`, `refs/notes/empirica-precompact` and the local-only `refs/notes/empirica-archive/<type>/<id>` (written by `delete-artifacts`, never pushed).
 
 **Key Findings:**
 1. `.empirica/` is gitignored - SQLite data (1431 findings, 226 unknowns) will be LOST on clone
@@ -58,29 +60,29 @@ This document defines the sync architecture for Empirica epistemic data across d
 
 ## Proposed Architecture
 
-### Principle: Git Notes as Canonical Source
+### Principle: Git Notes as the Replicated Mirror
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                      GIT NOTES (Canonical)                  │
+│                      GIT NOTES (Mirror)                     │
 │                                                             │
 │  refs/notes/empirica/                                       │
 │  ├── goals/{goal_id}           ← Already implemented        │
 │  ├── cascades/{session}/{id}   ← Already implemented        │
-│  ├── handoffs/{handoff_id}     ← Already implemented        │
+│  ├── handoff/{handoff_id}      ← Already implemented        │
 │  ├── findings/{finding_id}     ← NEW: Add GitFindingStore   │
 │  ├── unknowns/{unknown_id}     ← NEW: Add GitUnknownStore   │
 │  ├── dead_ends/{dead_end_id}   ← NEW: Add GitDeadEndStore   │
-│  ├── sessions/{session_id}     ← NEW: Session metadata      │
+│  ├── session/{id}/{PHASE}/{n}  ← NEW: Session metadata      │
 │  └── checkpoints               ← Already implemented        │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
                             │
-                            │ empirica sync pull
+                            │ empirica sync-pull
                             │ empirica rebuild
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                   SQLite (Derived Cache)                    │
+│                SQLite (Working Store)                       │
 │                                                             │
 │  .empirica/sessions/sessions.db                             │
 │  ├── Core tables (rebuilt from git notes)                   │
@@ -110,7 +112,7 @@ finding-log command
           │
           ▼
 ┌───────────────────┐
-│ 2. Write to Git   │ (canonical, for sync)
+│ 2. Write to Git   │ (replicated mirror)
 │    Notes          │
 └─────────┬─────────┘
           │
@@ -128,16 +130,16 @@ finding-log command
 
 ```bash
 # Push epistemic state to remote
-empirica sync push [--remote origin]
+empirica sync-push [--remote <remote>] [--dry-run]
 # Equivalent to: git push origin 'refs/notes/empirica/*:refs/notes/empirica/*'
 
 # Pull epistemic state from remote
-empirica sync pull [--remote origin] [--rebuild]
+empirica sync-pull [--remote <remote>] [--rebuild]
 # Equivalent to: git fetch origin 'refs/notes/empirica/*:refs/notes/empirica/*'
 # --rebuild: Also reconstruct SQLite from git notes
 
 # Show sync status
-empirica sync status
+empirica sync-status [--local]
 # Shows: local vs remote notes refs, pending changes, last sync time
 
 # Force full rebuild of SQLite from git notes
@@ -159,15 +161,17 @@ empirica rebuild --reflexes-only [--apply]
 # present the other notes under it are not looked at (`multi_note_refs` counts the ones met).
 ```
 
-### Workspace-Level Sync
+### Workspace-Level Sync (planned, Phase 3 — not implemented)
+
+No `workspace-sync` / `workspace-status` verbs exist yet; today `workspace-overview` lists the projects and each project syncs with its own `sync-push` / `sync-pull`.
 
 ```bash
 # Sync all projects in workspace
-empirica workspace sync [--push|--pull] [--filter "empirica-*"]
+# (planned) empirica workspace-sync [--push|--pull] [--filter "empirica-*"]
 # Iterates through projects defined in .empirica-workspace
 
 # Show workspace sync status
-empirica workspace status
+# (planned) empirica workspace-status
 # Shows all projects, their sync state, dependencies
 ```
 
@@ -192,7 +196,7 @@ settings:
 # Sync Policy
 sync:
   enabled: true
-  notes_remote: <remote>    # no default — unset means every verb refuses
+  notes_remote: <remote>    # no default — unset falls through to `remote`, then every verb refuses
   code_remote: <remote>     # no default; only used when auto_push_on is set
   auto_push_on: []          # empty = off
 
@@ -203,11 +207,11 @@ sync:
       refs:
         - empirica/goals
         - empirica/cascades
-        - empirica/handoffs
+        - empirica/handoff
         - empirica/findings      # NEW
         - empirica/unknowns      # NEW
         - empirica/dead_ends     # NEW
-        - empirica/sessions      # NEW
+        - empirica/session       # NEW
         - empirica/checkpoints
         - breadcrumbs
         - empirica-precompact
@@ -402,7 +406,7 @@ which commit has the note, then reading from that commit.
 
 ### Phase 3: Workspace Orchestration - TODO
 
-1. [ ] `empirica workspace sync` - Iterate projects with dependency ordering
+1. [ ] `empirica workspace-sync` (planned verb) - Iterate projects with dependency ordering
 2. [ ] Extend `workspace-overview` to show sync status
 3. [ ] Dependency ordering (cognitive_vault syncs first)
 

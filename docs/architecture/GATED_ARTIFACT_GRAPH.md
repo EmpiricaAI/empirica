@@ -75,13 +75,14 @@ PRE ─▶ [ capture: note ] ─▶ ⟦weave-gate⟧ ─▶ CHECK ─▶ [ captu
 
 ## 5. Net-new work (the gaps — each a work-stream)
 
-1. **Gate promotion — scalar control surface (built: report-only).** The gate is
+1. **Gate promotion — scalar control surface (built; enforce-by-default since 1.12.15).** The gate is
    driven by **three orthogonal 0.0–1.0 scalar dimensions**, not a discrete
    `off/nudge/soft/hard` mode. The extension's Sentinel config owns them as
-   **sliders**; the human sets them, the AI inherits them (see §5a). This build
-   ships the scalars + verdict computation **report-only** (`enforced: False` at
-   every setting); the actual soft/hard *blocking* keyed on `strictness` is the
-   remaining half of this work-stream. Per-practice configurable via env
+   **sliders**; the human sets them, the AI inherits them (see §5a). The
+   verdict is `enforced: True` only in the `enforce` band (strictness ≥ 0.70)
+   **and** below the connectivity floor, and the CHECK gate then blocks the
+   noetic→praxic transition until the practice weaves an edge; at every lower
+   band it stays report-only. Per-practice configurable via env
    transport (`EMPIRICA_ARTIFACT_GRAPH_STRICTNESS` / `_FLOOR` / `_PATIENCE`).
 2. **Schema-injection at the gate — the make-or-break.** CHECK and POSTFLIGHT
    responses inject the `log-artifacts` schema (node-type enum + relation
@@ -115,12 +116,14 @@ sets it:
 
 | Dimension | Slider question | Drives | Default |
 |---|---|---|---|
-| **strictness** | *How loud when connectivity is low?* | Response band: `silent` (<0.05) → `report` (<0.40) → `warn` (<0.70) → `enforce` (≥0.70) | `0.25` (report) |
-| **connectivity_floor** | *What fraction of artifacts must be woven?* | `satisfied = connected_ratio ≥ floor` | `0.50` |
+| **strictness** | *How loud when connectivity is low?* | Response band: `silent` (<0.05) → `report` (<0.40) → `warn` (<0.70) → `enforce` (≥0.70) | `0.75` (enforce) |
+| **connectivity_floor** | *What fraction of artifacts must be woven?* | `satisfied = connected_ratio ≥ floor` | `0.34` |
 | **patience** | *How forgiving of consecutive misses?* | Adaptive-escalation window (work-stream 4) | `0.80` |
 
-Defaults keep a fresh install **report-only + forgiving** — the gate never blocks
-until a human dials `strictness` up. `strictness` *is* the axis the old ramp
+Defaults put a fresh install in the **enforce** band with a forgiving floor (0.34) —
+the gate blocks CHECK below the floor, recoverably (weave one edge). A practice opts
+*down* with `EMPIRICA_ARTIFACT_GRAPH_STRICTNESS=0.25` or `artifact_graph: {strictness: 0.25}`
+in `.empirica/project.yaml`. `strictness` *is* the axis the old ramp
 expressed, but as a continuum: old `off` = 0.0 (silent), `nudge` ≈ 0.25 (report),
 `soft` ≈ 0.5 (warn), `hard` ≈ 0.9 (enforce). What a single mode couldn't express
 is the split between **floor** (how much to weave) and **strictness** (how hard to

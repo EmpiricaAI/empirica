@@ -22,15 +22,15 @@ Three jobs run on every push / PR to `main` or `develop`:
 
 | Job | What it runs | Failure semantics |
 |---|---|---|
-| `lint-and-types` | `ruff check`, `ruff format --check` (informational), `pyright` | Hard fail on ruff errors or pyright errors |
-| `test` | `pytest` on Python **3.10** + **3.13** | Hard fail on any failed test |
+| `lint-and-types` | `ruff check`, `ruff format --check`, `pyright` | Hard fail on ruff lint errors, ruff format drift, or pyright errors |
+| `test` | `pytest` on Python **3.11** + **3.13** | Hard fail on any failed test |
 | `compliance` | `empirica compliance-report` + `pip-audit` | Compliance informational; `pip-audit` hard fail on CVE |
 
-**Matrix scope decision.** pyproject claims 3.10–3.13. We test the
-endpoints (3.10 = min, 3.13 = current) and skip 3.11/3.12. If a bug
-shows up that's specific to those intermediate versions, add them then.
-Each matrix cell is ~5min, so 2 cells = ~10min wall-clock with parallel
-runners. Adding 3.11/3.12 doubles the runner cost for marginal coverage.
+**Matrix scope decision.** pyproject claims 3.10–3.13. We test 3.11 (the
+minimum `empirica-mcp` supports) and 3.13 (current) and skip 3.10/3.12, so
+3.10 is declared but not exercised in CI. If a bug shows up that's specific
+to the skipped versions, add them then. Each matrix cell is ~5min, so 2 cells
+= ~10min wall-clock with parallel runners.
 
 **Why `compliance` is informational.** Empirica's compliance pipeline
 includes calibration/epistemic-audit checks that score the work done in
@@ -50,14 +50,16 @@ update touchpoint.
 
 ## Release pipeline (release.yml)
 
-Local + remote split. Three local phases, and the first one is deliberately
-separate:
+Local + remote split. Three local phases (the first one deliberately separate),
+plus two helper flags:
 
 | Phase | Branch | Does |
 |---|---|---|
-| `--docs` | **develop** | Authors the release-facing docs: version sweep across 27 files, README's What's New from CHANGELOG, CLI reference regen. **Commits nothing** — the diff is for review, then committed with the bump. |
+| `--docs` | **develop** | Authors the release-facing docs: version sweep over the version/packaging files (the list lives in `update_version_strings` in `scripts/release.py`), README's What's New from CHANGELOG, CLI reference regen. **Commits nothing** — the diff is for review, then committed with the bump. |
 | `--prepare` | main | Merge, build, gates (import / ruff / pyright / pip-audit / pytest / issue-tracker). **Writes no tracked docs** — it *verifies* the `--docs` output is committed and refuses otherwise. |
-| `--publish` | main | **Tag + push only.** The tag triggers this workflow, which publishes every channel. `--local-artifacts` restores local publishing as an escape hatch for when CI is down. |
+| `--publish` | main | **Tag + push only.** The tag triggers this workflow, which publishes every channel. `--local-artifacts` restores local publishing as an escape hatch for when CI is down. After publishing it runs `empirica doctor --deploy-gaps` and, when the CLI on the releasing box is a stale pipx install, refreshes it (`pipx install --force --editable .`). |
+| `--version-only --old-version X.Y.Z [--commit]` | develop | Bump version strings only, no build or publish; `--commit` stages just the version/packaging allowlist plus `CHANGELOG.md`. |
+| `--verify` | any | Run a few minutes after `--publish`: checks the current version actually landed on every channel (artifacts, not CI job status). |
 
 **Why `--docs` exists** (2026-08-05). `--prepare` used to author those files
 itself, *after* checking out main. That one choice produced three defects:
@@ -184,7 +186,7 @@ pipeline. `release.yml` should match its behavior:
 
 | Step | Local (`release.py --docs/--prepare/--publish`) | CI (`release.yml`) |
 |---|---|---|
-| Version sweep across 27 files | `--docs` (on develop, reviewed + committed) | Not needed (already committed) |
+| Version sweep (`update_version_strings`) | `--docs` (on develop, reviewed + committed) | Not needed (already committed) |
 | README What's New + CLI reference | `--docs` (on develop); `--prepare` only verifies | Not needed (already committed) |
 | Build sdist + wheel | `--prepare` | `build` job |
 | Test gate | `--prepare` runs `pytest` | `ci.yml` already ran on pre-tag commit |

@@ -146,11 +146,13 @@ empirica goals-create --objective "Research approach for feature X"
 ### Cross-Pane Handoff
 
 ```bash
-# Pane 0: Create handoff
-empirica handoff-create --to-ai claude-research --context "Please investigate auth patterns"
+# Pane 0: Create handoff (the next pane/session reads it; there is no --to-ai addressing)
+empirica handoff-create --task-summary "Mapped the auth entry points" \
+  --key-findings '["Token refresh path is in auth/session.py"]' \
+  --next-session-context "Please investigate auth patterns"
 
-# Pane 1: Pick up handoff
-empirica handoff-query --status pending
+# Pane 1: Pick up the latest handoffs
+empirica handoff-query --ai-id claude-research --limit 5
 ```
 
 ---
@@ -214,10 +216,10 @@ common case (one tmux session with N project panes + a status pane) the
 
 ```bash
 empirica cockpit launch              # Bring up the configured layout
-empirica cockpit status              # Show all live instances + states
+empirica cockpit status              # Show cockpit state without attaching
+empirica cockpit refresh             # Relaunch panes whose claude exited
 empirica cockpit detach              # Detach without killing
 empirica cockpit kill                # Tear down all panes
-empirica cockpit save / restore      # Persist + restore layouts
 ```
 
 The launcher reads `~/.empirica/cockpit/config.yaml` for the per-pane layout
@@ -229,12 +231,14 @@ project-switched and ready.
 
 Groups partition the cockpit into logical sets — e.g., a `core` group with
 4 panes for development plus a `research` group with 2 panes for
-investigation. Switch the active group without losing the others' state:
+investigation. Groups are declared under `groups:` in the cockpit config (see
+[COCKPIT.md](./COCKPIT.md)), not selected with a flag; with `--surface alacritty|ghostty`
+each group gets its own window, and `--profile NAME` picks a different config file:
 
 ```bash
-empirica cockpit launch --group core         # Start the core group
-empirica cockpit launch --group research     # Start research alongside
-empirica cockpit status --all                # See all groups
+empirica cockpit launch                      # All configured groups
+empirica cockpit launch --profile research   # ~/.empirica/cockpit/config-research.yaml
+empirica cockpit status                      # Current cockpit state
 ```
 
 Useful for separating concerns (development vs. outreach vs. research) on
