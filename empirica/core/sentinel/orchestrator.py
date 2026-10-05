@@ -308,19 +308,24 @@ class DomainProfile:
             for g in data.get("gates", [])
         ]
 
+        # The shipped profile YAMLs nest `thresholds:` and `audit:`; the loader used to read
+        # top-level keys only, so a profile loaded from its own file got the defaults and
+        # the CLI reported ok. Both shapes load; a flat key wins when both are present.
+        thresholds = data.get("thresholds") or {}
+        audit = data.get("audit") or {}
         return cls(
             name=data["name"],
             compliance_framework=data.get("compliance_framework"),
-            uncertainty_trigger=data.get("uncertainty_trigger", 0.5),
-            confidence_to_proceed=data.get("confidence_to_proceed", 0.75),
-            signal_quality_min=data.get("signal_quality_min", 0.6),
+            uncertainty_trigger=data.get("uncertainty_trigger", thresholds.get("uncertainty_trigger", 0.5)),
+            confidence_to_proceed=data.get("confidence_to_proceed", thresholds.get("confidence_to_proceed", 0.75)),
+            signal_quality_min=data.get("signal_quality_min", thresholds.get("signal_quality_min", 0.6)),
             gates=gates,
             allowed_personas=data.get("allowed_personas", []),
             required_personas=data.get("required_personas", []),
             restricted_tools=data.get("restricted_tools", []),
             allowed_tools=data.get("allowed_tools", []),
-            audit_all_actions=data.get("audit_all_actions", False),
-            audit_retention_days=data.get("audit_retention_days", 90),
+            audit_all_actions=data.get("audit_all_actions", audit.get("log_all_actions", False)),
+            audit_retention_days=data.get("audit_retention_days", audit.get("retention_days", 90)),
         )
 
 
