@@ -153,3 +153,20 @@ def test_the_resolver_error_reports_a_context_project_it_found_but_could_not_use
         resolver.get_session_db_path()
 
     assert f"instance context project ({gone}, not usable)" in str(exc.value)
+
+
+def test_a_value_error_from_the_write_itself_is_still_an_error_not_a_skip(monkeypatch, caplog):
+    """Only failing to FIND a store is softened. A ValueError raised while writing is a real failure."""
+    from empirica.core.context_budget import ContextBudgetManager
+
+    class Db:
+        conn = types.SimpleNamespace(cursor=lambda: (_ for _ in ()).throw(ValueError("circular reference")))
+
+    monkeypatch.setattr("empirica.data.session_database.SessionDatabase", lambda *a, **k: Db())
+    manager = ContextBudgetManager(session_id="s" * 8, auto_subscribe=False)
+
+    with caplog.at_level(logging.WARNING):
+        assert manager.persist_state() is False
+
+    assert "Failed to persist budget state: circular reference" in caplog.text
+    assert "budget state not persisted" not in caplog.text

@@ -766,7 +766,15 @@ class ContextBudgetManager(EpistemicObserver):
         try:
             from empirica.data.session_database import SessionDatabase
 
-            db = SessionDatabase(db_path=str(db_path)) if db_path else SessionDatabase()
+            try:
+                db = SessionDatabase(db_path=str(db_path)) if db_path else SessionDatabase()
+            except ValueError as e:
+                # The resolver could not find a store. That is a skipped persist, not a broken install: say what it
+                # tried and nothing prescriptive (ecodex, 2026-10-05: the old line told a practitioner inside a
+                # practice to run project-init). Only the OPEN is caught here; a ValueError from the write below is a
+                # real failure and keeps its error line.
+                logger.warning(f"budget state not persisted: {e}")
+                return False
             if db.conn is None:
                 logger.error("No database connection")
                 return False
@@ -798,12 +806,6 @@ class ContextBudgetManager(EpistemicObserver):
             db.conn.commit()
             db.close()
             return True
-        except ValueError as e:
-            # The resolver could not find a store. That is a skipped persist, not a broken install: say what it tried
-            # and nothing prescriptive (ecodex, 2026-10-05: the old line told a practitioner inside a practice to run
-            # project-init).
-            logger.warning(f"budget state not persisted: {e}")
-            return False
         except Exception as e:
             logger.error(f"Failed to persist budget state: {e}")
             return False
