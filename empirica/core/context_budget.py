@@ -798,6 +798,12 @@ class ContextBudgetManager(EpistemicObserver):
             db.conn.commit()
             db.close()
             return True
+        except ValueError as e:
+            # The resolver could not find a store. That is a skipped persist, not a broken install: say what it tried
+            # and nothing prescriptive (ecodex, 2026-10-05: the old line told a practitioner inside a practice to run
+            # project-init).
+            logger.warning(f"budget state not persisted: {e}")
+            return False
         except Exception as e:
             logger.error(f"Failed to persist budget state: {e}")
             return False

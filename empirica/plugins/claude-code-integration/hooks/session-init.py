@@ -1462,10 +1462,24 @@ not assess). Adjust the numbers to what you actually hold.
     sys.exit(0)
 
 
-def _init_context_budget(session_id: str, project_context: dict, db_path=None) -> dict:
+def _unpersisted_reason(project_root, hook_input: dict, cwd: str) -> str:
+    """Why the budget state cannot be persisted at this SessionStart, in the hook's own words."""
+    source = hook_input.get("source") or hook_input.get("type") or "unknown"
+    if not project_root:
+        return f"budget state not persisted: practice root unknown for this SessionStart (source={source}, cwd={cwd})"
+    return (
+        f"budget state not persisted: sessions.db not found under {project_root} for this SessionStart "
+        f"(source={source}, cwd={cwd})"
+    )
+
+
+def _init_context_budget(session_id: str, project_context: dict, db_path=None, unpersisted_reason=None) -> dict:
     """Initialize Context Budget Manager (bootloader phase).
 
-    Returns budget summary dict, or dict with 'error' key on failure.
+    Returns budget summary dict, or dict with 'error' key on failure. Without a ``db_path`` the state is NOT persisted:
+    persist_state would re-resolve the location from scratch and, at a moment the hook has already failed to find its
+    root, make the resolver speak (a "run project-init" line the model reads as a broken install). The summary's
+    ``persist`` says what happened instead.
     """
     try:
         from empirica.core.context_budget import (
@@ -1545,8 +1559,12 @@ def _init_context_budget(session_id: str, project_context: dict, db_path=None) -
                     )
                 )
 
-        manager.persist_state(db_path=db_path)
-        return manager.get_inventory_summary()
+        summary = manager.get_inventory_summary()
+        if db_path is None:
+            summary["persist"] = f"skipped: {unpersisted_reason or 'budget state not persisted: no sessions.db path'}"
+        else:
+            summary["persist"] = "persisted" if manager.persist_state(db_path=db_path) else "failed: see hook log"
+        return summary
     except Exception as e:
         return {"error": str(e)}
 
@@ -1800,6 +1818,7 @@ def main():
         session_id,
         result.get("project_context", {}),
         db_path=budget_db if budget_db and budget_db.exists() else None,
+        unpersisted_reason=_unpersisted_reason(project_root, hook_input, os.getcwd()),
     )
     dashboard_status = _init_dashboard(session_id, ai_id)
 

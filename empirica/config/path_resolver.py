@@ -374,6 +374,28 @@ def _try_context_project_db(context_project_path: str, git_root) -> Path | None:
     return None
 
 
+def _unresolved_db_error(context_project_path, git_root) -> ValueError:
+    """The error for "no sessions.db could be found", saying what was tried.
+
+    A practitioner inside an initialised practice cannot act on "initialize this repo" (ecodex, 2026-10-05), and whether a
+    context project was found and unusable or simply absent is the datum that locates the fault.
+    """
+    context_note = f"{context_project_path}, not usable" if context_project_path else "none"
+    try:
+        cwd_note = str(Path.cwd())
+    except OSError:
+        cwd_note = "unknown"
+    git_note = str(git_root) if git_root else "none"
+    return ValueError(
+        "Cannot determine sessions.db path. "
+        f"Tried: EMPIRICA_SESSION_DB (unset); instance context project ({context_note}); "
+        f"git root from {cwd_note} ({git_note}); workspace registry (no match); "
+        "<git root>/.empirica/sessions/sessions.db (absent).\n"
+        "Set EMPIRICA_SESSION_DB to the store, or run from inside the practice directory. "
+        "'empirica project-init' is only for a directory that is not yet a practice."
+    )
+
+
 def get_session_db_path() -> Path:
     """
     Get full path to sessions database.
@@ -466,14 +488,8 @@ def get_session_db_path() -> Path:
         # Not in a git repo and no env vars set - continue to next option
         pass
 
-    # No valid path found - raise error instead of guessing
-    raise ValueError(
-        "Cannot determine sessions.db path - not in a git repo, no context found, and no env vars set.\n"
-        "Options:\n"
-        "  1. Run 'empirica project-init' to initialize this repo\n"
-        "  2. Use 'empirica session-create --ai-id <name> --auto-init' for first-time setup\n"
-        "  3. Set EMPIRICA_SESSION_DB environment variable explicitly"
-    )
+    # No valid path found - raise error instead of guessing.
+    raise _unresolved_db_error(context_project_path, git_root)
 
 
 def resolve_session_db_path(session_id: str) -> Path | None:
