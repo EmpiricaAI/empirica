@@ -1233,7 +1233,7 @@ def is_safe_empirica_statement(command: str) -> bool:
     is a whole-input question. A caller that reaches for the wrong one is now
     making a visible choice rather than an invisible omission.
     """
-    return _is_single_statement(command) and is_safe_empirica_command(command)
+    return _is_single_statement(command) and _substitutions_are_safe(command) and is_safe_empirica_command(command)
 
 
 # Verb suffixes that denote a pure read in empirica's CLI naming convention.
@@ -2845,6 +2845,22 @@ def _mask_arithmetic_expansions(command: str) -> str:
     return "".join(out)
 
 
+def _substitutions_are_safe(command: str) -> bool:
+    """Is every `$(...)` / backtick substitution in `command` itself a safe command?
+
+    Quote-agnostic on purpose: substitutions execute inside double quotes, so a
+    single-quoted literal is conservatively judged too. A heredoc body is excluded
+    (its delimiter governs expansion). Shared by the main classifier and the
+    empirica-statement rescue, which had its own blind spot here (2026-10-05).
+    """
+    body = command.split("<<")[0] if "<<" in command else command
+    for inner in _extract_command_substitutions(body):
+        inner_clean = inner.strip()
+        if inner_clean and not _is_command_text_safe(inner_clean):
+            return False
+    return True
+
+
 def _has_dangerous_operators(command: str) -> bool:
     """Check for dangerous shell operators (excluding &&, ||, ; handled in chain check).
 
@@ -3014,11 +3030,8 @@ def is_safe_bash_command(tool_input: dict) -> bool:
     # so a single-quoted `'$(rm)'` literal is conservatively gated too) — this runs
     # before the pipe check, so it also covers `echo "$(rm)" | cat`. Heredoc bodies
     # are excluded (their delimiter governs expansion), matching _is_segment_safe.
-    _sub_body = command.split("<<")[0] if "<<" in command else command
-    for _inner in _extract_command_substitutions(_sub_body):
-        _inner_clean = _inner.strip()
-        if _inner_clean and not _is_command_text_safe(_inner_clean):
-            return False
+    if not _substitutions_are_safe(command):
+        return False
 
     # Single command. A trailing pipe can smuggle an executor
     # (`empirica goals-list | sh`), so a piped command is NOT safe on the bare
