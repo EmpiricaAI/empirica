@@ -5150,24 +5150,30 @@ def _check_expiry_and_compact(check_timestamp, empirica_root: Path | None) -> tu
 
     Returns (decision, reason) if CHECK is expired/invalidated, or None to continue.
     """
+    # Each switch is independent. check_time used to be parsed only inside the expiry
+    # branch, so COMPACT_INVALIDATION alone never saw it and never denied.
+    expiry_on = os.getenv("EMPIRICA_SENTINEL_CHECK_EXPIRY", "false").lower() == "true"
+    compact_on = os.getenv("EMPIRICA_SENTINEL_COMPACT_INVALIDATION", "false").lower() == "true"
+    if not (expiry_on or compact_on):
+        return None
+
     check_time = None
+    try:
+        if isinstance(check_timestamp, (int, float)) or (
+            isinstance(check_timestamp, str) and check_timestamp.replace(".", "").isdigit()
+        ):
+            check_time = datetime.fromtimestamp(float(check_timestamp))
+        else:
+            check_time = datetime.fromisoformat(check_timestamp.replace("Z", "+00:00").replace("+00:00", ""))
+    except Exception:
+        check_time = None
 
-    if os.getenv("EMPIRICA_SENTINEL_CHECK_EXPIRY", "false").lower() == "true":
-        try:
-            if isinstance(check_timestamp, (int, float)) or (
-                isinstance(check_timestamp, str) and check_timestamp.replace(".", "").isdigit()
-            ):
-                check_time = datetime.fromtimestamp(float(check_timestamp))
-            else:
-                check_time = datetime.fromisoformat(check_timestamp.replace("Z", "+00:00").replace("+00:00", ""))
-            age_minutes = (datetime.now() - check_time).total_seconds() / 60
+    if check_time and expiry_on:
+        age_minutes = (datetime.now() - check_time).total_seconds() / 60
+        if age_minutes > MAX_CHECK_AGE_MINUTES:
+            return ("deny", f"CHECK expired ({age_minutes:.0f}min). Refresh epistemic state.")
 
-            if age_minutes > MAX_CHECK_AGE_MINUTES:
-                return ("deny", f"CHECK expired ({age_minutes:.0f}min). Refresh epistemic state.")
-        except Exception:
-            pass
-
-    if os.getenv("EMPIRICA_SENTINEL_COMPACT_INVALIDATION", "false").lower() == "true":
+    if compact_on:
         if empirica_root:
             last_compact = get_last_compact_timestamp(empirica_root.parent)
             if last_compact and check_time and last_compact > check_time:

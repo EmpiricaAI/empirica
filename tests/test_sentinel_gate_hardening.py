@@ -205,3 +205,39 @@ def test_git_ref_mutations_are_not_reads(sg, command):
 )
 def test_git_ref_list_forms_stay_reads(sg, command):
     assert _safe(sg, command) is True
+
+
+# ---- compact invalidation works on its own; CHECK expiry is a separate switch -------------------
+
+
+def _expiry(sg, monkeypatch, *, expiry, compact, check_age_s, compact_age_s):
+    from datetime import datetime, timedelta
+
+    now = datetime.now()
+    monkeypatch.setenv("EMPIRICA_SENTINEL_CHECK_EXPIRY", "true" if expiry else "false")
+    monkeypatch.setenv("EMPIRICA_SENTINEL_COMPACT_INVALIDATION", "true" if compact else "false")
+    monkeypatch.setattr(sg, "get_last_compact_timestamp", lambda _root: now - timedelta(seconds=compact_age_s))
+    check_ts = (now - timedelta(seconds=check_age_s)).timestamp()
+    return sg._check_expiry_and_compact(check_ts, Path("/nowhere/.empirica"))
+
+
+def test_compact_invalidation_denies_a_check_older_than_the_compact_without_expiry(sg, monkeypatch):
+    out = _expiry(sg, monkeypatch, expiry=False, compact=True, check_age_s=600, compact_age_s=60)
+    assert out is not None and out[0] == "deny" and "compacted" in out[1]
+
+
+def test_compact_invalidation_leaves_a_check_made_after_the_compact_alone(sg, monkeypatch):
+    assert _expiry(sg, monkeypatch, expiry=False, compact=True, check_age_s=60, compact_age_s=600) is None
+
+
+def test_neither_switch_set_never_denies(sg, monkeypatch):
+    assert _expiry(sg, monkeypatch, expiry=False, compact=False, check_age_s=100000, compact_age_s=60) is None
+
+
+def test_expiry_alone_still_denies_a_stale_check(sg, monkeypatch):
+    out = _expiry(sg, monkeypatch, expiry=True, compact=False, check_age_s=100000, compact_age_s=10**9)
+    assert out is not None and out[0] == "deny" and "expired" in out[1]
+
+
+def test_expiry_alone_does_not_invent_a_compact_denial(sg, monkeypatch):
+    assert _expiry(sg, monkeypatch, expiry=True, compact=False, check_age_s=60, compact_age_s=30) is None
