@@ -1412,6 +1412,10 @@ def is_transition_command(command: str) -> bool:
     # heredoc body is one statement and that separators inside quotes don't split.
     if _is_single_statement(cmd):
         head = cmd.split("<<")[0].strip() if "<<" in cmd else cmd
+        # A prefix match is a verb question; a substitution or file redirect on the
+        # same statement is a second command (`cd $(rm -rf x)`, `git add . > f`).
+        if not _substitutions_are_safe(cmd) or _has_dangerous_redirects(head):
+            return False
         return any(head.startswith(prefix) for prefix in TRANSITION_COMMANDS)
 
     # Multi-statement: EVERY segment must independently be a transition command
@@ -1463,6 +1467,10 @@ def is_transition_command(command: str) -> bool:
     _BENIGN_PRODUCERS = ("echo ", "echo", "cat ", "printf ")
     segments = [s.strip() for s in re.split(r"\n|;|&&|\|\||\||&", cmd) if s.strip()]
     if not segments:
+        return False
+    # An `echo`/`cat`/`printf` producer is benign only when it writes nothing and runs
+    # nothing: `cd x && echo y > ~/.bashrc` is a file write wearing a producer's name.
+    if not _substitutions_are_safe(cmd) or any(_has_dangerous_redirects(seg) for seg in segments):
         return False
     return all(
         any(seg.startswith(p) for p in TRANSITION_COMMANDS) or any(seg.startswith(p) for p in _BENIGN_PRODUCERS)

@@ -117,3 +117,36 @@ def test_the_statement_rescue_refuses_a_substitution_the_main_classifier_refuses
 )
 def test_the_statement_rescue_still_admits_honest_statements(sg, command):
     assert sg.is_safe_empirica_statement(command) is True
+
+
+# ---- transition commands: a benign producer must not write a file or run a substitution --------
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cd /tmp && echo y > ~/.bashrc",
+        "cd /tmp && cat /etc/hostname >> ~/.profile",
+        'cd /tmp && echo "$(rm -rf /tmp/x)"',
+        "cd $(rm -rf /tmp/x)",
+        'git commit -m "$(rm -rf /tmp/x)"',
+        "git add . > /tmp/x",
+    ],
+)
+def test_a_transition_command_does_not_launder_a_redirect_or_substitution(sg, command):
+    assert sg.is_transition_command(command) is False
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cd /tmp/project",
+        "cd /tmp/project && empirica project-bootstrap",
+        "echo '{\"a\": 1}' | empirica preflight-submit -",
+        "cat payload.json | empirica preflight-submit -",
+        "cd /tmp && empirica preflight-submit - << 'EOF'\n{}\nEOF",
+        "git add -A",
+    ],
+)
+def test_the_legitimate_transition_shapes_still_pass(sg, command):
+    assert sg.is_transition_command(command) is True
