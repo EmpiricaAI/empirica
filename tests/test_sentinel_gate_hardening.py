@@ -150,3 +150,58 @@ def test_a_transition_command_does_not_launder_a_redirect_or_substitution(sg, co
 )
 def test_the_legitimate_transition_shapes_still_pass(sg, command):
     assert sg.is_transition_command(command) is True
+
+
+# ---- git branch / tag / remote: only the list forms are reads ----------------------------------
+
+
+def _safe(sg, command):
+    return sg.is_safe_bash_command({"command": command})
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git branch -D feature",
+        "git branch -d feature",
+        "git branch --delete feature",
+        "git branch newbranch",
+        "git branch -m old new",
+        "git branch -f main HEAD~3",
+        "git branch --set-upstream-to=origin/main",
+        "git -C /repo branch -D feature",
+        "git tag v1.0",
+        "git tag -d v1.0",
+        "git tag -a v1.0 -m release",
+        "git remote add origin https://example.invalid/x.git",
+        "git remote remove origin",
+        "git remote set-url origin https://example.invalid/y.git",
+        "git remote prune origin",
+    ],
+)
+def test_git_ref_mutations_are_not_reads(sg, command):
+    assert _safe(sg, command) is False
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git branch",
+        "git branch -a",
+        "git branch -vv",
+        "git branch --show-current",
+        "git branch --list 'feat/*'",
+        "git branch --contains HEAD",
+        "git -C /repo branch --merged main",
+        "git tag",
+        "git tag -l 'v1.*'",
+        "git tag --list",
+        "git tag --points-at HEAD",
+        "git remote",
+        "git remote -v",
+        "git remote show origin",
+        "git remote get-url origin",
+    ],
+)
+def test_git_ref_list_forms_stay_reads(sg, command):
+    assert _safe(sg, command) is True

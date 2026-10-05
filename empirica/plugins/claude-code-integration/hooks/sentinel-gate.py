@@ -2358,6 +2358,55 @@ def _nvidia_smi_is_read_only(stripped: str) -> bool:
     return True
 
 
+# git branch / tag / remote are on the safe-prefix list for their LIST forms, but the
+# same verbs create, move and delete refs and remotes (`git branch -D x`, `git tag v1`,
+# `git remote add o u`). The list forms are the allowlist; anything else is a mutation.
+_GIT_BRANCH_READ_FLAGS = frozenset(
+    {"-a", "--all", "-r", "--remotes", "-v", "-vv", "--verbose", "--list", "-l", "--show-current"}
+    | {"--no-color", "--color", "--column", "--no-column", "-i", "--ignore-case"}
+)
+_GIT_TAG_READ_FLAGS = frozenset(
+    {"-l", "--list", "-v", "--verify", "--no-color", "--color", "--column", "--no-column", "-i", "--ignore-case"}
+)
+_GIT_REF_VALUE_FLAGS = frozenset(
+    {"--contains", "--no-contains", "--merged", "--no-merged", "--points-at", "--sort", "--format"}
+)
+
+
+def _git_ref_command_mutates(cmd: str) -> bool:
+    """True for `git branch|tag|remote` invocations that are not a pure listing."""
+    parts = _normalize_git_globals(cmd.strip()).split()
+    if len(parts) < 2 or parts[0] != "git" or parts[1] not in ("branch", "tag", "remote"):
+        return False
+    sub, rest = parts[1], parts[2:]
+    if sub == "remote":
+        if rest[:1] in (["-v"], ["--verbose"]):
+            rest = rest[1:]
+        return bool(rest) and rest[0] not in ("show", "get-url")
+    read_flags = _GIT_BRANCH_READ_FLAGS if sub == "branch" else _GIT_TAG_READ_FLAGS
+    listing = False
+    expect_value = False
+    for tok in rest:
+        if expect_value:
+            expect_value = False
+            continue
+        if tok in ("--list", "-l"):
+            listing = True
+        if tok in _GIT_REF_VALUE_FLAGS:
+            expect_value = True
+        elif (
+            (tok.startswith("--") and "=" in tok and tok.split("=", 1)[0] in _GIT_REF_VALUE_FLAGS)
+            or tok in read_flags
+            or (sub == "tag" and re.fullmatch(r"-n\d*", tok))
+        ):
+            continue
+        elif tok.startswith("-"):
+            return True
+        elif not listing:
+            return True  # a bare name creates a branch or tag
+    return False
+
+
 def _has_dangerous_tool_flags(cmd: str) -> bool:
     """True if ``cmd`` is a safe-prefixed tool invoked with a mutating/exec flag
     its prefix would otherwise wave through (the membrane-hole class).
@@ -2370,6 +2419,8 @@ def _has_dangerous_tool_flags(cmd: str) -> bool:
     """
     stripped = cmd.lstrip()
     head = stripped.split(" ", 1)[0]
+    if head == "git" and _git_ref_command_mutates(stripped):
+        return True
     if head in _AWK_NAMES:
         return "system(" in stripped or bool(_AWK_WRITE_RE.search(stripped))
     if head in _SED_NAMES:
