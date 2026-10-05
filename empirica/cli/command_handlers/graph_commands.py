@@ -1968,6 +1968,19 @@ def _stamp_note_resolution(
     return bool(out["stamped"])
 
 
+#: Artifact type (as delete-artifacts names it) -> the namespace its note is written under.
+_NOTE_NAMESPACE = {
+    "finding": "findings",
+    "unknown": "unknowns",
+    "dead_end": "dead_ends",
+    "mistake": "mistakes",
+    "assumption": "assumptions",
+    "decision": "decisions",
+    "goal": "goals",
+    "source": "sources",
+}
+
+
 def _delete_artifact_git_notes(artifact_type: str, artifact_id: str, project_path: str | None = None) -> bool:
     """ARCHIVE the artifact's git note — move it out of the active namespace.
 
@@ -1987,7 +2000,11 @@ def _delete_artifact_git_notes(artifact_type: str, artifact_id: str, project_pat
     # instead, copy-then-delete with the copy checked first.
     from empirica.core.canonical.empirica_git.note_lifecycle import archive_note
 
-    result = archive_note(artifact_type, artifact_id, project_path)
+    # The note lives under the PLURAL namespace (refs/notes/empirica/dead_ends/<id>) and the verb's item type is singular
+    # (`dead_end`). The singular was passed straight through, so the lookup read a ref that never exists, reported
+    # `not_present`, and every delete left its note behind, silently. (Found 2026-10-05 when nine deleted rows still had
+    # notes holding a credential.)
+    result = archive_note(_NOTE_NAMESPACE.get(artifact_type, artifact_type), artifact_id, project_path)
     if not result["archived"] and result["reason"] != "not_present":
         # Say so. A silent False here is what let notes and sqlite drift.
         logger.warning(f"note archive failed for {artifact_type}/{artifact_id}: {result['reason']}")
