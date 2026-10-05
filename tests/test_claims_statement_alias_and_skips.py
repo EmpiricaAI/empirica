@@ -122,8 +122,43 @@ def test_the_sentinel_deny_points_at_the_skipped_report():
         spec.loader.exec_module(mod)
     except SystemExit:
         pass
-    mod._claims_lookup_error = None
+    vars(mod)["_claims_lookup_error"] = None
 
     _, text = mod._deny_no_check_no_claims()
 
     assert "skipped" in text and "claim, grounding" in text
+
+
+# ── review findings on the 1.14.8 diff, each reproduced first ───────────────
+
+
+def test_an_infinite_count_does_not_lose_the_whole_declaration(db):
+    """json.loads accepts Infinity; int(inf) raised OverflowError, the callers swallowed it and every claim vanished."""
+    import json
+
+    items = json.loads(
+        '[{"claim": "a", "grounding": "ran", "scope": "s", "count": Infinity}, {"claim": "b", "grounding": "read"}]'
+    )
+
+    stored, skipped = _declare(db, items)
+
+    assert [c["claim"] for c in stored] == ["a", "b"] and skipped == []
+    assert stored[0]["measured_count"] is None and stored[0]["count_ignored"] == float("inf")
+
+
+def test_a_count_too_large_to_store_is_reported_ignored_not_stored_without_its_scope(db):
+    stored, _ = _declare(db, [{"claim": "a", "grounding": "ran", "scope": "all rows", "count": 10**30}])
+
+    (c,) = stored
+    assert c["scope"] == "all rows", "the scope must survive; it used to be dropped by an INSERT overflow"
+    assert c["measured_count"] is None and c["count_ignored"] == 10**30
+
+
+def test_when_nothing_was_stored_the_note_does_not_blame_weak_grounding(db, monkeypatch):
+    from empirica.cli.command_handlers import _workflow_preflight as pf
+
+    monkeypatch.setattr(pf, "_get_db_for_session", lambda _sid: SessionDatabase(db_path=str(db.db_path)))
+
+    echo = pf._preflight_declare_claims("s1", "t1", [{"detail": "wrong key"}])
+
+    assert "note_skip" not in echo and "skipped_note" in echo

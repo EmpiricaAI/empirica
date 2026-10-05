@@ -90,6 +90,11 @@ def archive_note(artifact_type: str, artifact_id: str, project_path: str | None 
         return {"archived": False, "reason": "not_present"}
     sha = rev.stdout.strip()
 
+    # Never overwrite an archive that already holds something else: a sync-pull can resurrect an active note that was
+    # archived, and deleting it again would replace the earlier archive with the same-named newer one.
+    existing = _git(["rev-parse", "--verify", "--quiet", dst], project_path)
+    if existing is not None and existing.returncode == 0 and existing.stdout.strip() not in ("", sha):
+        return {"archived": False, "reason": "archive ref already holds different content; active ref left intact"}
     wrote = _git(["update-ref", dst, sha], project_path)
     if wrote is None or wrote.returncode != 0:
         detail = (wrote.stderr.strip()[:120] if wrote else "git unavailable") or "unknown"

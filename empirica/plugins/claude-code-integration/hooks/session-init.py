@@ -1462,6 +1462,20 @@ not assess). Adjust the numbers to what you actually hold.
     sys.exit(0)
 
 
+def _budget_db_path(project_root) -> Path | None:
+    """The sessions.db to persist budget state into, or None when none is known.
+
+    The practice's own store when the root is known and the file exists. Otherwise an explicit EMPIRICA_SESSION_DB
+    (tests, CI, Docker) is a store the resolver would have used, so honour it rather than reporting "root unknown" about
+    a run that can persist.
+    """
+    own = Path(project_root) / ".empirica" / "sessions" / "sessions.db" if project_root else None
+    if own is not None and own.exists():
+        return own
+    override = os.environ.get("EMPIRICA_SESSION_DB")
+    return Path(override) if override and Path(override).is_file() else None
+
+
 def _unpersisted_reason(project_root, hook_input: dict, cwd: str) -> str:
     """Why the budget state cannot be persisted at this SessionStart, in the hook's own words."""
     source = hook_input.get("source") or hook_input.get("type") or "unknown"
@@ -1813,11 +1827,11 @@ def main():
 
     # Initialize subsystems
     session_id = result["session_id"]
-    budget_db = Path(project_root) / ".empirica" / "sessions" / "sessions.db" if project_root else None
+    budget_db = _budget_db_path(project_root)
     budget_summary = _init_context_budget(
         session_id,
         result.get("project_context", {}),
-        db_path=budget_db if budget_db and budget_db.exists() else None,
+        db_path=budget_db,
         unpersisted_reason=_unpersisted_reason(project_root, hook_input, os.getcwd()),
     )
     dashboard_status = _init_dashboard(session_id, ai_id)

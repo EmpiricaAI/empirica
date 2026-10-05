@@ -118,9 +118,15 @@ def _normalize_count(value: Any) -> int | None:
         return int(m.group(1)) if m else None
     try:
         n = int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
+        # OverflowError: json.loads accepts `Infinity`, and int(float('inf')) raises it. That escaped as an exception,
+        # the callers swallowed it at debug level, and the whole declaration vanished with no `skipped` report.
         return None
-    return n if n >= 0 else None
+    return n if 0 <= n <= _MAX_COUNT else None
+
+
+#: A count past what a column and a human can mean (10**30 overflowed the INSERT and stored the claim without its scope).
+_MAX_COUNT = 2**53
 
 
 def certifies(claim: dict[str, Any]) -> bool:

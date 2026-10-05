@@ -374,7 +374,7 @@ def _try_context_project_db(context_project_path: str, git_root) -> Path | None:
     return None
 
 
-def _unresolved_db_error(context_project_path, git_root) -> ValueError:
+def _unresolved_db_error(context_project_path, git_root, env_value: str | None = None) -> ValueError:
     """The error for "no sessions.db could be found", saying what was tried.
 
     A practitioner inside an initialised practice cannot act on "initialize this repo" (ecodex, 2026-10-05), and whether a
@@ -386,10 +386,14 @@ def _unresolved_db_error(context_project_path, git_root) -> ValueError:
     except OSError:
         cwd_note = "unknown"
     git_note = str(git_root) if git_root else "none"
+    # Say what really happened to each, not a fixed script: a rejected override is not "unset", and the registry is
+    # only consulted when there is a git root to look up.
+    env_note = "unset" if not env_value else "set but rejected"
+    registry_note = "no match" if git_root else "not consulted: no git root"
     return ValueError(
         "Cannot determine sessions.db path. "
-        f"Tried: EMPIRICA_SESSION_DB (unset); instance context project ({context_note}); "
-        f"git root from {cwd_note} ({git_note}); workspace registry (no match); "
+        f"Tried: EMPIRICA_SESSION_DB ({env_note}); instance context project ({context_note}); "
+        f"git root from {cwd_note} ({git_note}); workspace registry ({registry_note}); "
         "<git root>/.empirica/sessions/sessions.db (absent).\n"
         "Set EMPIRICA_SESSION_DB to the store, or run from inside the practice directory. "
         "'empirica project-init' is only for a directory that is not yet a practice."
@@ -489,7 +493,7 @@ def get_session_db_path() -> Path:
         pass
 
     # No valid path found - raise error instead of guessing.
-    raise _unresolved_db_error(context_project_path, git_root)
+    raise _unresolved_db_error(context_project_path, git_root, os.getenv("EMPIRICA_SESSION_DB"))
 
 
 def resolve_session_db_path(session_id: str) -> Path | None:

@@ -170,3 +170,45 @@ def test_a_value_error_from_the_write_itself_is_still_an_error_not_a_skip(monkey
 
     assert "Failed to persist budget state: circular reference" in caplog.text
     assert "budget state not persisted" not in caplog.text
+
+
+def test_the_resolver_message_tells_the_truth_about_a_rejected_override_and_an_unconsulted_registry(
+    monkeypatch, tmp_path
+):
+    resolver = _unresolvable(monkeypatch, tmp_path, {})
+    monkeypatch.setenv("EMPIRICA_SESSION_DB", "/etc/not-allowed.db")
+    monkeypatch.setattr(resolver, "_validate_user_path", lambda *a, **k: (_ for _ in ()).throw(ValueError("rejected")))
+
+    with pytest.raises(ValueError) as exc:
+        resolver.get_session_db_path()
+
+    msg = str(exc.value)
+    assert "EMPIRICA_SESSION_DB (set but rejected)" in msg and "(unset)" not in msg
+    assert "workspace registry (not consulted: no git root)" in msg
+
+
+def test_an_explicit_store_override_is_used_for_the_budget_persist(session_init, monkeypatch, tmp_path):
+    """With EMPIRICA_SESSION_DB set the resolver can persist; reporting 'root unknown' about that run was wrong."""
+    override = tmp_path / "override.db"
+    override.write_text("")
+    monkeypatch.setenv("EMPIRICA_SESSION_DB", str(override))
+
+    assert session_init._budget_db_path(None) == override
+    assert session_init._budget_db_path(tmp_path / "no-root-here") == override
+
+
+def test_the_practices_own_store_wins_over_the_override(session_init, monkeypatch, tmp_path):
+    own = tmp_path / ".empirica" / "sessions"
+    own.mkdir(parents=True)
+    (own / "sessions.db").write_text("")
+    other = tmp_path / "other.db"
+    other.write_text("")
+    monkeypatch.setenv("EMPIRICA_SESSION_DB", str(other))
+
+    assert session_init._budget_db_path(tmp_path) == own / "sessions.db"
+
+
+def test_no_root_and_no_override_is_none(session_init, monkeypatch):
+    monkeypatch.delenv("EMPIRICA_SESSION_DB", raising=False)
+
+    assert session_init._budget_db_path(None) is None

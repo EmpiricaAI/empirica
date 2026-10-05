@@ -72,3 +72,14 @@ def test_an_unknown_type_falls_back_to_the_name_it_was_given(repo):
     _git(repo, "notes", "--ref=empirica/dead_ends/a2", "add", "-f", "-m", "{}", "HEAD")
 
     assert _delete_artifact_git_notes("dead_ends", "a2", str(repo)) is True
+
+
+def test_the_namespaces_agree_with_the_ones_the_reconcile_pass_already_uses():
+    """Drift guard against the real stores: PAIRS above is hand-written, which is the tautology that hid the bug."""
+    from empirica.core.canonical.empirica_git.note_reconcile import _TYPES
+    from empirica.data.artifact_fields import ARTIFACT_NOTE_NAMESPACES, ARTIFACT_TABLES
+
+    by_namespace = {ns: t for t, ns in ARTIFACT_NOTE_NAMESPACES.items()}
+    for namespace, (table, _col) in _TYPES.items():
+        assert namespace in by_namespace, f"reconcile uses {namespace}; the delete map does not know it"
+        assert ARTIFACT_TABLES[by_namespace[namespace]][0] == table

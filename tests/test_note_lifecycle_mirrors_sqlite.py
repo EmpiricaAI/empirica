@@ -207,3 +207,21 @@ def test_a_resolved_artifact_stays_in_the_invariant_set(repo):
         _write_note(repo, "findings", aid, {"finding": aid})
     stamp_resolution("findings", "b", {"is_resolved": True}, str(repo))
     assert _active_ids(repo, "findings") == {"a", "b"}, "a resolved note must still be ACTIVE"
+
+
+def test_an_archive_that_already_holds_different_content_is_not_overwritten(repo):
+    """A sync-pull can resurrect an archived note; deleting it again must not replace the earlier archive."""
+    run = lambda *a: subprocess.run(["git", *a], cwd=repo, capture_output=True, text=True, check=True)  # noqa: E731
+    _write_note(repo, "findings", "f9", {"finding": "newer"})
+    (repo / "g.txt").write_text("y")
+    run("add", ".")
+    run("commit", "-qm", "second")
+    _write_note(repo, "findings", "older", {"finding": "earlier archive"})
+    older = run("rev-parse", f"{ACTIVE_PREFIX}/findings/older").stdout.strip()
+    run("update-ref", f"{ARCHIVE_PREFIX}/findings/f9", older)
+
+    out = archive_note("findings", "f9", str(repo))
+
+    assert out["archived"] is False and "different content" in out["reason"]
+    assert _ref_exists(repo, f"{ACTIVE_PREFIX}/findings/f9"), "the active note must be left in place"
+    assert run("rev-parse", f"{ARCHIVE_PREFIX}/findings/f9").stdout.strip() == older

@@ -1295,12 +1295,14 @@ def _preflight_declare_claims(session_id, transaction_id, claims):
         if summary:
             certified = [c for c in stored if _claims.certifies(c)]
             summary["certifies_transaction"] = bool(certified)
-            summary["note_skip"] = (
-                "Grounded at open — praxic may proceed without a separate CHECK."
-                if certified
-                else "No claim certifies: retrieved and assumed never do, and a `ran` claim needs "
-                "a scope and a count. Name them, or submit a CHECK."
-            )
+            if certified:
+                summary["note_skip"] = "Grounded at open — praxic may proceed without a separate CHECK."
+            elif stored:
+                summary["note_skip"] = (
+                    "No claim certifies: retrieved and assumed never do, and a `ran` claim needs "
+                    "a scope and a count. Name them, or submit a CHECK."
+                )
+            # Nothing stored: `skipped_note` already says why, and the weak-grounding reason would name the wrong cause.
         return summary
     except Exception as e:
         logger.debug(f"PREFLIGHT claim declaration skipped: {e}")
