@@ -60,6 +60,17 @@ def test_every_table_has_an_edge_column_entry():
     assert set(ARTIFACT_TABLES) == set(ARTIFACT_EDGE_DATA_COLUMNS)
 
 
+def test_every_table_has_a_note_namespace_and_it_is_the_plural():
+    """The note lives at refs/notes/empirica/<plural>/<id>; the singular type name read a ref that never exists."""
+    from empirica.data.artifact_fields import ARTIFACT_NOTE_NAMESPACES
+
+    assert set(ARTIFACT_TABLES) == set(ARTIFACT_NOTE_NAMESPACES)
+    assert all(
+        ns == t + "s" or ns == t.replace("y", "ies") for t, ns in ARTIFACT_NOTE_NAMESPACES.items() if t != "dead_end"
+    )
+    assert ARTIFACT_NOTE_NAMESPACES["dead_end"] == "dead_ends"
+
+
 def test_source_is_in_the_tables_and_out_of_the_deletable_set():
     """THE distinction. Present for existence checks, absent for destruction."""
     assert "source" in ARTIFACT_TABLES, "an archived source still EXISTS — edges point at it"

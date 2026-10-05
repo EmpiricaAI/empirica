@@ -99,6 +99,21 @@ ARTIFACT_TABLES: dict[str, tuple[str, str]] = {
 }
 
 
+#: The git-notes namespace a type's note is written under (refs/notes/empirica/<namespace>/<id>). It is the PLURAL of the
+#: type name, and the two must not be confused: a lookup that used the singular read a ref that never exists and every
+#: delete left its note behind (2026-10-05). IN THIS FILE for the same reason as the table map above.
+ARTIFACT_NOTE_NAMESPACES: dict[str, str] = {
+    "finding": "findings",
+    "unknown": "unknowns",
+    "dead_end": "dead_ends",
+    "mistake": "mistakes",
+    "assumption": "assumptions",
+    "decision": "decisions",
+    "source": "sources",
+    "goal": "goals",
+}
+
+
 #: The JSON blob column an artifact's edges live in, per type. Separate from
 #: :data:`ARTIFACT_TABLES` because only the deletion path needs it — but IN THIS
 #: FILE, because a private copy of a type map is exactly what this change removes.
