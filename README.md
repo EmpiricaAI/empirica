@@ -52,7 +52,7 @@ You:      "Fix the authentication bug in the login flow"
 
 Empirica: [AI investigates → logs findings → passes Sentinel gate → implements fix → measures learning]
 
-You see:  ⚡87% ↕70% │ 🎯1 │ POST 🔍85% │ K:88% C:82% │ Δ +K
+You see:   empirica  │ POST 85% │ G1 U2 A0 F3/D1 │ Δ … │ 41%ctx │ 🔨 act - 🧠 Sonnet 5.5
 ```
 
 **You direct. The AI measures.**
@@ -210,20 +210,30 @@ PREFLIGHT ────────► CHECK ────────► POSTFLIG
 
 ## Live Statusline
 
-With Claude Code hooks enabled, you see the AI's epistemic state in real-time:
+With Claude Code hooks enabled, you see the AI's epistemic state in real time. The default is one compact line:
 
 ```
-[empirica] ⚡94% ↕70% │ 🎯3 ❓12/5 │ POST 🔍92% │ K:95% C:92% │ Δ +K +C
+ empirica  │ CHECK 80% │ G3 U5 A2 F4/D1 │ Δ … │ 41%ctx │ 🔍 investigate - 🧠 Sonnet 5.5
 ```
 
-| Signal | Meaning |
-|--------|---------|
-| **⚡94%** | Overall epistemic confidence |
-| **↕70%** | Sentinel threshold (know gate) — user-facing only |
-| **🎯3 ❓12/5** | Open goals (3), unknowns (12 total, 5 blocking) |
-| **POST 🔍92%** | Transaction phase + work state (🔍 investigating / 🔨 acting) with composite score |
-| **K:95% C:92%** | Knowledge and Context vectors (color-coded by gap to threshold) |
-| **Δ +K +C** | Learning delta (POSTFLIGHT only) — which vectors improved |
+| Cell | Meaning |
+|------|---------|
+| ` empirica ` (white on black) | The practice (project) |
+| **CHECK 80%** | Cascade stage and overall confidence. The stage runs `PRE` → `CHECK` → `POST` → `TEST`, and moves to `TEST` once the post-test has graded the transaction |
+| **G3 U5 A2** | Open goals, open unknowns, open assumptions |
+| **F4/D1** | Findings and decisions logged in *this transaction* |
+| **Δ …** | Learning mark from the grounded post-test: `🔥` very good, `✓` good, `-` average, `✗` below average, `…` not graded yet, `?` too little evidence to rate |
+| **41%ctx** | Context window used |
+| **🔍 investigate / 🔨 act - model** | Whether the work is noetic or praxic right now, then the model |
+
+One command switches to a detailed view, and back:
+
+```bash
+echo expanded > ~/.empirica/statusline_mode   # confidence, threshold, phase composite, K/C vectors, Δ
+echo compact  > ~/.empirica/statusline_mode   # the default
+```
+
+The modes are `compact` (default), `expanded`, `basic`, `learning` and `full`; `EMPIRICA_STATUS_MODE` sets one when the file is absent. All of them are described in [the statusline reference](docs/reference/STATUSLINE_REFERENCE.md).
 
 ---
 
