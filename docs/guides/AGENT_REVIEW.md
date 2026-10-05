@@ -92,13 +92,14 @@ written from the tools its agents actually have.
 
 ## What was measured, and what it does not show
 
-Five threads, one reviewer each, 589k tokens in total.
+Five threads, one reviewer each, 589k tokens in total. Every figure below is recomputed by one script from the archived inputs (`reproduce_numbers.py` in the experiment archive, which also runs the baseline's positive control).
 
 | Measure | Result | Read it as |
 |---|---|---|
-| Artifacts the regex extractor found | 0 of 0 on all five threads | the baseline is empty, not weak |
+| Artifacts the regex extractor found | 0 findings, 0 unknowns, 0 dead ends on all five threads | the three types it can produce; it has no pattern for decision, assumption or mistake, so those 24 of the 101 are out of its reach by construction. Shown live first on a transcript that contains its prefixes. It needs the agent to write a prefix such as `Found:`, which these agents did not |
 | Artifacts the reviewer stamped | 101 | |
 | Anchors valid (turn exists, quote verbatim) | 101 of 101 | the evidence exists where the reviewer says |
+| Edges well-formed (both ends name a real artifact) | 35 of 36 | one edge pointed at an artifact index that does not exist, so the stamp as a whole did not pass |
 | Needed hindsight | 34% (34 of 101) | what tagging during the work cannot produce |
 | Known defects present in the stamps | 12 of 13 | the miss was in a trace that truncates tool calls at 500 characters |
 | Predicted answers the human picked | 4 of 4 | small sample, and the prediction was shown first as Recommended, which itself nudges a pick |
