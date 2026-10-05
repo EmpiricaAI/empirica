@@ -844,6 +844,14 @@ def handle_sync_pull_command(args):
         return 1
 
 
+def _is_replicable_note_ref(refname: str) -> bool:
+    """A note ref a sync can move. ``refs/notes/empirica-archive/*`` is written by
+    archive_note and deliberately never pushed or pulled, so counting it on either side
+    makes the local total exceed anything a remote can hold: sync-status read ``behind``
+    forever and a push that added nothing new read ``not_replicating``."""
+    return bool(refname) and not refname.startswith("refs/notes/empirica-archive/")
+
+
 def _count_all_local_note_refs() -> int | None:
     """EVERY ref under ``refs/notes/``, not just the enumerated namespaces.
 
@@ -875,7 +883,7 @@ def _count_all_local_note_refs() -> int | None:
     if proc.returncode != 0:
         logger.warning(f"could not count local note refs: git exited {proc.returncode}")
         return None
-    return len([ln for ln in proc.stdout.splitlines() if ln.strip()])
+    return len([ln for ln in proc.stdout.splitlines() if _is_replicable_note_ref(ln.strip())])
 
 
 def _count_remote_notes(remote: str, timeout: int = 20) -> tuple[int | None, str | None]:
@@ -900,7 +908,8 @@ def _count_remote_notes(remote: str, timeout: int = 20) -> tuple[int | None, str
         return None, f"{type(e).__name__}: {e}"
     if proc.returncode != 0:
         return None, (proc.stderr.strip().splitlines() or ["git ls-remote failed"])[-1][:200]
-    return len([ln for ln in proc.stdout.splitlines() if ln.strip()]), None
+    # `git ls-remote` lines are "<sha>\t<refname>"
+    return len([ln for ln in proc.stdout.splitlines() if _is_replicable_note_ref(ln.split("\t")[-1].strip())]), None
 
 
 def _replication_verdict(local: int | None, remote_count: int | None, unreachable: str | None) -> dict[str, Any]:

@@ -97,7 +97,7 @@ On a second machine: clone the code repo, add the same remote, set `notes_remote
 
 **Exit code is not replication.** A refspec that matches nothing exits 0 and pushes nothing. After a push, the verb counts the note refs on the remote and reports `replicated`, `partial` or `not_replicating` from whether the remote moved. `sync-status` makes the same comparison on request: local note refs against `git ls-remote <remote> 'refs/notes/*'`, reported as `replicated`, `behind`, `not_replicating`, `nothing_to_replicate` or `unknown` (remote unreachable). A configured remote does not mean the notes are there, and the status says which it is.
 
-The local count is every ref under `refs/notes/`, including `refs/notes/empirica-archive/*`, which no push carries. A repo with archived notes therefore starts permanently behind by that many refs, and the verdict will read `behind` or `partial` even when everything pushable has been pushed. Read `behind` against the archive count before treating it as a failed sync.
+Both counts leave out `refs/notes/empirica-archive/*` (the local count and the `ls-remote` count), because no push carries it. Before 1.14.9 the local count included the archive refs, so a repo with archived notes read `behind` or `partial` permanently even when everything pushable had been pushed.
 
 ---
 
