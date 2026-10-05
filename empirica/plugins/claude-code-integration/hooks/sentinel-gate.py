@@ -1283,6 +1283,22 @@ def is_read_shaped_empirica_verb(cmd: str) -> bool:
     return verb.endswith(EMPIRICA_READ_SUFFIXES)
 
 
+def _is_plain_single_command(cmd: str) -> bool:
+    """One statement, with nothing riding along: no chain, background, pipe or newline
+    outside quotes, no file redirect, and no command substitution anywhere.
+
+    Substitution is refused even inside quotes: `$(...)` and backticks execute inside
+    DOUBLE quotes, and refusing inside single quotes too costs only a rare benign
+    command (the main classifier makes the same conservative call). Used where a verb
+    match alone would admit the rest of the line.
+    """
+    if "`" in cmd or "$(" in cmd:
+        return False
+    if not _is_single_statement(cmd):
+        return False
+    return not _has_dangerous_redirects(cmd)
+
+
 def is_toggle_command(command: str) -> str | None:
     """Detect if a command is writing or removing the Sentinel pause file.
 
@@ -1291,6 +1307,13 @@ def is_toggle_command(command: str) -> str | None:
     whitelisting it as a general safe command.
     """
     cmd = command.lstrip()
+
+    # The exemption is for the toggle ALONE. It runs before every gate, so a verb
+    # match on the first two tokens would admit whatever rides along:
+    # `empirica off ; rm -rf x`, `empirica off $(cmd)`, `rm -rf x # sentinel_paused`.
+    # Found by the 2026-10-05 sweep; the old comment called this "prompt-injection-safe".
+    if not _is_plain_single_command(cmd):
+        return None
 
     # Canonical CLI toggle verbs — the user-facing Sentinel pause/resume surface:
     #   empirica off [...]             → pause   (per-instance, or --global)
@@ -1320,9 +1343,12 @@ def is_toggle_command(command: str) -> str | None:
     if "sentinel_paused" in cmd and ("write_text" in cmd or "open(" in cmd):
         return "pause"
 
-    # Detect pause file removal
-    if cmd.startswith("rm ") and ("sentinel_paused" in cmd):
-        return "unpause"
+    # Detect pause file removal: `rm [flags] <path>...` where EVERY path is a pause file.
+    rm_tokens = cmd.split()
+    if rm_tokens and rm_tokens[0] == "rm":
+        paths = [t for t in rm_tokens[1:] if not t.startswith("-")]
+        if paths and all(Path(p).name.startswith("sentinel_paused") for p in paths):
+            return "unpause"
 
     return None
 
