@@ -165,8 +165,8 @@ durables. `null` impact is not a noise signal.
 empirica goals-complete --goal-id <id> --reason "<evidence>"
 empirica goals-archive  --goal-id <id>
 empirica goals-mark-stale --goal-id <id>
-empirica source-archive <id>
-empirica source-update <id> ...
+empirica source-archive --source-id <id> --reason {user_deleted,file_missing,url_unreachable,superseded}
+empirica source-update  --source-id <id> --url <new-path-or-url>   # re-point a source whose file moved
 ```
 
 **Delete — true noise only** (dry-run default; review the receipt, then `--apply`):
@@ -217,7 +217,7 @@ Shared retrieval is only as clean as the messiest contributor.
 
 **Propagation unit is a lesson.** A finding *describes* local state; a **lesson transfers a
 pattern across the practice boundary**. If a peer can pick it up and act on it, it is a
-lesson — `lesson-create --visibility shared/public`.
+lesson — `lesson-create` with `sharing_policy` `org` or `public` in the payload (`visibility` shared/public is accepted as an alias).
 
 1. Register the discipline: `empirica source-add --title "Epistemic gardening pass" --visibility shared --noetic`
 2. FYI the mesh when you finish a pass — `/cortex-mailbox-send`, Flavor 1, canonical 3-form target.

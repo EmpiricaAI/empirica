@@ -272,5 +272,5 @@ TaskStop next_step; `unregister` deletes it.
 - `empirica/core/loop_scheduler/persistent_listener.py` — the
   systemd-user / launchd persistent service shipped in 7eac3c838.
 - `empirica/cli/command_handlers/cockpit_commands.py` —
-  `handle_listener_on/arm/off_command` (lines ~1530-1735), the
+  `handle_listener_on/arm/off_command` (`handle_listener_on_command`, `handle_listener_arm_command`, `handle_listener_off_command`), the
   canonical CLI handlers this skill teaches.

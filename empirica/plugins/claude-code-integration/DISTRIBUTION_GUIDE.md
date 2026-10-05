@@ -115,7 +115,7 @@ Three distribution paths are covered below.
    ```bash
    git clone https://github.com/YOUR-ORG/empirica-plugin.git
    cp -r empirica-plugin ~/.claude/plugins/local/empirica
-   # Follow manual installation steps in INSTALL.md
+   # Follow the manual installation steps in docs/human/developers/CLAUDE_CODE_SETUP.md
    ```
 
 ### Maintenance:
@@ -128,6 +128,8 @@ Three distribution paths are covered below.
 ## Option 3: Include in Empirica Repository
 
 **Best for:** Bundled with Empirica, automatic setup
+
+> **Status in this repo:** done. The plugin lives at `empirica/plugins/claude-code-integration/` and `empirica setup` installs it. The `scripts/install_claude_plugin.sh` below was never created; the plugin's own `install.sh` (pip install plus `empirica setup-claude-code`) and `empirica setup` replace it. The steps stay as the recipe for a fresh bundle.
 
 ### Steps:
 
@@ -156,7 +158,7 @@ Three distribution paths are covered below.
    echo ""
    echo "Next steps:"
    echo "1. Add plugin to ~/.claude/settings.json enabledPlugins"
-   echo "2. Register local marketplace (see INSTALL.md)"
+   echo "2. Register local marketplace (see docs/human/developers/CLAUDE_CODE_SETUP.md)"
    echo "3. Restart Claude Code"
    ```
 
@@ -240,16 +242,16 @@ Before distribution, ensure all files are included:
 - ✅ `hooks/post-compact.py` - SessionStart hook
 - ✅ `hooks/curate-snapshots.py` - SessionEnd hook
 - ✅ `README.md` - Main documentation
-- ✅ `INSTALL.md` - Installation instructions (created)
-- ✅ `CHANGELOG.md` - Version history (TODO)
-- ✅ `LICENSE` - Open source license (TODO)
+- ✅ Installation instructions - `docs/human/developers/CLAUDE_CODE_SETUP.md` (no `INSTALL.md` ships in the plugin)
+- ✅ `CHANGELOG.md` - Version history (stops at 1.8.0; points to the root `CHANGELOG.md`)
+- ✅ `LICENSE` - Open source license
 
 ---
 
 ## Next Steps
 
 1. Choose distribution strategy (recommend Option 3 → Option 1)
-2. Add missing files (CHANGELOG.md, LICENSE)
+2. Confirm the checklist files are all present
 3. Test installation on fresh system
 4. Update Empirica documentation
 5. Announce to community

@@ -179,6 +179,6 @@ notification panel).
 - `/services-auditor` — the AI-judgment skill (Phase 2) that runs
   alongside the deterministic scanner; complementary not redundant
 - `docs/architecture/SERVICES_SCANNER.md` — Phase 1/2/3 architecture
-- `docs/architecture/PROPOSAL_LOOP_BACKOFF.md` — backoff math (services-
+- `docs/specs/PROPOSAL_LOOP_BACKOFF.md` — backoff math (services-
   audit doesn't use it — biweekly is already slow — but the option is
   there if you switch to a tighter cadence)

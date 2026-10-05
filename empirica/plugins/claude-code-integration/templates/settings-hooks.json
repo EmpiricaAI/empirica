@@ -1,5 +1,5 @@
 {
-  "_comment": "Add these hooks to ~/.claude/settings.json - replace PLUGIN_DIR with actual path",
+  "_comment": "Add these hooks to ~/.claude/settings.json - replace PLUGIN_DIR with actual path. Mirrors what `empirica setup` registers (_register_all_hooks in setup_claude_code.py).",
   "_example_path": "~/.claude/plugins/local/empirica",
   "hooks": {
     "PreToolUse": [
@@ -48,7 +48,7 @@
     ],
     "SessionStart": [
       {
-        "matcher": "compact|resume",
+        "matcher": "compact",
         "hooks": [
           {
             "type": "command",
@@ -60,11 +60,17 @@
             "command": "python3 PLUGIN_DIR/hooks/ewm-protocol-loader.py",
             "timeout": 10,
             "allowFailure": true
+          },
+          {
+            "type": "command",
+            "command": "python3 PLUGIN_DIR/hooks/session-monitor-arm.py",
+            "timeout": 30,
+            "allowFailure": true
           }
         ]
       },
       {
-        "matcher": "startup",
+        "matcher": "startup|resume",
         "hooks": [
           {
             "type": "command",
@@ -76,29 +82,11 @@
             "command": "python3 PLUGIN_DIR/hooks/ewm-protocol-loader.py",
             "timeout": 10,
             "allowFailure": true
-          }
-        ]
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "matcher": ".*",
-        "hooks": [
+          },
           {
             "type": "command",
-            "command": "python3 PLUGIN_DIR/hooks/tool-router.py",
-            "timeout": 3,
-            "allowFailure": true
-          }
-        ]
-      },
-      {
-        "matcher": ".*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 PLUGIN_DIR/hooks/context-shift-tracker.py",
-            "timeout": 5,
+            "command": "python3 PLUGIN_DIR/hooks/session-monitor-arm.py",
+            "timeout": 30,
             "allowFailure": true
           }
         ]
@@ -135,6 +123,87 @@
         ]
       }
     ],
+    "SubagentStop": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 PLUGIN_DIR/hooks/subagent-stop.py",
+            "timeout": 15,
+            "allowFailure": true
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 PLUGIN_DIR/hooks/tool-router.py",
+            "timeout": 30,
+            "allowFailure": true
+          }
+        ]
+      },
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 PLUGIN_DIR/hooks/context-shift-tracker.py",
+            "timeout": 30,
+            "allowFailure": true
+          }
+        ]
+      },
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 PLUGIN_DIR/hooks/loop-install-pickup.py",
+            "timeout": 30,
+            "allowFailure": true
+          }
+        ]
+      },
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 PLUGIN_DIR/hooks/loop-uninstall-pickup.py",
+            "timeout": 30,
+            "allowFailure": true
+          }
+        ]
+      },
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 PLUGIN_DIR/hooks/listener-install-pickup.py",
+            "timeout": 30,
+            "allowFailure": true
+          }
+        ]
+      },
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 PLUGIN_DIR/hooks/listener-uninstall-pickup.py",
+            "timeout": 30,
+            "allowFailure": true
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Edit|Write",
@@ -142,7 +211,7 @@
           {
             "type": "command",
             "command": "python3 PLUGIN_DIR/hooks/entity-extractor.py",
-            "timeout": 5,
+            "timeout": 30,
             "allowFailure": true
           }
         ]
@@ -153,20 +222,46 @@
           {
             "type": "command",
             "command": "python3 PLUGIN_DIR/hooks/truncation-legibility.py",
-            "timeout": 5,
+            "timeout": 30,
             "allowFailure": true
           }
         ]
       }
     ],
-    "SubagentStop": [
+    "TaskCompleted": [
       {
         "matcher": ".*",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 PLUGIN_DIR/hooks/subagent-stop.py",
-            "timeout": 15,
+            "command": "python3 PLUGIN_DIR/hooks/task-completed.py",
+            "timeout": 10,
+            "allowFailure": true
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 PLUGIN_DIR/hooks/tool-failure.py",
+            "timeout": 30,
+            "allowFailure": true
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 PLUGIN_DIR/hooks/transaction-enforcer.py",
+            "timeout": 30,
             "allowFailure": true
           }
         ]

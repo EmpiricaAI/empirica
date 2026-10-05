@@ -34,7 +34,7 @@ applies to **scheduled** (cron/interval) loops only.
 
 ## Cron Prompt Template (self-scheduling)
 
-Per `PROPOSAL_LOOP_SELF_SCHEDULING.md`: the body owns the schedule.
+The body owns the schedule (the design doc is gone; `tests/test_cockpit_self_scheduling.py` pins the behaviour, `docs/specs/PROPOSAL_LOOP_BACKOFF.md` has the backoff math).
 Each fire installs the next fire as a one-shot at the timestamp the
 backoff math returns. There is no recurring cron — pause means the
 scheduler is silent (no token bleed).

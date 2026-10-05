@@ -100,7 +100,7 @@ numbers need adjusting.
 > distillation), not a `lesson-log` verb — a lesson is the **transferable
 > cross-practice pattern/anti-pattern** a peer (local or remote) can pick up,
 > distinct from a *local* finding/decision; propagate it at
-> `--visibility shared/public` + mesh collab (findings *describe*, lessons
+> payload `sharing_policy` org/public (`visibility` shared/public is an alias) + mesh collab (findings *describe*, lessons
 > *transfer*). The other four (findings, unknowns, dead-ends, mistakes) each
 > have a matching `<type>-log` verb.
 

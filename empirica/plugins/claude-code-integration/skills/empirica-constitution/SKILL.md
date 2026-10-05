@@ -209,38 +209,40 @@ these does not know they are healthy; it knows nothing about them.
 
 **The unit of identity in empirica is the practice — not the LLM, not the directory,
 not the conversation.** That is what lets a Claude inhabiting `mesh-support` know its
-trajectory lands in mesh-support's profile regardless of whose filesystem it is
-typing into.
+work lands in mesh-support's store regardless of whose filesystem it is typing into.
+Artifacts accrue to the practice; calibration accrues to the practitioner (the model)
+inhabiting it.
 
 | Term | What it is |
 |---|---|
-| **Practitioner** | The LLM currently sitting in the practice. Fungible — different models occupy the same practice over time. |
-| **Practice** | An empirica project: an epistemic specialization with its own calibration trajectory, skills, artifacts and contacts. The medical/legal sense — accumulated expertise plus clients plus tools, occupied by a practitioner. |
+| **Practitioner** | The LLM currently sitting in the practice. Different models occupy the same practice over time, and each has its own calibration trajectory: CHECK reads the current model's trajectory once it has enough points, the practice's until then. |
+| **Practice** | An empirica project: an epistemic specialization with its own skills, artifacts and calibration history. The medical/legal sense — accumulated expertise plus clients plus tools, occupied by a practitioner. |
 | **Agent** | A subagent the practitioner spawns. Bypasses parent Sentinel gates; its tool calls count toward the parent's transaction. |
-| **Client / contact** | An entity the practice serves. First-class in `entity_registry` (type `contact`). |
-| **Engagement** | A scoped piece of work for a contact or org. First-class (type `engagement`). |
+| **Client / contact** | An entity the practice serves. Identity lives in `crm-mcp`, not in `entity_registry`. |
+| **Engagement** | A scoped piece of work for a contact or org. Identity and status live in `crm-mcp`. |
 
 ### Entity registry as the shared substrate
 
-`~/.empirica/workspace/workspace.db` holds an `entity_registry` covering every
-first-class entity across all practices in the org. Populated types today:
-`project`, `contact`, `organization`, `engagement`, `user`. `entity_memberships`
-(M:N) holds typed relationships — `member-of`, `serves`, `uses`, `owns`.
+`~/.empirica/workspace/workspace.db` holds an `entity_registry` of the practices
+(`entity_type='project'`) and users across the org. `entity_memberships` (M:N) holds
+typed relationships — `member-of`, `serves`, `uses`, `owns`.
+
+**Organizations, contacts and engagements are not registry state any more.** Core's
+CRM projection was retired (commit `fcf442110`): `crm-mcp` is the canonical store
+(`empirica-workspace org|contact|engagement`, or the `crm_*` tools). Old
+`organization`, `contact` and `engagement` rows may still sit in the registry; their
+ids are valid join targets, but their name and status are stale. Do not read them
+with `entity-show`; ask `crm-mcp`. What the practice learned about a client lives in
+its own epistemic graph (`empirica-workspace entity knowledge --entity ...`).
 
 **Vocabulary vs storage:** the table stores `entity_type='project'`; the concept is
 "practice". Both are correct — one is the literal value, one is the load-bearing
 idea. Future types (`ai`, `agent`, `skill`) are not populated, so don't claim them as
 current state.
 
-Walk it from any node:
-
-```
-contact:Georg ←member-of→ org:MastersOfDirt ←served-by→ practice:mesh-support ←uses→ skill:cowork-recovery-mac
-```
-
-`entity-list` (by type/status) · `entity-show <type:id>` (one entity plus its edges)
-· `entity-walk <type:id> [--depth N]` (BFS, cycle-protected) · `entity-search
-<query>`. All take `--output {human|json}`.
+Walk it from any node: `entity-list` (by type/status) · `entity-show <type:id>` (one
+entity plus its edges) · `entity-walk <type:id> [--depth N]` (BFS, cycle-protected) ·
+`entity-search <query>`. All take `--output {human|json}`.
 
 ### When practice ≠ working directory
 
@@ -259,8 +261,8 @@ The Sentinel, calibration and inbox routing all follow `ai_id`.
 
 ### Three things called "project"
 
-- **Empirica practice** — the epistemic seat, identified by `ai_id`. Calibration,
-  artifacts and trajectory accumulate here, and persist across models and moves.
+- **Empirica practice** — the epistemic seat, identified by `ai_id`.
+  Artifacts accumulate here and persist across models and moves; calibration accrues to the model that did the work.
 - **Claude Code project** — a filesystem location with its own `.claude/`. Often
   one-to-one with a practice; not always.
 - **Claude Desktop project** — a conversation-context bundle. Orthogonal to both.

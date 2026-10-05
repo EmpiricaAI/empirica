@@ -20,7 +20,7 @@ verb + a receipt log.
 
 The TUI cockpit registers this loop alongside `cortex-mailbox-poll`
 when the user toggles `L` on an instance for the first time, or by
-explicit `empirica loop register --name message-cleanup`. On fire,
+explicit `empirica loop register --name message-cleanup --kind cron --cron "17 3 * * *"`. On fire,
 the AI sees a `<task-notification>` and loads this skill.
 
 ## What to do

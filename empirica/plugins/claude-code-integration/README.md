@@ -20,10 +20,10 @@ empirica setup --force # Reset/update (preserves non-Empirica hooks)
 
 | Component | Count | Location |
 |-----------|-------|----------|
-| Hooks | 23 | `~/.claude/plugins/local/empirica/hooks/` |
-| Skills | 14 | `~/.claude/plugins/local/empirica/skills/` |
+| Hooks | 25 registrations (22 scripts) | `~/.claude/plugins/local/empirica/hooks/` |
+| Skills | 19 (plus `cortex-mailbox-poll` / `cortex-mailbox-send` when the Cortex bundle is installed) | `~/.claude/plugins/local/empirica/skills/` |
 | Commands | 2 | `~/.claude/plugins/local/empirica/commands/` |
-| Agents | 9 | `~/.claude/plugins/local/empirica/agents/` |
+| Agents | 4 | `~/.claude/plugins/local/empirica/agents/` |
 | Statusline | 1 | `scripts/statusline_empirica.py` |
 | System Prompt | 1 | `~/.claude/empirica-system-prompt.md` |
 
@@ -47,19 +47,21 @@ Hooks fire automatically on Claude Code events. No manual invocation needed.
 | Hook | Event | What It Does |
 |------|-------|-------------|
 | **pre-compact** | PreCompact | Captures epistemic state before context compaction — vectors, recent findings, git context, active transaction state |
-| **post-compact** | PostCompact | Restores context after compaction — loads bootstrap, calibration, last task, continues open transaction |
+| **post-compact** | SessionStart (`compact`) | Restores context after compaction — loads bootstrap, calibration, last task, continues open transaction |
 
 ### Evidence Collection
 
 | Hook | Event | What It Does |
 |------|-------|-------------|
-| **tool-router** | PostToolUse | Routes tool results to appropriate handlers — currently drives entity extraction |
+| **tool-router** | UserPromptSubmit | Assesses each prompt against the epistemic state, recommends agents and skills, and injects the `<epp-check>` pointer |
 | **entity-extractor** | PostToolUse | Extracts code entities (functions, classes, imports) from file edits into the codebase model |
 | **context-shift-tracker** | UserPromptSubmit | Classifies user prompts as solicited (AI-asked) vs unsolicited (human-initiated redirect) for calibration |
 | **tool-failure** | PostToolUseFailure | Auto-logs dead-ends from tool failures — captures the failed approach and error for future avoidance |
 | **curate-snapshots** | SessionEnd | Prunes pre-compact snapshots using importance-weighted algorithm (impact + completion scoring) |
 
-### ENP (Epistemic Network Protocol)
+### ENP (Epistemic Network Protocol) — optional
+
+Not registered by `empirica setup`; `empirica enp-setup` prints the registration lines if you want them.
 
 | Hook | Event | What It Does |
 |------|-------|-------------|
@@ -79,6 +81,10 @@ Hooks fire automatically on Claude Code events. No manual invocation needed.
 | Hook | Event | What It Does |
 |------|-------|-------------|
 | **ewm-protocol-loader** | SessionStart | Loads user's workflow protocol (`~/.empirica/workflow-protocol.yaml`) for personalized AI collaboration |
+| **session-monitor-arm** | SessionStart | Tells the session to arm a Monitor that bridges registered loop fires (systemd timers) into it; silent when no loops are enabled |
+| **loop-install-pickup**, **loop-uninstall-pickup**, **listener-install-pickup**, **listener-uninstall-pickup** | UserPromptSubmit | Surface pending loop and listener install/uninstall requests from the cockpit on the next prompt |
+| **ruling-shape** | PreToolUse (`AskUserQuestion`) | Reminds the model, without blocking, when a single-select question has no option marked "(Recommended)" |
+| **truncation-legibility** | PostToolUse (`Bash`) | Says so when the output the model just read was partial (e.g. `head -N` returned exactly N lines) |
 
 ---
 
@@ -91,8 +97,6 @@ Skills load on demand when the AI detects a relevant situation. Invoke with `/sk
 | **empirica-constitution** | Routing uncertainty, session start | Governance decision tree — routes situations to the right Empirica mechanism. Load before first PREFLIGHT in a session |
 | **epistemic-transaction** | Complex work, planning | Guides task decomposition into measured transactions — PREFLIGHT through POSTFLIGHT. Load when task spans 3+ files or 2+ goals |
 | **epistemic-persistence-protocol** | Disagreement, pushback | Calibrated position-holding under pushback — classifies pushback type, selects HOLD/SOFTEN/UPDATE/REFRAME response |
-| **cortex-mailbox-poll** | `<task-notification>` arrives carrying `proposal_event` | Receive side of the AI mesh — per-direction × per-status reaction protocol for incoming proposals. Auto-required when a listener Monitor is armed |
-| **cortex-mailbox-send** | Want to send to a peer AI | Send side of the AI mesh — the mesh send primitives (collab auto-accept vs ECO-gated typed), target verification, completion-ack handshake. Auto-required when a listener Monitor is armed |
 | **code-audit** | `/code-audit`, quality review | Structured noetic investigation of code quality — runs ruff, radon, pyright, produces Empirica artifacts |
 | **code-docs-align** | `/code-docs-align`, doc accuracy | Verifies documentation matches code reality — bridges code-audit and docs-assess |
 | **dispatch-agent** | Agent spawning, complex tasks | Enriches agent prompts with Cortex context (dead-ends, findings, anti-patterns) |
@@ -102,6 +106,15 @@ Skills load on demand when the AI detects a relevant situation. Invoke with `/sk
 | **services-auditor** | `/services-auditor`, compliance review | Phase 2 service-tier auditor — invoked from `empirica scan --explain` to hand off compliance findings to the calling AI session |
 | **services-audit-cron** | Recurring services audit | Scheduled wrapper for `services-auditor` — fires the audit on a cron interval |
 | **render** | `/render`, diagram rendering | Generates DiagramSpec JSON for ASCII art diagrams, renders via mdview to SVG |
+| **reporting-discipline** | Before reporting finished work, a correction or a release | Converts finished work into done/next bullets keyed to goal ids; names the ways replies grow back |
+| **pre-action-grounding** | A task arrives without its why or a checkable done-condition | Investigates first, asks last, banks the ungrounded residue as assumptions and emits a goal with typed criteria |
+| **message-cleanup** | Scheduled (daily) | Loop body that prunes expired git-notes mesh messages |
+| **epistemic-gardening** | `/epistemic-gardening`, pre-release | De-weeds the epistemic graph — resolves stale and superseded artifacts, closes answered unknowns, prunes dangling edges |
+| **epistemic-editing** | Reviewing a document whose claims must hold up | Grounded review pass over claim classes that fail silently; renders a galley of flags for the author to accept or reject |
+| **eat-the-broccoli** | `/eat-the-broccoli`, pre-release audit | Tiered quality sweep — deterministic tooling plus a hunt for failure classes that pass tests and still ship broken |
+| **architecture-review** | Reviewing a system architecture | Stress-tests an architecture for bottlenecks, single points of failure, security and cost gaps, ranked by blast radius |
+
+The mesh mailbox skills (`cortex-mailbox-poll`, `cortex-mailbox-send`) ship with the Cortex bundle, not this plugin. See `docs/reference/SKILLS.md`.
 
 ---
 
@@ -123,12 +136,9 @@ Specialized sub-agents with epistemic profiles and calibrated confidence thresho
 | Agent | Domain | Type |
 |-------|--------|------|
 | **architecture** | System design, patterns, modularity | Implementation |
-| **security** / **security-expert** | Auth, encryption, vulnerabilities | Implementation |
+| **security** | Auth, encryption, vulnerabilities | Implementation |
 | **performance** | Optimization, latency, throughput | Implementation |
-| **ux** / **ux-specialist** | Usability, accessibility, user flows | Implementation |
-| **outreach-scout** | Topic identification, quick assessment | Investigation |
-| **outreach-search** | Semantic search, memory retrieval | Investigation |
-| **outreach-factscorer** | Fact verification, confidence scoring | Investigation |
+| **ux** | Usability, accessibility, user flows | Implementation |
 
 ---
 
@@ -142,7 +152,7 @@ Real-time epistemic state in your terminal:
 
 One short line: the practice (black on white), the cascade stage (`PRE`, `CHECK`, `POST`, `TEST`) with confidence, open goals, unknowns and
 assumptions, findings and decisions logged in this transaction, a learning mark from the grounded calibration of the last closed
-transaction (🔥 very good, ✓ good, `-` average, ✗ below average, `…` not graded yet), context used, then `investigate` or `act` and the model.
+transaction (🔥 very good, ✓ good, `-` average, ✗ below average, `…` not graded yet, `?` too little evidence to rate), context used, then `investigate` or `act` and the model.
 
 The detailed view (vectors, phase composite, deltas) is one command away, no restart:
 
@@ -212,11 +222,9 @@ into a deny.
 
 ### Lean Core Prompt
 
-81% reduction in always-loaded context. Loads skills on demand:
-
-```bash
-empirica setup --lean
-```
+`empirica setup` always installs the lean core prompt (`templates/empirica-system-prompt-lean.md`) as
+`~/.claude/empirica-system-prompt.md`: a small always-loaded context that loads skills on demand. There is no
+other prompt variant and no flag to select one.
 
 ### EWM Protocol
 
@@ -236,8 +244,10 @@ You: "Fix the auth bug"
 1. SessionStart hook → creates session, loads context
 2. AI runs PREFLIGHT → baseline vectors
 3. AI investigates (reads, searches) → sentinel allows noetic tools
-4. AI tries to edit → sentinel BLOCKS (no CHECK yet)
+4. AI tries to edit → sentinel BLOCKS (no CHECK yet, and no grounded claims declared at PREFLIGHT)
 5. AI runs CHECK → sentinel evaluates vectors → "proceed"
+   (or: PREFLIGHT claims grounded `read`, or `ran` with scope and count, certify the
+   transaction and no CHECK is needed)
 6. AI edits, commits → sentinel allows praxic tools
 7. AI runs POSTFLIGHT → captures learning delta
 8. Post-test collector → gathers objective evidence (git, tests, artifacts)
@@ -252,4 +262,4 @@ You: "Fix the auth bug"
 - [CLI Reference](https://github.com/EmpiricaAI/empirica/blob/main/docs/human/developers/CLI_COMMANDS_UNIFIED.md)
 - [Architecture](https://github.com/EmpiricaAI/empirica/tree/main/docs/architecture/)
 - [Training & Guides](https://getempirica.com)
-- [Upgrade Guide](https://github.com/EmpiricaAI/empirica/blob/main/docs/guides/UPGRADE_TO_1.9.md)
+- [Upgrade Guide](https://github.com/EmpiricaAI/empirica/blob/main/docs/guides/UPGRADE_TO_1.14.md)
