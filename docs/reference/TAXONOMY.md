@@ -161,7 +161,7 @@ An assessment is a snapshot of all 13 vectors at a point in time. There are thre
 | **Grounded calibration** | Parallel calibration track that compares POSTFLIGHT self-assessment against objective post-test evidence (tests, git metrics, artifact ratios). More trustworthy than self-referential calibration. |
 | **Noetic calibration** | Phase-specific calibration for investigation work (PREFLIGHT→CHECK). Evidence: unknowns surfaced, dead-ends avoided, investigation findings, coverage breadth. Calibration question: "Did investigation reduce uncertainty proportional to claim?" |
 | **Praxic calibration** | Phase-specific calibration for action work (CHECK→POSTFLIGHT). Evidence: tests, git metrics, goal completions, artifact counts. Calibration question: "Did actions produce the outcomes predicted?" |
-| **Dynamic thresholds** | CHECK gate thresholds that adapt based on demonstrated belief calibration. Earned autonomy: well-calibrated AI gets looser gates. Regression auto-tightens. Safety floors prevent thresholds from going too low (know >= 0.55, uncertainty <= 0.50). |
+| **Dynamic thresholds** | CHECK gate thresholds that adapt based on demonstrated belief calibration. Good calibration keeps the thresholds at their baselines and the numbers are trusted; miscalibration (Brier reliability) raises them above baseline, up to a ceiling (know <= 0.90, uncertainty >= 0.15). They never go below baseline. |
 | **Drift** | Divergence between an agent's confidence and actual performance over time. Detected by comparing sequential assessments. |
 | **Bias correction** | A per-vector adjustment (positive or negative) derived from calibration data. Applied to raw self-assessments to improve accuracy. Stored in `.breadcrumbs.yaml`. |
 
@@ -291,27 +291,22 @@ The workflow framework. Enforces measurement discipline: PREFLIGHT → CHECK →
 
 ### 5.2 Sentinel
 
-The enforcement system. Gates praxic actions (Edit, Write, NotebookEdit) based on epistemic readiness.
+The enforcement system. Gates praxic actions (Edit, Write, and mutating Bash) based on epistemic readiness.
 
 **Readiness gate:** Dynamic thresholds from calibration history, with static fallback:
 - Static default: `know >= 0.70 AND uncertainty <= 0.35`
-- Dynamic: thresholds adjust based on demonstrated belief calibration per phase
-- Safety floors: `know >= 0.55 AND uncertainty <= 0.50` (never goes below these)
+- Dynamic: thresholds adjust based on demonstrated belief calibration per phase; miscalibration raises them above baseline
+- Safety ceilings: `know <= 0.90 AND uncertainty >= 0.15` (the worst miscalibration cannot make the gate impossible)
 - Requires minimum 5 calibrated transactions before dynamic thresholds activate
 
-**Earned autonomy progression:**
+**Calibration progression:**
 ```
-New AI:     Static defaults (tight gates, know >= 0.70)
-~5 txns:    Noetic belief calibration → loosen CHECK gate
-~10 txns:   Both tracks stable → full earned autonomy
-Regression: Calibration accuracy drops → gates auto-tighten
+New AI:     Static defaults (know >= 0.70, uncertainty <= 0.35)
+~5 txns:    Dynamic thresholds activate; good calibration keeps baselines
+Regression: Calibration accuracy drops → thresholds rise above baseline, up to the ceiling
 ```
 
-**Modes:**
-| Mode | Behavior |
-|------|----------|
-| `controller` | Actively blocks insufficient confidence (default) |
-| `observer` | Logs warnings but doesn't block |
+**Advisory CHECK:** there is no controller/observer mode switch. A CHECK that falls short of the threshold, or returns `investigate`, is an advisory allow that surfaces the gap; the Sentinel's blocks are structural (no PREFLIGHT, closed loop, rushed CHECK). A transaction can also be certified without a CHECK by grounded PREFLIGHT `claims`.
 
 **Anti-gaming:** Detects rushed assessments (CHECK < 30s after PREFLIGHT with no noetic artifacts).
 

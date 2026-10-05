@@ -28,7 +28,8 @@ from empirica.utils.session_resolver import InstanceResolver as R
 |--------|---------|-------------|
 | `R.instance_id()` | `str \| None` | Current instance ID (tmux, X11, macOS Terminal, TTY) |
 | `R.instance_suffix()` | `str` | Sanitized suffix for filenames (e.g. `_x11_77663748`) |
-| `R.project_path(csid)` | `str \| None` | Active project path (P0: instance_projects, P1: active_work) |
+| `R.project_path(csid)` | `str \| None` | Active project path (P-1: CWD when `EMPIRICA_CWD_RELIABLE`, P0: instance_projects, P1: active_work, P2: generic active_work.json) |
+| `R.ai_id(csid, project_path)` | `str \| None` | Canonical `ai_id`: the project's `ai_id` in `project.yaml`, else its directory name |
 | `R.session_id(csid)` | `str \| None` | Active Empirica session ID |
 | `R.resolve_session(sid, ai_id)` | `str` | Resolve partial ID / alias to full UUID |
 | `R.latest_session_id(ai_id, active_only)` | `str \| None` | Most recent session |
@@ -329,9 +330,11 @@ These are the **canonical functions** that all components should use.
 def get_active_project_path(claude_session_id: str = None) -> Optional[str]
 ```
 
-**Priority chain (no CWD fallback in mid-session):**
-1. `instance_projects/{instance_id}.json` — **AUTHORITATIVE** (updated by project-switch)
-2. `active_work_{claude_session_id}.json` — fallback (may be stale)
+**Priority chain (CWD only when the caller has verified it):**
+- **-1.** The current directory, only when `EMPIRICA_CWD_RELIABLE=true` and it holds `.empirica/project.yaml` (`session-init.py` sets this after its `chdir`)
+- **0.** `instance_projects/{instance_id}.json` — **AUTHORITATIVE** (updated by hooks and by project-switch)
+- **1.** `active_work_{claude_session_id}.json` — fallback (only hooks update it, so it may be stale)
+- **2.** `active_work.json` — generic fallback (written by project-switch and session-init)
 
 > **Startup exception (v1.8.14):** On `startup` events, `session-init.py` validates the resolved project against CWD's git root. If CWD is a valid Empirica project and differs from the stale instance file, CWD wins. On `resume`/`compact`/`clear`, instance files remain authoritative.
 

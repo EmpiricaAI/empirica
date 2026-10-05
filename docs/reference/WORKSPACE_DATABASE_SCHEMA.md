@@ -39,7 +39,7 @@ Primary table tracking all registered projects.
 | `last_transaction_timestamp` | REAL | NULL | Unix timestamp of last transaction |
 | `last_sync_timestamp` | REAL | NULL | When stats were last refreshed |
 | `status` | TEXT | `'active'` | `'active'`, `'dormant'`, `'archived'` |
-| `project_type` | TEXT | `'software'` | `'software'`, `'content'`, `'research'`, `'data'`, `'design'`, `'operations'`, `'strategic'`, `'engagement'`, `'legal'` |
+| `project_type` | TEXT | `'product'` | `'software'`, `'content'`, `'research'`, `'data'`, `'design'`, `'operations'`, `'strategic'`, `'engagement'`, `'legal'` |
 | `project_tags` | TEXT | NULL | JSON array of tags |
 | `created_timestamp` | REAL | (required) | Unix timestamp of creation |
 | `updated_timestamp` | REAL | (required) | Unix timestamp of last update |
@@ -75,55 +75,103 @@ The `metadata` column stores v2.0 project.yaml enrichment fields as JSON, synced
 
 ---
 
-### `trajectory_patterns`
+### `instance_bindings`
 
-Cross-project learning patterns (mistakes, successes, dead-ends).
+Which project each instance is bound to.
 
 | Column | Type | Default | Description |
 |--------|------|---------|-------------|
-| `id` | TEXT | (required) | Pattern UUID |
-| `pattern_type` | TEXT | (required) | `'learning'`, `'mistake'`, `'dead_end'`, `'success'` |
-| `pattern_description` | TEXT | (required) | Human-readable description |
-| `source_project_ids` | TEXT | (required) | JSON array of project UUIDs |
-| `occurrence_count` | INTEGER | `1` | How many times observed |
-| `avg_impact` | REAL | NULL | Average impact across occurrences |
-| `confidence` | REAL | NULL | Pattern reliability score (0-1) |
-| `domain` | TEXT | NULL | `'caching'`, `'auth'`, `'performance'`, etc. |
-| `tech_stack` | TEXT | NULL | JSON array: `['Python', 'Redis']` |
-| `first_observed` | REAL | (required) | Unix timestamp |
-| `last_observed` | REAL | (required) | Unix timestamp |
-| `pattern_data` | TEXT | (required) | Full pattern details as JSON |
-
-**Indexes:**
-- `idx_trajectory_patterns_type` — Filter by pattern type
-- `idx_trajectory_patterns_domain` — Filter by domain
+| `instance_id` | TEXT | (required) | Instance identifier (primary key) |
+| `project_id` | TEXT | (required) | Bound project UUID (foreign key to `global_projects(id)`) |
+| `project_path` | TEXT | NULL | Project path at bind time |
+| `bound_timestamp` | REAL | (required) | Unix timestamp of the binding |
 
 ---
 
-### `trajectory_links`
+### `global_sessions`
 
-Cross-project artifact connections.
+Sessions across projects, with the project each started in and the one it is in now.
 
 | Column | Type | Default | Description |
 |--------|------|---------|-------------|
-| `id` | TEXT | (required) | Link UUID |
-| `source_project_id` | TEXT | (required) | Origin project UUID |
-| `target_project_id` | TEXT | (required) | Destination project UUID |
-| `link_type` | TEXT | (required) | `'shared_learning'`, `'dependency'`, `'related'`, `'derived'` |
-| `artifact_type` | TEXT | NULL | `'finding'`, `'unknown'`, `'dead_end'`, `'pattern'` |
-| `artifact_id` | TEXT | NULL | UUID of linked artifact |
-| `relevance` | REAL | `1.0` | Link relevance score (0-1) |
-| `notes` | TEXT | NULL | Human-readable notes |
-| `created_timestamp` | REAL | (required) | Unix timestamp |
-| `created_by_ai_id` | TEXT | NULL | AI that created the link |
+| `session_id` | TEXT | (required) | Session UUID (primary key) |
+| `ai_id` | TEXT | NULL | AI identifier |
+| `origin_project_id` | TEXT | NULL | Project the session started in |
+| `current_project_id` | TEXT | NULL | Project the session is in now |
+| `instance_id` | TEXT | NULL | Owning instance |
+| `status` | TEXT | `'active'` | Session status |
+| `parent_session_id` | TEXT | NULL | Parent session (subagents) |
+| `created_at` | REAL | NULL | Unix timestamp |
+| `last_activity` | REAL | NULL | Unix timestamp |
 
-**Indexes:**
-- `idx_trajectory_links_source` — Query by source project
-- `idx_trajectory_links_target` — Query by target project
+**Indexes:** `idx_global_sessions_instance` on `(instance_id, status)`, `idx_global_sessions_project` on `current_project_id`.
 
-**Constraints:**
-- Foreign keys to `global_projects(id)`
-- Unique on `(source_project_id, target_project_id, artifact_type, artifact_id)`
+---
+
+### `entity_artifacts`
+
+Pointers from a practice's artifacts to entities (project, contact, organization, engagement).
+
+| Column | Type | Default | Description |
+|--------|------|---------|-------------|
+| `id` | TEXT | (required) | Link UUID (primary key) |
+| `artifact_type` | TEXT | (required) | Artifact kind (`finding`, `unknown`, ...) |
+| `artifact_id` | TEXT | (required) | Artifact UUID |
+| `artifact_source` | TEXT | NULL | Where the artifact lives |
+| `entity_type` | TEXT | (required) | Entity kind |
+| `entity_id` | TEXT | (required) | Entity id |
+| `relationship` | TEXT | `'about'` | Relationship of the artifact to the entity |
+| `relevance` | REAL | `1.0` | Relevance score (0-1) |
+| `discovered_via` | TEXT | NULL | How the link was found |
+| `engagement_id` | TEXT | NULL | Engagement the link belongs to |
+| `transaction_id` | TEXT | NULL | Transaction that created it |
+| `created_at` | REAL | NULL | Unix timestamp |
+| `created_by_ai` | TEXT | NULL | AI that created the link |
+
+**Constraints:** unique on `(artifact_type, artifact_id, entity_type, entity_id)`.
+
+---
+
+### `entity_registry`
+
+The global directory of first-class entities (project, contact, organization, engagement, user). Backs `entity-list`, `entity-show`, `entity-walk` and `entity-search`.
+
+| Column | Type | Default | Description |
+|--------|------|---------|-------------|
+| `entity_type` | TEXT | (required) | Entity kind (primary key, with `entity_id`) |
+| `entity_id` | TEXT | (required) | Entity id |
+| `display_name` | TEXT | (required) | Human-readable name |
+| `description` | TEXT | NULL | Description |
+| `source_db` | TEXT | (required) | Database the entity comes from |
+| `source_table` | TEXT | (required) | Table the entity comes from |
+| `emoji_state` | TEXT | NULL | Display state |
+| `status` | TEXT | `'active'` | Status |
+| `created_at` | REAL | (required) | Unix timestamp |
+| `updated_at` | REAL | NULL | Unix timestamp |
+| `metadata` | TEXT | NULL | JSON |
+
+Organization, contact and engagement rows here are no longer authoritative: the CRM store (`crm-mcp`) is the source of truth for them. Projects, practitioners and sharing agreements still live here.
+
+---
+
+### `entity_memberships`
+
+Many-to-many typed relationships between entities.
+
+| Column | Type | Default | Description |
+|--------|------|---------|-------------|
+| `entity_type` | TEXT | (required) | Member kind (primary key with the next three) |
+| `entity_id` | TEXT | (required) | Member id |
+| `group_type` | TEXT | (required) | Group kind |
+| `group_id` | TEXT | (required) | Group id |
+| `role` | TEXT | NULL | Role within the group |
+| `joined_at` | REAL | (required) | Unix timestamp |
+| `left_at` | REAL | NULL | Unix timestamp when the membership ended |
+| `created_at` | REAL | (required) | Unix timestamp |
+| `notes` | TEXT | NULL | Notes |
+| `is_primary` | INTEGER | NULL | Marks the canonical membership when several are active for one group type |
+
+The database also holds the engagement substrate tables (`engagements`, `domain_definitions`, `stage_definitions`, `practice_domains`). The `trajectory_patterns` table is part of the per-project schema, not this database, and there is no `trajectory_links` table.
 
 ---
 
@@ -160,17 +208,10 @@ FROM global_projects
 WHERE total_dead_ends > 5
 ORDER BY total_dead_ends DESC;
 
--- Get cross-project patterns in a domain
-SELECT pattern_description, occurrence_count, confidence
-FROM trajectory_patterns
-WHERE domain = 'authentication'
-ORDER BY confidence DESC;
-
--- Find linked projects
-SELECT gp.name, tl.link_type, tl.relevance
-FROM trajectory_links tl
-JOIN global_projects gp ON tl.target_project_id = gp.id
-WHERE tl.source_project_id = '<your-project-id>';
+-- Which project is each instance bound to
+SELECT ib.instance_id, gp.name, ib.project_path
+FROM instance_bindings ib
+JOIN global_projects gp ON ib.project_id = gp.id;
 ```
 
 ---

@@ -26,7 +26,7 @@ Tool Call Arrives
 │
 │  ── Everything below is PRAXIC ──
 │
-├─ Rule 3a: No active_session file for instance? ──────── → ALLOW (subagent exemption)
+├─ Rule 3a: subagent (active_work is_subagent flag, else no matching active_session)? → ALLOW (subagent exemption)
 ├─ Empirica paused (sentinel_paused file)? ────────── → ALLOW (off-record)
 ├─ Sentinel disabled (file flag or env var)? ──────── → ALLOW (disabled)
 │
@@ -43,21 +43,23 @@ Tool Call Arrives
 │
 │  ── Readiness evaluation ──
 │
-├─ Anti-gaming: Previous INVESTIGATE + no findings? ── → DENY (show evidence)
+├─ Previous transaction INVESTIGATE + no findings? ── → ASK (praxic only; noetic passes)
 ├─ AUTO-PROCEED: know ≥ threshold, unc ≤ threshold? ─ → ALLOW
-├─ No CHECK found? ────────────────────────────────── → DENY (need CHECK)
+├─ No CHECK found?
+│   ├─ Grounded PREFLIGHT claims (`read`, or `ran` with scope + count)? → ALLOW (certified at open)
+│   └─ Otherwise ──────────────────────────────────── → DENY (need CHECK or claims)
 ├─ CHECK before PREFLIGHT? ────────────────────────── → DENY (stale CHECK)
-├─ Rushed (<30s) + no findings/unknowns? ──────────── → DENY (rushed)
-├─ CHECK decision = "investigate"? ────────────────── → DENY (investigate)
+├─ Rushed (<30s) + no findings/unknowns? ──────────── → DENY (rushed; work_type remote-ops exempt)
+├─ CHECK decision = "investigate"? ────────────────── → ALLOW (advisory; a check-submit with <3 noetic calls since is DENIED)
 ├─ Optional: CHECK expired (>30min)? ──────────────── → DENY (expired)
 ├─ Optional: Compact after CHECK? ─────────────────── → DENY (compacted)
 ├─ CHECK vectors pass readiness gate? ─────────────── → ALLOW
-└─ Otherwise ──────────────────────────────────────── → DENY (insufficient)
+└─ Otherwise ──────────────────────────────────────── → ALLOW (advisory: shortfall surfaced, not blocked)
 ```
 
 ### Fail-Open Design
 
-If the Sentinel crashes (import error, DB lock, unexpected exception), the tool call is **allowed** with a warning. Work must never be blocked by measurement failure (Constitution Principle VIII).
+If the Sentinel crashes (import error, DB lock, unexpected exception), the tool call is **allowed** with a warning. Work must never be blocked by measurement failure (Constitution Principle VIII). Set `EMPIRICA_SENTINEL_FAIL_CLOSED=1` to flip that: a crash then denies, for hardened deployments.
 
 ---
 
@@ -136,19 +138,22 @@ Read-only shell operations classified by prefix matching:
 
 | Category | Prefixes |
 |----------|----------|
-| **File inspection** | `cat`, `head`, `tail`, `less`, `more`, `ls`, `dir`, `tree`, `file`, `stat`, `wc`, `find`, `locate`, `which`, `type`, `whereis` |
-| **Text search** | `grep`, `rg`, `ag`, `ack`, `sed -n`, `awk`, `jq`, `jq.` |
-| **Git read** | `git status`, `git log`, `git diff`, `git show`, `git branch`, `git remote`, `git tag`, `git stash list`, `git blame`, `git ls-files`, `git ls-tree`, `git cat-file`, `git notes show`, `git notes list` |
-| **GitHub CLI read** | `gh issue list/view/status`, `gh pr list/view/diff/status/checks`, `gh repo view`, `gh release list/view`, `gh search`, `gh api` |
+| **File inspection** | `cat`, `head`, `tail`, `less`, `more`, `ls`, `dir`, `tree`, `file`, `stat`, `wc`, `find`, `fd`, `fdfind`, `locate`, `which`, `type`, `whereis`, `diff`, `cmp`, `comm`, `bat`, `tokei`, `scc` |
+| **Path and hash** | `readlink`, `realpath`, `sha256sum`, `sha1sum`, `sha512sum`, `md5sum`, `b2sum`, `cksum`, `shasum` |
+| **Text search and processing** | `grep`, `rg`, `ag`, `ack`, `ast-grep`, `sed` (stdout only; `-i` is caught by the flag inspection), `awk`, `jq`, `yq`, `gron`, `cut`, `tr`, `nl`, `fold`, `tac`, `rev`, `paste`, `column`, `sort`, `uniq`, `xxd`, `od`, `strings` |
+| **Git read** | `git status`, `git log`, `git diff`, `git show`, `git branch`, `git remote`, `git tag`, `git stash list`, `git blame`, `git ls-files`, `git ls-tree`, `git cat-file`, `git notes show`, `git notes list`, `git rev-parse`, `git rev-list`, `git merge-base`, `git for-each-ref`, `git describe`, `git shortlog`, `git grep`, `git config --get/--list` |
+| **GitHub CLI read** | `gh issue list/view/status`, `gh pr list/view/diff/status/checks`, `gh repo view`, `gh release list/view`, `gh run list/view/watch`, `gh workflow list/view`, `gh search`, `gh api` |
 | **Environment** | `pwd`, `echo`, `printf`, `env`, `printenv`, `set`, `whoami`, `id`, `hostname`, `uname`, `date`, `cal` |
 | **Package inspection** | `pip show/list/freeze/index`, `npm list/ls/view/info`, `cargo tree/metadata` |
 | **Process inspection** | `ps`, `top -b -n 1`, `pgrep`, `jobs` |
 | **Tmux inspection** | `tmux capture-pane/list-panes/list-windows/list-sessions/display-message/show-option` |
 | **Disk inspection** | `df`, `du`, `mount`, `lsblk` |
-| **Network inspection** | `curl`, `wget -O-`, `ping -c`, `dig`, `nslookup`, `host` |
+| **Network inspection** | `curl`, `wget -O-`, `ping -c`, `dig`, `nslookup`, `host`, `tailscale status/netcheck/ip/version/whois`, `ssh` |
 | **Documentation** | `man`, `info`, `help` |
 | **Testing** | `test`, `[` |
-| **Static analysis** | `pyright`, `ruff check`, `radon`, `mypy`, `flake8`, `pylint` |
+| **Static analysis** | `pyright`, `ruff check`, `radon`, `mypy`, `flake8`, `pylint`, `vulture`, `pip-audit`, `nvidia-smi` |
+
+The table lists the main groups; the authoritative list is `SAFE_BASH_PREFIXES` in `sentinel-gate.py`.
 
 ### Dangerous Shell Operators (Blocked)
 
@@ -156,7 +161,7 @@ Read-only shell operations classified by prefix matching:
 DANGEROUS_SHELL_OPERATORS = (';', '&&', '||', '`', '$(')
 ```
 
-**Exception:** `&&` and `||` chains are allowed if **all segments** are individually safe (e.g., `cd /path && grep pattern file`).
+**Exception:** `;`, `&&` and `||` chains, newline-separated statements and `for`/`while` loops are allowed if **all segments** are individually safe (e.g., `cd /path && grep pattern file`, `ls; pwd`). A chain with any praxic segment (`ls; rm x`) is praxic. Backticks and `$(` substitutions are not allowed.
 
 ### Safe Pipe Targets
 
@@ -164,7 +169,7 @@ When a pipe chain is detected, subsequent segments must start with a safe target
 
 ```python
 SAFE_PIPE_TARGETS = (
-    'head', 'tail', 'wc', 'sort', 'uniq', 'grep', 'rg', 'awk', 'sed -n',
+    'head', 'tail', 'wc', 'sort', 'uniq', 'grep', 'rg', 'awk', 'sed ',
     'cut', 'tr', 'less', 'more', 'cat', 'xargs echo', 'tee /dev/stderr',
     'python3 -c', 'python -c',  # For simple JSON parsing
     'jq', 'jq ',                # JSON processing (read-only)
@@ -216,22 +221,24 @@ Empirica commands use a two-tier system instead of a blanket whitelist (prevents
 - Lesson queries: `lesson-list`, `lesson-search`, `lesson-recommend`, `lesson-stats`
 - Sentinel queries: `sentinel-status`, `sentinel-check`
 - Profile: `profile-status`
-- Other: `monitor`, `efficiency-report`, `docs-assess`, `issue-list`
+- Other: `efficiency-report`, `docs-assess`, `issue-list`
 - Mesh and credential state: `mailbox poll`, `mailbox show`, `mailbox sers`, `mesh status`, `mesh diagnose`, `mesh tail`, `mesh-agreements list`, `practice-context`, `auth status`, and the `listener` and `loop` registry verbs
 - Diagnostics: `doctor`, `diagnose`, `status`, `commit-context`, `query`
+- **Tier 1b — read by naming convention:** any verb ending in `-list`, `-show`, `-search`, `-status`, `-stats`, `-report`, `-map`, `-walk`, `-diff`, `-history`, `-explain`, `-context`, `-top`, `-related`, `-get`, `-verify` or `-signatures` is read-only (`is_read_shaped_empirica_verb`). `-check` is deliberately not on the list: `sources-check` writes review stamps.
 - Any `<group> <action>` verb is listed by name, never by suffix. `empirica-workspace` reads are an exact (group, action) table (`org|contact|engagement list|show`, `touchpoint list`, `revenue-event list`, `entity knowledge|recall`, `engagement materials`, `crm-sync preview`); every write beside them stays gated.
 
 **Deliberately not Tier 1:** `auth token` (it can refresh and rewrite stored credentials) and `auth connectors` (it rewrites `~/.claude.json` with `--apply`; argparse accepts abbreviated flags, so "gated unless `--apply` is absent" would not hold). `mailbox poll`, `show` and `sers` resolve their bearer through the shared credential path, which refreshes the seat's expiring OAuth token like any cortex call.
 
 **Tier 2 — State-changing (allowed because they ARE the epistemic workflow):**
 - Transaction: `preflight-submit`, `check-submit`, `postflight-submit`
-- Breadcrumbs: `finding-log`, `unknown-log`, `deadend-log`, `mistake-log`, `assumption-log`, `decision-log`, `source-add`, `refdoc-add`
+- Breadcrumbs: `finding-log`, `unknown-log`, `deadend-log`, `mistake-log`, `assumption-log`, `decision-log`, `source-add`, `note`
 - Goals: `goals-create`, `goals-complete`, `goals-add-task`, `goals-complete-task`, `goals-add-dependency`, `goals-resume`, `goals-claim`, `goals-mark-stale`, `goals-refresh`
 - Session: `session-create`
 - Project: `project-init`, `project-embed`
 - Lessons: `lesson-create`, `lesson-load`, `lesson-embed`
 - Profile: `profile-sync`, `profile-prune`
-- Other: `unknown-resolve`, `investigate`, `artifacts-generate`, `sentinel-orchestrate`, `sentinel-load-profile`
+- Batch artifacts: `log-artifacts`, `resolve-artifacts`, `delete-artifacts`; mailbox: `mailbox reply`, `mailbox archive`
+- Other: `unknown-resolve`, `finding-resolve`, `investigate`, `artifacts-generate`, `sentinel-orchestrate`, `sentinel-load-profile`
 
 ### The harness `monitor` tool
 
@@ -277,7 +284,9 @@ Configurable via `EMPIRICA_MIN_NOETIC_DURATION` env var (default: 30 seconds).
 
 ### INVESTIGATE Continuity
 
-If the previous transaction's CHECK returned `investigate` and the AI opens a new transaction without logging any findings, the Sentinel blocks. This prevents gaming by creating a fresh transaction with high confidence to bypass the investigate decision.
+If the previous transaction's CHECK returned `investigate` and the AI opens a new transaction without logging any findings, the Sentinel returns `ask` for praxic tools (noetic tools and safe Bash pass). This surfaces gaming by creating a fresh transaction with high confidence to bypass the investigate decision, and the user can override.
+
+Within a transaction whose CHECK returned `investigate`, the gate stays advisory for praxic work; only a `check-submit` before three noetic calls have passed since the `investigate` is denied.
 
 ### Raw Vectors Only
 
@@ -289,7 +298,7 @@ The Sentinel evaluates **raw (uncorrected) vectors** from PREFLIGHT/CHECK. Calib
 
 ### Tool Count Tracking
 
-Every `PreToolUse` event increments `tool_call_count` in the **hook counters file** (`hook_counters_{suffix}.json`), separate from the transaction lifecycle file. Counts are split:
+Every `PreToolUse` event the hook receives (it is registered for `Edit|Write` and `Bash`) increments `tool_call_count` in the **hook counters file** (`hook_counters_{suffix}.json`), separate from the transaction lifecycle file. Counts are split:
 - `noetic_tool_calls`: Tools classified as noetic (NOETIC_TOOLS, safe Bash, plan files)
 - `praxic_tool_calls`: Everything else
 
@@ -307,7 +316,7 @@ Based on `avg_turns` (rolling average from last 20 POSTFLIGHTs):
 | >= 1.5x | Warning | "Consider POSTFLIGHT soon." |
 | >= 2.0x | Strong | "POSTFLIGHT strongly recommended." |
 
-Nudges appear in `permissionDecisionReason` on allowed tool calls. They are informational — the AI decides when to POSTFLIGHT.
+Nudges ride `additionalContext` on allowed tool calls (Claude Code discards `permissionDecisionReason` on allow). They are informational — the AI decides when to POSTFLIGHT.
 
 ### Pre-Transaction Monitoring
 
@@ -319,7 +328,7 @@ When no transaction is open, the Sentinel counts tool calls in a separate counte
 
 ## Subagent Exemption
 
-Subagents (spawned via `Task` tool) bypass the Sentinel gate. Detection: if no `active_session_{instance_suffix}` file exists for the instance, it's a subagent (subagents never call `session-create`).
+Subagents (spawned via `Task` tool) bypass the Sentinel gate. Detection: `active_work_{claude_session_id}.json` with `is_subagent: true` (written by the SubagentStart hook) is a subagent. Only when that file is missing does it fall back to absence detection: a linked git worktree, or an `active_session_{instance_suffix}` whose session belongs to another `active_work` file.
 
 Rationale: The parent's CHECK already authorized the spawn. Double-gating is redundant (see Transaction Exemption in CANONICAL_CORE.md).
 
@@ -336,7 +345,7 @@ Subagent tool calls are counted separately and added to the parent's `delegated_
 | `~/.empirica/sentinel_paused_{instance_id}` | Per-instance | Checked first |
 | `~/.empirica/sentinel_paused` | Global (all instances) | Fallback |
 
-Instance ID: `tmux_{pane_number}` for tmux users, `{tty}` for non-tmux, or None.
+Instance ID: see Instance Isolation below.
 
 ### Toggle Detection
 
@@ -360,14 +369,17 @@ The file wins, and it wins in both directions: the env var is consulted only whe
 Multi-Claude support via instance-specific files:
 
 ```
-~/.empirica/active_transaction_{instance_id}.json  # Per-instance transaction
+<project>/.empirica/active_transaction_{instance_id}.json  # Per-instance transaction
 ~/.empirica/sentinel_paused_{instance_id}          # Per-instance pause
 ~/.empirica/pre_tx_calls_{instance_id}.json        # Per-instance pre-tx counter
 ```
 
 Instance ID resolution priority:
-1. `TMUX_PANE` environment variable (available in hooks)
-2. `tty` command output (fallback for non-tmux)
+1. `EMPIRICA_INSTANCE_ID` or `CLAUDE_INSTANCE_ID` environment variable (explicit override)
+2. `TMUX_PANE`
+3. `TERM_SESSION_ID` (macOS Terminal.app)
+4. `WINDOWID` (X11)
+5. TTY device
 
 ---
 
@@ -377,9 +389,8 @@ Instance ID resolution priority:
 resolve_project_root(claude_session_id)
 │
 ├─ get_active_project_path(claude_session_id)  [from project_resolver.py]
-│   ├─ Priority 0: active_work_{session_id}.json → project_path
-│   ├─ Priority 1: active_transaction_{instance}.json → infer from path
-│   └─ Priority 2: instance_projects mapping
+│   ├─ Priority 1: instance_projects/{instance_id}.json → project_path (authoritative)
+│   └─ Priority 2: active_work_{session_id}.json → project_path (may be stale after project-switch)
 │
 ├─ Check .empirica/ exists under resolved path
 │
@@ -394,7 +405,7 @@ resolve_project_root(claude_session_id)
 | Variable | Default | Effect |
 |----------|---------|--------|
 | `EMPIRICA_SENTINEL_LOOPING` | `true` | `false` disables Sentinel entirely |
-| `EMPIRICA_SENTINEL_MODE` | `auto` | `observer` = log only, `controller`/`auto` = actively block |
+| `EMPIRICA_SENTINEL_FAIL_CLOSED` | off | `1`/`true`/`yes`: a Sentinel crash denies instead of allowing |
 | `EMPIRICA_SENTINEL_REQUIRE_BOOTSTRAP` | `false` | Require `project-bootstrap` before praxic actions |
 | `EMPIRICA_SENTINEL_COMPACT_INVALIDATION` | `false` | Invalidate CHECK after context compaction |
 | `EMPIRICA_SENTINEL_CHECK_EXPIRY` | `false` | Enable 30-minute CHECK expiry |
@@ -419,7 +430,7 @@ The Sentinel outputs JSON to stdout in Claude Code's expected hook format:
 ```
 
 - **Allow without nudge:** Output suppressed (no user-visible noise)
-- **Allow with nudge:** Output shown (autonomy/remote-ops nudge visible to AI)
+- **Allow with nudge:** Output shown (the nudge reaches the AI through `additionalContext`)
 - **Ask:** Prompts user for approval (borderline cases — findings logged but no CHECK, or INVESTIGATE with zero evidence). User can override.
 - **Deny:** Output shown with reason (structural blocks — closed loop, no bootstrap)
 
@@ -429,7 +440,8 @@ The Sentinel outputs JSON to stdout in Claude Code's expected hook format:
 |-------|---------|-------|
 | Autonomy | Transaction tool count past avg | Per tool call (threshold-based) |
 | Goalless work | Tool calls without linked goal | Once per threshold |
-| Re-read | Same file read multiple times | Once per file |
+| Work type | PREFLIGHT omitted `work_type` | Once per transaction |
+| File relevance | Edit/Write target is mentioned by existing artifacts | Per Edit/Write |
 | **Remote-ops** | SSH/rsync/scp detected, work_type not remote-ops | Once per transaction |
 
 ---

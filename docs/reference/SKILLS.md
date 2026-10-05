@@ -8,9 +8,10 @@ Until this document existed you discovered them by finding a `/slash-command`
 in a prompt, or not at all — and the README did not mention skills exist.
 
 > **Load-bearing vs situational.** One skill carries most graph upkeep and the
-> rest fire on specific triggers. The deep protocol skills (transactions,
-> constitution, mesh mailbox) ship with the Cortex bundle, not this plugin —
-> the system prompt's §TRANSACTION DISCIPLINE carries the always-loaded core.
+> rest fire on specific triggers. The deep protocol skills for
+> transactions and the constitution ship in this plugin; only the mesh mailbox
+> skills ship with the Cortex bundle. The system prompt's §TRANSACTION DISCIPLINE
+> carries the always-loaded core.
 
 ---
 
@@ -29,7 +30,7 @@ Core discipline — shipped in this plugin, not Cortex-gated.
 | Skill | Fires when | Why it is load-bearing |
 |---|---|---|
 | **`/empirica-constitution`** | First PREFLIGHT of a session; routing a decision you have not met before; the user asks what Empirica can do | Deep governance — phase-aware completion, the cognitive immune system, the practice model. The *why* underneath the operational routing |
-| **`/epistemic-transaction`** | Work spans 3+ files, 2+ goals, or several noetic→praxic cycles | The transaction discipline itself — PREFLIGHT vectors, goal decomposition, task evidence, wire formats for every submission. Largest skill in the set at ~5,800 words, and the depth is the point |
+| **`/epistemic-transaction`** | Work spans 3+ files, 2+ goals, or several noetic→praxic cycles | The transaction discipline itself — PREFLIGHT vectors, goal decomposition, task evidence, wire formats for every submission. About 2,300 words, and the depth is the point |
 | **`/pre-action-grounding`** | A task arrives without its *why* or a checkable done-condition — especially unstructured requests from non-devs | Investigate first, ask last (0–2 questions), bank the ungrounded residue as assumptions, and emit a goal whose criteria are typed where an evaluator reaches and honestly prose where none can. Exists because 79% of goals said "done when done" |
 
 ---

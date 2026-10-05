@@ -119,6 +119,7 @@ version: '2.0'
 
 # Identity
 name: "Empirica Epistemic Framework"
+ai_id: empirica          # the practice's ai_id (the project directory name by default)
 description: "Metacognitive framework for AI agents"
 project_id: 748a81a2-...
 type: software            # software|content|research|data|design|operations|strategic|engagement|legal
@@ -127,7 +128,7 @@ classification: open      # open|internal|restricted
 status: active            # active|dormant|archived
 
 # Evidence & Language
-evidence_profile: code    # code|prose|hybrid|auto
+evidence_profile: code    # code|prose|web|hybrid|auto
 languages: [python]       # auto-detected from build files
 tags: [ai, measurement, epistemic]
 
@@ -182,9 +183,12 @@ domain_config: {}
 | `domain` | Free-form hierarchical | `''` | Domain path (e.g., `ai/measurement`, `bio/genomics`) |
 | `classification` | open, internal, restricted | `internal` | Access classification |
 | `status` | active, dormant, archived | `active` | Project lifecycle status |
-| `evidence_profile` | code, prose, hybrid, auto | `auto` | Controls which evidence collectors run |
+| `evidence_profile` | code, prose, web, hybrid, auto | `auto` | Controls which evidence collectors run |
 | `languages` | List of strings | Auto-detected | Programming languages (detected from pyproject.toml, package.json, go.mod, etc.) |
 | `tags` | List of strings | `[]` | Freeform tags for filtering |
+| `ai_id` | String | project directory name | The practice's `ai_id`, the canonical identifier sessions and mesh addressing follow |
+
+Tooling also writes keys the loader does not interpret: `org_id`, `tenant_slug`, `mesh_id_prefix` and `canonical_seat` (tenant resolution during `setup-claude-code`), `substrate`, `publish_channels` (release-chain checks), `cockpit` (listeners), `calibration_weights` and `calibration_exclusions`. `empirica project-update` merges its changes over the existing file, so these keys are kept.
 
 ### Participants & Relationships
 
@@ -329,11 +333,7 @@ mcp:
   include_health_in_list: true
 ```
 
-**Environment Override:**
-```bash
-EMPIRICA_MODALITY_STRATEGY=cost empirica ...
-MINIMAX_API_KEY=xxx empirica ...
-```
+**API key:** `api_key_env` names the environment variable holding the adapter's key (`MINIMAX_API_KEY` above). No code reads `modality_config.yaml` today.
 
 ---
 
@@ -366,300 +366,6 @@ universal_constraints:
 
 #### Profiles
 
-**High Reasoning Collaborative:**
-```yaml
-high_reasoning_collaborative:
-  description: "For advanced reasoning models (Claude, GPT-4, o1)"
-  
-  investigation:
-    max_rounds: null                      # No limit
-    confidence_threshold: "dynamic"       # AI decides
-    confidence_threshold_fallback: 0.60
-    tool_suggestion_mode: "light"         # Suggest, don't prescribe
-    allow_novel_approaches: true
-  
-  action_thresholds:
-    uncertainty_high: 0.75
-    clarity_low: 0.40
-    foundation_low: 0.40
-    confidence_proceed_min: 0.60
-```
-
-**Standard Reasoning:**
-```yaml
-standard_reasoning:
-  description: "For good reasoning models with some constraints"
-  
-  investigation:
-    max_rounds: 5
-    confidence_threshold: 0.70
-    tool_suggestion_mode: "moderate"
-    allow_novel_approaches: true
-```
-
-**Basic Instruction Following:**
-```yaml
-basic_instruction_following:
-  description: "For simple models, needs guidance"
-  
-  investigation:
-    max_rounds: 3
-    confidence_threshold: 0.80
-    tool_suggestion_mode: "prescriptive"
-    allow_novel_approaches: false
-```
-
-**Domain-Specific Profiles:**
-- `security_critical`: High standards, strict constraints
-- `exploratory_research`: Maximum freedom, minimal constraints
-- `production_deployment`: Balanced constraints, audit focus
-
-#### Profile Selection
-
-**Automatic:**
-```python
-# Based on AI registry
-profile = profile_loader.select_profile(ai_id="claude-opus")
-```
-
-**Explicit:**
-```bash
-empirica preflight --profile high_reasoning_collaborative ...
-```
-
-**Environment:**
-```bash
-EMPIRICA_INVESTIGATION_PROFILE=security_critical empirica ...
-```
-
----
-
-## Configuration Loaders
-
-**Location:** `empirica/config/*.py`
-
-Python modules that load and validate configuration.
-
-### 1. Path Resolver (`path_resolver.py`)
-
-**Size:** 290 lines
-
-**Purpose:** Resolve configuration file paths and create default configs
-
-**Key Functions:**
-```python
-from empirica.config import path_resolver
-
-# Get config directory
-config_dir = path_resolver.get_config_dir()  # ~/.empirica
-
-# Get specific config file
-config_path = path_resolver.get_config_path("config.yaml")
-
-# Get project config
-project_config = path_resolver.get_project_config_path(project_id="myproject")
-
-# Ensure config exists (creates if missing)
-path_resolver.ensure_config_exists()
-```
-
-**Creates defaults:**
-- `~/.empirica/config.yaml`
-- `~/.empirica/sessions/`
-- `~/.empirica/identity/`
-
----
-
-### 2. Project Config Loader (`project_config_loader.py`)
-
-**Size:** 121 lines
-
-**Purpose:** Load and parse `project.yaml`
-
-**Key Functions:**
-```python
-from empirica.config.project_config_loader import ProjectConfigLoader
-
-loader = ProjectConfigLoader()
-
-# Load project config
-config = loader.load_project_config(project_id="empirica")
-
-# Get subject by name
-subject = loader.get_subject("core")
-
-# Auto-detect subject from cwd
-current_subject = loader.detect_current_subject()
-
-# Get paths for subject
-paths = loader.get_subject_paths("core")
-```
-
-**Returns:**
-```python
-{
-    "project_id": "empirica",
-    "name": "Empirica Epistemic Framework",
-    "subjects": {
-        "core": {
-            "name": "Core Framework",
-            "paths": ["empirica/core/", "empirica/data/"]
-        }
-    }
-}
-```
-
----
-
-### 3. Profile Loader (`profile_loader.py`)
-
-**Size:** 405 lines
-
-**Purpose:** Load and apply investigation profiles
-
-**Key Functions:**
-```python
-from empirica.config.profile_loader import ProfileLoader
-
-loader = ProfileLoader()
-
-# Load all profiles
-profiles = loader.load_profiles()
-
-# Get specific profile
-profile = loader.get_profile("high_reasoning_collaborative")
-
-# Select profile for AI
-profile = loader.select_profile_for_ai(ai_id="claude-opus")
-
-# Get universal constraints
-universal = loader.get_universal_constraints()
-
-# Check if action allowed
-allowed = loader.is_action_allowed(
-    profile=profile,
-    action="INVESTIGATE",
-    epistemic_state={"uncertainty": 0.8}
-)
-```
-
----
-
-### 4. Threshold Loader (`threshold_loader.py`)
-
-**Size:** 426 lines
-
-**Purpose:** Load epistemic thresholds and apply profile constraints
-
-**Key Functions:**
-```python
-from empirica.config.threshold_loader import ThresholdLoader
-
-loader = ThresholdLoader()
-
-# Get thresholds for profile
-thresholds = loader.get_thresholds(profile="high_reasoning_collaborative")
-
-# Check if investigation needed
-needs_investigation = loader.check_investigation_needed(
-    epistemic_state={"uncertainty": 0.75, "know": 0.5}
-)
-
-# Get action recommendation
-action = loader.recommend_action(epistemic_state)
-```
-
----
-
-### 5. Modality Config Loader (`modality_config_loader.py`)
-
-**Size:** (Implied by modality_config.yaml usage)
-
-**Purpose:** Load modality switching configuration
-
----
-
-### 6. Credentials Loader (`credentials_loader.py`)
-
-**Size:** 325 lines
-
-**Purpose:** Load API credentials securely
-
-**Key Functions:**
-```python
-from empirica.config.credentials_loader import CredentialsLoader
-
-loader = CredentialsLoader()
-
-# Get API key from env
-api_key = loader.get_credential("MINIMAX_API_KEY")
-
-# Check if credential exists
-has_key = loader.has_credential("MINIMAX_API_KEY")
-```
-
----
-
-### 7. Goal Scope Loader (`goal_scope_loader.py`)
-
-**Size:** 387 lines
-
-**Purpose:** Load and apply goal scope constraints
-
----
-
-### 8. Memory Gap Policy Loader (`memory_gap_policy_loader.py`)
-
-**Size:** 335 lines
-
-**Purpose:** Load policies for handling memory gaps
-
----
-
-## Configuration Loading Order
-
-**Startup sequence:**
-
-1. **Path Resolution** (`path_resolver.py`)
-   - Find `.empirica` directory
-   - Create if missing
-   - Load `config.yaml`
-
-2. **System Config** (`config.yaml`)
-   - Load runtime settings
-   - Apply environment overrides
-
-3. **Project Config** (`project.yaml`)
-   - Load if project context detected
-   - Auto-detect current subject
-
-4. **Module Configs** (`.yaml` files)
-   - Load on-demand when feature used
-   - Cache in memory
-
-5. **Environment Variables**
-   - Override any config value
-   - Highest priority
-
----
-
-## Environment Variables
-
-**Override priority:** ENV > config.yaml > defaults
-
-### System
-
-- `EMPIRICA_DATA_DIR`: Override `.empirica` location
-- `EMPIRICA_SESSION_DB`: Override session database
-- `EMPIRICA_LOG_LEVEL`: Override log level (`debug`, `info`, `warning`, `error`)
-- `EMPIRICA_WORKSPACE_ROOT`: Set workspace root for multi-project work
-- `PYTHONWARNINGS`: Control Python warning display (`ignore`, `default`, `error`)
-
-### Profiles
-
-- `EMPIRICA_INVESTIGATION_PROFILE`: Force investigation profile
-- `EMPIRICA_PROFILE_MODE`: Override profile mode
-- `EMPIRICA_PERSONALITY`: Set AI personality/persona (`researcher`, `implementer`, `reviewer`, etc.)
 - `EMPIRICA_EPISTEMIC_MODE`: **Deprecated in 1.8.14.** Epistemic middleware was removed from MCP server (Sentinel handles gating via hooks). This env var has no effect.
 
 ### Cortex Integration
@@ -672,23 +378,10 @@ has_key = loader.has_credential("MINIMAX_API_KEY")
 
 - `EMPIRICA_MCP_TIMEOUT`: CLI command timeout in seconds for the MCP server (default: `30`)
 
-### Modality - DEPRECATED
-
-> **Note:** Modality switcher is deprecated/unsupported experimental feature.
-
-- `EMPIRICA_MODALITY_STRATEGY`: Override routing strategy (deprecated)
-- `MINIMAX_API_KEY`: MiniMax API key (deprecated)
-- `EMPIRICA_DEFAULT_ADAPTER`: Override default adapter (deprecated)
-
 ### Sentinel (Safety Gates)
 
-- `SENTINEL_URL`: URL for external Sentinel service (optional)
 - `EMPIRICA_ENFORCE_CASCADE_PHASES`: Strictly enforce transaction phase ordering (`true`, `false`)
 - `EMPIRICA_SENTINEL_LOOPING`: Enable/disable sentinel CHECK-investigate loop (`true`, `false`, default: `true`). When `false`, CHECK decisions bypass investigate requirement. **Preferred:** Use file flag `~/.empirica/sentinel_enabled` instead (dynamically settable without restart)
-- `EMPIRICA_SENTINEL_MODE`: Sentinel operating mode (`observer`, `controller`, `auto`, default: `auto`)
-  - `observer`: Passive oversight - log warnings but don't block AI actions
-  - `controller`: Active oversight - block actions when appropriate
-  - `auto`: Same as controller (default behavior)
 - `EMPIRICA_SENTINEL_CHECK_EXPIRY`: Enable 30-minute CHECK expiry (`true`, `false`, default: `false`)
   - When `true`: CHECK is invalidated after 30 minutes, requiring fresh CHECK before praxic tools
   - When `false` (default): No time-based expiry - useful for paused sessions
@@ -697,9 +390,9 @@ has_key = loader.has_credential("MINIMAX_API_KEY")
 ### Vector Search & Embeddings (Qdrant)
 
 - `EMPIRICA_QDRANT_URL`: URL for a Qdrant server (e.g., `http://localhost:6333`). **Optional.** It is one of four ways a URL is resolved, in priority order: an explicit per-request URL, the installed per-project resolver hook, this variable, then a probe of `localhost:6333`. A local Qdrant on the default port therefore needs no configuration at all. (Retrieval used to gate on this variable alone, so setups relying on any other path had working writes and silently empty reads — #388.)
-- `EMPIRICA_ENABLE_EMBEDDINGS`: Enable/disable embedding generation (`true`, `false`)
+- `EMPIRICA_ENABLE_EMBEDDINGS`: Set to `false` to disable embedding generation; otherwise embeddings are on when `qdrant-client` is installed
 - `EMPIRICA_EMBEDDINGS_PROVIDER`: Embeddings provider (`openai`, `ollama`, `jina`, `voyage`, `local`, `auto`). Default: `auto` (uses Ollama if available, else local hash)
-- `EMPIRICA_EMBEDDINGS_MODEL`: Model for embeddings (varies by provider). Defaults: `text-embedding-3-small` (OpenAI), `qwen3-embedding` (Ollama), `jina-embeddings-v3` (Jina), `voyage-3-lite` (Voyage). Also configurable via `~/.empirica/config.yaml` (embeddings section)
+- `EMPIRICA_EMBEDDINGS_MODEL`: Model for embeddings (varies by provider). Defaults: `text-embedding-3-small` (OpenAI), `qwen3-embedding:0.6b` (Ollama), `jina-embeddings-v3` (Jina), `voyage-3-lite` (Voyage). Also configurable via `~/.empirica/config.yaml` (embeddings section)
 - `EMPIRICA_OLLAMA_URL`: URL for local Ollama instance (default: `http://localhost:11434`)
 - `OPENAI_API_KEY`: API key for OpenAI embeddings
 - `JINA_API_KEY`: API key for Jina AI embeddings
@@ -726,61 +419,53 @@ has_key = loader.has_credential("MINIMAX_API_KEY")
 
 ### Features
 
-- `EMPIRICA_AUTO_CHECKPOINT`: Enable/disable auto checkpoints (`true`, `false`)
-- `EMPIRICA_GIT_INTEGRATION`: Enable/disable git integration
-- `EMPIRICA_ENABLE_MODALITY_SWITCHER`: Enable/disable modality switching (`true`, `false`, default: `false`) - DEPRECATED
 - `EMPIRICA_AUTO_POSTFLIGHT`: **REMOVED in 1.6.6.** Auto-POSTFLIGHT from CHECK was removed because CHECK is a noetic→praxic gate, not a completion event. POSTFLIGHT should only be triggered by the AI or session-end hook after actual work is done
 
 ---
 
 ## Usage Examples
 
-### Load System Config
+### Resolve Paths and Load System Config
 
 ```python
-from empirica.config.path_resolver import get_config
+from empirica.config import path_resolver
 
-config = get_config()
-print(config['settings']['auto_checkpoint'])
+config = path_resolver.load_empirica_config()   # None when there is no .empirica/config.yaml
+root = path_resolver.get_empirica_root()
 ```
 
 ### Load Project Config
 
 ```python
-from empirica.config.project_config_loader import ProjectConfigLoader
+from pathlib import Path
+from empirica.config.project_config_loader import load_project_config
 
-loader = ProjectConfigLoader()
-config = loader.load_project_config("empirica")
-
-# Get paths for core subject
-core_paths = config['subjects']['core']['paths']
+config = load_project_config(Path("."))
+core_paths = config.get_subject_info("core")["paths"]
 ```
 
 ### Select Investigation Profile
 
 ```python
-from empirica.config.profile_loader import ProfileLoader
+from empirica.config.profile_loader import get_profile_loader
 
-loader = ProfileLoader()
+loader = get_profile_loader()
 
 # Auto-select for AI
-profile = loader.select_profile_for_ai("claude-opus")
+profile = loader.select_profile(ai_model="claude-opus")
 
 # Or load specific profile
-profile = loader.get_profile("security_critical")
+profile = loader.get_profile("critical_domain")
 ```
 
-### Check Thresholds
+### Read Thresholds
 
 ```python
 from empirica.config.threshold_loader import ThresholdLoader
 
-loader = ThresholdLoader()
-thresholds = loader.get_thresholds("high_reasoning_collaborative")
-
-# Check if should investigate
-if epistemic_state['uncertainty'] > thresholds['uncertainty_high']:
-    action = "INVESTIGATE"
+loader = ThresholdLoader.get_instance()
+uncertainty_high = loader.get("uncertainty.high", 0.70)
+everything = loader.get_all_thresholds()
 ```
 
 ---
@@ -794,8 +479,7 @@ if epistemic_state['uncertainty'] > thresholds['uncertainty_high']:
 | `modality_config.yaml` | 118 lines | Adapter routing |
 | `investigation_profiles.yaml` | 445 lines | Investigation constraints |
 | `ai_registry.json` | 221 lines | AI capability registry |
-| **Python Loaders** | 2322 lines | Configuration loading |
-| **TOTAL** | **3186 lines** | Complete config system |
+| **Python Loaders** | see `empirica/config/*.py` | Configuration loading |
 
 ---
 
@@ -828,11 +512,7 @@ cp .empirica/project.yaml.example .empirica/project.yaml
 
 ```bash
 # Override for single command
-EMPIRICA_INVESTIGATION_PROFILE=security_critical empirica preflight ...
-
-# Override for session
-export EMPIRICA_LOG_LEVEL=debug
-empirica session-create --ai-id myai
+EMPIRICA_SESSION_DB=/tmp/test_sessions.db empirica session-create --ai-id myai
 ```
 
 ---
@@ -842,14 +522,11 @@ empirica session-create --ai-id myai
 ### Config Not Loading
 
 ```bash
-# Check config location
-empirica config --show-path
-
 # Validate config
 empirica config --validate
 
-# Reset to defaults
-empirica config --reset
+# Create the default config
+empirica config --init
 ```
 
 ### Profile Not Found
@@ -864,11 +541,8 @@ print(loader.list_profiles())
 ### Environment Override Not Working
 
 ```bash
-# Check override precedence
-empirica config --show-effective
-
-# Debug config loading
-EMPIRICA_LOG_LEVEL=debug empirica session-create --ai-id test
+# Print every path the resolver settled on
+python3 -c "from empirica.config.path_resolver import debug_paths; print(debug_paths())"
 ```
 
 ---
@@ -889,7 +563,7 @@ EMPIRICA_LOG_LEVEL=debug empirica session-create --ai-id test
 ## 9. MCO (Metacognitive Configuration Objects)
 
 **Location:** `empirica/config/mco/`  
-**Total Size:** ~3600 lines of YAML configuration  
+**Total Size:** ~4100 lines of YAML configuration  
 **Purpose:** Define AI behavior patterns, transaction styles, epistemic thresholds, and protocols
 
 ### MCO Configuration Files
@@ -898,17 +572,19 @@ EMPIRICA_LOG_LEVEL=debug empirica session-create --ai-id test
 |------|-------|---------|
 | `protocols.yaml` | 635 | MCP tool usage schemas (transactions, goals, handoffs, mistakes) |
 | `feedback_loops.yaml` | 493 | Statusline warning responses for drift detection |
-| `cascade_styles.yaml` | 422 | 6 transaction style profiles (default, exploratory, rigorous, rapid, expert, novice) |
+| `cascade_styles.yaml` | 473 | 6 transaction style profiles (default, exploratory, rigorous, rapid, expert, novice) |
 | `epistemic_conduct.yaml` | 355 | Bidirectional accountability (AI↔human challenge triggers) |
 | `MCO_INDEX.yaml` | 326 | Semantic guide to all MCO objects and relationships |
 | `model_profiles.yaml` | 313 | Model-specific bias corrections (per LLM overconfidence patterns) |
-| `personas.yaml` | 277 | 6 AI personas (researcher, implementer, reviewer, coordinator, learner, expert) |
+| `personas.yaml` | 321 | 7 AI personas (researcher, implementer, reviewer, coordinator, learner, expert, sanitizer) |
 | `goal_scopes.yaml` | 254 | Map epistemic vectors → scope vectors (breadth, duration, coordination) |
 | `bootstrap_triggers.yaml` | 205 | When to load project breadcrumbs, depth based on uncertainty |
-| `confidence_weights.yaml` | 170 | Weight configurations for aggregating 13 epistemic vectors |
+| `confidence_weights.yaml` | 312 | Weight configurations for aggregating 13 epistemic vectors |
 | `ask_before_investigate.yaml` | 165 | Thresholds for when AI should ask human vs investigate autonomously |
+| `context_budget.yaml` | 85 | Context budget manager thresholds (allocation, eviction, injection) |
+| `drift_thresholds.yaml` | 159 | Drift detection thresholds (over/under-confidence) |
 
-**Total:** 3,615 lines
+**Total:** 4,096 lines across 13 files
 
 ### MCO Categories
 
@@ -991,8 +667,8 @@ EMPIRICA_LOG_LEVEL=debug empirica session-create --ai-id test
 
 ### Key MCO Concepts
 
-**Personas (6 types):**
-- Researcher, Implementer, Reviewer, Coordinator, Learner, Expert
+**Personas (7 types):**
+- Researcher, Implementer, Reviewer, Coordinator, Learner, Expert, Sanitizer
 - Influence transaction style selection
 
 **Transaction Styles (6 profiles):**

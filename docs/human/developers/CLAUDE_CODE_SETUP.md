@@ -29,7 +29,7 @@ flow can't run.
 | `CLAUDE.md` | System prompt include (`@~/.claude/empirica-system-prompt.md`) | `~/.claude/CLAUDE.md` |
 | Lean system prompt | Canonical prompt rendered with installed version | `~/.claude/empirica-system-prompt.md` |
 | Settings | `statusLine` block + hooks for all events | `~/.claude/settings.json` |
-| MCP config | `empirica-mcp` server registration | `~/.claude/mcp.json` |
+| MCP config | `empirica-mcp` server registration | `~/.claude.json` (user scope, the file Claude Code loads); `~/.claude/mcp.json` is also written, legacy |
 | Marketplace | Local plugin registry | `~/.claude/plugins/known_marketplaces.json` |
 
 `setup-claude-code` is idempotent — re-running with `--force` updates
@@ -41,20 +41,23 @@ files but preserves user overrides in `CLAUDE.md`.
 
 | Hook | Event | Purpose |
 |---|---|---|
-| `sentinel-gate.py` | PreToolUse | Noetic firewall — blocks Edit/Write/Bash until valid CHECK |
+| `sentinel-gate.py` | PreToolUse (Edit/Write, Bash) | Noetic firewall — denies Edit/Write/mutating Bash until the transaction is certified by grounded PREFLIGHT `claims` or a CHECK |
+| `ruling-shape.py` | PreToolUse (AskUserQuestion) | Reminder when a single-select question has no `(Recommended)` option; never blocks |
 | `tool-router.py` | UserPromptSubmit | Context injection (active goals, artifact reminders) |
 | `pre-compact.py` | PreCompact | Saves epistemic state to breadcrumbs before context loss |
-| `session-init.py` | SessionStart (startup) | Creates session, bootstraps project, posts orientation |
-| `post-compact.py` | SessionStart (compact/resume) | Recovers state after compaction |
+| `session-init.py` | SessionStart (startup, resume) | Creates session, bootstraps project, posts orientation |
+| `post-compact.py` | SessionStart (compact) | Recovers state after compaction |
 | `ewm-protocol-loader.py` | SessionStart | Loads `workflow-protocol.yaml` if EWM interview ran |
 | `transaction-enforcer.py` | Stop | Reminds about open transaction before session end |
 | `subagent-start.py` / `subagent-stop.py` | SubagentStart/Stop | Child session lineage + findings rollup |
 | `session-end-postflight.py` | SessionEnd | Auto-POSTFLIGHT if a transaction is still open |
 | `curate-snapshots.py` | SessionEnd | Prunes old snapshots |
+| `truncation-legibility.py` | PostToolUse (Bash) | Says so when the output you just read was partial (`head -N` that filled, a paged response) |
 | `session-monitor-arm.py` | SessionStart | Arms Monitor for canonical loops if registered |
 
 The Sentinel firewall is the load-bearing one: it gates praxic tools
-(Edit/Write/Bash) until you've passed CHECK with sufficient confidence.
+(Edit/Write/Bash) until the transaction is certified. A CHECK that falls
+below the threshold, or returns `investigate`, is an advisory allow, not a block.
 
 ---
 
@@ -82,7 +85,7 @@ is grep-able to a specific line in
 | [`post-compact.py`](../../../empirica/plugins/claude-code-integration/hooks/post-compact.py) | After compaction | A recovery block: active transaction state + recent praxic actions so you don't lose continuity. The block you've seen as "POST-COMPACT CHECK GATE". |
 | [`pre-compact.py`](../../../empirica/plugins/claude-code-integration/hooks/pre-compact.py) | PreCompact | A `systemMessage` to the summarizer ("prioritise active transaction + open goals; skip stale findings"). Influences what survives compaction — never modifies your prior responses. |
 | [`tool-router.py`](../../../empirica/plugins/claude-code-integration/hooks/tool-router.py) | UserPromptSubmit | A `<semantic-pushback-check>` block reminding you to verify before agreeing with user pushback. Doesn't rewrite the prompt. |
-| [`ewm-protocol-loader.py`](../../../empirica/plugins/claude-code-integration/hooks/ewm-protocol-loader.py) | UserPromptSubmit | The user's collaboration profile from `~/.empirica/workflow-protocol.yaml` (role, preferred autonomy, non-negotiables). Helps you tailor responses. |
+| [`ewm-protocol-loader.py`](../../../empirica/plugins/claude-code-integration/hooks/ewm-protocol-loader.py) | SessionStart | The user's collaboration profile from `~/.empirica/workflow-protocol.yaml` (role, preferred autonomy, non-negotiables). Helps you tailor responses. |
 | [`context-shift-tracker.py`](../../../empirica/plugins/claude-code-integration/hooks/context-shift-tracker.py) | UserPromptSubmit | A nudge if the user's prompt shifts off the current transaction's scope (advisory; you decide whether to follow). |
 | [`sentinel-gate.py`](../../../empirica/plugins/claude-code-integration/hooks/sentinel-gate.py) | PreToolUse | `allow` / `deny` / `ask` decisions on Edit/Write/Bash. Reasons surface in `permissionDecisionReason` — readable text. Read-only tools (Read/Grep/Glob) are always allowed. |
 | [`transaction-enforcer.py`](../../../empirica/plugins/claude-code-integration/hooks/transaction-enforcer.py) | Stop | Soft reminder ("you have an open transaction — POSTFLIGHT before stop") at one threshold; hard block at a higher one. Resets when POSTFLIGHT submits. |
@@ -123,7 +126,7 @@ empirica sentinel status
 After plugin install, `setup-claude-code` runs the **credentials wizard**
 (skip with `--skip-credentials`):
 
-1. **Cortex** (orchestration API) — URL + `ctx_…` API key
+1. **Cortex** (orchestration API) — URL + `ctx_…` API key (an `empirica auth login` session also satisfies this)
 2. **ntfy** (push wake bridge) — URL + topic + auth token
 3. **Tenant resolution** — after the api_key, fetches your tenant metadata
    and persists `{org_id, tenant_slug, mesh_id_prefix}` to your
@@ -165,19 +168,19 @@ echo compact  > ~/.empirica/statusline_mode   # back to the default
 ### The expanded view
 
 ```
-[empirica] ⚡84% │ 🎯28 ❓47/23 │ CHK 🔨88%→ │ K:90% C:92% │ Δ ✓ │ 58%ctx
+[empirica] ⚡80% │ 🎯2 ❓5 │ POST 🔨75% │ S:80% Δ:80% │ Δ ✓ │ 58%ctx   🧠 Sonnet 5.5
 ```
 
 | Segment | What it shows |
 |---|---|
 | `[empirica]` | Project (truncated to 20 chars from `project.yaml`) |
-| `⚡84%` | **Overall confidence:** `0.40·know + 0.30·(1−uncertainty) + 0.20·context + 0.10·completion` |
+| `⚡80%` | **Overall confidence:** `0.40·know + 0.30·(1−uncertainty) + 0.20·context + 0.10·completion` |
 | `🎯N ❓N/N` | Open goals · open unknowns / blocking unknowns |
 | `PRE/CHK/POST` | Current transaction phase |
 | `🔍/🔨` | Noetic (investigating) / praxic (acting) |
 | `XX%` after phase | Phase composite — different aggregate per phase |
 | `→/…` | CHECK gate decision (proceed / investigate more) |
-| `K:X% C:X%` | Individual `know` and `context` vectors |
+| `K:X% C:X%` | Individual `know` and `context` vectors (`S:X% Δ:X%`, state and change, at POST) |
 | `Δ ✓/⚠/△` | POSTFLIGHT learning delta sign |
 | `N%ctx` | Context window used |
 
@@ -241,9 +244,9 @@ Claude should run the command and surface findings + open goals.
 | `empirica: command not found` | pip bin not on PATH | `export PATH="$HOME/.local/bin:$PATH"` |
 | Statusline not showing | Hook path wrong | `empirica setup --force` then restart Claude Code |
 | Claude unaware of Empirica | CLAUDE.md missing the include | Re-run `setup-claude-code` |
-| Sentinel blocking everything | No valid CHECK | `empirica check-submit -` with `proceed: true` |
+| Sentinel blocking everything | Transaction not certified | Declare grounded `claims` in PREFLIGHT, or `empirica check-submit -` with `proceed: true` |
 | Plugin hooks not running | Plugin disabled | Check `~/.claude/settings.json` → `enabledPlugins.empirica@local: true` |
-| MCP not connecting | Path absolute vs relative | `which empirica-mcp` then put absolute path in `~/.claude/mcp.json` |
+| MCP not connecting | Path absolute vs relative | `which empirica-mcp` then put absolute path in `~/.claude.json` (`mcpServers`) |
 
 The fastest path to a green status: `empirica diagnose` and follow the
 PASS/FAIL hints.
@@ -277,7 +280,7 @@ Inside an open transaction, `--session-id` is auto-derived.
 
 ## What's Next
 
-- **Live system prompt:** read `~/.claude/empirica-system-prompt.md` after install (~263 lines, lean default)
+- **Live system prompt:** read `~/.claude/empirica-system-prompt.md` after install (~740 lines, lean default)
 - **All CLI commands:** [CLI_COMMANDS_UNIFIED.md](CLI_COMMANDS_UNIFIED.md)
 - **Epistemic transaction workflow:** [../../architecture/NOETIC_PRAXIC_FRAMEWORK.md](../../architecture/NOETIC_PRAXIC_FRAMEWORK.md)
 - **AI self-management patterns:** [AI_SELF_MANAGEMENT.md](AI_SELF_MANAGEMENT.md)

@@ -30,10 +30,12 @@ When the file is absent, empty or names no mode, `EMPIRICA_STATUS_MODE` is used;
 | Mode | Sections | When to use |
 |------|----------|-------------|
 | `compact` (default) | practice, stage + confidence, goals/unknowns/assumptions, findings/decisions, learning, context, model, investigate or act | General use: one short line |
-| `expanded` (`default` is its old name) | confidence + open counts + phase composite + K/C + Δ + ctx% | When you want the numbers |
-| `basic` | confidence + threshold | Minimal — just the headline |
-| `learning` | confidence + threshold + open counts + phase + all 5 key vectors + Δ | When focusing on vector evolution |
-| `full` | `[project:ai@sid]` + goal progress + phase + all vectors + Δ | Deep debugging / handoff review |
+| `expanded` (`default` is its old name) | confidence + open counts + phase composite + K/C (S/Δ at POST) + Δ + ctx% | When you want the numbers |
+| `basic` | confidence only | Minimal — just the headline |
+| `learning` | confidence + open counts + phase + 5 key vectors + Δ | When focusing on vector evolution |
+| `full` | `[project:ai@sid]` + goal progress + phase + 7 vectors + Δ | Deep debugging / handoff review |
+
+Every mode except `compact` appends the model tag (`🧠 Sonnet 5.5`) after a three-space gap; `compact` carries it inline. Set `EMPIRICA_STATUS_MODEL=0` to hide it.
 
 ```bash
 export EMPIRICA_STATUS_MODE=learning
@@ -63,7 +65,7 @@ Example: ` empirica  │ CHECK 73% │ G2 U5 A3 F4/D1 │ Δ ✓ │ 41%ctx │ 
 
 ## Expanded Mode — Segment-by-Segment
 
-Example: `⚡83% ↕70% │ 🎯0 ❓0 │ POST ⚙82% │ K:80% C:85% │ Δ ✓ │ 58%ctx`
+Example: `[empirica] ⚡80% │ 🎯2 ❓5 │ POST 🔨75% │ S:80% Δ:80% │ Δ ✓ │ 58%ctx   🧠 Sonnet 5.5`
 
 The `│` is a visual separator. Everything else encodes state.
 
@@ -87,26 +89,13 @@ Tiered emoji maps to the value:
 | 💫 | 35–49% | yellow |
 | 🌑 | < 35% | red |
 
-### 2. Dynamic CHECK Threshold — `↕70%`
+### 2. Open Counts — `🎯0 ❓0`
 
-The Brier-calibrated **know** threshold the Sentinel requires for auto-proceed past CHECK. Since 1.14 it is computed on the same basis the gate enforces: the current practitioner model's own calibration within the practice, falling back to the practice when that model has too few points. Arrow color signals **calibration health** (how much the Sentinel trusts your self-assessment):
-
-| Color | Threshold inflation | Meaning |
-|-------|--------------------|---------|
-| green | ≤ 0.03 | Well-calibrated — threshold at baseline |
-| yellow | ≤ 0.10 | Moderate miscalibration detected |
-| red | > 0.10 | Significant miscalibration — Sentinel raises the bar |
-| gray | — | Static fallback — neither the model nor the practice has enough calibrated transactions yet |
-
-The threshold rises as your predicted confidence diverges from actual outcomes. It falls back as calibration improves. **The number you see is what you need to hit in PREFLIGHT know to skip CHECK.**
-
-### 3. Open Counts — `🎯0 ❓0`
-
-`🎯N` = open goals. `❓N` = open unknowns. Color scales with count (green 0 → yellow moderate → red high).
+`🎯N` = open goals. `❓N` = open unknowns. Color scales with count (green 0 → yellow 1–2 → cyan above that; unknowns are colored by their goal-linked count). Red is never used.
 
 If goal-linked blockers exist: `❓total/blockers` (e.g., `❓119/70` = 119 unresolved, 70 blocking goals).
 
-### 4. Transaction Phase — `POST`
+### 3. Transaction Phase — `POST`
 
 Current phase in the epistemic transaction:
 
@@ -116,15 +105,16 @@ Current phase in the epistemic transaction:
 | `CHK` | CHECK — readiness gate |
 | `POST` | POSTFLIGHT — transaction closed |
 
-### 5. Phase Composite — `⚙82%`
+### 4. Phase Composite — `🔨75%`
 
 Vector composite for the current phase. The emoji indicates work phase:
 
 | Emoji | Phase | Vectors averaged |
 |-------|-------|------------------|
 | 🔍 | noetic (investigating) | clarity, coherence, signal, density |
-| ⚙ | praxic (acting) | state, change, completion, impact |
-| — (at CHECK) | check-readiness gate | know, context, clarity, coherence, signal, density |
+| 🔨 | praxic (acting) | state, change, completion, impact |
+
+At CHECK the composite is the check-readiness average (know, context, clarity, coherence, signal, density), and the emoji follows the gate decision: 🔨 once proceed is granted, 🔍 otherwise.
 
 Color by value: green ≥ 75%, yellow ≥ 50%, red < 50%.
 
@@ -132,15 +122,15 @@ CHECK with a gate decision appends a transition indicator:
 - `→` (green) — proceed was granted
 - `…` (yellow) — investigate — more noetic work required
 
-Example: `CHK 🔍82%→` means CHECK passed proceeding into praxic.
+Examples: `CHK 🔨76%→` means CHECK proceeded into praxic; `CHK 🔍76%…` means investigate.
 
-### 6. Raw Vectors — `K:80% C:85%`
+### 5. Raw Vectors — `K:80% C:85%`
 
-Two of the 13 epistemic vectors shown in-line: `K` = know, `C` = context. These are your raw PREFLIGHT/CHECK values, not the composite. Color matches the phase-composite scheme.
+Two of the 13 epistemic vectors shown in-line: `K` = know, `C` = context. These are your raw PREFLIGHT/CHECK values, not the composite. Color matches the phase-composite scheme. At POSTFLIGHT the pair switches to `S:80% Δ:80%` (state, change), the same vectors the praxic composite averages.
 
-In `learning` mode this expands to all five key vectors (`know`, `uncertainty`, `context`, `clarity`, `completion`).
+In `learning` mode this expands to five key vectors (`know`, `uncertainty`, `context`, `clarity`, `completion`).
 
-### 7. POSTFLIGHT Deltas — `Δ ✓`
+### 6. POSTFLIGHT Deltas — `Δ ✓`
 
 Only shown on POSTFLIGHT. Single-symbol summary of learning deltas across all vectors:
 
@@ -152,7 +142,7 @@ Only shown on POSTFLIGHT. Single-symbol summary of learning deltas across all ve
 
 Sign convention: for `uncertainty`, *lower* is better (counted as positive delta). All other vectors: higher is better.
 
-### 8. Context Window — `58%ctx`
+### 7. Context Window — `58%ctx`
 
 Claude Code context window usage, passed via stdin. Color: green < 50%, yellow 50–80%, red ≥ 80%.
 
@@ -169,7 +159,7 @@ When there's no normal session to display, the statusline shows one of these:
 | `[empirica] OFF-RECORD` | Sentinel paused. Reads per-instance file `~/.empirica/sentinel_paused_{instance_id}` first (written by TUI's `P sent` button or `empirica sentinel pause --instance ID`); falls back to global `~/.empirica/sentinel_paused`. Measurements not being taken. |
 | `[empirica] OFF-RECORD (Nm)` | Same, with time since pause (mtime-based) |
 | `[no project]` | No `.empirica/project.yaml` found — not in an Empirica project |
-| `[project:inactive]` | In a project, but no active session (`empirica session-create` hasn't run) |
+| `[<project>:inactive]` | In a project, but no active session (`empirica session-create` hasn't run) |
 
 If you see **nothing at all**, the script didn't run. Check Claude Code statusline settings, or run the script manually:
 
@@ -187,25 +177,26 @@ External packages can inject their own labels. Write a JSON file to `~/.empirica
 {"label": "WS:4", "color": "cyan"}
 ```
 
-The statusline reads every `*.json` in that directory and appends the labels (cyan by default) to the header. This is how `empirica-workspace` adds workspace counts, for example.
+The statusline reads every `*.json` in that directory and appends the labels (cyan by default) to the header of `expanded`, `basic` and `learning`. `compact` (the default) and `full` do not render them. This is how `empirica-workspace` adds workspace counts, for example.
 
 ---
 
 ## Full Mode Example
 
 ```
-[empirica:claude-code@3d0f] auth-f (2/5) ⚡83% ↕70% │ 🎯1 ❓3 │ POST ⚙82% │ K:80% U:20% C:85% D:75% Co:70% │ Δ ✓
+[empirica:claude-code@3d0f] │ auth-fix-t.. ██░░░░ 40% (2/5) │ POSTFLIGHT │ K:80% U:20% C:85% L:75% E:90% ✓:70% I:70% │ Δ ✓   🧠 Sonnet 5.5
 ```
 
 - `[project:ai@sid]` — project label, AI ID, 4-char session ID prefix
-- `auth-f (2/5)` — active goal (truncated to 12 chars) with task progress
-- All vectors shown with 2-letter labels (`K`, `U`, `C`, `D`, `Co`, …)
+- `auth-fix-t.. ██░░░░ 40% (2/5)` — active goal (truncated to 12 chars) with a progress bar and task progress
+- The phase is spelled out (`POSTFLIGHT`), not abbreviated, and `full` shows no confidence glyph
+- Seven vectors with one-character labels: `K` know, `U` uncertainty, `C` context, `L` clarity, `E` engagement, `✓` completion, `I` impact (`learning` mode shows the first five of the key vectors: `K U C L ✓`)
 
 ---
 
-## Full Mode Glyphs (Legacy Moon Phases)
+## Legacy Moon Phases
 
-In some legacy paths and debug output you may see moon-phase confidence emojis from the shared `empirica/core/signaling.py` module (`🌕 🌖 🌗 🌘 🌑`). These map roughly to the ⚡/💡/💫/🌑 tiers in the default statusline. The default mode uses the tiered power-emoji variant because it's more familiar; moon phases are retained in `full` for compatibility with older workflow docs.
+In some legacy paths and debug output you may see moon-phase confidence emojis from the shared `empirica/core/signaling.py` module (`🌕 🌖 🌗 🌘 🌑`). These map roughly to the ⚡/💡/💫/🌑 tiers in the statusline. The statusline uses the tiered power-emoji variant because it's more familiar; no statusline mode renders moon phases.
 
 ---
 
@@ -214,15 +205,13 @@ In some legacy paths and debug output you may see moon-phase confidence emojis f
 | Var | Values | Default | Effect |
 |-----|--------|---------|--------|
 | `EMPIRICA_STATUS_MODE` | `compact` \| `expanded` \| `basic` \| `learning` \| `full` (`default` = `expanded`) | `compact` | Mode selector; `~/.empirica/statusline_mode` overrides it |
-| `EMPIRICA_AI_ID` | any string | `claude-code` | Which AI's session to render |
-| `EMPIRICA_SIGNALING_LEVEL` | `basic` \| `default` \| `full` | `default` | Signaling module verbosity |
+| `EMPIRICA_AI_ID` | any string | resolved: `project.yaml` `ai_id`, then the project directory name, then `claude-code` | Which AI's session to render |
+| `EMPIRICA_STATUS_MODEL` | `0` \| `false` \| `off` | shown | Hides the `🧠 model` tag |
+| `EMPIRICA_CTX_METER` | `1` \| `true` \| `bar` | off | Renders context use as a bar (`[####------] 42%`) instead of `%ctx` |
 
 ---
 
 ## Common Questions
-
-**"Why does ↕ show 70% when my know is at 85%?"**
-The threshold (↕) is what the Sentinel requires, not your current value. 85% know against 70% threshold means you're above the bar and can auto-proceed past CHECK.
 
 **"Why is `Δ` missing from my statusline?"**
 `Δ` only renders on POSTFLIGHT (when deltas are computed). During PREFLIGHT / CHECK there's no learning delta to show yet.
@@ -250,6 +239,6 @@ Not via config currently — emoji and colors are hard-coded in `statusline_empi
 
 ## See Also
 
-- [Sentinel Gate Reference](SENTINEL_GATE_REFERENCE.md) — the hook that enforces the CHECK gate referenced by the threshold display
+- [Sentinel Gate Reference](SENTINEL_GATE_REFERENCE.md) — the hook that enforces the CHECK gate
 - [Session Resolver API](SESSION_RESOLVER_API.md) — how the statusline resolves the current session
 - [Environment Variables](ENVIRONMENT_VARIABLES.md) — all Empirica env vars in one place

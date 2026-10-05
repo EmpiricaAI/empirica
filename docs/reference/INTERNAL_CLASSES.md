@@ -57,26 +57,29 @@ either be properly documented or moved to a less prominent home.
 ## Compliance + calibration
 
 - `ComplianceStatus`, `ComplianceResult` — domain compliance check
-  outcomes (`empirica/core/compliance/`).
-- `EpistemicRollupGate`, `RollupResult`, `EpistemicAssessmentSchema`,
-  `BrierDecomposition`, `CalibrationTrend`, `GroundedBelief`,
-  `GroundedVectorEstimate`, `GroundedCalibrationManager` — calibration
-  pipeline internals in `empirica/core/calibration/` and `epistemic/`.
-- `EvidenceProfile`, `EvidenceQuality`, `EvidenceType` — evidence taxonomy
-  used by the grounded calibration system.
-- `RegulationDecision` — outcome dataclass for regulation-mapping checks.
+  outcomes (`empirica/core/post_test/compliance_status.py`,
+  `compliance_loop.py`).
+- `EpistemicRollupGate`, `RollupResult` (`empirica/core/epistemic_rollup.py`),
+  `EpistemicAssessmentSchema` (`empirica/core/schemas/`), `BrierDecomposition`,
+  `CalibrationTrend`, `GroundedBelief`, `GroundedVectorEstimate`,
+  `GroundedCalibrationManager` — calibration pipeline internals in
+  `empirica/core/post_test/`.
+- `EvidenceProfile`, `EvidenceQuality` — evidence taxonomy used by the
+  grounded calibration system (`empirica/core/post_test/collector.py`).
+  `EvidenceType` lives in `empirica/core/codebase_model/types.py`.
 
 ## Artifact extraction + transcript parsing
 
 - `ArtifactExtractor`, `ExtractionResult` — extract findings/decisions/
-  dead-ends/mistakes/unknowns from text (`empirica/core/extraction/`).
+  dead-ends/mistakes/unknowns from text (`empirica/core/canonical/artifact_extractor.py`).
 - `ExtractedFinding`, `ExtractedDecision`, `ExtractedDeadEnd`,
   `ExtractedMistake`, `ExtractedUnknown` — typed records produced by the
   extractor.
 - `TranscriptParser`, `TranscriptRecord`, `ContentBlock`, `ContentBlockType`,
   `ContentType`, `ConversationTurn`, `TurnKind` — transcript ingestion
   for Claude.ai exports and Claude Code session jsonl
-  (`empirica/core/transcripts/`).
+  (`empirica/core/canonical/transcript_parser.py`; `ContentType` is in
+  `empirica/core/context_budget.py`, `TurnKind` in `empirica/core/chat/session.py`).
 
 ## Bus + observers
 
@@ -93,11 +96,12 @@ either be properly documented or moved to a less prominent home.
 
 ## Identity + injection
 
-- `NodeIdentity`, `IntegrityStatus`, `InjectionChannel`, `InjectionRequest` —
-  identity propagation + sentinel-gate context injection
-  (`empirica/core/identity/`, `empirica/core/injection/`).
-- `EvictionResult`, `ForgetResult` — memory eviction outcomes
-  (`empirica/core/memory/`).
+- `NodeIdentity`, `IntegrityStatus` — node identity and integrity state in
+  the host dashboard (`empirica/core/system_dashboard.py`).
+- `InjectionChannel`, `InjectionRequest`, `EvictionResult` — context-budget
+  injection and eviction (`empirica/core/context_budget.py`).
+- `ForgetResult` — outcome of an instance's forget action
+  (`empirica/core/cockpit/instance_actions.py`).
 
 ## Sources, decisions, assumptions
 
@@ -107,7 +111,7 @@ either be properly documented or moved to a less prominent home.
 - `ScoredFinding`, `WorkflowPattern`, `WorkflowSuggestion`,
   `EcosystemGraph`, `TrajectoryTracker`, `TrajectoryPoint`,
   `TransactionOutcome`, `BatchBudgets`, `BatchSummary`,
-  `BudgetThresholds`, `BenchmarkResult`, `RelationshipType`,
+  `BudgetThresholds`, `RelationshipType`,
   `RecordType`, `FactStatus`, `MemoryStatus`, `MemoryZone`,
   `ContextItem`, `EntityType`, `ConstraintType`, `DomainAllocation`,
   `AssessmentResult` — supporting types across the workflow engine.
@@ -116,8 +120,9 @@ either be properly documented or moved to a less prominent home.
 
 - `KEVFeed`, `WebEvidenceCollector`, `_HTMLStructureValidator`,
   `ScanRule` — service-audit and semantic scan internals
-  (`empirica/core/scan/`, `empirica/core/docs/`).
-- `OrchestrationPlan`, `ProfileImporter`, `ProjectSpec`,
+  (`empirica/core/security/kev_feed.py`, `empirica/core/post_test/web_collector.py`,
+  `empirica/core/docs/semantic_scan.py`).
+- `ProfileImporter`, `ProjectSpec`,
   `SessionIndex`, `SessionMetadata`, `SlashCmd`,
   `ToolChain`, `NotificationItem`, `NotificationSummary`,
   `ActionError`, `ConfigStatus`, `GateStatus` — orchestration +
@@ -158,7 +163,7 @@ either be properly documented or moved to a less prominent home.
 - `WorkspaceRepository` — companion to `WorkspaceDBRepository` for
   reads that span the workspace.db `entity_registry` +
   `entity_memberships` graph.
-- `PostgreSQLAdapter`, `SQLiteAdapter` — concrete `DBAdapter`
+- `PostgreSQLAdapter`, `SQLiteAdapter` — concrete `DatabaseAdapter`
   implementations in `empirica/data/db_adapter.py`. PostgreSQL is
   experimental (psycopg2-binary optional dependency); SQLite is the
   default and only production-tested path.
@@ -167,7 +172,7 @@ either be properly documented or moved to a less prominent home.
 
 - `CollectionDimensionMismatchError` — raised by the embedding adapter
   when a Qdrant collection's `vector_size` doesn't match the configured
-  model's output dimension (`empirica/core/embeddings/`).
+  model's output dimension (`empirica/core/qdrant/connection.py`).
 - `InstanceIdRequiredError` — raised when a CLI handler that requires
   an instance-scoped lookup can't resolve one (no TTY mapping, no
   override flag).
@@ -178,16 +183,17 @@ either be properly documented or moved to a less prominent home.
 
 - `DomainKey` — frozen dataclass key for the domain registry
   (`(work_type, domain, criticality)` tuple wrapper).
-- `MCOLoader` — loads `.empirica/mco.yaml` mission-critical-objectives
-  config used by the praxic gate's escalation logic.
-- `UniversalConstraints` — config-merge layer combining defaults,
-  project overrides, and per-instance overrides.
+- `MCOLoader` — loads the MCO configuration files in
+  `empirica/config/mco/` (model profiles, personas, cascade styles,
+  epistemic conduct, protocols) lazily, as a singleton.
+- `UniversalConstraints` — the constraints applied to every investigation
+  profile (`empirica/config/profile_loader.py`).
 
 ## Vision
 
 - `SlideProcessor` — vision-module helper that walks a slide deck
   artifact, extracts per-slide image + alt-text, and emits a structured
-  doc body (`empirica/core/vision/`).
+  doc body (`empirica/vision/slide_processor.py`).
 
 ## Workflow + structure
 
