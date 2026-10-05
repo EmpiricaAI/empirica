@@ -2783,7 +2783,8 @@ def _is_segment_safe(segment: str) -> bool:
     # check runs — so without this, `cd /x && grep foo > /tmp/out` launders a
     # redirect past the gate. (Safe redirects like `2>/dev/null` were already
     # stripped from `clean` above, so anything left is a real one.)
-    if _has_dangerous_redirects(clean):
+    # A lone `&` (background operator) likewise starts a second command in the segment.
+    if _has_dangerous_redirects(clean) or _has_lone_ampersand(clean):
         return False
 
     # 1. Validate every embedded $() and backtick substitution. The inner
@@ -2828,8 +2829,9 @@ def _is_segment_safe(segment: str) -> bool:
                 return True
             return _is_segment_safe(rest)
 
-    # 4. Original safe forms.
-    if stripped.startswith("cd "):
+    # 4. Original safe forms. `cd x | rm y` is a pipe, not a directory change: the
+    # shortcut ran before the pipe check and waved the whole segment through.
+    if stripped.startswith("cd ") and not _contains_outside_quotes(stripped, "|"):
         return True
     # A piped segment (`empirica goals-list | tail`) must be validated
     # stage-by-stage — the trailing pipe can otherwise smuggle an executor
@@ -2920,6 +2922,40 @@ def _substitutions_are_safe(command: str) -> bool:
     return True
 
 
+def _has_lone_ampersand(command: str) -> bool:
+    """True if `command` has a background operator: a single `&` outside quotes.
+
+    `ls & rm -rf x` runs both; the chain splitter only knew `&&`, `||`, `;` and
+    newline, so the lone form classified as one safe-prefixed read. Not flagged:
+    `&&`, the redirect forms (`2>&1`, `>&2`, `&>file`, `<&3`) and the `|&` pipe.
+    """
+    in_single = in_double = escape = False
+    i = 0
+    n = len(command)
+    while i < n:
+        c = command[i]
+        if escape:
+            escape = False
+        elif c == "\\":
+            escape = True
+        elif c == "'" and not in_double:
+            in_single = not in_single
+        elif c == '"' and not in_single:
+            in_double = not in_double
+        elif c == "&" and not in_single and not in_double:
+            prev = command[i - 1] if i else ""
+            nxt = command[i + 1] if i + 1 < n else ""
+            if nxt == "&":
+                i += 2
+                continue
+            if prev in ("<", ">", "|") or nxt == ">":
+                i += 1
+                continue
+            return True
+        i += 1
+    return False
+
+
 def _has_dangerous_operators(command: str) -> bool:
     """Check for dangerous shell operators (excluding &&, ||, ; handled in chain check).
 
@@ -2929,6 +2965,8 @@ def _has_dangerous_operators(command: str) -> bool:
     executes no command (shape-3 over-gate, 2026-08-16).
     """
     scan = _mask_arithmetic_expansions(command) if "$((" in command else command
+    if _has_lone_ampersand(scan):
+        return True
     for operator in DANGEROUS_SHELL_OPERATORS:
         if operator in ("&&", "||", ";"):
             continue
