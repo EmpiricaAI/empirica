@@ -3,8 +3,9 @@
 When an agent finishes, what it learned is in its transcript and nowhere else. The `SubagentStop`
 hook rolls findings up by matching sentence prefixes (`Found:`, `Unknown:`) in the assistant text,
 capped at five per type, and never fills dead ends. An agent that does not write those prefixes
-contributes nothing to the graph. On five finished threads from the 2026-10-05 sweep it extracted
-0 artifacts from every one.
+contributes nothing to the graph; on five finished threads from the 2026-10-05 sweep it extracted
+nothing. That describes the hook. It is not evidence for the method: keyword matching cannot assess
+epistemic state, and the claim below is about AI reading against AI reading.
 
 The `agent-review` skill replaces that guess with a second reading. The worker works. Then a
 fresh reviewer reads the **whole finished thread** and stamps it with typed artifacts, graded
@@ -92,11 +93,10 @@ written from the tools its agents actually have.
 
 ## What was measured, and what it does not show
 
-Five threads, one reviewer each, 589k tokens in total. Every figure below is recomputed by one script from the archived inputs (`reproduce_numbers.py` in the experiment archive, which also runs the baseline's positive control).
+Five threads, one reviewer each, 589k tokens in total. This is not a comparison against the hook's keyword extractor: matching sentence prefixes is not an epistemic assessment and is not a baseline anyone should beat. The comparison the method needs is AI against AI (tagging while working against stamping afterwards, and one reviewer against a second), and it has not been run. Every figure below is recomputed by one script from the archived inputs (`reproduce_numbers.py` in the experiment archive, which also runs the baseline's positive control).
 
 | Measure | Result | Read it as |
 |---|---|---|
-| Artifacts the regex extractor found | 0 findings, 0 unknowns, 0 dead ends on all five threads | the three types it can produce; it has no pattern for decision, assumption or mistake, so those 24 of the 101 are out of its reach by construction. Shown live first on a transcript that contains its prefixes. It needs the agent to write a prefix such as `Found:`, which these agents did not |
 | Artifacts the reviewer stamped | 101 | |
 | Anchors valid (turn exists, quote verbatim) | 101 of 101 | the evidence exists where the reviewer says |
 | Edges well-formed (both ends name a real artifact) | 35 of 36 | one edge pointed at an artifact index that does not exist, so the stamp as a whole did not pass |

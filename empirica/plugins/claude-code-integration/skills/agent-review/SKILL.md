@@ -14,9 +14,10 @@ result turned out to cause.
 Opt-in. Use it when you will act on what agents found (a sweep, a multi-agent audit, a long
 research thread). A one-line lookup does not need it.
 
-Measured on five finished threads (2026-10-05): the `SubagentStop` regex extractor found 0
-artifacts on all five; a reviewer stamped 101, every anchor and quote checked out mechanically,
-34% needed hindsight, and the known defects were present in 12 of 13 cases. Caveats are at the
+Measured on five finished threads (2026-10-05): a reviewer stamped 101 artifacts, every anchor and
+quote checked out mechanically, 34% needed hindsight, and the known defects were present in 12 of
+13 cases. (The `SubagentStop` hook's keyword extractor found nothing on the same threads; that
+describes the hook, it is not a baseline for the method.) Caveats are at the
 end. Method and numbers: `docs/guides/AGENT_REVIEW.md`.
 
 ## Part 1: the work (nothing to add to the worker)
