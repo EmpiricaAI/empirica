@@ -1,218 +1,90 @@
-# Artifact Lifecycle & Outcome Feedback — Spec
+# Artifact Lifecycle and Outcome Feedback
 
-**Status:** DRAFT for review · **Owner:** empirica-core · **Requested by:** David (2026-07-27)
-**Related:** decision `f5c59ec8` (sources as ongoing ground truth) · `ARTIFACT_HYGIENE.md` · `/epistemic-gardening`
+Every artifact type that can steer later behaviour needs an event that says "this turned out to be wrong". This document describes how that is wired today: which transitions each type has, how outcomes flow back to sources, and what is still not connected. It supersedes the July 2026 draft spec of the same name.
 
----
+Related: `ARTIFACT_HYGIENE.md`, the `/epistemic-gardening` skill, `empirica/core/falsifiers.py`, `empirica/core/sources/sanctify.py`.
 
-## 1. The problem, measured
+## The problem it solves
 
-The epistemic graph has **asymmetric falsifiability**. Artifact types that assert
-*positive* knowledge can be revised. Types that assert a *permanent constraint* — the
-ones that steer future behaviour hardest — cannot be revised at all.
+Retrieval puts artifacts into future sessions as grounding. Types that assert positive knowledge (findings, unknowns, assumptions) were always revisable. Types that assert a permanent constraint (dead-ends, mistakes) had no lifecycle columns at all, and decisions had outcome columns that nothing wrote. A wrong dead-end silently removes a viable approach from the option space, and a wrong prevention advice keeps steering. Nothing ever retries a dead-end, so no event could contradict it. Stale or wrong artifacts are not neutral; they mis-steer, and the longer they sit the more sessions inherit them.
 
-Measured on empirica, 2026-07-27:
+## Principles the code follows
 
-| type | rows | lifecycle columns | ever closed |
-|---|---:|---|---:|
-| finding | 4163 | `is_resolved`, `resolution`, `resolved_timestamp`, `superseded_by` | 1267 |
-| unknown | 473 | `is_resolved`, `resolved_timestamp` | 460 |
-| blindspot | 33 | `outcome`, `resolved_timestamp` | 33 |
-| assumption | 56 | `status`, `resolved_timestamp` | — |
-| **decision** | **486** | `outcome`, `outcome_assessed_at`, `regret_score` | **0** |
-| **dead_end** | **750** | **none** | — |
-| **mistake** | **133** | **none** | — |
+1. Every type that can steer behaviour is falsifiable.
+2. Scores are derived on read, never stored. Outcomes are recorded as events; relevance, accuracy and stability are computed from them (`derive_standing`), so the formula can change without a migration.
+3. Attribution is declared, not inferred. An artifact can fail because its source was wrong or because the reasoning from it was wrong; blame is recorded only when the caller names the source.
+4. Closing is cheap. Every transition is a field on a batch verb people already run, not a new verb.
+5. "Never revisited" is a different state from "confirmed". New columns are nullable and existing rows are not back-filled into a verdict.
 
-Three distinct failures:
+## Transitions per type
 
-1. **`dead_end` (750) and `mistake` (133) have no lifecycle whatsoever.** They are
-   permanent *negative* guidance — "approach X failed", "I did Y wrong, prevention: Z"
-   — retrieved into future sessions to steer practitioners away. **Nothing ever
-   retries a dead-end**, so a mistaken one was invisible *by construction*: there was no
-   event that could ever contradict it. A wrong dead-end silently removes a viable
-   approach from the practice's option space, forever.
+All transitions go through `empirica resolve-artifacts` (`empirica resolve-artifacts --schema` prints the payload). There are no `deadend-invalidate`, `mistake-assess` or `decision-assess` verbs.
 
-   **1.14 supplies that event, opt-in:** a `falsifier` may name a dead_end or a
-   mistake as its parent — for a dead-end, the observation that would show the
-   approach works after all; for a mistake, the recurrence that would show its
-   `prevention` does not hold. A trip flags the artifact for a human
-   (`is_invalidated`) and never resolves it automatically. It is registered by
-   choice, so it narrows the blind spot rather than closing it.
-
-2. **`decision` (486) has the columns and no surface.** `outcome`,
-   `outcome_assessed_at` and `regret_score` exist — someone designed this loop — but
-   nothing writes them. **Zero of 486 decisions have ever been assessed against what
-   actually happened.** Reversibility is recorded at decision time; consequence never
-   is.
-
-3. **Nothing flows back to sources.** A source's relevance/accuracy/stability should
-   be evidenced by what happened to the artifacts citing it. Today that channel does
-   not exist, so source quality is unmeasurable (see §5).
-
-> **Why this matters more than it looks.** Retrieval surfaces these artifacts into
-> future sessions as *grounding*. An unfalsifiable wrong artifact is not neutral — it
-> is actively mis-steering, and it compounds: the longer it sits, the more sessions
-> inherit it. This is the mechanism behind "stale and dead artifacts poison the well".
-
----
-
-## 2. Design principles
-
-1. **Every artifact type is falsifiable.** If an artifact can steer future behaviour,
-   there must exist an event that says "this turned out to be wrong."
-2. **Derived, never stored, scores.** Outcomes are recorded as events; relevance /
-   accuracy / stability are computed on read. A stored score is an asserted number
-   that drifts from its evidence — the exact failure empirica exists to prevent.
-   Corollary: the formula can change without migrating data.
-3. **Attribution is declared, not inferred.** An artifact can fail because its
-   *source* was wrong or because the *reasoning* was wrong. Inferring blame from
-   invalidation would systematically slander good sources. Blame is only recorded when
-   someone asserts it.
-4. **Closing is cheap, or it will not happen.** 0/486 decisions assessed is what an
-   expensive path produces. Every transition must be one flag on a command someone
-   already runs.
-5. **Absence of evidence is a first-class state.** "Never revisited" is different from
-   "confirmed good", and gardening must be able to tell them apart.
-
----
-
-## 3. Per-type lifecycle
-
-Terminal states per type. All transitions record `{actor, at, rationale}`.
-
-| type | states to add | transition | meaning |
+| Type | Transition | Fields written | Meaning |
 |---|---|---|---|
-| **dead_end** | `is_invalidated`, `invalidated_by`, `invalidated_at`, `invalidation_reason` | `deadend-invalidate` | we retried the approach and it WORKS — the constraint was false |
-| **mistake** | `is_superseded`, `superseded_by`, `prevention_verdict` | `mistake-assess` | the prevention advice held / did not hold / no longer applies |
-| **decision** | *(columns exist)* | `decision-assess --outcome upheld\|reversed\|mixed [--regret 0-1]` | what the choice actually produced |
-| **assumption** | *(has `status`)* | existing `resolve-artifacts` | verified / falsified |
-| **finding** | *(complete)* | existing `finding-resolve` | resolved / superseded |
-| **unknown** | *(complete)* | existing `unknown-resolve` | answered |
-| **blindspot** | `invalidated_by_inputs` (derived, §4) | propagation | its inputs no longer hold |
+| finding | `resolve-artifacts` or `finding-resolve` | `is_resolved`, `resolution`, `resolved_timestamp`, `superseded_by`, `resolution_kind` | closed. `resolution_kind` is a closed vocabulary: `stale` (was true, aged), `superseded` (replaced by a named artifact), `retracted` (was false when written), `mistyped` (belongs to another type) |
+| unknown | `resolve-artifacts` or `unknown-resolve` | `is_resolved`, resolver text, `resolved_timestamp` | answered |
+| assumption | `resolve-artifacts` | status, optional `verified` | verified or falsified |
+| goal | `resolve-artifacts` | completion with a reason | done |
+| dead_end, mistake | `resolve-artifacts` (`invalidated_by` optional) | `is_invalidated`, `invalidated_at`, `invalidated_by`, `invalidation_reason`, `last_revisited_at` | no longer actionable: the approach works after all, or the prevention does not hold or no longer applies. One shape for both, on purpose: "was wrong" and "no longer applies" are the same state for a reader |
+| decision | `resolve-artifacts` with `outcome` | `outcome` (`upheld`, `reversed`, `mixed`; required), `outcome_assessed_at`, `regret_score` | what the choice produced. `regret` is 0 to 1 and self-assessed, not derived from outcome and reversibility |
+| lesson | `resolve-artifacts` with `superseded_by` | supersession edge | a lesson is retired only by a named successor |
 
-**Naming discipline:** these are *flags on existing verbs* wherever possible, not new
-verbs (`resolve-artifacts` gains `dead_end`, `mistake`, `decision` types). New verbs
-only where no batch path fits.
+Migration 060 (`migration_060_artifact_falsifiability`) added the invalidation columns to `project_dead_ends` and `mistakes_made`, a `domain` column on dead-ends (so staleness can be judged per domain, since a dead-end about a fast-moving dependency rots faster than one about arithmetic), and `derived_from` on `blindspot_events`. Retrieval over memory skips invalidated dead-ends and mistakes (`memory_manager.py`).
 
----
+### Bulk mode for gardening
 
-## 4. Blindspot propagation — the derived case
+`resolve-artifacts` also takes a `filter` block (`type`, `project_id`, `older_than`, `matching` as a SQL LIKE pattern) plus `resolution`. It is a dry run unless `"apply": true`. For `finding` and `unknown` it resolves; for `dead_end` and `mistake` it invalidates. Filter mode mirrors finding and unknown resolutions into git notes; dead-end and mistake invalidations in filter mode are SQLite-only, so a from-notes rebuild would show them as valid again (`_persist_filter_resolution_to_notes` says so). I did not find a notes write for the per-id path either; treat invalidation of these two types as unreplicated.
 
-A blindspot is **not observed, it is inferred** — `blindspot-scan` derives it from the
-pattern across other artifacts. So its validity is *downstream* of its inputs:
+The gardening skill still tells practitioners not to resolve or delete dead-ends and mistakes outside literal duplicates and test noise. Invalidation is for the case where something showed the constraint false.
 
-> If the artifacts a blindspot was derived from are invalidated, the blindspot is
-> suspect. It is a conclusion, and conclusions inherit the fate of their premises.
+### Falsifiers
 
-**Rule:** a blindspot records the artifact ids it was derived from
-(`derived_from[]`). When ≥ *N* of those inputs are invalidated/superseded, the
-blindspot is flagged `stale_inputs` — **not** auto-invalidated. It is re-scanned, and
-a human or the practice decides.
+A falsifier names the observation that would refute a belief, registered at PREFLIGHT or CHECK against a finding, assumption, decision, dead-end, mistake or lesson (`PARENT_TABLES` in `falsifiers.py`; unknowns are excluded because they assert nothing). It stays `registered` and is re-surfaced at later PREFLIGHTs until a POSTFLIGHT adjudicates it as `tripped`, `survived` or `expired`. `survived` without evidence is recorded as `expired`. `empirica falsifier-list [--state registered|tripped|survived|expired|all]` lists them.
 
-Auto-invalidation is deliberately rejected: a blindspot can remain true even when a
-supporting finding was wrong, and silently deleting an unknown-unknown is the worst
-possible failure direction. **Flag, re-derive, decide.**
+One gap against the older description: adjudicating a falsifier `tripped` updates the falsifier row and nothing else. It does not set `is_invalidated` on the parent. Invalidating the parent is a separate `resolve-artifacts` call by a person or the practice.
 
-This also means `blindspot-scan` must persist its inputs, which it does not do today.
+## Blindspots
 
----
+A blindspot is inferred, so it inherits the fate of its premises. `assess_blindspot_inputs` in `sanctify.py` returns `stands`, `stale_inputs` or `unknown_provenance` from a `derived_from` list and the set of invalidated ids (stale at a ratio of 0.5 by default). It deliberately recommends re-derivation and never auto-invalidates, because deleting an unknown-unknown is the worst failure direction.
 
-## 5. Source outcome feedback
+Not connected: the column and the function exist, and a test covers the function, but nothing in the CLI calls it and `blindspot-scan` does not write `derived_from`. Every blindspot is therefore `unknown_provenance` in practice.
 
-Once artifacts have outcomes, they flow to the sources they cite via `sourced_from`.
+## Source outcome feedback
 
-**Recording** — append to the source's `lifecycle_audit_log` (already exists, already
-holds `repointed` and archive events):
+When `resolve-artifacts` closes a finding, invalidates a dead-end or mistake, or assesses a decision, `_record_source_outcomes` appends a `source_outcome` event to the `lifecycle_audit_log` of every source the artifact cites through a `sourced_from` edge:
 
 ```json
-{"event": "source_outcome", "at": ..., "artifact_id": "...", "artifact_type": "finding",
- "outcome": "confirmed|invalidated|superseded", "implicated": true}
+{"event": "source_outcome", "at": 0, "artifact_id": "...", "artifact_type": "finding",
+ "outcome": "confirmed|invalidated|superseded|retracted", "implicated": false}
 ```
 
-`implicated` is only ever `true` when declared via `--source-implicated <id>` at
-resolution time (principle 3).
+`implicated` is true only when the item carries `source_implicated` (a list of source ids, or `true` for every cited source). The write is fail-open: a bookkeeping failure never blocks the resolution.
 
-**Derived metrics** (computed on read, never stored):
+Outcome per transition: finding with `superseded_by` is `superseded`; finding with `resolution_kind: retracted` is `retracted`; any other finding resolution is `confirmed`; dead-end or mistake invalidation is `invalidated`; decision `upheld` is `confirmed`, other decision outcomes are `invalidated`.
 
-| metric | derived from |
+### Derived standing
+
+`derive_standing(outcome_events, citation_count, last_reviewed_at, now)` computes, without storing anything:
+
+| Metric | Derived from |
 |---|---|
-| **relevance** | citation count + recency of citing artifacts |
-| **accuracy** | confirmed vs **implicated**-invalidated outcomes |
-| **stability** | rate of citing artifacts going stale + `content_hash` changes across reviews |
-| **standing** | review age (`last_reviewed_at`) — unreviewed is not "good", it is unknown |
+| relevance | citation count and number of observed outcomes; `uncited` is reported as a state |
+| accuracy | `confirmed` events against `invalidated` events with `implicated: true`; `None` when nothing is judged |
+| stability | share of events that are `superseded` or `invalidated` |
+| review age | `last_reviewed_at`, which `sources-check` stamps per source (default re-probe window from the practice's `hygiene_policy.source_staleness_days`) |
 
-**Sparsity note:** fleet-wide there are 446 sources and 38 citations. Any *statistical*
-score is noise at this volume; an *event trail* is useful from the first event. This is
-a second, independent reason for principle 2.
+`sources-check` prints a corpus rollup (scored, uncited, never reviewed, review overdue, implicated failures) using these.
 
----
+Two consequences of the event vocabulary, from reading the code rather than from a run:
 
-## 6. Gardening integration
+- `retracted` is in neither the negative nor the moved set in `sanctify.py`, so a retracted finding does not lower a source's accuracy even when the source is declared implicated, and does not count against its stability.
+- A finding closed as `stale` without `superseded_by` is recorded as `confirmed` for its sources.
 
-Gardening becomes the consumer, and gains the questions it currently cannot ask:
+## What is still open
 
-- dead-ends never revisited, older than N — *candidates for retry*, not deletion
-- decisions never assessed (today: **all 486**)
-- mistakes whose prevention was never validated
-- blindspots with `stale_inputs`
-- sources: uncited, unreviewed, or implicated-inaccurate
-
-Each is a **prompt**, not an automatic action. Prune *and replant*: the point is to
-retry a suspect dead-end, not to delete the record of it.
-
----
-
-## 7. Rollout
-
-Non-breaking and incremental; each phase is independently useful.
-
-| phase | content | unblocks |
-|---|---|---|
-| **1** | migration: lifecycle columns for `dead_end` + `mistake`; `blindspot.derived_from` | everything |
-| **2** | transitions: `deadend-invalidate`, `mistake-assess`, `decision-assess`; extend `resolve-artifacts` to the new types | closing the 1369 unfalsifiable artifacts |
-| **3** | source outcome recording (§5) + `--source-implicated` | source accuracy |
-| **4** | derived metrics + gardening surfaces (§6) | acting on it |
-| **5** | blindspot propagation (§4) | derived-artifact integrity |
-
-Existing artifacts keep working throughout — every new column is nullable, and
-"never assessed" is a legitimate, queryable state (principle 5).
-
----
-
-## 8. Resolved decisions
-
-All four settled by David, 2026-07-27.
-
-1. **Retry cadence for dead-ends → DOMAIN-SCOPED.** Age alone is weak evidence, so
-   staleness is evaluated per domain: a dead-end about a fast-moving dependency rots
-   far faster than one about arithmetic. Implemented as `project_dead_ends.domain`
-   (migration 060); the per-domain windows themselves are a Phase 4 tuning question,
-   deliberately not hard-coded now.
-
-2. **`regret_score` → SELF-ASSESSED 0–1.** Trust the practitioner's own assessment
-   rather than deriving it from outcome × reversibility. This is consistent with how
-   the rest of empirica works — vectors are self-reported beliefs, and evidence
-   *informs* them rather than overriding them. A derived regret would be an asserted
-   number wearing the costume of a measurement.
-
-3. **Mistake supersession vs invalidation → ONE STATE.** "No longer applies" and "was
-   wrong" both mean *not actionable*, so both invalidate; re-derive the mistake
-   afterwards if it is still pertinent. Two states nobody could reliably tell apart
-   would be worse than one that is always clear. This is why `dead_end` and `mistake`
-   share an identical invalidation shape in migration 060.
-
-4. **Calibration feed → EVENTUALLY, NOT V1.** Out of scope here, but the event shape
-   must not preclude it: outcome events carry actor + timestamp so a later calibration
-   consumer can read them without a migration.
-
-### Still open (deferred, not blocking)
-
-- Per-domain staleness windows for dead-ends (Phase 4, needs data on which domains
-  actually rot).
-- Whether a re-derived mistake should link back to the invalidated one
-  (`superseded_by`-style provenance) or stand alone.
-
----
-
-*Written against measured state, not assumption — every count in §1 is from a live
-read of the practice DB on 2026-07-27.*
+- Per-domain staleness windows for dead-ends: the column exists, no window logic reads it.
+- Gardening prompts for "dead-ends never revisited", "decisions never assessed" and "mistakes whose prevention was never validated": the columns make them queryable, but I found no surface that asks them.
+- Blindspot propagation (above).
+- Feeding outcome events into calibration: not built; the events carry a timestamp but no actor field.
+- Whether a re-derived mistake should link back to the one it replaced.

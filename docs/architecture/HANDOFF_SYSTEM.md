@@ -1,238 +1,159 @@
-# Handoff System - Session Continuity
+# Handoff System
 
 **Module:** `empirica.core.handoff`
 
-The Handoff system enables epistemic continuity across sessions, context switches, and AI-to-AI transfers. It captures what was learned, what remains unknown, and what the next session should focus on.
+A handoff report is a short, written summary one session leaves for the next:
+what was done, what was found, what is still unknown, what to do first. It is
+authored by the practitioner at the end of a session (or after investigating),
+combined with the vector deltas the session measured, and stored twice: as git
+notes and as a row in `sessions.db`.
 
-## Philosophy
+It is for **session-to-session continuity inside a practice**. It is not a
+message to a peer (see [`MESSAGING_LAYERS.md`](MESSAGING_LAYERS.md)) and it is
+not what `project-bootstrap` loads, which draws on the artifact graph.
 
-Sessions end but knowledge persists:
-- **Capture deltas**: What changed during this session?
-- **Preserve context**: What does the next session need to know?
-- **Dual storage**: Git notes (portable) + Database (queryable)
-- **Compression**: Token-efficient format for context loading
+Three things share the word "handoff"; only the first is this document:
 
----
-
-## Architecture
-
-```
-Session Complete
-      │
-      ▼
-┌─────────────────────────────────────┐
-│  EpistemicHandoffReportGenerator    │
-│  ─────────────────────────────────  │
-│  • Collects session data            │
-│  • Computes epistemic deltas        │
-│  • Generates markdown + JSON        │
-│  • Compresses for token efficiency  │
-└─────────────────────────────────────┘
-      │
-      ▼
-┌─────────────────────────────────────┐
-│       HybridHandoffStorage          │
-│  ─────────────────────────────────  │
-│  ┌──────────────┐ ┌──────────────┐  │
-│  │GitHandoff    │ │DatabaseHandoff│ │
-│  │Storage       │ │Storage       │  │
-│  │              │ │              │  │
-│  │refs/notes/   │ │handoff_      │  │
-│  │empirica/     │ │reports       │  │
-│  │handoff/      │ │table         │  │
-│  └──────────────┘ └──────────────┘  │
-└─────────────────────────────────────┘
-```
+| Name | What it is |
+|---|---|
+| `handoff-create` / `handoff-query` | the session handoff report described here |
+| `project-handoff` | a project-level summary (`--project-id`, `--summary`, key decisions, patterns, remaining work) stored by `SessionDatabase.create_project_handoff`; not a session report |
+| `~/.empirica/compact_handoff*.json` | a small file the pre-compact hook writes for the post-compact hook to read (`hooks/pre-compact.py`); unrelated storage |
 
 ---
 
-## Classes
+## Flow
 
-### EpistemicHandoffReportGenerator
-
-Generates comprehensive handoff reports from session data.
-
-```python
-generator = EpistemicHandoffReportGenerator(session_id="abc123")
-
-report = generator.generate_report(
-    task_summary="Implemented authentication module",
-    preflight_vectors={"know": 0.5, "uncertainty": 0.5},
-    postflight_vectors={"know": 0.8, "uncertainty": 0.2},
-    findings=["OAuth2 flow requires PKCE", "Token refresh every 15 min"],
-    unknowns_resolved=["Which auth provider to use"],
-    unknowns_remaining=["Rate limit handling unclear"],
-    artifacts=["src/auth/oauth.py", "tests/test_auth.py"]
-)
+```
+handoff-create  ──►  EpistemicHandoffReportGenerator  ──►  HybridHandoffStorage
+ (stdin JSON or        picks a type from the session's        ├─ git notes  (HEAD of the repo)
+  flags)               PREFLIGHT / CHECK / POSTFLIGHT rows    └─ sessions.db handoff_reports
 ```
 
-**Report contents:**
-- `ai_id` - Which AI generated this
-- `task_summary` - What was accomplished
-- `epistemic_deltas` - Vector changes (PREFLIGHT → POSTFLIGHT)
-- `key_findings` - Important learnings
-- `knowledge_gaps_filled` - Resolved unknowns
-- `remaining_unknowns` - Still open questions
-- `recommended_next_steps` - What to do next
-- `compressed_json` - Token-efficient format
-- `markdown` - Human-readable report
+### Input
 
-### GitHandoffStorage
+`empirica handoff-create --help` is the flag reference. Input is either flags or
+a JSON config on stdin (`handoff-create -`) or from a file. Required:
+`task_summary`, `key_findings` (array), `next_session_context`. Optional:
+`remaining_unknowns`, `artifacts`, `planning_only`. `session_id` is taken from
+the active transaction when absent. Missing required fields exit 1 with a JSON
+error.
 
-Store handoff reports in Git notes for distributed, version-controlled persistence.
+### Types
 
-```python
-storage = GitHandoffStorage(repo_path="/path/to/repo")
+Chosen by `_handoff_determine_type` from what the session database holds:
 
-# Store handoff
-storage.store_handoff(session_id, report)
-# Creates: refs/notes/empirica/handoff/{session_id}
-# Creates: refs/notes/empirica/handoff/{session_id}/markdown
+| Type | Needs | Epistemic deltas |
+|---|---|---|
+| `complete` | PREFLIGHT and POSTFLIGHT | PREFLIGHT to POSTFLIGHT |
+| `investigation` | PREFLIGHT and at least one CHECK | PREFLIGHT to the last CHECK |
+| `planning` | nothing (`--planning-only`) | none; `epistemic_deltas` is empty |
+| `preflight_only` | PREFLIGHT only | none; built with the planning generator and labelled as an aborted session |
 
-# Load handoff
-handoff = storage.load_handoff(session_id, format='json')
-markdown = storage.load_handoff(session_id, format='markdown')
+With no assessments and no `--planning-only` the command prints the three ways
+to proceed and creates nothing.
 
-# List all handoffs
-session_ids = storage.list_handoffs()
-```
+### Report contents
 
-**Benefits:**
-- Travels with repo (clone, push, pull)
-- Version controlled
-- Survives database loss
-- Human-readable with `git notes show`
+`generate_handoff_report` returns a dict with: `session_id`, `ai_id`,
+`timestamp`, `handoff_subtype`, `task_summary`, `duration_seconds`,
+`epistemic_deltas`, `key_findings`, `knowledge_gaps_filled`,
+`remaining_unknowns`, `noetic_tools`, `next_session_context`,
+`recommended_next_steps`, `artifacts_created`, `calibration_status`,
+`overall_confidence_delta`, plus `markdown` (the readable report) and
+`compressed_json` (the stored form).
 
-### DatabaseHandoffStorage
-
-Store handoff reports in SQLite for fast queries and indexing.
-
-```python
-storage = DatabaseHandoffStorage(db_path=".empirica/sessions/sessions.db")
-
-# Store handoff
-storage.store_handoff(session_id, report)
-
-# Query by AI or date
-recent = storage.query_handoffs(
-    ai_id="empirica",
-    since="2025-01-01",
-    limit=10
-)
-
-# List all handoffs
-session_ids = storage.list_handoffs()
-```
-
-**Benefits:**
-- Fast indexed queries
-- Filter by AI agent
-- Filter by date range
-- Relational integrity
-
-### HybridHandoffStorage
-
-Dual storage combining Git notes and Database for best of both worlds.
-
-```python
-storage = HybridHandoffStorage(
-    repo_path="/path/to/repo",
-    db_path=".empirica/sessions/sessions.db"
-)
-
-# Store in BOTH backends
-result = storage.store_handoff(session_id, report)
-# Returns: {'git_stored': True, 'db_stored': True, 'fully_synced': True}
-
-# Load (prefers database for speed, falls back to git)
-handoff = storage.load_handoff(session_id, prefer='database')
-
-# Query with automatic merge from git notes
-handoffs = storage.query_handoffs(
-    ai_id="empirica",
-    include_git=True  # Merge git notes not in database
-)
-
-# Check sync status
-status = storage.check_sync_status(session_id)
-# Returns: {'in_git': True, 'in_database': True, 'synced': True}
-```
-
-**Strategy:**
-- Writes: Store in both backends
-- Reads: Prefer database (faster), fallback to git
-- Queries: Merge database + git notes for completeness
+- `recommended_next_steps` is rule-based: elevated uncertainty, open unknowns,
+  the calibration label, and a few threshold checks on know, do and completion.
+- `calibration_status` is the practitioner's own POSTFLIGHT
+  `calibration_accuracy` when recorded, else a heuristic comparing the know
+  delta with the uncertainty delta; investigation handoffs report
+  `investigation-only`. It is not the grounded calibration computed from
+  external evidence; read that from the calibration verbs.
+- `compressed_json` is what makes it cheap to load. It uses short keys (`s`,
+  `ai`, `ts`, `task`, `dur`, `deltas`, `findings`, `gaps`, `unknowns`, `next`,
+  `recommend`, `artifacts`, `tools`, `cal`), truncates text fields, keeps the
+  first five findings, five unknowns, three gaps and three recommendations,
+  and drops deltas under 0.10 in magnitude. Planning handoffs use a smaller
+  variant with `type: planning`.
 
 ---
 
-## Handoff Report Structure
+## Storage
 
-```json
-{
-  "session_id": "abc123-...",
-  "ai_id": "empirica",
-  "timestamp": "2025-01-07T10:30:00Z",
-  "task_summary": "Implemented OAuth2 authentication",
-  "duration_seconds": 1800,
+`HybridHandoffStorage` writes both backends and reports
+`{git_stored, db_stored, fully_synced}`; a failure in one does not stop the
+other, and `handoff-create` logs a warning when they diverge.
 
-  "epistemic_deltas": {
-    "know": 0.3,
-    "uncertainty": -0.3,
-    "clarity": 0.2
-  },
+**Git notes.** `GitHandoffStorage` runs `git notes --ref empirica/handoff/<session_id> add -f`
+on `HEAD`, so the report is at `refs/notes/empirica/handoff/<session_id>`
+(compressed JSON) and `refs/notes/empirica/handoff/<session_id>/markdown`
+(readable). It attaches to whatever commit is `HEAD` when the command runs, and
+creates an empty initial commit in a repository that has none. A refused
+markdown note is logged, not raised; a refused JSON note raises.
+`git notes --ref empirica/handoff/<id> show HEAD` reads it.
 
-  "key_findings": [
-    "OAuth2 PKCE flow required for mobile",
-    "Token refresh every 15 minutes"
-  ],
+**Database.** `DatabaseHandoffStorage` upserts into a `handoff_reports` table in
+the session database (WAL mode), indexed on `ai_id` and timestamp. It stores the
+full expanded report including markdown; git holds only the compressed form
+plus the markdown.
 
-  "knowledge_gaps_filled": [
-    "Which auth provider to use → Auth0"
-  ],
+**Reads.** `load_handoff` prefers the database and falls back to git (or the
+reverse with `prefer="git"`). `query_handoffs(ai_id, since, limit)` queries the
+database and merges git-note handoffs that are not in it, so a clone that has the
+notes but not the database still sees them; merged git rows are the compressed
+form, with short keys. `check_sync_status` tells you which backend has a given
+session.
 
-  "remaining_unknowns": [
-    "Rate limit handling unclear",
-    "Token storage security best practices"
-  ],
-
-  "recommended_next_steps": [
-    "Implement token refresh logic",
-    "Add rate limit handling",
-    "Write integration tests"
-  ],
-
-  "artifacts_created": [
-    "src/auth/oauth.py",
-    "tests/test_auth.py"
-  ],
-
-  "calibration_status": "good",
-  "overall_confidence_delta": 0.3,
-
-  "compressed_json": "...",  // Token-efficient format
-  "markdown": "..."          // Human-readable report
-}
-```
+Whether the handoff refs travel in your notes sync depends on which refs your
+push or sync verb includes; this was not checked here.
 
 ---
 
-## CLI Integration
+## Using it
 
 ```bash
-# Generate handoff at session end
-empirica project-handoff --session-id <ID> --output json
+# write: from stdin JSON (preferred) or flags
+empirica handoff-create - --output json <<'EOF'
+{"task_summary": "...", "key_findings": ["..."], "next_session_context": "...",
+ "remaining_unknowns": ["..."], "artifacts": ["path/to/file"]}
+EOF
 
-# Load handoff for new session
-empirica project-bootstrap --session-id <ID>
-
-# List recent handoffs (use project-search for semantic queries)
-empirica project-search --task "recent handoffs" --limit 5
+# read
+empirica handoff-query --ai-id <ai_id> --limit 5
+empirica handoff-query --session-id <id>
+empirica query handoffs --ai-id <ai_id> --since 2026-01-01
 ```
+
+`handoff-query` filters by session or AI only; `query handoffs` also takes
+`--since`, `--scope`, `--limit`. Both go through `HybridHandoffStorage`. The MCP
+tool `handoff_create` maps to `handoff-create`; there is no MCP tool for the
+query side in the tool list.
+
+Human-mode output prints a summary and then the whole report as JSON.
+
+`session-end` was removed in favour of `handoff-create`.
 
 ---
 
-## Source Files
+## Present in the tree, not wired
 
-- `empirica/core/handoff/report_generator.py` - Report generation
-- `empirica/core/handoff/storage.py` - Dual storage backends
-- `empirica/core/validation/handoff_validator.py` - Validation logic
+- `empirica/core/handoff/auto_generator.py` (`auto_generate_handoff`,
+  `close_session`) builds a report from cascade rows. Nothing in the repository
+  calls it.
+- `empirica/core/validation/handoff_validator.py` (`HandoffValidator`, checks a
+  received checkpoint's claims against the git diff) is exported from
+  `empirica.core.validation` and has no caller in the CLI or hooks.
+- `project-bootstrap` does not read handoff reports. A next session gets the
+  report only by running `handoff-query` or `query handoffs`.
+
+---
+
+## Source
+
+- `empirica/core/handoff/report_generator.py`: `EpistemicHandoffReportGenerator`
+  (`generate_handoff_report`, `generate_planning_handoff`)
+- `empirica/core/handoff/storage.py`: `GitHandoffStorage`,
+  `DatabaseHandoffStorage`, `HybridHandoffStorage`
+- `empirica/cli/command_handlers/handoff_commands.py`: the two verbs
+- `empirica/cli/command_handlers/query_commands.py`: `query handoffs`

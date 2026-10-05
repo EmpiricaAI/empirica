@@ -1,481 +1,202 @@
 # Subagent Epistemic Assessment
 
-**Status:** Core Architecture
-**Version:** 0.2.0
-**Date:** 2026-03-16 (updated 2026-04-08)
+How Empirica governs subagents spawned through Claude Code's Task/Agent tool:
+lineage, delegated work counting, a findings budget, and a quality gate on what
+flows back to the parent. It runs entirely from two hooks and a few core
+modules. It does **not** measure a subagent's own calibration; see
+[Not implemented](#not-implemented).
 
 ---
 
-## Overview
+## What a subagent is, to Empirica
 
-When an AI spawns subagents, those agents operate without epistemic
-accountability. They return results with no confidence calibration,
-no scope tracking, and no way to measure reliability over time.
+A subagent is not a practitioner. Its epistemic state does not persist into the
+practice, it runs no PREFLIGHT of its own that anyone reads, and its tool calls
+bypass the parent's Sentinel gates. The parent's CHECK authorized the spawn, and
+that is the only gate. What Empirica adds around it:
 
-This spec adds an epistemic lens to Claude Code's native subagent
-system via the existing hook infrastructure. Two modes: **passive**
-(observe and calibrate) and **active** (imprint and constrain).
+| Concern | Mechanism | Where |
+|---|---|---|
+| Lineage | child row in `subagent_sessions` linked by `parent_session_id` | `subagent-start.py`, `SessionDatabase` |
+| Identity of the subagent's CLI calls | per-subagent `active_work_<claude_session_id>.json` with `is_subagent: true` | `subagent-start.py` |
+| Gate exemption | `_detect_subagent` lets subagents through the praxic gate | `sentinel-gate.py` |
+| Delegated work counting | subagent tool calls added to the parent's transaction counters | `subagent-stop.py` |
+| Findings budget and spawn regulation | `attention_budgets`, `should_spawn_more` | `subagent-start.py`, `subagent-stop.py`, `core/attention_budget.py`, `core/information_gain.py` |
+| Quality gate on rollup | `EpistemicRollupGate`, decisions logged to `rollup_logs` | `core/epistemic_rollup.py` |
 
----
-
-## Storage Architecture (v1.8.14+)
-
-Subagent sessions live in a **dedicated `subagent_sessions` table**,
-isolated from the main `sessions` table. This separation was added in
-migration 034 (KNOWN_ISSUES 11.24) to fix two related problems:
-
-1. **Diagnostic pollution.** Pre-v1.8.14, every Task spawn created a
-   row in the main `sessions` table. Subagent children were always
-   newer than their parents, so any "recent sessions" diagnostic
-   surfaced only subagent rows — masking the actual parent in
-   post-compact failures and statusline lookups.
-
-2. **Recent-sessions queries returning unhelpful results.** Code that
-   listed sessions for dashboards or "what was I working on" features
-   had to filter `WHERE parent_session_id IS NULL` to skip subagents.
-   Many call sites forgot, leading to subtle bugs.
-
-**Architecture:**
-
-```
-sessions table                    subagent_sessions table
-─────────────                    ──────────────────────
-parent (claude-code) ◄──────┐    child (Explore)
-                            │    child (general-purpose)
-                            └────child (superpowers:code-reviewer)
-                                 (linked via parent_session_id)
-```
-
-The parent session lives in `sessions`. Each Task spawn creates a row
-in `subagent_sessions` with `parent_session_id` pointing back. Lineage
-is preserved without polluting the main table.
-
-**API surface** (in `SessionDatabase`):
-
-| Method | Purpose |
-|--------|---------|
-| `create_subagent_session(agent_name, parent_session_id, ...)` | Called by `subagent-start` hook |
-| `end_subagent_session(session_id, rollup_summary)` | Called by `subagent-stop` hook |
-| `get_subagent_session(session_id)` | Single subagent lookup |
-| `list_subagents_for_parent(parent_session_id, status=None)` | Enumerate children when you actually want them |
-
-Rollup at `subagent-stop` still logs findings to the **parent** session
-in the main `sessions` table — the child's purpose is lifecycle
-tracking and lineage, not artifact storage.
-
-### Subagent CLI Resolution (v1.8.15+)
-
-When a subagent runs an inline `empirica` CLI command (e.g.
-`empirica preflight-submit`), the CLI needs to resolve a session_id.
-Pre-1.8.15, subagents had no `active_work_<claude_session_id>.json`
-file of their own, so the resolver fell through to TTY-based fallback
-and returned the *parent's* `empirica_session_id` — every subagent
-CLI call ended up tagging artifacts with the parent's session,
-contaminating the parent's PREFLIGHT/POSTFLIGHT pair.
-
-KNOWN_ISSUES 11.29 closes this:
-
-- `subagent-start` writes
-  `~/.empirica/active_work_<subagent_claude_session_id>.json` with
-  `is_subagent: true` and the subagent's `child_session_id`. The
-  subagent's CLI calls now resolve to their own session.
-- `sentinel-gate._detect_subagent` flag-detects via `is_subagent`
-  with absence-detection fallback for pre-1.8.15 in-flight subagents.
-- `subagent-stop` deletes the active_work file at SubagentStop.
-
-**Hook-layer identity (corrected):** Each Task spawn does receive a
-distinct `claude_session_id` from Claude Code via the hook input.
-Hooks CAN distinguish parent from child traffic via that field — the
-post-1.8.15 `_detect_subagent` reads `is_subagent` from the
-subagent-specific active_work file written at SubagentStart. Earlier
-documentation suggested process-level sharing forced agent_name-based
-gating; that was inaccurate. The Empirica `child_session_id` we
-create in `subagent_sessions` remains a separate UUID used for
-lineage tracking and budget allocation; the `claude_session_id`
-identifies the Claude Code session, the `child_session_id` identifies
-the Empirica session bound to it.
-
-See [`docs/reference/api/core_session_management.md`](../reference/api/core_session_management.md#subagent-sessions-v1712) for full method signatures and the `subagent_sessions` schema.
+Both hooks are registered in `templates/settings-hooks.json` under
+`SubagentStart` (timeout 10) and `SubagentStop` (timeout 15), each with
+`allowFailure: true`. They fail open: a hook error means the agent proceeds
+untracked.
 
 ---
 
-## How It Works
+## Lifecycle
 
 ```
-Parent AI spawns subagent
-        │
-        ▼
-┌─────────────────────────────┐
-│  subagent-start hook fires  │
-│                             │
-│  1. Decompose prompt → vectors (NLP)
-│  2. Match/create persona archetype
-│  3. Record subagent preflight
-│  4. (Active) Inject scope preamble
-└──────────────┬──────────────┘
-               │
-        Agent executes
-               │
-               ▼
-┌─────────────────────────────┐
-│  subagent-stop hook fires   │
-│                             │
-│  1. Capture result summary
-│  2. Record subagent postflight
-│  3. Wait for parent assessment
-│     (next finding-log or CHECK)
-│  4. Compute calibration delta
-│  5. Update Brier score for archetype
-└─────────────────────────────┘
+Parent spawns a subagent
+        |
+        v
+SubagentStart  (subagent-start.py)
+  1. find the parent Empirica session (latest active session for this practice)
+  2. create_subagent_session(agent_name, parent_session_id)  -> child_session_id
+  3. write .empirica/subagent_sessions/<agent>_<timestamp>.json (status active,
+     child id, parent id, budget block)
+  4. get the attention budget allocation for this agent, or create a default one
+  5. write ~/.empirica/active_work_<subagent claude_session_id>.json
+  6. warn if the budget is already exhausted
+        |
+        v   agent runs; its empirica CLI calls resolve to child_session_id
+        |
+        v
+SubagentStop  (subagent-stop.py)
+  1. find the most recent ACTIVE session file for this agent_name
+  2. count tool_use blocks in the agent transcript
+  3. add that count to the parent's open transaction counters
+  4. extract findings/unknowns from the transcript text
+  5. roll up through the gate; log accepted ones to the parent session
+  6. end_subagent_session(child_session_id); delete the active_work file
+  7. mark the session file completed; report budget and regulation
 ```
+
+### Storage
+
+Subagent rows live in `subagent_sessions` (migration 034), separate from
+`sessions`. Before 1.8.14 every spawn wrote to `sessions`, and because children
+are always newer than their parent, "recent sessions" lookups returned only
+subagents and hid the real parent. Columns (`empirica/data/schema/sessions_schema.py`):
+`session_id`, `agent_name`, `parent_session_id`, `project_id`, `instance_id`,
+`start_time`, `end_time`, `status` (default `active`), `rollup_summary`,
+`created_at`. `SessionDatabase` methods: `create_subagent_session`,
+`end_subagent_session`, `get_subagent_session`, `list_subagents_for_parent`
+(optional `status`). Signatures:
+[core_session_management.md](../reference/api/core_session_management.md#subagent-sessions-v1814).
+
+The child session is lineage, not artifact storage: accepted findings are logged
+to the **parent** session.
+
+### Identity of the subagent's CLI calls
+
+Each Task spawn gets its own `claude_session_id` from Claude Code, and the hooks
+receive it. Without a per-subagent `active_work` file, a subagent's `empirica`
+commands fell through to TTY-based resolution, which is shared with the parent,
+and tagged the parent's session (the contamination described in the comment on
+`_write_subagent_active_work`). SubagentStart now writes the file with
+`is_subagent: true` and `empirica_session_id` set to the child session;
+SubagentStop deletes it.
+
+`_detect_subagent(claude_session_id)` in `sentinel-gate.py` reads that flag (file
+present with `is_subagent: true` means subagent; present without it means
+parent). If the file is absent it falls back to absence detection, with an extra
+signal for subagents running in a linked git worktree. A detected subagent is
+allowed through the praxic gate (`_check_exemptions`, rule 3a), and the tool-call
+counter increments only for sessions that have an `active_work` file, so subagent
+calls are never double counted.
+
+### Delegated work counting
+
+`count_transcript_tool_calls` counts assistant `tool_use` blocks in the subagent
+transcript. `add_delegated_work_to_parent` adds that to both `tool_call_count` and
+`delegated_tool_calls` in the parent transaction's hook-counters file, and only if
+the transaction is open (it writes the counters file, not the transaction file, to
+avoid racing POSTFLIGHT). The reason is the autonomy nudges in the Sentinel: with
+no counting, delegating would make a transaction look shorter than the work done.
+The hook message says whether the count was added.
 
 ---
 
-## Mode 1: Passive (Observe and Calibrate)
+## The findings budget
 
-Zero changes to how the parent AI works. The hooks observe silently.
+### Allocation
 
-### Prompt Decomposition
+`empirica/core/attention_budget.py` allocates a findings budget across domains
+using information gain (higher uncertainty and lower knowledge give more;
+prior findings give diminishing returns). Two ways a budget gets created:
 
-The `subagent-start` hook receives the agent's prompt and description.
-It decomposes this into estimated epistemic vectors via pattern matching:
+- Planned: `empirica memory-prime --session-id S --domains '["a","b"]'
+  [--budget N] [--know K] [--uncertainty U] [--prior-findings JSON]
+  [--dead-ends JSON] [--persist]`. Without `--persist` it only prints.
+- Spontaneous: if no budget exists for the parent session, SubagentStart creates
+  one: total 20, strategy `spontaneous`, a single `general` domain.
 
-| Prompt Signal | Vector Mapping |
-|---------------|----------------|
-| "Research...", "Find...", "Search..." | high uncertainty, investigation type |
-| "Implement...", "Write...", "Build..." | higher do, praxic type |
-| "Check...", "Verify...", "Test..." | moderate know, audit type |
-| "Explore...", "Analyze..." | moderate breadth, noetic type |
-| Domain keywords (MCP, chemistry, etc.) | domain tags |
-| "thorough", "quick", "comprehensive" | depth/density signal |
+A subagent's domain is the part of its agent name after the colon
+(`empirica:security` gives `security`), `general` otherwise. If the planned budget
+has no allocation for that domain, the defaults are budget 5, priority 0.5,
+expected gain 0.5.
 
-```python
-def decompose_prompt(prompt: str, description: str) -> SubagentPersona:
-    """Derive epistemic vectors from subagent prompt."""
-    return SubagentPersona(
-        archetype=classify_archetype(prompt),  # research|code|audit|explore
-        vectors=estimate_vectors(prompt),
-        domain_tags=extract_domains(prompt),
-        scope=estimate_scope(prompt, description),
-        prompt_hash=hash(prompt),  # for dedup
-    )
-```
+### Rollup gate
 
-### Persona Archetype Matching
+SubagentStop only extracts what the agent wrote in a recognisable form. Per
+assistant message it takes the first sentence containing one of:
 
-Archetypes are broad categories, not unique personas per spawn:
+- findings: `Found:`, `Discovered:`, `Key insight:`, `Result:`
+- unknowns: `Unknown:`, `Unclear:`, `Need to investigate:`, `TODO:`
 
-| Archetype | Typical Vectors | Example Prompts |
-|-----------|-----------------|-----------------|
-| `researcher` | know:0.3, uncertainty:0.7, depth:0.8 | "Research the MCP spec..." |
-| `explorer` | know:0.4, uncertainty:0.5, breadth:0.7 | "Explore the codebase for..." |
-| `implementer` | know:0.6, uncertainty:0.3, do:0.8 | "Write a function that..." |
-| `auditor` | know:0.5, uncertainty:0.4, clarity:0.8 | "Check if the tests cover..." |
-| `analyst` | know:0.5, uncertainty:0.5, density:0.8 | "Analyze the performance of..." |
+Caps are 5 findings, 5 unknowns and 3 dead ends. The dead-end list is never
+filled; no extraction pattern exists for it. A subagent that does not write in
+those forms rolls up nothing.
 
-Stored in the `subagent_sessions` table.
-
-### Calibration Tracking
-
-When the parent AI processes the subagent's result, the next epistemic
-action (finding-log, CHECK, or explicit assessment) becomes the grounded
-truth for that subagent's output.
-
-```python
-# Subagent returned with research findings
-# Parent logs a finding → this IS the assessment
-
-calibration_point = {
-    "subagent_id": "a4c63bdeeec6103a7",
-    "archetype": "researcher",
-    "domain": ["mcp", "protocol-spec"],
-    "estimated_vectors": {  # from prompt decomposition
-        "know": 0.30,
-        "uncertainty": 0.70,
-        "depth": 0.80,
-    },
-    "assessed_vectors": {   # from parent's subsequent actions
-        "know": 0.85,       # parent found the results highly informative
-        "uncertainty": 0.15, # most unknowns were resolved
-        "depth": 0.90,      # thorough — found specific technical details
-    },
-    "delta": {
-        "know": +0.55,      # agent exceeded expectations
-        "uncertainty": -0.55,
-    },
-    "outcome": "used",       # findings were incorporated into CHECK
-    "finding_ids": ["..."],  # linked findings from this agent's output
-}
-```
-
-Over time, this builds a Brier score per archetype:
+Findings go through `EpistemicRollupGate` (`min_score` 0.3, Jaccard dedup at 0.7):
 
 ```
-researcher archetype (n=47):
-  know overestimate: -0.05 (slightly conservative — good)
-  depth overestimate: +0.12 (claims thorough but misses ~12%)
-  hit rate: 78% of findings actually used by parent
-  avg resolution: 2.1 unknowns resolved per spawn
-
-explorer archetype (n=23):
-  know overestimate: +0.15 (overestimates — discount by 15%)
-  breadth underestimate: -0.08 (finds more than expected)
-  hit rate: 62% of findings used
-  avg resolution: 1.4 unknowns resolved per spawn
+score = confidence * novelty * domain_relevance
 ```
+
+`novelty` is measured against the parent session's last 50 findings and earlier
+findings in the batch. In the hook path `domain_relevance` is 1.0 and
+`confidence` is the budget allocation's `priority` (0.7 when the stored budget
+block has none), not anything the agent reported. Below `min_score` is rejected;
+accepted findings consume budget, highest score first, until it is exhausted.
+Accepted findings are logged to the parent as `[<agent_name>] <text>` with
+`impact = min(1.0, score)`; every decision, accepted or not, is written to
+`rollup_logs`. Unknowns pass through ungated. If the gate cannot be imported the
+hook falls back to logging findings at impact 0.5.
+
+The same gate is available after the fact:
+`empirica session-rollup --parent-session-id P [--budget N] [--min-score F]
+[--jaccard-threshold F] [--semantic-dedup] [--log-decisions]`, which aggregates
+findings of child sessions with `impact` standing in for confidence.
+
+### Regulation
+
+After each rollup `_check_regulation` calls
+`should_spawn_more(budget_remaining, gain_estimate=0.5, rounds_without_novel)`
+(`core/information_gain.py`), which stops on: no budget, `rounds_without_novel`
+at or above 2, or gain below 0.1. As called from the hook, `gain_estimate` is the
+constant 0.5 and `rounds_without_novel` is 0 or 1, so in practice **only an
+exhausted budget stops it**. When it does, the hook message ends with
+`REGULATION: DO NOT spawn more agents`. This is advisory text to the parent;
+nothing blocks the next spawn.
 
 ---
 
-## Mode 2: Active (Imprint and Constrain)
+## Gaps and caveats
 
-The parent defines explicit scope parameters that the `subagent-start`
-hook injects into the agent's prompt as a scoping preamble.
-
-### Imprint Schema
-
-```python
-@dataclass
-class SubagentImprint:
-    """Epistemic contract for a subagent."""
-
-    # Scope shape (0.0-1.0)
-    breadth: float = 0.5       # How wide to search
-    depth: float = 0.5         # How deep to investigate
-    confidence_floor: float = 0.5  # Minimum confidence to report
-
-    # Boundaries
-    domain_tags: list[str] = field(default_factory=list)
-    scope_type: str = "research"  # research|code|audit|explore|analyze
-    in_scope: list[str] = field(default_factory=list)
-    out_of_scope: list[str] = field(default_factory=list)
-
-    # Resource limits
-    max_tool_calls: int | None = None
-    max_sources: int | None = None
-
-    # Calibration adjustment (from historical Brier score)
-    confidence_discount: float = 0.0  # Applied to agent's claimed confidence
-```
-
-### Prompt Injection
-
-The hook translates the imprint into natural language prepended to the
-agent's system context:
-
-```python
-def imprint_to_preamble(imprint: SubagentImprint) -> str:
-    parts = []
-
-    if imprint.breadth < 0.3:
-        parts.append("Focus narrowly on the specific question asked.")
-    elif imprint.breadth > 0.7:
-        parts.append("Cast a wide net — explore adjacent topics and connections.")
-
-    if imprint.depth > 0.7:
-        parts.append("Be thorough — include technical details, specific numbers, and sources.")
-    elif imprint.depth < 0.3:
-        parts.append("Surface-level scan only — headlines and key facts.")
-
-    if imprint.confidence_floor > 0.7:
-        parts.append("Only report findings you're confident about. Flag anything uncertain.")
-
-    if imprint.out_of_scope:
-        parts.append(f"Out of scope: {', '.join(imprint.out_of_scope)}")
-
-    if imprint.domain_tags:
-        parts.append(f"Domain focus: {', '.join(imprint.domain_tags)}")
-
-    return " ".join(parts)
-```
-
-### Example: Three Agents from This Session
-
-How the three investigation agents spawned earlier would look with imprints:
-
-```python
-# Agent 1: MCP Resources
-SubagentImprint(
-    breadth=0.3,          # narrow — just resources, not full MCP
-    depth=0.9,            # thorough — need limits, push/pull, templates
-    confidence_floor=0.7,
-    domain_tags=["mcp", "protocol-spec"],
-    scope_type="research",
-    in_scope=["resource limits", "push notifications", "templates"],
-    out_of_scope=["MCP tools", "MCP prompts", "MCP sampling"],
-)
-
-# Agent 2: Competitive Landscape
-SubagentImprint(
-    breadth=0.8,          # wide — survey the field
-    depth=0.5,            # moderate — key findings not exhaustive
-    confidence_floor=0.5, # include emerging/uncertain work
-    domain_tags=["caching", "RAG", "prediction"],
-    scope_type="research",
-    in_scope=["predictive caching", "knowledge graph caching", "eviction strategies"],
-    out_of_scope=["pricing", "marketing"],
-)
-
-# Agent 3: Codebase Exploration
-SubagentImprint(
-    breadth=0.6,          # moderate — Qdrant + MCP areas
-    depth=0.8,            # thorough — need file paths and code snippets
-    confidence_floor=0.8, # only report what you actually find in code
-    domain_tags=["empirica", "qdrant", "mcp-server"],
-    scope_type="explore",
-    in_scope=["MCP resources", "caching", "knowledge graph", "embeddings pipeline"],
-    out_of_scope=["CLI commands", "test files", "documentation"],
-)
-```
+- `find_subagent_session` picks the newest active session file for an agent *name*.
+  Two concurrent subagents with the same name can be matched to each other's file.
+- The session files live under `Path.cwd()/.empirica/subagent_sessions/`, so the
+  hooks depend on the working directory being the project.
+- The rollup `confidence` is a budget-derived constant, so the score ranks by
+  novelty, and a verbose subagent's findings are treated like a careful one's.
+- Subagent output is an uncalibrated self-report. Trust its artifacts (diffs,
+  test output you can re-run), not its verdict, and re-run the gates yourself.
+  Enrich what it knows at spawn time with `/dispatch-agent`; the practice's
+  prior findings and dead ends do not reach a fresh subagent otherwise.
 
 ---
 
-## Grounded Confidence Control (Brier Score)
+## Not implemented
 
-The Brier score measures calibration: when an agent says "I'm 80% confident",
-are they right 80% of the time?
+An earlier revision of this document specified a design that was never built.
+Searching `empirica/` finds no code for any of it:
 
-### Computation
+- decomposing the subagent prompt into estimated vectors and an archetype
+  (researcher, explorer, implementer, auditor, analyst);
+- an imprint (breadth, depth, confidence floor, scope lists) injected as a prompt
+  preamble;
+- calibration points pairing estimated against parent-assessed vectors, with a
+  per-archetype Brier score and bias discount;
+- trust tiers by Brier score ("earned autonomy for subagents").
 
-```python
-def brier_score(predictions: list[CalibrationPoint]) -> float:
-    """
-    Lower is better. 0.0 = perfect calibration.
-
-    For each prediction, compare claimed confidence to binary outcome
-    (was the finding actually used/confirmed by parent?).
-    """
-    n = len(predictions)
-    if n == 0:
-        return 0.5  # no data, assume poorly calibrated
-
-    total = sum(
-        (p.claimed_confidence - p.actual_outcome) ** 2
-        for p in predictions
-    )
-    return total / n
-```
-
-### Per-Vector Brier Scores
-
-More useful than a single score — track calibration per vector:
-
-```
-researcher archetype:
-  know:        Brier 0.08 (well calibrated)
-  uncertainty: Brier 0.12 (slightly overconfident)
-  depth:       Brier 0.18 (claims thorough, misses things)
-  breadth:     Brier 0.05 (very well calibrated)
-```
-
-### Applying Calibration
-
-When a subagent returns results, the parent can adjust trust:
-
-```python
-def calibrated_confidence(raw_confidence: float,
-                          archetype: str,
-                          vector: str) -> float:
-    """Adjust agent's claimed confidence by historical calibration."""
-    brier = get_brier_score(archetype, vector)
-    historical_bias = get_historical_bias(archetype, vector)
-
-    # If agent typically overestimates know by 0.15, discount
-    adjusted = raw_confidence - historical_bias
-
-    return max(0.0, min(1.0, adjusted))
-```
-
-### Earned Autonomy for Subagents
-
-As calibration data accumulates, well-calibrated archetypes earn more trust:
-
-| Brier Score | Trust Level | Behavior |
-|------------|-------------|----------|
-| < 0.10 | **High** | Findings accepted at face value |
-| 0.10-0.25 | **Moderate** | Findings accepted with calibration adjustment |
-| 0.25-0.40 | **Low** | Findings flagged for parent verification |
-| > 0.40 | **Untrusted** | Agent gets tighter imprint or different archetype |
-
-This mirrors the Sentinel's earned autonomy for the parent AI, applied
-one layer down to subagents. Same principle, same vectors, same calibration
-infrastructure — turtles all the way down.
-
----
-
-## Integration with Existing Infrastructure
-
-| Component | How It's Used |
-|-----------|---------------|
-| `subagent-start.py` hook | Prompt decomposition + imprint injection |
-| `subagent-stop.py` hook | Result capture + postflight recording |
-| `subagent_sessions` table | Store archetype profiles + calibration |
-| Calibration collection | Per-archetype Brier scores |
-| Finding-log | Parent assessment = reference belief state |
-| Sentinel | Can apply earned autonomy thresholds |
-
-### New Storage
-
-Extends the `subagent_sessions` table with archetype-specific fields:
-
-```python
-# subagent_sessions archetype record
-{
-    "persona_id": "archetype:researcher",
-    "name": "Research Agent",
-    "type": "subagent_archetype",      # new
-    "vector_profile": [0.3, 0.7, ...], # 13D epistemic signature
-    "calibration": {                    # new
-        "brier_overall": 0.12,
-        "brier_per_vector": {"know": 0.08, "depth": 0.18, ...},
-        "historical_bias": {"know": -0.05, "depth": +0.12, ...},
-        "total_spawns": 47,
-        "hit_rate": 0.78,
-    },
-    "focus_domains": ["research", "spec-analysis", "literature-review"],
-}
-```
-
----
-
-## Implementation
-
-### Phase 1: Passive Observation
-- Enhance `subagent-start.py` to decompose prompts into vectors
-- Enhance `subagent-stop.py` to capture results
-- Link subagent outputs to parent's subsequent finding-logs
-- Store calibration points in calibration collection
-
-### Phase 2: Archetype Matching
-- Define base archetypes (researcher, explorer, implementer, auditor, analyst)
-- Store in the `subagent_sessions` table
-- Match spawned agents to nearest archetype
-- Start accumulating per-archetype Brier scores
-
-### Phase 3: Active Imprinting
-- Add imprint schema to the subagent prompt
-- Build prompt injection in `subagent-start.py`
-- Allow parent to specify scope constraints
-- Track whether tighter imprints improve calibration
-
-### Phase 4: Earned Autonomy
-- Apply calibration-based trust levels
-- Well-calibrated archetypes get wider scope
-- Poorly calibrated archetypes get constrained
-- Surface calibration data to parent AI during CHECK
-
----
-
-## Relationship to Hot Cache
-
-Subagent assessment is core infrastructure. The hot cache product builds
-on it: if subagents feed the cache (e.g., research agents that pre-load
-context), their Brier scores directly affect cache entry confidence.
-A finding from a well-calibrated agent gets higher LER priority than
-one from a poorly calibrated agent.
-
-```
-subagent Brier score → confidence weight → LER score → cache priority
-```
-
-This is why subagent assessment is core and the hot cache is product.
-The core makes the product trustworthy.
+Per-practitioner calibration (`empirica calibration-report`) is described in
+[SELF_MONITORING.md](SELF_MONITORING.md); nothing applies it to subagents.

@@ -1,604 +1,137 @@
 # Empirica Sync Architecture
 
-**Version:** 1.0.0
-**Status:** Implementation Complete (Phase 1-2)
-**Session:** 917e8348-43e1-43d1-99fa-17f71b15d8ae
-**Date:** 2026-01-23
+How epistemic data moves between devices and clones. **SQLite is the working store. Git notes are the replicated mirror.** Qdrant is derived.
 
 ---
 
-## Executive Summary
+## The model
 
-This document defines the sync architecture for Empirica epistemic data across devices and dependent projects. The core insight: **git notes are the replicated mirror** of epistemic state; SQLite (`sessions.db`) is the working store the CLI reads and writes, and `rebuild` restores it from the notes. Calibration rows (`grounded_beliefs`, `grounded_verifications`) are SQLite-only and have no note to restore from.
+| Layer | Role | Where | Replicated |
+|-------|------|-------|------------|
+| SQLite (`.empirica/sessions/sessions.db`) | Working store: every verb reads and writes it | Local, gitignored | No |
+| Git notes (`refs/notes/...`) | Replicated mirror of the artifacts | In the repo's object store | Yes, by `sync-push` / `sync-pull` |
+| Qdrant | Semantic search over artifacts | Derived | Rebuilt from SQLite, not synced |
 
-> **Namespace list below is a design snapshot (2026-01).** The live set is whatever `git for-each-ref refs/notes` shows: under `refs/notes/empirica/` today `assumptions`, `cascades`, `checkpoints`, `dead_ends`, `decisions`, `findings`, `goals`, `handoff`, `messages`, `mistakes`, `receipts`, `session/<id>/<PHASE>/<n>`, `signatures`, `sources`, `tasks`, `unknowns`; plus `refs/notes/breadcrumbs`, `refs/notes/empirica-precompact` and the local-only `refs/notes/empirica-archive/<type>/<id>` (written by `delete-artifacts`, never pushed).
+A clone of the repo has no `.empirica/`, so on its own it has none of the epistemic state. The notes carry it, and `rebuild` restores SQLite from them.
 
-**Key Findings:**
-1. `.empirica/` is gitignored - SQLite data (1431 findings, 226 unknowns) will be LOST on clone
-2. Git notes infrastructure already exists (GitGoalStore, SessionSync)
-3. Gap: Findings and unknowns need git notes equivalents
+**What the notes do not carry.** Calibration rows (`grounded_beliefs`, `grounded_verifications`, `calibration_trajectory`) live only in SQLite and have no note to restore from. `.breadcrumbs.yaml` is a generated export of calibration for session-start injection; this repo gitignores it. Identity keys and credentials are device-local.
 
----
+### Write path
 
-## Current State (Problem)
+A `*-log` verb (`finding-log`, `unknown-log`, `deadend-log`, `mistake-log`, `assumption-log`, `decision-log`, `source-add`) writes the SQLite row and the matching git note. Goals, tasks, handoffs, session-phase vectors, checkpoints and mailbox messages have notes of their own. Embedding into Qdrant happens when it is available. The note is the copy that travels.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    WHAT SURVIVES A CLONE                    │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  ✅ IN GIT NOTES (refs/notes/empirica/*)                    │
-│  ├── goals/{goal_id}          254 goals                     │
-│  ├── cascades/{session}/{id}  CASCADE checkpoints           │
-│  ├── handoff/{handoff_id}     58 handoffs                   │
-│  ├── checkpoints              Epistemic snapshots           │
-│  └── breadcrumbs              Task context                  │
-│                                                             │
-│  ✅ GIT-TRACKED FILES                                       │
-│  └── .breadcrumbs.yaml        Calibration (2316 obs)        │
-│                                                             │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  ❌ GITIGNORED (.empirica/)                                 │
-│  ├── sessions/sessions.db     SQLite (55 tables!)           │
-│  │   ├── project_findings     1431 findings (LOST!)         │
-│  │   ├── session_findings     725 findings                  │
-│  │   ├── project_unknowns     226 unknowns (LOST!)          │
-│  │   ├── session_unknowns     141 unknowns                  │
-│  │   ├── sessions             989 sessions                  │
-│  │   ├── bayesian_beliefs     Computed                      │
-│  │   ├── vector_trajectories  Computed                      │
-│  │   └── ... (48 more tables)                               │
-│  └── ref-docs/*.json          Pre-compact snapshots         │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
+### Note layout
 
-**The Problem:** Findings and unknowns are the most valuable breadcrumbs, and they're not in git!
-
----
-
-## Proposed Architecture
-
-### Principle: Git Notes as the Replicated Mirror
+Notes live under refs of their own. Most types get one ref per artifact; a few (`checkpoints`, `receipts`) are a single ref whose notes hang off commits:
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                      GIT NOTES (Mirror)                     │
-│                                                             │
-│  refs/notes/empirica/                                       │
-│  ├── goals/{goal_id}           ← Already implemented        │
-│  ├── cascades/{session}/{id}   ← Already implemented        │
-│  ├── handoff/{handoff_id}      ← Already implemented        │
-│  ├── findings/{finding_id}     ← NEW: Add GitFindingStore   │
-│  ├── unknowns/{unknown_id}     ← NEW: Add GitUnknownStore   │
-│  ├── dead_ends/{dead_end_id}   ← NEW: Add GitDeadEndStore   │
-│  ├── session/{id}/{PHASE}/{n}  ← NEW: Session metadata      │
-│  └── checkpoints               ← Already implemented        │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-                            │
-                            │ empirica sync-pull
-                            │ empirica rebuild
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│                SQLite (Working Store)                       │
-│                                                             │
-│  .empirica/sessions/sessions.db                             │
-│  ├── Core tables (rebuilt from git notes)                   │
-│  │   ├── sessions        ← from refs/notes/empirica/sessions│
-│  │   ├── goals           ← from refs/notes/empirica/goals   │
-│  │   ├── findings        ← from refs/notes/empirica/findings│
-│  │   ├── unknowns        ← from refs/notes/empirica/unknowns│
-│  │   └── dead_ends       ← from refs/notes/empirica/dead_ends│
-│  │                                                          │
-│  └── Computed tables (rebuilt from core)                    │
-│      ├── bayesian_beliefs    ← computed from vectors        │
-│      ├── vector_trajectories ← computed from assessments    │
-│      └── concept_nodes/edges ← computed from findings       │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+refs/notes/empirica/<type>/<id>                        findings, unknowns, dead_ends, mistakes,
+                                                       assumptions, decisions, goals, tasks, sources, ...
+refs/notes/empirica/cascades/<session>/<id>
+refs/notes/empirica/session/<session>/<PHASE>/<round>  PREFLIGHT / CHECK / POSTFLIGHT vectors
+refs/notes/breadcrumbs
+refs/notes/empirica-precompact
+refs/notes/empirica-archive/<type>/<id>                local only, see below
 ```
 
-### Data Flow
-
-```
-finding-log command
-        │
-        ▼
-┌───────────────────┐
-│ 1. Write to SQLite│ (immediate, for queries)
-└─────────┬─────────┘
-          │
-          ▼
-┌───────────────────┐
-│ 2. Write to Git   │ (replicated mirror)
-│    Notes          │
-└─────────┬─────────┘
-          │
-          ▼
-┌───────────────────┐
-│ 3. Embed to Qdrant│ (semantic search)
-└───────────────────┘
-```
-
----
-
-## CLI Commands
-
-### Project-Level Sync
+The live set is whatever the repo holds; list it rather than trusting a doc:
 
 ```bash
-# Push epistemic state to remote
-empirica sync-push [--remote <remote>] [--dry-run]
-# Equivalent to: git push origin 'refs/notes/empirica/*:refs/notes/empirica/*'
-
-# Pull epistemic state from remote
-empirica sync-pull [--remote <remote>] [--rebuild]
-# Equivalent to: git fetch origin 'refs/notes/empirica/*:refs/notes/empirica/*'
-# --rebuild: Also reconstruct SQLite from git notes
-
-# Show sync status
-empirica sync-status [--local]
-# Shows: local vs remote notes refs, pending changes, last sync time
-
-# Force full rebuild of SQLite from git notes
-empirica rebuild [--from-notes] [--qdrant]
-# Reconstructs sessions.db from refs/notes/empirica/*
-# --qdrant: Also rebuild Qdrant embeddings
-
-# Restore ONLY the reflex rows (PREFLIGHT/CHECK/POSTFLIGHT vectors) from the session-phase notes
-empirica rebuild --reflexes-only [--apply]
-# The default rebuild restores artifacts and stub sessions but no reflex rows. This mode touches `reflexes` only,
-# previews unless --apply, and is idempotent: identity is (session_id, phase, round), which the ref name
-# refs/notes/empirica/session/<session_id>/<PHASE>/<round> encodes, so an existing row is never replaced. It keeps the
-# note's own timestamp, transaction id and reasoning, and only the vectors the note carries: the rest stay NULL,
-# not 0.5 (a CHECK note often has 7 of 13). Skipped and counted: sessions with no `sessions` row (named in the output),
-# notes with no vectors, notes that disagree with their ref name, and the old auto-checkpoint's all-0.5 phantom CHECK
-# rows that delete-artifacts purged on purpose. Calibration rows (grounded_beliefs, grounded_verifications) are
-# SQLite-only and have no note to restore from. A ref can hold several notes (the writer reuses <PHASE>/<round>
-# across transactions): every note under a ref that is NOT present is restored, but when the identity is already
-# present the other notes under it are not looked at (`multi_note_refs` counts the ones met).
+git for-each-ref refs/notes --format='%(refname)'
 ```
 
-### Workspace-Level Sync (planned, Phase 3 — not implemented)
-
-No `workspace-sync` / `workspace-status` verbs exist yet; today `workspace-overview` lists the projects and each project syncs with its own `sync-push` / `sync-pull`.
-
-```bash
-# Sync all projects in workspace
-# (planned) empirica workspace-sync [--push|--pull] [--filter "empirica-*"]
-# Iterates through projects defined in .empirica-workspace
-
-# Show workspace sync status
-# (planned) empirica workspace-status
-# Shows all projects, their sync state, dependencies
-```
+**Archive refs are never pushed.** When `delete-artifacts` or note reconciliation removes an artifact from the active graph, the note moves from `refs/notes/empirica/<type>/<id>` to `refs/notes/empirica-archive/<type>/<id>`, so the journey is kept locally. Resolutions of kept artifacts are stamped into their notes. The push refspecs cover `refs/notes/empirica/*`, `refs/notes/breadcrumbs` and `refs/notes/empirica-precompact`; the archive namespace matches none of them.
 
 ---
 
-## Configuration
+## Verbs
 
-### Project Config (.empirica/config.yaml)
+| Verb | Does |
+|------|------|
+| `sync-config [key] [value]` | Show or set sync settings. Keys: `enabled`, `remote`, `notes_remote`, `code_remote`, `auto_push_on`, `visibility`, `provider` |
+| `sync-push [--remote R] [--dry-run] [--force]` | Push the note namespaces above to the notes remote |
+| `sync-pull [--remote R] [--rebuild] [--force]` | Fetch the same namespaces; `--rebuild` then restores SQLite from the notes |
+| `sync-status [--remote R] [--local]` | Local note counts, the destinations, and whether the notes actually replicate. `--local` skips the network call |
+| `rebuild [--from-notes] [--qdrant] [--qdrant-only] [--reflexes-only [--apply]]` | Restore SQLite from notes, or re-embed Qdrant, or restore reflex rows |
+| `doctor --reconcile-notes [--apply]` | Repair notes/SQLite divergence: archive notes whose artifact SQLite deleted, stamp resolutions SQLite recorded. Plan only without `--apply` |
 
-```yaml
-version: '2.0'
-root: /path/to/.empirica
-paths:
-  sessions: sessions/sessions.db
-  identity: identity/
-
-settings:
-  auto_checkpoint: true
-  git_integration: true
-  log_level: info
-
-# Sync Policy
-sync:
-  enabled: true
-  notes_remote: <remote>    # no default — unset falls through to `remote`, then every verb refuses
-  code_remote: <remote>     # no default; only used when auto_push_on is set
-  auto_push_on: []          # empty = off
-
-  # What syncs via git notes
-  layers:
-    git_notes:
-      enabled: true
-      refs:
-        - empirica/goals
-        - empirica/cascades
-        - empirica/handoff
-        - empirica/findings      # NEW
-        - empirica/unknowns      # NEW
-        - empirica/dead_ends     # NEW
-        - empirica/session       # NEW
-        - empirica/checkpoints
-        - breadcrumbs
-        - empirica-precompact
-      push_on: [postflight, session_end, manual]
-
-    # Calibration syncs via git-tracked file
-    calibration:
-      enabled: true
-      source: .breadcrumbs.yaml
-      method: git_tracked  # Already committed normally
-
-    # Derived state - rebuild locally
-    derived:
-      sessions_db: rebuild_from_notes
-      qdrant: rebuild_from_findings
-
-  # Never sync (secrets via Doppler, identity is device-specific)
-  exclude:
-    - "*.token"
-    - "*.key"
-    - ".env*"
-    - "identity/"
-```
-
-### Workspace Config (.empirica-workspace)
-
-```yaml
-workspace:
-  name: "Empirical AI Development"
-
-  scope:
-    mode: selective
-    include:
-      - "empirica"
-      - "empirica-*"
-      - "cognitive_vault"
-    exclude:
-      - "*deprecated*"
-      - "*backup*"
-
-  # Project relationships
-  projects:
-    cognitive_vault:
-      type: security
-      depends_on: []
-      sync:
-        priority: 0           # Syncs FIRST (trust boundary)
-        remote: private       # Different remote
-        method: encrypted     # Always encrypted
-
-    empirica:
-      type: core
-      depends_on: [cognitive_vault]
-      sync:
-        priority: 1
-        remote: origin
-
-    empirica-crm:
-      type: application
-      depends_on: [empirica]
-      sync:
-        priority: 2
-        remote: origin
-        shared_state:
-          - calibration       # Reads from core
-        isolated_state:
-          - sessions
-          - goals
-          - findings
-
-    "*":  # Default for auto-discovered
-      type: application
-      depends_on: [empirica]
-      sync:
-        priority: 3
-        remote: origin
-
-  # Sync orchestration
-  sync:
-    order: [cognitive_vault, empirica, "*"]
-    on_conflict: ask
-```
+There is no workspace-level sync verb. `workspace-overview` lists projects, and each project syncs with its own `sync-push` / `sync-pull`.
 
 ---
 
-## Security Analysis
+## Where notes go
 
-### What's Protected
+**No remote has a default.** `remote`, `notes_remote` and `code_remote` are unset until a person sets them, and every verb refuses rather than guesses. A wrong guess about a remote is a publication decision made by a default: with `origin` pointing at a public GitHub repo one default published, and with no `origin` another synced nowhere, and neither said which case it was.
 
-| Data Type | Protection | Notes |
-|-----------|------------|-------|
-| Git notes | SSH/HTTPS | Standard git transport security |
-| Calibration | Git-tracked | Visible in repo history |
-| API keys | Doppler | Never in git |
-| Identity keys | Device-local | Never synced |
-
-### Threat Model
-
-| Threat | Mitigation |
-|--------|------------|
-| Notes intercepted in transit | SSH/HTTPS encryption |
-| Unauthorized access to remote | Git auth (SSH keys, tokens) |
-| Secrets in git history | Doppler for secrets, git-crypt for sensitive configs |
-| Cross-device key compromise | Identity keys are device-specific, never synced |
-| Malicious note injection | Signed commits (optional), note signing (future) |
-
-### Cognitive Vault Integration
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    COGNITIVE VAULT                          │
-│              (Trust Boundary - Syncs First)                 │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  ┌──────────────┐   ┌──────────────┐   ┌────────────────┐  │
-│  │   SECRETS    │   │  THRESHOLDS  │   │  CALIBRATION   │  │
-│  │  (Doppler)   │   │   (Config)   │   │   AUTHORITY    │  │
-│  └──────────────┘   └──────────────┘   └────────────────┘  │
-│                                                             │
-│  Syncs to: private remote (encrypted)                       │
-│  Priority: 0 (before all other projects)                    │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-                            │
-                            │ Thresholds, calibration
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│                      EMPIRICA CORE                          │
-│              (Framework - Syncs Second)                     │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  Git notes: refs/notes/empirica/*                           │
-│  Calibration: .breadcrumbs.yaml                             │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-                            │
-                            │ CLI, calibration, lessons
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│              DEPENDENT PROJECTS (empirica-crm, etc.)        │
-│              (Applications - Sync Last)                     │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  Own epistemic data (isolated)                              │
-│  Shared calibration (from core)                             │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
-
----
-
-## Implementation Status
-
-### Phase 1: Git Notes for Findings/Unknowns - COMPLETE
-
-1. [x] Create `GitFindingStore` (mirror of GitGoalStore pattern)
-2. [x] Create `GitUnknownStore`
-3. [x] Create `GitDeadEndStore`
-4. [x] Create `GitMistakeStore`
-5. [x] Modify `finding-log`, `unknown-log`, `deadend-log`, `mistake-log` to dual-write to git notes
-6. [x] SessionSync already includes notes refs infrastructure
-
-**Files created:**
-- `empirica/core/canonical/empirica_git/finding_store.py`
-- `empirica/core/canonical/empirica_git/unknown_store.py`
-- `empirica/core/canonical/empirica_git/dead_end_store.py`
-- `empirica/core/canonical/empirica_git/mistake_store.py`
-
-**Files modified:**
-- `empirica/cli/command_handlers/project_commands.py` (finding-log, unknown-log, deadend-log)
-- `empirica/cli/command_handlers/mistake_commands.py` (mistake-log)
-
-### Phase 2: CLI Sync Commands - COMPLETE
-
-1. [x] `empirica sync-push` - Push all notes refs to remote
-2. [x] `empirica sync-pull` - Fetch all notes refs from remote
-3. [x] `empirica sync-status` - Show local note counts, remote availability
-4. [x] `empirica rebuild --from-notes` - Reconstruct SQLite from git notes
-
-**Bug fix (2026-01-23):** All `load_*()` methods in git stores were incorrectly
-looking for notes on HEAD. Git notes are attached to the commit that was HEAD
-at creation time, not current HEAD. Fixed by using `git notes list` to find
-which commit has the note, then reading from that commit.
-
-**Files created:**
-- `empirica/cli/command_handlers/sync_commands.py`
-
-**Files modified:**
-- `empirica/cli/parsers/checkpoint_parsers.py` (added sync parsers)
-- `empirica/cli/command_handlers/__init__.py` (exports)
-- `empirica/cli/cli_core.py` (command routing)
-
-### Phase 3: Workspace Orchestration - TODO
-
-1. [ ] `empirica workspace-sync` (planned verb) - Iterate projects with dependency ordering
-2. [ ] Extend `workspace-overview` to show sync status
-3. [ ] Dependency ordering (cognitive_vault syncs first)
-
-### Phase 4: Conflict Resolution - FUTURE
-
-Git notes has built-in merge strategies that can be leveraged:
-- `union` (default for multi-AI): Concatenate both versions
-- `ours`: Keep local version
-- `theirs`: Keep remote version
-- `cat_sort_uniq`: Combine and deduplicate
-
----
-
-## Usage
-
-### Push epistemic state to remote
-```bash
-# Push all empirica notes to origin
-empirica sync-push
-
-# Push to a specific remote
-empirica sync-push --remote upstream
-
-# Dry run - show what would be pushed
-empirica sync-push --dry-run
-```
-
-### Pull epistemic state from remote
-```bash
-# Pull all empirica notes from origin
-empirica sync-pull
-
-# Pull and rebuild SQLite cache
-empirica sync-pull --rebuild
-
-# Pull from specific remote
-empirica sync-pull --remote upstream
-```
-
-### Check sync status
-```bash
-empirica sync-status
-```
-
-### Rebuild SQLite from git notes
-```bash
-# Rebuild findings, unknowns, dead_ends, mistakes from git notes
-empirica rebuild --from-notes
-
-# Also rebuild Qdrant embeddings
-empirica rebuild --from-notes --qdrant
-```
-
-### Configure sync settings
-```bash
-# Show current configuration — including both destinations, set or not
-empirica sync-config
-
-# Where NOTES go. There is no default: until you set this, sync-push and
-# sync-pull REFUSE and name the git remotes this repo actually has.
-empirica sync-config notes_remote <remote>
-
-# Where CODE goes, if you opt into auto-push. Also no default.
-empirica sync-config code_remote <remote>
-empirica sync-config auto_push_on postflight   # opt in; empty = off
-
-# Set visibility (affects warnings)
-empirica sync-config visibility private
-
-# Set provider (for provider-specific hints)
-empirica sync-config provider github
-```
-
-**No remote has a default, deliberately.** `remote`, `notes_remote` and
-`code_remote` are all unset until a human sets them. The defaults used to be
-`forgejo` for notes and `origin` for code, and both read as safe while producing
-*opposite* invisible failures: on a seat where `origin` is a public GitHub repo the
-code default pointed at publication, and on a seat with no `origin` at all notes
-synced nowhere for weeks. Same literal, and in neither case did anything say which
-case you were in.
-
-A wrong guess about a remote is a publication decision made by a default. So an
-unset destination is an absent answer, not a cautious one — every verb refuses, and
-the refusal names the remotes this repo has plus the exact command.
-
-> **Upgrading from ≤1.13.34:** if you relied on the old implicit defaults, sync-push
-> will now refuse once until you make the choice explicit
-> (`empirica sync-config notes_remote <remote>`). The refusal carries the command.
-
----
-
-## Private Sync for Public Repos
-
-**Problem:** If your code repo is public (e.g., GitHub), pushing git notes makes epistemic data public too. This may expose work-in-progress findings, unknowns, or sensitive breadcrumbs.
-
-**Solution:** Use a separate private remote for notes.
-
-### Setup Private Notes Remote
+- **Notes destination** resolves as: `--remote` flag, then `notes_remote`, then `remote`. If none is set, `sync-push` and `sync-pull` refuse, name the git remotes the repo does have, and print the command to choose one.
+- **Code destination** is `code_remote`, used only for the opt-in auto-push below. Unset means refuse.
+- **Public hosts are refused for notes.** `sync-push` refuses a remote whose URL is GitHub, GitLab or Bitbucket unless `--force` is given, because notes carry findings, mistakes and mesh messages. `sync-pull` does not apply this check.
+- **`auto_push_on`** accepts only `postflight`. When set, a POSTFLIGHT pushes code to `code_remote`, refuses on a dirty tree, and reports whether the remote ref equals local HEAD afterwards. `session_end` is rejected by name because a trigger that fires on a crash fires when state is least trustworthy.
 
 ```bash
-# 1. Create a private repo (can be empty, just for notes)
-#    GitHub: github.com/youruser/project-notes-private (set to PRIVATE)
-#    Forgejo: your-forgejo.com/youruser/project-notes
-#    GitLab: gitlab.com/youruser/project-notes-private
+empirica sync-config                         # show config, destinations, available git remotes
+empirica sync-config notes_remote <remote>   # where notes go
+empirica sync-config code_remote <remote>    # where code goes, if you opt in
+empirica sync-config auto_push_on postflight # opt in; empty is off
+```
 
-# 2. Add it as a remote in your public repo
-git remote add notes-private git@github.com:youruser/project-notes-private.git
+Settings live under `sync:` in `.empirica/config.yaml`.
 
-# 3. Configure Empirica to use it
+### Private notes for a public repo
+
+If the code repo is public, push notes to a different, private remote:
+
+```bash
+git remote add notes-private git@host:you/project-notes-private.git
 empirica sync-config notes_remote notes-private
-
-# 4. Verify
-empirica sync-config --output human
-# Destinations:
-#    Notes: notes-private — synced by `empirica sync-push`
-#    Code:  NOT SET — empirica pushes no code
-
-# 5. Sync uses the private remote
-empirica sync-push    # → pushes to notes-private
-empirica sync-pull    # → pulls from notes-private
+empirica sync-push            # notes go to notes-private; code still goes where you push it
 ```
 
-### How It Works
-
-Git notes are refs (`refs/notes/empirica/*`) that sync to whichever remote you push to.
-By configuring a different remote for Empirica sync, notes go to the private repo while
-code continues to push to the public repo:
-
-```
-Your Machine                    Remotes
-─────────────                   ───────
-refs/heads/main    ──push──►    origin (public)
-refs/notes/empirica/* ─push─►   notes-private (private)
-```
-
-### Multi-Machine Workflow
-
-On Machine A (where you created notes):
-```bash
-empirica sync-push  # Notes go to private remote
-```
-
-On Machine B (where you want to continue):
-```bash
-# Clone the public repo
-git clone https://github.com/youruser/project.git
-
-# Add the private notes remote
-git remote add notes-private git@github.com:youruser/project-notes-private.git
-
-# Configure Empirica
-empirica sync-config remote notes-private
-
-# Pull notes from private remote
-empirica sync-pull --rebuild
-
-# Now you have all epistemic state
-empirica sync-status
-```
-
-### Self-Hosted Options
-
-For complete control, use self-hosted Forgejo/Gitea:
-
-```bash
-git remote add forgejo git@your-forgejo.com:user/project.git
-empirica sync-config remote forgejo
-empirica sync-config provider forgejo
-```
-
-This keeps all epistemic data on your own infrastructure.
+On a second machine: clone the code repo, add the same remote, set `notes_remote`, then `empirica sync-pull --rebuild`, and check with `empirica sync-status`.
 
 ---
 
-## Unknowns / Future Work
+## What a push and a pull do
 
-1. **Workspace sync orchestration** - How to handle cross-project dependencies?
-2. **Note signing** - Cryptographic verification of note authorship (Phase 2 identity)?
-3. **Qdrant sync** - Should embeddings sync via git-lfs, or always rebuild?
-4. **Multi-AI conflict resolution UI** - When `union` merge creates duplicates?
-5. **Doppler integration** - SDK patterns for secrets that shouldn't be in git notes?
+`sync-push` runs `git push <remote>` once per namespace: `refs/notes/empirica/*`, `refs/notes/breadcrumbs`, `refs/notes/empirica-precompact`. `sync-pull` fetches the same three. They are ordinary git refspecs, so conflicts and non-fast-forward rejections are git's.
 
----
+**Exit code is not replication.** A refspec that matches nothing exits 0 and pushes nothing. After a push, the verb counts the note refs on the remote and reports `replicated`, `partial` or `not_replicating` from whether the remote moved. `sync-status` makes the same comparison on request: local note refs against `git ls-remote <remote> 'refs/notes/*'`, reported as `replicated`, `behind`, `not_replicating`, `nothing_to_replicate` or `unknown` (remote unreachable). A configured remote does not mean the notes are there, and the status says which it is.
 
-## References
-
-- `empirica/core/canonical/empirica_git/goal_store.py` - Reference pattern for git stores
-- `empirica/core/canonical/empirica_git/session_sync.py` - Push/pull infrastructure
-- `.empirica-workspace` - Workspace configuration
-- Session 705cdec9 findings: ae078e3a, 26d3682a
+The local count is every ref under `refs/notes/`, including `refs/notes/empirica-archive/*`, which no push carries. A repo with archived notes therefore starts permanently behind by that many refs, and the verdict will read `behind` or `partial` even when everything pushable has been pushed. Read `behind` against the archive count before treating it as a failed sync.
 
 ---
 
-**Document Status:** Phase 1 and 2 COMPLETE and TESTED. `rebuild --from-notes` works
-(459 records rebuilt from git notes). Ready for Phase 3 design (workspace orchestration).
+## Rebuild
+
+`rebuild` (the same as `rebuild --from-notes`, and what `sync-pull --rebuild` runs) restores from the notes:
+
+- findings, unknowns (including resolved), dead-ends and mistakes;
+- goals;
+- stub `projects` and `sessions` rows the restored artifacts need as foreign keys, and stub goals for goal ids the artifacts reference but no note holds.
+
+It does not read the decisions, assumptions, tasks, sources, handoff or message notes. Those are written to notes and replicated, but this rebuild does not restore them into SQLite. Calibration tables and reflex rows are not restored either, except by the next mode.
+
+- **`rebuild --qdrant`**: rebuild SQLite from notes first, then re-embed Qdrant.
+- **`rebuild --qdrant-only`**: re-embed Qdrant from the current SQLite and skip the notes import. This is the safe resync after direct SQL or bulk changes not yet persisted to notes; the default path would revert them, because notes win.
+- **`rebuild --reflexes-only [--apply]`**: restore only the reflex rows (PREFLIGHT, CHECK, POSTFLIGHT vectors) from the session-phase notes, and nothing else. It previews unless `--apply`. Identity is `(session_id, phase, round)`, encoded in the ref name `refs/notes/empirica/session/<session_id>/<PHASE>/<round>`, so an existing row is never replaced and the mode is idempotent. It keeps each note's own timestamp, transaction id and reasoning, and only the vectors the note carries: the rest stay NULL, not 0.5. It skips and counts: sessions with no `sessions` row (named in the output), notes with no vectors, notes that disagree with their ref name, and the all-0.5 phantom CHECK rows that `delete-artifacts` purged on purpose. A ref can hold several notes because the writer reuses `<PHASE>/<round>` across transactions: notes under a ref that is not present are restored, but when the identity is already present the other notes under it are not looked at (`multi_note_refs` counts them).
+
+Because notes are the source for a rebuild, a note that disagrees with SQLite is a pending revert, not a stale copy. That is why gardening writes through to the notes (archive on delete, stamp on resolve) and why `doctor --reconcile-notes` exists for divergence that predates it.
+
+---
+
+## Not built
+
+- **Workspace orchestration.** A single verb that syncs several projects in dependency order does not exist. Nothing reads a `.empirica-workspace` sync policy.
+- **Note signing.** Notes are not cryptographically signed; trust is whatever git transport and remote access control give.
+- **Qdrant replication.** Embeddings are rebuilt from SQLite, never synced.
+- **Merge policy for concurrent writers.** Pushes and fetches are plain git refspecs; no custom note-merge strategy is applied.
+
+---
+
+## Source files
+
+- `empirica/cli/command_handlers/sync_commands.py` - `sync-*` and `rebuild`, refspecs, replication verdict
+- `empirica/core/sync_remotes.py` - remote resolution and the refusal payload
+- `empirica/core/auto_push.py` - opt-in code push on POSTFLIGHT
+- `empirica/core/canonical/empirica_git/` - one store per artifact type (`finding_store.py`, `unknown_store.py`, `goal_store.py`, ...), `note_lifecycle.py` (archive and stamp), `note_reconcile.py`
+- `empirica/core/canonical/reflex_import.py` - `rebuild --reflexes-only`

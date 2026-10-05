@@ -1,423 +1,139 @@
 # Sentinel Architecture - The Gate
 
-**Module:** `empirica.core.sentinel`
+**Enforcement:** `empirica/plugins/claude-code-integration/hooks/sentinel-gate.py` (PreToolUse hook)
+**Orchestration module:** `empirica.core.sentinel`
 
-The Sentinel is the gate controller of Empirica's cognitive architecture. It governs the transition between noetic (investigation) and praxic (action) phases, enforces compliance, and tracks epistemic transactions.
+"The Sentinel" names two separate things in this codebase. Only the first one gates anything.
+
+| Component | What it is | Runs when |
+|-----------|------------|-----------|
+| **The gate hook** (`sentinel-gate.py`) | A Claude Code `PreToolUse` hook. Classifies every tool call as noetic or praxic, and allows or denies praxic ones from the state of the current transaction. | On every tool call |
+| **The orchestrator** (`empirica.core.sentinel`) | A library of domain profiles, compliance gates, persona selection and a loop tracker, reached only through the `sentinel-*` CLI verbs. | When you call `sentinel-orchestrate`, `sentinel-load-profile`, `sentinel-status` or `sentinel-check` |
+
+PREFLIGHT, CHECK and POSTFLIGHT do not call the orchestrator. The gate hook reads what they wrote to the database; it does not import the orchestrator.
 
 **Related docs:**
-- [Sentinel Gate Reference](../reference/SENTINEL_GATE_REFERENCE.md) - Implementation reference for sentinel-gate.py (tool classification, decision flow, env vars)
-- [Sentinel Constitution](./SENTINEL_CONSTITUTION.md) - Governance principles for the measurement system
-- [NOETIC_PRAXIC_FRAMEWORK.md](./NOETIC_PRAXIC_FRAMEWORK.md) - The noetic/praxic phase framework
-- [Phase-Aware Calibration](./PHASE_AWARE_CALIBRATION.md) - How phase-split tool counts feed calibration
-- [CONFIGURATION_REFERENCE.md](../reference/CONFIGURATION_REFERENCE.md) - EMPIRICA_SENTINEL_LOOPING and autopilot settings
-
-## Philosophy
-
-The Sentinel doesn't think for the AI - it provides governance:
-- **Gate control**: Determines proceed vs investigate based on vectors
-- **Compliance**: Enforces domain-specific rules (HIPAA, SOX, etc.)
-- **Loop tracking**: Monitors convergence across epistemic cycles
-- **Dual defense**: NoeticFilter (cognition) + AxiologicGate (action)
+- [Sentinel Gate Reference](../reference/SENTINEL_GATE_REFERENCE.md) - decision flow, tool classification, safe-command lists, environment variables, response format
+- [Sentinel Constitution](./SENTINEL_CONSTITUTION.md) - governance principles
+- [NOETIC_PRAXIC_FRAMEWORK.md](./NOETIC_PRAXIC_FRAMEWORK.md) - the transaction the gate reads, and how CHECK decides
+- [Phase-Aware Calibration](./PHASE_AWARE_CALIBRATION.md) - where the thresholds come from, and how phase-split tool counts weight calibration
+- [CONFIGURATION_REFERENCE.md](../reference/CONFIGURATION_REFERENCE.md) - `EMPIRICA_SENTINEL_*` settings
 
 ---
 
-## Core Architecture
+## The gate hook
 
-```
-                    ┌─────────────────────┐
-                    │      Sentinel       │
-                    │   (Orchestrator)    │
-                    └─────────┬───────────┘
-                              │
-        ┌─────────────────────┼─────────────────────┐
-        │                     │                     │
-        ▼                     ▼                     ▼
-┌───────────────┐   ┌─────────────────┐   ┌─────────────────┐
-│ DecisionLogic │   │ EpistemicLoop   │   │ DomainProfile   │
-│ (Persona)     │   │ Tracker         │   │ (Compliance)    │
-└───────────────┘   └─────────────────┘   └─────────────────┘
-```
+### Principle
 
----
+Noetic work (reading, searching, read-only shell) cannot change state, so it is never gated. Praxic work (editing, writing, any shell that can mutate) is allowed only inside an open transaction that has been certified. The discriminator is the effect of the call as written, not the tool's name: `sed -i`, `find -delete` and `sqlite3 "UPDATE ..."` are praxic even though `sed`, `find` and `sqlite3` also have read modes.
 
-## Classes Reference
+### Order of evaluation
 
-### Gate Actions & Enums
+`main()` runs these in order and stops at the first that answers:
 
-#### GateAction
-Actions that compliance gates can take:
-- `PROCEED` - Continue execution
-- `INVESTIGATE` - Return to noetic phase
-- `HALT_AND_AUDIT` - Stop and log for audit
-- `REQUIRE_HUMAN` - Pause for human approval
-- `ESCALATE` - Escalate to higher authority
-- `LOG_AND_CONTINUE` - Log concern but proceed
+1. **Release-path exemption.** Recovery and measurement actions are always allowed, before any other gate: `empirica` MCP tools, the pause/resume toggle, and read-safe Bash whose pipeline carries a recovery or measurement verb from `_RECOVERY_MEASUREMENT_PREFIXES` (the PREFLIGHT/CHECK/POSTFLIGHT submits, the `*-log` verbs, `log-artifacts`, `resolve-artifacts`, `delete-artifacts`, `note`, `goals-*`, `noetic-batch`, and others listed there). A gate must never block the action that clears it.
+2. **Investigation-proportionality budget.** If `tool-router.py` armed a budget on a hypothesis-bearing prompt, `Read`/`Grep`/`Glob` are denied once the limit is exceeded. The budget expires after an hour. This is the one gate that denies noetic tools.
+3. **Noetic firewall.** Allowed without a transaction: the noetic tool set (`Read`, `Glob`, `Grep`, `LSP`, `WebFetch`, `WebSearch`, `ToolSearch`, `Task`, `TodoWrite`, `AskUserQuestion`, `Skill`, ...), the noetic subsets of the Chrome, Cortex and CRM MCP servers, read-only Bash, plan-file writes, and praxic remote commands when the latest PREFLIGHT or CHECK uncertainty clears the remote-infra bar.
+4. **Exemptions.** Subagents, a paused Empirica (off-record), and a disabled Sentinel.
+5. **Authorization pipeline** (below), for everything praxic that is left.
 
-#### LoopMode
-Who decides loop count:
-- `USER` - User specifies exact count
-- `AI` - AI chooses based on task
-- `SENTINEL` - Sentinel governs with convergence detection
+A tool nobody classified is praxic. The authoritative lists are the sets in `sentinel-gate.py`, and the reference doc explains each entry.
 
-#### MergeStrategy
-Strategies for merging parallel agent results:
-- `CONSENSUS` - All agents must agree
-- `BEST_SCORE` - Take highest merge_score result
-- `WEIGHTED` - Weight by merge_score
-- `UNION` - Combine all findings
-- `INTERSECTION` - Only common findings
+### Authorization pipeline
 
-#### GatePhase
-Phase during which a gate operates:
-- `NOETIC` - Cognition/investigation phase
-- `PRAXIC` - Action/execution phase
-- `CHECK` - During CHECK gate transition
-- `ANY` - Applies to all phases
+For a praxic call, in this order:
 
----
+| Step | Result |
+|------|--------|
+| No session resolved, or no database connection | Allow (the Sentinel cannot see; it says so) |
+| No PREFLIGHT in the transaction | Deny, except safe Bash and transition commands (`cd`, `session-create`, `project-bootstrap`, `preflight-submit`, `git add`, `git commit`); a counter nudges after 5 and 10 calls |
+| PREFLIGHT's project differs from the current project | Deny: run PREFLIGHT for the new project |
+| POSTFLIGHT exists after the PREFLIGHT (loop closed) | Deny, except safe Bash, toggles, transition commands and artifact-lifecycle `empirica` verbs |
+| Previous transaction ended `investigate` with no findings logged since | Ask (praxic tools only; noetic tools and safe Bash pass) |
+| **PREFLIGHT's own vectors clear the threshold** (`know >= K` and `uncertainty <= U`) | Allow ("auto-proceed"); no CHECK or claim is needed |
+| No CHECK in the transaction | Allow if PREFLIGHT declared a certifying claim; otherwise deny and name both ways through |
+| CHECK exists | Validate it, then allow (see below) |
 
-### Dual Defense Layers
+**Certifying claims.** A claim certifies the transaction when it is grounded `read`, or grounded `ran` with both a non-empty `scope` and a `count`. `retrieved` (our own earlier artifacts) and `assumed` never certify. The hook queries `transaction_claims` directly because hooks cannot import the package; `empirica.core.claims.certifies` carries the same rule and a test pins the two together. If the lookup itself fails, the deny says the lookup failed rather than "you declared nothing". Skipping CHECK when you are already grounded is the intended path: noetic work is ungated, so reading before PREFLIGHT is the normal order.
 
-#### NoeticFilter
-Cognition-level defense layer. Operates during NOETIC phase to filter what investigation paths are allowed.
+**Validating a CHECK.** The CHECK row must be newer than the PREFLIGHT. A CHECK submitted under 30 seconds after PREFLIGHT (`EMPIRICA_MIN_NOETIC_DURATION`) with no finding or unknown logged since is denied as rushed; one artifact satisfies it, and `remote-ops` work is exempt. After a CHECK that returned `investigate`, the hook counts noetic calls and refuses a re-submitted `check-submit` until at least three have happened.
 
-```python
-filter = NoeticFilter(
-    filter_id="block_exploits",
-    name="Exploit Investigation Block",
-    blocked_patterns=[r"exploit", r"vulnerability.*poc"],
-    blocked_domains=["security-research", "penetration-testing"],
-    action_on_match=GateAction.INVESTIGATE,
-    allow_with_justification=True
-)
+**Thresholds are advisory once a CHECK exists.** If the CHECK's `know` and `uncertainty` miss the thresholds the hook still allows the call and appends an `ADVISORY` line naming the shortfall. A CHECK that returned `investigate` is advisory in the same way. What the hook enforces is that a CHECK, a claim, or a confident PREFLIGHT exists, not that the numbers are good.
 
-result = filter.evaluate({
-    "task": "Research SQL injection techniques",
-    "path": "/security/exploits/",
-    "domain": "security-research"
-})
-# Returns: {"filter_id": "block_exploits", "matched_domain": "security-research", ...}
-```
+### Thresholds
 
-**Use cases:**
-- Block investigation of exploit development
-- Restrict access to sensitive codebase areas
-- Prevent deep-diving into user credentials
+Static fallbacks are `know >= 0.70` and `uncertainty <= 0.35`. The hook reads the noetic-phase thresholds from `compute_dynamic_thresholds()` for the practice's own `ai_id` and the current practitioner model, and uses them when enough history exists. A base uncertainty from `calibration.yaml` replaces the 0.35 baseline. Calibration history can only tighten these, never loosen them; see [Phase-Aware Calibration](./PHASE_AWARE_CALIBRATION.md#dynamic-thresholds).
 
-#### AxiologicGate
-Action/value-level defense. Operates during PRAXIC phase to validate actions against value constraints.
+The domain and criticality declared at PREFLIGHT scale the uncertainty bar through `DomainRegistry`, but in the hook that scaling is applied only at the auto-proceed step. The post-CHECK comparison uses the unscaled dynamic threshold.
 
-```python
-gate = AxiologicGate(
-    gate_id="critical_delete",
-    name="Critical File Deletion Gate",
-    action_patterns=[r"delete.*production", r"rm.*-rf"],
-    required_vectors={"know": 0.85, "uncertainty": 0.15},
-    action_on_violation=GateAction.REQUIRE_HUMAN,
-    audit_required=True
-)
+### Nudges that never block
 
-result = gate.evaluate({
-    "action": "delete database",
-    "target": "production/data.db",
-    "vectors": {"know": 0.6, "uncertainty": 0.4}
-})
-# Returns violation info due to insufficient vectors
-```
+The hook counts gated tool calls per transaction in a counters file beside the transaction file, split into `noetic_tool_calls` and `praxic_tool_calls`. It adds text to an allow when:
 
-**Use cases:**
-- Prevent deletion of critical files without confirmation
-- Block push to main branch without review
-- Require audit trail for sensitive operations
+- the count passes the practice's average transaction length (1.0x, 1.5x, 2.0x) - consider POSTFLIGHT;
+- five or more gated calls have run with no goal in play in this transaction;
+- there have been 5 or 10 calls with no transaction at all.
+
+The phase-split counts go into POSTFLIGHT, where they weight the noetic and praxic calibration scores.
+
+### Exemptions and switches
+
+- **Subagents** are not gated: the parent's authorization covered the spawn. Detection reads `active_work_<claude_session_id>.json` for `is_subagent: true`, and falls back to absence of a matching active session or running in a linked git worktree. Their tool calls are added to the parent's `delegated_tool_calls` afterwards. `Task` is in the noetic set, so spawning is not gated either: the exemption is the subagent's own calls.
+- **Paused**: `empirica off` / `empirica sentinel pause` allows everything for that instance.
+- **Disabled**: `~/.empirica/sentinel_enabled` containing `false`, or `EMPIRICA_SENTINEL_LOOPING=false`.
+- **Optional checks, off by default**: `EMPIRICA_SENTINEL_REQUIRE_BOOTSTRAP`, `EMPIRICA_SENTINEL_CHECK_EXPIRY` (30 minutes), `EMPIRICA_SENTINEL_COMPACT_INVALIDATION`.
+
+### Failure mode
+
+The hook fails open. An internal error allows the call and writes `SENTINEL_CRASH` to stderr, because measurement must not strand the work it measures. `EMPIRICA_SENTINEL_FAIL_CLOSED=1` flips this to deny. When the hook cannot run at all it says so in the text the model reads.
 
 ---
 
-### Compliance Framework
+## The orchestrator module (`empirica.core.sentinel`)
 
-#### ComplianceGate
-A compliance gate that runs during CHECK phase.
+A separate toolkit for domain-aware governance and multi-agent orchestration. It keeps no state between CLI invocations: `sentinel-status` builds a fresh `Sentinel` each time and reports what a new one would track.
 
-```python
-gate = ComplianceGate(
-    gate_id="pii_check",
-    condition="pii_detected",
-    action=GateAction.HALT_AND_AUDIT,
-    description="Halt if PII detected without authorization",
-    priority="critical"
-)
-```
+### CLI
 
-**Condition types:**
-- Vector-based: `"uncertainty > 0.5"`, `"know < 0.7"`
-- Flag-based: `"pii_detected"`, `"high_risk"`
-- Custom: `"high_risk"` (uncertainty > 0.6 AND impact > 0.7)
+| Verb | Does |
+|------|------|
+| `sentinel-orchestrate --session-id S --task T` | Selects personas, optionally spawns agents and merges their results (`--merge union\|consensus\|best_score\|weighted`, `--dry-run`, `--profile`, `--max-agents`, `--scope-breadth`, `--scope-duration`) |
+| `sentinel-load-profile --session-id S --profile P` | Loads a domain profile (`--file` for a custom YAML) and prints its gates |
+| `sentinel-check --session-id S` | Runs the profile's compliance gates against `--vectors` (or `--know` / `--uncertainty`), `--findings` and `--unknowns`, and prints a decision |
+| `sentinel-status --session-id S` | Prints the loaded profile, loop tracking, and available profiles |
 
-#### DomainProfile
-Domain-specific configuration for compliance frameworks.
+These are distinct from `empirica sentinel pause|resume|status`, which control the gate hook.
 
-```python
-profile = DomainProfile(
-    name="healthcare",
-    compliance_framework="HIPAA",
-    uncertainty_trigger=0.3,  # More cautious
-    confidence_to_proceed=0.85,
-    gates=[
-        ComplianceGate(
-            gate_id="pii_check",
-            condition="pii_detected",
-            action=GateAction.HALT_AND_AUDIT
-        )
-    ],
-    audit_all_actions=True,
-    audit_retention_days=2555  # 7 years for HIPAA
-)
-```
+### Classes
 
-**Built-in profiles:**
-- `general` - Default thresholds
-- `healthcare` - HIPAA compliance
-- `finance` - SOX compliance
+- **`GateAction`**: `PROCEED`, `INVESTIGATE`, `HALT_AND_AUDIT`, `REQUIRE_HUMAN` (value `require_human_review`), `ESCALATE`, `LOG_AND_CONTINUE`.
+- **`ComplianceGate`**: a `condition` string plus an action and priority. A condition is a vector comparison (`"uncertainty > 0.4"`), a flag name (`"pii_detected"`), or the built-in `"high_risk"` (uncertainty above 0.6 and impact above 0.7).
+- **`DomainProfile`**: `uncertainty_trigger`, `confidence_to_proceed`, gates, persona and tool restrictions, audit settings. The built-in profiles are `general`, `healthcare` (HIPAA, trigger 0.30, proceed at 0.85) and `finance` (SOX, trigger 0.35, proceed at 0.80), defined in `Sentinel.DEFAULT_PROFILES`.
+- **`NoeticFilter` / `AxiologicGate`**: pattern-based filters for investigation paths and for actions with required vectors. They are defined in `orchestrator.py`; no code outside it references them, so neither the hook nor any CLI verb applies them.
+- **`EpistemicLoopTracker` / `LoopRecord`**: records PREFLIGHT-to-POSTFLIGHT vector deltas and decides whether another loop is warranted: it stops at `max_loops` (derived from scope breadth and duration when unset), when `know` and `uncertainty` deltas stay under `convergence_threshold` for `convergence_window` loops, or when the last uncertainty is under 0.25. `LoopMode` is `USER`, `AI` or `SENTINEL`.
+- **`DecisionLogic` / `PersonaMatch`**: persona selection by semantic match, using Qdrant at the host and port given to `Sentinel`.
+- **`Sentinel`**: ties these together. `check_compliance()`, `orchestrate()`, `auto_orchestrate()` (loop tracking plus agent wiring plus orchestrate), `from_goal()` (scope vectors read from a goal), `load_domain_profile()`, `init_loop_tracking()`.
+- **`MergeStrategy`**: `CONSENSUS`, `BEST_SCORE`, `WEIGHTED`, `UNION`, `INTERSECTION`. The CLI offers the first four plus `union`; `INTERSECTION` is reachable only from Python.
+
+### Compliance decision
+
+`check_compliance()` evaluates every gate of the loaded profile. The most severe triggered action wins, in this order: `halt`, `require_human`, `escalate`, `investigate`. With no gate triggered it falls back to the profile's thresholds: `uncertainty > uncertainty_trigger` gives `investigate`, otherwise `know >= confidence_to_proceed` gives `proceed`, otherwise `investigate`. With no profile loaded it uses uncertainty alone: `<= 0.35` proceeds.
+
+### Custom profile files
+
+`--file` reads the YAML through `DomainProfile.from_dict`, which expects `uncertainty_trigger`, `confidence_to_proceed`, `audit_all_actions` and similar keys at the top level. The shipped files under `empirica/core/sentinel/profiles/` nest those under `thresholds:` and `audit:`; loading one of them with `--file` keeps the gates but reads the thresholds as the defaults (0.5 and 0.75) and audit as off. The built-in profiles come from `DEFAULT_PROFILES`, not from those files.
+
+### Optional external evaluator
+
+`empirica/core/canonical/empirica_git/sentinel_hooks.py` defines `SentinelHooks`, a registry where an outside evaluator can be registered to review CHECK checkpoints. `check-submit` consults it, and a registered evaluator's verdict can replace the decision (`proceed` or `investigate`), only when at least one evaluator is registered and autopilot binding is not on. With none registered it does nothing.
 
 ---
 
-### Loop Tracking
+## Source files
 
-#### LoopRecord
-Record of a single epistemic transaction (PREFLIGHT → POSTFLIGHT).
-
-```python
-record = LoopRecord(
-    loop_number=3,
-    preflight_vectors={"know": 0.5, "uncertainty": 0.5},
-    postflight_vectors={"know": 0.7, "uncertainty": 0.3},
-    delta={"know": 0.2, "uncertainty": -0.2},
-    findings_count=5,
-    unknowns_count=2,
-    check_decision="proceed"
-)
-```
-
-#### EpistemicLoopTracker
-Tracks epistemic transactions for convergence detection and termination.
-
-```python
-tracker = EpistemicLoopTracker(
-    scope_breadth=0.6,      # Higher = more loops expected
-    scope_duration=0.5,
-    max_loops=5,
-    convergence_threshold=0.03,  # Delta below this = converged
-    mode=LoopMode.SENTINEL
-)
-
-# Start loop at PREFLIGHT
-loop_num = tracker.start_loop({"know": 0.5, "uncertainty": 0.5})
-
-# Complete loop at POSTFLIGHT
-record = tracker.complete_loop(
-    {"know": 0.7, "uncertainty": 0.3},
-    findings_count=5,
-    unknowns_count=2
-)
-
-# Check if more loops needed
-if tracker.should_continue():
-    # Another loop needed
-else:
-    # Converged or max loops reached
-```
-
-**Convergence detection:**
-- Tracks delta between PREFLIGHT and POSTFLIGHT vectors
-- Converged when delta < threshold for N consecutive loops
-- Prevents infinite investigation loops
-
----
-
-### Persona Selection
-
-#### DomainSignal
-Signal from domain analysis for persona matching.
-
-#### PersonaMatch
-Result of persona selection with confidence score and rationale.
-
-```python
-match = PersonaMatch(
-    persona_id="security_researcher",
-    score=0.85,
-    rationale="Task mentions security, authentication, vulnerabilities"
-)
-```
-
-#### DecisionLogic
-Selects appropriate personas for tasks using semantic matching.
-
-```python
-logic = DecisionLogic(qdrant_host="localhost", qdrant_port=6333)
-matches = logic.select_personas(
-    task="Review authentication implementation for security issues",
-    max_personas=3,
-    required_domains=["security"],
-    excluded_personas=["junior_dev"]
-)
-```
-
----
-
-### Orchestration
-
-#### OrchestrationResult
-Result of orchestrating a multi-agent task.
-
-```python
-result = OrchestrationResult(
-    ok=True,
-    task="Security review of auth module",
-    personas_selected=[...],
-    agents_spawned=["branch_abc", "branch_def"],
-    aggregated_findings=["Finding 1", "Finding 2"],
-    aggregated_unknowns=["Unknown 1"],
-    merge_strategy=MergeStrategy.UNION,
-    merged_vectors={"know": 0.75, "uncertainty": 0.25},
-    compliance_check={"decision": "proceed", ...}
-)
-```
-
-#### Sentinel
-The main orchestrator class that ties everything together.
-
-```python
-sentinel = Sentinel(session_id="abc123")
-
-# Load compliance profile
-sentinel.load_domain_profile("healthcare")
-
-# Initialize loop tracking
-sentinel.init_loop_tracking(
-    scope_breadth=0.6,
-    scope_duration=0.5,
-    mode=LoopMode.SENTINEL
-)
-
-# Orchestrate a task
-result = sentinel.orchestrate(
-    task="Review patient data handling",
-    max_agents=3,
-    merge_strategy=MergeStrategy.UNION
-)
-
-# Check compliance
-compliance = sentinel.check_compliance(
-    vectors={"know": 0.7, "uncertainty": 0.3},
-    findings=["Data encrypted at rest"],
-    unknowns=["Audit log retention unclear"],
-    flags={"pii_detected": True}
-)
-```
-
-#### Additional Sentinel Methods
-
-##### `auto_orchestrate()`
-Full autonomous orchestration entry point. Combines loop tracking initialization, agent infrastructure wiring, and orchestration into a single call.
-
-```python
-result = sentinel.auto_orchestrate(
-    task="Review patient data handling",
-    max_agents=3,
-    merge_strategy=MergeStrategy.UNION,
-    scope_breadth=0.6,   # Higher = more loops expected
-    scope_duration=0.5
-)
-# Returns OrchestrationResult with loop_info attached
-```
-
-Internally: calls `init_loop_tracking()`, auto-wires agent infrastructure if not already connected, then delegates to `orchestrate(execute_agents=True)`.
-
-##### `from_goal()`
-Class method to create a pre-configured Sentinel from a goal's scope vectors.
-
-```python
-sentinel = Sentinel.from_goal(goal_id="abc123", session_id="sess456")
-# Reads scope_breadth, scope_duration, scope_coordination from goals table
-# Returns Sentinel with loop tracking initialized from goal scope
-```
-
-Useful when a goal already defines its scope — avoids manually specifying `scope_breadth`/`scope_duration`.
-
-##### Compliance Gate Decision Priority
-
-When `check_compliance()` evaluates triggered gates, it applies a strict priority ordering:
-
-```
-HALT_AND_AUDIT  →  halt        (highest — stops everything)
-REQUIRE_HUMAN   →  require_human
-ESCALATE        →  escalate
-INVESTIGATE     →  investigate
-(no gates)      →  threshold check:
-                     uncertainty > trigger → investigate
-                     know ≥ confidence_to_proceed → proceed
-                     otherwise → investigate  (lowest)
-```
-
-The first matching priority level wins. If multiple gates trigger at different levels, the most severe action takes precedence.
-
----
-
-## Integration with Epistemic Transactions
-
-```
-PREFLIGHT ──────────────────► CHECK ──────────────────► POSTFLIGHT ──────────────────► POST-TEST
-    │                           │                           │                              │
-    │                           │                           │                              │
-    ▼                           ▼                           ▼                              ▼
-sentinel.start_loop()    sentinel.check_compliance()   sentinel.complete_loop()    run_grounded_verification()
-                               │                                                   (Grounded Verification)
-                               ▼
-                        ┌──────────────┐
-                        │ GateActions  │
-                        │ ─────────────│
-                        │ PROCEED      │──► Praxic phase
-                        │ INVESTIGATE  │──► Back to Noetic
-                        │ HALT_AUDIT   │──► Stop + log
-                        │ REQUIRE_HUMAN│──► Pause
-                        │ ESCALATE     │──► Higher authority
-                        └──────────────┘
-```
-
----
-
-## Autonomy Calibration Loop
-
-The Sentinel tracks tool calls per transaction and nudges the agent toward natural POSTFLIGHT points using adaptive thresholds derived from past transaction history.
-
-Three-touch feedback loop: PREFLIGHT (computes avg_turns) → Sentinel (increments count, computes nudge) → POSTFLIGHT (records final count, closes loop).
-
-Nudges are informational — the agent decides when to POSTFLIGHT based on work coherence, not thresholds.
-
-> **Full details:** [Sentinel Gate Reference](../reference/SENTINEL_GATE_REFERENCE.md#autonomy-calibration-loop)
-
----
-
-## Subagent Transaction Exemption
-
-Subagents bypass Sentinel gating. Detection (`_detect_subagent` in `sentinel-gate.py`): first, `active_work_<claude_session_id>.json` carries `is_subagent: true` (written by the SubagentStart hook); only when that file is absent does it fall back to absence-detection (no matching `active_session_{instance_suffix}`, or running in a linked git worktree). Rationale: the parent's CHECK already authorized the spawn; double-gating is redundant.
-
-Subagent tool calls are counted post-hoc via SubagentStop and added to the parent's `delegated_tool_calls`.
-
-> **Full details:** [Sentinel Gate Reference](../reference/SENTINEL_GATE_REFERENCE.md#subagent-exemption)
-
----
-
-## Claude Code Hook Integration
-
-The Sentinel integrates with Claude Code via a `PreToolUse` hook (`sentinel-gate.py`) that classifies all tool calls as noetic or praxic and gates praxic actions.
-
-> **Full implementation reference:** [Sentinel Gate Reference](../reference/SENTINEL_GATE_REFERENCE.md) — covers decision flow, tool classification, safe command lists, anti-gaming protections, environment variables, and response format.
-
----
-
-## Source Files
-
-- `empirica/core/sentinel/orchestrator.py` - Main Sentinel class
-- `empirica/core/sentinel/decision_logic.py` - Persona selection logic
-- `empirica/plugins/claude-code-integration/hooks/sentinel-gate.py` - Claude Code hook
+- `empirica/plugins/claude-code-integration/hooks/sentinel-gate.py` - the gate hook
+- `empirica/core/claims.py` - claim grounding and `certifies()`
+- `empirica/core/sentinel/orchestrator.py` - `Sentinel`, profiles, gates, loop tracker
+- `empirica/core/sentinel/decision_logic.py` - persona selection
+- `empirica/cli/command_handlers/sentinel_commands.py` - the `sentinel-*` verbs
+- `empirica/core/canonical/empirica_git/sentinel_hooks.py` - optional external CHECK evaluator

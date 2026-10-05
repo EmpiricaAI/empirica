@@ -1,184 +1,92 @@
 # Practitioner Deliberation Model
 
-**Status:** PROPOSAL — design captured, build deferred until current work lands.
-**Author:** empirica practice (David, 2026-06-24).
-**Lanes:** empirica core (entity/Brier surfacing) · autonomy (arbitration/gating-semantics) · cortex (A2A addressing). Cross-practice — ratify before building.
+**Status:** partly built. The identity, presence and calibration-keying slices exist; the arbitration and credibility-weighting slices are design only. Section 5 lists each slice against the code.
 
-This spec emerged from the B4 ("ERM practitioner entity-type") design discussion.
-B4 in isolation looked like "mirror live presence into entity rows." The ontology
-below shows it's actually the **foundation stone of a larger model**: practitioners
-as individually-calibrated participants who deliberate on a practice's engagements,
-arbitrated by Sentinel on epistemic reliability + feasibility, folded back into the
-practice profile reliability-weighted. Building B4 alone first would be premature.
+**Lanes:** empirica core (entity and Brier surfacing), autonomy (arbitration, shrinkage, gating semantics), cortex (mesh addressing). Anything in the "not built" column needs ratification by the owning lane before it is built.
 
----
+The model: a practice is durable and shared, practitioners are individually calibrated participants in it, and a practice's decisions can come from several practitioners' attributed reads, weighted by how reliable each has been, rather than from a flat merge.
 
 ## 1. The ontology
 
-The load-bearing axis is **SHARED (practice) vs INDIVIDUAL (practitioner)**.
+The axis is shared (practice) versus individual (practitioner).
 
-| Concept | Identity key | Durability | Individual to it | Shared / inherited |
+| Concept | Identity key | Durability | Individual to it | Shared or inherited |
 |---|---|---|---|---|
-| **Practice** | `ai_id` (canonical `org.tenant.project`) | **Durable** — "calibrates and grows"; survives any practitioner | the aggregate calibration profile | the whole knowledge graph: artifacts, goals, sources, lessons, available skills, spawnable agents |
-| **Practitioner** | `claude_session_id` | **Ephemeral identity, durable state** — conversation ends/compacts but is respawnable | presence (loc/status), the conversation **summary/tl;dr**, its own trajectory points (latent per-practitioner Brier) | artifacts it logs merge up; epistemic *awareness* (retrieval) is shared at practice level |
-| **Agent / Subagent** | transient `agent_id` per spawn | **Ephemeral** — runs a scoped task, returns, dies | nothing persistent; work rolls up to spawning practitioner/practice | inherits the practice context for the task |
-| **Skill** | name/slug | **Durable, stateless** | — | a loadable *capability*, not an epistemic actor; practice-scoped or global |
-| **Epistemic Profile** | (layered) | layered | practitioner layer: trajectory + summary + latent Brier | practice layer: artifacts/goals/sources/lessons + aggregate calibration |
+| **Practice** | `ai_id` (canonical `org.tenant.project` on the mesh) | durable; outlives any practitioner | the aggregate calibration profile | the knowledge graph: artifacts, goals, sources, lessons, skills, spawnable agents |
+| **Practitioner** | see the two keys below | ephemeral identity, durable state | presence, conversation summary, its own trajectory points | artifacts it logs merge up; retrieval is shared at practice level |
+| **Agent / subagent** | transient per spawn | ephemeral | nothing persistent; work rolls up to the spawner | inherits the practice context for the task |
+| **Skill** | name | durable, stateless | none | a loadable capability, not an epistemic actor |
+| **Epistemic profile** | layered | layered | practitioner layer: trajectory points | practice layer: artifacts and aggregate calibration |
 
-Containment: **Agent ⊂ spawned-by Practitioner ⊂ occupies Practice.** Skill is
-orthogonal (a loaded capability). The Epistemic Profile is **two layers**, not one.
+Containment: agent within the practitioner that spawned it, practitioner within the practice it occupies. A skill is orthogonal.
 
-**Code reality (verified 2026-06-24; calibration half SHIPPED in 1.14):**
-- Brier *was* aggregated per-practice only. Since 1.14 the CHECK gate keys on the
-  **practitioner model within the practice** — `compute_dynamic_thresholds(…,
-  practitioner_model=…)` filters `calibration_trajectory.practitioner_model`
-  (migration 074) and falls back to the practice when that model has fewer than
-  `min_transactions` points. Every phase reports `basis`, `practitioner_points`
-  and `lookback`, so a fallback is never mistaken for a per-model reading. The
-  statusline passes the same model, so what it shows is what the gate enforces.
-- The raw data was already per-practitioner: `trajectory_tracker.record_trajectory_point`
-  stores every cycle keyed on `(session_id, ai_id, vector)` with `self_assessed`,
-  `grounded`, `gap`. The 1.14 change surfaced it rather than re-instrumenting.
-  A **human** practitioner axis is still latent: `practitioner_model` names the
-  model, not the seat.
+### Two keys for "practitioner" in today's code
 
----
+The word currently names two different things, and the code keys them differently:
 
-## 2. A2A: address the practice, attribute the practitioner
+- **The conversation.** `claude_session_id` is the durable key for presence and for the ERM practitioner entity (`empirica/core/practitioner_presence.py`, `WorkspaceDBRepository.upsert_practitioner_entity`). It survives compaction. The empirica `session_id` does not: it rotates per compact window because it contains measurement cycles.
+- **The model.** `practitioner_model` is the model id read from the last assistant line of the Claude Code transcript when a transaction closes (`empirica/utils/practitioner_model.py`). It is stored on `calibration_trajectory` and `grounded_verifications` (migration 074), nullable and not back-filled, and is what the CHECK gate keys on.
 
-The mesh addresses **practices** today (`source_claude` / `target_claudes` are
-canonical ai_ids). That stays the **default** — the practice is the durable,
-accountable unit and the shared-knowledge holder; a practitioner may be compacted
-or gone. Three layers:
+Calibration therefore accrues to the model within the practice. A human seat is not an axis anywhere yet.
 
-- **Default — practice-addressed.** A proposal/engagement goes to the practice;
-  whichever practitioner is live picks it up (load-balanced, accountable).
-- **Optional — practitioner-addressed (continuity).** "Continue *this* thread with
-  the practitioner who has the context." B2 (presence resolves practice → live
-  practitioners) makes this possible. It **degrades gracefully to practice-
-  addressing** when that practitioner is gone — shared knowledge lets the practice
-  still answer.
-- **Always — practitioner-attributed.** Within a practice's handling, individual
-  practitioners contribute *reads*, each tagged **who** + **their reliability**.
-  This is the deliberation input.
+## 2. Mesh addressing: address the practice, attribute the practitioner
 
-Net: we want practitioner **identity + attribution** (B2 delivered identity); we
-mostly **don't** want practitioner addressing as the primary path.
+The mesh addresses practices (`source_claude` and `target_claudes` carry canonical ai_ids). That stays the default, since the practice is the accountable unit and holds the shared knowledge. Three layers:
 
----
+- **Default, practice-addressed.** A proposal goes to the practice; whichever practitioner is live picks it up.
+- **Optional, practitioner-addressed.** To continue a thread with the practitioner holding its context. Presence resolves a practice to its live practitioners (`empirica practitioner list`). It should degrade to practice addressing when that practitioner is gone. No practitioner addressing is implemented on the mesh path I read.
+- **Always, practitioner-attributed.** Within a practice's handling, each practitioner's read is tagged with who and how reliable.
 
-## 3. Per-practitioner reliability (richer than Brier alone)
+## 3. Reliability: a vector, with shrinkage
 
-The divergence between a practitioner's reliability and the practice's aggregate is
-not just a side-by-side — it's the **weight in a Bayesian fold**: better-calibrated-
-than-practice → fold their contributions up; worse → discount before folding. The
-practice profile becomes a **reliability-weighted ensemble** of its practitioners'
-reads, not a flat merge.
+A practitioner's reliability relative to the practice is meant to act as a weight: better calibrated than the practice, fold the contribution up; worse, discount it. The practice profile becomes a reliability-weighted ensemble.
 
-Brier is too thin a single number. The arbiter weighs a **vector of signals**, most
-latent in existing data:
+Brier alone is too thin. The signals the arbiter would weigh, and where each comes from today:
 
-| Signal | Meaning | Source today |
+| Signal | Source today |
+|---|---|
+| Brier and calibration | `calibration_trajectory` points; `get_brier_profile` per practice, `get_practitioner_brier_profile` per session |
+| Coverage | artifact and goal footprint per session |
+| Age and maturity | session lifetime, cycle count |
+| Artifact attribution | `finding_refs`, artifact authorship |
+| Lineage and track record | gap history, drift, phase boundaries |
+
+Only the first is exposed as a function. The rest are data that exists, not signals anything combines.
+
+**Shrinkage design (autonomy's position, a position to calibrate against):**
+
+- Prior is the practice aggregate profile.
+- Credibility weight is Bühlmann `w = n / (n + k)` with `k` the ratio of within-practitioner to between-practitioner variance, so the half-credibility point is earned from data. One boolean floor: `n < n_min` gives `w = 0`.
+- Asymmetric: shrink a thin practitioner claiming better-than-practice harder than one claiming worse, driven by the standard error of the practitioner's Brier. Uncertainty defaults toward the practice prior.
+
+None of this exists in code. `compute_practitioner_divergence` returns the raw per-phase deltas and per-side Brier variances so a consumer can form `SE = sqrt(variance / n)`, and its docstring names the weighting as autonomy's lane.
+
+## 4. Deliberation
+
+A deliberation is the set of attributed practitioner reads on one engagement. Sentinel, or an arbiter acting for it, would pick a direction on reliability and on the engagement's feasibility, and the winning direction would fold back into the practice weighted, not flat.
+
+Positions autonomy anchored (design, not built):
+
+- **Trigger:** arbitration is CHECK at the deliberation layer, at the praxic boundary: an ECO-gated proposal graduates, a SER reaches a decision state, or a fold-back commits. Never on read convergence, because agreement is not authority.
+- **Fold:** weight at query time by default, so the raw trajectory points stay the source of truth and a corrected shrinkage model can recompute the fold. Mutating the profile is a gated promotion of a repeatedly confirmed direction, never a side effect.
+- **The arbiter obeys the floor it enforces:** fail closed to the flat practice prior and escalate on no arbiter, a tie, or a sub-floor sample; a practitioner cannot arbitrate in favor of its own read; the feasibility vector (`do`) can veto, not only down-weight.
+- **Parity:** arbitration attaches its basis as a recorded field (`arbitration_basis`, parallel to `autonomy_verdict_basis`) and must not change the underlying gate's outcome semantics.
+
+CRM note: engagements are canonical in crm-mcp. A deliberation read stores only the engagement id on an edge, which is a join id and stays valid; it never reads engagement state from `entity_registry`.
+
+## 5. Build state per slice
+
+| Slice | What it is | State |
 |---|---|---|
-| **Brier / calibration** | self-assessed vs grounded accuracy | trajectory points (per session_id), `get_brier_profile` (per ai_id) |
-| **Coverage** | how much of the domain the practitioner has actually touched | artifact/goal footprint per session |
-| **Age / maturity** | seasoned vs fresh — the shrinkage prior | session lifetime, cycle count |
-| **Artifact attribution** | whose findings/decisions are load-bearing | `finding_refs` / artifact authorship |
-| **Epistemic lineage + track record** | the gap history, drift, phase discipline | `calibration_insights`, `phase_boundary`, trajectory gap series |
+| B2 presence | `empirica practitioner write\|clear\|list\|heartbeat`; presence files keyed on `claude_session_id`; heartbeat to cortex | built |
+| B4 practitioner entity | `upsert_practitioner_entity` writes `entity_registry` (`entity_type='practitioner'`) and an `occupies` edge to the practice; `list_practitioner_entities`. `practitioner write` calls it best-effort on every presence write | built. `summary` and `trajectory_pointer` are supported but the caller never passes them, so they stay empty |
+| Calibration keyed on practitioner model | `compute_dynamic_thresholds(..., practitioner_model=...)` uses that model's points when it has at least `min_transactions`, else the practice's; each phase reports `basis`, `practitioner_points`, `lookback`. CHECK passes the current model | built |
+| B5 reliability view | `get_practitioner_brier_profile` and `compute_practitioner_divergence` | functions only: no CLI, hook or statusline calls them. They filter by empirica `session_id`, which rotates per compact window, so "per practitioner" currently means per session window, not per conversation |
+| B6 deliberation record | `record_deliberation_read` writes a `contributes_to` edge (practitioner to engagement) with the read summary as the edge note; `get_deliberation` returns reads oldest first, LEFT JOINed to the practitioner entity | repository methods and unit tests only; nothing in the CLI or hooks records a read |
+| B7 arbitration and fold | multi-signal weighting, Bühlmann shrinkage, `arbitration_basis`, feasibility veto, reliability-weighted fold | not built |
 
-**Shrinkage is mandatory** (model anchored by autonomy, 2026-06-24):
+## 6. Open
 
-- **Prior** = the practice aggregate calibration profile (the fold target — already
-  what calibration uses).
-- **Credibility weight**, not a fixed cycle count: Bühlmann `w = n / (n + k)`, where
-  `k = within-practitioner-var / between-practitioner-var`. ~`k` cycles → half-
-  credibility; self-calibrating, earned from data, no magic constant. A hard
-  "≥30 cycles" threshold is the deterministic-knob-substituting-for-reasoning
-  anti-pattern. **One** deterministic boolean below it: `n < n_min → w = 0` (pure
-  prior — below some `n` even the variance estimate is noise). Floor = boolean;
-  the credibility curve is the reasoned gray.
-- **Asymmetric** (the load-bearing gating call): shrink a thin practitioner claiming
-  *better-than-practice* **harder** than one claiming *worse*. Over-crediting a lucky
-  short conversation hijacks the practice direction; under-crediting just falls back
-  to the safe prior. Fail-closed = default toward the practice prior when the
-  practitioner's reliability estimate is uncertain — drive `w` off the **standard
-  error** of the practitioner's Brier (n-dependent), so uncertainty itself sets the
-  shrinkage.
-
----
-
-## 4. The deliberation model (the medical analogy)
-
-| Analogy | Empirica primitive | Status |
-|---|---|---|
-| Leg-surgery **practice** | a practice (ai_id) | exists |
-| a **case / engagement** | the engagement substrate | **built (A1–A5)** |
-| **surgeons discussing** | live practitioners contributing attributed reads on the engagement | identity built (B2); deliberation record = new |
-| **Sentinel decides direction** by integrity + reliability + **feasibility** | Sentinel — weighs the *practitioner model's* calibration within the practice, practice as fallback (1.14) | extend to multi-signal arbitration, and to the human seat rather than the model |
-| **fold the chosen direction back** | reliability-weighted update of the practice profile | new |
-
-A **deliberation** is a set of practitioner reads on one engagement: each read is
-attributed (practitioner + reliability-vector), Sentinel arbitrates direction on
-reliability **and** the engagement's own feasibility (the `do` / feasibility
-vectors), and the winning direction folds back into the practice — weighted, not
-flat.
-
----
-
-## 5. Build sequence (each slice shippable)
-
-1. **B4 — practitioner entity (foundation).** Persist `entity_type='practitioner'`,
-   `entity_id=claude_session_id`, durable attrs = practice ai_id, conversation
-   **summary/tl;dr**, trajectory pointer; **occupies → practice** edge; live status/
-   location synthesized from presence. Makes "which practitioners, in which practice"
-   queryable. *(my lane)*
-2. **B5 — per-practitioner reliability view.** Surface the latent session-keyed
-   Brier/trajectory as a first-class practitioner profile, with the practice-vs-
-   practitioner **divergence** (shrinkage-corrected). High value, data's already
-   there. *(empirica core + autonomy on the shrinkage model)*
-3. **B6 — deliberation record.** `contributes_to` edge (practitioner ↔ engagement);
-   attributed reads on an engagement. *(ERM owners + core)*
-4. **B7 — Sentinel arbitration.** Multi-signal weighting (§3) + feasibility →
-   direction; reliability-weighted fold into the practice. *(autonomy lane —
-   gating-semantics + the arbitration model)*
-
----
-
-## 6. Resolutions (autonomy-anchored 2026-06-24) + open for David
-
-**Resolved by autonomy** (their lane: arbitration / shrinkage / gating-semantics),
-anchored in the existing control-model — *positions to calibrate against, not decrees*:
-
-- **Shrinkage model (B5)** → §3: Bühlmann credibility + `n < n_min` boolean floor +
-  asymmetric (harder shrink on better-than-practice claims, driven by Brier standard
-  error). Anchor = the practice prior.
-- **Arbitration trigger (B7)** → arbitration is **CHECK at the deliberation layer** —
-  it gates the noetic→praxic transition of a *multi*-practitioner deliberation.
-  Trigger on the **praxic boundary**, never on read-convergence (agreement isn't
-  authority — collab-convergence ≠ approval): when (a) an ECO-gated proposal
-  graduates out of the deliberation, (b) a SER transitions to a decision state, or
-  (c) a fold-back commits. Rare + high-signal, not per-read.
-- **Fold mechanism (B7)** → default **weight-at-query** (reversible by construction;
-  raw per-practitioner trajectory points stay source of truth, the fold is a derived
-  view that can be recomputed with a corrected shrinkage model). Literal profile
-  mutation only as a **gated promotion** of a converged, arbitrated, *repeatedly*-
-  confirmed direction — the POSTFLIGHT eidetic-promotion analog (confidence-gated,
-  capped, logged, reversible-with-audit). Never an automatic side-effect of a
-  deliberation.
-
-**Arbitration is itself a privileged action → subject to the floor it enforces (B7):**
-1. **Fail-closed** — no arbiter / a tie / sub-floor sample → flat practice prior +
-   escalate; never pick a thin practitioner's direction.
-2. **Un-self-dealing** — a practitioner cannot arbitrate in favor of its own read
-   (the two-key / no-recursion principle).
-3. **Feasibility veto** — the `do` / feasibility vector can **veto**, not merely
-   down-weight: a direction no live practitioner can execute is a non-starter
-   regardless of who proposed it.
-
-**Parity:** arbitration attaches the reliability-weighted direction as recorded basis
-(`arbitration_basis`, parallel to `autonomy_verdict_basis`) — it must NOT mutate the
-underlying gate's outcome semantics (the status-parity lesson).
-
-**Still open for David:**
-- **Summary/tl;dr as a first-class practitioner attribute** — wiring the CC
-  conversation summary into the presence/entity record. Worth it?
+- Whether the conversation summary should be a first-class practitioner attribute, wired from Claude Code into the presence and entity record. Predicted answer: yes, small, since the entity already has the field.
+- Reconciling the two keys in section 1. B5 and B6 are keyed on the conversation or session while calibration is keyed on the model; the arbiter needs one answer to "who is this practitioner".
+- A human practitioner axis. `practitioner_model` names the model, not the seat.

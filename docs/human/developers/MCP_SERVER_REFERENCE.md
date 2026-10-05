@@ -1,38 +1,37 @@
 # Empirica MCP Server Reference
 
-**Last Updated:** 2026-05-18
-**Version:** 1.14.8
-**Total Tools:** 44
-**Architecture:** Table-driven CLI wrapper (no middleware)
+**Package:** `empirica-mcp` (source in `empirica-mcp/`, entry point `empirica_mcp.server:run`)
+**Architecture:** table-driven CLI wrapper, no middleware
+**Tool count:** run `empirica mcp-list-tools`. It reads `TOOL_REGISTRY` from the installed package and prints the live total, split into standalone and cortex-orchestrated tools. This page does not quote a number because the registry changes with the CLI.
 
 ---
 
 ## Overview
 
-The Empirica MCP server exposes Empirica functionality through MCP (Model Context Protocol) for AI assistants in Claude Desktop, IDEs, and other MCP-compatible environments.
+The MCP server exposes Empirica to MCP-capable harnesses (Claude Code, Claude Desktop, Cursor, Gemini CLI, Codex and others). Every tool is a thin mapping from MCP arguments to one `empirica` CLI invocation: the server builds the argv, runs the CLI as a subprocess, and returns its output. There is no epistemic middleware in the server. In Claude Code the Sentinel gates through hooks; on other platforms the discipline is self-enforced. See [MCP_FOR_DESKTOP_HARNESSES.md](../end-users/MCP_FOR_DESKTOP_HARNESSES.md) for harness setup.
 
-**Architecture:** Single `TOOL_REGISTRY` dict maps tool names to CLI commands. No epistemic middleware — gating is handled by the Sentinel via hooks in Claude Code, or self-enforced on other platforms.
+Key properties:
 
-**Key Properties:**
-- **Package:** `empirica-mcp` (PyPI)
-- **Command:** `empirica-mcp`
-- **Transport:** stdio
-- **Timeout:** 30s per command (configurable via `EMPIRICA_MCP_TIMEOUT`)
-- **No hanging:** CASCADE commands use stdin JSON, others use `stdin=DEVNULL`
+- **Transport:** stdio. The server supports both the 1.x and 2.x `mcp` SDK (the handler registration shim is the only SDK-specific code).
+- **Single source of truth:** the `empirica` CLI. The server holds no session state.
+- **Always JSON:** every call appends `--output json`.
+- **No hanging:** non-cascade tools run with `stdin=DEVNULL`; cascade-style tools pass their arguments as JSON on stdin (`empirica <verb> --output json -`).
+- **Output cap:** responses over 30000 characters are truncated with a notice.
+- **Parity:** `tests/test_cli_parity.py` fails if a mapped flag stops existing on its CLI subcommand.
 
 ---
 
 ## Setup
 
-### Via `empirica setup`
+### Via `empirica setup-claude-code`
 
-The setup command auto-configures MCP in `~/.claude/mcp.json`:
+`empirica setup-claude-code` finds or installs `empirica-mcp` (pipx if needed) and registers it in two files with an identical entry: `~/.claude.json` (the file Claude Code loads for user-scope MCP servers) and the legacy `~/.claude/mcp.json`. The entry:
 
 ```json
 {
   "mcpServers": {
     "empirica": {
-      "command": "empirica-mcp",
+      "command": "<path to empirica-mcp>",
       "args": [],
       "type": "stdio",
       "tools": ["*"]
@@ -41,176 +40,158 @@ The setup command auto-configures MCP in `~/.claude/mcp.json`:
 }
 ```
 
-### Manual (Claude Desktop / other environments)
+The write is stamped and retried on concurrent modification because Claude Code rewrites `~/.claude.json` continuously. If the existing file cannot be parsed, setup skips it rather than overwrite it.
+
+### Manual (Claude Desktop and others)
 
 ```bash
-pip install empirica-mcp
+pipx install empirica-mcp        # or: pip install empirica[mcp]
+empirica-mcp --help
 ```
 
-Configure your MCP client to run `empirica-mcp` as a stdio server.
+Point the harness's MCP config at the `empirica-mcp` executable as a stdio server.
 
-### Workspace Resolution
+### Workspace resolution
 
-The server auto-detects the project workspace:
-1. `--workspace` CLI flag
-2. `EMPIRICA_WORKSPACE_ROOT` env var
-3. Git repo root (if `.empirica/` exists)
-4. Common paths (`~/empirical-ai/empirica`, CWD)
+Server start, in order: the `--workspace` / `-w` flag; else `EMPIRICA_WORKSPACE_ROOT` if already set; else the git root of the current directory when it contains `.empirica/`.
 
----
+Per call, the working directory for the CLI subprocess is: the call's `project_path` argument; else `EMPIRICA_WORKSPACE_ROOT`; else the active project from `empirica.utils.session_resolver.get_active_project_path()`; else the server's own directory.
 
-## Environment Variables
+### Environment variables
 
 | Variable | Default | Description |
-|----------|---------|-------------|
-| `EMPIRICA_WORKSPACE_ROOT` | auto-detect | Project workspace root |
-| `EMPIRICA_MCP_TIMEOUT` | `30` | CLI command timeout in seconds |
+|---|---|---|
+| `EMPIRICA_WORKSPACE_ROOT` | auto-detected as above | Project root the CLI runs in |
+| `EMPIRICA_MCP_TIMEOUT` | `30` | Timeout in seconds for standard tools |
+| `EMPIRICA_MCP_CASCADE_TIMEOUT` | `120` | Timeout for tools that send JSON on stdin (PREFLIGHT, CHECK, POSTFLIGHT, batch artifact tools); POSTFLIGHT runs grounded verification and embedding and needs longer |
+
+If the `empirica` CLI is not on `PATH` (or in `~/.local/bin`, `/usr/local/bin`), every tool returns an error naming the install command.
+
+### A timeout on a submit does not mean it failed
+
+`preflight-submit`, `check-submit` and `postflight-submit` commit their row before the slow retrieval tail. On timeout the server returns a hint to run `empirica status` and look for an open transaction before resubmitting, because resubmitting double-opens.
 
 ---
 
-## Tool Reference (44 tools)
+## Tool reference
 
-### Session Lifecycle
+Tool names map to a CLI verb in `TOOL_REGISTRY`. Rows marked stdin send their arguments as JSON on stdin. This table groups the tools as the registry stands; `empirica mcp-list-tools` is the authority for the exact set.
 
-| Tool | CLI Command | Description |
-|------|------------|-------------|
-| `session_create` | `session-create` | Create new Empirica session |
-| `project_bootstrap` | `project-bootstrap` | Load project context (findings, goals, unknowns, calibration) |
-| `session_snapshot` | `session-snapshot` | Create snapshot of current session state |
-| `resume_previous_session` | `sessions-resume` | Resume a previous session |
+### Session lifecycle
 
-### CASCADE Workflow
+| Tool | CLI verb |
+|---|---|
+| `session_create` | `session-create` |
+| `project_bootstrap` | `project-bootstrap` |
+| `bootstrap_context` | `bootstrap-context` (three-circle artifact graph, for harnesses without hooks) |
+| `session_snapshot` | `session-snapshot` |
+| `resume_previous_session` | `sessions-resume` |
 
-These tools send full JSON via stdin to the CLI (no hanging).
+### Transaction (stdin)
 
-| Tool | CLI Command | Description |
-|------|------------|-------------|
-| `submit_preflight_assessment` | `preflight-submit` | Submit PREFLIGHT self-assessment (13 vectors) |
-| `submit_check_assessment` | `check-submit` | Submit CHECK gate assessment |
-| `submit_postflight_assessment` | `postflight-submit` | Submit POSTFLIGHT — closes transaction |
+| Tool | CLI verb |
+|---|---|
+| `submit_preflight_assessment` | `preflight-submit` |
+| `submit_check_assessment` | `check-submit` |
+| `submit_postflight_assessment` | `postflight-submit` (closes the transaction) |
 
-### Noetic Artifacts
+`vectors` is required; `session_id` is optional because the CLI derives it from the active session. PREFLIGHT and CHECK accept `claims` (`{claim, grounding, ref}` with grounding `read`, `ran`, `retrieved` or `assumed`; only `read` and `ran` certify).
 
-| Tool | CLI Command | Description |
-|------|------------|-------------|
-| `finding_log` | `finding-log` | Log a finding (what was learned) |
-| `unknown_log` | `unknown-log` | Log an unknown (what needs investigation) |
-| `deadend_log` | `deadend-log` | Log a dead-end (approach that didn't work) |
-| `mistake_log` | `mistake-log` | Log a mistake (error to avoid) |
-| `assumption_log` | `assumption-log` | Log an unverified assumption |
-| `decision_log` | `decision-log` | Log a decision with rationale |
-| `source_add` | `source-add` | Add an epistemic source reference |
+### Artifacts
+
+| Tool | CLI verb |
+|---|---|
+| `finding_log`, `unknown_log`, `deadend_log`, `mistake_log`, `assumption_log`, `decision_log` | the matching `*-log` verb |
+| `note` | `note` |
+| `source_add`, `source_list` | `source-add`, `source-list` |
+| `log_artifacts` (stdin) | `log-artifacts` |
+| `resolve_artifacts` (stdin) | `resolve-artifacts` |
+| `update_artifacts` (stdin) | `update-artifacts` |
+| `delete_artifacts` (stdin) | `delete-artifacts` |
+| `finding_resolve`, `unknown_list`, `unknown_resolve` | `finding-resolve`, `unknown-list`, `unknown-resolve` |
+| `epistemics_list`, `epistemics_show` | `epistemics-list`, `epistemics-show` |
+| `lesson_create` (stdin), `lesson_list`, `lesson_search` | `lesson-create`, `lesson-list`, `lesson-search` |
+| `issue_list`, `issue_resolve` | `issue-list`, `issue-resolve` |
 
 ### Goals
 
-| Tool | CLI Command | Description |
-|------|------------|-------------|
-| `goals_create` | `goals-create` | Create a new goal |
-| `goals_list` | `goals-list` | List goals |
-| `goals_complete` | `goals-complete` | Mark a goal as complete |
-| `goals_add_task` | `goals-add-task` | Add a task to a goal |
-| `goals_complete_task` | `goals-complete-task` | Mark a task as complete |
-| `goals_progress` | `goals-progress` | Get goal progress details |
-| `goals_search` | `goals-search` | Search goals by text |
-| `goals_ready` | `goals-ready` | List goals ready for work |
+`goals_create`, `goals_list`, `goals_complete`, `goals_add_task`, `goals_get_tasks`, `goals_complete_task`, `goals_progress`, `goals_search`, `goals_discover`, `goals_ready`, `goals_activate`, `goals_refresh`, `goals_mark_stale`, `goals_add_dependency`, each calling the `goals-*` verb of the same name.
 
-### Unknowns
+### Search, memory and calibration
 
-| Tool | CLI Command | Description |
-|------|------------|-------------|
-| `unknown_list` | `unknown-list` | List unknowns |
-| `unknown_resolve` | `unknown-resolve` | Resolve an unknown |
+| Tool | CLI verb |
+|---|---|
+| `project_search`, `project_embed` | `project-search`, `project-embed` |
+| `investigate` | `investigate` (retrieval over what the practice knows) |
+| `noetic_batch` (stdin) | `noetic-batch` |
+| `commit_context` | `commit-context` |
+| `calibration_report`, `assess_state`, `profile_status` | `calibration-report`, `assess-state`, `profile-status` |
+| `memory_compact`, `efficiency_report` | `memory-compact`, `efficiency-report` |
 
-### Search & Memory
+### Checkpoints, handoff, workspace, sync
 
-| Tool | CLI Command | Description |
-|------|------------|-------------|
-| `project_search` | `project-search` | Semantic search over project knowledge (Qdrant) |
-| `project_embed` | `project-embed` | Embed project artifacts to Qdrant |
+| Tool | CLI verb |
+|---|---|
+| `checkpoint_create`, `checkpoint_load` | `checkpoint-create`, `checkpoint-load` |
+| `handoff_create` | `handoff-create` |
+| `workspace_overview`, `workspace_map` | `workspace-overview`, `workspace-map` |
+| `sync_push`, `sync_status` | `sync-push`, `sync-status` |
+| `doctor` | `doctor` |
 
-### Calibration & State
+### Dispatch bus, listener, loops, notify
 
-| Tool | CLI Command | Description |
-|------|------------|-------------|
-| `calibration_report` | `calibration-report` | Get calibration report |
-| `assess_state` | `assess-state` | Get current epistemic state |
-| `profile_status` | `profile-status` | Show artifact counts and calibration summary |
+| Tool | CLI verb |
+|---|---|
+| `bus_register`, `bus_dispatch`, `bus_instances`, `bus_status` | `bus-register`, `bus-dispatch`, `bus-instances`, `bus-status` |
+| `bus_poll` | `message-inbox` |
+| `listener_on`, `listener_arm`, `listener_off` | `listener on`, `listener arm`, `listener off` |
+| `loop_register`, `loop_heartbeat`, `loop_status`, `loop_schedule_next` | `loop register`, `loop heartbeat`, `loop status`, `loop schedule-next` |
+| `notify_emit` | `notify emit` |
 
-### Lessons
+### Cortex-orchestrated
 
-| Tool | CLI Command | Description |
-|------|------------|-------------|
-| `lesson_create` | `lesson-create` | Create a reusable lesson |
-| `lesson_list` | `lesson-list` | List available lessons |
-| `lesson_search` | `lesson-search` | Search lessons by text |
+These carry a `requires` marker in the registry and `empirica mcp-list-tools` flags them. Without a configured cortex they return a "cortex config missing" error; the rest of the server works standalone.
 
-### Issues
-
-| Tool | CLI Command | Description |
-|------|------------|-------------|
-| `issue_list` | `issue-list` | List auto-captured issues |
-| `issue_resolve` | `issue-resolve` | Resolve an issue |
-
-### Investigation & Handoff
-
-| Tool | CLI Command | Description |
-|------|------------|-------------|
-| `investigate` | `investigate` | Run structured investigation |
-| `handoff_create` | `handoff-create` | Create handoff report |
-
-### Workspace
-
-| Tool | CLI Command | Description |
-|------|------------|-------------|
-| `workspace_overview` | `workspace-overview` | Show workspace overview |
-| `workspace_map` | `workspace-map` | Show knowledge map across projects |
-
-### Utilities
-
-| Tool | CLI Command | Description |
-|------|------------|-------------|
-| `checkpoint_create` | `checkpoint-create` | Create git checkpoint with epistemic metadata |
-| `checkpoint_load` | `checkpoint-load` | Load a checkpoint |
-| `refdoc_add` | `refdoc-add` | Register a reference document |
-| `memory_compact` | `memory-compact` | Compact session memory |
-| `efficiency_report` | `efficiency-report` | Generate efficiency report |
-| `monitor` | `monitor` | Session monitoring dashboard |
+| Tool | CLI verb | Needs cortex |
+|---|---|---|
+| `practice_context` | `practice-context` | yes (roster) |
+| `mailbox_reply` | `mailbox reply` | yes |
+| `listener_on` | `listener on` | for mesh events; runs standalone otherwise |
+| `mesh_status` | `mesh status` | for the bridge layer; the local layer is standalone |
 
 ### Stateless
 
-| Tool | Description |
-|------|-------------|
-| `get_empirica_introduction` | Get framework introduction (no CLI call) |
+`get_empirica_introduction` is registered separately from `TOOL_REGISTRY` and calls no CLI; it returns a short framework description and the list of registry tool names. Because it is outside `TOOL_REGISTRY`, `mcp-list-tools` does not show it.
 
 ---
 
 ## Architecture
 
 ```
-MCP Client (Claude Desktop, IDE)
+MCP client (Claude Desktop, IDE, Claude Code)
     ↓ stdio
 empirica-mcp server
     ↓ TOOL_REGISTRY lookup
-    ↓ subprocess (stdin=DEVNULL or stdin_json)
+    ↓ subprocess: empirica <verb...> --output json [flags | -]
 empirica CLI (single source of truth)
     ↓
-SQLite / Qdrant / Git
+SQLite / git notes / Qdrant
 ```
 
-The `TOOL_REGISTRY` is a Python dict mapping each tool name to:
-- `cli`: The CLI command to run
-- `params`: Parameter-to-flag mapping
-- `required`: Required parameters
-- `stdin_json`: Whether to pipe arguments as JSON via stdin (CASCADE tools)
+Each `TOOL_REGISTRY` entry has:
 
-All tools include `--output json` automatically.
+- `cli`: the CLI verb, possibly several tokens (`loop register`)
+- `params`: argument name to flag mapping
+- `required`: required arguments
+- `desc`: the tool description shown to the model
+- optional `stdin_json`, `positional`, `list_params` and `requires`
+
+Tool input schemas are generated from the entry: names in the server's numeric and boolean sets become `number` and `boolean`, and a fixed set of enumerated parameters (`reversibility`, `status`, `severity`, `visibility`, `epistemic_source`, and others) become enums.
 
 ---
 
-## Removed in 1.7.5 (MCP server rewrite)
+## Removed
 
-The following were removed in the MCP server rewrite:
-
-- **Epistemic middleware** (`EpistemicMiddleware`, `VectorRouter`, `EpistemicStateMachine`) — replaced by Sentinel hooks
-- **58 tools** — vision-*, identity-*, memory-prime/scope/value/report, session-rollup, multi-AI coordination tools. These remain available via the CLI directly.
-- **`EMPIRICA_EPISTEMIC_MODE`** env var — no longer has any effect
+- `EpistemicMiddleware`, `VectorRouter`, `EpistemicStateMachine`, and the `EMPIRICA_EPISTEMIC_MODE` variable were removed in the 1.7.5 rewrite; gating moved to the Sentinel hooks.
+- Tools for `refdoc-add` and `monitor` that older revisions of this page listed are not in the registry now.
+- The server-lifecycle CLI verbs (`mcp-start`, `mcp-stop`, `mcp-status`, `mcp-test`, `mcp-call`) were removed on 2026-06-03; lifecycle belongs to the harness's MCP config. Only `mcp-list-tools` remains.

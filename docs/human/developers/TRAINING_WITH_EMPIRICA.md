@@ -1,102 +1,77 @@
 # Training AIs with Empirica
 
-Empirica's epistemic transaction data — the measurement cycles that track AI self-awareness during real work — doubles as a high-quality training dataset for fine-tuning models on epistemic self-awareness.
+Empirica's epistemic transactions record a complete belief-update cycle during real work: what the AI believed before, what it believed after, what the Sentinel decided in between, and how those beliefs compared with what deterministic services observed. `empirica training-export` turns those transactions into JSONL that can be used to fine-tune or evaluate models on epistemic self-assessment.
 
-## Why This Works
+## Why the data is useful
 
-Every epistemic transaction captures a complete belief-update cycle:
+Each exported record is one transaction:
 
-1. **PREFLIGHT** — AI self-assesses before work (13 vectors)
-2. **CHECK** — Sentinel gates noetic→praxic transition (with reasoning)
-3. **POSTFLIGHT** — AI self-assesses after work (13 vectors + delta)
-4. **Grounded verification** — Deterministic service observations compared to belief vectors
+1. **PREFLIGHT:** the AI's self-assessed vectors before work.
+2. **CHECK** (zero or more): the vectors and decision at each gate inside the transaction.
+3. **POSTFLIGHT:** the AI's self-assessed vectors after work, with its reasoning.
+4. **Grounded verification:** the comparison of those beliefs against service observations (tests, git metrics, goal completion, artifact counts), when a verification row exists.
 
-This produces training examples where the model learns to:
-- Accurately assess its own knowledge state
-- Update beliefs based on evidence
-- Distinguish what it knows from what it assumes
-- Calibrate confidence against objective outcomes
+That gives examples of a model assessing its own state, updating on evidence, and being scored against outcomes, on real work with real uncertainty rather than synthetic prompts.
 
-### Theoretical Grounding
+### Background (cited from earlier revisions; not re-checked here)
 
-Two recent papers validate this approach:
+- OpenAI, "Reasoning Models Struggle to Control their Chains of Thought" (arxiv 2603.05706), cited for the claim that chain-of-thought is hard to fake, so assessments made during reasoning are less likely to be performative.
+- Google, "Bayesian teaching enables probabilistic reasoning in LLMs" (Nature Communications, s41467-025-67998-6), cited for the claim that training on an assistant that works through uncertainty calibrates better than training on an oracle.
 
-**OpenAI (March 2026)** — "Reasoning Models Struggle to Control their Chains of Thought" (arxiv/2603.05706): Models cannot fake their chain-of-thought reasoning (0.1–2.8% controllability vs 60%+ for final output). This means epistemic self-assessments captured during CoT are genuine signals, not performative.
-
-**Google (2025)** — "Bayesian teaching enables probabilistic reasoning in LLMs" (Nature s41467-025-67998-6): Training via an uncertainty-struggling assistant produces better calibrated models than training from an all-knowing oracle. Empirica's data IS that uncertainty-struggling assistant — real work with real uncertainty, not synthetic examples.
-
-## The Training Export Command
+## The export command
 
 ```bash
-# Export from current project
+# Current project, to a file
 empirica training-export --output-path epistemic_training.jsonl
 
-# Export from ALL projects in workspace (recommended for dataset size)
+# Every project database registered in the workspace
 empirica training-export --workspace --output-path full_dataset.jsonl
 
-# Filter by AI model
+# Filter by AI id, or by project id prefix
 empirica training-export --workspace --ai-id empirica --output-path claude_data.jsonl
+empirica training-export --project-id 748a81a2 --output-path one_project.jsonl
 
-# Exclude noetic artifacts (smaller records)
-empirica training-export --no-artifacts --output-path vectors_only.jsonl
+# Smaller records
+empirica training-export --no-artifacts --no-grounded --output-path vectors_only.jsonl
 
-# Require more vector coverage per record
+# Require more vectors per side (default 3)
 empirica training-export --min-vectors 8 --output-path high_coverage.jsonl
-
-# JSON output mode (for programmatic use)
-empirica training-export --workspace --output json
 ```
 
-## JSONL Record Format
+Flags (`empirica training-export --help`): `--output-path`, `--workspace`, `--project-id` (prefix match), `--ai-id`, `--min-vectors` (default 3), `--no-artifacts`, `--no-grounded`, `--output {human,json}`, `--verbose`.
 
-Each line is one epistemic transaction:
+Without `--output-path` the records print to stdout, one JSON object per line, whatever `--output` says. `--output` only changes the summary printed after a file write (`json` gives `exported`, `skipped`, `output_path` and `sources`). A transaction with fewer than `--min-vectors` vectors on either side is skipped and counted.
+
+## How records are built
+
+- **Pairing.** A PREFLIGHT and a later POSTFLIGHT in the `reflexes` table are paired on `transaction_id`; for older rows without one, on `cascade_id`, then on `session_id`. One record per PREFLIGHT.
+- **CHECK decisions.** CHECK rows between the two timestamps in the same session.
+- **Grounded calibration.** The most recent `grounded_verifications` row for the session created from the POSTFLIGHT time to 300 seconds after it. If a transaction produced several verification rows, only one is exported.
+- **Noetic artifacts.** Rows in the same session created inside the transaction window, at most 10 per type.
+- **Workspace mode.** `--workspace` reads `~/.empirica/workspace/workspace.db`, takes each non-archived row of `global_projects`, locates its `sessions.db` from `trajectory_path`, and adds `_source_project` to each record.
+
+## JSONL record format
 
 ```json
 {
   "session_id": "abc-123",
   "ai_id": "empirica",
-  "project_id": "empirica",
+  "project_id": "<project uuid>",
   "transaction_id": "tx-456",
-  "preflight_ts": "2026-01-15T10:30:00",
-  "postflight_ts": "2026-01-15T11:45:00",
+  "preflight_ts": 1768473000.0,
+  "postflight_ts": 1768477500.0,
 
-  "preflight_vectors": {
-    "know": 0.4, "do": 0.2, "context": 0.5, "clarity": 0.6,
-    "coherence": 0.7, "signal": 0.5, "density": 0.3,
-    "state": 0.4, "change": 0.1, "completion": 0.0,
-    "impact": 0.2, "engagement": 0.8, "uncertainty": 0.6
-  },
+  "preflight_vectors":  {"know": 0.4, "do": 0.2, "uncertainty": 0.6},
+  "postflight_vectors": {"know": 0.8, "do": 0.7, "uncertainty": 0.2},
+  "delta":              {"know": 0.4, "do": 0.5, "uncertainty": -0.4},
 
-  "postflight_vectors": {
-    "know": 0.8, "do": 0.7, "context": 0.9, "clarity": 0.8,
-    "coherence": 0.8, "signal": 0.7, "density": 0.6,
-    "state": 0.7, "change": 0.6, "completion": 0.9,
-    "impact": 0.7, "engagement": 0.9, "uncertainty": 0.2
-  },
-
-  "delta": {
-    "know": 0.4, "do": 0.5, "context": 0.4, "clarity": 0.2,
-    "coherence": 0.1, "signal": 0.2, "density": 0.3,
-    "state": 0.3, "change": 0.5, "completion": 0.9,
-    "impact": 0.5, "engagement": 0.1, "uncertainty": -0.4
-  },
-
-  "preflight_meta": {
-    "current_phase": "NOETIC",
-    "notes": "Starting investigation of auth module"
-  },
-
-  "postflight_meta": {
-    "current_phase": "PRAXIC",
-    "notes": "Implemented OAuth flow, tests passing",
-    "tool_call_count": 47
-  },
-
-  "postflight_reasoning": "Completed auth module refactor...",
+  "preflight_meta":  {"current_phase": "NOETIC", "notes": "..."},
+  "postflight_meta": {"current_phase": "PRAXIC", "notes": "...", "tool_call_count": 47},
+  "postflight_reasoning": "...",
 
   "check_decisions": [
     {
-      "timestamp": "2026-01-15T11:00:00",
+      "timestamp": 1768476000.0,
       "vectors": {"know": 0.7, "uncertainty": 0.3, "completion": 0.5, "clarity": 0.7},
       "decision": "proceed",
       "gate_passed": true
@@ -104,7 +79,7 @@ Each line is one epistemic transaction:
   ],
 
   "grounded_calibration": {
-    "calibration_score": 0.82,
+    "calibration_score": 0.12,
     "grounded_coverage": 0.75,
     "evidence_count": 12,
     "calibration_gaps": {"know": 0.15, "completion": -0.1},
@@ -112,121 +87,118 @@ Each line is one epistemic transaction:
   },
 
   "noetic_artifacts": {
-    "findings": [
-      {"finding": "OAuth token refresh uses stale cache", "impact": 0.8, "subject": "auth"}
-    ],
-    "unknowns": [
-      {"unknown": "Rate limiting behavior under load", "resolved": false, "impact": 0.6}
-    ],
-    "dead_ends": [
-      {"approach": "JWT validation via middleware", "why_failed": "Incompatible with SSO flow", "impact": 0.5}
-    ],
-    "mistakes": [
-      {"mistake": "Forgot to invalidate old tokens", "why_wrong": "Security hole", "prevention": "Add token revocation to checklist", "root_cause_vector": "do"}
-    ],
-    "decisions": [
-      {"choice": "Use refresh token rotation", "rationale": "Better security posture", "reversibility": "exploratory"}
-    ]
+    "findings":  [{"finding": "...", "impact": 0.8, "subject": "auth"}],
+    "unknowns":  [{"unknown": "...", "resolved": false, "impact": 0.6}],
+    "dead_ends": [{"approach": "...", "why_failed": "...", "impact": 0.5}],
+    "mistakes":  [{"mistake": "...", "why_wrong": "...", "prevention": "...", "root_cause_vector": "do"}]
   }
 }
 ```
 
-## Dataset Structure
+The vector dictionaries carry all 13 vectors when they were recorded; the example is shortened. Notes:
 
-| Field | Description | Training Signal |
-|-------|-------------|-----------------|
-| `preflight_vectors` | Self-assessment before work | Input: "given this state..." |
-| `postflight_vectors` | Self-assessment after work | Target: "...this is what changed" |
-| `delta` | Vector differences | Learning magnitude per dimension |
-| `check_decisions` | Sentinel gate results mid-work | Decision-making under uncertainty |
-| `grounded_calibration` | Objective vs self-assessed | Reward signal — was the AI honest? |
-| `noetic_artifacts` | What was discovered/failed/decided | Rich context for the belief update |
+- Timestamps are epoch seconds (floats), not ISO strings. `project_id` is a UUID.
+- `preflight_meta` and `postflight_meta` hold only the keys `current_phase`, `notes` and `tool_call_count` when present in the stored reflex data, so they can be empty.
+- `check_decisions`, `grounded_calibration` and `noetic_artifacts` are absent when there is nothing to put in them.
+- `delta` is postflight minus preflight, rounded to four places.
+- The record carries no work type, claims, or falsifiers.
 
-### The Reward Signal
+### Known gap: decisions are not exported
 
-`grounded_calibration.calibration_score` is a belief divergence metric — NOT a reward signal. It measures how much the AI's belief vectors diverge from what deterministic services observe (test results, git metrics, goal completion, artifact counts). Lower scores indicate beliefs more aligned with observations. This divergence informs where work discipline may need attention (more noetic work? better artifact logging?), not where vector values need adjusting.
+The artifact collector queries a table named `decisions_made`. The schema's table is `decisions` (`empirica/data/schema/projects_schema.py`), and I found no `decisions_made` anywhere else in the code. The query error is swallowed, so `noetic_artifacts.decisions` never appears: an export of this repository's own database held findings, unknowns, dead-ends and mistakes and no decisions. Do not build a decision-conditioned dataset from this export until the table name is fixed.
 
-`calibration_gaps` per vector shows where the AI is systematically miscalibrated, enabling targeted training on specific epistemic dimensions.
+## Dataset structure
 
-## Dataset Statistics
+| Field | Description | Training signal |
+|---|---|---|
+| `preflight_vectors` | Self-assessment before work | input: the state at the start |
+| `postflight_vectors` | Self-assessment after work | target: the state at the end |
+| `delta` | Vector differences | learning magnitude per dimension |
+| `check_decisions` | Gate vectors and decision mid-work | decision-making under uncertainty |
+| `grounded_calibration` | Self-assessment against observation | how far beliefs diverged from evidence |
+| `noetic_artifacts` | What was discovered, failed, got wrong | context for the belief update |
 
-As of March 2026 (from a real multi-month deployment):
+### Reading `calibration_score`
 
-- **851 transactions** across 14 project databases
-- **179 with grounded calibration** (objective verification data)
-- **450 with noetic artifacts** (findings, unknowns, dead-ends, mistakes, decisions)
-- **500 with CHECK decisions** (Sentinel gate results with reasoning)
+`grounded_calibration.calibration_score` is a belief divergence metric: a category-weighted mean of the absolute gaps between self-assessed and grounded vectors (`_compute_weighted_calibration` in `empirica/core/post_test/mapper.py`, whose docstring says lower is better). Zero means beliefs matched observation. It excludes the `uncertainty` vector, and the weighting depends on work type. It is not a reward given by Empirica; where the practice uses it, the gap is a prompt to change work discipline, not to adjust numbers.
 
-The dataset grows naturally as Empirica is used. No synthetic data generation needed.
+`calibration_gaps` is per vector and signed as self-assessed minus grounded: positive means the AI claimed more than the evidence supported. `grounded_coverage` says how much of the vector set had evidence at all, so filter on it before trusting a score: a low score over thin coverage is weak evidence of calibration.
 
-## Training Approaches
+## Dataset size
 
-### 1. Supervised Fine-Tuning (SFT)
+Count it from your own data rather than quoting a figure; it grows with use and varies by deployment:
 
-Train on the full transaction record. The model learns to produce accurate self-assessments given work context.
+```bash
+empirica training-export --workspace --output-path /tmp/ds.jsonl --output json
+```
 
-**Input:** Task description + preflight context + noetic artifacts
-**Target:** Postflight vectors + delta + reasoning
+The JSON summary reports `exported`, `skipped` and per-project `sources`. To see how many records carry grounded calibration or CHECK decisions, count the keys in the JSONL (for example with `jq`).
 
-### 2. Calibration Training (RLHF/DPO)
+## Training approaches
 
-Use `grounded_calibration.calibration_score` as the reward signal. The model learns that honest self-assessment is rewarded over inflated confidence.
+### 1. Supervised fine-tuning
 
-**Preferred:** Transactions where `calibration_score > 0.8` (well-calibrated)
-**Rejected:** Transactions where `calibration_score < 0.5` (poorly calibrated)
+Train on the transaction record.
 
-### 3. Sentinel Training
+- **Input:** task context (`preflight_meta.notes`), preflight vectors, and optionally the noetic artifacts.
+- **Target:** postflight vectors, delta and `postflight_reasoning`.
 
-Train a lightweight model to replicate the Sentinel's CHECK decision. Uses `check_decisions` data — given partial vectors mid-work, should the AI proceed to action or continue investigating?
+### 2. Calibration-aware preference training
 
-### 4. Epistemic Self-Distillation
+Build preference pairs from `grounded_calibration`.
 
-Use Empirica transactions from a strong model (e.g., Claude Opus) to fine-tune a smaller model (e.g., a local 7B) on epistemic self-awareness. The smaller model inherits the larger model's calibration patterns without needing the same compute budget for every inference.
+- **Preferred:** low `calibration_score` with healthy `grounded_coverage`.
+- **Rejected:** high `calibration_score` over comparable coverage, or large positive gaps on `know` and `completion` (overconfidence).
+
+Because the score is a divergence and not a reward, choose thresholds from your own distribution and keep the coverage filter.
+
+### 3. Sentinel imitation
+
+Train a small model to reproduce the CHECK decision from `check_decisions`: given partial vectors mid-work, proceed or keep investigating.
+
+### 4. Self-distillation
+
+Use transactions from a strong model to fine-tune a smaller one on epistemic self-assessment. Filter with `--ai-id`; the practitioner model is not a column in the export, so mixed-model practices need another way to separate them (the `practitioner_model` column exists on `calibration_trajectory` and `grounded_verifications`, not in this export).
 
 ## Validation
 
-### BullshitBench
+- **BullshitBench** ([github.com/petergpt/bullshit-benchmark](https://github.com/petergpt/bullshit-benchmark)) measures pushback against nonsense prompts. The expectation that an epistemically trained model scores higher is a hypothesis, not a measured result here.
+- **Calibration trajectory.** Compare `empirica calibration-report --trajectory` (and `--windowed`, `--brier`) before and after fine-tuning. Look for a lower average gap, less overconfidence on `know` and `completion`, and higher uncertainty on novel tasks.
 
-[BullshitBench](https://github.com/petergpt/bullshit-benchmark) measures AI pushback against nonsense — 100 prompts across 5 domains with 13 manipulation techniques. An epistemically trained model should score significantly higher on pushback than baseline, because it has learned to distinguish "I know this" from "I'm confabulating."
+## Privacy and data handling
 
-### Calibration Trajectory
+Records contain:
 
-Compare `calibration_report --trajectory` before and after fine-tuning. A well-trained model should show:
-- Lower average calibration gap
-- Fewer instances of overconfidence on `know` and `completion`
-- Higher uncertainty acknowledgment on novel tasks
+- vector measurements (numeric)
+- session, transaction and project ids, and the AI id (anonymize before sharing)
+- `postflight_reasoning` and `notes` (free text from the work)
+- noetic artifacts: findings, mistakes and dead-ends can contain domain-specific content
 
-## Privacy and Data Handling
-
-Training data contains:
-- Vector measurements (numerical, non-sensitive)
-- Session/transaction IDs (anonymizable)
-- Project IDs and AI IDs (strip or anonymize before sharing)
-- Noetic artifacts: findings, mistakes, dead-ends (may contain domain-specific content)
-
-For external use, filter with `--no-artifacts` to export vectors-only records, or post-process to redact project-specific content.
+For external use, export with `--no-artifacts` and `--no-grounded`, and review `postflight_reasoning` and `*_meta.notes` before sharing; there is no flag that strips them.
 
 ## Architecture
 
 ```
-sessions.db (per project)
-  ├── reflexes table → PREFLIGHT/CHECK/POSTFLIGHT vectors
-  ├── grounded_verifications → objective calibration
-  ├── project_findings, project_unknowns, etc. → noetic artifacts
-  └── decisions_made, mistakes_made → epistemic intent
+<project>/.empirica/sessions/sessions.db
+  ├── reflexes               PREFLIGHT / CHECK / POSTFLIGHT vectors, reasoning, reflex_data
+  ├── sessions               ai_id
+  ├── grounded_verifications objective calibration (SQLite-only, not mirrored to git notes)
+  └── project_findings, project_unknowns, project_dead_ends, mistakes_made   noetic artifacts
 
-workspace.db (global)
-  └── global_projects → trajectory_path → finds all project DBs
+~/.empirica/workspace/workspace.db
+  └── global_projects        trajectory_path -> each project's sessions.db
 
-training-export command
-  ├── Single project: reads local sessions.db
-  └── --workspace: iterates ALL project DBs via workspace.db
-       → Outputs matched (preflight, postflight) pairs as JSONL
+empirica training-export
+  ├── single project: the resolved sessions.db
+  └── --workspace: every project database listed in global_projects
+       -> matched (PREFLIGHT, POSTFLIGHT) pairs as JSONL
 ```
 
-## Next Steps
+Source: `empirica/cli/command_handlers/training_commands.py`.
 
-- **Grow the dataset**: Every Empirica session adds transactions automatically
-- **Cross-model training**: Export data from different AI models (Claude, Gemini, Qwen) to build model-agnostic epistemic awareness
-- **Domain-specific fine-tuning**: Filter by project type/domain for specialized calibration
-- **Benchmark integration**: Automated BullshitBench runs pre/post fine-tuning
+## Next steps
+
+- Cross-model datasets: export per `--ai-id` and compare calibration patterns across models.
+- Domain-specific sets: filter by `--project-id`.
+- Fix the decisions export (see the known gap above).
+- Automate benchmark runs before and after fine-tuning.

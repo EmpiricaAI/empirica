@@ -1,149 +1,99 @@
 # Phase-Aware Evidence Collection for Calibration
 
-**Status:** IMPLEMENTED (Phases 1-3 complete, domain-aware thresholds in v1.8.14)
-**Author:** David + Claude Code
-**Date:** 2026-02-10 (updated 2026-04-09)
-**Depends on:** Grounded Calibration (v1.5.0), Sentinel Architecture, CHECK Gate, Domain Registry (v1.8.14)
+**Status:** implemented. The phase split, work-type weighting, Brier-based dynamic thresholds and the calibration insights loop are all live.
+**Depends on:** [Noetic-Praxic Framework](./NOETIC_PRAXIC_FRAMEWORK.md) (the transaction), [Sentinel Architecture](./SENTINEL_ARCHITECTURE.md) (the consumer of the thresholds)
 
 ---
 
 ## Problem
 
-Grounded calibration conflates epistemic gain with artifact production. Evidence sources
-(tests, git metrics, artifact counts, goal completions) are **praxic proxies** — they
-measure what was done, not what was understood.
+Grounded calibration compares a self-assessment with evidence from deterministic services: test results, git metrics, artifact counts, goal completions. Most of that evidence is a praxic proxy. It measures what was done, not what was understood.
 
-A verification session that confirms "63/63 functions preserved, no circular deps"
-produces high knowledge (uncertainty 0.25 -> 0.10) but near-zero artifacts. The grounding
-system scores `know` at 0.5 when self-assessed 0.9 because it can't distinguish
-"searched thoroughly, found nothing wrong" from "didn't search."
+A verification session that confirms "63 functions preserved, no circular dependencies" may raise real knowledge and leave almost no artifacts, commits or test changes. Graded against praxic evidence, a high `know` looks like a large overestimate, because the instrument cannot tell "searched thoroughly and found nothing wrong" from "did not search". That is a category error, not a bug: action-based calibration applied to investigation.
 
-This is not a bug — it's a category error. The system applies action-based calibration
-to investigation work. Humans make the same mistake: systematically overvaluing action
-tasks over the arguably harder noetic investigation that makes good action possible.
+So the transaction is split at the point where investigation became action, and each half is graded against the evidence that fits it.
 
 ---
 
-## Design: CHECK as Phase Boundary
+## How a transaction is split
 
-The CHECK gate already separates noetic (investigation) from praxic (action) phases.
-Calibration should respect this boundary.
+CHECK already separates the phases, so calibration uses it as the boundary.
 
-```
-PREFLIGHT ─────────── CHECK ─────────── POSTFLIGHT ──── POST-TEST
-    │                   │                    │               │
-    │   NOETIC PHASE    │   PRAXIC PHASE     │               │
-    │   (investigation) │   (action)         │               │
-    │                   │                    │               │
-    ├─ Noetic vectors ──┤─ Praxic vectors ───┤               │
-    │                   │                    │               │
-    │  Noetic evidence  │  Praxic evidence   │  Grounding    │
-    │  (sources, coverage│  (tests, git,     │  (post-test)  │
-    │   unknowns, dead- │   artifacts,       │               │
-    │   ends avoided)   │   completions)     │               │
-```
+`detect_phase_boundary(session_id, db, transaction_id)` in `empirica/core/post_test/phase_boundary.py` reads the transaction's PREFLIGHT and CHECK rows. **The boundary belongs to the transaction, not the session:** rows are selected by `transaction_id` (commit `d077d5697`), and session scope remains only for a caller with no transaction id. Before that fix, a session's first CHECK made every later POSTFLIGHT in the session phase-split, and graded the new transaction's evidence against an unrelated earlier CHECK's vectors.
 
-### Track A: Noetic Calibration (PREFLIGHT -> CHECK)
+What the boundary decides:
 
-**Delta:** CHECK vectors minus PREFLIGHT vectors = noetic gain claimed.
+| Transaction shape | What POSTFLIGHT verification writes |
+|-------------------|--------------------------------------|
+| PREFLIGHT, then a CHECK that returned `proceed`, then POSTFLIGHT | A noetic row and a praxic row |
+| PREFLIGHT, CHECKs that all returned `investigate`, then POSTFLIGHT | A noetic row only (`noetic_only`); praxic evidence is absent by design and costs nothing |
+| `investigate` CHECKs followed by a `proceed` CHECK | Noetic until the last `proceed`, praxic after it |
+| No CHECK at all (certified by claims, or by a confident PREFLIGHT) | One combined row, not split. Earlier transactions' CHECKs do not apply. |
 
-**Evidence sources:**
+The two halves compare different self-assessments with different evidence:
 
-| Source | What it measures | Quality |
-|--------|-----------------|---------|
-| Qdrant queries issued | Coverage breadth | OBJECTIVE |
-| Files/modules examined | Investigation depth | OBJECTIVE |
-| Unknowns surfaced | Uncertainty honesty | SEMI-OBJECTIVE |
-| Assumptions tested | Critical thinking | SEMI-OBJECTIVE |
-| Dead-ends identified (before hitting them) | Pattern recognition | SEMI-OBJECTIVE |
-| Sentinel decision quality | CHECK outcome vs subsequent reality | OBJECTIVE (retroactive) |
-| Sources consulted (ref-docs, bootstrap) | Preparation quality | OBJECTIVE |
-
-**Calibration question:** "Did investigation actually reduce uncertainty proportional to claim?"
-
-**Key insight:** Absence of findings IS evidence. "Searched 14 modules, found 0 circular
-deps" is a high-value epistemic outcome. The evidence is the coverage, not the bug count.
-
-### Track B: Praxic Calibration (CHECK -> POSTFLIGHT)
-
-**Delta:** POSTFLIGHT vectors minus CHECK vectors = praxic gain claimed.
-
-**Evidence sources:**
-
-| Source | What it measures | Quality |
-|--------|-----------------|---------|
-| pytest results | Implementation correctness | OBJECTIVE |
-| Git metrics (commits, files changed) | Action volume | OBJECTIVE |
-| Goal/task completions | Delivery | SEMI-OBJECTIVE |
-| Artifact counts (findings from implementation) | Discovery during action | SEMI-OBJECTIVE |
-| Issue resolution | Problem solving | SEMI-OBJECTIVE |
-
-**Calibration question:** "Did actions produce the outcomes predicted?"
-
-### Pure-Phase Transactions
-
-Not all transactions have both phases:
-
-| Transaction Type | Phases | Calibration |
-|-----------------|--------|-------------|
-| Investigation only | PREFLIGHT -> CHECK (investigate) -> POSTFLIGHT | Track A only |
-| Implementation with prep | PREFLIGHT -> CHECK (proceed) -> POSTFLIGHT | Track A + Track B |
-| Quick fix | PREFLIGHT -> CHECK (proceed) -> POSTFLIGHT | Track B dominates |
-| Multiple CHECKs | PREFLIGHT -> CHECK (investigate) -> CHECK (proceed) -> POSTFLIGHT | Track A until final proceed, then Track B |
-
-For investigate-only sessions, praxic evidence is absent by design — no penalty.
-
-**The boundary belongs to the transaction, not the session.** `detect_phase_boundary()`
-selects the PREFLIGHT and CHECK rows by `transaction_id` (commit `d077d5697`); session scope
-remains only for a caller that has no transaction id. A transaction that skipped CHECK
-therefore writes one combined (non-phase-split) verification row, whatever CHECKs earlier
-transactions in the same session had. Before that fix, every POSTFLIGHT after the session's
-first CHECK was split against an unrelated earlier CHECK's vectors.
-
-### Multiple CHECKs
-
-Transactions can have multiple CHECK gates (investigate loops). Each `investigate`
-decision stays in noetic calibration. Only the final `proceed` CHECK starts the
-praxic clock.
-
-```
-PREFLIGHT -> CHECK(investigate) -> CHECK(investigate) -> CHECK(proceed) -> POSTFLIGHT
-             |--- noetic --------------------------------||- praxic ----|
-```
+- **Noetic:** the vectors reported at the final `proceed` CHECK (or the last CHECK, if `noetic_only`), against noetic evidence collected up to that CHECK.
+- **Praxic:** the POSTFLIGHT vectors, against praxic evidence collected from the CHECK onward.
 
 ---
 
-## Dynamic Thresholds from Calibration History
+## Evidence by phase
 
-The Sentinel uses Brier-based dynamic thresholds that adapt based on
-demonstrated belief calibration. In v1.8.14, domain criticality further scales
-the uncertainty threshold via the Domain Registry (`DomainRegistry.resolve()`).
+`PostTestCollector(phase="noetic" | "praxic" | "combined")` runs only the collectors that belong to the phase. Each source is independent and failure-tolerant. Source IDs below are the ones in `collector.py`.
 
-**Key principle (v1.8.14):** Deterministic services produce **observed vectors** —
-information. The AI synthesizes the **grounded state** from that information with
-explicit rationale. The services inform; they do not score. The AI gives the score.
+| Phase | Sources |
+|-------|---------|
+| Every phase | `artifacts` (findings, unknowns, dead-ends, mistakes and their ratios) |
+| Noetic (and combined) | `noetic` (unknowns surfaced, dead-end avoidance, investigation findings and thoroughness), `sentinel` (CHECK `proceed`/`investigate` history) |
+| Praxic (and combined) | `goals`, `issues`, `triage`, `codebase_model`, `non_git_files`, plus the profile collectors below |
+| Profile collectors, praxic and combined only | Code: `pytest`, `git`, `code_quality` (ruff, radon, pyright). Prose and web profiles have their own collectors. |
 
-### Uncertainty Exclusion from Calibration Score (v1.8.14)
+Profile collectors never run in the noetic phase. Test results, code quality, git metrics and prose metrics measure output, and in a phase that has produced no output they would only add noise. Noetic grounding rests on process evidence.
 
-Uncertainty is a **meta-vector** — its grounded value is derived from the coverage
-and gap magnitudes of the other 12 vectors. Including it in the calibration score
-creates a circular dependency: the score would grade a meta-prediction using
-evidence derived from the same predictions it's meta about.
+Absence is evidence. "Searched 14 modules, found 0 circular dependencies" is a real outcome: what the evidence supports is coverage and unknowns surfaced, not bug count.
 
-**What changed:** Uncertainty is excluded from `_compute_weighted_calibration()`.
-The `scoring_gaps` dict filters it out before computing the weighted Brier number.
+### Work type reweights the evidence
 
-**What didn't change:** Uncertainty still:
-- Appears in `calibration_gaps` (visible in POSTFLIGHT response for feedback)
-- Gates CHECK (via `uncertainty_threshold` in sentinel-gate.py)
-- Feeds PREFLIGHT trajectory feedback (`underestimate_tendency: [uncertainty]`)
-- Gets a grounded observation via `_compute_meta_uncertainty()`
+`work_type`, set at PREFLIGHT, multiplies each source's weight through `WORK_TYPE_RELEVANCE` in `mapper.py`. A weight of `0.0` excludes the source for that work type; the vectors that only that source could ground are marked insufficient evidence and the self-assessment stands, rather than a false grounded value being computed from absent signal.
 
-The behavioral fix (AI reporting higher uncertainty) comes from trajectory pattern
-feedback, not per-transaction grounding. The measurement doesn't need to be in
-the score to drive improvement.
+| work_type | Effect |
+|-----------|--------|
+| `code` | All sources at default weight |
+| `research`, `audit` | `git`, `code_quality`, `codebase_model` and `non_git_files` excluded (research also excludes `pytest`); `artifacts` and `noetic` weighted up |
+| `docs`, `design`, `data` | `code_quality` and `codebase_model` excluded, `non_git_files` and `goals` weighted up |
+| `debug` | `pytest`, `triage` and `artifacts` weighted up |
+| `release` | Local sensors cannot see the pipeline: `git`, `code_quality`, `codebase_model`, `non_git_files` excluded |
+| `remote-ops` | Every source excluded; the self-assessment stands unchallenged and the result is marked ungrounded |
 
-### Mechanism
+`WORK_TYPE_RELEVANCE` is the full table, including `infra`, `config` and `comms`.
+
+### Effort counts no longer ground `change` or `uncertainty`
+
+Several proxies mapped a count of bookkeeping onto a vector it does not measure: ten findings read as `change` 1.0 on a transaction that changed nothing; three logged assumptions read as maximal `uncertainty`, so honest logging could never shrink the gap. As of 1.14.7 those proxies are gone. `finding_production` supports `do` only, `assumption_logging` supports `know` only, both count the current transaction rather than the whole session, and the triage and goal-completion counts no longer support `change` (git sensors still observe it). Calibration rows written before that change carry no `scope` key on those observations, so history can be split at it.
+
+---
+
+## From gaps to a score
+
+Each phase produces, per vector, a gap between self-assessed and grounded value.
+
+**Category weights.** `_compute_weighted_calibration()` groups the gaps into categories (foundation, comprehension, execution, and so on) and weights each category by `work_type`, then `domain`, then a default, in that order of precedence. Optional per-vector weights can come from `project.yaml`.
+
+**Uncertainty is not scored.** `uncertainty` is a meta-vector: its grounded value is derived from the coverage and the gap magnitudes of the other vectors (`_compute_meta_uncertainty()`: 0.4 times missing coverage plus 0.6 times scaled mean gap). Scoring it would grade a prediction against evidence derived from the same predictions. It stays in `calibration_gaps` for feedback, still feeds the CHECK threshold, and is excluded from the weighted score. `engagement` is ungroundable and skipped.
+
+**Phase weights.** When both phases exist, the holistic score is the tool-call-weighted mean of the two:
+
+```
+holistic = noetic_weight * noetic_score + praxic_weight * praxic_score
+```
+
+Weights come from the Sentinel's `noetic_tool_calls` and `praxic_tool_calls` counters for the transaction. Any phase that has evidence gets at least 0.1. A `noetic_only` transaction is 100% noetic, and without tool data the weights default to 0.5 each. The weights are reported as `phase_weights` with a `source` of `tool_classification`, `noetic_only`, `no_tool_data` or `default`.
+
+---
+
+## Dynamic thresholds
+
+The CHECK gate and the Sentinel hook compare `know` and `uncertainty` with thresholds that start at a **domain baseline** and can only move toward stricter. The code is `compute_dynamic_thresholds()` in `empirica/core/post_test/dynamic_thresholds.py`.
 
 ```python
 inflation = min(reliability * (max_inflation / 0.15), max_inflation) * min(1.0, n / 20)
@@ -151,207 +101,103 @@ know_threshold        = min(know_ceiling, know_base + inflation)
 uncertainty_threshold = max(unc_ceiling,  unc_base  - inflation)
 ```
 
-Where:
-- `know_base` / `unc_base` = the domain baseline (0.70 / 0.35 by default, from `cascade_styles.yaml`, a cascade profile, or `calibration.yaml`)
-- `reliability` = the Brier reliability component (calibration error, 0 = perfect) over the last `lookback` points (default 20) of that phase's `calibration_trajectory`
-- `max_inflation` = the most the gate may tighten (default 0.05)
-- `n / 20` = cold-start damper: with few points the estimate is noisy, so inflation ramps to full at 20
-- ceilings = safety limits (default 0.90 for know, 0.15 for uncertainty)
-- Fewer than `min_transactions` (default 5) points: the baseline is used unchanged
+- `know_base` and `unc_base` are the baseline: 0.70 and 0.35 by default. A cascade profile selected by `work_type` (`check-submit` only) or `calibration.yaml` (the uncertainty baseline; `check-submit` and the hook) replaces it.
+- `reliability` is the Brier reliability term (calibration error, 0 is perfect) over the last `lookback` rows (default 20) of `calibration_trajectory` for that phase, where each row is one `(self_assessed, grounded)` pair. A row is one vector in one phase of one transaction, so the window is short in transactions.
+- `max_inflation` caps the tightening (default 0.05, so know cannot exceed 0.75 from baseline 0.70).
+- `n / 20` damps a cold start: with few points the estimate is noisy, and a noisy estimate that blocks CHECK would stop the data that would correct it from arriving.
+- The ceilings are limits on how far calibration can push (default 0.90 for `know` and 0.15 for `uncertainty`), read from `calibration.safety_ceiling_*` with those fallbacks.
+- With fewer than `min_transactions` points (default 5) in a phase, that phase returns the baseline unchanged.
 
-Thresholds never go **below** the baseline. Good calibration is not rewarded with a
-lower bar; it keeps the baseline, which means the system trusts the numbers as-is.
-Only miscalibration moves the gate, and only toward stricter. See the module docstring
-of `empirica/core/post_test/dynamic_thresholds.py`.
+Thresholds never go below the baseline. Good calibration is not rewarded with a lower bar; it keeps the baseline, which means the numbers are trusted as they stand. Only miscalibration moves the gate, and only toward stricter. Resolution and the Brier uncertainty term are reported as diagnostics and do not drive the thresholds.
 
-### Per-Phase Calibration History
+### Whose history
 
-| Phase | Calibration Track | Effect |
-|-------|------------------|--------|
-| Noetic | Track A history | Drives the know/uncertainty thresholds the CHECK gate and the Sentinel hook actually use |
-| Praxic | Track B history | Computed and reported alongside (`praxic` block of `compute_dynamic_thresholds()`); the gates read the noetic figures |
+Each phase reports a `basis`: `practitioner` when the model inhabiting the practice has at least `min_transactions` points of its own, otherwise `practice` (every point under that `ai_id`). Callers resolve the session's own `ai_id`, not a fixed `claude-code`, and the current practitioner model: `check-submit`, the Sentinel hook and the statusline all do.
 
-Each phase reports `basis`: `practitioner` when the model inhabiting the practice has at
-least `min_transactions` points of its own, otherwise `practice` (the whole `ai_id` store).
-CHECK reads the **session's own `ai_id`** (not a fixed `claude-code`) and the current
-practitioner model, with the fallback to the practice (commits `ac78d1170`, `8974c6a0c`).
+### Which phase
 
-### Domain Scoping
+Both phases are computed and reported (`noetic` and `praxic` blocks). Only the noetic figures are used by the gates, because the gates guard the move from investigation to action. The praxic block is computed and returned, and nothing gates on it.
 
-Domain criticality scales the uncertainty threshold at the CHECK gate
-(`_get_domain_scaled_thresholds()`): higher criticality means a stricter uncertainty bar.
-Calibration accuracy is domain-scoped (via `subject` on findings/calibration records): an AI
-can be well calibrated on security investigation and poorly calibrated on performance
-implementation.
+### Where each consumer uses them
 
-### Progression
+| Consumer | Uses |
+|----------|------|
+| `check-submit` | The uncertainty threshold, for its computed decision. Reports the base source, basis and inflation in `metacog`. |
+| Sentinel hook, auto-proceed | Both thresholds against PREFLIGHT's vectors, with the uncertainty threshold additionally scaled by the `domain` and `criticality` declared at PREFLIGHT (`_get_domain_scaled_thresholds()`: higher criticality gives a stricter bar) |
+| Sentinel hook, after a CHECK | Both thresholds against the CHECK's vectors; a miss is an advisory, not a denial |
+
+Domain scaling is applied only at the auto-proceed step in the hook. `check-submit` and the post-CHECK comparison use the unscaled dynamic threshold.
+
+### Self-correcting behaviour
 
 ```
-New AI on project:     Baseline gates (0.70 / 0.35), no inflation (< 5 points)
-        |               calibration data accumulates
-        v
-~10-20 transactions:   Reliability estimate stabilises; inflation ramps to full weight
-        |
-        v
-Well calibrated:       reliability near 0 -> gates stay at baseline
-        |
-        v (overconfidence detected)
-Auto-tighten:          reliability rises -> know raised / uncertainty tolerance
-                       lowered by up to max_inflation -> forced investigation
+New practice:        baseline gates, no inflation (fewer than 5 points)
+Well calibrated:     reliability near 0, gates stay at baseline
+Overconfident:       reliability rises, know raised and uncertainty tolerance lowered by up to max_inflation
+                     (a stricter gate forces more investigation before action)
 ```
-
-### Self-Correcting Properties
-
-1. **Overconfidence** -> high reliability error -> tighter gates -> forced investigation -> better calibration
-2. **Good calibration** -> reliability near 0 -> gates stay at baseline -> numbers trusted as-is
-3. **Domain criticality** -> stricter uncertainty bar for critical domains -> other domains unaffected
-4. **Phase-specific** -> noetic and praxic history are separate trajectories
 
 ---
 
-## Implementation Status
+## Feedback to the practitioner
 
-### Phase 1: Split Evidence Collection -- COMPLETE (v1.5.1, updated v1.6.6)
+All of these inform work discipline. None adjusts a vector for the practitioner.
 
-- `detect_phase_boundary()` finds CHECK proceed timestamp
-- `PostTestCollector(phase="noetic"|"praxic")` filters evidence by `check_timestamp`
-- `EvidenceMapper.map_evidence(phase=...)` returns phase-tagged `GroundedAssessment`
-- `grounded_beliefs` and `grounded_verifications` tables have `phase` column
-- `run_grounded_verification()` runs separate noetic + praxic passes
-- **Profile-specific collectors excluded from noetic phase** (v1.6.6): Code quality (ruff,
-  radon, pyright), test results (pytest), git metrics, prose metrics, and web metrics only
-  run during praxic or combined phases. Noetic grounding uses only epistemic process evidence
-  (artifact counts, investigation thoroughness, sentinel decisions). This prevents
-  deterministic output-quality metrics from conflating noetic calibration — a principle that
-  applies across all domains, not just software engineering.
+- **POSTFLIGHT** returns an `evidence_summary`, a `calibration_reflection` (a narrative of what the evidence showed, carrying the calibration insights below and per-transaction `epistemic_provenance` counts of intuition- versus search-sourced artifacts), `phase_aware` and `phase_weights`. The scores and gaps are stored under underscore-prefixed keys, marked not for optimization.
+- **Calibration insights.** `CalibrationInsightsAnalyzer` looks at the last 10 grounded verifications and needs at least 5 before reporting anything. It reports patterns at severity 0.3 or higher:
 
-### Phase 2: Noetic Evidence Sources -- COMPLETE (v1.5.1)
+  | Pattern | Detected when |
+  |---------|---------------|
+  | `chronic_overestimate` / `chronic_underestimate` | The same vector has a gap beyond 0.05 in the same direction in more than 70% of records |
+  | `evidence_gap` | A groundable vector has evidence in fewer than 30% of records |
+  | `phase_mismatch` | A vector's mean gap is more than 2x larger in one phase than the other (at least 3 records per phase) |
+  | `volatile` | The sign of the gap flips in more than half of consecutive pairs |
 
-Noetic-specific evidence collected pre-CHECK:
-- Unknowns surfaced (epistemic honesty)
-- Dead-ends identified (pattern recognition)
-- Investigation findings (knowledge depth)
-- CHECK iterations (investigate decisions counted)
-- Source consultation quality
+  Insights are stored in `calibration_insights` with an `acted_on` flag, exported to `.breadcrumbs.yaml`, and folded into the POSTFLIGHT reflection. They are prompts to investigate, not corrections: a chronic overestimate may reflect a proxy that cannot see deep understanding rather than a miscalibrated practitioner.
+- **PREFLIGHT** returns `previous_transaction_feedback` for the last POSTFLIGHT: artifact gaps, suggestions, a calibration trend, and a retrospective gate when a transaction made many tool calls and logged no artifacts. `EMPIRICA_CALIBRATION_FEEDBACK=false` suppresses this feedback; it never changes gating.
+- **Session start.** The calibration export in `.breadcrumbs.yaml` (a generated file; this repo gitignores it) is injected as the bias block at session start and after compaction.
 
-### Phase 2.5: Phase-Weighted Holistic Score -- COMPLETE (v1.5.9+)
+### Check outcomes
 
-The Sentinel now splits tool counts into `noetic_tool_calls` and `praxic_tool_calls`
-based on existing tool classification (NOETIC_TOOLS set + safe bash detection).
-
-At POSTFLIGHT, the holistic calibration score is computed as a weighted average:
-
-```
-holistic_score = noetic_weight * noetic_calibration + praxic_weight * praxic_calibration
-```
-
-Where weights are derived from tool call distribution:
-- 95% noetic tools -> noetic_weight=0.9, praxic_weight=0.1 (floor applied)
-- 50/50 split -> equal weights
-- noetic_only transaction -> 100% noetic weight
-
-Floor: any phase with evidence gets minimum 0.1 weight to prevent complete zeroing.
-
-**POSTFLIGHT output now includes:**
-```json
-{
-  "phase_weights": {"noetic": 0.92, "praxic": 0.08, "source": "tool_classification"},
-  "holistic_calibration_score": 0.15,
-  "holistic_gaps": {"know": 0.12, "signal": 0.08}
-}
-```
-
-### Phase 2.6: Calibration Insights Loop -- COMPLETE (v1.5.9+)
-
-New `CalibrationInsightsAnalyzer` detects systemic patterns across verification history:
-
-| Pattern | Detection | Suggestion |
-|---------|-----------|------------|
-| **chronic_overestimate** | Same vector overestimated in >70% of records | Reduce self-assessment |
-| **chronic_underestimate** | Same vector underestimated in >70% of records | Increase self-assessment |
-| **evidence_gap** | Vector has evidence in <30% of verifications | Add evidence source |
-| **phase_mismatch** | Gap >2x larger in one phase than the other | Phase evidence imbalance |
-| **volatile** | Gap direction flips in >50% of consecutive pairs | Stabilize evidence |
-
-Insights are:
-- Stored in `calibration_insights` table (with `acted_on` flag for closing the loop)
-- Exported to `.breadcrumbs.yaml` for session-start injection
-- Included in POSTFLIGHT output as `insights[]`
-
-This creates a feedback loop: each calibration cycle identifies where evidence
-collection is weak, which informs improvements to the collection methods themselves.
-
-### Phase 2.8: Actionable PREFLIGHT Feedback -- COMPLETE (v1.6.6)
-
-PREFLIGHT now includes `suggested_ranges` in `previous_transaction_feedback`. For each
-vector with a significant gap (|gap| > 0.1), the system computes a suggested range
-from the grounded posterior mean ± 1 standard deviation:
-
-```json
-{
-  "previous_transaction_feedback": {
-    "significant_gaps": {"know": 0.348, "signal": -0.129},
-    "suggested_ranges": {
-      "know": {"grounded_mean": 0.77, "suggest_low": 0.75, "suggest_high": 0.78},
-      "signal": {"grounded_mean": 0.85, "suggest_low": 0.83, "suggest_high": 0.87}
-    },
-    "note": "Use suggested_ranges to calibrate your next self-assessment."
-  }
-}
-```
-
-Requires >= 3 grounded observations per vector before suggesting ranges (avoids
-premature suggestions from sparse data). Range narrows as evidence accumulates —
-this is correct Bayesian behavior, not a bug.
-
-### Phase 3: Dynamic Thresholds -- COMPLETE (v1.8.14)
-
-- `calibration_trajectory` per-phase tracking with `state_type` column
-- Brier-based dynamic thresholds (`compute_dynamic_thresholds()` in `dynamic_thresholds.py`)
-- Domain-aware threshold scaling via `DomainRegistry` at CHECK gate
-- Higher criticality = stricter uncertainty threshold
-- Safety floors hardcoded, not adjustable by calibration
-- **Check-outcome Brier (B4):** AI predicts P(check passes), Brier measures
-  prediction vs actual. Falsifiable, ground-truth calibration alongside vector Brier.
-
-### Phase 4: Domain-Scoped Autonomy -- PARTIALLY COMPLETE (v1.8.14)
-
-- Domain registry with `(work_type, domain, criticality)` tuples → checklists
-- Service registry with self-declaring deterministic checks
-- Compliance loop runs domain checklist at POSTFLIGHT
-- Per-domain threshold computation via `_get_domain_scaled_thresholds()`
-- Dashboard: `empirica calibration-report` (`--windowed`, `--brier`, `--trajectory` views)
-- CLI: `empirica domain-validate`
+When a transaction predicted the outcomes of its compliance checks, POSTFLIGHT's `compliance` block carries a `check_brier`: the Brier score of the predicted pass probability against whether each check passed (`compute_check_brier()`). That one is a falsifiable prediction with a ground-truth outcome. It is reported; it does not feed the thresholds.
 
 ---
 
-## Evidence That This Matters
+## Reading the calibration
 
-From the session that motivated this spec:
+```bash
+empirica calibration-report                     # grounded divergence over all history
+empirica calibration-report --windowed --weeks 4  # adds the gap over the last N weeks, under its own key
+empirica calibration-report --brier             # Brier decomposition per phase
+empirica calibration-report --trajectory        # closing / widening / stable
+empirica calibration-report --learning-trajectory  # PREFLIGHT to POSTFLIGHT deltas (learning, not calibration)
+```
 
-| Metric | Self-assessed | Grounded | Reality |
-|--------|--------------|----------|---------|
-| know | 0.90 | 0.50 | Investigation confirmed 63/63 functions, clean DAG, no circular deps |
-| signal | 0.80 | 1.00 | Findings about dead references were high-value |
-| uncertainty | 0.10 | 0.18 | Uncertainty WAS genuinely low after thorough verification |
+`--windowed` recomputes the self-versus-grounded gap from `grounded_verifications` inside the window. It is a different quantity from the all-time divergence (per-verification means rather than aggregated belief means) and is reported separately, never merged. `--weeks` applies to `--windowed`, `--trajectory` and `--learning-trajectory`; the default report covers all history, and its JSON says so (`window.applied: false`).
 
-The grounded system undervalued `know` by 0.4 because no tests changed and no code
-was committed. But the epistemic state genuinely improved — the uncertainty about
-modularization quality was fully resolved.
+**`calibration_exclusions`.** A practice can declare known-bad measurement windows in `.empirica/project.yaml`:
 
-With phase-aware calibration, this session would be evaluated as pure noetic work
-against noetic evidence (coverage, queries, uncertainty reduction). The 0.4 gap
-would not exist.
+```yaml
+calibration_exclusions:
+  - vectors: [change]        # required: known vector names
+    source: some_source      # optional grounding source; at least one of source/from/until is required
+    from: 2026-09-01         # optional, inclusive
+    until: 2026-09-20        # optional, exclusive
+    reason: why this window is unreliable
+```
+
+An entry that cannot be read is dropped with a warning rather than read as "exclude everything". The grounded belief for an affected vector is replayed without the matching observations (stored rows are untouched), and the report and the injected bias block both say what was left out. `--windowed` does not apply exclusions.
+
+`empirica domain-validate` checks the domain registry (`(work_type, domain, criticality)` mapped to compliance checklists) that supplies the criticality scaling and the POSTFLIGHT compliance loop.
 
 ---
 
-## Design Principles
+## Design principles
 
-1. **CHECK is the boundary** — not an arbitrary split, it's the gate that already exists
-2. **Absence is evidence** — "searched and found nothing" is noetic signal, not silence
-3. **Earned not given** — autonomy increases only with demonstrated belief calibration
-4. **Self-correcting** — regression automatically tightens gates, no manual intervention
-5. **Domain-scoped** — expertise in one area doesn't grant autonomy in another
-6. **Phase-specific** — noetic and praxic competence are independent axes
-7. **Safety floors** — no amount of belief calibration removes all gates
-8. **Human retains override** — dynamic thresholds adjust AI autonomy, not human authority
+1. **CHECK is the boundary.** The split uses a gate that already exists.
+2. **Absence is evidence.** "Searched and found nothing" is noetic signal.
+3. **Services inform, the practitioner calibrates.** Deterministic services produce observed vectors; the practitioner's beliefs are never overwritten, and the divergence between them is the signal.
+4. **Gates only tighten.** Miscalibration raises the bar; good calibration keeps the baseline.
+5. **Phase-specific.** Noetic and praxic competence are separate trajectories.
+6. **Honest absence over a false number.** A source that cannot see the work is excluded rather than defaulted.
+7. **Human override.** Dynamic thresholds adjust the practitioner's autonomy, not human authority.

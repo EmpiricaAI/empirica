@@ -1,188 +1,158 @@
-# Self-Monitoring Systems - Drift & Memory Gap Detection
+# Self-Monitoring: Detecting When Claimed State and Evidence Disagree
 
-These systems enable functional self-awareness - the ability to detect when knowledge has degraded, context is stale, or claims exceed evidence.
-
-**Note:** The standalone `memory_gap_detector` module has been removed. Memory gap detection
-concepts are now handled by the grounded calibration pipeline (`empirica calibration-report`).
-The data models below are retained as architectural reference.
-
-## Philosophy
-
-Self-monitoring is not introspection - it's measurement:
-- **Drift Detection**: Compare present state to historical baselines
-- **Gap Detection**: Compare claims to breadcrumb evidence
-- **No heuristics**: Pure temporal and evidential comparison
-- **Configurable enforcement**: User controls consequences
+Self-monitoring in Empirica is measurement against outside evidence, not
+introspection. The AI states a belief (vectors, claims, a falsifier); something
+independent of the AI later checks it. Where the two disagree, the gap is surfaced
+to the AI as a calibration signal. It is not an automatic override.
 
 ---
 
-## Drift Detection
+## What this document used to describe
 
-### The Mirror Principle
+Earlier revisions documented two standalone monitors, a drift monitor (the
+"mirror principle": compare present vectors to a past baseline) and a
+`MemoryGapDetector` (compare claimed `know` to breadcrumb evidence), with
+`DriftReport`, `MemoryGap` and `MemoryGapReport` data models and four enforcement
+levels. None of that exists as code now.
 
-Past-self validates present-self through temporal comparison. If knowledge drops without investigation, that's drift (memory corruption). If knowledge drops with clarity increase, that's learning (discovering complexity).
+- `MirrorDriftMonitor` and its CLI handlers were removed in v1.6.6. The note in
+  `empirica/cli/command_handlers/monitor_commands.py` says they were superseded by
+  the grounded calibration pipeline, which detects drift "through objective
+  evidence rather than vector-to-vector temporal comparison".
+- `MemoryGapDetector` was removed as overlapping Qdrant retrieval and the compact
+  hooks (comment in `empirica/core/system_dashboard.py`, which now holds only a
+  placeholder that reports healthy).
+- No class named `DriftReport`, `MemoryGap` or `MemoryGapReport` is defined
+  anywhere under `empirica/`.
 
-### DriftReport
+Leftovers that look like monitoring but are not wired:
 
-Result of drift detection with pattern-aware analysis.
+- `project_bootstrap_formatter.py` renders a `memory_gap_analysis` section if
+  the bootstrap payload has that key. Nothing in `empirica/` produces the key.
+- `EventTypes.CALIBRATION_DRIFT_DETECTED` is defined on the epistemic bus and
+  `context_budget.py` subscribes to it. Nothing publishes it.
+- The `DriftLevel` and `SentinelAction` enums in `empirica/core/signaling.py` are
+  presentation vocabulary for the statusline module; the only symbol
+  `statusline_empirica.py` imports from it is `format_vectors_compact`.
 
-```python
-@dataclass
-class DriftReport:
-    drift_detected: bool
-    severity: str  # 'none' | 'low' | 'medium' | 'high' | 'critical'
-    recommended_action: str  # 'continue' | 'monitor_closely' | 'investigate' | 'stop_and_reassess'
-    drifted_vectors: List[Dict[str, Any]]
-    pattern: Optional[str]  # 'TRUE_DRIFT' | 'LEARNING' | 'SCOPE_DRIFT' | None
-    pattern_confidence: float  # 0.0-1.0
-    baseline_timestamp: Optional[float]
-    checkpoints_analyzed: int
-    reason: Optional[str]
-```
-
-**Severity levels:**
-- `none` - No drift detected
-- `low` - Drift < 0.2, single vector
-- `medium` - Drift 0.2-0.3, or 2 vectors
-- `high` - Drift 0.3-0.5, or 3+ vectors
-- `critical` - Drift > 0.5, or 4+ vectors
-
-**Patterns detected:**
-- `TRUE_DRIFT` - Memory loss (KNOW↓ + CLARITY↓ + CONTEXT↓ together)
-- `LEARNING` - Discovering complexity (KNOW↓ + CLARITY↑)
-- `SCOPE_DRIFT` - Task expansion (KNOW↓ + scope indicators↑)
-
-**Note:** Drift detection is now handled by the grounded calibration pipeline
-(see `empirica calibration-report`). The `DriftReport` data model above
-is retained for reference but is no longer produced by a standalone monitor class.
+Treat all three as dead surface, not features.
 
 ---
 
-## Memory Gap Detection
+## What does the monitoring now
 
-### Evidence-Based Self-Assessment
+Five mechanisms, each pairing a stated belief with later evidence.
 
-Detects when AI claims knowledge without supporting evidence from breadcrumbs. Prevents confabulation - claiming to know more than the evidence supports.
+### 1. Grounded calibration (the core)
 
-### MemoryGap
+PREFLIGHT opens a measurement window, POSTFLIGHT closes it with the AI's
+self-assessed vectors, and a post-test step collects objective evidence for the
+same window: test results, git metrics, artifact counts, code quality, goal and
+task completion. `empirica/core/post_test/grounded_calibration.py` keeps a
+second Bayesian track fed by that evidence (lower observation variance than the
+self-referential track) and records divergence between the two tracks.
 
-A detected gap between claimed and realistic knowledge.
+The module docstring is explicit that the grounded track is informative, not
+authoritative: the evidence sources are proxies and cannot see everything, so a
+divergence is a prompt to ask why, not a command to deflate vectors.
 
-```python
-@dataclass
-class MemoryGap:
-    gap_id: str
-    gap_type: str  # 'unreferenced_findings' | 'unincorporated_unknowns' | 'file_unawareness' | 'confabulation' | 'compaction'
-    content: str
-    severity: str  # 'low' | 'medium' | 'high' | 'critical'
-    gap_score: float  # 0.0-1.0
-    evidence: Dict[str, Any]
-    affects_vector: Optional[str]  # Which vector this impacts
-    realistic_value: Optional[float]  # What the vector should be
-    resolution_action: str  # How to fix
+Reading it:
+
+```bash
+empirica calibration-report                  # grounded, all history (JSON says window.applied false)
+empirica calibration-report --windowed       # adds a `windowed` block over the last --weeks
+empirica calibration-report --trajectory     # closing / widening / stable over time
+empirica calibration-report --brier          # Brier decomposition per phase
+empirica calibration-report --list-disputes  # open and resolved disputes
 ```
 
-**Gap types:**
-- `unreferenced_findings` - Findings exist but weren't read
-- `unincorporated_unknowns` - Resolved unknowns not incorporated
-- `file_unawareness` - File changes not acknowledged
-- `compaction` - Memory compaction caused detail loss
-- `confabulation` - Claiming more knowledge than evidence supports
+The `windowed` self-versus-grounded gap is a different quantity from the all-time
+`divergence` (per-verification means against aggregated belief means). The report
+keeps them under separate keys and never merges them.
 
-### MemoryGapReport
+Supporting modules in `empirica/core/post_test/`:
 
-Complete memory gap analysis.
+| Module | What it watches |
+|---|---|
+| `trajectory_tracker.py` | POSTFLIGHT-to-POSTFLIGHT gap per vector across sessions: closing, widening, stable |
+| `calibration_insights.py` | Patterns in recent grounded records: chronic over- or underestimate, evidence gap, phase mismatch, volatile |
+| `phase_boundary.py` | Splits a transaction at the last CHECK `proceed`, so noetic and praxic phases are scored separately |
 
-```python
-@dataclass
-class MemoryGapReport:
-    detected: bool
-    gaps: List[MemoryGap]
-    overall_gap: float  # Difference between claimed and realistic
-    expected_know: float  # Realistic knowledge estimate
-    claimed_know: float  # What AI claimed
-    enforcement: Dict[str, Any]  # Enforcement decisions per gap
-    actions: List[str]  # Recommended actions
+A disputed measurement is recorded with `empirica calibration-dispute --vector
+V --reported R --expected E --reason ...`.
+
+### 2. Dynamic CHECK thresholds
+
+`empirica/core/post_test/dynamic_thresholds.py` turns calibration quality into the
+bar CHECK uses. Per its docstring, the Brier reliability component raises a
+threshold when the AI has been poorly calibrated, and thresholds never go below
+the domain baseline: good calibration earns trust in the numbers, not a lower bar.
+Noetic and praxic phases are scored independently. It is consumed by the
+Sentinel gate hook and by `sentinel_hooks.py`.
+
+### 3. Claims, adjudicated at POSTFLIGHT
+
+`empirica/core/claims.py`: a transaction rests on several claims, and one scalar
+`know` averages them. The AI names the load-bearing claims with how each was
+grounded (in PREFLIGHT, or at a CHECK), and at POSTFLIGHT gives each a verdict:
+`held`, `refuted` or `untested`. A claim declared and never adjudicated is
+recorded as `untested` and reported as a gap, never passed silently. Per the
+module docstring this is advisory: nothing blocks a POSTFLIGHT.
+
+### 4. Falsifiers that outlive the transaction
+
+`empirica/core/falsifiers.py`: a falsifier names the observation that would refute
+a belief and the artifact it falsifies. It stays `registered` and is surfaced at
+every later PREFLIGHT until a POSTFLIGHT adjudicates it as `tripped`, `survived`
+(needs evidence that the population was examined) or `expired` (the verdict for
+silence; a `survived` without evidence is recorded as `expired`).
+
+```bash
+empirica falsifier-list --state registered
 ```
 
-### MemoryGapDetector (Removed)
+### 5. Blindspot scan
 
-The standalone `MemoryGapDetector` class has been removed. Gap detection is now part of the
-grounded calibration pipeline. The API below is retained as architectural reference.
+`empirica/core/blindspots/` infers unacknowledged gaps from the practice's own
+artifacts. The shipped signal is the intent gap: an open task under a non-terminal
+goal with no finding, no unknown and no dead-end covering it. Planned goals are
+excluded unless asked for.
 
-```python
-detector = MemoryGapDetector(policy={
-    'enforcement': 'warn',  # 'inform' | 'warn' | 'strict' | 'block'
-    'scope': {
-        'findings': 'warn',
-        'unknowns': 'inform',
-        'file_changes': 'inform',
-        'compaction': 'strict',
-        'confabulation': 'block'
-    },
-    'thresholds': {
-        'findings': 10,      # Flag if >10 unread
-        'unknowns': 5,
-        'file_changes': 0,
-        'compaction': 0.4,   # 40% detail loss
-        'confabulation': 0.3 # Claimed 0.3 more than realistic
-    }
-})
-
-report = detector.detect_gaps(
-    current_vectors={'know': 0.8, 'clarity': 0.7},
-    breadcrumbs=project_bootstrap_result,
-    session_context={'breadcrumbs_loaded': True, ...}
-)
-
-# Apply enforcement
-result = detector.apply_enforcement(report, vectors)
-if not result['ok']:
-    # Blocked - must resolve gaps before proceeding
-    print(result['required_actions'])
-```
-
-**Enforcement levels:**
-- `inform` - Show gaps, no penalty (default)
-- `warn` - Show gaps + recommendations
-- `strict` - Show gaps + adjust vectors to realistic values
-- `block` - Show gaps + prevent proceeding until resolved
-
----
-
-## Integration
-
-### With CASCADE Workflow
-
-```
-PREFLIGHT ──────────► CHECK ──────────► POSTFLIGHT ──────────► POST-TEST
-    │                   │                   │                      │
-    ▼                   ▼                   ▼                      ▼
-MemoryGapDetector   Grounded            Update baseline       Grounded Verification
-(validate claims)   Calibration          for future drift     (evidence-based
-                    Pipeline             detection             calibration against
-                                                               actual outcomes)
-```
-
-### With EpistemicBus
-
-Both systems can publish events to the EpistemicBus:
-
-```python
-from empirica.core.epistemic_bus import get_global_bus, EventTypes, EpistemicEvent
-
-# Drift detected
-if drift_report.drift_detected:
-    bus.publish(EpistemicEvent(
-        event_type=EventTypes.CALIBRATION_DRIFT_DETECTED,
-        agent_id="empirica",
-        session_id=session_id,
-        data={"severity": drift_report.severity, "pattern": drift_report.pattern}
-    ))
+```bash
+empirica blindspot-scan [--session-id ID] [--include-planned]
 ```
 
 ---
 
-## Source Files
+## Context loss across compaction
 
-- Drift detection and memory gap detection are now handled by the grounded calibration pipeline (see `empirica calibration-report`)
+The old "compaction gap" is no longer a detector. It is handled by making the
+durable layer carry the state: `hooks/pre-compact.py` writes a unified breadcrumbs
+git note (fresh vectors, bootstrap context anchor, last task, git context) and
+`hooks/post-compact.py` re-grounds depending on where the transaction was
+interrupted (a completed session gets a new session and PREFLIGHT; an incomplete
+one goes through a CHECK on the old session). Both live in
+`empirica/plugins/claude-code-integration/hooks/`.
+
+---
+
+## Legacy `check` drift
+
+The older `check` handler (`handle_check_command` in
+`empirica/cli/command_handlers/_workflow_check.py`) still computes a drift figure:
+the mean absolute vector delta between the baseline and the latest checkpoint,
+bucketed low, medium (above 0.1) or high (above 0.3), and feeds it into its
+proceed decision with the unknowns count. `check-submit`, the gate in current use,
+does not compute it. Whether anything still calls the `check` handler was not
+verified.
+
+---
+
+## Principles that survive
+
+- Compare stated state to evidence, not to an earlier statement of state.
+- Report the gap to the AI that made the claim; do not overwrite its vectors.
+- Prefer advisory reporting to blocking until data shows a gate helps. The claims
+  and falsifier modules say so in their own docstrings.
+- A missing verdict is recorded as missing (`untested`, `expired`), never as
+  "fine".

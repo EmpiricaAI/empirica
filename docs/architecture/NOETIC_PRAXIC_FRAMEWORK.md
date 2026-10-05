@@ -1,623 +1,105 @@
 # Noetic-Praxic Framework: The Autonomous Epistemic Loop
 
-**How AI Agents Learn, Decide, and Act**
+**How AI agents investigate, decide and act inside a measured transaction**
 
 **Related docs:**
-- [SENTINEL_ARCHITECTURE.md](./SENTINEL_ARCHITECTURE.md) - Gate control (noetic→praxic transition)
-- [EPISTEMIC_STATE_COMPLETE_CAPTURE.md](./EPISTEMIC_STATE_COMPLETE_CAPTURE.md) - Full state capture design
-- [Architecture README](./README.md) - System overview
+- [SENTINEL_ARCHITECTURE.md](./SENTINEL_ARCHITECTURE.md) - how the PreToolUse hook enforces the praxic side
+- [PHASE_AWARE_CALIBRATION.md](./PHASE_AWARE_CALIBRATION.md) - how the phase boundary splits calibration, and where the CHECK thresholds come from
+- [EPISTEMIC_STATE_COMPLETE_CAPTURE.md](./EPISTEMIC_STATE_COMPLETE_CAPTURE.md) - full state capture design
+- [Architecture README](./README.md) - system overview
 
-## Core Insight: Empirica IS the Loop
+## The idea
 
-This framework is NOT about checkpoints, snapshots, or memory management.
+Work in an Empirica practice alternates between two kinds of activity, and the framework keeps them apart so each can be measured on its own terms.
 
-**This is about autonomous learning cycles.** AI agents self-direct investigation, log what they learn, evaluate readiness, then act—repeatedly across sessions. Each cycle compounds learning through persistent facts + epistemic state.
+- **Noetic** (Greek *noesis*, understanding): gathering information. Reading, searching, running a read-only command, logging what was learned. Nothing in the world changes, so it is never gated.
+- **Praxic** (Greek *praxis*, action): anything that can change state. Editing, writing, running a command that mutates, pushing, installing. Praxic work needs an open, certified transaction.
 
-## The Loop: 5 Layers of Architecture
+The line is drawn by effect, not by tool name. The Sentinel classifies each tool call by whether it, as written, can change state; `sed -i` is praxic and `sed -n` is not. Anything unclassified counts as praxic.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│ Layer 1: EPISTEMIC VECTOR SPACE                             │
-│ (13 continuous dimensions: know, do, context, clarity,      │
-│  coherence, signal, density, state, change, completion,     │
-│  impact, engagement, uncertainty)                           │
-│                                                             │
-│ AI assesses: "What do I actually know/understand?"          │
-│ See: ../human/end-users/05_EPISTEMIC_VECTORS_EXPLAINED.md   │
-└─────────────────────────────────────────────────────────────┘
-                        │
-                        ▼
-    PREFLIGHT (establish baseline epistemic state)
-                        │
-                        ▼
-┌─────────────────────────────────────────────────────────────┐
-│ Layer 2: LEARNING LEDGER (Fact Persistence)                │
-│ (4 categories: findings, unknowns, dead-ends, mistakes)    │
-│                                                             │
-│ NOETIC PHASE (Exploration, High Entropy)                   │
-│ ┌───────────────────────────────────────────────────┐      │
-│ │ AI loops while uncertainty > 0.5 OR know < 0.7:  │      │
-│ │ • Investigates goal                               │      │
-│ │ • Logs findings (reduces uncertainty)             │      │
-│ │ • Logs unknowns (proves rigor)                    │      │
-│ │ • Logs dead-ends (prevents repetition)            │      │
-│ │ • Logs mistakes (enables learning)                │      │
-│ │ • Self-prompts for next investigation             │      │
-│ └───────────────────────────────────────────────────┘      │
-└─────────────────────────────────────────────────────────────┘
-                        │
-                        ▼
-┌─────────────────────────────────────────────────────────────┐
-│ Layer 3: PHASE SEPARATION (Entropy Management)             │
-│                                                             │
-│ CHECK GATE: "Have I learned enough to act?"                │
-│ ┌───────────────────────────────────────────────────┐      │
-│ │ Validates:                                        │      │
-│ │ • know ≥ 0.70 (foundation sufficient?)            │      │
-│ │ • uncertainty ≤ 0.35 (confidence threshold?)      │      │
-│ │   (baselines; calibration can only tighten them)  │      │
-│ │                                                   │      │
-│ │ If FAIL → loop back to NOETIC (investigate more) │      │
-│ │ If PASS → proceed to PRAXIC (act with knowledge)  │      │
-│ └───────────────────────────────────────────────────┘      │
-└─────────────────────────────────────────────────────────────┘
-                        │
-         ┌──────────────┴──────────────┐
-         │                             │
-    INVESTIGATE                    PROCEED
-    (loop back)                     │
-         │                          ▼
-         └─ NOETIC ←──┐      ┌─────────────────────────────────────────────────────────┐
-                      │      │ Layer 4: CLI-DRIVEN STATEFULNESS                       │
-                      │      │ (Distributed Architecture)                             │
-                      │      │                                                         │
-                      │      │ PRAXIC PHASE (Execution, Low Entropy)                  │
-                      │      │ ┌─────────────────────────────────────────────┐        │
-                      │      │ │ • Execute chosen path with learned knowledge│        │
-                      │      │ │ • Track actions                             │        │
-                      │      │ │ • Document decisions                        │        │
-                      │      │ │ (Git stores state, MCP coordinates)         │        │
-                      │      │ └─────────────────────────────────────────────┘        │
-                      │      └─────────────────────────────────────────────────────────┘
-                      │                      │
-                      │                      ▼
-                      │      ┌─────────────────────────────────────────────────────────┐
-                      │      │ Layer 5: PLUGGABLE STRATEGY PATTERN                    │
-                      │      │ (Extensible Investigation)                             │
-                      │      │                                                         │
-                      │      │ POSTFLIGHT (Measure Learning Delta)                    │
-                      │      │ ┌─────────────────────────────────────────────┐        │
-                      │      │ │ AI assesses: "What did I actually learn?"   │        │
-                      │      │ │ • know: was ?, now ?                         │        │
-                      │      │ │ • uncertainty: was ?, now ?                  │        │
-                      │      │ │ • completion: was ?, now ?                   │        │
-                      │      │ │ Findings logged → Git notes (450 tokens)    │        │
-                      │      │ │ Bootstrap loads for NEXT session             │        │
-                      │      │ └─────────────────────────────────────────────┘        │
-                      │      │                                                         │
-                      │      │ POST-TEST (Grounded Verification)                      │
-                      │      │ ┌─────────────────────────────────────────────┐        │
-                      │      │ │ Automatic, evidence-based calibration:      │        │
-                      │      │ │ • Compare POSTFLIGHT claims to evidence     │        │
-                      │      │ │ • Verify completion against actual outcomes │        │
-                      │      │ │ • Calibrate confidence for future sessions  │        │
-                      │      │ └─────────────────────────────────────────────┘        │
-                      │      └─────────────────────────────────────────────────────────┘
-                      │
-                      └────────────────────────────────────────┘
-```
-
-## Etymology & Terminology Precision
-
-- **Noetic** (Greek *noesis*): Understanding, intellection, pure thought
-- **Praxic** (Greek *praxis*): Action, practice, doing
-- **Epistemic** (Greek *episteme*): Knowledge, its validity and structure
-
-### Why Not Common Words?
-
-| Common Term | Problem | Precise Term | Advantage |
-|-------------|---------|--------------|-----------|
-| Thinking | Implies consciousness, feeling | Noetic | Strictly intellectual processing |
-| Doing | Vague, any activity | Praxic | Purposeful, goal-oriented action |
-| Knowing | A state, no structure | Epistemic | Validity and structure of knowledge |
-
-Common words carry "human baggage" - consciousness assumptions that don't map cleanly to AI cognition. These philosophical terms are precise instruments for modeling cognitive work without anthropomorphic pollution.
-
-> *"When your spell-checker flags these terms, it's exhibiting low-grounding agent behavior - seeing unknown input and assuming error. Adding them to your dictionary is a grounding act."*
-
----
-
-## The Turtle Principle: Observed vs Prescribed Phase
-
-**Key Insight:** Cognitive phase (NOETIC/PRAXIC) should be **observed from vectors**, not **prescribed by sequence**.
-
-### Two Distinct Layers
-
-| Layer | Purpose | Components | Nature |
-|-------|---------|------------|--------|
-| **CASCADE Gates** | Compliance checkpoints | PREFLIGHT → CHECK → POSTFLIGHT → POST-TEST | Prescribed (external oversight) |
-| **Cognitive Phase** | Actual cognitive state | NOETIC ↔ THRESHOLD ↔ PRAXIC | Emergent (observed from vectors) |
+The unit that carries the two phases is the **epistemic transaction**:
 
 ```
-Statusline Display:
- empirica  │ POST 87% │ G2 U3 A1 F4/D1 │ Δ 🔥 │ 41%ctx │ 🔨 act - 🧠 Sonnet 5.5
-             ^^^^                                         ^^^
-             compliance                                   emergent
-             (oversight)                                  (observed)
+PREFLIGHT ──► noetic work ──► CHECK or certifying claim ──► praxic work ──► POSTFLIGHT ──► post-test
+ (baseline)   (investigate,    (what the action rests on)    (act)          (assess)       (grounded
+               log findings)                                                               verification)
 ```
 
-**Analogy:** Like a pilot and ground control:
-- **Ground control** (CASCADE gates) provides mandatory checkpoints
-- **Instruments** (cognitive phase) show actual flight state
-- Both are needed - oversight doesn't replace observation
+Investigation and action happen inside the same transaction. CHECK is where the practitioner states what the praxic work rests on; it does not end the transaction. POSTFLIGHT closes it, and the post-test then grades the self-assessment against evidence.
 
-### Vector-Based Phase Inference
+## What each step does
 
-Cognitive phase is inferred from two composite metrics:
+| Step | Records | Notes |
+|------|---------|-------|
+| **PREFLIGHT** | The 13 epistemic vectors, `work_type`, `domain`, `criticality`, task context, optional `claims` and `falsifiers` | `work_type` selects the cascade profile and weights the later calibration. `claims` and `falsifiers` are optional. Claims name the 2-3 load-bearing beliefs and how each was grounded. |
+| **Noetic work** | Findings, unknowns, dead-ends, assumptions, decisions, mistakes | Ungated. The Sentinel counts noetic and praxic tool calls separately. |
+| **CHECK** | Vectors, a decision (`proceed` or `investigate`), optional `claims` and `falsifiers` | Computed by `check-submit`, below. |
+| **Praxic work** | Edits, commits, tests | Gated by the hook: a CHECK, a certifying claim, or a confident PREFLIGHT must exist. |
+| **POSTFLIGHT** | Vectors again; each declared claim adjudicated `held`, `refuted` or `untested`; open falsifiers adjudicated | Closes the loop. After it, praxic tools are denied until the next PREFLIGHT. |
+| **Post-test** | Grounded vectors from deterministic evidence, split noetic/praxic when a CHECK `proceed` marks a boundary | Divergence from the self-assessment is the calibration signal; see [Phase-Aware Calibration](./PHASE_AWARE_CALIBRATION.md). |
 
-**Epistemic Readiness** = (know + context + (1 - uncertainty)) / 3
-- Measures: How prepared am I to act?
-- High readiness = sufficient knowledge, low doubt, good context
+The 13 vectors and what each measures are in [05_EPISTEMIC_VECTORS_EXPLAINED.md](../human/end-users/05_EPISTEMIC_VECTORS_EXPLAINED.md).
 
-**Action Momentum** = (do + change + completion) / 3
-- Measures: Am I executing or exploring?
-- High momentum = active execution, making progress
+## How CHECK decides
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│ Phase Inference Logic                                        │
-├─────────────────────────────────────────────────────────────┤
-│                                                              │
-│  IF epistemic_readiness < 0.5:                              │
-│      → ⊙ NOETIC (investigating, not ready to act)           │
-│                                                              │
-│  ELIF action_momentum < 0.4:                                │
-│      → ◐ THRESHOLD (ready but paused, at gate)              │
-│                                                              │
-│  ELSE:                                                       │
-│      → ⚡ PRAXIC (executing with confidence)                 │
-│                                                              │
-└─────────────────────────────────────────────────────────────┘
-```
+`check-submit` computes a gate decision from **uncertainty alone**. `uncertainty` is the practitioner's summary of confidence across the other twelve vectors, so the gate does not also test `know`.
 
-### The Three Cognitive Phases
+- `proceed` if `uncertainty <= ready_uncertainty_threshold`.
+- `proceed` anyway if investigation has plateaued: in the last two CHECK-to-CHECK steps `know` moved by less than 0.05 and `uncertainty` fell by no more than 0.05, and uncertainty is at most 0.45.
+- `proceed` anyway on the fifth round or later if uncertainty is at most 0.40.
+- Otherwise `investigate`.
 
-| Phase | Symbol | Readiness | Action | Meaning |
-|-------|--------|-----------|--------|---------|
-| **NOETIC** | ⊙ | < 0.5 | any | Investigating - knowledge insufficient |
-| **THRESHOLD** | ◐ | ≥ 0.5 | < 0.4 | Ready but paused - at decision gate |
-| **PRAXIC** | ⚡ | ≥ 0.5 | ≥ 0.4 | Executing - confident and acting |
+If the payload carries no `decision`, the computed one is used. A decision the practitioner supplies stands unless `EMPIRICA_AUTOPILOT_MODE` is on (then the computed one replaces it) or one of the overrides below fires. The response reports both (`metacog.computed_decision`, `metacog.gate_passed`).
 
-### Why This Matters
+The threshold starts from a baseline (0.35 by default; a cascade profile or `calibration.yaml` can set it) and calibration history can only tighten it. The mechanics are in [Phase-Aware Calibration](./PHASE_AWARE_CALIBRATION.md#dynamic-thresholds). The response reports the threshold used, where its base came from, and the reason in `metacog.gate_reason`.
 
-**Problem with prescribed phases:**
-- AI might be in PRAXIC (execution) sequence but actually uncertain
-- AI might be in NOETIC (investigation) sequence but already confident
-- Sequence ≠ state
+Three things can override the decision after that:
 
-**Solution with observed phases:**
-- Phase reflects actual epistemic state
-- Can be NOETIC during POSTFLIGHT (discovered new unknowns)
-- Can be PRAXIC during PREFLIGHT (continuing confident work)
-- Same rules at every meta-layer (Turtle Principle)
+- a critical blindspot predicted by the optional `empirica-prediction` package turns `proceed` into `investigate`;
+- the artifact-graph weave gate turns `proceed` into `investigate` when the transaction has logged at least one artifact and fewer than 34% of them carry an edge, until enough edges are woven to reach that floor. The defaults are strictness 0.75 (the enforcing band starts at 0.70) and floor 0.34, tunable per practice in `project.yaml` under `artifact_graph:`;
+- a verdict from a registered external evaluator, if any is registered (none is by default).
 
-### Implementation
+If CHECK carries `claims`, the response echoes how many are weakly grounded (`retrieved` or `assumed`) while there is still time to investigate. The echo is advisory; nothing blocks on it.
 
-```python
-# empirica/core/signaling.py
-from enum import Enum
+## How the hook treats praxic calls
 
-class CognitivePhase(Enum):
-    NOETIC = "NOETIC"        # ⊙ Investigating
-    THRESHOLD = "THRESHOLD"  # ◐ At gate
-    PRAXIC = "PRAXIC"        # ⚡ Executing
-
-def infer_cognitive_phase_from_vectors(vectors: Dict[str, float]) -> CognitivePhase:
-    know = vectors.get('know', 0.5)
-    uncertainty = vectors.get('uncertainty', 0.5)
-    context = vectors.get('context', 0.5)
-    do_vec = vectors.get('do', 0.5)
-    change = vectors.get('change', 0.0)
-    completion = vectors.get('completion', 0.0)
-
-    readiness = (know + context + (1.0 - uncertainty)) / 3.0
-    action = (do_vec + change + completion) / 3.0
-
-    if readiness < 0.5:
-        return CognitivePhase.NOETIC
-    elif action < 0.4:
-        return CognitivePhase.THRESHOLD
-    else:
-        return CognitivePhase.PRAXIC
-```
-
----
-
-## Why This Matters: Facts + Epistemic State = Powerful Loop
-
-### 1. Learning Compounds Across Sessions
-
-**Without persistent facts:**
-```
-Session 1: Investigate codebase → learn facts → session ends
-Session 2: Start fresh → re-investigate same areas → waste tokens
-```
-
-**With Learning Ledger (findings + unknowns + dead-ends):**
-```
-Session 1: 
-  • Find: "Auth uses OAuth2"
-  • Unknown: "How are refresh tokens managed?"
-  • Dead-end: "Token rotation not in main code"
-  • POSTFLIGHT: know=0.6, uncertainty=0.8
-
-Session 2:
-  • Bootstrap loads previous findings/unknowns
-  • PREFLIGHT: know=0.75, uncertainty=0.4 (learning compounds!)
-  • Investigation faster because unknowns are pre-targeted
-  • POSTFLIGHT: know=0.9, uncertainty=0.2
-```
-
-### 2. Epistemic Gates Enable Smart Loops
-
-Ralph's loop: "iterate N times"  
-Empirica's loop: "keep investigating until confident enough"
-
-```
-NOETIC PHASE LOOP LOGIC:
-while uncertainty > 0.5 OR know < 0.70:
-    investigate(goal)
-    log_finding(what_learned)
-    log_unknown(what_unclear)
-    log_deadend(what_failed)
-    uncertainty = reduced by findings
-    know = increased by findings
-```
-
-This is **knowledge-driven looping**, not mechanical iteration counting.
-
-### 3. Phase Separation Prevents Mnemonic Drift
-
-**Mnemonic drift:** Acting while still exploring, leading to expensive revisions
-
-```
-WITHOUT phase separation:
-  Exploring: "Maybe use pattern X"
-  Acting: "Implement pattern X"
-  → 3 hours later: "Discover pattern Y is better"
-  → Costly refactor
-
-WITH phase separation:
-  NOETIC: Compare patterns X vs Y thoroughly
-  CHECK: Verify sufficient knowledge to commit
-  PRAXIC: Implement chosen pattern
-  → No mid-course reversions
-```
-
-### 4. Learning Delta Measurement
-
-Clean phase boundaries enable attribution:
-- **Noetic delta:** know ↑ 0.3, uncertainty ↓ 0.4 (epistemic learning)
-- **Praxic delta:** completion ↑ 0.8 (task progress)
-- **Postflight:** Measure both separately
-
-### 5. Entropy Management at Scale
-
-- **NOETIC:** High branching factor (exploring many paths)
-- **CHECK:** Validation gate (entropy reduction proof)
-- **PRAXIC:** Low branching factor (executing chosen path)
-
-Without entropy management, NOETIC phase could spiral into infinite exploration.
-
-## The Loop Control: When Does AI Investigate vs Act?
-
-The framework uses **epistemic gates** to control the loop, not arbitrary iteration counts:
-
-```
-GATE 1: PREFLIGHT Assessment
-  AI assesses: "How much do I actually know?"
-  → Sets know, uncertainty, context vectors
-  
-GATE 2: CHECK Decision (certifies what the praxic work rests on)
-  AI asks: "Have I learned enough?"
-  → know ≥ 0.70 AND uncertainty ≤ 0.35 (baselines; Brier calibration only tightens)
-  
-  If NO → Loop back to NOETIC (investigate more)
-  If YES → Proceed to PRAXIC (act with confidence)
-
-GATE 3: POSTFLIGHT Delta
-  AI measures: "What did I actually learn?"
-  → Compare know/uncertainty/completion from PREFLIGHT to now
-  → This delta becomes input to next session's PREFLIGHT
-
-GATE 4: POST-TEST (Grounded Verification)
-  Automatic evidence-based calibration:
-  → Compare POSTFLIGHT self-assessment to actual outcomes
-  → Verify completion claims against evidence (tests, commits, reviews)
-  → Feed calibration data back for future accuracy
-```
-
-### When CHECK is Needed vs Not
-
-The Sentinel does not look at scope or session events. A praxic tool call is denied
-when the transaction has **no CHECK and no certifying claim**:
+The hook does not run the CHECK computation again. It asks whether the transaction has been **certified**, and there are three ways to be:
 
 | State of the transaction | Praxic tool call |
 |--------------------------|------------------|
-| A CHECK `proceed` exists | Allowed |
-| No CHECK, but PREFLIGHT declared a claim grounded `read`, or `ran` with a `scope` and a `count` | Allowed — the claim certifies the transaction, CHECK is skipped |
-| No CHECK, only `retrieved` / `assumed` claims, or none | Denied — do the noetic grounding, then declare claims or submit CHECK |
+| PREFLIGHT's own `know` and `uncertainty` clear the thresholds | Allowed (auto-proceed); no CHECK or claim needed |
+| A valid CHECK exists (`proceed` or `investigate`; newer than the PREFLIGHT, not rushed) | Allowed; a shortfall against the thresholds is appended as an advisory, not a refusal |
+| No CHECK, but PREFLIGHT declared a claim grounded `read`, or `ran` with a `scope` and a `count` | Allowed; the claim certifies the transaction |
+| None of the above | Denied: do the noetic grounding, then declare claims or submit CHECK |
 
-`retrieved` (your own prior artifacts) and `assumed` never certify: they are testimony or
-the absence of grounding. A high-scope, high-uncertainty or post-compact transaction has
-no extra rule of its own; those states simply make it unlikely that you hold a `read` or
-`ran` claim yet. The CHECK thresholds themselves are in `PHASE_AWARE_CALIBRATION.md`.
+`retrieved` (your own earlier artifacts) and `assumed` never certify. They are testimony or the absence of grounding.
 
-### The Intelligence is in the Loop
+The rest of the hook, including what it allows without a transaction and what it denies after POSTFLIGHT, is in [SENTINEL_ARCHITECTURE.md](./SENTINEL_ARCHITECTURE.md).
 
-**Ralph's loop:** `for i in range(50): invoke_claude(prompt)`  
-**Empirica's loop:** `while not_confident(state): investigate(state); update_state(findings)`
+### When CHECK is worth submitting
 
-The epistemic transaction cycle is **self-healing**:
-1. AI doesn't know something → high uncertainty
-2. High uncertainty triggers CHECK → fails gate
-3. Failure redirects to NOETIC → investigation
-4. Investigation logs findings → reduces uncertainty
-5. Loop back to CHECK → gate succeeds
-6. Proceed to PRAXIC
+CHECK certifies; it does not unlock. If you have already read the files you will rely on, say so in PREFLIGHT's `claims` and go straight to praxic work. A CHECK submitted moments after its PREFLIGHT, with nothing logged between, certifies nothing; the hook denies it as rushed when it comes under 30 seconds after PREFLIGHT with no finding or unknown logged. Submit a real CHECK when your next actions rest on assumptions you have not yet checked: do the reading first, then CHECK.
 
-**No iteration count needed.** The loop naturally terminates when confident.
+## Why keep the phases apart
 
-## How Sessions Compound Learning
+- **Attribution.** With a clean boundary, calibration can ask different questions of each phase: did the investigation reduce uncertainty as much as claimed, and did the action produce what was predicted? A transaction that only investigated is graded on noetic evidence and is not penalised for having no commits.
+- **Cost of late discovery.** Acting while still exploring tends to produce a revision once the better option turns up. CHECK is the point where "what is this resting on" gets said.
+- **Bounded exploration.** The `investigate` decision sends the practitioner back to noetic work, and the plateau and fifth-round rules stop that from running indefinitely.
 
-**The power of Empirica emerges across multiple sessions:**
+## What the loop does across sessions
 
-```
-┌─ Session 1 ──────────────────────────────┐
-│ PREFLIGHT: know=0.4, uncertainty=0.9    │
-│ NOETIC: Investigate architecture        │
-│ • Find: "Uses microservices"            │
-│ • Unknown: "How are services deployed?" │
-│ POSTFLIGHT: know=0.65, uncertainty=0.6  │
-│ Git stores findings in notes (~450 tok)  │
-└──────────────────────────────────────────┘
-              ↓ (findings persist)
-┌─ Session 2 ──────────────────────────────┐
-│ Bootstrap loads previous findings        │
-│ PREFLIGHT: know=0.7, uncertainty=0.4    │
-│ (Higher starting point due to learning!)│
-│ NOETIC: Investigate deployment          │
-│ • Find: "Uses Kubernetes"               │
-│ • Previous unknown RESOLVED             │
-│ POSTFLIGHT: know=0.85, uncertainty=0.2  │
-└──────────────────────────────────────────┘
-              ↓ (findings compound)
-┌─ Session 3 ──────────────────────────────┐
-│ Bootstrap loads both sessions' findings  │
-│ PREFLIGHT: know=0.8, uncertainty=0.25   │
-│ (Even higher starting point!)           │
-│ NOETIC: Focused investigation           │
-│ • Fewer unknowns to resolve             │
-│ • Faster convergence                    │
-│ POSTFLIGHT: know=0.92, uncertainty=0.1  │
-└──────────────────────────────────────────┘
-```
+Artifacts persist in SQLite and replicate as git notes (see [SYNC_ARCHITECTURE.md](./SYNC_ARCHITECTURE.md)). `project-bootstrap` loads the project's findings, unknowns, dead-ends and goals into the next session, and PREFLIGHT reports feedback from the previous transaction. An unknown logged in one session is already targeted when the next begins; a resolved one stops steering retrieval.
 
-**This is why facts + epistemic state is powerful:** Each session builds on the last. Learning compounds. Uncertainty decreases exponentially.
+## The statusline's noetic/praxic marker
 
-## When to Use Each Phase
+The statusline shows 🔍 for noetic and 🔨 for praxic. It is derived from the last phase and gate decision, not inferred from vectors: PREFLIGHT, and a CHECK that returned `investigate`, show noetic; a CHECK that returned `proceed` and POSTFLIGHT show praxic; no phase shows noetic. It is a display of where the transaction is, not a second opinion on where the practitioner is.
 
-| Scenario | What Happens |
-|----------|--------------|
-| **Session start** | PREFLIGHT (baseline), then decide: NOETIC or PRAXIC? |
-| **High uncertainty** | Must NOETIC first (investigate until confident) |
-| **Complex scope** | CHECK before PRAXIC (state what the action rests on), unless a `read`/`ran` claim already certifies it |
-| **Simple + confident** | Declare grounded claims in PREFLIGHT and go straight to PRAXIC, no CHECK |
-| **Post memory-compact** | Re-ground (read the state back); CHECK or a certifying claim before praxic |
-| **Session end** | POSTFLIGHT (measure learning delta, store findings) |
-| **Next session** | Bootstrap loads findings, starts at higher know, lower uncertainty |
+## Two short examples
 
-## Practical Examples
+**Already grounded.** The practitioner reads the three files a fix touches, then opens PREFLIGHT with `claims` such as `{claim: "retry loop lives in worker.py", grounding: read}` and `{claim: "no other caller of retry()", grounding: ran, scope: "src/", count: 0}`. The `read` claim certifies the transaction, so edits proceed with no CHECK. POSTFLIGHT adjudicates both claims.
 
-### Example 1: Quick Bug Fix (Self-Healing Loop)
-```
-PREFLIGHT: know=0.85, uncertainty=0.1, scope=0.2
-  "I know the codebase well, this is straightforward"
+**Not yet grounded.** PREFLIGHT reports `uncertainty` 0.55 with no claims. The first `Edit` is denied. The practitioner investigates, logs two findings and an unknown, and submits CHECK with `uncertainty` 0.30. The gate computes `proceed` against the 0.35 threshold, and praxic work begins.
 
-CHECK gate: uncertainty < 0.5 AND know > 0.7 ✓
-  "Confident enough to skip NOETIC"
+## Epistemic honesty is the mechanism
 
-PRAXIC: Implement fix
-  • Make changes
-  • Run tests
-  • Commit
-
-POSTFLIGHT: know=0.9, uncertainty=0.05, completion=0.95
-  • Minor learning (found subtle edge case)
-  • Finding logged: "Edge case in transaction retry logic"
-
-Next session bootstrap: Includes this finding
-```
-
-### Example 2: New Feature (Loop Until Confident)
-```
-PREFLIGHT: know=0.5, uncertainty=0.7, scope=0.8
-  "I'm uncertain about architecture choices"
-
-CHECK gate: uncertainty > 0.5 ✗
-  "Must investigate before acting"
-
-NOETIC PHASE (Loop 1):
-  Investigate: Authentication requirements
-  Finding: "System uses OAuth2 + JWT"
-  Unknown: "How are refresh tokens managed?"
-  Dead-end: "Token rotation logic not in main code"
-  → uncertainty now 0.6, know now 0.65
-
-CHECK gate: uncertainty > 0.5 ✗ (still investigating)
-
-NOETIC PHASE (Loop 2):
-  Investigate: Deployment architecture
-  Finding: "Services deployed on Kubernetes"
-  Unknown: "How are secrets managed?"
-  → uncertainty now 0.45, know now 0.75
-
-CHECK gate: uncertainty < 0.5 AND know > 0.70 ✓
-  "Ready to implement"
-
-PRAXIC PHASE:
-  Implement feature using learned architecture
-  • Create service following Kubernetes patterns
-  • Integrate OAuth2 + JWT properly
-
-POSTFLIGHT: know=0.88, uncertainty=0.25, completion=0.92
-  • Significant learning (investigated 2x, reduced uncertainty 0.45)
-  • Findings logged:
-    - "OAuth2 + JWT architecture"
-    - "Kubernetes deployment model"
-    - "Resolved: Refresh tokens stored in Redis"
-
-Next session bootstrap: Includes all findings
-  • New agents don't repeat investigation
-  • Can jump straight to implementation
-```
-
-### Example 3: Post Session-Resume (Context Recovery)
-```
-[Session ended after compacting memory]
-[Findings from previous sessions stored in git notes]
-
-Session Resume:
-  Bootstrap loads: findings, unknowns, dead-ends from previous work
-  
-PREFLIGHT: know=0.7, uncertainty=0.4
-  "Bootstrap recovered context raised my confidence"
-
-CHECK gate: uncertainty < 0.5 AND know > 0.70 ✓
-  "Sufficient context to continue work"
-
-PRAXIC PHASE:
-  Continue implementation with learned context
-
-POSTFLIGHT: know=0.85, uncertainty=0.2
-  • Further learning from continuing work
-  • Findings logged
-  • Loop compounds across multiple sessions
-```
-
-### Example 4: Discovering You're Not Ready (Feedback Loop)
-```
-PREFLIGHT: know=0.6, uncertainty=0.3, scope=0.8
-  "I think I know enough"
-
-CHECK gate: scope > 0.5 ✗ (must investigate before big changes)
-
-NOETIC PHASE:
-  Investigate: Start understanding system
-  Finding: "Way more complex than expected"
-  Unknown: "Multiple architectural patterns mixed"
-  → uncertainty jumped to 0.65 (discovered unknowns!)
-
-CHECK gate: uncertainty > 0.5 ✗
-
-NOETIC PHASE (Loop 2):
-  Deep investigation
-  Finding: "Pattern A used in services, Pattern B in monolith"
-  Unknown: "How to reconcile patterns in new feature?"
-  → uncertainty still 0.55
-
-CHECK gate: uncertainty > 0.5 ✗
-
-NOETIC PHASE (Loop 3):
-  Very deep investigation
-  Finding: "Plans to unify patterns in next quarter"
-  Finding: "Should implement feature using Pattern B for now"
-  → uncertainty down to 0.35, know up to 0.80
-
-CHECK gate: ✓ Ready
-
-PRAXIC: Implement knowing architecture better than initial PREFLIGHT
-
-POSTFLIGHT: Major learning delta
-  • Initial know: 0.6 → Final know: 0.80 (+0.2)
-  • Initial uncertainty: 0.3 → Final uncertainty: 0.35 (-0.25, discovered unknowns!)
-  • This is epistemic honesty: "I thought I knew, but discovered I didn't"
-  • Findings logged prevent future agents from overconfidence
-
-This is the self-healing loop in action.
-```
-
-## Why Epistemic Honesty is the Engine
-
-**Epistemic honesty is not ethical—it's the mechanism that makes the loop work.**
-
-```
-Honest assessment:
-  "I don't understand this architecture"
-  → uncertainty = 0.7
-  
-CHECK gate sees high uncertainty:
-  → Redirects to NOETIC
-  
-NOETIC investigation:
-  → Logs findings, reduces uncertainty
-  
-CHECK gate succeeds:
-  → Proceeds to PRAXIC with confidence
-  
-Result: Correct implementation, no wasted refactors
-```
-
-**Dishonest assessment:**
-```
-False confidence:
-  "I understand the architecture"
-  → uncertainty = 0.2
-  
-CHECK gate succeeds incorrectly:
-  → Proceeds to PRAXIC without investigation
-  
-PRAXIC implementation:
-  → Makes wrong architectural choices
-  
-Result: Costly refactor, lost time, broken features
-```
-
-The loop is **self-correcting only if honest.** Inaccurate self-assessment breaks the feedback circuit.
-
-## The 5 Abstractions Unified
-
-The framework emerges from 5 layers working together:
-
-1. **Epistemic Vector Space** - AI's continuous self-awareness (13 dimensions)
-2. **Learning Ledger** - Persistent facts (findings, unknowns, dead-ends, mistakes) 
-3. **Phase Separation** - NOETIC (explore) vs PRAXIC (execute) with CHECK gate
-4. **CLI-Driven Statefulness** - Distributed architecture (MCP → CLI → Git → DB)
-5. **Pluggable Strategy Pattern** - Extensible investigation tools and goal generation
-
-Together, these create an **autonomous learning system** that:
-- Loops until confident (not iteration count)
-- Compounds learning across sessions (persistent facts)
-- Self-heals when discovering unknowns (high uncertainty triggers investigation)
-- Prevents mnemonic drift (phase separation)
-- Scales investigation (pluggable strategies)
-
----
-
-## Comparison: Ralph vs Empirica
-
-| Aspect | Ralph Wiggum | Empirica NOETIC-PRAXIC |
-|--------|--------------|------------------------|
-| **Loop Trigger** | Iteration count (N) | Epistemic gate (know ≥ 0.7, uncertainty ≤ 0.35) |
-| **Loop Mechanism** | Stop hook re-invocation | Self-directed investigation + CHECK gate |
-| **Learning Persistence** | None (stateless loops) | Full (findings carry to next session) |
-| **Self-Healing** | No (requires manual iteration count) | Yes (high uncertainty auto-triggers NOETIC) |
-| **Transparency** | Exit code 2 | 13 epistemic vectors + findings ledger |
-| **Cost Model** | $50-100 per 50 iterations | Per-token + 97% git compression |
-| **Scalability** | Linear with iteration count | Non-linear (entropy reduction, not iteration) |
-
-**Conclusion:** Ralph is a mechanical loop. Empirica is an intelligent loop that learns and compounds.
-
----
-
-*Framework developed through collaborative epistemic deliberation, applying the framework to itself.*
+The loop is self-correcting only if the self-assessment is honest. A practitioner who reports low uncertainty to get through CHECK produces a transaction whose post-test evidence disagrees; the gap shows up in calibration, the Brier reliability term rises, and the thresholds tighten. Inflated confidence is not blocked at the moment it is reported. It is made visible afterwards and raises the cost of the next one.
