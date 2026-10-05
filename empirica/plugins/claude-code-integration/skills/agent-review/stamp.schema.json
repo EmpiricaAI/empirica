@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "empirica/agent-review/stamp",
+  "title": "Reviewer stamp of a finished agent thread",
+  "description": "What a Part 2 reviewer returns. Every artifact is anchored to a turn of the numbered trace and carries a verbatim quote from that turn; check_stamp.py verifies both mechanically.",
+  "type": "object",
+  "required": ["thread", "summary", "artifacts", "edges", "tasks", "proposals"],
+  "additionalProperties": false,
+  "properties": {
+    "thread": { "type": "string", "description": "Short name of the reviewed thread." },
+    "summary": { "type": "string", "description": "What the agent did and where it ended, in a few sentences." },
+    "artifacts": {
+      "type": "array",
+      "maxItems": 25,
+      "items": {
+        "type": "object",
+        "required": ["type", "text", "anchor", "quote", "grounding"],
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "enum": ["finding", "unknown", "assumption", "decision", "dead_end", "mistake"],
+            "description": "The question the artifact answers. A bug found in the code is a finding; the AGENT doing something wrong is a mistake."
+          },
+          "text": { "type": "string" },
+          "anchor": { "type": "integer", "minimum": 1, "description": "Turn number where the evidence is." },
+          "quote": { "type": "string", "maxLength": 200, "description": "Exact substring of that turn's text." },
+          "grounding": {
+            "enum": ["ran", "read", "retrieved", "assumed"],
+            "description": "How the AGENT came to know it: ran = observed a tool result; read = opened the source; retrieved = from its own earlier notes or prompt; assumed = did not check."
+          },
+          "needs_hindsight": {
+            "type": "boolean",
+            "description": "True when the artifact could only be identified by reading later turns (dead ends, retractions, mistakes)."
+          }
+        }
+      }
+    },
+    "edges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["from", "to", "relation"],
+        "additionalProperties": false,
+        "properties": {
+          "from": { "type": "integer", "minimum": 0, "description": "Index into artifacts (0-based)." },
+          "to": { "type": "integer", "minimum": 0 },
+          "relation": { "enum": ["caused_by", "evidence", "invalidates", "resolves", "grounded_by", "raised_by"] }
+        }
+      }
+    },
+    "tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["description", "status"],
+        "additionalProperties": false,
+        "properties": {
+          "description": { "type": "string" },
+          "status": { "enum": ["done", "open", "abandoned"] },
+          "evidence_anchor": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "proposals": {
+      "type": "array",
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "required": ["objective", "question", "predicted_answer", "reason", "options"],
+        "additionalProperties": false,
+        "properties": {
+          "objective": { "type": "string" },
+          "question": { "type": "string" },
+          "predicted_answer": { "type": "string", "description": "A decision already made that the human can veto; never an open question." },
+          "reason": { "type": "string", "description": "The one reason that grounds the prediction." },
+          "options": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 4,
+            "items": {
+              "type": "object",
+              "required": ["label", "consequence"],
+              "additionalProperties": false,
+              "properties": { "label": { "type": "string" }, "consequence": { "type": "string" } }
+            }
+          }
+        }
+      }
+    }
+  }
+}
