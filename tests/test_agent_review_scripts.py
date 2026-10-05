@@ -95,6 +95,18 @@ def test_the_trace_numbers_every_turn_and_skips_junk_lines(build_trace, tmp_path
     assert turns[1]["text"] == "Bash: rg -n thresholds core/"
 
 
+def test_stream_json_events_with_a_string_message_or_a_non_object_line_are_skipped(build_trace, tmp_path):
+    """Found running the experiment: claude -p --output-format stream-json emits events whose "message" is a string."""
+    rows = [
+        {"type": "system", "message": "a plain string"},
+        ["not", "an", "object"],
+        {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "real turn"}]}},
+    ]
+    path = tmp_path / "stream.jsonl"
+    path.write_text("\n".join(json.dumps(r) for r in rows))
+    assert [(t["n"], t["text"]) for t in build_trace.build_turns(path)] == [(1, "real turn")]
+
+
 def test_a_long_tool_result_is_truncated_to_the_limit(build_trace, tmp_path):
     row = {"message": {"role": "user", "content": [{"type": "tool_result", "content": "x" * 5000}]}}
     path = tmp_path / "long.jsonl"

@@ -21,7 +21,11 @@ TOOL_RESULT_LIMIT = 700
 
 
 def _blocks(entry: dict) -> list[tuple[str, dict]]:
+    if not isinstance(entry, dict):
+        return []
     msg = entry.get("message") or {}
+    if not isinstance(msg, dict):
+        return []  # stream-json also carries events whose "message" is a plain string
     content = msg.get("content")
     role = msg.get("role")
     if isinstance(content, str):
