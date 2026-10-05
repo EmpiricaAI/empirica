@@ -24,7 +24,7 @@ how your understanding has changed over time.
 ### 1. Per-Project — Your work
 
 **Where:** `<repo>/.empirica/sessions/sessions.db` (SQLite, gitignored)
-**Plus:** `<repo>/.git/refs/notes/empirica_*` (per-artifact-type git notes)
+**Plus:** `<repo>/.git/refs/notes/empirica/*` (per-artifact-type git notes)
 
 Every project gets its own database. It tracks:
 - **Sessions** + **transactions** — your work history
@@ -32,8 +32,8 @@ Every project gets its own database. It tracks:
 - **Findings, unknowns, dead-ends, decisions, assumptions, mistakes** — epistemic artifacts (all carry `transaction_id`)
 - **Calibration breadcrumbs** — per-AI bias patterns
 
-The artifact graph is also mirrored into `refs/notes/empirica_*` so it
-travels with the code: `git push origin 'refs/notes/empirica_*'` shares
+The artifact graph is also mirrored into `refs/notes/empirica/*` so it
+travels with the code: `git push origin 'refs/notes/empirica/*'` shares
 the epistemic trail with teammates.
 
 ### 2. User-Tenant — Your config (shared across projects)
@@ -109,7 +109,7 @@ extensions layer different surfaces on top.
 │                     Decisions, assumptions, mistakes           │
 │                     Sessions, transactions, breadcrumbs        │
 │                                                                │
-│  refs/notes/empirica_*  ────  Same artifacts, git-shared       │
+│  refs/notes/empirica/*  ────  Same artifacts, git-shared       │
 │                               (push/fetch for team sharing)    │
 └────────────────────────────────────────────────────────────────┘
 ```
@@ -134,13 +134,13 @@ carries a `transaction_id` back to its measurement window. Full table:
 | `.empirica/sessions/sessions.db` | ❌ Gitignored |
 | `.empirica/breadcrumbs.yaml` | ❌ Gitignored |
 | `.empirica/credentials.yaml` | ❌ Gitignored (if it exists per-project) |
-| `.git/refs/notes/empirica_*` | ✅ In git, not pushed by default |
+| `.git/refs/notes/empirica/*` | ✅ In git, not pushed by default |
 | `~/.empirica/*` | n/a (user-tenant, never in git) |
 
 **To share the epistemic trail with teammates:**
 ```bash
-git push origin 'refs/notes/empirica_*:refs/notes/empirica_*'
-git fetch origin 'refs/notes/empirica_*:refs/notes/empirica_*'
+git push origin 'refs/notes/empirica/*:refs/notes/empirica/*'
+git fetch origin 'refs/notes/empirica/*:refs/notes/empirica/*'
 ```
 
 ---

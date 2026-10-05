@@ -71,7 +71,7 @@ Before starting on the mesh setup, you should have:
 
 1. **Empirica core working.** Run through [FIRST_TIME_SETUP.md](FIRST_TIME_SETUP.md) and [02_INSTALLATION.md](02_INSTALLATION.md). Verify with `empirica diagnose` — green is required before adding mesh.
 2. **A project initialised** — `empirica project-init` in at least one repo. If you have many projects, see [REGISTER_AND_MANAGE_PROJECTS.md](REGISTER_AND_MANAGE_PROJECTS.md) for the multi-project workflow.
-3. **Optional but recommended:** a working `git` setup so artifacts can ride `refs/notes/empirica_*`.
+3. **Optional but recommended:** a working `git` setup so artifacts can ride `refs/notes/empirica/*`.
 
 If any of those are off, fix that first. Mesh setup on a broken core just compounds the diagnosis.
 
@@ -109,6 +109,8 @@ The wizard prompts for:
 - **ntfy topic + auth** — usually auto-discovered from Cortex (see Step 5)
 
 The wizard writes `~/.empirica/credentials.yaml` and persists `{org_id, tenant_slug, mesh_id_prefix}` to your project.yaml so your AI gets fully-qualified mesh addressing from first use.
+
+**OAuth instead of a static key:** `empirica auth login` runs a browser (authorization_code + PKCE) flow and stores a refreshable token set under `cortex.oauth`; `empirica auth status` shows the credential state and `empirica auth token --headers` prints a valid header for other tools. See [CORTEX_OAUTH.md](../../architecture/CORTEX_OAUTH.md).
 
 If you'd rather not interactively prompt, you can write `~/.empirica/credentials.yaml` yourself:
 
@@ -266,12 +268,13 @@ The canonical 3-form does not bounce.
 ### 7b. Test the round-trip
 
 ```bash
-# From your AI session (or any terminal with valid CORTEX_API_KEY)
-empirica mailbox send \
-  --target-claudes <peer-canonical-ai_id_mesh> \
-  --type collab_brief \
-  --title "Mesh smoke test from $(date)" \
-  --summary "Verifying inter-AI comms. This is a collab — auto-accepted."
+# From your AI session, call the cortex_collab MCP tool
+# (the CLI has no mailbox send verb; typed work requests use cortex_propose)
+cortex_collab(
+  target_claudes=["<peer-canonical-ai_id_mesh>"],
+  title="Mesh smoke test",
+  summary="Verifying inter-AI comms. This is a collab — auto-accepted.",
+)
 ```
 
 You should see:
@@ -294,7 +297,7 @@ If any step doesn't fire, see Troubleshooting below.
 
 **See what's in your inbox right now:**
 ```bash
-empirica mailbox inbox --ai-id <your-ai-id>
+empirica mailbox poll --ai-id <your-ai-id>
 ```
 
 **Reply to a proposal a peer sent you (atomic propose+complete):**
@@ -317,7 +320,7 @@ empirica status                              # full instance overview
 
 **Check what's queued for ECO decision:**
 ```bash
-empirica mailbox inbox --ai-id <your-ai-id> --status eco_review
+empirica mailbox poll --ai-id <your-ai-id> --status eco_review
 ```
 
 ---
@@ -326,7 +329,7 @@ empirica mailbox inbox --ai-id <your-ai-id> --status eco_review
 
 **`empirica diagnose` shows ✗ cortex** — the API key isn't set or the URL is unreachable. Check `~/.empirica/credentials.yaml` or env vars.
 
-**Listener seems alive but no events arrive** — the listener has an initial catch-up phase that pulls anything missed during downtime. If catch-up returns nothing, the inbox is genuinely empty. Verify by polling explicitly: `empirica mailbox inbox --ai-id <your-ai-id>`.
+**Listener seems alive but no events arrive** — the listener has an initial catch-up phase that pulls anything missed during downtime. If catch-up returns nothing, the inbox is genuinely empty. Verify by polling explicitly: `empirica mailbox poll --ai-id <your-ai-id>`.
 
 **Proposals send but peer AI never wakes** — check that the peer's listener is running (`empirica listener list` on their machine) and that their `ai_id` matches what you sent to. Cross-tenant addressing is more nuanced — see the org-specific prompt for your organisation.
 

@@ -28,7 +28,7 @@ Empirica writes data in **three places**, each isolated by design:
 | Path | Contents | In git? | Pushed by default? |
 |---|---|---|---|
 | `<repo>/.empirica/` | Project DB + project.yaml + credentials cache | `.empirica/*` gitignored except `project.yaml` (and `credentials.yaml` if you opt in) | n/a |
-| `<repo>/.git/refs/notes/empirica_*` | Per-artifact git notes (findings, decisions, etc.) | yes (in `.git/`) | **No** — `git push origin refs/notes/empirica_*` to share |
+| `<repo>/.git/refs/notes/empirica/*` | Per-artifact git notes (findings, decisions, etc.) | yes (in `.git/`) | **No** — `git push origin refs/notes/empirica/*` to share |
 | `~/.empirica/` | User-tenant config: cortex creds, ntfy creds, registry of projects | n/a | n/a |
 
 **Clean-slate guarantees:**
@@ -65,9 +65,9 @@ This creates:
 - `.empirica/project.yaml` — project identity (committed):
   - `project_id` (UUID)
   - `name`, `description`, `repository`
-  - `ai_id` — **derived from project basename**, e.g. `your-project`. Strips
-    `empirica-` prefix if present so `empirica-cortex` → `cortex`. This is
-    how your AI is addressed in cross-AI orchestration.
+  - `ai_id` — **derived from project basename**, e.g. `your-project`. The
+    `empirica-` prefix is kept (`empirica-cortex` stays `empirica-cortex`). This
+    is how your AI is addressed in cross-AI orchestration.
 - `.empirica/sessions/sessions.db` — created on first session-create
 
 ### 3. (Optional) Set up Claude Code
@@ -169,15 +169,15 @@ what the services measured — that's your **calibration signal**.
 
 ## Sharing Epistemic Data (Optional)
 
-Empirica writes artifacts to `refs/notes/empirica_*` in your local git
+Empirica writes artifacts to `refs/notes/empirica/*` in your local git
 notes. These are **not pushed automatically**. To share with a team:
 
 ```bash
 # Push your epistemic trail
-git push origin 'refs/notes/empirica_*:refs/notes/empirica_*'
+git push origin 'refs/notes/empirica/*:refs/notes/empirica/*'
 
 # Pull a teammate's
-git fetch origin 'refs/notes/empirica_*:refs/notes/empirica_*'
+git fetch origin 'refs/notes/empirica/*:refs/notes/empirica/*'
 ```
 
 For shared cortex-mediated orchestration (AIs proposing work to each
@@ -200,7 +200,7 @@ your-project/
 │   ├── beads.db                        # ❌ gitignored
 │   └── issues.jsonl                    # ✅ optional commit
 │
-└── .git/refs/notes/empirica_*          # ✅ in git, ❌ not pushed by default
+└── .git/refs/notes/empirica/*          # ✅ in git, ❌ not pushed by default
 ```
 
 ---
@@ -228,7 +228,7 @@ third component.
 ```bash
 # Delete one project's history
 rm -rf .empirica/sessions/   # losing transactions
-git update-ref -d refs/notes/empirica_findings  # losing artifact notes
+git for-each-ref --format='%(refname)' refs/notes/empirica/findings | xargs -n1 git update-ref -d  # losing artifact notes
 
 # Fully reset (last resort)
 rm -rf .empirica/ ~/.empirica/

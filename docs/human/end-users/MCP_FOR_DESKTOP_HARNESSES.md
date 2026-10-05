@@ -1,6 +1,6 @@
 # Empirica via MCP — for Desktop Harnesses & Non-Claude-Code CLIs
 
-If you use **Claude Desktop**, **Cursor**, **Gemini CLI**, **Codex**,
+If you use **Claude Desktop**, **Cursor**, **Gemini CLI**, **Codex** (without ecodex),
 or any other AI harness that doesn't have Claude Code's plugin/hook
 system, this is the doc for you. Empirica reaches you through the
 **Model Context Protocol (MCP)** instead.
@@ -18,7 +18,7 @@ empirica-mcp --help
 #    All harnesses use the same shape — an mcp.json (or equivalent)
 #    pointing at $HOME/.local/bin/empirica-mcp.
 
-# 4. Start the harness. Empirica's 70 tools are now available with the
+# 4. Start the harness. Empirica's 79 tools are now available with the
 #    mcp__empirica__ prefix (Claude Code style) or the harness's
 #    equivalent.
 ```
@@ -28,7 +28,9 @@ empirica-mcp --help
 Claude Code has the **Sentinel** — hook-based runtime gating that
 enforces the noetic firewall, autonomy nudges, transaction discipline.
 Other harnesses don't have hooks (or have weaker hook surfaces) so
-Empirica's runtime gating is **self-enforced** there. The MCP server
+Empirica's runtime gating is **self-enforced** there. (Codex via
+[ecodex](https://github.com/EmpiricaAI/ecodex) is the exception: it loads
+hooks natively. See the README platform table.) The MCP server
 exposes the same tool surface; you supply the discipline.
 
 ```
@@ -47,7 +49,7 @@ Claude Code:                       Desktop / Cursor / Gemini CLI / Codex:
              ▼                                 ▼
         ┌────────────────────────────────────────┐
         │  empirica-mcp (stdio server)            │
-        │  70 tools → empirica CLI subprocess     │
+        │  79 tools → empirica CLI subprocess     │
         └────────────────────────────────────────┘
                             │
                             ▼
@@ -121,7 +123,7 @@ Empirica MCP Server
 ...
 
 $ empirica mcp-list-tools | head -5
-🔧 Empirica MCP Tools (70 registered)
+🔧 Empirica MCP Tools (79 registered — 75 standalone, 4 cortex-orchestrated)
 =====================================
 assess:
   assess_state    assess-state — Get current epistemic state assessment
@@ -221,7 +223,7 @@ different repos use different cortex tenants / API keys:
 }
 ```
 
-## What you get — 70 MCP tools (65 standalone, 5 cortex-orchestrated)
+## What you get — 79 MCP tools (75 standalone, 4 cortex-orchestrated)
 
 Run `empirica mcp-list-tools` to see the live, grouped list. Tools
 marked **🌐** require cortex (the mesh backend); the rest work
@@ -354,12 +356,11 @@ hookless harnesses you'd typically run these from a separate terminal
 since the harness's own MCP session can't manage a background
 subprocess for itself.
 
-For an always-on listener that survives across harness sessions,
-install the systemd-user / launchd service:
-
-```bash
-empirica listener install-request   # AI-task analog
-```
+For an always-on listener that survives across harness sessions, the
+systemd-user / launchd service is installed by `empirica setup` (pass
+`--skip-listener-service` to keep session-only Monitor arming). Note that
+`empirica listener install-request` is different: it queues a Cockpit-to-Claude
+request that a Claude session picks up and arms, not an OS service.
 
 (See `docs/architecture/EVENT_LISTENER.md` for the full pipeline.)
 

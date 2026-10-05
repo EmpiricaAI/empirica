@@ -243,19 +243,19 @@ These vectors emerged from 600+ real working sessions across multiple AI systems
 
 | Tier | Vector | What It Measures |
 |------|--------|------------------|
-| **Gate** | `engagement` | Is the AI actively processing or disengaged? |
 | **Foundation** | `know` | Domain knowledge depth |
 | | `do` | Execution capability |
 | | `context` | Access to relevant information |
-| **Comprehension** | `clarity` | How clear is the understanding? |
+| **Meta** | `engagement` | Is the AI actively processing or disengaged? |
+| | `uncertainty` | Explicit doubt tracking |
+| **Phase-dependent** | `clarity` | How clear is the understanding? |
 | | `coherence` | Do the pieces fit together? |
 | | `signal` | Signal-to-noise in available information |
 | | `density` | Information richness |
-| **Execution** | `state` | Current working state |
+| | `state` | Current working state |
 | | `change` | Rate of progress/change |
 | | `completion` | Task completion level |
 | | `impact` | Significance of the work |
-| **Meta** | `uncertainty` | Explicit doubt tracking |
 
 Deep dive: [Epistemic Vectors Explained](docs/human/end-users/05_EPISTEMIC_VECTORS_EXPLAINED.md)
 
@@ -276,7 +276,7 @@ Empirica doesn't replace or reinvent anything Claude Code already does. Claude C
 
 The result: Claude Code's native capabilities, enhanced with measurement, gating, and calibration feedback that compounds over time.
 
-**16 skills ship with the plugin** — the transaction discipline, graph gardening,
+**19 skills ship with the plugin** — the transaction discipline, graph gardening,
 the quality sweep, mesh messaging, and more. They are *lazy*: a skill does
 nothing until it loads, so knowing when each fires matters more than knowing
 what it holds. → **[Skills reference](docs/reference/SKILLS.md)**

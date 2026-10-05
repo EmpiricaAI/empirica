@@ -165,7 +165,7 @@ empirica assumption-log --assumption "Redis is available in prod" --confidence 0
 empirica decision-log --choice "Use RS256 over HS256" --rationale "Public verifier separation"
 
 # External sources cited
-empirica source-add --title "RFC 7519 — JWT" --source-url "https://datatracker.ietf.org/doc/html/rfc7519"
+empirica source-add --title "RFC 7519 — JWT" --url "https://datatracker.ietf.org/doc/html/rfc7519" --noetic
 ```
 
 Provenance: `--epistemic-source intuition|search|mixed` records whether
@@ -224,7 +224,13 @@ empirica commit-context --range HEAD~10..HEAD
 # Calibration report
 empirica calibration-report
 empirica calibration-report --learning-trajectory    # PREFLIGHT→POSTFLIGHT deltas
+empirica calibration-report --windowed --weeks 4     # self-vs-grounded gap over a recent window
+
+# Per-transaction history (ids, vectors, self vs grounded; structure only unless --content)
+empirica grounding-export --ai-id <your-ai-id> --transactions
 ```
+
+See [Transaction export](../../reference/TRANSACTION_EXPORT.md) for the `--transactions` shape.
 
 ---
 

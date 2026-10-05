@@ -97,7 +97,7 @@ local registry, never Cortex.
 ### Update a project's metadata
 
 ```bash
-empirica project-update --project-description "..."   # edit committed project.yaml fields
+empirica project-update --domain "..."   # edit committed project.yaml fields
 ```
 
 `project-update` rewrites `project.yaml` but keeps every key it does not model (`ai_id`, the mesh seat, `publish_channels`,

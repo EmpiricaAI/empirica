@@ -161,12 +161,12 @@ touch ~/.empirica/test && rm ~/.empirica/test
 
 ### Problem: Git notes not working
 ```
-fatal: ref refs/notes/empirica_findings does not exist
+fatal: ref refs/notes/empirica/findings does not exist
 ```
 
-**Cause:** Git notes namespace not initialized. Empirica uses one ref
-per artifact type (`refs/notes/empirica_findings`,
-`refs/notes/empirica_decisions`, etc.).
+**Cause:** Git notes namespace not initialized. Empirica writes one ref
+per artifact under its type (`refs/notes/empirica/findings/<id>`,
+`refs/notes/empirica/decisions/<id>`, etc.).
 
 **Solution:**
 ```bash
@@ -174,12 +174,12 @@ per artifact type (`refs/notes/empirica_findings`,
 empirica finding-log --finding "Init test" --impact 0.1
 
 # Inspect what exists
-git for-each-ref refs/notes/empirica_*
+git for-each-ref refs/notes/empirica/
 ```
 
 ### Problem: Cannot push notes
 ```
-error: cannot update ref 'refs/notes/empirica_findings'
+error: cannot update ref 'refs/notes/empirica/findings/<id>'
 ```
 
 **Cause:** Git repository not configured or no commits
@@ -193,7 +193,7 @@ git status
 git commit --allow-empty -m "Initial commit"
 
 # Create checkpoint
-empirica checkpoint-create --session-id <SESSION_ID>
+empirica checkpoint-create --session-id <SESSION_ID> --phase PREFLIGHT
 ```
 
 ### Problem: Git identity not configured
@@ -367,10 +367,10 @@ Error: No goals found
 **Solution:**
 ```bash
 # Check git notes
-git notes --ref=empirica_goals list
+git for-each-ref refs/notes/empirica/goals
 
 # Fetch from remote
-git fetch origin refs/notes/empirica_goals:refs/notes/empirica_goals
+git fetch origin 'refs/notes/empirica/*:refs/notes/empirica/*'
 
 # Try discovery again
 empirica goals-discover
@@ -392,7 +392,7 @@ empirica goals-list
 empirica goals-ready
 
 # Or resume an existing goal
-empirica goals-resume --goal-id <GOAL_ID> --ai-id myai
+empirica goals-resume <GOAL_ID> --ai-id myai
 ```
 
 ---

@@ -168,7 +168,7 @@ empirica goals-list
 empirica goals-discover
 
 # Resume a goal another AI worked on
-empirica goals-resume --goal-id <ID> --ai-id $(basename $PWD)
+empirica goals-resume <ID> --ai-id $(basename $PWD)
 
 # Claim a goal (links BEADS; add --create-branch to check out a goal branch)
 empirica goals-claim --goal-id <ID>
@@ -207,7 +207,7 @@ next session.
 **"No active transaction"** — call `preflight-submit` first. Most goal
 commands work without one but log/CHECK requires it.
 
-**"No CHECK passed"** — submit `check-submit` with `proceed: true` before
+**"No CHECK passed"** — submit `check-submit` with `"decision": "proceed"` before
 running praxic tools (Edit, Write, Bash). The Sentinel gates the
 noetic→praxic transition.
 

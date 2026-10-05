@@ -179,7 +179,7 @@ After installation, Empirica creates directories on first use:
 ├── breadcrumbs.yaml            # ❌ Gitignored — per-AI calibration
 └── config.yaml                 # ❌ Gitignored — path/runtime config
 
-<your-repo>/.git/refs/notes/empirica_*  # Per-artifact-type git notes
+<your-repo>/.git/refs/notes/empirica/*  # Per-artifact git notes, grouped by type
 ```
 
 **Note:** `.empirica/` is gitignored except for `.empirica/project.yaml`.
@@ -243,12 +243,12 @@ chmod 755 ~/.empirica/
 
 ### Git Notes Error
 ```bash
-# Error: fatal: ref refs/notes/empirica_findings does not exist
-# Solution: Empirica creates one ref per artifact type on first log.
+# Error: fatal: ref refs/notes/empirica/findings does not exist
+# Solution: Empirica creates one ref per artifact under its type on first log.
 #          Just log any artifact to initialize:
 
 empirica finding-log --finding "Init" --impact 0.1
-git for-each-ref refs/notes/empirica_*    # inspect what exists
+git for-each-ref refs/notes/empirica/     # inspect what exists
 ```
 
 ### Command Not Found
@@ -319,18 +319,11 @@ source venv/bin/activate  # Linux/Mac
 # or
 venv\Scripts\activate     # Windows
 
-# Install dependencies
-pip install -r requirements.txt
-
-# Install in development mode
-pip install -e .
+# Install in development mode (with the test extras)
+pip install -e ".[test]"
 
 # Run tests
 pytest tests/
-
-# Build documentation
-cd docs
-make html
 ```
 
 ---
@@ -363,6 +356,11 @@ pip install empirica-mcp
 ## Uninstallation
 
 ```bash
+# Undo what `empirica setup` wrote (plugin, hooks, config keys in ~/.claude).
+# Prints the plan only; add --apply to actually remove
+empirica setup --uninstall
+empirica setup --uninstall --apply
+
 # Uninstall package
 pip uninstall empirica
 

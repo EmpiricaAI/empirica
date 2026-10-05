@@ -198,7 +198,7 @@ exact schemas.
 |---|---|---|
 | `Cannot determine sessions.db path` | No `.empirica/` | `empirica project-init` |
 | `No active transaction` | Missing PREFLIGHT | `empirica preflight-submit -` |
-| `No valid CHECK found` | Sentinel blocking praxic | `empirica check-submit -` with `proceed: true` |
+| `No valid CHECK found` | Sentinel blocking praxic | `empirica check-submit -` with `"decision": "proceed"` |
 | `Statusline not showing` | Hook gap | `empirica setup --force` then restart Claude Code |
 | `Vector 'know' must be between 0.0 and 1.0` | Nested tier object | Flatten to `vectors: {know: 0.7, ...}` |
 

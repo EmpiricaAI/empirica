@@ -46,10 +46,10 @@ empirica goals-add-task --goal-id <GOAL_ID> \
 ```yaml
 # .empirica/project.yaml
 beads:
-  default_enabled: true     # Every goal gets a BEADS issue unless --no-beads
+  default_enabled: true     # Every goal gets a BEADS issue
 ```
 
-Resolution order: `--use-beads`/`--no-beads` flag > config file >
+Resolution order: `--use-beads` flag > config file >
 project default > opt-out.
 
 ---

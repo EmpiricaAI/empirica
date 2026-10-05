@@ -236,13 +236,18 @@ underestimated the unknowns.
 - `code_quality`: ruff violations, radon complexity, pyright errors
 - `pytest`: test results (at goal completion)
 - `codebase_model`: entities discovered
-- `triage`: goals completed, artifacts logged
+- `triage`: goals completed, artifacts logged (since 1.14.7 these counts no longer ground `change`; they still inform `do`, `completion` and `know`)
 - `noetic`: investigation thoroughness
 
 Divergence between your beliefs and these observations is **discipline
 feedback**, not a verdict on truth. It points at where work discipline
 needs attention (more grounding before CHECK, more commits before
 POSTFLIGHT, broader artifact logging, etc.).
+
+If you measured a period in which a sensor was wrong and has since been
+fixed, list it under `calibration_exclusions` in `.empirica/project.yaml` so
+the grounded belief is replayed without it (see
+[Configuration Reference](../../reference/CONFIGURATION_REFERENCE.md)).
 
 ---
 

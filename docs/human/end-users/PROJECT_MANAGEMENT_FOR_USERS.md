@@ -16,7 +16,7 @@ Every Empirica project owns:
 | Per-project SQLite (sessions, transactions, artifacts) | `.empirica/sessions/sessions.db` | ❌ gitignored |
 | Per-AI calibration breadcrumbs | `.empirica/breadcrumbs.yaml` | ❌ gitignored |
 | Path/runtime config | `.empirica/config.yaml` | ❌ gitignored |
-| Git-notes-anchored artifacts | `.git/refs/notes/empirica_*` | ✅ in `.git/`, not pushed by default |
+| Git-notes-anchored artifacts | `.git/refs/notes/empirica/*` | ✅ in `.git/`, not pushed by default |
 
 The repo-level `~/.empirica/` directory holds user-tenant config that's
 shared across all projects: cortex creds (optional, for mesh layer),
@@ -81,7 +81,7 @@ empirica projects-sync
 
 ```bash
 empirica project-update --type software --domain "AI infrastructure"
-empirica project-update --description "New description"
+empirica project-update --add-tag "ai-infra"
 ```
 
 `project-update` merges into `.empirica/project.yaml` atomically.
@@ -111,13 +111,6 @@ DB, the migration runner compares the recorded schema version against
 the migrations listed in `empirica/data/migrations/migrations.py`,
 applies any missing migrations in order, and updates the version. You
 don't run migrations by hand.
-
-Latest migration as of 1.9.8: `045_assumption_decision_description`.
-
-To force-replay migrations after a manual schema fix:
-```bash
-empirica rebuild --migrations-only
-```
 
 ---
 
@@ -154,15 +147,15 @@ across all 27 projects?" answerable.
 
 ## Sharing Per-Project Epistemic Data
 
-Artifacts are written to `refs/notes/empirica_*` in your local git, one
-ref per artifact type. They're **not pushed by default**.
+Artifacts are written to `refs/notes/empirica/*` in your local git, one
+ref per artifact, grouped by type. They're **not pushed by default**.
 
 ```bash
 # Share your team's epistemic trail
-git push origin 'refs/notes/empirica_*:refs/notes/empirica_*'
+git push origin 'refs/notes/empirica/*:refs/notes/empirica/*'
 
 # Pull a teammate's
-git fetch origin 'refs/notes/empirica_*:refs/notes/empirica_*'
+git fetch origin 'refs/notes/empirica/*:refs/notes/empirica/*'
 ```
 
 For cross-AI orchestration (proposals, completion handshakes) — an
