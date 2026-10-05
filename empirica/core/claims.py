@@ -177,6 +177,12 @@ def scope_is_suspect(scope: str | None, measured_count: int | None) -> str | Non
     return None
 
 
+#: Keys a claim's text may arrive under. `claim` is the documented one; `statement` is what the falsifier documents teach
+#: (`{statement, query, falsifies}`), so models carry it over; `text` is the generic one. Without the aliases an item keyed
+#: `statement` was dropped with no echo and the Sentinel then said nothing had been declared (ecodex, 2026-10-05).
+_CLAIM_TEXT_KEYS = ("claim", "statement", "text")
+
+
 def declare(
     db,
     *,
@@ -184,15 +190,30 @@ def declare(
     transaction_id: str | None,
     claims: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Persist claims declared at CHECK. Returns the stored rows (with ids).
+    """Persist claims declared at PREFLIGHT or CHECK. Returns the stored rows (with ids); see declare_reporting."""
+    return declare_reporting(db, session_id=session_id, transaction_id=transaction_id, claims=claims)[0]
+
+
+def declare_reporting(
+    db,
+    *,
+    session_id: str,
+    transaction_id: str | None,
+    claims: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Persist claims declared at CHECK. Returns ``(stored rows with ids, skipped items with why)``.
+
+    An item that cannot be stored is REPORTED back (`position`, `keys`, `reason`), never dropped silently: a skip that
+    leaves no trace reads as "declared nothing" at the Sentinel, whose remedy (declare again) cannot help.
 
     Fail-soft by design: a malformed claim is skipped rather than failing the
     CHECK. Gating the noetic→praxic transition on the *shape of an advisory
     payload* would make a reporting feature capable of blocking real work.
     """
     stored: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
     if not claims:
-        return stored
+        return stored, skipped
     now = time.time()
     # Continue numbering from what this transaction already holds. Claims can be
     # declared at PREFLIGHT *and* at CHECK, and restarting at 1 each time put two
@@ -206,10 +227,21 @@ def declare(
     # across the whole transaction, not per call.
     start = _next_claim_index(db, session_id, transaction_id)
     for idx, raw in enumerate(claims, start=start):
+        position = idx - start + 1
         if not isinstance(raw, dict):
+            skipped.append(
+                {"position": position, "keys": [], "reason": "not an object: a claim is {claim, grounding, ...}"}
+            )
             continue
-        text = str(raw.get("claim") or "").strip()
+        text = next((str(raw[k]).strip() for k in _CLAIM_TEXT_KEYS if str(raw.get(k) or "").strip()), "")
         if not text:
+            skipped.append(
+                {
+                    "position": position,
+                    "keys": sorted(str(k) for k in raw),
+                    "reason": "no claim text: put it under `claim` (or `statement` / `text`)",
+                }
+            )
             continue
         cid = str(uuid.uuid4())
         grounding = normalize_grounding(raw.get("grounding"))
@@ -252,6 +284,9 @@ def declare(
                     (cid, session_id, transaction_id, idx, text, grounding, ref, now),
                 )
             except Exception:
+                skipped.append(
+                    {"position": position, "keys": sorted(str(k) for k in raw), "reason": "could not be stored"}
+                )
                 continue
         stored.append(
             {
@@ -267,7 +302,7 @@ def declare(
         )
     if stored:
         db.conn.commit()
-    return stored
+    return stored, skipped
 
 
 def _next_claim_index(db, session_id: str, transaction_id: str | None) -> int:
@@ -626,7 +661,18 @@ def missing_referents(stored: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
-def summarize_for_check(stored: list[dict[str, Any]]) -> dict[str, Any] | None:
+def _note_skipped(out: dict[str, Any], skipped: list[dict[str, Any]], submitted: int | None) -> None:
+    out["submitted"] = submitted if submitted is not None else out.get("declared", 0) + len(skipped)
+    out["skipped"] = skipped
+    out["skipped_note"] = (
+        f"{len(skipped)} of {out['submitted']} submitted claim(s) were NOT recorded (see `skipped`). A claim item is "
+        "{claim, grounding, scope, count, ref}; fix the keys and re-run this step. Unrecorded claims do not certify."
+    )
+
+
+def summarize_for_check(
+    stored: list[dict[str, Any]], skipped: list[dict[str, Any]] | None = None, submitted: int | None = None
+) -> dict[str, Any] | None:
     """The CHECK-side echo: what was declared, and how much of it is weak.
 
     Surfacing the weak count at CHECK — while the practitioner can still act — is
@@ -635,7 +681,12 @@ def summarize_for_check(stored: list[dict[str, Any]]) -> dict[str, Any] | None:
     invisible in an averaged ``know``.
     """
     if not stored:
-        return None
+        if not skipped:
+            return None
+        # Nothing stored but something submitted: this echo is the only place the practitioner can learn that.
+        out0: dict[str, Any] = {"declared": 0, "claims": [], "weakly_grounded": 0}
+        _note_skipped(out0, skipped, submitted)
+        return out0
     weak = [c for c in stored if is_weak(c.get("grounding"))]
     ungrounded = [c for c in stored if c.get("grounding") is None]
     out: dict[str, Any] = {
@@ -651,6 +702,8 @@ def summarize_for_check(stored: list[dict[str, Any]]) -> dict[str, Any] | None:
         )
     if ungrounded:
         out["unlabelled"] = len(ungrounded)
+    if skipped:
+        _note_skipped(out, skipped, submitted)
     # Referent coverage, echoed HERE because this is the last moment the
     # practitioner still holds the id. Reported, never rejected: this module is
     # advisory by design, and two mechanisms in this codebase died of over-firing.

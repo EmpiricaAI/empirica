@@ -194,8 +194,10 @@ def _check_declare_claims(session_id, transaction_id, claims):
         from empirica.core import claims as _claims
 
         db = _get_db_for_session(session_id)
-        declared = _claims.declare(db, session_id=session_id, transaction_id=transaction_id, claims=claims)
-        return _claims.summarize_for_check(declared)
+        declared, skipped = _claims.declare_reporting(
+            db, session_id=session_id, transaction_id=transaction_id, claims=claims
+        )
+        return _claims.summarize_for_check(declared, skipped=skipped, submitted=len(claims))
     except Exception as e:
         logger.debug(f"claim declaration skipped: {e}")
         return None

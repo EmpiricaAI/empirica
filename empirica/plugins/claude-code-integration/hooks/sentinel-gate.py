@@ -4188,7 +4188,10 @@ def _deny_no_check_no_claims() -> tuple[str, str]:
         "each with grounding read|ran|retrieved|assumed. One grounded by read, or by ran "
         "WITH a scope and a count (what you measured over, what it returned), "
         "certifies the transaction and praxic proceeds — no CHECK needed.\n"
-        "  Skipping CHECK when genuinely grounded is the CORRECT path, not a shortcut.",
+        "  Skipping CHECK when genuinely grounded is the CORRECT path, not a shortcut.\n"
+        "  → If you DID declare claims and still see this, look at the PREFLIGHT output's `claims.skipped`: items are "
+        "recorded only as {claim, grounding, scope, count, ref} (`statement`/`text` also work for the claim text), and "
+        "an item with none of those keys is listed there and not stored.",
     )
 
 

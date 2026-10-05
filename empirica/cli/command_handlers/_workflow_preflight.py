@@ -1286,10 +1286,12 @@ def _preflight_declare_claims(session_id, transaction_id, claims):
 
         db = _get_db_for_session(session_id)
         try:
-            stored = _claims.declare(db, session_id=session_id, transaction_id=transaction_id, claims=claims)
+            stored, skipped = _claims.declare_reporting(
+                db, session_id=session_id, transaction_id=transaction_id, claims=claims
+            )
         finally:
             db.close()
-        summary = _claims.summarize_for_check(stored)
+        summary = _claims.summarize_for_check(stored, skipped=skipped, submitted=len(claims))
         if summary:
             certified = [c for c in stored if _claims.certifies(c)]
             summary["certifies_transaction"] = bool(certified)
