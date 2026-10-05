@@ -5,6 +5,31 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.8] - 2026-10-05
+
+A patch for what ecodex reported against 1.14.7's hooks, plus two silent failures found while fixing them: a claim keyed
+`statement` was dropped without a trace, and `delete-artifacts` never archived any note.
+
+### Fixed
+
+- **A claim keyed `statement` (or `text`) is recorded.** `claims.declare` read only `claim` for the text and dropped any
+  other item silently; the falsifier docs teach `statement`, so models carried it over, none of the claims was stored, and
+  the Sentinel then said none had been declared. `claim`, `statement` and `text` are accepted (`claim` wins). An item that
+  still cannot be stored is reported back under `claims.skipped` with its position, keys and reason, the echo exists
+  even when nothing was stored, a count that is not a finite integer (including `Infinity`, which JSON accepts) is
+  reported as `count_ignored` with the claim and scope kept, and the Sentinel's deny points at `claims.skipped`.
+- **The budget-persist error after a compaction no longer reads as a broken install.** When session-init cannot find the
+  practice root it skips the persist and says why in the hook's summary (source and cwd named); an explicit
+  `EMPIRICA_SESSION_DB` is honoured; `persist_state` turns a store it cannot open into a one-line warning (a failure
+  while writing stays an error); and the resolver's error lists what it tried, truthfully (a rejected override is "set but
+  rejected", the registry is "not consulted" without a git root) and reserves `project-init` for a directory that is not
+  yet a practice.
+- **`delete-artifacts` archives the note of every type.** It passed the singular item type (`dead_end`) where the note
+  lives under the plural namespace (`dead_ends`), found nothing, and left every note behind, silently. The type map now lives
+  in the single artifact registry. The archive step refuses to overwrite an archive that already holds different content.
+  A note archived here can still come back on a `sync-pull` from a remote that holds it; the archive ref is not pushed.
+- **The lean prompt's claims row** names the item shape `{claim, grounding, scope, count, ref}` and the `claims.skipped` report.
+
 ## [1.14.7] - 2026-10-04
 
 A transaction export that can leave a practice without a content review, a calibration report that says what it
