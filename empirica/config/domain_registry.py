@@ -162,14 +162,26 @@ class DomainRegistry:
         if criticality in entry.criticalities:
             return entry.criticalities[criticality]
 
-        # Walk down criticality levels
-        try:
-            start_idx = CRITICALITY_ORDER.index(criticality)
-        except ValueError:
-            start_idx = 0
+        # Fail closed. A missing level used to walk DOWN to a weaker checklist, so a
+        # domain that defined only {high, low} gave a medium task the low one. Look at
+        # the nearest STRICTER level first. An unknown criticality (a typo) is treated
+        # as the strictest rather than skipped (the old walk started past "critical").
+        if criticality in CRITICALITY_ORDER:
+            rank = CRITICALITY_ORDER.index(criticality)
+            for level in reversed(CRITICALITY_ORDER[:rank]):
+                if level in entry.criticalities:
+                    return entry.criticalities[level]
 
-        for level in CRITICALITY_ORDER[start_idx + 1 :]:
+        # Nothing at or above the demand: use the strictest level the domain defines,
+        # and say so, because the checklist is weaker than what was asked for.
+        for level in CRITICALITY_ORDER:
             if level in entry.criticalities:
+                logger.warning(
+                    "Domain %r defines no %r checklist or stricter; using its strictest, %r",
+                    domain,
+                    criticality,
+                    level,
+                )
                 return entry.criticalities[level]
 
         return None

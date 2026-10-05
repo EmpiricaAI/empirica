@@ -354,3 +354,53 @@ class TestListAPI:
         crits = reg.list_criticalities("multi")
         assert "low" in crits
         assert "high" in crits
+
+
+# ---------------------------------------------------------------------------
+# Fail closed: a missing criticality never falls back to a WEAKER checklist
+# (deep sweep 2026-10-05; David: fail closed and fix the index)
+# ---------------------------------------------------------------------------
+
+
+def _crit(iterations: int) -> dict:
+    return {
+        "description": f"iterations {iterations}",
+        "required_checks": ["tests"],
+        "thresholds": {"coverage_min": 0.3},
+        "max_iterations": iterations,
+    }
+
+
+def _custom_registry(tmp_path, levels: dict[str, int]) -> DomainRegistry:
+    user_dir = tmp_path / "user"
+    _write_yaml(
+        user_dir / "custom.yaml",
+        _make_domain_yaml("custom", criticalities={name: _crit(n) for name, n in levels.items()}),
+    )
+    return DomainRegistry(user_dir=user_dir)
+
+
+class TestFailClosedCriticality:
+    def test_a_missing_level_falls_to_the_nearest_stricter_one_not_a_weaker_one(self, tmp_path):
+        reg = _custom_registry(tmp_path, {"high": 9, "low": 1})
+        # medium is absent: the old walk-down chose low (1); the stricter neighbour is high (9)
+        assert reg.resolve(DomainKey("code", "custom", "medium")).max_iterations == 9
+
+    def test_the_exact_level_still_wins(self, tmp_path):
+        reg = _custom_registry(tmp_path, {"high": 9, "medium": 5, "low": 1})
+        assert reg.resolve(DomainKey("code", "custom", "medium")).max_iterations == 5
+
+    def test_a_weaker_level_is_chosen_only_when_nothing_stricter_exists_and_it_says_so(self, tmp_path, caplog):
+        reg = _custom_registry(tmp_path, {"medium": 5, "low": 1})
+        with caplog.at_level("WARNING"):
+            cl = reg.resolve(DomainKey("code", "custom", "critical"))
+        assert cl.max_iterations == 5  # the strictest the domain defines
+        assert any("critical" in r.message and "custom" in r.message for r in caplog.records)
+
+    def test_an_unknown_criticality_is_treated_as_the_strictest_not_skipped(self, tmp_path, caplog):
+        reg = _custom_registry(tmp_path, {"critical": 20, "low": 1})
+        with caplog.at_level("WARNING"):
+            cl = reg.resolve(DomainKey("code", "custom", "hihg"))
+        # the old code started its walk at index 0 and skipped "critical" entirely
+        assert cl.max_iterations == 20
+        assert any("hihg" in r.message for r in caplog.records)
