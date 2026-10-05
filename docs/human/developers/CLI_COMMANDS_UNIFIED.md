@@ -23,7 +23,7 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.14.8
-**Generated:** 2026-10-05 13:53:49 UTC
+**Generated:** 2026-10-05 14:16:57 UTC
 **Total commands:** 241 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -2783,6 +2783,8 @@ Export one practice's current grounding state (self-assessed + grounded 13-vecto
   With --transactions: only transactions that started at or after this (epoch, YYYY-MM-DD or ISO UTC)
 - `--limit` — optional · type=`int`
   With --transactions: newest N transactions (default 50, max 1000); the output says if it truncated
+- `--content` — optional · flag
+  With --transactions: ALSO include goal objectives and one text line per artifact, for a view inside this practice's own tenant. The envelope says content_scope: tenant and do_not_share: true, credential-shaped text is redacted and counted, and it is refused for any practice but this store's own. Never share the output
 - `--output` — optional · type=`choice` · choices={human, json} · default=`json`
   Output format (default: json)
 

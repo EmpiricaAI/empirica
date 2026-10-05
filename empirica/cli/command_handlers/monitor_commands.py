@@ -1913,6 +1913,20 @@ def _export_transactions(args, ai_id: str, output: str) -> int:
         since = parse_since(getattr(args, "since", None))
     except ValueError as e:
         return fail({"ok": False, "ai_id": ai_id, "error": str(e)})
+    content = bool(getattr(args, "content", False))
+    if content:
+        from empirica.core.transaction_export import own_ai_id
+
+        own = own_ai_id()
+        if own is None or ai_id != own:
+            return fail(
+                {
+                    "ok": False,
+                    "ai_id": ai_id,
+                    "error": "--content is only for this practice's own store: titles and objectives can name people and "
+                    f"clients, and are for a view inside the owner's own tenant (own practice: {own or 'unknown'})",
+                }
+            )
     db = SessionDatabase()
     try:
         has_sessions = db.conn.execute("SELECT COUNT(*) FROM sessions WHERE ai_id = ?", (ai_id,)).fetchone()[0] > 0
@@ -1920,7 +1934,7 @@ def _export_transactions(args, ai_id: str, output: str) -> int:
             return fail(
                 {"ok": False, "ai_id": ai_id, "reason": "not_local", "hint": "no sessions for this ai_id on this host"}
             )
-        result = export_transactions(db.conn, ai_id, since=since, limit=getattr(args, "limit", None))
+        result = export_transactions(db.conn, ai_id, since=since, limit=getattr(args, "limit", None), content=content)
     except Exception as e:
         return fail({"ok": False, "ai_id": ai_id, "error": str(e)})
     finally:
@@ -1966,6 +1980,7 @@ def handle_grounding_export_command(args):
     if getattr(args, "transactions", False):
         return _export_transactions(args, ai_id, output)
     stray = [f for f in ("since", "limit") if getattr(args, f, None) is not None]
+    stray += ["content"] if getattr(args, "content", False) else []
     if stray:
         msg = {"ok": False, "error": f"--{' and --'.join(stray)} only apply with --transactions; they would be ignored"}
         print(json.dumps(msg) if output == "json" else f"Error: {msg['error']}")

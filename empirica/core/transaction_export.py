@@ -107,13 +107,15 @@ _REFLEX_FIELDS: dict[str, dict[str, str]] = {
 
 #: (table, type name). Every one carries transaction_id; goal_id where the column exists.
 _ARTIFACT_TABLES = (
-    ("project_findings", "finding"),
-    ("project_unknowns", "unknown"),
-    ("project_dead_ends", "dead_end"),
-    ("mistakes_made", "mistake"),
-    ("assumptions", "assumption"),
-    ("decisions", "decision"),
+    ("project_findings", "finding", "finding"),
+    ("project_unknowns", "unknown", "unknown"),
+    ("project_dead_ends", "dead_end", "approach"),
+    ("mistakes_made", "mistake", "mistake"),
+    ("assumptions", "assumption", "assumption"),
+    ("decisions", "decision", "choice"),
 )
+#: With content=True each goal objective and artifact text is cut to one line of at most this many characters.
+_CONTENT_MAX = 300
 
 _CHUNK = 400
 
@@ -142,6 +144,7 @@ class _Safe:
 
     def __init__(self) -> None:
         self.dropped = 0
+        self.redacted = 0
 
     def _drop(self, value: Any) -> None:
         if value not in (None, ""):
@@ -171,6 +174,18 @@ class _Safe:
             return value
         self._drop(value)
         return None
+
+    def line(self, value: Any) -> str | None:
+        """Content only (--content): one bounded line, with credential-shaped text redacted and counted."""
+        if not isinstance(value, str) or not value.strip():
+            return None
+        from empirica.core.redaction import redact_secrets
+
+        text = " ".join(value.split())
+        clean = redact_secrets(text)
+        if clean != text:
+            self.redacted += 1
+        return clean if len(clean) <= _CONTENT_MAX else clean[: _CONTENT_MAX - 1] + "…"
 
     def number(self, value: Any) -> float | int | None:
         if (
@@ -276,23 +291,51 @@ def _grounded(row, safe: _Safe) -> dict:
     }
 
 
-def export_transactions(conn, ai_id: str, since: float | None = None, limit: int | None = None) -> dict:
-    """Transactions of `ai_id` newest first, structure only. `conn` is a sqlite connection with row access by name."""
+def own_ai_id() -> str | None:
+    """This store's own practice id: `ai_id` in the git root's `.empirica/project.yaml`, else the root's directory name."""
+    try:
+        from pathlib import Path
+
+        from empirica.config.path_resolver import get_git_root
+
+        root = get_git_root()
+        if not root:
+            return None
+        cfg = Path(root) / ".empirica" / "project.yaml"
+        if cfg.is_file():
+            import yaml
+
+            value = (yaml.safe_load(cfg.read_text(encoding="utf-8")) or {}).get("ai_id")
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return Path(root).name
+    except Exception:
+        return None
+
+
+def export_transactions(
+    conn, ai_id: str, since: float | None = None, limit: int | None = None, content: bool = False
+) -> dict:
+    """Transactions of `ai_id` newest first. `conn` is a sqlite connection with row access by name.
+
+    Structure only unless `content` is true. `content` adds goal objectives and one text line per artifact for a view inside
+    the owner's own tenant: the envelope says `content_scope: tenant` and `do_not_share: true`, credential-shaped text is
+    redacted and counted, and the caller (the verb) refuses it for any practice but this store's own.
+    """
     import sqlite3
 
     previous_factory = conn.row_factory
     conn.row_factory = sqlite3.Row
     try:
-        return _export(conn, ai_id, since, DEFAULT_LIMIT if limit is None else max(0, min(int(limit), MAX_LIMIT)))
+        return _export(
+            conn, ai_id, since, DEFAULT_LIMIT if limit is None else max(0, min(int(limit), MAX_LIMIT)), content
+        )
     finally:
         conn.row_factory = previous_factory
 
 
-def _export(conn, ai_id: str, since: float | None, limit: int) -> dict:
-    safe = _Safe()
-    unavailable: list[str] = []
-    lower = since if since is not None else 0.0
-
+def _select_transactions(conn, ai_id: str, lower: float) -> tuple[list[str], int, int, int]:
+    """(usable transaction ids newest first, total usable, unsafe-id count, reflex rows without a transaction id)."""
     starts = conn.execute(
         """
         SELECT r.transaction_id AS tx,
@@ -310,101 +353,167 @@ def _export(conn, ai_id: str, since: float | None, limit: int) -> dict:
         "WHERE s.ai_id = ? AND r.transaction_id IS NULL AND r.timestamp >= ?",
         (ai_id, lower),
     ).fetchone()[0]
-
     # A transaction whose id is not UUID- or hex-shaped cannot be linked by a consumer and its id could be anything:
     # it is left out and counted, rather than emitted with a null id.
-    usable = [row for row in starts if _UUID.fullmatch(row["tx"]) or _HEX_ID.fullmatch(row["tx"])]
-    unsafe_ids = len(starts) - len(usable)
-    starts = usable
-    chosen = [row["tx"] for row in starts[:limit]]
-    records: dict[str, dict] = {
-        tx: {
-            "transaction_id": safe.ident(tx),
-            "session_id": None,
-            "ai_id": safe.token(ai_id),
-            "preflight": None,
-            "checks": [],
-            "postflight": None,
-            "grounded": [],
-            "goals": [],
-            "artifacts": [],
-        }
-        for tx in chosen
+    usable = [row["tx"] for row in starts if _UUID.fullmatch(row["tx"]) or _HEX_ID.fullmatch(row["tx"])]
+    return usable, len(usable), len(starts) - len(usable), skipped
+
+
+def _new_record(tx: str, ai_id: str, safe: _Safe) -> dict:
+    return {
+        "transaction_id": safe.ident(tx),
+        "session_id": None,
+        "ai_id": safe.token(ai_id),
+        "preflight": None,
+        "checks": [],
+        "postflight": None,
+        "grounded": [],
+        "goals": [],
+        "goals_touched": [],
+        "artifacts": [],
     }
 
-    for part in _chunks(chosen):
-        for row in conn.execute(
-            f"SELECT * FROM reflexes WHERE transaction_id IN ({_marks(len(part))}) "
-            "AND session_id IN (SELECT session_id FROM sessions WHERE ai_id = ?) ORDER BY timestamp, id",
-            [*part, ai_id],
-        ):
-            rec = records[row["transaction_id"]]
-            rec["session_id"] = rec["session_id"] or safe.ident(row["session_id"])
-            phase = row["phase"]
-            if phase == "PREFLIGHT" and rec["preflight"] is None:
-                rec["preflight"] = _reflex(row, safe)
-            elif phase == "CHECK":
-                rec["checks"].append(_reflex(row, safe))
-            elif phase == "POSTFLIGHT":
-                rec["postflight"] = _reflex(row, safe)  # the last one wins, as the calibration pass reads it
 
+def _fill_reflexes(conn, part: list[str], records: dict, ai_id: str, safe: _Safe) -> None:
+    for row in conn.execute(
+        f"SELECT * FROM reflexes WHERE transaction_id IN ({_marks(len(part))}) "
+        "AND session_id IN (SELECT session_id FROM sessions WHERE ai_id = ?) ORDER BY timestamp, id",
+        [*part, ai_id],
+    ):
+        rec = records[row["transaction_id"]]
+        rec["session_id"] = rec["session_id"] or safe.ident(row["session_id"])
+        phase = row["phase"]
+        if phase == "PREFLIGHT" and rec["preflight"] is None:
+            rec["preflight"] = _reflex(row, safe)
+        elif phase == "CHECK":
+            rec["checks"].append(_reflex(row, safe))
+        elif phase == "POSTFLIGHT":
+            rec["postflight"] = _reflex(row, safe)  # the last one wins, as the calibration pass reads it
+
+
+def _fill_links(
+    conn, part: list[str], records: dict, ai_id: str, safe: _Safe, unavailable: list[str], content: bool
+) -> None:
+    rows = _read(
+        conn,
+        unavailable,
+        "grounded_verifications",
+        f"SELECT * FROM grounded_verifications WHERE transaction_id IN ({_marks(len(part))}) "
+        "AND ai_id = ? ORDER BY created_at",
+        [*part, ai_id],
+    )
+    for row in rows:
+        records[row["transaction_id"]]["grounded"].append(_grounded(row, safe))
+
+    objective = ", objective" if content else ""
+    rows = _read(
+        conn,
+        unavailable,
+        "goals",
+        f"SELECT id, status, created_timestamp, completed_timestamp, transaction_id{objective} FROM goals "
+        f"WHERE transaction_id IN ({_marks(len(part))}) ORDER BY created_timestamp",
+        part,
+    )
+    for row in rows:
+        goal = {
+            "id": safe.ident(row["id"]),
+            "status": safe.vocab("goal_status", row["status"]),
+            "created_timestamp": safe.number(row["created_timestamp"]),
+            "completed_timestamp": safe.number(row["completed_timestamp"]),
+        }
+        if content:
+            goal["objective"] = safe.line(row["objective"])
+        records[row["transaction_id"]]["goals"].append(goal)
+
+    for table, kind, text_col in _ARTIFACT_TABLES:
+        text = f", {text_col} AS text" if content else ""
         rows = _read(
             conn,
             unavailable,
-            "grounded_verifications",
-            f"SELECT * FROM grounded_verifications WHERE transaction_id IN ({_marks(len(part))}) "
-            "AND ai_id = ? ORDER BY created_at",
-            [*part, ai_id],
-        )
-        for row in rows:
-            records[row["transaction_id"]]["grounded"].append(_grounded(row, safe))
-
-        rows = _read(
-            conn,
-            unavailable,
-            "goals",
-            f"SELECT id, status, created_timestamp, completed_timestamp, transaction_id FROM goals "
-            f"WHERE transaction_id IN ({_marks(len(part))}) ORDER BY created_timestamp",
+            table,
+            f"SELECT id, goal_id, transaction_id{text} FROM {table} "
+            f"WHERE transaction_id IN ({_marks(len(part))}) ORDER BY rowid",
             part,
         )
         for row in rows:
-            records[row["transaction_id"]]["goals"].append(
-                {
-                    "id": safe.ident(row["id"]),
-                    "status": safe.vocab("goal_status", row["status"]),
-                    "created_timestamp": safe.number(row["created_timestamp"]),
-                    "completed_timestamp": safe.number(row["completed_timestamp"]),
-                }
-            )
+            item: dict[str, Any] = {"id": safe.ident(row["id"]), "type": kind}
+            goal_id = safe.ident(row["goal_id"])
+            if goal_id is not None:
+                item["goal_id"] = goal_id
+            if content:
+                item["text"] = safe.line(row["text"])
+            records[row["transaction_id"]]["artifacts"].append(item)
 
-        for table, kind in _ARTIFACT_TABLES:
-            rows = _read(
-                conn,
-                unavailable,
-                table,
-                f"SELECT id, goal_id, transaction_id FROM {table} WHERE transaction_id IN ({_marks(len(part))}) ORDER BY rowid",
-                part,
-            )
-            for row in rows:
-                item: dict[str, Any] = {"id": safe.ident(row["id"]), "type": kind}
-                goal_id = safe.ident(row["goal_id"])
-                if goal_id is not None:
-                    item["goal_id"] = goal_id
-                records[row["transaction_id"]]["artifacts"].append(item)
+
+def _goals_touched(conn, rec: dict, ai_id: str, safe: _Safe, unavailable: list[str]) -> list[dict]:
+    """The goals in play in one transaction, by the Sentinel's own definition (sentinel-gate.py _check_goalless_work).
+
+    A goal is touched when it was created there (`goals.transaction_id`), when an artifact logged there carries its
+    goal_id, or when one of its tasks was created or completed between PREFLIGHT and POSTFLIGHT. `via` lists every way.
+    `goals.transaction_id` is a single column, so created/activated alone gave a goal worked across N transactions one.
+    """
+    via: dict[str, set[str]] = {}
+    for goal in rec["goals"]:
+        if goal["id"]:
+            via.setdefault(goal["id"], set()).add("created")
+    for item in rec["artifacts"]:
+        if item.get("goal_id"):
+            via.setdefault(item["goal_id"], set()).add("artifact")
+
+    timestamps = [t["timestamp"] for t in [rec["preflight"], *rec["checks"]] if t and t.get("timestamp") is not None]
+    if timestamps:
+        start = min(timestamps)
+        end = rec["postflight"]["timestamp"] if rec["postflight"] and rec["postflight"].get("timestamp") else 1e13
+        # typeof guard: legacy rows hold TEXT timestamps and SQLite ranks any TEXT above any number, so a bare
+        # comparison would put them inside every window.
+        rows = _read(
+            conn,
+            unavailable,
+            "subtasks",
+            "SELECT DISTINCT s.goal_id AS goal_id FROM subtasks s JOIN goals g ON g.id = s.goal_id "
+            "WHERE g.session_id IN (SELECT session_id FROM sessions WHERE ai_id = ?) AND ("
+            "(typeof(s.created_timestamp) IN ('real','integer') AND s.created_timestamp BETWEEN ? AND ?) OR "
+            "(typeof(s.completed_timestamp) IN ('real','integer') AND s.completed_timestamp BETWEEN ? AND ?))",
+            [ai_id, start, end, start, end],
+        )
+        for row in rows:
+            goal_id = safe.ident(row["goal_id"])
+            if goal_id:
+                via.setdefault(goal_id, set()).add("task")
+    return [{"id": gid, "via": sorted(ways)} for gid, ways in sorted(via.items())]
+
+
+def _export(conn, ai_id: str, since: float | None, limit: int, content: bool = False) -> dict:
+    safe = _Safe()
+    unavailable: list[str] = []
+    usable, total, unsafe_ids, skipped = _select_transactions(conn, ai_id, since if since is not None else 0.0)
+    chosen = usable[:limit]
+    records = {tx: _new_record(tx, ai_id, safe) for tx in chosen}
+
+    for part in _chunks(chosen):
+        _fill_reflexes(conn, part, records, ai_id, safe)
+        _fill_links(conn, part, records, ai_id, safe, unavailable, content)
+    for rec in records.values():
+        rec["goals_touched"] = _goals_touched(conn, rec, ai_id, safe, unavailable)
 
     transactions = [records[tx] for tx in chosen]
-    return {
+    out: dict[str, Any] = {
         "ok": True,
         "schema": SCHEMA,
         "ai_id": safe.token(ai_id),
         "since": since,
         "limit": limit,
         "returned": len(transactions),
-        "total_matching": len(starts),
-        "truncated": len(starts) > len(transactions),
+        "total_matching": total,
+        "truncated": total > len(transactions),
         "skipped_without_transaction_id": skipped,
         "skipped_unsafe_transaction_ids": unsafe_ids,
         "dropped_unsafe_values": safe.dropped,
         "unavailable": unavailable,
-        "transactions": transactions,
+        "content_scope": "tenant" if content else "none",
     }
+    if content:
+        out["do_not_share"] = True
+        out["content_redactions"] = safe.redacted
+    out["transactions"] = transactions
+    return out

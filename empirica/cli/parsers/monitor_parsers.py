@@ -208,6 +208,16 @@ ai_id → ok:false, reason:not_local.
         help="With --transactions: newest N transactions (default 50, max 1000); the output says if it truncated",
     )
     grounding_export_parser.add_argument(
+        "--content",
+        action="store_true",
+        default=False,
+        help=(
+            "With --transactions: ALSO include goal objectives and one text line per artifact, for a view inside this "
+            "practice's own tenant. The envelope says content_scope: tenant and do_not_share: true, credential-shaped "
+            "text is redacted and counted, and it is refused for any practice but this store's own. Never share the output"
+        ),
+    )
+    grounding_export_parser.add_argument(
         "--output", choices=["human", "json"], default="json", help="Output format (default: json)"
     )
 

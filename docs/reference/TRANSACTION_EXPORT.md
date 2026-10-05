@@ -7,6 +7,12 @@ people's and clients' names; none of them is in it.
 
 Without `--transactions` the verb is unchanged: a single state snapshot (`self_assessed_13`, `grounded_13`, `divergence`).
 
+**One flag changes that promise: `--content`.** It adds goal objectives and one text line per artifact, for a view inside the
+practice's own tenant (David's ruling, 2026-10-05). It is off by default; the envelope then says `content_scope: tenant`,
+`do_not_share: true` and `content_redactions: <n>`; text is cut to one line of at most 300 characters and credential-shaped
+text is redacted and counted; and the verb refuses it for any `--ai-id` but this store's own. Never share its output. The
+default envelope says `content_scope: none`. Everything below describes the structure-only default unless it says otherwise.
+
 Schema name: `empirica.transaction_export.v1`. Implementation: `empirica/core/transaction_export.py`.
 
 ## Flags
@@ -29,6 +35,7 @@ Schema name: `empirica.transaction_export.v1`. Implementation: `empirica/core/tr
 | `dropped_unsafe_values` | Values that failed their field's check (id shape, vocabulary, ref shape, range) and were left out. Non-zero means a field stopped being what it was. |
 | `skipped_unsafe_transaction_ids` | Transactions left out because their own id is not UUID- or hex-shaped. |
 | `unavailable` | Sections that could not be read because the store predates a table or column. |
+| `content_scope` | `none` by default; `tenant` with `--content`, which also adds `do_not_share: true` and `content_redactions`. |
 | `transactions` | Newest first. |
 
 ## Transaction record
@@ -40,8 +47,9 @@ Schema name: `empirica.transaction_export.v1`. Implementation: `empirica/core/tr
 | `checks` | `reflexes` rows, phase `CHECK`, in time order | One entry per CHECK, so multiplicity is the list length. Each has `timestamp`, `vectors`, `decision` (`proceed` or `investigate`), `confidence`, `cycle`, and `auto_checkpoint: true` on the phantom rows an old auto-checkpoint wrote. |
 | `postflight` | `reflexes` row, phase `POSTFLIGHT` (the last one) | `timestamp`, `vectors`, `work_type`, `internal_consistency`, `postflight_confidence`, `tool_call_count`, `auto_closed`, `git_commit_sha`, `git_notes_ref`. `null` for an open transaction. |
 | `grounded` | `grounded_verifications.transaction_id` | One entry per verification (`phase` is `combined`, `noetic` or `praxic`). See below. |
-| `goals` | `goals.transaction_id` | `id`, `status`, `created_timestamp`, `completed_timestamp`. |
-| `artifacts` | `project_findings`, `project_unknowns`, `project_dead_ends`, `mistakes_made`, `assumptions`, `decisions`, each by `transaction_id` | `id`, `type` (`finding`, `unknown`, `dead_end`, `mistake`, `assumption`, `decision`) and `goal_id` when set. Nothing else. |
+| `goals` | `goals.transaction_id` | `id`, `status`, `created_timestamp`, `completed_timestamp` (and `objective` with `--content`). The goal is linked only to the transaction it was created or activated in. |
+| `goals_touched` | derived | The goals in play in this transaction, many-to-many, by the Sentinel's own definition: `via` lists every way a goal was touched, `created` (it is in `goals`), `artifact` (an artifact logged here carries its `goal_id`) and `task` (one of its tasks was created or completed between PREFLIGHT and POSTFLIGHT; an open transaction has no upper bound). Goals of other practices are never listed. |
+| `artifacts` | `project_findings`, `project_unknowns`, `project_dead_ends`, `mistakes_made`, `assumptions`, `decisions`, each by `transaction_id` | `id`, `type` (`finding`, `unknown`, `dead_end`, `mistake`, `assumption`, `decision`) and `goal_id` when set. Nothing else, except `text` with `--content`. |
 
 `vectors` holds only the vectors that have a value, out of `engagement, know, do, context, clarity, coherence, signal, density,
 state, change, completion, impact, uncertainty`.
