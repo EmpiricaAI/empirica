@@ -276,3 +276,68 @@ def test_a_background_operator_or_piped_cd_is_not_a_read(sg, command):
 )
 def test_ampersands_that_are_not_background_operators_stay_reads(sg, command):
     assert _safe(sg, command) is True
+
+
+# ---- ssh family: the local key tools and ssh -T are not read-only blanket exemptions ---------------
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "ssh -T host 'rm -rf /srv/data'",
+        "ssh-agent bash -c 'rm -rf /tmp/x'",
+        "ssh-keygen -f /tmp/k -N ''",
+        "ssh-keygen -R example.invalid",
+        "ssh-add /tmp/key",
+        "ssh -o ProxyCommand='touch /tmp/pwned' host",
+        "ssh -oProxyCommand=touch host",
+        "ssh -F /tmp/evil_config host",
+    ],
+)
+def test_ssh_family_mutations_are_not_reads(sg, command):
+    assert _safe(sg, command) is False
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "ssh -T git@github.com",
+        "ssh-add -l",
+        "ssh-add -L",
+        "ssh-keygen -l -f /tmp/key.pub",
+        "ssh-keygen -F example.invalid",
+        "ssh host 'ls /tmp'",
+    ],
+)
+def test_ssh_family_reads_stay_reads(sg, command):
+    assert _safe(sg, command) is True
+
+
+# ---- pipe receivers: no arbitrary python, no extra tee targets, whole-word matching ---------------
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat f.txt | python3 -c 'import os; os.remove(\"/tmp/x\")'",
+        "cat f.txt | python3 -c 'import shutil; shutil.rmtree(\"/tmp/x\")'",
+        "cat f.txt | tee /dev/stderr /tmp/out",
+        "cat f.txt | truncate -s 0 /tmp/data",
+        "cat f.txt | trash /tmp/data",
+    ],
+)
+def test_pipe_receivers_cannot_execute_or_write(sg, command):
+    assert _safe(sg, command) is False
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat f.json | python3 -c 'import sys, json; print(json.load(sys.stdin))'",
+        "cat f.txt | tee /dev/stderr",
+        "cat f.txt | tr a-z A-Z",
+        "cat f.txt | base64",
+    ],
+)
+def test_the_legitimate_pipe_receivers_still_work(sg, command):
+    assert _safe(sg, command) is True

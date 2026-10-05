@@ -3458,9 +3458,12 @@ def is_safe_remote_command(command: str) -> bool:
     """
     command_stripped = command.lstrip()
 
-    # --- ssh-add, ssh-keygen, ssh-agent: local key management, always safe ---
-    if command_stripped.startswith(("ssh-add", "ssh-keygen", "ssh-agent", "ssh -T")):
-        return True
+    # --- ssh-add, ssh-keygen, ssh-agent: only their LISTING forms are reads. The old
+    # blanket True admitted `ssh-agent bash -c ...`, `ssh-keygen -f k` (writes a key)
+    # and `ssh -T host 'rm -rf x'` (the remote command was never inspected).
+    local_key_tool = _classify_local_ssh_tool(command_stripped)
+    if local_key_tool is not None:
+        return local_key_tool
 
     # --- ssh-copy-id: modifies remote, always praxic ---
     if command_stripped.startswith("ssh-copy-id"):
@@ -3481,6 +3484,57 @@ def is_safe_remote_command(command: str) -> bool:
     return False  # Unknown remote command type
 
 
+def _classify_local_ssh_tool(command: str) -> bool | None:
+    """Classify ssh-add / ssh-keygen / ssh-agent. None when `command` is none of them.
+
+    Read-only forms only: `ssh-add -l|-L`, and `ssh-keygen` that lists a fingerprint
+    (`-l`) or finds a host (`-F`) with nothing that generates, removes or rehashes.
+    """
+    parts = command.split()
+    if not parts:
+        return None
+    tool, args = parts[0], parts[1:]
+    if tool == "ssh-agent":
+        return False
+    if tool == "ssh-add":
+        return bool(args) and all(a in ("-l", "-L") for a in args)
+    if tool != "ssh-keygen":
+        return None
+    listing = False
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a in ("-l", "-F"):
+            listing = True
+        if a in ("-f", "-F", "-E"):
+            i += 1  # consume the value
+        elif a not in ("-l", "-v"):
+            return False
+        i += 1
+    return listing
+
+
+def _ssh_option_runs_local_program(parts: list[str]) -> bool:
+    """True if an ssh option BEFORE the host makes ssh run a local program: `-F <file>`
+    (a config can set ProxyCommand) or `-o ProxyCommand|LocalCommand|...`."""
+    with_arg = set("BbcDEeFIiJLlmOopRSWw")
+    local_opts = ("proxycommand", "localcommand", "permitlocalcommand", "knownhostscommand")
+    i = 1
+    while i < len(parts):
+        tok = parts[i]
+        if not tok.startswith("-") or len(tok) < 2:
+            return False  # reached the host
+        letter = tok[1]
+        if letter == "F":
+            return True
+        if letter == "o":
+            value = tok[2:] if len(tok) > 2 else (parts[i + 1] if i + 1 < len(parts) else "")
+            if any(opt in value.lower() for opt in local_opts):
+                return True
+        i += 2 if (letter in with_arg and len(tok) == 2) else 1
+    return False
+
+
 def _classify_ssh(command: str) -> bool:
     """
     Extract the remote command from an SSH invocation and classify it.
@@ -3497,6 +3551,8 @@ def _classify_ssh(command: str) -> bool:
     parts = command.split()
     if len(parts) < 2:
         return True  # Just 'ssh' alone, harmless
+    if _ssh_option_runs_local_program(parts):
+        return False
 
     # SSH options that consume the NEXT argument
     ssh_opts_with_arg = set("BbcDEeFIiJLlmOopRSWw")
@@ -3833,7 +3889,19 @@ def _is_safe_pipe_segment(segment_clean: str, *, is_first: bool) -> bool:
     # arbitrary-exec SOURCE (`python3 -c '…' | cat` must stay praxic).
     if is_first:
         return False
-    return any(segment_clean.startswith(target) for target in SAFE_PIPE_TARGETS)
+    # Whole-word match: a bare `startswith("tr")` also matched `truncate`, `trash`.
+    for target in SAFE_PIPE_TARGETS:
+        word = target.strip()
+        if segment_clean != word and not segment_clean.startswith(word + " "):
+            continue
+        if word in ("python3 -c", "python -c"):
+            # The standalone path vets `python3 -c`; the receiver slot did not, so
+            # `| python3 -c 'os.remove(...)'` was a read.
+            return is_safe_python_command(segment_clean)
+        if word == "tee /dev/stderr":
+            return segment_clean == word  # any further argument is a file it WRITES
+        return True
+    return False
 
 
 def is_safe_pipe_chain(command: str) -> bool:
