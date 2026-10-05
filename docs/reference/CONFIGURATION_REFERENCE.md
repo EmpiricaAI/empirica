@@ -1,859 +1,339 @@
-# Empirica Configuration Reference (v4.0)
+# Empirica Configuration Reference
 
-**Generated:** 2026-01-09
-**Status:** Complete configuration guide
+**Status:** Technical reference, checked against the loaders in `empirica/config/`, `empirica/core/calibration_config.py` and the call sites that read each file.
 
-**Quick Navigation:**
-| If you want to... | See... |
-|-------------------|--------|
-| Get started quickly | [01_START_HERE.md](../human/end-users/01_START_HERE.md) |
-| Install Empirica | [02_INSTALLATION.md](../human/end-users/02_INSTALLATION.md) |
-| Troubleshoot issues | [03_TROUBLESHOOTING.md](../human/end-users/03_TROUBLESHOOTING.md) |
-| Learn CLI basics | [04_QUICKSTART_CLI.md](../human/end-users/04_QUICKSTART_CLI.md) |
-| Understand vectors | [05_EPISTEMIC_VECTORS_EXPLAINED.md](../human/end-users/05_EPISTEMIC_VECTORS_EXPLAINED.md) |
-| Set up first time | [FIRST_TIME_SETUP.md](../human/end-users/FIRST_TIME_SETUP.md) |
-
-*This reference is technical. For end-user guides, see links above.*
+For end-user guides see [Start Here](../human/end-users/01_START_HERE.md), [Installation](../human/end-users/02_INSTALLATION.md), [Troubleshooting](../human/end-users/03_TROUBLESHOOTING.md), [CLI quickstart](../human/end-users/04_QUICKSTART_CLI.md) and [First-time setup](../human/end-users/FIRST_TIME_SETUP.md).
 
 ---
 
-## Overview
+## What you can set, and where
 
-Empirica uses a multi-layer configuration system:
+Empirica has no single configuration file. Each setting lives with the thing it configures, in one of three places:
 
-1. **System Config** (`.empirica/config.yaml`) - Runtime paths and settings
-2. **Project Config** (`.empirica/project.yaml`) - Project structure and subjects
-3. **Module Configs** (`empirica/config/*.yaml`) - Feature-specific settings
-4. **Module Loaders** (`empirica/config/*.py`) - Configuration loaders
+| Place | What goes there |
+|---|---|
+| **Per project**, `<project>/.empirica/` | `project.yaml` (identity, subjects, per-practice policy), `config.yaml` (store location, database, sync), `calibration.yaml` (thresholds and weights for this practice), `domains.yaml` (completion checklists), `compliance.yaml` (tuning for `empirica compliance-report`) |
+| **Per user**, `~/.empirica/` | `credentials.yaml`, `config.yaml` (embeddings), `calibration.yaml` (global thresholds), `domains/*.yaml`, `notify.yaml`, `workflow-protocol.yaml`, and small flag files (`sentinel_enabled`, `statusline_mode`, `sentinel_paused*`, `trusted_hosts`) |
+| **Inside the package**, `empirica/config/` | Shipped defaults: `mco/*.yaml`, `investigation_profiles.yaml`, `domains/*.yaml`, `ai_registry.json`. These are not a user override surface; the layers above override them where an override exists |
 
-**Total:** 3106 lines of configuration code/data
+Environment variables sit on top of all of it. [Environment Variables](ENVIRONMENT_VARIABLES.md) is the complete list; this page names the ones that decide where configuration comes from.
 
----
-
-## Table of Contents
-
-1. [System Configuration](#system-configuration)
-2. [Project Configuration](#project-configuration)
-3. [Module Configurations](#module-configurations)
-4. [Configuration Loaders](#configuration-loaders)
-5. [Environment Variables](#environment-variables)
-6. [Configuration Loading Order](#configuration-loading-order)
+**`empirica config` is a viewer for the shipped MCO files, not a settings store.** `empirica config` prints them (`--section` picks one of `model_profiles`, `personas`, `epistemic_conduct`, `ask_before_investigate`, `protocols`), `empirica config KEY` reads a dotted key, `--init` lists the MCO files and where they live, `--validate` checks them for missing files and incomplete profiles, and `empirica config KEY VALUE` changes nothing: it prints which YAML file you would edit. Nothing it reports comes from `project.yaml`, `config.yaml` or the credentials file.
 
 ---
 
-## System Configuration
+## Finding the store
 
-**File:** `.empirica/config.yaml`
+Which `.empirica` directory and which `sessions.db` a command uses is decided by `empirica/config/path_resolver.py`.
 
-Core runtime configuration for Empirica.
+**Empirica root** (`get_empirica_root`), first match wins:
 
-### Structure
+1. `EMPIRICA_WORKSPACE_ROOT`: `<value>/.empirica` (Docker and multi-AI setups)
+2. `EMPIRICA_DATA_DIR`: the directory itself
+3. the `root` key of `<git root>/.empirica/config.yaml`
+4. `<git root>/.empirica`
 
-```yaml
-version: '2.0'
-root: /path/to/.empirica
-paths:
-  sessions: sessions/sessions.db
-  identity: identity/
-  messages: messages/
-  metrics: metrics/
-  personas: personas/
-settings:
-  auto_checkpoint: true
-  git_integration: true
-  log_level: info
-env_overrides:
-  - EMPIRICA_DATA_DIR
-  - EMPIRICA_SESSION_DB
-```
+With none of these (not in a git repo, nothing set) it raises; there is no working-directory fallback, because Claude Code can reset the cwd. The two environment paths are rejected if they point into a system directory (`/etc`, `/usr`, `/bin`, `/root`, `/proc`, and similar).
 
-### Fields
+**Session database** (`get_session_db_path`), first match wins:
 
-**`version`:** Config schema version (currently `2.0`)
+1. `EMPIRICA_SESSION_DB`: this file, bypassing instance resolution (tests, CI, Docker)
+2. the project of the current instance, resolved from the open transaction, `active_work`, TTY and `instance_projects`. The working directory overrides it when it holds its own `.empirica/project.yaml` and the instance's project has no open transaction of this caller's; `EMPIRICA_CWD_RELIABLE=true` extends that to preferring the git root
+3. the workspace registry (`~/.empirica/workspace/workspace.db`), keyed by the git root
+4. `<empirica root>/sessions/sessions.db`
 
-**`root`:** Absolute path to `.empirica` directory
-
-**`paths`:** Relative paths from root for different data types
-- `sessions`: SQLite database path
-- `identity`: Ed25519 keypairs directory
-- `messages`: Agent mail directory
-- `metrics`: Performance metrics
-- `personas`: AI persona definitions
-
-**`settings`:**
-- `auto_checkpoint`: Auto-create git checkpoints (default: `true`)
-- `git_integration`: Enable git notes storage (default: `true`)
-- `log_level`: Logging level (`debug`, `info`, `warning`, `error`)
-
-**`env_overrides`:** Environment variables that can override config
-
-### Environment Variables
-
-- `EMPIRICA_DATA_DIR`: Override `.empirica` directory location
-- `EMPIRICA_SESSION_DB`: Override session database path
-
----
-
-## Project Configuration
-
-**File:** `.empirica/project.yaml`
-**Schema version:** 2.0
-**Created by:** `empirica project-init`
-**Updated by:** `empirica project-update`
-
-Defines project identity, participants, relationships, subjects, and discovery settings.
-
-### Purpose
-
-- **Project identity** - Type, domain, classification, evidence profile
-- **Participant references** - Contacts and engagements (full profiles in Workspace)
-- **Relationship graph** - Typed edges to other projects/entities
-- **Subject mapping** - Map code directories to logical subjects
-- **Context filtering** - Scope `project-bootstrap` by subject
-- **Auto-detection** - Detect current subject from working directory
-
-### Structure (v2.0)
-
-```yaml
-version: '2.0'
-
-# Identity
-name: "Empirica Epistemic Framework"
-ai_id: empirica          # the practice's ai_id (the project directory name by default)
-description: "Metacognitive framework for AI agents"
-project_id: 748a81a2-...
-type: software            # software|content|research|data|design|operations|strategic|engagement|legal
-domain: ai/measurement    # hierarchical, user-defined
-classification: open      # open|internal|restricted
-status: active            # active|dormant|archived
-
-# Evidence & Language
-evidence_profile: code    # code|prose|web|hybrid|auto
-languages: [python]       # auto-detected from build files
-tags: [ai, measurement, epistemic]
-
-# Provenance
-created_at: '2024-11-15'
-created_by: david
-repository: https://github.com/example/project
-
-# Participants (references)
-contacts:
-  - id: david
-    roles: [owner, architect]
-
-# Engagements (references)
-engagements:
-  - id: internal-dogfood
-    type: internal
-    status: ongoing
-
-# Relationships (typed edges)
-edges:
-  - entity: project/other-project
-    relation: parent_of
-
-# Subjects
-subjects:
-  core:
-    paths: [empirica/core/, empirica/data/]
-    description: "Core framework logic"
-  cli:
-    paths: [empirica/cli/]
-    description: "Command-line interface"
-
-auto_detect:
-  enabled: true
-  method: path_match
-
-# BEADS
-beads:
-  default_enabled: true
-
-# Domain extension point
-domain_config: {}
-```
-
-### Identity Fields
-
-| Field | Values | Default | Description |
-|-------|--------|---------|-------------|
-| `version` | `'1.0'`, `'2.0'` | `'2.0'` | Schema version |
-| `type` | software, content, research, data, design, operations, strategic, engagement, legal | `software` | Project type |
-| `domain` | Free-form hierarchical | `''` | Domain path (e.g., `ai/measurement`, `bio/genomics`) |
-| `classification` | open, internal, restricted | `internal` | Access classification |
-| `status` | active, dormant, archived | `active` | Project lifecycle status |
-| `evidence_profile` | code, prose, web, hybrid, auto | `auto` | Controls which evidence collectors run |
-| `languages` | List of strings | Auto-detected | Programming languages (detected from pyproject.toml, package.json, go.mod, etc.) |
-| `tags` | List of strings | `[]` | Freeform tags for filtering |
-| `ai_id` | String | project directory name | The practice's `ai_id`, the canonical identifier sessions and mesh addressing follow |
-
-Tooling also writes keys the loader does not interpret: `org_id`, `tenant_slug`, `mesh_id_prefix` and `canonical_seat` (tenant resolution during `setup-claude-code`), `substrate`, `publish_channels` (release-chain checks), `cockpit` (listeners), `calibration_weights` and `calibration_exclusions`. `empirica project-update` merges its changes over the existing file, so these keys are kept.
-
-### Participants & Relationships
-
-**Contacts** are references to people — full profiles live in Empirica Workspace:
-```yaml
-contacts:
-  - id: alice           # Reference ID
-    roles: [reviewer]   # Roles in this project
-```
-
-**Edges** are typed relationships to other entities:
-```yaml
-edges:
-  - entity: project/empirica-iris   # Entity reference
-    relation: related               # parent_of|related|owned_by|extends|depends_on
-```
-
-### Subject Configuration
-
-Each subject defines:
-
-**`paths`:** Directory paths included in this subject (relative to project root)
-
-**`description`:** What this subject covers
-
-### Auto-Detection
-
-When `auto_detect.enabled: true`:
-- Empirica detects current subject from working directory
-- Matches `cwd` against subject paths
-- Scopes `project-bootstrap` to relevant subject only
-
-### Backward Compatibility
-
-v1.0 files work unchanged — all v2.0 fields have safe defaults. Use `empirica project-update --migrate` to upgrade.
-
-### Creating & Updating
+If none yields a database the error lists what was tried. Other resolution inputs: `EMPIRICA_PROJECT_PATH` is read by the statusline; `EMPIRICA_INSTANCE_ID` / `CLAUDE_INSTANCE_ID` set the instance id (see [Session Resolver API](SESSION_RESOLVER_API.md)).
 
 ```bash
-# Initialize (interactive or with flags)
-empirica project-init
-empirica project-init --non-interactive --type research --domain bio/genomics
+python3 -c "from empirica.config.path_resolver import debug_paths; print(debug_paths())"
+```
 
-# Update fields
+prints the git root, empirica root, session database, the two override variables and whether a `config.yaml` was loaded.
+
+---
+
+## `project.yaml`: the practice's identity and policy
+
+**File:** `<project>/.empirica/project.yaml`. Created by `empirica project-init`, changed by `empirica project-update`, which merges its changes over the existing file so keys it does not model are kept.
+
+```bash
+empirica project-init --non-interactive --type research --domain bio/genomics
 empirica project-update --type research --domain bio/genomics
 empirica project-update --add-contact alice --roles reviewer evaluator
 empirica project-update --add-edge project/other --relation extends
-empirica project-update --migrate   # Upgrade v1.0 to v2.0
+empirica project-update --migrate        # upgrade a v1.0 file to v2.0
 ```
+
+### Fields the loader models
+
+`load_project_config` (`project_config_loader.py`) reads these. Every field has a safe default, so a v1.0 file works unchanged. `project_id` is taken from `sessions.db` when it has one; the file's value is only the fallback for a fresh project.
+
+| Field | Values | Default | Notes |
+|---|---|---|---|
+| `version` | `'1.0'`, `'2.0'` | `'1.0'` when absent | `project-init` writes `'2.0'` |
+| `name`, `description` | text | `Unknown Project`, empty | |
+| `ai_id` | string | project directory name | The practice's canonical identifier. Sessions, calibration and mesh addressing follow it. Prefix kept: `empirica-cortex` stays `empirica-cortex` |
+| `type` | `software`, `content`, `research`, `data`, `design`, `operations`, `strategic`, `engagement`, `legal` (legacy: `product`, `application`, `feature`, `documentation`, `infrastructure`) | `software` | An unknown value logs a warning and becomes `software` |
+| `domain` | free text, hierarchical (`ai/measurement`) | empty | |
+| `classification` | `open`, `internal`, `restricted` | `internal` | Invalid becomes the default |
+| `status` | `active`, `dormant`, `archived` | `active` | |
+| `evidence_profile` | `code`, `prose`, `web`, `hybrid`, `auto` | `auto` | Which evidence collectors grade the transaction. `project-init` and `project-update` restrict the choices; the loader does not |
+| `languages`, `tags` | lists | `[]` | |
+| `created_at`, `created_by`, `repository` | text | none | Provenance |
+| `contacts` | `[{id, roles}]` | `[]` | References to people; profiles live in the workspace CRM |
+| `engagements` | `[{id, ...}]` | `[]` | References; lifecycle lives in the CRM |
+| `edges` | `[{entity, relation}]` | `[]` | Typed links to other entities. `relation` is free text (`related` by default; `parent_of`, `owned_by`, `extends` appear in use) |
+| `subjects` | `{name: {paths: [...], description}}` | `{}` | Maps directories to logical subjects |
+| `default_subject` | subject name | none | |
+| `auto_detect` | `{enabled, method}` | `{enabled: true, method: path_match}` | When enabled, the working directory is matched against subject `paths` to scope `project-bootstrap`. Paths are resolved against the current directory |
+| `beads` | `{default_enabled}` | `{}` (off) | Default for the BEADS integration |
+| `domain_config` | mapping | `{}` | Domain extension point |
+
+### Keys other code reads
+
+The loader ignores these; the modules named read them from the same file.
+
+| Key | Read by | What it does |
+|---|---|---|
+| `hygiene_policy` | `config/hygiene_policy.py` | How aggressively this practice's artifact sweeps clean. Fields and defaults: `source_staleness_days: 30`, `unknown_triage_days: 14`, `goal_auto_close: evidence_only` (or `surface_only`), `auto_delete: test_noise_only` (or `off`), `dedup: exact_only` (or `fuzzy`). An invalid value falls back to its default, never raises |
+| `artifact_graph` | CHECK gate | `strictness` (default 0.75), `connectivity_floor` (0.34), `patience` (0.80), each clamped to 0-1. Environment overrides: `EMPIRICA_ARTIFACT_GRAPH_STRICTNESS`, `EMPIRICA_ARTIFACT_GRAPH_FLOOR`, `EMPIRICA_ARTIFACT_GRAPH_PATIENCE`. Strictness below 0.05 is silent, below 0.40 reports, below 0.70 warns, at 0.70 and above enforces (CHECK flips `proceed` to `investigate` below the connectivity floor) |
+| `calibration_weights` | POSTFLIGHT | Per-phase, per-vector weights (`noetic`, `praxic`, each `vector: weight`), seeded by `project-init` from the project type and backfilled by `project-bootstrap` for older projects |
+| `calibration_exclusions` | grounded calibration | Known-bad measurement windows; see [Calibration](#calibration) |
+| `org_id`, `tenant_slug`, `mesh_id_prefix`, `canonical_seat` | `setup`, mesh tooling | Tenant and mesh identity written during setup |
+| `publish_channels`, `substrate`, `cockpit` | release checks, cockpit, listeners | Practice-specific |
 
 ---
 
-## Module Configurations
+## `config.yaml`: store, database, sync
 
-**Location:** `empirica/config/*.yaml`
+**File:** `<project>/.empirica/config.yaml`, created by `project-init` (and by `create_default_config` in a git repo). Its presence is also what `project-init` treats as "already initialised".
 
-Feature-specific configuration files.
-
-### 1. Modality Config (`modality_config.yaml`) - DEPRECATED
-
-**Status:** DEPRECATED/UNSUPPORTED - Experimental feature, not required for core Empirica operation.
-
-**Purpose:** Configure adapter routing for ModalitySwitcher (requires commercial plugin)
-
-**Size:** 118 lines
-
-**Sections:**
-
-#### Adapter Configuration
 ```yaml
-adapters:
-  minimax:
-    enabled: true
-    type: api
-    provider: minimax
-    model: MiniMax-M2
-    base_url: https://api.minimax.io/anthropic
-    cost_per_1k_tokens: 0.01
-    estimated_latency_sec: 3.0
-    quality_score: 0.9
-    requires_api_key: true
-    api_key_env: MINIMAX_API_KEY
-    timeout_sec: 60
-    max_retries: 2
-    capabilities:
-      - text
-      - tool_calls
-      - streaming
+version: '2.0'
+root: /path/to/project/.empirica      # read: step 3 of the root resolution above
+paths: {sessions: sessions/sessions.db, identity: identity/, messages: messages/, metrics: metrics/, personas: personas/}
+settings: {auto_checkpoint: true, git_integration: true, log_level: info}
+env_overrides: [EMPIRICA_DATA_DIR, EMPIRICA_SESSION_DB]
 ```
 
-**Fields:**
-- `enabled`: Enable/disable adapter
-- `type`: `api`, `cli`, or `local`
-- `cost_per_1k_tokens`: Cost estimation
-- `estimated_latency_sec`: Expected response time
-- `quality_score`: Quality rating (0.0-1.0)
-- `capabilities`: Supported features
+Only `root` of those is read back (`paths`, `settings` and `env_overrides` are written as a record and have no reader). Sections that do have readers:
 
-#### Routing Configuration
-```yaml
-routing:
-  default_strategy: epistemic  # or 'cost', 'latency', 'quality', 'balanced'
-  
-  epistemic:
-    high_uncertainty_threshold: 0.7
-    low_know_threshold: 0.4
-    high_confidence_threshold: 0.8
-  
-  cost:
-    default_max_cost_usd: 1.0
-    cost_sensitive_threshold: 0.5
-  
-  fallback:
-    enabled: true
-    max_attempts: 3
-    backoff_multiplier: 2.0
-```
-
-**Strategies:**
-- `epistemic`: Route based on epistemic state (uncertainty, knowledge)
-- `cost`: Route based on cost constraints
-- `latency`: Route based on latency requirements
-- `quality`: Route based on quality score
-- `balanced`: Weighted combination of all factors
-
-#### Monitoring
-```yaml
-monitoring:
-  enabled: true
-  track_usage: true
-  track_costs: true
-  track_latency: true
-  export_format: json
-  export_path: ~/.empirica/usage_stats.json
-```
-
-#### MCP Integration
-```yaml
-mcp:
-  enabled: true
-  health_check_interval_sec: 300
-  include_health_in_list: true
-```
-
-**API key:** `api_key_env` names the environment variable holding the adapter's key (`MINIMAX_API_KEY` above). No code reads `modality_config.yaml` today.
+- **`database`** (`database_config.get_database_config`). SQLite is the default. For PostgreSQL, in priority order: `DATABASE_URL` (a `postgresql...` URL), then `EMPIRICA_DB_TYPE=postgresql` with `EMPIRICA_DB_HOST`, `EMPIRICA_DB_PORT` (5432), `EMPIRICA_DB_NAME` (`empirica`), `EMPIRICA_DB_USER` (`empirica`), `EMPIRICA_DB_PASSWORD`, then a `database:` block here with `type: sqlite|postgresql`, `sqlite.path`, `postgresql.{host,port,database,user,password}`; a value written `${VAR}` is replaced from the environment.
+- **`sync`** is read and written by the sync commands.
+- **`integrations.beads`** configures the BEADS integration.
 
 ---
 
-### 2. Investigation Profiles (`investigation_profiles.yaml`)
+## Thresholds and what "ready" means
 
-**Purpose:** Define investigation constraints for different AI types and contexts
+Four independent layers decide how much the CHECK gate and the Sentinel ask for. [Sentinel Gate Reference](SENTINEL_GATE_REFERENCE.md) has the decision flow; this is where the numbers come from.
 
-**Size:** 445 lines
+### 1. Cascade profiles (`empirica/config/mco/cascade_styles.yaml`)
 
-**Philosophy:**
-- Universal constraints = governance/security (Sentinel enforcement)
-- Profile constraints = context-appropriate guidance
-- Plugins = suggestive, not prescriptive
+Loaded by `ThresholdLoader`. Six profiles: `default`, `exploratory`, `rigorous`, `rapid`, `expert`, `novice`. Each carries `cascade.ready_know_threshold` and `cascade.ready_uncertainty_threshold` (default profile: 0.70 and 0.35), and a `calibration` block with the Brier adjustment bounds (default profile: ceilings 0.90 know and 0.15 uncertainty, `max_inflation` 0.05, `min_transactions` 5, `lookback` 20).
 
-#### Universal Constraints
+PREFLIGHT picks the profile from `work_context` and `work_type` (`ThresholdLoader.select_profile_for_work`):
 
-Applied to ALL profiles:
+| `work_context` | Profile |
+|---|---|
+| `greenfield`, `investigation` | `exploratory` |
+| `iteration`, `refactor`, anything else | `default` |
+
+When the context left `default`, `work_type` can override: `research` and `design` give `exploratory`; `audit` and `release` give `rigorous`. An `investigation` context keeps `exploratory` even for an audit.
+
+### 2. `calibration.yaml`: the settable surface
+
+A sparse override file, one per scope: `~/.empirica/calibration.yaml` (global) and `<project>/.empirica/calibration.yaml` (practice). Resolution is base defaults, then persona preset, then global, then practice; the practice wins. The extension's Sentinel Tuning tab reads and writes it through the daemon; there is no CLI verb. Keys:
 
 ```yaml
-universal_constraints:
-  engagement_gate: 0.60       # Below this, AI is disengaged
-  coherence_min: 0.50         # Below this, responses incoherent
-  density_max: 0.90           # Above this, task overwhelming
-  change_min: 0.50            # Below this, task unclear
-  max_tool_calls_per_round: 10
-  investigation_timeout_seconds: 3600
-  log_all_assessments: true
-  log_tool_calls: true
+preset: <persona template name>     # optional
+stance: <calibration stance name>   # optional
+weights:       # foundation, comprehension, execution, engagement (normalised to sum 1)
+  execution: 0.30
+thresholds:    # each 0-1
+  ready_uncertainty: 0.30           # the CHECK gate: proceed when uncertainty <= this (default 0.35)
 ```
 
-#### Profiles
+The other threshold keys are `engagement_gate` (0.60), `uncertainty_trigger` (0.40), `confidence_to_proceed` (0.75) and `signal_quality_min` (0.60). Only `ready_uncertainty` and `engagement_gate` are gates; a file that is missing or malformed leaves every default untouched. A value set during an open transaction is queued in `calibration.pending.yaml` and promoted at the next PREFLIGHT, never mid-work. The Brier adjustment still applies on top of the base, and can only tighten.
 
-- `EMPIRICA_EPISTEMIC_MODE`: **Deprecated in 1.8.14.** Epistemic middleware was removed from MCP server (Sentinel handles gating via hooks). This env var has no effect.
+### 3. Brier adjustment
 
-### Cortex Integration
+`compute_dynamic_thresholds` raises the thresholds when the practice's grounded calibration is poor, per `ai_id` and, once there are enough points, per practitioner. It never lowers them below the base and never above the ceilings from the cascade profile.
 
-- `EMPIRICA_CORTEX_URL`: Cortex server URL for verified predictions cache (default: `http://localhost:8420`). Set for cloud Cortex instances. Graceful — skipped silently if unreachable.
-- `CORTEX_REMOTE_URL`: Remote Cortex URL for cross-domain context sync at session start/end. Requires `CORTEX_API_KEY`.
-- `CORTEX_API_KEY`: API key for remote Cortex sync. Both `CORTEX_REMOTE_URL` and `CORTEX_API_KEY` must be set for remote sync to activate.
+### 4. Domain checklists (`DomainRegistry`)
 
-### MCP Server
+A checklist says which deterministic checks must pass for "done" at a `(work_type, domain, criticality)` key, and its `coverage_min` also scales the PREFLIGHT auto-proceed uncertainty threshold. Sources, later wins: shipped `empirica/config/domains/*.yaml` (`default`, `consulting`, `cybersec`, `docs`, `marketing`, `operations`, `remote-ops`, `research`), then `~/.empirica/domains/*.yaml`, then the project's `.empirica/domains.yaml`.
 
-- `EMPIRICA_MCP_TIMEOUT`: CLI command timeout in seconds for the MCP server (default: `30`)
+```yaml
+# user file: one domain per file
+domain: my-domain
+description: "..."
+applies_to_work_types: []        # empty = all
+criticalities:                   # low | medium | high | critical
+  medium:
+    required_checks: [tests, lint]
+    optional_checks: []
+    thresholds: {coverage_min: 0.3, check_pass_ratio: 1.0}
+    max_iterations: 5
+    hints_to_ai: []
+```
 
-### Sentinel (Safety Gates)
-
-- `EMPIRICA_ENFORCE_CASCADE_PHASES`: Strictly enforce transaction phase ordering (`true`, `false`)
-- `EMPIRICA_SENTINEL_LOOPING`: Enable/disable sentinel CHECK-investigate loop (`true`, `false`, default: `true`). When `false`, CHECK decisions bypass investigate requirement. **Preferred:** Use file flag `~/.empirica/sentinel_enabled` instead (dynamically settable without restart)
-- `EMPIRICA_SENTINEL_CHECK_EXPIRY`: Enable 30-minute CHECK expiry (`true`, `false`, default: `false`)
-  - When `true`: CHECK is invalidated after 30 minutes, requiring fresh CHECK before praxic tools
-  - When `false` (default): No time-based expiry - useful for paused sessions
-  - Note: Disabled by default because users may pause work and resume later
-
-### Vector Search & Embeddings (Qdrant)
-
-- `EMPIRICA_QDRANT_URL`: URL for a Qdrant server (e.g., `http://localhost:6333`). **Optional.** It is one of four ways a URL is resolved, in priority order: an explicit per-request URL, the installed per-project resolver hook, this variable, then a probe of `localhost:6333`. A local Qdrant on the default port therefore needs no configuration at all. (Retrieval used to gate on this variable alone, so setups relying on any other path had working writes and silently empty reads — #388.)
-- `EMPIRICA_ENABLE_EMBEDDINGS`: Set to `false` to disable embedding generation; otherwise embeddings are on when `qdrant-client` is installed
-- `EMPIRICA_EMBEDDINGS_PROVIDER`: Embeddings provider (`openai`, `ollama`, `jina`, `voyage`, `local`, `auto`). Default: `auto` (uses Ollama if available, else local hash)
-- `EMPIRICA_EMBEDDINGS_MODEL`: Model for embeddings (varies by provider). Defaults: `text-embedding-3-small` (OpenAI), `qwen3-embedding:0.6b` (Ollama), `jina-embeddings-v3` (Jina), `voyage-3-lite` (Voyage). Also configurable via `~/.empirica/config.yaml` (embeddings section)
-- `EMPIRICA_OLLAMA_URL`: URL for local Ollama instance (default: `http://localhost:11434`)
-- `OPENAI_API_KEY`: API key for OpenAI embeddings
-- `JINA_API_KEY`: API key for Jina AI embeddings
-- `VOYAGE_API_KEY`: API key for Voyage AI embeddings
-
-### Credentials
-
-- `EMPIRICA_CREDENTIALS_PATH`: Path to credentials file
-
-### Session & Instance
-
-- `EMPIRICA_INSTANCE_ID`: Explicit override for session instance identification. Used for multi-Claude environments.
-- `EMPIRICA_AUTOPILOT_MODE`: Enable binding Sentinel decisions (`true`, `false`, default: `false`). When `true`, CHECK decisions are enforced (not suggestive).
-- `EMPIRICA_STATUS_MODE`: Status display mode for statusline (`compact`, `expanded`, `basic`, `learning`, `full`). Default: `compact`. `~/.empirica/statusline_mode` overrides it and is read on every render. See `STATUSLINE_REFERENCE.md`.
-
-### Calibration
-
-- `EMPIRICA_CALIBRATION_FEEDBACK`: Enable/disable calibration feedback in workflow output (`true`, `false`, default: `true`). Controls:
-  - PREFLIGHT: `previous_transaction_feedback` (grounded gaps), `calibration_warnings` (Qdrant)
-  - CHECK: `calibration_bias` (systematic bias detection)
-  - Does NOT affect: POSTFLIGHT grounded verification (always runs), Sentinel gating (always uses raw vectors), learning trajectory (informational)
-
-> **Cross-project calibration, multi-entity pattern matching, TUI analytics, and API integrations** are available in [empirica-workspace](https://github.com/EmpiricaAI/empirica-workspace) — the commercial extension for teams and organizations.
-
-### Features
-
-- `EMPIRICA_AUTO_POSTFLIGHT`: **REMOVED in 1.6.6.** Auto-POSTFLIGHT from CHECK was removed because CHECK is a noetic→praxic gate, not a completion event. POSTFLIGHT should only be triggered by the AI or session-end hook after actual work is done
+The project file wraps domains as `{version: "1", domains: {name: {...}}}`. Lookup falls to the next lower criticality, then to the `default` domain, then to an empty checklist. `empirica domain-validate` checks the YAML files.
 
 ---
 
-## Usage Examples
+## Calibration
 
-### Resolve Paths and Load System Config
+How a transaction's self-assessment is scored against evidence. Four layers, applied in this order:
 
-```python
-from empirica.config import path_resolver
+1. **Evidence relevance** (`core/post_test/mapper.py`, `WORK_TYPE_RELEVANCE`, in code): scales how much each evidence source counts for the transaction's `work_type`. `research` gives git, code quality, test and codebase-model evidence weight 0 and artifact counts 1.5; `infra` cuts code quality and test evidence to 0.3.
+2. **Per-vector, per-phase weights**: `calibration_weights` in `project.yaml`, above.
+3. **Category weights** (`mco/confidence_weights.yaml`): how much foundation, comprehension, execution and meta vectors matter. Resolution is `work_type_category_weights` (`code`, `research`, `debug`, `docs`, `comms`, `design`, `infra`, `audit`, `data`, `config`, `release`), then `domain_category_weights` (`software`, `consulting`, `research`, `operations`, `default`), then built-in defaults. Code weights execution at 0.40; research weights comprehension at 0.35 and meta at 0.25.
+4. **The score**: gaps grouped by category and weighted. Lower is better. `uncertainty` is excluded (it is derived from the same gaps).
 
-config = path_resolver.load_empirica_config()   # None when there is no .empirica/config.yaml
-root = path_resolver.get_empirica_root()
+`confidence_weights.yaml` also holds tier-confidence weights (`foundation_confidence_weights` and its siblings) used by the dashboard exporter, not by scoring.
+
+### `calibration_exclusions`: known-bad measurement windows
+
+A list in `project.yaml` (a file local to the checkout, not committed) for a period in which a sensor was wrong and has since been fixed.
+
+```yaml
+calibration_exclusions:
+  - vectors: [do, state, change]     # required, each one of the tracked vectors
+    source: git                      # optional grounding source
+    from: '2026-08-01'               # optional, inclusive, YYYY-MM-DD UTC
+    until: '2026-09-21'              # optional, exclusive
+    reason: "git evidence was graded over a window wider than the transaction"
 ```
 
-### Load Project Config
+An entry needs a `source` or a window. One that has neither, or that cannot be read (an unknown vector name, an empty `source`, a mapping where a list belongs), is dropped with a warning and never read as "exclude everything". Excluded observations are left out when the grounded belief is replayed over `grounded_verifications`; rows are never rewritten. The injected bias block, `grounded_bias_corrections` and `calibration-report` use the replayed value and say what they left out (`excluded` in `.breadcrumbs.yaml`, `exclusions_applied` in the report JSON). A vector with an open calibration dispute is not replayed, because disputes are not recorded per observation.
+
+---
+
+## `compliance.yaml`: tuning the compliance report
+
+**File:** `<project>/.empirica/compliance.yaml`, all keys optional; absent or malformed means built-in defaults.
+
+```yaml
+skip_checks: [tech_docs]            # check ids to drop from the report
+extra_checks:                       # project-specific checks, run after the built-in suite
+  - id: my_docs_coverage
+    runner: scripts/check.py        # script path, absolute path or shell command; called with --output json
+    description: "..."              # optional
+    timeout_seconds: 60             # default 60
+    regulatory: {eu_ai_act: {article: "Art. 11", requirement: "..."}}   # optional framework mapping
+repo_hygiene:
+  license_required: true            # each defaults to true; false skips the sub-check
+  changelog_required: true
+  release_scripts_required: true
+tech_docs:
+  tool: docs-assess                 # or docpistemic, rust-docs-assess
+```
+
+A runner must print a JSON object with at least `passed` (bool) and `status` (`pass` or `fail`); other fields pass through into the report. A skipped hygiene sub-check counts as neither pass nor fail.
+
+---
+
+## Credentials
+
+**File:** `credentials.yaml` (or `.json`). Found by `CredentialsLoader`, first match:
+
+1. the path in `EMPIRICA_CREDENTIALS_PATH`
+2. `.empirica/credentials.yaml|json` two directories above the `empirica` package (the checkout, when running from source)
+3. `~/.empirica/credentials.yaml|json`
+
+`${VAR}` in a value is replaced from the environment; an unset variable is left as written, with a warning. With no file, a few legacy dotfiles (`.qwen_api`, `.minimax_key`, `.gemini_api`, `.open_router_api`, ...) are read. The file is rewritten atomically with mode 0600 because it holds refresh tokens.
+
+| Block | Holds | Precedence |
+|---|---|---|
+| `cortex` | `url`, `api_key`, and `oauth` (`access_token`, `refresh_token`, `expires_at`, `token_endpoint`, `client_id`, `refresh_owner`) written by `empirica auth login` | **The file wins**, per field. `CORTEX_REMOTE_URL` (or `CORTEX_URL`) and `CORTEX_API_KEY` only fill what the file lacks, and a disagreeing environment value is ignored with a warning |
+| `ntfy` | `url`, `topic`, `user`, `password`, `token` | **Environment wins**: `ORCHESTRATION_NTFY_URL`, `_TOPIC`, `_USER`, `_PASS`, `_TOKEN`, then this block, then `backends.ntfy` in `~/.empirica/notify.yaml`, then the built-in server and topic |
+| `providers` | per-provider `api_key`, `base_url`, `default_model`, `available_models`, `auth_method` | |
+
+`empirica auth status` shows credential state without printing a token. `empirica auth token` prints a valid access token, refreshing it if needed.
+
+---
+
+## Embeddings and Qdrant
+
+Semantic search is on when `qdrant-client` is installed, unless `EMPIRICA_ENABLE_EMBEDDINGS=false`.
+
+**Qdrant URL**, first match: an explicit per-request URL; the installed per-project resolver hook; `EMPIRICA_QDRANT_URL`; a probe of `http://localhost:6333`. A local Qdrant on the default port needs no configuration. With no server, retrieval is skipped.
+
+**Embedding provider** (`core/qdrant/embeddings.py`): environment overrides the file. `EMPIRICA_EMBEDDINGS_PROVIDER` is `openai`, `ollama`, `jina`, `voyage`, `local` or `auto` (default; Ollama when reachable, else a local hash). `EMPIRICA_EMBEDDINGS_MODEL` names the model (defaults per provider, for example `text-embedding-3-small`, `qwen3-embedding:0.6b`, `jina-embeddings-v3`, `voyage-3-lite`). `EMPIRICA_OLLAMA_URL` defaults to `http://localhost:11434`. API keys: `OPENAI_API_KEY`, `JINA_API_KEY`, `VOYAGE_API_KEY`. The file form is an `embeddings:` section in `~/.empirica/config.yaml` with `provider`, `model`, `ollama_url`, `jina_api_key`, `voyage_api_key`; the legacy fallback is `~/.empirica/embeddings.conf` (`key=value` lines).
+
+---
+
+## Hooks and the plugin
+
+| Setting | Where |
+|---|---|
+| Sentinel on/off, pause | `~/.empirica/sentinel_enabled`, `~/.empirica/sentinel_paused*`, `EMPIRICA_SENTINEL_*`; see the [Sentinel Gate Reference](SENTINEL_GATE_REFERENCE.md) |
+| Statusline mode | `~/.empirica/statusline_mode`, `EMPIRICA_STATUS_MODE`; see the [Statusline Reference](STATUSLINE_REFERENCE.md) |
+| Stop-hook turn limits | `transaction-enforcer.py` warns after 12 turns with an open transaction and blocks stopping after 20. Override in `.empirica-project/PROJECT_CONFIG.yaml` (or `PROJECT_CONFIG.yaml`) in the working directory with `transaction: {soft_reminder_turns: N, max_transaction_turns: N}`, or with `EMPIRICA_TX_SOFT_TURNS` and `EMPIRICA_TX_HARD_TURNS`, which win |
+| Workflow protocol | `workflow-protocol.yaml`, searched in the project then `~/.empirica/`; created by `/ewm-interview`, loaded at session start |
+| Trusted hosts | `~/.empirica/trusted_hosts`: a remote, container or CI host listed there is annotated trusted in Sentinel messages |
+
+---
+
+## Other environment variables
+
+Variables that change behaviour without a file equivalent. The full list is [Environment Variables](ENVIRONMENT_VARIABLES.md).
+
+| Variable | Effect |
+|---|---|
+| `EMPIRICA_CALIBRATION_FEEDBACK` | `false` removes calibration feedback from PREFLIGHT and CHECK output (default `true`). It does not affect POSTFLIGHT grounding or Sentinel gating, which always use raw vectors |
+| `EMPIRICA_AUTOPILOT_MODE` | `true` makes the CHECK decision binding: a submitted decision that differs from the computed one is replaced by it (default `false`) |
+| `EMPIRICA_ENFORCE_CASCADE_PHASES` | `true` enforces transaction phase ordering in signed git operations |
+| `EMPIRICA_CORTEX_URL` | Cortex server that receives calibration feedback at POSTFLIGHT when the grounded calibration score is below 0.3 (default `http://localhost:8420`) |
+| `EMPIRICA_HARNESS` | Which harness `empirica setup` configures and the hooks target (default `claude-code`) |
+| `EMPIRICA_AI_ID` | Overrides the practice id the statusline renders |
+
+---
+
+## For developers: the loaders
+
+| Module | Loads | Read by |
+|---|---|---|
+| `path_resolver.py` | root and database resolution, `config.yaml` `root` | everything |
+| `project_config_loader.py` | `project.yaml` into `ProjectConfig` | bootstrap, session create, goals, `project-update`, hooks |
+| `threshold_loader.py` | `mco/cascade_styles.yaml` (singleton; profile switching, overrides) | PREFLIGHT, CHECK, dynamic thresholds, Sentinel hooks |
+| `mco_loader.py` | `model_profiles`, `personas`, `epistemic_conduct`, `ask_before_investigate`, `protocols`, `confidence_weights` (lazy) | bootstrap, monitor, `empirica config` |
+| `profile_loader.py` | `investigation_profiles.yaml` | checkpoint commands |
+| `domain_registry.py` | domain checklists | Sentinel hook, compliance loop, `domain-*` commands |
+| `credentials_loader.py` | credentials, Cortex and ntfy resolution, OAuth | auth, serve, hooks |
+| `database_config.py` | database backend | `SessionDatabase` |
+| `hygiene_policy.py` | `hygiene_policy` | sources check |
+| `compliance_report_commands.py` (command handler) | `compliance.yaml` | `compliance-report` |
+| `core/calibration_config.py` | `calibration.yaml` layers | CHECK, PREFLIGHT, Sentinel, the daemon API |
 
 ```python
 from pathlib import Path
 from empirica.config.project_config_loader import load_project_config
-
-config = load_project_config(Path("."))
-core_paths = config.get_subject_info("core")["paths"]
-```
-
-### Select Investigation Profile
-
-```python
-from empirica.config.profile_loader import get_profile_loader
-
-loader = get_profile_loader()
-
-# Auto-select for AI
-profile = loader.select_profile(ai_model="claude-opus")
-
-# Or load specific profile
-profile = loader.get_profile("critical_domain")
-```
-
-### Read Thresholds
-
-```python
 from empirica.config.threshold_loader import ThresholdLoader
+
+config = load_project_config(Path("."))          # None when there is no project.yaml
+core_paths = config.get_subject_info("core")["paths"]
 
 loader = ThresholdLoader.get_instance()
 uncertainty_high = loader.get("uncertainty.high", 0.70)
-everything = loader.get_all_thresholds()
-```
-
----
-
-## Configuration Files Summary
-
-| File | Size | Purpose |
-|------|------|---------|
-| `.empirica/config.yaml` | ~20 lines | System runtime config |
-| `.empirica/project.yaml` | ~60 lines | Project structure |
-| `modality_config.yaml` | 118 lines | Adapter routing |
-| `investigation_profiles.yaml` | 445 lines | Investigation constraints |
-| `ai_registry.json` | 221 lines | AI capability registry |
-| **Python Loaders** | see `empirica/config/*.py` | Configuration loading |
-
----
-
-## Best Practices
-
-### 1. Don't Edit Python Loaders
-
-Loaders are part of Empirica core. Edit YAML/JSON configs instead.
-
-### 2. Use Environment Variables for Secrets
-
-```bash
-# Good
-export MINIMAX_API_KEY=xxx
-empirica session-create --ai-id myai
-
-# Bad (don't commit secrets!)
-# vim empirica/config/modality_config.yaml
-# api_key: xxx  # NO!
-```
-
-### 3. Create Project Config for Multi-Repo Work
-
-```bash
-cp .empirica/project.yaml.example .empirica/project.yaml
-# Edit subjects to match your project
-```
-
-### 4. Override Temporarily with ENV
-
-```bash
-# Override for single command
-EMPIRICA_SESSION_DB=/tmp/test_sessions.db empirica session-create --ai-id myai
 ```
 
 ---
 
 ## Troubleshooting
 
-### Config Not Loading
-
-```bash
-# Validate config
-empirica config --validate
-
-# Create the default config
-empirica config --init
-```
-
-### Profile Not Found
-
-```python
-# List available profiles
-from empirica.config.profile_loader import ProfileLoader
-loader = ProfileLoader()
-print(loader.list_profiles())
-```
-
-### Environment Override Not Working
-
-```bash
-# Print every path the resolver settled on
-python3 -c "from empirica.config.path_resolver import debug_paths; print(debug_paths())"
-```
+- **Which store is this command using?** Run `debug_paths()` above. If the error says it cannot determine `sessions.db`, its message lists each source it tried; set `EMPIRICA_SESSION_DB` or run from inside the practice directory.
+- **A setting seems ignored.** Check the table at the top: `config.yaml` `paths` and `settings` are not read, `empirica config KEY VALUE` writes nothing, and the Sentinel's `EMPIRICA_SENTINEL_LOOPING` is overridden by `~/.empirica/sentinel_enabled`.
+- **Cortex calls use the wrong key.** `credentials.yaml` wins over `CORTEX_API_KEY`; unset the stale variable.
+- **Validate the shipped MCO files.** `empirica config --validate`.
 
 ---
 
-## See Also
+## See also
 
+- [Environment Variables](ENVIRONMENT_VARIABLES.md)
+- [Sentinel Gate Reference](SENTINEL_GATE_REFERENCE.md)
+- [Statusline Reference](STATUSLINE_REFERENCE.md)
 - [CLI Commands Reference](../human/developers/CLI_COMMANDS_UNIFIED.md)
 - [MCP Server Reference](../human/developers/MCP_SERVER_REFERENCE.md)
-
----
-
-**Last Updated:** 2026-01-09
-**Configuration System Version:** v4.1
-**Total Lines Documented:** 3200+ lines
-
----
-
-## 9. MCO (Metacognitive Configuration Objects)
-
-**Location:** `empirica/config/mco/`  
-**Total Size:** ~4100 lines of YAML configuration  
-**Purpose:** Define AI behavior patterns, transaction styles, epistemic thresholds, and protocols
-
-### MCO Configuration Files
-
-| File | Lines | Purpose |
-|------|-------|---------|
-| `protocols.yaml` | 635 | MCP tool usage schemas (transactions, goals, handoffs, mistakes) |
-| `feedback_loops.yaml` | 493 | Statusline warning responses for drift detection |
-| `cascade_styles.yaml` | 473 | 6 transaction style profiles (default, exploratory, rigorous, rapid, expert, novice) |
-| `epistemic_conduct.yaml` | 355 | Bidirectional accountability (AI↔human challenge triggers) |
-| `MCO_INDEX.yaml` | 326 | Semantic guide to all MCO objects and relationships |
-| `model_profiles.yaml` | 313 | Model-specific bias corrections (per LLM overconfidence patterns) |
-| `personas.yaml` | 321 | 7 AI personas (researcher, implementer, reviewer, coordinator, learner, expert, sanitizer) |
-| `goal_scopes.yaml` | 254 | Map epistemic vectors → scope vectors (breadth, duration, coordination) |
-| `bootstrap_triggers.yaml` | 205 | When to load project breadcrumbs, depth based on uncertainty |
-| `confidence_weights.yaml` | 312 | Weight configurations for aggregating 13 epistemic vectors |
-| `ask_before_investigate.yaml` | 165 | Thresholds for when AI should ask human vs investigate autonomously |
-| `context_budget.yaml` | 85 | Context budget manager thresholds (allocation, eviction, injection) |
-| `drift_thresholds.yaml` | 159 | Drift detection thresholds (over/under-confidence) |
-
-**Total:** 4,096 lines across 13 files
-
-### MCO Categories
-
-**1. AI Behavior & Identity**
-- `personas.yaml` - Role-based reasoning and specialization
-- `cascade_styles.yaml` - Workflow profiles for different task types
-- `epistemic_conduct.yaml` - Accountability and transparency rules
-- `ask_before_investigate.yaml` - Uncertainty thresholds for asking vs investigating
-
-**2. Epistemic Assessment & Calibration**
-- `confidence_weights.yaml` - Vector aggregation for confidence scores
-- `model_profiles.yaml` - LLM-specific bias corrections
-- `feedback_loops.yaml` - Drift detection and warning responses
-
-**3. Goal Scoping & Work Planning**
-- `goal_scopes.yaml` - Epistemic → scope vector mapping
-- Includes protocols: `session_continuation`, `web_project_design`
-
-**4. Tool Usage & Protocols**
-- `protocols.yaml` - Standardized MCP tool parameter schemas
-- Schemas for: `log_mistake`, `preflight_schema`, `check_schema`, `postflight_schema`
-
-**5. Bootstrap & Context Loading**
-- `bootstrap_triggers.yaml` - Uncertainty-driven context depth
-- Token costs: session_start (~800), check_requery (~50)
-
-**6. Documentation & Reference**
-- `MCO_INDEX.yaml` - Master index with relationships and workflows
-
-### MCO Integration with Epistemic Transactions
-
-**Session Start:**
-```
-1. Create session
-   MCO used: []
-   
-2. Load bootstrap (if project exists)
-   MCO used: bootstrap_triggers.yaml
-   
-3. Run PREFLIGHT
-   MCO used: personas.yaml, cascade_styles.yaml, confidence_weights.yaml
-   
-4. Apply bias correction
-   MCO used: model_profiles.yaml
-```
-
-**CHECK Gate:**
-```
-1. Assess readiness
-   MCO used: ask_before_investigate.yaml, epistemic_conduct.yaml
-   Rule: If uncertainty ≥0.65 + context ≥0.50 → ask human first
-   
-2. Query unknowns (don't reload full bootstrap)
-   
-3. Submit CHECK
-   MCO used: cascade_styles.yaml, protocols.yaml
-```
-
-**Goal Creation:**
-```
-1. Map epistemic → scope
-   MCO used: goal_scopes.yaml
-   
-2. Check protocols
-   MCO used: goal_scopes.yaml (session_continuation, web_project_design)
-   
-3. Create goal
-   MCO used: protocols.yaml
-```
-
-**Drift Detection:**
-```
-1. Monitor statusline
-   MCO used: feedback_loops.yaml
-   
-2. Trigger response
-   MCO used: feedback_loops.yaml, epistemic_conduct.yaml
-   Responses: OVERCONFIDENT → recalibrate, DRIFTING → investigate
-```
-
-### Key MCO Concepts
-
-**Personas (7 types):**
-- Researcher, Implementer, Reviewer, Coordinator, Learner, Expert, Sanitizer
-- Influence transaction style selection
-
-**Transaction Styles (6 profiles):**
-- Default, Exploratory, Rigorous, Rapid, Expert, Novice
-- Different assessment depths and gate thresholds
-
-**Bidirectional Accountability:**
-- When AI challenges user (epistemic rigor enforcement)
-- When human challenges AI (calibration feedback)
-
-**Uncertainty-Driven Bootstrap:**
-- High uncertainty (>0.7): Deep context (~4500 tokens)
-- Medium uncertainty (0.5-0.7): Moderate context (~2700 tokens)
-- Low uncertainty (<0.5): Minimal context (~1800 tokens)
-
-**Model-Specific Bias Correction:**
-- Calibration adjustments per LLM
-- Corrects for overconfidence/underconfidence patterns
-
-### Token Costs
-
-| Component | Cost |
-|-----------|------|
-| Bootstrap (session_start) | ~800 tokens |
-| Bootstrap (live mode) | ~2000 tokens |
-| CHECK requery | ~50 tokens |
-| Full MCO load | ~1500 tokens |
-| Targeted MCO load | ~200-400 tokens |
-
-### Example: Ask vs Investigate Threshold
-
-From `ask_before_investigate.yaml`:
-```yaml
-uncertainty: ≥0.65
-context: ≥0.50
-→ Ask human first before deep investigation
-```
-
-### Example: Goal Scope Mapping
-
-From `goal_scopes.yaml`:
-```
-Epistemic vectors → Scope vectors:
-- KNOW/DO/UNCERTAINTY → breadth (0.0=function, 1.0=codebase)
-- Task complexity → duration (0.0=hours, 1.0=months)
-- Multi-agent needs → coordination (0.0=solo, 1.0=heavy)
-```
-
-### MCO Relationships
-
-```
-personas.yaml → cascade_styles.yaml (informs)
-cascade_styles.yaml → confidence_weights.yaml (uses)
-epistemic_conduct.yaml → ask_before_investigate.yaml (enforces)
-bootstrap_triggers.yaml ↔ goal_scopes.yaml (integrates)
-model_profiles.yaml → feedback_loops.yaml (corrects)
-protocols.yaml ↔ goal_scopes.yaml (validates)
-feedback_loops.yaml → epistemic_conduct.yaml (triggers)
-```
-
-### MCO Index
-
-The master index (`MCO_INDEX.yaml`) provides:
-- Semantic categorization of all configs
-- Workflow integration maps
-- Query patterns (by concept, use case, question)
-- Relationship matrix
-- Token cost estimates
-- Maintenance procedures
-
-**Query by Concept:**
-- "bias-correction" → model_profiles.yaml, confidence_weights.yaml, feedback_loops.yaml
-- "gate-thresholds" → cascade_styles.yaml, ask_before_investigate.yaml, goal_scopes.yaml
-- "uncertainty-thresholds" → ask_before_investigate.yaml, bootstrap_triggers.yaml, cascade_styles.yaml
-
-**Query by Use Case:**
-- "Starting new session" → bootstrap_triggers.yaml, personas.yaml, cascade_styles.yaml
-- "CHECK gate decision" → ask_before_investigate.yaml, cascade_styles.yaml, epistemic_conduct.yaml
-- "Detecting overconfidence" → model_profiles.yaml, feedback_loops.yaml, epistemic_conduct.yaml
-
----
-
-### Tiered Weight Architecture
-
-Empirica uses a 4-layer weight system for calibration scoring. Each layer serves a distinct purpose and operates at a different granularity.
-
-**Layer 1: Confidence Aggregation (Tier 0)**
-- **Source:** `config/mco/confidence_weights.yaml` — `foundation_confidence_weights`, `comprehension_confidence_weights`, etc.
-- **Purpose:** Aggregate 13 epistemic vectors into tier-level confidence scores (foundation, comprehension, execution, overall)
-- **Consumer:** `reflex_exporter.py` (dashboard visualization)
-- **Granularity:** Static per-model (claude_sonnet, claude_haiku, gpt4, default)
-- **Example:** Foundation confidence = know × 0.40 + do × 0.30 + context × 0.30
-
-**Layer 2: Domain Category Weights (Tier 1)**
-- **Source:** `config/mco/confidence_weights.yaml` — `domain_category_weights`
-- **Purpose:** How much each vector category (foundation/comprehension/execution/engagement) matters for calibration scoring in a given domain
-- **Consumer:** `core/post_test/mapper.py` — `_compute_weighted_calibration()`
-- **Granularity:** Per domain (software, consulting, research, operations, default)
-- **Example:** Software domain weights execution at 0.35 (shipping code matters most), research weights comprehension at 0.30
-
-**Layer 2.5: Work-Type Category Weights (1.8.14+)**
-- **Source:** `config/mco/confidence_weights.yaml` — `work_type_category_weights`
-- **Purpose:** Override domain category weights when `work_type` is known from PREFLIGHT. Makes calibration sensitive to what kind of work is being done, not just which project/domain.
-- **Consumer:** `core/post_test/mapper.py` — `_load_domain_weights(domain, work_type)`
-- **Granularity:** Per transaction (from PREFLIGHT `work_type` field)
-- **Resolution:** work_type > domain > default (the triad)
-- **Profiles:** 11 work types defined (code, research, debug, docs, comms, design, infra, audit, data, config, release)
-- **Example:** Research weights comprehension at 0.35 and meta at 0.25 (honest uncertainty matters more), code weights execution at 0.40 (shipping matters most)
-
-**Layer 3: Per-Project Per-Phase Weights (Tier 2)**
-- **Source:** `.empirica/project.yaml` — `calibration_weights` (seeded at `project-init`, backfilled by `project-bootstrap` for older projects)
-- **Purpose:** Scale individual vector gaps within categories, per phase (noetic vs praxic)
-- **Consumer:** `core/post_test/mapper.py` via `grounded_calibration.py` — passed as `per_vector_weights`
-- **Granularity:** Per project, per phase (noetic/praxic), per vector
-- **Example:** In noetic phase, execution vectors (do, change, state) are weighted low (0.2-0.3) because they're irrelevant to investigation
-
-**Known-bad measurement windows (not a weighting layer): `calibration_exclusions`**
-- **Source:** `.empirica/project.yaml` — `calibration_exclusions`, a list kept by the practice (the file is local to the checkout, not committed)
-- **Entry:** `vectors` (list), optional `source` (the grounding source, e.g. `git`), optional `from` (inclusive) and `until` (exclusive) as `YYYY-MM-DD` UTC, and a `reason`. `from`/`until` may also be unquoted YAML dates. An entry needs a `source` or a window; one that has neither, or that cannot be read (a vector name that is not one of the 13, an empty `source`, a mapping where a list is expected), is dropped with a warning and never read as "exclude everything". An entry that matches nothing is reported with 0 observations, so a typo is visible
-- **Effect:** the grounded belief for each named vector is replayed over `grounded_verifications` without the matching observations. The replay reproduces the stored belief when nothing is excluded, except for a vector with an open calibration dispute: disputes are not recorded per observation, so they are not replayed (on one other practice's store that moved `change` 0.469 to 0.408). Rows are never rewritten. The injected bias block, `grounded_bias_corrections` and `calibration-report` use the replayed value, and each says what it left out (`excluded` in `.breadcrumbs.yaml`, `exclusions_applied` in the report JSON)
-- **When to add one:** you measured a period in which a sensor was wrong and has since been fixed. Example, core: `source: git`, `vectors: [do, state, change]`, 2026-08-01 to 2026-09-21, because git evidence was graded over a window far wider than the transaction until v1.13.51. To check a seat, average `json_extract(raw_value, '$.commits')` over `verification_evidence` rows with `metric_name = 'commit_count'` by month: about 1-2 is transaction-sized, 10 or more is not
-
-**Layer 4: Work-Type Evidence Relevance**
-- **Source:** `core/post_test/mapper.py` — `WORK_TYPE_RELEVANCE` (hardcoded)
-- **Purpose:** Scale how much each evidence source (git metrics, test results, code quality, etc.) matters for the current work type
-- **Consumer:** `EvidenceMapper.map_evidence()`
-- **Granularity:** Per transaction (from PREFLIGHT `work_type` field)
-- **Example:** Research work down-weights git_metrics (0.2) and test_results (0.2) but up-weights artifact_counts (1.5)
-
-**How they interact:**
-```
-PREFLIGHT declares work_type + work_context
-    ↓
-Layer 4: Evidence items scaled by work_type relevance (source exclusion)
-    ↓
-Layer 3: Per-vector gaps scaled by project phase weights
-    ↓
-Layer 2.5: Category weights resolved by triad (work_type > domain > default)
-    ↓
-Layer 2: Gaps grouped by category, weighted by resolved category weights
-    ↓
-= Overall calibration score (lower = better calibrated)
-    Note: uncertainty excluded from score (circular dependency)
-```
-
-**Cascade Profile Selection:**
-
-The `work_type` and `work_context` from PREFLIGHT also select a cascade_styles profile (exploratory, rigorous, rapid, etc.), which determines the CHECK gate thresholds:
-
-| work_context | Profile | Gate Behavior |
-|---|---|---|
-| `greenfield` | exploratory | Lower bars, more investigation cycles |
-| `investigation` | exploratory | Tolerance for uncertainty |
-| `iteration` | default | Balanced thresholds |
-| `refactor` | default | Standard rigor |
-
-| work_type (overrides within default context) | Profile |
-|---|---|
-| `research` | exploratory |
-| `audit` | rigorous |
-| `release` | rigorous |
-| `design` | exploratory |
-
----
-
-## Summary Statistics (Updated)
-
-**Total Configuration Coverage:**
-
-| Layer | Files | Lines | Purpose |
-|-------|-------|-------|---------|
-| System Config | 1 | ~200 | `.empirica/config.yaml` |
-| Project Config | 1 | ~300 | `.empirica/project.yaml` |
-| Module Configs | 2 | ~500 | `modality_config.yaml`, `investigation_profiles.yaml` |
-| MCO Configs | 11 | 3615 | Metacognitive behavior, transaction styles, protocols |
-| Config Loaders | 8 | 2186 | Python modules for loading configs |
-
-**Grand Total:** ~6800 lines of configuration across all layers
-
-**Complete Coverage:**
-- ✅ System configuration (global settings)
-- ✅ Project configuration (per-project settings)
-- ✅ Module configuration (modality profiles, investigation strategies)
-- ✅ MCO configuration (AI behavior, transaction styles, protocols)
-- ✅ Python loaders (8 modules documented)
-- ✅ Environment variables (precedence and usage)
-- ✅ Loading order and precedence rules
-

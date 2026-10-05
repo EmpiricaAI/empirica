@@ -3,456 +3,233 @@
 **Status:** AUTHORITATIVE
 **Source:** `empirica/plugins/claude-code-integration/hooks/sentinel-gate.py`
 **Audience:** Developers, not AI agents (see [Sentinel Constitution](../architecture/SENTINEL_CONSTITUTION.md) Principle II: Measurement Opacity)
-**Last Updated:** 2026-04-04 (v1.8.14-dev)
 
 ---
 
-## Overview
+## What it is
 
-The Sentinel Gate is a `PreToolUse` hook that implements least-privilege access control for AI tool usage. It classifies every tool call as **noetic** (read/investigate) or **praxic** (write/execute) and gates praxic actions until the AI demonstrates sufficient epistemic readiness.
+The Sentinel Gate is a `PreToolUse` hook. It sorts every tool call it sees into **noetic** (reads, searches, planning: cannot change state) or **praxic** (can change state) and lets praxic calls through only when the current transaction certifies them. Design principle: default deny for anything that might write, explicit allow for what is known to read.
 
-Design principle: **iptables for cognition** — default deny, explicit allow.
+`empirica setup` registers it twice, with a 10 second timeout, for the matchers `Edit|Write` and `Bash` (`_register_all_hooks` in `empirica/cli/command_handlers/setup_claude_code.py`). A second PreToolUse hook, `ruling-shape.py`, matches `AskUserQuestion` and never blocks. Consequences worth knowing:
 
----
-
-## Decision Flow
-
-```
-Tool Call Arrives
-│
-├─ Rule 1: Tool in NOETIC_TOOLS? ──────────────────── → ALLOW (noetic)
-├─ Rule 2: Bash + is_safe_bash_command()? ─────────── → ALLOW (safe bash)
-├─ Rule 2b: Write/Edit + is_plan_file()? ──────────── → ALLOW (plan file)
-│
-│  ── Everything below is PRAXIC ──
-│
-├─ Rule 3a: subagent (active_work is_subagent flag, else no matching active_session)? → ALLOW (subagent exemption)
-├─ Empirica paused (sentinel_paused file)? ────────── → ALLOW (off-record)
-├─ Sentinel disabled (file flag or env var)? ──────── → ALLOW (disabled)
-│
-│  ── Authorization checks (requires DB) ──
-│
-├─ Optional: Bootstrap required? ──────────────────── → DENY if no project_id
-├─ No PREFLIGHT found?
-│   ├─ Safe bash / transition command? ────────────── → ALLOW (pre-transaction)
-│   └─ Otherwise ─────────────────────────────────── → DENY (no transaction)
-├─ Project context changed? ───────────────────────── → DENY (re-PREFLIGHT)
-├─ POSTFLIGHT exists after PREFLIGHT? (loop closed)
-│   ├─ Safe bash / toggle / transition? ───────────── → ALLOW (inter-transaction)
-│   └─ Otherwise ──────────────────────────────────── → DENY (loop closed)
-│
-│  ── Readiness evaluation ──
-│
-├─ Previous transaction INVESTIGATE + no findings? ── → ASK (praxic only; noetic passes)
-├─ AUTO-PROCEED: know ≥ threshold, unc ≤ threshold? ─ → ALLOW
-├─ No CHECK found?
-│   ├─ Grounded PREFLIGHT claims (`read`, or `ran` with scope + count)? → ALLOW (certified at open)
-│   └─ Otherwise ──────────────────────────────────── → DENY (need CHECK or claims)
-├─ CHECK before PREFLIGHT? ────────────────────────── → DENY (stale CHECK)
-├─ Rushed (<30s) + no findings/unknowns? ──────────── → DENY (rushed; work_type remote-ops exempt)
-├─ CHECK decision = "investigate"? ────────────────── → ALLOW (advisory; a check-submit with <3 noetic calls since is DENIED)
-├─ Optional: CHECK expired (>30min)? ──────────────── → DENY (expired)
-├─ Optional: Compact after CHECK? ─────────────────── → DENY (compacted)
-├─ CHECK vectors pass readiness gate? ─────────────── → ALLOW
-└─ Otherwise ──────────────────────────────────────── → ALLOW (advisory: shortfall surfaced, not blocked)
-```
-
-### Fail-Open Design
-
-If the Sentinel crashes (import error, DB lock, unexpected exception), the tool call is **allowed** with a warning. Work must never be blocked by measurement failure (Constitution Principle VIII). Set `EMPIRICA_SENTINEL_FAIL_CLOSED=1` to flip that: a crash then denies, for hardened deployments.
+- Under Claude Code the gate never sees `Read`, `Grep`, `Glob`, `WebFetch` or MCP calls. The noetic tool sets below matter for harnesses that route more tools to the hook, for the phase counters, and for the closed-loop paths.
+- The gate certifies **structure**, not vector values. Nearly everything it denies is "no open transaction", "loop closed", "no CHECK and no grounded claims", "rushed CHECK". A CHECK whose vectors miss the threshold is allowed with an advisory.
 
 ---
 
-## Tool Classification
+## Decision flow
 
-### Noetic Tools (Always Allowed)
+`main()` runs these steps in order; the first that answers wins.
 
-```python
-NOETIC_TOOLS = {
-    'Read', 'Glob', 'Grep', 'LSP',       # File inspection
-    'WebFetch', 'WebSearch',              # Web research
-    'ToolSearch',                         # Deferred tool discovery
-    'Task', 'TaskOutput',                 # Agent delegation
-    'TodoWrite',                          # Planning
-    'AskUserQuestion',                    # User interaction
-    'Skill',                              # Skill invocation
-    'KillShell',                          # Process management (cleanup)
-}
-```
+1. **Count and annotate.** Increment the hook counters (parent sessions only), compute the autonomy and goalless nudges, and look up artifacts that mention an `Edit`/`Write` target. None of this decides anything.
+2. **Release-path exemption.** Always allow: any `mcp__empirica__*` tool; the pause/resume toggles; and a Bash call that is fully safe *and* contains a recovery or measurement verb in any pipeline segment (`preflight-submit`, `check-submit`, `postflight-submit`, the `*-log` family, `log-artifacts`, `resolve-artifacts`, `delete-artifacts`, `note`, `source-add`, `unknown-resolve`, `noetic-batch`, goal create/complete/list verbs, `doctor`, `diagnose`, `setup`, `plugin-sync`, `sentinel`, `listener on|off|status|arm`, `loop status|heartbeat|pause|resume|...`). The authoritative list is `_RECOVERY_MEASUREMENT_PREFIXES`. The rule: no gate may block the action that clears it.
+3. **Investigation-proportionality budget.** For `Read`, `Grep` and `Glob` only: once `tool-router.py` has armed a budget on a hypothesis-bearing prompt, deny after the limit (default 5) until the next prompt resets it. Armings older than an hour are dropped. Under the default registration these tools never reach the hook, so this applies only where a harness routes them.
+4. **Noetic firewall.** Allow a noetic tool, a `monitor` call whose whole input is `{"action": "list"}`, a safe Bash command, or a `Write`/`Edit` of a plan file (`/.claude/plans/` in the resolved path). A praxic remote command (`ssh`/`scp`/`rsync` that writes) is allowed here only if the latest PREFLIGHT or CHECK in the session has `uncertainty <= 0.25` (the ConfidenceGate for remote infra; `know` is not evaluated).
+5. **Exemptions.** Allow when the caller is a subagent, when Empirica is paused, or when the Sentinel is disabled.
+6. **Authorization pipeline.** Everything praxic that is left:
+   - *Can the gate run at all?* If the hook's interpreter cannot import `empirica`, allow and say so (first call per session). If there is no git repo, no env root and no `.empirica/project.yaml` above the working directory, allow ("not applicable"). No resolvable session or no database: allow with a warning.
+   - *Transaction file closed* (POSTFLIGHT sets `status` to `closed` and leaves the file): only noetic tools, safe Bash, transition commands and safe `empirica` statements pass; everything else is denied with the closed-loop message.
+   - Optional (`EMPIRICA_SENTINEL_REQUIRE_BOOTSTRAP=true`): deny if the session has no `project_id`.
+   - *No PREFLIGHT:* allow safe Bash and transition commands, deny the rest with "No open transaction". Calls are counted and nudged at 5 and 10.
+   - *Project changed since PREFLIGHT:* deny, re-run PREFLIGHT.
+   - *POSTFLIGHT exists after PREFLIGHT* (the same check against the database): same allow-list as the closed file; deny otherwise.
+   - *Previous transaction's CHECK said `investigate` and no finding has been logged since this PREFLIGHT:* **ask** (praxic only).
+   - *Auto-proceed:* PREFLIGHT `know >= K` and `uncertainty <= U` allows with no CHECK at all (thresholds below).
+   - *No CHECK yet:* check-submit and noetic calls pass. Otherwise allow if PREFLIGHT declared at least one **certifying claim**, else deny.
+   - *CHECK older than PREFLIGHT:* deny.
+   - *Rushed:* CHECK within `EMPIRICA_MIN_NOETIC_DURATION` seconds (default 30) of PREFLIGHT with no finding and no unknown logged since PREFLIGHT: deny. `work_type=remote-ops` is exempt. One artifact clears it; waiting does not.
+   - *CHECK decision `investigate`:* noetic work counts toward a cool-down; a `check-submit` before 3 noetic calls have passed since the `investigate` is denied; other praxic calls are allowed with an advisory.
+   - Optional expiry (30 minutes) and compaction invalidation: deny.
+   - *CHECK thresholds:* allow. A shortfall against the thresholds is surfaced as an `ADVISORY:` message, never a deny.
 
-### Noetic MCP Tools: Intelligence Layer (Always Allowed)
+### Certifying claims
 
-Intelligence layer MCP tools are all read-only search/investigate operations:
+PREFLIGHT `claims` are stored in `transaction_claims`. Only `grounding: read`, or `ran` with both a non-empty `scope` and a `count`, certify. `retrieved` (our own prior artifact: testimony) and `assumed` do not. The hook cannot import `empirica.core.claims`, so it queries the table directly with the same rule; a test pins the two together. If the lookup itself fails (an old schema), the deny names the failure instead of saying "you declared nothing". An item with none of `claim`/`statement`/`text`, `grounding`, `scope`, `count`, `ref` is listed under `claims.skipped` in the PREFLIGHT output and not stored.
 
-```python
-NOETIC_MCP_CORTEX = {
-    'mcp__cortex__investigate',            # Query knowledge base
-    'mcp__cortex__search_knowledge',       # Semantic search
-    'mcp__cortex__get_entity_context',     # Entity lookup
-    'mcp__cortex__cortex_stats',           # Stats (read-only)
-    # ... and the other pure reads: cortex_list_goals, cortex_list_artifacts, cortex_list_sources,
-    # cortex_memory_status, cortex_ai_discover, cortex_get_skill, cortex_list_scheduled_skills,
-    # cortex_source_chunks, cortex_source_get_raw, cortex_render_skill_board
-}
-```
+### Thresholds
 
-The set is not only searches: it also holds the epistemic-workflow writes the gate admits by policy (`*_log`, `goal_create`,
-`log_artifacts`, the mailbox poll/archive/complete family, `cortex_collab`). The authoritative list, with the decision
-for each entry, is the set itself in `sentinel-gate.py`. `cortex_propose`, `cortex_publish` and every other tool that
-changes state stay gated, and a tool nobody has classified is praxic. The CRM MCP server's read tools
-(`crm_whoami`, `crm_schema`, `crm_get`, `crm_list_*`, `crm_scope_changes`, `crm_consent_state`) are noetic too; every
-`crm_upsert_*`, delete, link, scope, supersede, transfer and consent-event tool is gated.
-
-Every site that asks "is this tool noetic" calls one helper, `_is_noetic_tool`, so a tool added to a set is noetic
-everywhere, including after POSTFLIGHT.
-
-### Noetic MCP Tools: Chrome (Always Allowed)
-
-Chrome browser tools classified as read-only (viewing/inspection):
-
-```python
-NOETIC_MCP_CHROME = {
-    'mcp__claude-in-chrome__tabs_context_mcp',    # List open tabs
-    'mcp__claude-in-chrome__tabs_create_mcp',     # Open new tab (viewing)
-    'mcp__claude-in-chrome__navigate',            # Navigate to URL (viewing)
-    'mcp__claude-in-chrome__read_page',           # Read page content
-    'mcp__claude-in-chrome__get_page_text',       # Get page text
-    'mcp__claude-in-chrome__find',                # Find text on page
-    'mcp__claude-in-chrome__read_console_messages',   # Read console output
-    'mcp__claude-in-chrome__read_network_requests',   # Read network activity
-    'mcp__claude-in-chrome__screenshot',          # Capture page screenshot
-    'mcp__claude-in-chrome__gif_creator',          # Record page interaction
-}
-# Praxic Chrome MCP tools (require CHECK): form_input, javascript_tool, computer
-```
-
-### Plan File Writes (Noetic Exception)
-
-Writes/edits to `~/.claude/plans/` are classified as noetic — planning is investigation, not execution.
-
-Detection: `is_plan_file()` checks if `file_path` resolves to a path containing `/.claude/plans/`.
-
-### Safe Bash Commands (Noetic)
-
-Read-only shell operations classified by prefix matching:
-
-| Category | Prefixes |
-|----------|----------|
-| **File inspection** | `cat`, `head`, `tail`, `less`, `more`, `ls`, `dir`, `tree`, `file`, `stat`, `wc`, `find`, `fd`, `fdfind`, `locate`, `which`, `type`, `whereis`, `diff`, `cmp`, `comm`, `bat`, `tokei`, `scc` |
-| **Path and hash** | `readlink`, `realpath`, `sha256sum`, `sha1sum`, `sha512sum`, `md5sum`, `b2sum`, `cksum`, `shasum` |
-| **Text search and processing** | `grep`, `rg`, `ag`, `ack`, `ast-grep`, `sed` (stdout only; `-i` is caught by the flag inspection), `awk`, `jq`, `yq`, `gron`, `cut`, `tr`, `nl`, `fold`, `tac`, `rev`, `paste`, `column`, `sort`, `uniq`, `xxd`, `od`, `strings` |
-| **Git read** | `git status`, `git log`, `git diff`, `git show`, `git branch`, `git remote`, `git tag`, `git stash list`, `git blame`, `git ls-files`, `git ls-tree`, `git cat-file`, `git notes show`, `git notes list`, `git rev-parse`, `git rev-list`, `git merge-base`, `git for-each-ref`, `git describe`, `git shortlog`, `git grep`, `git config --get/--list` |
-| **GitHub CLI read** | `gh issue list/view/status`, `gh pr list/view/diff/status/checks`, `gh repo view`, `gh release list/view`, `gh run list/view/watch`, `gh workflow list/view`, `gh search`, `gh api` |
-| **Environment** | `pwd`, `echo`, `printf`, `env`, `printenv`, `set`, `whoami`, `id`, `hostname`, `uname`, `date`, `cal` |
-| **Package inspection** | `pip show/list/freeze/index`, `npm list/ls/view/info`, `cargo tree/metadata` |
-| **Process inspection** | `ps`, `top -b -n 1`, `pgrep`, `jobs` |
-| **Tmux inspection** | `tmux capture-pane/list-panes/list-windows/list-sessions/display-message/show-option` |
-| **Disk inspection** | `df`, `du`, `mount`, `lsblk` |
-| **Network inspection** | `curl`, `wget -O-`, `ping -c`, `dig`, `nslookup`, `host`, `tailscale status/netcheck/ip/version/whois`, `ssh` |
-| **Documentation** | `man`, `info`, `help` |
-| **Testing** | `test`, `[` |
-| **Static analysis** | `pyright`, `ruff check`, `radon`, `mypy`, `flake8`, `pylint`, `vulture`, `pip-audit`, `nvidia-smi` |
-
-The table lists the main groups; the authoritative list is `SAFE_BASH_PREFIXES` in `sentinel-gate.py`.
-
-### Dangerous Shell Operators (Blocked)
-
-```python
-DANGEROUS_SHELL_OPERATORS = (';', '&&', '||', '`', '$(')
-```
-
-**Exception:** `;`, `&&` and `||` chains, newline-separated statements and `for`/`while` loops are allowed if **all segments** are individually safe (e.g., `cd /path && grep pattern file`, `ls; pwd`). A chain with any praxic segment (`ls; rm x`) is praxic. Backticks and `$(` substitutions are not allowed.
-
-### Safe Pipe Targets
-
-When a pipe chain is detected, subsequent segments must start with a safe target:
-
-```python
-SAFE_PIPE_TARGETS = (
-    'head', 'tail', 'wc', 'sort', 'uniq', 'grep', 'rg', 'awk', 'sed ',
-    'cut', 'tr', 'less', 'more', 'cat', 'xargs echo', 'tee /dev/stderr',
-    'python3 -c', 'python -c',  # For simple JSON parsing
-    'jq', 'jq ',                # JSON processing (read-only)
-    'base64',                   # Data encoding/decoding (read-only)
-)
-```
-
-### Safe Redirections
-
-Stderr suppression (`2>/dev/null`, `2>&1`, `>/dev/null`) is allowed. File redirections (`>`, `>>`, `<`) are blocked. Heredocs (`<<`) are allowed for safe commands.
-
-### Safe SQLite Commands
-
-Read-only SQLite access is allowed:
-- Meta commands: `.schema`, `.tables`, `.dump`, `.indices`, `.mode`, `.headers`, `.help`, `.databases`
-- SQL: `SELECT`, `PRAGMA`, `EXPLAIN`, `ANALYZE`
-
-Write operations (`INSERT`, `UPDATE`, `DELETE`, `DROP`, `CREATE`, `ALTER`) are blocked.
-
-The write-keyword scan reads the query with its quoted literals blanked: a word inside `'...'` or `"..."` is data or a name, so `SELECT ... LIKE '%ecodex update%'` is a read. A doubled quote stays inside the literal, and a literal that never terminates is scanned as code rather than trusted, so a statement cannot be hidden behind a stray quote.
-
-Comments are blanked in the same pass, in order, because a quote inside `-- it's` is not a literal and a `--` inside a literal is data. Every positional after the database path is classified as its own statement, and so is every `-cmd` value (sqlite3 runs them all); `-init` is refused because it runs a file the gate cannot read. A dot-command is recognised at the start of any line of an argument and must be a display-only one. `writefile()`, `load_extension()`, `edit()` and `fts3_tokenizer()` are refused; `replace(a, b, c)` is a read and only `REPLACE INTO` is a write.
-
-### Work-Type-Aware Command Expansion (INFRA_SAFE_PREFIXES)
-
-When PREFLIGHT declares `work_type` as `infra`, `config`, or `debug`, the Sentinel expands the safe command list with additional inspection prefixes. The user explicitly chose the work type, so this is a scope declaration.
-
-| Category | Prefixes |
-|----------|----------|
-| **System inspection** | `systemctl status/is-active/list-units`, `journalctl --since/-u/--no-pager`, `free`, `uptime`, `lscpu`, `lsmem`, `lsusb`, `lspci`, `htop`, `vmstat`, `iostat`, `dmesg` |
-| **Docker inspection** | `docker ps/images/logs/inspect/network ls/volume ls/stats`, `docker compose ps/logs` |
-| **Network inspection** | `ss -`, `ip addr/link/route/-br`, `netstat -`, `traceroute`, `mtr`, `iptables -L`, `ufw status` |
-| **Service inspection** | `ollama list/ps/show`, `nginx -t/-T` |
-| **Tmux full access** | `tmux ` (all tmux commands when in infra mode) |
-| **Cloud/infra read** | `kubectl get/describe/logs`, `terraform plan/show`, `cloudflared tunnel list/info` |
-
-These prefixes are only active when `_current_work_type` is set to `infra`, `config`, or `debug` from the active transaction's PREFLIGHT data.
-
-### Empirica CLI Tiered Whitelist
-
-Empirica commands use a two-tier system instead of a blanket whitelist (prevents prompt injection bypass):
-
-**Tier 1 — Read-only (always safe):**
-- Goal queries: `goals-list`, `goals-progress`, `goals-discover`, `goals-search`, `goals-get-stale`, `goals-ready`, `goal-analysis`
-- Epistemic queries: `epistemics-list`, `epistemics-show`, `calibration-report`
-- Project: `project-bootstrap`, `project-search`, `project-switch`, `project-list`
-- Session: `session-snapshot`
-- Workspace: `workspace-overview`, `workspace-map`, `workspace-list`, `ecosystem-check`
-- Lesson queries: `lesson-list`, `lesson-search`, `lesson-recommend`, `lesson-stats`
-- Sentinel queries: `sentinel-status`, `sentinel-check`
-- Profile: `profile-status`
-- Other: `efficiency-report`, `docs-assess`, `issue-list`
-- Mesh and credential state: `mailbox poll`, `mailbox show`, `mailbox sers`, `mesh status`, `mesh diagnose`, `mesh tail`, `mesh-agreements list`, `practice-context`, `auth status`, and the `listener` and `loop` registry verbs
-- Diagnostics: `doctor`, `diagnose`, `status`, `commit-context`, `query`
-- **Tier 1b — read by naming convention:** any verb ending in `-list`, `-show`, `-search`, `-status`, `-stats`, `-report`, `-map`, `-walk`, `-diff`, `-history`, `-explain`, `-context`, `-top`, `-related`, `-get`, `-verify` or `-signatures` is read-only (`is_read_shaped_empirica_verb`). `-check` is deliberately not on the list: `sources-check` writes review stamps.
-- Any `<group> <action>` verb is listed by name, never by suffix. `empirica-workspace` reads are an exact (group, action) table (`org|contact|engagement list|show`, `touchpoint list`, `revenue-event list`, `entity knowledge|recall`, `engagement materials`, `crm-sync preview`); every write beside them stays gated.
-
-**Deliberately not Tier 1:** `auth token` (it can refresh and rewrite stored credentials) and `auth connectors` (it rewrites `~/.claude.json` with `--apply`; argparse accepts abbreviated flags, so "gated unless `--apply` is absent" would not hold). `mailbox poll`, `show` and `sers` resolve their bearer through the shared credential path, which refreshes the seat's expiring OAuth token like any cortex call.
-
-**Tier 2 — State-changing (allowed because they ARE the epistemic workflow):**
-- Transaction: `preflight-submit`, `check-submit`, `postflight-submit`
-- Breadcrumbs: `finding-log`, `unknown-log`, `deadend-log`, `mistake-log`, `assumption-log`, `decision-log`, `source-add`, `note`
-- Goals: `goals-create`, `goals-complete`, `goals-add-task`, `goals-complete-task`, `goals-add-dependency`, `goals-resume`, `goals-claim`, `goals-mark-stale`, `goals-refresh`
-- Session: `session-create`
-- Project: `project-init`, `project-embed`
-- Lessons: `lesson-create`, `lesson-load`, `lesson-embed`
-- Profile: `profile-sync`, `profile-prune`
-- Batch artifacts: `log-artifacts`, `resolve-artifacts`, `delete-artifacts`; mailbox: `mailbox reply`, `mailbox archive`
-- Other: `unknown-resolve`, `finding-resolve`, `investigate`, `artifacts-generate`, `sentinel-orchestrate`, `sentinel-load-profile`
-
-### The harness `monitor` tool
-
-Some harnesses (ecodex) expose a tool named `monitor` that lists, arms and kills watches. It is classified by what the call does: noetic only when its whole input is `{"action": "list"}`. Any other action, a missing action or an extra field keeps it gated. Claude Code's own `Monitor` tool carries no `action` and is never matched by this rule.
-
-### Outside a project, and when the gate itself fails
-
-- **No project:** with no git repository, no env root and no `.empirica/project.yaml` at or above the working directory (the home directory's own `~/.empirica` does not count), there is nothing to measure. The Sentinel allows and says so: *"Sentinel not applicable: no git repo and no empirica project here, nothing to measure."* It is not a crash and it is not a deny under `EMPIRICA_SENTINEL_FAIL_CLOSED`.
-- **A project whose root could not be resolved** (a directory holding `.empirica/project.yaml` but no git repository) is not "no project". It goes through the crash handler: `SENTINEL_CRASH` on stderr and an allow, or a deny with `EMPIRICA_SENTINEL_FAIL_CLOSED=1`.
-- **The hook cannot import empirica:** the gate allows (a broken install must not lock a session out) but says so on the first call of a session. The repair text follows `EMPIRICA_HARNESS`: under Claude Code, re-run `empirica setup-claude-code`; under another harness, make the empirica CLI reachable on PATH for that harness (and, for codex, `empirica diagnose --frontend ecodex`).
+`K` and `U` come from `_get_dynamic_thresholds`: static fallbacks `0.70` and `0.35`; the base uncertainty can be replaced by `ready_uncertainty` in `calibration.yaml` (practice over global, see [Configuration Reference](CONFIGURATION_REFERENCE.md)); a Brier-score adjustment per `ai_id` (the practitioner's own trajectory once it has enough points) can then **only tighten** them, bounded by the ceilings in `cascade_styles.yaml`. For the auto-proceed test only, `U` is scaled down when the transaction carries a `domain` or `criticality` whose checklist has checks (`max(0.10, U * (1 - coverage_min * 0.6))`). The gate always reads the **raw** vectors the AI submitted; calibration corrections are feedback, never silently applied here, and `EMPIRICA_CALIBRATION_FEEDBACK` does not change that.
 
 ---
 
-## Transition Commands
+## Tool classification
 
-After POSTFLIGHT closes a transaction, only specific commands are allowed to start a new cycle:
+### Noetic tools
 
-```python
-TRANSITION_COMMANDS = (
-    'cd ',                         # Directory change (project switch)
-    'empirica session-create',     # New session
-    'empirica project-bootstrap',  # Bootstrap new project context
-    'empirica project-init',       # Initialize new project
-    'empirica project-switch',     # Switch active project context
-    'empirica project-list',       # List available projects
-    'empirica preflight-submit',   # Start new epistemic cycle
-    'git add',                     # Stage work from completed transaction
-    'git commit',                  # Commit work from completed transaction
-)
-```
+`NOETIC_TOOLS`: `Read`, `Glob`, `Grep`, `LSP`, `WebFetch`, `WebSearch`, `ToolSearch`, `Task`, `TaskOutput`, `TodoWrite`, `AskUserQuestion`, `Skill`, `KillShell`.
 
-Transition detection handles piped commands (`echo '...' | empirica preflight-submit -`) and chained commands (`cd /path && empirica preflight-submit -`).
+**Cortex MCP (`NOETIC_MCP_CORTEX`).** Membership is a decision, not a claim that every tool is read-only. It holds the pure reads (`investigate`, `search_knowledge`, `get_entity_context`, `cortex_stats`, the `list_*` and inbox/outbox polls, `get_proposal`, `get_skill`, source readers), the epistemic-workflow writes the gate admits by policy (`cortex_*_log`, `cortex_goal_create`, `cortex_log_artifacts`, ingest, the bus family, `cortex_collab`), and two soft flips on your own view (`archive_proposal`, `complete_proposal`). `cortex_propose`, `cortex_publish` and every unlisted tool stay gated; a tool nobody has classified is praxic. A bare `mcp__cortex` namespace is resolved to `mcp__cortex__<op>` from `op`/`operation`/`name`/`tool` in the input before classification.
 
----
+**CRM MCP (`NOETIC_MCP_CRM_READS`).** `crm_whoami`, `crm_schema`, `crm_get`, `crm_list_*`, `crm_scope_changes`, `crm_consent_state`. Every upsert, delete, link, scope, supersede, transfer and consent-event tool is gated.
 
-## Anti-Gaming Protections
+**Chrome MCP (`NOETIC_MCP_CHROME`).** Tab listing and creation, `navigate`, `read_page`, `get_page_text`, `find`, console and network reads, `screenshot`, `gif_creator`. `form_input`, `javascript_tool` and `computer` are praxic.
 
-### Rushed Assessment Detection
+**Empirica MCP.** Every `mcp__empirica__*` tool is treated as epistemic workflow and always allowed.
 
-If CHECK arrives less than 30 seconds after PREFLIGHT **and** no findings or unknowns were logged in between, the Sentinel blocks with "Rushed assessment." This prevents the AI from gaming the gate by quickly submitting high-confidence vectors without investigation.
+Every site that asks "is this tool noetic" calls `_is_noetic_tool`, so a tool added to a set is noetic everywhere, including after POSTFLIGHT.
 
-Configurable via `EMPIRICA_MIN_NOETIC_DURATION` env var (default: 30 seconds).
+### Safe Bash
 
-### INVESTIGATE Continuity
+`is_safe_bash_command` answers "can this command, as written, change state?". Everything it accepts is noetic; the rest is praxic.
 
-If the previous transaction's CHECK returned `investigate` and the AI opens a new transaction without logging any findings, the Sentinel returns `ask` for praxic tools (noetic tools and safe Bash pass). This surfaces gaming by creating a fresh transaction with high confidence to bypass the investigate decision, and the user can override.
+- **Prefix list.** `SAFE_BASH_PREFIXES` is the allow-list of read-only programs: file inspection (`cat`, `head`, `ls`, `find`, `fd`, `stat`, `diff`, `bat`, `tokei`), hashes, text tools (`grep`, `rg`, `ast-grep`, `sed`, `awk`, `jq`, `yq`, `sort`, `cut`, `column`, `xxd`), git reads, `gh` reads, environment and process inspection, `tmux` display commands, disk and network inspection (`curl`, `dig`, `ping -c`, `wget -O-`), documentation, `test`, and static analysis (`ruff check`, `pyright`, `mypy`, `vulture`, `radon`).
+- **Mutating flags on a safe program are praxic.** `find -delete|-exec|...`, `fd -x`, `sort -o`, `yq -i`, `ast-grep --rewrite|-U`, `sed -i`, an `awk` program that prints to a file or calls `system()`.
+- **Chains.** `;`, `&&`, `||`, newline-separated statements and `for`/`while` loops are safe only if every segment is. `ls; pwd` is safe, `ls; rm x` is not. Control-flow keywords, `[ ... ]` tests, `VAR=value` and `exit N` are inert shapes.
+- **Command substitution.** `$(...)` and backticks are validated by classifying the inner command. In a chain segment or inside double quotes a substitution with a safe inner command passes (`echo "$(date)"`); a bare unquoted `$(...)` or backtick in a single command does not (`echo $(date)` is praxic).
+- **Pipes.** Every stage must be read-only. After the first stage the legacy receivers in `SAFE_PIPE_TARGETS` (`python3 -c`, `xargs echo`, `tee /dev/stderr`, `base64`) are also accepted, never as the first stage.
+- **Redirections.** `2>/dev/null`, `2>&1` and `>/dev/null` are fine. `>`, `>>` and `<` outside quotes are praxic. Heredocs are allowed for safe commands.
+- **`python3 -c`.** A first-stage `python3 -c` is safe unless its text contains a write pattern (`open(`, `.write(`, `shutil.`, `os.remove(`, `subprocess.`, `os.system(`, `requests.post(`, SQL write keywords, `exec(`, `eval(`). That is a text scan, not a sandbox.
+- **`sqlite3`.** Reads only: `SELECT`, `WITH`, `PRAGMA`, `EXPLAIN`, `ANALYZE` and display-only dot-commands. Quoted literals and comments are blanked before the write-keyword scan, so a word inside `'...'` is data; an unterminated literal is scanned as code. `-init` and `writefile()`, `load_extension()`, `edit()`, `fts3_tokenizer()` are refused.
+- **`ssh`, `scp`, `rsync`.** Classified by the remote command and transfer direction, seeing through `timeout`, `env`, `nice` and similar wrappers: `ssh host ls` and `scp host:/x .` are safe, `ssh host "systemctl restart x"`, `scp x host:/y` and `rsync a b` are not; `rsync -n` is. Under `work_type=remote-ops` any `ssh`/`scp`/`rsync` passes, because local sensors cannot observe the remote box.
+- **Work-type expansion.** With `work_type` `infra`, `config` or `debug`, `INFRA_SAFE_PREFIXES` adds system, docker, network and service inspection (`systemctl status`, `journalctl`, `docker ps|logs|inspect`, `ss`, `ip addr`, `kubectl get`, `terraform plan`, all `tmux`, macOS counterparts). `remote-ops` gets the same list.
 
-Within a transaction whose CHECK returned `investigate`, the gate stays advisory for praxic work; only a `check-submit` before three noetic calls have passed since the `investigate` is denied.
+Verified with the real function:
 
-### Raw Vectors Only
+| Command | Safe? |
+|---|---|
+| `cd /tmp && grep foo file` | yes |
+| `grep foo f \| head -5` | yes |
+| `for f in a b; do cat $f; done` | yes |
+| `echo "$(date)"` | yes |
+| `ls; rm x` | no |
+| `grep foo f > out.txt` | no |
+| `echo $(date)` | no |
+| `sed -i s/a/b/ f` | no |
+| `find . -delete` | no |
+| `git commit -m x` | no (but a transition command) |
+| `sqlite3 db 'SELECT 1'` | yes |
+| `sqlite3 db 'DELETE FROM t'` | no |
+| `systemctl status x` | no; yes with `work_type=infra` |
 
-The Sentinel evaluates **raw (uncorrected) vectors** from PREFLIGHT/CHECK. Calibration corrections are feedback for the AI to internalize — they are never applied silently to gating decisions. This is intentional and not controlled by `EMPIRICA_CALIBRATION_FEEDBACK`.
+`git branch -D x` also classifies as safe: the prefix `git branch` is on the list and the flag is not inspected. Treat that as a known gap, not as a policy.
 
----
+### `empirica` CLI tiers
 
-## Autonomy Calibration Loop
+`is_safe_empirica_statement` accepts one statement (a heredoc counts as one; anything after its terminator is a second statement) whose verb is in:
 
-### Tool Count Tracking
+- **Tier 1, read-only.** `EMPIRICA_TIER1_PREFIXES`: goal and epistemic queries, `project-bootstrap|search|switch|list`, `workspace-*`, `lesson-*` queries, `sentinel-*` queries, `calibration-report`, `compliance-report`, `doctor`, `diagnose`, `status`, `query`, `noetic-batch`, `practice-context`, `mailbox poll|show|sers`, `mesh status|diagnose|tail`, `mesh-agreements list`, `auth status`, plus the `sentinel`, `loop`, `listener` and `instance` control verbs.
+- **Tier 1b, by naming convention.** Any verb ending in `-list`, `-show`, `-search`, `-status`, `-stats`, `-report`, `-map`, `-walk`, `-diff`, `-history`, `-explain`, `-context`, `-top`, `-related`, `-get`, `-verify` or `-signatures`. `-check` is deliberately absent: `sources-check` writes review stamps.
+- **Tier 2, state-changing but part of the workflow.** `EMPIRICA_TIER2_PREFIXES`: the three transaction verbs, the `*-log` and `*-resolve` verbs, `note`, `source-add`, the batch artifact verbs, goal lifecycle verbs, `session-create|end`, `project-init|embed`, lesson lifecycle, profile sync/prune, `mailbox reply|archive`, `release`, `setup`, `plugin-sync`, `investigate`.
+- **Help and version.** `--help`, `-h` and `--version` as a real argument are inert for any verb. The global flags `--verbose` and `-v` before the verb are stripped before prefix matching.
+- **`empirica-workspace`** is a separate binary: only an exact (group, action) table is read-only (`org|contact|engagement list|show`, `engagement materials`, `touchpoint list`, `revenue-event list`, `entity knowledge|recall`, `crm-sync preview`).
 
-Every `PreToolUse` event the hook receives (it is registered for `Edit|Write` and `Bash`) increments `tool_call_count` in the **hook counters file** (`hook_counters_{suffix}.json`), separate from the transaction lifecycle file. Counts are split:
-- `noetic_tool_calls`: Tools classified as noetic (NOETIC_TOOLS, safe Bash, plan files)
-- `praxic_tool_calls`: Everything else
-
-The hook counters file is hook-owned (sentinel, context-shift-tracker, subagent-stop write to it). POSTFLIGHT reads the counters, then deletes the file. This separation prevents race conditions between hooks and POSTFLIGHT on the transaction status field.
-
-Phase-split counts feed into phase-weighted calibration at POSTFLIGHT.
-
-### Nudge Thresholds
-
-Based on `avg_turns` (rolling average from last 20 POSTFLIGHTs):
-
-| Ratio | Level | Message |
-|-------|-------|---------|
-| >= 1.0x | Info | "Past average. Natural POSTFLIGHT point." |
-| >= 1.5x | Warning | "Consider POSTFLIGHT soon." |
-| >= 2.0x | Strong | "POSTFLIGHT strongly recommended." |
-
-Nudges ride `additionalContext` on allowed tool calls (Claude Code discards `permissionDecisionReason` on allow). They are informational — the AI decides when to POSTFLIGHT.
-
-### Pre-Transaction Monitoring
-
-When no transaction is open, the Sentinel counts tool calls in a separate counter file (`pre_tx_calls_{instance_id}.json`). Nudges:
-- 5+ calls: "Consider submitting PREFLIGHT to begin measured work."
-- 10+ calls: "STRONGLY RECOMMENDED: Submit PREFLIGHT now — this work is unmeasured."
+Deliberately not Tier 1: `auth token` (can refresh and rewrite stored credentials) and `auth connectors` (rewrites `~/.claude.json` with `--apply`, and argparse accepts abbreviated flags).
 
 ---
 
-## Subagent Exemption
+## Between transactions
 
-Subagents (spawned via `Task` tool) bypass the Sentinel gate. Detection: `active_work_{claude_session_id}.json` with `is_subagent: true` (written by the SubagentStart hook) is a subagent. Only when that file is missing does it fall back to absence detection: a linked git worktree, or an `active_session_{instance_suffix}` whose session belongs to another `active_work` file.
+After POSTFLIGHT a new cycle must start without a chicken-and-egg. These are allowed while the loop is closed: safe Bash, safe `empirica` statements, the pause/resume toggles, and `TRANSITION_COMMANDS`: `cd `, `empirica session-create`, `project-bootstrap`, `project-init`, `project-switch`, `project-list`, `preflight-submit`, `git add`, `git commit`.
 
-Rationale: The parent's CHECK already authorized the spawn. Double-gating is redundant (see Transaction Exemption in CANONICAL_CORE.md).
-
-Subagent tool calls are counted separately and added to the parent's `delegated_tool_calls` by the `SubagentStop` hook.
+A multi-statement transition is allowed only if every segment is a transition command or a plain producer (`echo`, `cat`, `printf`), as in `echo '{...}' | empirica preflight-submit -` or `cd /path && empirica preflight-submit - <<'EOF'`. The heredoc must close with nothing after it, and anything on the delimiter line must be inert: `2>&1` and pipes into `head`, `tail`, `wc`, `grep`, `rg`, `cut`, `tr`, `cat`, `jq`. A PREFLIGHT that shares its Bash call with anything else is refused, and the deny says so instead of repeating "run PREFLIGHT". Likewise a command substitution whose inner command is not a read is named as the cause of the refusal.
 
 ---
 
-## Pause/Resume (Off-Record Mode)
+## Anti-gaming
 
-### Pause Files
-
-| File | Scope | Precedence |
-|------|-------|------------|
-| `~/.empirica/sentinel_paused_{instance_id}` | Per-instance | Checked first |
-| `~/.empirica/sentinel_paused` | Global (all instances) | Fallback |
-
-Instance ID: see Instance Isolation below.
-
-### Toggle Detection
-
-The Sentinel detects pause/unpause commands (writing or removing `sentinel_paused` files) and self-exempts — these commands are allowed even when the loop is closed. This prevents a chicken-and-egg problem where the Sentinel blocks its own toggle.
-
-### Sentinel Disable
-
-Two mechanisms to disable the Sentinel entirely:
-
-| Mechanism | How | Priority | Requires restart? |
-|-----------|-----|----------|-------------------|
-| File flag | Write `false` to `~/.empirica/sentinel_enabled` | Higher | No |
-| Env var | `EMPIRICA_SENTINEL_LOOPING=false` | Lower | Yes |
-
-The file wins, and it wins in both directions: the env var is consulted only when the file does not exist, so a file holding `true` makes `EMPIRICA_SENTINEL_LOOPING=false` inert. An unattended runner that must not be gated should run with a scratch `HOME`, or with the plugin off, rather than rely on the env var. Inside a project the Sentinel keeps refusing unmeasured praxic work for a run nobody opens a transaction for; that is by design.
+- **Rushed assessment.** See the pipeline. The deny names both halves of its predicate (short gap and zero artifacts) and both remedies (log one artifact, or skip CHECK by declaring grounded claims).
+- **INVESTIGATE continuity.** A fresh PREFLIGHT cannot launder an `investigate` into a proceed without logging a finding: praxic calls get an `ask`, noetic calls pass.
+- **Raw vectors only.** The gate never applies calibration corrections.
+- **Release-path invariant.** Recovery and measurement verbs are evaluated before every other gate, so a deny can always be cleared from inside the session.
 
 ---
 
-## Instance Isolation
+## Counters and nudges
 
-Multi-Claude support via instance-specific files:
+Every call that reaches the hook in a parent session (one with an `active_work_{claude_session_id}.json`) increments `tool_call_count` in the **hook counters file**, beside the transaction file and named by it (`hook_counters_{suffix}.json`). The transaction file is workflow-owned; the counters are hook-owned, so each file has one writer. POSTFLIGHT reads the counters and deletes the file. The counters are split into `noetic_tool_calls` and `praxic_tool_calls`, and also record edited files and a capped tool trace; the split feeds phase-weighted calibration ([Phase-Aware Calibration](../architecture/PHASE_AWARE_CALIBRATION.md)).
 
-```
-<project>/.empirica/active_transaction_{instance_id}.json  # Per-instance transaction
-~/.empirica/sentinel_paused_{instance_id}          # Per-instance pause
-~/.empirica/pre_tx_calls_{instance_id}.json        # Per-instance pre-tx counter
-```
+Nudges are informational. They ride `additionalContext` on allowed calls, because Claude Code discards `permissionDecisionReason` on allow.
 
-Instance ID resolution priority:
-1. `EMPIRICA_INSTANCE_ID` or `CLAUDE_INSTANCE_ID` environment variable (explicit override)
-2. `TMUX_PANE`
-3. `TERM_SESSION_ID` (macOS Terminal.app)
-4. `WINDOWID` (X11)
-5. TTY device
+| Nudge | Trigger |
+|---|---|
+| Autonomy | Tool count against `avg_turns`, the mean tool-call count of the last 20 POSTFLIGHTs in the session (no nudge until there is history). At 1.0x "past average", at 1.5x "consider POSTFLIGHT soon", at 2.0x "strongly recommended" |
+| Goalless work | 5 gated calls in this transaction with no goal in play (a goal created in it, a task created or completed since PREFLIGHT, or a finding logged against a goal); stronger at 10 |
+| Work type | PREFLIGHT omitted `work_type`; once per transaction |
+| File relevance | An `Edit`/`Write` target is mentioned by existing artifacts |
+| Remote-ops | `ssh`/`scp`/`rsync` seen with a `work_type` other than `remote-ops`, `infra` or `config`; once per transaction |
+| No transaction | 5 and 10 calls with no PREFLIGHT, counted in `pre_tx_calls{suffix}.json` |
 
 ---
 
-## Project Root Resolution
+## Subagents
 
-```
-resolve_project_root(claude_session_id)
-│
-├─ get_active_project_path(claude_session_id)  [from project_resolver.py]
-│   ├─ Priority 1: instance_projects/{instance_id}.json → project_path (authoritative)
-│   └─ Priority 2: active_work_{session_id}.json → project_path (may be stale after project-switch)
-│
-├─ Check .empirica/ exists under resolved path
-│
-└─ Fallback: find_empirica_package() for import path only
-   (NOT for project resolution — no CWD fallback)
-```
+A call is a subagent's when `active_work_{claude_session_id}.json` carries `is_subagent: true` (written by the SubagentStart hook). If that file is missing the gate falls back to absence signals: a linked git worktree, or an `active_session` whose session belongs to another `active_work` file. Subagents are allowed; the parent's CHECK already authorized the spawn. The SubagentStop hook adds their tool counts to the parent's `delegated_tool_calls`.
 
 ---
 
-## Environment Variables
+## Pause and disable
+
+| Mechanism | How | Scope |
+|---|---|---|
+| Pause (off-record) | `empirica off` / `empirica on`, or `empirica sentinel pause` / `resume` (`--instance`, `--session`, `--all`, `--global`); the `/empirica` command wraps these | `~/.empirica/sentinel_paused_{instance_id}` per instance, checked first; `~/.empirica/sentinel_paused` for all instances |
+| Disable (file) | Write `false` to `~/.empirica/sentinel_enabled` | Read on every call, no restart |
+| Disable (env) | `EMPIRICA_SENTINEL_LOOPING=false` | Needs a restart |
+
+The toggle verbs are recognised by `is_toggle_command` (token-exact, so `empirica onboarding` does not match) and pass the release-path exemption, so they work even with the loop closed. The file wins in both directions: the environment variable is consulted only when the file does not exist, so a file holding `true` makes `EMPIRICA_SENTINEL_LOOPING=false` inert. An unattended runner that must not be gated should use a scratch `HOME`, or run with the plugin off. Inside a project the Sentinel keeps refusing unmeasured praxic work for a run nobody opens a transaction for; that is by design.
+
+---
+
+## Instance isolation and project root
+
+Per-instance files: `<project>/.empirica/active_transaction{suffix}.json`, `~/.empirica/sentinel_paused_{instance_id}`, `~/.empirica/pre_tx_calls{suffix}.json`, and the hook counters file. `suffix` is `_` plus the sanitized instance id, or empty with no instance.
+
+Instance id, first match: `EMPIRICA_INSTANCE_ID` or `CLAUDE_INSTANCE_ID`, `TMUX_PANE`, `TERM_SESSION_ID`, `WINDOWID`, the TTY device. When no transaction file matches the current suffix (a hook that did not inherit `TMUX_PANE`, a pane number rotated across compaction), the lookup scans `active_transaction*.json` and prefers the durable `claude_session_id`, then an open transaction, then recency, so a stale closed file at the current suffix cannot mask a live one.
+
+The project root comes from the shared project resolver: `instance_projects/{instance_id}.json`, then `active_work_{claude_session_id}.json`. There is no working-directory fallback, because Claude Code resets the cwd after compaction.
+
+---
+
+## Failure behaviour
+
+- **Fail open by default.** A crash (import error, DB lock, unexpected exception) allows the call and writes `SENTINEL_CRASH` to stderr. `EMPIRICA_SENTINEL_FAIL_CLOSED=1` (also `true`, `yes`) turns a crash into a deny for hardened deployments.
+- **Cannot import `empirica`.** The gate allows (a broken install must not lock a session out), says so once per Claude session in the user message and the model's context, and writes `~/.empirica/sentinel_unavailable.json` for `doctor`. The repair text follows `EMPIRICA_HARNESS`: under Claude Code, re-run `empirica setup-claude-code`; elsewhere, make the empirica CLI reachable on `PATH` (for codex, also `empirica diagnose --frontend ecodex`).
+- **No project.** With no git repo, no env root and no `.empirica/project.yaml` at or above the working directory (the home directory's own `~/.empirica` does not count) the gate allows with "Sentinel not applicable". That is neither a crash nor a deny under fail-closed. A directory holding `project.yaml` but no git repo is a project whose root could not be resolved: it goes through the crash handler.
+
+---
+
+## Environment variables
 
 | Variable | Default | Effect |
-|----------|---------|--------|
-| `EMPIRICA_SENTINEL_LOOPING` | `true` | `false` disables Sentinel entirely |
-| `EMPIRICA_SENTINEL_FAIL_CLOSED` | off | `1`/`true`/`yes`: a Sentinel crash denies instead of allowing |
-| `EMPIRICA_SENTINEL_REQUIRE_BOOTSTRAP` | `false` | Require `project-bootstrap` before praxic actions |
-| `EMPIRICA_SENTINEL_COMPACT_INVALIDATION` | `false` | Invalidate CHECK after context compaction |
-| `EMPIRICA_SENTINEL_CHECK_EXPIRY` | `false` | Enable 30-minute CHECK expiry |
-| `EMPIRICA_MIN_NOETIC_DURATION` | `30` | Minimum seconds between PREFLIGHT and CHECK |
-| `EMPIRICA_CALIBRATION_FEEDBACK` | (not consumed here) | Controls calibration feedback in workflow output, NOT in gate logic |
+|---|---|---|
+| `EMPIRICA_SENTINEL_LOOPING` | `true` | `false` disables the Sentinel; ignored when `~/.empirica/sentinel_enabled` exists |
+| `EMPIRICA_SENTINEL_FAIL_CLOSED` | off | `1`/`true`/`yes`: a crash denies instead of allowing |
+| `EMPIRICA_SENTINEL_REQUIRE_BOOTSTRAP` | `false` | Require a session `project_id` (from `project-bootstrap`) before praxic actions |
+| `EMPIRICA_SENTINEL_CHECK_EXPIRY` | `false` | `true`: a CHECK older than 30 minutes denies |
+| `EMPIRICA_SENTINEL_COMPACT_INVALIDATION` | `false` | `true`: a compaction after the CHECK denies. Takes effect only together with `EMPIRICA_SENTINEL_CHECK_EXPIRY=true`: the compaction comparison needs the CHECK time, which is parsed only inside the expiry branch |
+| `EMPIRICA_MIN_NOETIC_DURATION` | `30` | Seconds between PREFLIGHT and CHECK below which an artifact-free CHECK is rushed |
+| `EMPIRICA_INSTANCE_ID`, `CLAUDE_INSTANCE_ID` | unset | Explicit instance id |
+| `EMPIRICA_HARNESS` | `claude-code` | Selects the repair text when the hook cannot import `empirica` |
+
+The full list is in [Environment Variables](ENVIRONMENT_VARIABLES.md).
 
 ---
 
-## Response Format
+## Response format
 
-The Sentinel outputs JSON to stdout in Claude Code's expected hook format:
+The hook prints JSON in Claude Code's PreToolUse format:
 
 ```json
 {
   "hookSpecificOutput": {
     "hookEventName": "PreToolUse",
     "permissionDecision": "allow|ask|deny",
-    "permissionDecisionReason": "Reason text | optional nudge"
+    "permissionDecisionReason": "...",
+    "additionalContext": "Sentinel: <nudges>"
   },
-  "suppressOutput": true  // Only on allow without nudge
+  "suppressOutput": true
 }
 ```
 
-- **Allow without nudge:** Output suppressed (no user-visible noise)
-- **Allow with nudge:** Output shown (the nudge reaches the AI through `additionalContext`)
-- **Ask:** Prompts user for approval (borderline cases — findings logged but no CHECK, or INVESTIGATE with zero evidence). User can override.
-- **Deny:** Output shown with reason (structural blocks — closed loop, no bootstrap)
-
-### Nudge Types
-
-| Nudge | Trigger | Fires |
-|-------|---------|-------|
-| Autonomy | Transaction tool count past avg | Per tool call (threshold-based) |
-| Goalless work | Tool calls without linked goal | Once per threshold |
-| Work type | PREFLIGHT omitted `work_type` | Once per transaction |
-| File relevance | Edit/Write target is mentioned by existing artifacts | Per Edit/Write |
-| **Remote-ops** | SSH/rsync/scp detected, work_type not remote-ops | Once per transaction |
+`suppressOutput` appears only on an allow with no nudge; `additionalContext` only on an allow with at least one nudge. **Ask** prompts the user and is used only for INVESTIGATE continuity. **Deny** shows the reason and, where a remedy exists, names it.
 
 ---
 
-## Related Documents
+## Related documents
 
 | Document | Relationship |
-|----------|-------------|
+|---|---|
 | [Sentinel Constitution](../architecture/SENTINEL_CONSTITUTION.md) | Governance principles that constrain this code |
 | [Sentinel Architecture](../architecture/SENTINEL_ARCHITECTURE.md) | Higher-level architecture (orchestrator, compliance gates) |
 | [Phase-Aware Calibration](../architecture/PHASE_AWARE_CALIBRATION.md) | How phase-split tool counts feed calibration |
-| [Epistemic Transaction Workflow](api/cascade_workflow.md) | PREFLIGHT/CHECK/POSTFLIGHT phase definitions |
 | [Environment Variables](ENVIRONMENT_VARIABLES.md) | Full env var reference |
-| [Configuration Reference](CONFIGURATION_REFERENCE.md) | File-based configuration |
+| [Configuration Reference](CONFIGURATION_REFERENCE.md) | File-based configuration, thresholds, `calibration.yaml` |
