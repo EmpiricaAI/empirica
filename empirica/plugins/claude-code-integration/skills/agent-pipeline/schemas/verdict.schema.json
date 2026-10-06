@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Batch skeptic output: one verdict per report, default refute, each with verbatim proof",
+  "type": "object",
+  "properties": {
+    "unit": {
+      "type": "string"
+    },
+    "verdicts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "verdict": {
+            "enum": [
+              "confirmed",
+              "refuted",
+              "unclear"
+            ]
+          },
+          "severity": {
+            "enum": [
+              "high",
+              "medium",
+              "low",
+              "none"
+            ]
+          },
+          "proof_file": {
+            "type": "string"
+          },
+          "proof_line": {
+            "type": "integer"
+          },
+          "proof_quote": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "verdict",
+          "severity",
+          "proof_file",
+          "proof_line",
+          "proof_quote",
+          "reason"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "unit",
+    "verdicts"
+  ],
+  "additionalProperties": false
+}

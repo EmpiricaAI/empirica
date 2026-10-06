@@ -1,0 +1,202 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Tagger output: typed artifacts about code, tasks with predicted steps and a pre-action test, and predicted-answer proposals",
+  "type": "object",
+  "properties": {
+    "unit": {
+      "type": "string"
+    },
+    "summary": {
+      "type": "string"
+    },
+    "artifacts": {
+      "type": "array",
+      "maxItems": 14,
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "enum": [
+              "finding",
+              "unknown",
+              "assumption",
+              "decision"
+            ],
+            "description": "A bug in the code is a finding. 'mistake' is about an agent's own conduct and belongs to agent-review, not here."
+          },
+          "text": {
+            "type": "string"
+          },
+          "file": {
+            "type": "string"
+          },
+          "line": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "quote": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Exact single-line text at or within 3 lines of `line`; checked by scripts/check_tag_quotes.py"
+          },
+          "severity": {
+            "enum": [
+              "high",
+              "medium",
+              "low",
+              "none"
+            ]
+          }
+        },
+        "required": [
+          "type",
+          "text",
+          "file",
+          "line",
+          "quote",
+          "severity"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "tasks": {
+      "type": "array",
+      "maxItems": 6,
+      "items": {
+        "type": "object",
+        "properties": {
+          "artifact_index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "objective": {
+            "type": "string"
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "maxItems": 6
+          },
+          "file_scope": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          },
+          "effort": {
+            "enum": [
+              "S",
+              "M",
+              "L"
+            ]
+          },
+          "test_path": {
+            "type": "string",
+            "description": "new file under tests/"
+          },
+          "test_source": {
+            "type": "string",
+            "description": "complete pytest file asserting the CORRECT behaviour: fails on the base, passes after a correct fix"
+          }
+        },
+        "required": [
+          "artifact_index",
+          "objective",
+          "steps",
+          "file_scope",
+          "effort",
+          "test_path",
+          "test_source"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "proposals": {
+      "type": "array",
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "properties": {
+          "objective": {
+            "type": "string"
+          },
+          "question": {
+            "type": "string"
+          },
+          "predicted_answer": {
+            "type": "string",
+            "description": "A predicted answer with its grounds, never an open question"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "options": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 4,
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "consequence": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "label",
+                "consequence"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "objective",
+          "question",
+          "predicted_answer",
+          "reason",
+          "options"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "regions_read": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string"
+          },
+          "start": {
+            "type": "integer"
+          },
+          "end": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "file",
+          "start",
+          "end"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "unit",
+    "summary",
+    "artifacts",
+    "tasks",
+    "proposals",
+    "regions_read"
+  ],
+  "additionalProperties": false
+}
