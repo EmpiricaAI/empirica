@@ -114,6 +114,24 @@ What it does **not** show:
 - **That proposals stay valid.** 11 of the 15 proposals the reviewers attached had already been
   answered by the time they were read.
 
+### Which tier should review
+
+A pilot ran four reviewer tiers (haiku, sonnet, opus, fable) over 8 finished threads, one pass each. The quote check is mechanical; the
+rest comes from pooled adjudication (all four tiers' artifacts anonymised and judged by one adjudicator for support and type, and clustered).
+
+| Reviewer | Quotes verbatim | Precision | Pooled recall | Mistakes right | Est. cost, 8 passes |
+|---|---|---|---|---|---|
+| haiku | 80 of 129 | 78% | 47% | 1 of 6 | $2 |
+| sonnet | 140 of 140 | 96% | 63% | 3 of 4 | $4 |
+| opus | 167 of 167 | 98% | 74% | 10 of 10 | $10 |
+| fable | 183 of 183 | 98% | 83% | 8 of 9 | $25 |
+
+Read it as: below sonnet the saving costs trust in the anchors (most of haiku's failed quotes were true claims paraphrased, 39 of 49, so the
+check rejects content that was often right); between sonnet and opus the spend buys recall on the hard types; fable's extra 9 points over opus
+cost about 2.7 times as much. A sonnet pass plus a smarter pass limited to assumptions, mistakes and dead ends is the next thing to test.
+Caveats: 8 threads and small per-type counts; the adjudicator shares a family with the top tier; pooled recall cannot see what no tier found;
+costs are list-price estimates; thinking effort was not varied. `scripts/score_tiers.py` recomputes the table from a tier run.
+
 ### Cross-grading
 
 The owning practice runs Part 2 on its own threads, because the reviewer needs that practice's repo

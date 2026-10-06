@@ -60,6 +60,29 @@ Files beside this skill: `scripts/build_trace.py`, `scripts/check_stamp.py`, `st
    `AskUserQuestion`, the prediction first and marked Recommended. Record the pick next to the
    prediction (`finding-log`): agreement rate over time is the reviewer's calibration.
 
+## Choosing the reviewer
+
+Tier matters for the reviewer, and not evenly. Measured on 8 finished threads, four tiers, one pass each, scored by the mechanical
+quote check and by pooled adjudication (`scripts/score_tiers.py`):
+
+| Reviewer | Quotes verbatim | Precision (supported and correctly typed) | Pooled recall | Est. cost per good artifact |
+|---|---|---|---|---|
+| haiku | 62% | 78% | 47% | 2 cents |
+| sonnet | 100% | 96% | 63% | 3 cents |
+| opus | 100% | 98% | 74% | 6 cents |
+| fable | 100% | 98% | 83% | 14 cents |
+
+- **Do not use the cheapest tier as the reviewer.** 38% of its quotes fail the verbatim check, so `check_stamp.py` rejects the stamp even
+  though most of those claims were true; it is also weakest on mistakes and decisions.
+- **Sonnet is the default first pass:** every anchor valid and near-top precision. It misses more of what the pool contains.
+- **Spend on a smarter tier where the hard types are.** Mistakes, assumptions and dead ends are where opus and fable were clearly better. A
+  two-pass shape (sonnet over everything, then a smarter pass restricted to those types) is the obvious test and is **not yet measured**:
+  do not present it as a result.
+- **To decide for a new kind of thread, measure it:** run two or more tiers over the same threads, pool their artifacts anonymised, have a
+  strong adjudicator judge each (supported, type, cluster), and score with `score_tiers.py TIER_RESULT.json TRACES_DIR`. The verbatim check is the
+  only judge-independent column; the adjudicator may favour its own family; pooled recall cannot see what no tier found.
+- Thinking effort was not varied. Costs are list-price estimates from token counts, not billed amounts. n is 8 threads.
+
 ## What this does not prove
 
 - **Anchor validity is not typing correctness.** The checker proves the quote exists where the
