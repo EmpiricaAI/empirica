@@ -94,6 +94,7 @@ Skills load on demand when the AI recognises the situation, or by name (`/skill-
 | **epistemic-editing** | Reviewing a document whose claims must hold up | Grounded review pass over claim classes that fail silently; renders flags for the author to accept or reject |
 | **dispatch-agent** | Spawning a subagent for non-trivial work | Enriches the agent prompt with findings, dead-ends and anti-patterns from Cortex |
 | **agent-review** | After agents finish work you will act on | A fresh reviewer reads the whole thread and stamps typed artifacts and predicted-answer proposals anchored to turns; `scripts/check_stamp.py` verifies the anchors |
+| **agent-pipeline** | A sweep whose findings you will fix | Map, tag with predicted steps and a pre-action test, verify with a skeptic and the test run on the base, act with a sandboxed cheap agent, review the chain; `scripts/` hold the mechanical gates |
 | **ewm-interview** | `/ewm-interview` | Interviews you and writes `workflow-protocol.yaml` |
 | **inbox-listener** | Wake-on-event setup | Arms a `Monitor` on a registered listener (load it through ToolSearch first; it is a deferred tool; re-arm at each 30-minute expiry) |
 | **loop-cron** | Recurring background work | Registers periodic work in the loop registry; self-throttles while a transaction is open |

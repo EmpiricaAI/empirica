@@ -276,7 +276,7 @@ Empirica doesn't replace or reinvent anything Claude Code already does. Claude C
 
 The result: Claude Code's native capabilities, enhanced with measurement, gating, and calibration feedback that compounds over time.
 
-**20 skills ship with the plugin** — the transaction discipline, graph gardening,
+**21 skills ship with the plugin** — the transaction discipline, graph gardening,
 the quality sweep, mesh messaging, and more. They are *lazy*: a skill does
 nothing until it loads, so knowing when each fires matters more than knowing
 what it holds. → **[Skills reference](docs/reference/SKILLS.md)**
