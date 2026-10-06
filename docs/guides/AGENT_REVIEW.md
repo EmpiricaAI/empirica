@@ -128,7 +128,7 @@ rest comes from pooled adjudication (all four tiers' artifacts anonymised and ju
 
 Read it as: below sonnet the saving costs trust in the anchors (most of haiku's failed quotes were true claims paraphrased, 39 of 49, so the
 check rejects content that was often right); between sonnet and opus the spend buys recall on the hard types; fable's extra 9 points over opus
-cost about 2.7 times as much. A sonnet pass plus a smarter pass limited to assumptions, mistakes and dead ends is the next thing to test.
+cost about 2.7 times as much. A sonnet pass plus an opus pass that re-reads the thread and adds only assumptions, mistakes and dead ends raised pooled recall from 62% to 69% (22 of 23 additions supported and typed) but one opus pass reaches 71% for about the same cost: the second reader has to re-read the whole thread. A stamp-only audit pass is cheap but cannot add recall and is untested.
 Caveats: 8 threads and small per-type counts; the adjudicator shares a family with the top tier; pooled recall cannot see what no tier found;
 costs are list-price estimates; thinking effort was not varied. `scripts/score_tiers.py` recomputes the table from a tier run.
 

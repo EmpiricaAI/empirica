@@ -75,9 +75,11 @@ quote check and by pooled adjudication (`scripts/score_tiers.py`):
 - **Do not use the cheapest tier as the reviewer.** 38% of its quotes fail the verbatim check, so `check_stamp.py` rejects the stamp even
   though most of those claims were true; it is also weakest on mistakes and decisions.
 - **Sonnet is the default first pass:** every anchor valid and near-top precision. It misses more of what the pool contains.
-- **Spend on a smarter tier where the hard types are.** Mistakes, assumptions and dead ends are where opus and fable were clearly better. A
-  two-pass shape (sonnet over everything, then a smarter pass restricted to those types) is the obvious test and is **not yet measured**:
-  do not present it as a result.
+- **Spend on a smarter tier where the hard types are, but as the reviewer, not as a second pass.** Opus and fable were clearly better on mistakes,
+  assumptions and dead ends. A sonnet pass plus an opus pass that re-reads the thread and adds only those types was measured: pooled recall went from
+  62% to 69% (23 additions, 22 supported and correctly typed, mostly the agent's unstated overclaims and its own mistakes), but one opus pass reaches
+  71% for about the same cost, because the second reader must re-read the whole thread and reading is most of the cost. A pass that only audits the stamp
+  against the quoted turns would be cheap but cannot add anything missed; it has not been measured.
 - **To decide for a new kind of thread, measure it:** run two or more tiers over the same threads, pool their artifacts anonymised, have a
   strong adjudicator judge each (supported, type, cluster), and score with `score_tiers.py TIER_RESULT.json TRACES_DIR`. The verbatim check is the
   only judge-independent column; the adjudicator may favour its own family; pooled recall cannot see what no tier found.
