@@ -425,12 +425,17 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.14.8
+## What's New in 1.14.9
 
-- **A claim keyed `statement` (or `text`) is recorded.** `claims.declare` read only `claim` for the text and dropped any other item silently; the falsifier docs teach `statement`, so models carried it over, none of the claims was stored, and the Sentinel then said none had been declared. `claim`, `statement` and `text` are accepted (`claim` wins). An item that still cannot be stored is reported back under `claims.skipped` with its position, keys and reason, the echo exists even when nothing was stored, a count that is not a finite integer (including `Infinity`, which JSON accepts) is reported as `count_ignored` with the claim and scope kept, and the Sentinel's deny points at `claims.skipped`.
-- **The budget-persist error after a compaction no longer reads as a broken install.** When session-init cannot find the practice root it skips the persist and says why in the hook's summary (source and cwd named); an explicit `EMPIRICA_SESSION_DB` is honoured; `persist_state` turns a store it cannot open into a one-line warning (a failure while writing stays an error); and the resolver's error lists what it tried, truthfully (a rejected override is "set but rejected", the registry is "not consulted" without a git root) and reserves `project-init` for a directory that is not yet a practice.
-- **`delete-artifacts` archives the note of every type.** It passed the singular item type (`dead_end`) where the note lives under the plural namespace (`dead_ends`), found nothing, and left every note behind, silently. The type map now lives in the single artifact registry. The archive step refuses to overwrite an archive that already holds different content. A note archived here can still come back on a `sync-pull` from a remote that holds it; the archive ref is not pushed.
-- **The lean prompt's claims row** names the item shape `{claim, grounding, scope, count, ref}` and the `claims.skipped` report.
+- **`agent-review` skill and guide.** A fresh reviewer reads a whole finished subagent or workflow thread and stamps typed artifacts, graded claims, tasks and predicted-answer proposals, each anchored to a turn and a verbatim quote; `check_stamp.py` verifies the anchors and `score_tiers.py` compares reviewer tiers. Measured: sonnet is the default reviewer (96% precision), haiku is not worth it.
+- **`agent-pipeline` skill and guide** (21 skills now). Map, tag, verify, act and review a sweep with tiered agents: `validate_pointers`, `check_tag_quotes`, `run_base_tests` (controls first, so a wrong interpreter aborts instead of reading as a result) and `run_action` (a headless agent in a sandboxed clone, hidden test, regression check against a pristine export). On four fresh units a cheap mapper did not save money but found 17 verified findings the smart-only pass missed; haiku passed 43 of 45 tasks.
+- **`export --transactions` carries `goals_touched`**, the transaction-to-goal link by the Sentinel's own definition of a goal in play, and an opt-in `--content` for the owner's own tenant (`content_scope: tenant`, `do_not_share: true`, credential-shaped text redacted).
+- **Sentinel gate.** The pause/resume exemption admits the toggle alone, not what rides with it; the `empirica` statement rescue and the transition commands refuse a redirect or command substitution like the main classifier; `git branch`, `tag` and `remote` are reads only in their list forms; `EMPIRICA_SENTINEL_COMPACT_INVALIDATION` works without `CHECK_EXPIRY`; a lone `&` is a command separator and `cd x | y` is a pipe; ssh key tools, `ssh -T` and pipe receivers no longer classify as blanket reads.
+- **Sentinel profiles keep their thresholds.** Profiles loaded from the shipped YAML nest `thresholds:` and `audit:`; the loader read only top-level keys, so the stricter domains ran on defaults. Both shapes load (a flat key wins).
+- **A missing criticality falls to a stricter checklist**, never a weaker one, in the domain registry.
+- **`sync-status` and the post-push check no longer count `refs/notes/empirica-archive/*`**, which is never pushed.
+- **Dependency floor** `multidict>=6.9.1` (CVE-2026-104874, a remote memory leak through aiohttp's header handling).
+
 ## Privacy & Data
 
 **Your data stays local:**
