@@ -243,6 +243,76 @@ def test_expiry_alone_does_not_invent_a_compact_denial(sg, monkeypatch):
     assert _expiry(sg, monkeypatch, expiry=True, compact=False, check_age_s=60, compact_age_s=30) is None
 
 
+# ---- a CHECK timestamp the gate cannot read must not switch the opted-in checks off ------------------------------
+
+
+def _expiry_with(sg, monkeypatch, check_ts, *, expiry=True, compact=False):
+    monkeypatch.setenv("EMPIRICA_SENTINEL_CHECK_EXPIRY", "true" if expiry else "false")
+    monkeypatch.setenv("EMPIRICA_SENTINEL_COMPACT_INVALIDATION", "true" if compact else "false")
+    monkeypatch.setattr(sg, "get_last_compact_timestamp", lambda _root: None)
+    return sg._check_expiry_and_compact(check_ts, Path("/nowhere/.empirica"))
+
+
+@pytest.mark.parametrize("bad", ["not a time", "", None, "2026-13-45T99:00:00", [], {}, True, float("inf"), "1e999"])
+def test_an_unreadable_timestamp_denies_when_a_check_is_switched_on(sg, monkeypatch, bad):
+    for expiry, compact in ((True, False), (False, True)):
+        out = _expiry_with(sg, monkeypatch, bad, expiry=expiry, compact=compact)
+        assert out is not None and out[0] == "deny" and "unreadable" in out[1] and "CHECK" in out[1], (
+            bad,
+            expiry,
+            compact,
+            out,
+        )
+
+
+def test_an_unreadable_timestamp_changes_nothing_while_both_switches_are_off(sg, monkeypatch):
+    assert _expiry_with(sg, monkeypatch, "not a time", expiry=False, compact=False) is None
+
+
+def _iso_utc_minutes_ago(minutes):
+    from datetime import datetime, timedelta, timezone
+
+    return (datetime.now(timezone.utc) - timedelta(minutes=minutes)).isoformat()
+
+
+def test_a_fresh_utc_timestamp_is_not_expired_in_any_timezone(sg, monkeypatch):
+    """The old parser stripped the offset and read UTC as local time: a fresh CHECK looked hours old (or in the future) away from UTC."""
+    import time
+
+    for tz in ("Etc/GMT-5", "Etc/GMT+7", "UTC"):
+        monkeypatch.setenv("TZ", tz)
+        time.tzset()
+        try:
+            fresh = _iso_utc_minutes_ago(5)
+            assert _expiry_with(sg, monkeypatch, fresh) is None, tz
+            assert _expiry_with(sg, monkeypatch, fresh.replace("+00:00", "Z")) is None, tz
+            stale = _iso_utc_minutes_ago(sg.MAX_CHECK_AGE_MINUTES + 10)
+            out = _expiry_with(sg, monkeypatch, stale)
+            assert out is not None and "expired" in out[1], tz
+        finally:
+            monkeypatch.undo()
+            time.tzset()
+
+
+def test_a_non_utc_offset_timestamp_neither_raises_nor_misreads(sg, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+
+    plus2 = timezone(timedelta(hours=2))
+    fresh = (datetime.now(plus2) - timedelta(minutes=5)).isoformat()
+    stale = (datetime.now(plus2) - timedelta(minutes=sg.MAX_CHECK_AGE_MINUTES + 10)).isoformat()
+    assert _expiry_with(sg, monkeypatch, fresh) is None
+    out = _expiry_with(sg, monkeypatch, stale)
+    assert out is not None and "expired" in out[1]
+
+
+def test_numeric_string_and_naive_iso_timestamps_still_parse(sg, monkeypatch):
+    from datetime import datetime, timedelta
+
+    now = datetime.now()
+    assert _expiry_with(sg, monkeypatch, str((now - timedelta(minutes=5)).timestamp())) is None
+    assert _expiry_with(sg, monkeypatch, (now - timedelta(minutes=5)).isoformat()) is None
+
+
 # ---- a lone '&' (background operator) is a command separator --------------------------------------
 
 

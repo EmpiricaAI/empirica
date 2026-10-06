@@ -5251,6 +5251,27 @@ def _check_auto_proceed(
     return None
 
 
+def _parse_check_time(check_timestamp) -> datetime | None:
+    """The CHECK's time as a naive LOCAL datetime, or None when it cannot be read.
+
+    The store writes an epoch float. An ISO string is accepted too; an offset (including Z) is honoured and converted to
+    local time, where this used to strip it and read UTC as local, misplacing the CHECK by the machine's UTC offset.
+    """
+    try:
+        if isinstance(check_timestamp, bool):
+            return None
+        if isinstance(check_timestamp, (int, float)) or (
+            isinstance(check_timestamp, str) and check_timestamp.strip().replace(".", "", 1).isdigit()
+        ):
+            return datetime.fromtimestamp(float(check_timestamp))
+        if isinstance(check_timestamp, str) and check_timestamp.strip():
+            parsed = datetime.fromisoformat(check_timestamp.strip().replace("Z", "+00:00"))
+            return parsed.astimezone().replace(tzinfo=None) if parsed.tzinfo else parsed
+    except (ValueError, OverflowError, OSError):
+        pass
+    return None
+
+
 def _check_expiry_and_compact(check_timestamp, empirica_root: Path | None) -> tuple | None:
     """Check optional CHECK expiry and compact invalidation.
 
@@ -5263,18 +5284,14 @@ def _check_expiry_and_compact(check_timestamp, empirica_root: Path | None) -> tu
     if not (expiry_on or compact_on):
         return None
 
-    check_time = None
-    try:
-        if isinstance(check_timestamp, (int, float)) or (
-            isinstance(check_timestamp, str) and check_timestamp.replace(".", "").isdigit()
-        ):
-            check_time = datetime.fromtimestamp(float(check_timestamp))
-        else:
-            check_time = datetime.fromisoformat(check_timestamp.replace("Z", "+00:00").replace("+00:00", ""))
-    except Exception:
-        check_time = None
+    check_time = _parse_check_time(check_timestamp)
+    if check_time is None:
+        # An opted-in check that cannot read the CHECK's time must not quietly switch itself off:
+        # that read as 'no expiry, no compaction' to anyone who turned the switches on. A fresh CHECK
+        # rewrites the timestamp, so the denial heals itself.
+        return ("deny", "CHECK timestamp unreadable. Run CHECK again to refresh it.")
 
-    if check_time and expiry_on:
+    if expiry_on:
         age_minutes = (datetime.now() - check_time).total_seconds() / 60
         if age_minutes > MAX_CHECK_AGE_MINUTES:
             return ("deny", f"CHECK expired ({age_minutes:.0f}min). Refresh epistemic state.")
@@ -5282,7 +5299,7 @@ def _check_expiry_and_compact(check_timestamp, empirica_root: Path | None) -> tu
     if compact_on:
         if empirica_root:
             last_compact = get_last_compact_timestamp(empirica_root.parent)
-            if last_compact and check_time and last_compact > check_time:
+            if last_compact and last_compact > check_time:
                 return ("deny", "Context compacted. Recalibrate with fresh CHECK.")
 
     return None
