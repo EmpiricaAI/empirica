@@ -397,3 +397,35 @@ def test_the_shipped_schemas_are_valid_and_accept_a_real_shape():
     )
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate({"unit": "U1", "verdicts": [{"id": "x", "verdict": "maybe"}]}, verdict)
+
+
+# ---- prompts --------------------------------------------------------------------------------------------------------------
+
+
+PLACEHOLDERS = {
+    "mapper": {"ROOT", "UNIT", "FILES"},
+    "tagger": {"ROOT", "UNIT", "FILES", "POINTERS", "WHERE_TO_LOOK"},
+    "skeptic": {"ROOT", "UNIT", "REPORTS_FILE", "PACKAGE"},
+    "forger": {"ROOT", "UNIT", "FILES", "PACKAGE"},
+    "cluster": {"REPORTS_FILE"},
+    "action": {"OBJECTIVE", "STEPS", "SCOPE"},
+    "diff-review": {"ROOT", "CASE_FILES"},
+}
+
+
+@pytest.mark.parametrize("name", sorted(PLACEHOLDERS))
+def test_every_prompt_substitutes_completely_with_a_plain_replace(name):
+    import re
+
+    text = (SKILL / "prompts" / f"{name}.md").read_text()
+    assert set(re.findall(r"\{([A-Z_]+)\}", text)) == PLACEHOLDERS[name]
+    for key in PLACEHOLDERS[name]:
+        text = text.replace("{" + key + "}", "x")
+    assert not re.findall(r"\{[A-Z_]+\}", text)
+
+
+def test_every_prompt_that_reads_code_names_only_prompt_free_tools():
+    """A prompt that asks workflow agents for python or pytest raises a permission prompt per call for the human."""
+    for name in ("mapper", "tagger", "skeptic", "forger", "diff-review"):
+        text = (SKILL / "prompts" / f"{name}.md").read_text()
+        assert "Use ONLY these tools: Read, rg, fd, sed -n" in text, name
