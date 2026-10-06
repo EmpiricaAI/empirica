@@ -75,6 +75,7 @@ dependencies = [
                                 # CVE gate resolves it through `get_empirica_managed_packages()`,
                                 # which walks declared requirements rather than installed
                                 # back-references. Direct pin so the audited env is on the fixed line.
+    "multidict>=6.9.1",         # Security: CVE-2026-104874 (6.7.0-6.9.0) reference leak in items-view union/subtraction, remote memory growth. Transitive via aiohttp/yarl; direct pin
 
     # Optional but commonly used
     "anthropic>=0.39.0",        # Anthropic SDK for adapters
