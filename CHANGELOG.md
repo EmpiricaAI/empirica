@@ -5,6 +5,41 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.9] - 2026-10-06
+
+Hardening the Sentinel gate against several ways a command could carry a mutation past the read-only classifier, two skills for reviewing and
+actioning agent work, and the transaction export's goal link. Found by a deep sweep of the hot path, each defect reproduced and fixed
+with a negative-controlled test.
+
+### Added
+
+- **`agent-review` skill and guide.** A fresh reviewer reads a whole finished subagent or workflow thread and stamps typed artifacts,
+  graded claims, tasks and predicted-answer proposals, each anchored to a turn and a verbatim quote; `check_stamp.py` verifies the
+  anchors and `score_tiers.py` compares reviewer tiers. Measured: sonnet is the default reviewer (96% precision), haiku is not worth it.
+- **`agent-pipeline` skill and guide** (21 skills now). Map, tag, verify, act and review a sweep with tiered agents: `validate_pointers`,
+  `check_tag_quotes`, `run_base_tests` (controls first, so a wrong interpreter aborts instead of reading as a result) and `run_action`
+  (a headless agent in a sandboxed clone, hidden test, regression check against a pristine export). On four fresh units a cheap mapper
+  did not save money but found 17 verified findings the smart-only pass missed; haiku passed 43 of 45 tasks.
+- **`export --transactions` carries `goals_touched`**, the transaction-to-goal link by the Sentinel's own definition of a goal in play,
+  and an opt-in `--content` for the owner's own tenant (`content_scope: tenant`, `do_not_share: true`, credential-shaped text redacted).
+
+### Fixed
+
+- **Sentinel gate.** The pause/resume exemption admits the toggle alone, not what rides with it; the `empirica` statement rescue and
+  the transition commands refuse a redirect or command substitution like the main classifier; `git branch`, `tag` and `remote` are
+  reads only in their list forms; `EMPIRICA_SENTINEL_COMPACT_INVALIDATION` works without `CHECK_EXPIRY`; a lone `&` is a command
+  separator and `cd x | y` is a pipe; ssh key tools, `ssh -T` and pipe receivers no longer classify as blanket reads.
+- **Sentinel profiles keep their thresholds.** Profiles loaded from the shipped YAML nest `thresholds:` and `audit:`; the loader read
+  only top-level keys, so the stricter domains ran on defaults. Both shapes load (a flat key wins).
+- **A missing criticality falls to a stricter checklist**, never a weaker one, in the domain registry.
+- **`sync-status` and the post-push check no longer count `refs/notes/empirica-archive/*`**, which is never pushed.
+- **Dependency floor** `multidict>=6.9.1` (CVE-2026-104874, a remote memory leak through aiohttp's header handling).
+
+### Documentation
+
+- Nineteen architecture docs and the Sentinel gate, configuration, statusline and plugin references were read whole against the code and
+  rewritten rather than patched; the plugin README's counts, skills and hooks come from the directories.
+
 ## [1.14.8] - 2026-10-05
 
 A patch for what ecodex reported against 1.14.7's hooks, plus two silent failures found while fixing them: a claim keyed

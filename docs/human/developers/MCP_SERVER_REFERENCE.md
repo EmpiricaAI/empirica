@@ -1,6 +1,6 @@
 # Empirica MCP Server Reference
 
-**Version:** 1.14.8
+**Version:** 1.14.9
 **Package:** `empirica-mcp` (source in `empirica-mcp/`, entry point `empirica_mcp.server:run`)
 **Architecture:** table-driven CLI wrapper, no middleware
 **Tool count:** run `empirica mcp-list-tools`. It reads `TOOL_REGISTRY` from the installed package and prints the live total, split into standalone and cortex-orchestrated tools. This page does not quote a number because the registry changes with the CLI.
