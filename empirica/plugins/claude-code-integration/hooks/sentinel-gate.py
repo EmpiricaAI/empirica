@@ -2010,27 +2010,40 @@ def _compute_nudge(count: int, avg: int) -> str:
     return ""
 
 
+# Allow reasons the model must see: the gate failed open, could not run, or is unconvinced.
+_ALLOW_REASONS_FOR_THE_MODEL = ("WARNING:", "ADVISORY:", "Sentinel error (fail-open)", "sentinel inactive")
+
+
+def _allow_reason_needs_the_model(reason: str) -> bool:
+    return any(marker in reason for marker in _ALLOW_REASONS_FOR_THE_MODEL)
+
+
 def respond(decision: str, reason: str = "") -> None:
     """Output in Claude Code's expected format. Appends nudges on allow."""
     global _autonomy_nudge, _goalless_nudge, _remote_ops_nudge, _worktype_nudge, _file_relevance_nudge
     full_reason = reason
     show_nudge = False
-    if decision == "allow" and (
-        _autonomy_nudge or _goalless_nudge or _remote_ops_nudge or _worktype_nudge or _file_relevance_nudge
-    ):
-        nudges = " | ".join(
+    nudges = ""
+    if decision == "allow":
+        # An allow reason that says the gate is blind, failed open or is unconvinced is for the model
+        # too: Claude Code drops permissionDecisionReason on allow, so it rides with the nudges.
+        # Routine reasons ("Safe Bash ...") fire on every call and stay silent.
+        parts = [reason] if _allow_reason_needs_the_model(reason) else []
+        parts += [
             n
-            for n in [
+            for n in (
                 _autonomy_nudge,
                 _goalless_nudge,
                 _remote_ops_nudge,
                 _worktype_nudge,
                 _file_relevance_nudge,
-            ]
+            )
             if n
-        )
-        full_reason = f"{reason} | {nudges}"
-        show_nudge = True
+        ]
+        if parts:
+            nudges = " | ".join(parts)
+            full_reason = f"{reason} | {nudges}" if reason and reason not in parts else nudges
+            show_nudge = True
 
     output: dict = {
         "hookSpecificOutput": {

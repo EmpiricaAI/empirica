@@ -8,6 +8,7 @@ the shape that must now be refused, so a regression in either direction fails.
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 
 import pytest
@@ -464,3 +465,68 @@ def test_a_remote_command_with_a_write_or_exec_shape_is_not_a_read(sg, command):
 )
 def test_the_legitimate_remote_reads_stay_reads(sg, command):
     assert _safe(sg, command) is True
+
+
+# ---- allow reasons that need the model reach it (gate-B#9) -------------------------------------------
+#
+# On allow, Claude Code discards permissionDecisionReason before the model sees it, so the fail-open
+# error, the no-session WARNING, the CHECK ADVISORY and "sentinel inactive" were written for a channel
+# nobody read. They ride additionalContext now; routine reasons ("Safe Bash ...") stay silent.
+
+
+def _no_nudges(sg, monkeypatch):
+    for name in ("_autonomy_nudge", "_goalless_nudge", "_remote_ops_nudge", "_worktype_nudge", "_file_relevance_nudge"):
+        monkeypatch.setattr(sg, name, "")
+
+
+@pytest.mark.parametrize(
+    "reason",
+    [
+        "Sentinel error (fail-open): KeyError: 'x'",
+        "WARNING: No session found. Run: empirica session-create --ai-id x && empirica preflight-submit -",
+        "ADVISORY: CHECK returned 'investigate'. Predictions in this domain may be ungrounded.",
+        "ADVISORY: Prediction groundedness below threshold (K=40% vs 70%).",
+        "No session resolved — sentinel inactive",
+        "No database connection — sentinel inactive",
+    ],
+)
+def test_an_allow_reason_that_says_the_gate_is_blind_or_unconvinced_reaches_the_model(sg, monkeypatch, capsys, reason):
+    _no_nudges(sg, monkeypatch)
+    sg.respond("allow", reason)
+    out = json.loads(capsys.readouterr().out)
+    assert reason in out["hookSpecificOutput"].get("additionalContext", "")
+    assert not out.get("suppressOutput")
+
+
+@pytest.mark.parametrize(
+    "reason",
+    [
+        "Safe Bash during investigation phase (read-only)",
+        "Noetic tool during investigation phase: Read",
+        "CHECK passed - proceeding (threshold: K>=70% U<=35%)",
+        "Empirica paused (off-record)",
+        "",
+    ],
+)
+def test_routine_allow_reasons_stay_silent(sg, monkeypatch, capsys, reason):
+    _no_nudges(sg, monkeypatch)
+    sg.respond("allow", reason)
+    out = json.loads(capsys.readouterr().out)
+    assert "additionalContext" not in out["hookSpecificOutput"]
+    assert out.get("suppressOutput") is True
+
+
+def test_an_attention_reason_and_a_nudge_arrive_together(sg, monkeypatch, capsys):
+    _no_nudges(sg, monkeypatch)
+    monkeypatch.setattr(sg, "_autonomy_nudge", "AUTONOMY: past avg")
+    sg.respond("allow", "ADVISORY: groundedness below threshold")
+    ctx = json.loads(capsys.readouterr().out)["hookSpecificOutput"]["additionalContext"]
+    assert "ADVISORY: groundedness below threshold" in ctx and "AUTONOMY: past avg" in ctx
+
+
+def test_a_deny_still_carries_its_reason_where_it_always_did(sg, monkeypatch, capsys):
+    sg.respond("deny", "WARNING: blocked because reasons")
+    out = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
+    assert out["permissionDecision"] == "deny"
+    assert out["permissionDecisionReason"] == "WARNING: blocked because reasons"
+    assert "additionalContext" not in out
