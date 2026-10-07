@@ -74,8 +74,11 @@ def get_label(instance_id: str) -> str | None:
         return None
 
 
-def _get_pid_from_tty(instance_id: str) -> int | None:
-    """Find a PID we can signal to terminate the instance.
+def _get_pid_from_tty(instance_id: str) -> tuple[int | None, float | None]:
+    """Find a PID we can signal to terminate the instance, and the start time recorded for it.
+
+    Returns (pid, recorded_start_time). The start time is `ppid_create_time` and exists only when the chosen pid is the recorded
+    ppid and session-init captured it; it is how a recycled pid is told from the process we meant (see `_verify_pid_identity`).
 
     session-init records both pid (the hook process — short-lived, usually
     dead by query time) and ppid (the Claude Code parent — the long-lived
@@ -87,26 +90,32 @@ def _get_pid_from_tty(instance_id: str) -> int | None:
       2. tty_sessions/{tty_key}.json   ppid → pid
     """
 
-    def _pick_alive(data: dict) -> int | None:
+    def _start_of(data: dict, pid: int) -> float | None:
+        recorded = data.get("ppid_create_time")
+        if data.get("ppid") == pid and isinstance(recorded, (int, float)) and not isinstance(recorded, bool):
+            return float(recorded)
+        return None
+
+    def _pick_alive(data: dict) -> tuple[int | None, float | None]:
         for key in ("ppid", "pid"):
             value = data.get(key)
             if isinstance(value, int) and value > 1 and _process_alive(value):
-                return value
+                return value, _start_of(data, value)
         # Even if not alive, return ppid as a hint for the caller.
         for key in ("ppid", "pid"):
             value = data.get(key)
             if isinstance(value, int) and value > 1:
-                return value
-        return None
+                return value, _start_of(data, value)
+        return None, None
 
     inst_file = EMPIRICA_DIR / "instance_projects" / f"{instance_id}.json"
     if inst_file.exists():
         try:
             with open(inst_file, encoding="utf-8") as f:
                 inst = json.load(f)
-            pid = _pick_alive(inst)
+            pid, start = _pick_alive(inst)
             if pid:
-                return pid
+                return pid, start
             tty_key = inst.get("tty_key")
         except (OSError, json.JSONDecodeError):
             tty_key = None
@@ -114,17 +123,44 @@ def _get_pid_from_tty(instance_id: str) -> int | None:
         tty_key = None
 
     if not tty_key:
-        return None
+        return None, None
 
     tty_file = TTY_SESSIONS_DIR / f"{tty_key}.json"
     if not tty_file.exists():
-        return None
+        return None, None
     try:
         with open(tty_file, encoding="utf-8") as f:
             tty = json.load(f)
         return _pick_alive(tty)
     except (OSError, json.JSONDecodeError):
+        return None, None
+
+
+def _psutil_create_time(pid: int) -> float | None:
+    """The live process's start time (epoch secs), or None when psutil is missing or the process cannot be read."""
+    try:
+        import psutil
+
+        return psutil.Process(pid).create_time()
+    except Exception:
         return None
+
+
+def _verify_pid_identity(pid: int, recorded_start: float | None) -> tuple[str, str]:
+    """('match' | 'mismatch' | 'unverifiable', why): is the live process at `pid` the one session-init recorded?
+
+    A pid is only a number: once the instance's process exited the kernel may hand it to an unrelated one of the user's, and
+    signalling that is irreversible. 'mismatch' is KNOWN to be a different process; 'unverifiable' means the record carries no start
+    time (it predates the field) or it cannot be read now (psutil missing).
+    """
+    if recorded_start is None:
+        return "unverifiable", "no start time was recorded for it"
+    live = _psutil_create_time(pid)
+    if live is None:
+        return "unverifiable", "its start time cannot be read (psutil missing or the process is not readable)"
+    if abs(live - recorded_start) < 1.0:
+        return "match", ""
+    return "mismatch", f"it started at {live:.0f}, the instance's process at {recorded_start:.0f}"
 
 
 def _process_alive(pid: int) -> bool:
@@ -323,7 +359,7 @@ def _kill_via_tmux(instance_id: str, pane_n: str) -> KillResult:
 
 
 def _kill_via_signal(instance_id: str, force: bool) -> KillResult:
-    pid = _get_pid_from_tty(instance_id)
+    pid, recorded_start = _get_pid_from_tty(instance_id)
     if pid is None:
         return KillResult(
             instance_id,
@@ -335,6 +371,25 @@ def _kill_via_signal(instance_id: str, force: bool) -> KillResult:
 
     if not _process_alive(pid):
         return KillResult(instance_id, "sigterm", True, f"process {pid} already dead", pid=pid)
+
+    identity, why = _verify_pid_identity(pid, recorded_start)
+    if identity == "mismatch":
+        # Known to be somebody else's process: --force does not override this.
+        return KillResult(
+            instance_id,
+            "unreachable",
+            False,
+            f"pid {pid} is no longer this instance's process ({why}) — not signalling",
+            pid=pid,
+        )
+    if identity == "unverifiable" and not force:
+        return KillResult(
+            instance_id,
+            "unreachable",
+            False,
+            f"cannot confirm pid {pid} is this instance's process ({why}) — not signalling. Pass --force to signal it anyway, or kill the terminal manually",
+            pid=pid,
+        )
 
     sig = signal.SIGKILL if force else signal.SIGTERM
     method = "sigkill" if force else "sigterm"

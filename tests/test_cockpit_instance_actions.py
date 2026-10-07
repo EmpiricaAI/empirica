@@ -189,6 +189,72 @@ def test_kill_falls_back_to_tty_sessions_when_instance_projects_missing(fake_hom
     assert result.success is True
 
 
+# ─── kill: a pid is only a number ─────────────────────────────────────────
+# David's ruling 2026-10-06: when the pid's start time cannot be verified, refuse unless --force. A pid KNOWN to belong to another
+# process is never signalled.
+
+
+def _seed_ppid(home, **extra):
+    record = {"pid": 12345, "ppid": 67890, "tty_key": "pts-7", **extra}
+    (home / "instance_projects" / "term-pts-7.json").write_text(json.dumps(record))
+
+
+def _spy_kill(monkeypatch):
+    sent = {}
+    monkeypatch.setattr(ia.os, "kill", lambda pid, sig: sent.setdefault("args", (pid, sig)))
+    monkeypatch.setattr(ia, "_process_alive", lambda _pid: True)
+    return sent
+
+
+def test_kill_signals_a_pid_whose_start_time_matches_the_record(fake_home, monkeypatch):
+    _seed_ppid(fake_home, ppid_create_time=1000.0)
+    sent = _spy_kill(monkeypatch)
+    monkeypatch.setattr(ia, "_psutil_create_time", lambda _pid: 1000.4)
+    result = ia.kill_instance("term-pts-7")
+    assert result.success is True and sent["args"][0] == 67890
+
+
+@pytest.mark.parametrize("force", [False, True])
+def test_kill_never_signals_a_recycled_pid_even_with_force(fake_home, monkeypatch, force):
+    _seed_ppid(fake_home, ppid_create_time=1000.0)
+    sent = _spy_kill(monkeypatch)
+    monkeypatch.setattr(ia, "_psutil_create_time", lambda _pid: 2000.0)
+    result = ia.kill_instance("term-pts-7", force=force)
+    assert result.success is False and result.method == "unreachable"
+    assert "no longer this instance's process" in result.detail
+    assert "args" not in sent
+
+
+def test_kill_refuses_when_no_start_time_was_recorded_unless_forced(fake_home, monkeypatch):
+    _seed_ppid(fake_home)  # a record from before ppid_create_time existed
+    sent = _spy_kill(monkeypatch)
+    refused = ia.kill_instance("term-pts-7")
+    assert refused.success is False and "--force" in refused.detail and "no start time was recorded" in refused.detail
+    assert "args" not in sent
+    forced = ia.kill_instance("term-pts-7", force=True)
+    assert forced.success is True and sent["args"] == (67890, signal.SIGKILL)
+
+
+def test_kill_refuses_when_the_live_start_time_cannot_be_read_unless_forced(fake_home, monkeypatch):
+    _seed_ppid(fake_home, ppid_create_time=1000.0)
+    sent = _spy_kill(monkeypatch)
+    monkeypatch.setattr(ia, "_psutil_create_time", lambda _pid: None)  # psutil missing or unreadable
+    refused = ia.kill_instance("term-pts-7")
+    assert refused.success is False and "psutil" in refused.detail and "args" not in sent
+    assert ia.kill_instance("term-pts-7", force=True).success is True
+
+
+def test_kill_does_not_trust_a_recorded_start_time_for_the_hook_pid(fake_home, monkeypatch):
+    """ppid_create_time describes the ppid only: when the chosen pid is the hook's pid it is unverifiable, not 'matching'."""
+    _seed_ppid(fake_home, ppid_create_time=1000.0)
+    sent = {}
+    monkeypatch.setattr(ia.os, "kill", lambda pid, sig: sent.setdefault("args", (pid, sig)))
+    monkeypatch.setattr(ia, "_process_alive", lambda pid: pid == 12345)  # only the hook pid is alive
+    monkeypatch.setattr(ia, "_psutil_create_time", lambda _pid: 1000.0)
+    result = ia.kill_instance("term-pts-7")
+    assert result.success is False and "no start time was recorded" in result.detail and "args" not in sent
+
+
 def test_kill_requires_instance_id(fake_home):
     with pytest.raises(ValueError):
         ia.kill_instance("")
