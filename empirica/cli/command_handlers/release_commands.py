@@ -179,6 +179,7 @@ class EpistemicReleaseAgent:
 
         details = []
         scores = []
+        unassessed = 0
 
         # Key directories to assess
         directories = [
@@ -208,12 +209,16 @@ class EpistemicReleaseAgent:
                     moon = self._score_to_moon(avg_health)
                     details.append(f"{label}: {moon} {avg_health:.2f}")
                 else:
+                    unassessed += 1
                     details.append(f"{label}: assessment failed")
             except subprocess.TimeoutExpired:
+                unassessed += 1
                 details.append(f"{label}: timeout")
             except json.JSONDecodeError:
+                unassessed += 1
                 details.append(f"{label}: invalid JSON output")
             except Exception as e:
+                unassessed += 1
                 details.append(f"{label}: {str(e)[:50]}")
 
         if scores:
@@ -229,6 +234,12 @@ class EpistemicReleaseAgent:
             else:
                 status = AssessmentStatus.FAIL
                 message = f"Architecture unhealthy: {moon} {avg_score:.2f}"
+            if unassessed:
+                # The average covers only the directories that answered; a PASS built on a subset must say so. It never turns a
+                # WARN or FAIL into something better.
+                if status == AssessmentStatus.PASS:
+                    status = AssessmentStatus.WARN
+                message += f" ({unassessed} of {len(directories)} directories could not be assessed)"
         else:
             status = AssessmentStatus.WARN
             message = "Could not assess architecture"
@@ -570,7 +581,11 @@ class EpistemicReleaseAgent:
             result = subprocess.run(
                 ["git", "log", "@{u}..", "--oneline"], capture_output=True, text=True, cwd=self.root
             )
-            if result.stdout.strip():
+            if result.returncode != 0:
+                # `@{u}..` fails (exit 128, empty stdout) when the branch has no upstream. An empty stdout was read as
+                # "nothing unpushed", so a new local branch reported "Remote: up to date" with nothing pushed at all.
+                issues.append("No upstream configured: cannot verify the pushed state")
+            elif result.stdout.strip():
                 commits = len(result.stdout.strip().split("\n"))
                 issues.append(f"Unpushed commits: {commits}")
             else:
