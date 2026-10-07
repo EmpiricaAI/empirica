@@ -1754,6 +1754,18 @@ def _calibration_block(project_root) -> str:
         return ""
 
 
+def _session_start_event(hook_input: dict) -> str:
+    """'resume' or 'startup', from the SessionStart payload.
+
+    Claude Code sends the discriminator as `source` (startup | resume | clear | compact); main() read `type`, which is absent, so every
+    start looked like a startup and `claude --resume` could never reach the resume path. `source` is read first (as in
+    _unpersisted_reason), `type` is kept for harnesses that send it. Only an exact 'resume' changes behaviour: clear, compact, an unknown
+    value or none all keep the startup handling they always had.
+    """
+    raw = hook_input.get("source") or hook_input.get("type") or "startup"
+    return "resume" if str(raw).strip().lower() == "resume" else "startup"
+
+
 def main():
     """Main session init logic.
 
@@ -1771,7 +1783,7 @@ def main():
         pass
 
     claude_session_id = hook_input.get("session_id")
-    event_type = hook_input.get("type", "startup")
+    event_type = _session_start_event(hook_input)
     is_resume = event_type == "resume"
 
     # CWD-FIRST ADOPTION on startup
