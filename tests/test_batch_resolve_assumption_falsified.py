@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
+from typing import Any
 
 import pytest
 from fastapi import HTTPException
@@ -45,7 +46,7 @@ def _status(db_path, aid):
         conn.close()
 
 
-def _resolve(body):
+def _resolve(body) -> dict[str, Any]:
     return asyncio.run(art.post_artifacts_resolve(body, project_id=None, path=None))
 
 
