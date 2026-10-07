@@ -435,6 +435,8 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 - **Sentinel profiles keep their thresholds.** Profiles loaded from the shipped YAML nest `thresholds:` and `audit:`; the loader read only top-level keys, so the stricter domains ran on defaults. Both shapes load (a flat key wins).
 - **A missing criticality falls to a stricter checklist**, never a weaker one, in the domain registry.
 - **`sync-status` and the post-push check no longer count `refs/notes/empirica-archive/*`**, which is never pushed.
+- **Dependency floor** `multidict>=6.9.1` (CVE-2026-104874, a remote memory leak through aiohttp's header handling).
+
 ## Privacy & Data
 
 **Your data stays local:**
