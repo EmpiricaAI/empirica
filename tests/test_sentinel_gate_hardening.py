@@ -758,3 +758,81 @@ def test_a_safe_prefixed_tool_in_a_write_or_exec_mode_is_not_a_read(sg, command)
 @pytest.mark.parametrize("command", _TOOL_READS)
 def test_the_plain_reads_of_those_tools_stay_free(sg, command):
     assert _safe(sg, command) is True
+
+
+# ---- sqlite and python -c: the two interpreters the gate vets by text (gate-B#12) ---------------------
+
+_SQLITE_WRITES = [
+    'sqlite3 db "PRAGMA journal_mode=WAL"',
+    'sqlite3 db "PRAGMA user_version=5"',
+    'sqlite3 db "PRAGMA user_version(5)"',
+    'sqlite3 db "PRAGMA writable_schema=ON"',
+    'sqlite3 db "PRAGMA wal_checkpoint(TRUNCATE)"',
+    'sqlite3 db "PRAGMA optimize"',
+    'sqlite3 db "PRAGMA incremental_vacuum"',
+    'sqlite3 db "ANALYZE"',
+    'sqlite3 db "ANALYZE t"',
+    'sqlite3 db "SELECT 1; PRAGMA user_version=5"',
+    'sqlite3 db "SELECT 1; ANALYZE"',
+    'sqlite3 db "SELECT 1;PRAGMA journal_mode=DELETE"',
+]
+_SQLITE_READS = [
+    'sqlite3 db "PRAGMA table_info(t)"',
+    'sqlite3 db "PRAGMA main.table_info(t)"',
+    'sqlite3 db "PRAGMA index_list(t)"',
+    'sqlite3 db "PRAGMA user_version"',
+    'sqlite3 db "PRAGMA journal_mode"',
+    'sqlite3 db "PRAGMA integrity_check"',
+    'sqlite3 db "PRAGMA foreign_key_list(t)"',
+    'sqlite3 db "PRAGMA database_list"',
+    "sqlite3 db \"SELECT * FROM pragma_table_info('t')\"",
+    'sqlite3 db "SELECT 1; SELECT 2"',
+    'sqlite3 db "EXPLAIN SELECT 1"',
+    'sqlite3 -header db "SELECT 1;"',
+    'sqlite3 db ".schema"',
+    'sqlite3 db ".mode csv" "SELECT 1"',
+    'sqlite3 db "WITH x AS (SELECT 1) SELECT * FROM x"',
+]
+_PYTHON_WRITES = [
+    'python3 -c \'import os; os.rename("a", "b")\'',
+    'python3 -c \'import os; os.replace("a", "b")\'',
+    'python3 -c \'import os; os.symlink("a", "b")\'',
+    "python3 -c 'import os; os.chmod(\"a\", 0o777)'",
+    "python3 -c 'import os; os.truncate(\"a\", 0)'",
+    'python3 -c \'import subprocess; print(subprocess.check_output(["rm", "x"]))\'',
+    'python3 -c \'import subprocess; subprocess.check_call(["rm", "x"])\'',
+    'python3 -c \'from subprocess import run; run(["rm", "x"])\'',
+    "python3 -c 'from shutil import rmtree; rmtree(\"x\")'",
+    "python3 -c 'from os import remove; remove(\"x\")'",
+    "python3 -c 'import pathlib; pathlib.Path(\"x\").unlink()'",
+    "python3 -c 'import pathlib; pathlib.Path(\"x\").mkdir()'",
+    "python3 -c 'import pathlib; pathlib.Path(\"x\").touch()'",
+    'python3 -c \'import pathlib; pathlib.Path("x").rename("y")\'',
+    'python3 -c \'import importlib; importlib.import_module("subprocess").run(["id"])\'',
+    "python3 -c 'import ctypes'",
+    "python3 -c 'import socket; socket.create_connection((\"h\", 1))'",
+    'python3 -c \'import urllib.request; urllib.request.urlopen("http://x", data=b"a")\'',
+    'python3 -c \'compile("x", "", "exec")\'',
+    "python3 -c 'print(__builtins__)'",
+]
+_PYTHON_READS = [
+    "python3 -c 'print(1 + 1)'",
+    "python3 -c 'import json; print(json.dumps({\"a\": 1}))'",
+    "python3 -c 'import os; print(os.getcwd())'",
+    'python3 -c \'import os; print(os.path.join("a", "b"))\'',
+    'python3 -c \'print("a".replace("a", "b"))\'',
+    "python3 -c 'from pathlib import Path; print(Path(\"x\").exists())'",
+    "python3 -c 'import sys; print(sys.version)'",
+    "python3 -c 'import time; print(time.time())'",
+    'python3 -c \'import re; print(re.sub("a", "b", "aa"))\'',
+]
+
+
+@pytest.mark.parametrize("command", _SQLITE_WRITES + _PYTHON_WRITES)
+def test_sqlite_and_python_shapes_that_write_are_not_reads(sg, command):
+    assert _safe(sg, command) is False
+
+
+@pytest.mark.parametrize("command", _SQLITE_READS + _PYTHON_READS)
+def test_sqlite_and_python_reads_stay_free(sg, command):
+    assert _safe(sg, command) is True

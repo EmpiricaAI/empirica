@@ -3729,7 +3729,59 @@ _SQLITE_SAFE_META = (
     ".DATABASES",
     ".FULLSCHEMA",
 )
-_SQLITE_SAFE_SQL = ("SELECT", "WITH", "PRAGMA", "EXPLAIN", "ANALYZE")
+#: ANALYZE writes sqlite_stat tables and PRAGMA has setters, so neither is a read as a bare word.
+_SQLITE_SAFE_SQL = ("SELECT", "WITH", "EXPLAIN")
+#: PRAGMAs that only report. Anything else (journal_mode=, user_version=, optimize, wal_checkpoint,
+#: incremental_vacuum, writable_schema, ...) is refused, as is any PRAGMA written with `=`.
+_SQLITE_READ_PRAGMAS = frozenset(
+    {
+        "TABLE_INFO",
+        "TABLE_XINFO",
+        "TABLE_LIST",
+        "INDEX_LIST",
+        "INDEX_INFO",
+        "INDEX_XINFO",
+        "FOREIGN_KEY_LIST",
+        "FOREIGN_KEY_CHECK",
+        "DATABASE_LIST",
+        "COLLATION_LIST",
+        "FUNCTION_LIST",
+        "MODULE_LIST",
+        "PRAGMA_LIST",
+        "COMPILE_OPTIONS",
+        "INTEGRITY_CHECK",
+        "QUICK_CHECK",
+        "SCHEMA_VERSION",
+        "USER_VERSION",
+        "PAGE_COUNT",
+        "PAGE_SIZE",
+        "FREELIST_COUNT",
+        "JOURNAL_MODE",
+        "ENCODING",
+        "APPLICATION_ID",
+        "DATA_VERSION",
+    }
+)
+#: Pragmas that read bare and SET when given a value, in `=` or parenthesised form.
+_SQLITE_PRAGMAS_THAT_SET_WITH_PARENS = frozenset(
+    {"SCHEMA_VERSION", "USER_VERSION", "PAGE_SIZE", "JOURNAL_MODE", "ENCODING", "APPLICATION_ID"}
+)
+
+
+def _sqlite_pragma_is_read(piece: str) -> bool:
+    match = re.fullmatch(r"PRAGMA\s+(?:\w+\.)?(\w+)\s*(\(.*\))?\s*", piece, re.DOTALL)
+    if not match:
+        return False  # `=`, a trailing clause, anything this does not recognise
+    name, args = match.group(1), match.group(2)
+    if name not in _SQLITE_READ_PRAGMAS:
+        return False
+    return not (args and name in _SQLITE_PRAGMAS_THAT_SET_WITH_PARENS)
+
+
+def _sqlite_piece_is_read(piece: str) -> bool:
+    if piece.startswith("PRAGMA"):
+        return _sqlite_pragma_is_read(piece)
+    return any(piece.startswith(sql) for sql in _SQLITE_SAFE_SQL)
 
 
 def _is_safe_sqlite_statement(statement: str) -> bool:
@@ -3755,8 +3807,13 @@ def _is_safe_sqlite_statement(statement: str) -> bool:
         ):
             return False
 
+    # Every `;`-separated statement is judged, not just the first: `SELECT 1; PRAGMA user_version=5` is a write.
     head = code.strip()
-    return any(head.startswith(m) for m in _SQLITE_SAFE_META) or any(head.startswith(sql) for sql in _SQLITE_SAFE_SQL)
+    sql_only = "\n".join(line for line in code.splitlines() if not line.strip().startswith("."))
+    pieces = [p.strip() for p in sql_only.split(";") if p.strip()]
+    if not all(_sqlite_piece_is_read(p) for p in pieces):
+        return False
+    return bool(pieces) or any(head.startswith(m) for m in _SQLITE_SAFE_META)
 
 
 def is_safe_python_command(command: str) -> bool:
@@ -3804,13 +3861,50 @@ def is_safe_python_command(command: str) -> bool:
         "OS.RMDIR(",
         "OS.MAKEDIRS(",
         "OS.MKDIR(",
-        # Subprocess / shell execution
-        "SUBPROCESS.RUN(",
-        "SUBPROCESS.CALL(",
-        "SUBPROCESS.POPEN(",
+        # Subprocess / shell execution: the module itself, however it is imported or called
+        "SUBPROCESS",
         "OS.SYSTEM(",
         "OS.POPEN(",
         "OS.EXEC",
+        "OS.SPAWN",
+        "OS.POSIX_SPAWN",
+        "OS.FORK",
+        "OS.KILL",
+        "PTY.",
+        # More file mutation: rename/replace/link/chmod/truncate, pathlib mutators, from-imports that
+        # hide the module name from the attribute checks above
+        "OS.RENAME",
+        "OS.REPLACE(",
+        "OS.REMOVEDIRS(",
+        "OS.SYMLINK(",
+        "OS.LINK(",
+        "OS.CHMOD(",
+        "OS.CHOWN(",
+        "OS.TRUNCATE(",
+        "OS.UTIME(",
+        "OS.WRITE(",
+        ".TOUCH(",
+        ".MKDIR(",
+        ".UNLINK(",
+        ".RMDIR(",
+        ".RENAME(",
+        ".SYMLINK_TO(",
+        ".HARDLINK_TO(",
+        ".CHMOD(",
+        ".TRUNCATE(",
+        ".WRITELINES(",
+        "FROM SHUTIL",
+        "FROM OS IMPORT",
+        "TEMPFILE",
+        # Reaching the above indirectly, or the network and native code
+        "IMPORTLIB",
+        "CTYPES",
+        "SOCKET",
+        "URLLIB.REQUEST",
+        "HTTP.CLIENT",
+        "COMPILE(",
+        "__BUILTINS__",
+        "GLOBALS(",
         # Network mutation
         "REQUESTS.POST(",
         "REQUESTS.PUT(",
