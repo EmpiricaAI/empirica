@@ -10,6 +10,11 @@ def add_release_parsers(subparsers):
     )
     release_parser.add_argument("--project-root", help="Root directory of the project (default: current directory)")
     release_parser.add_argument("--quick", action="store_true", help="Quick check (skip architecture assessment)")
+    release_parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Exit 1 on warnings too (default: exit 0 when nothing FAILED, matching the printed verdict)",
+    )
     release_parser.add_argument("--output", choices=["human", "json"], default="human", help="Output format")
 
     # Docs assessment

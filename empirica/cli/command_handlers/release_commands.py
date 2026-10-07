@@ -604,7 +604,11 @@ class EpistemicReleaseAgent:
             overall_moon = "🌕"
 
         return {
-            "ok": overall_status == "READY",
+            # `ok` is "nothing FAILED": a verdict of READY WITH WARNINGS is ok, as the text it prints says. `clean` is the
+            # strict reading (no warnings either); the handler picks one by --strict. `ok` used to mean `clean`, so the process
+            # exited 1 under a line that said "RELEASE READY (with warnings)".
+            "ok": AssessmentStatus.FAIL not in statuses,
+            "clean": overall_status == "READY",
             "status": overall_status,
             "moon": overall_moon,
             "version": self.version,
@@ -625,8 +629,14 @@ def handle_release_ready_command(args):
         quick = getattr(args, "quick", False)
         output_format = getattr(args, "output", "human")
 
+        strict = bool(getattr(args, "strict", False))
+
         agent = EpistemicReleaseAgent(project_root=project_root, quick=quick)
         result = agent.run()
+        # Warnings pass by default (exit 0) and fail under --strict: the exit code and the printed verdict now agree.
+        result["strict"] = strict
+        if strict:
+            result["ok"] = bool(result.get("clean"))
 
         if output_format == "json":
             print(json.dumps(result, indent=2))
@@ -662,6 +672,8 @@ def handle_release_ready_command(args):
 
             if result["status"] == "READY":
                 print("  🌕 RELEASE READY")
+            elif result["status"] == "READY WITH WARNINGS" and strict:
+                print("  🌑 NOT READY (--strict: warnings fail the gate)")
             elif result["status"] == "READY WITH WARNINGS":
                 print("  🌓 RELEASE READY (with warnings)")
             else:
