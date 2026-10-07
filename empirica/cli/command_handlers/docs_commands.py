@@ -1202,53 +1202,69 @@ class EpistemicDocsAgent:
         return gaps[:10]  # Limit results
 
     def _check_explicit_doc_references(self, docs_dir: Path) -> list[dict]:
-        """Check if any memory items explicitly reference doc paths."""
-        refs = []
+        """Check if any memory items explicitly reference doc paths.
 
+        This check has never returned anything: it selected `text` and filtered on `timestamp`, columns the tables do not have
+        (they are `finding` / `approach` and `created_timestamp`), the OperationalError was swallowed by a bare except, and it
+        was not scoped to the project. A failure to read a table is now logged by name instead of vanishing.
+        """
+        import sqlite3
+
+        refs: list[dict] = []
+        project_id = self._detect_project_id()
+        if not project_id:
+            return refs  # unscoped, it would read another practice's memory as this one's
+
+        db = None
         try:
             from empirica.data.session_database import SessionDatabase
 
             db = SessionDatabase()
-
-            # Query recent findings and dead_ends that mention doc paths
             cursor = db.conn.cursor()
+            cutoff = datetime.now(timezone.utc).timestamp() - 30 * 24 * 3600
 
-            # Look for mentions of .md files or "docs/" in memory
-            for table, mem_type in [("project_findings", "finding"), ("project_dead_ends", "dead_end")]:
+            for table, mem_type, text_col in (
+                ("project_findings", "finding", "finding"),
+                ("project_dead_ends", "dead_end", "approach"),
+            ):
                 try:
                     cursor.execute(
                         f"""
-                        SELECT text FROM {table}
-                        WHERE (text LIKE '%.md%' OR text LIKE '%docs/%' OR text LIKE '%documentation%')
-                        AND timestamp > ?
-                        ORDER BY timestamp DESC LIMIT 10
+                        SELECT {text_col} FROM {table}
+                        WHERE project_id = ?
+                        AND ({text_col} LIKE '%.md%' OR {text_col} LIKE '%docs/%' OR {text_col} LIKE '%documentation%')
+                        AND created_timestamp > ?
+                        ORDER BY created_timestamp DESC LIMIT 10
                     """,
-                        (datetime.now(timezone.utc).timestamp() - 30 * 24 * 3600,),
+                        (project_id, cutoff),
                     )
-
-                    for row in cursor.fetchall():
-                        text = row[0] if row else ""
-                        # Extract mentioned doc paths
-                        md_matches = re.findall(r"[\w/-]+\.md", text)
-                        for md in md_matches:
-                            # Check if this doc exists
-                            potential_path = docs_dir / md
-                            if potential_path.exists() or (docs_dir / md.split("/")[-1]).exists():
-                                refs.append(
-                                    {
-                                        "doc_path": md,
-                                        "memory_type": mem_type,
-                                        "memory_text": text[:200],
-                                        "suggestion": f"Memory explicitly mentions {md} - review for updates",
-                                    }
-                                )
-                except Exception:
+                    rows = cursor.fetchall()
+                except sqlite3.Error as exc:
+                    logger.warning(
+                        "docs-assess staleness: could not read %s (%s); explicit doc references in it are not checked",
+                        table,
+                        exc,
+                    )
                     continue
 
-            db.close()
-
-        except Exception:
-            pass
+                for row in rows:
+                    text = row[0] if row and row[0] else ""
+                    for md in re.findall(r"[\w/-]+\.md", text):
+                        potential_path = docs_dir / md
+                        if potential_path.exists() or (docs_dir / md.split("/")[-1]).exists():
+                            refs.append(
+                                {
+                                    "doc_path": md,
+                                    "memory_type": mem_type,
+                                    "memory_text": text[:200],
+                                    "suggestion": f"Memory explicitly mentions {md} - review for updates",
+                                }
+                            )
+        except Exception as exc:
+            logger.warning("docs-assess staleness: explicit-reference check failed (%s: %s)", type(exc).__name__, exc)
+        finally:
+            if db is not None:
+                db.close()
 
         return refs[:5]  # Limit results
 
