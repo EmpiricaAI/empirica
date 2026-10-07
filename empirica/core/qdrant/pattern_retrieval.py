@@ -28,6 +28,28 @@ from empirica.core.mistake_text import parse_mistake_text
 logger = logging.getLogger(__name__)
 
 
+def _env_number(name: str, default, cast):
+    """A numeric environment variable, or `default` when it is unset, malformed, negative or not finite.
+
+    These are read at import and on every PREFLIGHT and CHECK: a typo in one (`EMPIRICA_RETRIEVAL_BUDGET_S=30s`) used to raise
+    ValueError out of the hook. Falling back quietly would trade a crash for a setting that silently does not apply, so the
+    ignored value is warned about by name. Zero is accepted (a deliberate "none"); NaN and infinity are not, an infinite
+    budget being the opposite of a budget.
+    """
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        value = cast(raw)
+    except (ValueError, TypeError, OverflowError):
+        logger.warning("%s=%r is not a number: using the default %s", name, raw, default)
+        return default
+    if value != value or value in (float("inf"), float("-inf")) or value < 0:
+        logger.warning("%s=%r is not a finite non-negative number: using the default %s", name, raw, default)
+        return default
+    return value
+
+
 def _mistake_entry(m: dict, score_key: str) -> dict:
     """Project an embedded mistake into the retrieval payload shape.
 
@@ -906,9 +928,9 @@ def _apply_recency_rerank(
 # up as an eidetic fact). Three knobs, all env-overridable; set
 # EMPIRICA_PATTERN_BUDGET_OFF=1 for the full untrimmed result (the escape hatch,
 # mirroring cortex's enrich=false on SER projections).
-MAX_ITEM_CHARS = int(os.getenv("EMPIRICA_PATTERN_MAX_ITEM_CHARS", "280"))
-MAX_PER_SECTION = int(os.getenv("EMPIRICA_PATTERN_MAX_PER_SECTION", "5"))
-MAX_TOTAL_CHARS = int(os.getenv("EMPIRICA_PATTERN_MAX_TOTAL_CHARS", "8000"))
+MAX_ITEM_CHARS = _env_number("EMPIRICA_PATTERN_MAX_ITEM_CHARS", 280, int)
+MAX_PER_SECTION = _env_number("EMPIRICA_PATTERN_MAX_PER_SECTION", 5, int)
+MAX_TOTAL_CHARS = _env_number("EMPIRICA_PATTERN_MAX_TOTAL_CHARS", 8000, int)
 
 # Per-section text fields. First entry is the dedup signature (the field whose
 # value duplicates across sections); all entries are truncated. A section absent
@@ -1261,7 +1283,8 @@ def retrieve_task_patterns(
     # entitled to the whole window: when the deadline passes, remaining phases
     # are SKIPPED and named in `_retrieval_budget` — a partial injection that
     # says it is partial, per the no-silent-caps rule.
-    _deadline = time.time() + float(os.getenv("EMPIRICA_RETRIEVAL_BUDGET_S", "30"))
+    _retrieval_budget_s = _env_number("EMPIRICA_RETRIEVAL_BUDGET_S", 30.0, float)
+    _deadline = time.time() + _retrieval_budget_s
     _skipped_phases: list[str] = []
 
     def _budget_left(phase: str) -> bool:
@@ -1419,7 +1442,7 @@ def retrieve_task_patterns(
 
     if _skipped_phases:
         result["_retrieval_budget"] = {
-            "budget_s": float(os.getenv("EMPIRICA_RETRIEVAL_BUDGET_S", "30")),
+            "budget_s": _retrieval_budget_s,
             "skipped": _skipped_phases,
             "note": (
                 "retrieval exceeded its wall-clock budget; the phases listed were SKIPPED. "
@@ -1546,7 +1569,8 @@ def check_against_patterns(
     # network calls, and the second measured 120s+ stall on this box WAS a
     # check-submit. One env var governs both, deliberately - an operator
     # tuning the budget should not discover a second knob mid-incident.
-    _deadline = time.time() + float(os.getenv("EMPIRICA_RETRIEVAL_BUDGET_S", "30"))
+    _retrieval_budget_s = _env_number("EMPIRICA_RETRIEVAL_BUDGET_S", 30.0, float)
+    _deadline = time.time() + _retrieval_budget_s
     _skipped_phases: list[str] = []
 
     def _budget_left(phase: str) -> bool:
@@ -1621,7 +1645,7 @@ def check_against_patterns(
 
     if _skipped_phases:
         warnings["_retrieval_budget"] = {
-            "budget_s": float(os.getenv("EMPIRICA_RETRIEVAL_BUDGET_S", "30")),
+            "budget_s": _retrieval_budget_s,
             "skipped": _skipped_phases,
             "note": "CHECK retrieval exceeded its wall-clock budget; the phases listed were SKIPPED - this validation is partial and says so.",
         }
