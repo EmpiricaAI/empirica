@@ -267,6 +267,7 @@ def _resolve_base_topic(body: dict | None) -> str | None:
     """
     if not body:
         return None
+    retired = retired_topic_names(body)
     channels = body.get("channels") or []
     # 1. Explicit orchestration-events channel. Cortex keys channels by
     #    `category`; older shapes used `kind`. Accept either, plus a
@@ -276,6 +277,10 @@ def _resolve_base_topic(body: dict | None) -> str | None:
         topic = ch.get("topic")
         if not topic:
             continue
+        if topic in retired:
+            continue
+        if topic == _ORCH_EVENTS_NAME_HINT:
+            continue
         kind = ch.get("kind") or ch.get("category")
         if kind == _ORCH_EVENTS_KIND or _ORCH_EVENTS_NAME_HINT in topic:
             return topic
@@ -283,10 +288,14 @@ def _resolve_base_topic(body: dict | None) -> str | None:
     #    channel fully org-prefixed (`empirica-system`, `empirica-eco-david`,
     #    `mod-collab`, ...); the orchestration-events topic shares that
     #    prefix even though the endpoint doesn't list it yet.
-    topics = [c.get("topic") for c in channels if c.get("topic")]
+    topics = [
+        c.get("topic")
+        for c in channels
+        if c.get("topic") and c.get("topic") not in retired and c.get("topic") != _ORCH_EVENTS_NAME_HINT
+    ]
     for key in ("system_topic", "eco_topic", "collab_topic", "roster_changed_topic"):
         t = body.get(key)
-        if isinstance(t, dict) and t.get("topic"):
+        if isinstance(t, dict) and t.get("topic") and t.get("topic") not in retired:
             topics.append(t["topic"])
     prefix = _derive_org_prefix(topics)
     if prefix:
