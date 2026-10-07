@@ -156,6 +156,11 @@ def _request(url: str, key: str) -> dict | None:
     except (urllib.error.URLError, TimeoutError, OSError) as e:
         logger.debug(f"notification-channels: request failed ({type(e).__name__}: {e})")
         return None
+    except ValueError as e:
+        # JSONDecodeError and UnicodeDecodeError are both ValueErrors: a 2xx whose body is not JSON used to escape as a traceback
+        # through a module that is fail-soft by design.
+        logger.debug(f"notification-channels: unreadable response body ({type(e).__name__}: {e})")
+        return None
 
 
 def fetch_notification_channels(*, force: bool = False) -> dict | None:
@@ -178,7 +183,7 @@ def fetch_notification_channels(*, force: bool = False) -> dict | None:
         return None
     url, key = creds
     body = _request(f"{url.rstrip('/')}{_PATH}", key)
-    if body is None:
+    if not isinstance(body, dict):  # None, or valid JSON that is not an object (a list, a string)
         return None
     _cache_value = body
     _cache_at = time.time()
