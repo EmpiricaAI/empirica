@@ -690,6 +690,7 @@ def _get_domain_scaled_thresholds(
     domain: str | None,
     criticality: str | None,
     project_path: str | None = None,
+    work_type: str | None = None,
 ) -> float:
     """Scale uncertainty threshold based on domain criticality (B1 Wave 2).
 
@@ -710,7 +711,7 @@ def _get_domain_scaled_thresholds(
             project_path=Path(project_path) if project_path else None,
         )
         key = DomainKey(
-            work_type=domain or "code",
+            work_type=work_type or "code",
             domain=domain or "default",
             criticality=criticality or "medium",
         )
@@ -1849,10 +1850,13 @@ def _atomic_write_counters(counters: dict, counters_path: Path) -> None:
             json.dump(counters, tf, indent=2)
         os.replace(tmp, str(counters_path))
     except BaseException:
+        # Clean up the temp file, then let the failure (or the interrupt) through: swallowing it made
+        # a counter that never persisted look like one that did.
         try:
             os.unlink(tmp)
         except OSError:
             pass
+        raise
 
 
 def _stamp_blocked_presence(claude_session_id: str | None, tool_input: dict | None) -> None:
@@ -1978,7 +1982,10 @@ def _try_increment_tool_count(
 
         _atomic_write_counters(counters, counters_path)
         return count, avg
-    except Exception:
+    except Exception as exc:
+        # Still non-fatal to the gate, but not silent: without the counters the autonomy and goalless
+        # nudges never fire and nothing says why.
+        print(f"sentinel-gate: tool counters not recorded: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 0, 0
 
 
@@ -5813,6 +5820,7 @@ def _check_auto_proceed(
         _current_domain,
         _current_criticality,
         project_path=str(Path(tx_file).parent.parent) if tx_file else None,
+        work_type=_current_work_type or None,
     )
     if raw_know >= _dyn_know and raw_unc <= _domain_unc:
         _domain_info = ""

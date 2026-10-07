@@ -878,3 +878,52 @@ def test_a_transfer_that_writes_deletes_or_runs_a_program_is_not_a_read(sg, comm
 @pytest.mark.parametrize("command", _TRANSFER_READS)
 def test_downloads_and_dry_runs_stay_reads(sg, command):
     assert _safe(sg, command) is True
+
+
+# ---- the threshold scaler resolves the real work type; the counter write does not swallow (gate-A#9, A#11) --
+
+
+def test_domain_scaling_resolves_with_the_work_type_not_the_domain_name(sg, monkeypatch):
+    import types
+
+    seen = []
+
+    class FakeRegistry:
+        def __init__(self, project_path=None):
+            pass
+
+        def resolve(self, key):
+            seen.append(key)
+            return types.SimpleNamespace(has_checks=True, thresholds={"coverage_min": 0.5})
+
+    monkeypatch.setattr("empirica.config.domain_registry.DomainRegistry", FakeRegistry)
+    sg._get_domain_scaled_thresholds(0.35, "medical", "high", work_type="debug")
+    assert [(k.work_type, k.domain, k.criticality) for k in seen] == [("debug", "medical", "high")]
+    sg._get_domain_scaled_thresholds(0.35, "medical", "high")
+    assert seen[-1].work_type == "code"  # no work type known: the old default, not the domain
+
+
+def test_a_failed_counter_write_raises_and_leaves_the_old_file_and_no_temp_files(sg, tmp_path):
+    path = tmp_path / "counters.json"
+    path.write_text('{"tool_call_count": 3}')
+    with pytest.raises(TypeError):
+        sg._atomic_write_counters({"bad": object()}, path)
+    assert json.loads(path.read_text()) == {"tool_call_count": 3}
+    assert [p.name for p in tmp_path.iterdir()] == ["counters.json"]
+
+
+def test_an_interrupt_during_the_counter_write_is_not_swallowed(sg, tmp_path, monkeypatch):
+    def interrupted(*_a, **_k):
+        raise KeyboardInterrupt
+
+    with monkeypatch.context() as m:
+        m.setattr(sg.os, "replace", interrupted)
+        with pytest.raises(KeyboardInterrupt):
+            sg._atomic_write_counters({"a": 1}, tmp_path / "counters.json")
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_a_good_counter_write_still_lands(sg, tmp_path):
+    path = tmp_path / "counters.json"
+    sg._atomic_write_counters({"tool_call_count": 4}, path)
+    assert json.loads(path.read_text()) == {"tool_call_count": 4}
