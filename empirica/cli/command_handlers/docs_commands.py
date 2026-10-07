@@ -1522,7 +1522,8 @@ def handle_docs_assess(args) -> int:
                 print(json.dumps(result, indent=2))
             else:
                 _print_staleness_output(result, verbose)
-            return 0
+            # `ok: False` (e.g. "No docs directory found") used to exit 0 after printing, so a script saw a clean run.
+            return 0 if result.get("ok", True) else 1
 
         # Turtle mode: recursive epistemic assessment
         if turtle_mode:
