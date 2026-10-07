@@ -41,6 +41,39 @@ def _mistake_entry(m: dict, score_key: str) -> dict:
     return {"mistake": mistake, "prevention": prevention, score_key: m.get("score", 0.0)}
 
 
+def _parse_dead_end(item: dict) -> dict:
+    r"""Parse dead-end text robustly from text_full or text, never raising.
+
+    Splits on the pattern r'\s*[—-]?\s*Why failed:\s*' (maxsplit=1),
+    stripping DEAD END: and Dead end approach: prefixes from the approach.
+
+    Returns dict with "approach" and "why_failed" keys. If parsing fails at any
+    step, returns empty strings rather than raising.
+    """
+    import re
+
+    text = item.get("text_full") or item.get("text") or ""
+    if not text:
+        return {"approach": "", "why_failed": ""}
+
+    # Strip prefixes from the approach
+    approach = text
+    for prefix in ("DEAD END: ", "Dead end approach: "):
+        if approach.startswith(prefix):
+            approach = approach[len(prefix) :]
+            break
+
+    # Split on "Why failed:" with flexible whitespace
+    try:
+        parts = re.split(r"\s*[—-]?\s*Why failed:\s*", approach, maxsplit=1)
+        approach = (parts[0] or "").strip()
+        why_failed = (parts[1] or "").strip() if len(parts) > 1 else ""
+        return {"approach": approach, "why_failed": why_failed}
+    except Exception:
+        # If regex fails for any reason, return approach and empty why_failed
+        return {"approach": approach.strip(), "why_failed": ""}
+
+
 # Defaults
 # NOTE: Threshold lowered to 0.5 because placeholder embeddings (hash-based)
 # produce max scores of ~0.55-0.60. Real ML embeddings would score 0.7-0.9.
@@ -1276,8 +1309,7 @@ def retrieve_task_patterns(
     )
     dead_ends = [
         {
-            "approach": d.get("text", "").replace("DEAD END: ", "").split(" Why failed:")[0] if d.get("text") else "",
-            "why_failed": d.get("text", "").split("Why failed: ")[1] if "Why failed:" in d.get("text", "") else "",
+            **_parse_dead_end(d),
             "score": d.get("score", 0.0),
         }
         for d in dead_ends_raw
@@ -1534,10 +1566,7 @@ def check_against_patterns(
 
         warnings["dead_end_matches"] = [
             {
-                "approach": d.get("text", "").replace("DEAD END: ", "").split(" Why failed:")[0]
-                if d.get("text")
-                else "",
-                "why_failed": d.get("text", "").split("Why failed: ")[1] if "Why failed:" in d.get("text", "") else "",
+                **_parse_dead_end(d),
                 "similarity": d.get("score", 0.0),
             }
             for d in dead_ends
