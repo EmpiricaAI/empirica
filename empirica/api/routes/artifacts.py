@@ -284,15 +284,20 @@ def _parse_data_json(raw: Any) -> dict:
 # ── Per-type read helpers ────────────────────────────────────────────
 
 
-def _list_findings(db, project_id: str, limit: int) -> list[dict[str, Any]]:
+def _list_findings(db, project_id: str, limit: int, artifact_id: str | None = None) -> list[dict[str, Any]]:
     cursor = db.conn.cursor()
+    where = "project_id = ?"
+    params: list[Any] = [project_id]
+    if artifact_id:
+        where += " AND id = ?"
+        params.append(artifact_id)
     cursor.execute(
-        "SELECT id, finding, finding_data, impact, epistemic_source, "
-        "session_id, goal_id, subtask_id, transaction_id, "
-        "subject, created_timestamp "
-        "FROM project_findings WHERE project_id = ? "
-        "ORDER BY created_timestamp DESC LIMIT ?",
-        (project_id, limit),
+        f"SELECT id, finding, finding_data, impact, epistemic_source, "
+        f"session_id, goal_id, subtask_id, transaction_id, "
+        f"subject, created_timestamp "
+        f"FROM project_findings WHERE {where} "
+        f"ORDER BY created_timestamp DESC LIMIT ?",
+        (*params, limit),
     )
     rows = cursor.fetchall()
     return [
@@ -315,7 +320,9 @@ def _list_findings(db, project_id: str, limit: int) -> list[dict[str, Any]]:
     ]
 
 
-def _list_unknowns(db, project_id: str, status: str, limit: int) -> list[dict[str, Any]]:
+def _list_unknowns(
+    db, project_id: str, status: str, limit: int, artifact_id: str | None = None
+) -> list[dict[str, Any]]:
     cursor = db.conn.cursor()
     where = "project_id = ?"
     params: list[Any] = [project_id]
@@ -323,6 +330,9 @@ def _list_unknowns(db, project_id: str, status: str, limit: int) -> list[dict[st
         where += " AND is_resolved = 0"
     elif status == "resolved":
         where += " AND is_resolved = 1"
+    if artifact_id:
+        where += " AND id = ?"
+        params.append(artifact_id)
     cursor.execute(
         f"SELECT id, unknown, unknown_data, impact, epistemic_source, "
         f"session_id, goal_id, subtask_id, transaction_id, "
@@ -354,14 +364,19 @@ def _list_unknowns(db, project_id: str, status: str, limit: int) -> list[dict[st
     ]
 
 
-def _list_dead_ends(db, project_id: str, limit: int) -> list[dict[str, Any]]:
+def _list_dead_ends(db, project_id: str, limit: int, artifact_id: str | None = None) -> list[dict[str, Any]]:
     cursor = db.conn.cursor()
+    where = "project_id = ?"
+    params: list[Any] = [project_id]
+    if artifact_id:
+        where += " AND id = ?"
+        params.append(artifact_id)
     cursor.execute(
-        "SELECT id, approach, why_failed, dead_end_data, impact, epistemic_source, "
-        "session_id, goal_id, subtask_id, transaction_id, created_timestamp "
-        "FROM project_dead_ends WHERE project_id = ? "
-        "ORDER BY created_timestamp DESC LIMIT ?",
-        (project_id, limit),
+        f"SELECT id, approach, why_failed, dead_end_data, impact, epistemic_source, "
+        f"session_id, goal_id, subtask_id, transaction_id, created_timestamp "
+        f"FROM project_dead_ends WHERE {where} "
+        f"ORDER BY created_timestamp DESC LIMIT ?",
+        (*params, limit),
     )
     rows = cursor.fetchall()
     return [
@@ -384,14 +399,19 @@ def _list_dead_ends(db, project_id: str, limit: int) -> list[dict[str, Any]]:
     ]
 
 
-def _list_mistakes(db, project_id: str, limit: int) -> list[dict[str, Any]]:
+def _list_mistakes(db, project_id: str, limit: int, artifact_id: str | None = None) -> list[dict[str, Any]]:
     cursor = db.conn.cursor()
+    where = "project_id = ?"
+    params: list[Any] = [project_id]
+    if artifact_id:
+        where += " AND id = ?"
+        params.append(artifact_id)
     cursor.execute(
-        "SELECT id, mistake, why_wrong, prevention, mistake_data, epistemic_source, "
-        "session_id, goal_id, transaction_id, created_timestamp "
-        "FROM mistakes_made WHERE project_id = ? "
-        "ORDER BY created_timestamp DESC LIMIT ?",
-        (project_id, limit),
+        f"SELECT id, mistake, why_wrong, prevention, mistake_data, epistemic_source, "
+        f"session_id, goal_id, transaction_id, created_timestamp "
+        f"FROM mistakes_made WHERE {where} "
+        f"ORDER BY created_timestamp DESC LIMIT ?",
+        (*params, limit),
     )
     rows = cursor.fetchall()
     return [
@@ -435,17 +455,24 @@ def _table_has_column(db, table: str, column: str) -> bool:
         return False
 
 
-def _list_assumptions(db, project_id: str, confidence_min: float, limit: int) -> list[dict[str, Any]]:
+def _list_assumptions(
+    db, project_id: str, confidence_min: float, limit: int, artifact_id: str | None = None
+) -> list[dict[str, Any]]:
     cursor = db.conn.cursor()
     has_desc = _table_has_column(db, "assumptions", "description")
     desc_col = ", description" if has_desc else ""
+    where = "project_id = ? AND confidence >= ?"
+    params: list[Any] = [project_id, confidence_min]
+    if artifact_id:
+        where += " AND id = ?"
+        params.append(artifact_id)
     cursor.execute(
         f"SELECT id, assumption, confidence, status, resolution_finding_id, "
         f"session_id, goal_id, transaction_id, created_timestamp, resolved_timestamp, "
         f"epistemic_source{desc_col} "
-        f"FROM assumptions WHERE project_id = ? AND confidence >= ? "
+        f"FROM assumptions WHERE {where} "
         f"ORDER BY created_timestamp DESC LIMIT ?",
-        (project_id, confidence_min, limit),
+        (*params, limit),
     )
     rows = cursor.fetchall()
     return [
@@ -469,17 +496,22 @@ def _list_assumptions(db, project_id: str, confidence_min: float, limit: int) ->
     ]
 
 
-def _list_decisions(db, project_id: str, limit: int) -> list[dict[str, Any]]:
+def _list_decisions(db, project_id: str, limit: int, artifact_id: str | None = None) -> list[dict[str, Any]]:
     cursor = db.conn.cursor()
     has_desc = _table_has_column(db, "decisions", "description")
     desc_col = ", description" if has_desc else ""
+    where = "project_id = ?"
+    params: list[Any] = [project_id]
+    if artifact_id:
+        where += " AND id = ?"
+        params.append(artifact_id)
     cursor.execute(
         f"SELECT id, choice, rationale, alternatives, confidence_at_decision, "
         f"reversibility, outcome, regret_score, "
         f"session_id, goal_id, transaction_id, created_timestamp, epistemic_source{desc_col} "
-        f"FROM decisions WHERE project_id = ? "
+        f"FROM decisions WHERE {where} "
         f"ORDER BY created_timestamp DESC LIMIT ?",
-        (project_id, limit),
+        (*params, limit),
     )
     rows = cursor.fetchall()
     return [
@@ -506,7 +538,12 @@ def _list_decisions(db, project_id: str, limit: int) -> list[dict[str, Any]]:
 
 
 def _list_sources(
-    db, project_id: str, limit: int, include_archived: bool = False, practice_scope: bool = True
+    db,
+    project_id: str,
+    limit: int,
+    include_archived: bool = False,
+    practice_scope: bool = True,
+    artifact_id: str | None = None,
 ) -> list[dict[str, Any]]:
     cursor = db.conn.cursor()
     # Optional columns are schema-resilient (same pattern as _list_goals, David
@@ -548,6 +585,9 @@ def _list_sources(
     # `practice_scope=False` for the strict single-project read.
     where = "1=1" if practice_scope else "project_id = ?"
     params: list[Any] = [] if practice_scope else [project_id]
+    if artifact_id:
+        where += " AND id = ?"
+        params.append(artifact_id)
     cursor.execute(
         f"SELECT id, title, source_url, source_type, description, confidence, "
         f"epistemic_layer, session_id, discovered_by_ai, discovered_at, project_id{extra_cols} "
@@ -585,7 +625,7 @@ def _list_sources(
     return out
 
 
-def _list_goals(db, project_id: str, status: str, limit: int) -> list[dict[str, Any]]:
+def _list_goals(db, project_id: str, status: str, limit: int, artifact_id: str | None = None) -> list[dict[str, Any]]:
     cursor = db.conn.cursor()
     where = "project_id = ?"
     params: list[Any] = [project_id]
@@ -595,6 +635,9 @@ def _list_goals(db, project_id: str, status: str, limit: int) -> list[dict[str, 
         where += " AND is_completed = 1"
     elif status == "planned":
         where += " AND status = 'planned'"
+    if artifact_id:
+        where += " AND id = ?"
+        params.append(artifact_id)
     has_desc = _table_has_column(db, "goals", "description")
     desc_col = ", description" if has_desc else ""
     cursor.execute(
@@ -1344,27 +1387,24 @@ def _list_one_by_type(db, artifact_type: str, artifact_id: str, project_id: str 
     if not project_id:
         return None
     if artifact_type == "finding":
-        rows = _list_findings(db, project_id, limit=1000)
+        rows = _list_findings(db, project_id, limit=1, artifact_id=artifact_id)
     elif artifact_type == "unknown":
-        rows = _list_unknowns(db, project_id, "all", limit=1000)
+        rows = _list_unknowns(db, project_id, "all", limit=1, artifact_id=artifact_id)
     elif artifact_type == "dead_end":
-        rows = _list_dead_ends(db, project_id, limit=1000)
+        rows = _list_dead_ends(db, project_id, limit=1, artifact_id=artifact_id)
     elif artifact_type == "mistake":
-        rows = _list_mistakes(db, project_id, limit=1000)
+        rows = _list_mistakes(db, project_id, limit=1, artifact_id=artifact_id)
     elif artifact_type == "assumption":
-        rows = _list_assumptions(db, project_id, confidence_min=0.0, limit=1000)
+        rows = _list_assumptions(db, project_id, confidence_min=0.0, limit=1, artifact_id=artifact_id)
     elif artifact_type == "decision":
-        rows = _list_decisions(db, project_id, limit=1000)
+        rows = _list_decisions(db, project_id, limit=1, artifact_id=artifact_id)
     elif artifact_type == "source":
-        rows = _list_sources(db, project_id, limit=1000)
+        rows = _list_sources(db, project_id, limit=1, artifact_id=artifact_id)
     elif artifact_type == "goal":
-        rows = _list_goals(db, project_id, "all", limit=1000)
+        rows = _list_goals(db, project_id, "all", limit=1, artifact_id=artifact_id)
     else:
         return None
-    for row in rows:
-        if row.get("id") == artifact_id:
-            return row
-    return None
+    return rows[0] if rows else None
 
 
 @router.get("/artifacts/{artifact_id}")
