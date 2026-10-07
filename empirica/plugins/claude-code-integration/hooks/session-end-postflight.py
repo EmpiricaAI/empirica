@@ -123,11 +123,12 @@ def auto_postflight(session_id: str, vectors: dict) -> dict:
     """
     try:
         # Build POSTFLIGHT payload
+        # Only keys postflight-submit accepts: it refuses any other top-level key (GH #409) before recording anything. This
+        # payload used to carry `learnings` and `delta_summary`, so the auto-POSTFLIGHT failed on every run.
         payload = {
             "session_id": session_id,
             "vectors": vectors,
-            "learnings": ["Session ended - auto-captured POSTFLIGHT"],
-            "delta_summary": "Auto-captured at session end",
+            "reasoning": "Session ended - auto-captured POSTFLIGHT from the last recorded vectors (completion floored at 0.7)",
         }
 
         # Submit via CLI
@@ -642,6 +643,12 @@ def main():
 
     _cleanup_session_files(claude_session_id)
 
+    if not result.get("ok"):
+        # Session end is never blocked, but a POSTFLIGHT that did not land must not look like one that did.
+        print(
+            f"Empirica: auto-POSTFLIGHT FAILED for session {session_id}: {str(result.get('error', 'unknown error')).strip()[:300]}",
+            file=sys.stderr,
+        )
     if result.get("ok"):
         print(
             f"""

@@ -205,7 +205,6 @@ def main():
                 f"```bash\n"
                 f"empirica postflight-submit - << 'EOF'\n"
                 f'{{"session_id": "{session_id}", '
-                f'"task_outcome": "<what was accomplished>", '
                 f'"vectors": {{"know": ..., "uncertainty": ..., "completion": ...}}, '
                 f'"reasoning": "<your assessment>"}}\n'
                 f"EOF\n```\n"
@@ -229,7 +228,6 @@ def main():
             f"```bash\n"
             f"empirica postflight-submit - << 'EOF'\n"
             f'{{"session_id": "{session_id}", '
-            f'"task_outcome": "<what was accomplished in this transaction>", '
             f'"vectors": {{"know": ..., "uncertainty": ..., "context": ..., '
             f'"completion": ..., "impact": ..., "do": ..., "change": ...}}, '
             f'"reasoning": "<what you believe about your epistemic state after this work>"}}\n'

@@ -40,6 +40,25 @@ _TYPE_TO_DOMAIN = {
 }
 
 
+#: The only top-level keys `postflight-submit` accepts. Anything else is refused before anything is recorded (GH #409). Callers that
+#: build a payload, and text that teaches one, are tested against this set so the two cannot drift apart unseen.
+POSTFLIGHT_TOP_LEVEL_KEYS = frozenset(
+    {
+        "session_id",
+        "vectors",
+        "reasoning",
+        "grounded_vectors",
+        "grounded_rationale",
+        "coverage",
+        "claims",
+        "falsifiers",
+        "preflight_session_id",
+        "work_type",
+        "output",
+    }
+)
+
+
 def _pipeline_embed_grounded_calibration(
     session_id,
     vectors,
@@ -699,19 +718,7 @@ def _postflight_parse_config_or_legacy(args):
         # `claims` was silently accepted, ok:true, and every claim then read
         # `untested` — a dropped payload wearing a discipline-failure's clothes.
         # Naming the offender + the accepted set turns a mystery into a typo fix.
-        _known = {
-            "session_id",
-            "vectors",
-            "reasoning",
-            "grounded_vectors",
-            "grounded_rationale",
-            "coverage",
-            "claims",
-            "falsifiers",
-            "preflight_session_id",
-            "work_type",
-            "output",
-        }
+        _known = POSTFLIGHT_TOP_LEVEL_KEYS
         unknown = sorted(k for k in config_data if k not in _known)
         if unknown:
             print(
