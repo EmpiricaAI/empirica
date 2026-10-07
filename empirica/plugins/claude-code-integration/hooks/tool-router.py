@@ -364,19 +364,18 @@ def _proportionality_state_path(session_id: str) -> Path:
     return Path.home() / ".empirica" / "state" / f"proportionality_{safe_sid}.json"
 
 
-def _arm_proportionality_budget(session_id: str, limit: int = 5) -> None:
+def _arm_proportionality_budget(session_id: str, limit: int = 5) -> bool:
     """Tx-AG: arm the read/grep/glob budget so sentinel-gate can deny
     investigation-as-procrastination after `limit` tool calls.
 
     Called from the UserPromptSubmit handler when the proportionality
     block fires. Sentinel-gate reads this file in PreToolUse to track
-    counts. State decays naturally — overwritten on each new
-    hypothesis-bearing prompt; stale files (>1h old) are ignored by
-    the reader. Fail-quiet: if state dir isn't writable, tool-router
-    just emits the soft-block context and continues.
+    counts. Returns True only when the state file was actually written, so
+    the caller never tells the model a firewall is armed when it is not
+    (an empty session id, or an unwritable state dir). Fail-quiet.
     """
     if not session_id:
-        return
+        return False
     try:
         path = _proportionality_state_path(session_id)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -387,11 +386,63 @@ def _arm_proportionality_budget(session_id: str, limit: int = 5) -> None:
             "session_id": session_id,
         }
         path.write_text(json.dumps(payload))
+        return True
     except OSError:
         # Hard fail-quiet: budget arming is best-effort. If the disk is
-        # full or the state dir is unwritable, the soft-block context
-        # already shipped above is the fallback.
+        # full or the state dir is unwritable, the caller says so instead of
+        # claiming enforcement.
+        return False
+
+
+def _disarm_proportionality_budget(session_id: str) -> None:
+    """Remove this session's armed budget. Fail-quiet (a missing file is the normal case)."""
+    if not session_id:
+        return
+    try:
+        _proportionality_state_path(session_id).unlink()
+    except OSError:
         pass
+
+
+def _prune_stale_proportionality_files(max_age_s: float = 3600.0) -> None:
+    """Delete budget files untouched for over an hour. The gate ignores them (and unlinks one only if it happens to read it), so
+    the files of sessions that ended piled up for good: 26 of the 28 on the box that reproduced this."""
+    try:
+        directory = _proportionality_state_path("x").parent
+        now = time.time()
+        for path in directory.glob("proportionality_*.json"):
+            try:
+                if now - path.stat().st_mtime > max_age_s:
+                    path.unlink()
+            except OSError:
+                continue
+    except OSError:
+        pass
+
+
+def _sync_proportionality_budget(session_id: str, proportionality_check: str | None) -> bool:
+    """Make the armed state match THIS prompt: reset on every new user prompt, re-arm only if it carries a hypothesis.
+
+    The gate's deny text promises the budget is reset by the next user prompt, but nothing ever did that: the file was
+    overwritten only by another hypothesis-bearing prompt and otherwise lived for an hour, so Read/Grep/Glob kept counting
+    (and were denied past the limit) on later prompts that had nothing to do with the hypothesis. Returns whether a budget is
+    armed after this call.
+    """
+    _disarm_proportionality_budget(session_id)
+    _prune_stale_proportionality_files()
+    if not proportionality_check:
+        return False
+    return _arm_proportionality_budget(session_id)
+
+
+_NOT_ARMED_NOTE = "(No runtime budget was armed for this turn, so the probe-first rule above is advice only: it is not enforced by the Sentinel.)"
+
+
+def _state_the_budget_truthfully(block: str, armed: bool) -> str:
+    """The block says the firewall is armed; when it is not, say that instead of the hard-rule paragraph."""
+    if armed:
+        return block
+    return block.split("**Hard rule:**")[0].rstrip() + "\n\n" + _NOT_ARMED_NOTE + "\n"
 
 
 def build_investigation_proportionality_check(prompt: str) -> str | None:
@@ -962,8 +1013,16 @@ def main():
 
     prompt = input_data.get("prompt", "")
 
+    # Every user prompt resets the proportionality budget, short ones and slash commands included; only a prompt that carries
+    # a hypothesis re-arms it. This runs BEFORE the early return below, or "yes" / "go" would leave the old budget counting.
+    is_command_or_short = len(prompt) < 10 or prompt.startswith("/")
+    proportionality_check = None if is_command_or_short else build_investigation_proportionality_check(prompt)
+    budget_armed = _sync_proportionality_budget(input_data.get("session_id", ""), proportionality_check)
+    if proportionality_check:
+        proportionality_check = _state_the_budget_truthfully(proportionality_check, budget_armed)
+
     # Skip very short prompts or commands
-    if len(prompt) < 10 or prompt.startswith("/"):
+    if is_command_or_short:
         print(json.dumps({"continue": True}))
         return
 
@@ -983,13 +1042,7 @@ def main():
     # theory. Cheap detection (regex + word-boundary) so misses are
     # graceful. Block acknowledges nuance internally so false positives
     # cost ~10 lines of context, no behavior break.
-    proportionality_check = build_investigation_proportionality_check(prompt)
-    if proportionality_check:
-        # Tx-AG: also arm the Sentinel-side budget so the discipline is
-        # enforceable, not just suggested. Empirically, the soft block
-        # alone got ignored (8 searches in David's 2026-05-06 test).
-        # Codex hook payload uses session_id at the top level.
-        _arm_proportionality_budget(input_data.get("session_id", ""))
+    # (the proportionality check, its arming and its reset happen at the top of main(), before the early return)
 
     # EPP semantic pushback check — always-on for substantive prompts.
     # Injected LAST in context_parts to exploit attention recency bias.
