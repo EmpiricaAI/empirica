@@ -265,6 +265,8 @@ def _global_hit(r) -> dict:
         "score": getattr(r, "score", 0.0) or 0.0,
         "type": payload.get("type"),
         "text": payload.get("text"),
+        "text_full": payload.get("text_full"),
+        "truncated": bool(payload.get("truncated")),
         "project_id": payload.get("project_id"),
         "session_id": payload.get("session_id"),
         "impact": payload.get("impact"),

@@ -1015,8 +1015,10 @@ def _enforce_total_budget(result: dict, max_total: int) -> int:
 _INJECTION_CATEGORY_KEYS = (
     "lessons",
     "dead_ends",
+    "dead_end_matches",
     "mistakes",
     "prior_mistakes",
+    "mistake_matches",
     "relevant_findings",
     "related_findings",
     "eidetic_facts",
