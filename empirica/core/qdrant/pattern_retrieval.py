@@ -67,7 +67,7 @@ def _parse_dead_end(item: dict) -> dict:
     r"""Parse dead-end text robustly from text_full or text, never raising.
 
     Splits on the pattern r'\s*[—-]?\s*Why failed:\s*' (maxsplit=1),
-    stripping DEAD END: and Dead end approach: prefixes from the approach.
+    stripping the DEAD END: / Dead end approach: / Approach: prefixes (the three formats the embed paths write) from the approach.
 
     Returns dict with "approach" and "why_failed" keys. If parsing fails at any
     step, returns empty strings rather than raising.
@@ -80,7 +80,7 @@ def _parse_dead_end(item: dict) -> dict:
 
     # Strip prefixes from the approach
     approach = text
-    for prefix in ("DEAD END: ", "Dead end approach: "):
+    for prefix in ("DEAD END: ", "Dead end approach: ", "Approach: "):
         if approach.startswith(prefix):
             approach = approach[len(prefix) :]
             break
@@ -396,15 +396,21 @@ def _enrich_memory_types(result, project_id, task_context, limits, include_eidet
 
         raw = search_global_dead_ends(f"Approach for: {task_context}", limit=limits["global_dead_ends"])
         if raw:
-            result["global_dead_ends"] = [
-                {
-                    "approach": g.get("approach", g.get("text", "")),
-                    "why_failed": g.get("why_failed", ""),
-                    "project": g.get("project_name", "other project"),
-                    "score": g.get("score", 0.0),
-                }
-                for g in raw
-            ]
+            # A global hit carries `text` (+ `text_full`), not approach/why_failed/project_name: reading those keys returned the
+            # whole text as the approach, an empty why_failed and the constant "other project" for every hit. Parse the text with
+            # the same helper PREFLIGHT and CHECK use, and name the source project by the id the point carries.
+            entries = []
+            for g in raw:
+                parsed = _parse_dead_end(g)
+                entries.append(
+                    {
+                        "approach": g.get("approach") or parsed["approach"],
+                        "why_failed": g.get("why_failed") or parsed["why_failed"],
+                        "project": g.get("project_name") or g.get("project_id") or "other project",
+                        "score": g.get("score", 0.0),
+                    }
+                )
+            result["global_dead_ends"] = entries
     except Exception as e:
         logger.debug(f"Global dead-ends retrieval failed: {e}")
 
