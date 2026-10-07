@@ -3648,6 +3648,15 @@ def _is_remote_cmd_safe(remote_cmd: str) -> bool:
     if not remote_cmd:
         return True
 
+    # The outer classifier looks for redirects, background operators and substitutions OUTSIDE
+    # quotes, and the remote command usually arrives INSIDE them, so none of those checks has seen
+    # this text. Run them here, on the remote command itself: `ssh h "cat f > /etc/x"` and
+    # `ssh h "ls & rm -rf x"` were reads.
+    if _has_lone_ampersand(remote_cmd) or _has_dangerous_redirects(remote_cmd):
+        return False
+    if not _substitutions_are_safe(remote_cmd):
+        return False
+
     # Handle chains within the remote command: cmd1 && cmd2 && cmd3
     # (split outside quotes — `;` etc. inside a quoted string is not a chain op)
     for chain_op in ("&&", "||", ";"):
@@ -3663,11 +3672,13 @@ def _is_remote_cmd_safe(remote_cmd: str) -> bool:
         # First segment must be safe, rest must be safe pipe targets
         if not _is_single_remote_cmd_safe(segments[0]):
             return False
+        # Receivers are judged as the local pipe path judges them: whole-word targets and the
+        # tool-flag guard (a bare startswith let `| truncate` ride on `tr`, `| tee /dev/stderr
+        # /tmp/out` on `tee /dev/stderr`).
         for seg in segments[1:]:
             seg = seg.strip()
-            if not any(seg.startswith(t) for t in SAFE_PIPE_TARGETS):
-                if not _is_single_remote_cmd_safe(seg):
-                    return False
+            if not (_is_safe_pipe_segment(seg, is_first=False) or _is_single_remote_cmd_safe(seg)):
+                return False
         return True
 
     return _is_single_remote_cmd_safe(remote_cmd)
@@ -3685,6 +3696,11 @@ def _is_single_remote_cmd_safe(cmd: str) -> bool:
     # cd is always safe
     if cmd_clean.startswith("cd "):
         return True
+
+    # Every prefix below names a COMMAND WORD; a write or exec flag on it (`find -delete`,
+    # `sed -i`, `sort -o`, `journalctl --vacuum-size`) makes it something else, as locally.
+    if _has_dangerous_tool_flags(cmd_clean) or _journalctl_mutates(cmd_clean):
+        return False
 
     # Docker inspection commands (common in remote infra work)
     docker_safe = (
@@ -3719,12 +3735,28 @@ def _is_single_remote_cmd_safe(cmd: str) -> bool:
     if cmd_clean.startswith("journalctl"):
         return True
 
-    # Check standard SAFE_BASH_PREFIXES
-    for prefix in SAFE_BASH_PREFIXES:
-        if cmd_clean.startswith(prefix) or (prefix.endswith(" ") and cmd_clean == prefix.rstrip()):
-            return True
+    # Standard safe prefixes, through the same matcher the local path uses (word boundary, git
+    # globals, env unwrapping) rather than a bare startswith.
+    return _matches_safe_prefix(cmd_clean)
 
-    return False
+
+_JOURNALCTL_MUTATING = (
+    "--vacuum",
+    "--rotate",
+    "--flush",
+    "--sync",
+    "--relinquish-var",
+    "--smart-relinquish-var",
+    "--setup-keys",
+    "--update-catalog",
+)
+
+
+def _journalctl_mutates(cmd: str) -> bool:
+    """`journalctl --vacuum-size=…` / `--rotate` / `--flush` change the journal; plain reads do not."""
+    if not cmd.startswith("journalctl"):
+        return False
+    return any(flag in cmd for flag in _JOURNALCTL_MUTATING)
 
 
 def _classify_rsync(command: str) -> bool:

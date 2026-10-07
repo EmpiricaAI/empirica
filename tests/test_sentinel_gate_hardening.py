@@ -411,3 +411,56 @@ def test_pipe_receivers_cannot_execute_or_write(sg, command):
 )
 def test_the_legitimate_pipe_receivers_still_work(sg, command):
     assert _safe(sg, command) is True
+
+
+# ---- remote commands are judged by the same guards as local ones (gate-B#4) ------------------------
+#
+# The outer classifier looks for redirects, background operators and write flags OUTSIDE quotes; the
+# remote command rides inside quotes, so none of those checks ever saw it, and the remote classifier
+# accepted any safe-prefixed word. `ssh host "cat f > /tmp/x"` was a read.
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        'ssh host "cat /etc/hosts > /tmp/x"',
+        'ssh host "ls >> /root/.bashrc"',
+        'ssh host "docker logs c > /tmp/log"',
+        'ssh host "ls & rm -rf /srv/data"',
+        'ssh host "find / -name x -delete"',
+        'ssh host "sed -i s/a/b/ /etc/hosts"',
+        'ssh host "sort -o /etc/hosts /etc/hosts"',
+        'ssh host "journalctl --vacuum-size=1M"',
+        'ssh host "cat f | tee /tmp/out"',
+        'ssh host "cat f | tee /dev/stderr /tmp/out"',
+        'ssh host "cat f | truncate -s 0 /srv/data"',
+        "ssh host \"ls | python3 -c 'import os; os.remove(1)'\"",
+        'ssh host "ls | sh"',
+        "ssh host <<'EOF'\ncat /etc/hosts > /tmp/x\nEOF",
+        "ssh host <<'EOF'\necho $(rm -rf /srv/data)\nEOF",
+        "ssh host <<'EOF'\nls & rm -rf /srv/data\nEOF",
+        'ssh host "echo $(rm -rf /srv/data)"',
+    ],
+)
+def test_a_remote_command_with_a_write_or_exec_shape_is_not_a_read(sg, command):
+    assert _safe(sg, command) is False
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "ssh host 'ls /tmp'",
+        'ssh host "cat /etc/hosts | head -5"',
+        'ssh host "cd /srv && ls -la"',
+        'ssh host "docker ps && systemctl status nginx"',
+        'ssh host "docker logs c 2>&1 | tail -5"',
+        'ssh host "journalctl -u nginx -n 50 --no-pager 2>/dev/null | tail"',
+        'ssh host "grep -r foo /etc 2>/dev/null"',
+        'ssh host "ps aux | grep nginx"',
+        "ssh host \"echo 'a & b'\"",
+        "ssh host \"grep 'x>y' /var/log/app.log\"",
+        "ssh host <<'EOF'\nls /tmp\ndocker ps\nEOF",
+    ],
+)
+def test_the_legitimate_remote_reads_stay_reads(sg, command):
+    assert _safe(sg, command) is True
