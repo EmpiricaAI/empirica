@@ -92,6 +92,13 @@ def test_fetch_returns_none_on_request_failure(monkeypatch):
     assert nc.fetch_notification_channels() is None
 
 
+@pytest.fixture(autouse=True)
+def _canonical_tag_resolves(monkeypatch):
+    """These tests are about the TOPIC. The canonical 3-form is resolved from cortex's roster; test_notification_channels_tag.py
+    covers it, including the refusal when it cannot be resolved."""
+    monkeypatch.setattr(nc, "_canonical_tag", lambda ai_id: f"org.tenant.{ai_id}")
+
+
 # ── resolve_orchestration_events_topic ───────────────────────────────────
 
 
@@ -104,7 +111,7 @@ def test_resolver_uses_per_org_topic_when_cortex_responds(monkeypatch):
     }
     monkeypatch.setattr(nc, "_request", lambda url, key: body)
     topic = nc.resolve_orchestration_events_topic("empirica")
-    assert topic == "ntfy:empirica-orchestration-events?tags=empirica"
+    assert topic == "ntfy:empirica-orchestration-events?tags=org.tenant.empirica"
 
 
 def test_resolver_matches_by_kind(monkeypatch):
@@ -119,7 +126,7 @@ def test_resolver_matches_by_kind(monkeypatch):
     }
     monkeypatch.setattr(nc, "_request", lambda url, key: body)
     topic = nc.resolve_orchestration_events_topic("cortex")
-    assert topic == "ntfy:myorg-events?tags=cortex"
+    assert topic == "ntfy:myorg-events?tags=org.tenant.cortex"
 
 
 def test_resolver_falls_back_to_substring_when_kind_missing(monkeypatch):
@@ -132,7 +139,7 @@ def test_resolver_falls_back_to_substring_when_kind_missing(monkeypatch):
     }
     monkeypatch.setattr(nc, "_request", lambda url, key: body)
     topic = nc.resolve_orchestration_events_topic("extension")
-    assert topic == "ntfy:myorg-orchestration-events?tags=extension"
+    assert topic == "ntfy:myorg-orchestration-events?tags=org.tenant.extension"
 
 
 def test_resolver_raises_on_cortex_unreachable(monkeypatch):
@@ -167,7 +174,7 @@ def test_resolver_derives_prefix_when_no_explicit_channel(monkeypatch):
     }
     monkeypatch.setattr(nc, "_request", lambda url, key: body)
     topic = nc.resolve_orchestration_events_topic("empirica")
-    assert topic == "ntfy:empirica-orchestration-events?tags=empirica"
+    assert topic == "ntfy:empirica-orchestration-events?tags=org.tenant.empirica"
 
 
 def test_resolver_raises_when_no_prefixable_channels(monkeypatch):
@@ -185,10 +192,10 @@ def test_resolver_appends_tags_filter_per_ai(monkeypatch):
     _mock_creds(monkeypatch)
     body = {"channels": [{"topic": "shared-events", "kind": "orchestration_events"}]}
     monkeypatch.setattr(nc, "_request", lambda url, key: body)
-    assert nc.resolve_orchestration_events_topic("empirica") == "ntfy:shared-events?tags=empirica"
+    assert nc.resolve_orchestration_events_topic("empirica") == "ntfy:shared-events?tags=org.tenant.empirica"
     nc.reset_cache()
     monkeypatch.setattr(nc, "_request", lambda url, key: body)
-    assert nc.resolve_orchestration_events_topic("cortex") == "ntfy:shared-events?tags=cortex"
+    assert nc.resolve_orchestration_events_topic("cortex") == "ntfy:shared-events?tags=org.tenant.cortex"
 
 
 def test_resolver_skips_channels_with_no_topic(monkeypatch):
@@ -202,4 +209,4 @@ def test_resolver_skips_channels_with_no_topic(monkeypatch):
     }
     monkeypatch.setattr(nc, "_request", lambda url, key: body)
     topic = nc.resolve_orchestration_events_topic("empirica")
-    assert topic == "ntfy:valid-orchestration-events?tags=empirica"
+    assert topic == "ntfy:valid-orchestration-events?tags=org.tenant.empirica"

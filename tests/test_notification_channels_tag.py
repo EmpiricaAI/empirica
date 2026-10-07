@@ -29,12 +29,12 @@ def test_canonical_tag_resolves_3form():
     r.assert_called_once_with("https://cortex", "k", "empirica-autonomy")
 
 
-def test_canonical_tag_falls_back_to_bare_when_no_creds():
+def test_canonical_tag_is_none_when_no_creds():
     with patch.object(nc, "_cortex_creds", return_value=None):
-        assert nc._canonical_tag("empirica-autonomy") == "empirica-autonomy"
+        assert nc._canonical_tag("empirica-autonomy") is None
 
 
-def test_canonical_tag_falls_back_to_bare_on_resolver_error():
+def test_canonical_tag_is_none_on_resolver_error():
     with (
         patch.object(nc, "_cortex_creds", return_value=("https://cortex", "k")),
         patch(
@@ -42,16 +42,16 @@ def test_canonical_tag_falls_back_to_bare_on_resolver_error():
             side_effect=RuntimeError("roster down"),
         ),
     ):
-        assert nc._canonical_tag("empirica-autonomy") == "empirica-autonomy"
+        assert nc._canonical_tag("empirica-autonomy") is None
 
 
-def test_canonical_tag_resolver_already_returns_bare_on_failure():
+def test_canonical_tag_is_none_when_the_resolver_hands_back_the_bare_name():
     # _resolve_canonical_ai_id returns the basename unchanged on its own failures
     with (
         patch.object(nc, "_cortex_creds", return_value=("https://cortex", "k")),
         patch("empirica.core.loop_scheduler.content_poll._resolve_canonical_ai_id", return_value="empirica-autonomy"),
     ):
-        assert nc._canonical_tag("empirica-autonomy") == "empirica-autonomy"
+        assert nc._canonical_tag("empirica-autonomy") is None
 
 
 # ── resolve_orchestration_events_topic builds ?tags=<3-form> ──────────
@@ -72,5 +72,25 @@ def test_topic_still_raises_when_base_unresolvable():
     with (
         patch.object(nc, "fetch_notification_channels", return_value=None),
         pytest.raises(RuntimeError, match="orchestration-events topic"),
+    ):
+        nc.resolve_orchestration_events_topic("empirica-autonomy")
+
+
+@pytest.mark.parametrize("handed_back", ["empirica.david", "empirica..x", "a.b.c.d", "", None])
+def test_canonical_tag_rejects_anything_that_is_not_a_three_part_form(handed_back):
+    with (
+        patch.object(nc, "_cortex_creds", return_value=("https://cortex", "k")),
+        patch("empirica.core.loop_scheduler.content_poll._resolve_canonical_ai_id", return_value=handed_back),
+    ):
+        assert nc._canonical_tag("empirica-autonomy") is None
+
+
+def test_topic_refuses_to_subscribe_with_a_bare_tag_when_the_three_form_cannot_be_resolved():
+    """David's ruling 2026-10-06: `listener on` refuses rather than arming a listener deaf to live events."""
+    body = {"channels": [{"topic": "empirica-orchestration-events-david", "category": "orchestration_events"}]}
+    with (
+        patch.object(nc, "fetch_notification_channels", return_value=body),
+        patch.object(nc, "_canonical_tag", return_value=None),
+        pytest.raises(RuntimeError, match=r"canonical <org>\.<tenant>\.<project> address for 'empirica-autonomy'"),
     ):
         nc.resolve_orchestration_events_topic("empirica-autonomy")

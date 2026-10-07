@@ -197,7 +197,7 @@ def resolve_orchestration_events_topic(ai_id: str, *, force: bool = False) -> st
       4. Else RAISE — never silently subscribe to the deprecated bare topic
          (no ACL grant → 403 storm)
 
-    Always appends `?tags=<canonical-3-form>` for per-AI filtering and prepends
+    Always appends `?tags=<canonical-3-form>` for per-AI filtering (and raises, like the topic, when the 3-form cannot be resolved) and prepends
     the `ntfy:` scheme (matches the listener's existing topic shape). The tag is
     canonicalized to the full `<org>.<tenant>.<project>` form — the SAME tag
     cortex publishes and `loop listen` subscribes with — so an in-session
@@ -214,31 +214,44 @@ def resolve_orchestration_events_topic(ai_id: str, *, force: bool = False) -> st
             "'orchestration-events' topic (no ACL grant — it 403s). Check "
             "cortex reachability / credentials, then retry."
         )
-    return f"ntfy:{base_topic}?tags={_canonical_tag(ai_id)}"
+    tag = _canonical_tag(ai_id)
+    if tag is None:
+        raise RuntimeError(
+            f"Cannot resolve the canonical <org>.<tenant>.<project> address for '{ai_id}' (cortex roster lookup failed or "
+            f"credentials are missing{': ' + last_credentials_error() if last_credentials_error() else ''}). Refusing to subscribe "
+            "with the bare name: the subscription would be accepted, match no event and look like a quiet inbox. "
+            "Check cortex reachability and credentials, then retry `listener on`."
+        )
+    return f"ntfy:{base_topic}?tags={tag}"
 
 
-def _canonical_tag(ai_id: str) -> str:
+def _canonical_tag(ai_id: str) -> str | None:
     """Resolve `ai_id` to its canonical 3-form (`<org>.<tenant>.<project>`) for
     the subscribe tag — the single source of truth shared with `loop listen`
     (both call `_resolve_canonical_ai_id`). Cortex publishes events tagged with
-    the 3-form; subscribing with the bare slug matches nothing (live pushes
-    silently dropped, only catch-up poll catches up).
+    the 3-form; subscribing with the bare slug matches nothing.
 
-    Falls back to the bare `ai_id` when cortex creds are absent or the roster
-    lookup fails — `_resolve_canonical_ai_id` already returns the basename
-    unchanged on failure, so the failure is loud (0-result warnings) not silent.
+    Returns None when the 3-form cannot be resolved (no cortex credentials, the
+    roster lookup raised, or `_resolve_canonical_ai_id` handed back the bare
+    basename, which is what it does on its own failures). The caller refuses: an
+    ntfy subscription with an unmatched tag raises nothing and receives nothing,
+    so it is indistinguishable from a quiet inbox. This used to fall back to the
+    bare `ai_id` on the claim that the failure would be loud; that holds on the
+    poll path (0-result warnings) and not on a live subscription.
     """
     creds = _cortex_creds()
     if creds is None:
-        return ai_id
+        return None
     try:
         from empirica.core.loop_scheduler.content_poll import (
             _resolve_canonical_ai_id,
         )
 
-        return _resolve_canonical_ai_id(creds[0], creds[1], ai_id)
+        tag = _resolve_canonical_ai_id(creds[0], creds[1], ai_id)
     except Exception:
-        return ai_id
+        return None
+    parts = tag.split(".") if isinstance(tag, str) else []
+    return tag if len(parts) == 3 and all(parts) else None
 
 
 def _resolve_base_topic(body: dict | None) -> str | None:
