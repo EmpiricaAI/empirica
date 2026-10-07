@@ -28,11 +28,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from empirica.api.entity_mint_auth import verify_mint_bearer
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/practice", tags=["practice"])
+router = APIRouter(prefix="/api/v1/practice", tags=["practice"], dependencies=[Depends(verify_mint_bearer)])
 
 _PLUGIN_ROOT = Path(os.path.expanduser("~/.claude/plugins/local/empirica"))
 

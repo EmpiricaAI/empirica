@@ -25,16 +25,17 @@ import json
 import logging
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from empirica.api.daemon_project import (
     get_cached_daemon_project,
     resolve_for_request,
 )
+from empirica.api.entity_mint_auth import verify_mint_bearer
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1", tags=["artifacts"])
+router = APIRouter(prefix="/api/v1", tags=["artifacts"], dependencies=[Depends(verify_mint_bearer)])
 
 
 # ── Project-scope resolution ─────────────────────────────────────────
