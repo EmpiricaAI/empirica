@@ -1519,6 +1519,7 @@ async def resolve_artifact(
         artifact_type, _table, _id_col = resolved
         cursor = db.conn.cursor()
         now = time.time()
+        _superseded_by = None
 
         if artifact_type == "unknown":
             cursor.execute(
@@ -1593,7 +1594,7 @@ async def resolve_artifact(
                 "project_findings" if artifact_type == "finding" else "project_unknowns",
                 artifact_id,
                 _norm_kind(body.get("resolution_kind")) if artifact_type == "finding" else None,
-                body.get("superseded_by") if artifact_type == "finding" else None,
+                _superseded_by if artifact_type == "finding" else None,
             )
         return {"ok": True, "type": artifact_type, "id": artifact_id, "action": "resolved"}
     finally:
