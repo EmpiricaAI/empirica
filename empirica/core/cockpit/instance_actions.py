@@ -96,44 +96,40 @@ def _get_pid_from_tty(instance_id: str) -> tuple[int | None, float | None]:
             return float(recorded)
         return None
 
-    def _pick_alive(data: dict) -> tuple[int | None, float | None]:
+    def _pick(data: dict, *, alive_only: bool) -> tuple[int | None, float | None]:
         for key in ("ppid", "pid"):
             value = data.get(key)
-            if isinstance(value, int) and value > 1 and _process_alive(value):
-                return value, _start_of(data, value)
-        # Even if not alive, return ppid as a hint for the caller.
-        for key in ("ppid", "pid"):
-            value = data.get(key)
-            if isinstance(value, int) and value > 1:
+            if isinstance(value, int) and value > 1 and (not alive_only or _process_alive(value)):
                 return value, _start_of(data, value)
         return None, None
 
-    inst_file = EMPIRICA_DIR / "instance_projects" / f"{instance_id}.json"
-    if inst_file.exists():
+    def _load(path: Path) -> dict | None:
         try:
-            with open(inst_file, encoding="utf-8") as f:
-                inst = json.load(f)
-            pid, start = _pick_alive(inst)
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            return None
+        return data if isinstance(data, dict) else None
+
+    records: list[dict] = []
+    inst = _load(EMPIRICA_DIR / "instance_projects" / f"{instance_id}.json")
+    if inst is not None:
+        records.append(inst)
+        tty_key = inst.get("tty_key")
+        if tty_key:
+            tty = _load(TTY_SESSIONS_DIR / f"{tty_key}.json")
+            if tty is not None:
+                records.append(tty)
+
+    # A live pid from EITHER record beats a dead one: an instance record whose pids have all exited used to answer first with
+    # its dead ppid "as a hint", and the tty record that still named the live process was never read. A dead pid is returned
+    # only when nothing is alive, so the caller can say "already dead".
+    for alive_only in (True, False):
+        for data in records:
+            pid, start = _pick(data, alive_only=alive_only)
             if pid:
                 return pid, start
-            tty_key = inst.get("tty_key")
-        except (OSError, json.JSONDecodeError):
-            tty_key = None
-    else:
-        tty_key = None
-
-    if not tty_key:
-        return None, None
-
-    tty_file = TTY_SESSIONS_DIR / f"{tty_key}.json"
-    if not tty_file.exists():
-        return None, None
-    try:
-        with open(tty_file, encoding="utf-8") as f:
-            tty = json.load(f)
-        return _pick_alive(tty)
-    except (OSError, json.JSONDecodeError):
-        return None, None
+    return None, None
 
 
 def _psutil_create_time(pid: int) -> float | None:

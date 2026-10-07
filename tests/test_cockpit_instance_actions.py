@@ -189,6 +189,35 @@ def test_kill_falls_back_to_tty_sessions_when_instance_projects_missing(fake_hom
     assert result.success is True
 
 
+def test_a_live_pid_in_the_tty_record_beats_a_dead_ppid_in_the_instance_record(fake_home, monkeypatch):
+    """The instance record answered first with its dead ppid 'as a hint' and the tty record naming the live process was never read."""
+    (fake_home / "instance_projects" / "term-pts-7.json").write_text(
+        json.dumps({"pid": 111, "ppid": 222, "tty_key": "pts-7"})
+    )
+    (fake_home / "tty_sessions" / "pts-7.json").write_text(json.dumps({"pid": 333, "ppid": 444}))
+    sent = {}
+    monkeypatch.setattr(ia.os, "kill", lambda pid, sig: sent.setdefault("args", (pid, sig)))
+    monkeypatch.setattr(ia, "_process_alive", lambda pid: pid == 444)
+    result = ia.kill_instance("term-pts-7", force=True)
+    assert sent["args"] == (444, signal.SIGKILL) and result.success is True
+
+
+def test_when_every_pid_is_dead_the_instance_records_ppid_is_reported_dead(fake_home, monkeypatch):
+    (fake_home / "instance_projects" / "term-pts-7.json").write_text(
+        json.dumps({"pid": 111, "ppid": 222, "tty_key": "pts-7"})
+    )
+    (fake_home / "tty_sessions" / "pts-7.json").write_text(json.dumps({"pid": 333, "ppid": 444}))
+    monkeypatch.setattr(ia, "_process_alive", lambda _pid: False)
+    result = ia.kill_instance("term-pts-7")
+    assert result.success is True and result.pid == 222 and "already dead" in result.detail
+
+
+def test_an_unreadable_or_non_object_record_is_skipped_not_fatal(fake_home, monkeypatch):
+    (fake_home / "instance_projects" / "term-pts-7.json").write_text(json.dumps({"tty_key": "pts-7"}))
+    (fake_home / "tty_sessions" / "pts-7.json").write_text("[1, 2]")  # valid JSON, not an object
+    assert ia.kill_instance("term-pts-7").method == "unreachable"
+
+
 # ─── kill: a pid is only a number ─────────────────────────────────────────
 # David's ruling 2026-10-06: when the pid's start time cannot be verified, refuse unless --force. A pid KNOWN to belong to another
 # process is never signalled.
