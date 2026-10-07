@@ -836,3 +836,45 @@ def test_sqlite_and_python_shapes_that_write_are_not_reads(sg, command):
 @pytest.mark.parametrize("command", _SQLITE_READS + _PYTHON_READS)
 def test_sqlite_and_python_reads_stay_free(sg, command):
     assert _safe(sg, command) is True
+
+
+# ---- scp and rsync agree, and neither runs a local program or deletes (gate-B#13) ---------------------
+
+_TRANSFER_WRITES = [
+    "scp a.txt b.txt",
+    "scp /tmp/a /tmp/b",
+    "scp /tmp/a host:/p",
+    "scp -S sh host:/p .",
+    "scp -o ProxyCommand=sh host:/p .",
+    "scp -F cfg host:/p .",
+    "rsync --delete-during host:/p .",
+    "rsync --delete-excluded host:/p .",
+    "rsync --delete-delay host:/p .",
+    "rsync --del host:/p .",
+    "rsync --remove-source-files host:/p .",
+    "rsync -e 'sh -c x' host:/p .",
+    "rsync --rsh='sh -c x' host:/p .",
+    "rsync --rsync-path='rm -rf x' host:/p .",
+    "rsync --write-batch=b host:/p .",
+    "rsync -a src/ dst/",
+    "rsync -a src/ host:/p",
+]
+_TRANSFER_READS = [
+    "scp host:/p /tmp/x",
+    "scp -P 2222 host:/p /tmp/x",
+    "rsync -n host:/p .",
+    "rsync --dry-run --delete src/ host:/p",
+    "rsync -avn src/ host:/p",
+    "rsync -avz host:/p .",
+    "rsync -e 'ssh -p 22' host:/p .",
+]
+
+
+@pytest.mark.parametrize("command", _TRANSFER_WRITES)
+def test_a_transfer_that_writes_deletes_or_runs_a_program_is_not_a_read(sg, command):
+    assert _safe(sg, command) is False
+
+
+@pytest.mark.parametrize("command", _TRANSFER_READS)
+def test_downloads_and_dry_runs_stay_reads(sg, command):
+    assert _safe(sg, command) is True

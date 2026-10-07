@@ -4258,6 +4258,29 @@ def _journalctl_mutates(cmd: str) -> bool:
     return any(flag in cmd for flag in _JOURNALCTL_MUTATING)
 
 
+def _rsync_runs_a_program(parts: list[str]) -> bool:
+    """`-e/--rsh CMD` runs CMD locally (only ssh is trusted, judged as ssh is); `--rsync-path` runs one remotely."""
+    i = 1
+    while i < len(parts):
+        tok = parts[i]
+        value: str | None = None
+        if tok in ("-e", "--rsh"):
+            value = parts[i + 1] if i + 1 < len(parts) else ""
+            i += 1
+        elif tok.startswith("--rsh="):
+            value = tok.split("=", 1)[1]
+        elif tok.startswith("-e") and len(tok) > 2 and not tok.startswith("--"):
+            value = tok[2:]
+        elif tok == "--rsync-path" or tok.startswith("--rsync-path="):
+            return True
+        if value is not None:
+            shell = _tool_tokens(value)
+            if not shell or shell[0] != "ssh" or _ssh_option_runs_local_program(shell):
+                return True
+        i += 1
+    return False
+
+
 def _classify_rsync(command: str) -> bool:
     """
     Classify rsync as noetic or praxic based on direction and flags.
@@ -4265,14 +4288,22 @@ def _classify_rsync(command: str) -> bool:
     Noetic: --dry-run/-n, downloading (remote→local)
     Praxic: uploading (local→remote), --delete
     """
-    parts = command.split()
+    parts = _tool_tokens(command)
 
-    # --dry-run or -n → always noetic (just showing what would happen)
-    if "--dry-run" in parts or "-n" in parts:
+    # The remote shell and the remote-side program are PROGRAMS, run even under --dry-run.
+    if _rsync_runs_a_program(parts):
+        return False
+
+    # --dry-run or -n (also inside a cluster such as -avn) → noetic: just showing what would happen
+    if "--dry-run" in parts or any(p.startswith("-") and not p.startswith("--") and "n" in p[1:] for p in parts):
         return True
 
-    # --delete is always destructive → praxic
-    if "--delete" in parts or "--delete-before" in parts or "--delete-after" in parts:
+    # Anything that deletes or writes beyond the transfer is praxic: --delete and its -before/-after/
+    # -during/-delay/-excluded forms, --del, the sources removed after sending, and batch files.
+    if any(
+        p == "--del" or p.split("=", 1)[0].startswith(("--delete", "--remove-", "--write-batch", "--only-write-batch"))
+        for p in parts
+    ):
         return False
 
     # Determine direction by finding src and dest arguments
@@ -4355,6 +4386,8 @@ def _classify_scp(command: str) -> bool:
     Praxic: uploading (local→remote)
     """
     parts = command.split()
+    if _scp_runs_a_program(parts):
+        return False
 
     # SCP options that consume next argument
     scp_opts_with_arg = set("cFiloPSs")
@@ -4378,9 +4411,19 @@ def _classify_scp(command: str) -> bool:
     # Last arg is destination
     dest = non_option_args[-1]
 
-    # If destination contains ':' (and isn't an absolute path) → uploading → praxic
-    # Otherwise → downloading or local copy → noetic
-    return not (":" in dest and not dest.startswith("/"))
+    # Only a DOWNLOAD is a read: a remote source, a local destination. An upload writes the remote;
+    # a copy between two local paths writes here, and rsync already judged that praxic.
+    def is_remote(arg: str) -> bool:
+        return ":" in arg and not arg.startswith(("/", "."))
+
+    return not is_remote(dest) and any(is_remote(src) for src in non_option_args[:-1])
+
+
+def _scp_runs_a_program(parts: list[str]) -> bool:
+    """scp `-S program` replaces ssh; `-F config` and `-o ProxyCommand=` make ssh run a local program."""
+    if any(p == "-S" or (p.startswith("-S") and len(p) > 2) for p in parts[1:]):
+        return True
+    return _ssh_option_runs_local_program(parts)
 
 
 def _is_safe_pipe_segment(segment_clean: str, *, is_first: bool) -> bool:
