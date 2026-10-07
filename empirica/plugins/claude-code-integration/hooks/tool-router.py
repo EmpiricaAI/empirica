@@ -12,8 +12,8 @@ This is the bridge between "what should I do" (VectorRouter modes) and
 Input (stdin JSON):
   {"prompt": "user's prompt text"}
 
-Output (stdout JSON):
-  {"continue": true, "context": "routing advice text"}
+Output (stdout JSON): Claude Code: {"continue": true, "hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
+  "additionalContext": "routing advice text"}}; other harnesses (EMPIRICA_HARNESS): {"continue": true, "context": "..."}.
 
 Performance target: < 2 seconds (runs on every prompt).
 """
@@ -1004,6 +1004,26 @@ def _build_prompt_relevance_block(prompt: str, session_id: str | None, claude_se
         return ""
 
 
+def _hook_output(context_parts: list[str]) -> dict:
+    """The UserPromptSubmit output for these context blocks, in the shape the host harness reads.
+
+    Claude Code delivers model-visible text from `hookSpecificOutput.additionalContext`, which every sibling hook uses. This hook
+    put it under a top-level `context` key Claude Code does not read: measured on this box, 244 hook-context blocks reached one
+    session's transcript and none was the router's (routing advice, the EPP pointer, the probe-first block, AAP hedges), although it
+    runs on every prompt. Other harnesses (ecodex) keep the legacy shape: this hook serves them too and their reader is not ours to
+    guess at.
+    """
+    if not context_parts:
+        return {"continue": True}
+    text = "\n".join(context_parts)
+    if _harness() == "claude-code":
+        return {
+            "continue": True,
+            "hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": text},
+        }
+    return {"continue": True, "context": text}
+
+
 def main():
     """Main hook handler."""
     try:
@@ -1077,8 +1097,7 @@ def main():
         # Placed LAST — highest attention weight in the injected context window
         context_parts.append(semantic_check)
 
-    output = {"continue": True, "context": "\n".join(context_parts)} if context_parts else {"continue": True}
-    print(json.dumps(output))
+    print(json.dumps(_hook_output(context_parts)))
 
 
 if __name__ == "__main__":
