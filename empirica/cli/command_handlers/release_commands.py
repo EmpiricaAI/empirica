@@ -15,6 +15,7 @@ Usage:
     empirica release-ready --output json      # JSON output for automation
 """
 
+import fnmatch
 import json
 import os
 import re
@@ -307,23 +308,47 @@ class EpistemicReleaseAgent:
             patterns.append(line.rstrip("/"))
         return patterns
 
-    def _is_gitignored(self, path: Path, gitignore_patterns: list[str]) -> bool:
-        """Check if a path matches any gitignore pattern."""
-        path_str = str(path.relative_to(self.root)) if path.is_absolute() else str(path)
+    def _rel_parts(self, path: Path) -> tuple[str, ...]:
+        """The path's components relative to the project root (an absolute path outside the root keeps all of its own)."""
+        try:
+            return path.relative_to(self.root).parts if path.is_absolute() else path.parts
+        except ValueError:
+            return path.parts
 
-        for pattern in gitignore_patterns:
-            # Direct match
-            if pattern in path_str:
-                return True
-            # Directory match (pattern ends with /)
-            if pattern.endswith("/") and pattern.rstrip("/") in path_str:
-                return True
-            # Glob-style match for simple patterns
-            if pattern.startswith("*") and path_str.endswith(pattern[1:]):
-                return True
-            if pattern.endswith("*") and path_str.startswith(pattern[:-1]):
-                return True
-        return False
+    @staticmethod
+    def _gitignore_match(parts: tuple[str, ...], pattern: str) -> bool:
+        """One gitignore pattern against a relative path, by component rather than by substring.
+
+        A pattern with a slash (not counting a trailing one) is anchored to the root and matches the path or any directory prefix
+        of it; one without matches any single component. The substring test this replaces made 'build' match 'rebuild_tools'
+        and '.env' match '.env.production', so files the project does NOT ignore were reported as ignored and never scanned.
+        """
+        anchored = pattern.startswith("/") or "/" in pattern.strip("/")
+        pattern = pattern.strip("/")
+        if not pattern:
+            return False
+        if anchored:
+            return any(fnmatch.fnmatch("/".join(parts[:i]), pattern) for i in range(1, len(parts) + 1))
+        return any(fnmatch.fnmatch(part, pattern) for part in parts)
+
+    def _is_gitignored(self, path: Path, gitignore_patterns: list[str]) -> bool:
+        """Is a path ignored by the project's .gitignore? Later patterns win and '!' re-includes, as in git."""
+        parts = self._rel_parts(path)
+        ignored = False
+        for raw in gitignore_patterns:
+            negate = raw.startswith("!")
+            if self._gitignore_match(parts, raw[1:] if negate else raw):
+                ignored = not negate
+        return ignored
+
+    def _is_excluded(self, path: Path, exclude_dirs) -> bool:
+        """Is a path inside an excluded directory, judged by its components RELATIVE to the project root?
+
+        The test was `excl in str(path)` on the ABSOLUTE path, so a project checked out under any directory whose name contained
+        'build', 'dist' or 'venv' had every forbidden file skipped and the scan passed falsely, and '*.egg-info' was compared
+        as a literal and never matched.
+        """
+        return any(fnmatch.fnmatch(part, excl) for part in self._rel_parts(path) for excl in exclude_dirs)
 
     # =========================================================================
     # CHECK 4: Privacy/Security Scan
@@ -334,7 +359,7 @@ class EpistemicReleaseAgent:
         for pattern in forbidden_file_patterns:
             found = list(self.root.glob(f"**/{pattern}"))
             for f in found:
-                if any(excl in str(f) for excl in exclude_dirs):
+                if self._is_excluded(f, exclude_dirs):
                     continue
                 if self._is_gitignored(f, gitignore_patterns):
                     continue
@@ -344,8 +369,10 @@ class EpistemicReleaseAgent:
     def _scan_hardcoded_secrets(self, content_patterns):
         """Scan Python source files for hardcoded secrets. Returns list of issues."""
         issues = []
-        py_files = list(self.root.glob("empirica/**/*.py"))
-        for py_file in py_files[:100]:
+        # Every file, in a stable order: `[:100]` scanned an arbitrary hundred of several hundred and the result still said
+        # "No sensitive content detected", so a secret past the cut passed.
+        py_files = sorted(self.root.glob("empirica/**/*.py"))
+        for py_file in py_files:
             try:
                 content = py_file.read_text()
                 for pattern in content_patterns:
@@ -362,7 +389,7 @@ class EpistemicReleaseAgent:
         for pattern in warn_file_patterns:
             found = list(self.root.glob(f"**/{pattern}"))
             for f in found[:2]:
-                if any(excl in str(f) for excl in exclude_dirs):
+                if self._is_excluded(f, exclude_dirs):
                     continue
                 if self._is_gitignored(f, gitignore_patterns):
                     continue
