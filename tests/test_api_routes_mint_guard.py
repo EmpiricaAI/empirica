@@ -47,8 +47,15 @@ def _app_with_the_two_routers():
     return app
 
 
-def _guarded_routes(app) -> list[Any]:
-    return [r for r in app.routes if hasattr(r, "endpoint") and hasattr(r, "methods") and r.path.startswith("/api/v1")]
+def _guarded_routes() -> list[Any]:
+    """The routers' own routes. Newer FastAPI keeps an included router as one nested entry in app.routes (no path, no flat
+    list), so enumerating the app finds nothing there; the router's list is the same on every version."""
+    return [
+        r
+        for router in (artifacts.router, practice.router)
+        for r in router.routes
+        if hasattr(r, "endpoint") and hasattr(r, "methods")
+    ]
 
 
 def _request(client, route, headers=None):
@@ -61,10 +68,8 @@ def test_a_configured_token_set_rejects_a_missing_or_wrong_bearer_on_every_route
     monkeypatch.setenv(ema.ENV_TOKENS, TOKEN)
     app = _app_with_the_two_routers()
     client = TestClient(app, raise_server_exceptions=False)
-    routes = _guarded_routes(app)
-    assert len(routes) >= 10, [
-        getattr(r, "path", None) for r in app.routes
-    ]  # the enumerator walked the real routers, not an empty list
+    routes = _guarded_routes()
+    assert len(routes) >= 10, routes  # the enumerator walked the real routers, not an empty list
     for route in routes:
         assert _request(client, route).status_code == 401, route.path
         assert _request(client, route, {"Authorization": "Bearer emk_wrong"}).status_code == 401, route.path
