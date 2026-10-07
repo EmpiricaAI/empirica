@@ -1656,9 +1656,16 @@ async def post_artifacts_resolve(
     """
     import time
 
-    ids = body.get("ids") or [item.get("id") for item in body.get("items", []) if item.get("id")]
-    if not ids:
+    # `ids` still wins when both are sent (as before); `items` carry a per-item `verified` for assumptions.
+    ids = body.get("ids")
+    items = (
+        [{"id": art_id} for art_id in ids]
+        if ids
+        else [item for item in body.get("items", []) if isinstance(item, dict)]
+    )
+    if not items:
         raise HTTPException(status_code=422, detail="Body must include 'ids' or 'items'")
+
     resolved_by = body.get("resolved_by", "")
 
     db = _open_db_for(_resolve_project_dict(project_id, path))
@@ -1666,7 +1673,11 @@ async def post_artifacts_resolve(
         cursor = db.conn.cursor()
         now = time.time()
         results: list[dict] = []
-        for art_id in ids:
+        for item in items:
+            art_id = item.get("id")
+            if not art_id:
+                results.append({"outcome": "missing_id"})
+                continue
             resolved = _resolve_artifact_by_id(db, art_id)
             if not resolved:
                 results.append({"id": art_id, "outcome": "not_found"})
@@ -1679,11 +1690,12 @@ async def post_artifacts_resolve(
                 )
                 results.append({"id": art_id, "type": artifact_type, "outcome": "resolved"})
             elif artifact_type == "assumption":
+                status = "verified" if item.get("verified") is True else "falsified"
                 cursor.execute(
-                    "UPDATE assumptions SET status = 'verified', resolved_timestamp = ? WHERE id = ?",
-                    (now, art_id),
+                    "UPDATE assumptions SET status = ?, resolved_timestamp = ? WHERE id = ?",
+                    (status, now, art_id),
                 )
-                results.append({"id": art_id, "type": artifact_type, "outcome": "resolved"})
+                results.append({"id": art_id, "type": artifact_type, "outcome": "resolved", "status": status})
             elif artifact_type == "goal":
                 cursor.execute(
                     "UPDATE goals SET is_completed = 1, status = 'completed', completed_timestamp = ? WHERE id = ?",
