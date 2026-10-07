@@ -178,3 +178,93 @@ def test_request_handles_url_error_returns_none(monkeypatch):
     monkeypatch.setattr(aa.urllib.request, "urlopen", fake_urlopen)
     result = aa._request("GET", "https://cortex.test/v1/users/me/auto-accept", "k")
     assert result is None
+
+
+# ── Invalid responses (enabled is not a bool) ────────────────────────────
+
+
+def test_fetch_returns_none_when_enabled_is_string(monkeypatch):
+    """Auto-accept reply without boolean 'enabled' is treated as unknown."""
+    _mock_creds(monkeypatch)
+    monkeypatch.setattr(aa, "_request", lambda method, url, key, body=None: {"enabled": "true"})
+    assert aa.fetch_auto_accept_mode() is None
+
+
+def test_fetch_returns_none_when_enabled_is_int(monkeypatch):
+    """Auto-accept reply with int 'enabled' is treated as unknown."""
+    _mock_creds(monkeypatch)
+    monkeypatch.setattr(aa, "_request", lambda method, url, key, body=None: {"enabled": 1})
+    assert aa.fetch_auto_accept_mode() is None
+
+
+def test_fetch_returns_none_when_enabled_is_missing(monkeypatch):
+    """Auto-accept reply without 'enabled' key is treated as unknown."""
+    _mock_creds(monkeypatch)
+    monkeypatch.setattr(aa, "_request", lambda method, url, key, body=None: {})
+    assert aa.fetch_auto_accept_mode() is None
+
+
+def test_fetch_returns_none_when_body_is_not_dict(monkeypatch):
+    """Auto-accept reply that isn't a dict is treated as unknown."""
+    _mock_creds(monkeypatch)
+    monkeypatch.setattr(aa, "_request", lambda method, url, key, body=None: "not a dict")
+    assert aa.fetch_auto_accept_mode() is None
+
+
+def test_fetch_does_not_cache_invalid_response(monkeypatch):
+    """Invalid response is not cached, so second fetch hits network again."""
+    _mock_creds(monkeypatch)
+    call_count = [0]
+
+    def counting_request(method, url, key, body=None):
+        call_count[0] += 1
+        return {"enabled": "invalid"}
+
+    monkeypatch.setattr(aa, "_request", counting_request)
+
+    result1 = aa.fetch_auto_accept_mode()
+    assert result1 is None
+    assert call_count[0] == 1
+
+    result2 = aa.fetch_auto_accept_mode()
+    assert result2 is None
+    assert call_count[0] == 2, "cache should not have been set, so second fetch should hit network"
+
+
+def test_set_returns_none_when_enabled_is_string(monkeypatch):
+    """Set should return None if server reply doesn't have boolean enabled."""
+    _mock_creds(monkeypatch)
+    monkeypatch.setattr(aa, "_request", lambda method, url, key, body=None: {"enabled": "true"})
+    assert aa.set_auto_accept_mode(True) is None
+
+
+def test_set_returns_none_when_enabled_is_missing(monkeypatch):
+    """Set should return None if server reply missing enabled key."""
+    _mock_creds(monkeypatch)
+    monkeypatch.setattr(aa, "_request", lambda method, url, key, body=None: {})
+    assert aa.set_auto_accept_mode(True) is None
+
+
+def test_set_does_not_echo_requested_value(monkeypatch):
+    """Set should not echo the requested value back when server reply is invalid."""
+    _mock_creds(monkeypatch)
+    monkeypatch.setattr(aa, "_request", lambda method, url, key, body=None: None)
+    result = aa.set_auto_accept_mode(True)
+    assert result is None, "should return None on server error, not echo True"
+
+
+def test_set_does_not_cache_invalid_response(monkeypatch):
+    """Invalid response from set is not cached."""
+    _mock_creds(monkeypatch)
+
+    def fake_request(method, url, key, body=None):
+        return {"enabled": 1}  # invalid: int instead of bool
+
+    monkeypatch.setattr(aa, "_request", fake_request)
+
+    result = aa.set_auto_accept_mode(True)
+    assert result is None
+
+    # Cache should be empty, so fetch sees the invalid response too
+    result2 = aa.fetch_auto_accept_mode()
+    assert result2 is None

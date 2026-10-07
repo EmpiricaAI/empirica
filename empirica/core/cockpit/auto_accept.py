@@ -125,7 +125,9 @@ def fetch_auto_accept_mode(*, force: bool = False) -> bool | None:
     body = _request("GET", f"{url.rstrip('/')}{_PATH}", key)
     if body is None:
         return None
-    enabled = bool(body.get("enabled", False))
+    if not isinstance(body, dict) or not isinstance(body.get("enabled"), bool):
+        return None
+    enabled = body["enabled"]
     _cache_value = enabled
     _cache_at = time.time()
     return enabled
@@ -143,7 +145,9 @@ def set_auto_accept_mode(enabled: bool) -> bool | None:
     body = _request("POST", f"{url.rstrip('/')}{_PATH}", key, body={"enabled": bool(enabled)})
     if body is None:
         return None
-    new_state = bool(body.get("enabled", enabled))
+    if not isinstance(body, dict) or not isinstance(body.get("enabled"), bool):
+        return None
+    new_state = body["enabled"]
     _cache_value = new_state
     _cache_at = time.time()
     return new_state
