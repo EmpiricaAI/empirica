@@ -10,7 +10,6 @@ from __future__ import annotations
 import logging
 import sqlite3
 import time
-from pathlib import Path
 
 import pytest
 
@@ -109,13 +108,11 @@ def test_results_are_capped_at_five(agent, monkeypatch):
     assert len(refs) == 5
 
 
-def test_the_real_table_columns_are_the_ones_queried():
+def test_the_real_table_columns_are_the_ones_queried(tmp_path):
     """Guard against the original defect: the names the query uses must exist in a freshly created SessionDatabase."""
-    import tempfile
-
     from empirica.data.session_database import SessionDatabase
 
-    db = SessionDatabase(db_path=str(Path(tempfile.mkdtemp()) / "s.db"))
+    db = SessionDatabase(db_path=str(tmp_path / "s.db"))
     try:
         findings = {r[1] for r in db.conn.execute("PRAGMA table_info(project_findings)")}
         dead_ends = {r[1] for r in db.conn.execute("PRAGMA table_info(project_dead_ends)")}
