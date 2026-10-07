@@ -1624,12 +1624,17 @@ async def patch_artifact(
 
 
 @router.post("/artifacts/log")
-async def post_artifacts_log(body: dict):
+async def post_artifacts_log(
+    body: dict,
+    project_id: str | None = Query(None),
+    path: str | None = Query(None),
+):
     """Batch log a graph (nodes + edges). Proxies to log_artifacts_graph().
 
     Body shape matches `empirica log-artifacts` CLI: {nodes: [...], edges: [...]}.
+    Scope: `?project_id=X`, `?path=Y`, or daemon's CWD-bound project (default).
     """
-    project = get_cached_daemon_project()
+    project = _resolve_project_dict(project_id, path)
     if not project:
         raise HTTPException(status_code=503, detail="Daemon not bound to a project")
 
@@ -1638,6 +1643,7 @@ async def post_artifacts_log(body: dict):
     result = log_artifacts_graph(
         body,
         project_id=project.get("project_id"),
+        project_path=project.get("project_path"),
     )
     if not result.get("ok"):
         raise HTTPException(status_code=400, detail=result.get("error", "log failed"))

@@ -989,6 +989,7 @@ def log_artifacts_graph(
     project_id: str | None = None,
     transaction_id: str | None = None,
     goal_id: str | None = None,
+    project_path: str | None = None,
 ) -> dict:
     """Pure function: log a graph batch (nodes + edges) and return the result dict.
 
@@ -999,9 +1000,14 @@ def log_artifacts_graph(
     Returns: {"ok": bool, "created": {ref: id}, "nodes_created": int,
               "edges_wired": int, "errors": [str], "alias_warnings"?: [str]}
     """
+    from pathlib import Path
+
     from empirica.data.session_database import SessionDatabase
 
-    db = SessionDatabase()
+    db_path = None
+    if project_path:
+        db_path = str(Path(project_path) / ".empirica" / "sessions" / "sessions.db")
+    db = SessionDatabase(db_path=db_path)
     try:
         # Build a synthetic args-like object for _resolve_graph_context (reuses
         # the existing R.context() chain). Explicit args win over graph fields.
