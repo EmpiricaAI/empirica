@@ -29,6 +29,7 @@ with a negative-controlled test.
   the transition commands refuse a redirect or command substitution like the main classifier; `git branch`, `tag` and `remote` are
   reads only in their list forms; `EMPIRICA_SENTINEL_COMPACT_INVALIDATION` works without `CHECK_EXPIRY`; a lone `&` is a command
   separator and `cd x | y` is a pipe; ssh key tools, `ssh -T` and pipe receivers no longer classify as blanket reads.
+- **An unreadable CHECK timestamp denies** when `CHECK_EXPIRY` or `COMPACT_INVALIDATION` is on, instead of silently skipping both; an ISO timestamp's offset (including `Z`) is honoured, where UTC was read as local time and a non-UTC offset raised. Both switches default to off, so the default path is unchanged.
 - **Sentinel profiles keep their thresholds.** Profiles loaded from the shipped YAML nest `thresholds:` and `audit:`; the loader read
   only top-level keys, so the stricter domains ran on defaults. Both shapes load (a flat key wins).
 - **A missing criticality falls to a stricter checklist**, never a weaker one, in the domain registry.
