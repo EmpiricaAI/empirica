@@ -242,8 +242,16 @@ def handle_sentinel_pause_command(args) -> int:
         targets = _resolve_sentinel_targets(args)
     except SentinelResolveError as e:
         return _emit_sentinel_error(args, str(e))
+    if None in targets and not getattr(args, "global_scope", False):
+        # No instance could be identified for this terminal. Falling back to the global pause file would disarm gating for every
+        # instance from one keystroke, so the broad scope has to be asked for (David's ruling 2026-10-06).
+        return _emit_sentinel_error(
+            args,
+            "no live instance could be identified for this terminal, so a pause would apply to EVERY instance. "
+            "Pass --global to pause them all, or --instance <id> / --session <id> to pause one.",
+        )
     reason = getattr(args, "reason", None)
-    statuses = [pause_sentinel(t, reason=reason) for t in targets]
+    statuses = [pause_sentinel(t, reason=reason, **({"global_scope": True} if t is None else {})) for t in targets]
     for _st in statuses:
         _emit_sentinel_state_event("sentinel_pause", _st)
     if len(statuses) == 1:

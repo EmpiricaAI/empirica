@@ -107,13 +107,23 @@ def sentinel_status(instance_id: str | None) -> SentinelPauseStatus:
     )
 
 
-def pause_sentinel(instance_id: str | None, reason: str | None = None) -> SentinelPauseStatus:
-    """Pause the Sentinel for the given instance (or globally if no instance_id).
+def pause_sentinel(
+    instance_id: str | None, reason: str | None = None, *, global_scope: bool = False
+) -> SentinelPauseStatus:
+    """Pause the Sentinel for one instance, or for EVERY instance when `global_scope` is set.
+
+    A falsy `instance_id` used to fall through to the global pause file, so a pause run from a terminal that resolved to no
+    instance silently disarmed gating fleet-wide. It now raises unless the caller asks for the global scope explicitly
+    (David's ruling 2026-10-06; the `--global` flag does that for the CLI).
 
     Idempotent — re-pausing rewrites the file (refreshing mtime and reason).
     """
+    if not instance_id and not global_scope:
+        raise ValueError(
+            "pause_sentinel needs an instance_id: pass global_scope=True to pause the Sentinel for EVERY instance"
+        )
     EMPIRICA_DIR.mkdir(parents=True, exist_ok=True)
-    path = pause_file_path(instance_id)
+    path = pause_file_path(None if global_scope and not instance_id else instance_id)
     content = (reason or "").strip()
     path.write_text(content, encoding="utf-8")
     return sentinel_status(instance_id)

@@ -169,3 +169,47 @@ def test_pause_handler_resolves_ai_id_before_pausing(monkeypatch, patch_live):
     rc = cc.handle_sentinel_pause_command(_args(instance="empirica"))
     assert rc == 0
     assert calls == ["tmux_8"]  # the resolved runtime id, NOT the literal "empirica"
+
+
+def test_pause_handler_refuses_when_no_instance_resolves_and_global_was_not_asked_for(monkeypatch, patch_live):
+    """David's ruling 2026-10-06: an untracked terminal must not disarm gating for every instance by default."""
+    patch_live()
+    monkeypatch.setattr(cc, "get_instance_id", lambda: None)
+    calls: list = []
+    monkeypatch.setattr(cc, "pause_sentinel", lambda *a, **k: calls.append((a, k)))
+    rc = cc.handle_sentinel_pause_command(_args())
+    assert rc == 1 and calls == []
+
+
+def test_pause_handler_pauses_globally_when_global_is_asked_for(monkeypatch, patch_live):
+    patch_live()
+    monkeypatch.setattr(cc, "get_instance_id", lambda: None)
+    calls: list = []
+
+    class _St:
+        paused = True
+        instance_id = None
+        scope = "global"
+        since = "now"
+        reason = None
+
+    monkeypatch.setattr(cc, "pause_sentinel", lambda *a, **k: calls.append((a, k)) or _St())
+    rc = cc.handle_sentinel_pause_command(_args(global_scope=True))
+    assert rc == 0 and calls == [((None,), {"reason": None, "global_scope": True})]
+
+
+def test_pause_handler_with_a_resolved_instance_needs_no_global(monkeypatch, patch_live):
+    patch_live(_inst("tmux_5", ai_id="empirica"))
+    monkeypatch.setattr(cc, "get_instance_id", lambda: "tmux_5")
+    calls: list = []
+
+    class _St:
+        paused = True
+        instance_id = "tmux_5"
+        scope = "instance"
+        since = "now"
+        reason = None
+
+    monkeypatch.setattr(cc, "pause_sentinel", lambda *a, **k: calls.append((a, k)) or _St())
+    assert cc.handle_sentinel_pause_command(_args()) == 0
+    assert calls == [(("tmux_5",), {"reason": None})]

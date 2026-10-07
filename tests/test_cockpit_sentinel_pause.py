@@ -66,8 +66,17 @@ def test_instance_pause_overrides_global(fake_home):
     assert status.reason == "instance overrides"
 
 
-def test_pause_with_no_instance_id_writes_global(fake_home):
-    sp.pause_sentinel(None, reason="global toggle")
+def test_pause_with_no_instance_id_refuses_unless_global_is_asked_for(fake_home):
+    """A pause from a terminal that resolved to no instance must not become a fleet-wide pause by default."""
+    with pytest.raises(ValueError, match="global_scope=True"):
+        sp.pause_sentinel(None, reason="no instance")
+    with pytest.raises(ValueError, match="global_scope=True"):
+        sp.pause_sentinel("", reason="empty id")
+    assert not (fake_home / "sentinel_paused").exists()
+
+
+def test_pause_with_global_scope_writes_global(fake_home):
+    sp.pause_sentinel(None, reason="global toggle", global_scope=True)
     assert (fake_home / "sentinel_paused").exists()
     status = sp.sentinel_status(None)
     assert status.paused is True
