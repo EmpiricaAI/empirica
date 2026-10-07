@@ -5488,10 +5488,22 @@ def _check_proportionality_budget(hook_input: dict, tool_name: str) -> str | Non
     except (OSError, json.JSONDecodeError):
         return None
 
+    # A state file that is not a dict of numbers is not a budget: clear it and allow, so one
+    # corrupt file does not raise (and fail the hook open) on every Read/Grep/Glob.
+    try:
+        armed_at = float(data.get("armed_at", 0))
+        count = int(data.get("tool_count", 0)) + 1
+        limit = int(data.get("limit", 5))
+    except (AttributeError, TypeError, ValueError):
+        try:
+            path.unlink()
+        except OSError:
+            pass
+        return None
+
     # Stale armings shouldn't block forever. 1h timeout matches the
     # implicit "this turn" framing — if the model hasn't acted on the
     # block within an hour, the conversational context is gone.
-    armed_at = data.get("armed_at", 0)
     if time.time() - armed_at > 3600:
         try:
             path.unlink()
@@ -5499,8 +5511,6 @@ def _check_proportionality_budget(hook_input: dict, tool_name: str) -> str | Non
             pass
         return None
 
-    count = int(data.get("tool_count", 0)) + 1
-    limit = int(data.get("limit", 5))
     data["tool_count"] = count
     try:
         path.write_text(json.dumps(data))

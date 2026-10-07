@@ -530,3 +530,46 @@ def test_a_deny_still_carries_its_reason_where_it_always_did(sg, monkeypatch, ca
     assert out["permissionDecision"] == "deny"
     assert out["permissionDecisionReason"] == "WARNING: blocked because reasons"
     assert "additionalContext" not in out
+
+
+# ---- a malformed proportionality budget file must not take the hook down (gate-B#11) -----------------
+
+
+def _budget(sg, monkeypatch, tmp_path, text):
+    path = tmp_path / "budget.json"
+    if text is not None:
+        path.write_text(text)
+    monkeypatch.setattr(sg, "_proportionality_state_path", lambda _sid: path)
+    return path
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "[1, 2, 3]",
+        '"armed"',
+        "null",
+        '{"armed_at": "yesterday", "tool_count": 0, "limit": 5}',
+        '{"armed_at": null, "tool_count": 0, "limit": 5}',
+        '{"armed_at": %s, "tool_count": "many", "limit": 5}',
+        '{"armed_at": %s, "tool_count": 0, "limit": "five"}',
+        '{"armed_at": %s, "tool_count": [], "limit": 5}',
+    ],
+)
+def test_a_malformed_budget_file_allows_and_is_cleared(sg, monkeypatch, tmp_path, text):
+    import time
+
+    path = _budget(sg, monkeypatch, tmp_path, text.replace("%s", str(time.time())))
+    assert sg._check_proportionality_budget({"session_id": "s"}, "Read") is None
+    assert not path.exists()
+
+
+def test_a_well_formed_budget_still_counts_and_denies_past_the_limit(sg, monkeypatch, tmp_path):
+    import time
+
+    path = _budget(sg, monkeypatch, tmp_path, json.dumps({"armed_at": time.time(), "tool_count": 0, "limit": 2}))
+    assert sg._check_proportionality_budget({"session_id": "s"}, "Read") is None
+    assert sg._check_proportionality_budget({"session_id": "s"}, "Grep") is None
+    denial = sg._check_proportionality_budget({"session_id": "s"}, "Glob")
+    assert denial and "budget exceeded" in denial
+    assert json.loads(path.read_text())["tool_count"] == 3
