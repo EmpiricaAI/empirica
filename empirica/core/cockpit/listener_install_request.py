@@ -37,10 +37,13 @@ then deletes them. Idempotent — re-requesting just rewrites the file.
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 EMPIRICA_DIR = Path.home() / ".empirica"
 
@@ -153,6 +156,8 @@ class ListenerInstallRequest:
                 data = json.load(f)
         except (OSError, json.JSONDecodeError):
             return None
+        if not isinstance(data, dict):
+            return None
         return cls(
             instance_id=str(data.get("instance_id", "")),
             name=str(data.get("name", "")),
@@ -205,9 +210,14 @@ def consume_pending(instance_id: str) -> list[ListenerInstallRequest]:
     """
     out: list[ListenerInstallRequest] = []
     for path in list_pending(instance_id):
-        request = ListenerInstallRequest.from_path(path)
-        if request is not None:
-            out.append(request)
+        try:
+            request = ListenerInstallRequest.from_path(path)
+            if request is not None:
+                out.append(request)
+        except Exception as exc:  # one unreadable file must not lose the others, but it must not vanish unsaid either
+            logger.warning(
+                "%s: skipping unreadable pending request %s (%s: %s)", __name__, path.name, type(exc).__name__, exc
+            )
         try:
             path.unlink()
         except OSError:
