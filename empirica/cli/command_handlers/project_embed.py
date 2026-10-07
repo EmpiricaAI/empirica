@@ -540,6 +540,7 @@ def handle_project_embed_command(args):
             embed_eidetic,
             init_collections,
             init_global_collection,
+            purge_ineligible_from_global,
             sync_high_impact_to_global,
             upsert_docs,
             upsert_memory,
@@ -622,9 +623,15 @@ def handle_project_embed_command(args):
             logger.debug(f"Code embedding skipped: {e}")
 
         global_synced = 0
+        global_ineligible = None
         if sync_global:
             min_impact = getattr(args, "min_impact", 0.7)
             global_synced = sync_high_impact_to_global(project_id, min_impact)
+            # Points a past sync left behind from artifacts that may not federate (local tier, resolved or retracted). A dry run
+            # unless --purge-global: the count is always reported so the leftover is visible, never silently tolerated.
+            global_ineligible = purge_ineligible_from_global(
+                project_id, apply=bool(getattr(args, "purge_global", False))
+            )
 
         result = {
             "ok": True,
@@ -654,6 +661,7 @@ def handle_project_embed_command(args):
                 "assumptions": len(assumptions),
             },
             "global_synced": global_synced if sync_global else None,
+            "global_ineligible": global_ineligible,
         }
 
         record_embed_outcome(
@@ -687,6 +695,18 @@ def handle_project_embed_command(args):
             msg += _eidetic_summary(eidetic_count, _LAST_EIDETIC["already_present"])
             if sync_global:
                 msg += f" | global: {global_synced}"
+                if global_ineligible and global_ineligible.get("present"):
+                    verb = (
+                        "purged"
+                        if global_ineligible.get("applied")
+                        else "ineligible (run with --purge-global to remove)"
+                    )
+                    count = (
+                        global_ineligible["deleted"]
+                        if global_ineligible.get("applied")
+                        else global_ineligible["present"]
+                    )
+                    msg += f" | {verb}: {count}"
             print(msg)
 
         return result

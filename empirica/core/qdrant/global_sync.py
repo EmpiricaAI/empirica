@@ -28,6 +28,13 @@ ORIGIN_KEY = "origin_practice"
 _TEXT_PREVIEW = 500
 
 
+def _global_point_id(item_id: str) -> int:
+    """The numeric Qdrant point id an artifact has in global_learnings: the same artifact always lands on (and is found at) one id."""
+    import hashlib
+
+    return int(hashlib.md5(f"global_{item_id}".encode()).hexdigest()[:15], 16)
+
+
 def embed_to_global(
     item_id: str,
     text: str,
@@ -92,10 +99,7 @@ def embed_to_global(
             "record": record,
         }
 
-        # Use hash of item_id for numeric Qdrant point ID
-        import hashlib
-
-        point_id = int(hashlib.md5(f"global_{item_id}".encode()).hexdigest()[:15], 16)
+        point_id = _global_point_id(item_id)
 
         point = PointStruct(id=point_id, vector=vector, payload=payload)
         client.upsert(collection_name=coll, points=[point])
@@ -110,6 +114,10 @@ def embed_to_global(
 #: decision that needs a rights check this layer cannot make, so it stays out
 #: until that check exists rather than being quietly treated as public.
 FEDERATED_POLICIES: tuple[str, ...] = ("org", "public")
+
+#: Visibility tiers that authorize an artifact to be federated to the global pool.
+#: 'local' is explicitly excluded; it is machine-local and never shared.
+FEDERATED_VISIBILITY: tuple[str, ...] = ("shared", "public")
 
 
 def _is_ingested(storage, lesson_id: str) -> bool:
@@ -525,6 +533,7 @@ def _deduplicate_results(all_results):
 def sync_high_impact_to_global(project_id: str, min_impact: float = 0.7) -> int:
     """
     Sync high-impact findings and resolved unknowns from a project to global collection.
+    Only syncs shared/public, unresolved artifacts.
     Called during project-embed --global or manually.
 
     Returns number of items synced.
@@ -532,21 +541,22 @@ def sync_high_impact_to_global(project_id: str, min_impact: float = 0.7) -> int:
     if not _check_qdrant_available():
         return 0
 
+    from empirica.data.session_database import SessionDatabase
+
+    db = SessionDatabase()
     try:
-        from empirica.data.session_database import SessionDatabase
-
-        db = SessionDatabase()
         synced = 0
+        visibility_placeholders = ", ".join("?" for _ in FEDERATED_VISIBILITY)
 
-        # Get high-impact findings
+        # Get high-impact, unresolved findings with shared/public visibility
         cursor = db.conn.cursor()
         cursor.execute(
-            """
+            f"""
             SELECT id, finding, impact, session_id, created_timestamp
             FROM project_findings
-            WHERE project_id = ? AND impact >= ?
+            WHERE project_id = ? AND impact >= ? AND COALESCE(visibility,'local') IN ({visibility_placeholders}) AND COALESCE(is_resolved,0) = 0
         """,
-            (project_id, min_impact),
+            (project_id, min_impact) + FEDERATED_VISIBILITY,
         )
 
         for row in cursor.fetchall():
@@ -561,14 +571,14 @@ def sync_high_impact_to_global(project_id: str, min_impact: float = 0.7) -> int:
             ):
                 synced += 1
 
-        # Get resolved unknowns (these contain valuable resolution patterns)
+        # Get resolved unknowns (these contain valuable resolution patterns) with shared/public visibility
         cursor.execute(
-            """
+            f"""
             SELECT id, unknown, resolved_by, session_id, resolved_timestamp
             FROM project_unknowns
-            WHERE project_id = ? AND is_resolved = 1 AND resolved_by IS NOT NULL
+            WHERE project_id = ? AND is_resolved = 1 AND resolved_by IS NOT NULL AND COALESCE(visibility,'local') IN ({visibility_placeholders})
         """,
-            (project_id,),
+            (project_id,) + FEDERATED_VISIBILITY,
         )
 
         for row in cursor.fetchall():
@@ -584,14 +594,14 @@ def sync_high_impact_to_global(project_id: str, min_impact: float = 0.7) -> int:
             ):
                 synced += 1
 
-        # Get dead ends (anti-patterns to avoid)
+        # Get dead ends (anti-patterns to avoid) with shared/public visibility
         cursor.execute(
-            """
+            f"""
             SELECT id, approach, why_failed, session_id, created_timestamp
             FROM project_dead_ends
-            WHERE project_id = ?
+            WHERE project_id = ? AND COALESCE(visibility,'local') IN ({visibility_placeholders})
         """,
-            (project_id,),
+            (project_id,) + FEDERATED_VISIBILITY,
         )
 
         for row in cursor.fetchall():
@@ -606,11 +616,73 @@ def sync_high_impact_to_global(project_id: str, min_impact: float = 0.7) -> int:
             ):
                 synced += 1
 
-        db.close()
         return synced
     except Exception as e:
         logger.warning(f"Failed to sync to global: {e}")
         return 0
+    finally:
+        db.close()
+
+
+def purge_ineligible_from_global(project_id: str, *, apply: bool = False) -> dict:
+    """Remove from global_learnings the points this project's own ineligible artifacts left there.
+
+    `sync_high_impact_to_global` now federates only shared/public, unresolved artifacts. Points written before that stay in the pool
+    until something removes them, and the pool is read by peers: a finding that was never authorised to leave (local tier), a
+    retracted or otherwise resolved finding, a local dead end or unknown keeps being served by `--global` searches. This finds
+    them by recomputing the point id of each such artifact of THIS project and looking only at those ids, so a peer's points are
+    never touched. David's ruling 2026-10-06 (filter forward and purge existing).
+
+    DRY-RUN unless `apply=True`: the result says how many ineligible points are present either way. Never raises.
+    Returns {ok, applied, candidates, present, deleted, by_type, error?}.
+    """
+    result: dict = {"ok": False, "applied": bool(apply), "candidates": 0, "present": 0, "deleted": 0, "by_type": {}}
+    if not _check_qdrant_available():
+        result["error"] = "qdrant unavailable"
+        return result
+    try:
+        from empirica.data.session_database import SessionDatabase
+
+        db = SessionDatabase()
+        try:
+            marks = ", ".join("?" for _ in FEDERATED_VISIBILITY)
+            queries = {
+                "finding": f"SELECT id FROM project_findings WHERE project_id = ? AND (COALESCE(visibility,'local') NOT IN ({marks}) OR COALESCE(is_resolved,0) = 1)",
+                "unknown": f"SELECT id FROM project_unknowns WHERE project_id = ? AND COALESCE(visibility,'local') NOT IN ({marks})",
+                "dead_end": f"SELECT id FROM project_dead_ends WHERE project_id = ? AND COALESCE(visibility,'local') NOT IN ({marks})",
+            }
+            owners: dict[int, str] = {}
+            cursor = db.conn.cursor()
+            for kind, sql in queries.items():
+                cursor.execute(sql, (project_id, *FEDERATED_VISIBILITY))
+                for row in cursor.fetchall():
+                    owners[_global_point_id(row[0])] = kind
+        finally:
+            db.close()
+        result["candidates"] = len(owners)
+        client = _get_qdrant_client()
+        coll = _global_learnings_collection()
+        if client is None or not owners or not client.collection_exists(coll):
+            result["ok"] = client is not None
+            return result
+        ids = list(owners)
+        present: list[int] = []
+        for start in range(0, len(ids), 256):
+            present += [
+                p.id for p in client.retrieve(collection_name=coll, ids=ids[start : start + 256], with_payload=False)
+            ]
+        result["present"] = len(present)
+        for pid in present:
+            result["by_type"][owners[pid]] = result["by_type"].get(owners[pid], 0) + 1  # pyright: ignore[reportIndexIssue]
+        if apply and present:
+            client.delete(collection_name=coll, points_selector=present)
+            result["deleted"] = len(present)
+        result["ok"] = True
+        return result
+    except Exception as e:
+        logger.warning(f"Failed to purge ineligible points from global: {e}")
+        result["error"] = f"{type(e).__name__}: {e}"
+        return result
 
 
 # ============================================================================

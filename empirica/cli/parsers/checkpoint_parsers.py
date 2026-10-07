@@ -989,6 +989,15 @@ def add_checkpoint_parsers(subparsers):
     project_embed_parser.add_argument(
         "--min-impact", type=float, default=0.7, help="Minimum impact for global sync (default: 0.7)"
     )
+    project_embed_parser.add_argument(
+        "--purge-global",
+        dest="purge_global",
+        action="store_true",
+        help=(
+            "With --global: delete from global_learnings the points this project's local-tier, resolved or retracted "
+            "artifacts left there. Without it the leftover is only counted."
+        ),
+    )
 
     # Code embed (AST-based API surface extraction)
     code_embed_parser = subparsers.add_parser(
