@@ -1214,8 +1214,11 @@ def _walk_graph(  # noqa: C901 — graph walker has multiple branches but reads 
         if project_id:
             for _type, table, id_col in _TYPE_TABLE_MAP:
                 try:
+                    # epistemic_sources has no created_timestamp (it is discovered_at): ordering by the missing column raised, the
+                    # bare except below swallowed it, and sources were never seeded in the project-wide graph.
+                    order_col = "discovered_at" if table == "epistemic_sources" else "created_timestamp"
                     cursor.execute(
-                        f"SELECT {id_col} FROM {table} WHERE project_id = ? ORDER BY created_timestamp DESC LIMIT ?",
+                        f"SELECT {id_col} FROM {table} WHERE project_id = ? ORDER BY {order_col} DESC LIMIT ?",
                         (project_id, max_nodes),
                     )
                     for row in cursor.fetchall():
