@@ -21,6 +21,7 @@ Usage:
 import ast
 import fnmatch
 import json
+import logging
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -28,6 +29,8 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 from ..cli_utils import handle_cli_error
+
+logger = logging.getLogger(__name__)
 
 # --- ProjectConfig: auto-detected project structure for portability ---
 
@@ -386,18 +389,74 @@ class EpistemicDocsAgent:
         if cli_file is None or not cli_file.exists():
             return []
 
-        content = cli_file.read_text()
-        commands: list[str] = []
+        # The project's own parser is the authority on its command set (David's ruling 2026-10-06). The source scan below is the
+        # fallback for a project that cannot be imported: it broke silently twice (a formatter switched to double quotes, then
+        # the parsers moved to sibling modules) and each time the "command set" shrank to {'help'} with no error.
+        introspected = self._introspect_argparse_commands(cli_file)
+        if introspected is not None:
+            return introspected
+        return self._scrape_argparse_commands(cli_file.read_text())
 
-        # Find COMMAND_HANDLERS dictionary entries
-        pattern = r"'([a-z]+-?[a-z-]*)'\s*:\s*\w+"
-        commands.extend(re.findall(pattern, content))
+    #: Names under which a project's CLI module commonly exposes the function that BUILDS its argparse parser.
+    _PARSER_FACTORIES: ClassVar[tuple[str, ...]] = (
+        "create_argument_parser",
+        "build_parser",
+        "get_parser",
+        "make_parser",
+    )
 
-        # Also find add_parser calls with either quote style
-        parser_pattern = r"add_parser\(\s*['\"]([a-z]+-?[a-z-]*)['\"]"
-        commands.extend(re.findall(parser_pattern, content))
+    def _introspect_argparse_commands(self, cli_file: Path) -> list[str] | None:
+        """The command set from the project's own argparse parser, or None when it cannot be obtained.
 
-        return list(set(commands))
+        Imports the configured CLI module and calls its parser factory, so it runs project code: acceptable for a project's own
+        CLI, and refused otherwise. The imported module must BE the file being assessed (a different installed copy answers
+        about a different project), and any failure returns None so the caller falls back to the source scan.
+        """
+        import argparse
+        import importlib
+
+        if not self.config.cli_module:
+            return None
+        try:
+            module = importlib.import_module(self.config.cli_module)
+            if Path(str(getattr(module, "__file__", ""))).resolve() != cli_file.resolve():
+                return None
+            for name in self._PARSER_FACTORIES:
+                factory = getattr(module, name, None)
+                if callable(factory):
+                    parser = factory()
+                    commands: set[str] = set()
+                    for action in getattr(parser, "_actions", []):
+                        if isinstance(action, argparse._SubParsersAction):
+                            commands.update(str(c) for c in action.choices)
+                    return sorted(commands) or None
+        except Exception as exc:
+            if self.verbose:
+                logger.debug(
+                    "docs-assess: parser introspection failed (%s: %s); scanning source", type(exc).__name__, exc
+                )
+        return None
+
+    @staticmethod
+    def _scrape_argparse_commands(content: str) -> list[str]:
+        """Fallback: command names from source text, in either quote style.
+
+        Looks inside the COMMAND_HANDLERS dict when there is one (other dicts in a CLI module have keys that are not commands),
+        else over the whole file; add_parser calls count in both cases.
+        """
+        scope = content
+        start = content.find("COMMAND_HANDLERS")
+        brace = content.find("{", start) if start != -1 else -1
+        if brace != -1:
+            depth = 0
+            for i in range(brace, len(content)):
+                depth += {"{": 1, "}": -1}.get(content[i], 0)
+                if depth == 0:
+                    scope = content[brace : i + 1]
+                    break
+        commands = re.findall(r"""['"]([a-z]+-?[a-z-]*)['"]\s*:\s*\w+""", scope)
+        commands += re.findall(r"""add_parser\(\s*['"]([a-z]+-?[a-z-]*)['"]""", content)
+        return sorted(set(commands))
 
     def _extract_click_commands(self) -> list[str]:
         """Extract CLI commands from a Click-based CLI."""
