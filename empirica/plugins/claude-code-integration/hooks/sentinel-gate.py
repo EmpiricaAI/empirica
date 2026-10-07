@@ -31,6 +31,7 @@ Related but NOT consumed here:
 
 import json
 import os
+import shlex
 import sys
 import time
 from datetime import datetime
@@ -2248,12 +2249,31 @@ _TOOL_DANGEROUS_FLAGS: dict[str, frozenset[str]] = {
     # fd -x/-X run a command per result (find -exec equivalent)
     "fd": frozenset({"-x", "-X", "--exec", "--exec-batch"}),
     "fdfind": frozenset({"-x", "-X", "--exec", "--exec-batch"}),
-    # sort -o / --output writes to a file
-    "sort": frozenset({"-o", "--output"}),
-    # yq -i edits YAML in place
-    "yq": frozenset({"-i", "--inplace", "--in-place"}),
+    # sort -o / --output writes to a file; see the later entry for --compress-program
+    # yq -i edits YAML in place; see the later entry for the split forms
     # ast-grep rewrites source in place
     "ast-grep": frozenset({"-U", "--update-all", "--rewrite"}),
+    # yq -s / --split-exp writes one file per result
+    "yq": frozenset({"-i", "--inplace", "--in-place", "-s", "--split-exp"}),
+    # a preprocessor or pager option names a PROGRAM the tool will run
+    "rg": frozenset({"--pre", "--hostname-bin"}),
+    "ag": frozenset({"--pager"}),
+    "ack": frozenset({"--pager"}),
+    "bat": frozenset({"--pager"}),
+    "man": frozenset({"-P", "--pager", "-H", "--html"}),
+    # linters and analyzers: fix in place, write reports, create stubs, install packages
+    "ruff": frozenset({"--fix", "--fix-only", "--unsafe-fixes", "--add-noqa", "--output-file"}),
+    "pip-audit": frozenset({"--fix", "-o", "--output"}),
+    "pyright": frozenset({"--createstub"}),
+    "mypy": frozenset({"--install-types", "--junit-xml"}),
+    "flake8": frozenset({"--output-file"}),
+    "pylint": frozenset({"--output"}),
+    "radon": frozenset({"-O", "--output-file"}),
+    # output-to-file options on otherwise read-only listers
+    "tree": frozenset({"-o"}),
+    "info": frozenset({"-o", "--output"}),
+    "scc": frozenset({"-o", "--output"}),
+    "sort": frozenset({"-o", "--output", "--compress-program"}),
 }
 
 # awk family writes via print/printf > "file" INSIDE its program (the
@@ -2420,6 +2440,378 @@ def _git_ref_command_mutates(cmd: str) -> bool:
     return False
 
 
+_AWK_PIPE_OR_WRITE_RE = re.compile(r"(?:print|printf)[^;\n{}]*(?:\||>>?)|\|&|\|\s*getline")
+
+
+def _awk_runs_or_writes(stripped: str) -> bool:
+    """awk programs can pipe to a command, read from one (`"cmd" | getline`), redirect to a computed
+    target, load a program file, or (gawk) edit in place. A `|` inside a regex is not one of these:
+    the pipe forms are recognised by what stands around them."""
+    if "system(" in stripped or _AWK_WRITE_RE.search(stripped) or _AWK_PIPE_OR_WRITE_RE.search(stripped):
+        return True
+    for tok in _tool_tokens(stripped)[1:]:
+        if tok in ("-f", "--file", "-i", "--include", "inplace") or tok.startswith(("--file=", "--include=")):
+            return True
+    return False
+
+
+def _tool_tokens(stripped: str) -> list[str]:
+    try:
+        return shlex.split(stripped)
+    except ValueError:
+        return stripped.split()
+
+
+def _skip_delimited(script: str, i: int, delim: str) -> int:
+    """Index just after the closing `delim` (backslash escapes the next character)."""
+    n = len(script)
+    while i < n:
+        if script[i] == "\\":
+            i += 2
+            continue
+        if script[i] == delim:
+            return i + 1
+        i += 1
+    return n
+
+
+def _sed_skip_address(script: str, i: int) -> int:
+    """Skip a sed address: numbers, $, ranges, steps, negation, /re/ and \\cREc, with I/M flags."""
+    n = len(script)
+    while i < n:
+        c = script[i]
+        if c.isdigit() or c in "$,~+! \t":
+            i += 1
+        elif c == "/" or (c == "\\" and i + 1 < n):
+            delim = "/" if c == "/" else script[i + 1]
+            i = _skip_delimited(script, i + (1 if c == "/" else 2), delim)
+            while i < n and script[i] in "IM":
+                i += 1
+        else:
+            break
+    return i
+
+
+def _sed_script_writes_or_execs(script: str) -> bool:
+    """True if a sed script has a w/W/e command or an s///w or s///e flag (GNU sed). A small parser,
+    not a regex: `s/we/ew/` is a substitution, not a write."""
+    i, n = 0, len(script)
+    while i < n:
+        if script[i] in " \t\n;{}":
+            i += 1
+            continue
+        i = _sed_skip_address(script, i)
+        if i >= n:
+            break
+        cmd = script[i]
+        i += 1
+        if cmd in "wWe":
+            return True
+        if cmd == "s":
+            if i >= n:
+                return True
+            delim = script[i]
+            i = _skip_delimited(script, _skip_delimited(script, i + 1, delim), delim)
+            while i < n and script[i] not in ";}\n ":
+                if script[i] in "we":
+                    return True
+                i += 1
+        elif cmd == "y":
+            if i >= n:
+                return True
+            delim = script[i]
+            i = _skip_delimited(script, _skip_delimited(script, i + 1, delim), delim)
+        elif cmd in "aicrR:#":
+            nl = script.find("\n", i)
+            i = n if nl < 0 else nl
+        elif cmd in "bBtT":
+            while i < n and script[i] not in ";\n":
+                i += 1
+    return False
+
+
+def _sed_runs_or_writes(stripped: str) -> bool:
+    toks = _tool_tokens(stripped)[1:]
+    scripts: list[str] = []
+    have_script_flag = False
+    i = 0
+    while i < len(toks):
+        tok = toks[i]
+        if tok in ("-f", "--file") or tok.startswith("--file="):
+            return True  # the program lives in a file this check cannot read
+        if tok == "-e" or tok == "--expression":
+            have_script_flag = True
+            if i + 1 < len(toks):
+                scripts.append(toks[i + 1])
+            i += 2
+            continue
+        if tok.startswith("--expression="):
+            have_script_flag = True
+            scripts.append(tok.split("=", 1)[1])
+        elif tok.startswith("-") and not tok.startswith("--") and len(tok) > 1:
+            if "f" in tok[1:]:
+                return True
+            if tok.endswith("e"):  # a cluster like -ne takes the script as its value
+                have_script_flag = True
+                if i + 1 < len(toks):
+                    scripts.append(toks[i + 1])
+                i += 2
+                continue
+        elif not tok.startswith("-") and not have_script_flag and not scripts:
+            scripts.append(tok)
+            have_script_flag = True
+        i += 1
+    return any(_sed_script_writes_or_execs(s) for s in scripts)
+
+
+_CURL_WRITE_OR_SEND_LONG = frozenset(
+    {
+        "--output",
+        "--remote-name",
+        "--remote-name-all",
+        "--output-dir",
+        "--upload-file",
+        "--data",
+        "--data-raw",
+        "--data-binary",
+        "--data-urlencode",
+        "--data-ascii",
+        "--form",
+        "--form-string",
+        "--json",
+        "--config",
+        "--dump-header",
+        "--cookie-jar",
+        "--trace",
+        "--trace-ascii",
+        "--stderr",
+        "--create-dirs",
+        "--ftp-create-dirs",
+        "--libcurl",
+    }
+)
+_CURL_WRITE_OR_SEND_SHORT = frozenset("oOTdFKDc")
+
+
+def _curl_method(tok: str, nxt: str) -> tuple[str, int] | None:
+    """(method, tokens consumed) when `tok` sets the request method, else None."""
+    if tok in ("--request", "-X"):
+        return nxt, 2
+    if tok.startswith("--request="):
+        return tok.split("=", 1)[1], 1
+    if tok.startswith("-X") and len(tok) > 2:
+        return tok[2:], 1
+    return None
+
+
+def _curl_writes_or_sends(stripped: str) -> bool:
+    """curl writes a file (-o/-O/-D/-c/--trace), sends a body (-d/-F/-T/--json) or uses a non-GET
+    method, or loads a config file that can do any of it. `-o /dev/null` is a status probe."""
+    toks = _tool_tokens(stripped)[1:]
+    i = 0
+    while i < len(toks):
+        tok = toks[i]
+        nxt = toks[i + 1] if i + 1 < len(toks) else ""
+        method = _curl_method(tok, nxt)
+        if method is not None:
+            if method[0].upper() not in ("GET", "HEAD"):
+                return True
+            i += method[1]
+            continue
+        if tok == "--output=/dev/null":
+            i += 1
+            continue
+        if tok in ("-o", "--output") and nxt == "/dev/null":
+            i += 2
+            continue
+        if tok.startswith("--"):
+            if tok.split("=", 1)[0] in _CURL_WRITE_OR_SEND_LONG:
+                return True
+        elif tok.startswith("-") and len(tok) > 1:
+            if tok.endswith("o") and nxt == "/dev/null" and not any(c in "OTdFKDc" for c in tok[1:]):
+                i += 2
+                continue
+            if any(c in _CURL_WRITE_OR_SEND_SHORT for c in tok[1:]):
+                return True
+            if tok.endswith("X") and nxt.upper() not in ("GET", "HEAD"):  # a cluster ending in X takes the method
+                return True
+        i += 1
+    return False
+
+
+_WGET_WRITE_OR_SEND = frozenset(
+    {
+        "-o",
+        "--output-file",
+        "-a",
+        "--append-output",
+        "-P",
+        "--directory-prefix",
+        "--post-data",
+        "--post-file",
+        "--method",
+        "--body-data",
+        "--body-file",
+        "-m",
+        "--mirror",
+        "-r",
+        "--recursive",
+        "-b",
+        "--background",
+        "-e",
+        "--execute",
+    }
+)
+
+
+def _wget_writes_or_sends(stripped: str) -> bool:
+    for tok in _tool_tokens(stripped)[1:]:
+        if tok.startswith("-O") and tok != "-O-":
+            return True
+        if tok.split("=", 1)[0] in _WGET_WRITE_OR_SEND:
+            return True
+    return False
+
+
+def _gh_api_mutates(stripped: str) -> bool:
+    """`gh api` is a GET unless a field, an input file or a method says otherwise. GraphQL always
+    POSTs a query; it mutates only when the text says `mutation`."""
+    toks = _tool_tokens(stripped)
+    if len(toks) < 3 or toks[1] != "api":
+        return False
+    rest = toks[2:]
+    if "graphql" in rest:
+        return "mutation" in stripped.lower()
+    i = 0
+    while i < len(rest):
+        tok = rest[i]
+        if tok in ("-X", "--method"):
+            if (rest[i + 1] if i + 1 < len(rest) else "").upper() != "GET":
+                return True
+            i += 2
+            continue
+        if tok.startswith("--method="):
+            if tok.split("=", 1)[1].upper() != "GET":
+                return True
+        elif tok in ("-f", "-F", "--field", "--raw-field", "--input") or tok.startswith(
+            ("--field=", "--raw-field=", "--input=")
+        ):
+            return True
+        i += 1
+    return False
+
+
+_GIT_OUTPUT_VERBS = frozenset({"diff", "log", "show", "shortlog", "grep", "blame", "range-diff"})
+
+
+def _git_read_verb_writes(stripped: str) -> bool:
+    """`git diff|log|show --output=FILE` writes a file; `git grep -O<cmd>` runs a pager program."""
+    toks = _normalize_git_globals(stripped).split()
+    if len(toks) < 2 or toks[0] != "git" or toks[1] not in _GIT_OUTPUT_VERBS:
+        return False
+    for tok in toks[2:]:
+        if tok == "--output" or tok.startswith("--output="):
+            return True
+        if toks[1] == "grep" and (tok.startswith("-O") or tok.startswith("--open-files-in-pager")):
+            return True
+    return False
+
+
+def _positional_output_file(stripped: str, valued: frozenset[str]) -> bool:
+    """`xxd IN OUT` and `uniq IN OUT` write OUT. Two or more positionals means an output file."""
+    toks = _tool_tokens(stripped)[1:]
+    positional = 0
+    i = 0
+    while i < len(toks):
+        tok = toks[i]
+        if tok in valued:
+            i += 2
+            continue
+        if not tok.startswith("-") or tok == "-":
+            positional += 1
+        i += 1
+    return positional >= 2
+
+
+_XXD_VALUED = frozenset({"-c", "-g", "-l", "-o", "-s", "-n", "-cols", "-groupsize", "-len", "-seek"})
+_UNIQ_VALUED = frozenset({"-f", "-s", "-w"})
+_HOSTNAME_READS = frozenset(
+    {"-f", "--fqdn", "-s", "--short", "-i", "--ip-address", "-I", "--all-ip-addresses", "-a", "--alias"}
+    | {"-d", "--domain", "-A", "--all-fqdns", "-y", "--yp", "--nis", "-V", "--version", "-h", "--help"}
+)
+
+
+def _mount_changes_state(stripped: str) -> bool:
+    """Bare `mount` and `mount -l|-t TYPE` list; anything else mounts, remounts or binds."""
+    toks = _tool_tokens(stripped)[1:]
+    i = 0
+    while i < len(toks):
+        if toks[i] in ("-t", "--types"):
+            i += 2
+            continue
+        if toks[i] not in ("-l", "--show-labels", "-h", "--help", "-V", "--version"):
+            return True
+        i += 1
+    return False
+
+
+def _date_sets_the_clock(stripped: str) -> bool:
+    """`date -s`, `--set` and a bare MMDDhhmm positional set the system clock; `+FORMAT` and -d/-r read."""
+    toks = _tool_tokens(stripped)[1:]
+    i = 0
+    while i < len(toks):
+        tok = toks[i]
+        if tok in ("-d", "--date", "-r", "--reference", "-f", "--file"):
+            i += 2
+            continue
+        if tok == "-s" or tok.startswith("--set"):
+            return True
+        if tok.startswith("-"):
+            i += 1
+            continue
+        if not tok.startswith("+"):
+            return True
+        i += 1
+    return False
+
+
+def _tool_mode_mutates(stripped: str, head: str) -> bool:
+    """Tool-specific write/exec modes that a flag set cannot express (programs, positionals, methods)."""
+    if head in _AWK_NAMES:
+        return _awk_runs_or_writes(stripped)
+    if head in _SED_NAMES:
+        return _sed_runs_or_writes(stripped) or _sed_edits_in_place(stripped)
+    if head == "curl":
+        return _curl_writes_or_sends(stripped)
+    if head == "wget":
+        return _wget_writes_or_sends(stripped)
+    if head == "gh":
+        return _gh_api_mutates(stripped)
+    if head == "git":
+        return _git_read_verb_writes(stripped)
+    if head == "xxd":
+        return _positional_output_file(stripped, _XXD_VALUED)
+    if head == "uniq":
+        return _positional_output_file(stripped, _UNIQ_VALUED)
+    if head == "mount":
+        return _mount_changes_state(stripped)
+    if head == "hostname":
+        return any(tok not in _HOSTNAME_READS for tok in _tool_tokens(stripped)[1:])
+    if head == "date":
+        return _date_sets_the_clock(stripped)
+    if head == "mypy":  # --html-report, --xml-report, --any-exprs-report, ...: each writes a directory
+        return any(tok.split("=", 1)[0].endswith("-report") for tok in _tool_tokens(stripped)[1:])
+    return False
+
+
+def _sort_short_output(stripped: str) -> bool:
+    """`sort -ofile` and clusters like `-ro` name an output file through the short form."""
+    for tok in _tool_tokens(stripped)[1:]:
+        if tok.startswith("-") and not tok.startswith("--") and len(tok) > 1 and "o" in tok[1:]:
+            return True
+    return False
+
+
 def _has_dangerous_tool_flags(cmd: str) -> bool:
     """True if ``cmd`` is a safe-prefixed tool invoked with a mutating/exec flag
     its prefix would otherwise wave through (the membrane-hole class).
@@ -2434,10 +2826,10 @@ def _has_dangerous_tool_flags(cmd: str) -> bool:
     head = stripped.split(" ", 1)[0]
     if head == "git" and _git_ref_command_mutates(stripped):
         return True
-    if head in _AWK_NAMES:
-        return "system(" in stripped or bool(_AWK_WRITE_RE.search(stripped))
-    if head in _SED_NAMES:
-        return _sed_edits_in_place(stripped)
+    if _tool_mode_mutates(stripped, head):
+        return True
+    if head == "sort" and _sort_short_output(stripped):
+        return True
     if head in _NVIDIA_SMI_NAMES:
         # Inverted sense: dangerous unless recognised as a read. See the
         # allowlist-not-denylist note above — the mutating set is large and one
