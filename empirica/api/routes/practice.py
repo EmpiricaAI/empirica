@@ -164,23 +164,53 @@ def _read_mcp() -> list[dict[str, Any]] | None:
         return None
 
 
-def _watermark(root: Path) -> str | None:
-    """Max mtime across the attested files, as a change signal.
+_WATERMARK_WALK_CAP = 2000
 
-    Lets a consumer cache and know when to re-fetch without diffing the payload.
+
+def _newest_mtime(p: Path) -> float:
+    """Newest mtime of a file, or of a directory and everything under it (bounded).
+
+    A directory's own mtime moves only when an entry is created or removed, so an in-place edit to a skill or agent file left the
+    watermark where it was and a consumer kept its cached composition.
+    """
+    try:
+        newest = p.stat().st_mtime
+    except OSError:
+        return 0.0
+    if p.is_dir():
+        seen = 0
+        for dirpath, _dirs, files in os.walk(p):
+            for name in files:
+                seen += 1
+                if seen > _WATERMARK_WALK_CAP:
+                    return newest
+                try:
+                    newest = max(newest, os.stat(os.path.join(dirpath, name)).st_mtime)
+                except OSError:
+                    continue
+    return newest
+
+
+def _watermark(root: Path) -> str | None:
+    """Max mtime across every source the composition reads, as a change signal.
+
+    Lets a consumer cache and know when to re-fetch without diffing the payload. The sources are the ones `practice_composition`
+    reads: the project prompt (CLAUDE.md, .empirica/project_prompt.md), the module descriptor (module.yaml, .empirica/module.yaml),
+    project.yaml, and the project-scoped and plugin skills and agents.
     """
     newest = 0.0
     for p in (
         root / "CLAUDE.md",
         root / "module.yaml",
         root / ".empirica" / "project.yaml",
+        root / ".empirica" / "module.yaml",
+        root / ".empirica" / "project_prompt.md",
+        root / ".claude" / "skills",
+        root / ".claude" / "agents",
         _PLUGIN_ROOT / "skills",
         _PLUGIN_ROOT / "agents",
     ):
-        try:
-            newest = max(newest, p.stat().st_mtime)
-        except OSError:
-            continue
+        newest = max(newest, _newest_mtime(p))
     return f"mtime:{newest:.0f}" if newest else None
 
 

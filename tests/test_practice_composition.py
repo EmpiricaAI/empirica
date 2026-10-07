@@ -227,3 +227,49 @@ def test_no_units_anywhere_is_null_not_empty(tmp_path, monkeypatch):
     monkeypatch.setattr(practice, "_PLUGIN_ROOT", tmp_path / "absent")
 
     assert practice._merge_units(tmp_path / "also-absent", "agents") is None
+
+
+# ── the watermark moves when ANY composition source changes ──────────────
+
+
+def _stamp(path, when):
+    import os
+
+    os.utime(path, (when, when))
+
+
+def _wm(root, monkeypatch, tmp_path):
+    monkeypatch.setattr(practice, "_PLUGIN_ROOT", tmp_path / "plugin-absent")
+    return practice._watermark(root)
+
+
+@pytest.mark.parametrize(
+    "relative",
+    [
+        ".empirica/module.yaml",
+        ".empirica/project_prompt.md",
+        ".claude/skills/a-skill/SKILL.md",
+        ".claude/agents/an-agent.md",
+        "CLAUDE.md",
+    ],
+)
+def test_the_watermark_moves_on_an_in_place_edit_of_each_composition_source(tmp_path, monkeypatch, relative):
+    root = tmp_path / "proj"
+    target = root / relative
+    target.parent.mkdir(parents=True)
+    target.write_text("v1", encoding="utf-8")
+    _stamp(target, 1_000_000_000)
+    directory = target.parent
+    while True:  # an in-place edit leaves every directory's own mtime alone
+        _stamp(directory, 1_000_000_000)
+        if directory == root:
+            break
+        directory = directory.parent
+    before = _wm(root, monkeypatch, tmp_path)
+    _stamp(target, 1_000_000_500)  # an edit that does not touch any directory
+    after = _wm(root, monkeypatch, tmp_path)
+    assert before == "mtime:1000000000" and after == "mtime:1000000500", relative
+
+
+def test_a_missing_source_is_skipped_and_an_empty_practice_has_no_watermark(tmp_path, monkeypatch):
+    assert _wm(tmp_path / "nothing", monkeypatch, tmp_path) is None
