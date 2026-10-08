@@ -2300,6 +2300,7 @@ def handle_goals_activate_command(args):
         db = SessionDatabase()
         repo = GoalDataRepository(db.conn)
         activated = repo.activate_goal(goal_id, transaction_id=transaction_id)
+        current_status = None if activated else repo.goal_status(goal_id)
         db.close()
 
         if activated:
@@ -2329,8 +2330,20 @@ def handle_goals_activate_command(args):
                 else:
                     print(f"   ⚠️  {result['warning']}")
         else:
-            result = {"ok": False, "error": f"Goal {goal_id} not found or not in 'planned' status"}
-            print(json.dumps(result))
+            if current_status == "in_progress":
+                error = (
+                    f"Goal {goal_id} is already in_progress; goals-activate moves a planned goal only. To count it "
+                    "as in play for the current transaction, run goals-add-task on it AFTER PREFLIGHT (a task "
+                    "created or completed since PREFLIGHT is what the Sentinel counts)."
+                )
+            elif current_status:
+                error = (
+                    f"Goal {goal_id} is {current_status}, not planned. Continue the work under a new goal: "
+                    "goals-create framed on the current work."
+                )
+            else:
+                error = f"Goal {goal_id} not found or not in 'planned' status"
+            print(json.dumps({"ok": False, "error": error}))
             sys.exit(1)
 
     except Exception as e:

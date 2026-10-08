@@ -538,6 +538,13 @@ class GoalDataRepository(BaseRepository):
 
         return stale_goals
 
+    def goal_status(self, goal_id: str) -> str | None:
+        """Status of the goal a (prefix) id names, or None when no goal matches or the id is blank."""
+        if is_blank_id(goal_id):
+            return None
+        row = self._execute("SELECT status FROM goals WHERE id LIKE ? LIMIT 1", (f"{goal_id}%",)).fetchone()
+        return row[0] if row else None
+
     def activate_goal(self, goal_id: str, transaction_id: str | None = None) -> bool:
         """Activate a planned goal — set status to in_progress and link to transaction.
 
