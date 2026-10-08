@@ -78,3 +78,76 @@ def test_hook_is_stdlib_only():
     assert spec and spec.loader
     src = HOOK.read_text(encoding="utf-8")
     assert "import empirica" not in src and "from empirica" not in src
+
+
+# ---- the question reaches the gate's counter branch (gate-A#12) -------------------------------------
+#
+# sentinel-gate is registered for Edit|Write and Bash only, so its AskUserQuestion branch (the
+# pending_user_response flag context-shift-tracker reads, and the blocked-presence stamp) never ran.
+# ruling-shape IS registered for AskUserQuestion and hands the payload to the gate.
+
+
+def _isolated_project(tmp_path):
+    home = tmp_path / "home"
+    project = tmp_path / "proj"
+    (home / ".empirica").mkdir(parents=True)
+    (project / ".empirica").mkdir(parents=True)
+    sid = "cc-session-1"
+    (home / ".empirica" / f"active_work_{sid}.json").write_text(
+        json.dumps({"project_path": str(project), "empirica_session_id": "es-1"})
+    )
+    (project / ".empirica" / "active_transaction.json").write_text(
+        json.dumps(
+            {
+                "status": "open",
+                "transaction_id": "tx-1",
+                "preflight_timestamp": 1.0,
+                "avg_turns": 10,
+                "claude_session_id": sid,  # the gate finds the transaction by this key when the tty suffix differs
+            }
+        )
+    )
+    return home, project, sid
+
+
+def _run_in(hook, payload, home, tmp_path):
+    import os
+
+    env = {"HOME": str(home), "PATH": "/usr/bin:/bin", "PYTHONPATH": os.pathsep.join(sys.path)}
+    return subprocess.run(
+        [sys.executable, str(hook)],
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        timeout=20,
+        env=env,
+        cwd=str(tmp_path),
+    )
+
+
+def _counters(project):
+    files = list((project / ".empirica").glob("hook_counters*.json"))
+    return json.loads(files[0].read_text()) if files else {}
+
+
+def test_an_ask_user_question_sets_the_pending_response_flag(tmp_path):
+    home, project, sid = _isolated_project(tmp_path)
+    payload = {**_ask([{"label": "A (Recommended)", "description": ""}]), "session_id": sid}
+    _run_in(HOOK, payload, home, tmp_path)
+    assert _counters(project).get("pending_user_response") is True
+
+
+def test_another_tool_through_the_hook_leaves_the_flag_alone(tmp_path):
+    home, project, sid = _isolated_project(tmp_path)
+    _run_in(HOOK, {"tool_name": "Read", "tool_input": {}, "session_id": sid}, home, tmp_path)
+    assert "pending_user_response" not in _counters(project)
+
+
+def test_the_reminder_still_arrives_when_the_gate_is_not_beside_the_hook(tmp_path):
+    lone = tmp_path / "lone" / "ruling-shape.py"
+    lone.parent.mkdir()
+    lone.write_text(HOOK.read_text())
+    home, _project, sid = _isolated_project(tmp_path)
+    out = _run_in(lone, {**_ask([{"label": "A", "description": ""}]), "session_id": sid}, home, tmp_path)
+    assert out.returncode == 0
+    assert "Recommended" in json.loads(out.stdout)["hookSpecificOutput"]["additionalContext"]

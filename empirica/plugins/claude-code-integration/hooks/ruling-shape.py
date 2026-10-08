@@ -17,7 +17,10 @@ outside the package.
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import sys
+from pathlib import Path
 
 MARK = "(recommended)"
 
@@ -34,6 +37,29 @@ def unpredicted(tool_input: dict) -> list[str]:
     return missing
 
 
+def hand_to_the_gate(payload: dict) -> None:
+    """Let sentinel-gate count the question: it holds the AskUserQuestion branch (the pending_user_response
+    flag context-shift-tracker reads, and the blocked-presence stamp) but is registered for Edit|Write and
+    Bash only, so the branch never ran. This hook IS registered for AskUserQuestion; running the gate on the
+    same payload keeps the gate the one writer of the counters file. Its decision is discarded: this hook
+    never decides. Best effort, bounded, silent: a question must never be held up or broken by bookkeeping."""
+    gate = Path(__file__).with_name("sentinel-gate.py")
+    if not gate.exists():
+        return
+    try:
+        subprocess.run(
+            [sys.executable, str(gate)],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            timeout=3.5,
+            env=os.environ.copy(),
+            check=False,
+        )
+    except Exception:
+        pass
+
+
 def main() -> int:
     try:
         payload = json.load(sys.stdin)
@@ -41,6 +67,7 @@ def main() -> int:
         return 0  # never interfere with the tool on a malformed hook payload
     if payload.get("tool_name") != "AskUserQuestion":
         return 0
+    hand_to_the_gate(payload)
     missing = unpredicted(payload.get("tool_input") or {})
     if not missing:
         return 0
