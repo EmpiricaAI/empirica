@@ -110,8 +110,8 @@ def _build_reaction_table(loop_names: list[str]) -> str:
 
 
 def _query_listener_on(instance_id: str) -> dict | None:
-    """Delegate to `empirica listener on --output json` for the canonical
-    arming payload. Returns the parsed JSON or None on any failure.
+    """Delegate to `empirica listener on --dry-run --output json` for the canonical
+    arming payload (a dry run: this is a question, so it writes no state). Returns the parsed JSON or None on any failure.
 
     Phase 2 of prop_oxrhoehv4 — single source of truth: the CLI handler
     owns the persistent-service short-circuit detection + Monitor command
@@ -129,6 +129,7 @@ def _query_listener_on(instance_id: str) -> dict | None:
                 instance_id,
                 "--instance",
                 instance_id,
+                "--dry-run",
                 "--output",
                 "json",
             ],

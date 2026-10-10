@@ -566,6 +566,12 @@ def _add_listener_group(subparsers):
     on_p.add_argument("--ai-id", help="AI identifier (default: project basename via .empirica/project.yaml)")
     on_p.add_argument("--name", help="Listener name (default: <ai_id>-inbox)")
     on_p.add_argument("--topic", help="ntfy topic (default: ntfy:orchestration-events?tags=<ai_id>)")
+    on_p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Return the arming payload only: register nothing and write no state file (what the SessionStart "
+        "hook asks; `listener arm` creates the record on the first real arm)",
+    )
     _add_instance(on_p)
     _add_output(on_p)
 

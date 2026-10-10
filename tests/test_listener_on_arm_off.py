@@ -386,15 +386,24 @@ def test_arm_replaces_placeholder_task_id(tmp_path, monkeypatch, capsys):
     assert data["monitor_task_id"] == "tk_abc123"
 
 
-def test_arm_errors_when_no_state_file(tmp_path, monkeypatch, capsys):
+def test_arm_with_no_state_file_creates_it_and_says_so_when_it_cannot(tmp_path, monkeypatch, capsys):
+    """`arm` used to refuse ("run `listener on` first"). The SessionStart hook now asks `listener on --dry-run`, which
+    writes nothing, so the first real arm creates the record (tests/test_listener_on_dry_run.py). When it cannot, the
+    error says creation failed and why."""
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
     monkeypatch.setattr("empirica.core.cockpit.listener_registry.EMPIRICA_DIR", tmp_path / ".empirica")
     (tmp_path / ".empirica").mkdir()
+
+    def unreachable(_ai_id):
+        raise RuntimeError("cortex unreachable")
+
+    monkeypatch.setattr("empirica.core.cockpit.notification_channels.resolve_orchestration_events_topic", unreachable)
     args = _make_args(ai_id="myai", task_id="tk_xyz")
     rc = handle_listener_arm_command(args)
     assert rc == 1
     out = json.loads(capsys.readouterr().out)
-    assert "no active state file" in out["error"]
+    assert "no active state file" in out["error"] and "creating it failed" in out["error"]
+    assert "cortex unreachable" in out["error"]
 
 
 def test_arm_errors_without_task_id(capsys):

@@ -17,6 +17,7 @@ import json as _json
 import logging
 import subprocess
 import sys
+import types
 from pathlib import Path
 from typing import Any
 
@@ -2028,25 +2029,32 @@ def handle_listener_on_command(args) -> int:
         # to the standalone-Monitor path. The body never blocks.
         persistent_active = False
 
-    # Register the listener in the per-instance registry (idempotent)
+    # Register the listener in the per-instance registry (idempotent). A dry run only asks what the arming
+    # payload would be (the SessionStart hook does), so it registers nothing: the state file written below
+    # is also what the hook reads as proof a user wanted a listener, and a query must not write its own evidence.
+    dry_run = bool(getattr(args, "dry_run", False))
     instance_id = _require_instance_id(args)
-    registry = ListenerRegistry(instance_id)
-    try:
-        entry = registry.register(
-            name=name,
-            topic=topic,
-            description=f"Canonical mesh listener for ai_id={ai_id}",
-            on_wake_template="",
-        )
-    except ValueError as e:
-        return _emit(args, {"ok": False, "error": str(e)}, f"error: {e}")
+    entry_topic = topic
+    if not dry_run:
+        registry = ListenerRegistry(instance_id)
+        try:
+            entry = registry.register(
+                name=name,
+                topic=topic,
+                description=f"Canonical mesh listener for ai_id={ai_id}",
+                on_wake_template="",
+            )
+        except ValueError as e:
+            return _emit(args, {"ok": False, "error": str(e)}, f"error: {e}")
+        entry_topic = entry.topic
 
     # The listener_active_*.json placeholder is written AFTER the Monitor
     # description is computed below, so the marker can carry monitor_description
     # — the deterministic teardown handle `off` falls back to when the optional
     # `arm` step (which records monitor_task_id) was skipped.
     active_path = listener_active_path(instance_id, name)
-    active_path.parent.mkdir(parents=True, exist_ok=True)
+    if not dry_run:
+        active_path.parent.mkdir(parents=True, exist_ok=True)
     import time as _time
 
     # Pick the Monitor command based on detection above.
@@ -2119,22 +2127,24 @@ def handle_listener_on_command(args) -> int:
         "armed_at": _time.time(),
         "ai_id": ai_id,
         "name": name,
-        "topic": entry.topic,
+        "topic": entry_topic,
         "mode": "tail" if persistent_active else "standalone",
         # The exact Monitor description. `off` uses this to recover the
         # TaskStop handle (TaskList → match description → TaskStop) when the
         # optional `arm` step was skipped and monitor_task_id is still null.
         "monitor_description": description,
     }
-    active_path.write_text(_json.dumps(placeholder, indent=2), encoding="utf-8")
+    if not dry_run:
+        active_path.write_text(_json.dumps(placeholder, indent=2), encoding="utf-8")
 
     payload = {
         "ok": True,
         "ai_id": ai_id,
         "instance_id": instance_id,
         "name": name,
-        "topic": entry.topic,
-        "state_file": str(active_path),
+        "topic": entry_topic,
+        "state_file": None if dry_run else str(active_path),
+        "dry_run": dry_run,
         "status": status,
         "next_step": {
             "tool": "Monitor",
@@ -2157,7 +2167,8 @@ def handle_listener_on_command(args) -> int:
         },
     }
     summary = (
-        f'Listener "{name}" registered for ai_id={ai_id} (topic={entry.topic}, '
+        f'Listener "{name}" {"planned (dry run, nothing written)" if dry_run else "registered"} for '
+        f"ai_id={ai_id} (topic={entry_topic}, "
         f'{mode_note}). Arm Monitor with command "{monitor_cmd}" then run '
         f"`empirica listener arm <task_id> --name {name}`."
     )
@@ -2198,14 +2209,23 @@ def handle_listener_arm_command(args) -> int:
 
     active_path = listener_active_path(instance_id, name)
     if not active_path.exists():
-        return _emit(
-            args,
-            {
-                "ok": False,
-                "error": (f"no active state file at {active_path} — run `empirica listener on` first"),
-            },
-            "error: no active state file (run `empirica listener on` first)",
-        )
+        # The SessionStart hook asks `listener on --dry-run`, which writes nothing, so the first real arm
+        # finds no record. Create it exactly as `listener on` would, then record the task id on it.
+        import contextlib
+        import io
+
+        create_args = types.SimpleNamespace(**{**vars(args), "dry_run": False, "topic": None, "output": "json"})
+        with contextlib.redirect_stdout(io.StringIO()) as created:
+            created_rc = handle_listener_on_command(create_args)
+        if created_rc != 0 or not active_path.exists():
+            return _emit(
+                args,
+                {
+                    "ok": False,
+                    "error": f"no active state file at {active_path} and creating it failed: {created.getvalue().strip()[:300]}",
+                },
+                "error: no active state file and creating it failed",
+            )
 
     try:
         with open(active_path, encoding="utf-8") as f:
