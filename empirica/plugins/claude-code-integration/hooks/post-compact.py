@@ -674,7 +674,7 @@ def main():
 
     # Stage 3: Load state
     phase_state = _get_session_phase_state(empirica_session)
-    pre_snapshot = _load_pre_snapshot()
+    pre_snapshot = _load_pre_snapshot(claude_session_id, empirica_session)
     pre_vectors, pre_reasoning, active_transaction, hook_counters = _extract_pre_snapshot_data(pre_snapshot)
     # The snapshot is a cache; the reflexes table is the record. Never restore
     # a transaction the table says is closed, and say so when the snapshot
@@ -827,14 +827,46 @@ def _get_session_phase_state(session_id: str) -> dict:
         }
 
 
-def _load_pre_snapshot():
-    """Load the most recent pre-compact snapshot"""
+def _snapshot_owner(snapshot: dict) -> tuple[set, set]:
+    """(claude session ids, empirica session ids) a pre-compact snapshot says it belongs to.
+
+    Stamped at the top level since the identity fix; older snapshots carry the owner only inside the
+    transaction they captured.
+    """
+    transaction = snapshot.get("active_transaction")
+    transaction = transaction if isinstance(transaction, dict) else {}
+    claude_ids = {snapshot.get("claude_session_id"), transaction.get("claude_session_id")} - {None}
+    empirica_ids = {snapshot.get("empirica_session_id"), snapshot.get("session_id"), transaction.get("session_id")} - {
+        None
+    }
+    return claude_ids, empirica_ids
+
+
+def _load_pre_snapshot(claude_session_id: str | None = None, empirica_session: str | None = None):
+    """Load the pre-compact snapshot of THIS session.
+
+    The newest file in ref-docs is whichever instance compacted last, so with two live instances in one project
+    each read the other's vectors and open transaction. With an identity to match, a snapshot is taken only if it
+    says it is ours; snapshots that say they are someone else's are skipped, and one that names nobody (written
+    before the identity stamp) is the fallback. Without an identity the newest is loaded, as before.
+    """
     try:
         ref_docs_dir = Path.cwd() / ".empirica" / "ref-docs"
         snapshots = sorted(ref_docs_dir.glob("pre_summary_*.json"), reverse=True)
-        if snapshots:
-            with open(snapshots[0]) as f:
-                return json.load(f)
+        legacy = None
+        for path in snapshots:
+            with open(path) as f:
+                data = json.load(f)
+            if not (claude_session_id or empirica_session):
+                return data
+            claude_ids, empirica_ids = _snapshot_owner(data)
+            if (claude_session_id and claude_session_id in claude_ids) or (
+                empirica_session and empirica_session in empirica_ids
+            ):
+                return data
+            if not claude_ids and not empirica_ids and legacy is None:
+                legacy = data
+        return legacy
     except Exception:
         pass
     return None

@@ -249,11 +249,28 @@ def _write_compact_handoff(project_root, claude_session_id):
         pass  # Handoff write failure is non-fatal
 
 
-def _detect_empirica_session():
-    """Auto-detect latest Empirica session (no env var needed).
+def _snapshot_identity(claude_session_id, empirica_session) -> dict:
+    """Who this snapshot belongs to, so post-compact restores its own and not whichever was written last."""
+    return {"claude_session_id": claude_session_id, "empirica_session_id": empirica_session}
+
+
+def _detect_empirica_session(claude_session_id=None):
+    """Detect this compaction's Empirica session.
+
+    The claude session that is compacting has an active_work file naming its Empirica session: that is identity.
+    Only without it does this fall back to the latest active session for the ai_id, which is recency across
+    every instance in the project and can be a sibling's.
 
     Returns session ID string or None.
     """
+    if claude_session_id:
+        try:
+            with open(Path.home() / ".empirica" / f"active_work_{claude_session_id}.json") as f:
+                own = json.load(f).get("empirica_session_id")
+            if own:
+                return own
+        except Exception:
+            pass
     try:
         from empirica.utils.session_resolver import InstanceResolver as R
 
@@ -563,7 +580,7 @@ def main():
     _write_compact_handoff(project_root, claude_session_id)
 
     # Auto-detect latest Empirica session
-    empirica_session = _detect_empirica_session()
+    empirica_session = _detect_empirica_session(claude_session_id)
     if not empirica_session:
         _trace("no_empirica_session", trigger=trigger, claude_session_id=claude_session_id, project_root=project_root)
         print(json.dumps({}), file=sys.stdout)
@@ -592,6 +609,7 @@ def main():
             last_task=last_task,
             git_context=git_context,
             project_root=project_root,
+            claude_session_id=claude_session_id,
         )
     finally:
         # Idempotent: a no-op when the happy path already popped it.
@@ -617,7 +635,9 @@ def _install_stash_guard(stash_sha):
         pass  # not the main thread, or no signal support — finally still covers exits
 
 
-def _main_guarded(*, stash_sha, recovered, trigger, empirica_session, last_task, git_context, project_root):
+def _main_guarded(
+    *, stash_sha, recovered, trigger, empirica_session, last_task, git_context, project_root, claude_session_id=None
+):
     practice_db = Path(project_root) / ".empirica" / "sessions" / "sessions.db"
     budget_report = _run_context_budget_triage(empirica_session, db_path=practice_db if practice_db.exists() else None)
     active_transaction, hook_counters = _capture_transaction_state(project_root, empirica_session)
@@ -682,6 +702,7 @@ def _main_guarded(*, stash_sha, recovered, trigger, empirica_session, last_task,
         snapshot = {
             "type": "pre_summary_snapshot",
             "timestamp": timestamp,
+            **_snapshot_identity(claude_session_id, empirica_session),
             "session_id": breadcrumbs.get("session_id"),
             "trigger": trigger,
             "vectors_canonical": fresh_vectors,

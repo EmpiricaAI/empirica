@@ -190,7 +190,7 @@ def test_the_tree_comes_back_however_the_hook_leaves(hook, repo, monkeypatch, bo
 
     monkeypatch.setattr(hook, "find_project_root", lambda **_kw: repo)
     monkeypatch.setattr(hook, "_write_compact_handoff", lambda *_a, **_kw: None)
-    monkeypatch.setattr(hook, "_detect_empirica_session", lambda: "sess1234")
+    monkeypatch.setattr(hook, "_detect_empirica_session", lambda *_a, **_k: "sess1234")
     monkeypatch.setattr(hook, "_extract_last_task", lambda *_a, **_kw: "")
     monkeypatch.setattr(hook, "_main_guarded", body)
     monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({"trigger": "auto", "session_id": "cc-1"})))
@@ -222,7 +222,7 @@ def test_main_really_does_stash_before_the_guarded_body(hook, repo, monkeypatch)
 
     monkeypatch.setattr(hook, "find_project_root", lambda **_kw: repo)
     monkeypatch.setattr(hook, "_write_compact_handoff", lambda *_a, **_kw: None)
-    monkeypatch.setattr(hook, "_detect_empirica_session", lambda: "sess1234")
+    monkeypatch.setattr(hook, "_detect_empirica_session", lambda *_a, **_k: "sess1234")
     monkeypatch.setattr(hook, "_extract_last_task", lambda *_a, **_kw: "")
     monkeypatch.setattr(hook, "_main_guarded", _body)
     monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({"trigger": "auto", "session_id": "cc-1"})))
