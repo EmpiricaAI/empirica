@@ -187,17 +187,62 @@ def get_current_user() -> str | None:
     return None
 
 
+_PREFERENCE_KEYS = frozenset(
+    {"ai_autonomy_level", "uncertainty_surfacing", "pushback_style", "calibration_mode", "task_splitting"}
+)
+_DOMAIN_KEYS = frozenset({"expert", "learning", "novice"})
+
+
+def _single_user_name(protocol: dict) -> str | None:
+    """The user a single-user protocol (as /ewm-interview writes it) belongs to: user_profile.name, lowercased."""
+    profile = protocol.get("user_profile")
+    name = profile.get("name") if isinstance(profile, dict) else None
+    return str(name).lower().strip() if name else None
+
+
+def resolve_user(protocol: dict, current_user: str | None) -> str | None:
+    """Who is speaking. An explicit user wins; a single-user protocol names its own; a team protocol must ask."""
+    if current_user:
+        return current_user
+    if not protocol.get("team"):
+        return _single_user_name(protocol)
+    return None
+
+
+def _user_view(protocol: dict, user_name: str) -> tuple[dict | None, dict, dict]:
+    """(member, work preferences, domains) for `user_name`, from either protocol shape.
+
+    Legacy team shape: `team` list, `work_preferences[<user>]`, `domains[<user>]`. Single-user shape (what
+    /ewm-interview v0.3.0 writes): `user_profile`, a flat `work_preferences`, a flat `domains`. The flat blocks
+    belong to the user_profile's user only; for anyone else they are not that person's preferences.
+    """
+    member = None
+    for candidate in protocol.get("team", []) or []:
+        if isinstance(candidate, dict) and candidate.get("name", "").lower() == user_name:
+            member = candidate
+            break
+    is_the_profile_user = _single_user_name(protocol) == user_name
+    if member is None and is_the_profile_user:
+        member = protocol.get("user_profile")
+
+    prefs = protocol.get("work_preferences", {}) or {}
+    domains = protocol.get("domains", {}) or {}
+    if _PREFERENCE_KEYS & set(prefs):  # flat
+        prefs = prefs if is_the_profile_user else {}
+    else:
+        prefs = prefs.get(user_name, {}) or {}
+    if _DOMAIN_KEYS & set(domains):  # flat
+        domains = domains if is_the_profile_user else {}
+    else:
+        domains = domains.get(user_name, {}) or {}
+    return member, prefs, domains
+
+
 def format_user_preferences(protocol: dict, user_name: str) -> str:
     """Extract and format preferences for a specific user."""
     parts = []
 
-    # Find user in team
-    team = protocol.get("team", [])
-    user_info = None
-    for member in team:
-        if member.get("name", "").lower() == user_name:
-            user_info = member
-            break
+    user_info, prefs, domains = _user_view(protocol, user_name)
 
     if user_info:
         parts.append(f"**User:** {user_info.get('name', user_name)}")
@@ -207,7 +252,6 @@ def format_user_preferences(protocol: dict, user_name: str) -> str:
         parts.append(f"**User:** {user_name}")
 
     # Work preferences
-    prefs = protocol.get("work_preferences", {}).get(user_name, {})
     if prefs:
         parts.append("")
         parts.append("### Behavioral Configuration")
@@ -253,7 +297,6 @@ def format_user_preferences(protocol: dict, user_name: str) -> str:
             parts.append(f"- **Human only:** {', '.join(splitting['human_only'])}")
 
     # Domains
-    domains = protocol.get("domains", {}).get(user_name, {})
     if domains:
         parts.append("")
         parts.append("### Domain Expertise")
@@ -504,7 +547,7 @@ def main():
     security_warnings.extend(sanitize_warnings)
 
     # Identify user
-    current_user = get_current_user()
+    current_user = resolve_user(protocol, get_current_user())
 
     # Build context injection. LEAD with the pending mesh inbox (prop_pu4xrog):
     # the greet-prime below otherwise dominates so hard the model never checks
