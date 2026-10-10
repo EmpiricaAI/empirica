@@ -28,8 +28,13 @@ from datetime import datetime
 from pathlib import Path
 
 
-def find_subagent_session(agent_name: str) -> dict:
-    """Find the most recent active subagent session for this agent."""
+def find_subagent_session(agent_name: str, subagent_claude_session_id: str | None = None) -> dict:
+    """Find the active subagent session this stop belongs to.
+
+    With the subagent's own claude session id, only the mapping that recorded it matches, and a mapping that
+    recorded a DIFFERENT id is a live same-name sibling's, never taken. A mapping with no recorded id (written
+    by an older start hook) resolves by name, newest first, as before; so does a stop that carries no id.
+    """
     subagent_dir = Path.cwd() / ".empirica" / "subagent_sessions"
     if not subagent_dir.exists():
         return {}
@@ -42,11 +47,15 @@ def find_subagent_session(agent_name: str) -> dict:
     for f in files:
         try:
             data = json.loads(Path(f).read_text())
-            if data.get("status") == "active":
-                data["_file_path"] = f
-                return data
         except (json.JSONDecodeError, OSError):
             continue
+        if data.get("status") != "active":
+            continue
+        recorded = data.get("subagent_claude_session_id")
+        if subagent_claude_session_id and recorded and recorded != subagent_claude_session_id:
+            continue
+        data["_file_path"] = f
+        return data
 
     return {}
 
@@ -516,7 +525,7 @@ def main():
     subagent_claude_session_id = input_data.get("session_id")
 
     # Find the subagent session
-    subagent_data = find_subagent_session(agent_name)
+    subagent_data = find_subagent_session(agent_name, subagent_claude_session_id)
 
     if not subagent_data:
         result = {

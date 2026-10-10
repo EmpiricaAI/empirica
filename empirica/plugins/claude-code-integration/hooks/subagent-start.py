@@ -201,15 +201,29 @@ def _create_default_budget(parent_session_id: str) -> dict:
         return {}
 
 
-def store_subagent_session(agent_name: str, child_session_id: str, parent_session_id: str):
-    """Store subagent session mapping for later rollup by SubagentStop."""
+def store_subagent_session(
+    agent_name: str,
+    child_session_id: str,
+    parent_session_id: str,
+    subagent_claude_session_id: str | None = None,
+):
+    """Store subagent session mapping for later rollup by SubagentStop.
+
+    The file is unique per subagent: name + second-resolution timestamp was not (two same-name subagents started
+    within a second overwrote one another), so the subagent's own claude session id, or failing that a random
+    suffix, is part of the name. SubagentStop finds its mapping by that id.
+    """
     subagent_dir = Path.cwd() / ".empirica" / "subagent_sessions"
     subagent_dir.mkdir(parents=True, exist_ok=True)
 
-    # Use timestamp to allow multiple invocations of same agent
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     safe_name = agent_name.replace(":", "_").replace("/", "_")
-    session_file = subagent_dir / f"{safe_name}_{timestamp}.json"
+    unique = "".join(c for c in (subagent_claude_session_id or "")[:12] if c.isalnum() or c in "-_")
+    if not unique:
+        import uuid
+
+        unique = uuid.uuid4().hex[:12]
+    session_file = subagent_dir / f"{safe_name}_{timestamp}_{unique}.json"
 
     # Get budget allocation for this agent (or auto-create default)
     budget_info = get_budget_allocation(parent_session_id, agent_name)
@@ -220,6 +234,7 @@ def store_subagent_session(agent_name: str, child_session_id: str, parent_sessio
         "agent_name": agent_name,
         "child_session_id": child_session_id,
         "parent_session_id": parent_session_id,
+        "subagent_claude_session_id": subagent_claude_session_id,
         "started_at": datetime.now().isoformat(),
         "status": "active",
         "budget": budget_info,
@@ -322,7 +337,9 @@ def main():
         child_session_id = child_result["child_session_id"]
 
         # Store mapping for SubagentStop rollup
-        store_subagent_session(agent_name, child_session_id, parent_session_id)
+        store_subagent_session(
+            agent_name, child_session_id, parent_session_id, subagent_claude_session_id=subagent_claude_session_id
+        )
 
         # Write active_work_<subagent_uuid>.json so the subagent's empirica
         # CLI calls resolve to child_session_id, not the parent's session
