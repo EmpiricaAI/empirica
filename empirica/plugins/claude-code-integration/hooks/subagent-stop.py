@@ -23,6 +23,7 @@ Side effects:
 
 import glob
 import json
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -193,18 +194,29 @@ def _extract_text_from_message(msg: dict) -> str:
     return ""
 
 
-def _extract_matching_sentence(text_content: str, pattern_start: str) -> str | None:
-    """Find the first sentence containing the pattern, return it truncated or None."""
-    if pattern_start not in text_content:
-        return None
-    keyword = pattern_start.rstrip(":")
-    for sentence in text_content.split("."):
-        if keyword in sentence:
-            stripped = sentence.strip()
-            if len(stripped) > 10:
-                return stripped[:200]
-            break
-    return None
+def _extract_marked_reports(text_content: str, marker: str) -> list[str]:
+    """What a subagent REPORTED under `marker`: the rest of the line after a marker that starts a line or a sentence.
+
+    Not the first sentence that happens to contain the word: that returned a neighbouring sentence ("Found 3
+    files"), cut reports at every '.' (file names, versions), and counted a marker inside fenced code (a quoted
+    "TODO:") or in the middle of a sentence ("not Found: anything"). Emphasis (`**Found:**`), bullets and quote
+    marks around the marker are looked through; the report runs to the end of its line.
+    """
+    pattern = re.compile(r"(?:^\s*(?:[-*>\u2022]\s*)*|(?<=[.!?])\s+)" + re.escape(marker) + r"\s*(\S.*)$")
+    reports = []
+    in_fence = False
+    for raw_line in text_content.splitlines():
+        if raw_line.lstrip().startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        match = pattern.search(raw_line.replace("**", "").replace("__", ""))
+        if match:
+            report = match.group(1).strip()
+            if len(report) > 10:
+                reports.append(report[:200])
+    return reports
 
 
 def extract_findings_from_transcript(transcript_path: str) -> dict:
@@ -240,14 +252,10 @@ def extract_findings_from_transcript(transcript_path: str) -> dict:
                 continue
 
             for pattern in finding_patterns:
-                match = _extract_matching_sentence(text_content, pattern)
-                if match:
-                    findings.append(match)
+                findings.extend(_extract_marked_reports(text_content, pattern))
 
             for pattern in unknown_patterns:
-                match = _extract_matching_sentence(text_content, pattern)
-                if match:
-                    unknowns.append(match)
+                unknowns.extend(_extract_marked_reports(text_content, pattern))
 
     except (OSError, UnicodeDecodeError):
         pass
@@ -259,7 +267,31 @@ def extract_findings_from_transcript(transcript_path: str) -> dict:
     }
 
 
-def rollup_to_parent(parent_session_id: str, agent_name: str, extracted: dict, subagent_data: dict | None = None):
+def _open_transaction_id() -> str | None:
+    """The parent's open transaction id, so rolled-up artifacts are attributable to it. None when none is open."""
+    try:
+        from empirica.utils.session_resolver import InstanceResolver as R
+
+        suffix = R.instance_suffix()
+        project_path = R.project_path()
+        base = Path(project_path) / ".empirica" if project_path else Path.home() / ".empirica"
+        tx_path = base / f"active_transaction{suffix}.json"
+        if not tx_path.exists():
+            return None
+        with open(tx_path) as f:
+            tx_data = json.load(f)
+        return tx_data.get("transaction_id") if tx_data.get("status") == "open" else None
+    except Exception:
+        return None
+
+
+def rollup_to_parent(
+    parent_session_id: str,
+    agent_name: str,
+    extracted: dict,
+    subagent_data: dict | None = None,
+    transaction_id: str | None = None,
+):
     """Log extracted findings/unknowns to parent session via epistemic rollup gate.
 
     Uses EpistemicRollupGate to score and filter findings before logging.
@@ -289,6 +321,7 @@ def rollup_to_parent(parent_session_id: str, agent_name: str, extracted: dict, s
                         session_id=parent_session_id,
                         finding=f"[{agent_name}] {scored['finding']}",
                         impact=min(1.0, scored.get("score", 0.5)),
+                        transaction_id=transaction_id,
                     )
                     logged["findings"] += 1
                 except Exception:
@@ -303,6 +336,7 @@ def rollup_to_parent(parent_session_id: str, agent_name: str, extracted: dict, s
                         session_id=parent_session_id,
                         finding=f"[{agent_name}] {finding}",
                         impact=0.5,
+                        transaction_id=transaction_id,
                     )
                     logged["findings"] += 1
                 except Exception:
@@ -311,7 +345,12 @@ def rollup_to_parent(parent_session_id: str, agent_name: str, extracted: dict, s
         # Unknowns and dead ends pass through without gating
         for unknown in extracted.get("unknowns", []):
             try:
-                db.log_unknown(project_id=project_id, session_id=parent_session_id, unknown=f"[{agent_name}] {unknown}")
+                db.log_unknown(
+                    project_id=project_id,
+                    session_id=parent_session_id,
+                    unknown=f"[{agent_name}] {unknown}",
+                    transaction_id=transaction_id,
+                )
                 logged["unknowns"] += 1
             except Exception:
                 pass
@@ -323,6 +362,7 @@ def rollup_to_parent(parent_session_id: str, agent_name: str, extracted: dict, s
                     session_id=parent_session_id,
                     approach=f"[{agent_name}] {dead_end.get('approach', 'unknown')}",
                     why_failed=dead_end.get("why_failed", "unknown"),
+                    transaction_id=transaction_id,
                 )
                 logged["dead_ends"] += 1
             except Exception:
@@ -557,7 +597,13 @@ def main():
     # Roll up to parent session
     logged = {"findings": 0, "unknowns": 0, "dead_ends": 0}
     if parent_session_id and total_extracted > 0:
-        logged = rollup_to_parent(parent_session_id, agent_name, extracted, subagent_data=subagent_data)
+        logged = rollup_to_parent(
+            parent_session_id,
+            agent_name,
+            extracted,
+            subagent_data=subagent_data,
+            transaction_id=_open_transaction_id(),
+        )
 
     # Always close the child session in DB, regardless of extracted findings.
     # Subagent rows live in the dedicated subagent_sessions table (migration 034)
