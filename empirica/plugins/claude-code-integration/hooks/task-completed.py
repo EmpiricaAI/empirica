@@ -22,7 +22,7 @@ from difflib import SequenceMatcher
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "lib"))
-from project_resolver import _get_instance_suffix, get_instance_id
+from project_resolver import _get_instance_suffix, get_active_project_path, get_instance_id
 
 LOG_DIR = Path.home() / ".empirica" / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -90,21 +90,37 @@ def _find_open_transaction(instance_id: str) -> dict | None:
     return None
 
 
-def _get_db_path() -> Path | None:
-    """Find the sessions database."""
-    db_path = Path.home() / ".empirica" / "sessions" / "sessions.db"
-    if db_path.exists():
-        return db_path
-    return None
+def _get_db_path(claude_session_id: str | None = None) -> Path | None:
+    """The ACTIVE PROJECT's sessions database, or None when the project cannot be resolved.
+
+    This used to open ~/.empirica/sessions/sessions.db, which is not where a project's goals live. Completing a
+    goal in the wrong database is worse than completing none, so an unresolvable project means no bridge.
+    """
+    try:
+        project_path = get_active_project_path(claude_session_id)
+    except Exception:
+        project_path = None
+    if not project_path:
+        return None
+    db_path = Path(project_path) / ".empirica" / "sessions" / "sessions.db"
+    return db_path if db_path.exists() else None
 
 
-def _find_matching_goal(db_path: Path, task_subject: str, task_description: str) -> dict | None:
+_MIN_SUBSTRING_MATCH = 15
+
+
+def _find_matching_goal(
+    db_path: Path, task_subject: str, task_description: str, task_id: str | None = None
+) -> dict | None:
     """
     Find an Empirica goal that matches the completed task.
 
     Search strategy (priority order):
-    1. Exact claude_task_id match in goal_data metadata
+    1. Exact claude_task_id match in goal_data metadata, against the task's id
     2. Fuzzy objective match against task subject (threshold: 0.6)
+
+    Only goals in progress are candidates: `is_completed = 0` also holds abandoned and planned goals, and status is an
+    open vocabulary that readers must filter on literally.
 
     Returns goal dict or None.
     """
@@ -117,7 +133,7 @@ def _find_matching_goal(db_path: Path, task_subject: str, task_description: str)
         cursor.execute("""
             SELECT id, objective, goal_data, status
             FROM goals
-            WHERE is_completed = 0
+            WHERE is_completed = 0 AND status = 'in_progress'
             ORDER BY created_timestamp DESC
             LIMIT 50
         """)
@@ -129,10 +145,12 @@ def _find_matching_goal(db_path: Path, task_subject: str, task_description: str)
 
         # Strategy 1: Check metadata for claude_task_id
         for row in rows:
+            if not task_id:
+                break
             try:
                 goal_data = json.loads(row["goal_data"])
                 metadata = goal_data.get("metadata", {})
-                if metadata.get("claude_task_id") == task_subject:
+                if metadata.get("claude_task_id") == task_id:
                     return {
                         "goal_id": row["id"],
                         "objective": row["objective"],
@@ -150,8 +168,10 @@ def _find_matching_goal(db_path: Path, task_subject: str, task_description: str)
         for row in rows:
             objective = row["objective"].lower().strip()
 
-            # Direct substring check first
-            if search_text in objective or objective in search_text:
+            # Direct substring check first, but only for a substantial one: a four-letter subject that happens to sit
+            # inside a long objective is not the task that goal was for.
+            shorter = min(search_text, objective, key=len)
+            if (search_text in objective or objective in search_text) and len(shorter) >= _MIN_SUBSTRING_MATCH:
                 ratio = 0.9
             else:
                 ratio = SequenceMatcher(None, search_text, objective).ratio()
@@ -228,9 +248,9 @@ def main():
             logger.info(f"  Open transaction but only {tool_calls} tool calls — allowing completion")
 
     # --- Task↔Goal Bridge ---
-    db_path = _get_db_path()
+    db_path = _get_db_path(hook_input.get("session_id"))
     if db_path and task_subject:
-        match = _find_matching_goal(db_path, task_subject, task_description)
+        match = _find_matching_goal(db_path, task_subject, task_description, task_id=task_id)
         if match:
             logger.info(
                 f"  Matched goal: {match['goal_id'][:8]}... ({match['match_type']}, conf={match['confidence']:.2f})"
