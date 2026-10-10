@@ -34,27 +34,30 @@ class CodebaseModelRepository(BaseRepository):
         """Create or update an entity. Returns entity ID.
 
         If an entity with the same (name, file_path, entity_type, project_id) exists,
-        updates last_seen. Otherwise creates a new entity.
+        updates it and marks it active again; otherwise creates a new entity.
         """
         now = time.time()
 
-        # Check for existing entity
+        # Check for existing entity. An active row wins over an invalidated twin, then the newest.
         cursor = self._execute(
             """SELECT id FROM codebase_entities
                WHERE name = ? AND entity_type = ? AND file_path IS ?
-               AND project_id IS ?""",
+               AND project_id IS ?
+               ORDER BY (last_seen IS NOT NULL), first_seen DESC""",
             (name, entity_type, file_path, project_id),
         )
         existing = cursor.fetchone()
 
         if existing:
             entity_id = existing[0] if isinstance(existing, tuple) else existing["id"]
-            # Update signature/metadata but keep last_seen NULL (still active).
-            # last_seen is only set by invalidate_entity() when the entity is removed.
+            # Update signature/metadata and clear last_seen: last_seen is set by invalidate_entity() when the
+            # entity is removed, so an upsert (the entity exists again) has to undo that. Leaving it set kept
+            # a removed-then-re-added entity invalidated for good.
             self._execute(
                 """UPDATE codebase_entities
                    SET signature = COALESCE(?, signature),
-                       metadata = COALESCE(?, metadata)
+                       metadata = COALESCE(?, metadata),
+                       last_seen = NULL
                    WHERE id = ?""",
                 (signature, json.dumps(metadata) if metadata else None, entity_id),
             )
