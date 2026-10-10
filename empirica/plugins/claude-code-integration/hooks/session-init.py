@@ -21,6 +21,7 @@ from pathlib import Path
 
 # Import shared utilities from plugin lib
 sys.path.insert(0, str(Path(__file__).parent.parent / "lib"))
+from instance_clash import live_claude_pid
 from project_resolver import _find_git_root, find_project_root, get_instance_id, has_valid_db
 
 
@@ -1041,8 +1042,24 @@ def _check_active_session_files(project_root: Path) -> dict:
     return {}
 
 
-def _find_best_orphaned_transaction(empirica_dir: Path) -> tuple:
-    """Find the most recent open transaction file in .empirica dir.
+def _owner_is_alive(tx_data: dict, own_claude_session_id: str | None) -> bool:
+    """Does a RUNNING claude other than this one own this transaction?
+
+    A transaction records the claude session that opened it, and Claude Code keeps a file per running session
+    (lib/instance_clash.live_claude_pid). This session's own transaction is not another's, however alive it is
+    (a resume); one with no recorded owner, or whose owner is gone, is an orphan. Never raises.
+    """
+    owner = tx_data.get("claude_session_id")
+    if not owner or owner == own_claude_session_id:
+        return False
+    try:
+        return live_claude_pid(owner) is not None
+    except Exception:
+        return False
+
+
+def _find_best_orphaned_transaction(empirica_dir: Path, own_claude_session_id: str | None = None) -> tuple:
+    """Find the most recent open transaction file in .empirica dir that nobody else is running.
 
     Returns (tx_file, tx_data) or (None, None) if none found.
     """
@@ -1055,7 +1072,7 @@ def _find_best_orphaned_transaction(empirica_dir: Path) -> tuple:
                 continue
             with open(tx_file) as f:
                 tx_data = json.load(f)
-            if tx_data.get("status") == "open":
+            if tx_data.get("status") == "open" and not _owner_is_alive(tx_data, own_claude_session_id):
                 best_tx = (tx_file, tx_data)
                 best_mtime = mtime
         except Exception:
@@ -1065,11 +1082,12 @@ def _find_best_orphaned_transaction(empirica_dir: Path) -> tuple:
     return None, None
 
 
-def _adopt_orphaned_transaction(project_root: Path) -> dict:
+def _adopt_orphaned_transaction(project_root: Path, own_claude_session_id: str | None = None) -> dict:
     """Check for orphaned open transactions and re-key them to the new instance.
 
     After machine/terminal/tmux restart, instance-keyed files are stale but
-    transaction files survive. Adopt and re-key them.
+    transaction files survive. Adopt and re-key them. A transaction whose owning
+    claude session is still running is a sibling's, not an orphan: it is left where it is.
     """
     empirica_dir = project_root / ".empirica"
     if not empirica_dir.exists():
@@ -1082,7 +1100,7 @@ def _adopt_orphaned_transaction(project_root: Path) -> dict:
     except ImportError:
         new_suffix = ""
 
-    tx_file, tx_data = _find_best_orphaned_transaction(empirica_dir)
+    tx_file, tx_data = _find_best_orphaned_transaction(empirica_dir, own_claude_session_id)
     if not tx_file or not tx_data:
         return {}
 
@@ -1157,7 +1175,7 @@ def _detect_existing_session(claude_session_id: str, project_root: Path) -> dict
     if found:
         return found
 
-    found = _adopt_orphaned_transaction(project_root)
+    found = _adopt_orphaned_transaction(project_root, claude_session_id)
     if found:
         return found
 
