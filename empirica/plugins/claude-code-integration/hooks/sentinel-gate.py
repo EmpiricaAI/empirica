@@ -1927,9 +1927,8 @@ def _try_increment_tool_count(
 
     Returns (tool_call_count, avg_turns) or (0, 0) if no transaction.
     """
-    from empirica.utils.session_resolver import InstanceResolver as R
 
-    suffix = R.instance_suffix()
+    suffix = _instance_suffix()
     empirica_session_id = _resolve_empirica_session_id(claude_session_id)
 
     tx_path = _locate_transaction_file(claude_session_id, suffix, empirica_session_id)
@@ -4713,9 +4712,8 @@ def _detect_subagent(claude_session_id: str) -> bool:
         # TIGHTENED CHECK (fixes #68): Don't just check if active_session exists —
         # verify its session matches the current transaction. Stale active_session
         # files from other projects/sessions cause false positive subagent detection.
-        from empirica.utils.session_resolver import InstanceResolver as R
 
-        _as_suffix = R.instance_suffix()
+        _as_suffix = _instance_suffix()
         _as_file = Path.home() / ".empirica" / f"active_session{_as_suffix}"
         if _as_file.exists():
             # Read the active_session to get its empirica_session_id
@@ -5312,9 +5310,7 @@ def _handle_no_preflight(tool_name: str, tool_input: dict, session_id: str, env_
     pre_tx_nudge = ""
     counter_file = None
     try:
-        from empirica.utils.session_resolver import InstanceResolver as R
-
-        suffix = R.instance_suffix()
+        suffix = _instance_suffix()
         counter_file = Path.home() / ".empirica" / f"pre_tx_calls{suffix}.json"
         count = 0
         if counter_file.exists():
@@ -5615,6 +5611,45 @@ def _resolve_empirica_root(claude_session_id: str | None) -> Path | None:
         sys.exit(0)
 
 
+_INSTANCE_SUFFIX: str | None = None
+
+
+def _instance_suffix() -> str:
+    """The instance suffix, resolved once per hook process.
+
+    The environment it is derived from cannot change during one hook call, and resolving it costs ~60 ms on a
+    seat without tmux (a tty/process walk), which five call sites each paid in turn.
+    """
+    global _INSTANCE_SUFFIX
+    if _INSTANCE_SUFFIX is None:
+        from empirica.utils.session_resolver import InstanceResolver as R
+
+        _INSTANCE_SUFFIX = R.instance_suffix()
+    return _INSTANCE_SUFFIX
+
+
+def _peek_work_type(claude_session_id: str | None) -> None:
+    """Load the open transaction's work_type into the module global BEFORE anything classifies a command.
+
+    The global was assigned only inside _read_transaction_state, which the authorization pipeline reaches after
+    the noetic firewall has run, so the firewall judged every Bash command with work_type None (the infra, config,
+    debug and remote-ops expansions never applied there, and the 'set work_type=remote-ops' nudge fired on
+    transactions that had set it). A read of one small file; any failure leaves the global as it was.
+    """
+    global _current_work_type
+    try:
+        tx = _locate_transaction_file(
+            claude_session_id, _instance_suffix(), _resolve_empirica_session_id(claude_session_id)
+        )
+        if tx:
+            with open(tx) as f:
+                data = json.load(f)
+            if data.get("status") == "open":
+                _current_work_type = data.get("work_type") or None
+    except Exception:
+        pass
+
+
 def _read_transaction_state(
     empirica_root: Path | None, claude_session_id: str | None, tool_name: str, tool_input: dict
 ) -> dict:
@@ -5638,9 +5673,7 @@ def _read_transaction_state(
     if not empirica_root:
         return result
 
-    from empirica.utils.session_resolver import InstanceResolver as R
-
-    suffix = R.instance_suffix()
+    suffix = _instance_suffix()
     result["suffix"] = suffix
     empirica_session_id = _resolve_empirica_session_id(claude_session_id)
     tx_file = _find_transaction_file(empirica_root, suffix, empirica_session_id)
@@ -6087,6 +6120,10 @@ def main():
 
     global _hook_claude_session_id
     _hook_claude_session_id = hook_input.get("session_id")
+
+    # The transaction's work_type before ANY classification: the recovery exemption below, the firewall and the
+    # remote-ops nudge all classify Bash commands, and each depends on it.
+    _peek_work_type(hook_input.get("session_id"))
 
     _track_tool_usage(hook_input, tool_name, tool_input)
     _set_file_relevance_nudge(tool_name, tool_input, hook_input.get("session_id"))
