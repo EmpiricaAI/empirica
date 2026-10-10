@@ -935,22 +935,30 @@ def _load_dynamic_context(session_id: str, ai_id: str, pre_snapshot: dict) -> di
         _resolved_clause = " AND (is_resolved IS NULL OR is_resolved = 0)" if _findings_has_resolved else ""
         cursor.execute(
             f"""
-            SELECT finding, impact, created_timestamp
+            SELECT finding, impact, created_timestamp, id
             FROM project_findings
             WHERE project_id = ?{_resolved_clause}
             ORDER BY created_timestamp DESC LIMIT 10
         """,
             (project_id,),
         )
+        # `id` and `created_timestamp` are what epistemic_summarizer ranks on (relevance is looked up by id, recency
+        # read from the timestamp). Pools without them scored 0.0 relevance and neutral recency for every item.
         for row in cursor.fetchall():
             context["recent_findings"].append(
-                {"finding": row[0], "impact": row[1], "when": str(row[2])[:19] if row[2] else None}
+                {
+                    "id": row[3],
+                    "finding": row[0],
+                    "impact": row[1],
+                    "created_timestamp": row[2],
+                    "when": str(row[2])[:19] if row[2] else None,
+                }
             )
 
         # 3. Unresolved unknowns (open questions you need to address)
         cursor.execute(
             """
-            SELECT unknown, impact, created_timestamp
+            SELECT unknown, impact, created_timestamp, id
             FROM project_unknowns
             WHERE project_id = ? AND is_resolved = 0
             ORDER BY impact DESC, created_timestamp DESC LIMIT 10
@@ -958,12 +966,14 @@ def _load_dynamic_context(session_id: str, ai_id: str, pre_snapshot: dict) -> di
             (project_id,),
         )
         for row in cursor.fetchall():
-            context["open_unknowns"].append({"unknown": row[0], "impact": row[1]})
+            context["open_unknowns"].append(
+                {"id": row[3], "unknown": row[0], "impact": row[1], "created_timestamp": row[2]}
+            )
 
         # 4. Critical dead ends (mistakes to avoid)
         cursor.execute(
             """
-            SELECT approach, why_failed, created_timestamp
+            SELECT approach, why_failed, created_timestamp, id
             FROM project_dead_ends
             WHERE project_id = ?
             ORDER BY created_timestamp DESC LIMIT 5
@@ -972,7 +982,7 @@ def _load_dynamic_context(session_id: str, ai_id: str, pre_snapshot: dict) -> di
         )
         for row in cursor.fetchall():
             context["critical_dead_ends"].append(
-                {"approach": row[0], "why_failed": row[1], "created_timestamp": row[2] if len(row) > 2 else None}
+                {"id": row[3], "approach": row[0], "why_failed": row[1], "created_timestamp": row[2]}
             )
 
         # 5. Session context (what was happening)
