@@ -1211,7 +1211,7 @@ def _try_cwd_adoption() -> tuple:
     return None, False
 
 
-def _prefer_cwd_on_startup(project_root, cwd_root, suffix):
+def _prefer_cwd_on_startup(project_root, cwd_root, suffix, own_claude_session_id=None):
     """STARTUP EXCEPTION (ARCHITECTURE.md; KNOWN_ISSUES 11.26): on a fresh
     'startup' event the user's CWD is explicit intent and must override a
     stale instance-file binding left by a *different* conversation that
@@ -1238,8 +1238,16 @@ def _prefer_cwd_on_startup(project_root, cwd_root, suffix):
     try:
         if tx_file.exists():
             with open(tx_file) as f:
-                if json.load(f).get("status") == "open":
-                    return project_root  # open tx authoritative (11.26)
+                tx = json.load(f)
+            # Authoritative (11.26) means the CONTINUING loop: this session's own transaction. One owned by a
+            # DIFFERENT claude session is not ours, alive or not (a brand-new startup cannot be continuing it); it is
+            # that practice's to resume or adopt when someone starts there. Honouring it bound this session to the
+            # wrong practice and the session row was written into that practice's database (NLE, reproduced in a
+            # sandbox). A transaction with no recorded owner, or an unknown caller, keeps the old reading.
+            owner = tx.get("claude_session_id")
+            foreign = bool(owner and own_claude_session_id and owner != own_claude_session_id)
+            if tx.get("status") == "open" and not foreign:
+                return project_root
     except Exception:
         pass
 
@@ -1251,6 +1259,17 @@ def _prefer_cwd_on_startup(project_root, cwd_root, suffix):
         )
         return Path(cwd_root)
     return project_root
+
+
+def _adopt_caller_identity(claude_session_id: str | None) -> None:
+    """Tell every resolver who is calling: this SessionStart payload's claude session id.
+
+    path_resolver lets a foreign-owned open transaction stop pinning a session to its project only when the caller's
+    id (CLAUDE_CODE_SESSION_ID) is known, and a SessionStart hook did not carry it, so the stale practice's database
+    kept winning and session-create wrote the new session there. The payload is authoritative about who is starting.
+    """
+    if claude_session_id:
+        os.environ["CLAUDE_CODE_SESSION_ID"] = str(claude_session_id)
 
 
 def _run_stale_cleanup(claude_session_id: str) -> int:
@@ -1801,6 +1820,7 @@ def main():
         pass
 
     claude_session_id = hook_input.get("session_id")
+    _adopt_caller_identity(claude_session_id)
     event_type = _session_start_event(hook_input)
     is_resume = event_type == "resume"
 
@@ -1820,7 +1840,9 @@ def main():
         if event_type == "startup":
             from project_resolver import _get_instance_suffix
 
-            project_root = _prefer_cwd_on_startup(project_root, _find_git_root() or Path.cwd(), _get_instance_suffix())
+            project_root = _prefer_cwd_on_startup(
+                project_root, _find_git_root() or Path.cwd(), _get_instance_suffix(), claude_session_id
+            )
 
     os.chdir(project_root)
     ai_id = _resolve_ai_id_for_session(project_root)
