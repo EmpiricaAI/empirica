@@ -2462,22 +2462,57 @@ def check_git_remote(cwd: Path | None = None) -> Check:
 
 
 def check_sync_state(cwd: Path | None = None) -> Check:
+    """Are this project's epistemic NOTES replicated to the notes remote?
+
+    This used to count `git status --porcelain` lines and say "N uncommitted changes", which reads as the working
+    tree and was acted on that way (NLE), and its hint named Cortex although notes go to a git remote chosen with
+    `sync-config notes_remote`. The question a doctor can answer is the one sync-status already answers: is a notes
+    remote configured, is it a remote of this repo, and are the local note refs on it.
+    """
     cwd = cwd or Path.cwd()
     if not (cwd / ".git").exists():
         return Check("sync state", SKIP, "not a git repo")
-    rc, out, _ = _run(["git", "-C", str(cwd), "status", "--porcelain"])
-    if rc != 0:
-        return Check("sync state", WARN, "git status failed")
-    pending = len([line for line in out.splitlines() if line.strip()])
-    if pending > 0:
+    try:
+        from empirica.cli.command_handlers import sync_commands as sc
+        from empirica.core.sync_remotes import NOTES
+
+        remote = sc._resolve_remote(NOTES, sc._load_sync_config(), None)
+        configured = bool(remote) and sc._check_remote(remote)
+        replication = sc._replication_block(remote, configured, False)["replication"]
+        configure_hint = sc._remote_refusal(NOTES)["hint"]
+    except Exception as exc:
+        return Check("sync state", WARN, f"could not read the notes sync state: {type(exc).__name__}: {exc}")
+    if not remote:
         return Check(
             "sync state",
             WARN,
-            f"{pending} uncommitted changes",
-            "Call empirica sync-push to propagate to Cortex",
-            data={"pending_changes": pending},
+            "no notes remote configured: epistemic notes are not replicated anywhere",
+            configure_hint,
+            data={"remote": None},
         )
-    return Check("sync state", PASS, "clean", data={"pending_changes": 0})
+    if not configured:
+        return Check(
+            "sync state",
+            WARN,
+            f"'{remote}' is configured as the notes remote but is not a git remote here",
+            configure_hint,
+            data={"remote": remote, "remote_configured": False},
+        )
+    state = str(replication.get("state"))
+    data = {"remote": remote, "remote_configured": True, "replication": replication}
+    if state == "replicated":
+        return Check("sync state", PASS, str(replication.get("reason")), data=data)
+    if state in ("behind", "not_replicating"):
+        return Check(
+            "sync state", WARN, str(replication.get("reason")), "empirica sync-push (to the notes remote)", data=data
+        )
+    return Check(
+        "sync state",
+        WARN,
+        str(replication.get("reason")),
+        "check that the notes remote is reachable, then run `empirica sync-status`",
+        data=data,
+    )
 
 
 def check_cortex_reachability() -> Check:

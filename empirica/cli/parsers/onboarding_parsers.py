@@ -247,7 +247,7 @@ Checks:
   - empirica-mcp on PATH (Desktop MCP install)
   - .empirica/ folder presence + structure
   - git repo + remote configured (sync_push prereq)
-  - sync state (uncommitted changes)
+  - sync state (are epistemic notes replicated to the notes remote)
   - Cortex reachability (CORTEX_URL env or default)
 
 Exit codes:
