@@ -12,6 +12,13 @@
 pip install empirica
 ```
 
+> **Intel Macs (x86_64):** Empirica requires `cryptography>=50.0.0,<51`, the first
+> release clear of CVE-2026-69247, -69248 and -69249, and the floor is deliberately
+> not lowered. PyPI publishes macOS wheels for 49.x and 50.x for Apple Silicon only,
+> so on an Intel Mac pip builds `cryptography` from its source distribution, which
+> needs a Rust toolchain (`rustup`) installed first. If the install fails with a
+> missing-wheel or Rust error, install Rust and retry.
+
 ### 2. Verify the CLI works
 ```bash
 empirica --help
