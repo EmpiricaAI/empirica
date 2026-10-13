@@ -15,7 +15,6 @@ Writes a UNIFIED breadcrumbs git note combining task context + epistemic state.
 
 import json
 import os
-import signal
 import subprocess
 import sys
 from datetime import datetime
@@ -293,69 +292,6 @@ def _detect_empirica_session(claude_session_id=None):
 STASH_TAG = "empirica: pre-compact"
 
 
-def _stash_uncommitted_work(empirica_session):
-    """Stash uncommitted work before snapshot.
-
-    Returns the created stash's commit sha, or None if nothing was stashed.
-
-    The sha — not a bool — is the return value because the restore must pop
-    the stash THIS hook created. `git stash pop` with no argument takes the
-    top of the stack, and in a shared checkout (several instances, one working
-    tree) another instance's stash can land on top between push and pop. Popping
-    by position would then restore someone else's work over this tree and leave
-    ours buried.
-    """
-    try:
-        status_result = subprocess.run(
-            ["git", "status", "--porcelain"], cwd=os.getcwd(), capture_output=True, text=True, timeout=5
-        )
-        if not status_result.stdout.strip():
-            return None
-        stash_msg = f"{STASH_TAG} {empirica_session[:8]} - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-        result = subprocess.run(
-            ["git", "stash", "push", "-m", stash_msg, "--include-untracked"],
-            cwd=os.getcwd(),
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode != 0:
-            return None
-        sha = subprocess.run(
-            ["git", "rev-parse", "--verify", "-q", "refs/stash"],
-            cwd=os.getcwd(),
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        return sha.stdout.strip() or None
-    except Exception:
-        pass
-    return None
-
-
-def _find_stash_ref(sha):
-    """Return the stash@{n} that currently holds `sha`, or None.
-
-    Positions shift as other stashes are pushed or dropped, so the ref is
-    resolved at restore time rather than assumed to still be stash@{0}.
-    """
-    try:
-        listing = subprocess.run(
-            ["git", "stash", "list", "--format=%H"],
-            cwd=os.getcwd(),
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        for index, line in enumerate(listing.stdout.splitlines()):
-            if line.strip() == sha:
-                return f"stash@{{{index}}}"
-    except Exception:
-        pass
-    return None
-
-
 def _recover_orphaned_stashes():
     """Restore a stash a PREVIOUS hook run pushed and never popped.
 
@@ -513,27 +449,6 @@ File contents read during this session are available via Read tool — do NOT in
     return compact_guidance, has_open_transaction
 
 
-def _restore_stash(stash_sha):
-    """Pop the stash identified by `stash_sha`. Returns True on success.
-
-    Idempotent: a sha no longer on the stack has already been restored, which
-    is success, not failure — so calling this twice (finally-block after a
-    happy-path call, say) is harmless.
-    """
-    if not stash_sha:
-        return False
-    try:
-        ref = _find_stash_ref(stash_sha)
-        if ref is None:
-            return True
-        pop_result = subprocess.run(
-            ["git", "stash", "pop", ref], cwd=os.getcwd(), capture_output=True, text=True, timeout=10
-        )
-        return pop_result.returncode == 0
-    except Exception:
-        return False
-
-
 def _trace(outcome: str, **fields) -> None:
     """One JSON line per run to ~/.empirica/precompact.log, whatever the exit.
 
@@ -569,9 +484,11 @@ def main():
         sys.exit(0)
     os.chdir(project_root)
 
-    # STEP -1: restore anything a previous run stashed and was killed before
-    # popping. Must happen BEFORE _gather_git_context, or the breadcrumbs note
-    # records a clean tree that is only clean because the work is still stashed.
+    # STEP -1: restore a stash an OLDER version of this hook left behind (it used to stash the tree and pop it
+    # afterwards; a kill between the two orphaned the stash). This hook no longer stashes anything. Kept for one
+    # more release so a seat that still holds such a stash gets its tree back. Must happen BEFORE
+    # _gather_git_context, or the breadcrumbs note records a clean tree that is only clean because the work is
+    # still stashed.
     recovered = _recover_orphaned_stashes()
 
     # STEP 0: Extract task context + git state
@@ -592,51 +509,23 @@ def main():
     # compact encoded a compaction-as-loss model into goal state (and fought
     # the migration-038 simplified lifecycle). Manual `goals-mark-stale`
     # remains available for genuine staleness triage.
-    # The stash and its pop are a single coupled lifecycle: from here to the
-    # `finally` the user's working tree exists ONLY inside that stash, so every
-    # way out of this function has to go through the restore. Before this was
-    # made total, three `sys.exit(2)` paths and the harness timeout each left
-    # the tree empty and the stash orphaned — silently, and while reporting
-    # "stash: saved+restored".
-    stash_sha = _stash_uncommitted_work(empirica_session)
-    _install_stash_guard(stash_sha)
-    try:
-        return _main_guarded(
-            stash_sha=stash_sha,
-            recovered=recovered,
-            trigger=trigger,
-            empirica_session=empirica_session,
-            last_task=last_task,
-            git_context=git_context,
-            project_root=project_root,
-            claude_session_id=claude_session_id,
-        )
-    finally:
-        # Idempotent: a no-op when the happy path already popped it.
-        _restore_stash(stash_sha)
-
-
-def _install_stash_guard(stash_sha):
-    """Pop the stash on SIGTERM — the harness's hook-timeout signal.
-
-    SIGKILL cannot be caught; `_recover_orphaned_stashes` on the next run is
-    what covers that case.
-    """
-    if not stash_sha:
-        return
-
-    def _handler(signum, frame):
-        _restore_stash(stash_sha)
-        sys.exit(143)
-
-    try:
-        signal.signal(signal.SIGTERM, _handler)
-    except (ValueError, OSError):
-        pass  # not the main thread, or no signal support — finally still covers exits
+    # This hook never touches the working tree. It used to stash uncommitted work "before snapshot" and pop it
+    # afterwards; nothing consumed the stash, project-bootstrap ran after it and recorded a clean tree, it emptied
+    # a shared checkout for up to ~25 s, and every way work was ever lost here (a skipped pop, someone else's
+    # stash popped, SIGKILL) existed only because of it (David, 2026-10-13).
+    return _main_guarded(
+        recovered=recovered,
+        trigger=trigger,
+        empirica_session=empirica_session,
+        last_task=last_task,
+        git_context=git_context,
+        project_root=project_root,
+        claude_session_id=claude_session_id,
+    )
 
 
 def _main_guarded(
-    *, stash_sha, recovered, trigger, empirica_session, last_task, git_context, project_root, claude_session_id=None
+    *, recovered, trigger, empirica_session, last_task, git_context, project_root, claude_session_id=None
 ):
     practice_db = Path(project_root) / ".empirica" / "sessions" / "sessions.db"
     budget_report = _run_context_budget_triage(empirica_session, db_path=practice_db if practice_db.exists() else None)
@@ -675,9 +564,8 @@ def _main_guarded(
             capture_output=True,
             text=True,
             # The harness gives this hook 30s TOTAL (settings.json). Handing all
-            # 30 to one subprocess leaves nothing to pop the stash with, so the
-            # timeout that fires is the harness's SIGKILL rather than our own
-            # catchable TimeoutExpired. Keep headroom.
+            # 30 to one subprocess means the timeout that fires is the harness's
+            # SIGKILL rather than our own catchable TimeoutExpired. Keep headroom.
             timeout=20,
             cwd=os.getcwd(),
         )
@@ -739,8 +627,6 @@ def _main_guarded(
             git_context=git_context,
         )
 
-        restored = _restore_stash(stash_sha)
-
         display_vectors = fresh_vectors or fallback_vectors
         vector_source = "canonical" if fresh_vectors else "fallback"
         compact_guidance, has_open_transaction = _build_compact_guidance(
@@ -753,19 +639,7 @@ def _main_guarded(
         session_id_str = breadcrumbs.get("session_id", "Unknown")
         session_display = session_id_str[:8] if session_id_str else "Unknown"
         notes_msg = "✓" if git_notes_written else "✗"
-        # Keyed on the POP, not on the push. Reporting "restored" because a
-        # stash was created is the unfalsifiable-success shape: it reads
-        # identically whether the tree came back or is still sitting in the
-        # stash. When it did not come back, print the recovery command — the
-        # user cannot act on a status they were not given.
-        if not stash_sha:
-            stash_msg = ""
-        elif restored:
-            stash_msg = " (stash: saved+restored)"
-        else:
-            stash_msg = " (stash: ORPHANED — your tree is in `git stash list`; recover with `git stash pop`)"
-        if recovered:
-            stash_msg += f"\n   Recovered an orphaned stash from a previous run: {recovered}"
+        stash_msg = f"\n   Recovered an orphaned stash from an older run: {recovered}" if recovered else ""
         tx_state_msg = "OPEN (carrying through)" if has_open_transaction else "CLOSED (vectors historical)"
         print(
             f"""
