@@ -512,6 +512,37 @@ _PUSH_REFSPECS: tuple[tuple[str, str, int], ...] = (
 )
 
 
+#: Refs per `git push` for a note wildcard. A single push of thousands of note refs times out (here) or 504s at the
+#: gateway (forgejo-publish batches for the same reason), so a store of ~23k refs never replicated in one RPC.
+_NOTES_PUSH_BATCH = 250
+#: A batch carries up to _NOTES_PUSH_BATCH refs, so it gets at least this long even when the namespace's own limit is short.
+_NOTES_BATCH_TIMEOUT = 120
+
+
+def _note_wildcard_batches(refspec: str) -> list[list[str]] | None:
+    """The refspec split into batches of explicit `ref:ref` specs, or None when it is not a notes wildcard."""
+    source, _, _dest = refspec.partition(":")
+    if not (source.startswith("refs/notes/") and source.endswith("*")):
+        return None
+    listing = subprocess.run(
+        ["git", "for-each-ref", "--format=%(refname)", source[:-1]], capture_output=True, text=True, timeout=30
+    )
+    refs = [line.strip() for line in listing.stdout.splitlines() if line.strip()]
+    specs = [f"{ref}:{ref}" for ref in refs]
+    return [specs[i : i + _NOTES_PUSH_BATCH] for i in range(0, len(specs), _NOTES_PUSH_BATCH)]
+
+
+def _push_one(remote: str, specs: list[str], timeout: int) -> tuple[bool, str]:
+    """One `git push`; (ok, error text). A timeout is an error here, not an exception for the caller."""
+    try:
+        proc = subprocess.run(["git", "push", remote, *specs], capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return False, f"timed out after {timeout}s"
+    except Exception as e:
+        return False, str(e)
+    return proc.returncode == 0, (proc.stderr or "").strip()
+
+
 def _push_note_namespaces(remote: str) -> tuple[dict[str, bool], list[str]]:
     """Push each note namespace. Returns (per-namespace exit-code result, errors).
 
@@ -521,26 +552,32 @@ def _push_note_namespaces(remote: str) -> tuple[dict[str, bool], list[str]]:
     Errors from the secondary namespaces used to be swallowed entirely
     (`except Exception: push_results[...] = False`), so a breadcrumbs push that
     failed for a nameable reason reported the same as one that was never tried.
+
+    A wildcard namespace is enumerated and pushed in batches of `_NOTES_PUSH_BATCH`, each with its own timeout:
+    one failing batch is named (`batch 2 of 5`) and the others still go.
     """
     results: dict[str, bool] = {}
     errors: list[str] = []
     for name, refspec, timeout in _PUSH_REFSPECS:
         try:
-            proc = subprocess.run(
-                ["git", "push", remote, refspec],
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-            )
-            results[name] = proc.returncode == 0
-            if proc.returncode != 0 and proc.stderr:
-                errors.append(f"{name}: {proc.stderr.strip()}")
-        except subprocess.TimeoutExpired:
-            results[name] = False
-            errors.append(f"{name}: push timed out after {timeout}s")
+            batches = _note_wildcard_batches(refspec)
         except Exception as e:
             results[name] = False
-            errors.append(f"{name}: {e}")
+            errors.append(f"{name}: could not list local note refs: {e}")
+            continue
+        if batches is None:
+            ok, err = _push_one(remote, [refspec], timeout)
+            results[name] = ok
+            if not ok and err:
+                errors.append(f"{name}: {err}")
+            continue
+        all_ok = True
+        for index, specs in enumerate(batches, 1):
+            ok, err = _push_one(remote, specs, max(timeout, _NOTES_BATCH_TIMEOUT))
+            if not ok:
+                all_ok = False
+                errors.append(f"{name} (batch {index} of {len(batches)}): {err}")
+        results[name] = all_ok
     return results, errors
 
 
