@@ -107,3 +107,18 @@ def test_a_wildcard_with_no_local_refs_is_not_an_error(tmp_path, monkeypatch):
     monkeypatch.chdir(work)
     results, _errors = sync_commands._push_note_namespaces("forge")
     assert results["empirica/*"] is True
+
+
+def test_a_failed_listing_of_local_note_refs_is_an_error_not_an_empty_push(repos, monkeypatch):
+    """git for-each-ref failing used to read as 'nothing to push' and the namespace was reported pushed."""
+    real_run = subprocess.run
+
+    def broken_listing(cmd, *a, **k):
+        if cmd[:2] == ["git", "for-each-ref"]:
+            return subprocess.CompletedProcess(cmd, 128, "", "fatal: not a git repository")
+        return real_run(cmd, *a, **k)
+
+    monkeypatch.setattr(sync_commands.subprocess, "run", broken_listing)
+    results, errors = sync_commands._push_note_namespaces("forge")
+    assert results["empirica/*"] is False
+    assert any("could not list local note refs" in e for e in errors)

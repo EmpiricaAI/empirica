@@ -1892,7 +1892,8 @@ def _stamp_blocked_presence(claude_session_id: str | None, tool_input: dict | No
             "--status",
             "blocked",
             "--session-pid",
-            str(os.getppid()),
+            # ruling-shape runs this gate as a child and names Claude Code here; getppid() would be ruling-shape
+            os.environ.get("EMPIRICA_HOOK_PARENT_PID") or str(os.getppid()),
             "--output",
             "json",
         ]
@@ -2453,7 +2454,11 @@ def _awk_runs_or_writes(stripped: str) -> bool:
     """awk programs can pipe to a command, read from one (`"cmd" | getline`), redirect to a computed
     target, load a program file, or (gawk) edit in place. A `|` inside a regex is not one of these:
     the pipe forms are recognised by what stands around them."""
-    if "system(" in stripped or _AWK_WRITE_RE.search(stripped) or _AWK_PIPE_OR_WRITE_RE.search(stripped):
+    if re.search(r"system\s*\(", stripped) or _AWK_WRITE_RE.search(stripped):
+        return True
+    # A `|` or `>` inside a string literal or a parenthesised comparison is data, not a pipe or a redirect.
+    bare = re.sub(r"\([^()]*\)", "()", re.sub(r'"(?:\\.|[^"\\])*"', '""', stripped))
+    if _AWK_PIPE_OR_WRITE_RE.search(bare):
         return True
     for tok in _tool_tokens(stripped)[1:]:
         if tok in ("-f", "--file", "-i", "--include", "inplace") or tok.startswith(("--file=", "--include=")):
@@ -2537,35 +2542,52 @@ def _sed_script_writes_or_execs(script: str) -> bool:
 
 
 def _sed_runs_or_writes(stripped: str) -> bool:
+    """Collect the script(s) the way sed reads its command line: `-e X`, `-eX`, a cluster ending in `e`, `--expression=X`,
+    or the first operand when there is no -e; `-f`/`--file` is a script file this check cannot read. Options that take
+    a value (`-l N`, `--line-length N`) must not have the value mistaken for the script."""
     toks = _tool_tokens(stripped)[1:]
     scripts: list[str] = []
-    have_script_flag = False
+    have_script = False
     i = 0
     while i < len(toks):
         tok = toks[i]
-        if tok in ("-f", "--file") or tok.startswith("--file="):
-            return True  # the program lives in a file this check cannot read
-        if tok == "-e" or tok == "--expression":
-            have_script_flag = True
+        if tok in ("--file",) or tok.startswith("--file="):
+            return True
+        if tok == "--expression":
+            have_script = True
             if i + 1 < len(toks):
                 scripts.append(toks[i + 1])
             i += 2
             continue
         if tok.startswith("--expression="):
-            have_script_flag = True
+            have_script = True
             scripts.append(tok.split("=", 1)[1])
-        elif tok.startswith("-") and not tok.startswith("--") and len(tok) > 1:
-            if "f" in tok[1:]:
-                return True
-            if tok.endswith("e"):  # a cluster like -ne takes the script as its value
-                have_script_flag = True
-                if i + 1 < len(toks):
-                    scripts.append(toks[i + 1])
-                i += 2
-                continue
-        elif not tok.startswith("-") and not have_script_flag and not scripts:
+        elif tok == "--line-length":
+            i += 2
+            continue
+        elif tok.startswith("--"):
+            pass
+        elif tok.startswith("-") and len(tok) > 1:
+            consumed = 1
+            for pos, ch in enumerate(tok[1:], 1):
+                if ch == "f":
+                    return True
+                if ch in "el":
+                    attached = tok[pos + 1 :]
+                    if attached:
+                        value = attached
+                    else:
+                        value = toks[i + 1] if i + 1 < len(toks) else ""
+                        consumed = 2
+                    if ch == "e":
+                        have_script = True
+                        scripts.append(value)
+                    break
+            i += consumed
+            continue
+        elif not have_script and not scripts:
             scripts.append(tok)
-            have_script_flag = True
+            have_script = True
         i += 1
     return any(_sed_script_writes_or_execs(s) for s in scripts)
 
@@ -2666,6 +2688,9 @@ _WGET_WRITE_OR_SEND = frozenset(
         "--background",
         "-e",
         "--execute",
+        "--output-document",
+        "--save-cookies",
+        "--warc-file",
     }
 )
 
@@ -2680,31 +2705,48 @@ def _wget_writes_or_sends(stripped: str) -> bool:
 
 
 def _gh_api_mutates(stripped: str) -> bool:
-    """`gh api` is a GET unless a field, an input file or a method says otherwise. GraphQL always
-    POSTs a query; it mutates only when the text says `mutation`."""
+    """`gh api` is a GET unless a field, an input file or a method says otherwise. GraphQL always POSTs a query;
+    it mutates when the text says `mutation` or the query comes from a file.
+
+    Short flags may be attached (`-XDELETE`, `-ftitle=x`, `-Fquery=@m.gql`). An explicit `-X GET` makes `-f`/`-F`
+    query parameters, not a body.
+    """
     toks = _tool_tokens(stripped)
     if len(toks) < 3 or toks[1] != "api":
         return False
     rest = toks[2:]
-    if "graphql" in rest:
-        return "mutation" in stripped.lower()
+    method = "GET"
+    explicit_method = False
+    has_field = False
+    from_file = False
     i = 0
     while i < len(rest):
         tok = rest[i]
+        value = None
         if tok in ("-X", "--method"):
-            if (rest[i + 1] if i + 1 < len(rest) else "").upper() != "GET":
-                return True
-            i += 2
-            continue
-        if tok.startswith("--method="):
-            if tok.split("=", 1)[1].upper() != "GET":
-                return True
-        elif tok in ("-f", "-F", "--field", "--raw-field", "--input") or tok.startswith(
-            ("--field=", "--raw-field=", "--input=")
-        ):
+            value = rest[i + 1] if i + 1 < len(rest) else ""
+            i += 1
+        elif tok.startswith("--method="):
+            value = tok.split("=", 1)[1]
+        elif tok.startswith("-X") and len(tok) > 2:
+            value = tok[2:]
+        if value is not None:
+            method, explicit_method = value.upper(), True
+        elif tok in ("--input",) or tok.startswith("--input="):
             return True
+        elif tok in ("-f", "-F", "--field", "--raw-field") or tok.startswith(("--field=", "--raw-field=")):
+            has_field = True
+            val = rest[i + 1] if i + 1 < len(rest) and "=" not in tok else tok
+            from_file = from_file or "@" in val
+        elif tok[:2] in ("-f", "-F") and len(tok) > 2:
+            has_field = True
+            from_file = from_file or "@" in tok
         i += 1
-    return False
+    if "graphql" in rest:
+        return "mutation" in stripped.lower() or from_file
+    if method != "GET":
+        return True
+    return has_field and not explicit_method
 
 
 _GIT_OUTPUT_VERBS = frozenset({"diff", "log", "show", "shortlog", "grep", "blame", "range-diff"})
@@ -2811,8 +2853,16 @@ def _tool_mode_mutates(stripped: str, head: str) -> bool:
 
 
 def _sort_short_output(stripped: str) -> bool:
-    """`sort -ofile` and clusters like `-ro` name an output file through the short form."""
+    """`sort -ofile` and clusters like `-ro` name an output file through the short form; GNU sort also accepts any
+    unambiguous prefix of a long option (`--out`, `--compress-prog`)."""
     for tok in _tool_tokens(stripped)[1:]:
+        name = tok.split("=", 1)[0]
+        if (
+            name.startswith("--")
+            and len(name) >= 5
+            and ("--output".startswith(name) or "--compress-program".startswith(name))
+        ):
+            return True
         if tok.startswith("-") and not tok.startswith("--") and len(tok) > 1 and "o" in tok[1:]:
             return True
     return False
@@ -2828,7 +2878,9 @@ def _has_dangerous_tool_flags(cmd: str) -> bool:
     positional output, and combined short flags like ``-iX`` — both degrade to
     "needs CHECK" at worst if ever extended, never a silent allow elsewhere.
     """
-    stripped = cmd.lstrip()
+    # `2>/dev/null` and `2>&1` are not arguments: left in, `date +%s 2>/dev/null` read as a clock set and `uniq -c f 2>&1`
+    # as an output file.
+    stripped = SAFE_REDIRECT_PATTERN.sub("", cmd.lstrip()).strip()
     head = stripped.split(" ", 1)[0]
     if head == "git" and _git_ref_command_mutates(stripped):
         return True
@@ -3766,11 +3818,18 @@ _SQLITE_READ_PRAGMAS = frozenset(
         "ENCODING",
         "APPLICATION_ID",
         "DATA_VERSION",
+        "FOREIGN_KEYS",
+        "SYNCHRONOUS",
+        "CACHE_SIZE",
+        "BUSY_TIMEOUT",
+        "LOCKING_MODE",
+        "TEMP_STORE",
     }
 )
 #: Pragmas that read bare and SET when given a value, in `=` or parenthesised form.
 _SQLITE_PRAGMAS_THAT_SET_WITH_PARENS = frozenset(
     {"SCHEMA_VERSION", "USER_VERSION", "PAGE_SIZE", "JOURNAL_MODE", "ENCODING", "APPLICATION_ID"}
+    | {"FOREIGN_KEYS", "SYNCHRONOUS", "CACHE_SIZE", "BUSY_TIMEOUT", "LOCKING_MODE", "TEMP_STORE"}
 )
 
 
@@ -3869,14 +3928,14 @@ def is_safe_python_command(command: str) -> bool:
         "OS.MKDIR(",
         # Subprocess / shell execution: the module itself, however it is imported or called
         "SUBPROCESS",
-        "OS.SYSTEM(",
-        "OS.POPEN(",
+        "OS.SYSTEM",
+        "OS.POPEN",
         "OS.EXEC",
         "OS.SPAWN",
         "OS.POSIX_SPAWN",
         "OS.FORK",
         "OS.KILL",
-        "PTY.",
+        "PTY.SPAWN",
         # More file mutation: rename/replace/link/chmod/truncate, pathlib mutators, from-imports that
         # hide the module name from the attribute checks above
         "OS.RENAME",
@@ -3901,14 +3960,16 @@ def is_safe_python_command(command: str) -> bool:
         ".WRITELINES(",
         "FROM SHUTIL",
         "FROM OS IMPORT",
-        "TEMPFILE",
+        "IMPORT OS AS",
+        "IMPORT SHUTIL AS",
+        "TEMPFILE.",
         # Reaching the above indirectly, or the network and native code
         "IMPORTLIB",
         "CTYPES",
-        "SOCKET",
+        "IMPORT SOCKET",
+        "FROM SOCKET",
         "URLLIB.REQUEST",
         "HTTP.CLIENT",
-        "COMPILE(",
         "__BUILTINS__",
         "GLOBALS(",
         # Network mutation
@@ -4162,12 +4223,16 @@ def _is_remote_cmd_safe(remote_cmd: str) -> bool:
     if not _substitutions_are_safe(remote_cmd):
         return False
 
-    # Handle chains within the remote command: cmd1 && cmd2 && cmd3
-    # (split outside quotes — `;` etc. inside a quoted string is not a chain op)
+    # Handle chains within the remote command: cmd1 && cmd2 ; cmd3 || cmd4
+    # (split outside quotes — `;` etc. inside a quoted string is not a chain op). Split on EVERY operator and
+    # judge every segment: the first operator found used to decide, so `ls ; rm x && echo` was judged by its
+    # `&&` halves and the `rm` rode in the first one.
+    chain_segments = [remote_cmd]
     for chain_op in ("&&", "||", ";"):
-        if _contains_outside_quotes(remote_cmd, chain_op):
-            segments = [s.strip() for s in _split_outside_quotes(remote_cmd, chain_op)]
-            return all(_is_single_remote_cmd_safe(seg) for seg in segments if seg)
+        chain_segments = [part for seg in chain_segments for part in _split_outside_quotes(seg, chain_op)]
+    chain_segments = [s.strip() for s in chain_segments if s.strip()]
+    if len(chain_segments) > 1:
+        return all(_is_remote_cmd_safe(seg) for seg in chain_segments)
 
     # Handle pipes within the remote command
     if _contains_outside_quotes(remote_cmd, "|"):
@@ -4275,8 +4340,13 @@ def _rsync_runs_a_program(parts: list[str]) -> bool:
             i += 1
         elif tok.startswith("--rsh="):
             value = tok.split("=", 1)[1]
-        elif tok.startswith("-e") and len(tok) > 2 and not tok.startswith("--"):
-            value = tok[2:]
+        elif tok.startswith("-") and not tok.startswith("--") and "e" in tok[1:]:
+            tail = tok[tok.index("e") + 1 :]  # -e in a cluster (-avze): its value is the rest, or the next token
+            if tail:
+                value = tail
+            else:
+                value = parts[i + 1] if i + 1 < len(parts) else ""
+                i += 1
         elif tok == "--rsync-path" or tok.startswith("--rsync-path="):
             return True
         if value is not None:
@@ -4426,10 +4496,29 @@ def _classify_scp(command: str) -> bool:
 
 
 def _scp_runs_a_program(parts: list[str]) -> bool:
-    """scp `-S program` replaces ssh; `-F config` and `-o ProxyCommand=` make ssh run a local program."""
-    if any(p == "-S" or (p.startswith("-S") and len(p) > 2) for p in parts[1:]):
-        return True
-    return _ssh_option_runs_local_program(parts)
+    """scp `-S program` replaces ssh; `-F config` and `-o ProxyCommand=` make ssh run a local program.
+
+    Scanned with scp's own option letters: -P is a PORT here (ssh's scan treated `-P` as a flag, took `22` for the host
+    and stopped, so a ProxyCommand after it was never seen)."""
+    with_value = set("cFiJloPS")
+    i = 1
+    while i < len(parts):
+        tok = parts[i]
+        if not tok.startswith("-") or len(tok) < 2:
+            i += 1
+            continue
+        letter = tok[1]
+        if letter in ("S", "F"):
+            return True
+        if letter == "o":
+            value = tok[2:] if len(tok) > 2 else (parts[i + 1] if i + 1 < len(parts) else "")
+            if any(
+                opt in value.lower()
+                for opt in ("proxycommand", "localcommand", "permitlocalcommand", "knownhostscommand")
+            ):
+                return True
+        i += 2 if (letter in with_value and len(tok) == 2) else 1
+    return False
 
 
 def _is_safe_pipe_segment(segment_clean: str, *, is_first: bool) -> bool:

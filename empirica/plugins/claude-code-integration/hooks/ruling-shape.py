@@ -53,7 +53,7 @@ def hand_to_the_gate(payload: dict) -> None:
             capture_output=True,
             text=True,
             timeout=3.5,
-            env=os.environ.copy(),
+            env={**os.environ, "EMPIRICA_HOOK_PARENT_PID": str(os.getppid())},
             check=False,
         )
     except Exception:

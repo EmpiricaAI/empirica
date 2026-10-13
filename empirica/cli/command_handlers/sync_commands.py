@@ -527,6 +527,9 @@ def _note_wildcard_batches(refspec: str) -> list[list[str]] | None:
     listing = subprocess.run(
         ["git", "for-each-ref", "--format=%(refname)", source[:-1]], capture_output=True, text=True, timeout=30
     )
+    if listing.returncode != 0:
+        # An empty listing read as 'nothing to push' and the namespace was reported pushed.
+        raise RuntimeError((listing.stderr or "git for-each-ref failed").strip()[:200])
     refs = [line.strip() for line in listing.stdout.splitlines() if line.strip()]
     specs = [f"{ref}:{ref}" for ref in refs]
     return [specs[i : i + _NOTES_PUSH_BATCH] for i in range(0, len(specs), _NOTES_PUSH_BATCH)]

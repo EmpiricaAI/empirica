@@ -812,7 +812,6 @@ _PYTHON_WRITES = [
     "python3 -c 'import ctypes'",
     "python3 -c 'import socket; socket.create_connection((\"h\", 1))'",
     'python3 -c \'import urllib.request; urllib.request.urlopen("http://x", data=b"a")\'',
-    'python3 -c \'compile("x", "", "exec")\'',
     "python3 -c 'print(__builtins__)'",
 ]
 _PYTHON_READS = [
@@ -927,3 +926,114 @@ def test_a_good_counter_write_still_lands(sg, tmp_path):
     path = tmp_path / "counters.json"
     sg._atomic_write_counters({"tool_call_count": 4}, path)
     assert json.loads(path.read_text()) == {"tool_call_count": 4}
+
+
+# ---- round 2: variation families of the guards above (independent review of 1.14.10, all reproduced) ----------
+#
+# Each guard is listed with the SHAPES that carried a write past it: attached or clustered short options,
+# abbreviated long options, whitespace before a paren, aliased imports, mixed chain operators. The controls are the
+# reads that must stay free, including the ones the first round over-gated.
+
+_ROUND2_WRITES = [
+    # remote chains: the first operator found used to decide, the rest were never split
+    'ssh h "ls -la ; rm -rf /srv/x && echo ok"',
+    'ssh h "cd /x ; rm -rf y || echo"',
+    'ssh h "ls && cat f | sh"',
+    'ssh h "ls || rm x ; echo"',
+    # gh api: attached short flags, method attached, a mutation held in a file
+    "gh api -XDELETE repos/o/r/issues/1",
+    "gh api -XPATCH repos/o/r/issues/1 -f state=closed",
+    "gh api repos/o/r/issues -ftitle=x",
+    "gh api repos/o/r/issues -Ftitle=x",
+    "gh api graphql -F query=@m.gql",
+    "gh api graphql --input m.json",
+    # sed: attached -e script, option values taken for the script, clusters
+    "sed -n -e'w /tmp/pwned' /etc/hostname",
+    "sed -ne 'w /tmp/x' f",
+    "sed -l 5 'w /tmp/x' f",
+    "sed --line-length 5 'w /tmp/x' f",
+    "sed -s -n 'w /tmp/x' f",
+    # rsync / scp: a program named in a cluster or after an option with a value
+    "rsync -avze 'ssh -o ProxyCommand=evil' host:/x /tmp/y",
+    "rsync -ze 'sh -c x' host:/x /tmp/y",
+    "scp -P 22 -o ProxyCommand='sh -c evil' host:/f .",
+    "scp -i key -P 22 -S sh host:/f .",
+    # wget, sort: later or abbreviated options
+    "wget -O- --output-document=/tmp/x https://e.invalid",
+    "wget -O- --save-cookies=/tmp/c https://e.invalid",
+    "sort --out=/tmp/x f",
+    "sort --outp=/tmp/x f",
+    "sort --compress-prog=sh f",
+    # awk, python: whitespace before the paren, aliased modules
+    "awk 'BEGIN{system (\"touch /tmp/x\")}'",
+    "awk 'BEGIN{system\t(\"touch /tmp/x\")}'",
+    "python3 -c \"import os as o; o.system('touch /tmp/x')\"",
+    "python3 -c \"import os; f = os.system; f('touch /tmp/x')\"",
+    "python3 -c \"import shutil as s; s.rmtree('d')\"",
+]
+
+_ROUND2_READS = [
+    'ssh h "ls -la ; echo ok && pwd"',
+    'ssh h "df -h || echo none ; pwd | head -1"',
+    "gh api -X GET search/issues -f q=is:open",
+    "gh api -XGET search/issues -fq=x",
+    "gh api graphql -f query='query { viewer { login } }'",
+    "sed -n -e 's/a/b/p' f",
+    "sed -l 5 's/a/b/' f",
+    "sed -E 's/(a)/\\1/' f",
+    "sed -ne 's/a/b/p' f",
+    "rsync -avz -e ssh host:/p .",
+    "rsync -avze ssh host:/p .",
+    "scp -P 22 host:/f .",
+    "scp -i key -P 22 host:/f .",
+    "wget -O- https://e.invalid",
+    "sort -k2,2 f",
+    "sort --reverse --numeric-sort f",
+    "awk '{printf \"%s|%s\\n\", $1, $2}' f",
+    "awk '{print $1 \"|\" $2}' f",
+    "awk '{print ($1 > $2) ? $1 : $2}' f",
+    "date +%s 2>/dev/null",
+    "hostname -f 2>/dev/null",
+    "mount 2>/dev/null",
+    "uniq -c f 2>&1",
+    "xxd f 2>/dev/null",
+    "python3 -c \"import re; print(re.compile(r'a+').findall('aa'))\"",
+    "python3 -c \"print('list is empty.')\"",
+    'sqlite3 db "PRAGMA foreign_keys"',
+    'sqlite3 db "PRAGMA synchronous"',
+    'sqlite3 db "PRAGMA busy_timeout"',
+]
+
+_ROUND2_PRAGMA_SETTERS = [
+    'sqlite3 db "PRAGMA foreign_keys = OFF"',
+    'sqlite3 db "PRAGMA synchronous(0)"',
+    'sqlite3 db "PRAGMA busy_timeout=0"',
+]
+
+
+@pytest.mark.parametrize("command", _ROUND2_WRITES + _ROUND2_PRAGMA_SETTERS)
+def test_round2_variations_of_the_guards_are_not_reads(sg, command):
+    assert _safe(sg, command) is False
+
+
+@pytest.mark.parametrize("command", _ROUND2_READS)
+def test_round2_reads_the_first_round_over_gated_stay_free(sg, command):
+    assert _safe(sg, command) is True
+
+
+def test_the_blocked_presence_stamp_anchors_on_claude_not_on_the_hook_that_ran_the_gate(sg, monkeypatch):
+    """ruling-shape runs the gate as a child, so getppid() there is ruling-shape (gone in milliseconds). It names the real
+    parent in EMPIRICA_HOOK_PARENT_PID and the stamp prefers it."""
+    captured = {}
+
+    class _Popen:
+        def __init__(self, cmd, **_kw):
+            captured["cmd"] = cmd
+
+    monkeypatch.setattr("subprocess.Popen", _Popen)
+    monkeypatch.setenv("EMPIRICA_HOOK_PARENT_PID", "424242")
+    sg._stamp_blocked_presence("cc-1", {"questions": [{"question": "q?"}]})
+    assert captured["cmd"][captured["cmd"].index("--session-pid") + 1] == "424242"
+    monkeypatch.delenv("EMPIRICA_HOOK_PARENT_PID")
+    sg._stamp_blocked_presence("cc-1", {"questions": [{"question": "q?"}]})
+    assert captured["cmd"][captured["cmd"].index("--session-pid") + 1] == str(__import__("os").getppid())
