@@ -425,17 +425,16 @@ The open-source projects are free for everyone. What the Foundation adds is a **
 
 ---
 
-## What's New in 1.14.9
+## What's New in 1.14.10
 
-- **`agent-review` skill and guide.** A fresh reviewer reads a whole finished subagent or workflow thread and stamps typed artifacts, graded claims, tasks and predicted-answer proposals, each anchored to a turn and a verbatim quote; `check_stamp.py` verifies the anchors and `score_tiers.py` compares reviewer tiers. Measured: sonnet is the default reviewer (96% precision), haiku is not worth it.
-- **`agent-pipeline` skill and guide** (21 skills now). Map, tag, verify, act and review a sweep with tiered agents: `validate_pointers`, `check_tag_quotes`, `run_base_tests` (controls first, so a wrong interpreter aborts instead of reading as a result) and `run_action` (a headless agent in a sandboxed clone, hidden test, regression check against a pristine export). On four fresh units a cheap mapper did not save money but found 17 verified findings the smart-only pass missed; haiku passed 43 of 45 tasks.
-- **`export --transactions` carries `goals_touched`**, the transaction-to-goal link by the Sentinel's own definition of a goal in play, and an opt-in `--content` for the owner's own tenant (`content_scope: tenant`, `do_not_share: true`, credential-shaped text redacted).
-- **Sentinel gate.** The pause/resume exemption admits the toggle alone, not what rides with it; the `empirica` statement rescue and the transition commands refuse a redirect or command substitution like the main classifier; `git branch`, `tag` and `remote` are reads only in their list forms; `EMPIRICA_SENTINEL_COMPACT_INVALIDATION` works without `CHECK_EXPIRY`; a lone `&` is a command separator and `cd x | y` is a pipe; ssh key tools, `ssh -T` and pipe receivers no longer classify as blanket reads.
-- **An unreadable CHECK timestamp denies** when `CHECK_EXPIRY` or `COMPACT_INVALIDATION` is on, instead of silently skipping both; an ISO timestamp's offset (including `Z`) is honoured, where UTC was read as local time and a non-UTC offset raised. Both switches default to off, so the default path is unchanged.
-- **Sentinel profiles keep their thresholds.** Profiles loaded from the shipped YAML nest `thresholds:` and `audit:`; the loader read only top-level keys, so the stricter domains ran on defaults. Both shapes load (a flat key wins).
-- **A missing criticality falls to a stricter checklist**, never a weaker one, in the domain registry.
-- **`sync-status` and the post-push check no longer count `refs/notes/empirica-archive/*`**, which is never pushed.
-- **Dependency floor** `multidict>=6.9.1` (CVE-2026-104874, a remote memory leak through aiohttp's header handling).
+- **pre-compact no longer stashes the working tree.** It stashed uncommitted work "before snapshot" and popped it afterwards; nothing read the stash, project-bootstrap ran after it and recorded a clean tree, and it emptied a shared checkout for up to ~25 s. Gone, with its SIGTERM guard and the `stash: saved+restored` line. Recovery of a stash an older version left behind is kept for one more release.
+- **The router's text reaches the model on Claude Code.** `tool-router` delivered it under a top-level `context` key the harness did not read; it now uses `hookSpecificOutput.additionalContext` on Claude Code (the legacy key stays for other harnesses). Expect to see the proportionality and probe-first blocks that were being written and never shown.
+- **`empirica doctor` "sync state" reports notes replication,** not git working-tree changes: no notes remote (with the command that configures one), a configured name that is not a git remote here, or "N of M local note refs are NOT on the remote". The old wording ("N uncommitted changes", hint: sync-push to Cortex) was acted on as a working-tree statement.
+- **`sync-push` pushes note wildcards in batches of 250 refs, each with its own timeout.** One `git push` of `refs/notes/empirica/*` timed out on a store of ~23k refs and replicated nothing (the verification layer reported it correctly: `not_replicating`). One failing batch is named and the others still go.
+- **`listener on --dry-run`** returns the arming payload and writes no state; the SessionStart hook uses it, because its query used to register the listener and rewrite `listener_active_*.json`, the very file the hook reads as proof a user wanted a listener. `listener arm` creates the record when it finds none.
+- **Install docs:** an Intel Mac builds `cryptography>=50` from source and needs a Rust toolchain (PyPI's macOS wheels for 49.x/50.x are arm64-only); the pin stays, since lowering it would reopen three CVEs.
+- **Artifacts and practice API routers sit behind `verify_mint_bearer`,** like entities and calibration. They had no guard, so on a hosted daemon any caller with network reach could read artifacts and project source text and PATCH or DELETE them. A no-op when no token set is configured (loopback), so the default install is unchanged.
+- **Global sync federates only `shared`/`public`, unresolved artifacts,** and `project-embed --global --purge-global` removes what the old filter let up (default: only counted). Measured on core: 982 points removed.
 
 ## Privacy & Data
 

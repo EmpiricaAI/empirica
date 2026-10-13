@@ -22,8 +22,8 @@
 > `empirica/cli/cli_core.py` — adding a new category means editing that
 > dictionary, then running this script.
 
-**Framework version:** 1.14.9
-**Generated:** 2026-10-07 06:56:02 UTC
+**Framework version:** 1.14.10
+**Generated:** 2026-10-13 16:38:23 UTC
 **Total commands:** 241 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -1584,6 +1584,8 @@ Embed project docs & memory into Qdrant for semantic search
   Sync high-impact items to global learnings collection
 - `--min-impact` — optional · type=`float` · default=`0.7`
   Minimum impact for global sync (default: 0.7)
+- `--purge-global` — optional · flag
+  With --global: delete from global_learnings the points this project's local-tier, resolved or retracted artifacts left there. Without it the leftover is only counted.
 
 #### `empirica code-embed`
 
@@ -3460,6 +3462,8 @@ Arm the canonical mesh listener for ai_id (short-circuits when persistent OS ser
   Listener name (default: <ai_id>-inbox)
 - `--topic` — optional
   ntfy topic (default: ntfy:orchestration-events?tags=<ai_id>)
+- `--dry-run` — optional · flag
+  Return the arming payload only: register nothing and write no state file (what the SessionStart hook asks; `listener arm` creates the record on the first real arm)
 - `--instance` — optional
   Target instance_id (default: auto-detect from current process)
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
@@ -5461,6 +5465,8 @@ Epistemic release assessment - verifies version sync, architecture health, secur
   Root directory of the project (default: current directory)
 - `--quick` — optional · flag
   Quick check (skip architecture assessment)
+- `--strict` — optional · flag
+  Exit 1 on warnings too (default: exit 0 when nothing FAILED, matching the printed verdict)
 - `--output` — optional · type=`choice` · choices={human, json} · default=`human`
   Output format
 
