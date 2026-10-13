@@ -5,6 +5,84 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.10] - 2026-10-13
+
+Closes the rest of the deep sweep's phase-1 findings on the hot path: every remaining way the Sentinel gate could carry a mutation past its
+read-only classifier, nine lifecycle-hook defects, and the audit-landing fixes for the API, cockpit, Qdrant sync and release tooling. Each
+defect was reproduced and fixed with a test that failed first. Two behaviour changes are worth knowing before you upgrade: pre-compact no
+longer stashes your working tree, and the router's per-prompt text now reaches the model on Claude Code.
+
+### Changed
+
+- **pre-compact no longer stashes the working tree.** It stashed uncommitted work "before snapshot" and popped it afterwards; nothing read
+  the stash, project-bootstrap ran after it and recorded a clean tree, and it emptied a shared checkout for up to ~25 s. Gone, with its
+  SIGTERM guard and the `stash: saved+restored` line. Recovery of a stash an older version left behind is kept for one more release.
+- **The router's text reaches the model on Claude Code.** `tool-router` delivered it under a top-level `context` key the harness did not
+  read; it now uses `hookSpecificOutput.additionalContext` on Claude Code (the legacy key stays for other harnesses). Expect to see the
+  proportionality and probe-first blocks that were being written and never shown.
+- **`empirica doctor` "sync state" reports notes replication,** not git working-tree changes: no notes remote (with the command that
+  configures one), a configured name that is not a git remote here, or "N of M local note refs are NOT on the remote". The old wording
+  ("N uncommitted changes", hint: sync-push to Cortex) was acted on as a working-tree statement.
+- **`sync-push` pushes note wildcards in batches of 250 refs, each with its own timeout.** One `git push` of `refs/notes/empirica/*` timed
+  out on a store of ~23k refs and replicated nothing (the verification layer reported it correctly: `not_replicating`). One failing batch is
+  named and the others still go.
+- **`listener on --dry-run`** returns the arming payload and writes no state; the SessionStart hook uses it, because its query used to
+  register the listener and rewrite `listener_active_*.json`, the very file the hook reads as proof a user wanted a listener. `listener arm`
+  creates the record when it finds none.
+- **Install docs:** an Intel Mac builds `cryptography>=50` from source and needs a Rust toolchain (PyPI's macOS wheels for 49.x/50.x are
+  arm64-only); the pin stays, since lowering it would reopen three CVEs.
+
+### Security
+
+- **Artifacts and practice API routers sit behind `verify_mint_bearer`,** like entities and calibration. They had no guard, so on a hosted
+  daemon any caller with network reach could read artifacts and project source text and PATCH or DELETE them. A no-op when no token set is
+  configured (loopback), so the default install is unchanged.
+- **Global sync federates only `shared`/`public`, unresolved artifacts,** and `project-embed --global --purge-global` removes what the old
+  filter let up (default: only counted). Measured on core: 982 points removed.
+- **Sentinel gate, remaining holes:** remote (`ssh`) commands are judged by the same guards as local ones (redirects, background `&`,
+  write/exec flags, pipe receivers); safe-prefixed tools in a write or exec mode are no longer reads (`sed w/e` and script files, `awk`
+  pipes, `sort -o`, `rg --pre`, `curl`/`wget` writes and POSTs, `gh api` mutations, `git diff --output`, `ruff --fix`, `date -s`, ...); sqlite
+  `PRAGMA` setters and `ANALYZE` are writes and every `;`-separated statement is judged; `python -c` is checked against a longer list;
+  `scp` and `rsync` agree that only a download is a read and refuse `-e`/`-S`/`--delete-*`.
+- **Cockpit:** `instance kill` refuses a pid it cannot verify unless `--force` and never signals a recycled pid; `sentinel pause` with no
+  resolvable instance needs `--global`; the notification-topic resolver never selects the bare or a retired topic.
+
+### Fixed
+
+- **Gate:** the transaction's `work_type` is loaded before anything classifies a command (the remote-ops nudge told remote-ops transactions
+  their work type was "not set"); allow reasons that say the gate failed open, could not run or is unconvinced now reach the model; a
+  malformed proportionality budget file is cleared instead of raising on every read; a failed counter write is no longer swallowed;
+  domain scaling resolves the real work type; a CHECK timestamp the gate cannot read denies when expiry or compact checks are on.
+- **SessionStart:** `claude --resume` reaches the resume path (the hook now reads the `source` field Claude Code sends); a startup in one
+  practice is no longer bound to another practice's open transaction (NLE: the new conversation adopted the other practice's session);
+  orphan-transaction adoption leaves a live sibling's transaction alone; the monitor-arm query writes no state.
+- **Compaction:** a compaction restores its own session's snapshot, not the newest in the project; post-compact hands the focus summarizer
+  items that carry the id and timestamp it ranks on (relevance and recency were inert for real items).
+- **Subagents:** parallel same-name subagents keep their own mapping (two starts within a second overwrote one another); rollup extracts
+  what was reported (line- and sentence-anchored markers, fenced code skipped) and attributes it to the parent's transaction.
+- **Other hooks:** the EWM loader reads the single-user protocol `/ewm-interview` writes; the task-to-goal bridge reads the right project's
+  database and completes only in-progress goals; the SessionEnd auto-POSTFLIGHT sends only keys `postflight-submit` accepts; the
+  AskUserQuestion counter branch runs (via `ruling-shape`); every prompt resets the proportionality budget.
+- **Data:** a removed-then-re-added codebase entity is active again; `goals-activate` on a goal that is not planned says how to bring it
+  into play.
+- **API:** batch resolve defaults an assumption to falsified and honours a per-item `verified: true`; `POST /artifacts/log` honours
+  `?project_id` and `?path`; `GET /artifacts/{id}` looks up by id; the canonical `superseded_by` syncs to Qdrant; the practice
+  `config_watermark` moves on any composition source.
+- **Qdrant:** PREFLIGHT and CHECK parse a dead end's text from one tolerant helper that prefers `text_full`; global hits carry
+  `text_full`/`truncated`; numeric env knobs fall back with a warning instead of raising.
+- **release-ready / docs-assess:** gitignore and exclusion matching by path component (not substring); the secret scan covers every package
+  file; exit 0 when nothing FAILED and `--strict` to fail on warnings; a missing upstream and an unassessed directory are reported, not read
+  as healthy; `--check-staleness` exits 1 when the check reports `ok: false`; the CLI command set comes from the project's own parser.
+- **Docs:** `epistemic_tracking.md` rewritten whole (it named two methods that do not exist); the security-corpus README no longer claims
+  the files ship in the package (they do not; shipping them is an open question).
+
+### Known
+
+- `empirica/data/security-corpus` is in the repository but not in the wheel, and `setup-claude-code` does not copy it; the
+  `services-auditor` skill reads it when present.
+- The Sentinel constitution's Principle II (measurement opacity) disagrees with the system prompt, which publishes the `work_type`
+  calibration weights; unresolved, pending a ruling.
+
 ## [1.14.9] - 2026-10-06
 
 Hardening the Sentinel gate against several ways a command could carry a mutation past the read-only classifier, two skills for reviewing and
