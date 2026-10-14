@@ -5,6 +5,38 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.11] - 2026-10-14
+
+A bug-fix release for one reported defect (#415, thank you @FrancisFerrero for the diagnosis and the verified local repair): the
+PreCompact hook could stop Claude Code from compacting, again and again, because of a failure in work it does not need to succeed.
+Reproduced against `develop`, fixed test-first, with negative controls.
+
+### Fixed
+
+- **pre-compact can no longer veto compaction.** A failing `project-bootstrap`, a timeout, unparseable output, or any other error in the
+  hook used to exit with code 2, so every retry hit the same failure ("Compaction blocked by PreCompact hook"). It now writes a
+  *degraded* snapshot (`capture_status: "degraded"` and `bootstrap_error` in `.empirica/ref-docs/pre_summary_*.json`), tells the
+  summarizer that capture was degraded, and exits 0. The whole hook runs under one 25 s budget, so the harness's 30 s kill never lands
+  mid-write. The CLI prints its diagnostic on stdout, so the log now records that when stderr is empty.
+- **pre-compact exits 0 whatever it is handed.** Empty or non-JSON stdin, a non-object payload, or a failure before the guarded body used
+  to end in a traceback and exit 1; a failing stderr banner could print a second JSON document after the first. Both are fixed, and the
+  25 s budget now counts from process start, so the git calls before the capture step no longer spend time it did not know about.
+- **pre-compact binds bootstrap to the practice it is standing in.** It passes the project id from `.empirica/project.yaml` and the
+  Empirica session id. Without them bootstrap fell back to the active-instance mapping and then a git `origin` remote, and a practice
+  with neither failed.
+- **A non-numeric `impact` no longer takes `project-bootstrap` down.** `calculate_relevance_score` multiplied any stored value that was
+  not NULL, so one finding holding prose in the numeric column raised a `TypeError`. An unusable `impact` now reads as the neutral 0.5.
+- **`impact` is validated where it is written.** `log_finding`, `log_unknown` and `log_dead_end` refuse a non-numeric `impact` (a numeric
+  string such as `"0.8"` is stored as a number), and `log-artifacts` reports that refusal with its reason instead of a bare "Failed to
+  create". How the reporter's two existing rows acquired prose is not established; their repair is `update-artifacts` setting `impact`
+  to `null`.
+- **`impact` validation does not lose existing data.** A rebuild from git notes reads a legacy prose `impact` as the neutral default
+  instead of skipping the finding, and the `log-artifacts` check applies only to the node types that store `impact` (finding,
+  dead_end), so a stray `impact` on a decision, assumption, mistake or unknown still logs. An integer too large for a float is a
+  refusal, not a crash.
+- **The `goals-mark-stale` and `goals-get-stale` help text** said the pre-compact hook calls them. It does not (goals are deliberately
+  left alone across compaction); the text and the CLI reference now say so.
+
 ## [1.14.10] - 2026-10-13
 
 Closes the rest of the deep sweep's phase-1 findings on the hot path: every remaining way the Sentinel gate could carry a mutation past its
