@@ -357,7 +357,7 @@ __all__ = [  # noqa: RUF022
     "handle_goals_get_stale_command",  # Get stale goals needing re-evaluation
     "handle_goals_get_tasks_command",
     "handle_goals_list_command",
-    "handle_goals_mark_stale_command",  # Pre-compact hook - mark goals stale
+    "handle_goals_mark_stale_command",  # Mark goals stale (manual)
     "handle_goals_progress_command",
     "handle_goals_prune_command",
     "handle_goals_ready_command",  # BEADS integration

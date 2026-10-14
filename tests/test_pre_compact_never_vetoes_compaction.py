@@ -230,3 +230,75 @@ def test_no_capture_path_can_exit_with_the_veto_code():
     source = (_HOOK_DIR / "pre-compact.py").read_text()
     assert "sys.exit(2)" not in source
     assert '"stopReason"' not in source
+
+
+# --- found by the independent review of 1.14.11 -------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("yaml_text", "expected"),
+    [
+        (f"project_id: {_PROJECT_UUID}\n", _PROJECT_UUID),
+        (f'project_id: "{_PROJECT_UUID}"  # the id\n', _PROJECT_UUID),
+        (f"project_id: '{_PROJECT_UUID}'\r\n", _PROJECT_UUID),
+        ("project_id:\nai_id: proj\n", None),
+        ("project_id: null\n", None),
+        ("project_id: ~\n", None),
+        ("project_id:\n  sub: 1\n", None),
+        ("project_id: &x abc\n", None),
+        ('project_id: "a b"\n', None),
+        ("  project_id: nested\n", None),
+        ("name: P\n", None),
+    ],
+)
+def test_the_project_id_is_read_only_when_the_line_really_holds_one(hook, tmp_path, yaml_text, expected):
+    (tmp_path / ".empirica").mkdir()
+    (tmp_path / ".empirica" / "project.yaml").write_text(yaml_text)
+    assert hook._practice_project_id(tmp_path) == expected
+
+
+@pytest.mark.parametrize("stdin", ["", "not json", "[]", "null", '"str"'])
+def test_input_the_hook_cannot_read_still_does_not_veto(tmp_path, stdin):
+    env = {"HOME": str(tmp_path), "PATH": "/usr/bin:/bin"}
+    done = subprocess.run(
+        [sys.executable, str(_HOOK_DIR / "pre-compact.py")],
+        input=stdin,
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=tmp_path,
+        timeout=60,
+    )
+    assert done.returncode == 0, done.stderr[-300:]
+    json.loads(done.stdout or "{}")
+
+
+def test_a_failing_stderr_banner_cannot_corrupt_the_json_on_stdout(hook, practice, monkeypatch, capsys):
+    _stub_the_rest(hook, monkeypatch)
+    monkeypatch.setattr(hook.subprocess, "run", _fake_run(lambda c, k: _completed(0, _bootstrap_json())))
+
+    class _Broken:
+        def write(self, *_a):
+            raise BrokenPipeError("reader went away")
+
+        def flush(self):
+            raise BrokenPipeError("reader went away")
+
+    monkeypatch.setattr(sys, "stderr", _Broken())
+
+    assert _run(hook, practice) == 0
+    out = capsys.readouterr().out
+    assert len(json.loads(out)) == 1 and "systemMessage" in json.loads(out)
+
+
+def test_the_budget_counts_from_process_start_not_from_the_guard(hook, practice, monkeypatch):
+    _stub_the_rest(hook, monkeypatch)
+    calls = []
+    monkeypatch.setattr(
+        hook.subprocess, "run", _fake_run(lambda c, k: calls.append(c) or _completed(0, _bootstrap_json()))
+    )
+    monkeypatch.setattr(hook, "_PROCESS_START", hook.time.monotonic() - 26)  # 26 s went on steps before the guard
+
+    assert _run(hook, practice) == 0
+    assert calls == [], "bootstrap ran although the hook had already used its whole budget before the guard"
+    assert "budget" in _snapshot(practice)["bootstrap_error"]

@@ -20,7 +20,9 @@ def _as_number(value) -> float | None:
         return None
     try:
         number = float(value)
-    except (TypeError, ValueError):
+    except Exception:
+        # ValueError/TypeError for text and containers; OverflowError for an int too large for a float (JSON can carry
+        # one); anything else an exotic object raises. All mean the same: not a usable number.
         return None
     return number if math.isfinite(number) else None
 
@@ -40,5 +42,5 @@ def require_impact(value) -> float | None:
         return None
     number = _as_number(value)
     if number is None:
-        raise ValueError(f"impact must be a number between 0.0 and 1.0, got {str(value)[:80]!r}")
+        raise ValueError(f"impact must be a number (0.0 to 1.0 expected), got {str(value)[:80]!r}")
     return number

@@ -115,3 +115,69 @@ class TestBatchVerb:
         from empirica.cli.command_handlers.graph_commands import _impact_refusal
 
         assert _impact_refusal({"type": "finding", "ref": "f1", "data": data}) is None
+
+
+class _RaisesOnFloat:
+    def __float__(self):
+        raise RuntimeError("no")
+
+
+class TestReaderNeverRaises:
+    """The contract is 'never raises'; a JSON-sourced int too large for a float broke it (found in the 1.14.11 review)."""
+
+    @pytest.mark.parametrize("bad", [10**400, 2**1024, _RaisesOnFloat()])
+    def test_read_impact_returns_the_default(self, bad):
+        assert read_impact(bad) == 0.5
+
+    @pytest.mark.parametrize("bad", [10**400, 2**1024, _RaisesOnFloat()])
+    def test_require_impact_refuses_with_a_value_error_the_batch_catches(self, bad):
+        with pytest.raises(ValueError, match="impact"):
+            require_impact(bad)
+
+
+class TestRebuildFromNotes:
+    """A rebuild must not drop a finding because its stored impact is the legacy prose this fix now refuses on write."""
+
+    def test_a_prose_impact_finding_is_rebuilt_not_dropped(self, breadcrumbs):
+        from empirica.cli.command_handlers.sync_commands import _rebuild_insert_breadcrumbs
+
+        class _Db:
+            def __init__(self, repo):
+                self._repo = repo
+                self.adapter = type("A", (), {"conn": repo.conn})()
+
+            def __getattr__(self, name):
+                return getattr(self._repo, name)
+
+        items = [
+            {"project_id": PROJECT_ID, "session_id": SESSION_ID, "finding": "legacy prose impact", "impact": _PROSE},
+            {"project_id": PROJECT_ID, "session_id": SESSION_ID, "finding": "numeric impact", "impact": 0.6},
+        ]
+        rebuilt = {"findings": 0, "unknowns": 0, "dead_ends": 0, "mistakes": 0}
+
+        _rebuild_insert_breadcrumbs(_Db(breadcrumbs), items, [], [], [], set(), rebuilt)
+
+        assert rebuilt["findings"] == 2, "the legacy row was silently skipped"
+        stored = {r["finding"]: r["impact"] for r in breadcrumbs.get_project_findings(PROJECT_ID)}
+        assert stored == {"legacy prose impact": 0.5, "numeric impact": 0.6}
+
+
+class TestBatchOnlyJudgesTypesThatStoreImpact:
+    """decision, assumption, mistake and unknown writers never read `impact`; refusing it there broke payloads that worked."""
+
+    @pytest.mark.parametrize("ntype", ["decision", "assumption", "mistake", "unknown", "source"])
+    def test_a_stray_impact_on_a_type_that_ignores_it_is_not_refused(self, ntype):
+        from empirica.cli.command_handlers.graph_commands import _impact_refusal
+
+        assert _impact_refusal({"type": ntype, "ref": "n", "data": {"impact": _PROSE}}) is None
+
+    @pytest.mark.parametrize("ntype", ["finding", "dead_end"])
+    def test_types_that_store_it_still_refuse_prose(self, ntype):
+        from empirica.cli.command_handlers.graph_commands import _impact_refusal
+
+        assert _impact_refusal({"type": ntype, "ref": "n", "data": {"impact": _PROSE}})
+
+    def test_an_int_too_large_for_a_float_is_a_refusal_not_a_crash(self):
+        from empirica.cli.command_handlers.graph_commands import _impact_refusal
+
+        assert _impact_refusal({"type": "finding", "ref": "n", "data": {"impact": 10**400}})

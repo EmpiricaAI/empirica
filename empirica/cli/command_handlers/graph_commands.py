@@ -440,9 +440,16 @@ def _sync_resolution_to_qdrant(db, table: str, artifact_id: str, kind, supersede
         logger.debug(f"qdrant resolution sync skipped for {artifact_id[:8]}: {exc}")
 
 
+#: The node types whose writer in ``_create_node`` passes ``impact`` on. A decision, assumption, mistake or unknown never
+#: stores it, so a stray value there harmed nothing before and must not fail the node now.
+_TYPES_THAT_STORE_IMPACT = frozenset({"finding", "dead_end"})
+
+
 def _impact_refusal(node: dict) -> str | None:
     """Why this node's ``impact`` cannot be stored, or None. Said up front: ``_create_node`` swallows a writer's error
     into a bare "Failed to create", which would leave a refused impact looking like any other failure (#415)."""
+    if node.get("type") not in _TYPES_THAT_STORE_IMPACT:
+        return None
     try:
         require_impact((node.get("data") or {}).get("impact"))
     except ValueError as e:

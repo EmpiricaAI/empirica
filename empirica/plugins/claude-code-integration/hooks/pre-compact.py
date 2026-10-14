@@ -471,9 +471,19 @@ def _trace(outcome: str, **fields) -> None:
         pass
 
 
+def _read_hook_input() -> dict:
+    """The JSON object Claude Code sends on stdin; {} when it is missing, unparseable or not an object."""
+    try:
+        parsed = json.loads(sys.stdin.read())
+    except Exception as e:
+        _trace("bad_hook_input", error=f"{type(e).__name__}: {str(e)[:200]}")
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
 def main():
     # Read hook input from stdin (provided by Claude Code)
-    hook_input = json.loads(sys.stdin.read())
+    hook_input = _read_hook_input()
 
     trigger = hook_input.get("trigger", "auto")  # 'auto' or 'manual'
     claude_session_id = hook_input.get("session_id")
@@ -526,12 +536,23 @@ def main():
     )
 
 
+#: When this process started. The 25 s budget counts from here, not from the capture step: the git calls and the stash
+#: check before it spend the same 30 s the harness gives the whole hook.
+_PROCESS_START = time.monotonic()
+
 #: Wall-clock this hook allows itself. The harness kills it at 30 s (settings.json); staying under means a slow step
 #: degrades the snapshot instead of ending in an uncatchable SIGKILL.
 HOOK_BUDGET_SECONDS = 25
 
 #: Longest a single bootstrap call may take, whatever the budget has left.
 BOOTSTRAP_MAX_SECONDS = 20
+
+
+# One line, column 0, one scalar. ``\s`` would cross the newline and read the NEXT key as the id of an empty value.
+_PROJECT_ID_LINE = re.compile(
+    r"""^project_id:[ \t]*(?:"([^"\r\n]+)"|'([^'\r\n]+)'|([^\s#'"&*!~|>\[{][^\s#]*))[ \t]*(?:\#.*)?\r?$""",
+    re.MULTILINE,
+)
 
 
 def _practice_project_id(project_root) -> str | None:
@@ -544,8 +565,15 @@ def _practice_project_id(project_root) -> str | None:
         text = (Path(project_root) / ".empirica" / "project.yaml").read_text(encoding="utf-8")
     except OSError:
         return None
-    found = re.search(r"^project_id:\s*['\"]?([^'\"\s#]+)", text, re.MULTILINE)
-    return found.group(1) if found else None
+    found = _PROJECT_ID_LINE.search(text)
+    if not found:
+        return None
+    value = next(group for group in found.groups() if group)
+    # A scalar that is not an id (null, true, an anchor or a phrase) is no project id: bootstrap would be told a name that
+    # does not exist and fail, where the old route would have resolved the practice on its own.
+    if value.lower() in ("null", "true", "false") or not re.fullmatch(r"[\w.-]+", value):
+        return None
+    return value
 
 
 def _failure_text(result) -> str:
@@ -601,7 +629,7 @@ def _main_guarded(
     guidance) and never turned into a veto: exit code 2 here made every retry of a compaction hit the same failure
     (#415). Whatever the capture could not do, the goals, artifacts and git notes still carry the work.
     """
-    deadline = deadline if deadline is not None else time.monotonic() + HOOK_BUDGET_SECONDS
+    deadline = deadline if deadline is not None else _PROCESS_START + HOOK_BUDGET_SECONDS
     try:
         _capture_and_report(
             recovered=recovered,
@@ -719,7 +747,38 @@ def _capture_and_report(
 
     print(json.dumps({"systemMessage": compact_guidance}), file=sys.stdout)
 
-    # Print user-visible message to stderr
+    # The banner is cosmetic and goes to stderr. If stderr is closed or its reader is gone, the write must not fall into the
+    # guard, which would print a SECOND JSON document after the one already on stdout.
+    try:
+        _print_banner(
+            breadcrumbs=breadcrumbs,
+            trigger=trigger,
+            capture_status=capture_status,
+            bootstrap_error=bootstrap_error,
+            git_notes_written=git_notes_written,
+            recovered=recovered,
+            has_open_transaction=has_open_transaction,
+            vector_source=vector_source,
+            display_vectors=display_vectors,
+            snapshot_name=snapshot_path.name,
+        )
+    except Exception as e:
+        _trace("banner_failed", error=f"{type(e).__name__}: {str(e)[:200]}", session=empirica_session)
+
+
+def _print_banner(
+    *,
+    breadcrumbs,
+    trigger,
+    capture_status,
+    bootstrap_error,
+    git_notes_written,
+    recovered,
+    has_open_transaction,
+    vector_source,
+    display_vectors,
+    snapshot_name,
+):
     session_id_str = breadcrumbs.get("session_id", "Unknown")
     session_display = session_id_str[:8] if session_id_str else "Unknown"
     notes_msg = "✓" if git_notes_written else "✗"
@@ -738,12 +797,30 @@ def _capture_and_report(
    Trigger: {trigger}
    Transaction: {tx_state_msg}
    Vectors: {vector_source} ({len(display_vectors)} captured){error_msg}
-   Snapshot: {snapshot_path.name}
+   Snapshot: {snapshot_name}
    Git notes: {notes_msg}{stash_msg}
 """,
         file=sys.stderr,
     )
 
 
+def _entrypoint() -> None:
+    """Run the hook so that NOTHING it does can end in a veto or a stack trace.
+
+    Exit code 2 is the only code that blocks compaction, and the other non-zero codes print a traceback into the user's
+    terminal for work that is optional. Whatever escapes ``main`` (bad stdin, a failure before the guarded body, an
+    interrupt) is recorded in the trace and ends as a clean exit 0.
+    """
+    try:
+        main()
+    except SystemExit as e:
+        if e.code in (None, 0):
+            raise
+        _trace("nonzero_exit_suppressed", code=e.code)
+    except BaseException as e:
+        _trace("error", error=f"{type(e).__name__}: {str(e)[:300]}")
+    sys.exit(0)
+
+
 if __name__ == "__main__":
-    main()
+    _entrypoint()

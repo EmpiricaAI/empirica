@@ -590,7 +590,7 @@ Take over a goal another AI started. Reassigns the goal's ai_id to you, imports 
 
 #### `empirica goals-mark-stale`
 
-Flag in_progress goals as stale (typically called by the pre-compact hook before context loss). Marks them for re-evaluation on the other side. Not for manual cleanup — use goals-prune for that. Pair: goals-get-stale to retrieve.
+Flag in_progress goals as stale so they are re-evaluated later (no hook calls this: the pre-compact hook leaves goals alone, because goals are the durable layer that survives compaction). Not for cleanup — use goals-prune for that. Pair: goals-get-stale to retrieve.
 
 **Arguments:**
 
@@ -605,7 +605,7 @@ Flag in_progress goals as stale (typically called by the pre-compact hook before
 
 #### `empirica goals-get-stale`
 
-List goals marked stale by goals-mark-stale (typically set by the pre-compact hook). Used after compaction to decide which goals to refresh (still relevant) vs prune (superseded by what happened). Pair: goals-refresh / goals-prune.
+List goals marked stale by goals-mark-stale. Used to decide which goals to refresh (still relevant) vs prune (superseded by what happened). Pair: goals-refresh / goals-prune.
 
 **Arguments:**
 

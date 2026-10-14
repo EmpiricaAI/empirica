@@ -44,7 +44,7 @@ files but preserves user overrides in `CLAUDE.md`.
 | `sentinel-gate.py` | PreToolUse (Edit/Write, Bash) | Noetic firewall — denies Edit/Write/mutating Bash until the transaction is certified by grounded PREFLIGHT `claims` or a CHECK |
 | `ruling-shape.py` | PreToolUse (AskUserQuestion) | Reminder when a single-select question has no `(Recommended)` option; never blocks |
 | `tool-router.py` | UserPromptSubmit | Context injection (active goals, artifact reminders) |
-| `pre-compact.py` | PreCompact | Saves epistemic state to breadcrumbs before context loss |
+| `pre-compact.py` | PreCompact | Saves a snapshot of epistemic state before context loss; never blocks compaction (a failed capture saves a `degraded` snapshot and lets it proceed) |
 | `session-init.py` | SessionStart (startup, resume) | Creates session, bootstraps project, posts orientation |
 | `post-compact.py` | SessionStart (compact) | Recovers state after compaction |
 | `ewm-protocol-loader.py` | SessionStart | Loads `workflow-protocol.yaml` if EWM interview ran |
@@ -83,7 +83,7 @@ is grep-able to a specific line in
 |---|---|---|
 | [`session-init.py`](../../../empirica/plugins/claude-code-integration/hooks/session-init.py) | SessionStart | A welcome block: project name, session id, active goals, recent artifacts. Lets you skip "what is this codebase" exploration. |
 | [`post-compact.py`](../../../empirica/plugins/claude-code-integration/hooks/post-compact.py) | After compaction | A recovery block: active transaction state + recent praxic actions so you don't lose continuity. The block you've seen as "POST-COMPACT CHECK GATE". |
-| [`pre-compact.py`](../../../empirica/plugins/claude-code-integration/hooks/pre-compact.py) | PreCompact | A `systemMessage` to the summarizer ("prioritise active transaction + open goals; skip stale findings"). Influences what survives compaction — never modifies your prior responses. |
+| [`pre-compact.py`](../../../empirica/plugins/claude-code-integration/hooks/pre-compact.py) | PreCompact | A `systemMessage` to the summarizer ("prioritise active transaction + open goals; skip stale findings"). Influences what survives compaction — never modifies your prior responses. If context capture fails it says so in the same message and still lets compaction proceed. |
 | [`tool-router.py`](../../../empirica/plugins/claude-code-integration/hooks/tool-router.py) | UserPromptSubmit | A `<semantic-pushback-check>` block reminding you to verify before agreeing with user pushback. Doesn't rewrite the prompt. |
 | [`ewm-protocol-loader.py`](../../../empirica/plugins/claude-code-integration/hooks/ewm-protocol-loader.py) | SessionStart | The user's collaboration profile from `~/.empirica/workflow-protocol.yaml` (role, preferred autonomy, non-negotiables). Helps you tailor responses. |
 | [`context-shift-tracker.py`](../../../empirica/plugins/claude-code-integration/hooks/context-shift-tracker.py) | UserPromptSubmit | A nudge if the user's prompt shifts off the current transaction's scope (advisory; you decide whether to follow). |

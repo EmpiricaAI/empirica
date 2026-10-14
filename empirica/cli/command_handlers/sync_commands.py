@@ -22,6 +22,7 @@ from empirica.core.sync_remotes import CODE, NOTES
 from empirica.core.sync_remotes import refusal as _remote_refusal
 from empirica.core.sync_remotes import render_refusal as _render_remote_refusal
 from empirica.core.sync_remotes import resolve as _resolve_remote
+from empirica.data.impact_value import read_impact
 
 from ..cli_utils import handle_cli_error
 
@@ -1284,7 +1285,9 @@ def _rebuild_insert_breadcrumbs(db, findings, unknowns, dead_ends, mistakes, val
                 session_id=item.get("session_id"),
                 finding=item.get("finding"),
                 subject=item.get("subject"),
-                impact=item.get("impact"),
+                # A note can carry the legacy prose impact the writers now refuse; a rebuild keeps the finding and
+                # reads that impact as the neutral default rather than dropping it.
+                impact=read_impact(item.get("impact")),
                 goal_id=item.get("goal_id") if item.get("goal_id") in vg else None,
                 subtask_id=None,
             ),
