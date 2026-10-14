@@ -14,6 +14,8 @@ import math
 from datetime import datetime
 from typing import ClassVar
 
+from empirica.data.impact_value import read_impact
+
 logger = logging.getLogger(__name__)
 
 
@@ -136,9 +138,9 @@ class FindingsDeprecationEngine:
             time_score = FindingsDeprecationEngine.calculate_time_decay(created_ts)
 
         # Component 2: Impact weight * completion factor (30%)
-        impact = finding.get("impact")
-        if impact is None:
-            impact = 0.5  # Default for NULL values
+        # A NULL or non-numeric stored impact reads as the neutral default: the scorer runs on every bootstrap, and one
+        # legacy row holding prose must not take it down (#415).
+        impact = read_impact(finding.get("impact"))
 
         completion_factor = FindingsDeprecationEngine.calculate_completion_factor(goal_completion)
         impact_score = impact * completion_factor

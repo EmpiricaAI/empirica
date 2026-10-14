@@ -12,6 +12,7 @@ import uuid
 from datetime import datetime
 
 from ..epistemic_source import normalize_epistemic_source
+from ..impact_value import require_impact
 from ..visibility import normalize_visibility
 from .base import BaseRepository
 
@@ -155,6 +156,7 @@ class BreadcrumbRepository(BaseRepository):
         Returns:
             finding_id - new ID if created, existing ID if duplicate found
         """
+        impact = require_impact(impact)  # prose never enters the numeric column (#415)
         # Check for duplicate existing finding (full content match)
         existing_id = self._find_duplicate_finding(project_id, finding)
         if existing_id:
@@ -454,6 +456,7 @@ class BreadcrumbRepository(BaseRepository):
         Returns:
             unknown_id - new ID if created, existing ID if duplicate found
         """
+        impact = require_impact(impact)  # prose never enters the numeric column (#415)
         # Check for duplicate existing unknown (full content match)
         existing_id = self._find_duplicate_unknown(project_id, unknown)
         if existing_id:
@@ -711,6 +714,7 @@ class BreadcrumbRepository(BaseRepository):
         Returns:
             dead_end_id - new ID if created, existing ID if duplicate found
         """
+        impact = require_impact(impact)  # prose never enters the numeric column (#415)
         # Check for duplicate existing dead end (full content match)
         existing_id = self._find_duplicate_dead_end(project_id, approach, why_failed)
         if existing_id:

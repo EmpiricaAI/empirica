@@ -15,8 +15,10 @@ Writes a UNIFIED breadcrumbs git note combining task context + epistemic state.
 
 import json
 import os
+import re
 import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -524,8 +526,105 @@ def main():
     )
 
 
+#: Wall-clock this hook allows itself. The harness kills it at 30 s (settings.json); staying under means a slow step
+#: degrades the snapshot instead of ending in an uncatchable SIGKILL.
+HOOK_BUDGET_SECONDS = 25
+
+#: Longest a single bootstrap call may take, whatever the budget has left.
+BOOTSTRAP_MAX_SECONDS = 20
+
+
+def _practice_project_id(project_root) -> str | None:
+    """The project UUID the practice already declares, so bootstrap need not rediscover it.
+
+    Without it bootstrap resolves through the active-instance mapping and then the git ``origin`` remote, and a practice
+    with neither fails even though this hook is standing in its root.
+    """
+    try:
+        text = (Path(project_root) / ".empirica" / "project.yaml").read_text(encoding="utf-8")
+    except OSError:
+        return None
+    found = re.search(r"^project_id:\s*['\"]?([^'\"\s#]+)", text, re.MULTILINE)
+    return found.group(1) if found else None
+
+
+def _failure_text(result) -> str:
+    """Why a CLI call failed. The CLI prints its diagnostic on stdout, so stderr alone logs an empty string."""
+    return (
+        (result.stderr or "").strip()[:300] or (result.stdout or "").strip()[:300] or f"exit code {result.returncode}"
+    )
+
+
+def _capture_bootstrap(ai_id, project_id, empirica_session, deadline) -> tuple[dict | None, str | None]:
+    """Run project-bootstrap. Returns (breadcrumbs, None) on success, (None, why) on any failure; never raises."""
+    timeout = min(BOOTSTRAP_MAX_SECONDS, deadline - time.monotonic() - 1)
+    if timeout < 2:
+        return None, "no time budget left for project-bootstrap"
+    cmd = ["empirica", "project-bootstrap", "--ai-id", ai_id, "--include-live-state", "--trigger", "pre_compact"]
+    if project_id:
+        cmd += ["--project-id", project_id]
+    if empirica_session:
+        cmd += ["--session-id", empirica_session]
+    cmd += ["--output", "json"]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=os.getcwd())
+    except subprocess.TimeoutExpired:
+        return None, f"project-bootstrap timed out (>{int(timeout)}s)"
+    except Exception as e:
+        return None, f"project-bootstrap could not run: {type(e).__name__}: {str(e)[:200]}"
+    if result.returncode != 0:
+        return None, f"project-bootstrap failed: {_failure_text(result)}"
+    try:
+        bootstrap = json.loads(result.stdout) if result.stdout else {}
+    except json.JSONDecodeError:
+        return None, f"project-bootstrap printed output that is not JSON: {result.stdout[:200]!r}"
+    if not isinstance(bootstrap, dict) or bootstrap.get("ok") is False:
+        return None, f"project-bootstrap refused: {_failure_text(result)}"
+    breadcrumbs = bootstrap.get("breadcrumbs", bootstrap)
+    return (breadcrumbs, None) if isinstance(breadcrumbs, dict) else (None, "project-bootstrap returned no breadcrumbs")
+
+
 def _main_guarded(
-    *, recovered, trigger, empirica_session, last_task, git_context, project_root, claude_session_id=None
+    *,
+    recovered,
+    trigger,
+    empirica_session,
+    last_task,
+    git_context,
+    project_root,
+    claude_session_id=None,
+    deadline=None,
+):
+    """Capture context, then ALWAYS let compaction proceed.
+
+    Context capture is optional work. A failure in it is reported (trace, snapshot ``capture_status``, the summarizer's
+    guidance) and never turned into a veto: exit code 2 here made every retry of a compaction hit the same failure
+    (#415). Whatever the capture could not do, the goals, artifacts and git notes still carry the work.
+    """
+    deadline = deadline if deadline is not None else time.monotonic() + HOOK_BUDGET_SECONDS
+    try:
+        _capture_and_report(
+            recovered=recovered,
+            trigger=trigger,
+            empirica_session=empirica_session,
+            last_task=last_task,
+            git_context=git_context,
+            project_root=project_root,
+            claude_session_id=claude_session_id,
+            deadline=deadline,
+        )
+    except Exception as e:
+        _trace("error", error=f"{type(e).__name__}: {str(e)[:300]}", session=empirica_session)
+        message = (
+            f"Empirica pre-compact capture failed ({type(e).__name__}: {str(e)[:200]}). Goals, artifacts and git notes "
+            "persist; in the summary, preserve the current task, decisions made and open questions."
+        )
+        print(json.dumps({"systemMessage": message}), file=sys.stdout)
+    sys.exit(0)
+
+
+def _capture_and_report(
+    *, recovered, trigger, empirica_session, last_task, git_context, project_root, claude_session_id, deadline
 ):
     practice_db = Path(project_root) / ".empirica" / "sessions" / "sessions.db"
     budget_report = _run_context_budget_triage(empirica_session, db_path=practice_db if practice_db.exists() else None)
@@ -548,122 +647,102 @@ def _main_guarded(
             ai_id = None
     ai_id = ai_id or "claude-code"
 
-    try:
-        result = subprocess.run(
-            [
-                "empirica",
-                "project-bootstrap",
-                "--ai-id",
-                ai_id,
-                "--include-live-state",
-                "--trigger",
-                "pre_compact",
-                "--output",
-                "json",
-            ],
-            capture_output=True,
-            text=True,
-            # The harness gives this hook 30s TOTAL (settings.json). Handing all
-            # 30 to one subprocess means the timeout that fires is the harness's
-            # SIGKILL rather than our own catchable TimeoutExpired. Keep headroom.
-            timeout=20,
-            cwd=os.getcwd(),
+    breadcrumbs, bootstrap_error = _capture_bootstrap(
+        ai_id, _practice_project_id(project_root), empirica_session, deadline
+    )
+    capture_status = "complete" if breadcrumbs is not None else "degraded"
+    if bootstrap_error:
+        _trace("bootstrap_failed", error=bootstrap_error, session=empirica_session)
+        breadcrumbs = {"session_id": empirica_session}
+
+    # Save snapshot to .empirica/ref-docs
+    ref_docs_dir = Path.cwd() / ".empirica" / "ref-docs"
+    ref_docs_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
+    snapshot_path = ref_docs_dir / f"pre_summary_{timestamp}.json"
+
+    live_state = breadcrumbs.get("live_state", {})
+    fallback_vectors = live_state.get("vectors", {}) if live_state else {}
+
+    snapshot = {
+        "type": "pre_summary_snapshot",
+        "timestamp": timestamp,
+        **_snapshot_identity(claude_session_id, empirica_session),
+        "session_id": breadcrumbs.get("session_id"),
+        "trigger": trigger,
+        "capture_status": capture_status,
+        "bootstrap_error": bootstrap_error,
+        "vectors_canonical": fresh_vectors,
+        "vectors_source": "assess-state" if fresh_vectors else "live_state_fallback",
+        "checkpoint": fresh_vectors or fallback_vectors,
+        "live_state": live_state,
+        "assess_error": assess_error,
+        "breadcrumbs_summary": {
+            "findings_count": len(breadcrumbs.get("findings", [])),
+            "unknowns_count": len(breadcrumbs.get("unknowns", [])),
+            "goals_count": len(breadcrumbs.get("goals", [])),
+            "dead_ends_count": len(breadcrumbs.get("dead_ends", [])),
+        },
+        "context_budget": budget_report,
+        "active_transaction": active_transaction,
+        "hook_counters": hook_counters,
+        "last_task": last_task,
+        "git_context": git_context,
+    }
+
+    with open(snapshot_path, "w") as f:
+        json.dump(snapshot, f, indent=2)
+    _trace(
+        "snapshot_written", path=str(snapshot_path), trigger=trigger, session=empirica_session, status=capture_status
+    )
+
+    # Write unified breadcrumbs git note
+    session_id_for_notes = breadcrumbs.get("session_id") or empirica_session
+    git_notes_written = _write_unified_breadcrumbs_note(
+        session_id=session_id_for_notes,
+        timestamp=timestamp,
+        vectors=fresh_vectors or fallback_vectors,
+        snapshot_filename=snapshot_path.name,
+        breadcrumbs_summary=snapshot["breadcrumbs_summary"],
+        last_task=last_task,
+        git_context=git_context,
+    )
+
+    display_vectors = fresh_vectors or fallback_vectors
+    vector_source = "canonical" if fresh_vectors else "fallback"
+    compact_guidance, has_open_transaction = _build_compact_guidance(breadcrumbs, active_transaction, display_vectors)
+    if bootstrap_error:
+        compact_guidance += (
+            f"\nContext capture was DEGRADED ({bootstrap_error}). Goals, artifacts and git notes still persist; "
+            "preserve the current task, decisions made and open questions in the summary."
         )
 
-        if result.returncode != 0:
-            _trace("bootstrap_failed", rc=result.returncode, stderr=result.stderr[:300], session=empirica_session)
-            print(json.dumps({"stopReason": f"project-bootstrap failed: {result.stderr[:200]}"}), file=sys.stdout)
-            sys.exit(2)
+    print(json.dumps({"systemMessage": compact_guidance}), file=sys.stdout)
 
-        bootstrap = json.loads(result.stdout) if result.stdout else {}
-        breadcrumbs = bootstrap.get("breadcrumbs", bootstrap)
-
-        # Save snapshot to .empirica/ref-docs
-        ref_docs_dir = Path.cwd() / ".empirica" / "ref-docs"
-        ref_docs_dir.mkdir(parents=True, exist_ok=True)
-        timestamp = datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
-        snapshot_path = ref_docs_dir / f"pre_summary_{timestamp}.json"
-
-        live_state = breadcrumbs.get("live_state", {})
-        fallback_vectors = live_state.get("vectors", {}) if live_state else {}
-
-        snapshot = {
-            "type": "pre_summary_snapshot",
-            "timestamp": timestamp,
-            **_snapshot_identity(claude_session_id, empirica_session),
-            "session_id": breadcrumbs.get("session_id"),
-            "trigger": trigger,
-            "vectors_canonical": fresh_vectors,
-            "vectors_source": "assess-state" if fresh_vectors else "live_state_fallback",
-            "checkpoint": fresh_vectors or fallback_vectors,
-            "live_state": live_state,
-            "assess_error": assess_error,
-            "breadcrumbs_summary": {
-                "findings_count": len(breadcrumbs.get("findings", [])),
-                "unknowns_count": len(breadcrumbs.get("unknowns", [])),
-                "goals_count": len(breadcrumbs.get("goals", [])),
-                "dead_ends_count": len(breadcrumbs.get("dead_ends", [])),
-            },
-            "context_budget": budget_report,
-            "active_transaction": active_transaction,
-            "hook_counters": hook_counters,
-            "last_task": last_task,
-            "git_context": git_context,
-        }
-
-        with open(snapshot_path, "w") as f:
-            json.dump(snapshot, f, indent=2)
-        _trace("snapshot_written", path=str(snapshot_path), trigger=trigger, session=empirica_session)
-
-        # Write unified breadcrumbs git note
-        session_id_for_notes = breadcrumbs.get("session_id") or empirica_session
-        git_notes_written = _write_unified_breadcrumbs_note(
-            session_id=session_id_for_notes,
-            timestamp=timestamp,
-            vectors=fresh_vectors or fallback_vectors,
-            snapshot_filename=snapshot_path.name,
-            breadcrumbs_summary=snapshot["breadcrumbs_summary"],
-            last_task=last_task,
-            git_context=git_context,
-        )
-
-        display_vectors = fresh_vectors or fallback_vectors
-        vector_source = "canonical" if fresh_vectors else "fallback"
-        compact_guidance, has_open_transaction = _build_compact_guidance(
-            breadcrumbs, active_transaction, display_vectors
-        )
-
-        print(json.dumps({"systemMessage": compact_guidance}), file=sys.stdout)
-
-        # Print user-visible message to stderr
-        session_id_str = breadcrumbs.get("session_id", "Unknown")
-        session_display = session_id_str[:8] if session_id_str else "Unknown"
-        notes_msg = "✓" if git_notes_written else "✗"
-        stash_msg = f"\n   Recovered an orphaned stash from an older run: {recovered}" if recovered else ""
-        tx_state_msg = "OPEN (carrying through)" if has_open_transaction else "CLOSED (vectors historical)"
-        print(
-            f"""
-📸 Empirica: Pre-compact snapshot saved — compaction is lossless (goals/artifacts/git-notes persist)
+    # Print user-visible message to stderr
+    session_id_str = breadcrumbs.get("session_id", "Unknown")
+    session_display = session_id_str[:8] if session_id_str else "Unknown"
+    notes_msg = "✓" if git_notes_written else "✗"
+    stash_msg = f"\n   Recovered an orphaned stash from an older run: {recovered}" if recovered else ""
+    tx_state_msg = "OPEN (carrying through)" if has_open_transaction else "CLOSED (vectors historical)"
+    headline = (
+        "📸 Empirica: Pre-compact snapshot saved — compaction is lossless (goals/artifacts/git-notes persist)"
+        if capture_status == "complete"
+        else "⚠️  Empirica: Pre-compact snapshot saved DEGRADED — compaction proceeds (goals/artifacts/git-notes persist)"
+    )
+    error_msg = f"\n   Bootstrap: {bootstrap_error}" if bootstrap_error else ""
+    print(
+        f"""
+{headline}
    Session: {session_display}...
    Trigger: {trigger}
    Transaction: {tx_state_msg}
-   Vectors: {vector_source} ({len(display_vectors)} captured)
+   Vectors: {vector_source} ({len(display_vectors)} captured){error_msg}
    Snapshot: {snapshot_path.name}
    Git notes: {notes_msg}{stash_msg}
 """,
-            file=sys.stderr,
-        )
-
-        sys.exit(0)
-
-    except subprocess.TimeoutExpired:
-        _trace("bootstrap_timeout", session=empirica_session)
-        print(json.dumps({"stopReason": "project-bootstrap timed out (>30s)"}), file=sys.stdout)
-        sys.exit(2)
-    except Exception as e:
-        _trace("error", error=f"{type(e).__name__}: {str(e)[:300]}", session=empirica_session)
-        print(json.dumps({"stopReason": f"pre-compact error: {str(e)[:200]}"}), file=sys.stdout)
-        sys.exit(2)
+        file=sys.stderr,
+    )
 
 
 if __name__ == "__main__":

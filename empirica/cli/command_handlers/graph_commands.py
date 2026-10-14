@@ -13,6 +13,7 @@ import uuid
 
 from empirica.data.epistemic_source import EPISTEMIC_SOURCES
 from empirica.data.id_guard import resolve_id_prefix
+from empirica.data.impact_value import require_impact
 
 from ..cli_utils import handle_cli_error
 
@@ -437,6 +438,16 @@ def _sync_resolution_to_qdrant(db, table: str, artifact_id: str, kind, supersede
             mark_resolved_in_qdrant(row[0], artifact_id, resolution_kind=kind, superseded_by=superseded_by)
     except Exception as exc:
         logger.debug(f"qdrant resolution sync skipped for {artifact_id[:8]}: {exc}")
+
+
+def _impact_refusal(node: dict) -> str | None:
+    """Why this node's ``impact`` cannot be stored, or None. Said up front: ``_create_node`` swallows a writer's error
+    into a bare "Failed to create", which would leave a refused impact looking like any other failure (#415)."""
+    try:
+        require_impact((node.get("data") or {}).get("impact"))
+    except ValueError as e:
+        return str(e)
+    return None
 
 
 def _create_node(db, node: dict, context: dict) -> str | None:
@@ -1048,6 +1059,10 @@ def log_artifacts_graph(
                 except ValueError as e:
                     created_errors.append(f"Failed to create {node['type']} '{node['ref']}': {e}")
                     continue
+            refusal = _impact_refusal(node)
+            if refusal:
+                created_errors.append(f"Failed to create {node['type']} '{node['ref']}': {refusal}")
+                continue
             artifact_id = _create_node(db, node, context)
             if artifact_id:
                 ref_map[node["ref"]] = artifact_id
