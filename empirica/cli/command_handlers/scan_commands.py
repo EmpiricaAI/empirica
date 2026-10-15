@@ -26,6 +26,24 @@ def _empirica_home() -> Path:
     return home
 
 
+def _write_private(path, text: str, append: bool = False) -> None:
+    """Write ``text`` to ``path`` readable by the owner only, whatever mode the file had before.
+
+    ``open(path, "w")`` keeps the mode of an existing file and otherwise uses the umask (664 here), so a snapshot that once held
+    command lines was group-readable for as long as it lived. The file is created 0600 and chmod'ed again for the existing case.
+    """
+    flags = os.O_WRONLY | os.O_CREAT | (os.O_APPEND if append else os.O_TRUNC)
+    fd = os.open(path, flags, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "a" if append else "w", encoding="utf-8") as fh:
+            fd = -1
+            fh.write(text)
+    finally:
+        if fd >= 0:
+            os.close(fd)
+
+
 def _persist_scan(snapshot_dict: dict, project_id: str | None) -> dict[str, str]:
     """Write the snapshot to disk for cockpit consumption.
 
@@ -36,16 +54,14 @@ def _persist_scan(snapshot_dict: dict, project_id: str | None) -> dict[str, str]
     home = _empirica_home()
 
     scans_dir = home / "scans"
-    scans_dir.mkdir(parents=True, exist_ok=True)
+    scans_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
     scan_path = scans_dir / f"{snapshot_dict['scan_id']}.json"
-    with scan_path.open("w", encoding="utf-8") as fh:
-        json.dump(snapshot_dict, fh, indent=2, default=str)
+    _write_private(scan_path, json.dumps(snapshot_dict, indent=2, default=str))
     paths["scan_path"] = str(scan_path)
 
     if project_id:
         last_path = home / f"last_scan_{project_id}.json"
-        with last_path.open("w", encoding="utf-8") as fh:
-            json.dump(snapshot_dict, fh, indent=2, default=str)
+        _write_private(last_path, json.dumps(snapshot_dict, indent=2, default=str))
         paths["last_scan_path"] = str(last_path)
 
         history_path = home / f"scan_history_{project_id}.jsonl"
@@ -58,8 +74,7 @@ def _persist_scan(snapshot_dict: dict, project_id: str | None) -> dict[str, str]
             "coverage": snapshot_dict.get("snapshot", {}).get("coverage", {}),
             "errors": len(snapshot_dict.get("errors") or []),
         }
-        with history_path.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(history_summary, default=str) + "\n")
+        _write_private(history_path, json.dumps(history_summary, default=str) + "\n", append=True)
         paths["history_path"] = str(history_path)
 
     return paths

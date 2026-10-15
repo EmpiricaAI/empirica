@@ -262,6 +262,7 @@ does not exist, and adding Agentic-A11+ is a separate decision).
 
 Cross-reference note: the `LLM-A01`, `LLM-A03` and `LLM-A08` labels used in
 the bodies above are this corpus's own labels from `owasp-llm-top10.md`, not
-the 2025 LLM Top 10 IDs. In the 2025 edition the matching entries are
-LLM01:2025 Prompt Injection, LLM04:2025 Data and Model Poisoning and
-LLM06:2025 Excessive Agency. Reconcile in that file, not here.
+OWASP's IDs. In the 2026 LLM edition the matching entries are LLM01:2026
+Prompt Injection, LLM05:2026 Data and Model Poisoning and LLM03:2026 Excessive
+Agency (LLM01:2025, LLM04:2025 and LLM06:2025 in the 2025 edition). The ID map
+in `owasp-llm-top10.md` is the one to trust; reconcile there, not here.

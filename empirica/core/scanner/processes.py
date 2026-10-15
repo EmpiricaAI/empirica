@@ -12,12 +12,18 @@ import os
 import time
 from typing import Any
 
+from empirica.core.redaction import redact_secrets
+
 logger = logging.getLogger(__name__)
 
 
 def _shorten_cmdline(cmdline: list[str], max_chars: int = 512) -> str:
-    """Join a process cmdline list and clip to ``max_chars`` for safety."""
-    text = " ".join(cmdline) if cmdline else ""
+    """Join a process cmdline list, scrub credentials, and clip to ``max_chars``.
+
+    Redaction comes BEFORE the clip: clipping first can cut a token in half and leave a readable fragment. Listener processes
+    carry a bearer token in argv (``curl -H 'Authorization: Bearer tk_...'``), and a snapshot is a file that outlives the process.
+    """
+    text = redact_secrets(" ".join(cmdline)) if cmdline else ""
     if len(text) <= max_chars:
         return text
     return text[: max_chars - 1] + "…"
