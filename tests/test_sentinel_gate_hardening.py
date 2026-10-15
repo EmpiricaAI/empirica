@@ -1037,3 +1037,47 @@ def test_the_blocked_presence_stamp_anchors_on_claude_not_on_the_hook_that_ran_t
     monkeypatch.delenv("EMPIRICA_HOOK_PARENT_PID")
     sg._stamp_blocked_presence("cc-1", {"questions": [{"question": "q?"}]})
     assert captured["cmd"][captured["cmd"].index("--session-pid") + 1] == str(__import__("os").getppid())
+
+
+def _capture_blocked_stamp(sg, monkeypatch, *, question="q?", env_pid=None):
+    captured = {}
+
+    class _Popen:
+        def __init__(self, cmd, **_kw):
+            captured["cmd"] = cmd
+
+    monkeypatch.setattr("subprocess.Popen", _Popen)
+    if env_pid is None:
+        monkeypatch.delenv("EMPIRICA_HOOK_PARENT_PID", raising=False)
+    else:
+        monkeypatch.setenv("EMPIRICA_HOOK_PARENT_PID", env_pid)
+    sg._stamp_blocked_presence("cc-1", {"questions": [{"question": question}]})
+    return captured.get("cmd")
+
+
+@pytest.mark.parametrize("bad", ["--output=x", "123; rm -rf /", "-1", "12 34", "abc", " ", "1e5"])
+def test_only_a_numeric_parent_pid_reaches_the_argv(sg, monkeypatch, bad):
+    """The value comes from the environment and goes into a child's argv. Anything that is not a pid falls back to our own
+    parent instead of becoming an argument (semgrep: dangerous-subprocess-use-tainted-env-args)."""
+    cmd = _capture_blocked_stamp(sg, monkeypatch, env_pid=bad)
+    assert cmd[cmd.index("--session-pid") + 1] == str(__import__("os").getppid())
+
+
+@pytest.mark.parametrize("question", ["--output json", "- which option?", "-1 or 2?", "---"])
+def test_a_question_that_starts_with_a_dash_is_never_read_as_an_option(sg, monkeypatch, question):
+    """argparse treats a value that begins with '-' as a flag and refuses the whole write, so the stamp silently vanished."""
+    cmd = _capture_blocked_stamp(sg, monkeypatch, question=question)
+    flag = cmd.index("--pending-question") if "--pending-question" in cmd else None
+    if flag is not None:
+        assert not cmd[flag + 1].startswith("-")
+    assert cmd.count("--output") == 1, "the question must not be able to add an option"
+
+
+def test_a_question_made_only_of_dashes_is_dropped_not_sent_empty(sg, monkeypatch):
+    cmd = _capture_blocked_stamp(sg, monkeypatch, question="---")
+    assert "--pending-question" not in cmd
+
+
+def test_an_ordinary_question_is_passed_through_unchanged(sg, monkeypatch):
+    cmd = _capture_blocked_stamp(sg, monkeypatch, question="Which release channel first?")
+    assert cmd[cmd.index("--pending-question") + 1] == "Which release channel first?"

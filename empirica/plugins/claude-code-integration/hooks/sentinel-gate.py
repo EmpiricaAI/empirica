@@ -1883,6 +1883,8 @@ def _stamp_blocked_presence(claude_session_id: str | None, tool_input: dict | No
     try:
         import subprocess
 
+        env_pid = os.environ.get("EMPIRICA_HOOK_PARENT_PID") or ""
+        parent_pid = env_pid if env_pid.isascii() and env_pid.isdigit() else str(os.getppid())
         cmd = [
             "empirica",
             "practitioner",
@@ -1892,13 +1894,21 @@ def _stamp_blocked_presence(claude_session_id: str | None, tool_input: dict | No
             "--status",
             "blocked",
             "--session-pid",
-            # ruling-shape runs this gate as a child and names Claude Code here; getppid() would be ruling-shape
-            os.environ.get("EMPIRICA_HOOK_PARENT_PID") or str(os.getppid()),
+            # ruling-shape runs this gate as a child and names Claude Code here; getppid() would be ruling-shape. The
+            # value comes from the environment and lands in a child's argv, so only a pid is accepted: anything else
+            # falls back to our own parent rather than becoming an argument.
+            parent_pid,
             "--output",
             "json",
         ]
+        # A value that begins with '-' is read by argparse as an option and the whole write is refused, so a question
+        # such as "- which one?" silently lost the stamp. Strip the leading dashes; nothing left means no flag.
+        pending = pending.lstrip("-").strip() if pending else None
         if pending:
             cmd += ["--pending-question", pending]
+        # List-form argv, no shell. The pid is digits-only and the question cannot begin with '-' (both enforced above and
+        # tested), so nothing in cmd can become an option or a shell word.
+        # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-tainted-env-args.dangerous-subprocess-use-tainted-env-args
         subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except Exception:
         pass
