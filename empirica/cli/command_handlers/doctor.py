@@ -1777,6 +1777,116 @@ def _days_newest_finding_is_ahead(cwd: Path, last_run_ts: float) -> float | None
     return None if newest is None else (newest - last_run_ts) / 86400
 
 
+#: How much of the end of precompact.log is read. The log is never rotated; the recent runs are all this needs.
+PRECOMPACT_LOG_TAIL_BYTES = 256 * 1024
+
+#: Consecutive bad runs before the check warns. One or two are reported in the detail and do not alarm.
+PRECOMPACT_BAD_RUNS_TO_WARN = 3
+
+_PRECOMPACT_FAILURE_OUTCOMES = frozenset({"error", "bootstrap_timeout", "nonzero_exit_suppressed", "bad_hook_input"})
+
+
+def _precompact_runs(lines: list[str], cwd: Path) -> list[dict]:
+    """The pre-compact runs for ``cwd``, oldest first, each {'state': ok|degraded|failed, 'ts': str, 'error': str}.
+
+    A degraded run writes two lines (``bootstrap_failed`` and then ``snapshot_written`` with ``status: degraded``) and is ONE run.
+    A hook older than 1.14.11 wrote ``bootstrap_failed`` and exited without a snapshot, which is one failed run. Intentional skips
+    (no session, no project) and the cosmetic ``banner_failed`` are not runs.
+    """
+    import json as _json
+
+    runs: list[dict] = []
+    pending: dict | None = None
+    for raw in lines:
+        try:
+            rec = _json.loads(raw)
+        except ValueError:
+            continue
+        if not isinstance(rec, dict) or rec.get("cwd") != str(cwd):
+            continue
+        outcome = rec.get("outcome")
+        ts = str(rec.get("ts") or "")
+        message = str(rec.get("error") or rec.get("stderr") or "").strip() or "no message recorded"
+        if outcome == "bootstrap_failed":
+            if pending is not None:
+                runs.append(pending)
+            pending = {"state": "failed", "ts": ts, "error": message}
+            continue
+        if outcome == "snapshot_written":
+            if rec.get("status") == "degraded" or pending is not None:
+                runs.append(
+                    {"state": "degraded", "ts": ts, "error": (pending or {}).get("error", "no message recorded")}
+                )
+            else:
+                runs.append({"state": "ok", "ts": ts, "error": ""})
+            pending = None
+            continue
+        if pending is not None:
+            runs.append(pending)
+            pending = None
+        if outcome in _PRECOMPACT_FAILURE_OUTCOMES:
+            runs.append({"state": "failed", "ts": ts, "error": message})
+    if pending is not None:
+        runs.append(pending)
+    return runs
+
+
+def check_precompact_health(cwd: Path | None = None, log_path: Path | None = None, now: float | None = None) -> Check:
+    """Is this project's pre-compact capture working, or has it been degrading or failing run after run?
+
+    Reads ``~/.empirica/precompact.log``. It warns only when the latest few runs are ALL bad; one or two are named in the detail so
+    a transient failure is visible without being an alarm. It never fails: the hook lets compaction proceed whatever it finds.
+    """
+    import time as _time
+    from datetime import datetime as _dt
+
+    name = "pre-compact capture"
+    cwd = cwd or Path.cwd()
+    path = log_path or Path.home() / ".empirica" / "precompact.log"
+    try:
+        with open(path, "rb") as fh:
+            fh.seek(0, 2)
+            size = fh.tell()
+            fh.seek(max(0, size - PRECOMPACT_LOG_TAIL_BYTES))
+            chunk = fh.read()
+    except OSError:
+        return Check(name, SKIP, "no pre-compact run recorded (precompact.log does not exist)")
+    text = chunk.decode("utf-8", errors="replace")
+    lines = text.splitlines()[1:] if size > PRECOMPACT_LOG_TAIL_BYTES else text.splitlines()
+    runs = _precompact_runs(lines, cwd)
+    if not runs:
+        return Check(
+            name,
+            SKIP,
+            "no pre-compact run recorded for this project (nothing has compacted yet, or the hook is not firing)",
+        )
+    latest = runs[-1]
+    streak = 0
+    for run in reversed(runs):
+        if run["state"] == "ok":
+            break
+        streak += 1
+    counts = {state: sum(1 for r in runs if r["state"] == state) for state in ("ok", "degraded", "failed")}
+    try:
+        age = (now if now is not None else _time.time()) - _dt.fromisoformat(latest["ts"]).timestamp()
+        age_text = f"{int(age // 86400)}d ago" if age >= 86400 else f"{int(age // 3600)}h ago"
+    except ValueError:
+        age_text = "at an unknown time"
+    data = {"runs": len(runs), **counts, "latest": latest, "bad_streak": streak}
+    if streak >= PRECOMPACT_BAD_RUNS_TO_WARN:
+        return Check(
+            name,
+            WARN,
+            f"the last {streak} pre-compact runs in a row failed or were degraded; latest ({latest['state']}) {age_text}: {latest['error']}",
+            "run `empirica project-bootstrap` in this project to see the error; see ~/.empirica/precompact.log",
+            data=data,
+        )
+    summary = f"{len(runs)} recent runs: {counts['ok']} ok, {counts['degraded']} degraded, {counts['failed']} failed; latest {age_text}"
+    if latest["state"] != "ok":
+        summary += f"; latest run {latest['state']} ({streak} in a row): {latest['error']}"
+    return Check(name, PASS, summary, data=data)
+
+
 #: Days after which a corpus file's ``**Verified:**`` date is reported as old. Matches the documentation drift gate.
 SECURITY_CORPUS_MAX_AGE_DAYS = 180
 
@@ -2998,6 +3108,7 @@ def run_all_checks(cwd: Path | None = None) -> list[Check]:
         check_retrieval_telemetry(cwd),
         check_project_embed_outcome(cwd),
         check_security_corpus(),
+        check_precompact_health(cwd),
         check_notes_sqlite_divergence(cwd),
         check_git_remote(cwd),
         check_sync_state(cwd),
