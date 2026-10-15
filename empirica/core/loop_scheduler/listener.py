@@ -258,17 +258,39 @@ def _open_stream(
     response so the caller can read the HTTP status line; the listener
     body skips header lines until the empty-line separator.
     """
+    config = _curl_header_config(headers)
     args = ["curl", "-sSN", "-i", "--no-buffer", "--keepalive-time", "30"]
-    for k, v in headers.items():
-        args += ["-H", f"{k}: {v}"]
+    if config:
+        # Headers go through curl's config channel (stdin), never argv: the bearer token would otherwise sit on the command
+        # line of a process that lives for days, readable through ps and /proc/<pid>/cmdline by any local user.
+        args += ["-K", "-"]
     args.append(url)
-    return subprocess.Popen(
+    proc = subprocess.Popen(
         args,
+        stdin=subprocess.PIPE if config else None,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
         bufsize=1,  # line-buffered
     )
+    if config and proc.stdin is not None:
+        try:
+            proc.stdin.write(config)
+        finally:
+            proc.stdin.close()
+    return proc
+
+
+def _curl_header_config(headers: dict[str, str]) -> str:
+    """The ``header = "k: v"`` lines of a curl config for ``headers``. Raises ValueError for a name or value that could add a
+    header or break the quoting (CR, LF, NUL, or a colon in a name)."""
+    lines = []
+    for name, value in headers.items():
+        if not name or any(c in name for c in "\r\n\0:") or any(c in str(value) for c in "\r\n\0"):
+            raise ValueError(f"header {name!r} has a line break, NUL or ':' where none is allowed")
+        text = f"{name}: {value}".replace("\\", "\\\\").replace('"', '\\"')
+        lines.append(f'header = "{text}"')
+    return "\n".join(lines) + "\n" if lines else ""
 
 
 def _read_http_status(proc: subprocess.Popen) -> int | None:
