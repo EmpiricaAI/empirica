@@ -69,19 +69,29 @@ If absent, run `empirica scan --save` yourself first, then read it.
 
 ### 2. The bundled security corpus
 
-Stable, citable canon at `empirica/data/security-corpus/` (or the
-user-customizable copy at `~/.empirica/security-corpus/` if present):
+Summary-grade notes on five frameworks, in the `corpus/` directory next to
+this SKILL.md (the base directory shown when the skill loads). A file of the
+same name in `~/.empirica/security-corpus/` overrides the shipped one. Each
+file's header states its **Edition** and the date it was last **Verified**
+against the published source; read both before you rely on a file.
 
-| File | Source | Section IDs you cite |
+| File | Source | Labels you cite |
 |---|---|---|
-| `owasp-llm-top10.md` | OWASP 2025 | `LLM-A01` … `LLM-A10` |
-| `owasp-agentic-top10.md` | OWASP Dec 2025 | `Agentic-A01` … `Agentic-A10` |
-| `nist-ai-rmf.md` | NIST AI RMF 1.0 | `GOVERN-1.5`, `MEASURE-2.7`, … |
-| `mitre-atlas.md` | MITRE ATLAS | `T1499`, `T1078`, `T1588`, `T1059`, … |
+| `owasp-llm-top10.md` | OWASP Top 10 for LLM Applications | `LLM-A01` … `LLM-A12` |
+| `owasp-agentic-top10.md` | OWASP Top 10 for Agentic Applications | `Agentic-A01` … `Agentic-A10` |
+| `nist-ai-rmf.md` | NIST AI RMF 1.0 | the headings, e.g. `GOVERN-1`, `MEASURE-2` |
+| `mitre-atlas.md` | MITRE ATLAS | the official `AML.T####` (technique) and `AML.TA####` (tactic) IDs |
 | `google-saif.md` | Google SAIF | `SAIF-1` … `SAIF-6` |
 
-Section IDs are stable across revisions even when the body content
-is currently a stub. Cite the IDs.
+The `LLM-A##`, `Agentic-A##`, `SAIF-#` and NIST heading labels are the
+corpus's own, kept stable so a citation stays valid. Every section also shows
+the framework's **official** identifier: put the official ID in the artifact
+text a person will read, and the label beside it. Where our label does not
+match the official entry of the same number (the file says so), trust the
+official one. Section bodies are summaries and mostly not compared with the
+published text; the files mark what was not checked. If a file is more than
+180 days past its Verified date, say so in the finding instead of presenting it
+as current.
 
 ---
 
@@ -163,14 +173,14 @@ fraction of the relevant material you actually inspected:
 | Dimension | Numerator | Denominator |
 |---|---|---|
 | **Process coverage** | processes you full-judged in tier 2 | AI-touching processes after tier 1 filter |
-| **Citation coverage** | unique corpus section IDs you cited | corpus sections that exist (sum across the 5 files) |
+| **Citation coverage** | unique corpus sections you cited | corpus sections that exist (count the `##` headings that carry an ID, across the 5 files) |
 | **Listener coverage** | listeners you judged | total listeners in `network.connections` |
 
 Surface the numbers in your final summary, e.g.:
 
 ```
 Coverage: 18/24 AI-touching processes judged (75%),
-          7/52 corpus sections cited (13%),
+          7/50 corpus sections cited (14%),
           4/4 listeners judged (100%).
 ```
 
@@ -189,7 +199,7 @@ empirica postflight-submit - <<'EOF'
 {
   "vectors": { "...": "YOUR assessment — what the audit actually established"
   },
-  "reasoning": "Audit complete. Judged N AI-touching processes against corpus. Emitted X findings + Y assumptions + Z unknowns. Citation coverage K/52. Recommended actions surfaced as text — no destructive operations performed."
+  "reasoning": "Audit complete. Judged N AI-touching processes against corpus. Emitted X findings + Y assumptions + Z unknowns. Citation coverage K/N. Recommended actions surfaced as text — no destructive operations performed."
 }
 EOF
 ```

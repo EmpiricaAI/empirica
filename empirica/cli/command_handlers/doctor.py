@@ -1777,6 +1777,68 @@ def _days_newest_finding_is_ahead(cwd: Path, last_run_ts: float) -> float | None
     return None if newest is None else (newest - last_run_ts) / 86400
 
 
+#: Days after which a corpus file's ``**Verified:**`` date is reported as old. Matches the documentation drift gate.
+SECURITY_CORPUS_MAX_AGE_DAYS = 180
+
+
+def _security_corpus_dir() -> Path:
+    """The corpus as shipped: beside the services-auditor skill, which setup-claude-code deploys with it."""
+    return (
+        Path(__file__).resolve().parents[2]
+        / "plugins"
+        / "claude-code-integration"
+        / "skills"
+        / "services-auditor"
+        / "corpus"
+    )
+
+
+def check_security_corpus(corpus_dir: Path | None = None, now: float | None = None) -> Check:
+    """When was each security-corpus file last re-verified against its published source?
+
+    Nothing refreshes the corpus; a person re-checks a file and bumps its ``**Verified:**`` date. This reads those dates so a
+    corpus that has gone unattended is seen, and it never fails: a calendar flip must not redden a build on its own.
+    """
+    import re as _re
+    import time as _time
+    from datetime import datetime as _dt
+
+    name = "security corpus"
+    directory = corpus_dir or _security_corpus_dir()
+    files = sorted(f for f in directory.glob("*.md") if f.name.lower() != "readme.md") if directory.is_dir() else []
+    if not files:
+        return Check(
+            name, WARN, f"not found at {directory}", "reinstall empirica, then run `empirica setup-claude-code`"
+        )
+    today = now if now is not None else _time.time()
+    ages: dict[str, int] = {}
+    problems: list[str] = []
+    for f in files:
+        found = _re.search(
+            r"^\*\*Verified:\*\*\s*(\d{4}-\d{2}-\d{2})", f.read_text(encoding="utf-8", errors="replace"), _re.M
+        )
+        if not found:
+            problems.append(f"{f.name}: no Verified date")
+            continue
+        try:
+            ages[f.name] = int((today - _dt.strptime(found.group(1), "%Y-%m-%d").timestamp()) // 86400)
+        except ValueError:
+            problems.append(f"{f.name}: unreadable Verified date {found.group(1)!r}")
+    old = {n: a for n, a in ages.items() if a > SECURITY_CORPUS_MAX_AGE_DAYS}
+    problems += [f"{n}: verified {a} days ago" for n, a in sorted(old.items())]
+    data = {"files": len(files), "ages_days": ages}
+    if problems:
+        return Check(
+            name,
+            WARN,
+            "; ".join(problems),
+            "re-verify the file against its Canonical source, fix what differs, then update its Verified date",
+            data=data,
+        )
+    oldest = max(ages, key=lambda n: ages[n])
+    return Check(name, PASS, f"{len(files)} files, oldest verified {ages[oldest]} days ago ({oldest})", data=data)
+
+
 def check_retrieval_telemetry(cwd: Path | None = None) -> Check:
     """Are retrieval counters actually being written?
 
@@ -2935,6 +2997,7 @@ def run_all_checks(cwd: Path | None = None) -> list[Check]:
         check_unreleased_commits(cwd),
         check_retrieval_telemetry(cwd),
         check_project_embed_outcome(cwd),
+        check_security_corpus(),
         check_notes_sqlite_divergence(cwd),
         check_git_remote(cwd),
         check_sync_state(cwd),

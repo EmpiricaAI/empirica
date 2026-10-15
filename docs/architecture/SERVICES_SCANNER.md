@@ -27,7 +27,7 @@ empirica services-audit ─► scan --save ─► diff vs previous history entry
 | `empirica/core/scanner/report.py` | Markdown renderer |
 | `empirica/cli/command_handlers/scan_commands.py`, `empirica/cli/parsers/scan_parsers.py` | `scan`, `scan-history`, `scan-show`, `scan-diff`, `services-audit` |
 | `empirica/core/cockpit/services_view.py` | Reads the last snapshot for the cockpit |
-| `empirica/data/security-corpus/` | Five framework files the auditor cites |
+| `empirica/plugins/claude-code-integration/skills/services-auditor/corpus/` | Five framework files the auditor cites (shipped with the skill) |
 | `empirica/plugins/claude-code-integration/skills/services-auditor/`, `.../services-audit-cron/` | The judgment skill and the cron wiring |
 
 ## Commands
@@ -109,7 +109,7 @@ It is informative, not gating: nothing fails when coverage is low or absent. Its
 
 `empirica scan --explain` saves the snapshot and prints the hand-off (or, with `--output json`, a structured envelope for automation). An AI session then loads `/services-auditor`, which runs an ordinary transaction with `work_type=audit`:
 
-1. Read the saved snapshot and the corpus in `empirica/data/security-corpus/` (the skill also names `~/.empirica/security-corpus/` as a user-editable copy if present; nothing in the code I found creates that directory).
+1. Read the saved snapshot and the corpus in the skill's `corpus/` directory (a same-named file in `~/.empirica/security-corpus/` overrides the shipped one; nothing creates that directory).
 2. Tier 1: a cheap pre-filter for AI-touching entries (cmdline, env-var names, ports, MCP registry).
 3. Tier 2: full judgment per AI-touching entry against the corpus.
 4. Emit artifacts under the confidence and citation ladder below.
@@ -126,7 +126,7 @@ The skill is read-only by design: it emits `recommended_action` strings and neve
 
 ### The corpus
 
-`empirica/data/security-corpus/` holds `owasp-llm-top10.md`, `owasp-agentic-top10.md`, `nist-ai-rmf.md`, `mitre-atlas.md` and `google-saif.md`, with section bodies populated at summary grade. Section IDs follow the source frameworks, so a citation stays valid when a body is refreshed. Each file declares its own freshness in a `Status:` line. The corpus README mentions a scheduled corpus-refresh loop; I found no code that implements one.
+The skill's `corpus/` directory holds `owasp-llm-top10.md`, `owasp-agentic-top10.md`, `nist-ai-rmf.md`, `mitre-atlas.md` and `google-saif.md`, with section bodies at summary grade. It ships in the wheel and `setup-claude-code` deploys it with the skill. Each file declares its `Edition` and a `Verified` date; `empirica doctor` warns when a date is missing or older than 180 days. Nothing refreshes the files automatically: re-verifying one is a manual comparison with its canonical source (see the corpus README). Identifiers carry the framework's official ID beside our stable label.
 
 ## Scheduled audits: `services-audit`
 
