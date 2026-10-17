@@ -13,8 +13,8 @@ predicted steps and the file scope, never the hidden test. Afterwards:
 success = the hidden test passes AND there is no regression. Scope violations and untracked files are reported, not scored.
 It does not judge whether the diff is GOOD (a comment-only change can pass a weak test): read the diff, or hand it to a reviewer.
 
---sandbox bwrap hides the real ~/.claude, ~/.empirica and ~/.config behind empty tmpfs mounts (the login file stays readable) and
-confines writes to REPO. `claude -p` runs with --permission-mode dontAsk and an allow-list, so nothing raises a prompt for a human.
+--sandbox bwrap mounts the whole filesystem READ-ONLY, hides the real ~/.claude, ~/.empirica and ~/.config behind empty tmpfs
+mounts (the login file stays readable, not writable), gives /tmp a private tmpfs, and binds only REPO writable. `claude -p` runs with --permission-mode dontAsk and an allow-list, so nothing raises a prompt for a human.
 """
 
 from __future__ import annotations
@@ -39,7 +39,11 @@ EDIT = ["Edit", "Write", "Bash(python3 -m pytest *)"]
 def sandbox_prefix(repo: Path, home: Path | None = None, venv_bin: str | None = None) -> list[str]:
     home = Path(home or Path.home())
     path = ":".join([p for p in (venv_bin, str(home / ".local/bin"), "/usr/local/bin", "/usr/bin", "/bin") if p])
-    cmd = ["bwrap", "--bind", "/", "/"]
+    # The root is READ-ONLY. It used to be `--bind / /` (read-write), which made every later mount a decoration: the agent could
+    # still write anywhere on the machine. Only the repo is bound writable; /tmp and the three hidden config directories are
+    # private tmpfs scratch that vanishes with the sandbox. /tmp comes first so a repo or home that lives under it is re-bound
+    # on top of the fresh tmpfs.
+    cmd = ["bwrap", "--ro-bind", "/", "/", "--tmpfs", "/tmp"]  # noqa: S108 - a private tmpfs inside the sandbox, not a host path
     for hidden in (".claude", ".empirica", ".config"):
         cmd += ["--tmpfs", str(home / hidden)]
     cmd += ["--ro-bind", str(home / ".claude/.credentials.json"), str(home / ".claude/.credentials.json")]
