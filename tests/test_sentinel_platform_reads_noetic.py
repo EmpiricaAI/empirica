@@ -176,3 +176,61 @@ def test_a_bare_unquoted_substitution_is_judged_like_any_other_command(safe):
     A platform read inside it must be judged the same way, so the inner-command refusal Philipp saw ("not a recognised read")
     is gone while the unquoted-form rule is untouched."""
     assert safe("echo $(launchctl list | awk '/x$/{print $1}')") == safe("echo $(date)")
+
+
+# The flag guards read the command with shlex, which does not expand what bash expands. A write flag spelled so that only
+# the shell sees it must not get past a guard that looks for the literal word.
+SHELL_SPELLED_WRITES = [
+    "plutil -p /x.plist $'-convert' xml1",
+    "plutil -p /x.plist {-convert,xml1}",
+    "plutil -p /x.plist \\-convert xml1",
+    "defaults read x | plutil -p - $'-o' /tmp/o",
+    "env FOO=1 plutil -p /x $'-convert'",
+    "pmset -g $'sleepnow'",
+    "pmset -g {sleepnow,}",
+    "pmset -g sleep\\now",
+    "env FOO=1 pmset -g $'sleepnow'",
+]
+
+# `pmset -g <word> <value>` is not a documented query. The guard is an allowlist of query words, so a setting name, a case
+# variant or a stray selector gates instead of being guessed safe.
+PMSET_NOT_A_QUERY = [
+    "pmset -g sleep 0",
+    "pmset -g displaysleep 1",
+    "pmset -g hibernatemode 0",
+    "pmset -g womp 1",
+    "pmset -g powernap 0",
+    "pmset -g SLEEPNOW",
+    "pmset -g SleepNow",
+    "pmset -g -A sleep 0",
+    "pmset -g --all sleep 0",
+    "pmset -g log sleep 0",
+]
+
+PMSET_QUERIES = [
+    "pmset -g",
+    "pmset -g log",
+    "pmset -g batt",
+    "pmset -g ps",
+    "pmset -g assertions",
+    "pmset -g custom",
+    "pmset -g live",
+    "pmset -g thermlog",
+    "pmset -g adapter",
+    "pmset -g sched",
+]
+
+
+@pytest.mark.parametrize("command", SHELL_SPELLED_WRITES)
+def test_a_write_flag_only_the_shell_can_see_stays_gated(safe, command):
+    assert not safe(command), command
+
+
+@pytest.mark.parametrize("command", PMSET_NOT_A_QUERY)
+def test_pmset_g_with_anything_but_a_query_word_stays_gated(safe, command):
+    assert not safe(command), command
+
+
+@pytest.mark.parametrize("command", PMSET_QUERIES)
+def test_pmset_g_query_words_flow(safe, command):
+    assert safe(command), command

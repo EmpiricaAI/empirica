@@ -2833,29 +2833,33 @@ def _date_sets_the_clock(stripped: str) -> bool:
 
 #: `plutil -p` and `-lint` read; every other mode edits or converts a plist, and `-o` names an output file for any of them.
 _PLUTIL_WRITE_FLAGS = frozenset({"-o", "-replace", "-insert", "-remove", "-convert", "-extract", "-create"})
-#: `pmset` setters and actions. `pmset -g` queries; these verbs and the -a/-b/-c/-u power-source selectors change state.
-_PMSET_SETTERS = frozenset(
-    {
-        "sleepnow",
-        "displaysleepnow",
-        "schedule",
-        "repeat",
-        "relative",
-        "touch",
-        "boot",
-        "disablesleep",
-        "restoredefaults",
-    }
-    | {"-a", "-b", "-c", "-u"}
+#: What `pmset -g` is documented to report. An ALLOWLIST: a setting name (`sleep`, `womp`), a case variant or a stray
+#: selector after `-g` is not a query and gates, rather than being guessed harmless.
+_PMSET_QUERIES = frozenset(
+    {"-g", "live", "custom", "cap", "sched", "ups", "batt", "ps", "log", "rawlog", "therm", "thermlog", "assertions"}
+    | {"powerstate", "stats", "systemstate", "adapter", "history", "historydetailed", "trace", "everything"}
+    | {"accessories", "sleepstates", "measurements", "userclients", "uuid", "ac"}
 )
+#: Spellings only the SHELL expands: `$'...'` / `$"..."`, brace expansion and a backslash. The guards below read the command with
+#: shlex, which does none of that, so `plutil -p x $'-convert'` shows them a harmless word while bash runs `-convert`.
+_SHELL_SPELLED = re.compile(r"""\$['"]|\{[^}]*[,]|\{[^}]*\.\.[^}]*\}|\\""")
 
 
 def _pmset_sets_state(stripped: str) -> bool:
-    """`pmset -g [what]` is a query; anything else, or a setter word after `-g`, changes power state."""
+    """`pmset -g [query words]` reports; anything else, or a word that is not a query, changes or may change power state."""
     toks = _tool_tokens(stripped)[1:]
     if not toks or toks[0] != "-g":
         return True
-    return any(tok in _PMSET_SETTERS for tok in toks[1:])
+    return any(tok not in _PMSET_QUERIES for tok in toks[1:])
+
+
+def _plist_or_power_tool_mutates(stripped: str, head: str) -> bool:
+    """`plutil` outside its read modes, `pmset` outside a `-g` query, or either spelled so only the shell sees the flag."""
+    if _SHELL_SPELLED.search(stripped):
+        return True
+    if head == "plutil":
+        return any(tok in _PLUTIL_WRITE_FLAGS for tok in _tool_tokens(stripped)[1:])
+    return _pmset_sets_state(stripped)
 
 
 def _tool_mode_mutates(stripped: str, head: str) -> bool:
@@ -2882,10 +2886,8 @@ def _tool_mode_mutates(stripped: str, head: str) -> bool:
         return any(tok not in _HOSTNAME_READS for tok in _tool_tokens(stripped)[1:])
     if head == "date":
         return _date_sets_the_clock(stripped)
-    if head == "plutil":
-        return any(tok in _PLUTIL_WRITE_FLAGS for tok in _tool_tokens(stripped)[1:])
-    if head == "pmset":
-        return _pmset_sets_state(stripped)
+    if head in ("plutil", "pmset"):
+        return _plist_or_power_tool_mutates(stripped, head)
     if head == "mypy":  # --html-report, --xml-report, --any-exprs-report, ...: each writes a directory
         return any(tok.split("=", 1)[0].endswith("-report") for tok in _tool_tokens(stripped)[1:])
     return False
