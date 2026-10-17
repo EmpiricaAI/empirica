@@ -36,7 +36,7 @@ _ollama_probe: dict[str, tuple[bool, float]] = {}
 _ollama_available: bool | None = None  # the last verdict, kept for readers of the old module global
 
 
-def _reset_ollama_probe() -> None:
+def reset_ollama_probe() -> None:
     """Forget every cached verdict (used by tests and by anything that just changed the Ollama setup)."""
     global _ollama_available
     _ollama_probe.clear()

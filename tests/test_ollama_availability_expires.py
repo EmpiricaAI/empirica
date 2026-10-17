@@ -55,9 +55,9 @@ def world(monkeypatch):
     monkeypatch.setattr(emb.time, "monotonic", clock)
     monkeypatch.setattr(requests, "get", server)
     monkeypatch.delenv("EMPIRICA_EMBEDDINGS_MODEL", raising=False)
-    emb._reset_ollama_probe()
+    emb.reset_ollama_probe()
     yield clock, server
-    emb._reset_ollama_probe()
+    emb.reset_ollama_probe()
 
 
 def test_a_failure_is_cached_briefly_then_the_next_call_probes_again(world):
