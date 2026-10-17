@@ -3162,16 +3162,73 @@ def _format_human(checks: list[Check]) -> str:
     return "\n".join(lines)
 
 
+def _handle_scrub_secrets(cwd: Path, apply_it: bool, include_global: bool = False) -> int:
+    """`doctor --scrub-secrets`: remove credentials already stored in this project's artifacts. Plan by default."""
+    import os as _os
+    import sqlite3 as _sqlite3
+
+    from empirica.core import secret_scrub as ss
+
+    report: dict[str, Any] = {"ok": True, "applied": apply_it, "project_root": str(cwd)}
+    sqlite_report: dict[str, Any]
+    db_path = cwd / ".empirica" / "sessions" / "sessions.db"
+    if db_path.exists():
+        conn = _sqlite3.connect(str(db_path))
+        try:
+            sqlite_report = ss.scrub_sqlite(conn, apply=apply_it)
+        finally:
+            conn.close()
+    else:
+        sqlite_report = {"rows": {}, "applied": apply_it, "error": "no sessions.db here"}
+    notes_report: dict[str, Any] = (
+        ss.scrub_notes(cwd, apply=apply_it) if (cwd / ".git").exists() else {"notes": 0, "error": "not a git repo"}
+    )
+    project_id = _project_id_of(cwd)
+    qdrant_report: dict[str, Any]
+    if project_id:
+        base = _os.environ.get("EMPIRICA_QDRANT_URL") or "http://localhost:6333"
+        qdrant_report = ss.scrub_qdrant(ss.QdrantHttp(base), project_id, include_global=include_global, apply=apply_it)
+    else:
+        qdrant_report = {"points": {}, "applied": apply_it, "error": "no project_id in .empirica/project.yaml"}
+    report.update(sqlite=sqlite_report, notes=notes_report, qdrant=qdrant_report)
+    total = (
+        sum(sqlite_report.get("rows", {}).values())
+        + notes_report.get("notes", 0)
+        + sum(qdrant_report.get("points", {}).values())
+    )
+    report["total"] = total
+    if total and not apply_it:
+        flag = " --include-global" if include_global else ""
+        report["next"] = f"empirica doctor --scrub-secrets{flag} --apply"
+    print(json.dumps(report, indent=2))
+    return 0
+
+
+def _project_id_of(cwd: Path) -> str | None:
+    try:
+        import yaml as _yaml
+
+        data = _yaml.safe_load((cwd / ".empirica" / "project.yaml").read_text(encoding="utf-8")) or {}
+        value = data.get("project_id")
+        return str(value) if value else None
+    except Exception:
+        return None
+
+
 def handle_doctor_command(args: Any) -> int:
     cwd = Path.cwd()
     # Same guard as setup-claude-code: `--apply` is read only on the
     # --reconcile-notes path. Passed alone it was accepted and ignored, and a
     # plain health report printed as if the repair had been asked for and run.
-    if getattr(args, "apply", False) and not getattr(args, "reconcile_notes", False):
+    if (
+        getattr(args, "apply", False)
+        and not getattr(args, "reconcile_notes", False)
+        and not getattr(args, "scrub_secrets", False)
+    ):
         msg = (
-            "doctor: --apply only means something with --reconcile-notes. "
+            "doctor: --apply only means something with --reconcile-notes or --scrub-secrets. "
             "The health report never writes; nothing was done. "
-            "Drop --apply for the report, or add --reconcile-notes to repair."
+            "Drop --apply for the report, or add one of those flags to repair."
         )
         if getattr(args, "output", "human") == "json":
             print(json.dumps({"ok": False, "error": "apply_without_reconcile_notes", "message": msg}))
@@ -3180,6 +3237,12 @@ def handle_doctor_command(args: Any) -> int:
         return 2
     if getattr(args, "reconcile_notes", False):
         return _handle_reconcile_notes(cwd, apply_it=bool(getattr(args, "apply", False)))
+    if getattr(args, "scrub_secrets", False):
+        return _handle_scrub_secrets(
+            cwd,
+            apply_it=bool(getattr(args, "apply", False)),
+            include_global=bool(getattr(args, "include_global", False)),
+        )
     # --deploy-gaps: the focused "what is committed but not live" view. Same
     # renderers, same exit-code semantics — a FILTER, not a different report,
     # so nothing here can drift from the full run.

@@ -433,7 +433,23 @@ def _parse_config_input(args):
                 sys.exit(1)
             with open(args.config) as f:
                 config_data = parse_json_safely(f.read())
-    return config_data
+    return _redact_artifact_inputs(args, config_data)
+
+
+def _redact_artifact_inputs(args, config_data):
+    """Scrub credentials from the free text an artifact verb is about to store.
+
+    Every verb takes its text from flags (``args.finding``) or from a JSON config (``config_data["finding"]``), and the SQLite
+    row, the git note and the Qdrant embedding are all derived from those same values, so scrubbing them once here is what keeps a
+    pasted key out of all three. ``args`` is changed in place; the config dict is replaced by a scrubbed copy.
+    """
+    from empirica.core.redaction import ARTIFACT_TEXT_FIELDS, redact_artifact_fields, redact_for_storage
+
+    for name in ARTIFACT_TEXT_FIELDS:
+        value = getattr(args, name, None)
+        if isinstance(value, str):
+            setattr(args, name, redact_for_storage(value))
+    return redact_artifact_fields(config_data) if isinstance(config_data, dict) else config_data
 
 
 def _extract_scalar_fields(config_data, args):
@@ -3878,6 +3894,7 @@ def handle_mistake_log_command(args):
     try:
         from empirica.data.session_database import SessionDatabase
 
+        _redact_artifact_inputs(args, None)  # mistake-log does not go through _parse_config_input
         project_id = getattr(args, "project_id", None)
         session_id = getattr(args, "session_id", None)
         mistake = args.mistake

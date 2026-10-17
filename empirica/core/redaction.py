@@ -62,6 +62,9 @@ SECRET_KEY_NAMES = frozenset(
 # itself sensitive — while the entropy-bearing tail is destroyed.
 _SHAPE_PATTERNS: tuple[tuple[re.Pattern, str], ...] = (
     (re.compile(r"\bctx_[A-Za-z0-9_\-]{8,}"), f"ctx_{REDACTED}"),
+    # ntfy access tokens (`tk_` + base32). Found stored raw in a scanner snapshot and on ten listener command lines
+    # on 2026-10-15; without this rule only the `Authorization: Bearer tk_...` form was caught, not the bare token.
+    (re.compile(r"\btk_[A-Za-z0-9]{20,}"), f"tk_{REDACTED}"),
     (re.compile(r"\bsk-[A-Za-z0-9_\-]{16,}"), f"sk-{REDACTED}"),
     (re.compile(r"\bghp_[A-Za-z0-9]{16,}"), f"ghp_{REDACTED}"),
     (re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}"), f"github_pat_{REDACTED}"),
@@ -174,3 +177,104 @@ def contains_secret(text: str) -> bool:
     if not text:
         return False
     return redact_secrets(text) != str(text)
+
+
+# ── Storage variant ──────────────────────────────────────────────────────────────────────────────────────────────────
+#
+# redact_secrets is deliberately broad: it serves a hook scrubbing tool arguments, where an over-redacted word costs nothing.
+# Artifact text is knowledge people will read and retrieve, and the broad rules rewrite it: "bearer authentication is the
+# scheme" became "Bearer <redacted> is the scheme", "token budget_exhausted" became "token <redacted>", and a quoted JSON
+# example `"key": "name"` lost its value. redact_for_storage keeps every strong shape and demands a DIGIT in the values of the
+# bare `bearer X` / `token X` / `Authorization: scheme X` forms (a real credential has one; an English word does not), and
+# drops the generic key names (key, auth, credential...) from the key/value rules.
+
+_BROAD_BARE = {f"Bearer {REDACTED}", f"token {REDACTED}"}
+_HEADER_REPLACEMENT = r"\1\2\3" + REDACTED
+
+# A value only counts as a credential if it LOOKS like one: no placeholder syntax ($ { } < > *), a digit, and enough length.
+# The first cut matched on names and prefixes alone and flagged 27 rows in this practice's own store that held code and
+# documentation about credentials, not credentials: a `{"Authorization": f"Bearer {token}"}` template, `API_KEY=$(grep ...)`,
+# `https://user:<token>@host`, and the bare `ctx_empirica_adm_` prefix.
+_VALUE_CHARS = r"[A-Za-z0-9._~+/=\-]"
+_STORAGE_OVERRIDES = {
+    # ctx_<org>_adm_<32 hex>: demand a real key's length and a digit, so the prefix mentioned in prose is left alone
+    f"ctx_{REDACTED}": (re.compile(r"\bctx_(?=[A-Za-z0-9_\-]*\d)[A-Za-z0-9_\-]{24,}"), f"ctx_{REDACTED}"),
+}
+_URL_CREDENTIALS = (
+    re.compile(r"\b([a-zA-Z][a-zA-Z0-9+.\-]*://)([^/\s:@<>${}*]+):(?=[^/\s@]*\d)([A-Za-z0-9._~+\-]{8,})@"),
+    rf"\1\2:{REDACTED}@",
+)
+
+_STORAGE_SHAPES: tuple[tuple[re.Pattern, str], ...] | None = tuple(
+    _STORAGE_OVERRIDES.get(rep, (pat, rep))
+    for pat, rep in _SHAPE_PATTERNS
+    if rep not in _BROAD_BARE and rep != _HEADER_REPLACEMENT and not rep.endswith(f":{REDACTED}@")
+) + (
+    _URL_CREDENTIALS,
+    (
+        re.compile(
+            r"(?i)\b(authorization|proxy-authorization)(\s*:\s*)([A-Za-z][A-Za-z0-9_-]*[ \t]+)?"
+            rf"(?=[A-Za-z0-9._\-+/=]*\d){_VALUE_CHARS}{{12,}}"
+        ),
+        _HEADER_REPLACEMENT,
+    ),
+    (re.compile(r"(?i)\bbearer\s+(?=[A-Za-z0-9._\-]*\d)[A-Za-z0-9._\-]{16,}"), f"Bearer {REDACTED}"),
+    (re.compile(r"(?i)\btoken\s+(?=[A-Za-z0-9._\-]*\d)[A-Za-z0-9._\-]{24,}"), f"token {REDACTED}"),
+)
+
+_GENERIC_KEY_NAMES = frozenset({"key", "auth", "credential", "credentials", "secret", "token"})
+_STORAGE_KEY_NAMES = sorted(SECRET_KEY_NAMES - _GENERIC_KEY_NAMES)
+_STORAGE_KV = re.compile(
+    r"(?i)(['\"]?\b(?:" + "|".join(_STORAGE_KEY_NAMES) + r")\b['\"]?\s*[:=]\s*)(['\"])([A-Za-z0-9._~+/=\-]{12,})\2"
+)
+_STORAGE_FLAG = re.compile(
+    r"(?i)(--(?:" + "|".join(n.replace("_", "-") for n in _STORAGE_KEY_NAMES) + r")[= ])(\S{8,})"
+)
+
+
+def redact_for_storage(text):
+    """Scrub credentials from text about to be STORED as an artifact, leaving ordinary prose untouched. Never raises.
+
+    ``None`` and ``""`` come back unchanged. If a rule fails the answer is the redaction marker, not the text: failing closed.
+    """
+    if not text:
+        return text
+    try:
+        out = str(text)
+        out = _STORAGE_KV.sub(lambda m: f"{m.group(1)}{m.group(2)}{REDACTED}{m.group(2)}", out)
+        out = _STORAGE_FLAG.sub(lambda m: f"{m.group(1)}{REDACTED}", out)
+        for pattern, replacement in _STORAGE_SHAPES:  # type: ignore[union-attr]
+            out = pattern.sub(replacement, out)
+        return out
+    except Exception:
+        return REDACTED
+
+
+#: The free-text keys of an artifact (CLI config, batch node data, repository arguments) that are scrubbed on write.
+ARTIFACT_TEXT_FIELDS = (
+    "finding",
+    "unknown",
+    "approach",
+    "why_failed",
+    "mistake",
+    "why_wrong",
+    "prevention",
+    "assumption",
+    "choice",
+    "rationale",
+    "alternatives",
+    "description",
+    "cost_estimate",
+)
+
+
+def redact_artifact_fields(data, fields=ARTIFACT_TEXT_FIELDS):
+    """A copy of ``data`` with the artifact text fields scrubbed by :func:`redact_for_storage`. Non-strings pass through."""
+    if not isinstance(data, dict):
+        return data
+    out = dict(data)
+    for name in fields:
+        value = out.get(name)
+        if isinstance(value, str):
+            out[name] = redact_for_storage(value)
+    return out

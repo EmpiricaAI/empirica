@@ -11,6 +11,7 @@ import time
 import uuid
 from datetime import datetime
 
+from ...core.redaction import redact_for_storage
 from ..epistemic_source import normalize_epistemic_source
 from ..impact_value import require_impact
 from ..visibility import normalize_visibility
@@ -156,6 +157,9 @@ class BreadcrumbRepository(BaseRepository):
         Returns:
             finding_id - new ID if created, existing ID if duplicate found
         """
+        # Credentials never enter stored artifact text (cortex prop_2fs3axi5): scrub before dedupe, notes or embeddings.
+        finding = redact_for_storage(finding)
+        description = redact_for_storage(description)
         impact = require_impact(impact)  # prose never enters the numeric column (#415)
         # Check for duplicate existing finding (full content match)
         existing_id = self._find_duplicate_finding(project_id, finding)
@@ -456,6 +460,9 @@ class BreadcrumbRepository(BaseRepository):
         Returns:
             unknown_id - new ID if created, existing ID if duplicate found
         """
+        # Credentials never enter stored artifact text (cortex prop_2fs3axi5): scrub before dedupe, notes or embeddings.
+        unknown = redact_for_storage(unknown)
+        description = redact_for_storage(description)
         impact = require_impact(impact)  # prose never enters the numeric column (#415)
         # Check for duplicate existing unknown (full content match)
         existing_id = self._find_duplicate_unknown(project_id, unknown)
@@ -714,6 +721,10 @@ class BreadcrumbRepository(BaseRepository):
         Returns:
             dead_end_id - new ID if created, existing ID if duplicate found
         """
+        # Credentials never enter stored artifact text (cortex prop_2fs3axi5): scrub before dedupe, notes or embeddings.
+        approach = redact_for_storage(approach)
+        why_failed = redact_for_storage(why_failed)
+        description = redact_for_storage(description)
         impact = require_impact(impact)  # prose never enters the numeric column (#415)
         # Check for duplicate existing dead end (full content match)
         existing_id = self._find_duplicate_dead_end(project_id, approach, why_failed)
@@ -1124,6 +1135,12 @@ class BreadcrumbRepository(BaseRepository):
         Returns:
             mistake_id: UUID string
         """
+        # Credentials never enter stored artifact text (cortex prop_2fs3axi5): scrub before dedupe, notes or embeddings.
+        mistake = redact_for_storage(mistake)
+        why_wrong = redact_for_storage(why_wrong)
+        prevention = redact_for_storage(prevention)
+        cost_estimate = redact_for_storage(cost_estimate)
+        description = redact_for_storage(description)
         mistake_id = str(uuid.uuid4())
 
         if not entity_type:
@@ -1270,6 +1287,9 @@ class BreadcrumbRepository(BaseRepository):
         source_ids: list[str] | None = None,
     ) -> str:
         """Log an unverified belief to the assumptions table."""
+        # Credentials never enter stored artifact text (cortex prop_2fs3axi5): scrub before dedupe, notes or embeddings.
+        assumption = redact_for_storage(assumption)
+        description = redact_for_storage(description)
         assumption_id = str(uuid.uuid4())
 
         if not entity_type:
@@ -1335,6 +1355,11 @@ class BreadcrumbRepository(BaseRepository):
         source_ids: list[str] | None = None,
     ) -> str:
         """Log a decision choice point to the decisions table."""
+        # Credentials never enter stored artifact text (cortex prop_2fs3axi5): scrub before dedupe, notes or embeddings.
+        choice = redact_for_storage(choice)
+        rationale = redact_for_storage(rationale)
+        alternatives = redact_for_storage(alternatives)
+        description = redact_for_storage(description)
         decision_id = str(uuid.uuid4())
 
         if not entity_type:

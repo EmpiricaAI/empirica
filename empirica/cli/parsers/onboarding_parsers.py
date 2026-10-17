@@ -308,7 +308,20 @@ Exit codes:
         ),
     )
     doctor_parser.add_argument(
+        "--scrub-secrets",
+        action="store_true",
+        help=(
+            "Remove credentials already stored in this project's artifacts: SQLite rows, git notes and Qdrant payloads "
+            "(write-time redaction only stops new ones). DRY-RUN unless --apply. Never touches another practice."
+        ),
+    )
+    doctor_parser.add_argument(
+        "--include-global",
+        action="store_true",
+        help="WITH --scrub-secrets: also scrub the shared Qdrant collections (global_learnings, epistemic_events).",
+    )
+    doctor_parser.add_argument(
         "--apply",
         action="store_true",
-        help="REQUIRES --reconcile-notes: actually write (without --apply you get the plan). Refused on its own — the health report never writes.",
+        help="REQUIRES --reconcile-notes or --scrub-secrets: actually write (without --apply you get the plan). Refused on its own — the health report never writes.",
     )

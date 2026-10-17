@@ -136,6 +136,7 @@ _SECRET_KEY_NAMES = [
 
 _SHAPE_PATTERNS = (
     (re.compile(r"\bctx_[A-Za-z0-9_\-]{8,}"), "ctx_<redacted>"),
+    (re.compile(r"\btk_[A-Za-z0-9]{20,}"), "tk_<redacted>"),
     (re.compile(r"\bsk-[A-Za-z0-9_\-]{16,}"), "sk-<redacted>"),
     (re.compile(r"\bghp_[A-Za-z0-9]{16,}"), "ghp_<redacted>"),
     (re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}"), "github_pat_<redacted>"),

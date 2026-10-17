@@ -440,6 +440,16 @@ def _sync_resolution_to_qdrant(db, table: str, artifact_id: str, kind, supersede
         logger.debug(f"qdrant resolution sync skipped for {artifact_id[:8]}: {exc}")
 
 
+def _redact_node(node: dict) -> dict:
+    """A copy of ``node`` whose artifact text is scrubbed of credentials. The SQLite row, the git note and the embedding of a batch
+    node are all built from ``node['data']``, so it is scrubbed once, at the top of the loop."""
+    from empirica.core.redaction import redact_artifact_fields
+
+    if not isinstance(node, dict):
+        return node
+    return {**node, "data": redact_artifact_fields(node.get("data"))}
+
+
 #: The node types whose writer in ``_create_node`` passes ``impact`` on. A decision, assumption, mistake or unknown never
 #: stores it, so a stray value there harmed nothing before and must not fail the node now.
 _TYPES_THAT_STORE_IMPACT = frozenset({"finding", "dead_end"})
@@ -1048,7 +1058,7 @@ def log_artifacts_graph(
         if not context:
             return {"ok": False, "error": "Could not resolve session_id or project_id"}
 
-        nodes = graph.get("nodes", [])
+        nodes = [_redact_node(n) for n in graph.get("nodes", [])]
         sorted_nodes = sorted(
             nodes,
             key=lambda n: CREATION_ORDER.index(n.get("type", "finding")) if n.get("type") in CREATION_ORDER else 99,
