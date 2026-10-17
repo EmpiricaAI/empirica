@@ -58,6 +58,6 @@ This combines:
 4. Work and commit: Track progress epistemically
 5. Complete: `bd close <id>` + merge branch
 
-For full details, see `docs/integrations/BEADS_GOALS_READY_GUIDE.md`
+For the options, see `empirica goals-ready --help`.
 
-**Note:** Automatic branch creation via `empirica goals-claim` coming soon (Phase 3)
+**Branch creation:** `empirica goals-claim --goal-id <ID>` can create the working branch for you (`--create-branch`; `--no-branch` skips it).

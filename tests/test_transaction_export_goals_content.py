@@ -238,7 +238,13 @@ def test_content_text_is_truncated_to_one_bounded_line(world):
 def test_a_credential_in_the_content_text_is_redacted_and_counted(world):
     """The nine key-holding dead-ends this session were exactly this: a credential in an artifact's text."""
     tx = _tx(world, "t1", NOW - 1000)
-    world.db.log_finding(world.pid, world.sid, f"calling cortex with api_key {SECRET} failed", transaction_id=tx)
+    # log_finding now scrubs credentials BEFORE they are stored (test_artifact_text_redaction.py), so a row that still holds one
+    # is a legacy row. Plant it directly: the export's own redaction is the second layer for exactly those rows.
+    fid = world.db.log_finding(world.pid, world.sid, "calling cortex with an api key failed", transaction_id=tx)
+    world.db.conn.execute(
+        "UPDATE project_findings SET finding = ? WHERE id = ?", (f"calling cortex with api_key {SECRET} failed", fid)
+    )
+    world.db.conn.commit()
     _goal(world, "g1", tx, objective=f"use token {SECRET}")
 
     out = _export(world, content=True)

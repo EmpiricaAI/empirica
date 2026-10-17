@@ -29,18 +29,6 @@
       "decided_by": "empirica (2026-09-06 pre-1.13.39 sweep)",
       "review_by": "2026-12-01"
     },
-    "AGENTS.md": {
-      "status": "pending_review",
-      "reason": "Agent definitions; agents are still shipped under the plugin and referenced by the Agent tool, so the subject is live. Not read this pass — a stale agent roster misleads more than most docs, so this one is worth reading first.",
-      "decided_by": "empirica (2026-09-06 pre-1.13.39 sweep)",
-      "review_by": "2026-10-15"
-    },
-    "SECRETS.md": {
-      "status": "pending_review",
-      "reason": "Secrets-handling policy. Age is weak evidence of drift for a policy document, but the credential layer moved substantially this cycle (cortex_bearer, OAuth-first) so it plausibly needs a pass.",
-      "decided_by": "empirica (2026-09-06 pre-1.13.39 sweep)",
-      "review_by": "2026-10-15"
-    },
     "docs/architecture/ASSESSMENT_AND_SIGNALING.md": {
       "status": "pending_review",
       "reason": "empirica/core/architecture_assessment/ still exists and architecture_commands.py still dispatches to it, so the subject is live. Content unread.",
@@ -76,12 +64,6 @@
       "reason": "Module-level API reference, hand-written against a module surface. Same drift risk as its siblings in docs/reference/api/.",
       "decided_by": "empirica (2026-09-06 pre-1.13.39 sweep)",
       "review_by": "2026-11-01"
-    },
-    "docs/reference/api/context_budget.md": {
-      "status": "pending_review",
-      "reason": "KNOWN DRIFT: references evict_stale_items(), which no longer exists anywhere in empirica/. Confirmed dead by grep this pass, so this one has a concrete defect and should be first to be rewritten or archived.",
-      "decided_by": "empirica (2026-09-06 pre-1.13.39 sweep)",
-      "review_by": "2026-10-15"
     },
     "docs/reference/api/identity_persona.md": {
       "status": "pending_review",
