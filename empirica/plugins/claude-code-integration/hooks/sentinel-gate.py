@@ -379,6 +379,30 @@ SAFE_BASH_PREFIXES = (
     # Hardware inspection (read forms only — _nvidia_smi_is_read_only gates the
     # write side, which includes --gpu-reset, on the same binary)
     "nvidia-smi",
+    # Platform and container inspection. A read is a read in any work_type, and the same verb has to survive a pipe, a
+    # chain segment and a `$(...)` body, which the infra-only list never did (empirica.philipp.empirica-mesh-support,
+    # prop_iivc7beoyjh4rh4fhohff74uim). Read SUBCOMMANDS only, each with a trailing space so `docker psx` and
+    # `launchctl listx` are not the verb: `launchctl` also has bootstrap/bootout/kickstart, `plutil` has -convert and
+    # -replace, `pmset` and `defaults` have setters, `docker` has exec/run/rm, and `diskutil` has erase/mount.
+    # `plutil` and `pmset` are further guarded by flag in _tool_mode_mutates.
+    "launchctl list ",
+    "launchctl print ",
+    "sw_vers ",
+    "system_profiler ",
+    "scutil --get ",
+    "vm_stat ",
+    "diskutil list ",
+    "diskutil info ",
+    "pmset -g ",
+    "plutil -p ",
+    "plutil -lint ",
+    "defaults read ",
+    "docker ps ",
+    "docker images ",
+    "docker inspect ",
+    "docker logs ",
+    "docker network ls ",
+    "docker volume ls ",
     # Text pipeline (read-only, pure stdout — no native write mode)
     "cut ",
     "tr ",
@@ -552,36 +576,10 @@ INFRA_SAFE_PREFIXES = (
     "vmstat",
     "iostat",
     "dmesg",
-    # macOS counterparts. Every OS-specific entry here was Linux, so on a darwin
-    # fleet work_type=infra gated exactly the read-only recon this tuple exists
-    # to permit: a bare `launchctl list` was denied while `systemctl list-units`
-    # passed. The asymmetry was precise — `vmstat` (Linux) present, `vm_stat`
-    # (darwin) absent — and all eight verbs below had zero occurrences anywhere
-    # in this file. Reported by empirica.philipp.empirica-mesh-support after
-    # hitting it live during a fleet check.
-    #
-    # Scoped to read-only SUBCOMMANDS, not bare binaries: `launchctl` also has
-    # bootstrap/bootout/kickstart and `plutil` has -convert, so `launchctl ` and
-    # `plutil ` as prefixes would permit mutation. `diskutil` likewise — list and
-    # info only, never erase/partition/mount.
-    "launchctl list",
-    "launchctl print",
-    "sw_vers",
-    "system_profiler",
-    "scutil --get",
-    "vm_stat",
-    "diskutil list",
-    "diskutil info",
-    "pmset -g",
-    "plutil -p",
-    "plutil -lint",
-    # Docker inspection (not mutation)
-    "docker ps",
-    "docker images",
-    "docker logs",
-    "docker inspect",
-    "docker network ls",
-    "docker volume ls",
+    # The macOS counterparts (launchctl list/print, sw_vers, pmset -g, plutil -p, ...) and the docker read verbs
+    # (ps, images, inspect, logs, network ls, volume ls) moved to SAFE_BASH_PREFIXES: they are reads in every
+    # work_type and must work inside pipes, chains and substitutions, which this list never covered. What stays
+    # here is inspection that streams or that a work_type reasonably scopes.
     "docker stats",
     "docker compose ps",
     "docker compose logs",
@@ -2833,6 +2831,33 @@ def _date_sets_the_clock(stripped: str) -> bool:
     return False
 
 
+#: `plutil -p` and `-lint` read; every other mode edits or converts a plist, and `-o` names an output file for any of them.
+_PLUTIL_WRITE_FLAGS = frozenset({"-o", "-replace", "-insert", "-remove", "-convert", "-extract", "-create"})
+#: `pmset` setters and actions. `pmset -g` queries; these verbs and the -a/-b/-c/-u power-source selectors change state.
+_PMSET_SETTERS = frozenset(
+    {
+        "sleepnow",
+        "displaysleepnow",
+        "schedule",
+        "repeat",
+        "relative",
+        "touch",
+        "boot",
+        "disablesleep",
+        "restoredefaults",
+    }
+    | {"-a", "-b", "-c", "-u"}
+)
+
+
+def _pmset_sets_state(stripped: str) -> bool:
+    """`pmset -g [what]` is a query; anything else, or a setter word after `-g`, changes power state."""
+    toks = _tool_tokens(stripped)[1:]
+    if not toks or toks[0] != "-g":
+        return True
+    return any(tok in _PMSET_SETTERS for tok in toks[1:])
+
+
 def _tool_mode_mutates(stripped: str, head: str) -> bool:
     """Tool-specific write/exec modes that a flag set cannot express (programs, positionals, methods)."""
     if head in _AWK_NAMES:
@@ -2857,6 +2882,10 @@ def _tool_mode_mutates(stripped: str, head: str) -> bool:
         return any(tok not in _HOSTNAME_READS for tok in _tool_tokens(stripped)[1:])
     if head == "date":
         return _date_sets_the_clock(stripped)
+    if head == "plutil":
+        return any(tok in _PLUTIL_WRITE_FLAGS for tok in _tool_tokens(stripped)[1:])
+    if head == "pmset":
+        return _pmset_sets_state(stripped)
     if head == "mypy":  # --html-report, --xml-report, --any-exprs-report, ...: each writes a directory
         return any(tok.split("=", 1)[0].endswith("-report") for tok in _tool_tokens(stripped)[1:])
     return False

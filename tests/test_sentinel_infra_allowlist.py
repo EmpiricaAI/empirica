@@ -145,6 +145,9 @@ def test_linux_recon_is_unaffected(infra):
 
 
 def test_the_allowlist_does_not_apply_outside_its_work_types(gate, monkeypatch):
-    """It is a work_type expansion, not a global widening."""
+    """It is a work_type expansion, not a global widening. `docker stats` streams and stays infra-scoped; the macOS and
+    docker READ verbs moved to the base allowlist (tests/test_sentinel_platform_reads_noetic.py) because a read is a read."""
     monkeypatch.setattr(gate, "_current_work_type", "code")
-    assert gate.is_safe_bash_command({"command": "launchctl list"}) is not True
+    assert gate.is_safe_bash_command({"command": "docker stats"}) is not True
+    assert gate.is_safe_bash_command({"command": "launchctl list"}) is True
+    assert gate.is_safe_bash_command({"command": "launchctl kickstart -k gui/501/com.x"}) is not True
