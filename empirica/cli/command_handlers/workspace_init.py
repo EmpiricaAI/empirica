@@ -666,6 +666,48 @@ def _infer_project_name(repo_info: dict, strategy: str) -> str:
 from empirica.config.path_resolver import canonical_trajectory_path  # noqa: E402
 
 
+def _temp_roots() -> list[Path]:
+    """Directories whose contents are throwaway: the system temp dir plus the macOS and /private spellings."""
+    import tempfile
+
+    roots = [
+        Path(tempfile.gettempdir()),
+        Path("/tmp"),  # noqa: S108 - recognising a temp path, not using it
+        Path("/private/tmp"),
+        Path("/var/folders"),
+        Path("/private/var/folders"),
+    ]
+    return roots
+
+
+def _is_under(path: Path, root: Path) -> bool:
+    for candidate in (path, path.resolve(strict=False)):
+        for base in (root, root.resolve(strict=False)):
+            try:
+                candidate.relative_to(base)
+                return True
+            except ValueError:
+                continue
+    return False
+
+
+def _is_ephemeral_registration(trajectory_path: str, home: Path) -> bool:
+    """True when registering ``trajectory_path`` would put a throwaway directory into a REAL home's workspace registry.
+
+    The pollution was a real home registering ``/tmp/.tmpXXXXXX`` projects made by tests and agents (32 dead rows in one
+    registry). A home that is itself in a temp directory is a sandbox (tests use one) and keeps registering what it is told;
+    ``EMPIRICA_REGISTER_EPHEMERAL=1`` turns the guard off.
+    """
+    import os
+
+    if os.environ.get("EMPIRICA_REGISTER_EPHEMERAL"):
+        return False
+    roots = _temp_roots()
+    if any(_is_under(Path(home), r) for r in roots):
+        return False
+    return any(_is_under(Path(trajectory_path), r) for r in roots)
+
+
 def _register_in_workspace_db(
     project_id: str,
     name: str,
@@ -699,7 +741,8 @@ def _register_in_workspace_db(
         git_remote_url: Optional git remote URL
 
     Returns:
-        True if registered/updated, False on error
+        True if registered/updated, False on error or when the path is a throwaway temp directory (see
+        :func:`_is_ephemeral_registration`)
     """
     import sqlite3
     import time
@@ -709,6 +752,12 @@ def _register_in_workspace_db(
     # its .empirica dir did not find the existing row and inserted a second one —
     # past a UNIQUE constraint that only ever saw two different strings.
     trajectory_path = canonical_trajectory_path(trajectory_path)
+
+    if _is_ephemeral_registration(trajectory_path, Path.home()):
+        logger.info(
+            f"Not registering {name}: {trajectory_path} is a temporary directory (EMPIRICA_REGISTER_EPHEMERAL=1 overrides)"
+        )
+        return False
 
     workspace_db = Path.home() / ".empirica" / "workspace" / "workspace.db"
     if not workspace_db.parent.exists():

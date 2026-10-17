@@ -27,8 +27,28 @@ import time
 
 logger = logging.getLogger(__name__)
 
-# Cache for Ollama availability check
-_ollama_available: bool | None = None
+# Cache for the Ollama availability check. It EXPIRES: a verdict cached forever meant a process that probed while the embedding
+# model was missing (or Ollama was down) stayed on the hash fallback after the model came back, until it was restarted.
+# A failure is re-probed soon; a success is re-checked rarely (so a removed model is still noticed). Keyed by URL.
+_OLLAMA_FAILURE_TTL_S = 30.0
+_OLLAMA_SUCCESS_TTL_S = 300.0
+_ollama_probe: dict[str, tuple[bool, float]] = {}
+_ollama_available: bool | None = None  # the last verdict, kept for readers of the old module global
+
+
+def _reset_ollama_probe() -> None:
+    """Forget every cached verdict (used by tests and by anything that just changed the Ollama setup)."""
+    global _ollama_available
+    _ollama_probe.clear()
+    _ollama_available = None
+
+
+def _remember_ollama(ollama_url: str, verdict: bool) -> bool:
+    global _ollama_available
+    _ollama_probe[ollama_url] = (verdict, time.monotonic())
+    _ollama_available = verdict
+    return verdict
+
 
 # Default models and their vector dimensions per provider
 DEFAULT_MODELS = {
@@ -116,11 +136,13 @@ MODEL_DIMENSIONS = {
 
 
 def _check_ollama_available(ollama_url: str = "http://localhost:11434") -> bool:
-    """Check if Ollama server is running and has embedding models."""
-    global _ollama_available
-
-    if _ollama_available is not None:
-        return _ollama_available
+    """Check if Ollama server is running and has embedding models. The verdict is cached per URL and expires (see above)."""
+    cached = _ollama_probe.get(ollama_url)
+    if cached is not None:
+        verdict, checked_at = cached
+        ttl = _OLLAMA_SUCCESS_TTL_S if verdict else _OLLAMA_FAILURE_TTL_S
+        if time.monotonic() - checked_at < ttl:
+            return verdict
 
     try:
         import requests
@@ -133,20 +155,16 @@ def _check_ollama_available(ollama_url: str = "http://localhost:11434") -> bool:
             model_names = [m.get("name", "").split(":")[0] for m in models]
             configured_model = os.getenv("EMPIRICA_EMBEDDINGS_MODEL", DEFAULT_MODELS.get("ollama", "qwen3-embedding"))
             if configured_model in model_names:
-                _ollama_available = True
                 logger.info(f"Ollama detected with {configured_model} - using semantic embeddings")
-                return True
+                return _remember_ollama(ollama_url, True)
             # Fallback: any known embedding model
             for name in model_names:
                 if name in MODEL_DIMENSIONS:
-                    _ollama_available = True
                     logger.info(f"Ollama detected with {name} - using semantic embeddings")
-                    return True
-        _ollama_available = False
-        return False
+                    return _remember_ollama(ollama_url, True)
+        return _remember_ollama(ollama_url, False)
     except Exception:
-        _ollama_available = False
-        return False
+        return _remember_ollama(ollama_url, False)
 
 
 def _resolve_auto_provider(ollama_url: str) -> str:

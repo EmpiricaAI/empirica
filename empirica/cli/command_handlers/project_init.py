@@ -125,7 +125,7 @@ def _register_project_in_workspace(
                 ]
             }
         )
-        _register_in_workspace_db(
+        registered = _register_in_workspace_db(
             project_id=project_id,
             name=project_name,
             trajectory_path=str(git_root / ".empirica"),
@@ -135,7 +135,11 @@ def _register_project_in_workspace(
             metadata=ws_metadata,
         )
         if output_format != "json":
-            print("   📋 Registered in workspace")
+            print(
+                "   📋 Registered in workspace"
+                if registered
+                else "   📋 Not registered in the workspace registry (temporary directory)"
+            )
     except Exception as e:
         logger.warning(f"Failed to register in workspace.db: {e}")
 

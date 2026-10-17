@@ -92,7 +92,7 @@ def get_open_counts(db: SessionDatabase, session_id: str, project_id: str | None
 
     Returns:
         {
-            'open_goals': int,           # Goals not yet completed (project-scoped)
+            'open_goals': int,           # Goals not completed and not abandoned (project-scoped)
             'open_unknowns': int,        # Unknowns not yet resolved (project-scoped)
             'goal_linked_unknowns': int, # Unresolved unknowns linked to goals (blockers)
             'completion': float,         # Latest completion vector (0.0-1.0)
@@ -101,13 +101,14 @@ def get_open_counts(db: SessionDatabase, session_id: str, project_id: str | None
     cursor = db.conn.cursor()
 
     # Count open goals for THIS PROJECT (project-scoped, not session-scoped)
-    # Use is_completed (source of truth) not status column (can be inconsistent)
+    # Use is_completed (source of truth) not status column (can be inconsistent) - except that an ABANDONED goal is dead, not
+    # open: it has is_completed = 0 and counted forever, so a triage that abandoned 14 goals left G unchanged.
     if project_id:
         cursor.execute(
             """
             SELECT COUNT(*)
             FROM goals
-            WHERE is_completed = 0 AND project_id = ?
+            WHERE is_completed = 0 AND COALESCE(status, '') != 'abandoned' AND project_id = ?
         """,
             (project_id,),
         )
@@ -115,7 +116,7 @@ def get_open_counts(db: SessionDatabase, session_id: str, project_id: str | None
         cursor.execute("""
             SELECT COUNT(*)
             FROM goals
-            WHERE is_completed = 0
+            WHERE is_completed = 0 AND COALESCE(status, '') != 'abandoned'
         """)
     open_goals = cursor.fetchone()[0] or 0
 
