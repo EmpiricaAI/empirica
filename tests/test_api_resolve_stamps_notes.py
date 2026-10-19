@@ -13,7 +13,8 @@ import subprocess
 
 import pytest
 
-from tests.test_api_resolve_parity import _resolve, api_db  # noqa: F401  (the fixture and helper are the parity test's)
+# The `api_db` fixture and the `_resolve` helper are the parity test's. The fixture is used by name, through pytest.
+from tests.test_api_resolve_parity import _resolve, api_db  # noqa: F401  # pyright: ignore[reportUnusedImport]
 
 
 @pytest.fixture
