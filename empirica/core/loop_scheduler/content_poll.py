@@ -419,7 +419,7 @@ def _fetch_orch(
     # was unanswerable, and a partial result read as complete.
     #
     # Surfaced through an optional out-dict rather than by widening the return
-    # type: `_fetch_orch` is shared with the LISTENER, and a return-type change
+    # signature, because `_fetch_orch` is shared with the LISTENER and a return-type change
     # there has wake-path blast radius. Callers that want completeness pass a
     # dict; the listener passes nothing and is bit-for-bit unaffected.
     if meta_out is not None:

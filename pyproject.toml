@@ -124,7 +124,7 @@ mcp = [
     # Spans both SDK majors (see empirica-mcp). Ceiling kept deliberately: the
     # SAME uncapped range existed in two manifests, and only one is exercised by
     # CI — so an unbounded range here breaks `pip install empirica[mcp]` silently.
-    "mcp>=1.28.1,<3",  # Security: CVE-2026-52869/-52870 (fix 1.27.2) + CVE-2026-59950 (fix 1.28.1)
+    "mcp>=1.30.0,<3",  # Security: CVE-2026-52869/-52870 (fix 1.27.2), CVE-2026-59950 (fix 1.28.1), CVE-2026-59951 (stateful HTTP session exhaustion; fix 1.30.0 / 2.2.0)
 ]
 
 # Prose evidence grounding (non-code users)

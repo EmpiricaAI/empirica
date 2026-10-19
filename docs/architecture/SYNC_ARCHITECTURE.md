@@ -53,7 +53,7 @@ git for-each-ref refs/notes --format='%(refname)'
 | `sync-pull [--remote R] [--rebuild] [--force]` | Fetch the same namespaces; `--rebuild` then restores SQLite from the notes |
 | `sync-status [--remote R] [--local]` | Local note counts, the destinations, and whether the notes actually replicate. `--local` skips the network call |
 | `rebuild [--from-notes] [--qdrant] [--qdrant-only] [--reflexes-only [--apply]]` | Restore SQLite from notes, or re-embed Qdrant, or restore reflex rows |
-| `doctor --reconcile-notes [--apply]` | Repair notes/SQLite divergence: archive notes whose artifact SQLite deleted, stamp resolutions SQLite recorded. Plan only without `--apply` |
+| `doctor --reconcile-notes [--apply]` | Repair notes/SQLite divergence: archive notes whose artifact SQLite deleted, stamp the resolutions SQLite recorded (findings, unknowns, decisions, assumptions) and the invalidations it recorded (dead ends, mistakes). Plan only without `--apply` |
 
 There is no workspace-level sync verb. `workspace-overview` lists projects, and each project syncs with its own `sync-push` / `sync-pull`.
 
@@ -115,7 +115,7 @@ It does not read the decisions, assumptions, tasks, sources, handoff or message 
 - **`rebuild --qdrant-only`**: re-embed Qdrant from the current SQLite and skip the notes import. This is the safe resync after direct SQL or bulk changes not yet persisted to notes; the default path would revert them, because notes win.
 - **`rebuild --reflexes-only [--apply]`**: restore only the reflex rows (PREFLIGHT, CHECK, POSTFLIGHT vectors) from the session-phase notes, and nothing else. It previews unless `--apply`. Identity is `(session_id, phase, round)`, encoded in the ref name `refs/notes/empirica/session/<session_id>/<PHASE>/<round>`, so an existing row is never replaced and the mode is idempotent. It keeps each note's own timestamp, transaction id and reasoning, and only the vectors the note carries: the rest stay NULL, not 0.5. It skips and counts: sessions with no `sessions` row (named in the output), notes with no vectors, notes that disagree with their ref name, and the all-0.5 phantom CHECK rows that `delete-artifacts` purged on purpose. A ref can hold several notes because the writer reuses `<PHASE>/<round>` across transactions: notes under a ref that is not present are restored, but when the identity is already present the other notes under it are not looked at (`multi_note_refs` counts them).
 
-Because notes are the source for a rebuild, a note that disagrees with SQLite is a pending revert, not a stale copy. That is why gardening writes through to the notes (archive on delete, stamp on resolve) and why `doctor --reconcile-notes` exists for divergence that predates it.
+Because notes are the source for a rebuild, a note that disagrees with SQLite is a pending revert, not a stale copy. That is why gardening writes through to the notes (archive on delete, stamp on resolve or invalidate, and a rebuild re-applies the stamp to the row it re-creates) and why `doctor --reconcile-notes` exists for divergence that predates it.
 
 ---
 

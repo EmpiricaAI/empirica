@@ -575,7 +575,9 @@ def _add_listener_group(subparsers):
     _add_instance(on_p)
     _add_output(on_p)
 
-    arm_p = listener_subs.add_parser("arm", help="Record the Monitor task_id post-arm (chained after `on` + Monitor)")
+    arm_p = listener_subs.add_parser(
+        "arm", help="Record the Monitor task_id post-arm (chained after `on` + Monitor); warns if the entry is paused"
+    )
     arm_p.add_argument("task_id", help="Monitor task id (from the Monitor tool response)")
     arm_p.add_argument("--name", help="Listener name (default: <ai_id>-inbox)")
     arm_p.add_argument("--ai-id", help="AI identifier (default: project basename via .empirica/project.yaml)")

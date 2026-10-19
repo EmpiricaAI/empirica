@@ -264,6 +264,10 @@ forms bounce via `delivery_failed`. The canonical is resolvable from
 cortex's roster (the `ai_id_mesh` field) or by prepending
 your known `<org>.<tenant>` to the local `ai_id`.
 
+The listener never subscribes with the bare basename. If the roster lookup fails (a network drop at restart) it retries
+with bounded backoff for about three minutes, then exits 2 with a degraded health marker; a missing cortex credential
+refuses at once. A basename subscription is accepted by ntfy, matches no event, and reads as a quiet inbox.
+
 **Shorter aliases** (`cortex`, `outreach`, `mesh-support`, etc.) are
 chat-layer shorthand documented in `*-org-prompt.md`; they are NOT
 the local `ai_id` and NOT wire-valid.

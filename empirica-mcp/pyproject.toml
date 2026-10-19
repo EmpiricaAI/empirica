@@ -39,7 +39,7 @@ dependencies = [
     # CI and a published package with no commit of ours — semver majors break by
     # design, so a floor without a ceiling delegates release timing to a third
     # party. Widen to <4 deliberately, after testing against 3.x.
-    "mcp>=1.28.1,<3",    # MCP SDK — floor bumped for CVE-2026-52869/-52870/-59950 (fixed 1.27.2/1.28.1); prior: python-multipart CVE-2026-24486 (1.25+)
+    "mcp>=1.30.0,<3",    # MCP SDK — floor bumped for CVE-2026-52869/-52870/-59950/-59951 (fixed 1.27.2/1.28.1/1.30.0); prior: python-multipart CVE-2026-24486 (1.25+)
 ]
 
 [project.urls]

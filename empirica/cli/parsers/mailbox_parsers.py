@@ -69,7 +69,8 @@ def add_mailbox_parsers(subparsers):
     reply = mailbox_subs.add_parser(
         "reply",
         help="Atomic propose + complete in one call — fixes the AI "
-        "ack-discipline gap (skip the second cortex_complete_proposal step)",
+        "ack-discipline gap (skip the second cortex_complete_proposal step). A parent addressed to more than one "
+        "seat is NOT completed: completion is per proposal, so it stays open (see parent_close_skipped)",
     )
     reply.add_argument(
         "--parent-id",
@@ -124,7 +125,7 @@ def add_mailbox_parsers(subparsers):
     reply.add_argument(
         "--no-close",
         action="store_true",
-        help="Send reply WITHOUT closing parent (follow-up question case)",
+        help="Send reply WITHOUT closing parent (follow-up question case). Implied for a multi-target parent",
     )
     reply.add_argument(
         "--no-archive",

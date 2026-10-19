@@ -712,7 +712,15 @@ def _check_channel(channel: str, version: str, project_root: Path) -> str:
                 text=True,
                 timeout=15,
             )
-            return "published" if result.returncode == 0 else "missing"
+            if result.returncode == 0:
+                return "published"
+            # `docker manifest inspect` exits non-zero for an absent tag AND for a rate limit, a timeout or an unreachable
+            # daemon. Only the registry saying the manifest does not exist is "missing"; anything else could not be asked
+            # (the same tri-state PyPI has), or a transient error reads as "release not published".
+            said = result.stderr.lower()
+            if any(marker in said for marker in ("no such manifest", "manifest unknown", "not found")):
+                return "missing"
+            return "check_failed"
 
         if channel == "homebrew":
             # Check if homebrew formula has the version

@@ -23,7 +23,7 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.14.11
-**Generated:** 2026-10-14 17:45:00 UTC
+**Generated:** 2026-10-19 14:14:33 UTC
 **Total commands:** 241 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -3472,7 +3472,7 @@ Arm the canonical mesh listener for ai_id (short-circuits when persistent OS ser
 
 ##### `empirica listener arm`
 
-Record the Monitor task_id post-arm (chained after `on` + Monitor)
+Record the Monitor task_id post-arm (chained after `on` + Monitor); warns if the entry is paused
 
 **Arguments:**
 
@@ -3684,7 +3684,7 @@ Cortex AI mesh interaction — atomic reply with auto-close (distinct from messa
 
 ##### `empirica mailbox reply`
 
-Atomic propose + complete in one call — fixes the AI ack-discipline gap (skip the second cortex_complete_proposal step)
+Atomic propose + complete in one call — fixes the AI ack-discipline gap (skip the second cortex_complete_proposal step). A parent addressed to more than one seat is NOT completed: completion is per proposal, so it stays open (see parent_close_skipped)
 
 **Arguments:**
 
@@ -3707,7 +3707,7 @@ Atomic propose + complete in one call — fixes the AI ack-discipline gap (skip 
 - `--commit-sha` — optional
   Optional commit_sha attached to parent completion
 - `--no-close` — optional · flag
-  Send reply WITHOUT closing parent (follow-up question case)
+  Send reply WITHOUT closing parent (follow-up question case). Implied for a multi-target parent
 - `--no-archive` — optional · flag
   Close the parent but do NOT archive it. Default behaviour archives the parent after close to keep your inbox view focused on un-actioned work. Use --no-archive when you want the parent to stay visible in audit / status=accepted polls.
 - `--output` — optional · type=`choice` · choices={human, json} · default=`json`
@@ -4580,8 +4580,12 @@ Check Empirica install health (Desktop + general — empirica-mcp, .empirica/, g
   Exit code 2 when any WARN check fires (default: only FAIL fires non-zero exit)
 - `--reconcile-notes` — optional · flag
   Repair historical notes/sqlite divergence: archive notes for artifacts sqlite no longer has, stamp resolutions notes never received. DRY-RUN unless --apply.
+- `--scrub-secrets` — optional · flag
+  Remove credentials already stored in this project's artifacts: SQLite rows, git notes and Qdrant payloads (write-time redaction only stops new ones). DRY-RUN unless --apply. Never touches another practice.
+- `--include-global` — optional · flag
+  WITH --scrub-secrets: also scrub the shared Qdrant collections (global_learnings, epistemic_events).
 - `--apply` — optional · flag
-  REQUIRES --reconcile-notes: actually write (without --apply you get the plan). Refused on its own — the health report never writes.
+  REQUIRES --reconcile-notes or --scrub-secrets: actually write (without --apply you get the plan). Refused on its own — the health report never writes.
 
 #### `empirica release`
 
