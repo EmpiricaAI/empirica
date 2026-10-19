@@ -75,3 +75,44 @@ def test_a_genuine_approach_failure_is_still_captured(hook):
 
 def test_short_errors_remain_uninteresting(hook):
     assert hook._is_interesting_failure("Bash", "nope") is False
+
+
+# prop_bxjntibm defect 5: output that carries the CLI's JSON success flag is work that landed. Measured on mesh-support: 4 of 99
+# open dead ends began with `"ok": true`. (`Exit code 1` output was already ignored wholesale since 2026-07-27; the 19 such
+# rows on this practice all predate that filter, so the evidence for those is a stale hook, not a live gap.)
+@pytest.mark.parametrize(
+    "error",
+    [
+        '{\n  "ok": true,\n  "instance_id": "smoke_test",\n  "listener": {"name": "test-inbox"}\n}',
+        '{"ok":true,"type":"finding","visibility":"public","finding_id":"ed09dbe9"}',
+        '{\n  "ok"  :  true ,\n  "finding_id": "ed09dbe9-0000-0000-0000-000000000000"\n}',
+        'Exit code 2\n{"ok": true, "count": 0}\nusage: grep [OPTION]... PATTERNS [FILE]...',
+        'Exit code 3\n{\n  "ok": true,\n  "goal_id": "2c73291a-a462-4dd0-a1ba-80335e51f009"\n}',
+    ],
+)
+def test_output_that_reports_ok_true_is_not_a_dead_end(hook, error):
+    assert hook._is_interesting_failure("Bash", error) is False
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        '{\n  "ok": false,\n  "error": "goal not found in this project; nothing was written"\n}',
+        'Exit code 2\n{"ok": false, "error": "migration failed: column already exists in table"}',
+    ],
+)
+def test_ok_false_is_still_a_failure_worth_considering(hook, error):
+    """Control: the success veto must not swallow the opposite report."""
+    assert hook._is_interesting_failure("Bash", error) is True
+
+
+def test_the_word_ok_alone_is_not_a_success_flag(hook):
+    """Control: only the JSON flag counts, not prose that happens to say ok or true."""
+    error = "Exit code 2\nthe ok button is true to its label but the migration failed: column already exists in table"
+    assert hook._is_interesting_failure("Bash", error) is True
+
+
+def test_an_ok_true_inside_a_longer_failure_report_does_not_hide_a_nested_error_flag(hook):
+    """Control for the other direction: a result that lists a failed item must still be captured."""
+    error = 'Exit code 2\n{"results": [{"ok": true}, {"ok": false, "error": "cortex rejected the payload: schema mismatch"}]}'
+    assert hook._is_interesting_failure("Bash", error) is True
