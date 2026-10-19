@@ -1189,6 +1189,25 @@ def _embed_finding_qdrant(project_id, finding_id, finding, session_id, goal_id, 
         return False
 
 
+def _embed_warning(embedded: bool, kind: str) -> str | None:
+    """A line for the operator when Qdrant is in use and the artifact was NOT embedded, else None.
+
+    The embed is deliberately non-fatal, so a failure used to leave only a ``logger.warning`` nobody reads, and the artifact
+    was simply missing from semantic search until a rebuild (and a rebuild used to drop old findings too). On a box without
+    Qdrant "not embedded" is the configuration, not a fault, so that case stays quiet.
+    """
+    if embedded:
+        return None
+    try:
+        from empirica.core.qdrant.connection import _check_qdrant_available
+
+        if not _check_qdrant_available():
+            return None
+    except Exception:
+        return None
+    return f"{kind} stored but not embedded in the search index (Qdrant is available; embedding failed): `empirica project-embed` repairs it"
+
+
 def _ingest_finding_eidetic(project_id, finding_id, finding, subject, impact, session_id):
     """Add finding to eidetic layer for confidence tracking. Returns 'created'|'confirmed'|None."""
     if not (project_id and finding_id):
@@ -1358,6 +1377,9 @@ def handle_finding_log_command(args):
         embedded = _embed_finding_qdrant(
             project_id, finding_id, finding, session_id, goal_id, subtask_id, subject, impact
         )
+        embed_warning = _embed_warning(embedded, "finding")
+        if embed_warning:
+            print(f"warning: {embed_warning}", file=sys.stderr)
         eidetic_result = _ingest_finding_eidetic(project_id, finding_id, finding, subject, impact, session_id)
         decayed_lessons = _decay_related_lessons(finding, subject, project_id)
         eidetic_decayed = _decay_eidetic_by_finding(project_id, finding, subject)
@@ -1380,6 +1402,7 @@ def handle_finding_log_command(args):
             "source_ids": source_ids,
             "git_stored": git_stored,  # Git notes for sync
             "embedded": embedded,
+            "embed_warning": embed_warning,
             "eidetic": eidetic_result,  # "created" | "confirmed" | None
             "immune_decay": decayed_lessons if decayed_lessons else None,  # Lessons affected by this finding
             "eidetic_decayed": eidetic_decayed if eidetic_decayed else None,

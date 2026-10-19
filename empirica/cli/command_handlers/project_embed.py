@@ -271,7 +271,9 @@ def _query_memory_artifacts(db, project_id):
 
     Returns (findings, unknowns, mistakes, dead_ends, lessons, snapshots).
     """
-    findings = db.get_project_findings(project_id)
+    from empirica.core.qdrant.memory import findings_for_reembed
+
+    findings = findings_for_reembed(db, project_id)
     unknowns = db.get_project_unknowns(project_id)
 
     cur = db.conn.cursor()

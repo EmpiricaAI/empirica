@@ -26,6 +26,18 @@ from empirica.core.qdrant.point_ids import artifact_point_id
 from empirica.core.qdrant.text_preview import preview_fields
 
 
+def findings_for_reembed(db, project_id: str) -> list[dict]:
+    """Every finding of the project, for a rebuild or `project-embed` refill.
+
+    ``get_project_findings`` defaults to ``depth="moderate"``, a RETRIEVAL filter (relevance >= 0.60) that keeps an
+    impact-0.5 finding only while it is younger than about 21 days. Used for a refill it silently dropped everything older
+    (prop_bxjntibm defect 2: 579 and 1,237 findings on two practices at one rebuild). A refill is not a retrieval, so it
+    asks for ``complete``. Resolved findings come back too: search drops them at query time (``_drop_resolved_memory``),
+    which reads the database and so cannot go stale the way the payload's frozen ``is_resolved`` can.
+    """
+    return db.get_project_findings(project_id, depth="complete")
+
+
 def embed_single_memory_item(
     project_id: str,
     item_id: str,

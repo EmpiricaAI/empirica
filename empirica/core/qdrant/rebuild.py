@@ -19,6 +19,7 @@ from typing import Any
 
 from empirica.core.fact_confidence import finding_fact_confidence
 from empirica.core.mistake_text import build_mistake_text
+from empirica.core.qdrant.memory import findings_for_reembed
 
 logger = logging.getLogger(__name__)
 
@@ -315,16 +316,12 @@ def _embed_project_from_db(project_id: str, db_path: str, project_root: str) -> 
 
     try:
         # Gather all artifacts from SQLite
-        findings = db.get_project_findings(project_id)
-        # resolved=False is load-bearing. `get_project_findings` filters deprecated
-        # /resolved rows internally, but `get_project_unknowns` takes a `resolved`
-        # parameter that DEFAULTS TO None (no filter) — so omitting it embedded
-        # answered questions as though still open. Reported by mesh-support: a
-        # resolved unknown returned at rank 1 from project-search with no resolution
-        # marker, so a reader could not tell it was answered and it kept
-        # re-surfacing. Findings behaved correctly after the same rebuild, which is
-        # what made the asymmetry hard to see — the difference is in the GETTERS,
-        # not in the embed or the payload.
+        findings = findings_for_reembed(db, project_id)
+        # Findings are refilled in full, resolved ones included: search drops resolved findings at query time from the
+        # database, and the depth filter that used to run here was a retrieval filter that lost old findings.
+        # Unknowns are different: resolved=False is load-bearing. `get_project_unknowns` takes a `resolved` parameter that
+        # DEFAULTS TO None (no filter), so omitting it embedded answered questions as though still open (mesh-support: a
+        # resolved unknown returned at rank 1 from project-search with no resolution marker).
         unknowns = db.get_project_unknowns(project_id, resolved=False)
 
         cur = db.conn.cursor()
