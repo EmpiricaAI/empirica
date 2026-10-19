@@ -2984,6 +2984,33 @@ def _normalize_git_globals(cmd: str) -> str:
 _ENV_PREFIX_RE = re.compile(r"env(?:\s+|$)")
 _ENV_ASSIGN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=(?:\"[^\"]*\"|'[^']*'|\S*)\s*")
 
+#: Variables that change WHAT RUNS rather than what a program reads: the search path, the dynamic loader, shell and
+#: interpreter start-up files, and the editors, pagers and helper commands that git and friends exec. `env PATH=/tmp/evil ls`
+#: ran /tmp/evil/ls and `PATH=/tmp/evil; ls` did the same across a chain, both classified safe (goal 59854adc). HOME and
+#: XDG_CONFIG_HOME are here because git reads `core.pager`, aliases and hooks from the config they point at.
+_EXEC_ENV_NAMES = frozenset(
+    {"PATH", "IFS", "ENV", "BASH_ENV", "SHELLOPTS", "BASHOPTS", "PS4", "PROMPT_COMMAND", "CDPATH", "GLOBIGNORE"}
+    | {"PAGER", "MANPAGER", "EDITOR", "VISUAL", "LESSOPEN", "LESSCLOSE", "BROWSER", "SSH_ASKPASS", "HOME"}
+    | {"XDG_CONFIG_HOME", "GIT_SSH", "GIT_SSH_COMMAND", "GIT_EXTERNAL_DIFF", "GIT_PAGER", "GIT_ASKPASS"}
+    | {"GIT_EDITOR", "GIT_SEQUENCE_EDITOR", "GIT_EXEC_PATH", "GIT_PROXY_COMMAND", "GIT_CONFIG_COUNT"}
+    | {"GIT_CONFIG_PARAMETERS", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"}
+)
+_EXEC_ENV_PREFIXES = (
+    "LD_",
+    "DYLD_",
+    "PYTHON",
+    "NODE_",
+    "PERL",
+    "RUBY",
+    "GIT_CONFIG_KEY_",
+    "GIT_CONFIG_VALUE_",
+    "BASH_FUNC_",
+)
+
+
+def _env_name_changes_execution(name: str) -> bool:
+    return name in _EXEC_ENV_NAMES or name.startswith(_EXEC_ENV_PREFIXES)
+
 
 #: Commands that are safe ONLY as written, with nothing after them. A prefix entry cannot say that: `claude --version`
 #: as a prefix also matched `claude --version -p 'rm -rf x'` and `claude --version-evil`.
@@ -3015,6 +3042,8 @@ def _matches_safe_prefix(cmd: str) -> bool:
             assign = _ENV_ASSIGN_RE.match(rest)
             if not assign:
                 break
+            if _env_name_changes_execution(assign.group(0).split("=", 1)[0]):
+                return False
             rest = rest[assign.end() :]
         rest = rest.strip()
         return True if not rest else is_safe_bash_command({"command": rest})
@@ -3206,7 +3235,8 @@ def _is_inert_shape(stripped: str) -> bool:
     # substitution in the RHS was already extracted+validated upstream (chain path
     # strips subs to a placeholder before this call; single-command path validates
     # them in is_safe_bash_command), so a quoted RHS here carries only inert data.
-    return bool(re.match(r"""^[A-Za-z_][A-Za-z0-9_]*=("[^"]*"|'[^']*'|\S*)$""", stripped))
+    assignment = re.match(r"""^([A-Za-z_][A-Za-z0-9_]*)=("[^"]*"|'[^']*'|\S*)$""", stripped)
+    return bool(assignment) and not _env_name_changes_execution(assignment.group(1))
 
 
 # Benign command wrappers that prefix a real command without altering its
@@ -3604,7 +3634,127 @@ def _strip_sql_literals(sql: str) -> str:
     return "".join(out)
 
 
+_HEREDOC_OPERATOR = re.compile(r"""<<(-?)[ \t]*(?:'([^'\n]*)'|"([^"\n]*)"|\\?([A-Za-z_][A-Za-z0-9_]*))""")
+
+
+def _skip_heredoc_bodies(command: str, i: int, pending: list[tuple[str, bool]]) -> tuple[int, list[str]]:
+    """Consume each pending heredoc's body starting at ``i``. Returns the new index and any fail-closed markers.
+
+    Fail closed: if this scan disagreed with bash about where a body ends, the difference is a hidden command, so an
+    unterminated body leaves a marker word no allowlist knows and the whole command gates.
+    """
+    n, markers = len(command), []
+    for word, dash in pending:
+        terminated = False
+        while i < n:
+            end = command.find("\n", i)
+            line = command[i : end if end != -1 else n]
+            i = end + 1 if end != -1 else n
+            if (line.lstrip("\t") if dash else line) == word:
+                terminated = True
+                break
+        if not terminated:
+            markers.append("\n__unterminated_heredoc__")
+    return i, markers
+
+
+def _arithmetic_end(command: str, i: int) -> int:
+    """Index just past the ``$((...))`` that starts at ``i``; ``<<`` inside it is a shift, not a heredoc."""
+    depth, j, n = 0, i, len(command)
+    while j < n:
+        if command.startswith("((", j):
+            depth += 1
+            j += 2
+        elif command.startswith("))", j) and depth:
+            depth -= 1
+            j += 2
+            if not depth:
+                break
+        else:
+            j += 1
+    return j
+
+
+#: What a surviving `<<` becomes in the text handed to the classifier. Its blind cuts at `<<` hid every line after a double
+#: angle that was not a heredoc: a comment, `${x//<</y}`, a here-string, arithmetic, a quoted pattern.
+_DOUBLE_ANGLE_WORD = "__double_angle__"
+
+
+def _starts_a_comment(command: str, i: int) -> bool:
+    """`#` begins a comment only at the start of a word, as in bash (`a#b` and `$#` do not)."""
+    return command[i] == "#" and (i == 0 or command[i - 1] in " \t\n;&|()<>")
+
+
+def _strip_heredocs(command: str) -> str:
+    """What the shell would actually run, with heredoc operators, bodies and here-string operators taken out and no `<<` left.
+
+    ``cat <<E <(touch x)`` keeps its ``<(touch x)`` and ``cat <<E\\nx\\nE\\ntouch y`` keeps its ``touch y``. The classifier
+    used to cut the segment at ``<<`` (to keep a body out of its operator scans), which also hid every argument after the
+    operator, every command after the terminator line, and everything after any `<<` that was not a heredoc. Quote-,
+    escape- and comment-aware; ``<<<`` and ``$((1 << 3))`` are not heredocs. An unterminated body gates the whole command.
+    """
+    out: list[str] = []
+    pending: list[tuple[str, bool]] = []
+    i, n = 0, len(command)
+    in_single = in_double = False
+    while i < n:
+        c = command[i]
+        if c == "\n" and pending and not in_single and not in_double:
+            out.append("\n")
+            i, markers = _skip_heredoc_bodies(command, i + 1, pending)
+            out.extend(markers)
+            pending = []
+            continue
+        if c == "\\" and not in_single and i + 1 < n:
+            out.append(command[i : i + 2])
+            i += 2
+            continue
+        if c == "'" and not in_double:
+            in_single = not in_single
+        elif c == '"' and not in_single:
+            in_double = not in_double
+        elif not in_single and not in_double:
+            if _starts_a_comment(command, i):
+                end = command.find("\n", i)
+                end = n if end == -1 else end
+                out.append(command[i:end])
+                i = end
+                continue
+            if command.startswith("$((", i):
+                end = _arithmetic_end(command, i)
+                out.append(command[i:end])
+                i = end
+                continue
+            if command.startswith("<<<", i):
+                i += 3
+                continue
+            match = _HEREDOC_OPERATOR.match(command, i)
+            if match:
+                word = next(g for g in (match.group(2), match.group(3), match.group(4)) if g is not None)
+                pending.append((word, match.group(1) == "-"))
+                i = match.end()
+                continue
+        out.append(c)
+        i += 1
+    if pending:  # the operator line is the last line: there is no body at all
+        out.append("\n__unterminated_heredoc__")
+    return "".join(out).replace("<<", _DOUBLE_ANGLE_WORD)
+
+
 def is_safe_bash_command(tool_input: dict) -> bool:
+    """Safe (noetic) means the old classifier says so AND the same command with its heredocs removed says so.
+
+    The second half only ever tightens: it closes the hole where a heredoc operator hid the arguments after it and the
+    commands after its terminator line from every check (goal 59854adc). A heredoc that FEEDS an executor stays gated by
+    the first half, because the body is then the program.
+    """
+    command = tool_input.get("command", "") if isinstance(tool_input, dict) else ""
+    if "<<" in command and not _is_safe_bash_text({**tool_input, "command": _strip_heredocs(command)}):
+        return False
+    return _is_safe_bash_text(tool_input)
+
+
+def _is_safe_bash_text(tool_input: dict) -> bool:
     """Check if a Bash command is in the safe (noetic) whitelist.
 
     When work_type is infra/config/debug, expands the whitelist with
