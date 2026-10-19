@@ -1702,6 +1702,19 @@ def handle_project_register_command(args) -> None:
             project_type=project_type,
         )
         if not ws_ok:
+            from .workspace_init import _is_ephemeral_registration
+
+            # `_register_in_workspace_db` answers False both for a failed write and for a throwaway path it declines on
+            # purpose. Telling them apart here keeps the second from being reported as a permissions problem.
+            if _is_ephemeral_registration(str(project_path / ".empirica"), Path.home()):
+                sys.exit(
+                    _project_register_error(
+                        f"Refused on purpose: {project_path} is inside a temporary directory",
+                        "Registering it would add a throwaway project to the real registry. "
+                        "Set EMPIRICA_REGISTER_EPHEMERAL=1 to register it deliberately.",
+                        output_format,
+                    )
+                )
             sys.exit(
                 _project_register_error(
                     "Failed to write workspace.db",

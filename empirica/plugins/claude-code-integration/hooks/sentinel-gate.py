@@ -3017,6 +3017,23 @@ _EXEC_ENV_PREFIXES = (
     "BAT_",
     "GH_",
     "LESS",
+    # Cloud and infrastructure CLIs read a config or credential helper from the path these name, and the config can name a
+    # program to run (a kubeconfig exec plugin, a docker credential helper, a pager). The infra work types allow these CLIs.
+    "KUBE",
+    "AWS_",
+    "AZURE_",
+    "GOOGLE_",
+    "CLOUDSDK_",
+    "GCLOUD",
+    "DOCKER_",
+    "SYSTEMD_",
+    "PSQL",
+    "PG",
+    "TF_",
+    "TERRAFORM_",
+    "ANSIBLE_",
+    "HELM_",
+    "VAULT_",
 )
 
 

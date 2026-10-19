@@ -1514,7 +1514,8 @@ async def resolve_artifact(
     # daemon happened to be bound to. Since one daemon serves the whole fleet,
     # that meant every practice except one had NO correction path at all — the
     # correction surface narrower than the read surface, again.
-    db = _open_db_for(_resolve_project_dict(project_id, path))
+    project = _resolve_project_dict(project_id, path)
+    db = _open_db_for(project)
     try:
         resolved = _resolve_artifact_by_id(db, artifact_id)
         if not resolved:
@@ -1599,9 +1600,53 @@ async def resolve_artifact(
                 _norm_kind(body.get("resolution_kind")) if artifact_type == "finding" else None,
                 _superseded_by if artifact_type == "finding" else None,
             )
+        _stamp_note_after_resolve(project, artifact_type, artifact_id, resolved_by, body, now, _superseded_by)
         return {"ok": True, "type": artifact_type, "id": artifact_id, "action": "resolved"}
     finally:
         db.close()
+
+
+def _stamp_note_after_resolve(
+    project: dict, artifact_type: str, artifact_id: str, resolved_by: str, body: dict, now: float, superseded_by
+) -> None:
+    """Mirror the sqlite change into the artifact's ACTIVE git note, as the CLI paths do. Best-effort and quiet.
+
+    This route updated sqlite and Qdrant only, so a correction made through the daemon or the extension was undone by the next
+    from-notes rebuild (notes are the canonical log). The project root is the one the route already resolved; a project that is
+    not a git repository, or an artifact with no note, simply has nothing to stamp.
+    """
+    from empirica.cli.command_handlers.graph_commands import _stamp_invalidation, _stamp_note_resolution
+    from empirica.data.resolution_kind import normalize_resolution_kind
+
+    root = project.get("project_path")
+    try:
+        if artifact_type in ("dead_end", "mistake"):
+            _stamp_invalidation(
+                artifact_type, artifact_id, resolved_by or body.get("reason") or "invalidated", now, None, root
+            )
+        elif artifact_type == "finding":
+            _stamp_note_resolution(
+                "findings",
+                artifact_id,
+                {
+                    "is_resolved": True,
+                    "resolution": resolved_by or body.get("resolution") or "resolved",
+                    "resolution_kind": normalize_resolution_kind(body.get("resolution_kind")),
+                    "resolved_timestamp": now,
+                    "superseded_by": superseded_by,
+                },
+                root,
+            )
+        elif artifact_type == "unknown":
+            _stamp_note_resolution(
+                "unknowns", artifact_id, {"resolved": True, "resolved_by": resolved_by, "resolved_timestamp": now}, root
+            )
+    except Exception as exc:  # a note the stamp could not reach must not turn a correction into an error
+        import logging
+
+        logging.getLogger(__name__).warning(
+            f"note stamp after REST resolve failed for {artifact_type}/{artifact_id}: {exc}"
+        )
 
 
 # Whitelisted PATCH fields per artifact type. Anything outside this map is

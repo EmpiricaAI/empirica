@@ -42,6 +42,28 @@ ARTIFACT_TABLES = (
 GLOBAL_COLLECTIONS = ("global_learnings", "epistemic_events")
 
 
+def scrub_text(text: str) -> str:
+    """``text`` with credentials removed, and still valid JSON if it was JSON.
+
+    The raw redactor works on characters, so a rule that is a little too greedy (the flag rule once took the closing quote and
+    comma after its value) turns a git note or a ``*_data`` column into text nothing can parse, and a rebuild or a reader that
+    does ``json.loads(...) except: {}`` then loses the artifact. A JSON document is therefore scrubbed through its strings and
+    re-encoded; text that is not JSON, and a JSON scalar, goes through the plain redactor. A document with nothing to remove is
+    returned byte for byte, not re-dumped.
+    """
+    stripped = text.lstrip()
+    if stripped[:1] in ("{", "["):
+        try:
+            document = json.loads(text)
+        except ValueError:
+            return redact_for_storage(text)
+        clean = _scrubbed(document)
+        if clean == document:
+            return text
+        return json.dumps(clean, indent=2 if "\n" in text else None, ensure_ascii=False)
+    return redact_for_storage(text)
+
+
 def _scrubbed(value: Any) -> Any:
     """``value`` with every string inside it scrubbed (dicts and lists are walked)."""
     if isinstance(value, str):
@@ -73,7 +95,7 @@ def scrub_sqlite(conn: sqlite3.Connection, apply: bool = False) -> dict:
             updates = {}
             for name, value in zip(columns, row[1:], strict=True):
                 if isinstance(value, str):
-                    clean = redact_for_storage(value)
+                    clean = scrub_text(value)
                     if clean != value:
                         updates[name] = clean
             if not updates:
@@ -196,7 +218,7 @@ def scrub_notes(repo: Path, apply: bool = False) -> dict:
                     continue
                 note_sha, object_sha = parts
                 text = _git(repo, "cat-file", "-p", note_sha)
-                clean = redact_for_storage(text)
+                clean = scrub_text(text)
                 if clean == text:
                     continue
                 count += 1

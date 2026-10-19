@@ -264,6 +264,9 @@ def _ntfy_auth_header(
     for username/password ntfy deployments. Either works; tokens are
     preferred because they're revocable + don't expose the account password.
     """
+    # A token pasted through a YAML block scalar or an env value carries a trailing newline, which `_curl_header_config` refuses
+    # (a line break in a header value could add a header). Whitespace around a token is never part of it.
+    token = token.strip() if token else token
     if token:
         return {"Authorization": f"Bearer {token}"}
     if not user and not password:

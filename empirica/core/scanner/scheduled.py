@@ -12,6 +12,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from empirica.core.redaction import redact_secrets
+
 logger = logging.getLogger(__name__)
 
 
@@ -40,7 +42,8 @@ def _read_crontab() -> list[dict[str, Any]]:
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
-        rows.append({"kind": "crontab", "line": line})
+        # Redacted before it is stored: a cron job that calls an API carries its credential on the line.
+        rows.append({"kind": "crontab", "line": redact_secrets(line)})
     return rows
 
 

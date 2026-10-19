@@ -3243,6 +3243,7 @@ def _handle_scrub_secrets(cwd: Path, apply_it: bool, include_global: bool = Fals
 
     from empirica.core import secret_scrub as ss
 
+    cwd = _project_root_above(cwd)
     report: dict[str, Any] = {"ok": True, "applied": apply_it, "project_root": str(cwd)}
     sqlite_report: dict[str, Any]
     db_path = cwd / ".empirica" / "sessions" / "sessions.db"
@@ -3271,11 +3272,30 @@ def _handle_scrub_secrets(cwd: Path, apply_it: bool, include_global: bool = Fals
         + sum(qdrant_report.get("points", {}).values())
     )
     report["total"] = total
+    # A store that could not be read is not a clean store. `total: 0` with `ok: true` used to be printed for a missing
+    # sessions.db, a directory that is not a git repo, a missing project_id and an unreachable Qdrant alike.
+    report["incomplete"] = {
+        name: section["error"]
+        for name, section in (("sqlite", sqlite_report), ("notes", notes_report), ("qdrant", qdrant_report))
+        if section.get("error")
+    }
+    report["ok"] = not report["incomplete"]
     if total and not apply_it:
         flag = " --include-global" if include_global else ""
         report["next"] = f"empirica doctor --scrub-secrets{flag} --apply"
     print(json.dumps(report, indent=2))
-    return 0
+    return 0 if report["ok"] else 2
+
+
+def _project_root_above(cwd: Path) -> Path:
+    """The nearest directory at or above ``cwd`` that holds a `.empirica` folder, else ``cwd`` itself.
+
+    Run from a subdirectory, the scrub looked for `.empirica/sessions/sessions.db` under the subdirectory and found no project.
+    """
+    for candidate in (cwd, *cwd.parents):
+        if (candidate / ".empirica").is_dir():
+            return candidate
+    return cwd
 
 
 def _project_id_of(cwd: Path) -> str | None:
@@ -3287,6 +3307,16 @@ def _project_id_of(cwd: Path) -> str | None:
         return str(value) if value else None
     except Exception:
         return None
+
+
+def _refuse_flags(args: Any, message: str) -> int:
+    """A flag combination that would be partly ignored is refused loudly, in the shape the `--apply` guard uses."""
+    msg = f"doctor: {message}"
+    if getattr(args, "output", "human") == "json":
+        print(json.dumps({"ok": False, "error": "flag_combination_refused", "message": msg}))
+    else:
+        print(msg, file=sys.stderr)
+    return 2
 
 
 def handle_doctor_command(args: Any) -> int:
@@ -3309,6 +3339,13 @@ def handle_doctor_command(args: Any) -> int:
         else:
             print(msg, file=sys.stderr)
         return 2
+    if getattr(args, "include_global", False) and not getattr(args, "scrub_secrets", False):
+        return _refuse_flags(args, "--include-global only means something with --scrub-secrets; nothing was done.")
+    if getattr(args, "reconcile_notes", False) and getattr(args, "scrub_secrets", False):
+        return _refuse_flags(
+            args,
+            "--reconcile-notes and --scrub-secrets rewrite different things; run them one at a time. Nothing was done.",
+        )
     if getattr(args, "reconcile_notes", False):
         return _handle_reconcile_notes(cwd, apply_it=bool(getattr(args, "apply", False)))
     if getattr(args, "scrub_secrets", False):

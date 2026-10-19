@@ -228,7 +228,11 @@ _STORAGE_KV = re.compile(
     r"(?i)(['\"]?\b(?:" + "|".join(_STORAGE_KEY_NAMES) + r")\b['\"]?\s*[:=]\s*)(['\"])([A-Za-z0-9._~+/=\-]{12,})\2"
 )
 _STORAGE_FLAG = re.compile(
-    r"(?i)(--(?:" + "|".join(n.replace("_", "-") for n in _STORAGE_KEY_NAMES) + r")[= ])(\S{8,})"
+    r"(?i)(--(?:"
+    + "|".join(n.replace("_", "-") for n in _STORAGE_KEY_NAMES)
+    # The value ends at whitespace or at a closing delimiter. `\S{8,}` took the quote and comma after a value that ended a JSON
+    # string, which turned `"ran with --api-key abcdef123456",` into invalid JSON once the offline scrub wrote it back.
+    + r")[= ])([^\s\"'`,;)\]}]{8,})"
 )
 
 

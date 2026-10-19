@@ -253,10 +253,13 @@ class TestDoctorFlag:
 
         from empirica.cli.command_handlers import doctor
 
-        assert doctor.handle_doctor_command(self._args()) == 0
+        # Exit 2, not 0: a store that could not be read is not a clean store (the Qdrant here is down and the directory is not a
+        # git repo). The sqlite part still ran and still reports what it found.
+        assert doctor.handle_doctor_command(self._args()) == 2
         out = json.loads(capsys.readouterr().out)
         assert out["applied"] is False and out["sqlite"]["rows"] == {"project_findings": 1} and "--apply" in out["next"]
         assert out["qdrant"]["error"], "an unreachable Qdrant is reported, not raised"
+        assert out["ok"] is False and {"qdrant", "notes"} <= set(out["incomplete"])
         row = (
             sqlite3.connect(project / ".empirica" / "sessions" / "sessions.db")
             .execute("select finding from project_findings")
@@ -267,7 +270,9 @@ class TestDoctorFlag:
     def test_apply_scrubs_the_database(self, project, capsys):
         from empirica.cli.command_handlers import doctor
 
-        assert doctor.handle_doctor_command(self._args(apply=True)) == 0
+        assert doctor.handle_doctor_command(self._args(apply=True)) == 2, (
+            "incomplete scan: the other stores were unreadable"
+        )
         row = (
             sqlite3.connect(project / ".empirica" / "sessions" / "sessions.db")
             .execute("select finding from project_findings")

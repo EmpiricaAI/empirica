@@ -343,7 +343,11 @@ def _resolve_canonical_ai_id(
                 continue
             for proj in tenant.get("projects", []) or []:
                 if proj.get("ai_id_short") == basename:
-                    canonical = proj.get("ai_id_mesh") or basename
+                    canonical = proj.get("ai_id_mesh")
+                    if not canonical:
+                        # The row exists but carries no mesh id (not synced yet). That is not a resolution: caching the
+                        # basename here made it permanent, and `fresh=True` re-read the cache it had just poisoned.
+                        break
                     _CANONICAL_AI_ID_CACHE[cache_key] = canonical
                     _CANONICAL_FAILED_AT.pop(cache_key, None)
                     return canonical

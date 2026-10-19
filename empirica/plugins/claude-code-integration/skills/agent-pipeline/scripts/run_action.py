@@ -43,6 +43,10 @@ def sandbox_prefix(repo: Path, home: Path | None = None, venv_bin: str | None = 
     # still write anywhere on the machine. Only the repo is bound writable; /tmp and the three hidden config directories are
     # private tmpfs scratch that vanishes with the sandbox. /tmp comes first so a repo or home that lives under it is re-bound
     # on top of the fresh tmpfs.
+    #
+    # What this does NOT confine: the repo includes `.git`, so the agent can write `.git/config` or a hook, and `_git` and
+    # `_pytest` below run on the HOST afterwards. A planted `core.fsmonitor`, hook or conftest would execute outside the sandbox.
+    # The sandbox keeps the agent away from the rest of the machine, not from its own checkout's configuration.
     cmd = ["bwrap", "--ro-bind", "/", "/", "--tmpfs", "/tmp"]  # noqa: S108 - a private tmpfs inside the sandbox, not a host path
     for hidden in (".claude", ".empirica", ".config"):
         cmd += ["--tmpfs", str(home / hidden)]
