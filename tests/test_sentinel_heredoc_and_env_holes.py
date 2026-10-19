@@ -82,6 +82,32 @@ NOT_A_HEREDOC_HOLES = [
     "echo \\<<E\ntouch /tmp/p",
 ]
 
+# Found by the second independent review: `<<WORD` inside a parameter expansion is not a heredoc to bash, but it was to the
+# stripper, which then deleted the commands that bash really ran. Verified against bash with `echo` payloads.
+EXPANSION_HOLES = [
+    "echo ${x//<<E/y}\ntouch /tmp/p\nE",
+    "echo ${x/<<E}\ntouch /tmp/p\nE",
+    "echo ${x#<<E}\ntouch /tmp/p\nE",
+    "echo ${x:-<<E}\ntouch /tmp/p\nE",
+    "echo ${x:0:1<<n}\ntouch /tmp/p\nn",
+    "echo $[1<<n]\ntouch /tmp/p\nn",
+    "git status ${x//<<E/y}\ntouch /tmp/p\nE",
+    "(( n = 1<<n ))\ntouch /tmp/p\nn",
+]
+
+# The classifier's own quote tracking ignored comments, so a quote inside one swallowed every later line. (Predates the heredoc
+# work; the stripper now drops comments from the text the classifier sees.)
+COMMENT_HOLES = [
+    "ls # it's\ntouch /tmp/p",
+    "echo hi # it's\nrm -rf /tmp/p",
+    "git status # don't\ntouch /tmp/p",
+    "ls #'\ntouch /tmp/p",
+    'ls # "\ntouch /tmp/p',
+    "ls # x\\\ntouch /tmp/p",
+    "echo a <<E # it's\nx\nE\ntouch /tmp/p",
+    "ls # it's <<E\nx\nE\ntouch /tmp/p",
+]
+
 EXECUTOR_HEREDOCS = [
     "bash <<E\nrm -rf x\nE",
     "sh <<E\ntouch /tmp/p\nE",
@@ -115,6 +141,11 @@ LEGIT_HEREDOCS = [
     'grep "a<<b" /dev/null',
     "ls # a comment mentioning <<E",
     "echo a#b",
+    "ls # it's a comment",
+    "echo \"it's\" # trailing 'quote",
+    "echo ${x:-default} ${#y} $# ${z%%.*}",
+    "ls ${HOME}/x",
+    "echo $((1 + 2)) $[3 + 4]",
 ]
 
 DANGEROUS_ENV = [
@@ -136,6 +167,20 @@ DANGEROUS_ENV = [
     "env PS4='$(touch /tmp/p)' ls",
     "env PROMPT_COMMAND='touch /tmp/p' ls",
     "env FOO=1 PATH=/tmp/evil ls",
+    # file-writing and config-driven execution, from the second review
+    "env GIT_TRACE=/tmp/x git status",
+    "env GIT_TRACE2=/tmp/x git log",
+    "env GIT_TRACE2_EVENT=/tmp/x git status",
+    "env GIT_REDIRECT_STDERR=/tmp/x git status",
+    "env GIT_DIR=/tmp/x git status",
+    "env RIPGREP_CONFIG_PATH=/tmp/x rg a .",
+    "env CARGO_HOME=/tmp/x cargo tree",
+    "env RUSTC_WRAPPER=/tmp/x cargo tree",
+    "env JAVA_TOOL_OPTIONS=-javaagent:/tmp/x ls",
+    "env GLIBC_TUNABLES=glibc.malloc.check=3 ls",
+    "env ZDOTDIR=/tmp/x ls",
+    "GIT_TRACE2_EVENT=/tmp/x; git status",
+    "RIPGREP_CONFIG_PATH=/tmp/x; rg a .",
     "env -i PATH=/tmp/evil ls",
     # the same variables as bare assignments that take effect on a LATER command in the chain
     "PATH=/tmp/evil; ls",
@@ -165,6 +210,16 @@ def test_a_heredoc_does_not_hide_a_command_from_the_gate(safe, command):
 
 @pytest.mark.parametrize("command", NOT_A_HEREDOC_HOLES)
 def test_a_double_angle_that_is_not_a_heredoc_does_not_hide_later_text(safe, command):
+    assert not safe(command), command
+
+
+@pytest.mark.parametrize("command", EXPANSION_HOLES)
+def test_a_double_angle_inside_an_expansion_is_not_a_heredoc(safe, command):
+    assert not safe(command), command
+
+
+@pytest.mark.parametrize("command", COMMENT_HOLES)
+def test_a_quote_inside_a_comment_does_not_swallow_later_lines(safe, command):
     assert not safe(command), command
 
 

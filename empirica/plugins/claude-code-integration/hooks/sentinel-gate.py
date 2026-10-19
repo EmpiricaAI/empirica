@@ -2990,21 +2990,33 @@ _ENV_ASSIGN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=(?:\"[^\"]*\"|'[^']*'|\S*)\
 #: XDG_CONFIG_HOME are here because git reads `core.pager`, aliases and hooks from the config they point at.
 _EXEC_ENV_NAMES = frozenset(
     {"PATH", "IFS", "ENV", "BASH_ENV", "SHELLOPTS", "BASHOPTS", "PS4", "PROMPT_COMMAND", "CDPATH", "GLOBIGNORE"}
-    | {"PAGER", "MANPAGER", "EDITOR", "VISUAL", "LESSOPEN", "LESSCLOSE", "BROWSER", "SSH_ASKPASS", "HOME"}
-    | {"XDG_CONFIG_HOME", "GIT_SSH", "GIT_SSH_COMMAND", "GIT_EXTERNAL_DIFF", "GIT_PAGER", "GIT_ASKPASS"}
-    | {"GIT_EDITOR", "GIT_SEQUENCE_EDITOR", "GIT_EXEC_PATH", "GIT_PROXY_COMMAND", "GIT_CONFIG_COUNT"}
-    | {"GIT_CONFIG_PARAMETERS", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"}
+    | {"PAGER", "MANPAGER", "EDITOR", "VISUAL", "LESSOPEN", "LESSCLOSE", "BROWSER", "SSH_ASKPASS", "HOME", "SHELL"}
+    | {"TERMINFO", "TERMINFO_DIRS", "ZDOTDIR", "INPUTRC", "MAKEFLAGS", "CC", "CXX", "CFLAGS", "LDFLAGS", "GCONV_PATH"}
+    | {"LOCPATH", "NLSPATH", "HOSTALIASES", "RESOLV_HOST_CONF", "GLIBC_TUNABLES"}
 )
+#: Families, not enumerations: `GIT_TRACE*` APPENDS to any path it is given, `GIT_DIR` points git at a repository whose config
+#: can name a pager or fsmonitor to exec, `RIPGREP_CONFIG_PATH` can carry `--pre=<program>`. A denylist is never complete; a
+#: variable no one has listed yet is the residual risk of letting any assignment through at all.
 _EXEC_ENV_PREFIXES = (
     "LD_",
     "DYLD_",
     "PYTHON",
     "NODE_",
+    "NPM_",
     "PERL",
     "RUBY",
-    "GIT_CONFIG_KEY_",
-    "GIT_CONFIG_VALUE_",
-    "BASH_FUNC_",
+    "GIT_",
+    "CARGO_",
+    "RUST",
+    "PIP_",
+    "BASH_",
+    "JAVA",
+    "_JAVA",
+    "XDG_",
+    "RIPGREP_",
+    "BAT_",
+    "GH_",
+    "LESS",
 )
 
 
@@ -3680,6 +3692,38 @@ def _arithmetic_end(command: str, i: int) -> int:
 _DOUBLE_ANGLE_WORD = "__double_angle__"
 
 
+def _balanced_end(command: str, i: int, opener: str, closer: str, skip: int) -> int:
+    """Index just past the span that opens at ``i`` (``skip`` characters of introducer), or -1 when it never closes."""
+    depth, j, n = 1, i + skip, len(command)
+    while j < n:
+        if command[j] == opener:
+            depth += 1
+        elif command[j] == closer:
+            depth -= 1
+            if not depth:
+                return j + 1
+        j += 1
+    return -1
+
+
+#: Spans whose contents are NOT shell syntax of the surrounding line, so a `<<WORD` inside is a shift or a pattern, not a
+#: heredoc: `${x//<<E/y}`, `$[1<<n]`, `((n = 1<<n))`. `$((`..`))` has its own scanner.
+_VERBATIM_SPANS = (("${", "{", "}", 2), ("$[", "[", "]", 2))
+
+
+def _verbatim_span_end(command: str, i: int) -> int:
+    """0 when no verbatim span starts at ``i``; the index past it when it does; minus the index of its end-of-text when it
+    never closes (the caller then fails closed)."""
+    if command.startswith("((", i):
+        end = _balanced_end(command, i, "(", ")", 1)  # `((` closes at the matching `))`
+        return end if end != -1 else -len(command)
+    for introducer, opener, closer, skip in _VERBATIM_SPANS:
+        if command.startswith(introducer, i):
+            end = _balanced_end(command, i, opener, closer, skip)
+            return end if end != -1 else -len(command)
+    return 0
+
+
 def _starts_a_comment(command: str, i: int) -> bool:
     """`#` begins a comment only at the start of a word, as in bash (`a#b` and `$#` do not)."""
     return command[i] == "#" and (i == 0 or command[i - 1] in " \t\n;&|()<>")
@@ -3715,15 +3759,21 @@ def _strip_heredocs(command: str) -> str:
             in_double = not in_double
         elif not in_single and not in_double:
             if _starts_a_comment(command, i):
+                # A comment is inert and ends at the newline (a backslash does not continue it). It is DROPPED, not copied:
+                # the classifier's own quote tracking does not know about comments, so an apostrophe in one swallowed every
+                # later line.
                 end = command.find("\n", i)
-                end = n if end == -1 else end
-                out.append(command[i:end])
-                i = end
+                i = n if end == -1 else end
                 continue
             if command.startswith("$((", i):
                 end = _arithmetic_end(command, i)
                 out.append(command[i:end])
                 i = end
+                continue
+            span_end = _verbatim_span_end(command, i)
+            if span_end:
+                out.append(command[i:span_end] if span_end > 0 else "\n__unterminated_expansion__")
+                i = abs(span_end)
                 continue
             if command.startswith("<<<", i):
                 i += 3
@@ -3749,7 +3799,9 @@ def is_safe_bash_command(tool_input: dict) -> bool:
     the first half, because the body is then the program.
     """
     command = tool_input.get("command", "") if isinstance(tool_input, dict) else ""
-    if "<<" in command and not _is_safe_bash_text({**tool_input, "command": _strip_heredocs(command)}):
+    if ("<<" in command or "#" in command) and not _is_safe_bash_text(
+        {**tool_input, "command": _strip_heredocs(command)}
+    ):
         return False
     return _is_safe_bash_text(tool_input)
 
