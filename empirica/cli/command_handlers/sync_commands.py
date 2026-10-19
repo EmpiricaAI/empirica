@@ -1348,10 +1348,10 @@ def _rebuild_insert_breadcrumbs(db, findings, unknowns, dead_ends, mistakes, val
 
 
 def _rebuild_apply_resolution(db, key, new_id, item) -> None:
-    """B2: after a from-notes rebuild re-creates a finding/unknown as OPEN,
-    re-apply the resolution its git note carries. Direct SQL (not the
+    """B2: after a from-notes rebuild re-creates a finding/unknown as OPEN (or a dead end/mistake as VALID),
+    re-apply the resolution or invalidation its git note carries. Direct SQL (not the
     note-writing resolve) since the note IS the source here. Best-effort."""
-    if not new_id or key not in ("findings", "unknowns"):
+    if not new_id or key not in ("findings", "unknowns", "dead_ends", "mistakes"):
         return
     import time as _t
 
@@ -1368,6 +1368,20 @@ def _rebuild_apply_resolution(db, key, new_id, item) -> None:
             cur.execute(
                 "UPDATE project_unknowns SET is_resolved = 1, resolved_by = ?, resolved_timestamp = ? WHERE id = ?",
                 (item.get("resolved_by") or "resolved", _t.time(), new_id),
+            )
+            db.adapter.conn.commit()
+        elif key in ("dead_ends", "mistakes") and item.get("is_invalidated"):
+            # Invalidation, not resolution (migration 060): the note carries the stamp `_stamp_invalidation` wrote.
+            table = "project_dead_ends" if key == "dead_ends" else "mistakes_made"
+            cur.execute(
+                f"UPDATE {table} SET is_invalidated = 1, invalidation_reason = ?, invalidated_at = ?, "
+                "invalidated_by = ? WHERE id = ?",
+                (
+                    item.get("invalidation_reason") or "invalidated",
+                    item.get("invalidated_at") or _t.time(),
+                    item.get("invalidated_by"),
+                    new_id,
+                ),
             )
             db.adapter.conn.commit()
     except Exception as e:

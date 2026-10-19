@@ -41,9 +41,23 @@ _TYPES = {
     "findings": ("project_findings", "id"),
     "unknowns": ("project_unknowns", "id"),
     "dead_ends": ("project_dead_ends", "id"),
+    "mistakes": ("mistakes_made", "id"),
     "decisions": ("decisions", "id"),
     "assumptions": ("assumptions", "id"),
 }
+
+#: How an artifact is CLOSED, per type: the sqlite column, and the note keys that say the same. Dead ends and mistakes are
+#: INVALIDATED (migration 060), never resolved — they have no ``is_resolved`` column at all, so reconciling them by
+#: resolution found nothing to stamp and 676 invalidated dead ends on one practice stayed live in their notes.
+_CLOSED_BY_DEFAULT = ("is_resolved", ("is_resolved", "resolved"))
+_CLOSED = {
+    "dead_ends": ("is_invalidated", ("is_invalidated",)),
+    "mistakes": ("is_invalidated", ("is_invalidated",)),
+}
+
+
+def _closed_spec(namespace: str) -> tuple[str, tuple[str, ...]]:
+    return _CLOSED.get(namespace, _CLOSED_BY_DEFAULT)
 
 
 def notes_root(project_path: str) -> str | None:
@@ -81,7 +95,9 @@ def _active_note_ids(project_path: str, namespace: str) -> set[str]:
     return {ref.rsplit("/", 1)[-1] for ref in r.stdout.split() if ref.strip()}
 
 
-def _notes_lacking_resolution(project_path: str, namespace: str, ids: set[str]) -> set[str]:
+def _notes_lacking_resolution(
+    project_path: str, namespace: str, ids: set[str], keys: tuple[str, ...] = ("is_resolved", "resolved")
+) -> set[str]:
     """Of these ids, the ones whose active note does not say it is resolved.
 
     Reads each note's payload through one `git cat-file --batch`. A note carries
@@ -98,7 +114,7 @@ def _notes_lacking_resolution(project_path: str, namespace: str, ids: set[str]) 
                 payload = json.loads(blob.decode()) if blob is not None else None
             except (ValueError, UnicodeDecodeError):
                 payload = None
-            if not isinstance(payload, dict) or not (payload.get("is_resolved") or payload.get("resolved")):
+            if not isinstance(payload, dict) or not any(payload.get(k) for k in keys):
                 lacking.add(aid)
     return lacking
 
@@ -120,11 +136,12 @@ def plan(db, project_path: str, project_id: str | None = None) -> dict:
             continue
         live = {str(r[0]) for r in rows}
         resolved = set()
+        closed_col, note_keys = _closed_spec(namespace)
         cols = {d[0] for d in cur.description} if cur.description else set()
-        if "is_resolved" in cols:
+        if closed_col in cols:
             try:
                 resolved = {
-                    str(r[0]) for r in cur.execute(f"SELECT {idcol} FROM {table} WHERE is_resolved = 1").fetchall()
+                    str(r[0]) for r in cur.execute(f"SELECT {idcol} FROM {table} WHERE {closed_col} = 1").fetchall()
                 }
             except Exception:
                 resolved = set()
@@ -135,11 +152,36 @@ def plan(db, project_path: str, project_id: str | None = None) -> dict:
         # payload is read. Counting `resolved & note_ids` instead reported every
         # resolved artifact as "never received", 2221 on core, and the count could
         # not fall after a repair, so the check stayed WARN forever.
-        unstamped = sorted(_notes_lacking_resolution(project_path, namespace, resolved & note_ids))
+        unstamped = sorted(_notes_lacking_resolution(project_path, namespace, resolved & note_ids, note_keys))
         out["types"][namespace] = {"orphaned": orphaned, "unstamped": unstamped}
         out["orphaned_total"] += len(orphaned)
         out["unstamped_total"] += len(unstamped)
     return out
+
+
+def _closing_fields(cur, namespace: str, table: str, idcol: str, aid: str) -> dict:
+    """The note fields that say, in the note's own vocabulary, what sqlite already knows about this artifact."""
+    if _closed_spec(namespace)[0] == "is_invalidated":
+        try:
+            row = cur.execute(
+                f"SELECT invalidation_reason, invalidated_at, invalidated_by FROM {table} WHERE {idcol} = ?", (aid,)
+            ).fetchone()
+        except Exception:
+            row = None
+        fields: dict = {"is_invalidated": True}
+        if row is not None:
+            fields.update({"invalidation_reason": row[0], "invalidated_at": row[1], "invalidated_by": row[2]})
+        return fields
+    try:
+        row = cur.execute(
+            f"SELECT is_resolved, resolution, resolution_kind FROM {table} WHERE {idcol} = ?", (aid,)
+        ).fetchone()
+    except Exception:
+        row = None
+    fields = {"is_resolved": True}
+    if row is not None:
+        fields.update({"resolution": row[1], "resolution_kind": row[2]})
+    return fields
 
 
 def apply(db, project_path: str, the_plan: dict) -> dict:
@@ -156,16 +198,7 @@ def apply(db, project_path: str, the_plan: dict) -> dict:
                 receipt["failed"].append(f"{namespace}/{aid}: {r['reason']}")
         table, idcol = _TYPES[namespace]
         for aid in entry.get("unstamped", []):
-            try:
-                row = cur.execute(
-                    f"SELECT is_resolved, resolution, resolution_kind FROM {table} WHERE {idcol} = ?",
-                    (aid,),
-                ).fetchone()
-            except Exception:
-                row = None
-            fields = {"is_resolved": True}
-            if row is not None:
-                fields.update({"resolution": row[1], "resolution_kind": row[2]})
+            fields = _closing_fields(cur, namespace, table, idcol, aid)
             r = stamp_resolution(namespace, aid, fields, project_path)
             if r["stamped"]:
                 receipt["stamped"] += 1

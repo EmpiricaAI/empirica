@@ -1290,9 +1290,9 @@ def _persist_filter_resolution_to_notes(atype: str, ids: list, resolution: str) 
     (which updates correctly) and would only have surfaced on a from-notes rebuild,
     long after the fact.
 
-    dead_end/mistake have no git-notes resolution store yet, so their invalidation
-    lives in SQLite only and is skipped here rather than mis-filed. Named as a
-    known gap: a from-notes rebuild will resurrect them as valid.
+    dead_end/mistake are INVALIDATED, not resolved: their note gets a stamp
+    (``_stamp_invalidation``) rather than a write into the unknown store, which
+    was the mis-filing this dispatch exists to prevent.
     """
     if not ids:
         return
@@ -1309,11 +1309,10 @@ def _persist_filter_resolution_to_notes(atype: str, ids: list, resolution: str) 
             ustore = GitUnknownStore()
             for uid in ids:
                 ustore.resolve_unknown(uid, resolution)
-        else:
-            logger.debug(
-                f"no git-notes resolution store for {atype!r} — {len(ids)} invalidations are "
-                "SQLite-only; a from-notes rebuild will resurrect them as valid"
-            )
+        else:  # dead_end | mistake: invalidation is a stamp on the existing note, not a resolution store
+            now = time.time()
+            for aid in ids:
+                _stamp_invalidation(atype, aid, resolution, now)
     except Exception as e:
         logger.debug(f"git-notes bulk-resolution persist skipped ({atype}, {len(ids)} ids): {e}")
 
@@ -1699,6 +1698,8 @@ def handle_resolve_artifacts_command(args):  # noqa: C901 — batch dispatcher f
                     )
                     if cursor.rowcount > 0:
                         resolved_count += 1
+                        # The note learns it too, or a from-notes rebuild re-creates the row valid.
+                        _stamp_invalidation(artifact_type, artifact_id, resolution or "invalidated", ts, actor)
                         _record_source_outcomes(db, artifact_id, artifact_type, "invalidated", item)
                     else:
                         resolution_errors.append(f"{artifact_type} '{artifact_id}' not found")
@@ -2004,6 +2005,36 @@ def _stamp_note_resolution(
             "sqlite and notes now DISAGREE for this artifact; a rebuild would revert it"
         )
     return bool(out["stamped"])
+
+
+def _stamp_invalidation(
+    artifact_type: str,
+    artifact_id: str,
+    reason: str,
+    invalidated_at: float,
+    actor: str | None = None,
+    project_path: str | None = None,
+) -> bool:
+    """Mirror a dead-end or mistake INVALIDATION into its ACTIVE note.
+
+    Invalidation set ``is_invalidated`` in sqlite and nothing else, so a from-notes rebuild re-created the row valid
+    (prop_bxjntibm defect 4): the practice was steered away from an approach it had already found wrong. The note keeps its
+    claim text and stays active, exactly as a resolved finding's does; ``_rebuild_apply_resolution`` reads the stamp back.
+    """
+    from empirica.data.artifact_fields import ARTIFACT_NOTE_NAMESPACES
+
+    namespace = ARTIFACT_NOTE_NAMESPACES.get(artifact_type, artifact_type)
+    return _stamp_note_resolution(
+        namespace,
+        artifact_id,
+        {
+            "is_invalidated": True,
+            "invalidation_reason": reason,
+            "invalidated_at": invalidated_at,
+            "invalidated_by": actor,
+        },
+        project_path,
+    )
 
 
 def _delete_artifact_git_notes(artifact_type: str, artifact_id: str, project_path: str | None = None) -> bool:
