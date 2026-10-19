@@ -5,6 +5,78 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.12] - 2026-10-19
+
+A hardening and reliability release. Credentials no longer reach stored artifact text or scan snapshots; the Sentinel no longer loses
+commands that follow a heredoc, a comment or an unusual expansion; and a group of failures seen on a fleet of long-running
+practices (listeners that went deaf after a network drop, a rebuild that dropped older findings, dead ends that came back after one)
+are fixed. Every fix has a test that fails on the previous source. Two independent bypass reviews of the Sentinel changes and one
+pattern sweep of the whole release found and closed further defects before this cut.
+
+### Security
+
+- **Credentials are scrubbed before they are stored.** The artifact verbs (`finding-log`, `unknown-log`, `deadend-log`,
+  `mistake-log`, `assumption-log`, `decision-log`), `log-artifacts` and the repository writers pass their text through a
+  prose-safe redactor (`redact_for_storage`) before it reaches SQLite, a git note or Qdrant. A value only counts as a credential if it
+  looks like one, so ordinary prose is kept.
+- **`doctor --scrub-secrets` removes credentials already stored** from SQLite rows, git notes and Qdrant payloads (this project's
+  collections, plus the shared ones with `--include-global`). It plans by default, `--apply` writes, it is idempotent, and it keeps
+  JSON notes and `*_data` columns valid JSON. A store it could not read is reported as `incomplete` and exits 2 instead of looking
+  clean, and it finds the project from a subdirectory.
+- **The ntfy bearer token is off `curl`'s command line.** The listener passes its authorization header to `curl` on standard input, so
+  it no longer appears in the process list. `empirica scan --save` redacts process command lines and crontab lines and writes its
+  files owner-only.
+- **`mcp>=1.30.0`** (CVE-2026-59951: stateful Streamable HTTP sessions never expire). `empirica-mcp` passes its suite on 1.30.0 and
+  on 2.3.0.
+- **The agent-pipeline `--sandbox bwrap` root is read-only.** It had been `--bind / /`, so every later mount was decoration. The code
+  now says plainly what it still does not confine (`.git` stays writable, and the host runs git afterwards).
+- **The Sentinel no longer loses commands behind a heredoc.** A heredoc operator, a comment, or any `<<` that is not a heredoc
+  (`${x//<<E/y}`, a here-string, arithmetic, a quoted pattern) used to cut the command short for every check, so arguments after the
+  operator and whole commands after the terminator line were never classified. A command is now safe only if it is safe as written and
+  also with its heredocs and comments removed. A heredoc that feeds an executor (`bash`, `sh`, `python3`, `sqlite3`, `ssh`, `| sh`)
+  is still gated.
+- **Variables that change what runs are not inert.** `env PATH=...`, `LD_PRELOAD`, `BASH_ENV`, `GIT_*` (including `GIT_TRACE*`), `HOME`,
+  the interpreter and cloud-CLI configuration families and similar no longer pass as harmless assignments. This is a denylist, so a
+  variable nobody has listed yet is the residual risk; `docs/reference/SENTINEL_GATE_REFERENCE.md` says so.
+- **The security corpus ships with the `services-auditor` skill**, with each framework file carrying its source, edition and
+  verification date, and `doctor` reports its age.
+
+### Fixed
+
+- **A listener never subscribes with the bare basename.** After a network drop the process restarted while the roster lookup failed
+  and subscribed with a tag no publisher uses, so it stayed connected and received nothing while its health file read ok. A failed
+  lookup is now remembered for 30 seconds only; the listener retries with bounded backoff and then refuses to start (exit 2, degraded
+  health marker). A roster row without a mesh id is a failed lookup, not a resolution.
+- **A rebuild and `project-embed` keep older findings.** Both refills read findings through a retrieval filter (relevance >= 0.60)
+  that dropped everything older than about three weeks at medium impact. They now refill every finding through one helper; resolved
+  ones are hidden at search time from the database. `finding-log` says on stderr and in its JSON (`embed_warning`) when Qdrant is in
+  use and the finding was not embedded.
+- **Invalidated dead ends and mistakes survive a rebuild from notes.** Invalidation reached SQLite only. The CLI paths and the REST
+  resolve route now stamp the note, the rebuild re-applies the stamp, and `doctor --reconcile-notes` reconciles dead ends and mistakes
+  by invalidation so the backlog is repairable.
+- **The tool-failure hook no longer records a result that says `"ok": true` as a dead end.**
+- **`mailbox reply` leaves a multi-target proposal open.** Completion is per proposal, so one seat's reply used to close it for all of
+  them. `listener arm` warns when the registry entry is paused.
+- **`project-register` on a temporary checkout says it was refused** (and names `EMPIRICA_REGISTER_EPHEMERAL`) instead of blaming
+  permissions; temporary directories are not registered into the real workspace registry by `project-init`.
+- **The Ollama availability cache expires** (30 s after a failure, 5 min after a success) instead of lasting until the process
+  restarts. The statusline's open-goal count excludes abandoned goals.
+- **The release compliance report's `docker` channel** distinguishes an absent tag from a registry that could not be asked.
+
+### Added
+
+- **`doctor` checks:** "Pinned projects (carried here)" (a pinned cortex project this box has not registered; unpinned projects are
+  reported as "not in the active set", never as excluded), the security corpus's age, and pre-compact capture health.
+- **Platform inspection reads flow in every work type:** `plutil -p`, `defaults read`, `sw_vers`, `pmset -g <query>`,
+  `launchctl list|print`, `docker ps|inspect|logs|...` and similar, alone or inside pipes, chains and substitutions. Their write modes
+  stay gated.
+
+### Upgrading
+
+- Run `empirica setup-claude-code --force` so the hooks are refreshed.
+- Run `empirica project-embed` once per practice to bring older findings back into the search index.
+- Run `empirica doctor --reconcile-notes` (it plans first; `--apply` writes) and `empirica doctor --scrub-secrets`.
+
 ## [1.14.11] - 2026-10-14
 
 A bug-fix release for one reported defect (#415, thank you @FrancisFerrero for the diagnosis and the verified local repair): the
