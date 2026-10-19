@@ -128,6 +128,26 @@ class ParentFetchError(Exception):
         self.retryable = retryable
 
 
+def _multi_target_reason(parent: dict) -> str | None:
+    """Why a reply must NOT complete this parent, or None when it may.
+
+    Completion is per proposal, archive is per recipient. A parent addressed to several seats was completed for all of them by
+    the first seat to reply (prop_k4odsdilz, three targets, measured on Philipp's box), which removed the other two seats' open
+    ask from the source's outbox as done. Distinct targets are counted, so the same seat listed twice is one; a parent without a
+    target list (an older shape) is closed as before.
+    """
+    targets = parent.get("target_claudes")
+    if not isinstance(targets, list):
+        return None
+    distinct = {str(t).strip().lower() for t in targets if str(t).strip()}
+    if len(distinct) <= 1:
+        return None
+    return (
+        f"parent is addressed to {len(distinct)} targets and completion is per proposal, so one seat's reply would close it "
+        "for all of them; left open and un-archived"
+    )
+
+
 def _default_fetch_parent(cortex_url: str, api_key: str, parent_id: str, timeout: float = 5.0) -> dict | None:
     """GET /v1/orchestration/<id> for parent body. Response is the proposal object directly.
 
@@ -599,7 +619,13 @@ def handle_mailbox_reply_command(  # noqa: C901 — CLI handler with 7 validatio
     parent_closed = False
     complete_resp: dict = {}
     no_close = bool(getattr(args, "no_close", False))
-    if not no_close:
+    close_skipped = None if no_close else _multi_target_reason(parent)
+    if close_skipped:
+        sys.stderr.write(
+            f"mailbox reply: {close_skipped}. Close it deliberately with cortex_complete_proposal once every target "
+            "has answered; `empirica mailbox archive` clears only your own copy.\n"
+        )
+    if not no_close and not close_skipped:
         complete_url = f"{cortex_url.rstrip('/')}/v1/orchestration/{parent_id}/complete"
         complete_body = {
             "api_key": api_key,
@@ -711,15 +737,19 @@ def handle_mailbox_reply_command(  # noqa: C901 — CLI handler with 7 validatio
         "parent_id": parent_id,
         "parent_closed": parent_closed,
         "parent_archived": parent_archived,
-        "result": (getattr(args, "result", None) or "shipped") if not no_close else None,
+        "result": (getattr(args, "result", None) or "shipped") if not (no_close or close_skipped) else None,
         "target_claudes": target_claudes,
         "title": title,
     }
+    if close_skipped:
+        result["parent_close_skipped"] = close_skipped
 
     fmt = getattr(args, "output", "json")
     if fmt == "human":
         if no_close:
             action = "kept-open (--no-close)"
+        elif close_skipped:
+            action = "kept-open (multi-target parent)"
         elif parent_closed:
             tag = "+archived" if parent_archived else (" (archive-failed)" if not no_archive else "")
             action = f"closed (result={result['result']}){tag}"

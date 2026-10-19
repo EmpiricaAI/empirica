@@ -2254,6 +2254,14 @@ def handle_listener_arm_command(args) -> int:
         "state_file": str(active_path),
     }
     summary = f'Listener "{name}" armed: monitor_task_id={task_id}'
+    if is_listener_paused(instance_id, name):
+        # Arming a paused entry used to report plain success. The Monitor is armed, nothing will wake the session, and that
+        # reads as a quiet inbox (prop_bxjntibm defect 6).
+        payload["warning"] = (
+            f'listener "{name}" is paused: the Monitor is armed but no event will be delivered. '
+            f"Resume it with `empirica listener resume --name {name}`."
+        )
+        summary += f"\nwarning: {payload['warning']}"
     return _emit(args, payload, summary)
 
 
