@@ -2951,7 +2951,7 @@ def check_project_drift(cwd: Path | None = None) -> Check:
         return Check(
             "Project drift (Cortex membership)",
             PASS,
-            f"local project_id {local_pid[:8]}… present in Cortex user-scope ({len(ids)} total)",
+            f"local project_id {local_pid[:8]}… present in Cortex user-scope ({len(ids)} total){_pin_label(projects, local_pid)}",
             data={"project_id": local_pid, "scope_size": len(ids)},
         )
     return Check(
@@ -2961,6 +2961,79 @@ def check_project_drift(cwd: Path | None = None) -> Check:
         'POST /v1/users/me/projects body={"project_id": "..."} to auto-link',
         data={"local_project_id": local_pid, "remote_ids": list(ids)},
     )
+
+
+def _pin_label(projects: list, project_id: str) -> str:
+    """` — pinned` / ` — not in the active set` for one project, or nothing when cortex did not say.
+
+    A pin is membership of the active set (picker, Projects view) and records no reason, so the complement is NOT "excluded":
+    it covers both deliberately left out and never selected (extension, prop_zi6v7hqtivdo7ec6t23ktm2nse).
+    """
+    for p in projects:
+        if isinstance(p, dict) and (p.get("id") or p.get("project_id")) == project_id and "pinned" in p:
+            return " — pinned" if p["pinned"] else " — not in the active set"
+    return ""
+
+
+def _project_names(rows: list[dict], limit: int = 8) -> str:
+    names = [str(r.get("display_name") or r.get("name") or r.get("slug") or r.get("id"))[:60] for r in rows]
+    shown = ", ".join(names[:limit])
+    return shown + (f" (+{len(names) - limit} more)" if len(names) > limit else "")
+
+
+def check_pinned_projects() -> Check:
+    """Which of the cortex projects pinned for this user does this box not carry?
+
+    Asked by cortex for empirica-nle: a local AI should see registry gaps as carried vs not carried. Only a PINNED project
+    missing here is a gap. An unpinned one is reported as "not in the active set" and never called excluded, because the pin
+    records no reason, so absence cannot tell deliberately left out from never selected.
+    """
+    name = "Pinned projects (carried here)"
+    url, api_key = _resolve_cortex_creds()
+    if not (url and api_key):
+        return Check(name, SKIP, "no Cortex creds")
+    me_url = f"{url}/v1/users/me/projects"
+    status, body = _http_get(me_url, headers={"Authorization": f"Bearer {api_key}"})
+    if status == -1:
+        return Check(name, WARN, f"{me_url} unreachable")
+    if status >= 400:
+        return Check(name, WARN, f"{me_url} → {status}", data={"status": status})
+    try:
+        payload = json.loads(body) if body else {}
+        projects = payload.get("projects", []) if isinstance(payload, dict) else (payload or [])
+        rows = [p for p in projects if isinstance(p, dict)]
+    except (json.JSONDecodeError, AttributeError):
+        return Check(name, WARN, "malformed projects payload")
+    if not any("pinned" in p for p in rows):
+        return Check(name, SKIP, "this Cortex does not report `pinned` on projects yet")
+
+    live = [p for p in rows if not p.get("is_archived")]
+    pinned = [p for p in live if p.get("pinned")]
+    unpinned = [p for p in live if not p.get("pinned")]
+    try:
+        from empirica.data.repositories.workspace_db import WorkspaceDBRepository
+
+        with WorkspaceDBRepository.open(ensure_schema=False) as repo:
+            local_ids = {str(r["id"]) for r in repo.list_projects("active")}
+    except Exception as e:
+        return Check(name, WARN, f"could not read this box's project registry: {type(e).__name__}: {e}")
+
+    missing = [p for p in pinned if (p.get("id") or p.get("project_id")) not in local_ids]
+    data = {
+        "pinned_count": len(pinned),
+        "pinned_missing": [p.get("id") or p.get("project_id") for p in missing],
+        "unpinned_count": len(unpinned),
+    }
+    tail = f"{len(unpinned)} more project(s) are not in the active set"
+    if missing:
+        return Check(
+            name,
+            WARN,
+            f"{len(missing)} of {len(pinned)} pinned project(s) not registered on this box: {_project_names(missing)}; {tail}",
+            "register each with `empirica project-init` in its checkout, or unpin it in the extension",
+            data=data,
+        )
+    return Check(name, PASS, f"all {len(pinned)} pinned project(s) are registered here; {tail}", data=data)
 
 
 # ─── Top-level orchestrator ────────────────────────────────────────────
@@ -3118,6 +3191,7 @@ def run_all_checks(cwd: Path | None = None) -> list[Check]:
         check_cortex_reachability(),
         check_cortex_auth(),
         check_project_drift(cwd),
+        check_pinned_projects(),
         # ntfy mesh
         check_ntfy_creds(),
         check_ntfy_auth(),
