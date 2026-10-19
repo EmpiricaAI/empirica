@@ -92,11 +92,11 @@ def test_the_listener_resolves_a_canonical_tag_for_an_oauth_seat():
     assert err == "", "a successful resolution must not warn"
 
 
-def test_no_credential_falls_back_to_the_basename_and_says_so():
-    """The fallback is correct and must survive — what was wrong is reaching it
-    while holding a usable token, and reaching it in silence."""
+def test_no_credential_refuses_to_subscribe_and_says_so():
+    """It used to fall back to the basename. A basename subscription is accepted, matches nothing and reads as a quiet inbox
+    (prop_bxjntibm defect 1), so with no credential the listener refuses and names the reason."""
     tag, err = _listener_tag({"url": None, "bearer": None, "source": "none", "reason": "no cortex credential"})
 
-    assert tag == "empirica"
-    assert "silently dropped" in err, "the fallback must announce itself — this path had no message at all"
+    assert tag is None
+    assert "silently dropped" in err, "the refusal must say what subscribing blind would cost"
     assert "no cortex credential" in err, "and it must carry the reason"

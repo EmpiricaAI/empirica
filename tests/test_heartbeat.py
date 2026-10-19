@@ -11,6 +11,9 @@ import json
 import threading
 import time
 
+import pytest
+
+from empirica.core.loop_scheduler import listener as listener_mod
 from empirica.core.loop_scheduler.heartbeat import (
     _HEARTBEAT_ENDPOINT_PATH,
     HeartbeatEmitter,
@@ -310,3 +313,11 @@ def test_default_post_returns_neg_one_on_network_error():
         timeout=0.5,
     )
     assert status == -1
+
+
+@pytest.fixture(autouse=True)
+def _canonical_tag_resolves(monkeypatch):
+    """These tests are about the listener's other behaviour. The box has no cortex roster, and with no canonical tag the
+    listener now (correctly) refuses to run, so give it one. The refusal itself is tested in
+    tests/test_listener_never_subscribes_as_basename.py."""
+    monkeypatch.setattr(listener_mod, "resolve_tag_filter", lambda *_a, **_k: "empirica.test.instance")

@@ -39,7 +39,7 @@ def test_bare_basename_still_resolves(monkeypatch):
         raise OSError("unreachable")  # forces the documented fallback
 
     monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
-    content_poll._CANONICAL_AI_ID_CACHE.clear()
+    content_poll.reset_canonical_cache()
     out = _resolve_canonical_ai_id("http://x.invalid", "key", "epistemic-dj", timeout=0.1)
     assert calls["n"] == 1  # the roster WAS attempted for a bare basename
     assert out == "epistemic-dj"  # fallback to basename on failure (loud, not silent)

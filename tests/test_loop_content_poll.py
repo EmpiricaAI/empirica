@@ -725,7 +725,7 @@ class TestCanonicalResolver:
         from empirica.core.loop_scheduler import content_poll
 
         # Reset cache for clean tests
-        content_poll._CANONICAL_AI_ID_CACHE.clear()
+        content_poll.reset_canonical_cache()
 
         class _Resp:
             def __init__(self, payload):
@@ -807,7 +807,7 @@ class TestCanonicalResolver:
         but doesn't crash the listener."""
         from empirica.core.loop_scheduler import content_poll
 
-        content_poll._CANONICAL_AI_ID_CACHE.clear()
+        content_poll.reset_canonical_cache()
 
         def _boom(*a, **kw):
             raise urllib.error.URLError("network down")
@@ -864,7 +864,7 @@ class TestCanonicalResolver:
 
         from empirica.core.loop_scheduler import content_poll
 
-        content_poll._CANONICAL_AI_ID_CACHE.clear()
+        content_poll.reset_canonical_cache()
 
         # Prime cache
         self._mock_roster_response(

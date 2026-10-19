@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import io
 
+import pytest
+
 from empirica.core.loop_scheduler import listener as listener_mod
 from empirica.core.loop_scheduler.listener import (
     _RETIRED_BARE_TOPIC,
@@ -184,3 +186,11 @@ def test_cached_topic_rejected_when_since_retired(monkeypatch, tmp_path):
     )
     assert rc == 2  # cache rejected (retired) + bare default retired → refuse
     assert "REFUSING" in err.getvalue()
+
+
+@pytest.fixture(autouse=True)
+def _canonical_tag_resolves(monkeypatch):
+    """These tests are about the listener's other behaviour. The box has no cortex roster, and with no canonical tag the
+    listener now (correctly) refuses to run, so give it one. The refusal itself is tested in
+    tests/test_listener_never_subscribes_as_basename.py."""
+    monkeypatch.setattr(listener_mod, "resolve_tag_filter", lambda *_a, **_k: "empirica.test.instance")

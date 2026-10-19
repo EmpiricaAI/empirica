@@ -148,19 +148,28 @@ def _build_subscribe_url(
     return base
 
 
-def resolve_tag_filter(instance_id: str, err_stream) -> str:
-    """The canonical 3-form to subscribe with, or the basename as a last resort.
+def _is_three_form(tag) -> bool:
+    parts = tag.split(".") if isinstance(tag, str) else []
+    return len(parts) == 3 and all(parts)
+
+
+def resolve_tag_filter(instance_id: str, err_stream, *, sleep=time.sleep, attempts: int = 8) -> str | None:
+    """The canonical 3-form to subscribe with, or None to REFUSE. Never the bare basename.
 
     Extracted so it can be tested. It was inline, and the only tests anyone could
     write against it reconstructed the logic in the test — which passes whether or
     not the code is right. The seam is the point.
 
-    **Falling back is never silent.** The canonical 3-form is what cortex
-    addresses live pushes to; subscribing as the bare basename means every push is
-    dropped while catch-up polling keeps working, so the seat looks functional and
-    merely quiet. The `except` path below has always said so. The credential gate
-    used to reach the same fallback without a word, on every OAuth-authenticated
-    seat — the code knew the danger and the gate walked around the warning.
+    **A basename subscription is an outage that looks like a quiet inbox.** Cortex
+    addresses live pushes to the canonical 3-form; subscribing as the bare basename
+    is accepted, matches nothing, and leaves the health file reading ok while
+    catch-up polling keeps the seat looking functional. Philipp's fleet lost nine
+    seats this way (prop_bxjntibm): the process restarted while DNS was down, the
+    roster lookup failed, and the old fallback subscribed with the basename for the
+    life of the process. So a failed lookup is retried with bounded backoff, and
+    when it still fails the caller exits 2 (loud, supervisor restarts) rather than
+    subscribing blind. A missing credential is configuration, not a transient
+    failure, so it refuses without retrying.
     """
     try:
         from empirica.config.credentials_loader import get_credentials_loader as _gc
@@ -175,18 +184,41 @@ def resolve_tag_filter(instance_id: str, err_stream) -> str:
             err_stream.write(
                 f"listener: no cortex credential "
                 f"({resolved.get('reason') or 'none configured'}); "
-                f"falling back to basename {instance_id!r} — live "
-                f"pushes will be silently dropped\n"
+                f"refusing to subscribe as the basename {instance_id!r} — live "
+                f"pushes would be silently dropped\n"
             )
-            return instance_id
-        return _resolve_canonical_ai_id(url, key, instance_id)
+            return None
     except Exception as e:
         err_stream.write(
-            f"listener: canonical tag resolution failed ({e}); "
-            f"falling back to basename {instance_id!r} — live "
-            f"pushes will be silently dropped\n"
+            f"listener: cortex credential lookup failed ({e}); "
+            f"refusing to subscribe as the basename {instance_id!r} — live "
+            f"pushes would be silently dropped\n"
         )
-        return instance_id
+        return None
+
+    delay = 2.0
+    last_error = "the roster returned no row for this seat"
+    for attempt in range(1, attempts + 1):
+        try:
+            tag = _resolve_canonical_ai_id(url, key, instance_id, fresh=True)
+            if _is_three_form(tag):
+                return tag
+        except Exception as e:
+            last_error = str(e)
+        if attempt == attempts:
+            break
+        err_stream.write(
+            f"listener: canonical ai_id for {instance_id!r} not resolved (attempt {attempt}/{attempts}: {last_error}); "
+            f"retrying in {delay:.0f}s\n"
+        )
+        err_stream.flush()
+        sleep(delay)
+        delay = min(delay * 2, _RECONNECT_MAX_SEC)
+    err_stream.write(
+        f"listener: canonical ai_id for {instance_id!r} still unresolved after {attempts} attempts; "
+        f"refusing to subscribe as the basename — live pushes would be silently dropped\n"
+    )
+    return None
 
 
 def _unmet_preconditions(ntfy: dict, creds_error: str | None) -> list[str]:
@@ -778,7 +810,10 @@ def run_listener(  # noqa: C901 — held-connection loop; clarity beats decompos
     if _os.getenv("EMPIRICA_NTFY_TAG_FILTER", "true").lower() == "false":
         tag_filter = None
     else:
-        tag_filter = resolve_tag_filter(instance_id, err_stream)
+        tag_filter = resolve_tag_filter(instance_id, err_stream, sleep=_sleep)
+        if tag_filter is None:
+            _emit_fail_heartbeat(instance_id, loop_name, reason="canonical_tag_unresolved")
+            return 2
     # Per-tenant wake topic. The credentials_loader default is the retired
     # bare `orchestration-events` topic, which has no ntfy ACL grant for
     # non-admin users → every poll 403s. Resolve the canonical org-prefixed

@@ -23,6 +23,8 @@ from __future__ import annotations
 import io
 import json
 
+import pytest
+
 from empirica.core.loop_scheduler import listener as listener_mod
 from empirica.core.loop_scheduler.listener import (
     ListenerStopped,
@@ -780,3 +782,11 @@ def test_listener_applies_rate_limit_backoff_on_429(monkeypatch):
     err_text = err.getvalue()
     assert "429" in err_text
     assert "rate limit" in err_text.lower()
+
+
+@pytest.fixture(autouse=True)
+def _canonical_tag_resolves(monkeypatch):
+    """These tests are about the listener's other behaviour. The box has no cortex roster, and with no canonical tag the
+    listener now (correctly) refuses to run, so give it one. The refusal itself is tested in
+    tests/test_listener_never_subscribes_as_basename.py."""
+    monkeypatch.setattr(listener_mod, "resolve_tag_filter", lambda *_a, **_k: "empirica.test.instance")

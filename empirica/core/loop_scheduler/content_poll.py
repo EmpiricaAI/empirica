@@ -56,6 +56,7 @@ import json
 import logging
 import os
 import tempfile
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -267,6 +268,17 @@ def save_state(state_path: Path, state: dict) -> None:
 # scoped per-process. Refresh implicit on listener restart (version drift
 # triggers self-relaunch, dropping the cache).
 _CANONICAL_AI_ID_CACHE: dict[tuple[str, str, str], str] = {}
+#: A failed or empty roster lookup is remembered only briefly. It used to be cached for the life of the process, so one
+#: lookup during a network drop made every later call in that listener return the bare basename for good (the deaf-listener
+#: outages, prop_bxjntibm defect 1). Long enough that the poll paths do not hammer an unreachable roster.
+_CANONICAL_FAILURE_TTL_S = 30.0
+_CANONICAL_FAILED_AT: dict[tuple[str, str, str], float] = {}
+
+
+def reset_canonical_cache() -> None:
+    """Forget every resolved and every failed canonical lookup (tests; a caller that changed credentials)."""
+    _CANONICAL_AI_ID_CACHE.clear()
+    _CANONICAL_FAILED_AT.clear()
 
 
 def _resolve_canonical_ai_id(
@@ -275,12 +287,15 @@ def _resolve_canonical_ai_id(
     basename: str,
     *,
     timeout: float = 10.0,
+    fresh: bool = False,
 ) -> str:
     """Look up the canonical 3-form (org.tenant.project) for a basename.
 
     Reads cortex's `/v1/users/me/roster` once per (cortex_url, api_key,
     basename) tuple, finds the row in the caller's tenant where
     `ai_id_short == basename`, returns its `ai_id_mesh`.
+
+    ``fresh=True`` skips the short failure window and asks the roster again (a caller that retries on its own schedule).
 
     On any failure → returns the basename unchanged. The listener's
     existing fetch failure path will then surface 0-result warnings, so
@@ -302,6 +317,9 @@ def _resolve_canonical_ai_id(
     cached = _CANONICAL_AI_ID_CACHE.get(cache_key)
     if cached is not None:
         return cached
+    failed_at = _CANONICAL_FAILED_AT.get(cache_key)
+    if failed_at is not None and not fresh and time.monotonic() - failed_at < _CANONICAL_FAILURE_TTL_S:
+        return basename
 
     try:
         req = urllib.request.Request(
@@ -327,6 +345,7 @@ def _resolve_canonical_ai_id(
                 if proj.get("ai_id_short") == basename:
                     canonical = proj.get("ai_id_mesh") or basename
                     _CANONICAL_AI_ID_CACHE[cache_key] = canonical
+                    _CANONICAL_FAILED_AT.pop(cache_key, None)
                     return canonical
     except Exception as e:
         logger.warning(
@@ -337,9 +356,9 @@ def _resolve_canonical_ai_id(
             e,
         )
 
-    # Cache the basename fallback too so we don't hammer roster on every poll
-    # when cortex is unreachable. Listener restart drops the cache.
-    _CANONICAL_AI_ID_CACHE[cache_key] = basename
+    # Remember the miss for a short window only (see _CANONICAL_FAILURE_TTL_S). Callers that must not act on the basename
+    # (the listener's subscribe tag) check the result is a 3-form and retry.
+    _CANONICAL_FAILED_AT[cache_key] = time.monotonic()
     return basename
 
 
