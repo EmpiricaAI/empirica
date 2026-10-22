@@ -303,3 +303,86 @@ def test_goals_complete_restamps_the_note(proj, monkeypatch):
     note = _note(root, gid)
     assert note["goal_data"]["status"] == "completed" and note["goal_data"]["completion_reason"] == "shipped in abc123"
     assert _lineage_actions(note)[-1] == "completed"
+
+
+# --- a moving HEAD ------------------------------------------------------------------------------------------------------------
+#
+# `git notes add -f` replaces a note only on the SAME annotated commit. store_goal wrote at HEAD, so once HEAD had moved since the
+# goal was created, a restamp left TWO notes under the one ref and load_goal read whichever `git notes list` printed first: the
+# older one. The tests above never moved HEAD, which is why 1727 restamps on the real store (db62168e8) converged for none of the
+# goals whose creation commit was no longer HEAD.
+
+
+def _move_head(root, name="g"):
+    (root / name).write_text(name)
+    _git(root, "add", name)
+    _git(root, "commit", "-q", "-m", name)
+
+
+def _entries(root, gid):
+    out = subprocess.run(
+        ["git", "notes", f"--ref=empirica/goals/{gid}", "list"], cwd=root, capture_output=True, text=True, check=True
+    ).stdout
+    return [line.split() for line in out.splitlines() if line.strip()]
+
+
+def test_a_restamp_after_head_moved_replaces_the_note_rather_than_adding_one(proj):
+    root, db = proj
+    gid = _goal(db, root)
+    _move_head(root)
+    db.conn.execute(
+        "UPDATE goals SET status='completed', is_completed=1, completed_timestamp=2000.0 WHERE id=?", (gid,)
+    )
+    db.conn.commit()
+    assert gns.restamp_goal_note(db.conn, gid, "completed") is True
+    assert len(_entries(root, gid)) == 1, "one note per goal ref"
+    assert _note(root, gid)["goal_data"]["status"] == "completed"
+
+
+def test_a_lineage_entry_after_head_moved_does_not_fork_the_note(proj):
+    root, db = proj
+    gid = _goal(db, root)
+    _move_head(root)
+    assert GitGoalStore(str(root)).add_lineage(gid, "other-ai", "resumed") is True
+    assert len(_entries(root, gid)) == 1
+    assert _lineage_actions(_note(root, gid)) == ["created", "resumed"]
+
+
+def test_reconcile_consolidates_notes_the_old_writer_forked(proj):
+    """The real store holds 1727 of these: the old creation note on the first commit, the restamp on a later one."""
+    root, db = proj
+    gid = _goal(db, root)
+    _move_head(root)
+    db.conn.execute(
+        "UPDATE goals SET status='completed', is_completed=1, completed_timestamp=2000.0 WHERE id=?", (gid,)
+    )
+    db.conn.commit()
+    # reproduce the old writer: add the restamped payload on the NEW head, leaving the creation note where it was
+    payload = dict(_note(root, gid) or {})
+    payload["goal_data"] = {
+        **(payload.get("goal_data") or {}),
+        "status": "completed",
+        "is_completed": 1,
+        "completed_timestamp": 2000.0,
+        "state_updated_at": 9e9,
+    }
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True, check=True
+    ).stdout.strip()
+    subprocess.run(
+        ["git", "notes", f"--ref=empirica/goals/{gid}", "add", "-f", "-F", "-", head],
+        cwd=root,
+        input=json.dumps(payload),
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    assert len(_entries(root, gid)) == 2, "forked"
+    reader_commit = _entries(root, gid)[0][1]  # git lists by annotated commit; the reader takes the first line
+
+    result = gns.apply_goal_notes(db.conn, str(root))
+    entries = _entries(root, gid)
+    assert len(entries) == 1 and entries[0][1] == reader_commit, "one note, on the commit the reader looks at first"
+    assert _note(root, gid)["goal_data"]["status"] == "completed"
+    assert result["failed"] == 0
+    assert gns.plan_goal_notes(db.conn, str(root))["drifted"] == [], "and the second pass is clean"

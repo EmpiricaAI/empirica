@@ -166,6 +166,16 @@ class GitGoalStore:
             )
             return False
 
+    def _note_commit(self, note_ref: str) -> str | None:
+        """The commit the FIRST note under ``note_ref`` is attached to (the one load_goal reads), or None when there is none."""
+        result = subprocess.run(
+            ["git", "notes", f"--ref={note_ref}", "list"], cwd=self.workspace_root, capture_output=True, text=True
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            return None
+        parts = result.stdout.strip().splitlines()[0].split()
+        return parts[1] if len(parts) >= 2 else None
+
     def store_goal(
         self,
         goal_id: str,
@@ -217,14 +227,18 @@ class GitGoalStore:
             # Serialize
             payload_json = json.dumps(payload, indent=2)
 
-            # Get current commit
-            result = subprocess.run(
-                ["git", "rev-parse", "HEAD"], cwd=self.workspace_root, capture_output=True, text=True, check=True
-            )
-            commit_hash = result.stdout.strip()
+            # A note REPLACES only on the commit it is attached to. Writing at HEAD after HEAD has moved left a second note
+            # under the same ref, and load_goal reads whichever `git notes list` prints first: the stale one. So a goal
+            # that already has a note is rewritten where that note lives.
+            note_ref = f"empirica/goals/{goal_id}"
+            commit_hash = self._note_commit(note_ref)
+            if commit_hash is None:
+                result = subprocess.run(
+                    ["git", "rev-parse", "HEAD"], cwd=self.workspace_root, capture_output=True, text=True, check=True
+                )
+                commit_hash = result.stdout.strip()
 
             # Store in git notes (refs/notes/empirica/goals/<goal-id>)
-            note_ref = f"empirica/goals/{goal_id}"
             subprocess.run(
                 ["git", "notes", f"--ref={note_ref}", "add", "-f", "-F", "-", commit_hash],
                 input=payload_json,

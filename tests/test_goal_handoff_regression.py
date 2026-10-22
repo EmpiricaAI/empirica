@@ -66,56 +66,60 @@ class TestGoalHandoffRegression:
         for goal in filtered_goals:
             assert goal["ai_id"] == ai_id
 
-    def test_lineage_preserved_on_resume(self):
+    def test_lineage_preserved_on_resume(self, tmp_path):
         """
-        Test that lineage is preserved when updating goals
+        Lineage is appended, never overwritten, and stays on the ONE note the reader loads.
 
-        Regression: Previously lineage was overwritten with fresh array
+        Regression 1: lineage used to be overwritten with a fresh array.
+        Regression 2: add_lineage wrote at HEAD, so once HEAD had moved the goal ref held two notes and load_goal read the
+        stale one; this test used to ASSERT that (as a "known limitation") against the real repository's goals, mutating
+        its notes on every run. It now runs in a scratch repository and asserts the single-note contract.
         """
-        store = GitGoalStore()
-
-        # Get a goal to test with
-        goals = store.discover_goals()
-        if len(goals) == 0:
-            pytest.skip("No goals in repository")
-
-        goal = goals[0]
-        goal_id = goal["goal_id"]
-        original_lineage_count = len(goal["lineage"])
-
-        # Use unique ai_id per run to avoid idempotency issues
+        import json
+        import subprocess
         import uuid
 
+        def git(*args):
+            return subprocess.run(
+                ["git", "-c", "user.name=t", "-c", "user.email=t@example.invalid", *args],
+                cwd=tmp_path,
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+
+        git("init", "-q")
+        git("config", "user.name", "t")  # store_goal runs plain `git notes`, which needs a repo-local identity
+        git("config", "user.email", "t@example.invalid")
+        (tmp_path / "f").write_text("x")
+        git("add", "f")
+        git("commit", "-q", "-m", "c1")
+        store = GitGoalStore(str(tmp_path))
+        goal_id = str(uuid.uuid4())
+        assert store.store_goal(goal_id, "sess", "creator-ai", {"objective": "o"})
+        original = store.load_goal(goal_id)
+        assert original is not None
+        original_lineage = original["lineage"]
+
+        (tmp_path / "g").write_text("y")  # HEAD moves between creation and resume
+        git("add", "g")
+        git("commit", "-q", "-m", "c2")
+
         test_ai_id = f"test-ai-regression-{uuid.uuid4().hex[:8]}"
+        assert store.add_lineage(goal_id, test_ai_id, "resumed"), "add_lineage should succeed"
 
-        # Add lineage entry
-        success = store.add_lineage(goal_id, test_ai_id, "resumed")
-        assert success, "add_lineage should succeed"
-
-        # NOTE: load_goal reads from the original commit's note (git notes list
-        # returns the first annotated commit). add_lineage writes to HEAD.
-        # When HEAD != original commit, the updated lineage is on a different
-        # commit than what load_goal reads. This is a known limitation of
-        # git-notes-based storage (see goal_store.py store_goal/load_goal).
-        # Verify the note was written to HEAD directly.
-        import subprocess
-
-        note_ref = f"empirica/goals/{goal_id}"
-        result = subprocess.run(["git", "notes", f"--ref={note_ref}", "show", "HEAD"], capture_output=True, text=True)
-        assert result.returncode == 0, "Note should exist on HEAD"
-        import json
-
-        head_goal = json.loads(result.stdout)
-        assert len(head_goal["lineage"]) == original_lineage_count + 1
-
-        # Last entry should be our addition
-        last_entry = head_goal["lineage"][-1]
-        assert last_entry["ai_id"] == test_ai_id
-        assert last_entry["action"] == "resumed"
-
-        # Original lineage should still be there
-        for i in range(original_lineage_count):
-            assert head_goal["lineage"][i] == goal["lineage"][i]
+        notes = git("notes", f"--ref=empirica/goals/{goal_id}", "list").splitlines()
+        assert len(notes) == 1, "one note per goal ref, however far HEAD has moved"
+        loaded = store.load_goal(goal_id)
+        assert loaded is not None
+        lineage = loaded["lineage"]
+        assert len(lineage) == len(original_lineage) + 1
+        assert lineage[-1]["ai_id"] == test_ai_id and lineage[-1]["action"] == "resumed"
+        assert lineage[: len(original_lineage)] == original_lineage
+        assert (
+            json.loads(git("notes", f"--ref=empirica/goals/{goal_id}", "show", notes[0].split()[1]))["created_at"]
+            == (original["created_at"])
+        ), "and the creation time survives the re-store"
 
 
 if __name__ == "__main__":
