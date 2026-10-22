@@ -172,15 +172,20 @@ def _list_remotes() -> dict[str, str]:
 
 
 # All empirica git notes refs
+# Known namespaces, kept at 0 in the counts when empty. The counts also carry any other namespace that exists.
 EMPIRICA_NOTES_REFS = [
     "empirica/goals",
+    "empirica/tasks",
     "empirica/cascades",
-    "empirica/handoffs",
+    "empirica/handoff",
     "empirica/findings",
     "empirica/unknowns",
     "empirica/dead_ends",
     "empirica/mistakes",
-    "empirica/sessions",
+    "empirica/decisions",
+    "empirica/assumptions",
+    "empirica/sources",
+    "empirica/session",
     "empirica/checkpoints",
     "empirica/messages",
     "empirica-precompact",
@@ -221,20 +226,36 @@ def _check_remote(remote: str = "origin") -> bool:
         return False
 
 
+def _note_namespace(refname: str) -> str:
+    """``refs/notes/empirica/findings/<id>`` -> ``empirica/findings``; ``refs/notes/breadcrumbs`` -> ``breadcrumbs``."""
+    parts = refname.removeprefix("refs/notes/").split("/")
+    if parts[0] == "empirica" and len(parts) >= 2:
+        return f"empirica/{parts[1]}"
+    return parts[0]
+
+
 def _count_local_notes() -> dict[str, int]:
-    """Count notes in each ref locally"""
-    counts = {}
-    for ref in EMPIRICA_NOTES_REFS:
-        try:
-            result = subprocess.run(
-                ["git", "for-each-ref", f"refs/notes/{ref}/"], capture_output=True, text=True, timeout=5
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                counts[ref] = len(result.stdout.strip().split("\n"))
-            else:
-                counts[ref] = 0
-        except Exception:
-            counts[ref] = 0
+    """Replicable note refs per namespace, from what EXISTS rather than from a list.
+
+    It walked a fixed list with a trailing-slash pattern: single refs (``breadcrumbs``, ``empirica-precompact``) never
+    matched, and namespaces the list did not name (``session``, ``tasks``, ``decisions``, ``assumptions``, ``sources``;
+    it named ``sessions`` and ``handoffs``, which no writer uses) were invisible. The known namespaces stay in the answer
+    at 0 so "none" can be told from "not looked at"; archive refs are not replicated and not counted.
+    """
+    counts = dict.fromkeys(EMPIRICA_NOTES_REFS, 0)
+    try:
+        result = subprocess.run(
+            ["git", "for-each-ref", "--format=%(refname)", "refs/notes/"], capture_output=True, text=True, timeout=15
+        )
+    except Exception:
+        return counts
+    if result.returncode != 0:
+        return counts
+    for line in result.stdout.splitlines():
+        ref = line.strip()
+        if ref and _is_replicable_note_ref(ref):
+            ns = _note_namespace(ref)
+            counts[ns] = counts.get(ns, 0) + 1
     return counts
 
 
@@ -625,17 +646,23 @@ def _verify_push_landed(remote: str, remote_before: int | None) -> tuple[dict[st
 
     verification["pushed"] = remote_after - remote_before if remote_before is not None else None
 
-    if remote_after >= local_total:
+    # By NAME when both sides can be listed: a shared remote holds other devices' refs, so a count at or above the local
+    # one does not mean the local refs are there. Counts decide only when the names could not be had.
+    gap = _note_ref_gap(remote)
+    missing = gap if gap is not None else max(local_total - remote_after, 0)
+    verification["compared_by"] = "ref_names" if gap is not None else "counts"
+
+    if missing == 0:
         verification["verdict"] = "replicated"
         return verification, False
 
     if remote_before is not None and remote_after > remote_before:
         verification["verdict"] = "partial"
-        verification["missing"] = local_total - remote_after
+        verification["missing"] = missing
         return verification, False
 
     verification["verdict"] = "not_replicating"
-    verification["missing"] = local_total - remote_after
+    verification["missing"] = missing
     verification["error"] = (
         f"git push reported success but the remote did not move: "
         f"{local_total} local refs, {remote_after} on {remote}. "
@@ -858,7 +885,7 @@ def handle_sync_pull_command(args):
 
         # Calculate changes
         changes = {}
-        for ref in EMPIRICA_NOTES_REFS:
+        for ref in sorted(set(local_before) | set(local_after)):
             before = local_before.get(ref, 0)
             after = local_after.get(ref, 0)
             if after != before:
@@ -938,6 +965,55 @@ def _count_all_local_note_refs() -> int | None:
     return len([ln for ln in proc.stdout.splitlines() if _is_replicable_note_ref(ln.strip())])
 
 
+def _list_local_note_refs() -> set[str] | None:
+    """Names of the replicable note refs in this repo; None when git could not say (unknown, never an empty set)."""
+    try:
+        proc = subprocess.run(
+            ["git", "for-each-ref", "--format=%(refname)", "refs/notes/"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except Exception:
+        return None
+    if proc.returncode != 0:
+        return None
+    return {ln.strip() for ln in proc.stdout.splitlines() if _is_replicable_note_ref(ln.strip())}
+
+
+def _list_remote_note_refs(remote: str, timeout: int = 20) -> set[str] | None:
+    """Names of the replicable note refs on `remote`; None when it could not be reached."""
+    try:
+        proc = subprocess.run(
+            ["git", "ls-remote", remote, "refs/notes/*"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except Exception:
+        return None
+    if proc.returncode != 0:
+        return None
+    names = {ln.split("\t")[-1].strip() for ln in proc.stdout.splitlines() if ln.strip()}
+    return {n for n in names if _is_replicable_note_ref(n)}
+
+
+def _note_ref_gap(remote: str) -> int | None:
+    """How many local note refs are NOT on `remote`, compared by NAME. None when either side could not be listed.
+
+    A COUNT cannot answer this. A remote shared by several devices holds refs this repo never saw, so its count can equal
+    or exceed the local one while local refs never replicated; the verdict then read "replicated" and the gap stayed
+    invisible. Presence of each local ref is the question, and it needs no history walk.
+    """
+    local = _list_local_note_refs()
+    remote_refs = _list_remote_note_refs(remote)
+    if local is None or remote_refs is None:
+        return None
+    return len(local - remote_refs)
+
+
 def _count_remote_notes(remote: str, timeout: int = 20) -> tuple[int | None, str | None]:
     """Note refs present on `remote` — ``(count, unreachable_reason)``.
 
@@ -964,7 +1040,9 @@ def _count_remote_notes(remote: str, timeout: int = 20) -> tuple[int | None, str
     return len([ln for ln in proc.stdout.splitlines() if _is_replicable_note_ref(ln.split("\t")[-1].strip())]), None
 
 
-def _replication_verdict(local: int | None, remote_count: int | None, unreachable: str | None) -> dict[str, Any]:
+def _replication_verdict(
+    local: int | None, remote_count: int | None, unreachable: str | None, gap: int | None = None
+) -> dict[str, Any]:
     """Are local notes actually reaching the remote? Say it in words.
 
     THE GAP THIS CLOSES. Across four practices measured 2026-09-02, ~9,500 epistemic
@@ -973,15 +1051,16 @@ def _replication_verdict(local: int | None, remote_count: int | None, unreachabl
     question it could answer. Configuration is not replication. A verb consulted to
     decide whether a thing is working must be able to say *it is not*.
 
-    `local > remote` is the detectable signature and it is deliberately cheap: it
-    needs no history walk, only two counts.
+    `gap` is how many local refs are absent from the remote BY NAME (`_note_ref_gap`) and, when it could be computed,
+    it decides: counts alone read a remote that holds other devices' refs as caught up. Without it the two counts
+    decide, as they always did.
     """
     if unreachable or remote_count is None:
         reason = unreachable or "remote ref count unavailable"
         return {"state": "unknown", "reason": f"remote not reachable — {reason}", "behind": None}
     if local is None:
         return {"state": "unknown", "reason": "local note refs could not be counted", "behind": None}
-    behind = local - remote_count
+    behind = local - remote_count if gap is None else gap
     if local == 0:
         return {"state": "nothing_to_replicate", "reason": "no local note refs", "behind": 0}
     if behind > 0:
@@ -1038,10 +1117,11 @@ def _replication_block(remote: str | None, remote_configured: bool, local_only: 
     # BOTH SIDES OVER THE SAME REF SET. `total_notes` covers the enumerated namespaces
     # only, and comparing it here reported REPLICATED while 5,622 refs were missing.
     all_local = _count_all_local_note_refs()
+    gap = None if unreachable else _note_ref_gap(str(remote))
     return {
         "local_note_refs": all_local,
         "remote_notes": remote_count,
-        "replication": _replication_verdict(all_local, remote_count, unreachable),
+        "replication": _replication_verdict(all_local, remote_count, unreachable, gap),
     }
 
 

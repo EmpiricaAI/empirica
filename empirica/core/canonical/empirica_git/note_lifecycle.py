@@ -21,7 +21,8 @@ note would have been the obvious-looking mistake — it would drop resolved rows
 out of the active graph while sqlite kept them, a second divergence in the
 opposite direction.
 
-Layout, parallel namespaces so the journey survives remotely too:
+Layout, parallel namespaces so the journey is kept beside the active graph (LOCAL ONLY: no sync verb pushes or pulls
+`empirica-archive`, deliberately, and sync counts exclude it, so an archived note does not survive on a remote):
 
     refs/notes/empirica/<type>/<id>           active — mirrors sqlite
     refs/notes/empirica-archive/<type>/<id>   the journey

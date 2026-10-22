@@ -47,6 +47,9 @@ def push_env(monkeypatch):
 
 def _counts(monkeypatch, local, before, after, after_err=None):
     monkeypatch.setattr(sc, "_count_all_local_note_refs", lambda: local)
+    # This file pins the COUNT arithmetic, which decides only when ref names cannot be listed; the by-name comparison has its
+    # own file (test_replication_compares_ref_names.py) against real git.
+    monkeypatch.setattr(sc, "_note_ref_gap", lambda *a, **k: None)
     seq = iter([(before, None), (after, after_err)])
     monkeypatch.setattr(sc, "_count_remote_notes", lambda *a, **k: next(seq))
 
