@@ -1278,8 +1278,80 @@ def _rebuild_ensure_orphan_goals(db, orphan_goal_ids, all_items_lists, now, rebu
                 pass
 
 
+# key -> (table, the id field the note carries)
+_REBUILD_IDENTITY = {
+    "findings": ("project_findings", "finding_id"),
+    "unknowns": ("project_unknowns", "unknown_id"),
+    "dead_ends": ("project_dead_ends", "dead_end_id"),
+    "mistakes": ("mistakes_made", "mistake_id"),
+}
+
+
+def _note_time(value) -> float | None:
+    """A note's ``created_at`` / ``resolved_at`` as epoch seconds. A zone-less stamp is UTC, which is what the writers emit."""
+    from datetime import datetime, timezone
+
+    if isinstance(value, (int, float)):
+        return float(value)
+    if not value or not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.timestamp()
+
+
+def _rebuild_restore_identity(db, key, new_id, item, started):
+    """Give the row `db.log_*` just created the id and time its NOTE carries; return the id the row now has.
+
+    ``log_*`` mints a fresh id and stamps now. The notes are the canonical log, so a rebuilt database that renames every
+    artifact orphans every edge, citation, ``superseded_by`` pointer and vector point that names the old id, and one that
+    stamps the rebuild instant on all of them flattens the recency ordering retrieval ranks by.
+
+    Left alone: a row ``log_*`` did not just create (it deduplicated onto an existing artifact, which other rows point at), a
+    note whose id is already taken, and a legacy note that carries no id. Those keep the id ``log_*`` returned.
+    """
+    spec = _REBUILD_IDENTITY.get(key)
+    if not spec or not new_id:
+        return new_id
+    table, id_field = spec
+    note_id = item.get(id_field)
+    note_time = _note_time(item.get("created_at"))
+    try:
+        cur = db.adapter.conn.cursor()
+        row = cur.execute(f"SELECT created_timestamp FROM {table} WHERE id = ?", (new_id,)).fetchone()
+        if row is None or not isinstance(row[0], (int, float)) or row[0] < started:
+            return new_id  # not created by this call: a dedupe hit
+        rename = bool(note_id) and note_id != new_id
+        if rename and cur.execute(f"SELECT 1 FROM {table} WHERE id = ?", (note_id,)).fetchone():
+            rename = False  # the note's id is taken by another row
+        target = note_id if rename else new_id
+        if rename or note_time is not None:
+            cur.execute(
+                f"UPDATE {table} SET id = ?, created_timestamp = ? WHERE id = ?",
+                (target, note_time if note_time is not None else row[0], new_id),
+            )
+            if rename:
+                cur.execute("UPDATE artifact_edges SET from_id = ? WHERE from_id = ?", (note_id, new_id))
+                cur.execute("UPDATE artifact_edges SET to_id = ? WHERE to_id = ?", (note_id, new_id))
+            db.adapter.conn.commit()
+        return target
+    except Exception as e:
+        logger.debug(f"rebuild identity restore skip ({key} {new_id}): {e}")
+        try:
+            db.adapter.conn.rollback()
+        except Exception:
+            pass
+        return new_id
+
+
 def _rebuild_insert_breadcrumbs(db, findings, unknowns, dead_ends, mistakes, valid_goal_ids, rebuilt):
     """Insert breadcrumb records using table-driven approach."""
+    import time
+
     handlers = [
         (
             "findings",
@@ -1337,7 +1409,9 @@ def _rebuild_insert_breadcrumbs(db, findings, unknowns, dead_ends, mistakes, val
     for key, items, handler in handlers:
         for item in items:
             try:
+                started = time.time()
                 new_id = handler(db, item, valid_goal_ids)
+                new_id = _rebuild_restore_identity(db, key, new_id, item, started)
                 # B2: a from-notes rebuild re-creates artifacts OPEN (log_* make
                 # fresh rows). Re-apply the resolution the note carries so
                 # resolved/superseded state survives rebuild + multi-device sync.
@@ -1364,14 +1438,20 @@ def _rebuild_apply_resolution(db, key, new_id, item) -> None:
         if key == "findings" and item.get("is_resolved"):
             cur.execute(
                 "UPDATE project_findings SET is_resolved = 1, resolution = ?, "
-                "superseded_by = ?, resolved_timestamp = ? WHERE id = ?",
-                (item.get("resolution") or "resolved", item.get("superseded_by"), _t.time(), new_id),
+                "superseded_by = ?, resolution_kind = ?, resolved_timestamp = ? WHERE id = ?",
+                (
+                    item.get("resolution") or "resolved",
+                    item.get("superseded_by"),
+                    item.get("resolution_kind"),
+                    _note_time(item.get("resolved_at")) or _t.time(),
+                    new_id,
+                ),
             )
             db.adapter.conn.commit()
         elif key == "unknowns" and item.get("resolved"):
             cur.execute(
                 "UPDATE project_unknowns SET is_resolved = 1, resolved_by = ?, resolved_timestamp = ? WHERE id = ?",
-                (item.get("resolved_by") or "resolved", _t.time(), new_id),
+                (item.get("resolved_by") or "resolved", _note_time(item.get("resolved_at")) or _t.time(), new_id),
             )
             db.adapter.conn.commit()
         elif key in ("dead_ends", "mistakes") and item.get("is_invalidated"):
