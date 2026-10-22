@@ -1217,19 +1217,42 @@ def _rebuild_ensure_sessions(db, session_ids, all_items_lists, rebuilt):
                 pass
 
 
-def _rebuild_ensure_goals(db, now, rebuilt):
-    """Insert goals from git notes. Returns set of inserted goal IDs."""
+def _rebuild_goal_projects(all_items_lists) -> dict[str, str]:
+    """goal_id -> project_id, read off the artifacts that name the goal. A goal note carries no project of its own."""
+    projects: dict[str, str] = {}
+    for items in all_items_lists:
+        for item in items:
+            gid, pid = item.get("goal_id"), item.get("project_id")
+            if gid and pid:
+                projects.setdefault(gid, pid)
+    return projects
+
+
+def _rebuild_ensure_goals(db, now, rebuilt, all_items_lists=()):
+    """Insert goals from git notes. Returns (goals, set of inserted goal IDs).
+
+    A goal note is written once, at creation, and never updated (lineage only records "resumed"), so it carries the objective,
+    the creating AI and the creation time but NOT whether the goal was completed. A goal whose note has no status is marked
+    ``status_unknown`` and counted in ``rebuilt["goals_status_unknown"]``: the ``in_progress`` default would otherwise read as
+    a fact and return a finished goal to the active list.
+    """
     import json as _json
 
     from empirica.core.canonical.empirica_git.goal_store import GitGoalStore
 
     goal_store = GitGoalStore()
     goals = goal_store.discover_goals()
+    projects = _rebuild_goal_projects(all_items_lists)
     for g in goals:
         try:
             gid = g.get("goal_id")
             gsid = g.get("session_id", "")
-            gdata = g.get("goal_data", {})
+            gdata = dict(g.get("goal_data", {}))
+            status_known = bool(gdata.get("status"))
+            if not status_known:
+                gdata["status_unknown"] = True
+            if g.get("ai_id"):
+                gdata.setdefault("created_by_ai", g["ai_id"])  # the goals table has no creator column
             db.adapter.execute(
                 "INSERT INTO goals (id, session_id, objective, scope, estimated_complexity, "
                 "created_timestamp, goal_data, status, project_id) "
@@ -1240,14 +1263,16 @@ def _rebuild_ensure_goals(db, now, rebuilt):
                     gdata.get("objective", "Rebuilt from notes"),
                     _json.dumps(gdata.get("scope", {})),
                     gdata.get("estimated_complexity"),
-                    now,
+                    _note_time(g.get("created_at")) or now,
                     _json.dumps(gdata),
                     gdata.get("status", "in_progress"),
-                    gdata.get("project_id"),
+                    gdata.get("project_id") or projects.get(gid),
                 ),
             )
             db.adapter.commit()
             rebuilt["goals"] += 1
+            if not status_known:
+                rebuilt["goals_status_unknown"] = rebuilt.get("goals_status_unknown", 0) + 1
         except Exception:
             try:
                 db.adapter.conn.rollback()
@@ -1284,6 +1309,9 @@ def _rebuild_ensure_orphan_goals(db, orphan_goal_ids, all_items_lists, now, rebu
             except Exception:
                 pass
 
+
+# Keys of a rebuild result that are not counts of rebuilt records.
+_REBUILD_NOT_RECORDS = frozenset({"error", "goals_status_unknown"})
 
 # key -> (table, the id field the note carries)
 _REBUILD_IDENTITY = {
@@ -1518,7 +1546,7 @@ def _rebuild_from_notes() -> dict[str, Any]:
         now = time.time()
         _rebuild_ensure_projects(db, project_ids, now, rebuilt)
         _rebuild_ensure_sessions(db, session_ids, all_items_lists, rebuilt)
-        _goals, inserted_goal_ids = _rebuild_ensure_goals(db, now, rebuilt)
+        _goals, inserted_goal_ids = _rebuild_ensure_goals(db, now, rebuilt, all_items_lists)
 
         orphan_goal_ids = goal_ids_needed - inserted_goal_ids
         _rebuild_ensure_orphan_goals(db, orphan_goal_ids, all_items_lists, now, rebuilt)
@@ -1578,6 +1606,21 @@ def _rebuild_reflexes_only(args, output_format: str) -> int:
     return 0 if payload["ok"] else 1
 
 
+def _print_rebuild_human(result, rebuild_result, total_rebuilt, qdrant, qdrant_failure) -> None:
+    if not result["ok"]:
+        print(f"❌ Rebuild failed: {rebuild_result.get('error') or qdrant_failure or 'Unknown error'}")
+        return
+    print(f"✅ Rebuilt {total_rebuilt} records from git notes")
+    for type_name, count in rebuild_result.items():
+        if type_name not in _REBUILD_NOT_RECORDS and count > 0:
+            print(f"   {type_name}: {count}")
+    unknown = rebuild_result.get("goals_status_unknown", 0)
+    if unknown:
+        print(f"   ⚠ {unknown} goal(s) rebuilt with status unknown (notes do not record completion)")
+    if qdrant and "qdrant" in result:
+        print("   🔍 Qdrant: rebuilt")
+
+
 def handle_rebuild_command(args):
     """Handle rebuild command - reconstruct SQLite from git notes"""
     try:
@@ -1635,7 +1678,9 @@ def handle_rebuild_command(args):
         # Run rebuild
         rebuild_result = _rebuild_from_notes()
 
-        total_rebuilt = sum(v for k, v in rebuild_result.items() if k != "error" and isinstance(v, int))
+        total_rebuilt = sum(
+            v for k, v in rebuild_result.items() if k not in _REBUILD_NOT_RECORDS and isinstance(v, int)
+        )
 
         result = {
             "ok": "error" not in rebuild_result,
@@ -1663,15 +1708,7 @@ def handle_rebuild_command(args):
         if output_format == "json":
             print(json.dumps(result, indent=2))
         else:
-            if result["ok"]:
-                print(f"✅ Rebuilt {total_rebuilt} records from git notes")
-                for type_name, count in rebuild_result.items():
-                    if type_name != "error" and count > 0:
-                        print(f"   {type_name}: {count}")
-                if qdrant and "qdrant" in result:
-                    print("   🔍 Qdrant: rebuilt")
-            else:
-                print(f"❌ Rebuild failed: {rebuild_result.get('error') or qdrant_failure or 'Unknown error'}")
+            _print_rebuild_human(result, rebuild_result, total_rebuilt, qdrant, qdrant_failure)
 
         return 0 if result["ok"] else 1
 
