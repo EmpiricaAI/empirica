@@ -879,6 +879,13 @@ def handle_sync_pull_command(args):
         if rebuild and success:
             rebuild_result = _rebuild_from_notes()
             result["rebuild"] = rebuild_result
+            if "error" in rebuild_result:
+                # The fetch landed; the graph the caller asked to have rebuilt did not. "ok" answers whether the whole
+                # request was done, and the notes being local while SQLite is stale is the half-state to name.
+                success = False
+                result["ok"] = False
+                errors.append(f"rebuild failed: {rebuild_result['error']}")
+                result["errors"] = errors
 
         _handle_sync_pull_command_helper(changes, errors, output_format, rebuild, remote, result, success)
 
@@ -1638,14 +1645,20 @@ def handle_rebuild_command(args):
         }
 
         # Optionally rebuild Qdrant
+        qdrant_failure = None
         if qdrant:
             try:
                 from empirica.core.qdrant.vector_store import rebuild_qdrant_from_db
 
                 qdrant_result = rebuild_qdrant_from_db()
                 result["qdrant"] = qdrant_result
+                if not qdrant_result.get("ok"):
+                    result["ok"] = False
+                    qdrant_failure = qdrant_result.get("error")
             except Exception as e:
                 result["qdrant_error"] = str(e)
+                result["ok"] = False
+                qdrant_failure = str(e)
 
         if output_format == "json":
             print(json.dumps(result, indent=2))
@@ -1658,7 +1671,7 @@ def handle_rebuild_command(args):
                 if qdrant and "qdrant" in result:
                     print("   🔍 Qdrant: rebuilt")
             else:
-                print(f"❌ Rebuild failed: {rebuild_result.get('error', 'Unknown error')}")
+                print(f"❌ Rebuild failed: {rebuild_result.get('error') or qdrant_failure or 'Unknown error'}")
 
         return 0 if result["ok"] else 1
 
