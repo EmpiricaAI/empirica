@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import subprocess
 import sys
@@ -1387,6 +1388,149 @@ def _classify_unregister_outcome(
     return False, "error"
 
 
+def _local_project_ids(raw: str | None) -> list[str]:
+    return [i.strip() for i in (raw or "").split(",") if i.strip()]
+
+
+def _local_reference_counts(conn, project_id: str) -> dict[str, int]:
+    """What still points at a project row. entity_memberships counts BOTH directions (a project can be the member or the
+    group); entity_artifacts counts artifacts bound to the project as an entity."""
+    memberships = conn.execute(
+        "SELECT COUNT(*) FROM entity_memberships WHERE (entity_type = 'project' AND entity_id = ?) "
+        "OR (group_type = 'project' AND group_id = ?)",
+        (project_id, project_id),
+    ).fetchone()[0]
+    artifacts = conn.execute(
+        "SELECT COUNT(*) FROM entity_artifacts WHERE entity_type = 'project' AND entity_id = ?", (project_id,)
+    ).fetchone()[0]
+    return {"entity_memberships": memberships, "entity_artifacts": artifacts}
+
+
+def _local_unregister_plan(conn, ids: list[str]) -> dict[str, Any]:
+    rows, referenced, not_found = [], [], []
+    for pid in ids:
+        project = conn.execute("SELECT * FROM global_projects WHERE id = ?", (pid,)).fetchone()
+        mirror = conn.execute(
+            "SELECT * FROM entity_registry WHERE entity_type = 'project' AND entity_id = ?", (pid,)
+        ).fetchone()
+        if project is None and mirror is None:
+            not_found.append(pid)
+            continue
+        path = project["trajectory_path"] if project is not None else None
+        refs = _local_reference_counts(conn, pid)
+        rows.append(
+            {
+                "id": pid,
+                "name": (project["name"] if project is not None else mirror["display_name"]),
+                "trajectory_path": path,
+                "exists_on_disk": bool(path) and Path(path).exists(),
+                "in_global_projects": project is not None,
+                "in_entity_registry": mirror is not None,
+                "references": refs,
+                "snapshot": {
+                    "global_projects": dict(project) if project is not None else None,
+                    "entity_registry": dict(mirror) if mirror is not None else None,
+                },
+            }
+        )
+        if any(refs.values()):
+            referenced.append({"id": pid, **refs})
+    return {"rows": rows, "referenced": referenced, "not_found": not_found}
+
+
+def _local_unregister_apply(conn, rows: list[dict[str, Any]], actor: str) -> None:
+    """Delete every row's global_projects entry AND its entity_registry mirror, with one audit row each, in ONE transaction."""
+    import time as _time
+
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS registry_audit ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, at REAL NOT NULL, actor TEXT, action TEXT NOT NULL, "
+            "entity_type TEXT, entity_id TEXT, snapshot TEXT)"
+        )
+        for row in rows:
+            conn.execute(
+                "INSERT INTO registry_audit (at, actor, action, entity_type, entity_id, snapshot) VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    _time.time(),
+                    actor,
+                    "projects-unregister --local",
+                    "project",
+                    row["id"],
+                    json.dumps(row["snapshot"], default=str),
+                ),
+            )
+            conn.execute("DELETE FROM global_projects WHERE id = ?", (row["id"],))
+            conn.execute("DELETE FROM entity_registry WHERE entity_type = 'project' AND entity_id = ?", (row["id"],))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def _local_unregister(args, output_format: str) -> int:
+    """`projects-unregister --local`: remove project rows from THIS machine's workspace registry. Preview unless --apply."""
+    ids = _local_project_ids(getattr(args, "project_id", None))
+    apply = bool(getattr(args, "apply", False))
+
+    def emit(result: dict[str, Any], code: int) -> int:
+        if output_format == "json":
+            print(json.dumps(result, indent=2, default=str))
+        elif result.get("ok"):
+            verb = "Removed" if result.get("applied") else "Would remove"
+            print(
+                f"{verb} {len(result['rows'])} local project row(s)"
+                + ("" if apply else " (preview; --apply to remove)")
+            )
+            for r in result["rows"]:
+                print(f"   {r['id']}  {r['name']}  {r['trajectory_path']}  on_disk={r['exists_on_disk']}")
+        else:
+            print(f"❌ {result.get('error', 'refused')}", file=sys.stderr)
+            for r in result.get("referenced", []):
+                print(f"   referenced: {r}", file=sys.stderr)
+            for pid in result.get("not_found", []):
+                print(f"   not found: {pid}", file=sys.stderr)
+        return code
+
+    if not ids:
+        return emit(
+            {"ok": False, "error": "--local needs --project-id <uuid>[,<uuid>...]; it never guesses a project"}, 2
+        )
+    if getattr(args, "purge", False) or getattr(args, "slug", None):
+        return emit(
+            {"ok": False, "error": "--local removes LOCAL registry rows and does not combine with --purge/--slug"}, 2
+        )
+
+    from empirica.data.repositories.workspace_db import WorkspaceDBRepository
+
+    with WorkspaceDBRepository.open() as repo:
+        plan = _local_unregister_plan(repo.conn, ids)
+        public_rows = [{k: v for k, v in r.items() if k != "snapshot"} for r in plan["rows"]]
+        if plan["referenced"] or plan["not_found"]:
+            return emit(
+                {
+                    "ok": False,
+                    "error": "refused: the whole batch is held back so nothing half-applies",
+                    "referenced": plan["referenced"],
+                    "not_found": plan["not_found"],
+                    "rows": public_rows,
+                    "applied": False,
+                },
+                1,
+            )
+        if not apply:
+            return emit({"ok": True, "applied": False, "rows": public_rows, "removed": 0}, 0)
+        try:
+            actor = os.environ.get("EMPIRICA_AI_ID") or os.environ.get("USER") or "unknown"
+            _local_unregister_apply(repo.conn, plan["rows"], actor)
+        except Exception as e:
+            return emit(
+                {"ok": False, "error": f"rolled back, nothing removed: {e}", "rows": public_rows, "applied": False}, 1
+            )
+        return emit({"ok": True, "applied": True, "rows": public_rows, "removed": len(plan["rows"])}, 0)
+
+
 def handle_projects_unregister_command(args) -> None:
     """Unregister a project from Cortex (soft archive by default, --purge to hard-delete).
 
@@ -1408,6 +1552,21 @@ def handle_projects_unregister_command(args) -> None:
       3. .empirica/project.yaml `project_id` (when run from a project tree)
     """
     try:
+        if getattr(args, "local", False) or getattr(args, "apply", False):
+            if not getattr(args, "local", False):
+                print(
+                    json.dumps(
+                        {
+                            "ok": False,
+                            "error": "--apply belongs to --local; the cortex path archives/purges via --purge --confirm",
+                        }
+                    )
+                )
+                sys.exit(2)
+            code = _local_unregister(args, getattr(args, "output", "human"))
+            if code:
+                sys.exit(code)
+            return
         project_id = getattr(args, "project_id", None)
         slug = getattr(args, "slug", None)
         purge = bool(getattr(args, "purge", False))

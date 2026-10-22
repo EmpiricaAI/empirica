@@ -375,6 +375,19 @@ def add_projects_parsers(subparsers) -> None:
         help="Required with --purge — acknowledge the destructive operation.",
     )
     unreg.add_argument(
+        "--local",
+        action="store_true",
+        help="Remove project rows from THIS machine's workspace registry (global_projects + the entity_registry "
+        "mirror) in one transaction instead of unregistering on cortex. --project-id takes a comma-separated list. "
+        "PREVIEWS unless --apply; refuses the whole batch if any id is referenced (entity_memberships / "
+        "entity_artifacts) or unknown; --apply writes an audit row (registry_audit) holding each row's snapshot.",
+    )
+    unreg.add_argument(
+        "--apply",
+        action="store_true",
+        help="With --local: actually remove the rows (default is a preview).",
+    )
+    unreg.add_argument(
         "--cortex-url",
         default=None,
         help="Override Cortex base URL.",
