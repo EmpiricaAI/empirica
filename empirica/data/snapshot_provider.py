@@ -43,6 +43,22 @@ from empirica.data.epistemic_snapshot import ContextSummary, EpistemicStateSnaps
 # Import Empirica components
 from empirica.data.session_database import SessionDatabase
 
+_VECTOR_NAMES = (
+    "ENGAGEMENT",
+    "KNOW",
+    "DO",
+    "CONTEXT",
+    "CLARITY",
+    "COHERENCE",
+    "SIGNAL",
+    "DENSITY",
+    "STATE",
+    "CHANGE",
+    "COMPLETION",
+    "IMPACT",
+    "UNCERTAINTY",
+)
+
 
 class EpistemicSnapshotProvider:
     """
@@ -360,34 +376,29 @@ class EpistemicSnapshotProvider:
 
     def _extract_vectors_from_assessment(self, assessment: dict) -> dict[str, float]:
         """
-        Extract 13 epistemic vectors from preflight assessment
+        Extract the 13 epistemic vectors from a preflight assessment.
+
+        ``get_latest_vectors`` returns the values nested under ``vectors`` with the names the reflexes table has (``know``,
+        ``do``, ...); a flat ``{name: value}`` dict is accepted too. This used to map LEGACY column names
+        (``epistemic_humility``, ``cognitive_flexibility``, ...) that no table has, so every lookup missed and every snapshot
+        was thirteen 0.5s whatever the session had reported, which also made every snapshot-to-snapshot delta zero.
+
+        A vector that was not reported falls back to the neutral 0.5, as it always did for a session with no preflight.
 
         Args:
             assessment: Preflight assessment dictionary
 
         Returns:
-            Dictionary of 13 vectors
+            Dictionary of 13 vectors keyed by upper-case name
         """
-        # Map database column names to vector names
-        vector_mapping = {
-            "epistemic_humility": "KNOW",  # Approximate mapping
-            "cognitive_flexibility": "DO",
-            "metacognitive_awareness": "CONTEXT",
-            "uncertainty_acknowledgment": "UNCERTAINTY",
-            "knowledge_boundary_recognition": "CLARITY",
-            "contextual_sensitivity": "COHERENCE",
-            "evidence_based_reasoning": "SIGNAL",
-            "confidence_calibration": "DENSITY",
-            "recursive_self_improvement": "STATE",
-            "assumption_tracking": "CHANGE",
-            "error_detection_sensitivity": "COMPLETION",
-            "ambiguity_tolerance": "IMPACT",
-            "explicit_uncertainty": "ENGAGEMENT",
-        }
+        nested = assessment.get("vectors")
+        source = nested if isinstance(nested, dict) else assessment
+        by_lower = {str(k).lower(): v for k, v in source.items()}
 
-        vectors = {}
-        for db_col, vector_name in vector_mapping.items():
-            vectors[vector_name] = assessment.get(db_col, 0.5)
+        vectors: dict[str, float] = {}
+        for name in _VECTOR_NAMES:
+            value = by_lower.get(name.lower())
+            vectors[name] = float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0.5
 
         return vectors
 
