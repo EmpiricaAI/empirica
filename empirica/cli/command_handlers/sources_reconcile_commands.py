@@ -87,8 +87,11 @@ def _maybe_push_small_body(cortex_url, api_key, cortex_uuid: str, row: dict | No
     if size is None or size > _SMALL_BODY_THRESHOLD or not path:
         return None
     try:
-        p = Path(str(path).replace("file://", ""))
-        if not p.is_file():
+        # `canonical_path` is stored repo-relative for a file inside the project; opening it as-is only worked from the repo root.
+        from empirica.core.sources.canonical_path import resolve
+
+        p = resolve(str(path).replace("file://", ""))
+        if p is None or not p.is_file():
             return None
         content = p.read_bytes()
     except OSError:
@@ -380,7 +383,11 @@ def _backfill_identity(db, rows: list[dict]) -> int:
             path = row["source_url"]
         if not path:
             continue
-        identity = _compute_content_identity(path)
+        # A stored repo-relative locator must be resolved before it is hashed, or it is read against whatever the cwd is.
+        from empirica.core.sources.canonical_path import resolve
+
+        located = resolve(path)
+        identity = _compute_content_identity(str(located) if located is not None else path)
         if not identity["content_hash"]:
             continue
         db.conn.execute(

@@ -189,6 +189,40 @@ def _resolve_scan_id_prefix(prefix: str, project_id: str | None) -> str | None:
     return None
 
 
+_INTERPRETERS = ("python", "node", "bash", "sh", "zsh", "dash", "ruby", "perl", "java", "php")
+
+
+def _process_name(proc: dict) -> str:
+    """A stable name for one process row, for diffing.
+
+    The default read surface collects no ``name``/``comm`` (only ``cmdline``, a redacted string), so keying on those made every
+    process ``?`` and a changed snapshot look like one process changing count. An interpreter is named by what it runs (a
+    listener started as ``python3 .../empirica loop listen`` is ``python3.14 empirica``, not just ``python3.14``), because
+    a diff that lumps every python process together cannot tell a new service from a restart.
+    """
+    explicit = proc.get("name") or proc.get("comm")
+    if explicit:
+        return str(explicit)
+    cmdline = proc.get("cmdline")
+    tokens = (" ".join(cmdline) if isinstance(cmdline, list) else str(cmdline or "")).split()
+    if not tokens:
+        return "?"
+    binary = tokens[0].rsplit("/", 1)[-1]
+    if binary.startswith(_INTERPRETERS):
+        rest = tokens[1:]
+        i = 0
+        while i < len(rest):
+            tok = rest[i]
+            if tok == "-m" and i + 1 < len(rest):
+                return f"{binary} {rest[i + 1]}"
+            if tok in ("-c", "-e"):
+                return f"{binary} {tok}"
+            if not tok.startswith("-"):
+                return f"{binary} {tok.rsplit('/', 1)[-1]}"
+            i += 1
+    return binary
+
+
 def _summarize_processes(snapshot: dict) -> dict[str, int]:
     """Reduce a snapshot's process list to a per-name count for diffing."""
     procs = snapshot.get("snapshot", {}).get("processes") or []
@@ -196,21 +230,26 @@ def _summarize_processes(snapshot: dict) -> dict[str, int]:
     for proc in procs:
         if not isinstance(proc, dict):
             continue
-        name = proc.get("name") or proc.get("comm") or "?"
+        name = _process_name(proc)
         counts[name] = counts.get(name, 0) + 1
     return counts
 
 
 def _summarize_listeners(snapshot: dict) -> set[str]:
-    """Listening-port set in 'host:port' form for set-diff."""
+    """The listening endpoints of a snapshot, for set-diff.
+
+    ``network.listening_ports`` is a sorted list of port NUMBERS; only a row that names its host can be written ``host:port``.
+    It used to read dicts only, so the set was always empty and a port that appeared was never reported.
+    """
     listeners = snapshot.get("snapshot", {}).get("network", {}).get("listening_ports") or []
     out: set[str] = set()
     for entry in listeners:
-        if not isinstance(entry, dict):
-            continue
-        host = entry.get("host") or entry.get("addr") or "?"
-        port = entry.get("port") or "?"
-        out.add(f"{host}:{port}")
+        if isinstance(entry, dict):
+            host = entry.get("host") or entry.get("addr") or "?"
+            port = entry.get("port") or "?"
+            out.add(f"{host}:{port}")
+        elif isinstance(entry, (int, str)) and not isinstance(entry, bool) and str(entry).strip():
+            out.add(str(entry).strip())
     return out
 
 

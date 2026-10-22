@@ -98,8 +98,11 @@ def summarize(classifications: list[dict]) -> dict:
 # state, and collapsing it into a number is how a metric starts lying.
 
 _POSITIVE_OUTCOMES = frozenset({"confirmed"})
-_NEGATIVE_OUTCOMES = frozenset({"invalidated"})
-_MOVED_OUTCOMES = frozenset({"superseded", "invalidated"})
+# `retracted` is the outcome resolve-artifacts records for a retraction kind (the artifact was never true). It was in neither set, so a
+# source whose artifact was retracted scored as perfectly stable. Attribution stays DECLARED: it counts against accuracy only
+# when the caller named the source (`implicated`).
+_NEGATIVE_OUTCOMES = frozenset({"invalidated", "retracted"})
+_MOVED_OUTCOMES = frozenset({"superseded", "invalidated", "retracted"})
 
 
 def _as_epoch(value) -> float | None:

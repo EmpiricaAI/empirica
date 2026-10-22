@@ -3034,9 +3034,12 @@ def _upload_media_source(args, media_path, source_id, identity, title, project_i
 
     import os
 
+    from empirica.core.sources.canonical_path import resolve
     from empirica.data.session_database import SessionDatabase
 
-    canonical = identity.get("canonical_path")
+    # Stored repo-relative for a file inside the project: resolve it, or this only worked from the repo root.
+    located = resolve(identity.get("canonical_path"))
+    canonical = str(located) if located is not None else None
     if not (canonical and os.path.isfile(canonical)):
         return {"pushed": False, "error": f"media file unreadable: {media_path}"}
 
