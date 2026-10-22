@@ -328,7 +328,7 @@ jobs:
 
           ### Homebrew
           \`\`\`bash
-          brew tap nubaeon/tap && brew install empirica
+          brew tap empiricaai/tap && brew install empirica
           \`\`\`
           EOF
           # Idempotent: scripts/release.py --publish (local) may have
