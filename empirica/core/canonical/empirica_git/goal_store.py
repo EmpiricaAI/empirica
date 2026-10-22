@@ -174,9 +174,13 @@ class GitGoalStore:
         goal_data: dict[str, Any],
         epistemic_state: dict[str, float] | None = None,
         lineage: list[dict[str, str]] | None = None,
+        created_at: str | None = None,
     ) -> bool:
         """
         Store goal in git notes
+
+        ``created_at`` carries the ORIGINAL creation time on a re-store (lineage entry, state restamp). It defaulted to now
+        on every write, so each re-store moved the goal's creation date to the day it was touched.
 
         Args:
             goal_id: Goal UUID
@@ -203,7 +207,7 @@ class GitGoalStore:
                 "goal_id": goal_id,
                 "session_id": session_id,
                 "ai_id": ai_id,
-                "created_at": datetime.now(timezone.utc).isoformat(),
+                "created_at": created_at or datetime.now(timezone.utc).isoformat(),
                 "goal_data": goal_data,
                 "epistemic_state": epistemic_state or {},
                 "lineage": lineage
@@ -422,4 +426,5 @@ class GitGoalStore:
             goal_data=goal_data["goal_data"],
             epistemic_state=goal_data.get("epistemic_state"),
             lineage=goal_data["lineage"],  # Pass updated lineage
+            created_at=goal_data.get("created_at"),
         )

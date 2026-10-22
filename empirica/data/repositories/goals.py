@@ -442,6 +442,12 @@ class GoalDataRepository(BaseRepository):
         self.commit()
         return count
 
+    def _restamp_note(self, goal_id: str, action: str) -> None:
+        """Write the goal's new state into its git note (best-effort; see goal_note_state)."""
+        from empirica.core.canonical.empirica_git.goal_note_state import restamp_goal_note
+
+        restamp_goal_note(self.conn, goal_id, action)
+
     def abandon_goal(self, goal_id: str, reason: str) -> bool:
         """Record that a goal is dead but was NOT delivered.
 
@@ -483,6 +489,8 @@ class GoalDataRepository(BaseRepository):
             (json.dumps(goal_data), full_id),
         )
         self.commit()
+        if cur.rowcount > 0:
+            self._restamp_note(full_id, "abandoned")
         # rowcount, not True: a goal already completed must not be silently
         # re-labelled, and the caller has no other way to learn that.
         return cur.rowcount > 0
@@ -590,6 +598,7 @@ class GoalDataRepository(BaseRepository):
 
         self._execute(sql, tuple(params))
         self.commit()
+        self._restamp_note(full_id, "activated")
         return True
 
     def reopen_goal(self, goal_id: str, reason: str | None = None, transaction_id: str | None = None) -> bool:
@@ -655,6 +664,7 @@ class GoalDataRepository(BaseRepository):
 
         self._execute(sql, tuple(params))
         self.commit()
+        self._restamp_note(full_id, "reopened")
         return True
 
     def archive_stale_completed(
@@ -706,6 +716,8 @@ class GoalDataRepository(BaseRepository):
                     (now, r["id"]),
                 )
             self.commit()
+            for r in rows:
+                self._restamp_note(r["id"], "archived")
         return rows
 
     def refresh_goal(self, goal_id: str) -> bool:

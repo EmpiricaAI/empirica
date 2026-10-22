@@ -1333,10 +1333,13 @@ def _rebuild_ensure_goals(db, now, rebuilt, all_items_lists=()):
                 gdata["status_unknown"] = True
             if g.get("ai_id"):
                 gdata.setdefault("created_by_ai", g["ai_id"])  # the goals table has no creator column
+            # Lifecycle state rides in the note since goal_note_state: completion, archive, reason. A note nobody restamped
+            # carries none of it and keeps the status_unknown fallback above.
             db.adapter.execute(
                 "INSERT INTO goals (id, session_id, objective, scope, estimated_complexity, "
-                "created_timestamp, goal_data, status, project_id) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "created_timestamp, goal_data, status, project_id, is_completed, completed_timestamp, "
+                "completion_reason, archived, archived_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     gid,
                     gsid,
@@ -1347,6 +1350,11 @@ def _rebuild_ensure_goals(db, now, rebuilt, all_items_lists=()):
                     _json.dumps(gdata),
                     gdata.get("status", "in_progress"),
                     gdata.get("project_id") or projects.get(gid),
+                    gdata.get("is_completed") or 0,
+                    gdata.get("completed_timestamp"),
+                    gdata.get("completion_reason"),
+                    gdata.get("archived") or 0,
+                    gdata.get("archived_at"),
                 ),
             )
             db.adapter.commit()

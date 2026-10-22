@@ -3059,6 +3059,10 @@ def _handle_reconcile_notes(cwd: Path, apply_it: bool) -> int:
 
     db = SessionDatabase(db_path=str(db_path))
     the_plan = _plan(db, str(cwd))
+    # Goal notes are a separate divergence: a note written once at creation never learned the goal's later state.
+    from empirica.core.canonical.empirica_git.goal_note_state import apply_goal_notes, plan_goal_notes
+
+    the_plan["goals"] = plan_goal_notes(db.conn, str(cwd))
 
     # The worktree collapse is REPORTED, never silent: N worktrees sharing one
     # notes history reconcile ONCE, and a run that quietly skips the other N-1
@@ -3075,6 +3079,7 @@ def _handle_reconcile_notes(cwd: Path, apply_it: bool) -> int:
         return 0
 
     receipt = _apply(db, str(cwd), the_plan)
+    receipt["goals"] = apply_goal_notes(db.conn, str(cwd))
     receipt["dry_run"] = False
     print(_json.dumps(receipt, indent=2, default=str))
 
@@ -3094,7 +3099,7 @@ def _handle_reconcile_notes(cwd: Path, apply_it: bool) -> int:
         )
     except Exception as e:  # never fail the repair on the receipt
         print(_json.dumps({"receipt_log_warning": f"{type(e).__name__}: {e}"}, indent=2))
-    return 0 if not receipt["failed"] else 2
+    return 0 if not receipt["failed"] and not receipt["goals"]["failed"] else 2
 
 
 def check_notes_sqlite_divergence(cwd: Path | None = None) -> Check:

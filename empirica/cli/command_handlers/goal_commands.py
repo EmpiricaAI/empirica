@@ -3053,6 +3053,10 @@ def _gc_mark_completed(goal_id, close_reason=None):
             (time.time(), goal_id),
         )
     db2.conn.commit()
+    # The note is the canonical log: a rebuild must be able to tell this goal was completed, and why.
+    from empirica.core.canonical.empirica_git.goal_note_state import restamp_goal_note
+
+    restamp_goal_note(db2.conn, goal_id, "completed")
     # Resolve the project for the Qdrant collection before closing the handle.
     project_id = None
     try:
