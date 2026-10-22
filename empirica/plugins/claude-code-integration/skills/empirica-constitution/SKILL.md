@@ -150,6 +150,34 @@ uncertainty in its vectors. The uncertainty was real; the typing was not done.
 **Vector uncertainty with no `unknown`/`assumption` behind it is an unsupported
 claim** — exactly the divergence calibration exists to surface.
 
+### Split before you log
+
+Scan your own artifact for proper nouns,
+identities, versions, attributions — anything a reader could act on that you did
+not directly observe — and ask of each: did I *observe* this, or *supply* it?
+Supplied is an assumption however confident you are. Proper nouns bind hardest,
+because a name is what a reader can least check and is most likely to act on.
+
+An artifact is read as a unit, so a tag on the WHOLE of it cannot mark part of it:
+`epistemic_source`, a confidence, a caveat in the prose are all honest and none
+stops a reader lifting the name out of the sentence. Split, and the wrong half
+retracts without losing the right one. **The types already carry this** — when it
+goes wrong the typing failed, not the vocabulary, so the answer is gardening and
+never a new field.
+
+### Provenance and visibility
+
+`--epistemic-source {intuition|search|mixed}` on every `*-log` (and `data.epistemic_source` in `log-artifacts` payloads) tags how
+you arrived at the artifact; POSTFLIGHT's calibration reflection counts intuition against search per transaction. It is
+visibility only (no routing rule yet). Be honest: vectors asserted high while every artifact is intuition-tagged is the
+rubber-stamp CHECK pattern the substrate exists to expose.
+
+`--visibility {public,shared,local}` is the opt-in for being discoverable from other projects: `local` (default) stays in this
+project, `shared` is visible across the org's projects (Cortex tenancy), `public` to anyone with a Cortex account. The pull side
+is `empirica project-search --task "..." --global`, which queries the `global_learnings` Qdrant collection where
+high-confidence shared/public artifacts are promoted; it does not yet walk every project's own collection. Share liberally what
+has ecosystem-wide value (security patterns, cross-repo bugs, reusable lessons); keep tactical work `local`.
+
 ### Orphan accumulation
 
 **An artifact connected to nothing is barely worth logging.** It cannot be swept,

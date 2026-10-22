@@ -270,6 +270,10 @@ PREFLIGHT → [noetic: investigate] → CHECK → [praxic: implement] → POSTFL
 - **Close before POSTFLIGHT:** Complete goals (`goals-complete`) and resolve unknowns
   (`unknown-resolve`) BEFORE `postflight-submit`. The measurement window closes at
   POSTFLIGHT — anything logged after is invisible to grounded calibration.
+- **After POSTFLIGHT the next praxic call is refused** (a commit, a heredoc) until a new PREFLIGHT: open the next transaction,
+  with `claims`, before touching files.
+- **A goal is in play for the Sentinel when a task on it was created or completed since PREFLIGHT** (`goals-add-task` /
+  `goals-complete-task`); creating or activating it earlier does not count.
 
 **POSTFLIGHT when:** coherent chunk complete, confidence inflection, context shift,
 scope creep, or 10+ turns without measurement.
@@ -441,7 +445,7 @@ empirica delete-artifacts -          # JSON: batch delete stale artifacts
 empirica falsifier-list              # open falsifiers + counts by state
 ```
 
-For a specific flag: `empirica <verb> --help`, or `--schema` on the payload verbs.
+For a specific flag: `empirica <verb> --help`, or `--schema` on the payload verbs. Verb names come from `empirica --help | rg <word>`, never from memory (`goals-get` does not exist).
 Full reference: `docs/human/developers/CLI_COMMANDS_UNIFIED.md`.
 
 ---
@@ -543,50 +547,22 @@ finding, what you supplied is an **assumption**, edged to it. If you cannot say
 which question an artifact answers, that is a signal to think, not to default to
 `finding`.
 
-**Split before you log, not after.** Scan your own artifact for proper nouns,
-identities, versions, attributions — anything a reader could act on that you did
-not directly observe — and ask of each: did I *observe* this, or *supply* it?
-Supplied is an assumption however confident you are. Proper nouns bind hardest,
-because a name is what a reader can least check and is most likely to act on.
-
-An artifact is read as a unit, so a tag on the WHOLE of it cannot mark part of it:
-`epistemic_source`, a confidence, a caveat in the prose are all honest and none
-stops a reader lifting the name out of the sentence. Split, and the wrong half
-retracts without losing the right one. **The types already carry this** — when it
-goes wrong the typing failed, not the vocabulary, so the answer is gardening and
-never a new field.
-
 **Symptom of the failure:** a session that logs 25 findings and zero unknowns or
 assumptions has not had zero uncertainty — it has failed to type it. Reported
 uncertainty in your vectors with no `unknown`/`assumption` artifacts behind it is
-an unsupported claim.
+an unsupported claim. Splitting an artifact into what you observed and what you supplied, and the depth on
+graph connectivity and retraction: `/empirica-constitution` §III-b.
 
 ### Keep the GRAPH, not a list
 
-The value is in the edges. **An artifact connected to nothing is barely worth
-logging** — it cannot be swept, re-evaluated, or invalidated with its premises,
-which is exactly what gardening operates on.
+The value is in the edges: an artifact connected to nothing cannot be swept, re-evaluated or invalidated with its premises.
 
-- **Connect to PRIOR artifacts, not just within your batch.** Most edges should
-  point at things logged in earlier transactions. If every edge you write is
-  between two nodes you just created, you are building disconnected islands.
-- **Use the relation that carries meaning.** `evidence`, `grounded_by`,
-  `caused_by`, `invalidates`, `resolves`, `sourced_from` all say something.
-  `related` says almost nothing — reach for it last, not first.
-- **Close the loop.** Resolve unknowns when answered, invalidate what new evidence
-  kills, supersede what you replaced. An epistemic graph that only ever grows is
-  an archive, not a model — and stale artifacts actively mis-steer retrieval.
-- **Retraction is a first-class move, and the one most often skipped.** Closing
-  what is *done* and retracting what was *wrong* feel similar and are not: the
-  first records progress, the second records error. Practices reliably do the
-  first and silently omit the second, so their graphs read as though they were
-  never wrong about anything — which no practice is. When you discover a claim
-  you logged is false, say so with `--kind retracted`; when it merely aged, say
-  `stale`. **A practice that cannot distinguish its ageing from its errors cannot
-  calibrate on either.**
-- Prefer `log-artifacts` / `resolve-artifacts` / `delete-artifacts` precisely
-  because they operate RELATIONALLY. Single `*-log` calls are still fine for one
-  genuinely standalone artifact; they are the exception, not the habit.
+- **Connect to PRIOR artifacts**, not only within your batch, and pick the relation that carries meaning (`evidence`,
+  `grounded_by`, `caused_by`, `invalidates`, `resolves`, `sourced_from`); `related` last.
+- **Close the loop.** Resolve unknowns when answered, supersede what you replaced, and **retract what was wrong**
+  (`--kind retracted`, not `stale`): a practice that cannot tell its ageing from its errors cannot calibrate on either.
+- Default to `log-artifacts` / `resolve-artifacts` / `delete-artifacts` (they operate relationally); a single `*-log` is for
+  one standalone artifact.
 
 Infer epistemic actions from conversation naturally:
 
@@ -626,15 +602,7 @@ Infer epistemic actions from conversation naturally:
 | Registered a canonical reference others would benefit from | `source-add --visibility shared` so peers in the org can reference via `sourced_from` rather than re-derive. `--visibility local` (default) keeps it invisible to `empirica sources-map --global`. |
 {% endif %}
 
-**Source-aware Sentinel substrate** — the optional `--epistemic-source {intuition|search|mixed}` flag on every `*-log` command (and `data.epistemic_source` in `log-artifacts` payloads) tags how you arrived at the artifact. The POSTFLIGHT calibration_reflection surfaces a per-transaction `epistemic_provenance` block with intuition/search counts and a ratio. v0 is visibility-only — there's no routing rule yet. Be honest: vectors asserted high while every artifact is intuition-tagged is exactly the rubber-stamp CHECK pattern the substrate is built to expose.
-
-**Cross-project artifact sharing** — Empirica is multi-project by design. The `--visibility {public,shared,local}` flag on log commands is the *opt-in* mechanism for making your work discoverable by Claudes working in other projects:
-
-- `local` (default) — stays in this project only
-- `shared` — visible across projects within the same org (Cortex tenancy)
-- `public` — visible to anyone with a Cortex account
-
-The companion pull-side: `empirica project-search --task "..." --global` queries the `global_learnings` Qdrant collection where high-confidence shared/public artifacts get promoted. **Caveat:** `--global` only searches `global_learnings`, not the full per-project Qdrant collections yet — true cross-project semantic walk is a logged goal. For now, opt into sharing liberally on findings that have ecosystem-wide value (security patterns, cross-repo bugs, reusable lessons), keep tactical project-internal work `local`. The richer push-based "auto-surface relevant cross-project artifacts at project-bootstrap" model is a deferred architectural goal.
+`--epistemic-source {intuition|search|mixed}` tags how you arrived at an artifact (be honest: high vectors with every artifact tagged intuition is the rubber-stamp pattern). `--visibility {local|shared|public}` makes it discoverable to other projects (default `local`); `project-search --global` is the pull side. Depth: `/empirica-constitution` §III-b.
 
 ---
 
@@ -647,67 +615,20 @@ The companion pull-side: `empirica project-search --task "..." --global` queries
 | Your reasoning | the full chain. Keep it — it is how the work gets done |
 | **Artifacts** (`finding-log`, `mistake-log`, `decision-log`, `log-artifacts`) | the epistemic content: what you learned, chose, got wrong. This is where it **compounds** and steers future work |
 | `empirica note` | scratchpad — a doubt, a follow-up, "this smells off". Survives compaction, triaged at POSTFLIGHT |
-| **What the user reads** | **done + next, as bullets keyed to goals/tasks** — see the shape below |
+| **What the user reads** | **done + next, as bullets keyed to goals/tasks** — see below |
 
-**Why this needs saying.** Working inside Empirica makes you *more* epistemically
-self-aware — every transaction asks what you know, how grounded it is, what you
-got wrong. That is the system functioning. But narrated into the reply it reads
-as noise, or worse as **flip-flopping**: "I thought X, then found Y, then
-narrowed to Z" describes a correct process and looks like indecision. The
-awareness is real; the place for it is the artifact, not the prose.
+**What the user reads is done + next, keyed to goals.** Close a transaction or plan with bullets, not prose: **Done** (one line per
+goal/task with its evidence: commit SHA, test result, proposal id) then **Next** (one line per unit of work, citing its goal id).
+A Next line that cannot cite a goal id means the work was never goaled: fix the goals, not the wording.
 
-### The unit of a reply is the goal or task, not the paragraph
+**Anything waiting on the user is a predicted answer, not an open question:** the question, your predicted answer with the one
+reason that grounds it, and room to override (`AskUserQuestion`: prediction first, marked *(Recommended)*). If you cannot predict
+it, you have not read it yet.
 
-**Close a transaction or a plan with bullets, not prose.** Two blocks, in this
-order:
-
-1. **Done** — one line per goal/task, each with its evidence (a commit SHA, a
-   test result, a proposal id). Past tense, no reasoning trace.
-2. **Next** — one line per unit of work, each already goaled (cite the id) or
-   named as a prediction/recommendation you are about to goal. What was routed
-   to a peer says so, with the proposal id.
-
-**The format is self-checking.** If the "Next" block cannot cite goal ids, the
-work was never goaled — that is a §TRANSACTION DISCIPLINE gap surfacing at
-report time, not a formatting problem. Fix the goals, not the wording.
-
-**Anything waiting on the user is a predicted answer, not an open question.**
-Each item carries the question, **your predicted answer** with the one reason
-that grounds it, and room to override — so the default costs one word ("yes")
-and only a disagreement costs a sentence. An open question hands the reasoning
-back to the human; a predicted answer hands them a decision already made that
-they can veto. Where the harness has a choice tool (`AskUserQuestion`), use it:
-your prediction is the first option marked *(Recommended)*, the free-text
-"Other" is the override. Never list an item as "waiting on you" without the
-prediction — if you cannot predict it, you have not read it yet.
-
-**Prose is the exception**, reserved for what no id can carry: a risk, a
-correction. One or two sentences before the bullets, not a narrative around them.
-
-### Verbosity is a cost, not a courtesy
-
-Long replies hinder flow and methodical action. The user can always ask you to
-expand; they cannot un-read a wall of text. So **do not explain every detail or
-recount every issue you hit** — state the outcome and let them pull on whatever
-they are uncertain about.
-
-- Report the **destination, not the route**. If the work went A → B → C → D, the
-  user gets **D**. One line on what changed and why beats three on how you got
-  there.
-- **One correction, stated once, is calibration.** Three narrated revisions of
-  the same thing reads as instability, even when each revision was genuine.
-- Detail that feels important but would not change what the user does next → log
-  it. Explaining your reasoning at length is the signal to `finding-log` /
-  `mistake-log` / `decision-log` it and stop. **If a paragraph would be a good
-  artifact, it IS one: log it and cut it from the prose.**
-- **The graph is an internal guide, not reading material.** Do not narrate
-  artifacts you logged. The exceptions worth surfacing are the ones that change
-  what the user believes or decides: **lessons**, **important unknowns and
-  blindspots**, and **assumptions that need to change type** — say those in a
-  line each; leave the rest in the graph where retrieval will find them.
-
-Concise ≠ thin. Say the whole outcome, including bad news, failures, and what you
-did not finish — brevity is about cutting the reasoning trace, never the facts.
+**Report the destination, not the route.** Cut reasoning traces and narrated self-correction; log what you learned, chose or got
+wrong as an artifact and say only what changes what the user does next (lessons, load-bearing unknowns, assumptions that need a
+new type). Concise is not thin: bad news, failures and what you did not finish always stay. The failure modes and a send
+checklist: `/reporting-discipline`, loaded BEFORE the reply.
 
 ---
 
