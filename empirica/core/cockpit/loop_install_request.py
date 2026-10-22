@@ -61,10 +61,26 @@ def pending_path(instance_id: str, name: str) -> Path:
     return EMPIRICA_DIR / f"loop_install_pending_{safe_inst}_{safe_name}.json"
 
 
+def _payload_instance(path: Path) -> str | None:
+    """The instance a pending file was written FOR, or None when its payload cannot say."""
+    try:
+        value = json.loads(path.read_text(encoding="utf-8")).get("instance_id")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return _safe_suffix(value) if isinstance(value, str) else None
+
+
 def list_pending(instance_id: str) -> list[Path]:
-    """All pending install request files for the given instance."""
+    """All pending install request files for the given instance.
+
+    The filename cannot say whose a file is: ``<instance>_<name>`` is ambiguous when ids and names contain underscores, so the
+    glob for ``seat`` also matched ``seat_2``'s files and ``consume_pending`` deleted them. The payload carries the instance it
+    was written for; a file whose payload cannot say keeps the glob match, so an unreadable request is still reported and
+    removed by ``consume_pending`` rather than stranded.
+    """
     safe_inst = _safe_suffix(instance_id)
-    return sorted(EMPIRICA_DIR.glob(f"loop_install_pending_{safe_inst}_*.json"))
+    candidates = sorted(EMPIRICA_DIR.glob(f"loop_install_pending_{safe_inst}_*.json"))
+    return [p for p in candidates if _payload_instance(p) in (None, safe_inst)]
 
 
 def _extract_skill_prompt_template(body_skill: str) -> str | None:

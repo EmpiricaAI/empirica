@@ -7,6 +7,13 @@ each empirica claude into the orchestration mesh out of the box.
 
 ## Design
 
+Nothing installs from this catalog on its own: every entry is opt-in (wake-on-event via the
+persistent listener is the mesh trigger; cron is never installed by default). The auto-install
+cascade that once queued entries on every prompt and session start was retired with
+goal d02fcc9c: it could queue nothing, yet still probed the registry and wrote a stamp file
+on each prompt. The cockpit reads the catalog as its fallback list; a user opts in with
+`empirica loop register`.
+
 Entries are dicts matching the same shape `project_loops` returns
 (see `project_cockpit_config.py`):
 
@@ -51,7 +58,6 @@ instead — project config takes precedence over this catalog.
 
 from __future__ import annotations
 
-import contextlib
 from typing import Any
 
 CANONICAL_LOOPS: list[dict[str, Any]] = [
@@ -87,9 +93,8 @@ CANONICAL_LOOPS: list[dict[str, Any]] = [
         # OPT-IN ONLY. Wake-on-event (the persistent listener) is the canonical
         # mesh trigger; this 30s poll is redundant on any wake-on-event seat and
         # is only wanted on harnesses that CANNOT do wake-on-event (cron-only VMs,
-        # isolated cloud). So the loop-install pickup hook NEVER auto-queues it —
-        # the user opts in with `empirica loop register` where they actually need
-        # it. (David 2026-07-19: "wake on event should be the only mesh trigger
+        # isolated cloud). Nothing auto-queues it — the user opts in with
+        # `empirica loop register` where they actually need it. (David 2026-07-19: "wake on event should be the only mesh trigger
         # mechanism unless the user opts in and needs it for other harnesses that
         # cannot do wake on event".) Genuine housekeeping crons (message-cleanup)
         # do NOT set this — they auto-install regardless.
@@ -126,10 +131,8 @@ CANONICAL_LOOPS: list[dict[str, Any]] = [
         # OPT-IN ONLY, like every cron loop. This entry used to auto-install on
         # the reasoning that housekeeping should happen even with no session
         # alive — but a cron job installed without being asked for is exactly
-        # what must not happen (David 2026-08-01). The gate in
-        # maybe_queue_canonical_install keys on kind="cron" so this holds even if
-        # the flag below is dropped; the flag is here to make the entry
-        # self-describing. Opt in with:
+        # what must not happen (David 2026-08-01). The flag below makes the
+        # entry self-describing. Opt in with:
         #   empirica loop register --name message-cleanup --kind cron \
         #     --cron "17 3 * * *" --description "..."
         # Consequence, stated plainly: expired mesh messages are not pruned on a
@@ -160,104 +163,8 @@ def canonical_loop_by_name(name: str) -> dict[str, Any] | None:
     return None
 
 
-def maybe_queue_canonical_install(instance_id: str, project_root: Any, requested_by: str) -> int:
-    """Queue install-pending for each auto-installable canonical loop — the
-    SINGLE SOURCE OF TRUTH for the SessionStart (``session-init.py``) and
-    UserPromptSubmit (``loop-install-pickup.py``) hooks.
-
-    These previously each held their own copy of this cascade and drifted:
-    ``session-init`` lacked both the ``opt_in_only`` carve-out (so it queued
-    ``cortex-mailbox-poll`` — the wake-on-event loop — on every new session) and
-    the ``scheduler_kind`` passthrough, while ``loop-install-pickup`` had them
-    (from the #361 fix). One helper keeps them from drifting again.
-
-    Gate cascade:
-      1. project has ``.empirica/`` (opted into empirica)
-      2. dedup stamp absent — once per PRACTICE (``canonical_loops_installed_{ai_id}``)
-      3. the practice's loop registry is empty (don't clobber manual config)
-      4a. per loop: skip ``opt_in_only`` (e.g. ``cortex-mailbox-poll`` — wake-on-event
-          is the canonical trigger; cron-only harnesses opt in via ``loop register``)
-      4b. per loop: skip EVERY ``kind="cron"`` entry. Cron is opt-in only and is
-          never installed by default; wake-on-event is preferred wherever it is
-          possible (David 2026-08-01). Users opt in with ``empirica loop register``.
-
-    Loops are PRACTICE-keyed (docs/architecture/AI_ID_AS_ANCHOR.md): the stamp +
-    registry gate key on the stable ``ai_id``; ``write_pending`` stays seat-keyed
-    (its consumer is the seat's pickup hook). Returns the count queued (0 on any
-    failed gate). Never raises — hooks must not crash the prompt/session.
-    """
-    from pathlib import Path
-
-    try:
-        if not Path(project_root).joinpath(".empirica").is_dir():
-            return 0  # gate 1
-        # Loops are a practice concern — dedup + registry gate on the stable ai_id.
-        try:
-            from empirica.utils.session_resolver import InstanceResolver
-
-            loop_key = InstanceResolver.ai_id() or instance_id
-        except Exception:
-            loop_key = instance_id
-        empirica_home = Path.home() / ".empirica"
-        safe_key = loop_key.replace(":", "_").replace("/", "-")
-        stamp = empirica_home / f"canonical_loops_installed_{safe_key}"
-        if stamp.exists():
-            return 0  # gate 2
-
-        from empirica.core.cockpit.loop_registry import LoopRegistry
-
-        if LoopRegistry(loop_key).list_loops():
-            stamp.parent.mkdir(parents=True, exist_ok=True)
-            stamp.write_text("skipped: registry already had entries\n")
-            return 0  # gate 3
-
-        from empirica.core.cockpit.loop_install_request import write_pending
-
-        installed = 0
-        for entry in CANONICAL_LOOPS:
-            if entry.get("opt_in_only"):
-                continue  # gate 4a: opt-in only (wake-on-event is canonical)
-            if entry.get("kind") == "cron":
-                # gate 4b: NO cron loop is ever installed by default (David
-                # 2026-08-01: "cronjobs should be opt in only, never installed by
-                # default — we always want wake on event if possible").
-                #
-                # Structural on purpose. `opt_in_only` is a per-entry flag, and
-                # the entry that violated this rule was the one that simply never
-                # set it — message-cleanup carried a comment explicitly exempting
-                # "genuine housekeeping crons" from the opt-in carve-out. Keying
-                # the gate on `kind` means a cron loop added later cannot
-                # auto-install by forgetting a flag.
-                continue
-            # One loop's write failure must not drop the rest — best-effort.
-            with contextlib.suppress(Exception):
-                write_pending(
-                    instance_id=instance_id,  # seat-keyed bridge → the seat's pickup hook
-                    name=entry["name"],
-                    # cron-kind entries carry `cron`, not `interval` — pass each
-                    # through as-is so a cron loop isn't misregistered at the old
-                    # hardcoded 15m fallback (prop_sno3etin).
-                    interval=entry.get("interval"),
-                    cron=entry.get("cron"),
-                    description=entry.get("description", ""),
-                    base_interval=entry.get("base_interval"),
-                    max_interval=entry.get("max_interval"),
-                    requested_by=requested_by,
-                    body_skill=entry.get("body_skill"),
-                    scheduler_kind=entry.get("scheduler_kind"),
-                )
-                installed += 1
-        if installed:
-            stamp.parent.mkdir(parents=True, exist_ok=True)
-            stamp.write_text(f"installed {installed} canonical loop(s) via {requested_by}\n")
-        return installed
-    except Exception:
-        return 0  # never crash the caller
-
-
 __all__ = [
     "CANONICAL_LOOPS",
     "canonical_loop_by_name",
     "canonical_loop_names",
-    "maybe_queue_canonical_install",
 ]

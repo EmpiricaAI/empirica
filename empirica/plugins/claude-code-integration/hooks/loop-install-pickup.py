@@ -66,20 +66,6 @@ installed by you.
 """
 
 
-def _maybe_auto_install_canonical_loops(instance_id: str, project_root: Path) -> int:
-    """Zero-touch install on every UserPromptSubmit (works with --resume, unlike
-    SessionStart which only fires on new sessions).
-
-    Thin wrapper over the single source of truth
-    ``canonical_loops.maybe_queue_canonical_install`` — the practice-keyed,
-    opt_in_only-aware, scheduler_kind-passing cascade shared with
-    ``session-init.py`` (they previously each held a copy that drifted).
-    """
-    from empirica.core.cockpit.canonical_loops import maybe_queue_canonical_install
-
-    return maybe_queue_canonical_install(instance_id, project_root, requested_by="user-prompt-submit")
-
-
 def main() -> int:
     try:
         instance_id = InstanceResolver.instance_id()
@@ -88,14 +74,6 @@ def main() -> int:
     if not instance_id:
         print(json.dumps({}))
         return 0
-
-    # Zero-touch auto-install — works with --resume since UserPromptSubmit
-    # fires on every prompt, unlike SessionStart which is new-session only.
-    # Stamp file makes it once-per-instance.
-    try:
-        _maybe_auto_install_canonical_loops(instance_id, Path.cwd())
-    except Exception:
-        pass  # never block prompt on auto-install failure
 
     try:
         requests = consume_pending(instance_id)

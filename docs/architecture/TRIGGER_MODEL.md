@@ -87,23 +87,19 @@ resume.
 
 ### How the rule is enforced
 
-Two layers, and only one of them is load-bearing:
+By there being no installer. The cascade that used to queue catalogue entries on
+every prompt and session start (`maybe_queue_canonical_install`, gated on `kind`)
+was retired with goal d02fcc9c: every entry was already opt-in, so it could queue
+nothing, and it still resolved the practice, probed the registry and wrote a stamp
+file each time. The catalogue (`canonical_loops.CANONICAL_LOOPS`) is now only the
+cockpit's fallback list, and `test_canonical_install_cascade_retired.py` fails if
+a hook starts installing from it again or an entry loses `opt_in_only`.
 
-1. **The structural gate (load-bearing).** `maybe_queue_canonical_install` skips
-   every entry whose `kind == "cron"`, regardless of any flag.
-2. **The `opt_in_only` flag (documentation).** Set on cron entries so the
-   catalogue is self-describing, and on non-cron entries that are opt-in for
-   other reasons — `cortex-mailbox-poll` carries it because wake-on-event
-   supersedes it, not because it is cron.
-
-The gate keys on `kind` rather than on the flag because **the entry that broke
-this rule was the one that never set the flag.** `message-cleanup` auto-installed
-for months under a comment explicitly exempting "genuine housekeeping crons" from
-the opt-in carve-out. A per-entry flag protects only the entries whose author
-remembered it; a gate on the class protects the ones they didn't.
-
-This is the same shape as the id-prefix guards elsewhere in the codebase: guard
-the class, not the instance, because the instance is what gets forgotten.
+The history is worth keeping: the entry that broke this rule was the one that never
+set the flag. `message-cleanup` auto-installed for months under a comment explicitly
+exempting "genuine housekeeping crons" from the opt-in carve-out. A per-entry flag
+protects only the entries whose author remembered it, which is why the guard is a
+test over the whole catalogue rather than a field on each entry.
 
 ---
 
@@ -128,7 +124,7 @@ Is there an event you can subscribe to?
 | Field | Values | What it decides |
 |---|---|---|
 | `kind` | `interval` · `cron` · `monitor` | The scheduling shape. **`cron` also means never auto-installed.** |
-| `opt_in_only` | `true` | Excluded from auto-install. Advisory for cron (the gate already excludes it); load-bearing for non-cron entries. |
+| `opt_in_only` | `true` | Nothing installs it unasked. Every catalogue entry carries it; a test enforces that. |
 | `body_kind` | `cli` · `claude-react` | **The autonomy discriminator.** `cli` runs the verb directly with no AI in the loop. Anything else is tick-only by construction — the timer appends a heartbeat and a live session reacts. Only `cli` grants autonomous execution. |
 | `body_command` | e.g. `message-cleanup --output json` | ExecStart target for `body_kind: cli`. Meaningless without it. |
 | `scheduler_kind` | `cron-create` · `systemd-user` · `system-cron` · `at-queue` · `unknown` | Which scheduler installs the timer. |
