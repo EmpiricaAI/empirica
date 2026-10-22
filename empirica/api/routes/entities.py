@@ -166,6 +166,14 @@ async def list_entities(
     With ``?q=`` the response is the semantically-ranked entity set (``ranked=true``)
     instead of the SQL list.
     """
+    if q and (parent_org or org_id):
+        # The ranked path returns before any scoping is read, so a scoped search silently came back unscoped. Organisation
+        # scoping is crm-mcp's (2026-09-17 ruling); core does not grow a second implementation inside the semantic path.
+        raise HTTPException(
+            status_code=400,
+            detail="?q= cannot be combined with parent_org/org_id: the semantic search is not scoped by organisation. "
+            "Organisation scoping lives in crm-mcp; search without a scope, or list by organisation without ?q=.",
+        )
     if q:
         ranked = _semantic_entity_search(q, type, status, limit)
         return {"ok": True, "count": len(ranked), "entities": ranked, "ranked": True}

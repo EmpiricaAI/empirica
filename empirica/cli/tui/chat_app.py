@@ -586,13 +586,23 @@ class ChatApp(App):
         )
 
     def _slash_delete_batch(self, rest: str) -> None:
-        """/delete-batch ID1 ID2 …"""
-        ids = [i.strip() for i in rest.split() if i.strip()]
-        if not ids:
-            self._emit_system("/delete-batch: missing IDs — usage: /delete-batch ID1 [ID2 …]")
+        """/delete-batch [--apply] TYPE:ID [TYPE:ID …] — previews unless --apply."""
+        from empirica.core.chat.actions import ActionError as _ActionError
+        from empirica.core.chat.actions import parse_artifact_refs
+
+        tokens = [t.strip() for t in rest.split() if t.strip()]
+        apply = "--apply" in tokens
+        tokens = [t for t in tokens if t != "--apply"]
+        if not tokens:
+            self._emit_system("/delete-batch: missing IDs — usage: /delete-batch [--apply] TYPE:ID [TYPE:ID …]")
+            return
+        try:
+            items = parse_artifact_refs(tokens)
+        except _ActionError as e:
+            self._emit_system(f"/delete-batch: {e}")
             return
         self.run_worker(
-            lambda: self._batch_delete_action(ids),
+            lambda: self._batch_delete_action(items, apply),
             thread=True,
             exclusive=False,
             group="artifact-create",
@@ -630,6 +640,7 @@ class ChatApp(App):
         )
         from empirica.core.chat.actions import (
             resolve_artifacts_batch,
+            summarize_batch,
         )
 
         try:
@@ -637,34 +648,23 @@ class ChatApp(App):
         except _ActionError as e:
             self.call_from_thread(self._emit_system, f"/resolve-batch: {e}")
             return
-        n = resp.get("resolved") if isinstance(resp, dict) else None
-        msg = (
-            f"/resolve-batch: resolved {n} of {len(ids)} unknowns"
-            if isinstance(n, int)
-            else f"/resolve-batch: completed ({len(ids)} IDs)"
-        )
-        self.call_from_thread(self._emit_system, msg)
+        self.call_from_thread(self._emit_system, summarize_batch("resolve", resp, len(ids)))
 
-    def _batch_delete_action(self, ids: list[str]) -> None:
+    def _batch_delete_action(self, items: list[tuple[str, str]], apply: bool) -> None:
         from empirica.core.chat.actions import (
             ActionError as _ActionError,
         )
         from empirica.core.chat.actions import (
             delete_artifacts_batch,
+            summarize_batch,
         )
 
         try:
-            resp = delete_artifacts_batch(ids)
+            resp = delete_artifacts_batch(items, apply=apply)
         except _ActionError as e:
             self.call_from_thread(self._emit_system, f"/delete-batch: {e}")
             return
-        n = resp.get("deleted") if isinstance(resp, dict) else None
-        msg = (
-            f"/delete-batch: deleted {n} of {len(ids)} artifacts"
-            if isinstance(n, int)
-            else f"/delete-batch: completed ({len(ids)} IDs)"
-        )
-        self.call_from_thread(self._emit_system, msg)
+        self.call_from_thread(self._emit_system, summarize_batch("delete", resp, len(items), apply))
 
     def _plan_action(self) -> None:
         """Worker thread: query empirica goals-list + format for chat."""

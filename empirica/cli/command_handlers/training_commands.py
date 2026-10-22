@@ -348,8 +348,30 @@ def _find_transaction_pairs(conn, project_filter=None, ai_filter=None):
     return pairs
 
 
-def _collect_transaction_artifacts(conn, session_id: str, start_ts, end_ts) -> dict:
-    """Collect noetic artifacts within a transaction time window."""
+def _has_column(conn, table: str, column: str) -> bool:
+    try:
+        return any(row[1] == column for row in conn.execute(f"PRAGMA table_info({table})").fetchall())
+    except sqlite3.OperationalError:
+        return False
+
+
+def _transaction_scope(conn, table: str, transaction_id, time_column: str, start_ts, end_ts):
+    """``(sql, params)`` selecting a transaction's own rows.
+
+    A row stamped with this transaction belongs to it whatever the clock says; a row stamped with ANOTHER transaction never
+    does, even inside the window (two transactions of one session overlap, or follow each other within the old five-minute
+    tail, and exchanged artifacts). A row with no transaction id (written before ids existed) belongs to no other
+    transaction, so the window still places it. Without a transaction id, or a table that has no such column, the window
+    decides, as it always did.
+    """
+    window = f"{time_column} >= ? AND {time_column} <= ?"
+    if transaction_id and _has_column(conn, table, "transaction_id"):
+        return f"(transaction_id = ? OR (transaction_id IS NULL AND {window}))", [transaction_id, start_ts, end_ts]
+    return window, [start_ts, end_ts]
+
+
+def _collect_transaction_artifacts(conn, session_id: str, start_ts, end_ts, transaction_id=None) -> dict:
+    """Collect noetic artifacts for a transaction: by its transaction_id where rows carry one, else by its time window."""
     ARTIFACT_QUERIES = [
         (
             "findings",
@@ -386,7 +408,7 @@ def _collect_transaction_artifacts(conn, session_id: str, start_ts, end_ts) -> d
         ),
         (
             "decisions",
-            "decisions_made",
+            "decisions",
             "choice, rationale, reversibility",
             "",
             lambda r: {"choice": r["choice"], "rationale": r["rationale"], "reversibility": r["reversibility"]},
@@ -394,19 +416,23 @@ def _collect_transaction_artifacts(conn, session_id: str, start_ts, end_ts) -> d
     ]
     artifacts = {}
     for key, table, columns, order, mapper in ARTIFACT_QUERIES:
+        scope, scope_params = _transaction_scope(conn, table, transaction_id, "created_timestamp", start_ts, end_ts)
         try:
             rows = conn.execute(
                 f"""
                 SELECT {columns} FROM {table}
-                WHERE session_id = ? AND created_timestamp >= ? AND created_timestamp <= ?
+                WHERE session_id = ? AND {scope}
                 {order} LIMIT 10
             """,
-                [session_id, start_ts, end_ts],
+                [session_id, *scope_params],
             ).fetchall()
             if rows:
                 artifacts[key] = [mapper(r) for r in rows]
-        except sqlite3.OperationalError:
-            pass
+        except sqlite3.OperationalError as e:
+            # An older database without the table is expected and quiet. Anything else (a table or column the query names and
+            # the schema lacks) is a bug in this exporter: swallowed, it read as "no decisions this transaction" for months.
+            if "no such table" not in str(e):
+                logger.warning(f"training export: {key} artifacts query on {table} failed: {e}")
     return artifacts
 
 
@@ -452,17 +478,18 @@ def _extract_vectors_and_delta(pair, min_vectors):
     return preflight, postflight, delta
 
 
-def _collect_check_decisions(conn, session_id, preflight_ts, postflight_ts):
-    """Collect CHECK decisions within a transaction window. Returns list or None."""
-    check_query = """
+def _collect_check_decisions(conn, session_id, preflight_ts, postflight_ts, transaction_id=None):
+    """Collect a transaction's CHECK decisions (by transaction_id where stamped, else its window). Returns list or None."""
+    scope, scope_params = _transaction_scope(conn, "reflexes", transaction_id, "timestamp", preflight_ts, postflight_ts)
+    check_query = f"""
         SELECT timestamp, reflex_data, reasoning,
                know, uncertainty, completion, clarity
         FROM reflexes
         WHERE session_id = ? AND phase = 'CHECK'
-          AND timestamp > ? AND timestamp < ?
+          AND {scope}
         ORDER BY timestamp
     """
-    checks = conn.execute(check_query, [session_id, preflight_ts, postflight_ts]).fetchall()
+    checks = conn.execute(check_query, [session_id, *scope_params]).fetchall()
     if not checks:
         return None
 
@@ -488,19 +515,26 @@ def _collect_check_decisions(conn, session_id, preflight_ts, postflight_ts):
     return check_decisions
 
 
-def _collect_grounded_calibration(conn, session_id, postflight_ts):
-    """Collect grounded calibration data near postflight timestamp. Returns dict or None."""
-    gv_query = """
+def _collect_grounded_calibration(conn, session_id, postflight_ts, transaction_id=None):
+    """Collect the transaction's grounded calibration. Returns dict or None.
+
+    By ``transaction_id`` where the verification carries one. The five minutes after POSTFLIGHT is only the fallback for a
+    row with no id: as the primary rule it handed a transaction the calibration of whichever one finished next.
+    """
+    scope, scope_params = _transaction_scope(
+        conn, "grounded_verifications", transaction_id, "created_at", postflight_ts, postflight_ts + 300
+    )
+    gv_query = f"""
         SELECT self_assessed_vectors, grounded_vectors, calibration_gaps,
                overall_calibration_score, grounded_coverage,
                evidence_count, sources_available
         FROM grounded_verifications
         WHERE session_id = ?
-          AND created_at >= ? AND created_at <= ? + 300
-        ORDER BY created_at DESC LIMIT 1
+          AND {scope}
+        ORDER BY (transaction_id IS NULL), created_at DESC LIMIT 1
     """
     try:
-        gv = conn.execute(gv_query, [session_id, postflight_ts, postflight_ts]).fetchone()
+        gv = conn.execute(gv_query, [session_id, *scope_params]).fetchone()
         if not gv:
             return None
         grounded = {
@@ -553,17 +587,18 @@ def _build_training_record(conn, pair, include_artifacts=True, include_grounded=
 
     session_id = pair["session_id"]
 
-    check_decisions = _collect_check_decisions(conn, session_id, pair["preflight_ts"], pair["postflight_ts"])
+    tx = pair.get("transaction_id")
+    check_decisions = _collect_check_decisions(conn, session_id, pair["preflight_ts"], pair["postflight_ts"], tx)
     if check_decisions:
         record["check_decisions"] = check_decisions
 
     if include_grounded:
-        grounded = _collect_grounded_calibration(conn, session_id, pair["postflight_ts"])
+        grounded = _collect_grounded_calibration(conn, session_id, pair["postflight_ts"], tx)
         if grounded:
             record["grounded_calibration"] = grounded
 
     if include_artifacts:
-        artifacts = _collect_transaction_artifacts(conn, session_id, pair["preflight_ts"], pair["postflight_ts"])
+        artifacts = _collect_transaction_artifacts(conn, session_id, pair["preflight_ts"], pair["postflight_ts"], tx)
         if artifacts:
             record["noetic_artifacts"] = artifacts
 

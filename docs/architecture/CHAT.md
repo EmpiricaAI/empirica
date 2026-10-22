@@ -115,18 +115,17 @@ The table is `SLASH_TABLE` in `empirica/core/chat/slash.py`; `/help` renders it.
 | `/providers`, `/provider NAME`, `/models` | debug | list or switch providers, list models |
 | `/statusline [MODE]` | debug | cycle or set `basic`, `default`, `learning`, `full` |
 | `/finding TEXT`, `/decision TEXT`, `/unknown TEXT` | debug | create the artifact, render a card |
-| `/batch PATH`, `/resolve-batch IDS`, `/delete-batch IDS` | debug | wrap the batch verbs |
+| `/batch PATH`, `/resolve-batch IDS`, `/delete-batch [--apply] TYPE:ID…` | debug | wrap the batch verbs |
 
 Anything not starting with `/` goes to the model. The chat system prompt lists
 only the artifact, provider, model and statusline commands, so the model does
 not know about `/plan`, `/autonomy` or `/compact`.
 
-**`/resolve-batch` and `/delete-batch` are stale.** They send
-`{"unknown_ids": [...]}` and `{"ids": [...]}`. `empirica resolve-artifacts`
-now expects `resolutions` (or `filter`) and `delete-artifacts` expects
-`deletions`; both reject the old shapes with an error, which chat prints.
-`/batch` pipes the file to `log-artifacts -` unchanged and is unaffected. See
-`empirica resolve-artifacts --schema` and `empirica delete-artifacts --schema`.
+`/resolve-batch ID …` resolves unknowns. `/delete-batch [--apply] TYPE:ID …` PREVIEWS unless `--apply` is given
+(the verb's own default) and needs the type with every id, because an id alone names no table; the card says "would
+delete N" for a preview and carries any per-id errors the verb returned. Both send the verbs' own payload shapes
+(`resolutions`, `deletions`), checked against `empirica resolve-artifacts --schema` and `delete-artifacts --schema`
+by `tests/test_chat_batch_actions.py`. `/batch` pipes the file to `log-artifacts -` unchanged.
 
 ### Autonomy modes
 

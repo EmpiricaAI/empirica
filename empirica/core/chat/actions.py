@@ -125,64 +125,87 @@ def log_artifacts_from_file(path: str) -> dict[str, Any]:
         raise ActionError(f"unparseable batch response: {result.stdout[:200]}") from e
 
 
-def resolve_artifacts_batch(ids: list[str]) -> dict[str, Any]:
-    """Run `empirica resolve-artifacts -` with a {unknown_ids: [...]} payload.
+#: Types `delete-artifacts` takes by id from a chat line. Lessons are excluded on purpose: the verb refuses to delete a wrong
+#: lesson (it is superseded), and a chat one-liner is the wrong place to learn that.
+DELETABLE_TYPES = ("finding", "unknown", "dead_end", "mistake", "assumption", "decision")
 
-    Phase 11 batch-resolve wrapper. Takes a list of unknown artifact IDs.
+
+def parse_artifact_refs(tokens: list[str]) -> list[tuple[str, str]]:
+    """``["finding:abc", ...]`` -> ``[("finding", "abc"), ...]``. delete-artifacts needs the TYPE with every id; an id alone
+    names no table."""
+    refs: list[tuple[str, str]] = []
+    for token in tokens:
+        kind, sep, ident = token.partition(":")
+        if not sep or not ident or kind not in DELETABLE_TYPES:
+            raise ActionError(f"expected TYPE:ID with TYPE one of {', '.join(DELETABLE_TYPES)}; got {token!r}")
+        refs.append((kind, ident))
+    return refs
+
+
+def _run_batch_verb(verb: str, payload: dict[str, Any], extra_args: list[str] | None = None) -> dict[str, Any]:
+    cmd = ["empirica", verb, "-", *(extra_args or []), "--output", "json"]
+    try:
+        result = subprocess.run(cmd, input=json.dumps(payload), capture_output=True, text=True, timeout=15.0)
+    except subprocess.TimeoutExpired as e:
+        raise ActionError(f"empirica {verb} batch timeout") from e
+    except FileNotFoundError as e:
+        raise ActionError("empirica CLI not on PATH") from e
+    if result.returncode != 0:
+        raise ActionError(
+            f"empirica {verb} batch exit {result.returncode}: {result.stderr.strip() or result.stdout.strip()}"
+        )
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return {"raw_output": result.stdout}
+
+
+def resolve_artifacts_batch(ids: list[str], resolution: str = "resolved from chat") -> dict[str, Any]:
+    """Run `empirica resolve-artifacts -` over a list of UNKNOWN ids.
+
+    The payload is the verb's own shape (``resolutions``: one ``{type, id, resolution}`` each). It used to send
+    ``{"unknown_ids": [...]}``, which the verb has never read.
     """
     if not ids:
         raise ActionError("resolve-batch requires at least one artifact ID")
-    payload = json.dumps({"unknown_ids": ids})
-    cmd = ["empirica", "resolve-artifacts", "-", "--output", "json"]
-    try:
-        result = subprocess.run(
-            cmd,
-            input=payload,
-            capture_output=True,
-            text=True,
-            timeout=15.0,
-        )
-    except subprocess.TimeoutExpired as e:
-        raise ActionError("empirica resolve-artifacts batch timeout") from e
-    if result.returncode != 0:
-        raise ActionError(
-            f"empirica resolve-artifacts batch exit {result.returncode}: "
-            f"{result.stderr.strip() or result.stdout.strip()}"
-        )
-    try:
-        return json.loads(result.stdout)
-    except json.JSONDecodeError:
-        return {"raw_output": result.stdout}
+    payload = {"resolutions": [{"type": "unknown", "id": i, "resolution": resolution} for i in ids]}
+    return _run_batch_verb("resolve-artifacts", payload)
 
 
-def delete_artifacts_batch(ids: list[str]) -> dict[str, Any]:
-    """Run `empirica delete-artifacts -` with an {ids: [...]} payload.
+def delete_artifacts_batch(items: list[tuple[str, str]], apply: bool = False) -> dict[str, Any]:
+    """Run `empirica delete-artifacts -` over ``(type, id)`` pairs. PREVIEWS unless ``apply`` (the verb's own default).
 
-    Phase 11 batch-delete wrapper. Takes a list of artifact IDs of any type.
+    It used to send ``{"ids": [...]}`` (no types, which the verb needs) and no ``--apply``, so a run could only ever preview,
+    and the chat reported the preview as ``deleted N``.
     """
-    if not ids:
+    if not items:
         raise ActionError("delete-batch requires at least one artifact ID")
-    payload = json.dumps({"ids": ids})
-    cmd = ["empirica", "delete-artifacts", "-", "--output", "json"]
-    try:
-        result = subprocess.run(
-            cmd,
-            input=payload,
-            capture_output=True,
-            text=True,
-            timeout=15.0,
-        )
-    except subprocess.TimeoutExpired as e:
-        raise ActionError("empirica delete-artifacts batch timeout") from e
-    if result.returncode != 0:
-        raise ActionError(
-            f"empirica delete-artifacts batch exit {result.returncode}: "
-            f"{result.stderr.strip() or result.stdout.strip()}"
-        )
-    try:
-        return json.loads(result.stdout)
-    except json.JSONDecodeError:
-        return {"raw_output": result.stdout}
+    payload = {"deletions": [{"type": kind, "id": ident} for kind, ident in items], "reason": "deleted from chat"}
+    return _run_batch_verb("delete-artifacts", payload, ["--apply"] if apply else None)
+
+
+def summarize_batch(kind: str, resp: dict[str, Any], requested: int, apply: bool = False) -> str:
+    """The one-line card the chat prints for a batch resolve/delete, errors included.
+
+    A verb can answer ``ok: true`` and still have refused every id (``errors``), and a delete without ``--apply`` answers
+    ``deleted: 0, dry_run: true``; the card says which of those happened instead of a count.
+    """
+    label = f"/{kind}-batch"
+    if not isinstance(resp, dict) or "raw_output" in resp:
+        return f"{label}: completed ({requested} IDs)"
+    if resp.get("ok") is False:
+        return f"{label}: failed — {resp.get('error') or resp.get('errors') or 'unknown error'}"
+    if kind == "delete" and (resp.get("dry_run") or not apply):
+        would = len(resp.get("items") or []) or 0
+        msg = f"{label}: would delete {would} of {requested} artifacts (preview — re-run with --apply to delete)"
+    elif kind == "delete":
+        msg = f"{label}: deleted {resp.get('deleted', 0)} of {requested} artifacts"
+    else:
+        msg = f"{label}: resolved {resp.get('resolved', 0)} of {requested} unknowns"
+    errors = resp.get("errors")
+    if errors:
+        msg += f" — errors: {'; '.join(str(e) for e in errors[:3])}"
+    return msg
 
 
 def extract_artifact_id(response: dict[str, Any]) -> str | None:

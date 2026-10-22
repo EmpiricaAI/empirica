@@ -16,7 +16,9 @@ from empirica.core.chat.actions import (
     ActionError,
     delete_artifacts_batch,
     log_artifacts_from_file,
+    parse_artifact_refs,
     resolve_artifacts_batch,
+    summarize_batch,
 )
 
 # ─── log_artifacts_from_file ────────────────────────────────────────
@@ -85,26 +87,19 @@ class TestResolveArtifactsBatch:
             resolve_artifacts_batch([])
 
     @patch("empirica.core.chat.actions.subprocess.run")
-    def test_calls_cli_with_id_payload(self, mock_run):
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout='{"ok": true, "resolved": 2}',
-            stderr="",
-        )
+    def test_sends_the_payload_the_verb_reads(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout='{"ok": true, "resolved": 2}', stderr="")
         result = resolve_artifacts_batch(["uuid-1", "uuid-2"])
         assert result["resolved"] == 2
         cmd = mock_run.call_args[0][0]
         assert cmd[:3] == ["empirica", "resolve-artifacts", "-"]
         sent = json.loads(mock_run.call_args.kwargs["input"])
-        assert sent == {"unknown_ids": ["uuid-1", "uuid-2"]}
+        assert [(r["type"], r["id"]) for r in sent["resolutions"]] == [("unknown", "uuid-1"), ("unknown", "uuid-2")]
+        assert all(r["resolution"] for r in sent["resolutions"]), "the verb requires a resolution text"
 
     @patch("empirica.core.chat.actions.subprocess.run")
     def test_nonzero_exit_raises(self, mock_run):
-        mock_run.return_value = MagicMock(
-            returncode=2,
-            stdout="",
-            stderr="not found",
-        )
+        mock_run.return_value = MagicMock(returncode=2, stdout="", stderr="not found")
         with pytest.raises(ActionError, match="exit 2"):
             resolve_artifacts_batch(["x"])
 
@@ -113,28 +108,100 @@ class TestResolveArtifactsBatch:
 
 
 class TestDeleteArtifactsBatch:
-    def test_empty_ids_raises(self):
+    def test_empty_items_raises(self):
         with pytest.raises(ActionError, match="at least one"):
             delete_artifacts_batch([])
 
     @patch("empirica.core.chat.actions.subprocess.run")
-    def test_calls_cli_with_id_payload(self, mock_run):
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout='{"ok": true, "deleted": 3}',
-            stderr="",
-        )
-        result = delete_artifacts_batch(["a", "b", "c"])
-        assert result["deleted"] == 3
+    def test_previews_by_default_and_sends_typed_deletions(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0, stdout='{"ok": true, "deleted": 0, "dry_run": true}', stderr="")
+        delete_artifacts_batch([("finding", "a"), ("unknown", "b")])
+        cmd = mock_run.call_args[0][0]
+        assert cmd[:3] == ["empirica", "delete-artifacts", "-"] and "--apply" not in cmd
         sent = json.loads(mock_run.call_args.kwargs["input"])
-        assert sent == {"ids": ["a", "b", "c"]}
+        assert sent["deletions"] == [{"type": "finding", "id": "a"}, {"type": "unknown", "id": "b"}]
+
+    @patch("empirica.core.chat.actions.subprocess.run")
+    def test_apply_is_an_explicit_flag(self, mock_run):
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout='{"ok": true, "deleted": 1, "dry_run": false}', stderr=""
+        )
+        delete_artifacts_batch([("finding", "a")], apply=True)
+        assert "--apply" in mock_run.call_args[0][0]
 
     @patch("empirica.core.chat.actions.subprocess.run")
     def test_non_json_returns_raw(self, mock_run):
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout="success!",
-            stderr="",
+        mock_run.return_value = MagicMock(returncode=0, stdout="success!", stderr="")
+        assert delete_artifacts_batch([("finding", "x")]) == {"raw_output": "success!"}
+
+
+# ─── the payloads match the verbs' own schemas ──────────────────────
+
+
+class TestPayloadsMatchTheVerbSchemas:
+    """The wrapper tests above mock subprocess, so they pinned whatever shape the wrapper sent: `unknown_ids` and `ids` were
+    green for as long as the verbs rejected them. The verbs publish their schemas; the payload is checked against those."""
+
+    @patch("empirica.core.chat.actions.subprocess.run")
+    def test_resolve_payload_keys_are_in_the_schema(self, mock_run):
+        from empirica.cli.command_handlers.graph_commands import RESOLVE_ARTIFACTS_SCHEMA
+
+        mock_run.return_value = MagicMock(returncode=0, stdout="{}", stderr="")
+        resolve_artifacts_batch(["u1"])
+        sent = json.loads(mock_run.call_args.kwargs["input"])
+        assert set(sent) <= set(RESOLVE_ARTIFACTS_SCHEMA)
+        assert set(sent["resolutions"][0]) <= set(RESOLVE_ARTIFACTS_SCHEMA["resolutions"][0])
+
+    @patch("empirica.core.chat.actions.subprocess.run")
+    def test_delete_payload_keys_are_in_the_schema(self, mock_run):
+        from empirica.cli.command_handlers.graph_commands import DELETE_ARTIFACTS_SCHEMA
+
+        mock_run.return_value = MagicMock(returncode=0, stdout="{}", stderr="")
+        delete_artifacts_batch([("finding", "f1")])
+        sent = json.loads(mock_run.call_args.kwargs["input"])
+        assert set(sent) <= set(DELETE_ARTIFACTS_SCHEMA)
+        assert set(sent["deletions"][0]) <= set(DELETE_ARTIFACTS_SCHEMA["deletions"][0])
+
+    def test_the_old_keys_are_not_in_either_schema(self):
+        """Control: the check above can fail, because the keys the wrapper used to send are not in the schemas."""
+        from empirica.cli.command_handlers.graph_commands import DELETE_ARTIFACTS_SCHEMA, RESOLVE_ARTIFACTS_SCHEMA
+
+        assert "unknown_ids" not in RESOLVE_ARTIFACTS_SCHEMA and "ids" not in DELETE_ARTIFACTS_SCHEMA
+
+
+# ─── refs and the card the chat prints ──────────────────────────────
+
+
+class TestParseRefs:
+    def test_type_colon_id_pairs(self):
+        assert parse_artifact_refs(["finding:abc", "dead_end:def"]) == [("finding", "abc"), ("dead_end", "def")]
+
+    @pytest.mark.parametrize("bad", ["abc", "finding:", ":abc", "lesson:abc", "nonsense:abc"])
+    def test_a_ref_without_a_deletable_type_is_refused_with_the_usage(self, bad):
+        with pytest.raises(ActionError, match="TYPE:ID"):
+            parse_artifact_refs([bad])
+
+
+class TestSummary:
+    def test_a_preview_says_would_delete_never_deleted(self):
+        msg = summarize_batch("delete", {"ok": True, "deleted": 0, "dry_run": True, "items": [{}, {}]}, 2, apply=False)
+        assert "would delete 2" in msg and "--apply" in msg and "deleted 0" not in msg
+
+    def test_an_applied_delete_says_how_many(self):
+        assert "deleted 2 of 2" in summarize_batch(
+            "delete", {"ok": True, "deleted": 2, "dry_run": False}, 2, apply=True
         )
-        result = delete_artifacts_batch(["x"])
-        assert result == {"raw_output": "success!"}
+
+    def test_errors_in_the_response_are_part_of_the_card(self):
+        msg = summarize_batch(
+            "resolve", {"ok": True, "resolved": 0, "errors": ["unknown: not found — no row matches id 'x'"]}, 1
+        )
+        assert "resolved 0 of 1" in msg and "not found" in msg
+
+    def test_ok_false_is_reported_as_a_failure(self):
+        msg = summarize_batch("delete", {"ok": False, "error": "Invalid JSON input"}, 1)
+        assert "failed" in msg.lower() and "Invalid JSON input" in msg
+
+    def test_a_clean_resolve_has_no_error_text(self):
+        msg = summarize_batch("resolve", {"ok": True, "resolved": 2}, 2)
+        assert msg == "/resolve-batch: resolved 2 of 2 unknowns"
