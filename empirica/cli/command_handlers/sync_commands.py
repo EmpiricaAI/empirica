@@ -326,8 +326,12 @@ def handle_sync_config_command(args):
         # Load current config
         sync_config = _load_sync_config()
 
-        # If setting a value
-        _handle_sync_config_command_helper(key, output_format, sync_config, value)
+        # Setting a value answers for itself: the helper prints its own document and returns
+        # the exit code. It returns None when nothing was set (a show), which falls through.
+        # Discarding this result made every refusal exit 0 and print a second document.
+        set_rc = _handle_sync_config_command_helper(key, output_format, sync_config, value)
+        if set_rc is not None:
+            return set_rc
 
         # Show config (with optional key filter)
         if key:
