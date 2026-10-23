@@ -24,3 +24,11 @@ Known quirks: the compliance report's `release_chain` check reads FAIL until the
 there is no `choco` CLI; `release.py` returns you to `develop` after publish.
 
 Gates to run before step 6 (the skill's steps 2 to 7): `empirica compliance-report --dep-audit --security`, then the sweep.
+
+## Reading the deterministic tier
+
+- `compliance-report` security lists counts only: identify and judge a "critical" finding by running
+  `semgrep --config p/owasp-top-ten empirica/` directly.
+- A check that returns `null` on a pass may not have run: confirm the check actually executed before trusting it.
+- Suppress a scanner false positive on its one line with the justification beside it, never by widening the gate.
+- Do not announce until PyPI's simple index carries the version; its JSON API updates minutes earlier.
