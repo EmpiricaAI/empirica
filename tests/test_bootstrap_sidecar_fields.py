@@ -143,8 +143,19 @@ def test_payload_git_status_absent_for_non_git_project(tmp_path):
     git_dir = proj / ".git"
     if git_dir.exists():
         import shutil
+        import time
 
-        shutil.rmtree(git_dir)
+        # A detached `git maintenance` / `gc --auto` started by the fixture's last git command can delete files (maintenance.lock)
+        # while rmtree walks the directory: CI failed on exactly that, once in 40 runs. Retry until the tree is gone.
+        for attempt in range(10):
+            try:
+                shutil.rmtree(git_dir)
+                break
+            except OSError:
+                if not git_dir.exists():
+                    break
+                time.sleep(0.2 * (attempt + 1))
+        assert not git_dir.exists(), "the fixture's .git directory must be gone before the assertion means anything"
     from empirica.core.bootstrap import build_bootstrap_payload
 
     payload = build_bootstrap_payload(project_path=proj, project_id=pid)
