@@ -202,7 +202,7 @@ An architecture document that lists no problems is marketing.
 
 | You want | Read |
 |---|---|
-| The full operating model | `/empirica-constitution` (skill) |
+| The deeper rules, by the moment you need them | `/empirica-constitution` (the index skill) |
 | Every architecture topic in depth | [`docs/architecture/`](docs/architecture/) — 46 documents |
 | When a practice wakes, and why | [`docs/architecture/TRIGGER_MODEL.md`](docs/architecture/TRIGGER_MODEL.md) |
 | Messaging: which layer, and why both | [`docs/architecture/MESSAGING_LAYERS.md`](docs/architecture/MESSAGING_LAYERS.md) |

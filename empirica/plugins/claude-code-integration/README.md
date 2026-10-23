@@ -81,7 +81,10 @@ Skills load on demand when the AI recognises the situation, or by name (`/skill-
 
 | Skill | When | What it does |
 |---|---|---|
-| **empirica-constitution** | Routing uncertainty; before the first PREFLIGHT of a session | Governance decision tree: routes a situation to the right Empirica mechanism |
+| **empirica-constitution** | Unsure which Empirica skill or mechanism fits | The index: routes a situation to the skill that covers it |
+| **artifact-graph** | Logging 2+ artifacts, unsure of a type, or retracting a false claim | Typing, edges, provenance, orphan accumulation and the retraction table |
+| **practice-model** | Writing to another practice, remote work, "which project" | What a practice is and how it differs from a directory or a project |
+| **authoring-guidance** | Writing or editing a prompt, skill, hook or tool | Tool vs skill vs prompt, and where a trigger should be delivered |
 | **epistemic-transaction** | Complex work, planning | Decomposes work into measured transactions, PREFLIGHT through POSTFLIGHT. For tasks spanning 3+ files or 2+ goals |
 | **epistemic-persistence-protocol** | The user disagrees or pushes back | Calibrated position-holding: classifies the pushback and chooses HOLD, SOFTEN, UPDATE or REFRAME |
 | **pre-action-grounding** | A task arrives without its why or a checkable done-condition | Investigates first, asks last, records the ungrounded residue as assumptions, emits a goal with typed criteria |

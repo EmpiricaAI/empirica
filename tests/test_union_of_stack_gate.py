@@ -34,15 +34,15 @@ _TEMPLATE = _ROOT / "empirica" / "plugins" / "claude-code-integration" / "templa
 # obligation -> (where it is single-homed, concept markers that must survive
 #                in the ALWAYS-LOADED layer)
 OBLIGATIONS: dict[str, tuple[str, list[str]]] = {
-    "artifact typing": ("constitution §III-b", ["finding", "unknown", "assumption", "mistake"]),
-    "graph / edges": ("constitution §III-b", ["edge", "log-artifacts"]),
-    "retraction vs staleness": ("constitution §III-b", ["retract"]),
+    "artifact typing": ("/artifact-graph", ["finding", "unknown", "assumption", "mistake"]),
+    "graph / edges": ("/artifact-graph", ["edge", "log-artifacts"]),
+    "retraction vs staleness": ("/artifact-graph", ["retract"]),
     "transaction lifecycle": ("/epistemic-transaction", ["preflight", "check", "postflight"]),
     "claims + grounding": ("/epistemic-transaction", ["claims", "grounding"]),
-    "mesh: pull when uncertain": ("constitution §V", ["collab", "uncertain"]),
+    "mesh: pull when uncertain": ("prompt PROACTIVE BEHAVIORS + cortex skills", ["collab", "uncertain"]),
     "mesh: ack completions": ("/cortex-mailbox-send", ["ack"]),
     "mesh: don't drop threads": ("/cortex-mailbox-send", ["drop"]),
-    "mesh: share sources": ("constitution §V", ["visibility", "shared"]),
+    "mesh: share sources": ("prompt PROACTIVE BEHAVIORS + /artifact-graph", ["visibility", "shared"]),
     "gardening / resolution": ("/epistemic-gardening", ["resolve", "stale"]),
     "delegation: verify subagents": ("/dispatch-agent", ["subagent", "self-report"]),
     "effort / ceremony scaling": ("§EFFORT AND DELEGATION", ["ceremony"]),

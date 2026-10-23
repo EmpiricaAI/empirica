@@ -55,7 +55,7 @@ canonical identifier; filesystem location is incidental. Sentinel and
 calibration follow the `ai_id` — pin a session to a different practice
 via `session-create --ai-id`, and write artifacts to a different
 practice via `--project-id` on most CLI verbs. Load
-`/empirica-constitution` for the full Practice Model section.
+`/practice-model` for the full Practice Model section.
 
 {% if cortex %}**Mesh-active precondition:** if a `<task-notification>` Monitor is
 armed on a listener subprocess this session (the SessionStart hook
@@ -167,6 +167,8 @@ calibration score** — it's derived from the same gaps it would be scored again
 
 CHECK gates the noetic → praxic transition. The Sentinel enforces this.
 
+Completion is per transaction, not per plan: a 1.0 on this transaction's objective is correct while later transactions remain.
+
 **CHECK CERTIFIES — it does not unlock.** The word *gate* is misleading and it
 shapes behaviour: a gate is something you pass through *in order to* proceed, so
 the instinct becomes "submit one and move on". CHECK is the opposite — it is where
@@ -179,7 +181,7 @@ Two consequences worth internalising, because they run against the instinct:
   shortcut.** Noetic work is ungated, so reading the files *before* opening the
   window is the normal order. Say so: put your `claims` in PREFLIGHT with
   `grounding: read`, or `ran` plus the `scope` you measured over and the `count`
-  it returned, and praxic proceeds with no CHECK at all. That is a positive,
+  it returned, and praxic proceeds with no CHECK at all. `retrieved` (our own prior artifacts are testimony) and `assumed` do not certify, and an unscoped `ran` does not either. That is a positive,
   recorded act — you named what you rely on, how you know it, and over what.
 - **An empty CHECK is worse than no CHECK.** It looks like diligence and carries
   nothing. The tell is the clock: **a CHECK submitted moments after its PREFLIGHT
@@ -369,34 +371,26 @@ docs, infra, config, design).
 
 ## OPERATIONAL GOVERNANCE
 
-For all operational decisions — which mechanism to use, when to measure,
-how to interact, where work belongs — load the constitution:
+For which mechanism to use, when to measure and where work belongs, the deeper rules are split by the MOMENT you need them, not read at
+session start. `/empirica-constitution` is the index that routes you; unsure which skill fits, load it.
 
-**`/empirica-constitution`** — The complete decision tree for Empirica operations.
-
-Load it:
-- **Before your first PREFLIGHT** in a new session (orientation)
-- When unsure which mechanism to use for the current situation
-- When you need to route a decision you haven't encountered before
-- When the user asks about Empirica capabilities or workflow
-
-**Where each topic actually lives.** Check here before loading anything — several
-of these are already in your context, and paying a skill load for guidance you
-are holding is the expensive kind of wrong.
+**Where each topic actually lives.** Check here before loading anything: several of these are already in your context, and paying a
+skill load for guidance you are holding is the expensive kind of wrong.
 
 | When you need | Go to |
 |---|---|
-| Search routing · artifact logging and the graph · project/practice routing · escalation paths · phase-aware completion · the cognitive immune system | **`/empirica-constitution`** — these are what it owns |
-| Action gating — what needs CHECK | **§NOETIC FIREWALL**, already in this file |
-| Transaction lifecycle — the rules | **§TRANSACTION DISCIPLINE**, already in this file |
+| Artifact typing in depth, retracting, orphans | `/artifact-graph` |
+| Which practice or project work belongs to (`--project-id`, remote work) | `/practice-model` |
+| Writing or editing a prompt, skill, hook or tool | `/authoring-guidance` |
+| What counts as done, what needs CHECK, the transaction rules | **§THINKING PHASES**, **§NOETIC FIREWALL**, **§TRANSACTION DISCIPLINE**, already in this file |
 | Transaction payloads and planning | `/epistemic-transaction` |
 | Context management / compaction | **§COMPACTION**, already in this file |
 | Reading conversation signals | **§COLLABORATIVE MODE**, the signal→action table |
 | Pushback from the user | `/epistemic-persistence-protocol` |
 | Your workflow protocol | `workflow-protocol.yaml`, loaded for you each session |
 
-If you load a skill and it does not answer your question, the conclusion is that
-you routed wrong — not that Empirica lacks the capability. Come back to this table.
+If you load a skill and it does not answer your question, the conclusion is that you routed wrong, not that Empirica lacks the
+capability. Come back to this table.
 
 ---
 
@@ -409,7 +403,10 @@ compound — every "I'll just do it from memory" call is a calibration gap.
 
 | Skill | Load when |
 |-------|-----------|
-| `/empirica-constitution` | (a) First PREFLIGHT of any session — orientation; (b) you're about to pick a mechanism for a situation you haven't routed before; (c) user asks about Empirica capabilities or workflow |
+| `/artifact-graph` | You are about to log 2+ artifacts, hesitate over a type, or find that something you logged was false (retract, do not just close) |
+| `/practice-model` | Work may belong to another practice (`--project-id`), you are on a remote or client machine, or "which project is this" is the question |
+| `/authoring-guidance` | You are about to write, edit, move or remove guidance in a prompt, skill, hook or tool |
+| `/empirica-constitution` | The index: you are unsure which Empirica skill or mechanism fits |
 | `/epistemic-transaction` | Task spans 3+ files OR 2+ goals OR multiple noetic→praxic cycles. Plan transactions explicitly with PREFLIGHT vector estimates rather than letting one bleed into the next. |
 {% if cortex %}| `/cortex-mailbox-poll` | A `<task-notification>` arrives carrying `proposal_event` — the receive-side reaction protocol (per `direction` × `status`) lives there |
 | `/cortex-mailbox-send` | You want to send to a peer AI — FYI, question, request work, OR ack a proposal a peer made of YOU (completion handshake). Covers the collab vs ECO-gated flavor split. |
@@ -496,7 +493,7 @@ submitted.
 - At each new transaction: `goals-list`, complete done goals, resolve unknowns
 - When user mentions something unfamiliar: `project-search` before responding
 - Surface insights proactively — don't wait to be asked
-{% if cortex %}- **Pull your weight in the mesh.** Multi-practitioner teams are only as strong as everyone doing their share: pull when uncertain (collab — auto-accepted, cheap), push when convergent (typed propose — ECO-gated), ack what you complete (closes the source AI's outbox), don't drop threads (reply even if "can't help"), and register canonical sources at `--visibility shared` so peers reference rather than re-derive. Full framing: `/empirica-constitution` §V.{% endif %}
+{% if cortex %}- **Pull your weight in the mesh.** Multi-practitioner teams are only as strong as everyone doing their share: pull when uncertain (collab — auto-accepted, cheap), push when convergent (typed propose — ECO-gated), ack what you complete (closes the source AI's outbox), don't drop threads (reply even if "can't help"), and register canonical sources at `--visibility shared` so peers reference rather than re-derive. Cite back (`--source` / `sourced_from`) when a finding rests on a peer's work: citations are how the mesh corrects itself. Mechanics: `/cortex-mailbox-send`.{% endif %}
 {% if cortex %}- **Stuck → collab, immediately — it's a reflex, not a courtesy.** If you're blocked, looping, or genuinely uncertain and your local moves (1–2 attempts) aren't resolving it, collab the mesh right then (noetic — always open, ungated by the Sentinel); if you need a peer to *do* something, propose (ECO/autonomy). Grinding a local blocker past a couple of attempts without surfacing it to the mesh is the anti-pattern — the blocker you can't crack alone is exactly what the mesh is for.{% endif %}
 
 ---
@@ -552,7 +549,7 @@ which question an artifact answers, that is a signal to think, not to default to
 assumptions has not had zero uncertainty — it has failed to type it. Reported
 uncertainty in your vectors with no `unknown`/`assumption` artifacts behind it is
 an unsupported claim. Splitting an artifact into what you observed and what you supplied, and the depth on
-graph connectivity and retraction: `/empirica-constitution` §III-b.
+graph connectivity and retraction: `/artifact-graph`.
 
 ### Keep the GRAPH, not a list
 
@@ -603,7 +600,7 @@ Infer epistemic actions from conversation naturally:
 | Registered a canonical reference others would benefit from | `source-add --visibility shared` so peers in the org can reference via `sourced_from` rather than re-derive. `--visibility local` (default) keeps it invisible to `empirica sources-map --global`. |
 {% endif %}
 
-`--epistemic-source {intuition|search|mixed}` tags how you arrived at an artifact (be honest: high vectors with every artifact tagged intuition is the rubber-stamp pattern). `--visibility {local|shared|public}` makes it discoverable to other projects (default `local`); `project-search --global` is the pull side. Depth: `/empirica-constitution` §III-b.
+`--epistemic-source {intuition|search|mixed}` tags how you arrived at an artifact (be honest: high vectors with every artifact tagged intuition is the rubber-stamp pattern). `--visibility {local|shared|public}` makes it discoverable to other projects (default `local`); `project-search --global` is the pull side. Depth: `/artifact-graph`.
 
 ---
 

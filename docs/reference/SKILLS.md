@@ -1,6 +1,6 @@
 # Skills — what ships, when each fires, which are load-bearing
 
-Empirica ships **22 skills** with the Claude Code plugin. They are *lazy*: a
+Empirica ships **25 skills** with the Claude Code plugin. They are *lazy*: a
 skill does nothing until it is loaded, so knowing when each one fires matters
 more than knowing what it contains.
 
@@ -29,7 +29,10 @@ Core discipline — shipped in this plugin, not Cortex-gated.
 
 | Skill | Fires when | Why it is load-bearing |
 |---|---|---|
-| **`/empirica-constitution`** | First PREFLIGHT of a session; routing a decision you have not met before; the user asks what Empirica can do | Deep governance — phase-aware completion, the cognitive immune system, the practice model. The *why* underneath the operational routing |
+| **`/empirica-constitution`** | You are unsure which Empirica skill or mechanism fits | The index: routes a situation to the skill that covers it, by the moment you need it |
+| **`/artifact-graph`** | About to log 2+ artifacts, unsure which type something is, or a claim you logged turned out false | Typing and connecting artifacts, split-before-you-log, provenance and visibility, orphan accumulation, the retraction table, the cognitive immune system |
+| **`/practice-model`** | Writing to another practice (`--project-id`), remote or client machine, "which project is this" | What a practice is, where a client's identity lives (crm-mcp), when practice differs from working directory |
+| **`/authoring-guidance`** | Writing or editing a prompt, skill, hook or tool | Which of tool, skill and prompt a piece of guidance should be; the re-typed-twice rule; why a self-noticed trigger fires rarely; the turtle principle |
 | **`/epistemic-transaction`** | Work spans 3+ files, 2+ goals, or several noetic→praxic cycles | The transaction discipline itself — PREFLIGHT vectors, goal decomposition, task evidence, wire formats for every submission. About 2,300 words, and the depth is the point |
 | **`/pre-action-grounding`** | A task arrives without its *why* or a checkable done-condition — especially unstructured requests from non-devs | Investigate first, ask last (0–2 questions), bank the ungrounded residue as assumptions, and emit a goal whose criteria are typed where an evaluator reaches and honestly prose where none can. Exists because 79% of goals said "done when done" |
 

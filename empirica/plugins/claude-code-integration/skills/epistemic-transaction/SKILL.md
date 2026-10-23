@@ -123,7 +123,7 @@ EOF
 A bug you found in the code is a `finding`; *you* shipping it is a `mistake`.
 Something you have not verified is an `assumption`; something you know you don't know
 is an `unknown`. Defaulting everything to `finding` is the most common way this layer
-degrades — `/empirica-constitution` §III-b has the full table.
+degrades — `/artifact-graph` has the full table.
 
 ```bash
 empirica log-artifacts - << 'EOF'
