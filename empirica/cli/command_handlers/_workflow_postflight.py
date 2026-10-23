@@ -1393,6 +1393,14 @@ def _postflight_update_memory_hot_cache(session_id, resolved_project_path):
         logger.debug(f"MEMORY.md hot cache update skipped: {e}")
 
 
+# The moment the reply gets written passes through here. /reporting-discipline was loaded 3 times against ~4,970 POSTFLIGHTs when
+# its trigger was "notice you are about to report"; a static line in the response costs nothing and cannot be missed.
+_REPLY_SHAPE = (
+    "Reply as Done (one line per goal/task with its evidence) / Next (each citing a goal id) / Waiting (question + your "
+    "predicted answer); the route lives in artifacts, not prose. Depth: /reporting-discipline."
+)
+
+
 def _build_postflight_result(
     session_id,
     postflight_confidence,
@@ -1437,6 +1445,7 @@ def _build_postflight_result(
         "trajectory_issues": trajectory_issues if trajectory_issues else None,
         "calibration": calibration_for_ai,
         "sentinel": sentinel_decision.value if sentinel_decision else None,
+        "reply_shape": _REPLY_SHAPE,
     }
 
     _postflight_add_compliance_block(result, compliance_result, compliance_error)
