@@ -56,8 +56,9 @@ rubber-stamp CHECK pattern the substrate exists to expose.
 
 `--visibility {public,shared,local}` is the opt-in for being discoverable from other projects: `local` (default) stays in this
 project, `shared` is visible across the org's projects (Cortex tenancy), `public` to anyone with a Cortex account. The pull side
-is `empirica project-search --task "..." --global`, which queries the `global_learnings` Qdrant collection where
-high-confidence shared/public artifacts are promoted; it does not yet walk every project's own collection. Share liberally what
+is `empirica project-search --task "..." --global`, which searches the `global_learnings` collection (promoted shared/public
+artifacts) and this machine's other projects' collections. It stops at this machine: mesh-wide retrieval is `cortex investigate`
+when Cortex is connected. Share liberally what
 has ecosystem-wide value (security patterns, cross-repo bugs, reusable lessons); keep tactical work `local`.
 
 ### Orphan accumulation

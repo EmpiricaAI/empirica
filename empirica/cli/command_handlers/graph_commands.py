@@ -64,7 +64,7 @@ LOG_ARTIFACTS_SCHEMA = {
                 "finding | unknown | choice | etc.": "<type-specific required fields>",
                 "impact": "<float 0-1, optional>",
                 "subject": "<optional>",
-                "visibility": "<public | shared | local — optional, default 'shared'>",
+                "visibility": "<public | shared | local — optional, default 'local'>",
             },
         },
     ],
