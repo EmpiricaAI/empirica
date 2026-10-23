@@ -2160,8 +2160,10 @@ def handle_listener_on_command(args) -> int:
             },
             "expiry": (
                 "Monitor deadlines are capped at 30 min (Claude Code 2.1.271+). "
-                "Re-arm at expiry and run the after_arm command again; the persistent "
-                "listener service keeps receiving in the gap, so nothing is lost."
+                "Re-arm at expiry and run the after_arm command again. The tail starts at the end "
+                "of the log, so events written in the gap are not delivered to the session. "
+                "After every (re)arm, run `empirica mailbox poll` — the one check that does not "
+                "depend on the stream."
             ),
             "after_arm": f"empirica listener arm <monitor_task_id> --name {name}",
         },

@@ -18,9 +18,18 @@ Rename this heading to the release version and date at the cut: `scripts/release
 - **The POSTFLIGHT response carries a `reply_shape` line** (Done / Next / Waiting with predicted answers), because
   `/reporting-discipline` was loaded 3 times against about 4,970 POSTFLIGHTs.
 - **`/artifact-graph`, `/practice-model`, `/authoring-guidance`**: the constitution split by the moment each part is needed.
+- **`wake_instance` only types into a pane that is waiting for input.** It reads the pane first (`pane_is_idle`) and refuses a running
+  turn, a half-typed draft, a permission dialog or an unreadable pane, because Space+Enter accepts a dialog's default option and
+  submits a draft. The Events button reports a refusal instead of a failure; `require_idle=False` keeps the old unconditional send.
 
 ### Changed
 
+- **The Monitor arm text no longer says nothing is lost in the gap.** The arm command is `tail -F -n 0`, which starts at the end of
+  the log, so events written while no Monitor was running are never delivered to the session (measured: two gap lines missed, the
+  next line seen). The hook, the listener registration note and the `inbox-listener` skill now say to run `empirica mailbox poll`
+  after every arm and re-arm.
+- **`log-artifacts --schema` names the real visibility default** (`local`, not `shared`), and the `artifact-graph` skill states that
+  `project-search --global` reaches this machine's other projects.
 - **`/empirica-constitution` is now a 360-word index** (it was 3,300 words, loaded 12 times against about 540 session starts).
   Duplicates of the always-loaded prompt are gone, and the prompt routes by moment instead of "load at the first PREFLIGHT". Two lines
   that lived only in the old completion section moved into the prompt.

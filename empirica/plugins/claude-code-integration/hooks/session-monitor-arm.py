@@ -268,9 +268,11 @@ def _build_monitor_block_from_cli(payload: dict | None, instance_id: str) -> str
         f"deadline of at most 30 min (10 in `-p` runs): the watch expires, you are "
         f"notified, and you RE-ARM it — same Monitor call, then the arm command again. "
         f"Passing `persistent=True` is accepted and silently ignored, so do not rely "
-        f"on it. Nothing is lost in the gap when the OS listener service is running; "
-        f"without that service, events arriving while no Monitor is armed wait in "
-        f"`~/.empirica/loop_fires.log` until the next arm or `mailbox poll`.\n\n"
+        f"on it. The tail starts at the END of the log, so events written while no Monitor "
+        f"was running (the gap before an arm or re-arm) are not delivered to you; with the OS "
+        f"listener service up they are in `~/.empirica/loop_fires.log`, without it they are not "
+        f"recorded at all. After every (re)arm, run `empirica mailbox poll` — it is the one "
+        f"check that does not depend on the stream.\n\n"
         f"{mode_explainer}{after_arm_hint}"
     )
 

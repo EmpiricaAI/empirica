@@ -96,8 +96,9 @@ every Monitor watch ends after at most 30 minutes (10 in `-p` runs) and you are
 notified. **Re-arm it** — same Monitor call, then `empirica listener arm` again
 with the new task id. Passing `persistent: true` is accepted and silently ignored
 on current builds, and omitting it is accepted on older ones, so the call above
-is valid everywhere. With the OS service running nothing is lost in the gap;
-without it, events wait in `loop_fires.log` until the next arm or `mailbox poll`.
+is valid everywhere. The tail starts at the end of the log, so events written
+while no Monitor was running are not delivered to the session. After every (re)arm,
+run `empirica mailbox poll` — the one check that does not depend on the stream.
 
 ### 2. Arm Monitor with the emitted args
 
