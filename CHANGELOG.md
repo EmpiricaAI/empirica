@@ -5,6 +5,56 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.14.13] - 2026-10-23
+
+A correctness release for the notes-and-rebuild path, plus a trimmed always-loaded prompt. A rebuild from git notes now restores
+what the notes hold (ids, creation times, resolution kinds and times, and a goal's lifecycle state), replication is judged by which
+refs reached the remote instead of how many, and a group of verbs that reported success while doing nothing now report what
+happened. Every fix has a test that fails on the previous source; a pattern sweep of the whole diff found and closed further defects
+before this cut.
+
+### Added
+
+- **A goal's lifecycle state travels in its git note.** `goals-complete`, `-activate`, `-reopen`, `-archive`, abandon, `resolve-artifacts`
+  on a goal, `goals-prune` and the API resolve routes restamp the goal's note with its status, completion time and reason, archive
+  state and project, and a lineage entry. `rebuild` reads it back; a goal whose note was never restamped rebuilds as `in_progress`
+  marked `status_unknown`. `doctor --reconcile-notes` reports and repairs the backlog (and collapses notes an earlier writer forked,
+  one per commit, which `load_goal` read stale).
+- **`projects-unregister --local [--apply]`** removes project rows from this machine's workspace registry (`global_projects` and the
+  `entity_registry` mirror) in one transaction. It previews by default, writes an audit snapshot per row, and refuses the whole batch
+  if any id is unknown or still referenced (memberships, artifacts, instance bindings, sessions, engagements, or Qdrant collections;
+  an unreachable Qdrant is unknown, not zero).
+- **`/delete-batch [--apply] TYPE:ID ...` and `/resolve-batch`** in chat now send the payloads the verbs read (they had sent keys the
+  verbs never accepted), preview deletes by default, and show the verb's own warnings and partial results.
+
+### Fixed
+
+- **Epistemic snapshots carry the vectors the session reported** instead of thirteen 0.5s (the extractor read column names that exist
+  in no table), so snapshot deltas are no longer always zero.
+- **`rebuild --from-notes` restores each artifact as itself**: the note's id and creation time (it minted new ids and stamped now,
+  orphaning every edge, citation and `superseded_by`), a finding's `resolution_kind` and `resolved_at`, and rebuilt goals' creation time
+  and project. `rebuild --qdrant` and `sync-pull --rebuild` report a failed rebuild step as a failure.
+- **Replication is judged by ref name.** A remote shared with other devices holds refs this repo never saw, so comparing counts read
+  "replicated" while local refs never left. The push check and `sync-status` now compare names, count only refs a push refspec can
+  carry, and group local note counts by the namespaces that exist (`breadcrumbs` always read 0).
+- **`sync-config`** exits non-zero on a refused set and prints one document.
+- **The training export** selects from the real `decisions` table (it queried a table that does not exist, silently) and attributes
+  artifacts, CHECK decisions and grounded calibration by `transaction_id` where stamped.
+- **`GET /entities?q=` with `parent_org`/`org_id`** returns 400 instead of an unscoped ranking.
+- **Pending install/uninstall requests stay with their instance.** Instance `seat` used to list, and `consume_pending` delete,
+  `seat_2`'s requests (four stores); `scripts/cockpit/migrate-tmux-to-slot.sh` rewrites the payload instance too.
+- **A mistyped finding is not scored as a retraction** against the sources it cited; it moves stability only.
+
+### Changed
+
+- **The canonical-loop auto-install cascade is removed** from the session-start and per-prompt hooks. Every catalogue entry was already
+  opt-in, so it could queue nothing; it still probed the registry and wrote a stamp file each time.
+- **The lean system prompt is 811 words shorter.** Graph-typing guidance has one home (constitution §III-b), REPORTING is a core plus
+  `/reporting-discipline`, and three one-line gaps are added (the post-POSTFLIGHT refusal, what counts as a goal in play, verb names
+  come from `--help`).
+- **Dependency floors raised for CVEs**: `gitpython>=3.2.1`, `pillow>=13.0.0` (pip-audit reported 37 vulnerabilities across certifi,
+  gitpython and pillow in the development environment; all three are upgraded).
+
 ## [1.14.12] - 2026-10-19
 
 A hardening and reliability release. Credentials no longer reach stored artifact text or scan snapshots; the Sentinel no longer loses
