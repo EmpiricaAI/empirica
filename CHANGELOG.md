@@ -5,6 +5,33 @@ All notable changes to Empirica will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Rename this heading to the release version and date at the cut: `scripts/release.py` refuses a top entry that is not the version.
+
+### Added
+
+- **`/pre-publish`**, the release-gate sequence as a loadable skill: scope the diff, deterministic gates, an independent read-only sweep
+  whose every finding you trace, hot-path timing, a clean re-run on the exact commit, then the cut. It carries the rules the 1.14.13
+  sweep earned (a second pass must be clean; grep for an existing guard before writing one; sweep a new destructive command before it
+  touches real data) and has empirica's release steps in a reference file.
+- **The POSTFLIGHT response carries a `reply_shape` line** (Done / Next / Waiting with predicted answers), because
+  `/reporting-discipline` was loaded 3 times against about 4,970 POSTFLIGHTs.
+- **`/artifact-graph`, `/practice-model`, `/authoring-guidance`**: the constitution split by the moment each part is needed.
+
+### Changed
+
+- **`/empirica-constitution` is now a 360-word index** (it was 3,300 words, loaded 12 times against about 540 session starts).
+  Duplicates of the always-loaded prompt are gone, and the prompt routes by moment instead of "load at the first PREFLIGHT". Two lines
+  that lived only in the old completion section moved into the prompt.
+- **Goal notes also carry the lifecycle details that have no column** (abandon reason and time, activation time, reopen history,
+  completed reason), so a rebuild keeps why a goal was abandoned. `doctor --reconcile-notes` repairs older notes, and restamping the
+  same action twice no longer repeats a lineage entry.
+
+### Fixed
+
+- **A test that wrote findings into the checkout's real git notes** now runs from a directory that is not a repository.
+
 ## [1.14.13] - 2026-10-23
 
 A correctness release for the notes-and-rebuild path, plus a trimmed always-loaded prompt. A rebuild from git notes now restores

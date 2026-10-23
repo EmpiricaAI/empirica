@@ -34,6 +34,12 @@ STATE_FIELDS: dict[str, Any] = {
     "project_id": None,
 }
 
+#: goal_data keys the lifecycle writers set (abandon, activate, reopen, resolve-artifacts), which have no column of their own. The
+#: restamp copies the ones the row has into the note: without them a rebuild kept status=abandoned and lost why, and the activation
+#: time and reopen history never reached the canonical log. A whitelist, not the whole blob: compaction bookkeeping and the
+#: transaction-local prev_transaction_id stay out.
+LIFECYCLE_KEYS = ("abandoned_reason", "abandoned_at", "activated_at", "reopen_history", "completed_reason")
+
 _SELECT = (
     "SELECT id, session_id, objective, scope, estimated_complexity, created_timestamp, goal_data, "
     "status, is_completed, completed_timestamp, {reason}, COALESCE(archived, 0), archived_at, project_id "
@@ -75,9 +81,19 @@ def _rows(conn, where: str, params: tuple = ()) -> list[dict[str, Any]]:
                 "created_timestamp": r[5],
                 "goal_data": r[6],
                 "state": dict(zip(STATE_FIELDS, r[7:], strict=True)),
+                "details": _lifecycle_details(r[6]),
             }
         )
     return out
+
+
+def _lifecycle_details(raw) -> dict[str, Any]:
+    """The whitelisted lifecycle keys present in a row's goal_data JSON."""
+    try:
+        data = json.loads(raw) if raw else {}
+    except (TypeError, ValueError):
+        return {}
+    return {k: data[k] for k in LIFECYCLE_KEYS if isinstance(data, dict) and data.get(k) is not None}
 
 
 def _json(value, default):
@@ -87,21 +103,24 @@ def _json(value, default):
         return default
 
 
-def _same_state(note: dict[str, Any] | None, state: dict[str, Any]) -> bool:
+def _same_state(note: dict[str, Any] | None, state: dict[str, Any], details: dict[str, Any] | None = None) -> bool:
     data = (note or {}).get("goal_data") or {}
 
     def norm(value, key):
         # NULL and the column's default are the same state; comparing them raw never converged for a row holding NULL.
         return STATE_FIELDS[key] if value is None else value
 
-    return all(norm(data.get(k), k) == norm(state[k], k) for k in STATE_FIELDS)
+    return all(norm(data.get(k), k) == norm(state[k], k) for k in STATE_FIELDS) and all(
+        data.get(k) == v for k, v in (details or {}).items()
+    )
 
 
 def _stamp(store: GitGoalStore, row: dict[str, Any], action: str) -> bool:
     existing = store.load_goal(row["id"])
     state = dict(row["state"])
+    details = row.get("details") or {}
     if existing:
-        goal_data = {**(existing.get("goal_data") or {}), **state}
+        goal_data = {**(existing.get("goal_data") or {}), **state, **details}
         lineage = list(existing.get("lineage") or [])
         ai_id = existing.get("ai_id") or "unknown"
         created_at = existing.get("created_at")
@@ -112,6 +131,7 @@ def _stamp(store: GitGoalStore, row: dict[str, Any], action: str) -> bool:
             "scope": _json(row["scope"], {}),
             "estimated_complexity": row["estimated_complexity"],
             **state,
+            **details,
         }
         lineage = []
         ai_id = "unknown"
@@ -122,7 +142,9 @@ def _stamp(store: GitGoalStore, row: dict[str, Any], action: str) -> bool:
         )
         epistemic = None
     goal_data["state_updated_at"] = time.time()
-    lineage.append({"ai_id": ai_id, "timestamp": datetime.now(timezone.utc).isoformat(), "action": action})
+    # The same action twice in a row says nothing new: every reconcile pass used to append another 'reconciled'.
+    if not lineage or lineage[-1].get("action") != action:
+        lineage.append({"ai_id": ai_id, "timestamp": datetime.now(timezone.utc).isoformat(), "action": action})
     return bool(
         store.store_goal(
             row["id"],
@@ -221,7 +243,7 @@ def plan_goal_notes(conn, project_root: str) -> dict[str, Any]:
             missing += 1
         if _fork_count(store, row["id"]) > 1:
             forked.append(row["id"])
-        if not _same_state(note, row["state"]) or row["id"] in forked:
+        if not _same_state(note, row["state"], row["details"]) or row["id"] in forked:
             drifted.append({"id": row["id"], "objective": (row["objective"] or "")[:80], "has_note": note is not None})
     return {"drifted": drifted, "without_note": missing, "forked": forked}
 

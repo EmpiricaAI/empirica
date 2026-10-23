@@ -460,3 +460,87 @@ def test_pruned_goal_notes_are_restamped(proj):
     )
     assert _note(root, gone)["goal_data"]["status"] == "completed"
     assert _note(root, kept)["goal_data"].get("status") is None, "control: an unpruned goal's note is untouched"
+
+
+# --- lifecycle details that live in goal_data, not in a column ---------------------------------------------------------------
+#
+# Unknown d2fb6e7e (1.14.13 sweep): restamp copied the table columns only, so an abandoned goal's note said status=abandoned
+# without the reason, and the activation time and reopen history never reached the canonical log.
+
+
+def test_the_abandon_reason_reaches_the_note_and_survives_a_rebuild(proj, tmp_path):
+    root, db = proj
+    gid = _goal(db, root)
+    assert db.goals.abandon_goal(gid, "superseded by the new design")
+    data = _note(root, gid)["goal_data"]
+    assert data["status"] == "abandoned"
+    assert data["abandoned_reason"] == "superseded by the new design" and data["abandoned_at"]
+
+    fresh, _ = _rebuild_goals(tmp_path, root)
+    try:
+        rebuilt = json.loads(fresh.conn.execute("SELECT goal_data FROM goals WHERE id=?", (gid,)).fetchone()[0])
+        assert rebuilt["abandoned_reason"] == "superseded by the new design"
+    finally:
+        fresh.close()
+
+
+def test_activation_time_and_reopen_history_reach_the_note(proj):
+    root, db = proj
+    planned = _goal(db, root, "queued", status="planned")
+    assert db.goals.activate_goal(planned)
+    assert _note(root, planned)["goal_data"]["activated_at"]
+
+    done = _goal(db, root, "reopened one")
+    db.conn.execute("UPDATE goals SET status='completed', is_completed=1, completed_timestamp=5.0 WHERE id=?", (done,))
+    db.conn.commit()
+    assert db.goals.reopen_goal(done, reason="the close was premature")
+    history = _note(root, done)["goal_data"]["reopen_history"]
+    assert len(history) == 1 and history[0]["reason"] == "the close was premature"
+
+
+def test_a_goal_without_those_details_gets_no_empty_keys(proj):
+    """Control: carrying a key only when the row has it. A plain goal's note stays as small as before."""
+    root, db = proj
+    gid = _goal(db, root)
+    gns.restamp_goal_note(db.conn, gid, "activated")
+    data = _note(root, gid)["goal_data"]
+    for key in ("abandoned_reason", "abandoned_at", "reopen_history", "activated_at", "completed_reason"):
+        assert key not in data
+
+
+def test_reconcile_repairs_an_abandoned_note_that_has_status_but_not_the_reason(proj):
+    """The 1.14.13 restamp wrote status=abandoned without the reason; the plan must see that as drift, and a second pass must be clean."""
+    root, db = proj
+    gid = _goal(db, root)
+    assert db.goals.abandon_goal(gid, "no longer matters")
+    # reproduce the old note: state present, reason absent
+    old = _note(root, gid)
+    old["goal_data"].pop("abandoned_reason")
+    old["goal_data"].pop("abandoned_at")
+    commit = _entries(root, gid)[0][1]
+    subprocess.run(
+        ["git", "notes", f"--ref=empirica/goals/{gid}", "add", "-f", "-F", "-", commit],
+        cwd=root,
+        input=json.dumps(old),
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    assert [g["id"] for g in gns.plan_goal_notes(db.conn, str(root))["drifted"]] == [gid]
+    assert gns.apply_goal_notes(db.conn, str(root))["failed"] == 0
+    assert _note(root, gid)["goal_data"]["abandoned_reason"] == "no longer matters"
+    assert gns.plan_goal_notes(db.conn, str(root))["drifted"] == []
+
+
+def test_restamping_twice_with_the_same_action_does_not_grow_the_lineage(proj):
+    """Each reconcile pass appended a 'reconciled' entry, so a goal restamped by three passes carried three of them."""
+    root, db = proj
+    gid = _goal(db, root)
+    gns.restamp_goal_note(db.conn, gid, "reconciled")
+    gns.restamp_goal_note(db.conn, gid, "reconciled")
+    assert _lineage_actions(_note(root, gid)) == ["created", "reconciled"]
+    gns.restamp_goal_note(db.conn, gid, "completed")
+    gns.restamp_goal_note(db.conn, gid, "reconciled")
+    assert _lineage_actions(_note(root, gid)) == ["created", "reconciled", "completed", "reconciled"], (
+        "different actions still append"
+    )

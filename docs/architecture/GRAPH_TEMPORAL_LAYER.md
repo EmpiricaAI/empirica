@@ -171,8 +171,9 @@ Query: `empirica commit-context <sha>` or
 Without this, the only path to per-commit artifact retrieval was raw
 `git notes` archaeology — the gap that motivated the layer's design.
 
-The constitution skill (`empirica-constitution`) has a parallel entry
-in the "I don't know something" decision tree:
+Nothing in the always-loaded prompt or the skills names the verb (a search-routing entry once claimed to live in the constitution skill;
+it was removed in an earlier trim and this note went stale). The hook-injected trail line above is the pointer an AI actually sees, and
+the verb is in `docs/human/developers/CLI_COMMANDS_UNIFIED.md`:
 
 ```
 About a past commit → empirica commit-context <sha> [--depth N]
@@ -211,8 +212,6 @@ About a past commit → empirica commit-context <sha> [--depth N]
   (nodes + edges, 9 relation types).
 - `docs/architecture/PROPOSAL_SOURCE_AWARE_SENTINEL_v1.md` — v1
   routing-rule design for `epistemic_source`.
-- `~/.claude/plugins/local/empirica/skills/empirica-constitution/SKILL.md`
-  — search routing tree pointing at `commit-context`.
 - Source: `empirica/cli/command_handlers/commit_context_commands.py`,
   `empirica/cli/command_handlers/artifact_log_commands.py`
   (`_collect_edges_from_args`, `_persist_edges`,

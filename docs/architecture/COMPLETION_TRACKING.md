@@ -81,7 +81,7 @@ The `completion` vector is defined by phase:
 | Praxic | Have I implemented enough to ship? |
 
 (Schema description in `empirica/cli/validation.py`; the same questions appear in
-the lean system prompt and the constitution skill.)
+the lean system prompt, THINKING PHASES.)
 
 Two rules from the code govern how to rate it:
 

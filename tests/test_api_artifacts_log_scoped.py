@@ -43,6 +43,10 @@ def _findings(root):
 def home(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     (tmp_path / "home").mkdir()
+    # The route writes each finding's git note to the repository around the PROCESS cwd, whatever project the batch is aimed at. Run
+    # from a directory that is not a repository, or every run leaves "hello from the scoped route" notes in the checkout's real notes
+    # namespace (seven of them were found there, and archived by `doctor --reconcile-notes`, on 2026-10-23).
+    monkeypatch.chdir(tmp_path)
     return tmp_path / "home"
 
 

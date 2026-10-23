@@ -32,3 +32,5 @@ Gates to run before step 6 (the skill's steps 2 to 7): `empirica compliance-repo
 - A check that returns `null` on a pass may not have run: confirm the check actually executed before trusting it.
 - Suppress a scanner false positive on its one line with the justification beside it, never by widening the gate.
 - Do not announce until PyPI's simple index carries the version; its JSON API updates minutes earlier.
+- Run the suite the way CI does, `pytest tests/ -m "not integration" -n auto`. The integration tests invoke the real CLI in the checkout
+  and write goal, task and session notes into its real notes namespace; a full local run adds about six refs each time.
