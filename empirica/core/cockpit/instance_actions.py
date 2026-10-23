@@ -185,7 +185,7 @@ class StopResult:
     instance_id: str
     success: bool
     detail: str
-    method: str  # 'tmux-send-keys' | 'unreachable'
+    method: str  # 'tmux-send-keys' | 'unreachable' | 'refused'
 
 
 @dataclass
@@ -200,7 +200,54 @@ class WakeResult:
     method: str  # 'tmux-send-keys' | 'unreachable'
 
 
-def wake_instance(instance_id: str) -> WakeResult:
+_PANE_RULE = re.compile(r"^[─━]{8,}$")
+_PANE_SPINNER = re.compile(r"…\s*\(\d+[ms]")  # "Zesting… (12s", "Cogitating… (1m 5s"
+_PANE_BUSY_HINTS = ("esc to interrupt", "Running…")
+_PANE_CHOICE = re.compile(r"^\s*❯\s*\d+\.\s")  # "❯ 1. Yes": a dialog's selected option
+_PANE_TAIL_LINES = 14
+
+
+def pane_is_idle(screen: str) -> tuple[bool, str]:
+    """Whether a Claude Code pane is waiting for input, from the text of `tmux capture-pane`; (False, why) otherwise.
+
+    Fails closed. A pane is idle only when it positively shows an EMPTY prompt inside the input box (the last `❯` line between
+    two rules), with no spinner or running-tool line above it. Three things look alike to a keystroke and none may be written to:
+    a running turn (its prompt box is empty too, so the spinner is what tells them apart), a half-typed draft (a Space and an
+    Enter would submit it), and a permission dialog (Enter accepts the default option; its selected `❯ 1.` option is refused by
+    name, and it has no empty prompt box, which the idle test requires). Only the bottom of the screen is read: the spinner and the box are always there, and
+    older scrollback must not be able to hold a pane busy.
+    """
+    lines = [line.rstrip() for line in screen.splitlines()]
+    while lines and not lines[-1].strip():
+        lines.pop()
+    tail = lines[-_PANE_TAIL_LINES:]
+    if not tail:
+        return False, "the pane is empty"
+    for line in tail:
+        if _PANE_SPINNER.search(line) or any(hint in line for hint in _PANE_BUSY_HINTS):
+            return False, "a turn is running"
+        if _PANE_CHOICE.match(line):
+            return False, "a numbered choice is on screen (a permission dialog?)"
+    prompts = [i for i, line in enumerate(tail) if line.lstrip().startswith("❯")]
+    if not prompts:
+        return False, "no input prompt is on screen"
+    i = prompts[-1]
+    if i == 0 or not _PANE_RULE.match(tail[i - 1].strip()):
+        return False, "the prompt is not inside the input box"
+    # The box runs from the prompt to the next rule: a long draft wraps onto continuation lines, which are content too.
+    box = [tail[i].lstrip()[1:], *tail[i + 1 :]]
+    for n, line in enumerate(box[1:], start=1):
+        if _PANE_RULE.match(line.strip()):
+            box = box[:n]
+            break
+    else:
+        return False, "the prompt is not inside the input box"
+    if any(line.strip() for line in box):
+        return False, "something is at the prompt (a draft, or a suggestion shown there)"
+    return True, ""
+
+
+def wake_instance(instance_id: str, *, require_idle: bool = True) -> WakeResult:
     """Nudge an idle Claude Code session to submit a turn — the remote-Enter.
 
     Sends a Space + Enter to the target pane via `tmux send-keys`. That
@@ -218,6 +265,11 @@ def wake_instance(instance_id: str) -> WakeResult:
     For non-tmux instances we have no shell-agnostic way to inject a
     keystroke — return unreachable. The pending file is still written
     and will fire on the user's next manual prompt (graceful degrade).
+
+    The pane is read first and keys are sent only to one that is waiting for input (`pane_is_idle`): Space+Enter into a
+    permission dialog accepts its default option, and into a half-typed draft it submits the draft. A pane that is busy,
+    mid-draft, on a dialog, or cannot be read is refused (`method="refused"`), never written to. A refused wake is cheap: the
+    queued state surfaces on that session's next prompt anyway. `require_idle=False` keeps the old unconditional send.
     """
     if not instance_id:
         raise ValueError("instance_id required")
@@ -239,6 +291,25 @@ def wake_instance(instance_id: str) -> WakeResult:
             method="unreachable",
             detail="tmux binary not found in PATH",
         )
+
+    if require_idle:
+        try:
+            shot = subprocess.run(
+                ["tmux", "capture-pane", "-p", "-t", f"%{pane_n}"],
+                capture_output=True,
+                text=True,
+                timeout=3,
+            )
+        except subprocess.TimeoutExpired:
+            return WakeResult(
+                instance_id, False, "not woken: the pane cannot be read (capture-pane timed out)", "refused"
+            )
+        if shot.returncode != 0:
+            why = (shot.stderr or "").strip() or "<no stderr>"
+            return WakeResult(instance_id, False, f"not woken: the pane cannot be read ({why})", "refused")
+        idle, reason = pane_is_idle(shot.stdout or "")
+        if not idle:
+            return WakeResult(instance_id, False, f"not woken: {reason}", "refused")
 
     try:
         result = subprocess.run(

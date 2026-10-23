@@ -307,7 +307,8 @@ def test_wake_tmux_sends_space_enter(fake_home, monkeypatch):
     monkeypatch.setattr(ia.shutil, "which", lambda b: "/usr/bin/tmux" if b == "tmux" else None)
     monkeypatch.setattr(ia.subprocess, "run", fake_run)
 
-    result = ia.wake_instance("tmux_5")
+    # The send step on its own: the idle guard in front of it is covered in test_wake_idle_guard.py.
+    result = ia.wake_instance("tmux_5", require_idle=False)
     assert result.success is True
     assert result.method == "tmux-send-keys"
     # Verify Space + Enter were sent
@@ -341,7 +342,7 @@ def test_wake_send_keys_failure_surfaces_stderr(fake_home, monkeypatch):
     monkeypatch.setattr(ia.shutil, "which", lambda b: "/usr/bin/tmux" if b == "tmux" else None)
     monkeypatch.setattr(ia.subprocess, "run", lambda *a, **k: _Result())
 
-    result = ia.wake_instance("tmux_99")
+    result = ia.wake_instance("tmux_99", require_idle=False)
     assert result.success is False
     assert result.method == "tmux-send-keys"
     assert "can't find pane" in result.detail

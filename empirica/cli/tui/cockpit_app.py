@@ -854,7 +854,13 @@ class CockpitApp(App):
                 # triggers UserPromptSubmit hooks that surface the pending
                 # state as a system-reminder, AI processes immediately.
                 wake = wake_instance(inst["instance_id"])
-                wake_note = " · woke target pane" if wake.success else f" · wake unreachable ({wake.detail})"
+                wake_note = (
+                    " · woke target pane"
+                    if wake.success
+                    else f" · {wake.detail}"
+                    if wake.method == "refused"
+                    else f" · wake unreachable ({wake.detail})"
+                )
                 self._log_status(
                     f"{inst['instance_id']}: requested install of "
                     f"{installed_l} loop(s) + {installed_e} listener(s)"
