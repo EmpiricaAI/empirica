@@ -194,7 +194,13 @@ def summarize_batch(kind: str, resp: dict[str, Any], requested: int, apply: bool
     if not isinstance(resp, dict) or "raw_output" in resp:
         return f"{label}: completed ({requested} IDs)"
     if resp.get("ok") is False:
-        return f"{label}: failed — {resp.get('error') or resp.get('errors') or 'unknown error'}"
+        why = resp.get("error") or resp.get("errors") or "unknown error"
+        deleted = resp.get("deleted") or resp.get("resolved") or 0
+        if deleted:
+            # The verb reports ok:false for contract failures (a vector-store or audit-write error) AFTER rows were deleted and
+            # committed; "failed" would tell the user nothing happened.
+            return f"{label}: PARTIALLY applied — {deleted} of {requested} changed, but: {why}"
+        return f"{label}: failed — {why}"
     if kind == "delete" and (resp.get("dry_run") or not apply):
         would = len(resp.get("items") or []) or 0
         msg = f"{label}: would delete {would} of {requested} artifacts (preview — re-run with --apply to delete)"
@@ -205,6 +211,13 @@ def summarize_batch(kind: str, resp: dict[str, Any], requested: int, apply: bool
     errors = resp.get("errors")
     if errors:
         msg += f" — errors: {'; '.join(str(e) for e in errors[:3])}"
+    # delete-artifacts targets the instance's ACTIVE project, which may not be the one the user is looking at; the verb says so
+    # in `warning` / `target`, and a destructive card that dropped that would hide where the delete landed.
+    target = resp.get("target") if isinstance(resp.get("target"), dict) else {}
+    if resp.get("warning"):
+        msg += f" — warning: {resp['warning']}"
+    elif target.get("matches_cwd") is False:
+        msg += f" — target project: {target.get('db_path') or 'not the current directory'}"
     return msg
 
 

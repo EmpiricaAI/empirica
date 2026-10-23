@@ -270,10 +270,11 @@ PREFLIGHT → [noetic: investigate] → CHECK → [praxic: implement] → POSTFL
 - **Close before POSTFLIGHT:** Complete goals (`goals-complete`) and resolve unknowns
   (`unknown-resolve`) BEFORE `postflight-submit`. The measurement window closes at
   POSTFLIGHT — anything logged after is invisible to grounded calibration.
-- **After POSTFLIGHT the next praxic call is refused** (a commit, a heredoc) until a new PREFLIGHT: open the next transaction,
-  with `claims`, before touching files.
-- **A goal is in play for the Sentinel when a task on it was created or completed since PREFLIGHT** (`goals-add-task` /
-  `goals-complete-task`); creating or activating it earlier does not count.
+- **After POSTFLIGHT, Edit/Write and any mutating Bash (a commit included) are refused** until a new PREFLIGHT; the `empirica`
+  artifact verbs still run. Open the next transaction, with `claims`, before touching files.
+- **The Sentinel counts a goal as in play** when it was created in this transaction, or a task was created or completed since
+  PREFLIGHT (`goals-add-task` / `goals-complete-task`), or a finding was logged against it. A goal that was only activated, or
+  created before PREFLIGHT, does not count; the nudge fires after 5 gated calls.
 
 **POSTFLIGHT when:** coherent chunk complete, confidence inflection, context shift,
 scope creep, or 10+ turns without measurement.

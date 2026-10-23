@@ -123,3 +123,35 @@ def test_an_unreadable_request_is_still_consumed_not_stranded(home):
     (home / "loop_install_pending_seat_broken.json").write_text("{not json")
     assert lir.consume_pending("seat") == []
     assert not (home / "loop_install_pending_seat_broken.json").exists()
+
+
+# --- the same ambiguity in the three sibling pending-file stores ---------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("module", "writer_kwargs"),
+    [
+        ("listener_install_request", {"topic": "t"}),
+        ("loop_uninstall_request", {"job_id": "j"}),
+        ("listener_uninstall_request", {"monitor_task_id": "m"}),
+    ],
+)
+def test_the_sibling_stores_do_not_hand_one_instance_anothers_requests(home, monkeypatch, module, writer_kwargs):
+    import importlib
+
+    mod = importlib.import_module(f"empirica.core.cockpit.{module}")
+    monkeypatch.setattr(mod, "EMPIRICA_DIR", home)
+    write = mod.write_pending
+    write("seat", "job-a", **writer_kwargs)
+    write("seat_2", "job-b", **writer_kwargs)
+    assert [p.name for p in mod.list_pending("seat")] == [p.name for p in home.glob("*seat_job-a.json")]
+    assert len(mod.list_pending("seat_2")) == 1
+    assert [r.name for r in mod.consume_pending("seat")] == ["job-a"]
+    assert len(mod.list_pending("seat_2")) == 1, "the other instance's request survived"
+
+
+def test_the_migration_script_rewrites_the_payload_instance_too(tmp_path):
+    """A renamed file whose payload still names the old instance is invisible to list_pending."""
+
+    script = Path(__file__).resolve().parent.parent / "scripts" / "cockpit" / "migrate-tmux-to-slot.sh"
+    assert 'sed -i "s/\\"instance_id\\"' in script.read_text(), "the script must rewrite the payload"

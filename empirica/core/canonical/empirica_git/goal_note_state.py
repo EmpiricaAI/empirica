@@ -89,9 +89,12 @@ def _json(value, default):
 
 def _same_state(note: dict[str, Any] | None, state: dict[str, Any]) -> bool:
     data = (note or {}).get("goal_data") or {}
-    return all(
-        data.get(k, STATE_FIELDS[k]) == (state[k] if state[k] is not None else STATE_FIELDS[k]) for k in STATE_FIELDS
-    )
+
+    def norm(value, key):
+        # NULL and the column's default are the same state; comparing them raw never converged for a row holding NULL.
+        return STATE_FIELDS[key] if value is None else value
+
+    return all(norm(data.get(k), k) == norm(state[k], k) for k in STATE_FIELDS)
 
 
 def _stamp(store: GitGoalStore, row: dict[str, Any], action: str) -> bool:
@@ -140,7 +143,15 @@ def restamp_goal_note(conn, goal_id: str, action: str, project_root: str | None 
         if not rows:
             return False
         root = project_root or _project_root(conn)
-        return _stamp(GitGoalStore(root) if root else GitGoalStore(), rows[0], action)
+        if not root:
+            # No project to write to. GitGoalStore() would use the process cwd, and a database outside any project (a test, a
+            # relocated store) run from a checkout then wrote its goals' notes into that checkout's real namespace.
+            logger.warning(f"goal note restamp skipped for {goal_id} ({action}): database is not inside a project")
+            return False
+        ok = _stamp(GitGoalStore(root), rows[0], action)
+        if not ok:
+            logger.warning(f"goal note restamp for {goal_id} ({action}) wrote nothing (git unavailable or no commits)")
+        return ok
     except Exception as e:
         logger.warning(f"goal note restamp skipped for {goal_id} ({action}): {type(e).__name__}: {e}")
         return False

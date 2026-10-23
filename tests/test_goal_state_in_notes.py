@@ -386,3 +386,77 @@ def test_reconcile_consolidates_notes_the_old_writer_forked(proj):
     assert _note(root, gid)["goal_data"]["status"] == "completed"
     assert result["failed"] == 0
     assert gns.plan_goal_notes(db.conn, str(root))["drifted"] == [], "and the second pass is clean"
+
+
+# --- broccoli findings (release sweep 2026-10-23) -----------------------------------------------------------------------------
+
+
+def test_a_database_outside_any_project_never_writes_notes_into_the_cwd_repo(tmp_path, monkeypatch):
+    """The root came from the DB path and FELL BACK to the process cwd: a test or relocated database run from a checkout wrote
+    its goals' notes into that checkout's real notes namespace, to be pushed by the next sync."""
+    repo = tmp_path / "checkout"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    _git(repo, "config", "user.name", "t")
+    _git(repo, "config", "user.email", "t@example.invalid")
+    (repo / "f").write_text("x")
+    _git(repo, "add", "f")
+    _git(repo, "commit", "-q", "-m", "c")
+    monkeypatch.chdir(repo)
+    db = SessionDatabase(db_path=str(tmp_path / "elsewhere" / "s.db"))  # no .empirica component
+    try:
+        gid = str(uuid.uuid4())
+        sid = db.create_session(ai_id="x")
+        db.conn.execute(
+            "INSERT INTO goals (id, session_id, objective, scope, created_timestamp, goal_data, status) "
+            "VALUES (?, ?, 'o', '{}', 1, '{}', 'planned')",
+            (gid, sid),
+        )
+        db.conn.commit()
+        assert gns.restamp_goal_note(db.conn, gid, "activated") is False
+        refs = subprocess.run(
+            ["git", "for-each-ref", "refs/notes/"], cwd=repo, capture_output=True, text=True, check=True
+        ).stdout
+        assert refs.strip() == "", "no note landed in the cwd repository"
+        # the explicit root still works: the guard is about GUESSING, not about refusing
+        assert gns.restamp_goal_note(db.conn, gid, "activated", project_root=str(repo)) is True
+    finally:
+        db.close()
+
+
+def test_a_goal_with_a_null_is_completed_converges(proj):
+    root, db = proj
+    gid = _goal(db, root)
+    db.conn.execute("UPDATE goals SET is_completed = NULL, archived = NULL WHERE id = ?", (gid,))
+    db.conn.commit()
+    assert gns.restamp_goal_note(db.conn, gid, "activated") is True
+    assert gns.plan_goal_notes(db.conn, str(root))["drifted"] == [], "NULL and the 0 default are the same state"
+
+
+def test_resolve_artifacts_on_a_goal_restamps_its_note(proj, monkeypatch, tmp_path, capsys):
+    from types import SimpleNamespace
+
+    from empirica.cli.command_handlers.graph_commands import handle_resolve_artifacts_command
+
+    root, db = proj
+    gid = _goal(db, root)
+    monkeypatch.setenv("EMPIRICA_SESSION_DB", str(root / ".empirica" / "sessions" / "sessions.db"))
+    payload = tmp_path / "p.json"
+    payload.write_text(json.dumps({"resolutions": [{"type": "goal", "id": gid, "resolution": "done elsewhere"}]}))
+    handle_resolve_artifacts_command(SimpleNamespace(config=str(payload), schema=False, output="json", verbose=False))
+    assert json.loads(capsys.readouterr().out)["resolved"] == 1
+    assert _note(root, gid)["goal_data"]["status"] == "completed"
+
+
+def test_pruned_goal_notes_are_restamped(proj):
+    from empirica.cli.command_handlers.goal_commands import _restamp_pruned_goal_notes
+
+    root, db = proj
+    gone, kept = _goal(db, root, "pruned one"), _goal(db, root, "kept one")
+    db.conn.execute("UPDATE goals SET status='completed', is_completed=1, completed_timestamp=5.0 WHERE id=?", (gone,))
+    db.conn.commit()
+    _restamp_pruned_goal_notes(
+        db.conn, [{"id": gone, "mode": "auto-stale"}, {"mode": "duplicates", "error": "Qdrant down"}]
+    )
+    assert _note(root, gone)["goal_data"]["status"] == "completed"
+    assert _note(root, kept)["goal_data"].get("status") is None, "control: an unpruned goal's note is untouched"

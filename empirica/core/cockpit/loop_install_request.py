@@ -39,6 +39,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .pending_files import owned_by
+
 logger = logging.getLogger(__name__)
 
 EMPIRICA_DIR = Path.home() / ".empirica"
@@ -61,15 +63,6 @@ def pending_path(instance_id: str, name: str) -> Path:
     return EMPIRICA_DIR / f"loop_install_pending_{safe_inst}_{safe_name}.json"
 
 
-def _payload_instance(path: Path) -> str | None:
-    """The instance a pending file was written FOR, or None when its payload cannot say."""
-    try:
-        value = json.loads(path.read_text(encoding="utf-8")).get("instance_id")
-    except (OSError, ValueError, AttributeError):
-        return None
-    return _safe_suffix(value) if isinstance(value, str) else None
-
-
 def list_pending(instance_id: str) -> list[Path]:
     """All pending install request files for the given instance.
 
@@ -79,8 +72,7 @@ def list_pending(instance_id: str) -> list[Path]:
     removed by ``consume_pending`` rather than stranded.
     """
     safe_inst = _safe_suffix(instance_id)
-    candidates = sorted(EMPIRICA_DIR.glob(f"loop_install_pending_{safe_inst}_*.json"))
-    return [p for p in candidates if _payload_instance(p) in (None, safe_inst)]
+    return owned_by(sorted(EMPIRICA_DIR.glob(f"loop_install_pending_{safe_inst}_*.json")), safe_inst, _safe_suffix)
 
 
 def _extract_skill_prompt_template(body_skill: str) -> str | None:

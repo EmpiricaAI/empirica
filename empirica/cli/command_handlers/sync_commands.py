@@ -924,11 +924,22 @@ def handle_sync_pull_command(args):
 
 
 def _is_replicable_note_ref(refname: str) -> bool:
-    """A note ref a sync can move. ``refs/notes/empirica-archive/*`` is written by
-    archive_note and deliberately never pushed or pulled, so counting it on either side
-    makes the local total exceed anything a remote can hold: sync-status read ``behind``
-    forever and a push that added nothing new read ``not_replicating``."""
-    return bool(refname) and not refname.startswith("refs/notes/empirica-archive/")
+    """A note ref a sync can move: one that some entry of ``_PUSH_REFSPECS`` covers.
+
+    Derived from the refspecs rather than from a list of things to exclude. ``refs/notes/empirica-archive/*`` is written by
+    archive_note and deliberately never pushed, and the first fix excluded exactly that; but a ref under ``refs/notes/test/``
+    passed that filter while no refspec pushes it, so it counted on the local side for ever and the gap could never reach zero.
+    """
+    if not refname:
+        return False
+    for _name, refspec, _timeout in _PUSH_REFSPECS:
+        source = refspec.partition(":")[0]
+        if source.endswith("*"):
+            if refname.startswith(source[:-1]):
+                return True
+        elif refname == source:
+            return True
+    return False
 
 
 def _count_all_local_note_refs() -> int | None:

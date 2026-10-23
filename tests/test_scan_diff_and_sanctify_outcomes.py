@@ -137,3 +137,20 @@ def test_confirmations_still_read_as_stable():
 
 def test_superseded_and_invalidated_still_move_stability():
     assert _standing("superseded", "invalidated", "confirmed", "confirmed")["stability"] == pytest.approx(0.5)
+
+
+# --- a mistyped artifact is not a retraction ----------------------------------------------------------------------------------
+
+
+def test_a_mistyped_artifact_moves_stability_but_never_counts_against_the_source():
+    """`mistyped` means the artifact belonged to another type. The sources it cited were not wrong; scoring it like a retraction
+    taught the standing that a misfiled but true finding had misled its source."""
+    standing = _standing("confirmed", "mistyped", implicated=True)
+    assert standing["stability"] == pytest.approx(0.5), "it moved, so stability falls"
+    assert standing["accuracy_basis"]["implicated_failures"] == 0, "but nothing the source said was wrong"
+    assert standing["accuracy"] == pytest.approx(1.0)
+
+
+def test_a_retraction_still_counts_against_an_implicated_source():
+    """Control: the same shape with `retracted` does count."""
+    assert _standing("confirmed", "retracted", implicated=True)["accuracy_basis"]["implicated_failures"] == 1

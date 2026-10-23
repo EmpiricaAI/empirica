@@ -1392,22 +1392,56 @@ def _local_project_ids(raw: str | None) -> list[str]:
     return [i.strip() for i in (raw or "").split(",") if i.strip()]
 
 
-def _local_reference_counts(conn, project_id: str) -> dict[str, int]:
-    """What still points at a project row. entity_memberships counts BOTH directions (a project can be the member or the
-    group); entity_artifacts counts artifacts bound to the project as an entity."""
-    memberships = conn.execute(
-        "SELECT COUNT(*) FROM entity_memberships WHERE (entity_type = 'project' AND entity_id = ?) "
-        "OR (group_type = 'project' AND group_id = ?)",
-        (project_id, project_id),
-    ).fetchone()[0]
-    artifacts = conn.execute(
-        "SELECT COUNT(*) FROM entity_artifacts WHERE entity_type = 'project' AND entity_id = ?", (project_id,)
-    ).fetchone()[0]
-    return {"entity_memberships": memberships, "entity_artifacts": artifacts}
+#: (table, SQL condition on that table, parameters per project id) for every SQL table that carries a project id.
+_LOCAL_REFERENCE_TABLES: tuple[tuple[str, str, int], ...] = (
+    # entity_memberships counts BOTH directions: a project can be the member or the group.
+    (
+        "entity_memberships",
+        "(entity_type = 'project' AND entity_id = ?) OR (group_type = 'project' AND group_id = ?)",
+        2,
+    ),
+    ("entity_artifacts", "entity_type = 'project' AND entity_id = ?", 1),
+    ("instance_bindings", "project_id = ?", 1),
+    ("global_sessions", "origin_project_id = ? OR current_project_id = ?", 2),
+    ("engagements", "project_id = ?", 1),
+)
 
 
-def _local_unregister_plan(conn, ids: list[str]) -> dict[str, Any]:
-    rows, referenced, not_found = [], [], []
+def _local_sql_references(conn, project_id: str) -> dict[str, int | None]:
+    """Counts per table. A table that does not exist on this schema cannot hold a reference (0); any OTHER failure to ask is
+    None, which the caller treats as unknown, never as zero."""
+    counts: dict[str, int | None] = {}
+    for table, condition, arity in _LOCAL_REFERENCE_TABLES:
+        try:
+            row = conn.execute(f"SELECT COUNT(*) FROM {table} WHERE {condition}", (project_id,) * arity).fetchone()
+            counts[table] = row[0] if row else 0
+        except Exception as e:
+            counts[table] = 0 if "no such table" in str(e) else None
+    return counts
+
+
+def _local_reference_counts(conn, repo, project_id: str) -> dict[str, Any]:
+    """Everything that still points at a project: the SQL tables above AND its Qdrant collections.
+
+    Removing a registry row while its collections stay is how orphaned collections are minted
+    (WorkspaceDBRepository.project_references says so; the first version of this verb asked only two SQL tables and the first real
+    run left 74 collections and 46 session rows behind). Qdrant unreachable is ``None``: unknown is not zero.
+    """
+    refs: dict[str, Any] = dict(_local_sql_references(conn, project_id))
+    refs["qdrant_collections"] = repo.project_references(project_id).get("qdrant_collections")
+    return refs
+
+
+def _is_referenced(refs: dict[str, Any]) -> bool:
+    return any((v or 0) > 0 if isinstance(v, int) else bool(v) for v in refs.values() if v is not None)
+
+
+def _is_unknown(refs: dict[str, Any]) -> bool:
+    return any(v is None for v in refs.values())
+
+
+def _local_unregister_plan(conn, repo, ids: list[str]) -> dict[str, Any]:
+    rows, referenced, unknown, not_found = [], [], [], []
     for pid in ids:
         project = conn.execute("SELECT * FROM global_projects WHERE id = ?", (pid,)).fetchone()
         mirror = conn.execute(
@@ -1417,7 +1451,7 @@ def _local_unregister_plan(conn, ids: list[str]) -> dict[str, Any]:
             not_found.append(pid)
             continue
         path = project["trajectory_path"] if project is not None else None
-        refs = _local_reference_counts(conn, pid)
+        refs = _local_reference_counts(conn, repo, pid)
         rows.append(
             {
                 "id": pid,
@@ -1433,9 +1467,17 @@ def _local_unregister_plan(conn, ids: list[str]) -> dict[str, Any]:
                 },
             }
         )
-        if any(refs.values()):
+        if _is_unknown(refs):
+            unknown.append(
+                {
+                    "id": pid,
+                    **{k: v for k, v in refs.items() if v is None},
+                    "reason": "a reference store could not be asked",
+                }
+            )
+        if _is_referenced(refs):
             referenced.append({"id": pid, **refs})
-    return {"rows": rows, "referenced": referenced, "not_found": not_found}
+    return {"rows": rows, "referenced": referenced, "unknown": unknown, "not_found": not_found}
 
 
 def _local_unregister_apply(conn, rows: list[dict[str, Any]], actor: str) -> None:
@@ -1444,6 +1486,12 @@ def _local_unregister_apply(conn, rows: list[dict[str, Any]], actor: str) -> Non
 
     conn.execute("BEGIN IMMEDIATE")
     try:
+        # The plan checked references BEFORE this write lock was taken; re-read the SQL ones now so a link added in between
+        # aborts the whole batch instead of being deleted under.
+        for row in rows:
+            late = {k: v for k, v in _local_sql_references(conn, row["id"]).items() if v is None or v > 0}
+            if late:
+                raise RuntimeError(f"{row['id']} gained references while the plan was being applied: {late}")
         conn.execute(
             "CREATE TABLE IF NOT EXISTS registry_audit ("
             "id INTEGER PRIMARY KEY AUTOINCREMENT, at REAL NOT NULL, actor TEXT, action TEXT NOT NULL, "
@@ -1489,6 +1537,8 @@ def _local_unregister(args, output_format: str) -> int:
             print(f"❌ {result.get('error', 'refused')}", file=sys.stderr)
             for r in result.get("referenced", []):
                 print(f"   referenced: {r}", file=sys.stderr)
+            for r in result.get("unknown", []):
+                print(f"   unknown (not treated as zero): {r}", file=sys.stderr)
             for pid in result.get("not_found", []):
                 print(f"   not found: {pid}", file=sys.stderr)
         return code
@@ -1505,14 +1555,15 @@ def _local_unregister(args, output_format: str) -> int:
     from empirica.data.repositories.workspace_db import WorkspaceDBRepository
 
     with WorkspaceDBRepository.open() as repo:
-        plan = _local_unregister_plan(repo.conn, ids)
+        plan = _local_unregister_plan(repo.conn, repo, ids)
         public_rows = [{k: v for k, v in r.items() if k != "snapshot"} for r in plan["rows"]]
-        if plan["referenced"] or plan["not_found"]:
+        if plan["referenced"] or plan["unknown"] or plan["not_found"]:
             return emit(
                 {
                     "ok": False,
                     "error": "refused: the whole batch is held back so nothing half-applies",
                     "referenced": plan["referenced"],
+                    "unknown": plan["unknown"],
                     "not_found": plan["not_found"],
                     "rows": public_rows,
                     "applied": False,

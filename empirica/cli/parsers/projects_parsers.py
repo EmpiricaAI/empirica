@@ -379,8 +379,10 @@ def add_projects_parsers(subparsers) -> None:
         action="store_true",
         help="Remove project rows from THIS machine's workspace registry (global_projects + the entity_registry "
         "mirror) in one transaction instead of unregistering on cortex. --project-id takes a comma-separated list. "
-        "PREVIEWS unless --apply; refuses the whole batch if any id is referenced (entity_memberships / "
-        "entity_artifacts) or unknown; --apply writes an audit row (registry_audit) holding each row's snapshot.",
+        "PREVIEWS unless --apply; refuses the whole batch if any id is unknown or still referenced "
+        "(entity_memberships, entity_artifacts, instance_bindings, global_sessions, engagements, or Qdrant "
+        "collections; an unreachable Qdrant is unknown, not zero); --apply writes an audit row (registry_audit) "
+        "holding each row's snapshot.",
     )
     unreg.add_argument(
         "--apply",

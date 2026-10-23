@@ -51,6 +51,9 @@ for glob in "loop_install_pending_${FROM}_"*.json \
     base=$(basename "$f")
     new=$(echo "$base" | sed "s/${FROM}/${TO}/")
     mv "$f" "$DIR/$new"
+    # A pending request names the instance it was written for in its payload too, and list_pending matches on THAT. Renaming
+    # only the file left the request owned by an instance that no longer exists, so it was never surfaced or consumed.
+    case "$new" in *.json) sed -i "s/\"instance_id\": \"${FROM}\"/\"instance_id\": \"${TO}\"/" "$DIR/$new" ;; esac
     echo "  $base → $new"
   done
 done

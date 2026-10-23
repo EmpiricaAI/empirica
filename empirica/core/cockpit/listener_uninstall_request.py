@@ -36,6 +36,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .pending_files import owned_by
+
 logger = logging.getLogger(__name__)
 
 EMPIRICA_DIR = Path.home() / ".empirica"
@@ -56,7 +58,9 @@ def pending_path(instance_id: str, name: str) -> Path:
 def list_pending(instance_id: str) -> list[Path]:
     """All pending uninstall request files for the given instance."""
     safe_inst = _safe_suffix(instance_id)
-    return sorted(EMPIRICA_DIR.glob(f"listener_uninstall_pending_{safe_inst}_*.json"))
+    return owned_by(
+        sorted(EMPIRICA_DIR.glob(f"listener_uninstall_pending_{safe_inst}_*.json")), safe_inst, _safe_suffix
+    )
 
 
 @dataclass

@@ -1486,6 +1486,7 @@ def handle_resolve_artifacts_command(args):  # noqa: C901 — batch dispatcher f
             return 0 if fres.get("ok") else 1
 
         resolved_count = 0
+        resolved_goal_ids: list[str] = []
         # Artifacts in THIS graph resting on what the batch resolves. Collected
         # per resolved id and REPORTED, never marked — an artifact whose premise
         # was retracted is unsupported, not false, and resolution is one-way.
@@ -1595,7 +1596,12 @@ def handle_resolve_artifacts_command(args):  # noqa: C901 — batch dispatcher f
                         # inferred (see this function's docstring): "retracted" records
                         # what happened to the artifact, and still leaves `implicated`
                         # for the caller to name.
-                        if is_retraction(_kind):
+                        if _kind == "mistyped":
+                            # Filed under the wrong TYPE, not wrong about the world: the sources it cites were not misleading,
+                            # so it must not score as a retraction against them (the artifact still moved, which sanctify
+                            # counts for stability).
+                            _outcome = "mistyped"
+                        elif is_retraction(_kind):
                             _outcome = "retracted"
                         elif item.get("superseded_by"):
                             _outcome = "superseded"
@@ -1672,6 +1678,7 @@ def handle_resolve_artifacts_command(args):  # noqa: C901 — batch dispatcher f
                         )
                         if cursor.rowcount > 0:
                             resolved_count += 1
+                            resolved_goal_ids.append(artifact_id)
                         else:
                             resolution_errors.append(f"Goal '{artifact_id}' update failed")
 
@@ -1780,6 +1787,11 @@ def handle_resolve_artifacts_command(args):  # noqa: C901 — batch dispatcher f
                 resolution_errors.append(f"Error resolving {artifact_type} '{artifact_id}': {e}")
 
         db.conn.commit()
+        # A goal closed here must reach its git note too, or a from-notes rebuild brings it back open.
+        from empirica.core.canonical.empirica_git.goal_note_state import restamp_goal_note
+
+        for goal_id in resolved_goal_ids:
+            restamp_goal_note(db.conn, goal_id, "completed")
         db.close()
 
         result = {

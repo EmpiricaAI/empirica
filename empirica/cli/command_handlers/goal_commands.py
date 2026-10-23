@@ -3679,6 +3679,15 @@ def _write_prune_receipt(pruned: list[dict], modes_run: list[str], dry_run: bool
         pass
 
 
+def _restamp_pruned_goal_notes(conn, pruned: list[dict]) -> None:
+    """Pruning closes goals in bulk with raw SQL; their notes learn it here (best-effort, one restamp each)."""
+    from empirica.core.canonical.empirica_git.goal_note_state import restamp_goal_note
+
+    for item in pruned:
+        if "error" not in item and item.get("id"):
+            restamp_goal_note(conn, item["id"], "pruned")
+
+
 def handle_goals_prune_command(args):
     """Handle goals-prune command — bulk cleanup of stale/duplicate/planned goals.
 
@@ -3754,6 +3763,7 @@ def handle_goals_prune_command(args):
 
         if not dry_run:
             db.conn.commit()
+            _restamp_pruned_goal_notes(db.conn, all_pruned)
         db.close()
 
         _write_prune_receipt(all_pruned, modes_run, dry_run)

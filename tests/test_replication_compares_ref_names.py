@@ -112,3 +112,32 @@ def test_the_replication_verdict_takes_the_name_gap_over_the_counts():
     assert sc._replication_verdict(10, 10, None)["state"] == "replicated", (
         "no gap supplied: the counts decide, as before"
     )
+
+
+def test_refs_no_push_refspec_covers_are_not_part_of_the_comparison(repos):
+    """`refs/notes/test/*` passed the old 'not archive' filter, but sync-push moves only empirica/*, breadcrumbs and
+    empirica-precompact, so such a ref could never replicate and the gap could never reach zero."""
+    work, remote = repos
+    _note(work, "empirica/findings/mine")
+    _note(work, "test/debug")
+    _note(work, "breadcrumbs")
+    _git(work, "push", "-q", "origin", "refs/notes/empirica/findings/mine:refs/notes/empirica/findings/mine")
+    _git(work, "push", "-q", "origin", "refs/notes/breadcrumbs:refs/notes/breadcrumbs")
+    assert sc._note_ref_gap(str(remote)) == 0, "the only unpushed ref is one nothing would ever push"
+    assert sc._count_all_local_note_refs() == 2
+
+
+def test_a_ref_the_refspecs_do_cover_still_counts_when_unpushed(repos):
+    """Control for the filter: breadcrumbs and empirica-precompact are replicable."""
+    work, remote = repos
+    _note(work, "breadcrumbs")
+    _note(work, "empirica-precompact")
+    assert sc._note_ref_gap(str(remote)) == 2
+
+
+def test_the_replicable_set_is_derived_from_the_push_refspecs():
+    for name, refspec, _timeout in sc._PUSH_REFSPECS:
+        sample = refspec.split(":")[0].replace("*", "x")
+        assert sc._is_replicable_note_ref(sample), f"{name}: a ref its own refspec pushes must be replicable"
+    assert not sc._is_replicable_note_ref("refs/notes/test/debug")
+    assert not sc._is_replicable_note_ref("refs/notes/empirica-archive/findings/a")

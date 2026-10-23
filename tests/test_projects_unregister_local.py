@@ -25,8 +25,34 @@ from empirica.cli.command_handlers.projects_commands import handle_projects_unre
 from empirica.data.repositories.workspace_db import _ensure_workspace_schema
 
 
+class _Resp:
+    def __init__(self, names):
+        import json as _json
+
+        self._body = _json.dumps({"result": {"collections": [{"name": n} for n in names]}}).encode()
+
+    def read(self):
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
 @pytest.fixture
-def ws(tmp_path, monkeypatch):
+def qdrant(monkeypatch):
+    """The Qdrant the verb consults: a mutable list of collection names. Never the real one (tests must not measure the box)."""
+    import urllib.request
+
+    names: list[str] = []
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: _Resp(names))
+    return names
+
+
+@pytest.fixture
+def ws(tmp_path, monkeypatch, qdrant):
     path = tmp_path / "workspace.db"
     monkeypatch.setenv("EMPIRICA_WORKSPACE_DB", str(path))
     conn = sqlite3.connect(str(path))
@@ -193,3 +219,93 @@ def test_apply_without_local_is_refused(ws, capsys):
 def test_local_needs_an_explicit_project_id(ws, capsys):
     code, out = _run(_args([], project_id=None), capsys)
     assert code == 2 and out["ok"] is False
+
+
+# --- every reference the project could still have -----------------------------------------------------------------------------
+#
+# The first version asked only entity_memberships and entity_artifacts. WorkspaceDBRepository.project_references already knew that
+# deleting a registry row while its Qdrant collections stay is how orphaned collections are minted, and the sessions, bindings and
+# engagements tables carry the project id too. The first real run of the verb (31 rows, 2026-10-22) left 74 collections and 46
+# session rows pointing at removed projects.
+
+
+def _insert(conn, sql, params):
+    conn.execute(sql, params)
+    conn.commit()
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "INSERT INTO instance_bindings (instance_id, project_id, project_path, bound_timestamp) VALUES ('i1', :p, '/x', 1)",
+        "INSERT INTO global_sessions (session_id, ai_id, origin_project_id, created_at) VALUES ('s1', 'a', :p, 1)",
+        "INSERT INTO global_sessions (session_id, ai_id, current_project_id, created_at) VALUES ('s2', 'a', :p, 1)",
+        "INSERT INTO engagements (engagement_id, project_id, title, created_at) VALUES ('e1', :p, 't', 1)",
+    ],
+    ids=["binding", "session-origin", "session-current", "engagement"],
+)
+def test_other_tables_that_carry_the_project_id_block_the_removal(ws, tmp_path, capsys, sql):
+    pid = _project(ws, tmp_path, "held")
+    try:
+        _insert(ws, sql, {"p": pid})
+    except sqlite3.OperationalError as e:
+        pytest.skip(f"table not in this schema: {e}")
+    code, out = _run(_args([pid], apply=True), capsys)
+    assert code == 1 and out["referenced"][0]["id"] == pid
+    assert _count(ws, "global_projects", "id = ?", (pid,)) == 1, "nothing was removed"
+
+
+def test_a_projects_qdrant_collections_block_the_removal_and_are_named(ws, tmp_path, capsys, qdrant):
+    pid = _project(ws, tmp_path, "vectors")
+    other = _project(ws, tmp_path, "unrelated")
+    qdrant.extend([f"project_{pid}_memory", f"project_{pid}_goals", f"project_{other}_memory"])
+    code, out = _run(_args([pid], apply=True), capsys)
+    assert code == 1
+    assert sorted(out["referenced"][0]["qdrant_collections"]) == [f"project_{pid}_goals", f"project_{pid}_memory"]
+    assert _count(ws, "global_projects", "id = ?", (pid,)) == 1
+
+
+def test_collections_belonging_to_other_projects_do_not_block(ws, tmp_path, capsys, qdrant):
+    """Control: a project is blocked by ITS collections only."""
+    pid, other = _project(ws, tmp_path, "free"), _project(ws, tmp_path, "other")
+    qdrant.append(f"project_{other}_memory")
+    code, out = _run(_args([pid], apply=True), capsys)
+    assert code == 0 and out["removed"] == 1
+
+
+def test_an_unreachable_qdrant_is_unknown_not_zero_and_refuses(ws, tmp_path, capsys, monkeypatch):
+    import urllib.request
+
+    def down(*a, **k):
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(urllib.request, "urlopen", down)
+    pid = _project(ws, tmp_path, "p")
+    for apply in (False, True):
+        code, out = _run(_args([pid], apply=apply), capsys)
+        assert code == 1 and out["ok"] is False and out["unknown"][0]["id"] == pid
+    assert _count(ws, "global_projects", "id = ?", (pid,)) == 1
+
+
+def test_a_reference_added_between_the_check_and_the_delete_aborts_the_apply(ws, tmp_path, capsys, monkeypatch):
+    """The check and the delete used to be separate steps; the references are re-read INSIDE the write transaction."""
+    import empirica.cli.command_handlers.projects_commands as pc
+
+    a, b = _project(ws, tmp_path, "a"), _project(ws, tmp_path, "b")
+    real_apply = pc._local_unregister_apply
+
+    def late_reference(conn, rows, actor):
+        other = sqlite3.connect(str(tmp_path / "workspace.db"))
+        other.execute(
+            "INSERT INTO entity_artifacts (id, artifact_type, artifact_id, entity_type, entity_id) "
+            "VALUES ('late', 'finding', 'f', 'project', ?)",
+            (b,),
+        )
+        other.commit()
+        other.close()
+        return real_apply(conn, rows, actor)
+
+    monkeypatch.setattr(pc, "_local_unregister_apply", late_reference)
+    code, out = _run(_args([a, b], apply=True), capsys)
+    assert code == 1 and out["ok"] is False
+    assert _count(ws, "global_projects") == 2, "the whole batch rolled back"

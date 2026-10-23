@@ -102,7 +102,9 @@ _POSITIVE_OUTCOMES = frozenset({"confirmed"})
 # source whose artifact was retracted scored as perfectly stable. Attribution stays DECLARED: it counts against accuracy only
 # when the caller named the source (`implicated`).
 _NEGATIVE_OUTCOMES = frozenset({"invalidated", "retracted"})
-_MOVED_OUTCOMES = frozenset({"superseded", "invalidated", "retracted"})
+# `mistyped` (the artifact belonged to another type) is NOT negative: nothing the source said was wrong. It moved, so it counts
+# against stability only.
+_MOVED_OUTCOMES = frozenset({"superseded", "invalidated", "retracted", "mistyped"})
 
 
 def _as_epoch(value) -> float | None:

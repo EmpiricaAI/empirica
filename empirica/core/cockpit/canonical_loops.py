@@ -96,8 +96,7 @@ CANONICAL_LOOPS: list[dict[str, Any]] = [
         # isolated cloud). Nothing auto-queues it — the user opts in with
         # `empirica loop register` where they actually need it. (David 2026-07-19: "wake on event should be the only mesh trigger
         # mechanism unless the user opts in and needs it for other harnesses that
-        # cannot do wake on event".) Genuine housekeeping crons (message-cleanup)
-        # do NOT set this — they auto-install regardless.
+        # cannot do wake on event".) No entry auto-installs; every one sets this.
         "opt_in_only": True,
         # claude-react body: the timer must NEVER run this autonomously — it
         # needs the AI to poll Cortex and react. Wake-on-event via the persistent

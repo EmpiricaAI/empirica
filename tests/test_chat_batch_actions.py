@@ -205,3 +205,33 @@ class TestSummary:
     def test_a_clean_resolve_has_no_error_text(self):
         msg = summarize_batch("resolve", {"ok": True, "resolved": 2}, 2)
         assert msg == "/resolve-batch: resolved 2 of 2 unknowns"
+
+
+class TestSummaryKeepsTheVerbsOwnWarnings:
+    def test_a_delete_that_landed_outside_the_cwd_project_says_where(self):
+        resp = {
+            "ok": True,
+            "deleted": 2,
+            "dry_run": False,
+            "target": {"db_path": "/other/sessions.db", "matches_cwd": False},
+        }
+        msg = summarize_batch("delete", resp, 2, apply=True)
+        assert "deleted 2 of 2" in msg and "/other/sessions.db" in msg
+
+    def test_a_verb_warning_is_shown(self):
+        resp = {"ok": True, "deleted": 1, "dry_run": False, "warning": "targets the active project, not the cwd"}
+        assert "targets the active project" in summarize_batch("delete", resp, 1, apply=True)
+
+    def test_ok_false_after_rows_were_deleted_is_partial_not_failed(self):
+        resp = {"ok": False, "deleted": 3, "errors": ["qdrant: connection refused"]}
+        msg = summarize_batch("delete", resp, 3, apply=True)
+        assert "PARTIALLY" in msg and "3 of 3" in msg and "qdrant" in msg and "failed" not in msg.lower()
+
+    def test_ok_false_with_nothing_deleted_is_still_failed(self):
+        assert "failed" in summarize_batch(
+            "delete", {"ok": False, "deleted": 0, "error": "Invalid JSON"}, 1, apply=True
+        )
+
+    def test_a_clean_matching_target_adds_nothing(self):
+        resp = {"ok": True, "deleted": 1, "dry_run": False, "target": {"matches_cwd": True}}
+        assert summarize_batch("delete", resp, 1, apply=True) == "/delete-batch: deleted 1 of 1 artifacts"

@@ -1588,6 +1588,10 @@ async def resolve_artifact(
             )
 
         db.conn.commit()
+        if artifact_type == "goal":
+            from empirica.core.canonical.empirica_git.goal_note_state import restamp_goal_note
+
+            restamp_goal_note(db.conn, artifact_id, "completed")
         if artifact_type in ("finding", "unknown"):
             # Second layer after the read-time reconcile: stamp the vector point too.
             from empirica.cli.command_handlers.graph_commands import _sync_resolution_to_qdrant
@@ -1807,6 +1811,11 @@ async def post_artifacts_resolve(
                     }
                 )
         db.conn.commit()
+        from empirica.core.canonical.empirica_git.goal_note_state import restamp_goal_note
+
+        for r in results:
+            if r.get("type") == "goal" and r.get("outcome") == "resolved":
+                restamp_goal_note(db.conn, r["id"], "completed")
         return {
             "ok": True,
             "resolved": sum(1 for r in results if r["outcome"] == "resolved"),

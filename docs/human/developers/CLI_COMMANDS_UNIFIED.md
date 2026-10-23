@@ -23,7 +23,7 @@
 > dictionary, then running this script.
 
 **Framework version:** 1.14.12
-**Generated:** 2026-10-22 11:08:12 UTC
+**Generated:** 2026-10-23 09:07:58 UTC
 **Total commands:** 241 (across 24 categories)
 
 For the most up-to-date detail on any single command, prefer
@@ -1735,7 +1735,7 @@ Unregister a project from Cortex (soft archive by default; --purge to hard-delet
 - `--confirm` — optional · flag
   Required with --purge — acknowledge the destructive operation.
 - `--local` — optional · flag
-  Remove project rows from THIS machine's workspace registry (global_projects + the entity_registry mirror) in one transaction instead of unregistering on cortex. --project-id takes a comma-separated list. PREVIEWS unless --apply; refuses the whole batch if any id is referenced (entity_memberships / entity_artifacts) or unknown; --apply writes an audit row (registry_audit) holding each row's snapshot.
+  Remove project rows from THIS machine's workspace registry (global_projects + the entity_registry mirror) in one transaction instead of unregistering on cortex. --project-id takes a comma-separated list. PREVIEWS unless --apply; refuses the whole batch if any id is unknown or still referenced (entity_memberships, entity_artifacts, instance_bindings, global_sessions, engagements, or Qdrant collections; an unreachable Qdrant is unknown, not zero); --apply writes an audit row (registry_audit) holding each row's snapshot.
 - `--apply` — optional · flag
   With --local: actually remove the rows (default is a preview).
 - `--cortex-url` — optional

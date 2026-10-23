@@ -53,7 +53,7 @@ dependencies = [
                                 # The previous comment justified the cap by hardware-token tools
                                 # (pynitrokey, spsdk) pinning <47-<48 — already stale, since the cap
                                 # it described was <50 and permitted 49. We use no 50-only API.
-    "gitpython>=3.1.60",        # Security: CVE-2024-22190 RCE + GHSA-2f96-g7mh-g2hx/v396-v7q4-x2qj/956x-8gvw-wg5v argument-injection fixes;
+    "gitpython>=3.2.1",         # Security: CVE-2024-22190 RCE + GHSA-2f96-g7mh-g2hx/v396-v7q4-x2qj/956x-8gvw-wg5v argument-injection fixes;
                                 # GHSA-fjr4/6p8h/r9mr (unguarded Diffable.diff, --template hook exec,
                                 # kwarg-value option smuggling) fixed in 3.1.54, GHSA-94p4 (env-var
                                 # expansion in Remote.create URLs -> secret exfil) in 3.1.55;
@@ -115,7 +115,7 @@ vector = [
 # Vision/OCR features (experimental)
 vision = [
     "pytesseract>=0.3",
-    "pillow>=12.1.1",           # Security: CVE-2026-25990 fix
+    "pillow>=13.0.0",           # Security: CVE-2026-25990 fix; 13.0.0 fixes what pip-audit reported against 12.3.0 (e.g. CVE-2026-112895)
     "opencv-contrib-python>=4.12.0",  # Security: Uninitialized pointer fix
 ]
 
