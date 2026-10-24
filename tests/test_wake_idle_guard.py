@@ -225,3 +225,13 @@ def test_wake_instance_reads_the_pane_with_its_styling(tmux):
     ia.wake_instance("tmux_5")
     capture = next(a for a in fake.calls if a[1] == "capture-pane")
     assert "-e" in capture, "without -e the dim styling that identifies a suggestion is gone"
+
+
+def test_the_wake_types_a_visible_marker_because_a_blank_prompt_starts_no_turn(tmux):
+    """Live trial 2026-10-24 on Claude Code 2.1.309: the listener sent Space+Enter to an idle pane (tmux reported success) and no turn
+    started, so the hooks never ran. A prompt with content does start one, so the wake types a short visible marker."""
+    fake = tmux(IDLE)
+    assert ia.wake_instance("tmux_5").success
+    keys = fake.sent[0][4:]
+    assert keys == [ia.WAKE_MARKER, "Enter"], keys
+    assert ia.WAKE_MARKER.strip(), "a marker of only whitespace would be the same dead wake"

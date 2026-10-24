@@ -38,6 +38,11 @@ from pathlib import Path
 EMPIRICA_DIR = Path.home() / ".empirica"
 TTY_SESSIONS_DIR = EMPIRICA_DIR / "tty_sessions"
 
+# What a wake types. A blank Space+Enter starts no turn (live trial 2026-10-24, Claude Code 2.1.309: tmux reported success, no turn, no
+# hook), so the wake submits a short visible prompt that tool-router recognises and answers with the pending inbox. The hook keeps its
+# own copy of this literal; test_wake_prompt_polls_the_inbox pins the two together.
+WAKE_MARKER = "[wake]"
+
 TMUX_INSTANCE_PATTERN = re.compile(r"^tmux_(.+)$")
 
 
@@ -308,14 +313,12 @@ def pane_is_idle(screen: str, *, allow_suggestion: bool = False) -> tuple[bool, 
 
 
 def wake_instance(instance_id: str, *, require_idle: bool = True, allow_suggestion: bool = False) -> WakeResult:
-    """Nudge an idle Claude Code session to submit a turn — the remote-Enter.
+    """Nudge an idle Claude Code session to start a turn — the remote-Enter.
 
-    Sends a Space + Enter to the target pane via `tmux send-keys`. That
-    submits a one-character prompt which triggers UserPromptSubmit hooks
-    (loop-install-pickup, listener-install-pickup, ewm-protocol-loader,
-    tool-router) so any queued pending state gets surfaced as a
-    system-reminder to the AI on the very next turn — no waiting for the
-    user to type something.
+    Types the short visible `WAKE_MARKER` and Enter into the target pane via `tmux send-keys`. A prompt with content starts a turn,
+    which fires the UserPromptSubmit hooks (loop-install-pickup, listener-install-pickup, tool-router, ...), so any queued pending
+    state, or the pending inbox, is surfaced as a system-reminder on that turn — no waiting for the user to type something. (A blank
+    Space+Enter does NOT start a turn: tmux reports success and Claude Code ignores it. Measured live, 2026-10-24.)
 
     Used by the TUI Events button so pressing Events ON for a fresh
     instance actively triggers loop/listener install on the target AI
@@ -326,8 +329,8 @@ def wake_instance(instance_id: str, *, require_idle: bool = True, allow_suggesti
     keystroke — return unreachable. The pending file is still written
     and will fire on the user's next manual prompt (graceful degrade).
 
-    The pane is read first and keys are sent only to one that is waiting for input (`pane_is_idle`): Space+Enter into a
-    permission dialog accepts its default option, and into a half-typed draft it submits the draft. A pane that is busy,
+    The pane is read first and keys are sent only to one that is waiting for input (`pane_is_idle`): Typing into a
+    permission dialog answers it, and into a half-typed draft it appends to and submits the draft. A pane that is busy,
     mid-draft, on a dialog, or cannot be read is refused (`method="refused"`), never written to. A refused wake is cheap: the
     queued state surfaces on that session's next prompt anyway. `require_idle=False` keeps the old unconditional send; `allow_suggestion` lets a pane showing only
     Claude Code's dim prompt suggestion be woken (see `pane_is_idle`).
@@ -374,7 +377,7 @@ def wake_instance(instance_id: str, *, require_idle: bool = True, allow_suggesti
 
     try:
         result = subprocess.run(
-            ["tmux", "send-keys", "-t", f"%{pane_n}", " ", "Enter"],
+            ["tmux", "send-keys", "-t", f"%{pane_n}", WAKE_MARKER, "Enter"],
             capture_output=True,
             text=True,
             timeout=3,
@@ -392,7 +395,7 @@ def wake_instance(instance_id: str, *, require_idle: bool = True, allow_suggesti
             instance_id=instance_id,
             success=True,
             method="tmux-send-keys",
-            detail=f"sent Space+Enter to pane %{pane_n}",
+            detail=f"sent the wake marker to pane %{pane_n}",
         )
     stderr = (result.stderr or "").strip() or "<no stderr>"
     return WakeResult(

@@ -293,7 +293,7 @@ def test_kill_requires_instance_id(fake_home):
 
 
 def test_wake_tmux_sends_space_enter(fake_home, monkeypatch):
-    """tmux instance → wake sends Space + Enter via tmux send-keys."""
+    """tmux instance → wake sends the wake marker + Enter via tmux send-keys."""
     sent = {}
 
     class _Result:
@@ -311,10 +311,10 @@ def test_wake_tmux_sends_space_enter(fake_home, monkeypatch):
     result = ia.wake_instance("tmux_5", require_idle=False)
     assert result.success is True
     assert result.method == "tmux-send-keys"
-    # Verify Space + Enter were sent
+    # Verify the wake marker and Enter were sent (a blank Space+Enter starts no turn: live trial 2026-10-24)
     assert sent["args"][:3] == ["tmux", "send-keys", "-t"]
     assert sent["args"][3] == "%5"
-    assert " " in sent["args"] and "Enter" in sent["args"]
+    assert ia.WAKE_MARKER in sent["args"] and "Enter" in sent["args"]
 
 
 def test_wake_non_tmux_is_unreachable(fake_home):

@@ -77,8 +77,8 @@ def _context(out):
     return out.get("hookSpecificOutput", {}).get("additionalContext", "")
 
 
-@pytest.mark.parametrize("blank", ["", " ", "  \n "])
-def test_a_blank_prompt_injects_the_pending_inbox(box, blank):
+@pytest.mark.parametrize("blank", ["", " ", "  \n ", "[wake]", "  [wake] \n"])
+def test_a_wake_prompt_injects_the_pending_inbox(box, blank):
     box([_prop(1), _prop(2)])
     ctx = _context(box.run(blank))
     assert "Wake turn" in ctx
@@ -87,7 +87,18 @@ def test_a_blank_prompt_injects_the_pending_inbox(box, blank):
     assert any("mailbox poll" in c and "wakeproj" in c for c in box.calls()), box.calls()
 
 
-@pytest.mark.parametrize("prompt", ["yes", "go", "/compact", "please look at the failing test in the cockpit"])
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "yes",
+        "go",
+        "/compact",
+        "please look at the failing test in the cockpit",
+        "[wake] and also fix the tests",
+        "wake",
+        "[WAKE]x",
+    ],
+)
 def test_any_other_prompt_never_polls_the_inbox(box, prompt):
     box([_prop(1)])
     out = box.run(prompt)
@@ -116,3 +127,16 @@ def test_the_control_the_fake_empirica_is_actually_called(box):
     box([_prop(1)])
     assert "Pending mesh messages" in _context(box.run(" "))
     assert len(box.calls()) == 1
+
+
+def test_the_router_and_the_wake_agree_on_the_marker():
+    """The hook is a standalone script and keeps its own copy of the marker; the two must not drift apart."""
+    import importlib.util
+
+    from empirica.core.cockpit.instance_actions import WAKE_MARKER
+
+    spec = importlib.util.spec_from_file_location("tool_router", ROUTER)
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert mod._WAKE_MARKER == WAKE_MARKER

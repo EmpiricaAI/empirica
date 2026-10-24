@@ -1024,7 +1024,11 @@ def _hook_output(context_parts: list[str]) -> dict:
     return {"continue": True, "context": text}
 
 
-_WAKE_HEADER = """## ⏰ Wake turn — this prompt was empty on purpose
+_WAKE_MARKER = (
+    "[wake]"  # what wake_instance types; empirica.core.cockpit.instance_actions.WAKE_MARKER is the other copy
+)
+
+_WAKE_HEADER = """## ⏰ Wake turn — this prompt was a wake, not a request
 
 The listener service gave you this turn because your practice has mail. Read the messages below and react per the mailbox protocol.
 Your mesh Monitor expires after 30 minutes: if it is not running, re-arm it (the arm instruction is in your session-start context),
@@ -1035,9 +1039,9 @@ then run `empirica mailbox poll` once more, because events written while it was 
 def _wake_inbox_context() -> str:
     """The pending-inbox block for a wake turn, or "" when there is nothing to say.
 
-    A wake (cockpit `wake_instance`, or the listener's WakeScheduler) submits a bare Space + Enter, so the prompt is blank and
-    carries no instruction. The SessionStart hook already knows how to render the inbox, so this loads that builder from the sibling
-    file instead of keeping a second copy. It runs ONLY for a blank prompt: this router is on every prompt's path and the poll is a
+    A wake (cockpit `wake_instance`, or the listener's WakeScheduler) types the marker `[wake]` and Enter; the prompt carries no
+    instruction. (A blank prompt is accepted too, though Claude Code starts no turn for one.) The SessionStart hook already knows how to render the inbox, so this loads that builder from the sibling
+    file instead of keeping a second copy. It runs ONLY for a wake prompt: this router is on every prompt's path and the poll is a
     subprocess. Any failure (missing file, no project, poll error, empty inbox) returns "": a wake turn must not be made worse by the
     check.
     """
@@ -1067,7 +1071,8 @@ def main():
 
     # Every user prompt resets the proportionality budget, short ones and slash commands included; only a prompt that carries
     # a hypothesis re-arms it. This runs BEFORE the early return below, or "yes" / "go" would leave the old budget counting.
-    is_command_or_short = len(prompt) < 10 or prompt.startswith("/")
+    is_wake = prompt.strip() in ("", _WAKE_MARKER)
+    is_command_or_short = is_wake or len(prompt) < 10 or prompt.startswith("/")
     proportionality_check = None if is_command_or_short else build_investigation_proportionality_check(prompt)
     budget_armed = _sync_proportionality_budget(input_data.get("session_id", ""), proportionality_check)
     if proportionality_check:
@@ -1075,8 +1080,8 @@ def main():
 
     # Skip very short prompts or commands
     if is_command_or_short:
-        # A blank prompt is a wake: the one short prompt that is not "yes" or a command. See _wake_inbox_context.
-        wake = _wake_inbox_context() if not prompt.strip() else ""
+        # A blank prompt or the wake marker is a wake: the short prompts that are neither "yes" nor a command. See _wake_inbox_context.
+        wake = _wake_inbox_context() if is_wake else ""
         print(json.dumps(_hook_output([wake] if wake else [])))
         return
 
