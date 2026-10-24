@@ -399,20 +399,16 @@ def _tmux_pane_maps() -> tuple[dict[int, str], dict[str, int]]:
     return pane_pid_to_pane, pane_id_to_window
 
 
-def _claude_owned_panes(
-    pane_pid_to_pane: dict[int, str], pane_id_to_window: dict[str, int]
-) -> tuple[dict[str, int], set[str]]:
-    """Match live claude procs to their owning tmux pane by walking ancestry.
+def _seat_panes(pane_pid_to_pane: dict[int, str]) -> dict[str, str]:
+    """``instance_id -> pane`` for live claude procs that declare an ``EMPIRICA_INSTANCE_ID``.
 
-    Returns ``(windows_by_instance, owned_panes)`` — named seats matched exactly
-    by their claude proc's ``EMPIRICA_INSTANCE_ID``. Best-effort: any error
-    yields the partial result gathered so far (display-only, never a verdict)."""
+    Walks each claude proc's ancestry up to the tmux pane shell that owns it (the shell's pid is the tmux ``pane_pid``). Best-effort:
+    any error yields the partial result gathered so far (display and wake targeting, never a liveness verdict)."""
     try:
         import psutil
     except ImportError:
-        return {}, set()
-    windows: dict[str, int] = {}
-    owned_panes: set[str] = set()
+        return {}
+    panes: dict[str, str] = {}
     try:
         for proc in psutil.process_iter(["name", "cmdline"]):
             try:
@@ -424,16 +420,11 @@ def _claude_owned_panes(
                 continue
             if not iid:
                 continue
-            # Walk the claude proc's ancestry up to the tmux pane shell that
-            # owns it; the pane shell's pid is the tmux pane_pid.
             node = proc
             for _ in range(8):
                 try:
                     if node.pid in pane_pid_to_pane:
-                        pane = pane_pid_to_pane[node.pid]
-                        owned_panes.add(pane)
-                        if pane in pane_id_to_window:
-                            windows[iid] = pane_id_to_window[pane]
+                        panes[iid] = pane_pid_to_pane[node.pid]
                         break
                     node = node.parent()
                 except (psutil.Error, OSError):
@@ -441,10 +432,31 @@ def _claude_owned_panes(
                 if node is None:
                     break
     except Exception:
-        # Best-effort display affordance — return whatever we gathered rather
-        # than fail the whole scan (S110: return, not a silent pass).
-        return windows, owned_panes
-    return windows, owned_panes
+        # Best-effort affordance — return whatever we gathered rather than fail the whole scan (S110: return, not a silent pass).
+        return panes
+    return panes
+
+
+def _claude_owned_panes(
+    pane_pid_to_pane: dict[int, str], pane_id_to_window: dict[str, int]
+) -> tuple[dict[str, int], set[str]]:
+    """Match live claude procs to their owning tmux pane by walking ancestry.
+
+    Returns ``(windows_by_instance, owned_panes)`` — named seats matched exactly
+    by their claude proc's ``EMPIRICA_INSTANCE_ID``, derived from :func:`_seat_panes`."""
+    seats = _seat_panes(pane_pid_to_pane)
+    windows = {iid: pane_id_to_window[pane] for iid, pane in seats.items() if pane in pane_id_to_window}
+    return windows, set(seats.values())
+
+
+def claude_seat_panes() -> dict[str, str]:
+    """Bounded ``instance_id -> tmux pane number`` (``%`` stripped) for named seats. Empty on any failure (no tmux, no psutil, timeout)."""
+
+    def scan() -> dict[str, str]:
+        pane_pid_to_pane, _ = _tmux_pane_maps()
+        return _seat_panes(pane_pid_to_pane) if pane_pid_to_pane else {}
+
+    return _run_bounded(scan, "claude_seat_panes") or {}
 
 
 def _scan_claude_pane_map() -> tuple[dict[str, int], set[str]]:
