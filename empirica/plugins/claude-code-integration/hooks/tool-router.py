@@ -1024,6 +1024,38 @@ def _hook_output(context_parts: list[str]) -> dict:
     return {"continue": True, "context": text}
 
 
+_WAKE_HEADER = """## ⏰ Wake turn — this prompt was empty on purpose
+
+The listener service gave you this turn because your practice has mail. Read the messages below and react per the mailbox protocol.
+Your mesh Monitor expires after 30 minutes: if it is not running, re-arm it (the arm instruction is in your session-start context),
+then run `empirica mailbox poll` once more, because events written while it was down are not delivered to it.
+"""
+
+
+def _wake_inbox_context() -> str:
+    """The pending-inbox block for a wake turn, or "" when there is nothing to say.
+
+    A wake (cockpit `wake_instance`, or the listener's WakeScheduler) submits a bare Space + Enter, so the prompt is blank and
+    carries no instruction. The SessionStart hook already knows how to render the inbox, so this loads that builder from the sibling
+    file instead of keeping a second copy. It runs ONLY for a blank prompt: this router is on every prompt's path and the poll is a
+    subprocess. Any failure (missing file, no project, poll error, empty inbox) returns "": a wake turn must not be made worse by the
+    check.
+    """
+    try:
+        import importlib.util
+
+        loader = Path(__file__).with_name("ewm-protocol-loader.py")
+        spec = importlib.util.spec_from_file_location("ewm_protocol_loader", loader)
+        if spec is None or spec.loader is None:
+            return ""
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        lead = mod._build_pending_inbox_lead()
+    except Exception:
+        return ""
+    return f"{_WAKE_HEADER}\n{lead}" if lead else ""
+
+
 def main():
     """Main hook handler."""
     try:
@@ -1043,7 +1075,9 @@ def main():
 
     # Skip very short prompts or commands
     if is_command_or_short:
-        print(json.dumps({"continue": True}))
+        # A blank prompt is a wake: the one short prompt that is not "yes" or a command. See _wake_inbox_context.
+        wake = _wake_inbox_context() if not prompt.strip() else ""
+        print(json.dumps(_hook_output([wake] if wake else [])))
         return
 
     # Get current epistemic state
