@@ -72,5 +72,16 @@ Falls back to erroring with a clear message if neither is available.
         "created if absent, with a TUI window) and print `empirica cockpit launch --profile NAME`. "
         "Run once per practice with the same NAME to build one layout.",
     )
-    p.add_argument("--dry-run", action="store_true", help="Print planned actions without executing")
+    p.add_argument(
+        "--launch",
+        metavar="CMD",
+        help="What the cockpit pane runs (default: claude). Needs --cockpit-profile. For a codex or ecodex practice: --launch ecodex",
+    )
+    p.add_argument(
+        "--resume",
+        metavar="CMD",
+        help="What `cockpit refresh` runs to bring a dead pane back with its conversation. Needs --cockpit-profile. "
+        "Default: the launch with --continue for claude, `<prog> resume --last` for codex and ecodex",
+    )
+    p.add_argument("--dry-run", action="store_true", help="Print planned actions (to stderr) without executing")
     p.add_argument("--output", choices=["human", "json"], default="human", help="Output format")

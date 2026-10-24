@@ -36,6 +36,12 @@ Rename this heading to the release version and date at the cut: `scripts/release
 
 ### Changed
 
+- **`provision-practice` and the cockpit work for practices that do not run Claude** (ecodex, David's rulings 2026-10-24).
+  `--dry-run` narration (`[dry-run] would run:` and `would patch`) goes to stderr, so `--output json` stdout is exactly the JSON.
+  New `--launch` and `--resume` (they need `--cockpit-profile` and are refused without it, not ignored) say what the pane runs and how
+  `cockpit refresh` brings it back; the profile no longer hardcodes `claude`. `cockpit refresh` resumes a `codex` or `ecodex` pane with
+  `<prog> resume --last` instead of starting a fresh session (the form is ecodex's, not run against the real binaries). `--no-cortex`
+  no longer requires `--tenant`/`--org`: a local practice has no tenant to name, and none is written as an empty key.
 - **`get_tty_key` is computed once per parent pid and read from `/proc`** (ecodex, measured on core 1.14.13): it spawned a `ps` per
   ancestor on every call and one session-init called it 74 times. On the box that ran this, 74 calls took 3,077 ms and now take 0.04 ms
   after a 0.15 ms first call, and a praxic PreToolUse gate ran in 295-368 ms and now runs in 110-112 ms (in-process, same payload,

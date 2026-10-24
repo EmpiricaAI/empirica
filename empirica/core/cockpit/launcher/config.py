@@ -509,7 +509,9 @@ def profile_path(profile: str) -> Path:
     return Path.home() / ".empirica" / "cockpit" / f"config-{profile}.yaml"
 
 
-def add_practice_to_profile(profile: str, name: str, path: str) -> tuple[Path, bool]:
+def add_practice_to_profile(
+    profile: str, name: str, path: str, *, launch: str = "claude", resume: str | None = None
+) -> tuple[Path, bool]:
     """Add one practice to a cockpit profile, creating the profile if it has none.
 
     Returns ``(file, changed)``. Idempotent: a practice already listed changes
@@ -557,7 +559,7 @@ def add_practice_to_profile(profile: str, name: str, path: str) -> tuple[Path, b
             f"a window named {name!r} already exists in {target} (the default TUI window is 'monitor'); "
             "provision under another name, nothing was changed"
         )
-    config.projects.append(ProjectSpec(name=name, path=str(wanted), launch="claude"))
+    config.projects.append(ProjectSpec(name=name, path=str(wanted), launch=launch, resume=resume))
     if config.is_groups_mode():
         config.groups.append(GroupSpec(name=group_name, panes=[PaneSpec(project_ref=name)]))
     # else: a projects-only profile opens one window per project on its own. Adding a group would

@@ -25,11 +25,16 @@ except ImportError:
     yaml = None
 
 
+def _narrate(line: str) -> None:
+    """Dry-run narration goes to stderr: with `--output json`, stdout must be exactly the JSON (ecodex could not parse it)."""
+    print(line, file=sys.stderr)
+
+
 def _run(cmd: list[str], cwd: Path, dry_run: bool) -> tuple[bool, str]:
     """Run a subprocess in ``cwd``. Returns (ok, stdout_or_error)."""
     display = " ".join(shlex.quote(c) for c in cmd)
     if dry_run:
-        print(f"  [dry-run] would run: {display}")
+        _narrate(f"  [dry-run] would run: {display}")
         return True, ""
     try:
         result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=60)
@@ -70,7 +75,9 @@ def _infer_tenant_org(cwd: Path) -> tuple[str | None, str | None]:
     return tenant, org
 
 
-def _patch_project_yaml(project_yaml: Path, ai_id: str, tenant: str, org: str, substrate: str, dry_run: bool) -> bool:
+def _patch_project_yaml(
+    project_yaml: Path, ai_id: str, tenant: str | None, org: str | None, substrate: str, dry_run: bool
+) -> bool:
     """Write ai_id/tenant/org/substrate into project.yaml. Returns True if
     a change was made (False = already matched, clean no-op).
 
@@ -86,11 +93,16 @@ def _patch_project_yaml(project_yaml: Path, ai_id: str, tenant: str, org: str, s
     # tenant/org were invisible to the ~24 modules that read `tenant_slug`/
     # `org_id`, including its own sibling inference. Two spellings for one fact
     # is the two-sources-of-truth class; there is now one.
-    desired = {"ai_id": ai_id, "tenant_slug": tenant, "org_id": org, "substrate": substrate}
+    desired = {"ai_id": ai_id, "substrate": substrate}
+    # A local practice has no tenant to name; writing None would read as "present" to code that checks the key.
+    if tenant:
+        desired["tenant_slug"] = tenant
+    if org:
+        desired["org_id"] = org
     if all(data.get(k) == v for k, v in desired.items()):
         return False
     if dry_run:
-        print(f"  [dry-run] would patch {project_yaml}: {desired}")
+        _narrate(f"  [dry-run] would patch {project_yaml}: {desired}")
         return True
     data.update(desired)
     project_yaml.write_text(yaml.safe_dump(data, default_flow_style=False, sort_keys=False))
@@ -118,7 +130,15 @@ def _wire_forgejo(proj_dir: Path, name: str, owner: str, host: str, dry_run: boo
     return True, None
 
 
-def _add_to_cockpit_profile(profile: str, name: str, proj_dir: Path, dry_run: bool, failed: bool) -> dict:
+def _add_to_cockpit_profile(
+    profile: str,
+    name: str,
+    proj_dir: Path,
+    dry_run: bool,
+    failed: bool,
+    pane_launch: str | None = None,
+    pane_resume: str | None = None,
+) -> dict:
     """The ``cockpit-profile`` step. Skipped, and said so, when an earlier step failed:
     a profile listing a practice that never came up would launch an empty pane."""
     from empirica.core.cockpit.launcher.config import ProfileError, add_practice_to_profile, profile_path
@@ -138,7 +158,9 @@ def _add_to_cockpit_profile(profile: str, name: str, proj_dir: Path, dry_run: bo
     if dry_run:
         return {"step": "cockpit-profile", "changed": True, "note": f"dry-run, would add to {target}", "launch": launch}
     try:
-        target, changed = add_practice_to_profile(profile, name, str(proj_dir))
+        target, changed = add_practice_to_profile(
+            profile, name, str(proj_dir), launch=pane_launch or "claude", resume=pane_resume
+        )
     except ProfileError as exc:
         return {"step": "cockpit-profile", "changed": False, "error": str(exc)}
     note = str(target) if changed else f"already in {target}"
@@ -198,7 +220,16 @@ def handle_provision_practice_command(args) -> int:
     org = getattr(args, "org", None) or inferred_org
     substrate = _resolve_substrate(args)
 
-    if not tenant or not org:
+    profile = getattr(args, "cockpit_profile", None)
+    launch_flag = getattr(args, "launch", None)
+    resume_flag = getattr(args, "resume", None)
+    if (launch_flag or resume_flag) and not profile:
+        msg = "--launch/--resume say what the cockpit pane runs and need --cockpit-profile; without it they would be ignored."
+        print(json.dumps({"ok": False, "error": msg}) if output == "json" else f"❌ {msg}", file=sys.stderr)
+        return 1
+
+    # A local (--no-cortex) practice has no tenant or org to name: a first-time standalone user has neither (David, 2026-10-24).
+    if (not tenant or not org) and substrate != "local":
         msg = (
             "--tenant/--org not given and couldn't be inferred from the current "
             "directory's .empirica/project.yaml — pass them explicitly, or run "
@@ -258,10 +289,17 @@ def handle_provision_practice_command(args) -> int:
             ok, err = _wire_forgejo(proj_dir, name, forgejo_owner, forgejo_host, dry_run)
             steps.append({"step": "forgejo-backup-wired", "changed": ok, "error": err})
 
-    profile = getattr(args, "cockpit_profile", None)
     launch_command = None
     if profile:
-        step = _add_to_cockpit_profile(profile, name, proj_dir, dry_run, failed=any(s.get("error") for s in steps))
+        step = _add_to_cockpit_profile(
+            profile,
+            name,
+            proj_dir,
+            dry_run,
+            failed=any(s.get("error") for s in steps),
+            pane_launch=launch_flag,
+            pane_resume=resume_flag,
+        )
         steps.append(step)
         launch_command = step.get("launch")
 

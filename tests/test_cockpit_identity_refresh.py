@@ -41,7 +41,10 @@ from empirica.core.cockpit.launcher.tmux import (
         ("claude -r", "claude --continue"),
         ("claude --resume 1234-abcd", "claude --resume 1234-abcd"),
         ("claude --continue", "claude --continue"),
-        ("ecodex", "ecodex"),
+        (
+            "ecodex",
+            "ecodex resume --last",
+        ),  # David 2026-10-24: a codex-family pane resumes its last session, not a fresh one
         ("bash", "bash"),
     ],
 )

@@ -838,6 +838,9 @@ class RefreshResult:
     error: str | None = None
 
 
+_RESUME_LAST_PROGRAMS = frozenset({"codex", "ecodex"})
+
+
 def resume_command(proj) -> str:
     """The command that brings ``proj``'s pane back with its conversation.
 
@@ -845,11 +848,20 @@ def resume_command(proj) -> str:
     the most recent conversation in the pane's directory without a prompt; a
     bare ``--resume`` would open the session picker instead, so it is swapped.
     ``--resume <id>`` names a conversation already and is kept. Anything that
-    is not claude is re-run as launched.
+    is not claude, codex or ecodex is re-run as launched.
     """
     if proj.resume:
         return proj.resume
-    if _launch_program(proj.launch) != "claude":
+    program = _launch_program(proj.launch)
+    if program in _RESUME_LAST_PROGRAMS:
+        # codex and ecodex bring the last conversation back with a subcommand, not a flag. A launch that already says `resume`
+        # is the user's choice and is kept. Not exercised against the real binaries: the form is ecodex's, from its own pane.
+        try:
+            tokens = shlex.split(proj.launch)
+        except ValueError:
+            return proj.launch
+        return proj.launch if "resume" in tokens else f"{proj.launch} resume --last"
+    if program != "claude":
         return proj.launch
     try:
         tokens = shlex.split(proj.launch)
